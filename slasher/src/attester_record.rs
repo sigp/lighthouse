@@ -1,4 +1,5 @@
 use ssz_derive::{Decode, Encode};
+use std::sync::Arc;
 use tree_hash::TreeHash as _;
 use tree_hash_derive::TreeHash;
 use types::{AggregateSignature, EthSpec, Hash256, IndexedAttestation, VariableList};
@@ -9,6 +10,21 @@ pub struct AttesterRecord {
     pub attestation_data_hash: Hash256,
     /// The hash of the indexed attestation, so it can be loaded.
     pub indexed_attestation_hash: Hash256,
+}
+
+/// Bundling of an `IndexedAttestation` with an `AttesterRecord`.
+///
+/// This struct gets `Arc`d and passed around between each stage of queueing and processing.
+#[derive(Debug)]
+pub struct IndexedAttesterRecord<E: EthSpec> {
+    pub indexed: IndexedAttestation<E>,
+    pub record: AttesterRecord,
+}
+
+impl<E: EthSpec> IndexedAttesterRecord<E> {
+    pub fn new(indexed: IndexedAttestation<E>, record: AttesterRecord) -> Arc<Self> {
+        Arc::new(IndexedAttesterRecord { indexed, record })
+    }
 }
 
 #[derive(Debug, Clone, Encode, Decode, TreeHash)]

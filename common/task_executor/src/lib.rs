@@ -96,6 +96,7 @@ impl TaskExecutor {
 
         if let Some(runtime) = self.runtime.upgrade() {
             runtime.spawn(async move {
+                let timer = metrics::start_timer_vec(&metrics::TASKS_HISTOGRAM, &[name]);
                 if let Err(join_error) = task_handle.await {
                     if let Ok(panic) = join_error.try_into_panic() {
                         let message = panic.downcast_ref::<&str>().unwrap_or(&"<none>");
@@ -112,6 +113,7 @@ impl TaskExecutor {
                             .try_send(ShutdownReason::Failure("Panic (fatal error)"));
                     }
                 }
+                drop(timer);
             });
         } else {
             debug!(

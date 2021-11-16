@@ -3,17 +3,24 @@ use clap::ArgMatches;
 use slog::{o, Drain, Level, Logger};
 
 use std::convert::TryFrom;
+use std::fs::File;
+use std::path::PathBuf;
 mod cli;
-mod config;
+pub mod config;
 mod server;
 pub use cli::cli_app;
-use config::BootNodeConfig;
+use config::{BootNodeConfig, BootNodeConfigSerialization};
 use types::{EthSpec, EthSpecId};
 
 const LOG_CHANNEL_SIZE: usize = 2048;
 
 /// Run the bootnode given the CLI configuration.
-pub fn run(matches: &ArgMatches<'_>, eth_spec_id: EthSpecId, debug_level: String) {
+pub fn run(
+    lh_matches: &ArgMatches<'_>,
+    bn_matches: &ArgMatches<'_>,
+    eth_spec_id: EthSpecId,
+    debug_level: String,
+) {
     let debug_level = match debug_level.as_str() {
         "trace" => log::Level::Trace,
         "debug" => log::Level::Debug,
@@ -49,24 +56,40 @@ pub fn run(matches: &ArgMatches<'_>, eth_spec_id: EthSpecId, debug_level: String
     let log = slog_scope::logger();
     // Run the main function emitting any errors
     if let Err(e) = match eth_spec_id {
-        EthSpecId::Minimal => main::<types::MinimalEthSpec>(matches, log),
-        EthSpecId::Mainnet => main::<types::MainnetEthSpec>(matches, log),
+        EthSpecId::Minimal => main::<types::MinimalEthSpec>(lh_matches, bn_matches, log),
+        EthSpecId::Mainnet => main::<types::MainnetEthSpec>(lh_matches, bn_matches, log),
     } {
         slog::crit!(slog_scope::logger(), "{}", e);
     }
 }
 
-fn main<T: EthSpec>(matches: &ArgMatches<'_>, log: slog::Logger) -> Result<(), String> {
+fn main<T: EthSpec>(
+    lh_matches: &ArgMatches<'_>,
+    bn_matches: &ArgMatches<'_>,
+    log: slog::Logger,
+) -> Result<(), String> {
     // Builds a custom executor for the bootnode
     let runtime = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()
         .map_err(|e| format!("Failed to build runtime: {}", e))?;
 
-    // parse the CLI args into a useable config
-    let config: BootNodeConfig<T> = BootNodeConfig::try_from(matches)?;
+    // Parse the CLI args into a useable config
+    let config: BootNodeConfig<T> = BootNodeConfig::try_from(bn_matches)?;
+
+    // Dump config if `dump-config` flag is set
+    let dump_config = clap_utils::parse_optional::<PathBuf>(lh_matches, "dump-config")?;
+    if let Some(dump_path) = dump_config {
+        let config_sz = BootNodeConfigSerialization::from_config_ref(&config);
+        let mut file = File::create(dump_path)
+            .map_err(|e| format!("Failed to create dumped config: {:?}", e))?;
+        serde_json::to_writer(&mut file, &config_sz)
+            .map_err(|e| format!("Error serializing config: {:?}", e))?;
+    }
 
     // Run the boot node
-    runtime.block_on(server::run(config, log));
+    if !lh_matches.is_present("immediate-shutdown") {
+        runtime.block_on(server::run(config, log));
+    }
     Ok(())
 }

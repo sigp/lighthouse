@@ -1,7 +1,7 @@
 # Checkpoint Sync
 
-Lighthouse supports syncing from a recent finalized checkpoint. This is substantially faster
-than syncing from genesis, while still providing all the same features.
+Since version 2.0.0 Lighthouse supports syncing from a recent finalized checkpoint. This is
+substantially faster than syncing from genesis, while still providing all the same features.
 
 If you would like to quickly get started with checkpoint sync, read the sections below on:
 
@@ -40,6 +40,17 @@ Once the checkpoint is loaded Lighthouse will sync forwards to the head of the c
 
 If a validator client is connected to the node then it will be able to start completing its duties
 as soon as forwards sync completes.
+
+### Use Infura as a remote beacon node provider
+
+You can use Infura as the remote beacon node provider to load the initial checkpoint state.
+
+1. Sign up for the free Infura ETH2 API using the `Create new project tab` on the [Infura dashboard](https://infura.io/dashboard).
+2. Copy the HTTPS endpoint for the required network (Mainnet/Prater).
+3. Use it as the url for the `--checkpoint-sync-url` flag.  e.g.
+```
+lighthouse bn --checkpoint-sync-url https://<PROJECT-ID>:<PROJECT-SECRET>@eth2-beacon-mainnet.infura.io ...
+```
 
 ## Backfilling Blocks
 

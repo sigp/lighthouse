@@ -6,9 +6,10 @@ use eth2::{BeaconNodeHttpClient, Timeouts};
 use http_api::{Config, Context};
 use lighthouse_network::{
     discv5::enr::{CombinedKey, EnrBuilder},
+    libp2p::{core::connection::ConnectionId, swarm::NetworkBehaviour},
     rpc::methods::{MetaData, MetaDataV2},
     types::{EnrAttestationBitfield, EnrSyncCommitteeBitfield, SyncState},
-    ConnectedPoint, Enr, NetworkConfig, NetworkGlobals, PeerId, PeerManager,
+    ConnectedPoint, Enr, NetworkGlobals, PeerId, PeerManager,
 };
 use network::NetworkMessage;
 use sensitive_url::SensitiveUrl;
@@ -106,8 +107,8 @@ pub async fn create_api_server<T: BeaconChainTypes>(
     ));
 
     // Only a peer manager can add peers, so we create a dummy manager.
-    let network_config = NetworkConfig::default();
-    let mut pm = PeerManager::new(&network_config, network_globals.clone(), &log)
+    let config = lighthouse_network::peer_manager::config::Config::default();
+    let mut pm = PeerManager::new(config, network_globals.clone(), &log)
         .await
         .unwrap();
 
@@ -118,8 +119,8 @@ pub async fn create_api_server<T: BeaconChainTypes>(
         local_addr: EXTERNAL_ADDR.parse().unwrap(),
         send_back_addr: EXTERNAL_ADDR.parse().unwrap(),
     };
-    let num_established = std::num::NonZeroU32::new(1).unwrap();
-    pm.inject_connection_established(peer_id, connected_point, num_established, None);
+    let con_id = ConnectionId::new(1);
+    pm.inject_connection_established(&peer_id, &con_id, &connected_point, None);
     *network_globals.sync_state.write() = SyncState::Synced;
 
     let eth1_service = eth1::Service::new(eth1::Config::default(), log.clone(), chain.spec.clone());

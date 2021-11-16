@@ -1,3 +1,6 @@
+//! NOTE: These tests will fail without a java runtime environment (such as openjdk) installed and
+//! available on `$PATH`.
+//!
 //! This crate provides a series of integration tests between the Lighthouse `ValidatorStore` and
 //! Web3Signer by Consensys.
 //!

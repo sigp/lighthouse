@@ -423,6 +423,58 @@ impl<E: EthSpec + TypeName> Handler for FinalityHandler<E> {
 
 #[derive(Derivative)]
 #[derivative(Default(bound = ""))]
+pub struct ForkChoiceGetHeadHandler<E>(PhantomData<E>);
+
+impl<E: EthSpec + TypeName> Handler for ForkChoiceGetHeadHandler<E> {
+    type Case = cases::ForkChoiceTest<E>;
+
+    fn config_name() -> &'static str {
+        E::name()
+    }
+
+    fn runner_name() -> &'static str {
+        "fork_choice"
+    }
+
+    fn handler_name(&self) -> String {
+        "get_head".into()
+    }
+
+    fn is_enabled_for_fork(&self, _fork_name: ForkName) -> bool {
+        // These tests check block validity (which may include signatures) and there is no need to
+        // run them with fake crypto.
+        cfg!(not(feature = "fake_crypto"))
+    }
+}
+
+#[derive(Derivative)]
+#[derivative(Default(bound = ""))]
+pub struct ForkChoiceOnBlockHandler<E>(PhantomData<E>);
+
+impl<E: EthSpec + TypeName> Handler for ForkChoiceOnBlockHandler<E> {
+    type Case = cases::ForkChoiceTest<E>;
+
+    fn config_name() -> &'static str {
+        E::name()
+    }
+
+    fn runner_name() -> &'static str {
+        "fork_choice"
+    }
+
+    fn handler_name(&self) -> String {
+        "on_block".into()
+    }
+
+    fn is_enabled_for_fork(&self, _fork_name: ForkName) -> bool {
+        // These tests check block validity (which may include signatures) and there is no need to
+        // run them with fake crypto.
+        cfg!(not(feature = "fake_crypto"))
+    }
+}
+
+#[derive(Derivative)]
+#[derivative(Default(bound = ""))]
 pub struct GenesisValidityHandler<E>(PhantomData<E>);
 
 impl<E: EthSpec + TypeName> Handler for GenesisValidityHandler<E> {

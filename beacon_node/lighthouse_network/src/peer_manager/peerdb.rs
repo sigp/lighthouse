@@ -52,7 +52,7 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
         Self {
             log: log.clone(),
             disconnected_peers: 0,
-            banned_peers_count: BannedPeersCount::new(),
+            banned_peers_count: BannedPeersCount::default(),
             peers,
         }
     }
@@ -923,7 +923,7 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
                     "banned_peers > MAX_BANNED_PEERS despite no banned peers in db!"
                 );
                 // reset banned_peers this will also exit the loop
-                self.banned_peers_count = BannedPeersCount::new();
+                self.banned_peers_count = BannedPeersCount::default();
                 None
             } {
                 debug!(self.log, "Removing old banned peer"; "peer_id" => %to_drop);
@@ -1087,6 +1087,7 @@ impl BanResult {
     }
 }
 
+#[derive(Default)]
 pub struct BannedPeersCount {
     /// The number of banned peers in the database.
     banned_peers: usize,
@@ -1131,13 +1132,6 @@ impl BannedPeersCount {
         self.banned_peers_per_ip
             .get(ip)
             .map_or(false, |count| *count > BANNED_PEERS_PER_IP_THRESHOLD)
-    }
-
-    pub fn new() -> Self {
-        BannedPeersCount {
-            banned_peers: 0,
-            banned_peers_per_ip: HashMap::new(),
-        }
     }
 }
 

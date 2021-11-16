@@ -70,7 +70,7 @@ pub fn run_eth1_sim(matches: &ArgMatches) -> Result<(), String> {
     spec.genesis_delay = eth1_block_time.as_secs() * spec.eth1_follow_distance * 2;
     spec.min_genesis_time = 0;
     spec.min_genesis_active_validator_count = total_validator_count as u64;
-    spec.seconds_per_eth1_block = 1;
+    spec.seconds_per_eth1_block = eth1_block_time.as_secs();
     spec.altair_fork_epoch = Some(Epoch::new(FORK_EPOCH));
 
     let slot_duration = Duration::from_secs(spec.seconds_per_slot);
@@ -124,8 +124,10 @@ pub fn run_eth1_sim(matches: &ArgMatches) -> Result<(), String> {
         beacon_config.eth1.node_far_behind_seconds = 20;
         beacon_config.dummy_eth1_backend = false;
         beacon_config.sync_eth1_chain = true;
+        beacon_config.eth1.auto_update_interval_millis = eth1_block_time.as_millis() as u64;
         beacon_config.eth1.network_id = Eth1Id::from(network_id);
         beacon_config.eth1.chain_id = Eth1Id::from(chain_id);
+        beacon_config.network.target_peers = node_count - 1;
 
         beacon_config.network.enr_address = Some(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)));
 
