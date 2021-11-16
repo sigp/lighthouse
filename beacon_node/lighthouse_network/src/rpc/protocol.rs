@@ -81,7 +81,7 @@ lazy_static! {
 }
 
 /// The maximum bytes that can be sent across the RPC.
-const MAX_RPC_SIZE: usize = 1_048_576; // 1M
+pub const MAX_RPC_SIZE: usize = 1_048_576; // 1M
 /// The protocol prefix the RPC protocol id.
 const PROTOCOL_PREFIX: &str = "/eth2/beacon_chain/req";
 /// Time allowed for the first byte of a request to arrive before we time out (Time To First Byte).
