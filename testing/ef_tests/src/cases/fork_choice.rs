@@ -151,7 +151,13 @@ impl<E: EthSpec> Case for ForkChoiceTest<E> {
         // https://github.com/sigp/lighthouse/issues/2741
         //
         // We should eventually solve the above issue and remove this `SkippedKnownFailure`.
-        if self.description == "new_finalized_slot_is_justified_checkpoint_ancestor" {
+        if self.description == "new_finalized_slot_is_justified_checkpoint_ancestor"
+            // This test is skipped until we can do retrospective confirmations of the terminal
+            // block after an optimistic sync.
+            //
+            // TODO(merge): enable this test before production.
+            || self.description == "block_lookup_failed"
+        {
             return Err(Error::SkippedKnownFailure);
         };
 
