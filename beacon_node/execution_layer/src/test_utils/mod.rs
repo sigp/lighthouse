@@ -138,7 +138,7 @@ impl<T: EthSpec> MockServer<T> {
             .execution_block_generator
             .write()
             // The EF tests supply blocks out of order, so we must import them "without checks" and
-            // trust the provide valid blocks.
+            // trust they form valid chains.
             .insert_block_without_checks(block)
             .unwrap()
     }

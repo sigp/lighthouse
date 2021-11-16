@@ -23,7 +23,7 @@ pub struct PowBlock {
     pub block_hash: Hash256,
     pub parent_hash: Hash256,
     pub total_difficulty: Uint256,
-    // This field is not used an I expect it to be removed. See:
+    // This field is not used and I expect it to be removed. See:
     //
     // https://github.com/ethereum/consensus-specs/pull/2720
     pub difficulty: Uint256,
@@ -394,11 +394,9 @@ impl<E: EthSpec> Tester<E> {
     pub fn process_pow_block(&self, pow_block: &PowBlock) {
         let el = self.harness.mock_execution_layer.as_ref().unwrap();
 
-        let block_number = el
-            .server
-            .get_block(pow_block.parent_hash)
-            .map(|parent| parent.block_number() + 1)
-            .unwrap_or(0);
+        // The EF tests don't supply a block number. Our mock execution layer is fine with duplicate
+        // block numbers for the purposes of this test.
+        let block_number = 0;
 
         el.server.insert_pow_block(
             block_number,

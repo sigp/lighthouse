@@ -27,7 +27,8 @@ use types::*;
 ///
 /// ## Specification
 ///
-/// Equivalent to the `execute_payload` function in the merge Beacon Chain Changes:
+/// Equivalent to the `execute_payload` function in the merge Beacon Chain Changes, although it
+/// contains a few extra checks by running `partially_verify_execution_payload` first:
 ///
 /// https://github.com/ethereum/consensus-specs/blob/v1.1.5/specs/merge/beacon-chain.md#execute_payload
 pub fn execute_payload<T: BeaconChainTypes>(
@@ -68,7 +69,7 @@ pub fn execute_payload<T: BeaconChainTypes>(
     }
 }
 
-/// Verify that the block that triggers the merge is valid to be imported to fork choice.
+/// Verify that the block which triggers the merge is valid to be imported to fork choice.
 ///
 /// ## Errors
 ///
@@ -104,6 +105,8 @@ pub fn validate_merge_block<T: BeaconChainTypes>(
             }
             .into());
         }
+
+        return Ok(());
     }
 
     let execution_layer = chain
@@ -119,7 +122,10 @@ pub fn validate_merge_block<T: BeaconChainTypes>(
 
     match is_valid_terminal_pow_block {
         Some(true) => Ok(()),
-        Some(false) => Err(ExecutionPayloadError::InvalidTerminalPoWBlock.into()),
+        Some(false) => Err(ExecutionPayloadError::InvalidTerminalPoWBlock {
+            parent_hash: execution_payload.parent_hash,
+        }
+        .into()),
         None => {
             debug!(
                 chain.log,
@@ -159,7 +165,7 @@ pub fn validate_execution_payload_for_gossip<T: BeaconChainTypes>(
             }
         };
 
-        if is_merge_complete {
+        if is_merge_complete || execution_payload != &<_>::default() {
             let expected_timestamp = chain
                 .slot_clock
                 .compute_timestamp_at_slot(block.slot())

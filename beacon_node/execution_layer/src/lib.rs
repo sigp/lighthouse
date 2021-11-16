@@ -20,7 +20,7 @@ use tokio::{
 };
 use types::ChainSpec;
 
-pub use engine_api::{http::HttpJsonRpc, ExecutePayloadResponseStatus, ExecutionBlock};
+pub use engine_api::{http::HttpJsonRpc, ExecutePayloadResponseStatus};
 
 mod engine_api;
 mod engines;

@@ -280,7 +280,7 @@ pub enum ExecutionPayloadError {
     ///
     /// The block is invalid and the peer sent us a block that passes gossip propagation conditions,
     /// but is invalid upon further verification.
-    InvalidTerminalPoWBlock,
+    InvalidTerminalPoWBlock { parent_hash: Hash256 },
     /// The `TERMINAL_BLOCK_HASH` is set, but the block has not reached the
     /// `TERMINAL_BLOCK_HASH_ACTIVATION_EPOCH`.
     ///
