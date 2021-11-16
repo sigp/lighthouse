@@ -132,18 +132,20 @@ impl ExecutionLayer {
     }
 
     /// Convenience function to allow calling async functions in a non-async context.
-    pub fn block_on<'a, T, U, V>(&'a self, generate_future: T) -> Result<V, Error>
+    pub fn block_on<'a, T, U, V>(
+        &'a self,
+        generate_future: T,
+        name: &'static str,
+    ) -> Result<V, Error>
     where
         T: Fn(&'a Self) -> U,
         U: Future<Output = Result<V, Error>>,
     {
-        let runtime = self
-            .executor()
-            .runtime()
-            .upgrade()
-            .ok_or(Error::ShuttingDown)?;
-        // TODO(merge): respect the shutdown signal.
-        runtime.block_on(generate_future(self))
+        if let Some(res) = self.executor().block_on(generate_future(self), name) {
+            res
+        } else {
+            Err(Error::ShuttingDown)
+        }
     }
 
     /// Convenience function to allow calling async functions in a non-async context.

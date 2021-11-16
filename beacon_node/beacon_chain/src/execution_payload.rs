@@ -54,7 +54,7 @@ pub fn execute_payload<T: BeaconChainTypes>(
         .as_ref()
         .ok_or(ExecutionPayloadError::NoExecutionConnection)?;
     let execute_payload_response = execution_layer
-        .block_on(|execution_layer| execution_layer.execute_payload(execution_payload));
+        .block_on(|execution_layer| execution_layer.execute_payload(execution_payload), "el_execute_payload");
 
     match execute_payload_response {
         Ok((status, _latest_valid_hash)) => match status {
@@ -117,7 +117,7 @@ pub fn validate_merge_block<T: BeaconChainTypes>(
     let is_valid_terminal_pow_block = execution_layer
         .block_on(|execution_layer| {
             execution_layer.is_valid_terminal_pow_block_hash(execution_payload.parent_hash, spec)
-        })
+        }, "el_validate_terminal_pow_block")
         .map_err(ExecutionPayloadError::from)?;
 
     match is_valid_terminal_pow_block {
