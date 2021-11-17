@@ -160,7 +160,7 @@ pub async fn build_full_mesh(
     for (i, node) in nodes.iter_mut().enumerate().take(n) {
         for (j, multiaddr) in multiaddrs.iter().enumerate().skip(i) {
             if i != j {
-                match libp2p::Swarm::dial_addr(&mut node.swarm, multiaddr.clone()) {
+                match libp2p::Swarm::dial(&mut node.swarm, multiaddr.clone()) {
                     Ok(()) => debug!(log, "Connected"),
                     Err(_) => error!(log, "Failed to connect"),
                 };
@@ -209,7 +209,7 @@ pub async fn build_node_pair(
         _ = joined => {}
     }
 
-    match libp2p::Swarm::dial_addr(&mut sender.swarm, receiver_multiaddr.clone()) {
+    match libp2p::Swarm::dial(&mut sender.swarm, receiver_multiaddr.clone()) {
         Ok(()) => {
             debug!(log, "Sender dialed receiver"; "address" => format!("{:?}", receiver_multiaddr))
         }
@@ -231,7 +231,7 @@ pub async fn build_linear(rt: Weak<Runtime>, log: slog::Logger, n: usize) -> Vec
         .map(|x| get_enr(x).multiaddr()[1].clone())
         .collect();
     for i in 0..n - 1 {
-        match libp2p::Swarm::dial_addr(&mut nodes[i].swarm, multiaddrs[i + 1].clone()) {
+        match libp2p::Swarm::dial(&mut nodes[i].swarm, multiaddrs[i + 1].clone()) {
             Ok(()) => debug!(log, "Connected"),
             Err(_) => error!(log, "Failed to connect"),
         };
