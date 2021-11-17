@@ -142,8 +142,26 @@ impl ExecutionLayer {
             .runtime()
             .upgrade()
             .ok_or(Error::ShuttingDown)?;
-        // TODO(paul): respect the shutdown signal.
+        // TODO(merge): respect the shutdown signal.
         runtime.block_on(generate_future(self))
+    }
+
+    /// Convenience function to allow calling async functions in a non-async context.
+    ///
+    /// The function is "generic" since it does not enforce a particular return type on
+    /// `generate_future`.
+    pub fn block_on_generic<'a, T, U, V>(&'a self, generate_future: T) -> Result<V, Error>
+    where
+        T: Fn(&'a Self) -> U,
+        U: Future<Output = V>,
+    {
+        let runtime = self
+            .executor()
+            .runtime()
+            .upgrade()
+            .ok_or(Error::ShuttingDown)?;
+        // TODO(merge): respect the shutdown signal.
+        Ok(runtime.block_on(generate_future(self)))
     }
 
     /// Convenience function to allow spawning a task without waiting for the result.
@@ -441,7 +459,7 @@ impl ExecutionLayer {
     ///
     /// `get_terminal_pow_block_hash`
     ///
-    /// https://github.com/ethereum/consensus-specs/blob/v1.1.0/specs/merge/validator.md
+    /// https://github.com/ethereum/consensus-specs/blob/v1.1.5/specs/merge/validator.md
     pub async fn get_terminal_pow_block_hash(
         &self,
         spec: &ChainSpec,
@@ -449,22 +467,21 @@ impl ExecutionLayer {
         let hash_opt = self
             .engines()
             .first_success(|engine| async move {
-                if spec.terminal_block_hash != Hash256::zero() {
-                    // Note: the specification is written such that if there are multiple blocks in
-                    // the PoW chain with the terminal block hash, then to select 0'th one.
-                    //
-                    // Whilst it's not clear what the 0'th block is, we ignore this completely and
-                    // make the assumption that there are no two blocks in the chain with the same
-                    // hash. Such a scenario would be a devestating hash collision with external
-                    // implications far outweighing those here.
-                    Ok(self
-                        .get_pow_block(engine, spec.terminal_block_hash)
+                let terminal_block_hash = spec.terminal_block_hash;
+                if terminal_block_hash != Hash256::zero() {
+                    if self
+                        .get_pow_block(engine, terminal_block_hash)
                         .await?
-                        .map(|block| block.block_hash))
-                } else {
-                    self.get_pow_block_hash_at_total_difficulty(engine, spec)
-                        .await
+                        .is_some()
+                    {
+                        return Ok(Some(terminal_block_hash));
+                    } else {
+                        return Ok(None);
+                    }
                 }
+
+                self.get_pow_block_hash_at_total_difficulty(engine, spec)
+                    .await
             })
             .await
             .map_err(Error::EngineErrors)?;
@@ -490,13 +507,12 @@ impl ExecutionLayer {
     ///
     /// `get_pow_block_at_terminal_total_difficulty`
     ///
-    /// https://github.com/ethereum/consensus-specs/blob/v1.1.0/specs/merge/validator.md
+    /// https://github.com/ethereum/consensus-specs/blob/v1.1.5/specs/merge/validator.md
     async fn get_pow_block_hash_at_total_difficulty(
         &self,
         engine: &Engine<HttpJsonRpc>,
         spec: &ChainSpec,
     ) -> Result<Option<Hash256>, ApiError> {
-        let mut ttd_exceeding_block = None;
         let mut block = engine
             .api
             .get_block_by_number(BlockByNumberQuery::Tag(LATEST_TAG))
@@ -505,25 +521,33 @@ impl ExecutionLayer {
 
         self.execution_blocks().await.put(block.block_hash, block);
 
-        // TODO(merge): This function can theoretically loop indefinitely, as per the
-        // specification. We should consider how to fix this. See discussion:
+        // TODO(merge): This implementation adheres to the following PR in the `dev` branch:
         //
-        // https://github.com/ethereum/consensus-specs/issues/2636
+        // https://github.com/ethereum/consensus-specs/pull/2719
+        //
+        // Therefore this implementation is not strictly v1.1.5, it is more lenient to some
+        // edge-cases during EL genesis. We should revisit this prior to the merge to ensure that
+        // this implementation becomes canonical.
         loop {
-            if block.total_difficulty >= spec.terminal_total_difficulty {
-                ttd_exceeding_block = Some(block.block_hash);
+            let block_reached_ttd = block.total_difficulty >= spec.terminal_total_difficulty;
+            if block_reached_ttd && block.parent_hash == Hash256::zero() {
+                return Ok(Some(block.block_hash));
+            } else if block.parent_hash == Hash256::zero() {
+                // The end of the chain has been reached without finding the TTD, there is no
+                // terminal block.
+                return Ok(None);
+            }
 
-                // Try to prevent infinite loops.
-                if block.block_hash == block.parent_hash {
-                    return Err(ApiError::ParentHashEqualsBlockHash(block.block_hash));
-                }
+            let parent = self
+                .get_pow_block(engine, block.parent_hash)
+                .await?
+                .ok_or(ApiError::ExecutionBlockNotFound(block.parent_hash))?;
+            let parent_reached_ttd = parent.total_difficulty >= spec.terminal_total_difficulty;
 
-                block = self
-                    .get_pow_block(engine, block.parent_hash)
-                    .await?
-                    .ok_or(ApiError::ExecutionBlockNotFound(block.parent_hash))?;
+            if block_reached_ttd && !parent_reached_ttd {
+                return Ok(Some(block.block_hash));
             } else {
-                return Ok(ttd_exceeding_block);
+                block = parent;
             }
         }
     }
@@ -617,10 +641,6 @@ impl ExecutionLayer {
         parent: ExecutionBlock,
         spec: &ChainSpec,
     ) -> bool {
-        if block.block_hash == spec.terminal_block_hash {
-            return true;
-        }
-
         let is_total_difficulty_reached = block.total_difficulty >= spec.terminal_total_difficulty;
         let is_parent_total_difficulty_valid =
             parent.total_difficulty < spec.terminal_total_difficulty;

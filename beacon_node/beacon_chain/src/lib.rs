@@ -12,6 +12,7 @@ pub mod chain_config;
 mod errors;
 pub mod eth1_chain;
 pub mod events;
+mod execution_payload;
 pub mod fork_revert;
 mod head_tracker;
 pub mod historical_blocks;

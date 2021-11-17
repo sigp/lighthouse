@@ -9,12 +9,25 @@ use beacon_chain::{
     BeaconChainTypes, HeadInfo,
 };
 use serde_derive::Deserialize;
+use ssz_derive::Decode;
 use state_processing::state_advance::complete_state_advance;
 use std::time::Duration;
 use types::{
     Attestation, BeaconBlock, BeaconState, Checkpoint, Epoch, EthSpec, ForkName, Hash256,
-    IndexedAttestation, SignedBeaconBlock, Slot,
+    IndexedAttestation, SignedBeaconBlock, Slot, Uint256,
 };
+
+#[derive(Default, Debug, PartialEq, Clone, Deserialize, Decode)]
+#[serde(deny_unknown_fields)]
+pub struct PowBlock {
+    pub block_hash: Hash256,
+    pub parent_hash: Hash256,
+    pub total_difficulty: Uint256,
+    // This field is not used and I expect it to be removed. See:
+    //
+    // https://github.com/ethereum/consensus-specs/pull/2720
+    pub difficulty: Uint256,
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -37,11 +50,12 @@ pub struct Checks {
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(untagged, deny_unknown_fields)]
-pub enum Step<B, A> {
+pub enum Step<B, A, P> {
     Tick { tick: u64 },
     ValidBlock { block: B },
     MaybeValidBlock { block: B, valid: bool },
     Attestation { attestation: A },
+    PowBlock { pow_block: P },
     Checks { checks: Box<Checks> },
 }
 
@@ -56,7 +70,7 @@ pub struct ForkChoiceTest<E: EthSpec> {
     pub description: String,
     pub anchor_state: BeaconState<E>,
     pub anchor_block: BeaconBlock<E>,
-    pub steps: Vec<Step<SignedBeaconBlock<E>, Attestation<E>>>,
+    pub steps: Vec<Step<SignedBeaconBlock<E>, Attestation<E>, PowBlock>>,
 }
 
 impl<E: EthSpec> LoadCase for ForkChoiceTest<E> {
@@ -69,7 +83,7 @@ impl<E: EthSpec> LoadCase for ForkChoiceTest<E> {
             .expect("path must be valid OsStr")
             .to_string();
         let spec = &testing_spec::<E>(fork_name);
-        let steps: Vec<Step<String, String>> = yaml_decode_file(&path.join("steps.yaml"))?;
+        let steps: Vec<Step<String, String, String>> = yaml_decode_file(&path.join("steps.yaml"))?;
         // Resolve the object names in `steps.yaml` into actual decoded block/attestation objects.
         let steps = steps
             .into_iter()
@@ -90,6 +104,10 @@ impl<E: EthSpec> LoadCase for ForkChoiceTest<E> {
                 Step::Attestation { attestation } => {
                     ssz_decode_file(&path.join(format!("{}.ssz_snappy", attestation)))
                         .map(|attestation| Step::Attestation { attestation })
+                }
+                Step::PowBlock { pow_block } => {
+                    ssz_decode_file(&path.join(format!("{}.ssz_snappy", pow_block)))
+                        .map(|pow_block| Step::PowBlock { pow_block })
                 }
                 Step::Checks { checks } => Ok(Step::Checks { checks }),
             })
@@ -133,7 +151,13 @@ impl<E: EthSpec> Case for ForkChoiceTest<E> {
         // https://github.com/sigp/lighthouse/issues/2741
         //
         // We should eventually solve the above issue and remove this `SkippedKnownFailure`.
-        if self.description == "new_finalized_slot_is_justified_checkpoint_ancestor" {
+        if self.description == "new_finalized_slot_is_justified_checkpoint_ancestor"
+            // This test is skipped until we can do retrospective confirmations of the terminal
+            // block after an optimistic sync.
+            //
+            // TODO(merge): enable this test before production.
+            || self.description == "block_lookup_failed"
+        {
             return Err(Error::SkippedKnownFailure);
         };
 
@@ -145,6 +169,7 @@ impl<E: EthSpec> Case for ForkChoiceTest<E> {
                     tester.process_block(block.clone(), *valid)?
                 }
                 Step::Attestation { attestation } => tester.process_attestation(attestation)?,
+                Step::PowBlock { pow_block } => tester.process_pow_block(pow_block),
                 Step::Checks { checks } => {
                     let Checks {
                         head,
@@ -230,6 +255,15 @@ impl<E: EthSpec> Tester<E> {
                 "anchor block differs from locally-generated genesis block".into(),
             ));
         }
+
+        // Drop any blocks that might be loaded in the mock execution layer. Some of these tests
+        // will provide their own blocks and we want to start from a clean state.
+        harness
+            .mock_execution_layer
+            .as_ref()
+            .unwrap()
+            .server
+            .drop_all_blocks();
 
         assert_eq!(
             harness.chain.slot_clock.genesis_duration().as_secs(),
@@ -355,6 +389,21 @@ impl<E: EthSpec> Tester<E> {
             .chain
             .apply_attestation_to_fork_choice(&verified_attestation)
             .map_err(|e| Error::InternalError(format!("attestation import failed with {:?}", e)))
+    }
+
+    pub fn process_pow_block(&self, pow_block: &PowBlock) {
+        let el = self.harness.mock_execution_layer.as_ref().unwrap();
+
+        // The EF tests don't supply a block number. Our mock execution layer is fine with duplicate
+        // block numbers for the purposes of this test.
+        let block_number = 0;
+
+        el.server.insert_pow_block(
+            block_number,
+            pow_block.block_hash,
+            pow_block.parent_hash,
+            pow_block.total_difficulty,
+        );
     }
 
     pub fn check_head(&self, expected_head: Head) -> Result<(), Error> {

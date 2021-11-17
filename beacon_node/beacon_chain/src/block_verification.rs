@@ -40,6 +40,9 @@
 //!            END
 //!
 //! ```
+use crate::execution_payload::{
+    execute_payload, validate_execution_payload_for_gossip, validate_merge_block,
+};
 use crate::snapshot_cache::PreProcessingSnapshot;
 use crate::validator_monitor::HISTORIC_EPOCHS as VALIDATOR_MONITOR_HISTORIC_EPOCHS;
 use crate::validator_pubkey_cache::ValidatorPubkeyCache;
@@ -50,15 +53,14 @@ use crate::{
     },
     metrics, BeaconChain, BeaconChainError, BeaconChainTypes,
 };
-use execution_layer::ExecutePayloadResponseStatus;
 use fork_choice::{ForkChoice, ForkChoiceStore, PayloadVerificationStatus};
 use parking_lot::RwLockReadGuard;
-use proto_array::{Block as ProtoBlock, ExecutionStatus};
+use proto_array::Block as ProtoBlock;
 use safe_arith::ArithError;
-use slog::{debug, error, info, Logger};
+use slog::{debug, error, Logger};
 use slot_clock::SlotClock;
 use ssz::Encode;
-use state_processing::per_block_processing::{is_execution_enabled, is_merge_block};
+use state_processing::per_block_processing::is_merge_block;
 use state_processing::{
     block_signature_verifier::{BlockSignatureVerifier, Error as BlockSignatureVerifierError},
     per_block_processing, per_slot_processing,
@@ -71,9 +73,9 @@ use std::io::Write;
 use store::{Error as DBError, HotColdDB, HotStateSummary, KeyValueStore, StoreOp};
 use tree_hash::TreeHash;
 use types::{
-    BeaconBlockRef, BeaconState, BeaconStateError, ChainSpec, CloneConfig, Epoch, EthSpec,
-    ExecutionPayload, Hash256, InconsistentFork, PublicKey, PublicKeyBytes, RelativeEpoch,
-    SignedBeaconBlock, SignedBeaconBlockHeader, Slot,
+    BeaconBlockRef, BeaconState, BeaconStateError, ChainSpec, CloneConfig, Epoch, EthSpec, Hash256,
+    InconsistentFork, PublicKey, PublicKeyBytes, RelativeEpoch, SignedBeaconBlock,
+    SignedBeaconBlockHeader, Slot,
 };
 
 /// Maximum block slot number. Block with slots bigger than this constant will NOT be processed.
@@ -266,38 +268,47 @@ pub enum ExecutionPayloadError {
     ///
     /// The block is invalid and the peer is faulty
     RejectedByExecutionEngine,
-    /// The execution engine returned SYNCING for the payload
-    ///
-    /// ## Peer scoring
-    ///
-    /// It is not known if the block is valid or invalid.
-    ExecutionEngineIsSyncing,
     /// The execution payload timestamp does not match the slot
     ///
     /// ## Peer scoring
     ///
     /// The block is invalid and the peer is faulty
     InvalidPayloadTimestamp { expected: u64, found: u64 },
-    /// The execution payload transaction list data exceeds size limits
-    ///
-    /// ## Peer scoring
-    ///
-    /// The block is invalid and the peer is faulty
-    TransactionDataExceedsSizeLimit,
     /// The execution payload references an execution block that cannot trigger the merge.
     ///
     /// ## Peer scoring
     ///
     /// The block is invalid and the peer sent us a block that passes gossip propagation conditions,
     /// but is invalid upon further verification.
-    InvalidTerminalPoWBlock,
-    /// The execution payload references execution blocks that are unavailable on our execution
-    /// nodes.
+    InvalidTerminalPoWBlock { parent_hash: Hash256 },
+    /// The `TERMINAL_BLOCK_HASH` is set, but the block has not reached the
+    /// `TERMINAL_BLOCK_HASH_ACTIVATION_EPOCH`.
     ///
     /// ## Peer scoring
     ///
-    /// It's not clear if the peer is invalid or if it's on a different execution fork to us.
-    TerminalPoWBlockNotFound,
+    /// The block is invalid and the peer sent us a block that passes gossip propagation conditions,
+    /// but is invalid upon further verification.
+    InvalidActivationEpoch {
+        activation_epoch: Epoch,
+        epoch: Epoch,
+    },
+    /// The `TERMINAL_BLOCK_HASH` is set, but does not match the value specified by the block.
+    ///
+    /// ## Peer scoring
+    ///
+    /// The block is invalid and the peer sent us a block that passes gossip propagation conditions,
+    /// but is invalid upon further verification.
+    InvalidTerminalBlockHash {
+        terminal_block_hash: Hash256,
+        payload_parent_hash: Hash256,
+    },
+    /// The execution node failed to provide a parent block to a known block. This indicates an
+    /// issue with the execution node.
+    ///
+    /// ## Peer scoring
+    ///
+    /// The peer is not necessarily invalid.
+    PoWParentMissing(Hash256),
 }
 
 impl From<execution_layer::Error> for ExecutionPayloadError {
@@ -768,8 +779,8 @@ impl<T: BeaconChainTypes> GossipVerifiedBlock<T> {
             });
         }
 
-        // validate the block's execution_payload
-        validate_execution_payload(&parent_block, block.message(), chain)?;
+        // Validate the block's execution_payload (if any).
+        validate_execution_payload_for_gossip(&parent_block, block.message(), chain)?;
 
         Ok(Self {
             block,
@@ -1103,83 +1114,16 @@ impl<'a, T: BeaconChainTypes> FullyVerifiedBlock<'a, T> {
         // - Doing the check here means we can keep our fork-choice implementation "pure". I.e., no
         //   calls to remote servers.
         if is_merge_block(&state, block.message().body()) {
-            let execution_layer = chain
-                .execution_layer
-                .as_ref()
-                .ok_or(ExecutionPayloadError::NoExecutionConnection)?;
-            let execution_payload =
-                block
-                    .message()
-                    .body()
-                    .execution_payload()
-                    .ok_or_else(|| InconsistentFork {
-                        fork_at_slot: eth2::types::ForkName::Merge,
-                        object_fork: block.message().body().fork_name(),
-                    })?;
-
-            let is_valid_terminal_pow_block = execution_layer
-                .block_on(|execution_layer| {
-                    execution_layer.is_valid_terminal_pow_block_hash(
-                        execution_payload.parent_hash,
-                        &chain.spec,
-                    )
-                })
-                .map_err(ExecutionPayloadError::from)?;
-
-            match is_valid_terminal_pow_block {
-                Some(true) => Ok(()),
-                Some(false) => Err(ExecutionPayloadError::InvalidTerminalPoWBlock),
-                None => {
-                    info!(
-                        chain.log,
-                        "Optimistically accepting terminal block";
-                        "block_hash" => ?execution_payload.parent_hash,
-                        "msg" => "the terminal block/parent was unavailable"
-                    );
-                    Ok(())
-                }
-            }?;
+            validate_merge_block(chain, block.message())?
         }
 
-        // This is the soonest we can run these checks as they must be called AFTER per_slot_processing
+        // The specification declares that this should be run *inside* `per_block_processing`,
+        // however we run it here to keep `per_block_processing` pure (i.e., no calls to external
+        // servers).
         //
-        // TODO(merge): handle the latest_valid_hash of an invalid payload.
-        let (_latest_valid_hash, payload_verification_status) =
-            if is_execution_enabled(&state, block.message().body()) {
-                let execution_layer = chain
-                    .execution_layer
-                    .as_ref()
-                    .ok_or(ExecutionPayloadError::NoExecutionConnection)?;
-                let execution_payload =
-                    block
-                        .message()
-                        .body()
-                        .execution_payload()
-                        .ok_or_else(|| InconsistentFork {
-                            fork_at_slot: eth2::types::ForkName::Merge,
-                            object_fork: block.message().body().fork_name(),
-                        })?;
-
-                let execute_payload_response = execution_layer
-                    .block_on(|execution_layer| execution_layer.execute_payload(execution_payload));
-
-                match execute_payload_response {
-                    Ok((status, latest_valid_hash)) => match status {
-                        ExecutePayloadResponseStatus::Valid => {
-                            (latest_valid_hash, PayloadVerificationStatus::Verified)
-                        }
-                        ExecutePayloadResponseStatus::Invalid => {
-                            return Err(ExecutionPayloadError::RejectedByExecutionEngine.into());
-                        }
-                        ExecutePayloadResponseStatus::Syncing => {
-                            (latest_valid_hash, PayloadVerificationStatus::NotVerified)
-                        }
-                    },
-                    Err(_) => (None, PayloadVerificationStatus::NotVerified),
-                }
-            } else {
-                (None, PayloadVerificationStatus::Irrelevant)
-            };
+        // It is important that this function is called *after* `per_slot_processing`, since the
+        // `randao` may change.
+        let payload_verification_status = execute_payload(chain, &state, block.message())?;
 
         // If the block is sufficiently recent, notify the validator monitor.
         if let Some(slot) = chain.slot_clock.now() {
@@ -1288,64 +1232,6 @@ impl<'a, T: BeaconChainTypes> FullyVerifiedBlock<'a, T> {
             payload_verification_status,
         })
     }
-}
-
-/// Validate the gossip block's execution_payload according to the checks described here:
-/// https://github.com/ethereum/consensus-specs/blob/dev/specs/merge/p2p-interface.md#beacon_block
-fn validate_execution_payload<T: BeaconChainTypes>(
-    parent_block: &ProtoBlock,
-    block: BeaconBlockRef<'_, T::EthSpec>,
-    chain: &BeaconChain<T>,
-) -> Result<(), BlockError<T::EthSpec>> {
-    // Only apply this validation if this is a merge beacon block.
-    if let Some(execution_payload) = block.body().execution_payload() {
-        // This logic should match `is_execution_enabled`. We use only the execution block hash of
-        // the parent here in order to avoid loading the parent state during gossip verification.
-
-        let is_merge_complete = match parent_block.execution_status {
-            // Optimistically declare that an "unknown" status block has completed the merge.
-            ExecutionStatus::Valid(_) | ExecutionStatus::Unknown(_) => true,
-            // It's impossible for an irrelevant block to have completed the merge. It is pre-merge
-            // by definition.
-            ExecutionStatus::Irrelevant(_) => false,
-            // If the parent has an invalid payload then it's impossible to build a valid block upon
-            // it. Reject the block.
-            ExecutionStatus::Invalid(_) => {
-                return Err(BlockError::ParentExecutionPayloadInvalid {
-                    parent_root: parent_block.root,
-                })
-            }
-        };
-        let is_merge_block =
-            !is_merge_complete && *execution_payload != <ExecutionPayload<T::EthSpec>>::default();
-        if !is_merge_block && !is_merge_complete {
-            return Ok(());
-        }
-
-        let expected_timestamp = chain
-            .slot_clock
-            .compute_timestamp_at_slot(block.slot())
-            .ok_or(BlockError::BeaconChainError(
-                BeaconChainError::UnableToComputeTimeAtSlot,
-            ))?;
-        // The block's execution payload timestamp is correct with respect to the slot
-        if execution_payload.timestamp != expected_timestamp {
-            return Err(BlockError::ExecutionPayloadError(
-                ExecutionPayloadError::InvalidPayloadTimestamp {
-                    expected: expected_timestamp,
-                    found: execution_payload.timestamp,
-                },
-            ));
-        }
-        // The execution payload transaction list data is within expected size limits
-        if execution_payload.transactions.len() > T::EthSpec::max_transactions_per_payload() {
-            return Err(BlockError::ExecutionPayloadError(
-                ExecutionPayloadError::TransactionDataExceedsSizeLimit,
-            ));
-        }
-    }
-
-    Ok(())
 }
 
 /// Check that the count of skip slots between the block and its parent does not exceed our maximum

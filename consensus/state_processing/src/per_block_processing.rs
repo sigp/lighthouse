@@ -295,9 +295,18 @@ pub fn get_new_eth1_data<T: EthSpec>(
     }
 }
 
-/// https://github.com/ethereum/consensus-specs/blob/dev/specs/merge/beacon-chain.md#process_execution_payload
-pub fn process_execution_payload<T: EthSpec>(
-    state: &mut BeaconState<T>,
+/// Performs *partial* verification of the `payload`.
+///
+/// The verification is partial, since the execution payload is not verified against an execution
+/// engine. That is expected to be performed by an upstream function.
+///
+/// ## Specification
+///
+/// Contains a partial set of checks from the `process_execution_payload` function:
+///
+/// https://github.com/ethereum/consensus-specs/blob/v1.1.5/specs/merge/beacon-chain.md#process_execution_payload
+pub fn partially_verify_execution_payload<T: EthSpec>(
+    state: &BeaconState<T>,
     payload: &ExecutionPayload<T>,
     spec: &ChainSpec,
 ) -> Result<(), BlockProcessingError> {
@@ -326,6 +335,23 @@ pub fn process_execution_payload<T: EthSpec>(
             found: payload.timestamp,
         }
     );
+
+    Ok(())
+}
+
+/// Calls `partially_verify_execution_payload` and then updates the payload header in the `state`.
+///
+/// ## Specification
+///
+/// Partially equivalent to the `process_execution_payload` function:
+///
+/// https://github.com/ethereum/consensus-specs/blob/v1.1.5/specs/merge/beacon-chain.md#process_execution_payload
+pub fn process_execution_payload<T: EthSpec>(
+    state: &mut BeaconState<T>,
+    payload: &ExecutionPayload<T>,
+    spec: &ChainSpec,
+) -> Result<(), BlockProcessingError> {
+    partially_verify_execution_payload(state, payload, spec)?;
 
     *state.latest_execution_payload_header_mut()? = ExecutionPayloadHeader {
         parent_hash: payload.parent_hash,
