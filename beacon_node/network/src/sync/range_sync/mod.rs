@@ -6,6 +6,7 @@ mod chain;
 mod chain_collection;
 mod range;
 mod sync_type;
+mod block_storage;
 
 pub use batch::{BatchConfig, BatchInfo, BatchState};
 pub use chain::{BatchId, ChainId, EPOCHS_PER_BATCH};

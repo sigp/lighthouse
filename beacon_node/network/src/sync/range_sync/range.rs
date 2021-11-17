@@ -39,6 +39,7 @@
 //!  Each chain is downloaded in batches of blocks. The batched blocks are processed sequentially
 //!  and further batches are requested as current blocks are being processed.
 
+use super::block_storage::BlockStorage;
 use super::chain::{BatchId, ChainId, RemoveChain, SyncingChain};
 use super::chain_collection::ChainCollection;
 use super::sync_type::RangeSyncType;
@@ -58,24 +59,28 @@ use types::{Epoch, EthSpec, SignedBeaconBlock, Slot};
 /// The primary object dealing with long range/batch syncing. This contains all the active and
 /// non-active chains that need to be processed before the syncing is considered complete. This
 /// holds the current state of the long range sync.
-pub struct RangeSync<T: BeaconChainTypes> {
+pub struct RangeSync<T: BeaconChainTypes, C = Arc<BeaconChain<T>>> {
     /// The beacon chain for processing.
-    beacon_chain: Arc<BeaconChain<T>>,
+    beacon_chain: C,
     /// Last known sync info of our useful connected peers. We use this information to create Head
     /// chains after all finalized chains have ended.
     awaiting_head_peers: HashMap<PeerId, SyncInfo>,
     /// A collection of chains that need to be downloaded. This stores any head or finalized chains
     /// that need to be downloaded.
-    chains: ChainCollection<T>,
+    chains: ChainCollection<T, C>,
     /// A multi-threaded, non-blocking processor for applying messages to the beacon chain.
     beacon_processor_send: mpsc::Sender<BeaconWorkEvent<T>>,
     /// The syncing logger.
     log: slog::Logger,
 }
 
-impl<T: BeaconChainTypes> RangeSync<T> {
+impl<T: BeaconChainTypes, C> RangeSync<T, C>
+where
+    C: BlockStorage + Clone + ToStatusMessage,
+    T: BeaconChainTypes,
+{
     pub fn new(
-        beacon_chain: Arc<BeaconChain<T>>,
+        beacon_chain: C,
         beacon_processor_send: mpsc::Sender<BeaconWorkEvent<T>>,
         log: slog::Logger,
     ) -> Self {
