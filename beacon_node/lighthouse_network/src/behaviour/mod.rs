@@ -26,7 +26,8 @@ use libp2p::{
     },
     identify::{Identify, IdentifyConfig, IdentifyEvent},
     swarm::{
-        AddressScore, dial_opts::{DialOpts,PeerCondition}, NetworkBehaviour, NetworkBehaviourAction as NBAction,
+        dial_opts::{DialOpts, PeerCondition},
+        AddressScore, NetworkBehaviour, NetworkBehaviourAction as NBAction,
         NetworkBehaviourEventProcess, PollParameters,
     },
     NetworkBehaviour, PeerId,
@@ -1072,7 +1073,10 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
             match event {
                 InternalBehaviourMessage::DialPeer(peer_id) => {
                     let handler = self.new_handler();
-                    return Poll::Ready(NBAction::Dial { opts: DialOpts::peer_id(peer_id).condition(PeerCondition::Disconnected).build(),
+                    return Poll::Ready(NBAction::Dial {
+                        opts: DialOpts::peer_id(peer_id)
+                            .condition(PeerCondition::Disconnected)
+                            .build(),
                         handler,
                     });
                 }
