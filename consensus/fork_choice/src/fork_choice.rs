@@ -3,17 +3,12 @@ use std::marker::PhantomData;
 use proto_array::{Block as ProtoBlock, ProtoArrayForkChoice};
 use ssz_derive::{Decode, Encode};
 use types::{
-    AttestationShufflingId, BeaconBlock, BeaconState, BeaconStateError, Checkpoint, Epoch, EthSpec,
-    Hash256, IndexedAttestation, RelativeEpoch, SignedBeaconBlock, Slot,
+    AttestationShufflingId, BeaconBlock, BeaconState, BeaconStateError, ChainSpec, Checkpoint,
+    Epoch, EthSpec, Hash256, IndexedAttestation, RelativeEpoch, SignedBeaconBlock, Slot,
 };
 
 use crate::ForkChoiceStore;
 use std::cmp::Ordering;
-
-/// Defined here:
-///
-/// https://github.com/ethereum/eth2.0-specs/blob/v0.12.1/specs/phase0/fork-choice.md#configuration
-pub const SAFE_SLOTS_TO_UPDATE_JUSTIFIED: u64 = 8;
 
 #[derive(Debug)]
 pub enum Error<T> {
@@ -379,13 +374,14 @@ where
         &mut self,
         current_slot: Slot,
         state: &BeaconState<E>,
+        spec: &ChainSpec,
     ) -> Result<bool, Error<T::Error>> {
         self.update_time(current_slot)?;
 
         let new_justified_checkpoint = &state.current_justified_checkpoint();
 
         if compute_slots_since_epoch_start::<E>(self.fc_store.get_current_slot())
-            < SAFE_SLOTS_TO_UPDATE_JUSTIFIED
+            < spec.safe_slots_to_update_justified
         {
             return Ok(true);
         }
@@ -442,6 +438,7 @@ where
         block: &BeaconBlock<E>,
         block_root: Hash256,
         state: &BeaconState<E>,
+        spec: &ChainSpec,
     ) -> Result<(), Error<T::Error>> {
         let current_slot = self.update_time(current_slot)?;
 
@@ -500,7 +497,7 @@ where
                 self.fc_store
                     .set_best_justified_checkpoint(state.current_justified_checkpoint());
             }
-            if self.should_update_justified_checkpoint(current_slot, state)? {
+            if self.should_update_justified_checkpoint(current_slot, state, spec)? {
                 self.fc_store
                     .set_justified_checkpoint(state.current_justified_checkpoint())
                     .map_err(Error::UnableToSetJustifiedCheckpoint)?;
@@ -795,6 +792,21 @@ where
     /// Return the current finalized checkpoint.
     pub fn finalized_checkpoint(&self) -> Checkpoint {
         *self.fc_store.finalized_checkpoint()
+    }
+
+    /// Return the justified checkpoint.
+    pub fn justified_checkpoint(&self) -> Checkpoint {
+        *self.fc_store.justified_checkpoint()
+    }
+
+    /// Return the best justified checkpoint.
+    ///
+    /// ## Warning
+    ///
+    /// This is distinct to the "justified checkpoint" or the "current justified checkpoint". This
+    /// "best justified checkpoint" value should only be used internally or for testing.
+    pub fn best_justified_checkpoint(&self) -> Checkpoint {
+        *self.fc_store.best_justified_checkpoint()
     }
 
     /// Returns the latest message for a given validator, if any.

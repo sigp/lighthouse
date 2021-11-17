@@ -166,6 +166,10 @@ audit:
 	cargo install --force cargo-audit
 	cargo audit --ignore RUSTSEC-2020-0071 --ignore RUSTSEC-2020-0159
 
+# Runs `cargo vendor` to make sure dependencies can be vendored for packaging, reproducibility and archival purpose.
+vendor:
+	cargo vendor
+
 # Runs `cargo udeps` to check for unused dependencies
 udeps:
 	cargo +$(PINNED_NIGHTLY) udeps --tests --all-targets --release

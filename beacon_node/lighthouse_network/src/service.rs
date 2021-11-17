@@ -317,35 +317,17 @@ impl<TSpec: EthSpec> Service<TSpec> {
                     return Libp2pEvent::Behaviour(behaviour);
                 }
                 SwarmEvent::ConnectionEstablished {
-                    peer_id,
-                    endpoint,
-                    num_established,
+                    peer_id: _,
+                    endpoint: _,
+                    num_established: _,
                     concurrent_dial_errors: _,
-                } => {
-                    // Inform the peer manager.
-                    // We require the ENR to inject into the peer db, if it exists.
-                    let enr = self
-                        .swarm
-                        .behaviour_mut()
-                        .discovery_mut()
-                        .enr_of_peer(&peer_id);
-                    self.swarm
-                        .behaviour_mut()
-                        .peer_manager_mut()
-                        .inject_connection_established(peer_id, endpoint, num_established, enr);
-                }
+                } => {}
                 SwarmEvent::ConnectionClosed {
-                    peer_id,
+                    peer_id: _,
                     cause: _,
-                    endpoint,
-                    num_established,
-                } => {
-                    // Inform the peer manager.
-                    self.swarm
-                        .behaviour_mut()
-                        .peer_manager_mut()
-                        .inject_connection_closed(peer_id, endpoint, num_established);
-                }
+                    endpoint: _,
+                    num_established: _,
+                } => {}
                 SwarmEvent::NewListenAddr { address, .. } => {
                     return Libp2pEvent::NewListenAddr(address)
                 }
@@ -367,12 +349,6 @@ impl<TSpec: EthSpec> Service<TSpec> {
                 }
                 SwarmEvent::OutgoingConnectionError { peer_id, error } => {
                     debug!(self.log, "Failed to dial address"; "peer_id" => ?peer_id,  "error" => %error);
-                    if let Some(peer_id) = peer_id {
-                        self.swarm
-                            .behaviour_mut()
-                            .peer_manager_mut()
-                            .inject_dial_failure(&peer_id);
-                    }
                 }
                 SwarmEvent::ExpiredListenAddr { address, .. } => {
                     debug!(self.log, "Listen address expired"; "address" => %address)

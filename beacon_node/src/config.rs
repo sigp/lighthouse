@@ -448,6 +448,19 @@ pub fn get_config<E: EthSpec>(
             slasher_config.update_period = update_period;
         }
 
+        if let Some(slot_offset) =
+            clap_utils::parse_optional::<f64>(cli_args, "slasher-slot-offset")?
+        {
+            if slot_offset.is_finite() {
+                slasher_config.slot_offset = slot_offset;
+            } else {
+                return Err(format!(
+                    "invalid float for slasher-slot-offset: {}",
+                    slot_offset
+                ));
+            }
+        }
+
         if let Some(history_length) =
             clap_utils::parse_optional(cli_args, "slasher-history-length")?
         {

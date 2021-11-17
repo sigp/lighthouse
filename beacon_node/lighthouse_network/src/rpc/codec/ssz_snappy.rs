@@ -1112,4 +1112,43 @@ mod tests {
             RPCError::InvalidData
         );
     }
+
+    /// Test sending a message with encoded length prefix > MAX_RPC_SIZE.
+    #[test]
+    fn test_decode_invalid_length() {
+        // 10 byte snappy stream identifier
+        let stream_identifier: &'static [u8] = b"\xFF\x06\x00\x00sNaPpY";
+
+        assert_eq!(stream_identifier.len(), 10);
+
+        // Status message is 84 bytes uncompressed. `max_compressed_len` is 32 + 84 + 84/6 = 130.
+        let status_message_bytes = StatusMessage {
+            fork_digest: [0; 4],
+            finalized_root: Hash256::from_low_u64_be(0),
+            finalized_epoch: Epoch::new(1),
+            head_root: Hash256::from_low_u64_be(0),
+            head_slot: Slot::new(1),
+        }
+        .as_ssz_bytes();
+
+        let mut uvi_codec: Uvi<usize> = Uvi::default();
+        let mut dst = BytesMut::with_capacity(1024);
+
+        // Insert length-prefix
+        uvi_codec.encode(MAX_RPC_SIZE + 1, &mut dst).unwrap();
+
+        // Insert snappy stream identifier
+        dst.extend_from_slice(stream_identifier);
+
+        // Insert payload
+        let mut writer = FrameEncoder::new(Vec::new());
+        writer.write_all(&status_message_bytes).unwrap();
+        writer.flush().unwrap();
+        dst.extend_from_slice(writer.get_ref());
+
+        assert_eq!(
+            decode(Protocol::Status, Version::V1, &mut dst).unwrap_err(),
+            RPCError::InvalidData
+        );
+    }
 }

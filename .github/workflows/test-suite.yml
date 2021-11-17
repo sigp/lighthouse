@@ -228,6 +228,14 @@ jobs:
       run: rustup update stable
     - name: Run cargo audit to identify known security vulnerabilities reported to the RustSec Advisory Database
       run:  make audit
+  cargo-vendor:
+    name: cargo-vendor
+    runs-on: ubuntu-latest
+    needs: cargo-fmt
+    steps:
+    - uses: actions/checkout@v1
+    - name: Run cargo vendor to make sure dependencies can be vendored for packaging, reproducibility and archival purpose
+      run:  CARGO_HOME=$(readlink -f $HOME) make vendor
   cargo-udeps:
     name: cargo-udeps
     runs-on: ubuntu-latest

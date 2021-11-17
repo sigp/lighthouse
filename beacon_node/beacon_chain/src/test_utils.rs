@@ -46,8 +46,6 @@ use types::{
 
 // 4th September 2019
 pub const HARNESS_GENESIS_TIME: u64 = 1_567_552_690;
-// This parameter is required by a builder but not used because we use the `TestingSlotClock`.
-pub const HARNESS_SLOT_TIME: Duration = Duration::from_secs(1);
 // Environment variable to read if `fork_from_env` feature is enabled.
 const FORK_NAME_ENV_VAR: &str = "FORK_NAME";
 
@@ -182,6 +180,27 @@ impl<E: EthSpec> Builder<EphemeralHarnessType<E>> {
         self.store = Some(store);
         self.store_mutator(Box::new(mutator))
     }
+
+    /// Create a new ephemeral store that uses the specified `genesis_state`.
+    pub fn genesis_state_ephemeral_store(mut self, genesis_state: BeaconState<E>) -> Self {
+        let spec = self.spec.as_ref().expect("cannot build without spec");
+
+        let store = Arc::new(
+            HotColdDB::open_ephemeral(
+                self.store_config.clone().unwrap_or_default(),
+                spec.clone(),
+                self.log.clone(),
+            )
+            .unwrap(),
+        );
+        let mutator = move |builder: BeaconChainBuilder<_>| {
+            builder
+                .genesis_state(genesis_state)
+                .expect("should build state using recent genesis")
+        };
+        self.store = Some(store);
+        self.store_mutator(Box::new(mutator))
+    }
 }
 
 impl<E: EthSpec> Builder<DiskHarnessType<E>> {
@@ -297,6 +316,7 @@ where
 
         let log = test_logger();
         let spec = self.spec.expect("cannot build without spec");
+        let seconds_per_slot = spec.seconds_per_slot;
         let validator_keypairs = self
             .validator_keypairs
             .expect("cannot build without validator keypairs");
@@ -331,7 +351,7 @@ where
         // Initialize the slot clock only if it hasn't already been initialized.
         builder = if builder.get_slot_clock().is_none() {
             builder
-                .testing_slot_clock(HARNESS_SLOT_TIME)
+                .testing_slot_clock(Duration::from_secs(seconds_per_slot))
                 .expect("should configure testing slot clock")
         } else {
             builder

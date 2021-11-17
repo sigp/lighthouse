@@ -1,22 +1,16 @@
 use validator_client::Config;
 
+use crate::exec::CommandLineTestExec;
 use bls::{Keypair, PublicKeyBytes};
-use serde_json::from_reader;
 use std::fs::File;
 use std::io::Write;
 use std::net::Ipv4Addr;
 use std::path::PathBuf;
-use std::process::{Command, Output};
-use std::str::from_utf8;
+use std::process::Command;
 use std::string::ToString;
 use tempfile::TempDir;
 
-const VALIDATOR_CMD: &str = "validator_client";
-const CONFIG_NAME: &str = "vc_dump.json";
-const DUMP_CONFIG_CMD: &str = "dump-config";
-const IMMEDIATE_SHUTDOWN_CMD: &str = "immediate-shutdown";
-
-/// Returns the `lighthouse validator_client --immediate-shutdown` command.
+/// Returns the `lighthouse validator_client` command.
 fn base_cmd() -> Command {
     let lighthouse_bin = env!("CARGO_BIN_EXE_lighthouse");
     let path = lighthouse_bin
@@ -24,23 +18,8 @@ fn base_cmd() -> Command {
         .expect("should parse CARGO_TARGET_DIR");
 
     let mut cmd = Command::new(path);
-    cmd.arg(VALIDATOR_CMD)
-        .arg(format!("--{}", IMMEDIATE_SHUTDOWN_CMD));
-
+    cmd.arg("validator_client");
     cmd
-}
-
-/// Executes a `Command`, returning a `Result` based upon the success exit code of the command.
-fn output_result(cmd: &mut Command) -> Result<Output, String> {
-    let output = cmd.output().expect("should run command");
-
-    if output.status.success() {
-        Ok(output)
-    } else {
-        Err(from_utf8(&output.stderr)
-            .expect("stderr is not utf8")
-            .to_string())
-    }
 }
 
 // Wrapper around `Command` for easier Command Line Testing.
@@ -52,76 +31,13 @@ impl CommandLineTest {
         let base_cmd = base_cmd();
         CommandLineTest { cmd: base_cmd }
     }
-
-    fn flag(mut self, flag: &str, value: Option<&str>) -> Self {
-        // Build the command by adding the flag and any values.
-        self.cmd.arg(format!("--{}", flag));
-        if let Some(value) = value {
-            self.cmd.arg(value);
-        }
-        self
-    }
-
-    fn run(&mut self) -> CompletedTest {
-        // Setup temp directories.
-        let tmp_dir = TempDir::new().expect("Unable to create temporary directory");
-        let tmp_path: PathBuf = tmp_dir.path().join(CONFIG_NAME);
-
-        // Add --datadir <temp_dir> --dump-config <temp_path> to cmd.
-        self.cmd
-            .arg("--datadir")
-            .arg(tmp_dir.path().as_os_str())
-            .arg(format!("--{}", DUMP_CONFIG_CMD))
-            .arg(tmp_path.as_os_str());
-
-        // Run the command.
-        let _output = output_result(&mut self.cmd).expect("Unable to run command");
-
-        // Grab the config.
-        let config: Config =
-            from_reader(File::open(tmp_path).expect("Unable to open dumped config"))
-                .expect("Unable to deserialize to ClientConfig");
-        CompletedTest {
-            config,
-            dir: tmp_dir,
-        }
-    }
-
-    // In order to test custom validator and secrets directory flags,
-    // datadir cannot be defined.
-    fn run_with_no_datadir(&mut self) -> CompletedTest {
-        // Setup temp directories
-        let tmp_dir = TempDir::new().expect("Unable to create temporary directory");
-        let tmp_path: PathBuf = tmp_dir.path().join(CONFIG_NAME);
-
-        // Add --dump-config <temp_path> to cmd.
-        self.cmd
-            .arg(format!("--{}", DUMP_CONFIG_CMD))
-            .arg(tmp_path.as_os_str());
-
-        // Run the command.
-        let _output = output_result(&mut self.cmd).expect("Unable to run command");
-
-        // Grab the config.
-        let config: Config =
-            from_reader(File::open(tmp_path).expect("Unable to open dumped config"))
-                .expect("Unable to deserialize to ClientConfig");
-        CompletedTest {
-            config,
-            dir: tmp_dir,
-        }
-    }
 }
-struct CompletedTest {
-    config: Config,
-    dir: TempDir,
-}
-impl CompletedTest {
-    fn with_config<F: Fn(&Config)>(self, func: F) {
-        func(&self.config);
-    }
-    fn with_config_and_dir<F: Fn(&Config, &TempDir)>(self, func: F) {
-        func(&self.config, &self.dir);
+
+impl CommandLineTestExec for CommandLineTest {
+    type Config = Config;
+
+    fn cmd_mut(&mut self) -> &mut Command {
+        &mut self.cmd
     }
 }
 

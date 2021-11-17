@@ -55,11 +55,18 @@ impl<T: BeaconChainTypes> SlasherService<T> {
         // don't need to burden them with more work (we can wait).
         let (notif_sender, notif_receiver) = sync_channel(1);
         let update_period = slasher.config().update_period;
+        let slot_offset = slasher.config().slot_offset;
         let beacon_chain = self.beacon_chain.clone();
         let network_sender = self.network_sender.clone();
 
         executor.spawn(
-            Self::run_notifier(beacon_chain.clone(), update_period, notif_sender, log),
+            Self::run_notifier(
+                beacon_chain.clone(),
+                update_period,
+                slot_offset,
+                notif_sender,
+                log,
+            ),
             "slasher_server_notifier",
         );
 
@@ -75,12 +82,19 @@ impl<T: BeaconChainTypes> SlasherService<T> {
     async fn run_notifier(
         beacon_chain: Arc<BeaconChain<T>>,
         update_period: u64,
+        slot_offset: f64,
         notif_sender: SyncSender<Epoch>,
         log: Logger,
     ) {
-        // NOTE: could align each run to some fixed point in each slot, see:
-        // https://github.com/sigp/lighthouse/issues/1861
-        let mut interval = interval_at(Instant::now(), Duration::from_secs(update_period));
+        let slot_offset = Duration::from_secs_f64(slot_offset);
+        let start_instant =
+            if let Some(duration_to_next_slot) = beacon_chain.slot_clock.duration_to_next_slot() {
+                Instant::now() + duration_to_next_slot + slot_offset
+            } else {
+                error!(log, "Error aligning slasher to slot clock");
+                Instant::now()
+            };
+        let mut interval = interval_at(start_instant, Duration::from_secs(update_period));
 
         loop {
             interval.tick().await;

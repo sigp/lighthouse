@@ -4,7 +4,6 @@ use beacon_chain::attestation_verification::Error as AttnError;
 use beacon_chain::builder::BeaconChainBuilder;
 use beacon_chain::test_utils::{
     test_spec, AttestationStrategy, BeaconChainHarness, BlockStrategy, DiskHarnessType,
-    HARNESS_SLOT_TIME,
 };
 use beacon_chain::{
     historical_blocks::HistoricalBlockError, migrate::MigratorConfig, BeaconChain,
@@ -19,6 +18,7 @@ use std::collections::HashMap;
 use std::collections::HashSet;
 use std::convert::TryInto;
 use std::sync::Arc;
+use std::time::Duration;
 use store::{
     iter::{BlockRootsIterator, StateRootsIterator},
     HotColdDB, LevelDB, StoreConfig,
@@ -1812,6 +1812,8 @@ fn weak_subjectivity_sync() {
     let log = test_logger();
     let temp2 = tempdir().unwrap();
     let store = get_store(&temp2);
+    let spec = test_spec::<E>();
+    let seconds_per_slot = spec.seconds_per_slot;
 
     // Initialise a new beacon chain from the finalized checkpoint
     let beacon_chain = BeaconChainBuilder::new(MinimalEthSpec)
@@ -1823,7 +1825,7 @@ fn weak_subjectivity_sync() {
         .store_migrator_config(MigratorConfig::default().blocking())
         .dummy_eth1_backend()
         .expect("should build dummy backend")
-        .testing_slot_clock(HARNESS_SLOT_TIME)
+        .testing_slot_clock(Duration::from_secs(seconds_per_slot))
         .expect("should configure testing slot clock")
         .shutdown_sender(shutdown_tx)
         .chain_config(ChainConfig::default())
@@ -2055,6 +2057,8 @@ fn revert_minority_fork_on_resume() {
     let mut spec2 = MinimalEthSpec::default_spec();
     spec2.altair_fork_epoch = Some(fork_epoch);
 
+    let seconds_per_slot = spec1.seconds_per_slot;
+
     let all_validators = (0..validator_count).collect::<Vec<usize>>();
 
     // Chain with no fork epoch configured.
@@ -2160,7 +2164,7 @@ fn revert_minority_fork_on_resume() {
             builder = builder
                 .resume_from_db()
                 .unwrap()
-                .testing_slot_clock(HARNESS_SLOT_TIME)
+                .testing_slot_clock(Duration::from_secs(seconds_per_slot))
                 .unwrap();
             builder
                 .get_slot_clock()
