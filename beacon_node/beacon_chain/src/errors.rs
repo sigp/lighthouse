@@ -181,6 +181,7 @@ pub enum BlockProductionError {
         state_slot: Slot,
     },
     ExecutionLayerMissing,
+    BlockingFailed(execution_layer::Error),
     TerminalPoWBlockLookupFailed(execution_layer::Error),
     GetPayloadFailed(execution_layer::Error),
     FailedToReadFinalizedBlock(store::Error),

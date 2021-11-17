@@ -170,6 +170,11 @@ impl<T: EthSpec> ExecutionBlockGenerator<T> {
         self.insert_pow_blocks(next_block..=target_block)
     }
 
+    pub fn drop_all_blocks(&mut self) {
+        self.blocks = <_>::default();
+        self.block_hashes = <_>::default();
+    }
+
     pub fn insert_pow_blocks(
         &mut self,
         block_numbers: impl Iterator<Item = u64>,
@@ -211,12 +216,14 @@ impl<T: EthSpec> ExecutionBlockGenerator<T> {
                 "block {} is already known, forking is not supported",
                 block.block_number()
             ));
-        } else if block.parent_hash() != Hash256::zero()
-            && !self.blocks.contains_key(&block.parent_hash())
-        {
+        } else if block.block_number() != 0 && !self.blocks.contains_key(&block.parent_hash()) {
             return Err(format!("parent block {:?} is unknown", block.parent_hash()));
         }
 
+        self.insert_block_without_checks(block)
+    }
+
+    pub fn insert_block_without_checks(&mut self, block: Block<T>) -> Result<(), String> {
         self.block_hashes
             .insert(block.block_number(), block.block_hash());
         self.blocks.insert(block.block_hash(), block);

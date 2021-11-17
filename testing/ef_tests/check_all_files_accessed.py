@@ -39,9 +39,6 @@ excluded_paths = [
     "tests/minimal/altair/merkle/single_proof",
     "tests/mainnet/merge/merkle/single_proof",
     "tests/minimal/merge/merkle/single_proof",
-    # Fork choice tests featuring PoW blocks
-    "tests/minimal/merge/fork_choice/on_merge_block/",
-    "tests/mainnet/merge/fork_choice/on_merge_block/"
 ]
 
 def normalize_path(path):

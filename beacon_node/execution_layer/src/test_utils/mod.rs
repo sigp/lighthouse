@@ -4,6 +4,7 @@ use crate::engine_api::http::JSONRPC_VERSION;
 use crate::engine_api::ExecutePayloadResponseStatus;
 use bytes::Bytes;
 use environment::null_logger;
+use execution_block_generator::{Block, PoWBlock};
 use handle_rpc::handle_rpc;
 use parking_lot::{Mutex, RwLock, RwLockWriteGuard};
 use serde::{Deserialize, Serialize};
@@ -117,6 +118,40 @@ impl<T: EthSpec> MockServer<T> {
 
     pub fn all_payloads_valid(&self) {
         *self.ctx.static_execute_payload_response.lock() = Some(ExecutePayloadResponseStatus::Valid)
+    }
+
+    pub fn insert_pow_block(
+        &self,
+        block_number: u64,
+        block_hash: Hash256,
+        parent_hash: Hash256,
+        total_difficulty: Uint256,
+    ) {
+        let block = Block::PoW(PoWBlock {
+            block_number,
+            block_hash,
+            parent_hash,
+            total_difficulty,
+        });
+
+        self.ctx
+            .execution_block_generator
+            .write()
+            // The EF tests supply blocks out of order, so we must import them "without checks" and
+            // trust they form valid chains.
+            .insert_block_without_checks(block)
+            .unwrap()
+    }
+
+    pub fn get_block(&self, block_hash: Hash256) -> Option<Block<T>> {
+        self.ctx
+            .execution_block_generator
+            .read()
+            .block_by_hash(block_hash)
+    }
+
+    pub fn drop_all_blocks(&self) {
+        self.ctx.execution_block_generator.write().drop_all_blocks()
     }
 }
 

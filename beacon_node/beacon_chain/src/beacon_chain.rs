@@ -15,6 +15,7 @@ use crate::chain_config::ChainConfig;
 use crate::errors::{BeaconChainError as Error, BlockProductionError};
 use crate::eth1_chain::{Eth1Chain, Eth1ChainBackend};
 use crate::events::ServerSentEventHandler;
+use crate::execution_payload::get_execution_payload;
 use crate::head_tracker::HeadTracker;
 use crate::historical_blocks::HistoricalBlockError;
 use crate::migrate::BackgroundMigrator;
@@ -65,9 +66,7 @@ use ssz::Encode;
 use state_processing::{
     common::get_indexed_attestation,
     per_block_processing,
-    per_block_processing::{
-        compute_timestamp_at_slot, errors::AttestationValidationError, is_merge_complete,
-    },
+    per_block_processing::{errors::AttestationValidationError, is_merge_complete},
     per_slot_processing,
     state_advance::{complete_state_advance, partial_state_advance},
     BlockSignatureStrategy, SigVerifiedOp,
@@ -2881,63 +2880,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     SyncAggregate::new()
                 }))
         };
-        // Closure to fetch a sync aggregate in cases where it is required.
-        let get_execution_payload = |latest_execution_payload_header: &ExecutionPayloadHeader<
-            T::EthSpec,
-        >|
-         -> Result<ExecutionPayload<_>, BlockProductionError> {
-            let execution_layer = self
-                .execution_layer
-                .as_ref()
-                .ok_or(BlockProductionError::ExecutionLayerMissing)?;
-
-            let parent_hash;
-            if !is_merge_complete(&state) {
-                let terminal_pow_block_hash = execution_layer
-                    .block_on(|execution_layer| {
-                        execution_layer.get_terminal_pow_block_hash(&self.spec)
-                    })
-                    .map_err(BlockProductionError::TerminalPoWBlockLookupFailed)?;
-
-                if let Some(terminal_pow_block_hash) = terminal_pow_block_hash {
-                    parent_hash = terminal_pow_block_hash;
-                } else {
-                    return Ok(<_>::default());
-                }
-            } else {
-                parent_hash = latest_execution_payload_header.block_hash;
-            }
-
-            let timestamp =
-                compute_timestamp_at_slot(&state, &self.spec).map_err(BeaconStateError::from)?;
-            let random = *state.get_randao_mix(state.current_epoch())?;
-            let finalized_root = state.finalized_checkpoint().root;
-
-            let finalized_block_hash =
-                if let Some(block) = self.fork_choice.read().get_block(&finalized_root) {
-                    block.execution_status.block_hash()
-                } else {
-                    self.store
-                        .get_block(&finalized_root)
-                        .map_err(BlockProductionError::FailedToReadFinalizedBlock)?
-                        .ok_or(BlockProductionError::MissingFinalizedBlock(finalized_root))?
-                        .message()
-                        .body()
-                        .execution_payload()
-                        .map(|ep| ep.block_hash)
-                };
-
-            execution_layer
-                .block_on(|execution_layer| {
-                    execution_layer.get_payload(
-                        parent_hash,
-                        timestamp,
-                        random,
-                        finalized_block_hash.unwrap_or_else(Hash256::zero),
-                    )
-                })
-                .map_err(BlockProductionError::GetPayloadFailed)
-        };
 
         let inner_block = match &state {
             BeaconState::Base(_) => BeaconBlock::Base(BeaconBlockBase {
@@ -2976,10 +2918,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     },
                 })
             }
-            BeaconState::Merge(state) => {
+            BeaconState::Merge(_) => {
                 let sync_aggregate = get_sync_aggregate()?;
-                let execution_payload =
-                    get_execution_payload(&state.latest_execution_payload_header)?;
+                let execution_payload = get_execution_payload(self, &state)?;
                 BeaconBlock::Merge(BeaconBlockMerge {
                     slot,
                     proposer_index,
