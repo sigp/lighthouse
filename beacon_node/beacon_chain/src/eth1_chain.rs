@@ -15,8 +15,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use store::{DBColumn, Error as StoreError, StoreItem};
 use task_executor::TaskExecutor;
 use types::{
-    BeaconState, BeaconStateError, ChainSpec, Deposit, Eth1Data, EthSpec, ExecutionPayload,
-    Hash256, Slot, Unsigned, DEPOSIT_TREE_DEPTH,
+    BeaconState, BeaconStateError, ChainSpec, Deposit, Eth1Data, EthSpec, Hash256, Slot, Unsigned,
+    DEPOSIT_TREE_DEPTH,
 };
 
 type BlockNumber = u64;
@@ -53,8 +53,6 @@ pub enum Error {
     UnknownPreviousEth1BlockHash,
     /// An arithmetic error occurred.
     ArithError(safe_arith::ArithError),
-    /// Unable to execute payload
-    UnableToExecutePayload(String),
 }
 
 impl From<safe_arith::ArithError> for Error {
@@ -281,15 +279,6 @@ where
         )
     }
 
-    pub fn on_payload(&self, execution_payload: &ExecutionPayload<E>) -> Result<bool, Error> {
-        if self.use_dummy_backend {
-            let dummy_backend: DummyEth1ChainBackend<E> = DummyEth1ChainBackend::default();
-            dummy_backend.on_payload(execution_payload)
-        } else {
-            self.backend.on_payload(execution_payload)
-        }
-    }
-
     /// Instantiate `Eth1Chain` from a persisted `SszEth1`.
     ///
     /// The `Eth1Chain` will have the same caches as the persisted `SszEth1`.
@@ -350,9 +339,6 @@ pub trait Eth1ChainBackend<T: EthSpec>: Sized + Send + Sync {
     /// an idea of how up-to-date the remote eth1 node is.
     fn head_block(&self) -> Option<Eth1Block>;
 
-    /// Verifies the execution payload
-    fn on_payload(&self, execution_payload: &ExecutionPayload<T>) -> Result<bool, Error>;
-
     /// Encode the `Eth1ChainBackend` instance to bytes.
     fn as_bytes(&self) -> Vec<u8>;
 
@@ -405,10 +391,6 @@ impl<T: EthSpec> Eth1ChainBackend<T> for DummyEth1ChainBackend<T> {
 
     fn head_block(&self) -> Option<Eth1Block> {
         None
-    }
-
-    fn on_payload(&self, _execution_payload: &ExecutionPayload<T>) -> Result<bool, Error> {
-        Ok(true)
     }
 
     /// Return empty Vec<u8> for dummy backend.
@@ -577,15 +559,6 @@ impl<T: EthSpec> Eth1ChainBackend<T> for CachingEth1Backend<T> {
 
     fn head_block(&self) -> Option<Eth1Block> {
         self.core.head_block()
-    }
-
-    fn on_payload(&self, execution_payload: &ExecutionPayload<T>) -> Result<bool, Error> {
-        futures::executor::block_on(async move {
-            self.core
-                .on_payload(execution_payload.clone())
-                .await
-                .map_err(|e| Error::UnableToExecutePayload(format!("{:?}", e)))
-        })
     }
 
     /// Return encoded byte representation of the block and deposit caches.
