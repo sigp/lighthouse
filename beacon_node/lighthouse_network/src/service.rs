@@ -185,10 +185,10 @@ impl<TSpec: EthSpec> Service<TSpec> {
         };
 
         // helper closure for dialing peers
-        let mut dial_addr = |mut multiaddr: Multiaddr| {
+        let mut dial = |mut multiaddr: Multiaddr| {
             // strip the p2p protocol if it exists
             strip_peer_id(&mut multiaddr);
-            match Swarm::dial_addr(&mut swarm, multiaddr.clone()) {
+            match Swarm::dial(&mut swarm, multiaddr.clone()) {
                 Ok(()) => debug!(log, "Dialing libp2p peer"; "address" => %multiaddr),
                 Err(err) => debug!(
                     log,
@@ -199,7 +199,7 @@ impl<TSpec: EthSpec> Service<TSpec> {
 
         // attempt to connect to user-input libp2p nodes
         for multiaddr in &config.libp2p_nodes {
-            dial_addr(multiaddr.clone());
+            dial(multiaddr.clone());
         }
 
         // attempt to connect to any specified boot-nodes
@@ -219,7 +219,7 @@ impl<TSpec: EthSpec> Service<TSpec> {
                     .read()
                     .is_connected_or_dialing(&bootnode_enr.peer_id())
                 {
-                    dial_addr(multiaddr.clone());
+                    dial(multiaddr.clone());
                 }
             }
         }
@@ -230,7 +230,7 @@ impl<TSpec: EthSpec> Service<TSpec> {
                 .iter()
                 .any(|proto| matches!(proto, Protocol::Tcp(_)))
             {
-                dial_addr(multiaddr.clone());
+                dial(multiaddr.clone());
             }
         }
 

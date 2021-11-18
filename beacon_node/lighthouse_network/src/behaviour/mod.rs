@@ -26,7 +26,8 @@ use libp2p::{
     },
     identify::{Identify, IdentifyConfig, IdentifyEvent},
     swarm::{
-        AddressScore, DialPeerCondition, NetworkBehaviour, NetworkBehaviourAction as NBAction,
+        dial_opts::{DialOpts, PeerCondition},
+        AddressScore, NetworkBehaviour, NetworkBehaviourAction as NBAction,
         NetworkBehaviourEventProcess, PollParameters,
     },
     NetworkBehaviour, PeerId,
@@ -232,6 +233,7 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
         let mut gossipsub = Gossipsub::new_with_subscription_filter_and_transform(
             MessageAuthenticity::Anonymous,
             config.gs_config.clone(),
+            None, // No metrics for the time being
             filter,
             snappy_transform,
         )
@@ -1071,9 +1073,10 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
             match event {
                 InternalBehaviourMessage::DialPeer(peer_id) => {
                     let handler = self.new_handler();
-                    return Poll::Ready(NBAction::DialPeer {
-                        peer_id,
-                        condition: DialPeerCondition::Disconnected,
+                    return Poll::Ready(NBAction::Dial {
+                        opts: DialOpts::peer_id(peer_id)
+                            .condition(PeerCondition::Disconnected)
+                            .build(),
                         handler,
                     });
                 }

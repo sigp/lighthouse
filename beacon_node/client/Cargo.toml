@@ -21,7 +21,7 @@ serde = "1.0.116"
 serde_derive = "1.0.116"
 error-chain = "0.12.4"
 slog = { version = "2.5.2", features = ["max_level_trace"] }
-tokio = "1.10.0"
+tokio = "1.14.0"
 dirs = "3.0.1"
 eth1 = { path = "../eth1" }
 eth2 = { path = "../../common/eth2" }

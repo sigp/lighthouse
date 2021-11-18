@@ -16,7 +16,7 @@ eth2_ssz = "0.4.0"
 eth2_ssz_derive = "0.3.0"
 slog = { version = "2.5.2", features = ["max_level_trace"] }
 lighthouse_version = { path = "../../common/lighthouse_version" }
-tokio = { version = "1.10.0", features = ["time", "macros"] }
+tokio = { version = "1.14.0", features = ["time", "macros"] }
 futures = "0.3.7"
 error-chain = "0.12.4"
 dirs = "3.0.1"
@@ -40,7 +40,7 @@ strum = { version = "0.21.0", features = ["derive"] }
 superstruct = "0.2.0"
 
 [dependencies.libp2p]
-version = "0.40.0-rc.3"
+version = "0.41.0"
 default-features = false
 features = ["websocket", "identify", "mplex", "yamux", "noise", "gossipsub", "dns-tokio", "tcp-tokio"]
 
