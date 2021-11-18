@@ -6,7 +6,7 @@ use lighthouse_network::SyncInfo;
 use super::block_storage::BlockStorage;
 
 /// The type of Range sync that should be done relative to our current state.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RangeSyncType {
     /// A finalized chain sync should be started with this peer.
     Finalized,
