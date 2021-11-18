@@ -678,17 +678,6 @@ pub fn update_gossip_metrics<T: EthSpec>(
         .map(|v| v.set(0));
     }
 
-    // Update basic gossipsub stats
-    {
-        let metrics = gossipsub.metrics();
-        set_gauge(&GOSSIP_CACHE_MISSES, metrics.memcache_misses as i64);
-        set_gauge(&GOSSIP_BROKEN_PROMISES, metrics.broken_promises as i64);
-        set_gauge(
-            &GOSSIP_INVALID_MESSAGES_BY_TOPIC,
-            metrics.messages_received_on_invalid_topic as i64,
-        );
-    }
-
     // Obtain mapping for peers to a client.
     let mut peer_to_client = HashMap::new();
     let mut scores_per_client: HashMap<&'static str, Vec<f64>> = HashMap::new();
@@ -697,7 +686,7 @@ pub fn update_gossip_metrics<T: EthSpec>(
         for (peer_id, _) in gossipsub.all_peers() {
             let client = peers
                 .peer_info(peer_id)
-                .map(|peer_info| peer_info.client.kind.as_static())
+                .map(|peer_info| peer_info.client().kind.as_static())
                 .unwrap_or_else(|| "Unknown");
 
             peer_to_client.insert(peer_id, client);
@@ -781,10 +770,6 @@ pub fn update_gossip_metrics<T: EthSpec>(
                     }
                 }
             }
-
-            // Mesh slot metrics update
-            update_mesh_slot_metrics(gossipsub, &topic);
-            update_gossipsub_topic_metrics(gossipsub, &topic);
         }
     }
 
@@ -895,8 +880,6 @@ pub fn update_gossip_metrics<T: EthSpec>(
         };
     }
 
-<<<<<<< HEAD
-=======
     let mut peer_to_client = HashMap::new();
     let mut scores_per_client: HashMap<&'static str, Vec<f64>> = HashMap::new();
     {
@@ -945,7 +928,6 @@ pub fn update_gossip_metrics<T: EthSpec>(
         }
     }
 
->>>>>>> origin/unstable
     for (client, scores) in scores_per_client.into_iter() {
         let c = &[client];
         let len = scores.len();
@@ -1014,53 +996,6 @@ pub fn update_gossip_metrics<T: EthSpec>(
             set_gauge_entry(&MEDIAN_SCORES_PER_CLIENT, c, median);
             set_gauge_entry(&MEAN_SCORES_PER_CLIENT, c, sum / count);
             set_gauge_entry(&MAX_SCORES_PER_CLIENT, c, max);
-        }
-    }
-}
-
-/// For a given topic, updates the mesh slot metrics.
-pub fn update_mesh_slot_metrics(gossipsub: &Gossipsub, topic: &GossipTopic) {
-    let kind = match topic.kind() {
-        GossipKind::Attestation(subnet_id) => format!(
-            "beacon_attestation_{:02}",
-            <&types::SubnetId as Into<u64>>::into(subnet_id)
-        ),
-        other => other.to_string(),
-    };
-    let fork = format!("0x{}", &hex::encode(topic.fork_digest));
-    let ident_topic: eth2_libp2p::IdentTopic = topic.clone().into();
-    if let Some(metrics_iter) = gossipsub
-        .metrics()
-        .slot_metrics_for_topic(&ident_topic.hash())
-    {
-        for (slot, slot_metrics) in metrics_iter.enumerate() {
-            let slot_format = match slot {
-                0 => "non-mesh".to_string(),
-                _ => format!("Slot {:02}", slot),
-            };
-            for (metric_name, value) in slot_metrics.with_names() {
-                if let Some(v) = get_gauge(
-                    &GOSSIPSUB_MESH_METRICS_BY_TOPIC,
-                    &[
-                        fork.as_str(),
-                        kind.as_str(),
-                        metric_name,
-                        slot_format.as_str(),
-                    ],
-                ) {
-                    v.set(value as i64)
-                }
-            }
-        }
-    }
-}
-
-/// Updates the topic metrics for a specific topic.
-pub fn update_gossipsub_topic_metrics(gossipsub: &Gossipsub, topic: &GossipTopic) {
-    let ident_topic: eth2_libp2p::IdentTopic = topic.clone().into();
-    if let Some(topic_metrics) = gossipsub.metrics().topic_metrics.get(&ident_topic.hash()) {
-        if let Some(v) = get_gauge(&GOSSIP_IWANT_REQUESTS, &[&topic.kind().to_string()]) {
-            v.set(topic_metrics.iwant_requests as i64)
         }
     }
 }

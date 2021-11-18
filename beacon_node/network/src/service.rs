@@ -675,12 +675,6 @@ fn spawn_service<T: BeaconChainTypes>(
                                     }
                                 }
                             }
-                            BehaviourEvent::UnsubscribedTopic(topic) => {
-                                // We have unsubscribed from a topic, update the mesh slot
-                                // metric information.
-                                metrics::update_mesh_slot_metrics(service.libp2p.swarm.behaviour().gs(), &topic);
-                                metrics::update_gossipsub_topic_metrics(service.libp2p.swarm.behaviour().gs(), &topic);
-                            }
                         }
                         Libp2pEvent::NewListenAddr(multiaddr) => {
                             service.network_globals.listen_multiaddrs.write().push(multiaddr);

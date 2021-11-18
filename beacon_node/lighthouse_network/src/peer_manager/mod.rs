@@ -381,7 +381,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
                 ) {
                     metrics::inc_gauge_vec(
                         &metrics::PEERS_PER_CLIENT,
-                        &[&peer_info.client.kind.to_string()],
+                        &[&peer_info.client().kind.to_string()],
                     );
                     metrics::dec_gauge_vec(
                         &metrics::PEERS_PER_CLIENT,
@@ -871,7 +871,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
                 }
 
                 let mut score_peers: &mut (f64, usize) = avg_score_per_client
-                    .entry(peer_info.client.kind.to_string())
+                    .entry(peer_info.client().kind.to_string())
                     .or_default();
                 score_peers.0 += peer_info.score().score();
                 score_peers.1 += 1;

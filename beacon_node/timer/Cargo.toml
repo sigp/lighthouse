@@ -7,6 +7,6 @@ edition = "2018"
 [dependencies]
 beacon_chain =  { path = "../beacon_chain" }
 slot_clock = { path = "../../common/slot_clock" }
-tokio = { version = "1.10.0", features = ["full"] }
+tokio = { version = "1.14.0", features = ["full"] }
 slog = "2.5.2"
 task_executor = { path = "../../common/task_executor" }

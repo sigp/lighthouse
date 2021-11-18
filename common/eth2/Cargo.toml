@@ -28,8 +28,9 @@ store = { path = "../../beacon_node/store", optional = true }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 # TODO: update psutil once fix is merged: https://github.com/rust-psutil/rust-psutil/pull/93
+# TODO: Even once the above PR is corrected, there are sub-dependencies that need to be updated.
 # psutil = { version = "3.2.0", optional = true }
-psutil = { git = "https://github.com/sigp/rust-psutil", rev = "3b42f01273b446128b572aa4fdb9b08f5da5f1d7", optional = true }
+psutil = { git = "https://github.com/sigp/rust-psutil", rev = "b3e44bc7ec5d545b8cb8ad4e3dffe074b6e6336b", optional = true }
 procinfo = { version = "0.4.2", optional = true }
 
 [features]

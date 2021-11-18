@@ -15,7 +15,7 @@ use crate::metrics;
 use crate::rpc::GoodbyeReason;
 use crate::types::SyncState;
 
-use super::peerdb::BanResult;
+use super::peerdb::{peer_info::PeerConnectionStatus, BanResult};
 use super::{PeerManager, PeerManagerEvent, ReportSource};
 
 impl<TSpec: EthSpec> NetworkBehaviour for PeerManager<TSpec> {
@@ -121,7 +121,6 @@ impl<TSpec: EthSpec> NetworkBehaviour for PeerManager<TSpec> {
                 if self.network_globals.local_enr.read().udp().is_some() {
                     metrics::check_nat();
                 }
-                metrics::inc_gauge(&metrics::NETWORK_INBOUND_PEERS);
             }
             ConnectedPoint::Dialer { .. } => {
                 debug!(self.log, "Connection established"; "peer_id" => %peer_id, "connection" => "Outgoing");
@@ -130,26 +129,22 @@ impl<TSpec: EthSpec> NetworkBehaviour for PeerManager<TSpec> {
                 if self.network_globals.local_enr.read().udp().is_some() {
                     metrics::check_nat();
                 }
-                metrics::inc_gauge(&metrics::NETWORK_OUTBOUND_PEERS);
             }
         }
 
         // Increment the PEERS_PER_CLIENT metric.
-        // NOTE: This metric can be larger than the connected_peers client temporarily as we
-        // register the connection regardless if we are about to drop the connection because of
-        // banned peers or because of reaching our connection limit.
         if let Some(kind) = self
             .network_globals
             .peers
             .read()
             .peer_info(&peer_id)
-            .map(|peer_info| peer_info.client.kind.clone())
+            .map(|peer_info| peer_info.client().kind.clone())
         {
             metrics::inc_gauge_vec(&metrics::PEERS_PER_CLIENT, &[&kind.to_string()]);
         } else {
             metrics::inc_gauge_vec(
                 &metrics::PEERS_PER_CLIENT,
-                &[&self::client::ClientKind::Unknown.to_string()],
+                &[&super::peerdb::client::ClientKind::Unknown.to_string()],
             );
         }
 
@@ -187,20 +182,20 @@ impl<TSpec: EthSpec> NetworkBehaviour for PeerManager<TSpec> {
             return;
         }
 
-        // Register the newly connected peer (regardless if we are about to disconnect them).
         // NOTE: We don't register peers that we are disconnecting immediately. The network service
         // does not need to know about these peers.
-        // let enr
         match endpoint {
             ConnectedPoint::Listener { send_back_addr, .. } => {
                 self.inject_connect_ingoing(peer_id, send_back_addr.clone(), None);
                 self.events
                     .push(PeerManagerEvent::PeerConnectedIncoming(*peer_id));
+                metrics::inc_gauge(&metrics::NETWORK_INBOUND_PEERS);
             }
             ConnectedPoint::Dialer { address } => {
                 self.inject_connect_outgoing(peer_id, address.clone(), None);
                 self.events
                     .push(PeerManagerEvent::PeerConnectedOutgoing(*peer_id));
+                metrics::inc_gauge(&metrics::NETWORK_OUTBOUND_PEERS);
             }
         }
 
@@ -233,8 +228,20 @@ impl<TSpec: EthSpec> NetworkBehaviour for PeerManager<TSpec> {
         if let Some(peer_info) = self.network_globals.peers.read().peer_info(&peer_id) {
             metrics::dec_gauge_vec(
                 &metrics::PEERS_PER_CLIENT,
-                &[&peer_info.client.kind.to_string()],
-            )
+                &[&peer_info.client().kind.to_string()],
+            );
+
+            // Decrement the INBOUND/OUTBOUND peer metric
+            match peer_info.connection_status() {
+                PeerConnectionStatus::Connected { n_in, n_out: _ } => {
+                    if *n_in > 0 {
+                        metrics::dec_gauge(&metrics::NETWORK_INBOUND_PEERS);
+                    } else {
+                        metrics::dec_gauge(&metrics::NETWORK_OUTBOUND_PEERS);
+                    }
+                }
+                _ => {}
+            }
         }
 
         // NOTE: It may be the case that a rejected node, due to too many peers is disconnected
@@ -248,15 +255,6 @@ impl<TSpec: EthSpec> NetworkBehaviour for PeerManager<TSpec> {
         metrics::inc_counter(&metrics::PEER_DISCONNECT_EVENT_COUNT);
         metrics::set_gauge(&metrics::PEERS_CONNECTED, connected_peers);
         metrics::set_gauge(&metrics::PEERS_CONNECTED_INTEROP, connected_peers);
-        // Decrement the INBOUND/OUTBOUND peer metric
-        match endpoint {
-            ConnectedPoint::Listener { .. } => {
-                metrics::dec_gauge(&metrics::NETWORK_INBOUND_PEERS);
-            }
-            ConnectedPoint::Dialer { .. } => {
-                metrics::dec_gauge(&metrics::NETWORK_OUTBOUND_PEERS);
-            }
-        }
     }
 
     fn inject_address_change(
