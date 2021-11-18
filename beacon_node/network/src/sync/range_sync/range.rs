@@ -430,6 +430,7 @@ mod tests {
         }
     }
 
+    #[allow(unused)]
     struct TestRig {
         log: slog::Logger,
         /// To check what does sync send to the beacon processor.
@@ -589,7 +590,8 @@ mod tests {
     }
 
     #[test]
-    fn sync() {
+    fn head_chain_removed_while_finalized_syncing() {
+        // NOTE: this is a regression test.
         let (mut rig, mut range) = range(true);
 
         // Get a peer with an advanced head
@@ -610,5 +612,6 @@ mod tests {
 
         // Fail the head chain by disconnecting the peer.
         range.remove_peer(&mut rig.cx, &head_peer);
+        range.assert_state(RangeSyncType::Finalized);
     }
 }

@@ -28,6 +28,6 @@ impl<T: BeaconChainTypes> ToStatusMessage for BeaconChain<T> {
 
 impl<T: BeaconChainTypes> ToStatusMessage for Arc<BeaconChain<T>> {
     fn status_message(&self) -> Result<StatusMessage, BeaconChainError> {
-        <BeaconChain<T> as ToStatusMessage>::status_message(&self)
+        <BeaconChain<T> as ToStatusMessage>::status_message(self)
     }
 }

@@ -72,7 +72,7 @@ impl<T: BeaconChainTypes, C: BlockStorage> ChainCollection<T, C> {
             RangeSyncState::Finalized(ref syncing_id) => {
                 if syncing_id == id {
                     // the finalized chain that was syncing was removed
-                    debug_assert!(was_syncing);
+                    debug_assert!(was_syncing && sync_type == RangeSyncType::Finalized);
                     let syncing_head_ids: SmallVec<[u64; PARALLEL_HEAD_CHAINS]> = self
                         .head_chains
                         .iter()
@@ -85,7 +85,8 @@ impl<T: BeaconChainTypes, C: BlockStorage> ChainCollection<T, C> {
                         RangeSyncState::Head(syncing_head_ids)
                     };
                 } else {
-                    debug_assert!(!was_syncing);
+                    // we removed a head chain, or an stoped finalized chain
+                    debug_assert!(!was_syncing || sync_type != RangeSyncType::Finalized);
                 }
             }
             RangeSyncState::Head(ref mut syncing_head_ids) => {
