@@ -361,3 +361,92 @@ where
         );
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use beacon_chain::builder::Witness;
+    use beacon_chain::eth1_chain::CachingEth1Backend;
+    use beacon_chain::parking_lot::RwLock;
+    use lighthouse_network::rpc::StatusMessage;
+    use slog::{o, Drain};
+
+    use slot_clock::SystemTimeSlotClock;
+    use std::sync::atomic::AtomicBool;
+    use std::sync::Arc;
+    use store::MemoryStore;
+    use types::{Hash256, MinimalEthSpec as E};
+
+    #[derive(Debug)]
+    struct FakeStorage {
+        is_block_known: AtomicBool,
+        status: RwLock<StatusMessage>,
+    }
+
+    impl Default for FakeStorage {
+        fn default() -> Self {
+            FakeStorage {
+                is_block_known: AtomicBool::new(false),
+                status: RwLock::new(StatusMessage {
+                    fork_digest: [0; 4],
+                    finalized_root: Hash256::zero(),
+                    finalized_epoch: 0usize.into(),
+                    head_root: Hash256::zero(),
+                    head_slot: 0usize.into(),
+                }),
+            }
+        }
+    }
+
+    impl BlockStorage for Arc<FakeStorage> {
+        fn is_block_known(&self, _block_root: &store::Hash256) -> bool {
+            self.is_block_known
+                .load(std::sync::atomic::Ordering::Relaxed)
+        }
+    }
+
+    impl ToStatusMessage for Arc<FakeStorage> {
+        fn status_message(&self) -> Result<StatusMessage, beacon_chain::BeaconChainError> {
+            Ok(self.status.read().clone())
+        }
+    }
+
+    type TestBeaconChainType =
+        Witness<SystemTimeSlotClock, CachingEth1Backend<E>, E, MemoryStore<E>, MemoryStore<E>>;
+
+    fn build_log(level: slog::Level, enabled: bool) -> slog::Logger {
+        let decorator = slog_term::TermDecorator::new().build();
+        let drain = slog_term::FullFormat::new(decorator).build().fuse();
+        let drain = slog_async::Async::new(drain).build().fuse();
+
+        if enabled {
+            slog::Logger::root(drain.filter_level(level).fuse(), o!())
+        } else {
+            slog::Logger::root(drain.filter(|_| false).fuse(), o!())
+        }
+    }
+
+    struct TestRig {
+        log: slog::Logger,
+        beacon_processor_rx: mpsc::Receiver<BeaconWorkEvent<TestBeaconChainType>>,
+        chain: Arc<FakeStorage>,
+    }
+
+    fn range(log_enabled: bool) -> (TestRig, RangeSync<TestBeaconChainType, Arc<FakeStorage>>) {
+        let chain = Arc::new(FakeStorage::default());
+        let log_enabled = true;
+        let log = build_log(slog::Level::Trace, log_enabled);
+        let (beacon_processor_tx, beacon_processor_rx) = mpsc::channel(10);
+        let range_sync = RangeSync::<TestBeaconChainType, Arc<FakeStorage>>::new(
+            chain.clone(),
+            beacon_processor_tx,
+            log.clone(),
+        );
+        let test_rig = TestRig {
+            log,
+            beacon_processor_rx,
+            chain,
+        };
+        (test_rig, range_sync)
+    }
+}
