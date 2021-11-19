@@ -1088,6 +1088,10 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
         if let Some(event) = self.internal_events.pop_front() {
             match event {
                 InternalBehaviourMessage::DialPeer(peer_id) => {
+                    // For any dial event, inform the peer manager
+                    let enr = self.discovery_mut().enr_of_peer(&peer_id);
+                    self.peer_manager.inject_dialing(&peer_id, enr);
+                    // Submit the event
                     let handler = self.new_handler();
                     return Poll::Ready(NBAction::Dial {
                         opts: DialOpts::peer_id(peer_id)
