@@ -378,14 +378,20 @@ impl<E: EthSpec> SlasherDB<E> {
     pub fn update_attester_max_target(
         &self,
         validator_index: u64,
-        previous_max_target: Epoch,
+        previous_max_target: Option<Epoch>,
         max_target: Epoch,
         txn: &mut RwTransaction<'_>,
     ) -> Result<(), Error> {
+        // Don't update maximum if new target is less than or equal to previous. In the case of
+        // no previous we *do* want to update.
+        if previous_max_target.map_or(false, |prev_max| max_target <= prev_max) {
+            return Ok(());
+        }
+
         // Zero out attester DB entries which are now older than the history length.
-        // Avoid writing the whole array on initialization (previous_max_target == 0), and
+        // Avoid writing the whole array on initialization (`previous_max_target == None`), and
         // avoid overwriting the entire attesters array more than once.
-        if previous_max_target != 0 {
+        if let Some(previous_max_target) = previous_max_target {
             let start_epoch = std::cmp::max(
                 previous_max_target.as_u64() + 1,
                 (max_target.as_u64() + 1).saturating_sub(self.config.history_length as u64),
@@ -574,12 +580,10 @@ impl<E: EthSpec> SlasherDB<E> {
         // See if there's an existing attestation for this attester.
         let target_epoch = attestation.data.target.epoch;
 
-        let current_epoch = self
-            .get_attester_max_target(validator_index, txn)?
-            .unwrap_or_else(|| Epoch::new(0));
+        let prev_max_target = self.get_attester_max_target(validator_index, txn)?;
 
         if let Some(existing_record) =
-            self.get_attester_record(txn, validator_index, target_epoch, current_epoch)?
+            self.get_attester_record(txn, validator_index, target_epoch, prev_max_target)?
         {
             // If the existing indexed attestation is identical, then this attestation is not
             // slashable and no update is required.
@@ -612,9 +616,8 @@ impl<E: EthSpec> SlasherDB<E> {
         }
         // If no attestation exists, insert a record for this validator.
         else {
-            if target_epoch > current_epoch {
-                self.update_attester_max_target(validator_index, current_epoch, target_epoch, txn)?;
-            }
+            self.update_attester_max_target(validator_index, prev_max_target, target_epoch, txn)?;
+
             txn.put(
                 self.attesters_db,
                 &AttesterKey::new(validator_index, target_epoch, &self.config),
@@ -632,12 +635,10 @@ impl<E: EthSpec> SlasherDB<E> {
         validator_index: u64,
         target_epoch: Epoch,
     ) -> Result<IndexedAttestation<E>, Error> {
-        let current_epoch = self
-            .get_attester_max_target(validator_index, txn)?
-            .unwrap_or_else(|| Epoch::new(0));
+        let max_target = self.get_attester_max_target(validator_index, txn)?;
 
         let record = self
-            .get_attester_record(txn, validator_index, target_epoch, current_epoch)?
+            .get_attester_record(txn, validator_index, target_epoch, max_target)?
             .ok_or(Error::MissingAttesterRecord {
                 validator_index,
                 target_epoch,
@@ -650,9 +651,9 @@ impl<E: EthSpec> SlasherDB<E> {
         txn: &mut RwTransaction<'_>,
         validator_index: u64,
         target: Epoch,
-        current_epoch: Epoch,
+        prev_max_target: Option<Epoch>,
     ) -> Result<Option<CompactAttesterRecord>, Error> {
-        if target > current_epoch {
+        if prev_max_target.map_or(true, |prev_max| target > prev_max) {
             return Ok(None);
         }
 
