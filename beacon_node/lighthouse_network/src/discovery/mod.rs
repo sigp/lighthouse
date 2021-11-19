@@ -958,12 +958,15 @@ impl<TSpec: EthSpec> NetworkBehaviour for Discovery<TSpec> {
         &mut self,
         peer_id: Option<PeerId>,
         _handler: Self::ProtocolsHandler,
-        _error: &DialError,
+        error: &DialError,
     ) {
         if let Some(peer_id) = peer_id {
-            // set peer as disconnected in discovery DHT
-            debug!(self.log, "Marking peer disconnected in DHT"; "peer_id" => %peer_id);
-            self.disconnect_peer(&peer_id);
+            // Ignore connection limit errors
+            if !matches!(error, DialError::ConnectionLimit(_)) {
+                // set peer as disconnected in discovery DHT
+                debug!(self.log, "Marking peer disconnected in DHT"; "peer_id" => %peer_id);
+                self.disconnect_peer(&peer_id);
+            }
         }
     }
 
