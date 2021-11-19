@@ -6,9 +6,8 @@ use crate::metrics::{
 };
 use crate::{
     array, AttestationBatch, AttestationQueue, AttesterRecord, BlockQueue, Config, Error,
-    IndexedAttestationId, ProposerSlashingStatus, SimpleBatch, SlasherDB,
+    IndexedAttestationId, ProposerSlashingStatus, RwTransaction, SimpleBatch, SlasherDB,
 };
-use lmdb::{RwTransaction, Transaction};
 use parking_lot::Mutex;
 use slog::{debug, error, info, Logger};
 use std::collections::HashSet;

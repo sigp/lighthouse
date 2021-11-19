@@ -24,6 +24,10 @@ pub use error::Error;
 
 use types::{AttesterSlashing, EthSpec, IndexedAttestation, ProposerSlashing};
 
+/// LMDB-compatibility shims.
+pub type Environment = mdbx::Environment<mdbx::NoWriteMap>;
+pub type RwTransaction<'env> = mdbx::Transaction<'env, mdbx::RW, mdbx::NoWriteMap>;
+
 #[derive(Debug, PartialEq)]
 pub enum AttesterSlashingStatus<E: EthSpec> {
     NotSlashable,
