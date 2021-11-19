@@ -6,7 +6,6 @@ use super::range_sync::{BatchId, ChainId};
 use super::RequestId as SyncRequestId;
 use crate::service::NetworkMessage;
 use crate::status::ToStatusMessage;
-use beacon_chain::{BeaconChain, BeaconChainTypes};
 use fnv::FnvHashMap;
 use lighthouse_network::rpc::{
     BlocksByRangeRequest, BlocksByRootRequest, GoodbyeReason, RequestId,
@@ -61,9 +60,9 @@ impl<T: EthSpec> SyncNetworkContext<T> {
             .unwrap_or_default()
     }
 
-    pub fn status_peers<U: BeaconChainTypes>(
+    pub fn status_peers<C: ToStatusMessage>(
         &mut self,
-        chain: Arc<BeaconChain<U>>,
+        chain: C,
         peers: impl Iterator<Item = PeerId>,
     ) {
         if let Ok(status_message) = &chain.status_message() {
