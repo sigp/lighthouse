@@ -224,7 +224,10 @@ pub fn prepare_execution_payload_blocking<T: BeaconChainTypes>(
         .ok_or(BlockProductionError::ExecutionLayerMissing)?;
 
     execution_layer
-        .block_on_generic(|_| async { prepare_execution_payload(chain, state).await })
+        .block_on_generic(
+            |_| async { prepare_execution_payload(chain, state).await },
+            "el_prepare_execution_payload",
+        )
         .map_err(BlockProductionError::BlockingFailed)?
 }
 

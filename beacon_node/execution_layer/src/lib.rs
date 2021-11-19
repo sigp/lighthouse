@@ -152,18 +152,20 @@ impl ExecutionLayer {
     ///
     /// The function is "generic" since it does not enforce a particular return type on
     /// `generate_future`.
-    pub fn block_on_generic<'a, T, U, V>(&'a self, generate_future: T) -> Result<V, Error>
+    pub fn block_on_generic<'a, T, U, V>(
+        &'a self,
+        generate_future: T,
+        name: &'static str,
+    ) -> Result<V, Error>
     where
         T: Fn(&'a Self) -> U,
         U: Future<Output = V>,
     {
-        let runtime = self
-            .executor()
-            .runtime()
-            .upgrade()
-            .ok_or(Error::ShuttingDown)?;
-        // TODO(merge): respect the shutdown signal.
-        Ok(runtime.block_on(generate_future(self)))
+        if let Some(res) = self.executor().block_on(generate_future(self), name) {
+            Ok(res)
+        } else {
+            Err(Error::ShuttingDown)
+        }
     }
 
     /// Convenience function to allow spawning a task without waiting for the result.
