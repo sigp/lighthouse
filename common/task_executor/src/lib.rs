@@ -183,6 +183,8 @@ impl TaskExecutor {
     /// The task is wrapped in an exit future and is shutdown on receiving the exit signal.
     ///
     /// Returns `None` if the task is shutdown before completion or if the runtime has been dropped.
+    ///
+    /// Note: This method **will panic** if called from an async context.
     pub fn block_on<V>(&self, task: impl Future<Output = V>, name: &'static str) -> Option<V> {
         let exit = self.exit.clone();
         let log = self.log.clone();
@@ -193,11 +195,11 @@ impl TaskExecutor {
             let future = future::select(Box::pin(task), exit).then(move |either| {
                 let result = match either {
                     future::Either::Left((value, _)) => {
-                        trace!(log, "Async task completed"; "task" => name);
+                        trace!(log, "Blocking async task completed"; "task" => name);
                         Some(value)
                     }
                     future::Either::Right(_) => {
-                        debug!(log, "Async task shutdown, exit received"; "task" => name);
+                        debug!(log, "Blocking async task shutdown, exit received"; "task" => name);
                         None
                     }
                 };
