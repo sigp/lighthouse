@@ -679,8 +679,7 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
                 // Determine if we have sufficient peers, which may make this discovery unnecessary.
                 let peers_on_subnet = self
                     .network_globals
-                    .peers
-                    .read()
+                    .peers()
                     .good_peers_on_subnet(subnet_query.subnet)
                     .count();
 

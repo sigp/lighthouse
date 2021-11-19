@@ -236,7 +236,6 @@ impl<T: EthSpec> PeerInfo<T> {
     /* Mutable Functions */
 
     /// Updates the sync status. Returns true if the status was changed.
-    // VISIBILITY: Both the peer manager the network sync is able to update the sync state of a peer
     pub fn update_sync_status(&mut self, sync_status: SyncStatus) -> bool {
         self.sync_status.update(sync_status)
     }

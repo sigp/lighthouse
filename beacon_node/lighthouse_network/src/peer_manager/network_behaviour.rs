@@ -146,8 +146,7 @@ impl<TSpec: EthSpec> NetworkBehaviour for PeerManager<TSpec> {
         if self.peer_limit_reached()
             && self
                 .network_globals
-                .peers
-                .read()
+                .peers()
                 .peer_info(peer_id)
                 .map_or(true, |peer| !peer.has_future_duty())
         {
@@ -185,8 +184,7 @@ impl<TSpec: EthSpec> NetworkBehaviour for PeerManager<TSpec> {
         // There are no more connections
         if self
             .network_globals
-            .peers
-            .read()
+            .peers()
             .is_connected_or_disconnecting(peer_id)
         {
             // We are disconnecting the peer or the peer has already been connected.
@@ -200,8 +198,7 @@ impl<TSpec: EthSpec> NetworkBehaviour for PeerManager<TSpec> {
             // Decrement the PEERS_PER_CLIENT metric
             if let Some(kind) = self
                 .network_globals
-                .peers
-                .read()
+                .peers()
                 .peer_info(peer_id)
                 .map(|info| info.client().kind.clone())
             {
@@ -262,7 +259,7 @@ impl<TSpec: EthSpec> NetworkBehaviour for PeerManager<TSpec> {
         _error: &DialError,
     ) {
         if let Some(peer_id) = peer_id {
-            if !self.network_globals.peers.read().is_connected(&peer_id) {
+            if !self.network_globals.peers().is_connected(&peer_id) {
                 self.inject_disconnect(&peer_id);
             }
         }

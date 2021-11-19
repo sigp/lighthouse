@@ -10,7 +10,9 @@ use fnv::FnvHashMap;
 use lighthouse_network::rpc::{
     BlocksByRangeRequest, BlocksByRootRequest, GoodbyeReason, RequestId,
 };
-use lighthouse_network::{Client, NetworkGlobals, PeerAction, PeerId, ReportSource, Request};
+use lighthouse_network::{
+    Client, NetworkGlobals, PeerAction, PeerId, ReportSource, Request, SyncStatus,
+};
 use slog::{debug, trace, warn};
 use std::sync::Arc;
 use tokio::sync::mpsc;
@@ -52,12 +54,7 @@ impl<T: EthSpec> SyncNetworkContext<T> {
 
     /// Returns the Client type of the peer if known
     pub fn client_type(&self, peer_id: &PeerId) -> Client {
-        self.network_globals
-            .peers
-            .read()
-            .peer_info(peer_id)
-            .map(|info| info.client().clone())
-            .unwrap_or_default()
+        self.network_globals.client(peer_id)
     }
 
     pub fn status_peers<C: ToStatusMessage>(
@@ -208,10 +205,17 @@ impl<T: EthSpec> SyncNetworkContext<T> {
             });
     }
 
+    pub fn update_peer_sync_status(&self, peer_id: PeerId, new_status: SyncStatus) {
+        let _ = self.send_network_msg(NetworkMessage::UpdatePeerSyncStatus {
+            peer_id,
+            sync_status: new_status,
+        });
+    }
+
     /// Sends an arbitrary network message.
-    fn send_network_msg(&mut self, msg: NetworkMessage<T>) -> Result<(), &'static str> {
-        self.network_send.send(msg).map_err(|_| {
-            debug!(self.log, "Could not send message to the network service");
+    fn send_network_msg(&self, msg: NetworkMessage<T>) -> Result<(), &'static str> {
+        self.network_send.send(msg).map_err(|msg| {
+            warn!(self.log, "Could not send message to the network service"; "msg" => ?msg.0);
             "Network channel send Failed"
         })
     }
