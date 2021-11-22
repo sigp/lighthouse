@@ -961,11 +961,20 @@ impl<TSpec: EthSpec> NetworkBehaviour for Discovery<TSpec> {
         error: &DialError,
     ) {
         if let Some(peer_id) = peer_id {
-            // Ignore connection limit errors
-            if !matches!(error, DialError::ConnectionLimit(_)) {
-                // set peer as disconnected in discovery DHT
-                debug!(self.log, "Marking peer disconnected in DHT"; "peer_id" => %peer_id);
-                self.disconnect_peer(&peer_id);
+            match error {
+                DialError::Banned
+                | DialError::LocalPeerId
+                | DialError::InvalidPeerId
+                | DialError::ConnectionIo(_)
+                | DialError::NoAddresses
+                | DialError::Transport(_) => {
+                    // set peer as disconnected in discovery DHT
+                    debug!(self.log, "Marking peer disconnected in DHT"; "peer_id" => %peer_id);
+                    self.disconnect_peer(&peer_id);
+                }
+                DialError::ConnectionLimit(_)
+                | DialError::DialPeerConditionFalse(_)
+                | DialError::Aborted => {}
             }
         }
     }
