@@ -193,7 +193,7 @@ fn get_hash(i: u64) -> Hash256 {
 /// `Epoch` will always equal `i + 1`.
 fn get_checkpoint(i: u64) -> Checkpoint {
     Checkpoint {
-        epoch: Epoch::new(i + 1),
+        epoch: Epoch::new(i),
         root: get_hash(i ),
     }
 }

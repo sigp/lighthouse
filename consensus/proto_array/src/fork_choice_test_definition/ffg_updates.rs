@@ -106,8 +106,8 @@ pub fn get_ffg_case_02_test_definition() -> ForkChoiceTestDefinition {
 
     // Ensure that the head starts at the finalized block.
     ops.push(Operation::FindHead {
-        justified_checkpoint: get_checkpoint(1),
-        finalized_checkpoint: get_checkpoint(1),
+        justified_checkpoint: get_checkpoint(0),
+        finalized_checkpoint: get_checkpoint(0),
         justified_state_balances: balances.clone(),
         expected_head: get_hash(0),
     });
@@ -156,7 +156,7 @@ pub fn get_ffg_case_02_test_definition() -> ForkChoiceTestDefinition {
         finalized_checkpoint: get_checkpoint(0),
     });
     ops.push(Operation::ProcessBlock {
-        slot: Slot::new(4),
+        slot: Slot::new(5),
         root: get_hash(9),
         parent_root: get_hash(7),
         justified_checkpoint: get_checkpoint(2),
@@ -411,7 +411,7 @@ pub fn get_ffg_case_02_test_definition() -> ForkChoiceTestDefinition {
     // END OF TESTS
     ForkChoiceTestDefinition {
         finalized_block_slot: Slot::new(0),
-        justified_checkpoint: get_checkpoint(1),
+        justified_checkpoint: get_checkpoint(0),
         finalized_checkpoint: get_checkpoint(0),
         operations: ops,
     }
