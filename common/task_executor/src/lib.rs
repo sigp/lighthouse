@@ -152,19 +152,16 @@ impl TaskExecutor {
         task: impl Future<Output = ()> + Send + 'static,
         name: &'static str,
     ) {
-        if let Some(int_gauge) = metrics::get_int_gauge(&metrics::ASYNC_TASKS_COUNT, &[name]) {
-            let int_gauge_1 = int_gauge.clone();
-            let future = task.then(move |_| {
-                int_gauge_1.dec();
-                futures::future::ready(())
-            });
+        let future = task.then(move |_| {
+            metrics::dec_gauge_vec(&metrics::ASYNC_TASKS_COUNT, &[name]);
+            futures::future::ready(())
+        });
 
-            int_gauge.inc();
-            if let Some(runtime) = self.runtime.upgrade() {
-                runtime.spawn(future);
-            } else {
-                debug!(self.log, "Couldn't spawn task. Runtime shutting down");
-            }
+        if let Some(runtime) = self.runtime.upgrade() {
+            metrics::inc_gauge_vec(&metrics::ASYNC_TASKS_COUNT, &[name]);
+            runtime.spawn(future);
+        } else {
+            debug!(self.log, "Couldn't spawn task. Runtime shutting down");
         }
     }
 
@@ -188,33 +185,29 @@ impl TaskExecutor {
     pub fn block_on<V>(&self, task: impl Future<Output = V>, name: &'static str) -> Option<V> {
         let exit = self.exit.clone();
         let log = self.log.clone();
+        metrics::inc_gauge_vec(&metrics::ASYNC_TASKS_COUNT, &[name]);
 
-        if let Some(int_gauge) = metrics::get_int_gauge(&metrics::ASYNC_TASKS_COUNT, &[name]) {
-            // Task is shutdown before it completes if `exit` receives
-            let int_gauge_1 = int_gauge.clone();
-            let future = future::select(Box::pin(task), exit).then(move |either| {
-                let result = match either {
-                    future::Either::Left((value, _)) => {
-                        trace!(log, "Blocking async task completed"; "task" => name);
-                        Some(value)
-                    }
-                    future::Either::Right(_) => {
-                        debug!(log, "Blocking async task shutdown, exit received"; "task" => name);
-                        None
-                    }
-                };
-                int_gauge_1.dec();
-                futures::future::ready(result)
-            });
+        // Task is shutdown before it completes if `exit` receives
+        let future = future::select(Box::pin(task), exit).then(move |either| {
+            let result = match either {
+                future::Either::Left((value, _)) => {
+                    trace!(log, "Blocking async task completed"; "task" => name);
+                    Some(value)
+                }
+                future::Either::Right(_) => {
+                    debug!(log, "Blocking async task shutdown, exit received"; "task" => name);
+                    None
+                }
+            };
+            metrics::dec_gauge_vec(&metrics::ASYNC_TASKS_COUNT, &[name]);
+            futures::future::ready(result)
+        });
 
-            int_gauge.inc();
-            if let Some(runtime) = self.runtime.upgrade() {
-                runtime.block_on(future)
-            } else {
-                debug!(self.log, "Couldn't spawn task. Runtime shutting down");
-                None
-            }
+        if let Some(runtime) = self.runtime.upgrade() {
+            metrics::inc_gauge_vec(&metrics::ASYNC_TASKS_COUNT, &[name]);
+            runtime.block_on(future)
         } else {
+            debug!(self.log, "Couldn't spawn task. Runtime shutting down");
             None
         }
     }
@@ -232,32 +225,27 @@ impl TaskExecutor {
         let exit = self.exit.clone();
         let log = self.log.clone();
 
-        if let Some(int_gauge) = metrics::get_int_gauge(&metrics::ASYNC_TASKS_COUNT, &[name]) {
-            // Task is shutdown before it completes if `exit` receives
-            let int_gauge_1 = int_gauge.clone();
-            let future = future::select(Box::pin(task), exit).then(move |either| {
-                let result = match either {
-                    future::Either::Left((value, _)) => {
-                        trace!(log, "Async task completed"; "task" => name);
-                        Some(value)
-                    }
-                    future::Either::Right(_) => {
-                        debug!(log, "Async task shutdown, exit received"; "task" => name);
-                        None
-                    }
-                };
-                int_gauge_1.dec();
-                futures::future::ready(result)
-            });
+        // Task is shutdown before it completes if `exit` receives
+        let future = future::select(Box::pin(task), exit).then(move |either| {
+            let result = match either {
+                future::Either::Left((value, _)) => {
+                    trace!(log, "Async task completed"; "task" => name);
+                    Some(value)
+                }
+                future::Either::Right(_) => {
+                    debug!(log, "Async task shutdown, exit received"; "task" => name);
+                    None
+                }
+            };
+            metrics::dec_gauge_vec(&metrics::ASYNC_TASKS_COUNT, &[name]);
+            futures::future::ready(result)
+        });
 
-            int_gauge.inc();
-            if let Some(runtime) = self.runtime.upgrade() {
-                Some(runtime.spawn(future))
-            } else {
-                debug!(self.log, "Couldn't spawn task. Runtime shutting down");
-                None
-            }
+        if let Some(runtime) = self.runtime.upgrade() {
+            metrics::inc_gauge_vec(&metrics::ASYNC_TASKS_COUNT, &[name]);
+            Some(runtime.spawn(future))
         } else {
+            debug!(self.log, "Couldn't spawn task. Runtime shutting down");
             None
         }
     }
