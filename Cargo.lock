@@ -3440,7 +3440,7 @@ checksum = "a3e378b66a060d48947b590737b30a1be76706c8dd7b8ba0f2fe3989c68a853f"
 [[package]]
 name = "mdbx"
 version = "0.1.0"
-source = "git+https://github.com/vorot93/mdbx-rs?branch=master#1150cafb38d6136c863c4618a4eff6a13723537d"
+source = "git+https://github.com/michaelsproul/mdbx-rs?branch=windows#1abeba103f3ba164aea96ba19c4c9a792e578078"
 dependencies = [
  "bitflags",
  "byteorder",
@@ -3456,10 +3456,11 @@ dependencies = [
 [[package]]
 name = "mdbx-sys"
 version = "0.9.3"
-source = "git+https://github.com/vorot93/mdbx-rs?branch=master#1150cafb38d6136c863c4618a4eff6a13723537d"
+source = "git+https://github.com/michaelsproul/mdbx-rs?branch=windows#1abeba103f3ba164aea96ba19c4c9a792e578078"
 dependencies = [
  "bindgen",
  "cc",
+ "cmake",
  "libc",
 ]
 
@@ -5330,7 +5331,6 @@ dependencies = [
  "lru",
  "maplit",
  "mdbx",
- "mdbx-sys",
  "parking_lot",
  "rand 0.7.3",
  "rayon",
