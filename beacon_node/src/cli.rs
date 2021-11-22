@@ -478,7 +478,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
             Arg::with_name("slasher-max-db-size")
                 .long("slasher-max-db-size")
                 .help(
-                    "Maximum size of the LMDB database used by the slasher."
+                    "Maximum size of the MDBX database used by the slasher."
                 )
                 .value_name("GIGABYTES")
                 .requires("slasher")

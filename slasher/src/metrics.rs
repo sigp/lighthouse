@@ -4,7 +4,7 @@ pub use lighthouse_metrics::*;
 lazy_static! {
     pub static ref SLASHER_DATABASE_SIZE: Result<IntGauge> = try_create_int_gauge(
         "slasher_database_size",
-        "Size of the LMDB database backing the slasher, in bytes"
+        "Size of the database backing the slasher, in bytes"
     );
     pub static ref SLASHER_RUN_TIME: Result<Histogram> = try_create_histogram(
         "slasher_process_batch_time",

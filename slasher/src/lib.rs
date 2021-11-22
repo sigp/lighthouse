@@ -24,7 +24,7 @@ pub use error::Error;
 
 use types::{AttesterSlashing, EthSpec, IndexedAttestation, ProposerSlashing};
 
-/// LMDB-compatibility shims.
+/// LMDB-to-MDBX compatibility shims.
 pub type Environment = mdbx::Environment<mdbx::NoWriteMap>;
 pub type RwTransaction<'env> = mdbx::Transaction<'env, mdbx::RW, mdbx::NoWriteMap>;
 

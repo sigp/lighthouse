@@ -13,6 +13,7 @@ pub const DEFAULT_ATTESTATION_ROOT_CACHE_SIZE: usize = 100_000;
 pub const DEFAULT_BROADCAST: bool = false;
 
 pub const MAX_HISTORY_LENGTH: usize = 1 << 16;
+pub const MDBX_GROWTH_STEP: isize = 256 * (1 << 20); // 256 MiB
 
 /// Database size to use for tests.
 ///
@@ -32,7 +33,7 @@ pub struct Config {
     pub update_period: u64,
     /// Offset from the start of the slot to begin processing.
     pub slot_offset: f64,
-    /// Maximum size of the LMDB database in megabytes.
+    /// Maximum size of the database in megabytes.
     pub max_db_size_mbs: usize,
     /// Maximum size of the in-memory cache for attestation roots.
     pub attestation_root_cache_size: usize,

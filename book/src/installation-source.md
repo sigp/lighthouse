@@ -71,7 +71,7 @@ Several dependencies may be required to compile Lighthouse. The following
 packages may be required in addition a base Ubuntu Server installation:
 
 ```bash
-sudo apt install -y git gcc g++ make cmake pkg-config
+sudo apt install -y git gcc g++ make cmake pkg-config llvm-dev libclang-dev clang
 ```
 
 #### macOS
