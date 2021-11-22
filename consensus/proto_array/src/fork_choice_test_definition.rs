@@ -58,7 +58,7 @@ impl ForkChoiceTestDefinition {
         let mut fork_choice = ProtoArrayForkChoice::new(
             self.finalized_block_slot,
             Hash256::zero(),
-                self.justified_checkpoint,
+            self.justified_checkpoint,
             self.finalized_checkpoint,
             junk_shuffling_id.clone(),
             junk_shuffling_id,
@@ -194,7 +194,7 @@ fn get_hash(i: u64) -> Hash256 {
 fn get_checkpoint(i: u64) -> Checkpoint {
     Checkpoint {
         epoch: Epoch::new(i),
-        root: get_hash(i ),
+        root: get_hash(i),
     }
 }
 

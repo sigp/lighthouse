@@ -9,7 +9,7 @@ use types::{AttestationShufflingId, Checkpoint, Epoch, Hash256, Slot};
 
 pub const DEFAULT_PRUNE_THRESHOLD: usize = 256;
 
-#[derive(Default, PartialEq, Clone, Encode, Decode)]
+#[derive(Default, PartialEq, Debug, Clone, Encode, Decode)]
 pub struct VoteTracker {
     current_root: Hash256,
     next_root: Hash256,
@@ -158,6 +158,9 @@ impl ProtoArrayForkChoice {
         let vote = self.votes.get_mut(validator_index);
 
         if target_epoch > vote.next_epoch || *vote == VoteTracker::default() {
+            dbg!("here");
+            dbg!(block_root);
+            dbg!(target_epoch);
             vote.next_root = block_root;
             vote.next_epoch = target_epoch;
         }
