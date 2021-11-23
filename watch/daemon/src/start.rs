@@ -6,22 +6,22 @@ use crate::{
 use eth2::{types::BlockId, BeaconNodeHttpClient, SensitiveUrl, Timeouts};
 use log::{debug, info};
 use std::time::Duration;
-use types::{BeaconBlockHeader, Hash256, Slot};
+use types::{BeaconBlockHeader, EthSpec, Hash256, Slot};
 
 const DEFAULT_TIMEOUT: Duration = Duration::from_secs(5);
 const BACKFILL_SLOT_COUNT: usize = 64;
 
-pub async fn start(config: Config) -> Result<(), Error> {
+pub async fn start<T: EthSpec>(config: Config) -> Result<(), Error> {
     let beacon_node_url =
         SensitiveUrl::parse(&config.beacon_node_url).map_err(Error::SensitiveUrl)?;
     let bn = BeaconNodeHttpClient::new(beacon_node_url, Timeouts::set_all(DEFAULT_TIMEOUT));
 
     let mut db = Database::connect(config).await?;
 
-    // TODO(paul): lock the canonical_roots table?
+    // TODO(paul): lock the canonical slots and epochs tables?
 
-    perform_head_update(&mut db, &bn).await?;
-    perform_backfill(&mut db, &bn).await?;
+    perform_head_update::<T>(&mut db, &bn).await?;
+    perform_backfill::<T>(&mut db, &bn).await?;
     update_unknown_blocks(&mut db, &bn).await?;
 
     Ok(())
@@ -45,7 +45,7 @@ pub async fn update_unknown_blocks<'a>(
     Ok(())
 }
 
-pub async fn perform_head_update<'a>(
+pub async fn perform_head_update<'a, T: EthSpec>(
     db: &mut Database,
     bn: &BeaconNodeHttpClient,
 ) -> Result<(), Error> {
@@ -63,7 +63,7 @@ pub async fn perform_head_update<'a>(
     // non-canonical blocks when there is a re-org to a block with a lower slot.
     if let Some(root) = Database::get_root_at_canonical_slot(&tx, head.slot).await? {
         if root != head.canonical_root() {
-            Database::delete_canonical_roots_above(&tx, head.slot).await?;
+            Database::delete_canonical_roots_above::<T>(&tx, head.slot).await?;
         }
     }
 
@@ -73,7 +73,7 @@ pub async fn perform_head_update<'a>(
     let backfill_block_count = 1;
 
     // Replace all conflicting ancestors. Perform partial backfill.
-    reverse_fill_canonical_slots(
+    reverse_fill_canonical_slots::<T>(
         &tx,
         &bn,
         next_non_skipped_block,
@@ -87,7 +87,7 @@ pub async fn perform_head_update<'a>(
     Ok(())
 }
 
-pub async fn perform_backfill<'a>(
+pub async fn perform_backfill<'a, T: EthSpec>(
     db: &mut Database,
     bn: &BeaconNodeHttpClient,
 ) -> Result<(), Error> {
@@ -99,7 +99,7 @@ pub async fn perform_backfill<'a>(
     {
         if let Some(header) = get_header(&bn, BlockId::Slot(lowest_slot - 1)).await? {
             let header_root = header.canonical_root();
-            reverse_fill_canonical_slots(
+            reverse_fill_canonical_slots::<T>(
                 &tx,
                 &bn,
                 lowest_slot,
@@ -116,7 +116,7 @@ pub async fn perform_backfill<'a>(
     Ok(())
 }
 
-pub async fn reverse_fill_canonical_slots<'a>(
+pub async fn reverse_fill_canonical_slots<'a, T: EthSpec>(
     tx: &'a Transaction<'a>,
     bn: &BeaconNodeHttpClient,
     mut next_non_skipped_block: Slot,
@@ -143,7 +143,7 @@ pub async fn reverse_fill_canonical_slots<'a>(
         }
 
         for slot in header.slot.as_u64()..next_non_skipped_block.as_u64() {
-            Database::insert_canonical_slot(&tx, slot.into(), header_root).await?;
+            Database::insert_canonical_root::<T>(&tx, slot.into(), header_root).await?;
             count += 1;
         }
 

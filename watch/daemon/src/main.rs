@@ -3,6 +3,7 @@ use database::Database;
 use env_logger::Builder;
 use log::error;
 use std::process::exit;
+use types::MainnetEthSpec;
 
 mod cli;
 mod config;
@@ -67,7 +68,7 @@ async fn run() -> Result<(), String> {
                 .map_err(|e| format!("Failure: {:?}", e))
                 .map(|_| ())
         }
-        (cli::START, Some(_)) => start::start(config)
+        (cli::START, Some(_)) => start::start::<MainnetEthSpec>(config)
             .await
             .map_err(|e| format!("Failure: {:?}", e)),
         _ => Err("Unsupported subcommand. See --help".into()),

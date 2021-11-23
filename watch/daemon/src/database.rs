@@ -4,7 +4,7 @@ use std::convert::TryInto;
 use std::time::Duration;
 use tokio::{runtime, task::JoinHandle};
 use tokio_postgres::{config::Config as PostgresConfig, Client, NoTls, Row};
-use types::{BeaconBlockHeader, Hash256, Slot};
+use types::{BeaconBlockHeader, EthSpec, Hash256, Slot};
 
 pub use tokio_postgres::Transaction;
 
@@ -83,6 +83,17 @@ impl Database {
             )
             .await?;
 
+        db.client
+            .execute(
+                "CREATE TABLE canonical_epochs (
+                epoch integer PRIMARY KEY,
+                root char(66),
+                beacon_block char(66) REFERENCES beacon_blocks(root)
+            )",
+                &[],
+            )
+            .await?;
+
         Ok(db)
     }
 
@@ -111,10 +122,24 @@ impl Database {
         self.client.transaction().await.map_err(Into::into)
     }
 
-    pub async fn delete_canonical_roots_above<'a>(
+    pub async fn delete_canonical_roots_above<'a, T: EthSpec>(
         tx: &'a Transaction<'a>,
         slot: Slot,
     ) -> Result<(), Error> {
+        let epoch = slot.epoch(T::slots_per_epoch());
+        let epoch_end_slot = epoch.end_slot(T::slots_per_epoch());
+
+        // Optionally remove the canonical epoch.
+        if slot < epoch_end_slot {
+            let epoch: i32 = epoch.as_u64().try_into().map_err(|_| Error::InvalidSlot)?;
+            tx.execute(
+                "DELETE FROM canonical_epochs
+                    WHERE epoch > $1",
+                &[&epoch],
+            )
+            .await?;
+        }
+
         let slot: i32 = slot.as_u64().try_into().map_err(|_| Error::InvalidSlot)?;
 
         tx.execute(
@@ -127,13 +152,27 @@ impl Database {
         Ok(())
     }
 
-    pub async fn insert_canonical_slot<'a>(
+    pub async fn insert_canonical_root<'a, T: EthSpec>(
         tx: &'a Transaction<'a>,
         slot: Slot,
         root: Hash256,
     ) -> Result<(), Error> {
-        let slot: i32 = slot.as_u64().try_into().map_err(|_| Error::InvalidSlot)?;
         let root: String = format!("{:?}", root);
+        let epoch = slot.epoch(T::slots_per_epoch());
+        let epoch_end_slot = epoch.end_slot(T::slots_per_epoch());
+
+        // Optionally update the canonical epoch.
+        if slot == epoch_end_slot {
+            let epoch: i32 = epoch.as_u64().try_into().map_err(|_| Error::InvalidSlot)?;
+            tx.execute(
+                "INSERT INTO canonical_epochs (epoch, root)
+                VALUES ($1, $2)",
+                &[&epoch, &root],
+            )
+            .await?;
+        }
+
+        let slot: i32 = slot.as_u64().try_into().map_err(|_| Error::InvalidSlot)?;
 
         tx.execute(
             "INSERT INTO canonical_slots (slot, root)
@@ -220,17 +259,23 @@ impl Database {
             .map_err(|_| Error::InvalidSlot)?;
         let root: String = format!("{:?}", header_root);
 
-        // TODO(paul): if not exists.
-
         tx.execute(
             "INSERT INTO beacon_blocks (slot, root)
             VALUES ($1, $2)
             ON CONFLICT DO NOTHING",
             &[&slot, &root],
         )
-        .await
-        .map_err(Into::into)
-        .map(|_| ())
+        .await?;
+
+        tx.execute(
+            "UPDATE canonical_slots
+            SET beacon_block = $1
+            WHERE slot = $2",
+            &[&root, &slot],
+        )
+        .await?;
+
+        Ok(())
     }
 }
 
