@@ -197,7 +197,7 @@ impl Database {
             .await?;
 
         if let Some(row) = row_opt {
-            Ok(Some(row_to_root(row, 0)?))
+            Ok(Some(row_to_root(&row, 0)?))
         } else {
             Ok(None)
         }
@@ -240,7 +240,7 @@ impl Database {
             .await?;
 
         rows.into_iter()
-            .map(|row| row_to_root(row, 0))
+            .map(|row| row_to_root(&row, 0))
             .collect::<Result<_, _>>()
     }
 
@@ -270,12 +270,54 @@ impl Database {
 
         Ok(())
     }
+
+    pub async fn get_beacon_block<'a>(
+        tx: &'a Transaction<'a>,
+        root: Hash256,
+    ) -> Result<Option<WatchBeaconBlock>, Error> {
+        let row = tx
+            .query_opt(
+                "SELECT (slot, root, parent_root)
+                FROM beacon_blocks
+                WHERE root = ",
+                &[&encode_hash256(root)],
+            )
+            .await?;
+
+        let block_opt = if let Some(row) = row {
+            let block = WatchBeaconBlock {
+                slot: row_to_slot(&row, 0)?,
+                root: row_to_root(&row, 1)?,
+                parent_root: row_to_root(&row, 2)?,
+            };
+
+            Some(block)
+        } else {
+            None
+        };
+
+        Ok(block_opt)
+    }
 }
 
-fn row_to_root(row: Row, index: usize) -> Result<Hash256, Error> {
+struct WatchBeaconBlock {
+    slot: Slot,
+    root: Hash256,
+    parent_root: Hash256,
+}
+
+fn row_to_root(row: &Row, index: usize) -> Result<Hash256, Error> {
     row.try_get::<_, String>(index)?
         .parse()
         .map_err(|_| Error::InvalidRoot)
+}
+
+fn row_to_slot(row: &Row, index: usize) -> Result<Slot, Error> {
+    row.try_get::<_, i32>(index)
+        .map_err(|_| Error::InvalidSlot)?
+        .try_into()
+        .map_err(|_| Error::InvalidSlot)
+        .map(|slot: u64| slot.into())
 }
 
 fn encode_hash256(h: Hash256) -> String {
