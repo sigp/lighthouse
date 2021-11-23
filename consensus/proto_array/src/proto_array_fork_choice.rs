@@ -158,9 +158,6 @@ impl ProtoArrayForkChoice {
         let vote = self.votes.get_mut(validator_index);
 
         if target_epoch > vote.next_epoch || *vote == VoteTracker::default() {
-            dbg!("here");
-            dbg!(block_root);
-            dbg!(target_epoch);
             vote.next_root = block_root;
             vote.next_epoch = target_epoch;
         }
