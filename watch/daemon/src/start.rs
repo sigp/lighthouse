@@ -35,8 +35,7 @@ pub async fn update_unknown_blocks<'a>(
 
     for root in Database::unknown_canonical_blocks(&tx, BACKFILL_SLOT_COUNT as i64).await? {
         if let Some(header) = get_header(bn, BlockId::Root(root)).await? {
-            let header_root = header.canonical_root();
-            Database::insert_canonical_header_if_not_exists(&tx, &header, header_root).await?;
+            Database::insert_canonical_header_if_not_exists(&tx, &header, root).await?;
         }
     }
 
