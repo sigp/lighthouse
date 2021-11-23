@@ -1,11 +1,15 @@
-use crate::{config::Config, database::Database, Error};
+use crate::{
+    config::Config,
+    database::{Database, Transaction},
+    Error,
+};
 use eth2::{types::BlockId, BeaconNodeHttpClient, SensitiveUrl, Timeouts};
 use log::{debug, info};
 use std::time::Duration;
-use types::BeaconBlockHeader;
+use types::{BeaconBlockHeader, Hash256, Slot};
 
 const DEFAULT_TIMEOUT: Duration = Duration::from_secs(5);
-const MAX_BLOCKS_PER_CANONICAL_ROOTS_BACKFILL: usize = 1_024;
+const BACKFILL_SLOT_COUNT: usize = 1_024;
 
 pub async fn start(config: Config) -> Result<(), Error> {
     let beacon_node_url =
@@ -14,79 +18,103 @@ pub async fn start(config: Config) -> Result<(), Error> {
 
     let mut db = Database::connect(config).await?;
 
-    let head = get_header(&bn, BlockId::Head)
-        .await?
-        .ok_or(Error::RemoteHeadUnknown)?;
-
     // TODO(paul): lock the canonical_roots table?
 
-    debug!("Starting head update with head slot {}", head.slot);
-    reverse_fill_canonical_slots(&mut db, &bn, head).await?;
-
-    /*
-    if let Some(lowest_slot) = db.lowest_canonical_slot().await?.filter(|slot| *slot != 0) {
-        if let Some(earlier_header) = get_header(&bn, BlockId::Slot(lowest_slot - 1)).await? {
-            debug!(
-                "Starting early slots update with slot {}",
-                earlier_header.slot
-            );
-            reverse_fill_canonical_slots(&mut db, &bn, earlier_header).await?;
-        }
-    }
-    */
-
-    /*
-    let highest_slot = db.highest_canonical_slot().await?;
-    let lowest_slot = db.lowest_canonical_slot().await?;
-
-    match (highest_slot, lowest_slot) {
-        (Some(highest), Some(lowest)) => {
-            if head_block.slot >= highest {
-                // check slots match.
-            } else if head_block.slot < highest {
-                // check slots match
-            }
-        }
-        _ => {
-            info!("DB canonical slots are not initialized",);
-        }
-    };
-    */
+    perform_head_update(&mut db, &bn).await?;
+    perform_backfill(&mut db, &bn).await?;
 
     Ok(())
 }
 
-pub async fn reverse_fill_canonical_slots(
+pub async fn perform_head_update<'a>(
     db: &mut Database,
     bn: &BeaconNodeHttpClient,
-    mut header: BeaconBlockHeader,
+) -> Result<(), Error> {
+    // Load the head from the beacon node.
+    let head = get_header(&bn, BlockId::Head)
+        .await?
+        .ok_or(Error::RemoteHeadUnknown)?;
+    let head_root = head.canonical_root();
+
+    debug!("Starting head update with head slot {}", head.slot);
+
+    let tx = db.transaction().await?;
+
+    // Remove all canonical roots with a slot higher than the head. This removes prunes
+    // non-canonical blocks when there is a re-org to a block with a lower slot.
+    if let Some(root) = Database::get_root_at_canonical_slot(&tx, head.slot).await? {
+        if root != head.canonical_root() {
+            Database::delete_canonical_roots_above(&tx, head.slot).await?;
+        }
+    }
+
+    // Assume that the slot after the head will not be a skip slot.
+    let next_non_skipped_block = head.slot + 1;
+    // Don't backfill more than minimally required.
+    let backfill_block_count = 1;
+
+    // Replace all conflicting ancestors. Perform partial backfill.
+    reverse_fill_canonical_slots(
+        &tx,
+        &bn,
+        next_non_skipped_block,
+        head,
+        head_root,
+        backfill_block_count,
+    )
+    .await?;
+    tx.commit().await?;
+
+    Ok(())
+}
+
+pub async fn perform_backfill<'a>(
+    db: &mut Database,
+    bn: &BeaconNodeHttpClient,
 ) -> Result<(), Error> {
     let tx = db.transaction().await?;
 
-    /*
-    if let Some(root) = Database::get_root_at_canonical_slot(&tx, header.slot).await? {
-        if root == header.canonical_root() {
-            // If this header is already in the canonical chain, there's nothing to do.
-            return Ok(());
+    if let Some(lowest_slot) = Database::lowest_canonical_slot(&tx)
+        .await?
+        .filter(|lowest_slot| *lowest_slot != 0)
+    {
+        if let Some(header) = get_header(&bn, BlockId::Slot(lowest_slot - 1)).await? {
+            let header_root = header.canonical_root();
+            reverse_fill_canonical_slots(
+                &tx,
+                &bn,
+                lowest_slot,
+                header,
+                header_root,
+                BACKFILL_SLOT_COUNT,
+            )
+            .await?;
         }
     }
-    */
 
-    // Remove any descendants which conflict with the new head.
-    // Database::delete_canonical_roots_above(&tx, header.slot).await?;
+    tx.commit().await?;
 
+    Ok(())
+}
+
+pub async fn reverse_fill_canonical_slots<'a>(
+    tx: &'a Transaction<'a>,
+    bn: &BeaconNodeHttpClient,
+    mut next_non_skipped_block: Slot,
+    mut header: BeaconBlockHeader,
+    mut header_root: Hash256,
+    max_count: usize,
+) -> Result<(), Error> {
     let mut count = 0;
-    let mut prev_slot = header.slot + 1;
 
     loop {
-        let root = header.canonical_root();
         if let Some(known_root) = Database::get_root_at_canonical_slot(&tx, header.slot).await? {
-            if known_root == root {
+            if known_root == header_root {
                 info!("Reverse fill completed at canonical slot {}", header.slot);
                 break;
             }
         } else {
-            if count >= MAX_BLOCKS_PER_CANONICAL_ROOTS_BACKFILL {
+            if count >= max_count {
                 info!(
                     "Reverse fill stopped at canonical slot {} with {} slots updated",
                     header.slot, count
@@ -95,21 +123,20 @@ pub async fn reverse_fill_canonical_slots(
             }
         }
 
-        for slot in header.slot.as_u64()..prev_slot.as_u64() {
-            Database::insert_canonical_slot(&tx, slot.into(), root).await?;
+        for slot in header.slot.as_u64()..next_non_skipped_block.as_u64() {
+            Database::insert_canonical_slot(&tx, slot.into(), header_root).await?;
             count += 1;
         }
 
-        prev_slot = header.slot;
+        next_non_skipped_block = header.slot;
         header = if let Some(header) = get_header(bn, BlockId::Root(header.parent_root)).await? {
+            header_root = header.canonical_root();
             header
         } else {
             info!("Reverse fill exhausted at canonical slot {}", header.slot);
             break;
         };
     }
-
-    tx.commit().await?;
 
     Ok(())
 }

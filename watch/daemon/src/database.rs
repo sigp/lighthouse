@@ -3,8 +3,10 @@ use log::{error, info};
 use std::convert::TryInto;
 use std::time::Duration;
 use tokio::{runtime, task::JoinHandle};
-use tokio_postgres::{config::Config as PostgresConfig, Client, NoTls, Transaction};
+use tokio_postgres::{config::Config as PostgresConfig, Client, NoTls};
 use types::{Hash256, Slot};
+
+pub use tokio_postgres::Transaction;
 
 pub struct Database {
     client: Client,
@@ -151,22 +153,18 @@ impl Database {
     ) -> Result<Option<Hash256>, Error> {
         let slot: i32 = slot.as_u64().try_into().map_err(|_| Error::InvalidSlot)?;
 
-        let query = tx
+        let row_opt = tx
             .query_opt(
                 "SELECT root
                 FROM canonical_slots
-                WHERE slot = $1",
+                WHERE slot = $1;",
                 &[&slot],
             )
             .await?;
 
-        if let Some(row) = query {
-            if row.columns().len() != 2 {
-                return Ok(None);
-            }
-
+        if let Some(row) = row_opt {
             let root: Hash256 = row
-                .try_get::<_, String>(1)?
+                .try_get::<_, String>(0)?
                 .parse()
                 .map_err(|_| Error::InvalidRoot)?;
 
@@ -176,37 +174,8 @@ impl Database {
         }
     }
 
-    /*
-    pub async fn highest_canonical_slot(&self) -> Result<Option<Slot>, Error> {
-        let query = self
-            .client
-            .query_opt(
-                "SELECT MAX(slot)
-                FROM canonical_slots",
-                &[],
-            )
-            .await?;
-
-        if let Some(row) = query {
-            if row.columns().len() != 2 {
-                return Ok(None);
-            }
-
-            let slot: u64 = row
-                .try_get::<_, i64>(1)?
-                .try_into()
-                .map_err(|_| Error::InvalidSlot)?;
-
-            Ok(Some(slot.into()))
-        } else {
-            Ok(None)
-        }
-    }
-    */
-
-    pub async fn lowest_canonical_slot(&self) -> Result<Option<Slot>, Error> {
-        let query = self
-            .client
+    pub async fn lowest_canonical_slot<'a>(tx: &'a Transaction<'a>) -> Result<Option<Slot>, Error> {
+        let row_opt = tx
             .query_opt(
                 "SELECT MIN(slot)
                 FROM canonical_slots",
@@ -214,17 +183,13 @@ impl Database {
             )
             .await?;
 
-        if let Some(row) = query {
-            if row.columns().len() != 2 {
-                return Ok(None);
+        if let Some(row) = row_opt {
+            if let Some(slot) = row.try_get::<_, Option<i32>>(0)? {
+                let slot: u64 = slot.try_into().map_err(|_| Error::InvalidSlot)?;
+                Ok(Some(slot.into()))
+            } else {
+                Ok(None)
             }
-
-            let slot: u64 = row
-                .try_get::<_, i64>(1)?
-                .try_into()
-                .map_err(|_| Error::InvalidSlot)?;
-
-            Ok(Some(slot.into()))
         } else {
             Ok(None)
         }
