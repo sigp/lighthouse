@@ -344,8 +344,17 @@ where
 pub struct PersistedForkChoiceStore {
     balances_cache: BalancesCache,
     time: Slot,
-    pub finalized_checkpoint: Checkpoint,
-    pub justified_checkpoint: Checkpoint,
+    finalized_checkpoint: Checkpoint,
+    justified_checkpoint: Checkpoint,
     justified_balances: Vec<u64>,
     best_justified_checkpoint: Checkpoint,
+}
+
+impl PersistedForkChoiceStore {
+    pub fn get_finalized_checkpoint(&self) -> Checkpoint {
+        self.finalized_checkpoint
+    }
+    pub fn get_justified_checkpoint(&self) -> Checkpoint {
+        self.justified_checkpoint
+    }
 }

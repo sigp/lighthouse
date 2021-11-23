@@ -105,19 +105,15 @@ pub fn migrate_schema<T: BeaconChainTypes>(
         // updating `justified_epoch` to `justified_checkpoint` and `finalized_epoch` to
         // `finalized_checkpoint`.
         (SchemaVersion(5), SchemaVersion(6)) => {
-            let fork_choice_opt = db
-                .get_item::<PersistedForkChoice>(&FORK_CHOICE_DB_KEY)?
-                .map(|mut persisted_fork_choice| {
-                    let fork_choice =
-                        proto_array_from_legacy_persisted::<T>(&persisted_fork_choice, db.clone())?;
-                    persisted_fork_choice.fork_choice.proto_array_bytes = fork_choice.as_bytes();
-                    Ok::<_, String>(persisted_fork_choice)
-                })
-                .transpose()
-                .map_err(StoreError::SchemaMigrationError)?;
-            if let Some(fork_choice) = fork_choice_opt {
+            let fork_choice_opt = db.get_item::<PersistedForkChoice>(&FORK_CHOICE_DB_KEY)?;
+            if let Some(mut persisted_fork_choice) = fork_choice_opt {
+                // `PersistedForkChoice` stores the `ProtoArray` as a `Vec<u8>`. Deserialize these
+                // bytes assuming the legacy struct, and transform them to the new struct before
+                // re-serializing.
+                update_legacy_proto_array_bytes::<T>(&mut persisted_fork_choice, db.clone())?;
+
                 // Store the converted fork choice store under the same key.
-                db.put_item::<PersistedForkChoice>(&FORK_CHOICE_DB_KEY, &fork_choice)?;
+                db.put_item::<PersistedForkChoice>(&FORK_CHOICE_DB_KEY, &persisted_fork_choice)?;
             }
 
             db.store_schema_version(to)?;
@@ -159,40 +155,49 @@ impl StoreItem for OnDiskStoreConfigV4 {
 four_byte_option_impl!(four_byte_option_usize, usize);
 
 /// Only used for SSZ deserialization of the persisted fork choice during the database migration
-/// from schema 4 to schema 5.
-pub fn proto_array_from_legacy_persisted<T: BeaconChainTypes>(
-    persisted_fork_choice: &PersistedForkChoice,
+/// from schema 5 to schema 6.
+fn update_legacy_proto_array_bytes<T: BeaconChainTypes>(
+    persisted_fork_choice: &mut PersistedForkChoice,
     db: Arc<HotColdDB<T::EthSpec, T::HotStore, T::ColdStore>>,
-) -> Result<ProtoArrayForkChoice, String> {
+) -> Result<(), StoreError> {
     let legacy_container =
         LegacySszContainer::from_ssz_bytes(&persisted_fork_choice.fork_choice.proto_array_bytes)
             .map_err(|e| {
-                format!(
+                StoreError::SchemaMigrationError(format!(
                     "Failed to decode ProtoArrayForkChoice during schema migration: {:?}",
                     e
-                )
+                ))
             })?;
 
     // Clone the legacy proto nodes in order to maintain information about `node.justified_epoch`
     // and `node.finalized_epoch`.
     let legacy_nodes = legacy_container.nodes.clone();
 
+    let justified_checkpoint = persisted_fork_choice
+        .fork_choice_store
+        .get_justified_checkpoint();
+    let finalized_checkpoint = persisted_fork_choice
+        .fork_choice_store
+        .get_finalized_checkpoint();
+
     // These transformations instantiate `node.justified_checkpoint` and `node.finalized_checkpoint`
     // to `None`.
-    let container: SszContainer = legacy_container.into_ssz_container(
-        persisted_fork_choice.fork_choice_store.justified_checkpoint,
-        persisted_fork_choice.fork_choice_store.finalized_checkpoint,
-    );
+    let container: SszContainer =
+        legacy_container.into_ssz_container(justified_checkpoint, finalized_checkpoint);
+
     let mut fork_choice: ProtoArrayForkChoice = container.into();
 
-    let finalized_root = persisted_fork_choice
-        .fork_choice_store
-        .finalized_checkpoint
-        .root;
+    update_checkpoints::<T>(
+        finalized_checkpoint.root,
+        &legacy_nodes,
+        &mut fork_choice,
+        db,
+    )
+    .map_err(StoreError::SchemaMigrationError)?;
 
-    update_roots::<T>(db, finalized_root, &legacy_nodes, &mut fork_choice)?;
+    persisted_fork_choice.fork_choice.proto_array_bytes = fork_choice.as_bytes();
 
-    Ok(fork_choice)
+    Ok(())
 }
 
 struct HeadInfo {
@@ -201,13 +206,13 @@ struct HeadInfo {
     slot: Slot,
 }
 
-fn update_roots<T: BeaconChainTypes>(
-    db: Arc<HotColdDB<T::EthSpec, T::HotStore, T::ColdStore>>,
+fn update_checkpoints<T: BeaconChainTypes>(
     finalized_root: Hash256,
     legacy_nodes: &[LegacyProtoNode],
     fork_choice: &mut ProtoArrayForkChoice,
+    db: Arc<HotColdDB<T::EthSpec, T::HotStore, T::ColdStore>>,
 ) -> Result<(), String> {
-    let heads = find_heads(finalized_root, fork_choice);
+    let heads = find_finalized_descendant_heads(finalized_root, fork_choice);
 
     // For each head, first gather all epochs we will need to find justified or finalized roots for.
     for head in heads {
@@ -231,16 +236,15 @@ fn update_roots<T: BeaconChainTypes>(
             relevant_epoch_finder,
         )?;
 
-        // Instantiate a block roots iter and iterate backwards to the start
-        // of each justified or finalized epoch.
+        // find the block roots associated with each relevant epoch.
         let roots_by_epoch = map_relevant_epochs_to_roots::<T>(
-            db.clone(),
             head.root,
             head.slot,
-            &mut relevant_epochs,
+            relevant_epochs.as_slice(),
+            db.clone(),
         )?;
 
-        // Iterate through the chain of descendants from this head and add justified checkpoints
+        // Apply this mutator to the chain of descendants from this head, adding justified
         // and finalized checkpoints for each.
         let node_mutator = |index, node: &mut ProtoNode| {
             let (justified_epoch, finalized_epoch) = legacy_nodes
@@ -278,21 +282,25 @@ fn update_roots<T: BeaconChainTypes>(
     Ok(())
 }
 
+/// Sorts and de-duplicates the given `epochs` and creates a single `BlockRootsIterator`. Iterates
+/// backwards from the given `head_root` and `head_slot` and finds the block root at the start slot
+/// of each epoch.
 fn map_relevant_epochs_to_roots<T: BeaconChainTypes>(
-    db: Arc<HotColdDB<T::EthSpec, T::HotStore, T::ColdStore>>,
     head_root: Hash256,
     head_slot: Slot,
-    relevant_epochs: &mut Vec<Epoch>,
+    epochs: &[Epoch],
+    db: Arc<HotColdDB<T::EthSpec, T::HotStore, T::ColdStore>>,
 ) -> Result<HashMap<Epoch, Hash256>, String> {
     // Reverse sort the epochs and remove duplicates.
-    relevant_epochs.sort_unstable_by(|a, b| b.cmp(a));
+    let mut relevant_epochs = epochs.to_vec();
+    relevant_epochs.to_vec().sort_unstable_by(|a, b| b.cmp(a));
     relevant_epochs.dedup();
 
-    // Iterate backwards, find root at each epoch.
+    // Iterate backwards from the given `head_root` and `head_slot` and find the block root at each epoch.
     let mut iter = std::iter::once(Ok((head_root, head_slot)))
         .chain(BlockRootsIterator::from_block(db, head_root).map_err(|e| format!("{:?}", e))?);
     let mut roots_by_epoch = HashMap::new();
-    for epoch in relevant_epochs.iter().copied() {
+    for epoch in relevant_epochs.into_iter() {
         let start_slot = epoch.start_slot(T::EthSpec::slots_per_epoch());
 
         let root = iter
@@ -307,6 +315,8 @@ fn map_relevant_epochs_to_roots<T: BeaconChainTypes>(
     Ok(roots_by_epoch)
 }
 
+/// Applies a mutator to every node in a chain for descendants from the `finalized_root`, starting
+/// with the node at the given `head_index`.
 fn apply_to_chain_of_descendants<F>(
     finalized_root: Hash256,
     head_index: usize,
@@ -328,6 +338,8 @@ where
     let mut parent_opt =
         parent_index_opt.and_then(|index| fork_choice.core_proto_array_mut().nodes.get_mut(index));
 
+    // Iterate backwards through all parents until there is no reference to a parent or we reach
+    // the `finalized_root` node.
     while let (Some(parent), Some(parent_index)) = (parent_opt, parent_index_opt) {
         node_mutator(parent_index, parent)?;
 
@@ -345,7 +357,13 @@ where
     Ok(())
 }
 
-fn find_heads(finalized_root: Hash256, fork_choice: &ProtoArrayForkChoice) -> Vec<HeadInfo> {
+/// Finds all heads by finding all nodes in the proto array that are not referenced as parents. Then
+/// check that these nodes are descendants of the finalized root in order to determine if they are
+/// relevant.
+fn find_finalized_descendant_heads(
+    finalized_root: Hash256,
+    fork_choice: &ProtoArrayForkChoice,
+) -> Vec<HeadInfo> {
     let nodes_referenced_as_parents: Vec<usize> = fork_choice
         .core_proto_array()
         .nodes
@@ -359,23 +377,19 @@ fn find_heads(finalized_root: Hash256, fork_choice: &ProtoArrayForkChoice) -> Ve
         .iter()
         .enumerate()
         .filter_map(|(index, node)| {
-            if !nodes_referenced_as_parents.contains(&index)
-                && fork_choice.is_descendant(finalized_root, node.root)
-            {
-                Some(HeadInfo {
-                    index,
-                    root: node.root,
-                    slot: node.slot,
-                })
-            } else {
-                None
-            }
+            (!nodes_referenced_as_parents.contains(&index)
+                && fork_choice.is_descendant(finalized_root, node.root))
+            .then(|| HeadInfo {
+                index,
+                root: node.root,
+                slot: node.slot,
+            })
         })
         .collect::<Vec<_>>()
 }
 
 /// Only used for SSZ deserialization of the persisted fork choice during the database migration
-/// from schema 4 to schema 5.
+/// from schema 5 to schema 6.
 #[derive(Encode, Decode)]
 pub struct LegacySszContainer {
     votes: Vec<VoteTracker>,
@@ -408,7 +422,7 @@ impl LegacySszContainer {
 }
 
 /// Only used for SSZ deserialization of the persisted fork choice during the database migration
-/// from schema 4 to schema 5.
+/// from schema 5 to schema 6.
 #[derive(Encode, Decode, Clone)]
 pub struct LegacyProtoNode {
     pub slot: Slot,
