@@ -13,7 +13,9 @@ use futures::channel::mpsc::{channel, Receiver, Sender};
 use futures::{future, StreamExt};
 
 use slog::{error, info, o, warn, Drain, Duplicate, Level, Logger};
-use sloggers::{file::FileLoggerBuilder, null::NullLoggerBuilder, types::Severity, Build};
+use sloggers::{
+    file::FileLoggerBuilder, null::NullLoggerBuilder, types::Format, types::Severity, Build,
+};
 use std::fs::create_dir_all;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -184,6 +186,10 @@ impl<E: EthSpec> EnvironmentBuilder<E> {
         let file_logger = FileLoggerBuilder::new(&path)
             .level(logfile_level)
             .channel_size(LOG_CHANNEL_SIZE)
+            .format(match config.log_format {
+                Some("JSON") => Format::Json,
+                _ => Format::default(),
+            })
             .rotate_size(config.max_log_size)
             .rotate_keep(config.max_log_number)
             .rotate_compress(config.compression)

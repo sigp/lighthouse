@@ -5354,6 +5354,7 @@ dependencies = [
  "serde",
  "slog",
  "slog-async",
+ "slog-json",
  "slog-kvfilter",
  "slog-scope",
  "slog-stdlog",

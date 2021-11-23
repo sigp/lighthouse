@@ -135,7 +135,8 @@ fn main() {
                 .value_name("FORMAT")
                 .help("Specifies the log format used when emitting logs to the terminal.")
                 .possible_values(&["JSON"])
-                .takes_value(true),
+                .takes_value(true)
+                .global(true),
         )
         .arg(
             Arg::with_name("debug-level")
