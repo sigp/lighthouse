@@ -4,7 +4,7 @@ use std::convert::TryInto;
 use std::time::Duration;
 use tokio::{runtime, task::JoinHandle};
 use tokio_postgres::{config::Config as PostgresConfig, Client, NoTls, Row};
-use types::{BeaconBlockHeader, EthSpec, Hash256, Slot};
+use types::{BeaconBlockHeader, Epoch, EthSpec, Hash256, Slot};
 
 pub use tokio_postgres::Transaction;
 
@@ -66,6 +66,7 @@ impl Database {
             .execute(
                 "CREATE TABLE beacon_blocks (
                 root char(66) PRIMARY KEY,
+                parent_root char(66) NOT NULL,
                 slot integer NOT NULL
             )",
                 &[],
@@ -131,21 +132,18 @@ impl Database {
 
         // Optionally remove the canonical epoch.
         if slot < epoch_end_slot {
-            let epoch: i32 = epoch.as_u64().try_into().map_err(|_| Error::InvalidSlot)?;
             tx.execute(
                 "DELETE FROM canonical_epochs
                     WHERE epoch > $1",
-                &[&epoch],
+                &[&encode_epoch(epoch)?],
             )
             .await?;
         }
 
-        let slot: i32 = slot.as_u64().try_into().map_err(|_| Error::InvalidSlot)?;
-
         tx.execute(
             "DELETE FROM canonical_slots
                 WHERE slot > $1",
-            &[&slot],
+            &[&encode_slot(slot)?],
         )
         .await?;
 
@@ -157,27 +155,24 @@ impl Database {
         slot: Slot,
         root: Hash256,
     ) -> Result<(), Error> {
-        let root: String = format!("{:?}", root);
+        let root = encode_hash256(root);
         let epoch = slot.epoch(T::slots_per_epoch());
         let epoch_end_slot = epoch.end_slot(T::slots_per_epoch());
 
         // Optionally update the canonical epoch.
         if slot == epoch_end_slot {
-            let epoch: i32 = epoch.as_u64().try_into().map_err(|_| Error::InvalidSlot)?;
             tx.execute(
                 "INSERT INTO canonical_epochs (epoch, root)
                 VALUES ($1, $2)",
-                &[&epoch, &root],
+                &[&encode_epoch(epoch)?, &root],
             )
             .await?;
         }
 
-        let slot: i32 = slot.as_u64().try_into().map_err(|_| Error::InvalidSlot)?;
-
         tx.execute(
             "INSERT INTO canonical_slots (slot, root)
             VALUES ($1, $2)",
-            &[&slot, &root],
+            &[&encode_slot(slot)?, &root],
         )
         .await
         .map_err(Into::into)
@@ -188,14 +183,12 @@ impl Database {
         tx: &'a Transaction<'a>,
         slot: Slot,
     ) -> Result<Option<Hash256>, Error> {
-        let slot: i32 = slot.as_u64().try_into().map_err(|_| Error::InvalidSlot)?;
-
         let row_opt = tx
             .query_opt(
                 "SELECT root
                 FROM canonical_slots
                 WHERE slot = $1;",
-                &[&slot],
+                &[&encode_slot(slot)?],
             )
             .await?;
 
@@ -252,18 +245,14 @@ impl Database {
         header: &BeaconBlockHeader,
         header_root: Hash256,
     ) -> Result<(), Error> {
-        let slot: i32 = header
-            .slot
-            .as_u64()
-            .try_into()
-            .map_err(|_| Error::InvalidSlot)?;
-        let root: String = format!("{:?}", header_root);
+        let slot = encode_slot(header.slot)?;
+        let header_root = encode_hash256(header_root);
 
         tx.execute(
-            "INSERT INTO beacon_blocks (slot, root)
-            VALUES ($1, $2)
+            "INSERT INTO beacon_blocks (slot, root, parent_root)
+            VALUES ($1, $2, $3)
             ON CONFLICT DO NOTHING",
-            &[&slot, &root],
+            &[&slot, &header_root, &encode_hash256(header.parent_root)],
         )
         .await?;
 
@@ -271,7 +260,7 @@ impl Database {
             "UPDATE canonical_slots
             SET beacon_block = $1
             WHERE slot = $2",
-            &[&root, &slot],
+            &[&header_root, &slot],
         )
         .await?;
 
@@ -283,4 +272,16 @@ fn row_to_root(row: Row, index: usize) -> Result<Hash256, Error> {
     row.try_get::<_, String>(index)?
         .parse()
         .map_err(|_| Error::InvalidRoot)
+}
+
+fn encode_hash256(h: Hash256) -> String {
+    format!("{:?}", h)
+}
+
+fn encode_epoch(e: Epoch) -> Result<i32, Error> {
+    e.as_u64().try_into().map_err(|_| Error::InvalidSlot)
+}
+
+fn encode_slot(s: Slot) -> Result<i32, Error> {
+    s.as_u64().try_into().map_err(|_| Error::InvalidSlot)
 }
