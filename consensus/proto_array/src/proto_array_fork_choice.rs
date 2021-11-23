@@ -9,7 +9,7 @@ use types::{AttestationShufflingId, Checkpoint, Epoch, Hash256, Slot};
 
 pub const DEFAULT_PRUNE_THRESHOLD: usize = 256;
 
-#[derive(Default, PartialEq, Debug, Clone, Encode, Decode)]
+#[derive(Default, PartialEq, Clone, Encode, Decode)]
 pub struct VoteTracker {
     current_root: Hash256,
     next_root: Hash256,
@@ -309,7 +309,7 @@ impl ProtoArrayForkChoice {
         &self.proto_array
     }
 
-    /// Returns a mutable reference to core `ProtoArray` struct.
+    /// Returns a mutable reference to the core `ProtoArray` struct.
     ///
     /// Should only be used during database schema migrations.
     pub fn core_proto_array_mut(&mut self) -> &mut ProtoArray {
