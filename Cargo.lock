@@ -369,6 +369,15 @@ dependencies = [
 [[package]]
 name = "beacon_watch"
 version = "0.1.0"
+dependencies = [
+ "clap",
+ "env_logger 0.9.0",
+ "eth2",
+ "log",
+ "tokio",
+ "tokio-postgres",
+ "types",
+]
 
 [[package]]
 name = "bincode"
@@ -973,19 +982,6 @@ dependencies = [
  "rand_core 0.5.1",
  "subtle",
  "zeroize",
-]
-
-[[package]]
-name = "daemon"
-version = "0.1.0"
-dependencies = [
- "clap",
- "env_logger 0.9.0",
- "eth2",
- "log",
- "tokio",
- "tokio-postgres",
- "types",
 ]
 
 [[package]]
@@ -5208,10 +5204,6 @@ dependencies = [
  "serde",
  "yaml-rust",
 ]
-
-[[package]]
-name = "server"
-version = "0.1.0"
 
 [[package]]
 name = "sha-1"

@@ -1,7 +1,6 @@
 use crate::{
-    config::Config,
     database::{Database, Transaction},
-    Error,
+    Config, Error,
 };
 use eth2::{types::BlockId, BeaconNodeHttpClient, SensitiveUrl, Timeouts};
 use log::{debug, info};

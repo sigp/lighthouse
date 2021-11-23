@@ -1,4 +1,3 @@
-use crate::{config::Config, Error};
 use log::{error, info};
 use std::convert::TryInto;
 use std::time::Duration;
@@ -6,7 +5,12 @@ use tokio::{runtime, task::JoinHandle};
 use tokio_postgres::{config::Config as PostgresConfig, Client, NoTls, Row};
 use types::{BeaconBlockHeader, Epoch, EthSpec, Hash256, Slot};
 
+pub use config::Config;
+pub use error::Error;
 pub use tokio_postgres::Transaction;
+
+mod config;
+mod error;
 
 pub struct Database {
     client: Client,

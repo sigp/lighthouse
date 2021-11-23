@@ -83,8 +83,6 @@ members = [
     "validator_client/slashing_protection",
 
     "watch",
-    "watch/daemon",
-    "watch/server",
 ]
 
 [patch]
