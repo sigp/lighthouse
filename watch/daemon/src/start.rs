@@ -9,7 +9,7 @@ use std::time::Duration;
 use types::{BeaconBlockHeader, Hash256, Slot};
 
 const DEFAULT_TIMEOUT: Duration = Duration::from_secs(5);
-const BACKFILL_SLOT_COUNT: usize = 1_024;
+const BACKFILL_SLOT_COUNT: usize = 64;
 
 pub async fn start(config: Config) -> Result<(), Error> {
     let beacon_node_url =
@@ -22,6 +22,25 @@ pub async fn start(config: Config) -> Result<(), Error> {
 
     perform_head_update(&mut db, &bn).await?;
     perform_backfill(&mut db, &bn).await?;
+    update_unknown_blocks(&mut db, &bn).await?;
+
+    Ok(())
+}
+
+pub async fn update_unknown_blocks<'a>(
+    db: &mut Database,
+    bn: &BeaconNodeHttpClient,
+) -> Result<(), Error> {
+    let tx = db.transaction().await?;
+
+    for root in Database::unknown_canonical_blocks(&tx, BACKFILL_SLOT_COUNT as i64).await? {
+        if let Some(header) = get_header(bn, BlockId::Root(root)).await? {
+            let header_root = header.canonical_root();
+            Database::insert_canonical_header_if_not_exists(&tx, &header, header_root).await?;
+        }
+    }
+
+    tx.commit().await?;
 
     Ok(())
 }

@@ -3,8 +3,8 @@ use log::{error, info};
 use std::convert::TryInto;
 use std::time::Duration;
 use tokio::{runtime, task::JoinHandle};
-use tokio_postgres::{config::Config as PostgresConfig, Client, NoTls};
-use types::{Hash256, Slot};
+use tokio_postgres::{config::Config as PostgresConfig, Client, NoTls, Row};
+use types::{BeaconBlockHeader, Hash256, Slot};
 
 pub use tokio_postgres::Transaction;
 
@@ -65,9 +65,7 @@ impl Database {
         db.client
             .execute(
                 "CREATE TABLE beacon_blocks (
-                id integer PRIMARY KEY,
-                parent integer,
-                root char(66) UNIQUE,
+                root char(66) PRIMARY KEY,
                 slot integer NOT NULL
             )",
                 &[],
@@ -79,7 +77,7 @@ impl Database {
                 "CREATE TABLE canonical_slots (
                 slot integer PRIMARY KEY,
                 root char(66),
-                beacon_block integer REFERENCES beacon_blocks(id)
+                beacon_block char(66) REFERENCES beacon_blocks(root)
             )",
                 &[],
             )
@@ -163,12 +161,7 @@ impl Database {
             .await?;
 
         if let Some(row) = row_opt {
-            let root: Hash256 = row
-                .try_get::<_, String>(0)?
-                .parse()
-                .map_err(|_| Error::InvalidRoot)?;
-
-            Ok(Some(root))
+            Ok(Some(row_to_root(row, 0)?))
         } else {
             Ok(None)
         }
@@ -194,4 +187,55 @@ impl Database {
             Ok(None)
         }
     }
+
+    pub async fn unknown_canonical_blocks<'a>(
+        tx: &'a Transaction<'a>,
+        count: i64,
+    ) -> Result<Vec<Hash256>, Error> {
+        let rows = tx
+            .query(
+                "SELECT root
+                FROM canonical_slots
+                WHERE beacon_block IS NULL
+                ORDER BY slot DESC
+                LIMIT $1",
+                &[&count],
+            )
+            .await?;
+
+        rows.into_iter()
+            .map(|row| row_to_root(row, 0))
+            .collect::<Result<_, _>>()
+    }
+
+    pub async fn insert_canonical_header_if_not_exists<'a>(
+        tx: &'a Transaction<'a>,
+        header: &BeaconBlockHeader,
+        header_root: Hash256,
+    ) -> Result<(), Error> {
+        let slot: i32 = header
+            .slot
+            .as_u64()
+            .try_into()
+            .map_err(|_| Error::InvalidSlot)?;
+        let root: String = format!("{:?}", header_root);
+
+        // TODO(paul): if not exists.
+
+        tx.execute(
+            "INSERT INTO beacon_blocks (slot, root)
+            VALUES ($1, $2)
+            ON CONFLICT DO NOTHING",
+            &[&slot, &root],
+        )
+        .await
+        .map_err(Into::into)
+        .map(|_| ())
+    }
+}
+
+fn row_to_root(row: Row, index: usize) -> Result<Hash256, Error> {
+    row.try_get::<_, String>(index)?
+        .parse()
+        .map_err(|_| Error::InvalidRoot)
 }
