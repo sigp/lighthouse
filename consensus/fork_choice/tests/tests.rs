@@ -11,7 +11,7 @@ use beacon_chain::{
     StateSkipConfig, WhenSlotSkipped,
 };
 use fork_choice::{
-    ForkChoiceStore, InvalidAttestation, InvalidBlock, PayloadVerificationStatus, QueuedAttestation,
+    ForkChoiceStore, InvalidAttestation, InvalidBlock, QueuedAttestation,
 };
 use store::MemoryStore;
 use types::{
