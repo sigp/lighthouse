@@ -83,7 +83,7 @@ impl ProtoArray {
             });
         }
 
-        //TODO(sean): should this too be updated to check the checkpoint rather than epoch?
+        //TODO(merge): should this too be updated to only epoch rather than the checkpoint?
         if justified_checkpoint != self.justified_checkpoint
             || finalized_checkpoint != self.finalized_checkpoint
         {
@@ -449,24 +449,6 @@ impl ProtoArray {
             // There is no current best-child but the child is not viable.
             no_change
         };
-        dbg!(parent.root);
-        dbg!(child.root);
-        if let Some(new_child) = new_best_child {
-            let new_child_root = self
-                .nodes
-                .get(new_child)
-                .ok_or(Error::InvalidNodeIndex(new_child))?
-                .root;
-            dbg!(new_child_root);
-        }
-        if let Some(new_descendant) = new_best_descendant {
-            let new_descendant_root = self
-                .nodes
-                .get(new_descendant)
-                .ok_or(Error::InvalidNodeIndex(new_descendant))?
-                .root;
-            dbg!(new_descendant_root);
-        }
 
         let parent = self
             .nodes

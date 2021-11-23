@@ -190,7 +190,7 @@ fn get_hash(i: u64) -> Hash256 {
 }
 
 /// Gives a checkpoint with a root that is not the zero hash (unless i is `usize::max_value)`.
-/// `Epoch` will always equal `i + 1`.
+/// `Epoch` will always equal `i`.
 fn get_checkpoint(i: u64) -> Checkpoint {
     Checkpoint {
         epoch: Epoch::new(i),
