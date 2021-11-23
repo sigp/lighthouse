@@ -80,10 +80,8 @@ impl<'a> AlignedRecordDecorator<'a> {
             message_width,
         }
     }
-}
 
-impl<'a> Write for AlignedRecordDecorator<'a> {
-    fn write(&mut self, buf: &[u8]) -> Result<usize> {
+    fn filtered_write(&mut self, buf: &[u8]) -> Result<usize> {
         if self.ignore_comma {
             //don't write comma
             self.ignore_comma = false;
@@ -95,6 +93,21 @@ impl<'a> Write for AlignedRecordDecorator<'a> {
             })
         } else {
             self.wrapped.write(buf)
+        }
+    }
+}
+
+impl<'a> Write for AlignedRecordDecorator<'a> {
+    fn write(&mut self, buf: &[u8]) -> Result<usize> {
+        if buf.iter().any(|c| is_ascii_control(c)) {
+            let filtered = buf
+                .iter()
+                .cloned()
+                .map(|c| if !is_ascii_control(&c) { c } else { b'_' })
+                .collect::<Vec<u8>>();
+            self.filtered_write(&filtered)
+        } else {
+            self.filtered_write(buf)
         }
     }
 
@@ -157,6 +170,21 @@ impl<'a> slog_term::RecordDecorator for AlignedRecordDecorator<'a> {
     fn start_separator(&mut self) -> Result<()> {
         self.wrapped.start_separator()
     }
+}
+
+/// Function to filter out ascii control codes.
+///
+/// This helps to keep log formatting consistent.
+/// Whitespace and padding control codes are excluded.
+fn is_ascii_control(character: &u8) -> bool {
+    matches!(
+        character,
+        b'\x00'..=b'\x08' |
+        b'\x0b'..=b'\x0c' |
+        b'\x0e'..=b'\x1f' |
+        b'\x7f' |
+        b'\x81'..=b'\x9f'
+    )
 }
 
 /// Return a logger suitable for test usage.
