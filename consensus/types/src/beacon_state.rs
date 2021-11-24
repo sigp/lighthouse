@@ -12,7 +12,7 @@ use safe_arith::{ArithError, SafeArith};
 use serde_derive::{Deserialize, Serialize};
 use ssz::{ssz_encode, Decode, DecodeError, Encode};
 use ssz_derive::{Decode, Encode};
-use ssz_types::{typenum::Unsigned, BitVector, FixedVector};
+use ssz_types::{typenum::Unsigned, BitVector};
 use std::convert::TryInto;
 use std::{fmt, mem, sync::Arc};
 use superstruct::superstruct;
@@ -28,7 +28,12 @@ pub use self::committee_cache::{
 pub use clone_config::CloneConfig;
 pub use eth_spec::*;
 pub use iter::BlockRootsIter;
-pub use tree_hash_cache::BeaconTreeHashCache;
+
+#[cfg(feature = "milhouse")]
+use milhouse::prelude::{List as VList, *};
+
+#[cfg(not(feature = "milhouse"))]
+use {ssz_types::FixedVector, tree_hash_cache::BeaconTreeHashCache, VariableList as VList};
 
 #[macro_use]
 mod committee_cache;
@@ -37,7 +42,12 @@ mod exit_cache;
 mod iter;
 mod pubkey_cache;
 mod tests;
+#[cfg(not(feature = "milhouse"))]
 mod tree_hash_cache;
+
+#[cfg(feature = "milhouse")]
+pub type ListMut<'a, T, N> = Interface<T, &'a mut List<T, N>>;
+pub type ValidatorsMut<'a, N> = ListMut<'a, Validator, N>;
 
 pub const CACHED_EPOCHS: usize = 3;
 const MAX_RANDOM_BYTE: u64 = (1 << 8) - 1;
@@ -230,8 +240,8 @@ where
     pub eth1_deposit_index: u64,
 
     // Registry
-    #[compare_fields(as_slice)]
-    pub validators: VariableList<Validator, T::ValidatorRegistryLimit>,
+    #[test_random(default)]
+    pub validators: VList<Validator, T::ValidatorRegistryLimit>,
     #[compare_fields(as_slice)]
     #[serde(with = "ssz_types::serde_utils::quoted_u64_var_list")]
     pub balances: VariableList<u64, T::ValidatorRegistryLimit>,
@@ -306,6 +316,7 @@ where
     #[tree_hash(skip_hashing)]
     #[test_random(default)]
     #[derivative(Clone(clone_with = "clone_default"))]
+    #[cfg(not(feature = "milhouse"))]
     pub tree_hash_cache: BeaconTreeHashCache<T>,
 }
 
@@ -343,8 +354,8 @@ impl<T: EthSpec> BeaconState<T> {
             eth1_deposit_index: 0,
 
             // Validator registry
-            validators: VariableList::empty(), // Set later.
-            balances: VariableList::empty(),   // Set later.
+            validators: VList::empty(),      // Set later.
+            balances: VariableList::empty(), // Set later.
 
             // Randomness
             randao_mixes: FixedVector::from_elem(Hash256::zero()),
@@ -371,6 +382,7 @@ impl<T: EthSpec> BeaconState<T> {
             ],
             pubkey_cache: PubkeyCache::default(),
             exit_cache: ExitCache::default(),
+            #[cfg(not(feature = "milhouse"))]
             tree_hash_cache: <_>::default(),
         })
     }
@@ -1085,10 +1097,21 @@ impl<T: EthSpec> BeaconState<T> {
     }
 
     /// Convenience accessor for validators and balances simultaneously.
+    #[cfg(not(feature = "milhouse"))]
     pub fn validators_and_balances_mut(&mut self) -> (&mut [Validator], &mut [u64]) {
         match self {
             BeaconState::Base(state) => (&mut state.validators, &mut state.balances),
             BeaconState::Altair(state) => (&mut state.validators, &mut state.balances),
+        }
+    }
+
+    #[cfg(feature = "milhouse")]
+    pub fn validators_and_balances_mut(
+        &mut self,
+    ) -> (ValidatorsMut<T::ValidatorRegistryLimit>, &mut [u64]) {
+        match self {
+            BeaconState::Base(state) => (state.validators.as_mut(), &mut state.balances),
+            BeaconState::Altair(state) => (state.validators.as_mut(), &mut state.balances),
         }
     }
 
@@ -1134,12 +1157,14 @@ impl<T: EthSpec> BeaconState<T> {
             .ok_or(Error::UnknownValidator(validator_index))
     }
 
+    /* FIXME(sproul): lens?
     /// Safe mutator for the `validators` list.
     pub fn get_validator_mut(&mut self, validator_index: usize) -> Result<&mut Validator, Error> {
         self.validators_mut()
             .get_mut(validator_index)
             .ok_or(Error::UnknownValidator(validator_index))
     }
+    */
 
     /// Return the effective balance for a validator with the given `validator_index`.
     pub fn get_effective_balance(&self, validator_index: usize) -> Result<u64, Error> {
@@ -1519,6 +1544,7 @@ impl<T: EthSpec> BeaconState<T> {
 
     /// Initialize but don't fill the tree hash cache, if it isn't already initialized.
     pub fn initialize_tree_hash_cache(&mut self) {
+        #[cfg(not(feature = "milhouse"))]
         if !self.tree_hash_cache().is_initialized() {
             *self.tree_hash_cache_mut() = BeaconTreeHashCache::new(self)
         }
@@ -1528,42 +1554,53 @@ impl<T: EthSpec> BeaconState<T> {
     ///
     /// Initialize the tree hash cache if it isn't already initialized.
     pub fn update_tree_hash_cache(&mut self) -> Result<Hash256, Error> {
-        self.initialize_tree_hash_cache();
+        #[cfg(not(feature = "milhouse"))]
+        {
+            self.initialize_tree_hash_cache();
 
-        let cache = self.tree_hash_cache_mut().take();
+            let cache = self.tree_hash_cache_mut().take();
 
-        if let Some(mut cache) = cache {
-            // Note: we return early if the tree hash fails, leaving `self.tree_hash_cache` as
-            // None. There's no need to keep a cache that fails.
-            let root = cache.recalculate_tree_hash_root(self)?;
-            self.tree_hash_cache_mut().restore(cache);
-            Ok(root)
-        } else {
-            Err(Error::TreeHashCacheNotInitialized)
+            if let Some(mut cache) = cache {
+                // Note: we return early if the tree hash fails, leaving `self.tree_hash_cache` as
+                // None. There's no need to keep a cache that fails.
+                let root = cache.recalculate_tree_hash_root(self)?;
+                self.tree_hash_cache_mut().restore(cache);
+                Ok(root)
+            } else {
+                Err(Error::TreeHashCacheNotInitialized)
+            }
         }
+        #[cfg(feature = "milhouse")]
+        Ok(self.tree_hash_root())
     }
 
     /// Compute the tree hash root of the validators using the tree hash cache.
     ///
     /// Initialize the tree hash cache if it isn't already initialized.
     pub fn update_validators_tree_hash_cache(&mut self) -> Result<Hash256, Error> {
-        self.initialize_tree_hash_cache();
+        #[cfg(not(feature = "milhouse"))]
+        {
+            self.initialize_tree_hash_cache();
 
-        let cache = self.tree_hash_cache_mut().take();
+            let cache = self.tree_hash_cache_mut().take();
 
-        if let Some(mut cache) = cache {
-            // Note: we return early if the tree hash fails, leaving `self.tree_hash_cache` as
-            // None. There's no need to keep a cache that fails.
-            let root = cache.recalculate_validators_tree_hash_root(self.validators())?;
-            self.tree_hash_cache_mut().restore(cache);
-            Ok(root)
-        } else {
-            Err(Error::TreeHashCacheNotInitialized)
+            if let Some(mut cache) = cache {
+                // Note: we return early if the tree hash fails, leaving `self.tree_hash_cache` as
+                // None. There's no need to keep a cache that fails.
+                let root = cache.recalculate_validators_tree_hash_root(self.validators())?;
+                self.tree_hash_cache_mut().restore(cache);
+                Ok(root)
+            } else {
+                Err(Error::TreeHashCacheNotInitialized)
+            }
         }
+        #[cfg(feature = "milhouse")]
+        Ok(self.validators().tree_hash_root())
     }
 
     /// Completely drops the tree hash cache, replacing it with a new, empty cache.
     pub fn drop_tree_hash_cache(&mut self) {
+        #[cfg(not(feature = "milhouse"))]
         self.tree_hash_cache_mut().uninitialize();
     }
 
@@ -1583,6 +1620,7 @@ impl<T: EthSpec> BeaconState<T> {
         if config.exit_cache {
             *res.exit_cache_mut() = self.exit_cache().clone();
         }
+        #[cfg(not(feature = "milhouse"))]
         if config.tree_hash_cache {
             *res.tree_hash_cache_mut() = self.tree_hash_cache().clone();
         }

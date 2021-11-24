@@ -12,14 +12,18 @@ pub struct ExitCache {
 
 impl ExitCache {
     /// Initialize a new cache for the given list of validators.
-    pub fn new(validators: &[Validator], spec: &ChainSpec) -> Result<Self, BeaconStateError> {
+    pub fn new<'a, V, I>(validators: V, spec: &ChainSpec) -> Result<Self, BeaconStateError>
+    where
+        V: IntoIterator<Item = &'a Validator, IntoIter = I>,
+        I: ExactSizeIterator + Iterator<Item = &'a Validator>,
+    {
         let mut exit_cache = ExitCache {
             initialized: true,
             ..ExitCache::default()
         };
         // Add all validators with a non-default exit epoch to the cache.
         validators
-            .iter()
+            .into_iter()
             .filter(|validator| validator.exit_epoch != spec.far_future_epoch)
             .try_for_each(|validator| exit_cache.record_validator_exit(validator.exit_epoch))?;
         Ok(exit_cache)

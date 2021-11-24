@@ -10,6 +10,9 @@ use ssz_derive::{Decode, Encode};
 use std::ops::Range;
 use swap_or_not_shuffle::shuffle_list;
 
+#[cfg(feature = "milhouse")]
+use milhouse::prelude::*;
+
 mod tests;
 
 // Define "legacy" implementations of `Option<Epoch>`, `Option<NonZeroUsize>` which use four bytes
@@ -312,16 +315,20 @@ pub fn epoch_committee_count(committees_per_slot: usize, slots_per_epoch: usize)
 /// `epoch`.
 ///
 /// Spec v0.12.1
-pub fn get_active_validator_indices(validators: &[Validator], epoch: Epoch) -> Vec<usize> {
-    let mut active = Vec::with_capacity(validators.len());
+pub fn get_active_validator_indices<'a, V, I>(validators: V, epoch: Epoch) -> Vec<usize>
+where
+    V: IntoIterator<Item = &'a Validator, IntoIter = I>,
+    I: ExactSizeIterator + Iterator<Item = &'a Validator>,
+{
+    let iter = validators.into_iter();
 
-    for (index, validator) in validators.iter().enumerate() {
+    let mut active = Vec::with_capacity(iter.len());
+
+    for (index, validator) in iter.enumerate() {
         if validator.is_active_at(epoch) {
             active.push(index)
         }
     }
-
-    active.shrink_to_fit();
 
     active
 }
