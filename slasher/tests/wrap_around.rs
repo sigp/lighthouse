@@ -6,7 +6,7 @@ use types::Epoch;
 #[test]
 fn attestation_pruning_empty_wrap_around() {
     let tempdir = tempdir().unwrap();
-    let mut config = Config::new(tempdir.path().into()).for_testing();
+    let mut config = Config::new(tempdir.path().into());
     config.validator_chunk_size = 1;
     config.chunk_size = 16;
     config.history_length = 16;

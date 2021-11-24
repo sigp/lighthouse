@@ -15,13 +15,6 @@ pub const DEFAULT_BROADCAST: bool = false;
 pub const MAX_HISTORY_LENGTH: usize = 1 << 16;
 pub const MDBX_GROWTH_STEP: isize = 256 * (1 << 20); // 256 MiB
 
-/// Database size to use for tests.
-///
-/// Mostly a workaround for Windows due to a bug in LMDB, see:
-///
-/// https://github.com/sigp/lighthouse/issues/2342
-pub const TESTING_MAX_DB_SIZE: usize = 16; // MiB
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Config {
     pub database_path: PathBuf,
@@ -62,12 +55,6 @@ impl Config {
             attestation_root_cache_size: DEFAULT_ATTESTATION_ROOT_CACHE_SIZE,
             broadcast: DEFAULT_BROADCAST,
         }
-    }
-
-    /// Use a smaller max DB size for testing.
-    pub fn for_testing(mut self) -> Self {
-        self.max_db_size_mbs = TESTING_MAX_DB_SIZE;
-        self
     }
 
     pub fn validate(&self) -> Result<(), Error> {
