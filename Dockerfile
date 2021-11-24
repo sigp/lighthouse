@@ -1,5 +1,5 @@
-FROM rust:1.53.0 AS builder
-RUN apt-get update && apt-get -y upgrade && apt-get install -y cmake
+FROM rust:1.56.1-bullseye AS builder
+RUN apt-get update && apt-get -y upgrade && apt-get install -y cmake libclang-dev
 COPY . lighthouse
 ARG PORTABLE
 ENV PORTABLE $PORTABLE
