@@ -10,10 +10,13 @@ use ssz_derive::{Decode, Encode};
 use std::fs;
 use std::path::Path;
 use std::sync::Arc;
+use slog::Logger;
+use fork_choice::ForkChoice;
 use store::config::OnDiskStoreConfig;
 use store::hot_cold_store::{HotColdDB, HotColdDBError};
 use store::metadata::{SchemaVersion, CONFIG_KEY, CURRENT_SCHEMA_VERSION};
 use store::{DBColumn, Error as StoreError, ItemStore, StoreItem};
+use slog::{info, warn};
 
 const PUBKEY_CACHE_FILENAME: &str = "pubkey_cache.ssz";
 
@@ -23,6 +26,7 @@ pub fn migrate_schema<T: BeaconChainTypes>(
     datadir: &Path,
     from: SchemaVersion,
     to: SchemaVersion,
+    log: Logger,
 ) -> Result<(), StoreError> {
     match (from, to) {
         // Migrating from the current schema version to iself is always OK, a no-op.
@@ -30,8 +34,8 @@ pub fn migrate_schema<T: BeaconChainTypes>(
         // Migrate across multiple versions by recursively migrating one step at a time.
         (_, _) if from.as_u64() + 1 < to.as_u64() => {
             let next = SchemaVersion(from.as_u64() + 1);
-            migrate_schema::<T>(db.clone(), datadir, from, next)?;
-            migrate_schema::<T>(db, datadir, next, to)
+            migrate_schema::<T>(db.clone(), datadir, from, next, log.clone())?;
+            migrate_schema::<T>(db, datadir, next, to, log)
         }
         // Migration from v0.3.0 to v0.3.x, adding the temporary states column.
         // Nothing actually needs to be done, but once a DB uses v2 it shouldn't go back.
@@ -105,10 +109,19 @@ pub fn migrate_schema<T: BeaconChainTypes>(
                 // `PersistedForkChoice` stores the `ProtoArray` as a `Vec<u8>`. Deserialize these
                 // bytes assuming the legacy struct, and transform them to the new struct before
                 // re-serializing.
-                migrate_schema_6::update_legacy_proto_array_bytes::<T>(
+                let result = migrate_schema_6::update_legacy_proto_array_bytes::<T>(
                     &mut persisted_fork_choice,
                     db.clone(),
-                )?;
+                    log.clone(),
+                );
+
+                match result {
+                    Ok(()) => info!(log, "Completed migration to schema 6 successfully"),
+                    Err(e) => {
+                        warn!(log, "Error during schema migration. Falling back to anchor state"; "error" => ?e);
+                        // ForkChoice::from_anchor(persisted_fork_choice.fork_choice_store, persisted_fork_choice.fork_choice_store.get_finalized_checkpoint().root);
+                    },
+                }
 
                 // Store the converted fork choice store under the same key.
                 db.put_item::<PersistedForkChoice>(&FORK_CHOICE_DB_KEY, &persisted_fork_choice)?;

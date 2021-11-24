@@ -4,15 +4,17 @@ use crate::persisted_fork_choice::PersistedForkChoice;
 use crate::types::{AttestationShufflingId, EthSpec, Slot};
 use crate::types::{Checkpoint, Epoch, Hash256};
 use proto_array::ExecutionStatus;
-use proto_array::{core::ProtoNode, core::SszContainer, core::VoteTracker, ProtoArrayForkChoice};
+use proto_array::{core::ProtoNode, core::SszContainer, core::VoteTracker, core::DEFAULT_PRUNE_THRESHOLD, ProtoArrayForkChoice};
 use ssz::four_byte_option_impl;
 use ssz::{Decode, Encode};
 use ssz_derive::{Decode, Encode};
 use std::collections::HashMap;
 use std::sync::Arc;
+use slog::Logger;
 use store::hot_cold_store::HotColdDB;
 use store::iter::BlockRootsIterator;
 use store::Error as StoreError;
+use slog::{info, warn};
 
 // Define a "legacy" implementation of `Option<usize>` which uses four bytes for encoding the union
 // selector.
@@ -23,15 +25,11 @@ four_byte_option_impl!(four_byte_option_usize, usize);
 pub(crate) fn update_legacy_proto_array_bytes<T: BeaconChainTypes>(
     persisted_fork_choice: &mut PersistedForkChoice,
     db: Arc<HotColdDB<T::EthSpec, T::HotStore, T::ColdStore>>,
-) -> Result<(), StoreError> {
+    log: Logger,
+) -> Result<(), String> {
     let legacy_container =
         LegacySszContainer::from_ssz_bytes(&persisted_fork_choice.fork_choice.proto_array_bytes)
-            .map_err(|e| {
-                StoreError::SchemaMigrationError(format!(
-                    "Failed to decode ProtoArrayForkChoice during schema migration: {:?}",
-                    e
-                ))
-            })?;
+            .map_err(|e| format!("Failed to decode ProtoArrayForkChoice during schema migration: {:?}", e))?;
 
     // Clone the legacy proto nodes in order to maintain information about `node.justified_epoch`
     // and `node.finalized_epoch`.
@@ -51,13 +49,22 @@ pub(crate) fn update_legacy_proto_array_bytes<T: BeaconChainTypes>(
 
     let mut fork_choice: ProtoArrayForkChoice = container.into();
 
+    info!(log, "Fork choice length prior to prune"; "length"=> fork_choice.len());
+
+    // Prune the fork choice as much as possible to reduce the chances of trying to load a missing
+    // beacon state unnecessarily.
+    fork_choice.set_prune_threshold(0);
+    fork_choice.maybe_prune(finalized_checkpoint.root)?;
+    fork_choice.set_prune_threshold(DEFAULT_PRUNE_THRESHOLD);
+
+    info!(log, "Fork choice length after prune"; "length"=> fork_choice.len());
+
     update_checkpoints::<T>(
         finalized_checkpoint.root,
         &legacy_nodes,
         &mut fork_choice,
         db,
-    )
-    .map_err(StoreError::SchemaMigrationError)?;
+    )?;
 
     persisted_fork_choice.fork_choice.proto_array_bytes = fork_choice.as_bytes();
 
