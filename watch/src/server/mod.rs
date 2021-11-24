@@ -127,18 +127,24 @@ pub fn start_server<T: EthSpec>(
             }
         });
 
-    let other = warp::path("v1")
+    let lowest_slot = warp::path("v1")
         .and(warp::path("canonical_slots"))
-        .and(warp::path::param::<BlockId>())
-        .and(ctx_filter)
-        .and_then(|block_id: BlockId, ctx: Arc<Context<T>>| async move {
-            Ok::<_, warp::reject::Rejection>(
-                warp::http::Response::builder().status(200).body("cat"),
-            )
+        .and(warp::path("lowest"))
+        .and(ctx_filter.clone())
+        .and_then(|ctx: Arc<Context<T>>| async move {
+            match handler::with_db(&ctx.config, |mut db| async move {
+                handler::get_lowest_slot(&mut db).await
+            })
+            .await
+            {
+                Ok(Some(slot)) => Ok(reply::json(&slot)),
+                Ok(None) => Err(reject::not_found()),
+                Err(e) => Err(reject::custom(e)),
+            }
         });
 
     let routes = warp::get()
-        .and(beacon_blocks.or(other))
+        .and(beacon_blocks.or(lowest_slot))
         // Add a `Server` header.
         .map(|reply| warp::reply::with_header(reply, "Server", "lighthouse-watch"));
 

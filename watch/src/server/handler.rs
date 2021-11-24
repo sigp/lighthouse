@@ -2,6 +2,7 @@ use super::Error;
 use crate::database::{Config, Database, WatchBeaconBlock};
 use eth2::types::BlockId;
 use std::future::Future;
+use types::Slot;
 
 pub async fn get_db(config: &Config) -> Result<Database, Error> {
     Database::connect(&config).await.map_err(Into::into)
@@ -29,4 +30,13 @@ pub async fn get_block(
     };
 
     Ok(block_opt)
+}
+
+pub async fn get_lowest_slot(db: &mut Database) -> Result<Option<Slot>, Error> {
+    // TODO(remove tx)
+    let tx = db.transaction().await?;
+
+    Database::lowest_canonical_slot(&tx)
+        .await
+        .map_err(Into::into)
 }

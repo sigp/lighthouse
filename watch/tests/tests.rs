@@ -116,6 +116,14 @@ impl Tester {
         self
     }
 
+    pub async fn assert_no_canonical_chain(self) -> Self {
+        let lowest_slot = self.client.get_lowest_canonical_slot().await.unwrap();
+
+        assert_eq!(lowest_slot, None);
+
+        self
+    }
+
     /// Check that the canonical chain in watch matches that of the harness. Also check that all
     /// canonical blocks can be retrieved.
     pub async fn assert_canonical_chain_consistent(self) -> Self {
@@ -133,6 +141,7 @@ impl Tester {
                 .client
                 .get_beacon_blocks(BlockId::Root(*root))
                 .await
+                .unwrap()
                 .unwrap();
             assert_eq!(block.slot, *slot);
         }
@@ -146,6 +155,8 @@ async fn short_chain() {
     Tester::new()
         .await
         .extend_chain(BACKFILL_SLOT_COUNT / 2)
+        .assert_no_canonical_chain()
+        .await
         .run_update_service(1)
         .await
         .assert_canonical_chain_consistent()
@@ -157,6 +168,8 @@ async fn long_chain() {
     Tester::new()
         .await
         .extend_chain(BACKFILL_SLOT_COUNT * 3)
+        .assert_no_canonical_chain()
+        .await
         .run_update_service(3)
         .await
         .assert_canonical_chain_consistent()
