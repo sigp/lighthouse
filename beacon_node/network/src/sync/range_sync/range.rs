@@ -640,7 +640,7 @@ mod tests {
 
         // Get a peer with an advanced head
         let (head_peer, local_info, head_info) = rig.head_peer();
-        let head_peer_root = head_info.head_root.clone();
+        let head_peer_root = head_info.head_root;
         range.add_peer(&mut rig.cx, local_info, head_peer, head_info);
         range.assert_state(RangeSyncType::Head);
 
@@ -649,7 +649,7 @@ mod tests {
 
         // Now get a peer with an advanced finalized epoch.
         let (finalized_peer, local_info, remote_info) = rig.finalized_peer();
-        let finalized_peer_root = remote_info.finalized_root.clone();
+        let finalized_peer_root = remote_info.finalized_root;
         range.add_peer(&mut rig.cx, local_info, finalized_peer, remote_info);
         range.assert_state(RangeSyncType::Finalized);
 
