@@ -12,6 +12,7 @@ mod metrics;
 mod proposer_duties;
 mod state_id;
 mod sync_committees;
+pub mod test_utils;
 mod validator_inclusion;
 mod version;
 

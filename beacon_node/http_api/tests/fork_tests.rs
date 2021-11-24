@@ -1,7 +1,7 @@
 //! Tests for API behaviour across fork boundaries.
-use crate::common::*;
 use beacon_chain::{test_utils::RelativeSyncCommittee, StateSkipConfig};
 use eth2::types::{StateId, SyncSubcommittee};
+use http_api::test_utils::*;
 use types::{ChainSpec, Epoch, EthSpec, MinimalEthSpec, Slot};
 
 type E = MinimalEthSpec;

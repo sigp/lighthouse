@@ -1,6 +1,6 @@
 //! Generic tests that make use of the (newer) `InteractiveApiTester`
-use crate::common::*;
 use eth2::types::DepositContractData;
+use http_api::test_utils::*;
 use types::{EthSpec, MainnetEthSpec};
 
 type E = MainnetEthSpec;

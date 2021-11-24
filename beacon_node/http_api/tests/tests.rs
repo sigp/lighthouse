@@ -1,4 +1,3 @@
-use crate::common::{create_api_server, ApiServer};
 use beacon_chain::test_utils::RelativeSyncCommittee;
 use beacon_chain::{
     test_utils::{AttestationStrategy, BeaconChainHarness, BlockStrategy, EphemeralHarnessType},
@@ -13,6 +12,7 @@ use eth2::{
 };
 use futures::stream::{Stream, StreamExt};
 use futures::FutureExt;
+use http_api::test_utils::{create_api_server, ApiServer};
 use lighthouse_network::{Enr, EnrExt, PeerId};
 use network::NetworkMessage;
 use sensitive_url::SensitiveUrl;
