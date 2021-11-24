@@ -1,3 +1,5 @@
+use std::net::Ipv4Addr;
+
 #[derive(Debug, Clone)]
 pub struct Config {
     pub user: String,
@@ -9,6 +11,8 @@ pub struct Config {
     pub connect_timeout_millis: u64,
     pub drop_dbname: bool,
     pub beacon_node_url: String,
+    pub server_listen_addr: Ipv4Addr,
+    pub server_listen_port: u16,
 }
 
 impl Default for Config {
@@ -23,6 +27,8 @@ impl Default for Config {
             connect_timeout_millis: 2_000, // 2s
             drop_dbname: false,
             beacon_node_url: "http://localhost:5052".to_string(),
+            server_listen_addr: Ipv4Addr::new(127, 0, 0, 1),
+            server_listen_port: 5059,
         }
     }
 }

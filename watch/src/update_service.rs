@@ -15,7 +15,7 @@ pub async fn start<T: EthSpec>(config: Config) -> Result<(), Error> {
         SensitiveUrl::parse(&config.beacon_node_url).map_err(Error::SensitiveUrl)?;
     let bn = BeaconNodeHttpClient::new(beacon_node_url, Timeouts::set_all(DEFAULT_TIMEOUT));
 
-    let mut db = Database::connect(config).await?;
+    let mut db = Database::connect(&config).await?;
 
     // TODO(paul): lock the canonical slots and epochs tables?
 

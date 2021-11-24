@@ -1,4 +1,5 @@
 use log::{error, info};
+use serde::{Deserialize, Serialize};
 use std::convert::TryInto;
 use std::time::Duration;
 use tokio::{runtime, task::JoinHandle};
@@ -12,14 +13,20 @@ pub use tokio_postgres::Transaction;
 mod config;
 mod error;
 
+#[derive(Debug, Serialize, Deserialize)]
+pub struct WatchBeaconBlock {
+    slot: Slot,
+    root: Hash256,
+    parent_root: Hash256,
+}
+
 pub struct Database {
     client: Client,
     _connection: JoinHandle<()>,
-    _config: Config,
 }
 
 impl Database {
-    pub async fn connect(config: Config) -> Result<Self, Error> {
+    pub async fn connect(config: &Config) -> Result<Self, Error> {
         let (client, connection) = Self::postgres_config(&config).connect(NoTls).await?;
         let connection = runtime::Handle::current().spawn(async move {
             if let Err(e) = connection.await {
@@ -30,7 +37,6 @@ impl Database {
         Ok(Self {
             client,
             _connection: connection,
-            _config: config,
         })
     }
 
@@ -50,10 +56,10 @@ impl Database {
     /// Create a slashing database at the given path.
     ///
     /// Error if a database (or any file) already exists at `path`.
-    pub async fn create(config: Config) -> Result<Self, Error> {
+    pub async fn create(config: &Config) -> Result<Self, Error> {
         Self::create_database(&config).await?;
 
-        let db = Self::connect(config).await?;
+        let db = Self::connect(&config).await?;
 
         db.client
             .execute(
@@ -105,7 +111,7 @@ impl Database {
     pub async fn create_database(config: &Config) -> Result<(), Error> {
         let mut config = config.clone();
         let new_dbname = std::mem::replace(&mut config.dbname, config.default_dbname.clone());
-        let db = Self::connect(config.clone()).await?;
+        let db = Self::connect(&config).await?;
 
         if config.drop_dbname {
             info!("Dropping {} database", new_dbname);
@@ -279,12 +285,13 @@ impl Database {
             .query_opt(
                 "SELECT (slot, root, parent_root)
                 FROM beacon_blocks
-                WHERE root = ",
+                WHERE root = $1",
                 &[&encode_hash256(root)],
             )
             .await?;
 
         let block_opt = if let Some(row) = row {
+            dbg!(&row.columns());
             let block = WatchBeaconBlock {
                 slot: row_to_slot(&row, 0)?,
                 root: row_to_root(&row, 1)?,
@@ -298,12 +305,6 @@ impl Database {
 
         Ok(block_opt)
     }
-}
-
-struct WatchBeaconBlock {
-    slot: Slot,
-    root: Hash256,
-    parent_root: Hash256,
 }
 
 fn row_to_root(row: &Row, index: usize) -> Result<Hash256, Error> {

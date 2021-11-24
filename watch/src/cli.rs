@@ -1,7 +1,9 @@
-use crate::{update_service, Config, Database};
+use crate::{server, update_service, Config, Database};
 use clap::{App, Arg};
+use tokio::sync::oneshot;
 use types::MainnetEthSpec;
 
+pub const SERVE: &'static str = "serve";
 pub const START_DAEMON: &'static str = "start-daemon";
 pub const INIT_DB: &'static str = "init-db";
 pub const CONFIG: &'static str = "config";
@@ -20,6 +22,10 @@ fn init_db<'a, 'b>() -> App<'a, 'b> {
 
 fn start_daemon<'a, 'b>() -> App<'a, 'b> {
     App::new(START_DAEMON).setting(clap::AppSettings::ColoredHelp)
+}
+
+fn serve<'a, 'b>() -> App<'a, 'b> {
+    App::new(SERVE).setting(clap::AppSettings::ColoredHelp)
 }
 
 pub fn app<'a, 'b>() -> App<'a, 'b> {
@@ -41,6 +47,7 @@ pub fn app<'a, 'b>() -> App<'a, 'b> {
         )
         .subcommand(init_db())
         .subcommand(start_daemon())
+        .subcommand(serve())
 }
 
 pub async fn run() -> Result<(), String> {
@@ -58,7 +65,7 @@ pub async fn run() -> Result<(), String> {
                 config.drop_dbname = true;
             }
 
-            Database::create(config)
+            Database::create(&config)
                 .await
                 .map_err(|e| format!("Failure: {:?}", e))
                 .map(|_| ())
@@ -66,6 +73,12 @@ pub async fn run() -> Result<(), String> {
         (START_DAEMON, Some(_)) => update_service::start::<MainnetEthSpec>(config)
             .await
             .map_err(|e| format!("Failure: {:?}", e)),
+        (SERVE, Some(_)) => {
+            let (_shutdown_tx, shutdown_rx) = oneshot::channel();
+            server::serve::<MainnetEthSpec>(config, shutdown_rx)
+                .await
+                .map_err(|e| format!("Failure: {:?}", e))
+        }
         _ => Err("Unsupported subcommand. See --help".into()),
     }
 }

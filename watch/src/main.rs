@@ -1,10 +1,11 @@
 use database::{Config, Database, Error};
 use env_logger::Builder;
 use log::error;
-use std::process::exit;
+use std::process;
 
 mod cli;
 mod database;
+mod server;
 mod update_service;
 
 #[tokio::main]
@@ -12,12 +13,12 @@ async fn main() {
     Builder::from_default_env().init();
 
     match cli::run().await {
-        Ok(()) => exit(0),
+        Ok(()) => process::exit(0),
         Err(e) => {
             error!("Command failed: {}", e);
             eprintln!("{}", e);
             drop(e);
-            exit(1)
+            process::exit(1)
         }
     }
 }
