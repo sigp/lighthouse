@@ -283,7 +283,7 @@ impl Database {
     ) -> Result<Option<WatchBeaconBlock>, Error> {
         let row = tx
             .query_opt(
-                "SELECT (slot, root, parent_root)
+                "SELECT slot, root, parent_root
                 FROM beacon_blocks
                 WHERE root = $1",
                 &[&encode_hash256(root)],
@@ -291,7 +291,6 @@ impl Database {
             .await?;
 
         let block_opt = if let Some(row) = row {
-            dbg!(&row.columns());
             let block = WatchBeaconBlock {
                 slot: row_to_slot(&row, 0)?,
                 root: row_to_root(&row, 1)?,
