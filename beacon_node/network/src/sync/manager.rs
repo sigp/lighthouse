@@ -670,7 +670,8 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                 if new_state.is_synced() {
                     self.backfill_sync.fully_synced_peer_joined();
                 }
-
+            }
+            if info.sync_status() != &new_state {
                 self.network.update_peer_sync_status(peer_id, new_state);
             }
             is_connected

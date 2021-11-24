@@ -3,7 +3,7 @@
 use serde::Serialize;
 use types::{Epoch, Hash256, Slot};
 
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Serialize, PartialEq, Eq)]
 /// The current sync status of the peer.
 pub enum SyncStatus {
     /// At the current state as our node or ahead of us.
@@ -19,7 +19,7 @@ pub enum SyncStatus {
 }
 
 /// A relevant peer's sync information.
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Serialize, PartialEq, Eq)]
 pub struct SyncInfo {
     pub head_slot: Slot,
     pub head_root: Hash256,
