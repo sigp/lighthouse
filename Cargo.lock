@@ -367,23 +367,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "beacon_watch"
-version = "0.1.0"
-dependencies = [
- "clap",
- "env_logger 0.9.0",
- "eth2",
- "log",
- "serde",
- "serde_json",
- "tokio",
- "tokio-postgres",
- "types",
- "warp",
- "warp_utils",
-]
-
-[[package]]
 name = "bincode"
 version = "1.3.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6757,6 +6740,28 @@ checksum = "6006f79628dfeb96a86d4db51fbf1344cd7fd8408f06fc9aa3c84913a4789688"
 dependencies = [
  "proc-macro2",
  "quote",
+]
+
+[[package]]
+name = "watch"
+version = "0.1.0"
+dependencies = [
+ "beacon_chain",
+ "clap",
+ "env_logger 0.9.0",
+ "eth2",
+ "http_api",
+ "log",
+ "network",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tokio-postgres",
+ "types",
+ "url",
+ "warp",
+ "warp_utils",
 ]
 
 [[package]]

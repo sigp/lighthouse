@@ -1,16 +1,13 @@
-use crate::{
-    database::{Database, Transaction},
-    Config, Error,
-};
+use crate::database::{Config, Database, Error, Transaction};
 use eth2::{types::BlockId, BeaconNodeHttpClient, SensitiveUrl, Timeouts};
 use log::{debug, info};
 use std::time::Duration;
 use types::{BeaconBlockHeader, EthSpec, Hash256, Slot};
 
 const DEFAULT_TIMEOUT: Duration = Duration::from_secs(5);
-const BACKFILL_SLOT_COUNT: usize = 64;
+pub const BACKFILL_SLOT_COUNT: usize = 64;
 
-pub async fn start<T: EthSpec>(config: Config) -> Result<(), Error> {
+pub async fn run_once<T: EthSpec>(config: &Config) -> Result<(), Error> {
     let beacon_node_url =
         SensitiveUrl::parse(&config.beacon_node_url).map_err(Error::SensitiveUrl)?;
     let bn = BeaconNodeHttpClient::new(beacon_node_url, Timeouts::set_all(DEFAULT_TIMEOUT));
@@ -91,10 +88,12 @@ pub async fn perform_backfill<'a, T: EthSpec>(
 ) -> Result<(), Error> {
     let tx = db.transaction().await?;
 
+    dbg!("this");
     if let Some(lowest_slot) = Database::lowest_canonical_slot(&tx)
         .await?
         .filter(|lowest_slot| *lowest_slot != 0)
     {
+        dbg!(lowest_slot);
         if let Some(header) = get_header(&bn, BlockId::Slot(lowest_slot - 1)).await? {
             let header_root = header.canonical_root();
             reverse_fill_canonical_slots::<T>(

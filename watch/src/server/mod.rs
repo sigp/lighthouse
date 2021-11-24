@@ -1,7 +1,4 @@
-use crate::{
-    database::{self},
-    Config,
-};
+use crate::database::{self, Config};
 use eth2::types::BlockId;
 use log::info;
 use serde_json;
@@ -9,7 +6,7 @@ use std::future::Future;
 use std::marker::PhantomData;
 use std::net::{SocketAddr, SocketAddrV4};
 use std::sync::Arc;
-use tokio::{runtime::Runtime, sync::oneshot};
+use tokio::sync::oneshot;
 use types::EthSpec;
 use warp::{
     http::{self},

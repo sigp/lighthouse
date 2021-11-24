@@ -1,4 +1,3 @@
-use database::{Config, Database, Error};
 use env_logger::Builder;
 use log::error;
 use std::process;

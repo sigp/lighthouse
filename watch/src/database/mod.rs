@@ -15,9 +15,9 @@ mod error;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct WatchBeaconBlock {
-    slot: Slot,
-    root: Hash256,
-    parent_root: Hash256,
+    pub slot: Slot,
+    pub root: Hash256,
+    pub parent_root: Hash256,
 }
 
 pub struct Database {
@@ -219,7 +219,8 @@ impl Database {
             .await?;
 
         if let Some(row) = row_opt {
-            if let Some(slot) = row.try_get::<_, Option<i32>>(0)? {
+            dbg!(&row);
+            if let Ok(slot) = row.try_get::<_, i32>(0) {
                 let slot: u64 = slot.try_into().map_err(|_| Error::InvalidSlot)?;
                 Ok(Some(slot.into()))
             } else {

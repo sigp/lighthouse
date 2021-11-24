@@ -1,4 +1,7 @@
-use crate::{server, update_service, Config, Database};
+use crate::{
+    database::{Config, Database},
+    server, update_service,
+};
 use clap::{App, Arg};
 use tokio::sync::oneshot;
 use types::MainnetEthSpec;
@@ -70,7 +73,7 @@ pub async fn run() -> Result<(), String> {
                 .map_err(|e| format!("Failure: {:?}", e))
                 .map(|_| ())
         }
-        (START_DAEMON, Some(_)) => update_service::start::<MainnetEthSpec>(config)
+        (START_DAEMON, Some(_)) => update_service::run_once::<MainnetEthSpec>(&config)
             .await
             .map_err(|e| format!("Failure: {:?}", e)),
         (SERVE, Some(_)) => {

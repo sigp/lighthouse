@@ -1,5 +1,5 @@
 use super::Error;
-use crate::{database::WatchBeaconBlock, Config, Database};
+use crate::database::{Config, Database, WatchBeaconBlock};
 use eth2::types::BlockId;
 use std::future::Future;
 
@@ -12,7 +12,7 @@ where
     F: Fn(Database) -> R,
     R: Future<Output = Result<T, Error>>,
 {
-    let mut db = get_db(config).await?;
+    let db = get_db(config).await?;
     func(db).await
 }
 
