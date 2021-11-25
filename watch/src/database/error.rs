@@ -1,7 +1,6 @@
 #[derive(Debug)]
 pub enum Error {
     Postgres(tokio_postgres::Error),
-    MissingParameter(&'static str),
     InvalidSlot,
     InvalidRoot,
     SensitiveUrl(eth2::SensitiveError),

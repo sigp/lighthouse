@@ -61,7 +61,7 @@ impl WatchHttpClient {
             .server
             .join("v1/")?
             .join("canonical_slots/")?
-            .join("lowest/")?;
+            .join("lowest")?;
 
         self.get_opt(url).await
     }

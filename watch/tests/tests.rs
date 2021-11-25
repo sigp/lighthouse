@@ -6,13 +6,15 @@ use beacon_chain::test_utils::{
 use eth2::types::BlockId;
 use http_api::test_utils::{create_api_server, ApiServer};
 use network::NetworkMessage;
+use rand::distributions::Alphanumeric;
+use rand::{thread_rng, Rng};
 use std::sync::Arc;
 use tokio::sync::{mpsc, oneshot};
 use types::{Hash256, MainnetEthSpec, Slot};
 use url::Url;
 use watch::{
     client::WatchHttpClient,
-    database::Config,
+    database::{Config, Database},
     server::{start_server, Context},
     update_service::{self, BACKFILL_SLOT_COUNT},
 };
@@ -53,15 +55,31 @@ impl Tester {
         tokio::spawn(server);
 
         /*
-         * Spawn a Watch HTTP API.
+         * Create a watch configuration
          */
+
         let mut config = Config::default();
         config.server_listen_port = 0;
+        // Use a random string for a database name. It's not ideal to introduce entropy into tests,
+        // but I think this should be fine since it shouldn't impact functionality.
+        config.dbname = random_dbname();
+        // Drop the database if it exists, to ensure a clean slate.
+        config.drop_dbname = true;
         config.beacon_node_url = format!(
             "http://{}:{}",
             bn_api_listening_socket.ip(),
             bn_api_listening_socket.port()
         );
+
+        /*
+         * Create a temporary postgres db
+         */
+
+        Database::create(&config).await.unwrap();
+
+        /*
+         * Spawn a Watch HTTP API.
+         */
 
         let (_watch_shutdown_tx, watch_shutdown_rx) = oneshot::channel();
         let ctx: Context<E> = Context {
@@ -116,10 +134,20 @@ impl Tester {
         self
     }
 
-    pub async fn assert_no_canonical_chain(self) -> Self {
+    pub async fn assert_canonical_slots_empty(self) -> Self {
         let lowest_slot = self.client.get_lowest_canonical_slot().await.unwrap();
 
         assert_eq!(lowest_slot, None);
+
+        self
+    }
+
+    pub async fn assert_canonical_slots_not_empty(self) -> Self {
+        self.client
+            .get_lowest_canonical_slot()
+            .await
+            .unwrap()
+            .unwrap();
 
         self
     }
@@ -150,14 +178,34 @@ impl Tester {
     }
 }
 
+impl Drop for Tester {
+    fn drop(&mut self) {
+        let config = self.config.clone();
+        tokio::spawn(async move { Database::drop_database(&config).await });
+    }
+}
+
+pub fn random_dbname() -> String {
+    let mut s: String = thread_rng()
+        .sample_iter(&Alphanumeric)
+        .take(8)
+        .map(char::from)
+        .collect();
+    // Postgres gets weird about capitals in database names.
+    s.make_ascii_lowercase();
+    s
+}
+
 #[tokio::test]
 async fn short_chain() {
     Tester::new()
         .await
         .extend_chain(BACKFILL_SLOT_COUNT / 2)
-        .assert_no_canonical_chain()
+        .assert_canonical_slots_empty()
         .await
         .run_update_service(1)
+        .await
+        .assert_canonical_slots_not_empty()
         .await
         .assert_canonical_chain_consistent()
         .await;
@@ -168,9 +216,11 @@ async fn long_chain() {
     Tester::new()
         .await
         .extend_chain(BACKFILL_SLOT_COUNT * 3)
-        .assert_no_canonical_chain()
+        .assert_canonical_slots_empty()
         .await
         .run_update_service(3)
+        .await
+        .assert_canonical_slots_not_empty()
         .await
         .assert_canonical_chain_consistent()
         .await;

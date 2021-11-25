@@ -1,6 +1,7 @@
 use crate::database::{self, Config};
 use eth2::types::BlockId;
-use log::info;
+use log::{debug, info};
+use serde::Serialize;
 use serde_json;
 use std::future::Future;
 use std::marker::PhantomData;
@@ -116,15 +117,11 @@ pub fn start_server<T: EthSpec>(
         .and(warp::path::param::<BlockId>())
         .and(ctx_filter.clone())
         .and_then(|block_id, ctx: Arc<Context<T>>| async move {
-            match handler::with_db(&ctx.config, |mut db| async move {
+            let response = handler::with_db(&ctx.config, |mut db| async move {
                 handler::get_block(&mut db, block_id).await
             })
-            .await
-            {
-                Ok(Some(block)) => Ok(reply::json(&block)),
-                Ok(None) => Err(reject::not_found()),
-                Err(e) => Err(reject::custom(e)),
-            }
+            .await;
+            respond_opt(response)
         });
 
     let lowest_slot = warp::path("v1")
@@ -132,15 +129,11 @@ pub fn start_server<T: EthSpec>(
         .and(warp::path("lowest"))
         .and(ctx_filter.clone())
         .and_then(|ctx: Arc<Context<T>>| async move {
-            match handler::with_db(&ctx.config, |mut db| async move {
+            let response = handler::with_db(&ctx.config, |mut db| async move {
                 handler::get_lowest_slot(&mut db).await
             })
-            .await
-            {
-                Ok(Some(slot)) => Ok(reply::json(&slot)),
-                Ok(None) => Err(reject::not_found()),
-                Err(e) => Err(reject::custom(e)),
-            }
+            .await;
+            respond_opt(response)
         });
 
     let routes = warp::get()
@@ -158,4 +151,20 @@ pub fn start_server<T: EthSpec>(
     info!("HTTP server listening on {}", listening_socket);
 
     Ok((listening_socket, server))
+}
+
+fn respond_opt<T: Serialize>(
+    result: Result<Option<T>, Error>,
+) -> Result<reply::Json, reject::Rejection> {
+    match result {
+        Ok(Some(t)) => Ok(reply::json(&t)),
+        Ok(None) => Err(reject::not_found()),
+        Err(e) => {
+            #[cfg(test)] // If testing, print errors for troubleshooting.
+            dbg!(&e);
+
+            debug!("Request returned error: {:?}", e);
+            Err(reject::custom(e))
+        }
+    }
 }

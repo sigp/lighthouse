@@ -108,17 +108,22 @@ impl Database {
         Ok(db)
     }
 
-    pub async fn create_database(config: &Config) -> Result<(), Error> {
+    /// Sets `config.dbname` to `config.default_dbname` and returns `(new_config, old_dbname)`.
+    ///
+    /// This is useful for creating or dropping databases, since these actions must be done by
+    /// logging into another database.
+    fn get_config_using_default_db(config: &Config) -> (Config, String) {
         let mut config = config.clone();
         let new_dbname = std::mem::replace(&mut config.dbname, config.default_dbname.clone());
-        let db = Self::connect(&config).await?;
+        (config, new_dbname)
+    }
+
+    async fn create_database(config: &Config) -> Result<(), Error> {
+        let (default_config, new_dbname) = Self::get_config_using_default_db(config);
+        let db = Self::connect(&default_config).await?;
 
         if config.drop_dbname {
-            info!("Dropping {} database", new_dbname);
-
-            db.client
-                .execute(&format!("DROP DATABASE IF EXISTS {};", new_dbname), &[])
-                .await?;
+            Self::drop_database(&config).await?;
         }
 
         info!("Creating {} database", new_dbname);
@@ -126,6 +131,19 @@ impl Database {
         db.client
             .execute(&format!("CREATE DATABASE {};", new_dbname), &[])
             .await?;
+        Ok(())
+    }
+
+    pub async fn drop_database(config: &Config) -> Result<(), Error> {
+        let (default_config, new_dbname) = Self::get_config_using_default_db(config);
+        let db = Self::connect(&default_config).await?;
+
+        info!("Dropping {} database", new_dbname);
+
+        db.client
+            .execute(&format!("DROP DATABASE IF EXISTS {};", new_dbname), &[])
+            .await?;
+
         Ok(())
     }
 
@@ -219,7 +237,6 @@ impl Database {
             .await?;
 
         if let Some(row) = row_opt {
-            dbg!(&row);
             if let Ok(slot) = row.try_get::<_, i32>(0) {
                 let slot: u64 = slot.try_into().map_err(|_| Error::InvalidSlot)?;
                 Ok(Some(slot.into()))
