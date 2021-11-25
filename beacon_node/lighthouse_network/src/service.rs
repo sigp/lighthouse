@@ -215,7 +215,8 @@ impl<TSpec: EthSpec> Service<TSpec> {
                 }
 
                 if !network_globals
-                    .peers()
+                    .peers
+                    .read()
                     .is_connected_or_dialing(&bootnode_enr.peer_id())
                 {
                     dial(multiaddr.clone());

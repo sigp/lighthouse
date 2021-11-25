@@ -786,7 +786,7 @@ pub fn update_gossip_metrics<T: EthSpec>(
     let mut peer_to_client = HashMap::new();
     let mut scores_per_client: HashMap<&'static str, Vec<f64>> = HashMap::new();
     {
-        let peers = network_globals.peers();
+        let peers = network_globals.peers.read();
         for (peer_id, _) in gossipsub.all_peers() {
             let client = peers
                 .peer_info(peer_id)
@@ -916,7 +916,8 @@ pub fn update_sync_metrics<T: EthSpec>(network_globals: &Arc<NetworkGlobals<T>>)
     // count per sync status, the number of connected peers
     let mut peers_per_sync_type = FnvHashMap::default();
     for sync_type in network_globals
-        .peers()
+        .peers
+        .read()
         .connected_peers()
         .map(|(_peer_id, info)| info.sync_status().as_str())
     {

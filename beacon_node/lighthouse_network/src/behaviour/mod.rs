@@ -14,9 +14,7 @@ use crate::types::{
     SubnetDiscovery,
 };
 use crate::Eth2Enr;
-use crate::{
-    error, metrics, Enr, NetworkConfig, NetworkGlobals, PubsubMessage, SyncStatus, TopicHash,
-};
+use crate::{error, metrics, Enr, NetworkConfig, NetworkGlobals, PubsubMessage, TopicHash};
 use libp2p::{
     core::{
         connection::ConnectionId, identity::Keypair, multiaddr::Protocol as MProtocol, Multiaddr,
@@ -34,7 +32,7 @@ use libp2p::{
     },
     NetworkBehaviour, PeerId,
 };
-use slog::{crit, debug, error, o, trace, warn};
+use slog::{crit, debug, o, trace, warn};
 use ssz::Encode;
 use std::collections::HashSet;
 use std::fs::File;
@@ -457,7 +455,8 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
         } {
             if let Some(client) = self
                 .network_globals
-                .peers()
+                .peers
+                .read()
                 .peer_info(propagation_source)
                 .map(|info| info.client().kind.as_ref())
             {
@@ -569,25 +568,6 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
         self.discovery.add_enr(enr);
     }
 
-    pub fn update_peers_sync_status(&mut self, peer_id: &PeerId, sync_status: SyncStatus) {
-        let status_repr = sync_status.as_str();
-        match self
-            .network_globals
-            .peers_mut()
-            .update_sync_status(peer_id, sync_status)
-        {
-            Some(true) => {
-                trace!(self.log, "Peer sync status updated"; "peer_id" => %peer_id, "sync_status" => status_repr);
-            }
-            Some(false) => {
-                // Sync status is the same for known peer
-            }
-            None => {
-                error!(self.log, "Sync status update notification for unknown peer"; "peer_id" => %peer_id, "sync_status" => status_repr);
-            }
-        }
-    }
-
     /// Updates a subnet value to the ENR attnets/syncnets bitfield.
     ///
     /// The `value` is `true` if a subnet is being added and false otherwise.
@@ -613,7 +593,8 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
                 // Extend min_ttl of connected peers on required subnets
                 if let Some(min_ttl) = s.min_ttl {
                     self.network_globals
-                        .peers_mut()
+                        .peers
+                        .write()
                         .extend_peers_on_subnet(&s.subnet, min_ttl);
                     if let Subnet::SyncCommittee(sync_subnet) = s.subnet {
                         self.peer_manager_mut()
@@ -623,7 +604,8 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
                 // Already have target number of peers, no need for subnet discovery
                 let peers_on_subnet = self
                     .network_globals
-                    .peers()
+                    .peers
+                    .read()
                     .good_peers_on_subnet(s.subnet)
                     .count();
                 if peers_on_subnet >= TARGET_SUBNET_PEERS {
@@ -773,7 +755,7 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
             .discovery
             .cached_enrs()
             .filter_map(|(peer_id, enr)| {
-                let peers = self.network_globals.peers();
+                let peers = self.network_globals.peers.read();
                 if predicate(enr) && peers.should_dial(peer_id) {
                     Some(*peer_id)
                 } else {
@@ -866,14 +848,16 @@ impl<TSpec: EthSpec> NetworkBehaviourEventProcess<GossipsubEvent> for Behaviour<
             GossipsubEvent::Subscribed { peer_id, topic } => {
                 if let Some(subnet_id) = subnet_from_topic_hash(&topic) {
                     self.network_globals
-                        .peers_mut()
+                        .peers
+                        .write()
                         .add_subscription(&peer_id, subnet_id);
                 }
             }
             GossipsubEvent::Unsubscribed { peer_id, topic } => {
                 if let Some(subnet_id) = subnet_from_topic_hash(&topic) {
                     self.network_globals
-                        .peers_mut()
+                        .peers
+                        .write()
                         .remove_subscription(&peer_id, &subnet_id);
                 }
             }

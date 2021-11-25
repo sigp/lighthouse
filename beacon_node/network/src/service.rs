@@ -17,7 +17,7 @@ use lighthouse_network::{
     types::{GossipEncoding, GossipTopic},
     BehaviourEvent, MessageId, NetworkGlobals, PeerId,
 };
-use lighthouse_network::{MessageAcceptance, Service as LibP2PService, SyncStatus};
+use lighthouse_network::{MessageAcceptance, Service as LibP2PService};
 use slog::{crit, debug, error, info, o, trace, warn};
 use std::{net::SocketAddr, pin::Pin, sync::Arc, time::Duration};
 use store::HotColdDB;
@@ -99,10 +99,6 @@ pub enum NetworkMessage<T: EthSpec> {
         peer_id: PeerId,
         reason: GoodbyeReason,
         source: ReportSource,
-    },
-    UpdatePeerSyncStatus {
-        peer_id: PeerId,
-        sync_status: SyncStatus,
     },
 }
 
@@ -530,9 +526,6 @@ fn spawn_service<T: BeaconChainTypes>(
                                     "topics" => ?subscribed_topics.into_iter().map(|topic| format!("{}", topic)).collect::<Vec<_>>()
                                 );
                             }
-                        }
-                        NetworkMessage::UpdatePeerSyncStatus{peer_id, sync_status} => {
-                            service.libp2p.swarm.behaviour_mut().update_peers_sync_status(&peer_id, sync_status);
                         }
                     }
                 }
