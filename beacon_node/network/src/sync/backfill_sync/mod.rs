@@ -213,7 +213,14 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
         match self.state() {
             BackFillState::Syncing => {} // already syncing ignore.
             BackFillState::Paused => {
-                if self.network_globals.peers().synced_peers().next().is_some() {
+                if self
+                    .network_globals
+                    .peers
+                    .read()
+                    .synced_peers()
+                    .next()
+                    .is_some()
+                {
                     // If there are peers to resume with, begin the resume.
                     debug!(self.log, "Resuming backfill sync"; "start_epoch" => self.current_start, "awaiting_batches" => self.batches.len(), "processing_target" => self.processing_target);
                     self.set_state(BackFillState::Syncing);
@@ -899,7 +906,8 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
         let new_peer = {
             let mut priorized_peers = self
                 .network_globals
-                .peers()
+                .peers
+                .read()
                 .synced_peers()
                 .map(|peer| {
                     (
@@ -1018,7 +1026,8 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
         let mut rng = rand::thread_rng();
         let mut idle_peers = self
             .network_globals
-            .peers()
+            .peers
+            .read()
             .synced_peers()
             .filter(|peer_id| {
                 self.active_requests

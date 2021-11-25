@@ -294,7 +294,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         let sync_type = remote_sync_type(&local, &remote, &self.chain);
 
         // update the state of the peer.
-        let should_add = self.update_peer_sync_state(peer_id, &local, &remote, &sync_type);
+        let should_add = self.update_peer_sync_state(&peer_id, &local, &remote, &sync_type);
 
         if matches!(sync_type, PeerSyncType::Advanced) && should_add {
             self.range_sync
@@ -646,7 +646,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
     /// connection status.
     fn update_peer_sync_state(
         &mut self,
-        peer_id: PeerId,
+        peer_id: &PeerId,
         local_sync_info: &SyncInfo,
         remote_sync_info: &SyncInfo,
         sync_type: &PeerSyncType,
@@ -656,10 +656,15 @@ impl<T: BeaconChainTypes> SyncManager<T> {
 
         let new_state = sync_type.as_sync_status(remote_sync_info);
         let rpr = new_state.as_str();
-
-        if let Some(info) = self.network_globals.peers().peer_info(&peer_id) {
-            let is_connected = info.is_connected();
-            if !info.sync_status().is_same_kind(&new_state) {
+        // Drop the write lock
+        let update_sync_status = self
+            .network_globals
+            .peers
+            .write()
+            .update_sync_status(peer_id, new_state.clone());
+        if let Some(was_updated) = update_sync_status {
+            let is_connected = self.network_globals.peers.read().is_connected(peer_id);
+            if was_updated {
                 debug!(self.log, "Peer transitioned sync state"; "peer_id" => %peer_id, "new_state" => rpr,
                     "our_head_slot" => local_sync_info.head_slot, "out_finalized_epoch" => local_sync_info.finalized_epoch,
                     "their_head_slot" => remote_sync_info.head_slot, "their_finalized_epoch" => remote_sync_info.finalized_epoch,
@@ -670,8 +675,6 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                 if new_state.is_synced() {
                     self.backfill_sync.fully_synced_peer_joined();
                 }
-
-                self.network.update_peer_sync_status(peer_id, new_state);
             }
             is_connected
         } else {
@@ -709,7 +712,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                         let head = self.chain.best_slot().unwrap_or_else(|_| Slot::new(0));
                         let current_slot = self.chain.slot().unwrap_or_else(|_| Slot::new(0));
 
-                        let peers = self.network_globals.peers();
+                        let peers = self.network_globals.peers.read();
                         if current_slot >= head
                             && current_slot.sub(head) <= (SLOT_IMPORT_TOLERANCE as u64)
                             && head > 0
