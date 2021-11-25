@@ -27,6 +27,19 @@ pub struct SyncInfo {
     pub finalized_root: Hash256,
 }
 
+impl std::cmp::PartialEq for SyncStatus {
+    fn eq(&self, other: &Self) -> bool {
+        matches!(
+            (self, other),
+            (SyncStatus::Synced { .. }, SyncStatus::Synced { .. })
+                | (SyncStatus::Advanced { .. }, SyncStatus::Advanced { .. })
+                | (SyncStatus::Behind { .. }, SyncStatus::Behind { .. })
+                | (SyncStatus::IrrelevantPeer, SyncStatus::IrrelevantPeer)
+                | (SyncStatus::Unknown, SyncStatus::Unknown)
+        )
+    }
+}
+
 impl SyncStatus {
     /// Returns true if the peer has advanced knowledge of the chain.
     pub fn is_advanced(&self) -> bool {
@@ -48,7 +61,7 @@ impl SyncStatus {
     /// E.g. returns `true` if the state changed from `Synced` to `Advanced`, but not if
     /// the status remained `Synced` with different `SyncInfo` within.
     pub fn update(&mut self, new_state: SyncStatus) -> bool {
-        let changed_status = !(self.is_same_kind(&new_state));
+        let changed_status = *self != new_state;
         *self = new_state;
         changed_status
     }
@@ -61,17 +74,6 @@ impl SyncStatus {
             SyncStatus::Unknown => "Unknown",
             SyncStatus::IrrelevantPeer => "Irrelevant",
         }
-    }
-
-    pub fn is_same_kind(&self, other: &Self) -> bool {
-        matches!(
-            (self, other),
-            (SyncStatus::Synced { .. }, SyncStatus::Synced { .. })
-                | (SyncStatus::Advanced { .. }, SyncStatus::Advanced { .. })
-                | (SyncStatus::Behind { .. }, SyncStatus::Behind { .. })
-                | (SyncStatus::IrrelevantPeer, SyncStatus::IrrelevantPeer)
-                | (SyncStatus::Unknown, SyncStatus::Unknown)
-        )
     }
 }
 
