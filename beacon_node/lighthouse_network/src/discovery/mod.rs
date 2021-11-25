@@ -959,12 +959,24 @@ impl<TSpec: EthSpec> NetworkBehaviour for Discovery<TSpec> {
         &mut self,
         peer_id: Option<PeerId>,
         _handler: Self::ProtocolsHandler,
-        _error: &DialError,
+        error: &DialError,
     ) {
         if let Some(peer_id) = peer_id {
-            // set peer as disconnected in discovery DHT
-            debug!(self.log, "Marking peer disconnected in DHT"; "peer_id" => %peer_id);
-            self.disconnect_peer(&peer_id);
+            match error {
+                DialError::Banned
+                | DialError::LocalPeerId
+                | DialError::InvalidPeerId
+                | DialError::ConnectionIo(_)
+                | DialError::NoAddresses
+                | DialError::Transport(_) => {
+                    // set peer as disconnected in discovery DHT
+                    debug!(self.log, "Marking peer disconnected in DHT"; "peer_id" => %peer_id);
+                    self.disconnect_peer(&peer_id);
+                }
+                DialError::ConnectionLimit(_)
+                | DialError::DialPeerConditionFalse(_)
+                | DialError::Aborted => {}
+            }
         }
     }
 
