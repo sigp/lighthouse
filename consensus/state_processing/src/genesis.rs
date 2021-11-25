@@ -76,8 +76,9 @@ pub fn process_activations<T: EthSpec>(
     state: &mut BeaconState<T>,
     spec: &ChainSpec,
 ) -> Result<(), Error> {
-    let (validators, balances) = state.validators_and_balances_mut();
-    for (index, validator) in validators.iter_mut().enumerate() {
+    let (mut validators, balances) = state.validators_and_balances_mut();
+    for index in 0..validators.len() {
+        let validator = validators.get_validator_mut(index)?;
         let balance = balances
             .get(index)
             .copied()

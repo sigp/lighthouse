@@ -64,6 +64,7 @@ pub mod voluntary_exit;
 pub mod slot_epoch_macros;
 pub mod config_and_preset;
 pub mod fork_context;
+pub mod mixin;
 pub mod participation_flags;
 pub mod participation_list;
 pub mod preset;
@@ -117,6 +118,7 @@ pub use crate::free_attestation::FreeAttestation;
 pub use crate::graffiti::{Graffiti, GRAFFITI_BYTES_LEN};
 pub use crate::historical_batch::HistoricalBatch;
 pub use crate::indexed_attestation::IndexedAttestation;
+pub use crate::mixin::GetValidatorMut;
 pub use crate::participation_flags::ParticipationFlags;
 pub use crate::participation_list::ParticipationList;
 pub use crate::pending_attestation::PendingAttestation;
@@ -159,3 +161,6 @@ pub use bls::{
 };
 pub use ssz_types::{typenum, typenum::Unsigned, BitList, BitVector, FixedVector, VariableList};
 pub use superstruct::superstruct;
+
+#[cfg(feature = "milhouse")]
+pub use milhouse::{self, prelude::*};

@@ -31,6 +31,7 @@ default = ["legacy-arith", "metrics"]
 fake_crypto = ["bls/fake_crypto"]
 legacy-arith = ["types/legacy-arith"]
 metrics = ["lighthouse_metrics", "lazy_static"]
+milhouse = ["types/milhouse"]
 arbitrary-fuzz = [
   "arbitrary",
   "types/arbitrary-fuzz",

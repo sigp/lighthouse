@@ -2,7 +2,7 @@ use super::errors::EpochProcessingError;
 use safe_arith::SafeArith;
 use types::beacon_state::BeaconState;
 use types::chain_spec::ChainSpec;
-use types::{BeaconStateError, EthSpec};
+use types::{BeaconStateError, EthSpec, GetValidatorMut};
 
 pub fn process_effective_balance_updates<T: EthSpec>(
     state: &mut BeaconState<T>,
@@ -13,8 +13,9 @@ pub fn process_effective_balance_updates<T: EthSpec>(
         .safe_div(spec.hysteresis_quotient)?;
     let downward_threshold = hysteresis_increment.safe_mul(spec.hysteresis_downward_multiplier)?;
     let upward_threshold = hysteresis_increment.safe_mul(spec.hysteresis_upward_multiplier)?;
-    let (validators, balances) = state.validators_and_balances_mut();
-    for (index, validator) in validators.iter_mut().enumerate() {
+    let (mut validators, balances) = state.validators_and_balances_mut();
+    for index in 0..validators.len() {
+        let validator = validators.get_validator_mut(index)?;
         let balance = balances
             .get(index)
             .copied()

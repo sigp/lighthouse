@@ -6,6 +6,9 @@ use types::consts::altair::{
 };
 use types::{BeaconState, ChainSpec, EthSpec};
 
+#[cfg(feature = "milhouse")]
+use types::milhouse::prelude::*;
+
 use crate::common::{altair::get_base_reward, decrease_balance, increase_balance};
 use crate::per_epoch_processing::{Delta, Error};
 

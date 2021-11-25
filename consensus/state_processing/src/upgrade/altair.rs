@@ -6,6 +6,9 @@ use types::{
     ParticipationFlags, PendingAttestation, RelativeEpoch, SyncCommittee, VariableList,
 };
 
+#[cfg(feature = "milhouse")]
+use types::milhouse::prelude::*;
+
 /// Translate the participation information from the epoch prior to the fork into Altair's format.
 pub fn translate_participation<E: EthSpec>(
     state: &mut BeaconState<E>,
@@ -104,6 +107,7 @@ pub fn upgrade_to_altair<E: EthSpec>(
         committee_caches: mem::take(&mut pre.committee_caches),
         pubkey_cache: mem::take(&mut pre.pubkey_cache),
         exit_cache: mem::take(&mut pre.exit_cache),
+        #[cfg(not(feature = "milhouse"))]
         tree_hash_cache: mem::take(&mut pre.tree_hash_cache),
     });
 

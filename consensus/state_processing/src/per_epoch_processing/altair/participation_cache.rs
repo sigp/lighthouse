@@ -21,6 +21,9 @@ use types::{
     BeaconState, BeaconStateError, ChainSpec, Epoch, EthSpec, ParticipationFlags, RelativeEpoch,
 };
 
+#[cfg(feature = "milhouse")]
+use types::milhouse::prelude::*;
+
 #[derive(Debug, PartialEq)]
 pub enum Error {
     InvalidFlagIndex(usize),

@@ -7,6 +7,9 @@ use safe_arith::SafeArith;
 use std::array::IntoIter as ArrayIter;
 use types::{BeaconState, ChainSpec, EthSpec};
 
+#[cfg(feature = "milhouse")]
+use types::milhouse::prelude::*;
+
 /// Combination of several deltas for different components of an attestation reward.
 ///
 /// Exists only for compatibility with EF rewards tests.

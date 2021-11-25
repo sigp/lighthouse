@@ -47,7 +47,11 @@ mod tree_hash_cache;
 
 #[cfg(feature = "milhouse")]
 pub type ListMut<'a, T, N> = Interface<T, &'a mut List<T, N>>;
+
+#[cfg(feature = "milhouse")]
 pub type ValidatorsMut<'a, N> = ListMut<'a, Validator, N>;
+#[cfg(not(feature = "milhouse"))]
+pub type ValidatorsMut<'a, N> = &'a mut VList<Validator, N>;
 
 pub const CACHED_EPOCHS: usize = 3;
 const MAX_RANDOM_BYTE: u64 = (1 << 8) - 1;
@@ -240,6 +244,7 @@ where
     pub eth1_deposit_index: u64,
 
     // Registry
+    #[superstruct(getter(rename = "validators_raw"))]
     #[test_random(default)]
     pub validators: VList<Validator, T::ValidatorRegistryLimit>,
     #[compare_fields(as_slice)]
@@ -1096,19 +1101,32 @@ impl<T: EthSpec> BeaconState<T> {
         Ok(())
     }
 
+    pub fn validators(&self) -> &VList<Validator, T::ValidatorRegistryLimit> {
+        self.validators_raw()
+    }
+
+    pub fn validators_mut(&mut self) -> ValidatorsMut<T::ValidatorRegistryLimit> {
+        #[cfg(not(feature = "milhouse"))]
+        {
+            self.validators_raw_mut()
+        }
+        #[cfg(feature = "milhouse")]
+        {
+            self.validators_raw_mut().as_mut()
+        }
+    }
+
     /// Convenience accessor for validators and balances simultaneously.
-    #[cfg(not(feature = "milhouse"))]
-    pub fn validators_and_balances_mut(&mut self) -> (&mut [Validator], &mut [u64]) {
+    pub fn validators_and_balances_mut(
+        &mut self,
+    ) -> (ValidatorsMut<T::ValidatorRegistryLimit>, &mut [u64]) {
+        #[cfg(not(feature = "milhouse"))]
         match self {
             BeaconState::Base(state) => (&mut state.validators, &mut state.balances),
             BeaconState::Altair(state) => (&mut state.validators, &mut state.balances),
         }
-    }
 
-    #[cfg(feature = "milhouse")]
-    pub fn validators_and_balances_mut(
-        &mut self,
-    ) -> (ValidatorsMut<T::ValidatorRegistryLimit>, &mut [u64]) {
+        #[cfg(feature = "milhouse")]
         match self {
             BeaconState::Base(state) => (state.validators.as_mut(), &mut state.balances),
             BeaconState::Altair(state) => (state.validators.as_mut(), &mut state.balances),

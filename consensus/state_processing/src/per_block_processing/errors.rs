@@ -57,6 +57,8 @@ pub enum BlockProcessingError {
     ArithError(ArithError),
     InconsistentBlockFork(InconsistentFork),
     InconsistentStateFork(InconsistentFork),
+    #[cfg(feature = "milhouse")]
+    MilhouseError(milhouse::Error),
 }
 
 impl From<BeaconStateError> for BlockProcessingError {
@@ -86,6 +88,13 @@ impl From<ArithError> for BlockProcessingError {
 impl From<SyncAggregateInvalid> for BlockProcessingError {
     fn from(reason: SyncAggregateInvalid) -> Self {
         BlockProcessingError::SyncAggregateInvalid { reason }
+    }
+}
+
+#[cfg(feature = "milhouse")]
+impl From<milhouse::Error> for BlockProcessingError {
+    fn from(e: milhouse::Error) -> Self {
+        Self::MilhouseError(e)
     }
 }
 

@@ -1,6 +1,6 @@
 use crate::per_epoch_processing::Error;
 use safe_arith::{SafeArith, SafeArithIter};
-use types::{BeaconState, BeaconStateError, ChainSpec, EthSpec, Unsigned};
+use types::{BeaconState, BeaconStateError, ChainSpec, EthSpec, GetValidatorMut, Unsigned};
 
 /// Process slashings.
 pub fn process_slashings<T: EthSpec>(
@@ -16,7 +16,8 @@ pub fn process_slashings<T: EthSpec>(
         std::cmp::min(sum_slashings.safe_mul(slashing_multiplier)?, total_balance);
 
     let (validators, balances) = state.validators_and_balances_mut();
-    for (index, validator) in validators.iter().enumerate() {
+    for index in 0..validators.len() {
+        let validator = validators.get_validator(index)?;
         if validator.slashed
             && epoch.safe_add(T::EpochsPerSlashingsVector::to_u64().safe_div(2)?)?
                 == validator.withdrawable_epoch
