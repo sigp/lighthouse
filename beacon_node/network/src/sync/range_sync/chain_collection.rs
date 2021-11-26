@@ -17,6 +17,7 @@ use slog::{crit, debug, error};
 use smallvec::SmallVec;
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
+use std::sync::Arc;
 use tokio::sync::mpsc;
 use types::EthSpec;
 use types::{Epoch, Hash256, Slot};
@@ -41,7 +42,7 @@ pub enum RangeSyncState {
 /// A collection of finalized and head chains currently being processed.
 pub struct ChainCollection<T: BeaconChainTypes, C> {
     /// The beacon chain for processing.
-    beacon_chain: C,
+    beacon_chain: Arc<C>,
     /// The set of finalized chains being synced.
     finalized_chains: FnvHashMap<ChainId, SyncingChain<T>>,
     /// The set of head chains being synced.
@@ -53,7 +54,7 @@ pub struct ChainCollection<T: BeaconChainTypes, C> {
 }
 
 impl<T: BeaconChainTypes, C: BlockStorage> ChainCollection<T, C> {
-    pub fn new(beacon_chain: C, log: slog::Logger) -> Self {
+    pub fn new(beacon_chain: Arc<C>, log: slog::Logger) -> Self {
         ChainCollection {
             beacon_chain,
             finalized_chains: FnvHashMap::default(),
@@ -406,6 +407,7 @@ impl<T: BeaconChainTypes, C: BlockStorage> ChainCollection<T, C> {
         local_info: &SyncInfo,
         awaiting_head_peers: &mut HashMap<PeerId, SyncInfo>,
     ) {
+        debug!(self.log, "Purging chains");
         let local_finalized_slot = local_info
             .finalized_epoch
             .start_slot(T::EthSpec::slots_per_epoch());
@@ -414,7 +416,10 @@ impl<T: BeaconChainTypes, C: BlockStorage> ChainCollection<T, C> {
         let log_ref = &self.log;
 
         let is_outdated = |target_slot: &Slot, target_root: &Hash256| {
-            target_slot <= &local_finalized_slot || beacon_chain.is_block_known(target_root)
+            let is =
+                target_slot <= &local_finalized_slot || beacon_chain.is_block_known(target_root);
+            debug!(log_ref, "Chain is outdated {}", is);
+            is
         };
 
         // Retain only head peers that remain relevant
@@ -424,31 +429,35 @@ impl<T: BeaconChainTypes, C: BlockStorage> ChainCollection<T, C> {
 
         // Remove chains that are out-dated
         let mut removed_chains = Vec::new();
-        self.finalized_chains.retain(|id, chain| {
+        removed_chains.extend(self.finalized_chains.iter().filter_map(|(id, chain)| {
             if is_outdated(&chain.target_head_slot, &chain.target_head_root)
                 || chain.available_peers() == 0
             {
                 debug!(log_ref, "Purging out of finalized chain"; &chain);
-                removed_chains.push((*id, chain.is_syncing(), RangeSyncType::Finalized));
-                false
+                Some((*id, chain.is_syncing(), RangeSyncType::Finalized))
             } else {
-                true
+                None
             }
-        });
-        self.head_chains.retain(|id, chain| {
+        }));
+
+        removed_chains.extend(self.head_chains.iter().filter_map(|(id, chain)| {
             if is_outdated(&chain.target_head_slot, &chain.target_head_root)
                 || chain.available_peers() == 0
             {
                 debug!(log_ref, "Purging out of date head chain"; &chain);
-                removed_chains.push((*id, chain.is_syncing(), RangeSyncType::Head));
-                false
+                Some((*id, chain.is_syncing(), RangeSyncType::Head))
             } else {
-                true
+                None
             }
-        });
+        }));
 
         // update the state of the collection
         for (id, was_syncing, sync_type) in removed_chains {
+            // remove each chain, updating the state for each removal.
+            match sync_type {
+                RangeSyncType::Finalized => self.finalized_chains.remove(&id),
+                RangeSyncType::Head => self.head_chains.remove(&id),
+            };
             self.on_chain_removed(&id, was_syncing, sync_type);
         }
     }
