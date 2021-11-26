@@ -64,6 +64,7 @@ pub(crate) fn update_legacy_proto_array_bytes<T: BeaconChainTypes>(
         &legacy_nodes,
         &mut fork_choice,
         db,
+        log,
     )?;
 
     persisted_fork_choice.fork_choice.proto_array_bytes = fork_choice.as_bytes();
@@ -71,6 +72,7 @@ pub(crate) fn update_legacy_proto_array_bytes<T: BeaconChainTypes>(
     Ok(())
 }
 
+#[derive(Debug)]
 struct HeadInfo {
     index: usize,
     root: Hash256,
@@ -82,8 +84,11 @@ fn update_checkpoints<T: BeaconChainTypes>(
     legacy_nodes: &[LegacyProtoNode],
     fork_choice: &mut ProtoArrayForkChoice,
     db: Arc<HotColdDB<T::EthSpec, T::HotStore, T::ColdStore>>,
+    log: Logger,
 ) -> Result<(), String> {
     let heads = find_finalized_descendant_heads(finalized_root, fork_choice);
+
+    info!(log, "heads"; "heads" => ?heads);
 
     // For each head, first gather all epochs we will need to find justified or finalized roots for.
     for head in heads {
@@ -107,6 +112,9 @@ fn update_checkpoints<T: BeaconChainTypes>(
             relevant_epoch_finder,
         )?;
 
+        info!(log, "relevant_epochs"; "relevant_epochs" => ?relevant_epochs);
+
+
         // find the block roots associated with each relevant epoch.
         let roots_by_epoch = map_relevant_epochs_to_roots::<T>(
             head.root,
@@ -114,6 +122,9 @@ fn update_checkpoints<T: BeaconChainTypes>(
             relevant_epochs.as_slice(),
             db.clone(),
         )?;
+
+        info!(log, "roots_by_epoch"; "roots_by_epoch" => ?roots_by_epoch);
+
 
         // Apply this mutator to the chain of descendants from this head, adding justified
         // and finalized checkpoints for each.
