@@ -267,6 +267,7 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
 
         let peer_manager_cfg = PeerManagerCfg {
             discovery_enabled: !config.disable_discovery,
+            metrics_enabled: config.metrics_enabled,
             target_peer_count: config.target_peers,
             ..Default::default()
         };

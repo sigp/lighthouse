@@ -15,7 +15,7 @@ use crate::metrics;
 use crate::rpc::GoodbyeReason;
 use crate::types::SyncState;
 
-use super::peerdb::{peer_info::PeerConnectionStatus, BanResult};
+use super::peerdb::BanResult;
 use super::{PeerManager, PeerManagerEvent, ReportSource};
 
 impl<TSpec: EthSpec> NetworkBehaviour for PeerManager<TSpec> {
@@ -132,22 +132,6 @@ impl<TSpec: EthSpec> NetworkBehaviour for PeerManager<TSpec> {
             }
         }
 
-        // Increment the PEERS_PER_CLIENT metric.
-        if let Some(kind) = self
-            .network_globals
-            .peers
-            .read()
-            .peer_info(&peer_id)
-            .map(|peer_info| peer_info.client().kind.clone())
-        {
-            metrics::inc_gauge_vec(&metrics::PEERS_PER_CLIENT, &[&kind.to_string()]);
-        } else {
-            metrics::inc_gauge_vec(
-                &metrics::PEERS_PER_CLIENT,
-                &[&super::peerdb::client::ClientKind::Unknown.to_string()],
-            );
-        }
-
         // Check to make sure the peer is not supposed to be banned
         match self.ban_status(peer_id) {
             // TODO: directly emit the ban event?
@@ -189,22 +173,17 @@ impl<TSpec: EthSpec> NetworkBehaviour for PeerManager<TSpec> {
                 self.inject_connect_ingoing(peer_id, send_back_addr.clone(), None);
                 self.events
                     .push(PeerManagerEvent::PeerConnectedIncoming(*peer_id));
-                metrics::inc_gauge(&metrics::NETWORK_INBOUND_PEERS);
             }
             ConnectedPoint::Dialer { address } => {
                 self.inject_connect_outgoing(peer_id, address.clone(), None);
                 self.events
                     .push(PeerManagerEvent::PeerConnectedOutgoing(*peer_id));
-                metrics::inc_gauge(&metrics::NETWORK_OUTBOUND_PEERS);
             }
         }
 
-        let connected_peers = self.network_globals.connected_peers() as i64;
-
         // increment prometheus metrics
+        self.update_connected_peer_metrics();
         metrics::inc_counter(&metrics::PEER_CONNECT_EVENT_COUNT);
-        metrics::set_gauge(&metrics::PEERS_CONNECTED, connected_peers);
-        metrics::set_gauge(&metrics::PEERS_CONNECTED_INTEROP, connected_peers);
     }
 
     fn inject_disconnected(&mut self, peer_id: &PeerId) {
@@ -224,37 +203,14 @@ impl<TSpec: EthSpec> NetworkBehaviour for PeerManager<TSpec> {
             debug!(self.log, "Peer disconnected"; "peer_id" => %peer_id);
         }
 
-        // Decrement the PEERS_PER_CLIENT metric
-        if let Some(peer_info) = self.network_globals.peers.read().peer_info(&peer_id) {
-            metrics::dec_gauge_vec(
-                &metrics::PEERS_PER_CLIENT,
-                &[&peer_info.client().kind.to_string()],
-            );
-
-            // Decrement the INBOUND/OUTBOUND peer metric
-            match peer_info.connection_status() {
-                PeerConnectionStatus::Connected { n_in, n_out: _ } => {
-                    if *n_in > 0 {
-                        metrics::dec_gauge(&metrics::NETWORK_INBOUND_PEERS);
-                    } else {
-                        metrics::dec_gauge(&metrics::NETWORK_OUTBOUND_PEERS);
-                    }
-                }
-                _ => {}
-            }
-        }
-
         // NOTE: It may be the case that a rejected node, due to too many peers is disconnected
         // here and the peer manager has no knowledge of its connection. We insert it here for
         // reference so that peer manager can track this peer.
         self.inject_disconnect(peer_id);
 
-        let connected_peers = self.network_globals.connected_peers() as i64;
-
         // Update the prometheus metrics
+        self.update_connected_peer_metrics();
         metrics::inc_counter(&metrics::PEER_DISCONNECT_EVENT_COUNT);
-        metrics::set_gauge(&metrics::PEERS_CONNECTED, connected_peers);
-        metrics::set_gauge(&metrics::PEERS_CONNECTED_INTEROP, connected_peers);
     }
 
     fn inject_address_change(
