@@ -6,9 +6,6 @@ use types::eth_spec::EthSpec;
 use types::participation_flags::ParticipationFlags;
 use types::VariableList;
 
-#[cfg(feature = "milhouse")]
-use types::milhouse::prelude::*;
-
 pub fn process_participation_flag_updates<T: EthSpec>(
     state: &mut BeaconState<T>,
 ) -> Result<(), EpochProcessingError> {

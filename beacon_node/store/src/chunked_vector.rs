@@ -18,6 +18,10 @@ use self::UpdatePattern::*;
 use crate::*;
 use ssz::{Decode, Encode};
 use typenum::Unsigned;
+use types::VList;
+
+#[cfg(feature = "milhouse")]
+use types::milhouse::ImmList;
 
 /// Description of how a `BeaconState` field is updated during state processing.
 ///
@@ -318,7 +322,7 @@ field!(
     |_| OncePerNSlots {
         n: T::SlotsPerHistoricalRoot::to_u64()
     },
-    |state: &BeaconState<_>, index, _| safe_modulo_index(state.historical_roots(), index)
+    |state: &BeaconState<_>, index, _| safe_modulo_index_tree(state.historical_roots(), index)
 );
 
 field!(
@@ -533,7 +537,7 @@ pub fn load_variable_list_from_db<F: VariableLengthField<E>, E: EthSpec, S: KeyV
     store: &S,
     slot: Slot,
     spec: &ChainSpec,
-) -> Result<VariableList<F::Value, F::Length>, Error> {
+) -> Result<VList<F::Value, F::Length>, Error> {
     let chunk_size = F::chunk_size();
     let (start_vindex, end_vindex) = F::start_and_end_vindex(slot, spec);
     let start_cindex = start_vindex / chunk_size;
@@ -541,19 +545,19 @@ pub fn load_variable_list_from_db<F: VariableLengthField<E>, E: EthSpec, S: KeyV
 
     let chunks: Vec<Chunk<F::Value>> = range_query(store, F::column(), start_cindex, end_cindex)?;
 
-    let mut result = Vec::with_capacity(chunk_size * chunks.len());
+    let mut result = VList::empty();
 
     for (chunk_index, chunk) in chunks.into_iter().enumerate() {
         for (i, value) in chunk.values.into_iter().enumerate() {
             let vindex = chunk_index * chunk_size + i;
 
             if vindex >= start_vindex && vindex < end_vindex {
-                result.push(value);
+                result.push(value)?;
             }
         }
     }
 
-    Ok(result.into())
+    Ok(result)
 }
 
 /// Index into a field of the state, avoiding out of bounds and division by 0.
@@ -562,6 +566,21 @@ fn safe_modulo_index<T: Copy>(values: &[T], index: u64) -> Result<T, ChunkError>
         Err(ChunkError::ZeroLengthVector)
     } else {
         Ok(values[index as usize % values.len()])
+    }
+}
+
+#[cfg(not(feature = "milhouse"))]
+use safe_modulo_index as safe_modulo_index_tree;
+
+#[cfg(feature = "milhouse")]
+fn safe_modulo_index_tree<V: ImmList<T>, T: Copy>(values: &V, index: u64) -> Result<T, ChunkError> {
+    if values.is_empty() {
+        Err(ChunkError::ZeroLengthVector)
+    } else {
+        values
+            .get(index as usize % values.len())
+            .copied()
+            .ok_or(ChunkError::OutOfBounds)
     }
 }
 
@@ -679,6 +698,7 @@ pub enum ChunkError {
         end_vindex: usize,
         length: usize,
     },
+    OutOfBounds,
 }
 
 #[cfg(test)]

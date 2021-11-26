@@ -4,6 +4,9 @@ use crate::hot_cold_store::HotColdDBError;
 use ssz::DecodeError;
 use types::{BeaconStateError, Hash256, Slot};
 
+#[cfg(feature = "milhouse")]
+use types::milhouse;
+
 pub type Result<T> = std::result::Result<T, Error>;
 
 #[derive(Debug)]
@@ -39,6 +42,8 @@ pub enum Error {
         expected: Hash256,
         computed: Hash256,
     },
+    #[cfg(feature = "milhouse")]
+    MilhouseError(milhouse::Error),
 }
 
 pub trait HandleUnavailable<T> {
@@ -88,6 +93,13 @@ impl From<DBError> for Error {
 impl From<StoreConfigError> for Error {
     fn from(e: StoreConfigError) -> Error {
         Error::ConfigError(e)
+    }
+}
+
+#[cfg(feature = "milhouse")]
+impl From<milhouse::Error> for Error {
+    fn from(e: milhouse::Error) -> Self {
+        Self::MilhouseError(e)
     }
 }
 

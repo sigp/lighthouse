@@ -30,10 +30,10 @@ pub use eth_spec::*;
 pub use iter::BlockRootsIter;
 
 #[cfg(feature = "milhouse")]
-use milhouse::prelude::{List as VList, *};
+pub use milhouse::{interface::Interface, List as VList, List};
 
 #[cfg(not(feature = "milhouse"))]
-use {ssz_types::FixedVector, tree_hash_cache::BeaconTreeHashCache, VariableList as VList};
+pub use {ssz_types::FixedVector, tree_hash_cache::BeaconTreeHashCache, VariableList as VList};
 
 #[macro_use]
 mod committee_cache;
@@ -46,7 +46,7 @@ mod tests;
 mod tree_hash_cache;
 
 #[cfg(feature = "milhouse")]
-pub type ListMut<'a, T, N> = Interface<T, &'a mut List<T, N>>;
+pub type ListMut<'a, T, N> = Interface<'a, T, List<T, N>>;
 
 #[cfg(feature = "milhouse")]
 pub type ValidatorsMut<'a, N> = ListMut<'a, Validator, N>;
@@ -138,6 +138,8 @@ pub enum Error {
         current_epoch: Epoch,
         epoch: Epoch,
     },
+    #[cfg(feature = "milhouse")]
+    MilhouseError(milhouse::Error),
 }
 
 /// Control whether an epoch-indexed field can be indexed at the next epoch or not.
@@ -234,11 +236,13 @@ where
     pub block_roots: FixedVector<Hash256, T::SlotsPerHistoricalRoot>,
     #[compare_fields(as_slice)]
     pub state_roots: FixedVector<Hash256, T::SlotsPerHistoricalRoot>,
-    pub historical_roots: VariableList<Hash256, T::HistoricalRootsLimit>,
+    #[test_random(default)]
+    pub historical_roots: VList<Hash256, T::HistoricalRootsLimit>,
 
     // Ethereum 1.0 chain data
     pub eth1_data: Eth1Data,
-    pub eth1_data_votes: VariableList<Eth1Data, T::SlotsPerEth1VotingPeriod>,
+    #[test_random(default)]
+    pub eth1_data_votes: VList<Eth1Data, T::SlotsPerEth1VotingPeriod>,
     #[superstruct(getter(copy))]
     #[serde(with = "eth2_serde_utils::quoted_u64")]
     pub eth1_deposit_index: u64,
@@ -260,9 +264,11 @@ where
 
     // Attestations (genesis fork only)
     #[superstruct(only(Base))]
-    pub previous_epoch_attestations: VariableList<PendingAttestation<T>, T::MaxPendingAttestations>,
+    #[test_random(default)]
+    pub previous_epoch_attestations: VList<PendingAttestation<T>, T::MaxPendingAttestations>,
     #[superstruct(only(Base))]
-    pub current_epoch_attestations: VariableList<PendingAttestation<T>, T::MaxPendingAttestations>,
+    #[test_random(default)]
+    pub current_epoch_attestations: VList<PendingAttestation<T>, T::MaxPendingAttestations>,
 
     // Participation (Altair and later)
     #[superstruct(only(Altair))]
@@ -351,11 +357,11 @@ impl<T: EthSpec> BeaconState<T> {
             latest_block_header: BeaconBlock::<T>::empty(spec).temporary_block_header(),
             block_roots: FixedVector::from_elem(Hash256::zero()),
             state_roots: FixedVector::from_elem(Hash256::zero()),
-            historical_roots: VariableList::empty(),
+            historical_roots: VList::empty(),
 
             // Eth1
             eth1_data,
-            eth1_data_votes: VariableList::empty(),
+            eth1_data_votes: VList::empty(),
             eth1_deposit_index: 0,
 
             // Validator registry
@@ -369,8 +375,8 @@ impl<T: EthSpec> BeaconState<T> {
             slashings: FixedVector::from_elem(0),
 
             // Attestations
-            previous_epoch_attestations: VariableList::empty(),
-            current_epoch_attestations: VariableList::empty(),
+            previous_epoch_attestations: VList::empty(),
+            current_epoch_attestations: VList::empty(),
 
             // Finality
             justification_bits: BitVector::new(),
@@ -1718,6 +1724,13 @@ impl From<tree_hash::Error> for Error {
 impl From<ArithError> for Error {
     fn from(e: ArithError) -> Error {
         Error::ArithError(e)
+    }
+}
+
+#[cfg(feature = "milhouse")]
+impl From<milhouse::Error> for Error {
+    fn from(e: milhouse::Error) -> Self {
+        Self::MilhouseError(e)
     }
 }
 

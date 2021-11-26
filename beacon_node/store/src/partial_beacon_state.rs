@@ -39,15 +39,15 @@ where
     pub state_roots: Option<FixedVector<Hash256, T::SlotsPerHistoricalRoot>>,
 
     #[ssz(skip_serializing, skip_deserializing)]
-    pub historical_roots: Option<VariableList<Hash256, T::HistoricalRootsLimit>>,
+    pub historical_roots: Option<VList<Hash256, T::HistoricalRootsLimit>>,
 
     // Ethereum 1.0 chain data
     pub eth1_data: Eth1Data,
-    pub eth1_data_votes: VariableList<Eth1Data, T::SlotsPerEth1VotingPeriod>,
+    pub eth1_data_votes: VList<Eth1Data, T::SlotsPerEth1VotingPeriod>,
     pub eth1_deposit_index: u64,
 
     // Registry
-    pub validators: VariableList<Validator, T::ValidatorRegistryLimit>,
+    pub validators: VList<Validator, T::ValidatorRegistryLimit>,
     pub balances: VariableList<u64, T::ValidatorRegistryLimit>,
 
     // Shuffling
@@ -61,9 +61,9 @@ where
 
     // Attestations (genesis fork only)
     #[superstruct(only(Base))]
-    pub previous_epoch_attestations: VariableList<PendingAttestation<T>, T::MaxPendingAttestations>,
+    pub previous_epoch_attestations: VList<PendingAttestation<T>, T::MaxPendingAttestations>,
     #[superstruct(only(Base))]
-    pub current_epoch_attestations: VariableList<PendingAttestation<T>, T::MaxPendingAttestations>,
+    pub current_epoch_attestations: VList<PendingAttestation<T>, T::MaxPendingAttestations>,
 
     // Participation (Altair and later)
     #[superstruct(only(Altair))]
@@ -297,6 +297,7 @@ macro_rules! impl_try_into_beacon_state {
             committee_caches: <_>::default(),
             pubkey_cache: <_>::default(),
             exit_cache: <_>::default(),
+            #[cfg(not(feature = "milhouse"))]
             tree_hash_cache: <_>::default(),
 
             // Variant-specific fields

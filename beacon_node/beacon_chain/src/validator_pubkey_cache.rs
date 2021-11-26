@@ -111,9 +111,12 @@ impl<T: BeaconChainTypes> ValidatorPubkeyCache<T> {
         state: &BeaconState<T::EthSpec>,
     ) -> Result<(), BeaconChainError> {
         if state.validators().len() > self.pubkeys.len() {
+            // FIXME(sproul): iter_from would be more efficient than `skip` here
             self.import(
-                state.validators()[self.pubkeys.len()..]
+                state
+                    .validators()
                     .iter()
+                    .skip(self.pubkeys.len())
                     .map(|v| v.pubkey),
             )
         } else {

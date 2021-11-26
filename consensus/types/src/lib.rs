@@ -163,4 +163,4 @@ pub use ssz_types::{typenum, typenum::Unsigned, BitList, BitVector, FixedVector,
 pub use superstruct::superstruct;
 
 #[cfg(feature = "milhouse")]
-pub use milhouse::{self, prelude::*};
+pub use milhouse;

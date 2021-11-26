@@ -14,9 +14,6 @@ use types::{
     SignedVoluntaryExit, SigningData, Slot, SyncAggregate, SyncAggregatorSelectionData, Unsigned,
 };
 
-#[cfg(feature = "milhouse")]
-use types::milhouse::prelude::*;
-
 pub type Result<T> = std::result::Result<T, Error>;
 
 #[derive(Debug, PartialEq, Clone)]

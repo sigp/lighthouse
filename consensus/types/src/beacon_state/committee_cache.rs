@@ -10,9 +10,6 @@ use ssz_derive::{Decode, Encode};
 use std::ops::Range;
 use swap_or_not_shuffle::shuffle_list;
 
-#[cfg(feature = "milhouse")]
-use milhouse::prelude::*;
-
 mod tests;
 
 // Define "legacy" implementations of `Option<Epoch>`, `Option<NonZeroUsize>` which use four bytes

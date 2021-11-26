@@ -2,9 +2,6 @@ use crate::common::get_attesting_indices;
 use safe_arith::SafeArith;
 use types::{BeaconState, BeaconStateError, ChainSpec, Epoch, EthSpec, PendingAttestation};
 
-#[cfg(feature = "milhouse")]
-use types::milhouse::prelude::*;
-
 #[cfg(feature = "arbitrary-fuzz")]
 use arbitrary::Arbitrary;
 

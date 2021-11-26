@@ -3,16 +3,13 @@ use std::mem;
 use std::sync::Arc;
 use types::{
     BeaconState, BeaconStateAltair, BeaconStateError as Error, ChainSpec, EthSpec, Fork,
-    ParticipationFlags, PendingAttestation, RelativeEpoch, SyncCommittee, VariableList,
+    ParticipationFlags, PendingAttestation, RelativeEpoch, SyncCommittee, VList, VariableList,
 };
-
-#[cfg(feature = "milhouse")]
-use types::milhouse::prelude::*;
 
 /// Translate the participation information from the epoch prior to the fork into Altair's format.
 pub fn translate_participation<E: EthSpec>(
     state: &mut BeaconState<E>,
-    pending_attestations: &VariableList<PendingAttestation<E>, E::MaxPendingAttestations>,
+    pending_attestations: &VList<PendingAttestation<E>, E::MaxPendingAttestations>,
     spec: &ChainSpec,
 ) -> Result<(), Error> {
     // Previous epoch committee cache is required for `get_attesting_indices`.
