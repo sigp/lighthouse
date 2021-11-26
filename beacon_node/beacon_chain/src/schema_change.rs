@@ -109,7 +109,7 @@ pub fn migrate_schema<T: BeaconChainTypes>(
                 // `PersistedForkChoice` stores the `ProtoArray` as a `Vec<u8>`. Deserialize these
                 // bytes assuming the legacy struct, and transform them to the new struct before
                 // re-serializing.
-                let result = migrate_schema_6::update_legacy_proto_array_bytes::<T>(
+                let result = migrate_schema_6 ::update_legacy_proto_array_bytes::<T>(
                     &mut persisted_fork_choice,
                     db.clone(),
                     log.clone(),
@@ -119,6 +119,7 @@ pub fn migrate_schema<T: BeaconChainTypes>(
                     Ok(()) => info!(log, "Completed migration to schema 6 successfully"),
                     Err(e) => {
                         warn!(log, "Error during schema migration. Falling back to anchor state"; "error" => ?e);
+                        return Err(StoreError::SchemaMigrationError(e))
                         // ForkChoice::from_anchor(persisted_fork_choice.fork_choice_store, persisted_fork_choice.fork_choice_store.get_finalized_checkpoint().root);
                     },
                 }
