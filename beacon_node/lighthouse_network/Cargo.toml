@@ -40,8 +40,10 @@ strum = { version = "0.21.0", features = ["derive"] }
 superstruct = "0.2.0"
 
 [dependencies.libp2p]
-version = "0.41.0"
+# version = "0.41.0"
 default-features = false
+git = "https://github.com/sigp/rust-libp2p"
+branch = "gossipsub-network-performance-metrics"
 features = ["websocket", "identify", "mplex", "yamux", "noise", "gossipsub", "dns-tokio", "tcp-tokio"]
 
 [dev-dependencies]

@@ -2777,8 +2777,7 @@ checksum = "c7d73b3f436185384286bd8098d17ec07c9a7d2388a6599f824d8502b529702a"
 [[package]]
 name = "libp2p"
 version = "0.41.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "782229f90bf7d5b12ee3ee08f7e160ba99f0d75eee7d118d9c1a688b13f6e64a"
+source = "git+https://github.com/sigp/rust-libp2p?branch=gossipsub-network-performance-metrics#474ceb148f6a56e5d8a4d5c14d5f48040cfbd538"
 dependencies = [
  "atomic",
  "bytes",
@@ -2787,7 +2786,7 @@ dependencies = [
  "getrandom 0.2.3",
  "instant",
  "lazy_static",
- "libp2p-core 0.30.0",
+ "libp2p-core 0.30.1",
  "libp2p-dns",
  "libp2p-gossipsub",
  "libp2p-identify",
@@ -2824,7 +2823,7 @@ dependencies = [
  "log",
  "multiaddr",
  "multihash",
- "multistream-select",
+ "multistream-select 0.10.4 (registry+https://github.com/rust-lang/crates.io-index)",
  "parking_lot",
  "pin-project 1.0.8",
  "prost 0.8.0",
@@ -2842,9 +2841,8 @@ dependencies = [
 
 [[package]]
 name = "libp2p-core"
-version = "0.30.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bef22d9bba1e8bcb7ec300073e6802943fe8abb8190431842262b5f1c30abba1"
+version = "0.30.1"
+source = "git+https://github.com/sigp/rust-libp2p?branch=gossipsub-network-performance-metrics#474ceb148f6a56e5d8a4d5c14d5f48040cfbd538"
 dependencies = [
  "asn1_der",
  "bs58",
@@ -2853,12 +2851,13 @@ dependencies = [
  "fnv",
  "futures",
  "futures-timer",
+ "instant",
  "lazy_static",
  "libsecp256k1 0.7.0",
  "log",
  "multiaddr",
  "multihash",
- "multistream-select",
+ "multistream-select 0.10.4 (git+https://github.com/sigp/rust-libp2p?branch=gossipsub-network-performance-metrics)",
  "parking_lot",
  "pin-project 1.0.8",
  "prost 0.9.0",
@@ -2877,11 +2876,10 @@ dependencies = [
 [[package]]
 name = "libp2p-dns"
 version = "0.30.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bb8f89d15cb6e3c5bc22afff7513b11bab7856f2872d3cfba86f7f63a06bc498"
+source = "git+https://github.com/sigp/rust-libp2p?branch=gossipsub-network-performance-metrics#474ceb148f6a56e5d8a4d5c14d5f48040cfbd538"
 dependencies = [
  "futures",
- "libp2p-core 0.30.0",
+ "libp2p-core 0.30.1",
  "log",
  "smallvec",
  "trust-dns-resolver",
@@ -2890,8 +2888,7 @@ dependencies = [
 [[package]]
 name = "libp2p-gossipsub"
 version = "0.34.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "98942284cc1a91f24527a8b1e5bc06f7dd22fc6cee5be3d9bf5785bf902eb934"
+source = "git+https://github.com/sigp/rust-libp2p?branch=gossipsub-network-performance-metrics#474ceb148f6a56e5d8a4d5c14d5f48040cfbd538"
 dependencies = [
  "asynchronous-codec",
  "base64 0.13.0",
@@ -2902,7 +2899,7 @@ dependencies = [
  "futures-timer",
  "hex_fmt",
  "instant",
- "libp2p-core 0.30.0",
+ "libp2p-core 0.30.1",
  "libp2p-swarm",
  "log",
  "open-metrics-client",
@@ -2919,12 +2916,11 @@ dependencies = [
 [[package]]
 name = "libp2p-identify"
 version = "0.32.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ec6d59e3f88435a83797fc3734f18385f6f54e0fe081e12543573364687c7db5"
+source = "git+https://github.com/sigp/rust-libp2p?branch=gossipsub-network-performance-metrics#474ceb148f6a56e5d8a4d5c14d5f48040cfbd538"
 dependencies = [
  "futures",
  "futures-timer",
- "libp2p-core 0.30.0",
+ "libp2p-core 0.30.1",
  "libp2p-swarm",
  "log",
  "lru",
@@ -2936,10 +2932,9 @@ dependencies = [
 [[package]]
 name = "libp2p-metrics"
 version = "0.2.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d59f3be49edeecff13ef0d0dc28295ba4a33910611715f04236325d08e4119e0"
+source = "git+https://github.com/sigp/rust-libp2p?branch=gossipsub-network-performance-metrics#474ceb148f6a56e5d8a4d5c14d5f48040cfbd538"
 dependencies = [
- "libp2p-core 0.30.0",
+ "libp2p-core 0.30.1",
  "libp2p-gossipsub",
  "libp2p-identify",
  "libp2p-swarm",
@@ -2949,13 +2944,12 @@ dependencies = [
 [[package]]
 name = "libp2p-mplex"
 version = "0.30.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7f2cd64ef597f40e14bfce0497f50ecb63dd6d201c61796daeb4227078834fbf"
+source = "git+https://github.com/sigp/rust-libp2p?branch=gossipsub-network-performance-metrics#474ceb148f6a56e5d8a4d5c14d5f48040cfbd538"
 dependencies = [
  "asynchronous-codec",
  "bytes",
  "futures",
- "libp2p-core 0.30.0",
+ "libp2p-core 0.30.1",
  "log",
  "nohash-hasher",
  "parking_lot",
@@ -2967,14 +2961,13 @@ dependencies = [
 [[package]]
 name = "libp2p-noise"
 version = "0.33.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a8772c7a99088221bb7ca9c5c0574bf55046a7ab4c319f3619b275f28c8fb87a"
+source = "git+https://github.com/sigp/rust-libp2p?branch=gossipsub-network-performance-metrics#474ceb148f6a56e5d8a4d5c14d5f48040cfbd538"
 dependencies = [
  "bytes",
  "curve25519-dalek",
  "futures",
  "lazy_static",
- "libp2p-core 0.30.0",
+ "libp2p-core 0.30.1",
  "log",
  "prost 0.9.0",
  "prost-build 0.9.0",
@@ -2989,14 +2982,13 @@ dependencies = [
 [[package]]
 name = "libp2p-swarm"
 version = "0.32.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cb84d40627cd109bbbf43da9269d4ef75903f42356c88d98b2b55c47c430c792"
+source = "git+https://github.com/sigp/rust-libp2p?branch=gossipsub-network-performance-metrics#474ceb148f6a56e5d8a4d5c14d5f48040cfbd538"
 dependencies = [
  "either",
  "futures",
  "futures-timer",
  "instant",
- "libp2p-core 0.30.0",
+ "libp2p-core 0.30.1",
  "log",
  "rand 0.7.3",
  "smallvec",
@@ -3006,8 +2998,7 @@ dependencies = [
 [[package]]
 name = "libp2p-swarm-derive"
 version = "0.26.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7dd93a7dad9b61c39797572e4fb4fdba8415d6348b4e745b3d4cb008f84331ab"
+source = "git+https://github.com/sigp/rust-libp2p?branch=gossipsub-network-performance-metrics#474ceb148f6a56e5d8a4d5c14d5f48040cfbd538"
 dependencies = [
  "quote",
  "syn",
@@ -3016,15 +3007,14 @@ dependencies = [
 [[package]]
 name = "libp2p-tcp"
 version = "0.30.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7399c5b6361ef525d41c11fcf51635724f832baf5819b30d3d873eabb4fbae4b"
+source = "git+https://github.com/sigp/rust-libp2p?branch=gossipsub-network-performance-metrics#474ceb148f6a56e5d8a4d5c14d5f48040cfbd538"
 dependencies = [
  "futures",
  "futures-timer",
  "if-addrs",
  "ipnet",
  "libc",
- "libp2p-core 0.30.0",
+ "libp2p-core 0.30.1",
  "log",
  "socket2 0.4.2",
  "tokio",
@@ -3033,13 +3023,12 @@ dependencies = [
 [[package]]
 name = "libp2p-websocket"
 version = "0.32.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fa92005fbd67695715c821e1acfe4d7be9fd2d88738574e93d645c49ec2831c8"
+source = "git+https://github.com/sigp/rust-libp2p?branch=gossipsub-network-performance-metrics#474ceb148f6a56e5d8a4d5c14d5f48040cfbd538"
 dependencies = [
  "either",
  "futures",
  "futures-rustls",
- "libp2p-core 0.30.0",
+ "libp2p-core 0.30.1",
  "log",
  "quicksink",
  "rw-stream-sink",
@@ -3051,11 +3040,10 @@ dependencies = [
 [[package]]
 name = "libp2p-yamux"
 version = "0.34.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4e7362abb8867d7187e7e93df17f460d554c997fc5c8ac57dc1259057f6889af"
+source = "git+https://github.com/sigp/rust-libp2p?branch=gossipsub-network-performance-metrics#474ceb148f6a56e5d8a4d5c14d5f48040cfbd538"
 dependencies = [
  "futures",
- "libp2p-core 0.30.0",
+ "libp2p-core 0.30.1",
  "parking_lot",
  "thiserror",
  "yamux",
@@ -3609,6 +3597,19 @@ name = "multistream-select"
 version = "0.10.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "56a336acba8bc87c8876f6425407dbbe6c417bf478b22015f8fb0994ef3bc0ab"
+dependencies = [
+ "bytes",
+ "futures",
+ "log",
+ "pin-project 1.0.8",
+ "smallvec",
+ "unsigned-varint 0.7.1",
+]
+
+[[package]]
+name = "multistream-select"
+version = "0.10.4"
+source = "git+https://github.com/sigp/rust-libp2p?branch=gossipsub-network-performance-metrics#474ceb148f6a56e5d8a4d5c14d5f48040cfbd538"
 dependencies = [
  "bytes",
  "futures",

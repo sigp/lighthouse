@@ -11,13 +11,14 @@ use futures::future::OptionFuture;
 use futures::prelude::*;
 use lighthouse_network::{
     rpc::{GoodbyeReason, RPCResponseErrorCode, RequestId},
-    Libp2pEvent, PeerAction, PeerRequestId, PubsubMessage, ReportSource, Request, Response, Subnet,
+    Libp2pEvent, PeerAction, PeerRequestId, PubsubMessage, ReportSource, Request, Response, Subnet,Context
+    
 };
 use lighthouse_network::{
     types::{GossipEncoding, GossipTopic},
     BehaviourEvent, MessageId, NetworkGlobals, PeerId,
 };
-use lighthouse_network::{MessageAcceptance, Service as LibP2PService};
+use lighthouse_network::{MessageAcceptance, Service as LibP2PService, open_metrics_client::registry::Registry};
 use slog::{crit, debug, error, info, o, trace, warn};
 use std::{net::SocketAddr, pin::Pin, sync::Arc, time::Duration};
 use store::HotColdDB;
@@ -150,10 +151,11 @@ pub struct NetworkService<T: BeaconChainTypes> {
 
 impl<T: BeaconChainTypes> NetworkService<T> {
     #[allow(clippy::type_complexity)]
-    pub async fn start(
+    pub async fn start<'a>(
         beacon_chain: Arc<BeaconChain<T>>,
         config: &NetworkConfig,
         executor: task_executor::TaskExecutor,
+        gossipsub_registry: Option<&'a mut Registry>,
     ) -> error::Result<(
         Arc<NetworkGlobals<T::EthSpec>>,
         mpsc::UnboundedSender<NetworkMessage<T::EthSpec>>,
@@ -199,14 +201,20 @@ impl<T: BeaconChainTypes> NetworkService<T> {
 
         debug!(network_log, "Current fork"; "fork_name" => ?fork_context.current_fork());
 
+        // construct the libp2p service context
+        let service_context = Context {
+            config: &config,
+            enr_fork_id,
+            fork_context: fork_context.clone(),
+            chain_spec: &beacon_chain.spec,
+            gossipsub_registry,
+        };
+
         // launch libp2p service
         let (network_globals, mut libp2p) = LibP2PService::new(
             executor.clone(),
-            config,
-            enr_fork_id,
+            service_context,
             &network_log,
-            fork_context.clone(),
-            &beacon_chain.spec,
         )
         .await?;
 
