@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use beacon_chain::{BeaconChain, BeaconChainError, BeaconChainTypes};
 
 use lighthouse_network::rpc::StatusMessage;
@@ -21,5 +23,11 @@ impl<T: BeaconChainTypes> ToStatusMessage for BeaconChain<T> {
             head_root: head_info.block_root,
             head_slot: head_info.slot,
         })
+    }
+}
+
+impl<T: BeaconChainTypes> ToStatusMessage for Arc<BeaconChain<T>> {
+    fn status_message(&self) -> Result<StatusMessage, BeaconChainError> {
+        <BeaconChain<T> as ToStatusMessage>::status_message(self)
     }
 }

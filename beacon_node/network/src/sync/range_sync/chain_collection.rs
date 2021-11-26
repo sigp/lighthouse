@@ -3,12 +3,13 @@
 //! Each chain type is stored in it's own map. A variety of helper functions are given along with
 //! this struct to simplify the logic of the other layers of sync.
 
+use super::block_storage::BlockStorage;
 use super::chain::{ChainId, ProcessingResult, RemoveChain, SyncingChain};
 use super::sync_type::RangeSyncType;
 use crate::beacon_processor::WorkEvent as BeaconWorkEvent;
 use crate::metrics;
 use crate::sync::network_context::SyncNetworkContext;
-use beacon_chain::{BeaconChain, BeaconChainTypes};
+use beacon_chain::BeaconChainTypes;
 use fnv::FnvHashMap;
 use lighthouse_network::PeerId;
 use lighthouse_network::SyncInfo;
@@ -16,7 +17,6 @@ use slog::{crit, debug, error};
 use smallvec::SmallVec;
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
-use std::sync::Arc;
 use tokio::sync::mpsc;
 use types::EthSpec;
 use types::{Epoch, Hash256, Slot};
@@ -39,9 +39,9 @@ pub enum RangeSyncState {
 }
 
 /// A collection of finalized and head chains currently being processed.
-pub struct ChainCollection<T: BeaconChainTypes> {
+pub struct ChainCollection<T: BeaconChainTypes, C> {
     /// The beacon chain for processing.
-    beacon_chain: Arc<BeaconChain<T>>,
+    beacon_chain: C,
     /// The set of finalized chains being synced.
     finalized_chains: FnvHashMap<ChainId, SyncingChain<T>>,
     /// The set of head chains being synced.
@@ -52,8 +52,8 @@ pub struct ChainCollection<T: BeaconChainTypes> {
     log: slog::Logger,
 }
 
-impl<T: BeaconChainTypes> ChainCollection<T> {
-    pub fn new(beacon_chain: Arc<BeaconChain<T>>, log: slog::Logger) -> Self {
+impl<T: BeaconChainTypes, C: BlockStorage> ChainCollection<T, C> {
+    pub fn new(beacon_chain: C, log: slog::Logger) -> Self {
         ChainCollection {
             beacon_chain,
             finalized_chains: FnvHashMap::default(),
@@ -72,7 +72,7 @@ impl<T: BeaconChainTypes> ChainCollection<T> {
             RangeSyncState::Finalized(ref syncing_id) => {
                 if syncing_id == id {
                     // the finalized chain that was syncing was removed
-                    debug_assert!(was_syncing);
+                    debug_assert!(was_syncing && sync_type == RangeSyncType::Finalized);
                     let syncing_head_ids: SmallVec<[u64; PARALLEL_HEAD_CHAINS]> = self
                         .head_chains
                         .iter()
@@ -85,7 +85,8 @@ impl<T: BeaconChainTypes> ChainCollection<T> {
                         RangeSyncState::Head(syncing_head_ids)
                     };
                 } else {
-                    debug_assert!(!was_syncing);
+                    // we removed a head chain, or an stoped finalized chain
+                    debug_assert!(!was_syncing || sync_type != RangeSyncType::Finalized);
                 }
             }
             RangeSyncState::Head(ref mut syncing_head_ids) => {
@@ -413,8 +414,7 @@ impl<T: BeaconChainTypes> ChainCollection<T> {
         let log_ref = &self.log;
 
         let is_outdated = |target_slot: &Slot, target_root: &Hash256| {
-            target_slot <= &local_finalized_slot
-                || beacon_chain.fork_choice.read().contains_block(target_root)
+            target_slot <= &local_finalized_slot || beacon_chain.is_block_known(target_root)
         };
 
         // Retain only head peers that remain relevant
