@@ -32,7 +32,7 @@ use types::{
 mod tests;
 
 /// The interval (in seconds) that various network metrics will update.
-const METRIC_UPDATE_INTERVAL: u64 = 1;
+const METRIC_UPDATE_INTERVAL: u64 = 5;
 /// Number of slots before the fork when we should subscribe to the new fork topics.
 const SUBSCRIBE_DELAY_SLOTS: u64 = 2;
 /// Delay after a fork where we unsubscribe from pre-fork topics.
@@ -324,19 +324,11 @@ fn spawn_service<T: BeaconChainTypes>(
     // spawn on the current executor
     executor.spawn(async move {
 
-        let mut metric_update_counter = 0;
         loop {
             // build the futures to check simultaneously
             tokio::select! {
                 _ = service.metrics_update.tick(), if service.metrics_enabled => {
                     // update various network metrics
-                    metric_update_counter +=1;
-                    if metric_update_counter % T::EthSpec::default_spec().seconds_per_slot == 0 {
-                        // if a slot has occurred, reset the metrics
-                        let _ = metrics::ATTESTATIONS_PUBLISHED_PER_SUBNET_PER_SLOT
-                            .as_ref()
-                            .map(|gauge| gauge.reset());
-                    }
                     metrics::update_gossip_metrics::<T::EthSpec>(
                         service.libp2p.swarm.behaviour().gs(),
                         &service.network_globals,
@@ -445,7 +437,6 @@ fn spawn_service<T: BeaconChainTypes>(
                                     "count" => messages.len(),
                                     "topics" => ?topic_kinds
                                 );
-                                metrics::expose_publish_metrics(&messages);
                                 service.libp2p.swarm.behaviour_mut().publish(messages);
                         }
                         NetworkMessage::ReportPeer { peer_id, action, source } => service.libp2p.report_peer(&peer_id, action, source),
@@ -644,8 +635,6 @@ fn spawn_service<T: BeaconChainTypes>(
                                 ..
                             } => {
                                 // Update prometheus metrics.
-                                metrics::expose_receive_metrics(&message);
-
                                 match message {
                                     // attestation information gets processed in the attestation service
                                     PubsubMessage::Attestation(ref subnet_and_attestation) => {
