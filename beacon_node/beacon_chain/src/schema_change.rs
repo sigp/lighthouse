@@ -4,6 +4,7 @@ mod migrate_schema_6;
 use crate::beacon_chain::{BeaconChainTypes, FORK_CHOICE_DB_KEY, OP_POOL_DB_KEY};
 use crate::persisted_fork_choice::PersistedForkChoice;
 use crate::validator_pubkey_cache::ValidatorPubkeyCache;
+use fork_choice::ForkChoice;
 use operation_pool::{PersistedOperationPool, PersistedOperationPoolBase};
 use ssz::{Decode, Encode};
 use ssz_derive::{Decode, Encode};
@@ -11,6 +12,7 @@ use std::fs;
 use std::path::Path;
 use std::sync::Arc;
 use store::config::OnDiskStoreConfig;
+use store::errors::Error::SchemaMigrationError;
 use store::hot_cold_store::{HotColdDB, HotColdDBError};
 use store::metadata::{SchemaVersion, CONFIG_KEY, CURRENT_SCHEMA_VERSION};
 use store::{DBColumn, Error as StoreError, ItemStore, StoreItem};
@@ -110,11 +112,29 @@ pub fn migrate_schema<T: BeaconChainTypes>(
                     db.clone(),
                 );
 
-                //TODO(sean):
-                // Fall by re-initializing fork choice from an anchor state.
-                if let Err(e) = result {
-                    // ForkChoice::from_anchor(persisted_fork_choice.fork_choice_store, persisted_fork_choice.fork_choice_store.get_finalized_checkpoint().root);
-                    return Err(e)
+                // Fall back to re-initializing fork choice from an anchor state.
+                if let Err(_) = result {
+                    let anchor_block_root = persisted_fork_choice
+                        .fork_choice_store
+                        .get_finalized_checkpoint()
+                        .root;
+                    let anchor_block =
+                        db.get_block(&anchor_block_root)?
+                            .ok_or(SchemaMigrationError(
+                                "Missing anchor beacon block".to_string(),
+                            ))?;
+                    let anchor_state = db
+                        .get_state(&anchor_block.state_root(), Some(anchor_block.slot()))?
+                        .ok_or(SchemaMigrationError(
+                            "Missing anchor beacon state".to_string(),
+                        ))?;
+                    let fork_choice = ForkChoice::from_anchor(
+                        persisted_fork_choice.fork_choice_store,
+                        anchor_block_root,
+                        &anchor_block,
+                        &anchor_state,
+                    )?;
+                    persisted_fork_choice.fork_choice = fork_choice.to_persisted();
                 };
 
                 // Store the converted fork choice store under the same key.

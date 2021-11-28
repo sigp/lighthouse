@@ -3,6 +3,7 @@ use crate::beacon_chain::BeaconChainTypes;
 use crate::persisted_fork_choice::PersistedForkChoice;
 use crate::types::{AttestationShufflingId, EthSpec, Slot};
 use crate::types::{Checkpoint, Epoch, Hash256};
+use itertools::Itertools;
 use proto_array::ExecutionStatus;
 use proto_array::{core::ProtoNode, core::SszContainer, core::VoteTracker, ProtoArrayForkChoice};
 use ssz::four_byte_option_impl;
@@ -13,7 +14,6 @@ use std::sync::Arc;
 use store::hot_cold_store::HotColdDB;
 use store::iter::BlockRootsIterator;
 use store::Error as StoreError;
-use itertools::Itertools;
 
 // Define a "legacy" implementation of `Option<usize>` which uses four bytes for encoding the union
 // selector.
