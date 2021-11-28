@@ -154,7 +154,7 @@ impl<E: EthSpec> HotColdDB<E, LevelDB<E>, LevelDB<E>> {
     pub fn open(
         hot_path: &Path,
         cold_path: &Path,
-        migrate_schema: impl FnOnce(Arc<Self>, SchemaVersion, SchemaVersion, Logger) -> Result<(), Error>,
+        migrate_schema: impl FnOnce(Arc<Self>, SchemaVersion, SchemaVersion) -> Result<(), Error>,
         config: StoreConfig,
         spec: ChainSpec,
         log: Logger,
@@ -169,7 +169,7 @@ impl<E: EthSpec> HotColdDB<E, LevelDB<E>, LevelDB<E>> {
             block_cache: Mutex::new(LruCache::new(config.block_cache_size)),
             config,
             spec,
-            log: log.clone(),
+            log,
             _phantom: PhantomData,
         });
 
@@ -182,7 +182,7 @@ impl<E: EthSpec> HotColdDB<E, LevelDB<E>, LevelDB<E>> {
                 "from_version" => schema_version.as_u64(),
                 "to_version" => CURRENT_SCHEMA_VERSION.as_u64(),
             );
-            migrate_schema(db.clone(), schema_version, CURRENT_SCHEMA_VERSION, log)?;
+            migrate_schema(db.clone(), schema_version, CURRENT_SCHEMA_VERSION)?;
         } else {
             db.store_schema_version(CURRENT_SCHEMA_VERSION)?;
         }
