@@ -108,16 +108,14 @@ pub fn migrate_schema<T: BeaconChainTypes>(
                 let result = migrate_schema_6::update_legacy_proto_array_bytes::<T>(
                     &mut persisted_fork_choice,
                     db.clone(),
-                    log.clone(),
                 );
 
-                match result {
-                    Ok(()) => info!(log, "Completed migration to schema 6 successfully"),
-                    Err(e) => {
-                        warn!(log, "Error during schema migration. Falling back to anchor state"; "error" => ?e);
-                        // ForkChoice::from_anchor(persisted_fork_choice.fork_choice_store, persisted_fork_choice.fork_choice_store.get_finalized_checkpoint().root);
-                    },
-                }
+                //TODO(sean):
+                // Fall by re-initializing fork choice from an anchor state.
+                if let Err(e) = result {
+                    // ForkChoice::from_anchor(persisted_fork_choice.fork_choice_store, persisted_fork_choice.fork_choice_store.get_finalized_checkpoint().root);
+                    return Err(e)
+                };
 
                 // Store the converted fork choice store under the same key.
                 db.put_item::<PersistedForkChoice>(&FORK_CHOICE_DB_KEY, &persisted_fork_choice)?;

@@ -1,4 +1,3 @@
-use std::cmp::Ordering;
 ///! These functions and structs are only relevant to the database migration from schema 5 to 6.
 use crate::beacon_chain::BeaconChainTypes;
 use crate::persisted_fork_choice::PersistedForkChoice;
@@ -108,7 +107,6 @@ fn update_checkpoints<T: BeaconChainTypes>(
             head.slot,
             relevant_epochs.as_slice(),
             db.clone(),
-            log.clone()
         )?;
 
         // Apply this mutator to the chain of descendants from this head, adding justified
@@ -157,13 +155,10 @@ fn map_relevant_epochs_to_roots<T: BeaconChainTypes>(
     head_slot: Slot,
     epochs: &[Epoch],
     db: Arc<HotColdDB<T::EthSpec, T::HotStore, T::ColdStore>>,
-    log: Logger,
 ) -> Result<HashMap<Epoch, Hash256>, String> {
     // Remove duplicates and reverse sort the epochs.
     let mut relevant_epochs = epochs.into_iter().copied().unique().collect::<Vec<_>>();
     relevant_epochs.sort_unstable_by(|a, b| b.cmp(a));
-
-    info!(log,"sorted and de-duped"; "relevant_epochs" => ?relevant_epochs);
 
     // Iterate backwards from the given `head_root` and `head_slot` and find the block root at each epoch.
     let mut iter = std::iter::once(Ok((head_root, head_slot)))
