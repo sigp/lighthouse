@@ -24,12 +24,12 @@ safe_arith = { path = "../safe_arith" }
 serde = {version = "1.0.116" , features = ["rc"] }
 serde_derive = "1.0.116"
 slog = "2.5.2"
-eth2_ssz = "0.4.0"
+eth2_ssz = "0.4.1"
 eth2_ssz_derive = "0.3.0"
-eth2_ssz_types = "0.2.1"
+eth2_ssz_types = "0.2.2"
 swap_or_not_shuffle = { path = "../swap_or_not_shuffle" }
 test_random_derive = { path = "../../common/test_random_derive" }
-tree_hash = "0.4.0"
+tree_hash = "0.4.1"
 tree_hash_derive = "0.4.0"
 rand_xorshift = "0.2.0"
 cached_tree_hash = { path = "../cached_tree_hash" }
