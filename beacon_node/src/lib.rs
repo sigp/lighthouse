@@ -84,7 +84,13 @@ impl<E: EthSpec> ProductionBeaconNode<E> {
             .runtime_context(context)
             .chain_spec(spec)
             .http_api_config(client_config.http_api.clone())
-            .disk_store(&datadir, &db_path, &freezer_db_path, store_config)?;
+            .disk_store(
+                &datadir,
+                &db_path,
+                &freezer_db_path,
+                store_config,
+                log.clone(),
+            )?;
 
         let builder = if let Some(slasher_config) = client_config.slasher.clone() {
             let slasher = Arc::new(

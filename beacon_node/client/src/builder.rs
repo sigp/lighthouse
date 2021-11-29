@@ -23,7 +23,7 @@ use monitoring_api::{MonitoringHttpClient, ProcessType};
 use network::{NetworkConfig, NetworkMessage, NetworkService};
 use slasher::Slasher;
 use slasher_service::SlasherService;
-use slog::{debug, info, warn};
+use slog::{debug, info, warn, Logger};
 use std::net::TcpListener;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -748,6 +748,7 @@ where
         hot_path: &Path,
         cold_path: &Path,
         config: StoreConfig,
+        log: Logger,
     ) -> Result<Self, String> {
         let context = self
             .runtime_context
@@ -763,7 +764,7 @@ where
         self.freezer_db_path = Some(cold_path.into());
 
         let schema_upgrade = |db, from, to| {
-            migrate_schema::<Witness<TSlotClock, TEth1Backend, _, _, _>>(db, datadir, from, to)
+            migrate_schema::<Witness<TSlotClock, TEth1Backend, _, _, _>>(db, datadir, from, to, log)
         };
 
         let store = HotColdDB::open(

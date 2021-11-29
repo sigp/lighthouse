@@ -6,6 +6,7 @@ use crate::beacon_chain::{BeaconChainTypes, FORK_CHOICE_DB_KEY, OP_POOL_DB_KEY};
 use crate::persisted_fork_choice::PersistedForkChoice;
 use crate::validator_pubkey_cache::ValidatorPubkeyCache;
 use operation_pool::{PersistedOperationPool, PersistedOperationPoolBase};
+use slog::{warn, Logger};
 use ssz::{Decode, Encode};
 use ssz_derive::{Decode, Encode};
 use std::fs;
@@ -24,6 +25,7 @@ pub fn migrate_schema<T: BeaconChainTypes>(
     datadir: &Path,
     from: SchemaVersion,
     to: SchemaVersion,
+    log: Logger,
 ) -> Result<(), StoreError> {
     match (from, to) {
         // Migrating from the current schema version to iself is always OK, a no-op.
@@ -31,8 +33,8 @@ pub fn migrate_schema<T: BeaconChainTypes>(
         // Migrate across multiple versions by recursively migrating one step at a time.
         (_, _) if from.as_u64() + 1 < to.as_u64() => {
             let next = SchemaVersion(from.as_u64() + 1);
-            migrate_schema::<T>(db.clone(), datadir, from, next)?;
-            migrate_schema::<T>(db, datadir, next, to)
+            migrate_schema::<T>(db.clone(), datadir, from, next, log.clone())?;
+            migrate_schema::<T>(db, datadir, next, to, log)
         }
         // Migration from v0.3.0 to v0.3.x, adding the temporary states column.
         // Nothing actually needs to be done, but once a DB uses v2 it shouldn't go back.
@@ -130,19 +132,32 @@ pub fn migrate_schema<T: BeaconChainTypes>(
                     db.clone(),
                 );
 
-                // Fall back to re-initializing fork choice from an anchor state.
-                if result.is_err() {
+                // Fall back to re-initializing fork choice from an anchor state if necessary.
+                if let Err(e) = result {
+                    warn!(log, "Unable to migrate to database schema 7, re-initializing fork choice"; "error" => ?e);
                     migrate_schema_7::update_with_reinitialized_fork_choice::<T>(
                         &mut persisted_fork_choice,
                         db.clone(),
                     )
                     .map_err(StoreError::SchemaMigrationError)?;
-                };
+                } else {
+                    // Update the justified checkpoint in the store in case we have a discrepancy
+                    // between the head's justified checkpoint and the fork choice store's justified
+                    // checkpoint.
+                    let result = migrate_schema_7::update_store_justified_checkpoint::<T>(
+                        &mut persisted_fork_choice,
+                    );
 
-                migrate_schema_7::update_store_justified_checkpoint::<T>(
-                    &mut persisted_fork_choice,
-                )
-                .map_err(StoreError::SchemaMigrationError)?;
+                    // Fall back to re-initializing fork choice from an anchor state.
+                    if let Err(e) = result {
+                        warn!(log, "Unable to migrate to database schema 7, re-initializing fork choice"; "error" => ?e);
+                        migrate_schema_7::update_with_reinitialized_fork_choice::<T>(
+                            &mut persisted_fork_choice,
+                            db.clone(),
+                        )
+                        .map_err(StoreError::SchemaMigrationError)?;
+                    };
+                };
 
                 // Store the converted fork choice store under the same key.
                 db.put_item::<PersistedForkChoice>(&FORK_CHOICE_DB_KEY, &persisted_fork_choice)?;
