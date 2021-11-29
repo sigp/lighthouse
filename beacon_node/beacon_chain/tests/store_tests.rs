@@ -140,10 +140,12 @@ fn long_skip() {
     // Number of blocks to create in the first run, intentionally not falling on an epoch
     // boundary in order to check that the DB hot -> cold migration is capable of reaching
     // back across the skip distance, and correctly migrating those extra non-finalized states.
-    let initial_blocks = E::slots_per_epoch() * 5 + E::slots_per_epoch() / 2;
-    let skip_slots = E::slots_per_historical_root() as u64 * 8;
+    let initial_blocks = E::slots_per_epoch() * 7 + E::slots_per_epoch() / 2;
+    let skip_slots = E::slots_per_historical_root() as u64 * 6;
     // Create the minimum ~2.5 epochs of extra blocks required to re-finalize the chain.
     // Having this set lower ensures that we start justifying and finalizing quickly after a skip.
+    // This configuration of values also ensures that the state that gets finalized lies on a
+    // full-state boundary.
     let final_blocks = 2 * E::slots_per_epoch() + E::slots_per_epoch() / 2;
 
     harness.extend_chain(
@@ -249,7 +251,7 @@ fn split_slot_restore() {
         let store = get_store(&db_path);
         let harness = get_harness(store.clone(), LOW_VALIDATOR_COUNT);
 
-        let num_blocks = 4 * E::slots_per_epoch();
+        let num_blocks = 6 * E::slots_per_epoch();
 
         harness.extend_chain(
             num_blocks as usize,
@@ -267,7 +269,7 @@ fn split_slot_restore() {
     assert_eq!(store.get_split_slot(), split_slot);
 }
 
-// Check attestation processing and `load_epoch_boundary_state` in the presence of a split DB.
+// Check attestation processing and `load_hot_boundary_state` in the presence of a split DB.
 // This is a bit of a monster test in that it tests lots of different things, but until they're
 // tested elsewhere, this is as good a place as any.
 #[test]
@@ -309,15 +311,15 @@ fn epoch_boundary_state_attestation_processing() {
     let mut checked_pre_fin = false;
 
     for (attestation, subnet_id) in late_attestations.into_iter().flatten() {
-        // load_epoch_boundary_state is idempotent!
+        // load_hot_boundary_state is idempotent!
         let block_root = attestation.data.beacon_block_root;
         let block = store.get_block(&block_root).unwrap().expect("block exists");
         let epoch_boundary_state = store
-            .load_epoch_boundary_state(&block.state_root())
+            .load_hot_boundary_state(&block.state_root())
             .expect("no error")
             .expect("epoch boundary state exists");
         let ebs_of_ebs = store
-            .load_epoch_boundary_state(&epoch_boundary_state.canonical_root())
+            .load_hot_boundary_state(&epoch_boundary_state.canonical_root())
             .expect("no error")
             .expect("ebs of ebs exists");
         assert_eq!(epoch_boundary_state, ebs_of_ebs);
@@ -1252,8 +1254,8 @@ fn prunes_fork_growing_past_youngest_finalized_checkpoint() {
 // This is to check if state outside of normal block processing are pruned correctly.
 #[test]
 fn prunes_skipped_slots_states() {
-    const HONEST_VALIDATOR_COUNT: usize = 16 + 0;
-    const ADVERSARIAL_VALIDATOR_COUNT: usize = 8 - 0;
+    const HONEST_VALIDATOR_COUNT: usize = 16;
+    const ADVERSARIAL_VALIDATOR_COUNT: usize = 8;
     const VALIDATOR_COUNT: usize = HONEST_VALIDATOR_COUNT + ADVERSARIAL_VALIDATOR_COUNT;
     let validators_keypairs = types::test_utils::generate_deterministic_keypairs(VALIDATOR_COUNT);
     let honest_validators: Vec<usize> = (0..HONEST_VALIDATOR_COUNT).collect();
@@ -1320,7 +1322,7 @@ fn prunes_skipped_slots_states() {
     }
 
     // Trigger finalization
-    let canonical_slots: Vec<Slot> = ((skipped_slot + 1).into()..rig.epoch_start_slot(7))
+    let canonical_slots: Vec<Slot> = ((skipped_slot + 1).into()..rig.epoch_start_slot(9))
         .map(Into::into)
         .collect();
     let canonical_state_root = canonical_state.update_tree_hash_cache().unwrap();
@@ -1341,6 +1343,8 @@ fn prunes_skipped_slots_states() {
         hashset! {
             canonical_blocks[&rig.epoch_start_slot(1).into()],
             canonical_blocks[&rig.epoch_start_slot(2).into()],
+            canonical_blocks[&rig.epoch_start_slot(3).into()],
+            canonical_blocks[&rig.epoch_start_slot(4).into()],
         },
     );
 
@@ -1375,8 +1379,8 @@ fn prunes_skipped_slots_states() {
 // This is to check if state outside of normal block processing are pruned correctly.
 #[test]
 fn finalizes_non_epoch_start_slot() {
-    const HONEST_VALIDATOR_COUNT: usize = 16 + 0;
-    const ADVERSARIAL_VALIDATOR_COUNT: usize = 8 - 0;
+    const HONEST_VALIDATOR_COUNT: usize = 16;
+    const ADVERSARIAL_VALIDATOR_COUNT: usize = 8;
     const VALIDATOR_COUNT: usize = HONEST_VALIDATOR_COUNT + ADVERSARIAL_VALIDATOR_COUNT;
     let validators_keypairs = types::test_utils::generate_deterministic_keypairs(VALIDATOR_COUNT);
     let honest_validators: Vec<usize> = (0..HONEST_VALIDATOR_COUNT).collect();
@@ -1443,7 +1447,7 @@ fn finalizes_non_epoch_start_slot() {
     }
 
     // Trigger finalization
-    let canonical_slots: Vec<Slot> = ((skipped_slot + 1).into()..rig.epoch_start_slot(7))
+    let canonical_slots: Vec<Slot> = ((skipped_slot + 1).into()..rig.epoch_start_slot(9))
         .map(Into::into)
         .collect();
     let canonical_state_root = canonical_state.update_tree_hash_cache().unwrap();
@@ -1462,8 +1466,10 @@ fn finalizes_non_epoch_start_slot() {
     assert_eq!(
         rig.get_finalized_checkpoints(),
         hashset! {
-            canonical_blocks[&(rig.epoch_start_slot(1)-1).into()],
+            canonical_blocks[&(rig.epoch_start_slot(1) - 1).into()],
             canonical_blocks[&rig.epoch_start_slot(2).into()],
+            canonical_blocks[&rig.epoch_start_slot(3).into()],
+            canonical_blocks[&rig.epoch_start_slot(4).into()],
         },
     );
 
@@ -1775,7 +1781,8 @@ fn garbage_collect_temp_states_from_failed_block() {
 #[test]
 fn weak_subjectivity_sync() {
     // Build an initial chain on one harness, representing a synced node with full history.
-    let num_initial_blocks = E::slots_per_epoch() * 11;
+    // These values are chosen carefully so that the checkpoint state is aligned.
+    let num_initial_blocks = E::slots_per_epoch() * 10;
     let num_final_blocks = E::slots_per_epoch() * 2;
 
     let temp1 = tempdir().unwrap();
@@ -2259,21 +2266,20 @@ fn check_finalization(harness: &TestHarness, expected_slot: u64) {
     );
 }
 
-/// Check that the HotColdDB's split_slot is equal to the start slot of the last finalized epoch.
+/// Check that the HotColdDB's split_slot is equal to the start slot of the last aligned finalized
+/// epoch.
 fn check_split_slot(harness: &TestHarness, store: Arc<HotColdDB<E, LevelDB<E>, LevelDB<E>>>) {
     let split_slot = store.get_split_slot();
-    assert_eq!(
-        harness
-            .chain
-            .head()
-            .expect("should get head")
-            .beacon_state
-            .finalized_checkpoint()
-            .epoch
-            .start_slot(E::slots_per_epoch()),
-        split_slot
-    );
-    assert_ne!(split_slot, 0);
+    let finalized_slot = harness
+        .chain
+        .head()
+        .expect("should get head")
+        .beacon_state
+        .finalized_checkpoint()
+        .epoch
+        .start_slot(E::slots_per_epoch());
+    let expected = finalized_slot / store.slots_per_full_state() * store.slots_per_full_state();
+    assert_eq!(split_slot, expected);
 }
 
 /// Check that all the states in a chain dump have the correct tree hash.

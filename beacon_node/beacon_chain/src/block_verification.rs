@@ -962,7 +962,11 @@ impl<'a, T: BeaconChainTypes> FullyVerifiedBlock<'a, T> {
                         } else {
                             StoreOp::PutStateSummary(
                                 state_root,
-                                HotStateSummary::new(&state_root, &state)?,
+                                HotStateSummary::new(
+                                    &state_root,
+                                    &state,
+                                    chain.store.get_config(),
+                                )?,
                             )
                         },
                         StoreOp::PutStateTemporaryFlag(state_root),

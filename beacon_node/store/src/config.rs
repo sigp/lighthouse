@@ -6,6 +6,7 @@ use types::{EthSpec, MinimalEthSpec};
 
 pub const DEFAULT_SLOTS_PER_RESTORE_POINT: u64 = 2048;
 pub const DEFAULT_BLOCK_CACHE_SIZE: usize = 5;
+pub const DEFAULT_EPOCHS_PER_FULL_STATE: u64 = 4;
 
 /// Database configuration parameters.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -18,9 +19,12 @@ pub struct StoreConfig {
     pub compact_on_init: bool,
     /// Whether to compact the database during database pruning.
     pub compact_on_prune: bool,
+    /// Number of epochs between full states stored in the hot database.
+    pub epochs_per_full_state: u64,
 }
 
 /// Variant of `StoreConfig` that gets written to disk. Contains immutable configuration params.
+// FIXME(sproul): make a decision about schema upgrades
 #[derive(Debug, Clone, PartialEq, Eq, Encode, Decode)]
 pub struct OnDiskStoreConfig {
     pub slots_per_restore_point: u64,
@@ -39,6 +43,7 @@ impl Default for StoreConfig {
             block_cache_size: DEFAULT_BLOCK_CACHE_SIZE,
             compact_on_init: false,
             compact_on_prune: true,
+            epochs_per_full_state: DEFAULT_EPOCHS_PER_FULL_STATE,
         }
     }
 }

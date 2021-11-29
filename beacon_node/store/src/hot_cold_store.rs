@@ -461,12 +461,12 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
     /// Load an epoch boundary state by using the hot state summary look-up.
     ///
     /// Will fall back to the cold DB if a hot state summary is not found.
-    pub fn load_epoch_boundary_state(
+    pub fn load_hot_boundary_state(
         &self,
         state_root: &Hash256,
     ) -> Result<Option<BeaconState<E>>, Error> {
         if let Some(HotStateSummary {
-            epoch_boundary_state_root,
+            boundary_state_root,
             ..
         }) = self.load_hot_state_summary(state_root)?
         {
@@ -475,9 +475,9 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             // `BlockReplay` should be irrelevant here since we never replay blocks for an epoch
             // boundary state in the hot DB.
             let state = self
-                .load_hot_state(&epoch_boundary_state_root, BlockReplay::Accurate)?
+                .load_hot_state(&boundary_state_root, BlockReplay::Accurate)?
                 .ok_or(HotColdDBError::MissingEpochBoundaryState(
-                    epoch_boundary_state_root,
+                    boundary_state_root,
                 ))?;
             Ok(Some(state))
         } else {
@@ -594,10 +594,10 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         ops: &mut Vec<KeyValueStoreOp>,
     ) -> Result<(), Error> {
         // On the epoch boundary, store the full state.
-        if state.slot() % E::slots_per_epoch() == 0 {
-            trace!(
+        if state.slot() % self.slots_per_full_state() == 0 {
+            debug!(
                 self.log,
-                "Storing full state on epoch boundary";
+                "Storing full state on boundary";
                 "slot" => state.slot().as_u64(),
                 "state_root" => format!("{:?}", state_root)
             );
@@ -605,9 +605,9 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         }
 
         // Store a summary of the state.
-        // We store one even for the epoch boundary states, as we may need their slots
+        // We store one even for the boundary states, as we may need their slots
         // when doing a look up by state root.
-        let hot_state_summary = HotStateSummary::new(state_root, state)?;
+        let hot_state_summary = HotStateSummary::new(state_root, state, &self.config)?;
         let op = hot_state_summary.as_kv_store_op(*state_root);
         ops.push(op);
 
@@ -633,17 +633,17 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         if let Some(HotStateSummary {
             slot,
             latest_block_root,
-            epoch_boundary_state_root,
+            boundary_state_root,
         }) = self.load_hot_state_summary(state_root)?
         {
-            let boundary_state =
-                get_full_state(&self.hot_db, &epoch_boundary_state_root, &self.spec)?.ok_or(
-                    HotColdDBError::MissingEpochBoundaryState(epoch_boundary_state_root),
-                )?;
+            let boundary_state = get_full_state(&self.hot_db, &boundary_state_root, &self.spec)?
+                .ok_or(HotColdDBError::MissingEpochBoundaryState(
+                    boundary_state_root,
+                ))?;
 
             // Optimization to avoid even *thinking* about replaying blocks if we're already
-            // on an epoch boundary.
-            let state = if slot % E::slots_per_epoch() == 0 {
+            // on a boundary.
+            let state = if slot % self.slots_per_full_state() == 0 {
                 boundary_state
             } else {
                 let blocks =
@@ -1102,6 +1102,11 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             .map_or(self.spec.genesis_slot, |anchor| anchor.oldest_block_slot)
     }
 
+    /// Fetch the current config.
+    pub fn get_config(&self) -> &StoreConfig {
+        &self.config
+    }
+
     /// Load previously-stored config from disk.
     fn load_config(&self) -> Result<Option<OnDiskStoreConfig>, Error> {
         self.hot_db.get(&CONFIG_KEY)
@@ -1250,6 +1255,11 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             &CompactionTimestamp(compaction_timestamp.as_secs()),
         )
     }
+
+    /// Get the frequency at which full states are stored in the hot database.
+    pub fn slots_per_full_state(&self) -> u64 {
+        self.config.epochs_per_full_state * E::slots_per_epoch()
+    }
 }
 
 /// Advance the split point of the store, moving new finalized states to the freezer.
@@ -1282,7 +1292,7 @@ pub fn migrate_database<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>>(
         .into());
     }
 
-    if frozen_head.slot() % E::slots_per_epoch() != 0 {
+    if frozen_head.slot() % store.slots_per_full_state() != 0 {
         return Err(HotColdDBError::FreezeSlotUnaligned(frozen_head.slot()).into());
     }
 
@@ -1411,7 +1421,7 @@ impl StoreItem for Split {
 pub struct HotStateSummary {
     slot: Slot,
     latest_block_root: Hash256,
-    epoch_boundary_state_root: Hash256,
+    boundary_state_root: Hash256,
 }
 
 impl StoreItem for HotStateSummary {
@@ -1430,23 +1440,30 @@ impl StoreItem for HotStateSummary {
 
 impl HotStateSummary {
     /// Construct a new summary of the given state.
-    pub fn new<E: EthSpec>(state_root: &Hash256, state: &BeaconState<E>) -> Result<Self, Error> {
+    pub fn new<E: EthSpec>(
+        state_root: &Hash256,
+        state: &BeaconState<E>,
+        config: &StoreConfig,
+    ) -> Result<Self, Error> {
         // Fill in the state root on the latest block header if necessary (this happens on all
         // slots where there isn't a skip).
         let latest_block_root = state.get_latest_block_root(*state_root);
-        let epoch_boundary_slot = state.slot() / E::slots_per_epoch() * E::slots_per_epoch();
-        let epoch_boundary_state_root = if epoch_boundary_slot == state.slot() {
+
+        let slots_per_full_state = config.epochs_per_full_state * E::slots_per_epoch();
+        let boundary_slot = state.slot() / slots_per_full_state * slots_per_full_state;
+
+        let boundary_state_root = if boundary_slot == state.slot() {
             *state_root
         } else {
             *state
-                .get_state_root(epoch_boundary_slot)
+                .get_state_root(boundary_slot)
                 .map_err(HotColdDBError::HotStateSummaryError)?
         };
 
         Ok(HotStateSummary {
             slot: state.slot(),
             latest_block_root,
-            epoch_boundary_state_root,
+            boundary_state_root,
         })
     }
 }

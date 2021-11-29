@@ -145,6 +145,7 @@ where
         } else {
             None
         };
+        let slots_per_full_state = store.slots_per_full_state();
 
         let builder = BeaconChainBuilder::new(eth_spec_instance)
             .logger(context.log().clone())
@@ -250,9 +251,8 @@ where
 
                 let remote =
                     BeaconNodeHttpClient::new(url, Timeouts::set_all(CHECKPOINT_SYNC_HTTP_TIMEOUT));
-                let slots_per_epoch = TEthSpec::slots_per_epoch();
 
-                // Find a suitable finalized block on an epoch boundary.
+                // Find a suitable finalized block on a full-state boundary.
                 let mut block = remote
                     .get_beacon_blocks_ssz::<TEthSpec>(BlockId::Finalized, &spec)
                     .await
@@ -268,8 +268,8 @@ where
 
                 let mut block_slot = block.slot();
 
-                while block.slot() % slots_per_epoch != 0 {
-                    block_slot = (block_slot / slots_per_epoch - 1) * slots_per_epoch;
+                while block.slot() % slots_per_full_state != 0 {
+                    block_slot = (block_slot / slots_per_full_state - 1) * slots_per_full_state;
 
                     debug!(
                         context.log(),

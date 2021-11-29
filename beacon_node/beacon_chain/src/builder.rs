@@ -375,14 +375,15 @@ where
         let weak_subj_block_root = weak_subj_block.canonical_root();
         let weak_subj_state_root = weak_subj_block.state_root();
 
-        // Check that the given block lies on an epoch boundary. Due to the database only storing
-        // full states on epoch boundaries and at restore points it would be difficult to support
-        // starting from a mid-epoch state.
-        if weak_subj_slot % TEthSpec::slots_per_epoch() != 0 {
+        // Check that the given block lies on a full-state boundary. Due to the database only storing
+        // full states on boundaries and at restore points it would be difficult to support
+        // starting from an unaligned state.
+        if weak_subj_slot % store.slots_per_full_state() != 0 {
             return Err(format!(
-                "Checkpoint block at slot {} is not aligned to epoch start. \
-                 Please supply an aligned checkpoint with block.slot % 32 == 0",
+                "Checkpoint block at slot {} is not aligned to full-state boundary. \
+                 Please supply an aligned checkpoint with block.slot % {} == 0",
                 weak_subj_block.slot(),
+                store.slots_per_full_state(),
             ));
         }
 
