@@ -91,3 +91,4 @@ warp = { git = "https://github.com/macladson/warp", rev ="7e75acc" }
 eth2_ssz = { path = "consensus/ssz" }
 eth2_ssz_types = { path = "consensus/ssz_types" }
 tree_hash = { path = "consensus/tree_hash" }
+eth2_serde_utils = { path = "consensus/serde_utils" }
