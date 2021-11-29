@@ -23,9 +23,9 @@ FORKS=phase0 altair
 # Binaries will most likely be found in `./target/release`
 install:
 ifeq ($(PORTABLE), true)
-	cargo install --path lighthouse --force --locked --features portable,spec-minimal
+	cargo install --path lighthouse --force --locked --features portable
 else
-	cargo install --path lighthouse --force --locked --features spec-minimal
+	cargo install --path lighthouse --force --locked
 endif
 
 # Builds the lcli binary in release (optimized).

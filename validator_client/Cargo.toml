@@ -45,7 +45,7 @@ lighthouse_version = { path = "../common/lighthouse_version" }
 warp_utils = { path = "../common/warp_utils" }
 warp = "0.3.2"
 hyper = "0.14.4"
-eth2_serde_utils = "0.1.0"
+eth2_serde_utils = "0.1.1"
 libsecp256k1 = "0.6.0"
 ring = "0.16.19"
 rand = "0.7.3"

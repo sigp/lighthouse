@@ -296,7 +296,7 @@ impl ProtoArrayForkChoice {
     }
 
     /// Only used for SSZ deserialization of the persisted fork choice during the database migration
-    /// from schema 4 to schema 5.
+    /// from schema 5 to schema 6.
     pub fn from_bytes_legacy(bytes: &[u8]) -> Result<Self, String> {
         LegacySszContainer::from_ssz_bytes(bytes)
             .map(|legacy_container| {

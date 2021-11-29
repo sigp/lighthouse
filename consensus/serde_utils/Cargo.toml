@@ -1,6 +1,6 @@
 [package]
 name = "eth2_serde_utils"
-version = "0.1.0"
+version = "0.1.1"
 authors = ["Paul Hauner <paul@paulhauner.com", "Michael Sproul <michael@sigmaprime.io>"]
 edition = "2018"
 description = "Serialization and deserialization utilities useful for JSON representations of Ethereum 2.0 types."

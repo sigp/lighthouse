@@ -19,7 +19,7 @@ pub struct SszContainer {
 }
 
 /// Only used for SSZ deserialization of the persisted fork choice during the database migration
-/// from schema 4 to schema 5.
+/// from schema 5 to schema 6.
 #[derive(Encode, Decode)]
 pub struct LegacySszContainer {
     votes: Vec<VoteTracker>,

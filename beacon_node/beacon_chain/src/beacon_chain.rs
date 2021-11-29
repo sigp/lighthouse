@@ -3281,6 +3281,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         "Finalized block has an invalid execution payload.",
                     ))
                     .map_err(BeaconChainError::InvalidFinalizedPayloadShutdownError)?;
+
+                // Exit now, the node is in an invalid state.
+                return Ok(());
             }
 
             // Due to race conditions, it's technically possible that the head we load here is

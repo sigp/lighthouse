@@ -13,7 +13,7 @@ types = { path = "../../consensus/types" }
 reqwest = { version = "0.11.0", features = ["json","stream"] }
 lighthouse_network = { path = "../../beacon_node/lighthouse_network" }
 proto_array = { path = "../../consensus/proto_array", optional = true }
-eth2_serde_utils = "0.1.0"
+eth2_serde_utils = "0.1.1"
 eth2_keystore = { path = "../../crypto/eth2_keystore" }
 libsecp256k1 = "0.6.0"
 ring = "0.16.19"

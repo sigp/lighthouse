@@ -14,7 +14,12 @@ use std::net::{IpAddr, Ipv4Addr, ToSocketAddrs};
 use std::net::{TcpListener, UdpSocket};
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
-use types::{Checkpoint, Epoch, EthSpec, Hash256, PublicKeyBytes, GRAFFITI_BYTES_LEN};
+use types::{Address, Checkpoint, Epoch, EthSpec, Hash256, PublicKeyBytes, GRAFFITI_BYTES_LEN};
+
+// TODO(merge): remove this default value. It's just there to make life easy during
+// early testnets.
+const DEFAULT_FEE_RECIPIENT: [u8; 20] =
+    [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1];
 
 /// Gets the fully-initialized global client.
 ///
@@ -38,12 +43,18 @@ pub fn get_config<E: EthSpec>(
     // If necessary, remove any existing database and configuration
     if client_config.data_dir.exists() && cli_args.is_present("purge-db") {
         // Remove the chain_db.
-        fs::remove_dir_all(client_config.get_db_path())
-            .map_err(|err| format!("Failed to remove chain_db: {}", err))?;
+        let chain_db = client_config.get_db_path();
+        if chain_db.exists() {
+            fs::remove_dir_all(chain_db)
+                .map_err(|err| format!("Failed to remove chain_db: {}", err))?;
+        }
 
         // Remove the freezer db.
-        fs::remove_dir_all(client_config.get_freezer_db_path())
-            .map_err(|err| format!("Failed to remove chain_db: {}", err))?;
+        let freezer_db = client_config.get_freezer_db_path();
+        if freezer_db.exists() {
+            fs::remove_dir_all(freezer_db)
+                .map_err(|err| format!("Failed to remove freezer_db: {}", err))?;
+        }
     }
 
     // Create `datadir` and any non-existing parent directories.
@@ -242,7 +253,12 @@ pub fn get_config<E: EthSpec>(
         client_config.execution_endpoints = Some(client_config.eth1.endpoints.clone());
     }
 
-    client_config.fee_recipient = clap_utils::parse_optional(cli_args, "fee-recipient")?;
+    client_config.fee_recipient = Some(
+        clap_utils::parse_optional(cli_args, "fee-recipient")?
+            // TODO(merge): remove this default value. It's just there to make life easy during
+            // early testnets.
+            .unwrap_or_else(|| Address::from(DEFAULT_FEE_RECIPIENT)),
+    );
 
     if let Some(freezer_dir) = cli_args.value_of("freezer-dir") {
         client_config.freezer_db_path = Some(PathBuf::from(freezer_dir));
