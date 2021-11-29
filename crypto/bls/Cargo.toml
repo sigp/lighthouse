@@ -5,8 +5,8 @@ authors = ["Paul Hauner <paul@paulhauner.com>"]
 edition = "2018"
 
 [dependencies]
-eth2_ssz = "0.4.0"
-tree_hash = "0.4.0"
+eth2_ssz = "0.4.1"
+tree_hash = "0.4.1"
 milagro_bls = { git = "https://github.com/sigp/milagro_bls", tag = "v1.4.2", optional = true }
 rand = "0.7.3"
 serde = "1.0.116"

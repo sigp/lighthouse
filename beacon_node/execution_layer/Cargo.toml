@@ -22,10 +22,10 @@ environment = { path = "../../lighthouse/environment" }
 bytes = "1.1.0"
 task_executor = { path = "../../common/task_executor" }
 hex = "0.4.2"
-eth2_ssz_types = { path = "../../consensus/ssz_types"}
+eth2_ssz_types = "0.2.2"
 lru = "0.6.0"
 exit-future = "0.2.0"
-tree_hash = { path = "../../consensus/tree_hash"}
+tree_hash = "0.4.1"
 tree_hash_derive = { path = "../../consensus/tree_hash_derive"}
 parking_lot = "0.11.0"
 slot_clock = { path = "../../common/slot_clock" }
