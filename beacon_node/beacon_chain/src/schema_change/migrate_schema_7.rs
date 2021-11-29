@@ -261,7 +261,7 @@ where
 }
 
 /// Finds all heads by finding all nodes in the proto array that are not referenced as parents. Then
-/// check that these nodes are descendants of the finalized root in order to determine if they are
+/// checks that these nodes are descendants of the finalized root in order to determine if they are
 /// relevant.
 fn find_finalized_descendant_heads(
     finalized_root: Hash256,

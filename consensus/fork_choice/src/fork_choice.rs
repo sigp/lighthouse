@@ -218,8 +218,8 @@ fn dequeue_attestations(
     std::mem::replace(queued_attestations, remaining)
 }
 
-/// Denotes whether an attestation we are processing received from a block or from gossip.
-/// Equivalent to the `is_from_block` bool in:
+/// Denotes whether an attestation we are processing was received from a block or from gossip.
+/// Equivalent to the `is_from_block` `bool` in:
 ///
 /// https://github.com/ethereum/consensus-specs/blob/dev/specs/phase0/fork-choice.md#validate_on_attestation
 pub enum AttestationFromBlock {
@@ -628,7 +628,7 @@ where
     ///
     /// Equivalent to:
     ///
-    /// https://github.com/ethereum/eth2.0-specs/blob/v0.12.1/specs/phase0/fork-choice.md#validate_target_epoch_against_current_time
+    /// https://github.com/ethereum/consensus-specs/blob/dev/specs/phase0/fork-choice.md#validate_target_epoch_against_current_time
     fn validate_target_epoch_against_current_time(
         &self,
         target_epoch: Epoch,
