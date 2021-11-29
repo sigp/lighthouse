@@ -114,8 +114,9 @@ pub fn migrate_schema<T: BeaconChainTypes>(
         }
         // Migration updating `justified_epoch` to `justified_checkpoint` and `finalized_epoch` to
         // `finalized_checkpoint`. This migration also includes a potential update to the justified
-        // checkpoint to ensure the justified and finalized checkpoints are updated atomically in
-        // the fork choice store.
+        // checkpoint in case the fork choice store's justified checkpoint + finalized checkpoint
+        // combination does not actually exist for any blocks in fork choice. This was possible in
+        // the consensus spec prior to v1.1.6.
         //
         // Relevant issues:
         //
@@ -124,10 +125,7 @@ pub fn migrate_schema<T: BeaconChainTypes>(
         (SchemaVersion(6), SchemaVersion(7)) => {
             let fork_choice_opt = db.get_item::<PersistedForkChoice>(&FORK_CHOICE_DB_KEY)?;
             if let Some(mut persisted_fork_choice) = fork_choice_opt {
-                // `PersistedForkChoice` stores the `ProtoArray` as a `Vec<u8>`. Deserialize these
-                // bytes assuming the legacy struct, and transform them to the new struct before
-                // re-serializing.
-                let result = migrate_schema_7::update_legacy_proto_array_bytes::<T>(
+                let result = migrate_schema_7::update_legacy_fork_choice::<T>(
                     &mut persisted_fork_choice,
                     db.clone(),
                 );
@@ -140,24 +138,7 @@ pub fn migrate_schema<T: BeaconChainTypes>(
                         db.clone(),
                     )
                     .map_err(StoreError::SchemaMigrationError)?;
-                } else {
-                    // Update the justified checkpoint in the store in case we have a discrepancy
-                    // between the head's justified checkpoint and the fork choice store's justified
-                    // checkpoint.
-                    let result = migrate_schema_7::update_store_justified_checkpoint::<T>(
-                        &mut persisted_fork_choice,
-                    );
-
-                    // Fall back to re-initializing fork choice from an anchor state.
-                    if let Err(e) = result {
-                        warn!(log, "Unable to migrate to database schema 7, re-initializing fork choice"; "error" => ?e);
-                        migrate_schema_7::update_with_reinitialized_fork_choice::<T>(
-                            &mut persisted_fork_choice,
-                            db.clone(),
-                        )
-                        .map_err(StoreError::SchemaMigrationError)?;
-                    };
-                };
+                }
 
                 // Store the converted fork choice store under the same key.
                 db.put_item::<PersistedForkChoice>(&FORK_CHOICE_DB_KEY, &persisted_fork_choice)?;
