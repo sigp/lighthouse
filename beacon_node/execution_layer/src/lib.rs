@@ -530,24 +530,23 @@ impl ExecutionLayer {
         // this implementation becomes canonical.
         loop {
             let block_reached_ttd = block.total_difficulty >= spec.terminal_total_difficulty;
-            if block_reached_ttd && block.parent_hash == Hash256::zero() {
-                return Ok(Some(block.block_hash));
-            } else if block.parent_hash == Hash256::zero() {
-                // The end of the chain has been reached without finding the TTD, there is no
-                // terminal block.
-                return Ok(None);
-            }
+            if block_reached_ttd {
+                if block.parent_hash == Hash256::zero() {
+                    return Ok(Some(block.block_hash));
+                }
+                let parent = self
+                    .get_pow_block(engine, block.parent_hash)
+                    .await?
+                    .ok_or(ApiError::ExecutionBlockNotFound(block.parent_hash))?;
+                let parent_reached_ttd = parent.total_difficulty >= spec.terminal_total_difficulty;
 
-            let parent = self
-                .get_pow_block(engine, block.parent_hash)
-                .await?
-                .ok_or(ApiError::ExecutionBlockNotFound(block.parent_hash))?;
-            let parent_reached_ttd = parent.total_difficulty >= spec.terminal_total_difficulty;
-
-            if block_reached_ttd && !parent_reached_ttd {
-                return Ok(Some(block.block_hash));
+                if block_reached_ttd && !parent_reached_ttd {
+                    return Ok(Some(block.block_hash));
+                } else {
+                    block = parent;
+                }
             } else {
-                block = parent;
+                return Ok(None);
             }
         }
     }
