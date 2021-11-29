@@ -32,11 +32,11 @@ pub(crate) fn update_with_reinitialized_fork_choice<T: BeaconChainTypes>(
     let anchor_block = db
         .get_block(&anchor_block_root)
         .map_err(|e| format!("{:?}", e))?
-        .ok_or_else(||"Missing anchor beacon block".to_string())?;
+        .ok_or_else(|| "Missing anchor beacon block".to_string())?;
     let anchor_state = db
         .get_state(&anchor_block.state_root(), Some(anchor_block.slot()))
         .map_err(|e| format!("{:?}", e))?
-        .ok_or_else(||"Missing anchor beacon state".to_string())?;
+        .ok_or_else(|| "Missing anchor beacon state".to_string())?;
     let snapshot = BeaconSnapshot {
         beacon_block: anchor_block,
         beacon_block_root: anchor_block_root,
