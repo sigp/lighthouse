@@ -747,9 +747,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
                 return None;
             }
-            // TODO: check that this is what we're supposed to do when we don't want to
-            //       penalize a peer for our configuration issue
-            // in the verification process BUT is this the proper way to handle it?
+            // TODO(merge): reconsider peer scoring for this event.
             Err(e @BlockError::ExecutionPayloadError(ExecutionPayloadError::RequestFailed(_)))
             | Err(e @BlockError::ExecutionPayloadError(ExecutionPayloadError::NoExecutionConnection)) => {
                 debug!(self.log, "Could not verify block for gossip, ignoring the block";
