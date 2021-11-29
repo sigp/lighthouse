@@ -33,7 +33,6 @@ pub struct ExecutionPayloadHeader<T: EthSpec> {
 }
 
 impl<T: EthSpec> ExecutionPayloadHeader<T> {
-    // TODO: check this whole thing later
     pub fn empty() -> Self {
         Self::default()
     }
