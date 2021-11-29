@@ -1,5 +1,6 @@
 //! Utilities for managing database schema changes.
 mod migrate_schema_6;
+mod migrate_schema_7;
 
 use crate::beacon_chain::{BeaconChainTypes, FORK_CHOICE_DB_KEY, OP_POOL_DB_KEY};
 use crate::persisted_fork_choice::PersistedForkChoice;
@@ -96,30 +97,49 @@ pub fn migrate_schema<T: BeaconChainTypes>(
 
             Ok(())
         }
-        // Migration for adding `execution_status` field to the fork choice store, as well as
-        // updating `justified_epoch` to `justified_checkpoint` and `finalized_epoch` to
-        // `finalized_checkpoint`.
+        // Migration for adding `execution_status` field to the fork choice store.
         (SchemaVersion(5), SchemaVersion(6)) => {
+            let fork_choice_opt = db.get_item::<PersistedForkChoice>(&FORK_CHOICE_DB_KEY)?;
+            if let Some(mut persisted_fork_choice) = fork_choice_opt {
+                migrate_schema_6::update_execution_statuses::<T>(&mut persisted_fork_choice)
+                    .map_err(StoreError::SchemaMigrationError)?;
+                db.put_item::<PersistedForkChoice>(&FORK_CHOICE_DB_KEY, &persisted_fork_choice)?;
+            }
+
+            db.store_schema_version(to)?;
+
+            Ok(())
+        }
+        // Migration updating `justified_epoch` to `justified_checkpoint` and `finalized_epoch` to
+        // `finalized_checkpoint`. This migration also includes a potential update to the justified
+        // checkpoint to ensure the justified and finalized checkpoints are updated atomically in
+        // the fork choice store.
+        //
+        // Relevant issues:
+        //
+        // https://github.com/sigp/lighthouse/issues/2741
+        // https://github.com/ethereum/consensus-specs/pull/2727
+        (SchemaVersion(6), SchemaVersion(7)) => {
             let fork_choice_opt = db.get_item::<PersistedForkChoice>(&FORK_CHOICE_DB_KEY)?;
             if let Some(mut persisted_fork_choice) = fork_choice_opt {
                 // `PersistedForkChoice` stores the `ProtoArray` as a `Vec<u8>`. Deserialize these
                 // bytes assuming the legacy struct, and transform them to the new struct before
                 // re-serializing.
-                let result = migrate_schema_6::update_legacy_proto_array_bytes::<T>(
+                let result = migrate_schema_7::update_legacy_proto_array_bytes::<T>(
                     &mut persisted_fork_choice,
                     db.clone(),
                 );
 
                 // Fall back to re-initializing fork choice from an anchor state.
                 if result.is_err() {
-                    migrate_schema_6::update_with_reinitialized_fork_choice::<T>(
+                    migrate_schema_7::update_with_reinitialized_fork_choice::<T>(
                         &mut persisted_fork_choice,
                         db.clone(),
                     )
                     .map_err(StoreError::SchemaMigrationError)?;
                 };
 
-                migrate_schema_6::update_store_justified_checkpoint::<T>(
+                migrate_schema_7::update_store_justified_checkpoint::<T>(
                     &mut persisted_fork_choice,
                 )
                 .map_err(StoreError::SchemaMigrationError)?;
