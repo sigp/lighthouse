@@ -1322,7 +1322,7 @@ fn load_parent<T: BeaconChainTypes>(
         .and_then(|mut snapshot_cache| {
             snapshot_cache.get_state_for_block_processing(block.parent_root(), block_delay, spec)
         }) {
-        Ok((snapshot.into_pre_state(), block))
+        Ok((snapshot, block))
     } else {
         // Load the blocks parent block from the database, returning invalid if that block is not
         // found.

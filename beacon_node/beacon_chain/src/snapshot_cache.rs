@@ -68,6 +68,22 @@ impl<T: EthSpec> CacheItem<T> {
             beacon_state_root,
         }
     }
+
+    pub fn clone_as_pre_state(&self) -> PreProcessingSnapshot<T> {
+        // Do not include the beacon state root if the state has been advanced.
+        let beacon_state_root =
+            Some(self.beacon_block.state_root()).filter(|_| self.pre_state.is_none());
+
+        PreProcessingSnapshot {
+            beacon_block: self.beacon_block.clone(),
+            beacon_block_root: self.beacon_block_root,
+            pre_state: self
+                .pre_state
+                .as_ref()
+                .map_or_else(|| self.beacon_state.clone(), |pre_state| pre_state.clone()),
+            beacon_state_root,
+        }
+    }
 }
 
 /// The information required for block production.
@@ -192,7 +208,7 @@ impl<T: EthSpec> SnapshotCache<T> {
         block_root: Hash256,
         block_delay: Option<Duration>,
         spec: &ChainSpec,
-    ) -> Option<CacheItem<T>> {
+    ) -> Option<PreProcessingSnapshot<T>> {
         self.snapshots
             .iter()
             .position(|snapshot| snapshot.beacon_block_root == block_root)
@@ -202,11 +218,11 @@ impl<T: EthSpec> SnapshotCache<T> {
                         && delay <= Duration::from_secs(spec.seconds_per_slot) * 4
                     {
                         if let Some(cache) = self.snapshots.get(i) {
-                            return cache.clone();
+                            return cache.clone_as_pre_state();
                         }
                     }
                 }
-                self.snapshots.remove(i)
+                self.snapshots.remove(i).into_pre_state()
             })
     }
 
