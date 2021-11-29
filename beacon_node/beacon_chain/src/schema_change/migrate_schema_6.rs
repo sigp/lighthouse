@@ -21,6 +21,31 @@ use store::Error as StoreError;
 // selector.
 four_byte_option_impl!(four_byte_option_usize, usize);
 
+pub(crate) fn update_store_justified_checkpoint<T: BeaconChainTypes>(
+    persisted_fork_choice: &mut PersistedForkChoice,
+) -> Result<(), String> {
+    let bytes = persisted_fork_choice.fork_choice.proto_array_bytes.clone();
+    let container = SszContainer::from_ssz_bytes(bytes.as_slice()).unwrap();
+    let mut fork_choice: ProtoArrayForkChoice = container.into();
+
+    let justified_checkpoint = fork_choice
+        .core_proto_array()
+        .nodes
+        .iter()
+        .find_map(|node| {
+            (node.finalized_checkpoint
+                == Some(persisted_fork_choice.fork_choice_store.finalized_checkpoint))
+            .then(|| node.justified_checkpoint)
+            .flatten()
+        })
+        .ok_or("Proto node with current finalized checkpoint not found")?;
+
+    fork_choice.core_proto_array_mut().justified_checkpoint = justified_checkpoint;
+    persisted_fork_choice.fork_choice.proto_array_bytes = fork_choice.as_bytes();
+    persisted_fork_choice.fork_choice_store.justified_checkpoint = justified_checkpoint;
+    Ok(())
+}
+
 pub(crate) fn update_with_reinitialized_fork_choice<T: BeaconChainTypes>(
     persisted_fork_choice: &mut PersistedForkChoice,
     db: Arc<HotColdDB<T::EthSpec, T::HotStore, T::ColdStore>>,

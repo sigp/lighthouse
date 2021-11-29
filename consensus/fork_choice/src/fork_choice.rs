@@ -218,6 +218,15 @@ fn dequeue_attestations(
     std::mem::replace(queued_attestations, remaining)
 }
 
+/// Denotes whether an attestation we are processing received from a block or from gossip.
+/// Equivalent to the `is_from_block` bool in:
+///
+/// https://github.com/ethereum/consensus-specs/blob/dev/specs/phase0/fork-choice.md#validate_on_attestation
+pub enum AttestationFromBlock {
+    True,
+    False,
+}
+
 /// Provides an implementation of "Ethereum 2.0 Phase 0 -- Beacon Chain Fork Choice":
 ///
 /// https://github.com/ethereum/eth2.0-specs/blob/v0.12.1/specs/phase0/fork-choice.md#ethereum-20-phase-0----beacon-chain-fork-choice
@@ -537,25 +546,9 @@ where
         if state.finalized_checkpoint().epoch > self.fc_store.finalized_checkpoint().epoch {
             self.fc_store
                 .set_finalized_checkpoint(state.finalized_checkpoint());
-            let finalized_slot =
-                compute_start_slot_at_epoch::<E>(self.fc_store.finalized_checkpoint().epoch);
-
-            // Note: the `if` statement here is not part of the specification, but I claim that it
-            // is an optimization and equivalent to the specification. See this PR for more
-            // information:
-            //
-            // https://github.com/ethereum/eth2.0-specs/pull/1880
-            if *self.fc_store.justified_checkpoint() != state.current_justified_checkpoint()
-                && (state.current_justified_checkpoint().epoch
-                    > self.fc_store.justified_checkpoint().epoch
-                    || self
-                        .get_ancestor(self.fc_store.justified_checkpoint().root, finalized_slot)?
-                        != Some(self.fc_store.finalized_checkpoint().root))
-            {
-                self.fc_store
-                    .set_justified_checkpoint(state.current_justified_checkpoint())
-                    .map_err(Error::UnableToSetJustifiedCheckpoint)?;
-            }
+            self.fc_store
+                .set_justified_checkpoint(state.current_justified_checkpoint())
+                .map_err(Error::UnableToSetJustifiedCheckpoint)?;
         }
 
         let target_slot = block
@@ -629,6 +622,35 @@ where
         Ok(())
     }
 
+    /// Validates the `epoch` against the current time according to the fork choice store.
+    ///
+    /// ## Specification
+    ///
+    /// Equivalent to:
+    ///
+    /// https://github.com/ethereum/eth2.0-specs/blob/v0.12.1/specs/phase0/fork-choice.md#validate_target_epoch_against_current_time
+    fn validate_target_epoch_against_current_time(
+        &self,
+        target_epoch: Epoch,
+    ) -> Result<(), InvalidAttestation> {
+        let slot_now = self.fc_store.get_current_slot();
+        let epoch_now = slot_now.epoch(E::slots_per_epoch());
+
+        // Attestation must be from the current or previous epoch.
+        if target_epoch > epoch_now {
+            return Err(InvalidAttestation::FutureEpoch {
+                attestation_epoch: target_epoch,
+                current_epoch: epoch_now,
+            });
+        } else if target_epoch + 1 < epoch_now {
+            return Err(InvalidAttestation::PastEpoch {
+                attestation_epoch: target_epoch,
+                current_epoch: epoch_now,
+            });
+        }
+        Ok(())
+    }
+
     /// Validates the `indexed_attestation` for application to fork choice.
     ///
     /// ## Specification
@@ -639,6 +661,7 @@ where
     fn validate_on_attestation(
         &self,
         indexed_attestation: &IndexedAttestation<E>,
+        is_from_block: AttestationFromBlock,
     ) -> Result<(), InvalidAttestation> {
         // There is no point in processing an attestation with an empty bitfield. Reject
         // it immediately.
@@ -649,21 +672,10 @@ where
             return Err(InvalidAttestation::EmptyAggregationBitfield);
         }
 
-        let slot_now = self.fc_store.get_current_slot();
-        let epoch_now = slot_now.epoch(E::slots_per_epoch());
         let target = indexed_attestation.data.target;
 
-        // Attestation must be from the current or previous epoch.
-        if target.epoch > epoch_now {
-            return Err(InvalidAttestation::FutureEpoch {
-                attestation_epoch: target.epoch,
-                current_epoch: epoch_now,
-            });
-        } else if target.epoch + 1 < epoch_now {
-            return Err(InvalidAttestation::PastEpoch {
-                attestation_epoch: target.epoch,
-                current_epoch: epoch_now,
-            });
+        if matches!(is_from_block, AttestationFromBlock::False) {
+            self.validate_target_epoch_against_current_time(target.epoch)?;
         }
 
         if target.epoch != indexed_attestation.data.slot.epoch(E::slots_per_epoch()) {
@@ -746,6 +758,7 @@ where
         &mut self,
         current_slot: Slot,
         attestation: &IndexedAttestation<E>,
+        is_from_block: AttestationFromBlock,
     ) -> Result<(), Error<T::Error>> {
         // Ensure the store is up-to-date.
         self.update_time(current_slot)?;
@@ -767,7 +780,7 @@ where
             return Ok(());
         }
 
-        self.validate_on_attestation(attestation)?;
+        self.validate_on_attestation(attestation, is_from_block)?;
 
         if attestation.data.slot < self.fc_store.get_current_slot() {
             for validator_index in attestation.attesting_indices.iter() {

@@ -119,6 +119,11 @@ pub fn migrate_schema<T: BeaconChainTypes>(
                     .map_err(StoreError::SchemaMigrationError)?;
                 };
 
+                migrate_schema_6::update_store_justified_checkpoint::<T>(
+                    &mut persisted_fork_choice,
+                )
+                .map_err(StoreError::SchemaMigrationError)?;
+
                 // Store the converted fork choice store under the same key.
                 db.put_item::<PersistedForkChoice>(&FORK_CHOICE_DB_KEY, &persisted_fork_choice)?;
             }

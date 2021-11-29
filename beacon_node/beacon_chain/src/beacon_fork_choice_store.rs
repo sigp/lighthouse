@@ -344,8 +344,8 @@ where
 pub struct PersistedForkChoiceStore {
     balances_cache: BalancesCache,
     time: Slot,
-    finalized_checkpoint: Checkpoint,
-    justified_checkpoint: Checkpoint,
+    pub finalized_checkpoint: Checkpoint,
+    pub justified_checkpoint: Checkpoint,
     justified_balances: Vec<u64>,
     best_justified_checkpoint: Checkpoint,
 }

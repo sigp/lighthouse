@@ -50,8 +50,8 @@ use crate::{metrics, BeaconChainError};
 use eth2::types::{
     EventKind, SseBlock, SseChainReorg, SseFinalizedCheckpoint, SseHead, SseLateHead, SyncDuty,
 };
+use fork_choice::{AttestationFromBlock, ForkChoice};
 use execution_layer::ExecutionLayer;
-use fork_choice::ForkChoice;
 use futures::channel::mpsc::Sender;
 use itertools::process_results;
 use itertools::Itertools;
@@ -1698,7 +1698,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         self.fork_choice
             .write()
-            .on_attestation(self.slot()?, verified.indexed_attestation())
+            .on_attestation(
+                self.slot()?,
+                verified.indexed_attestation(),
+                AttestationFromBlock::False,
+            )
             .map_err(Into::into)
     }
 
@@ -2470,7 +2474,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             let indexed_attestation = get_indexed_attestation(committee.committee, attestation)
                 .map_err(|e| BlockError::BeaconChainError(e.into()))?;
 
-            match fork_choice.on_attestation(current_slot, &indexed_attestation) {
+            match fork_choice.on_attestation(
+                current_slot,
+                &indexed_attestation,
+                AttestationFromBlock::True,
+            ) {
                 Ok(()) => Ok(()),
                 // Ignore invalid attestations whilst importing attestations from a block. The
                 // block might be very old and therefore the attestations useless to fork choice.
