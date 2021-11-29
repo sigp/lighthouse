@@ -349,12 +349,3 @@ pub struct PersistedForkChoiceStore {
     justified_balances: Vec<u64>,
     best_justified_checkpoint: Checkpoint,
 }
-
-impl PersistedForkChoiceStore {
-    pub fn get_finalized_checkpoint(&self) -> Checkpoint {
-        self.finalized_checkpoint
-    }
-    pub fn get_justified_checkpoint(&self) -> Checkpoint {
-        self.justified_checkpoint
-    }
-}

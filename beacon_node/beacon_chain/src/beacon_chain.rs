@@ -50,8 +50,8 @@ use crate::{metrics, BeaconChainError};
 use eth2::types::{
     EventKind, SseBlock, SseChainReorg, SseFinalizedCheckpoint, SseHead, SseLateHead, SyncDuty,
 };
-use fork_choice::{AttestationFromBlock, ForkChoice};
 use execution_layer::ExecutionLayer;
+use fork_choice::{AttestationFromBlock, ForkChoice};
 use futures::channel::mpsc::Sender;
 use itertools::process_results;
 use itertools::Itertools;

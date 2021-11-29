@@ -52,7 +52,7 @@ pub(crate) fn update_with_reinitialized_fork_choice<T: BeaconChainTypes>(
 ) -> Result<(), String> {
     let anchor_block_root = persisted_fork_choice
         .fork_choice_store
-        .get_finalized_checkpoint()
+        .finalized_checkpoint
         .root;
     let anchor_block = db
         .get_block(&anchor_block_root)
@@ -98,12 +98,8 @@ pub(crate) fn update_legacy_proto_array_bytes<T: BeaconChainTypes>(
     // and `node.finalized_epoch`.
     let legacy_nodes = legacy_container.nodes.clone();
 
-    let justified_checkpoint = persisted_fork_choice
-        .fork_choice_store
-        .get_justified_checkpoint();
-    let finalized_checkpoint = persisted_fork_choice
-        .fork_choice_store
-        .get_finalized_checkpoint();
+    let justified_checkpoint = persisted_fork_choice.fork_choice_store.justified_checkpoint;
+    let finalized_checkpoint = persisted_fork_choice.fork_choice_store.finalized_checkpoint;
 
     // These transformations instantiate `node.justified_checkpoint` and `node.finalized_checkpoint`
     // to `None`.
