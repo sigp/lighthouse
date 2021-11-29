@@ -3,6 +3,8 @@ use crate::beacon_chain::BeaconChainTypes;
 use crate::persisted_fork_choice::PersistedForkChoice;
 use crate::types::{AttestationShufflingId, EthSpec, Slot};
 use crate::types::{Checkpoint, Epoch, Hash256};
+use crate::{BeaconForkChoiceStore, BeaconSnapshot};
+use fork_choice::ForkChoice;
 use itertools::Itertools;
 use proto_array::ExecutionStatus;
 use proto_array::{core::ProtoNode, core::SszContainer, core::VoteTracker, ProtoArrayForkChoice};
@@ -18,6 +20,39 @@ use store::Error as StoreError;
 // Define a "legacy" implementation of `Option<usize>` which uses four bytes for encoding the union
 // selector.
 four_byte_option_impl!(four_byte_option_usize, usize);
+
+pub(crate) fn update_with_reinitialized_fork_choice<T: BeaconChainTypes>(
+    persisted_fork_choice: &mut PersistedForkChoice,
+    db: Arc<HotColdDB<T::EthSpec, T::HotStore, T::ColdStore>>,
+) -> Result<(), String> {
+    let anchor_block_root = persisted_fork_choice
+        .fork_choice_store
+        .get_finalized_checkpoint()
+        .root;
+    let anchor_block = db
+        .get_block(&anchor_block_root)
+        .map_err(|e| format!("{:?}", e))?
+        .ok_or_else(||"Missing anchor beacon block".to_string())?;
+    let anchor_state = db
+        .get_state(&anchor_block.state_root(), Some(anchor_block.slot()))
+        .map_err(|e| format!("{:?}", e))?
+        .ok_or_else(||"Missing anchor beacon state".to_string())?;
+    let snapshot = BeaconSnapshot {
+        beacon_block: anchor_block,
+        beacon_block_root: anchor_block_root,
+        beacon_state: anchor_state,
+    };
+    let store = BeaconForkChoiceStore::get_forkchoice_store(db, &snapshot);
+    let fork_choice = ForkChoice::from_anchor(
+        store,
+        anchor_block_root,
+        &snapshot.beacon_block,
+        &snapshot.beacon_state,
+    )
+    .map_err(|e| format!("{:?}", e))?;
+    persisted_fork_choice.fork_choice = fork_choice.to_persisted();
+    Ok(())
+}
 
 /// Only used for SSZ deserialization of the persisted fork choice during the database migration
 /// from schema 5 to schema 6.
@@ -157,7 +192,7 @@ fn map_relevant_epochs_to_roots<T: BeaconChainTypes>(
     db: Arc<HotColdDB<T::EthSpec, T::HotStore, T::ColdStore>>,
 ) -> Result<HashMap<Epoch, Hash256>, String> {
     // Remove duplicates and reverse sort the epochs.
-    let mut relevant_epochs = epochs.into_iter().copied().unique().collect::<Vec<_>>();
+    let mut relevant_epochs = epochs.iter().copied().unique().collect::<Vec<_>>();
     relevant_epochs.sort_unstable_by(|a, b| b.cmp(a));
 
     // Iterate backwards from the given `head_root` and `head_slot` and find the block root at each epoch.
