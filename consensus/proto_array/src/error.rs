@@ -16,6 +16,7 @@ pub enum Error {
     DeltaOverflow(usize),
     ProposerBoostOverflow(usize),
     IndexOverflow(&'static str),
+    InvalidExecutionDeltaOverflow(usize),
     InvalidDeltaLen {
         deltas: usize,
         indices: usize,

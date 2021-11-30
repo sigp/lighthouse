@@ -126,10 +126,17 @@ impl ProtoArray {
                 continue;
             }
 
-            let mut node_delta = deltas
-                .get(node_index)
-                .copied()
-                .ok_or(Error::InvalidNodeDelta(node_index))?;
+            let mut node_delta = if node.execution_status.is_invalid() {
+                // If the node has an invalid execution payload, reduce its weight to zero.
+                0_i64
+                    .checked_sub(node.weight as i64)
+                    .ok_or(Error::InvalidExecutionDeltaOverflow(node_index))?
+            } else {
+                deltas
+                    .get(node_index)
+                    .copied()
+                    .ok_or(Error::InvalidNodeDelta(node_index))?
+            };
 
             // If we find the node for which the proposer boost was previously applied, decrease
             // the delta by the previous score amount.

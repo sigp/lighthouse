@@ -49,6 +49,10 @@ impl ExecutionStatus {
             ExecutionStatus::Irrelevant(_) => None,
         }
     }
+
+    pub fn is_invalid(&self) -> bool {
+        matches!(self, ExecutionStatus::Invalid(_))
+    }
 }
 
 /// A block that is to be applied to the fork choice.
