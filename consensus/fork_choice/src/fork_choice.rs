@@ -1,14 +1,13 @@
-use std::marker::PhantomData;
-
+use crate::ForkChoiceStore;
 use proto_array::{Block as ProtoBlock, ExecutionStatus, ProtoArrayForkChoice};
 use ssz_derive::{Decode, Encode};
+use std::cmp::Ordering;
+use std::marker::PhantomData;
+use std::time::Duration;
 use types::{
     AttestationShufflingId, BeaconBlock, BeaconState, BeaconStateError, ChainSpec, Checkpoint,
     Epoch, EthSpec, Hash256, IndexedAttestation, RelativeEpoch, SignedBeaconBlock, Slot,
 };
-
-use crate::ForkChoiceStore;
-use std::cmp::Ordering;
 
 #[derive(Debug)]
 pub enum Error<T> {
@@ -168,6 +167,13 @@ where
     store.set_current_slot(time);
 
     let current_slot = store.get_current_slot();
+
+    // Reset proposer boost if this is a new slot.
+    if current_slot > previous_slot {
+        store.set_proposer_boost_root(Hash256::zero());
+    }
+
+    // Not a new epoch, return.
     if !(current_slot > previous_slot && compute_slots_since_epoch_start::<E>(current_slot) == 0) {
         return Ok(());
     }
@@ -474,6 +480,7 @@ where
         current_slot: Slot,
         block: &BeaconBlock<E>,
         block_root: Hash256,
+        block_delay: Duration,
         state: &BeaconState<E>,
         payload_verification_status: PayloadVerificationStatus,
         spec: &ChainSpec,
@@ -525,6 +532,14 @@ where
                 finalized_root,
                 block_ancestor,
             }));
+        }
+
+        // Add proposer score boost if the block is timely.
+        // FIXME(boost): INTERVALS_PER_SLOT constant somewhere
+        let is_before_attesting_interval =
+            block_delay < Duration::from_secs(spec.seconds_per_slot / 3);
+        if current_slot == block.slot() && is_before_attesting_interval {
+            self.fc_store.set_proposer_boost_root(block_root);
         }
 
         // Update justified checkpoint.

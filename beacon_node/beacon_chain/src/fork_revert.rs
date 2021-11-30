@@ -5,6 +5,7 @@ use slog::{info, warn, Logger};
 use state_processing::state_advance::complete_state_advance;
 use state_processing::{per_block_processing, per_block_processing::BlockSignatureStrategy};
 use std::sync::Arc;
+use std::time::Duration;
 use store::{iter::ParentRootBlockIterator, HotColdDB, ItemStore};
 use types::{BeaconState, ChainSpec, EthSpec, ForkName, Hash256, SignedBeaconBlock, Slot};
 
@@ -176,6 +177,8 @@ pub fn reset_fork_choice_to_finalization<E: EthSpec, Hot: ItemStore<E>, Cold: It
                 block.slot(),
                 &block,
                 block.canonical_root(),
+                // Reward proposer boost. We are reinforcing the canonical chain.
+                Duration::from_secs(0),
                 &state,
                 payload_verification_status,
                 spec,

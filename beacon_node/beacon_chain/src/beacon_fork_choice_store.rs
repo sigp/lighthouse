@@ -5,6 +5,7 @@
 //! reads when fork choice requires the validator balances of the justified state.
 
 use crate::{metrics, BeaconSnapshot};
+use derivative::Derivative;
 use fork_choice::ForkChoiceStore;
 use ssz_derive::{Decode, Encode};
 use std::marker::PhantomData;
@@ -154,8 +155,10 @@ impl BalancesCache {
 
 /// Implements `fork_choice::ForkChoiceStore` in order to provide a persistent backing to the
 /// `fork_choice::ForkChoice` struct.
-#[derive(Debug)]
+#[derive(Debug, Derivative)]
+#[derivative(PartialEq(bound = "E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>"))]
 pub struct BeaconForkChoiceStore<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> {
+    #[derivative(PartialEq = "ignore")]
     store: Arc<HotColdDB<E, Hot, Cold>>,
     balances_cache: BalancesCache,
     time: Slot,
@@ -163,24 +166,8 @@ pub struct BeaconForkChoiceStore<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<
     justified_checkpoint: Checkpoint,
     justified_balances: Vec<u64>,
     best_justified_checkpoint: Checkpoint,
+    proposer_boost_root: Hash256,
     _phantom: PhantomData<E>,
-}
-
-impl<E, Hot, Cold> PartialEq for BeaconForkChoiceStore<E, Hot, Cold>
-where
-    E: EthSpec,
-    Hot: ItemStore<E>,
-    Cold: ItemStore<E>,
-{
-    /// This implementation ignores the `store` and `slot_clock`.
-    fn eq(&self, other: &Self) -> bool {
-        self.balances_cache == other.balances_cache
-            && self.time == other.time
-            && self.finalized_checkpoint == other.finalized_checkpoint
-            && self.justified_checkpoint == other.justified_checkpoint
-            && self.justified_balances == other.justified_balances
-            && self.best_justified_checkpoint == other.best_justified_checkpoint
-    }
 }
 
 impl<E, Hot, Cold> BeaconForkChoiceStore<E, Hot, Cold>
@@ -225,6 +212,7 @@ where
             justified_balances: anchor_state.balances().clone().into(),
             finalized_checkpoint,
             best_justified_checkpoint: justified_checkpoint,
+            proposer_boost_root: Hash256::zero(),
             _phantom: PhantomData,
         }
     }
@@ -239,6 +227,7 @@ where
             justified_checkpoint: self.justified_checkpoint,
             justified_balances: self.justified_balances.clone(),
             best_justified_checkpoint: self.best_justified_checkpoint,
+            proposer_boost_root: self.proposer_boost_root,
         }
     }
 
@@ -255,6 +244,7 @@ where
             justified_checkpoint: persisted.justified_checkpoint,
             justified_balances: persisted.justified_balances,
             best_justified_checkpoint: persisted.best_justified_checkpoint,
+            proposer_boost_root: persisted.proposer_boost_root,
             _phantom: PhantomData,
         })
     }
@@ -337,10 +327,15 @@ where
     fn set_best_justified_checkpoint(&mut self, checkpoint: Checkpoint) {
         self.best_justified_checkpoint = checkpoint
     }
+
+    fn set_proposer_boost_root(&mut self, proposer_boost_root: Hash256) {
+        self.proposer_boost_root = proposer_boost_root;
+    }
 }
 
 /// A container which allows persisting the `BeaconForkChoiceStore` to the on-disk database.
 #[derive(Encode, Decode)]
+// FIXME(boost): migration to add proposer_boost_root
 pub struct PersistedForkChoiceStore {
     balances_cache: BalancesCache,
     time: Slot,
@@ -348,4 +343,5 @@ pub struct PersistedForkChoiceStore {
     pub justified_checkpoint: Checkpoint,
     justified_balances: Vec<u64>,
     best_justified_checkpoint: Checkpoint,
+    proposer_boost_root: Hash256,
 }

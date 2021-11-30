@@ -2445,11 +2445,15 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         {
             let _fork_choice_block_timer =
                 metrics::start_timer(&metrics::FORK_CHOICE_PROCESS_BLOCK_TIMES);
+            // FIXME(boost): consider using observation delay
+            let block_delay = get_slot_delay_ms(timestamp_now(), current_slot, &self.slot_clock);
+
             fork_choice
                 .on_block(
                     current_slot,
                     &block,
                     block_root,
+                    block_delay,
                     &state,
                     payload_verification_status,
                     &self.spec,

@@ -101,6 +101,7 @@ pub struct ChainSpec {
      * Fork choice
      */
     pub safe_slots_to_update_justified: u64,
+    pub proposer_score_boost: u64,
 
     /*
      * Eth1
@@ -489,6 +490,7 @@ impl ChainSpec {
              * Fork choice
              */
             safe_slots_to_update_justified: 8,
+            proposer_score_boost: 70,
 
             /*
              * Eth1
@@ -658,6 +660,9 @@ pub struct Config {
     churn_limit_quotient: u64,
 
     #[serde(with = "eth2_serde_utils::quoted_u64")]
+    proposer_score_boost: u64,
+
+    #[serde(with = "eth2_serde_utils::quoted_u64")]
     deposit_chain_id: u64,
     #[serde(with = "eth2_serde_utils::quoted_u64")]
     deposit_network_id: u64,
@@ -746,6 +751,8 @@ impl Config {
             churn_limit_quotient: spec.churn_limit_quotient,
             min_per_epoch_churn_limit: spec.min_per_epoch_churn_limit,
 
+            proposer_score_boost: spec.proposer_score_boost,
+
             deposit_chain_id: spec.deposit_chain_id,
             deposit_network_id: spec.deposit_network_id,
             deposit_contract_address: spec.deposit_contract_address,
@@ -784,6 +791,7 @@ impl Config {
             ejection_balance,
             min_per_epoch_churn_limit,
             churn_limit_quotient,
+            proposer_score_boost,
             deposit_chain_id,
             deposit_network_id,
             deposit_contract_address,
@@ -812,6 +820,7 @@ impl Config {
             ejection_balance,
             min_per_epoch_churn_limit,
             churn_limit_quotient,
+            proposer_score_boost,
             deposit_chain_id,
             deposit_network_id,
             deposit_contract_address,
