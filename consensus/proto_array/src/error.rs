@@ -4,6 +4,7 @@ use types::{Checkpoint, Epoch, Hash256};
 pub enum Error {
     FinalizedNodeUnknown(Hash256),
     JustifiedNodeUnknown(Hash256),
+    NodeUnknown(Hash256),
     InvalidFinalizedRootChange,
     InvalidNodeIndex(usize),
     InvalidParentIndex(usize),

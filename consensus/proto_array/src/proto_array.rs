@@ -4,7 +4,7 @@ use serde_derive::{Deserialize, Serialize};
 use ssz::four_byte_option_impl;
 use ssz::Encode;
 use ssz_derive::{Decode, Encode};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use types::{AttestationShufflingId, ChainSpec, Checkpoint, Epoch, EthSpec, Hash256, Slot};
 
 // Define a "legacy" implementation of `Option<usize>` which uses four bytes for encoding the union
@@ -250,14 +250,14 @@ impl ProtoArray {
             self.maybe_update_best_child_and_descendant(parent_index, node_index)?;
 
             if matches!(block.execution_status, ExecutionStatus::Valid(_)) {
-                self.propagate_execution_payload_verification(parent_index)?;
+                self.propagate_execution_payload_validation(parent_index)?;
             }
         }
 
         Ok(())
     }
 
-    pub fn propagate_execution_payload_verification(
+    pub fn propagate_execution_payload_validation(
         &mut self,
         verified_node_index: usize,
     ) -> Result<(), Error> {
@@ -288,6 +288,8 @@ impl ProtoArray {
                 }
                 // An ancestor of the valid payload was invalid. This is a serious error which
                 // indicates a consensus failure in the execution node. This is unrecoverable.
+                //
+                // TODO(paul): relax this?
                 ExecutionStatus::Invalid(ancestor_payload_block_hash) => {
                     return Err(Error::InvalidAncestorOfValidPayload {
                         ancestor_block_root: node.root,
@@ -298,6 +300,54 @@ impl ProtoArray {
 
             index = parent_index;
         }
+    }
+
+    pub fn propagate_execution_payload_invalidation(
+        &mut self,
+        invalid_root: Hash256,
+        latest_valid_ancestor_root: Hash256,
+    ) -> Result<HashSet<Hash256>, Error> {
+        let mut invalidated_roots = HashSet::default();
+        let mut index = *self
+            .indices
+            .get(&invalid_root)
+            .ok_or(Error::NodeUnknown(invalid_root))?;
+
+        loop {
+            let node = self
+                .nodes
+                .get_mut(index)
+                .ok_or(Error::InvalidNodeIndex(index))?;
+
+            if node.root == latest_valid_ancestor_root {
+                // It might be new knowledge that this block is valid, ensure that it and all
+                // ancestors are marked as valid.
+                self.propagate_execution_payload_validation(index)?;
+                break;
+            }
+
+            match &node.execution_status {
+                // TODO(paul): valid->invalid shouldn't happen..
+                ExecutionStatus::Valid(hash) | ExecutionStatus::Unknown(hash) => {
+                    invalidated_roots.insert(node.root);
+                    node.execution_status = ExecutionStatus::Invalid(*hash)
+                }
+                // The block is already invalid, but keep going backwards to ensure all ancestors
+                // are updated.
+                ExecutionStatus::Invalid(_) => (),
+                // This block is pre-merge, therefore it has no execution status. Nor does its
+                // ancestors.
+                ExecutionStatus::Irrelevant(_) => break,
+            }
+
+            if let Some(parent_index) = node.parent {
+                index = parent_index
+            } else {
+                break;
+            }
+        }
+
+        Ok(invalidated_roots)
     }
 
     /// Follows the best-descendant links to find the best-block (i.e., head-block).
