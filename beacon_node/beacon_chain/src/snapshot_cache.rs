@@ -114,7 +114,6 @@ pub enum StateAdvance<T: EthSpec> {
 }
 
 /// The item stored in the `SnapshotCache`.
-#[derive(Clone)]
 pub struct CacheItem<T: EthSpec> {
     beacon_block: SignedBeaconBlock<T>,
     beacon_block_root: Hash256,
