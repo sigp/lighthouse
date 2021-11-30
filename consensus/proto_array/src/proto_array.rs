@@ -313,13 +313,16 @@ impl ProtoArray {
         &mut self,
         invalid_root: Hash256,
         latest_valid_ancestor_root: Hash256,
-    ) -> Result<HashSet<Hash256>, Error> {
-        let mut invalidated_roots = HashSet::default();
+    ) -> Result<(), Error> {
+        let mut invalidated_indices: HashSet<usize> = <_>::default();
         let mut index = *self
             .indices
             .get(&invalid_root)
             .ok_or(Error::NodeUnknown(invalid_root))?;
+        let first_potential_descendant = index + 1;
 
+        // Collect all *ancestors* which were declared invalid since they reside between the
+        // `invalid_root` and the `latest_valid_ancestor_root`.
         loop {
             let node = self
                 .nodes
@@ -334,9 +337,15 @@ impl ProtoArray {
             }
 
             match &node.execution_status {
-                // TODO(paul): valid->invalid shouldn't happen..
-                ExecutionStatus::Valid(hash) | ExecutionStatus::Unknown(hash) => {
-                    invalidated_roots.insert(node.root);
+                // It's illegal for an execution client to declare that some previously-valid block
+                // is now invalid. This is a consensus failure on their behalf.
+                ExecutionStatus::Valid(hash) => {
+                    return Err(Error::ValidExecutionStatusBecameInvalid {
+                        block_root: node.root,
+                        payload_block_hash: *hash,
+                    })
+                }
+                ExecutionStatus::Unknown(hash) => {
                     node.execution_status = ExecutionStatus::Invalid(*hash)
                 }
                 // The block is already invalid, but keep going backwards to ensure all ancestors
@@ -347,6 +356,8 @@ impl ProtoArray {
                 ExecutionStatus::Irrelevant(_) => break,
             }
 
+            invalidated_indices.insert(index);
+
             if let Some(parent_index) = node.parent {
                 index = parent_index
             } else {
@@ -354,7 +365,35 @@ impl ProtoArray {
             }
         }
 
-        Ok(invalidated_roots)
+        // Collect all *descendants* which declared invalid since they're the descendant of a block
+        // with an invalid execution payload.
+        for index in first_potential_descendant..self.nodes.len() {
+            let node = self
+                .nodes
+                .get_mut(index)
+                .ok_or(Error::InvalidNodeIndex(index))?;
+
+            if let Some(parent_index) = node.parent {
+                if invalidated_indices.contains(&parent_index) {
+                    match &node.execution_status {
+                        ExecutionStatus::Valid(hash) => {
+                            return Err(Error::ValidExecutionStatusBecameInvalid {
+                                block_root: node.root,
+                                payload_block_hash: *hash,
+                            })
+                        }
+                        ExecutionStatus::Unknown(hash) | ExecutionStatus::Invalid(hash) => {
+                            node.execution_status = ExecutionStatus::Invalid(*hash)
+                        }
+                        ExecutionStatus::Irrelevant(_) => (),
+                    }
+
+                    invalidated_indices.insert(index);
+                }
+            }
+        }
+
+        Ok(())
     }
 
     /// Follows the best-descendant links to find the best-block (i.e., head-block).

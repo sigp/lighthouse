@@ -30,6 +30,10 @@ pub enum Error {
         ancestor_block_root: Hash256,
         ancestor_payload_block_hash: Hash256,
     },
+    ValidExecutionStatusBecameInvalid {
+        block_root: Hash256,
+        payload_block_hash: Hash256,
+    },
     InvalidJustifiedCheckpointExecutionStatus {
         justified_root: Hash256,
     },
