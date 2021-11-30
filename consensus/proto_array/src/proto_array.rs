@@ -377,6 +377,19 @@ impl ProtoArray {
             .get(justified_index)
             .ok_or(Error::InvalidJustifiedIndex(justified_index))?;
 
+        // Since there are no valid descendants of a justified block with an invalid execution
+        // payload, there would be no head to choose from.
+        //
+        // Fork choice is effectively broken until a new justified root is set. It might not be
+        // practically possible to set a new justified root if we are unable to find a new head.
+        //
+        // This scenario is *unsupported*. It represents a serious consensus failure.
+        if justified_node.execution_status.is_invalid() {
+            return Err(Error::InvalidJustifiedCheckpointExecutionStatus {
+                justified_root: *justified_root,
+            });
+        }
+
         let best_descendant_index = justified_node.best_descendant.unwrap_or(justified_index);
 
         let best_node = self
@@ -594,6 +607,10 @@ impl ProtoArray {
     /// Any node that has a different finalized or justified epoch should not be viable for the
     /// head.
     fn node_is_viable_for_head(&self, node: &ProtoNode) -> bool {
+        if node.execution_status.is_invalid() {
+            return false;
+        }
+
         if let (Some(node_justified_checkpoint), Some(node_finalized_checkpoint)) =
             (node.justified_checkpoint, node.finalized_checkpoint)
         {
