@@ -206,7 +206,7 @@ impl RpcLimits {
         Self { min, max }
     }
 
-    /// Returns true if the given length is is greater than `MAX_RPC_SIZE` or out of
+    /// Returns true if the given length is greater than `MAX_RPC_SIZE` or out of
     /// bounds for the given ssz type, returns false otherwise.
     pub fn is_out_of_bounds(&self, length: usize, max_rpc_size: usize) -> bool {
         length > std::cmp::min(self.max, max_rpc_size) || length < self.min
