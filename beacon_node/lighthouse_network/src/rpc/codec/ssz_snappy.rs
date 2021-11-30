@@ -391,7 +391,6 @@ fn context_bytes<T: EthSpec>(
                     // NOTE: If you are adding another fork type here, be sure to modify the
                     //       `fork_context.to_context_bytes()` function to support it as well!
                     SignedBeaconBlock::Merge { .. } => {
-                        // TODO: check this
                         // Merge context being `None` implies that "merge never happened".
                         fork_context.to_context_bytes(ForkName::Merge)
                     }
@@ -561,7 +560,6 @@ fn handle_v2_response<T: EthSpec>(
                 ForkName::Base => Ok(Some(RPCResponse::BlocksByRange(Box::new(
                     SignedBeaconBlock::Base(SignedBeaconBlockBase::from_ssz_bytes(decoded_buffer)?),
                 )))),
-                // TODO: check this (though it seems okay)
                 ForkName::Merge => Ok(Some(RPCResponse::BlocksByRange(Box::new(
                     SignedBeaconBlock::Merge(SignedBeaconBlockMerge::from_ssz_bytes(
                         decoded_buffer,
@@ -577,7 +575,6 @@ fn handle_v2_response<T: EthSpec>(
                 ForkName::Base => Ok(Some(RPCResponse::BlocksByRoot(Box::new(
                     SignedBeaconBlock::Base(SignedBeaconBlockBase::from_ssz_bytes(decoded_buffer)?),
                 )))),
-                // TODO: check this (though it seems right)
                 ForkName::Merge => Ok(Some(RPCResponse::BlocksByRoot(Box::new(
                     SignedBeaconBlock::Merge(SignedBeaconBlockMerge::from_ssz_bytes(
                         decoded_buffer,
