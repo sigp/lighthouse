@@ -208,7 +208,7 @@ impl<T: EthSpec> SnapshotCache<T> {
         block_root: Hash256,
         block_delay: Option<Duration>,
         spec: &ChainSpec,
-    ) -> Option<PreProcessingSnapshot<T>> {
+    ) -> Option<(PreProcessingSnapshot<T>, bool)> {
         self.snapshots
             .iter()
             .position(|snapshot| snapshot.beacon_block_root == block_root)
@@ -218,11 +218,11 @@ impl<T: EthSpec> SnapshotCache<T> {
                         && delay <= Duration::from_secs(spec.seconds_per_slot) * 4
                     {
                         if let Some(cache) = self.snapshots.get(i) {
-                            return cache.clone_as_pre_state();
+                            return (cache.clone_as_pre_state(), true);
                         }
                     }
                 }
-                self.snapshots.remove(i).into_pre_state()
+                (self.snapshots.remove(i).into_pre_state(), false)
             })
     }
 
@@ -421,6 +421,7 @@ mod test {
             cache
                 .get_state_for_block_processing(Hash256::from_low_u64_be(0), None, &spec)
                 .expect("the head should still be in the cache")
+                .0
                 .beacon_block_root,
             Hash256::from_low_u64_be(0),
             "get_state_for_block_processing should get the correct snapshot"
@@ -453,6 +454,7 @@ mod test {
             cache
                 .get_state_for_block_processing(Hash256::from_low_u64_be(2), None, &spec)
                 .expect("the new head should still be in the cache")
+                .0
                 .beacon_block_root,
             Hash256::from_low_u64_be(2),
             "get_state_for_block_processing should get the correct snapshot"
