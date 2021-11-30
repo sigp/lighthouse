@@ -26,7 +26,7 @@ rayon = "1.4.1"
 serde = "1.0.116"
 serde_derive = "1.0.116"
 slog = { version = "2.5.2", features = ["max_level_trace"] }
-sloggers = "2.0.2"
+sloggers = { version = "2.1.1", features = ["json"] }
 slot_clock = { path = "../../common/slot_clock" }
 eth2_hashing = "0.2.0"
 eth2_ssz = "0.4.0"

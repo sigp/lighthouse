@@ -4,9 +4,10 @@ mod metrics;
 
 use beacon_node::{get_eth2_network_config, ProductionBeaconNode};
 use clap::{App, Arg, ArgMatches};
-use clap_utils::flags::DISABLE_MALLOC_TUNING_FLAG;
+use clap_utils::{flags::DISABLE_MALLOC_TUNING_FLAG, parse_optional};
+use directory::{parse_path_or_default, DEFAULT_BEACON_NODE_DIR, DEFAULT_VALIDATOR_DIR};
 use env_logger::{Builder, Env};
-use environment::EnvironmentBuilder;
+use environment::{EnvironmentBuilder, LoggerConfig};
 use eth2_hashing::have_sha_extensions;
 use eth2_network_config::{Eth2NetworkConfig, DEFAULT_HARDCODED_NETWORK, HARDCODED_NET_NAMES};
 use lighthouse_version::VERSION;
@@ -80,23 +81,68 @@ fn main() {
                 .long("logfile")
                 .value_name("FILE")
                 .help(
-                    "File path where output will be written.",
-                )
-                .takes_value(true),
+                    "File path where the log file will be stored. Once it grows to the \
+                    value specified in `--logfile-max-size` a new log file is generated where \
+                    future logs are stored. \
+                    Once the number of log files exceeds the value specified in \
+                    `--logfile-max-number` the oldest log file will be overwritten.")
+                .takes_value(true)
+                .global(true),
+        )
+        .arg(
+            Arg::with_name("logfile-debug-level")
+                .long("logfile-debug-level")
+                .value_name("LEVEL")
+                .help("The verbosity level used when emitting logs to the log file.")
+                .takes_value(true)
+                .possible_values(&["info", "debug", "trace", "warn", "error", "crit"])
+                .default_value("debug")
+                .global(true),
+        )
+        .arg(
+            Arg::with_name("logfile-max-size")
+                .long("logfile-max-size")
+                .value_name("SIZE")
+                .help(
+                    "The maximum size (in MB) each log file can grow to before rotating. If set \
+                    to 0, background file logging is disabled.")
+                .takes_value(true)
+                .default_value("200")
+                .global(true),
+        )
+        .arg(
+            Arg::with_name("logfile-max-number")
+                .long("logfile-max-number")
+                .value_name("COUNT")
+                .help(
+                    "The maximum number of log files that will be stored. If set to 0, \
+                    background file logging is disabled.")
+                .takes_value(true)
+                .default_value("5")
+                .global(true),
+        )
+        .arg(
+            Arg::with_name("logfile-compress")
+                .long("logfile-compress")
+                .help(
+                    "If present, compress old log files. This can help reduce the space needed \
+                    to store old logs.")
+                .global(true),
         )
         .arg(
             Arg::with_name("log-format")
                 .long("log-format")
                 .value_name("FORMAT")
-                .help("Specifies the format used for logging.")
+                .help("Specifies the log format used when emitting logs to the terminal.")
                 .possible_values(&["JSON"])
-                .takes_value(true),
+                .takes_value(true)
+                .global(true),
         )
         .arg(
             Arg::with_name("debug-level")
                 .long("debug-level")
                 .value_name("LEVEL")
-                .help("The verbosity level for emitting logs.")
+                .help("Specifies the verbosity level used when emitting logs to the terminal.")
                 .takes_value(true)
                 .possible_values(&["info", "debug", "trace", "warn", "error", "crit"])
                 .global(true)
@@ -257,14 +303,57 @@ fn run<E: EthSpec>(
 
     let log_format = matches.value_of("log-format");
 
-    let builder = if let Some(log_path) = matches.value_of("logfile") {
-        let path = log_path
-            .parse::<PathBuf>()
-            .map_err(|e| format!("Failed to parse log path: {:?}", e))?;
-        environment_builder.log_to_file(path, debug_level, log_format)?
-    } else {
-        environment_builder.async_logger(debug_level, log_format)?
+    let logfile_debug_level = matches
+        .value_of("logfile-debug-level")
+        .ok_or("Expected --logfile-debug-level flag")?;
+
+    let logfile_max_size: u64 = matches
+        .value_of("logfile-max-size")
+        .ok_or("Expected --logfile-max-size flag")?
+        .parse()
+        .map_err(|e| format!("Failed to parse `logfile-max-size`: {:?}", e))?;
+
+    let logfile_max_number: usize = matches
+        .value_of("logfile-max-number")
+        .ok_or("Expected --logfile-max-number flag")?
+        .parse()
+        .map_err(|e| format!("Failed to parse `logfile-max-number`: {:?}", e))?;
+
+    let logfile_compress = matches.is_present("logfile-compress");
+
+    // Construct the path to the log file.
+    let mut log_path: Option<PathBuf> = parse_optional(matches, "logfile")?;
+    if log_path.is_none() {
+        log_path = match matches.subcommand_name() {
+            Some("beacon_node") => Some(
+                parse_path_or_default(matches, "datadir")?
+                    .join(DEFAULT_BEACON_NODE_DIR)
+                    .join("logs")
+                    .join("beacon")
+                    .with_extension("log"),
+            ),
+            Some("validator_client") => Some(
+                parse_path_or_default(matches, "datadir")?
+                    .join(DEFAULT_VALIDATOR_DIR)
+                    .join("logs")
+                    .join("validator")
+                    .with_extension("log"),
+            ),
+            _ => None,
+        };
+    }
+
+    let logger_config = LoggerConfig {
+        path: log_path,
+        debug_level,
+        logfile_debug_level,
+        log_format,
+        max_log_size: logfile_max_size * 1_024 * 1_024,
+        max_log_number: logfile_max_number,
+        compression: logfile_compress,
     };
+
+    let builder = environment_builder.initialize_logger(logger_config)?;
 
     let mut environment = builder
         .multi_threaded_tokio_runtime()?

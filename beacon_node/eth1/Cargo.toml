@@ -8,7 +8,7 @@ edition = "2018"
 eth1_test_rig = { path = "../../testing/eth1_test_rig" }
 toml = "0.5.6"
 web3 = { version = "0.17.0", default-features = false, features = ["http-tls", "signing", "ws-tls-tokio"] }
-sloggers = "2.0.2"
+sloggers = { version = "2.1.1", features = ["json"] }
 environment = { path = "../../lighthouse/environment" }
 
 [dependencies]
