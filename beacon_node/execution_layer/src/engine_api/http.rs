@@ -624,18 +624,6 @@ mod test {
             .await
             .with_preloaded_responses(
                 // engine_forkchoiceUpdatedV1 (prepare payload) RESPONSE validation
-                //
-                // NOTE THIS HAD TO BE MODIFIED FROM ORIGINAL RESPONSE
-                // {
-                //      "jsonrpc":"2.0",
-                //      "id":67,
-                //      "result":{
-                //          "status":"VALID", // <- This must be SUCCESS
-                //          "payloadId":"0xa247243752eb10b4"
-                //      }
-                // }
-                // see spec for engine_forkchoiceUpdatedV1 response:
-                // https://github.com/ethereum/execution-apis/blob/v1.0.0-alpha.4/src/engine/specification.md#response-1
                 vec![json!({
                     "id": STATIC_ID,
                     "jsonrpc": JSONRPC_VERSION,
@@ -779,18 +767,6 @@ mod test {
             .await
             .with_preloaded_responses(
                 // engine_executePayloadV1 RESPONSE validation
-                //
-                // NOTE THIS HAD TO BE MODIFIED FROM ORIGINAL RESPONSE
-                // {
-                //      "jsonrpc":"2.0",
-                //      "id":67,
-                //      "result":{
-                //          "status":"SUCCESS", // <- This must be VALID
-                //          "latestValidHash":"0x3559e851470f6e7bbed1db474980683e8c315bfce99b2a6ef47c057c04de7858"
-                //      }
-                // }
-                // see spec for engine_executePayloadV1 response:
-                // https://github.com/ethereum/execution-apis/blob/v1.0.0-alpha.4/src/engine/specification.md#response
                 vec![json!({
                     "jsonrpc": JSONRPC_VERSION,
                     "id": STATIC_ID,
@@ -852,7 +828,7 @@ mod test {
                     "id": STATIC_ID,
                     "result": {
                         "status":"SUCCESS",
-                        "payloadId": serde_json::Value::Null
+                        "payloadId": JSON_NULL,
                     }
                 })],
                 |client| async move {
