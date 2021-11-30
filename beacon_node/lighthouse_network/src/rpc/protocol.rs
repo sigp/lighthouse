@@ -22,7 +22,7 @@ use tokio_util::{
 };
 use types::{
     BeaconBlock, BeaconBlockAltair, BeaconBlockBase, BeaconBlockMerge, EthSpec, ForkContext,
-    Hash256, MainnetEthSpec, Signature, SignedBeaconBlock,
+    ForkName, Hash256, MainnetEthSpec, Signature, SignedBeaconBlock,
 };
 
 lazy_static! {
@@ -92,8 +92,10 @@ lazy_static! {
 
 }
 
-/// The maximum bytes that can be sent across the RPC.
-pub const MAX_RPC_SIZE: usize = 10 * 1_048_576; // 10M
+/// The maximum bytes that can be sent across the RPC pre-merge.
+pub(crate) const MAX_RPC_SIZE: usize = 1 * 1_048_576; // 1M
+/// The maximum bytes that can be sent across the RPC post-merge.
+pub(crate) const MAX_RPC_SIZE_POST_MERGE: usize = 10 * 1_048_576; // 10M
 /// The protocol prefix the RPC protocol id.
 const PROTOCOL_PREFIX: &str = "/eth2/beacon_chain/req";
 /// Time allowed for the first byte of a request to arrive before we time out (Time To First Byte).
@@ -101,6 +103,15 @@ const TTFB_TIMEOUT: u64 = 5;
 /// The number of seconds to wait for the first bytes of a request once a protocol has been
 /// established before the stream is terminated.
 const REQUEST_TIMEOUT: u64 = 15;
+
+/// Returns the maximum bytes that can be sent across the RPC.
+pub fn max_rpc_size(fork_context: &ForkContext) -> usize {
+    if fork_context.fork_exists(ForkName::Merge) {
+        MAX_RPC_SIZE_POST_MERGE
+    } else {
+        MAX_RPC_SIZE
+    }
+}
 
 /// Protocol names to be used.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -365,7 +376,7 @@ where
                 Encoding::SSZSnappy => {
                     let ssz_snappy_codec = BaseInboundCodec::new(SSZSnappyInboundCodec::new(
                         protocol,
-                        MAX_RPC_SIZE,
+                        max_rpc_size(&self.fork_context),
                         self.fork_context.clone(),
                     ));
                     InboundCodec::SSZSnappy(ssz_snappy_codec)
