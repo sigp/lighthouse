@@ -13,8 +13,7 @@ flate2 = { version = "1.0.14", features = ["zlib"], default-features = false }
 lazy_static = "1.4.0"
 lighthouse_metrics = { path = "../common/lighthouse_metrics" }
 filesystem = { path = "../common/filesystem" }
-# mdbx = { git = "https://github.com/vorot93/mdbx-rs", rev = "1150cafb38d6136c863c4618a4eff6a13723537d" }
-mdbx = { git = "https://github.com/michaelsproul/mdbx-rs", branch = "windows" }
+mdbx = { package = "libmdbx", version = "0.1.0" }
 lru = "0.6.6"
 parking_lot = "0.11.0"
 rand = "0.7.3"
