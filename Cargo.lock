@@ -2834,6 +2834,22 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c7d73b3f436185384286bd8098d17ec07c9a7d2388a6599f824d8502b529702a"
 
 [[package]]
+name = "libmdbx"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "75aa79307892c0000dd0a8169c4db5529d32ca2302587d552870903109b46925"
+dependencies = [
+ "bitflags",
+ "byteorder",
+ "derive_more",
+ "indexmap",
+ "libc",
+ "mdbx-sys",
+ "parking_lot",
+ "thiserror",
+]
+
+[[package]]
 name = "libp2p"
 version = "0.41.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3258,14 +3274,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "lifetimed-bytes"
-version = "0.1.0"
-source = "git+https://github.com/vorot93/lifetimed-bytes#e7b2849850bfbc827b35936f5fe0fa8c16e290b1"
-dependencies = [
- "bytes",
-]
-
-[[package]]
 name = "lighthouse"
 version = "2.0.1"
 dependencies = [
@@ -3475,25 +3483,10 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a3e378b66a060d48947b590737b30a1be76706c8dd7b8ba0f2fe3989c68a853f"
 
 [[package]]
-name = "mdbx"
-version = "0.1.0"
-source = "git+https://github.com/michaelsproul/mdbx-rs?branch=windows#1abeba103f3ba164aea96ba19c4c9a792e578078"
-dependencies = [
- "bitflags",
- "byteorder",
- "derive_more",
- "indexmap",
- "libc",
- "lifetimed-bytes",
- "mdbx-sys",
- "parking_lot",
- "thiserror",
-]
-
-[[package]]
 name = "mdbx-sys"
-version = "0.9.3"
-source = "git+https://github.com/michaelsproul/mdbx-rs?branch=windows#1abeba103f3ba164aea96ba19c4c9a792e578078"
+version = "0.11.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d6fb0496b0bc2274db9ae3ee92cf97bb29bf40e51b96ec1087a6374c4a42a05d"
 dependencies = [
  "bindgen",
  "cc",
@@ -5363,11 +5356,11 @@ dependencies = [
  "filesystem",
  "flate2",
  "lazy_static",
+ "libmdbx",
  "lighthouse_metrics",
  "logging",
  "lru",
  "maplit",
- "mdbx",
  "parking_lot",
  "rand 0.7.3",
  "rayon",
