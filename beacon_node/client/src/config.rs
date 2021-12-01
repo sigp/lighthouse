@@ -149,7 +149,11 @@ impl Config {
         ensure_dir_exists(freezer_db_path)
     }
 
+    /// Get the legacy path that creates db paths relative to the
+    /// home directory for a relative `data_dir` path.
     ///
+    /// Check https://github.com/sigp/lighthouse/pull/2682 for more info on
+    /// the legacy bug.
     pub fn get_data_dir_legacy(&self) -> Option<PathBuf> {
         dirs::home_dir().map(|home_dir| home_dir.join(&self.data_dir))
     }
