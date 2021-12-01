@@ -1320,7 +1320,12 @@ fn load_parent<T: BeaconChainTypes>(
         .snapshot_cache
         .try_write_for(BLOCK_PROCESSING_CACHE_LOCK_TIMEOUT)
         .and_then(|mut snapshot_cache| {
-            snapshot_cache.get_state_for_block_processing(block.parent_root(), block_delay, spec)
+            snapshot_cache.get_state_for_block_processing(
+                block.parent_root(),
+                block.slot(),
+                block_delay,
+                spec,
+            )
         }) {
         if cloned {
             metrics::inc_counter(&metrics::BLOCK_PROCESSING_SNAPSHOT_CACHE_CLONES);
