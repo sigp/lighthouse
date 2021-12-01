@@ -168,7 +168,8 @@ pub fn validate_execution_payload_for_gossip<T: BeaconChainTypes>(
         if is_merge_complete || execution_payload != &<_>::default() {
             let expected_timestamp = chain
                 .slot_clock
-                .compute_timestamp_at_slot(block.slot())
+                .start_of(block.slot())
+                .map(|d| d.as_secs())
                 .ok_or(BlockError::BeaconChainError(
                     BeaconChainError::UnableToComputeTimeAtSlot,
                 ))?;
