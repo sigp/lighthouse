@@ -144,7 +144,7 @@ impl Config {
     /// Returns the "modern" path to the data_dir.
     ///
     /// See `Self::get_data_dir` documentation for more info.
-    pub fn get_modern_data_dir(&self) -> PathBuf {
+    fn get_modern_data_dir(&self) -> PathBuf {
         self.data_dir.clone()
     }
 
