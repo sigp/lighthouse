@@ -93,7 +93,7 @@ lazy_static! {
 }
 
 /// The maximum bytes that can be sent across the RPC pre-merge.
-pub(crate) const MAX_RPC_SIZE: usize = 1 * 1_048_576; // 1M
+pub(crate) const MAX_RPC_SIZE: usize = 1_048_576; // 1M
 /// The maximum bytes that can be sent across the RPC post-merge.
 pub(crate) const MAX_RPC_SIZE_POST_MERGE: usize = 10 * 1_048_576; // 10M
 /// The protocol prefix the RPC protocol id.
