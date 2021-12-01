@@ -17,9 +17,9 @@ After that, we simply run the beacon chain and validator client with the custom 
 ### Relative Paths
 
 [#2682]: https://github.com/sigp/lighthouse/pull/2682
-[#2843]: https://github.com/sigp/lighthouse/pull/2843
+[#2846]: https://github.com/sigp/lighthouse/pull/2846
 
-Prior to the introduction of [#2682][] and [#2843][] (releases v2.0.1 and earlier), Lighthouse would
+Prior to the introduction of [#2682][] and [#2846][] (releases v2.0.1 and earlier), Lighthouse would
 not correctly parse relative paths from the `lighthouse bn --datadir` flag.
 
 If the user provided a relative path (e.g., `--datadir here` or `--datadir ./here`), the `beacon`
@@ -32,7 +32,7 @@ directory would be split across two paths:
     - `logs`
     - `network`
 
-All versions released after the fix ([#2843][]) will default to storing all files in the present
+All versions released after the fix ([#2846][]) will default to storing all files in the present
 working directory (i.e. `./here`). New users need not be concerned with the old behaviour.
 
 For existing users which already have a split data directory, a backwards compatibility feature will
