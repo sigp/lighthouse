@@ -2446,7 +2446,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             let _fork_choice_block_timer =
                 metrics::start_timer(&metrics::FORK_CHOICE_PROCESS_BLOCK_TIMES);
             // FIXME(boost): consider using observation delay
-            let block_delay = get_slot_delay_ms(timestamp_now(), current_slot, &self.slot_clock);
+            let block_delay = self
+                .slot_clock
+                .seconds_from_current_slot_start(self.spec.seconds_per_slot)
+                .ok_or(Error::UnableToComputeTimeAtSlot)?;
 
             fork_choice
                 .on_block(

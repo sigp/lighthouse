@@ -5,7 +5,7 @@ use ssz::four_byte_option_impl;
 use ssz::Encode;
 use ssz_derive::{Decode, Encode};
 use std::collections::HashMap;
-use types::{AttestationShufflingId, Checkpoint, Epoch, Hash256, Slot};
+use types::{AttestationShufflingId, Checkpoint, Epoch, EthSpec, Hash256, Slot};
 
 // Define a "legacy" implementation of `Option<usize>` which uses four bytes for encoding the union
 // selector.
@@ -45,6 +45,21 @@ pub struct ProtoNode {
     pub execution_status: ExecutionStatus,
 }
 
+#[derive(PartialEq, Debug, Encode, Decode, Serialize, Deserialize, Copy, Clone)]
+pub struct ProposerBoost {
+    pub root: Hash256,
+    pub score: u64,
+}
+
+impl Default for ProposerBoost {
+    fn default() -> Self {
+        Self {
+            root: Hash256::zero(),
+            score: 0,
+        }
+    }
+}
+
 #[derive(PartialEq, Debug, Serialize, Deserialize, Clone)]
 pub struct ProtoArray {
     /// Do not attempt to prune the tree unless it has at least this many nodes. Small prunes
@@ -54,6 +69,7 @@ pub struct ProtoArray {
     pub finalized_checkpoint: Checkpoint,
     pub nodes: Vec<ProtoNode>,
     pub indices: HashMap<Hash256, usize>,
+    pub previous_proposer_boost: ProposerBoost,
 }
 
 impl ProtoArray {
@@ -70,11 +86,13 @@ impl ProtoArray {
     /// - Compare the current node with the parents best-child, updating it if the current node
     /// should become the best child.
     /// - If required, update the parents best-descendant with the current node or its best-descendant.
-    pub fn apply_score_changes(
+    pub fn apply_score_changes<E: EthSpec>(
         &mut self,
         mut deltas: Vec<i64>,
         justified_checkpoint: Checkpoint,
         finalized_checkpoint: Checkpoint,
+        new_balances: &[u64],
+        proposer_boost_root: Hash256,
     ) -> Result<(), Error> {
         if deltas.len() != self.indices.len() {
             return Err(Error::InvalidDeltaLen {
@@ -91,6 +109,8 @@ impl ProtoArray {
             self.finalized_checkpoint = finalized_checkpoint;
         }
 
+        let mut proposer_boost_score = 0;
+
         // Iterate backwards through all indices in `self.nodes`.
         for node_index in (0..self.nodes.len()).rev() {
             let node = self
@@ -105,10 +125,23 @@ impl ProtoArray {
                 continue;
             }
 
-            let node_delta = deltas
+            let mut node_delta = deltas
                 .get(node_index)
                 .copied()
                 .ok_or(Error::InvalidNodeDelta(node_index))?;
+
+            if self.previous_proposer_boost.root == node.root {
+                node_delta -= self.previous_proposer_boost.score as i64;
+            }
+            if proposer_boost_root != Hash256::zero() && proposer_boost_root == node.root {
+                let num_validators = new_balances.len() as u64;
+                let average_balance = new_balances.iter().sum::<u64>() / num_validators;
+                let committee_size = num_validators / E::slots_per_epoch();
+                let committee_weight = committee_size * average_balance;
+                proposer_boost_score =
+                    (committee_weight * E::default_spec().proposer_score_boost) / 100;
+                node_delta += proposer_boost_score as i64;
+            };
 
             // Apply the delta to the node.
             if node_delta < 0 {
@@ -142,6 +175,11 @@ impl ProtoArray {
                 *parent_delta += node_delta;
             }
         }
+
+        self.previous_proposer_boost = ProposerBoost {
+            root: proposer_boost_root,
+            score: proposer_boost_score,
+        };
 
         // A second time, iterate backwards through all indices in `self.nodes`.
         //

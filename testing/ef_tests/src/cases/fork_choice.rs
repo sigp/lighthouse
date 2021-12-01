@@ -1,6 +1,7 @@
 use super::*;
 use crate::decode::{ssz_decode_file, ssz_decode_file_with, ssz_decode_state, yaml_decode_file};
 use ::fork_choice::PayloadVerificationStatus;
+use beacon_chain::slot_clock::SlotClock;
 use beacon_chain::{
     attestation_verification::{
         obtain_indexed_attestation_and_committees_per_slot, VerifiedAttestation,
@@ -23,10 +24,6 @@ pub struct PowBlock {
     pub block_hash: Hash256,
     pub parent_hash: Hash256,
     pub total_difficulty: Uint256,
-    // This field is not used and I expect it to be removed. See:
-    //
-    // https://github.com/ethereum/consensus-specs/pull/2720
-    pub difficulty: Uint256,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Deserialize)]
@@ -46,6 +43,7 @@ pub struct Checks {
     justified_checkpoint_root: Option<Hash256>,
     finalized_checkpoint: Option<Checkpoint>,
     best_justified_checkpoint: Option<Checkpoint>,
+    proposer_boost_root: Option<Hash256>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -164,6 +162,7 @@ impl<E: EthSpec> Case for ForkChoiceTest<E> {
                         justified_checkpoint_root,
                         finalized_checkpoint,
                         best_justified_checkpoint,
+                        proposer_boost_root,
                     } = checks.as_ref();
 
                     if let Some(expected_head) = head {
@@ -194,6 +193,10 @@ impl<E: EthSpec> Case for ForkChoiceTest<E> {
                     if let Some(expected_best_justified_checkpoint) = best_justified_checkpoint {
                         tester
                             .check_best_justified_checkpoint(*expected_best_justified_checkpoint)?;
+                    }
+
+                    if let Some(expected_proposer_boost_root) = proposer_boost_root {
+                        tester.check_expected_proposer_boost_root(*expected_proposer_boost_root)?;
                     }
                 }
             }
@@ -336,11 +339,19 @@ impl<E: EthSpec> Tester<E> {
                 )
                 .unwrap();
 
+                let block_delay = self
+                    .harness
+                    .chain
+                    .slot_clock
+                    .seconds_from_current_slot_start(self.spec.seconds_per_slot)
+                    .unwrap();
+
                 let (block, _) = block.deconstruct();
                 let result = self.harness.chain.fork_choice.write().on_block(
                     self.harness.chain.slot().unwrap(),
                     &block,
                     block_root,
+                    block_delay,
                     &state,
                     PayloadVerificationStatus::Irrelevant,
                     &self.harness.chain.spec,
@@ -476,6 +487,18 @@ impl<E: EthSpec> Tester<E> {
             "best_justified_checkpoint",
             best_justified_checkpoint,
             expected_checkpoint,
+        )
+    }
+
+    pub fn check_expected_proposer_boost_root(
+        &self,
+        expected_proposer_boost_root: Hash256,
+    ) -> Result<(), Error> {
+        let proposer_boost_root = self.harness.chain.fork_choice.read().proposer_boost_root();
+        check_equal(
+            "proposer_boost_root",
+            proposer_boost_root,
+            expected_proposer_boost_root,
         )
     }
 }

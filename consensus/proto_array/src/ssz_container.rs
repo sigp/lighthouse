@@ -1,3 +1,4 @@
+use crate::proto_array::ProposerBoost;
 use crate::{
     proto_array::{ProtoArray, ProtoNode},
     proto_array_fork_choice::{ElasticList, ProtoArrayForkChoice, VoteTracker},
@@ -20,6 +21,7 @@ pub struct SszContainer {
     pub finalized_checkpoint: Checkpoint,
     pub nodes: Vec<ProtoNode>,
     pub indices: Vec<(Hash256, usize)>,
+    pub previous_proposer_boost: ProposerBoost,
 }
 
 impl From<&ProtoArrayForkChoice> for SszContainer {
@@ -34,6 +36,7 @@ impl From<&ProtoArrayForkChoice> for SszContainer {
             finalized_checkpoint: proto_array.finalized_checkpoint,
             nodes: proto_array.nodes.clone(),
             indices: proto_array.indices.iter().map(|(k, v)| (*k, *v)).collect(),
+            previous_proposer_boost: proto_array.previous_proposer_boost,
         }
     }
 }
@@ -46,6 +49,7 @@ impl From<SszContainer> for ProtoArrayForkChoice {
             finalized_checkpoint: from.finalized_checkpoint,
             nodes: from.nodes,
             indices: from.indices.into_iter().collect::<HashMap<_, _>>(),
+            previous_proposer_boost: from.previous_proposer_boost,
         };
 
         Self {

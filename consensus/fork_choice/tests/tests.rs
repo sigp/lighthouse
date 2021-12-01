@@ -2,6 +2,7 @@
 
 use std::fmt;
 use std::sync::Mutex;
+use std::time::Duration;
 
 use beacon_chain::test_utils::{
     AttestationStrategy, BeaconChainHarness, BlockStrategy, EphemeralHarnessType,
@@ -274,6 +275,7 @@ impl ForkChoiceTest {
                 current_slot,
                 &block,
                 block.canonical_root(),
+                Duration::from_secs(0),
                 &state,
                 PayloadVerificationStatus::Verified,
                 &self.harness.chain.spec,
@@ -316,6 +318,7 @@ impl ForkChoiceTest {
                 current_slot,
                 &block,
                 block.canonical_root(),
+                Duration::from_secs(0),
                 &state,
                 PayloadVerificationStatus::Verified,
                 &self.harness.chain.spec,

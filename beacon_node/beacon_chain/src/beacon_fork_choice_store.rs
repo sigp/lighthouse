@@ -291,6 +291,10 @@ where
         &self.finalized_checkpoint
     }
 
+    fn proposer_boost_root(&self) -> Hash256 {
+        self.proposer_boost_root
+    }
+
     fn set_finalized_checkpoint(&mut self, checkpoint: Checkpoint) {
         self.finalized_checkpoint = checkpoint
     }

@@ -3,7 +3,7 @@ use crate::types::{AttestationShufflingId, Checkpoint, Epoch, Hash256, Slot};
 use crate::BeaconChainTypes;
 
 ///! These functions and structs are only relevant to the database migration from schema 5 to 6.
-use proto_array::core::{ProtoNode, SszContainer, VoteTracker};
+use proto_array::core::{ProposerBoost, ProtoNode, SszContainer, VoteTracker};
 use proto_array::ExecutionStatus;
 use ssz::four_byte_option_impl;
 use ssz::{Decode, Encode};
@@ -127,6 +127,7 @@ impl SszContainerSchema5 {
             finalized_checkpoint,
             nodes,
             indices: self.indices,
+            previous_proposer_boost: ProposerBoost::default(),
         }
     }
 }

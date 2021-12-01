@@ -1,11 +1,11 @@
 use crate::error::Error;
-use crate::proto_array::ProtoArray;
+use crate::proto_array::{ProposerBoost, ProtoArray};
 use crate::ssz_container::SszContainer;
 use serde_derive::{Deserialize, Serialize};
 use ssz::{Decode, Encode};
 use ssz_derive::{Decode, Encode};
 use std::collections::HashMap;
-use types::{AttestationShufflingId, Checkpoint, Epoch, Hash256, Slot};
+use types::{AttestationShufflingId, Checkpoint, Epoch, EthSpec, Hash256, Slot};
 
 pub const DEFAULT_PRUNE_THRESHOLD: usize = 256;
 
@@ -121,6 +121,7 @@ impl ProtoArrayForkChoice {
             finalized_checkpoint,
             nodes: Vec::with_capacity(1),
             indices: HashMap::with_capacity(1),
+            previous_proposer_boost: ProposerBoost::default(),
         };
 
         let block = Block {
@@ -175,11 +176,12 @@ impl ProtoArrayForkChoice {
             .map_err(|e| format!("process_block_error: {:?}", e))
     }
 
-    pub fn find_head(
+    pub fn find_head<E: EthSpec>(
         &mut self,
         justified_checkpoint: Checkpoint,
         finalized_checkpoint: Checkpoint,
         justified_state_balances: &[u64],
+        proposer_boost_root: Hash256,
     ) -> Result<Hash256, String> {
         let old_balances = &mut self.balances;
 
@@ -194,7 +196,13 @@ impl ProtoArrayForkChoice {
         .map_err(|e| format!("find_head compute_deltas failed: {:?}", e))?;
 
         self.proto_array
-            .apply_score_changes(deltas, justified_checkpoint, finalized_checkpoint)
+            .apply_score_changes::<E>(
+                deltas,
+                justified_checkpoint,
+                finalized_checkpoint,
+                new_balances,
+                proposer_boost_root,
+            )
             .map_err(|e| format!("find_head apply_score_changes failed: {:?}", e))?;
 
         *old_balances = new_balances.to_vec();

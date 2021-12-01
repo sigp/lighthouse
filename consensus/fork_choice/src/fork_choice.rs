@@ -5,8 +5,9 @@ use std::cmp::Ordering;
 use std::marker::PhantomData;
 use std::time::Duration;
 use types::{
-    AttestationShufflingId, BeaconBlock, BeaconState, BeaconStateError, ChainSpec, Checkpoint,
-    Epoch, EthSpec, Hash256, IndexedAttestation, RelativeEpoch, SignedBeaconBlock, Slot,
+    consts::merge::INTERVALS_PER_SLOT, AttestationShufflingId, BeaconBlock, BeaconState,
+    BeaconStateError, ChainSpec, Checkpoint, Epoch, EthSpec, Hash256, IndexedAttestation,
+    RelativeEpoch, SignedBeaconBlock, Slot,
 };
 
 #[derive(Debug)]
@@ -397,10 +398,11 @@ where
         let store = &mut self.fc_store;
 
         self.proto_array
-            .find_head(
+            .find_head::<E>(
                 *store.justified_checkpoint(),
                 *store.finalized_checkpoint(),
                 store.justified_balances(),
+                store.proposer_boost_root(),
             )
             .map_err(Into::into)
     }
@@ -475,6 +477,7 @@ where
     ///
     /// The supplied block **must** pass the `state_transition` function as it will not be run
     /// here.
+    #[allow(clippy::too_many_arguments)]
     pub fn on_block(
         &mut self,
         current_slot: Slot,
@@ -535,9 +538,8 @@ where
         }
 
         // Add proposer score boost if the block is timely.
-        // FIXME(boost): INTERVALS_PER_SLOT constant somewhere
         let is_before_attesting_interval =
-            block_delay < Duration::from_secs(spec.seconds_per_slot / 3);
+            block_delay < Duration::from_secs(spec.seconds_per_slot / INTERVALS_PER_SLOT);
         if current_slot == block.slot() && is_before_attesting_interval {
             self.fc_store.set_proposer_boost_root(block_root);
         }
@@ -919,6 +921,11 @@ where
     /// Returns a reference to the currently queued attestations.
     pub fn queued_attestations(&self) -> &[QueuedAttestation] {
         &self.queued_attestations
+    }
+
+    /// Returns the store's `proposer_boost_root`.
+    pub fn proposer_boost_root(&self) -> Hash256 {
+        self.fc_store.proposer_boost_root()
     }
 
     /// Prunes the underlying fork choice DAG.

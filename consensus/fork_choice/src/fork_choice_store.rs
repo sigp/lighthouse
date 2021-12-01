@@ -50,6 +50,9 @@ pub trait ForkChoiceStore<T: EthSpec>: Sized {
     /// Returns the `finalized_checkpoint`.
     fn finalized_checkpoint(&self) -> &Checkpoint;
 
+    /// Returns the `proposer_boost_root`.
+    fn proposer_boost_root(&self) -> Hash256;
+
     /// Sets `finalized_checkpoint`.
     fn set_finalized_checkpoint(&mut self, checkpoint: Checkpoint);
 
