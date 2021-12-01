@@ -181,6 +181,7 @@ impl std::fmt::Display for Version {
 #[derive(Debug, Clone)]
 pub struct RPCProtocol<TSpec: EthSpec> {
     pub fork_context: Arc<ForkContext>,
+    pub max_rpc_size: usize,
     pub phantom: PhantomData<TSpec>,
 }
 
@@ -376,7 +377,7 @@ where
                 Encoding::SSZSnappy => {
                     let ssz_snappy_codec = BaseInboundCodec::new(SSZSnappyInboundCodec::new(
                         protocol,
-                        max_rpc_size(&self.fork_context),
+                        self.max_rpc_size,
                         self.fork_context.clone(),
                     ));
                     InboundCodec::SSZSnappy(ssz_snappy_codec)

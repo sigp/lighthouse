@@ -186,6 +186,7 @@ where
             SubstreamProtocol::new(
                 RPCProtocol {
                     fork_context: self.fork_context.clone(),
+                    max_rpc_size: max_rpc_size(&self.fork_context),
                     phantom: PhantomData,
                 },
                 (),
