@@ -46,7 +46,7 @@ pub const MIN_OUTBOUND_ONLY_FACTOR: f32 = 0.3;
 /// requiring subnet peers. More specifically, if our target peer limit is 50, and our excess peer
 /// limit is 55, and we are at 55 peers, the following parameter provisions a few more slots of
 /// dialing priority peers we need for validator duties.
-pub const PRIORITY_PEER_EXCESS: f32 = 0.05;
+pub const PRIORITY_PEER_EXCESS: f32 = 0.1;
 
 /// The main struct that handles peer's reputation and connection status.
 pub struct PeerManager<TSpec: EthSpec> {

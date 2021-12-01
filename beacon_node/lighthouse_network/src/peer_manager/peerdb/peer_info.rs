@@ -321,7 +321,7 @@ impl<T: EthSpec> PeerInfo<T> {
 
     /// Modifies the status to Dialing
     /// Returns an error if the current state is unexpected.
-    pub(super) fn dialing_peer(&mut self) -> Result<(), &'static str> {
+    pub(super) fn set_dialing_peer(&mut self) -> Result<(), &'static str> {
         match &mut self.connection_status {
             Connected { .. } => return Err("Dialing connected peer"),
             Dialing { .. } => return Err("Dialing an already dialing peer"),

@@ -534,32 +534,6 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
         }
     }
 
-    // Connection Status
-
-    /// A peer is being dialed.
-    // VISIBILITY: Only the peer manager can adjust the connection state
-    pub(super) fn dialing_peer(&mut self, peer_id: &PeerId, enr: Option<Enr>) {
-        let info = self.peers.entry(*peer_id).or_default();
-        if let Some(enr) = enr {
-            info.set_enr(enr);
-        }
-
-        if let Err(e) = info.dialing_peer() {
-            error!(self.log, "{}", e; "peer_id" => %peer_id);
-        }
-
-        // If the peer was banned, remove the banned peer and addresses.
-        if info.is_banned() {
-            self.banned_peers_count
-                .remove_banned_peer(info.seen_ip_addresses());
-        }
-
-        // If the peer was disconnected, reduce the disconnected peer count.
-        if info.is_disconnected() {
-            self.disconnected_peers = self.disconnected_peers().count().saturating_sub(1);
-        }
-    }
-
     /// Update min ttl of a peer.
     // VISIBILITY: Only the peer manager can update the min_ttl
     pub(super) fn update_min_ttl(&mut self, peer_id: &PeerId, min_ttl: Instant) {
@@ -612,6 +586,32 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
                     .unwrap_or_else(|| 0);
                 trace!(log, "Updating minimum duration a peer is required for"; "peer_id" => %peer_id, "min_ttl" => min_ttl_secs);
             });
+    }
+
+    /// A peer is being dialed.
+    // VISIBILITY: Only the peer manager can adjust the connection state
+    // TODO: Remove the internal logic in favour of using the update_connection_state() function.
+    // This will be compatible once the ENR parameter is removed in the imminent behaviour tests PR.
+    pub(super) fn dialing_peer(&mut self, peer_id: &PeerId, enr: Option<Enr>) {
+        let info = self.peers.entry(*peer_id).or_default();
+        if let Some(enr) = enr {
+            info.set_enr(enr);
+        }
+
+        if let Err(e) = info.set_dialing_peer() {
+            error!(self.log, "{}", e; "peer_id" => %peer_id);
+        }
+
+        // If the peer was banned, remove the banned peer and addresses.
+        if info.is_banned() {
+            self.banned_peers_count
+                .remove_banned_peer(info.seen_ip_addresses());
+        }
+
+        // If the peer was disconnected, reduce the disconnected peer count.
+        if info.is_disconnected() {
+            self.disconnected_peers = self.disconnected_peers().count().saturating_sub(1);
+        }
     }
 
     /// Sets a peer as connected with an ingoing connection.
@@ -784,6 +784,15 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
             /* Handle the transition to the disconnecting state */
             (PeerConnectionStatus::Banned { .. }, NewConnectionState::Disconnecting { to_ban }) => {
                 error!(self.log, "Disconnecting from a banned peer"; "peer_id" => %peer_id);
+                info.set_connection_status(PeerConnectionStatus::Disconnecting { to_ban });
+            }
+            (
+                PeerConnectionStatus::Disconnected { .. },
+                NewConnectionState::Disconnecting { to_ban },
+            ) => {
+                // If the peer was previously disconnected and is now being disconnected, decrease
+                // the disconnected_peers counter.
+                self.disconnected_peers = self.disconnected_peers.saturating_sub(1);
                 info.set_connection_status(PeerConnectionStatus::Disconnecting { to_ban });
             }
             (_, NewConnectionState::Disconnecting { to_ban }) => {

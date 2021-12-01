@@ -16,7 +16,7 @@ mod transition_blocks;
 
 use clap::{App, Arg, ArgMatches, SubCommand};
 use clap_utils::parse_path_with_default_in_home_dir;
-use environment::EnvironmentBuilder;
+use environment::{EnvironmentBuilder, LoggerConfig};
 use parse_ssz::run_parse_ssz;
 use std::path::PathBuf;
 use std::process;
@@ -584,8 +584,16 @@ fn run<T: EthSpec>(
     let env = env_builder
         .multi_threaded_tokio_runtime()
         .map_err(|e| format!("should start tokio runtime: {:?}", e))?
-        .async_logger("trace", None)
-        .map_err(|e| format!("should start null logger: {:?}", e))?
+        .initialize_logger(LoggerConfig {
+            path: None,
+            debug_level: "trace",
+            logfile_debug_level: "trace",
+            log_format: None,
+            max_log_size: 0,
+            max_log_number: 0,
+            compression: false,
+        })
+        .map_err(|e| format!("should start logger: {:?}", e))?
         .build()
         .map_err(|e| format!("should build env: {:?}", e))?;
 

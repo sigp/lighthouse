@@ -9,17 +9,16 @@
 
 use eth2_config::Eth2Config;
 use eth2_network_config::Eth2NetworkConfig;
-use filesystem::restrict_file_permissions;
 use futures::channel::mpsc::{channel, Receiver, Sender};
 use futures::{future, StreamExt};
 
-use slog::{error, info, o, warn, Drain, Level, Logger};
-use sloggers::{null::NullLoggerBuilder, Build};
-use std::ffi::OsStr;
-use std::fs::{rename as FsRename, OpenOptions};
+use slog::{error, info, o, warn, Drain, Duplicate, Level, Logger};
+use sloggers::{
+    file::FileLoggerBuilder, null::NullLoggerBuilder, types::Format, types::Severity, Build,
+};
+use std::fs::create_dir_all;
 use std::path::PathBuf;
 use std::sync::Arc;
-use std::time::{SystemTime, UNIX_EPOCH};
 use task_executor::{ShutdownReason, TaskExecutor};
 use tokio::runtime::{Builder as RuntimeBuilder, Runtime};
 use types::{EthSpec, MainnetEthSpec, MinimalEthSpec};
@@ -37,6 +36,21 @@ use {futures::channel::oneshot, std::cell::RefCell};
 const LOG_CHANNEL_SIZE: usize = 2048;
 /// The maximum time in seconds the client will wait for all internal tasks to shutdown.
 const MAXIMUM_SHUTDOWN_TIME: u64 = 15;
+
+/// Configuration for logging.
+/// Background file logging is disabled if one of:
+/// - `path` == None,
+/// - `max_log_size` == 0,
+/// - `max_log_number` == 0,
+pub struct LoggerConfig<'a> {
+    pub path: Option<PathBuf>,
+    pub debug_level: &'a str,
+    pub logfile_debug_level: &'a str,
+    pub log_format: Option<&'a str>,
+    pub max_log_size: u64,
+    pub max_log_number: usize,
+    pub compression: bool,
+}
 
 /// Builds an `Environment`.
 pub struct EnvironmentBuilder<E: EthSpec> {
@@ -93,118 +107,98 @@ impl<E: EthSpec> EnvironmentBuilder<E> {
         Ok(self)
     }
 
-    /// Specifies that the `slog` asynchronous logger should be used. Ideal for production.
-    ///
+    /// Initializes the logger using the specified configuration.
     /// The logger is "async" because it has a dedicated thread that accepts logs and then
     /// asynchronously flushes them to stdout/files/etc. This means the thread that raised the log
     /// does not have to wait for the logs to be flushed.
-    pub fn async_logger(
-        mut self,
-        debug_level: &str,
-        log_format: Option<&str>,
-    ) -> Result<Self, String> {
-        // Setting up the initial logger format and building it.
-        let drain = if let Some(format) = log_format {
+    /// The logger can be duplicated and more detailed logs can be output to `logfile`.
+    /// Note that background file logging will spawn a new thread.
+    pub fn initialize_logger(mut self, config: LoggerConfig) -> Result<Self, String> {
+        // Setting up the initial logger format and build it.
+        let stdout_drain = if let Some(format) = config.log_format {
             match format.to_uppercase().as_str() {
                 "JSON" => {
-                    let drain = slog_json::Json::default(std::io::stdout()).fuse();
-                    slog_async::Async::new(drain)
+                    let stdout_drain = slog_json::Json::default(std::io::stdout()).fuse();
+                    slog_async::Async::new(stdout_drain)
                         .chan_size(LOG_CHANNEL_SIZE)
                         .build()
                 }
                 _ => return Err("Logging format provided is not supported".to_string()),
             }
         } else {
-            let decorator = slog_term::TermDecorator::new().build();
-            let decorator =
-                logging::AlignedTermDecorator::new(decorator, logging::MAX_MESSAGE_WIDTH);
-            let drain = slog_term::FullFormat::new(decorator).build().fuse();
-            slog_async::Async::new(drain)
+            let stdout_decorator = slog_term::TermDecorator::new().build();
+            let stdout_decorator =
+                logging::AlignedTermDecorator::new(stdout_decorator, logging::MAX_MESSAGE_WIDTH);
+            let stdout_drain = slog_term::FullFormat::new(stdout_decorator).build().fuse();
+            slog_async::Async::new(stdout_drain)
                 .chan_size(LOG_CHANNEL_SIZE)
                 .build()
         };
 
-        let drain = match debug_level {
-            "info" => drain.filter_level(Level::Info),
-            "debug" => drain.filter_level(Level::Debug),
-            "trace" => drain.filter_level(Level::Trace),
-            "warn" => drain.filter_level(Level::Warning),
-            "error" => drain.filter_level(Level::Error),
-            "crit" => drain.filter_level(Level::Critical),
+        let stdout_drain = match config.debug_level {
+            "info" => stdout_drain.filter_level(Level::Info),
+            "debug" => stdout_drain.filter_level(Level::Debug),
+            "trace" => stdout_drain.filter_level(Level::Trace),
+            "warn" => stdout_drain.filter_level(Level::Warning),
+            "error" => stdout_drain.filter_level(Level::Error),
+            "crit" => stdout_drain.filter_level(Level::Critical),
             unknown => return Err(format!("Unknown debug-level: {}", unknown)),
         };
 
-        self.log = Some(Logger::root(drain.fuse(), o!()));
-        Ok(self)
-    }
+        let stdout_logger = Logger::root(stdout_drain.fuse(), o!());
 
-    /// Sets the logger (and all child loggers) to log to a file.
-    pub fn log_to_file(
-        mut self,
-        path: PathBuf,
-        debug_level: &str,
-        log_format: Option<&str>,
-    ) -> Result<Self, String> {
-        // Creating a backup if the logfile already exists.
-        if path.exists() {
-            let start = SystemTime::now();
-            let timestamp = start
-                .duration_since(UNIX_EPOCH)
-                .map_err(|e| e.to_string())?
-                .as_secs();
-            let file_stem = path
-                .file_stem()
-                .ok_or("Invalid file name")?
-                .to_str()
-                .ok_or("Failed to create str from filename")?;
-            let file_ext = path.extension().unwrap_or_else(|| OsStr::new(""));
-            let backup_name = format!("{}_backup_{}", file_stem, timestamp);
-            let backup_path = path.with_file_name(backup_name).with_extension(file_ext);
-            FsRename(&path, &backup_path).map_err(|e| e.to_string())?;
+        // Disable file logging if values set to 0.
+        if config.max_log_size == 0 || config.max_log_number == 0 {
+            self.log = Some(stdout_logger);
+            return Ok(self);
         }
 
-        let file = OpenOptions::new()
-            .create(true)
-            .write(true)
-            .truncate(true)
-            .open(&path)
-            .map_err(|e| format!("Unable to open logfile: {:?}", e))?;
-
-        restrict_file_permissions(&path)
-            .map_err(|e| format!("Unable to set file permissions for {:?}: {:?}", path, e))?;
-
-        // Setting up the initial logger format and building it.
-        let drain = if let Some(format) = log_format {
-            match format.to_uppercase().as_str() {
-                "JSON" => {
-                    let drain = slog_json::Json::default(file).fuse();
-                    slog_async::Async::new(drain)
-                        .chan_size(LOG_CHANNEL_SIZE)
-                        .build()
-                }
-                _ => return Err("Logging format provided is not supported".to_string()),
+        // Disable file logging if no path is specified.
+        let path = match config.path {
+            Some(path) => path,
+            None => {
+                self.log = Some(stdout_logger);
+                return Ok(self);
             }
-        } else {
-            let decorator = slog_term::PlainDecorator::new(file);
-            let decorator =
-                logging::AlignedTermDecorator::new(decorator, logging::MAX_MESSAGE_WIDTH);
-            let drain = slog_term::FullFormat::new(decorator).build().fuse();
-            slog_async::Async::new(drain)
-                .chan_size(LOG_CHANNEL_SIZE)
-                .build()
         };
 
-        let drain = match debug_level {
-            "info" => drain.filter_level(Level::Info),
-            "debug" => drain.filter_level(Level::Debug),
-            "trace" => drain.filter_level(Level::Trace),
-            "warn" => drain.filter_level(Level::Warning),
-            "error" => drain.filter_level(Level::Error),
-            "crit" => drain.filter_level(Level::Critical),
-            unknown => return Err(format!("Unknown debug-level: {}", unknown)),
+        // Ensure directories are created becfore the logfile.
+        if !path.exists() {
+            let mut dir = path.clone();
+            dir.pop();
+
+            // Create the necessary directories for the correct service and network.
+            if !dir.exists() {
+                create_dir_all(dir).map_err(|e| format!("Unable to create directory: {:?}", e))?;
+            }
+        }
+
+        let logfile_level = match config.logfile_debug_level {
+            "info" => Severity::Info,
+            "debug" => Severity::Debug,
+            "trace" => Severity::Trace,
+            "warn" => Severity::Warning,
+            "error" => Severity::Error,
+            "crit" => Severity::Critical,
+            unknown => return Err(format!("Unknown loglevel-debug-level: {}", unknown)),
         };
 
-        let log = Logger::root(drain.fuse(), o!());
+        let file_logger = FileLoggerBuilder::new(&path)
+            .level(logfile_level)
+            .channel_size(LOG_CHANNEL_SIZE)
+            .format(match config.log_format {
+                Some("JSON") => Format::Json,
+                _ => Format::default(),
+            })
+            .rotate_size(config.max_log_size)
+            .rotate_keep(config.max_log_number)
+            .rotate_compress(config.compression)
+            .restrict_permissions(true)
+            .build()
+            .map_err(|e| format!("Unable to build file logger: {}", e))?;
+
+        let log = Logger::root(Duplicate::new(stdout_logger, file_logger).fuse(), o!());
+
         info!(
             log,
             "Logging to file";
