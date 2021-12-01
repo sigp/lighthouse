@@ -66,6 +66,15 @@ impl<E: EthSpec> ProductionBeaconNode<E> {
         let freezer_db_path = client_config.create_freezer_db_path()?;
         let executor = context.executor.clone();
 
+        if let Some(legacy_dir) = client_config.get_existing_legacy_data_dir() {
+            warn!(
+                log,
+                "Legacy datadir location";
+                "msg" => "this occurs when using relative paths for a datadir location",
+                "location" => ?legacy_dir,
+            )
+        }
+
         if !client_config.chain.enable_lock_timeouts {
             info!(log, "Disabling lock timeouts globally");
             TimeoutRwLock::disable_timeouts()

@@ -141,11 +141,47 @@ impl Config {
         ensure_dir_exists(self.get_freezer_db_path())
     }
 
+    /// Returns the "modern" path to the data_dir.
+    ///
+    /// See `Self::get_data_dir` documentation for more info.
+    fn get_modern_data_dir(&self) -> PathBuf {
+        self.data_dir.clone()
+    }
+
+    /// Returns the "legacy" path to the data_dir.
+    ///
+    /// See `Self::get_data_dir` documentation for more info.
+    pub fn get_existing_legacy_data_dir(&self) -> Option<PathBuf> {
+        dirs::home_dir()
+            .map(|home_dir| home_dir.join(&self.data_dir))
+            // Return `None` if the directory does not exists.
+            .filter(|dir| dir.exists())
+            // Return `None` if the legacy directory is identical to the modern.
+            .filter(|dir| *dir != self.get_modern_data_dir())
+    }
+
     /// Returns the core path for the client.
     ///
     /// Will not create any directories.
-    pub fn get_data_dir(&self) -> PathBuf {
-        self.data_dir.clone()
+    ///
+    /// ## Legacy Info
+    ///
+    /// Legacy versions of Lighthouse did not properly handle relative paths for `--datadir`.
+    ///
+    /// For backwards compatibility, we still compute the legacy path and check if it exists.  If
+    /// it does exist, we use that directory rather than the modern path.
+    ///
+    /// For more information, see:
+    ///
+    /// https://github.com/sigp/lighthouse/pull/2843
+    fn get_data_dir(&self) -> PathBuf {
+        let existing_legacy_dir = self.get_existing_legacy_data_dir();
+
+        if let Some(legacy_dir) = existing_legacy_dir {
+            legacy_dir
+        } else {
+            self.get_modern_data_dir()
+        }
     }
 
     /// Returns the core path for the client.
