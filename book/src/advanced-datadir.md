@@ -16,10 +16,10 @@ After that, we simply run the beacon chain and validator client with the custom 
 
 ### Relative Paths
 
-[#2843]: https://github.com/sigp/lighthouse/pull/2643
-[#2862]: https://github.com/sigp/lighthouse/pull/2682
+[#2682]: https://github.com/sigp/lighthouse/pull/2682
+[#2843]: https://github.com/sigp/lighthouse/pull/2843
 
-Prior to the introduction of [#2863][] and [#2843][] (releases v2.0.1 and earlier), Lighthouse would
+Prior to the introduction of [#2682][] and [#2843][] (releases v2.0.1 and earlier), Lighthouse would
 not correctly parse relative paths from the `lighthouse bn --datadir` flag.
 
 If the user provided a relative path (e.g., `--datadir here` or `--datadir ./here`), the `beacon`
@@ -32,8 +32,8 @@ directory would be split across two paths:
     - `logs`
     - `network`
 
-All versions released after the fix ([#2643][]) will default to storing all files in the present
-working directory (i.e. `./here`). New users need not be concerned with the old bug.
+All versions released after the fix ([#2843][]) will default to storing all files in the present
+working directory (i.e. `./here`). New users need not be concerned with the old behaviour.
 
 For existing users which already have a split data directory, a backwards compatibility feature will
 be applied. On start-up, if a split directory scenario is detected (i.e. `~/here` exists),
@@ -49,9 +49,9 @@ In this case, the user could solve this warn by following these steps:
 1. Stopping the BN process
 1. Consolidating the legacy directory with the new one:
     - `mv /home/user/datadir/beacon/* $(pwd)/datadir/beacon`
-    - Where `$(pwd)` is present working directory for the Lighthouse binary
+    - Where `$(pwd)` is the present working directory for the Lighthouse binary
 1. Removing the legacy directory:
-    - `rm -r /home/user/datadir`
+    - `rm -r /home/user/datadir/beacon`
 1. Restarting the BN process
 
 Although there are no known issues with using backwards compatibility functionality, having split
