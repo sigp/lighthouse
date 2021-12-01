@@ -112,47 +112,67 @@ impl Default for Config {
 
 impl Config {
     /// Get the database path without initialising it.
-    pub fn get_db_path(&self) -> PathBuf {
-        self.get_data_dir().join(&self.db_name)
+    pub fn get_db_path(&self, is_legacy: bool) -> Option<PathBuf> {
+        self.get_data_dir(is_legacy)
+            .map(|data_dir| data_dir.join(&self.db_name))
     }
 
     /// Get the database path, creating it if necessary.
-    pub fn create_db_path(&self) -> Result<PathBuf, String> {
-        ensure_dir_exists(self.get_db_path())
+    pub fn create_db_path(&self, is_legacy: bool) -> Result<PathBuf, String> {
+        let db_path = self
+            .get_db_path(is_legacy)
+            .ok_or("Unable to locate user home directory")?;
+        ensure_dir_exists(db_path)
     }
 
     /// Fetch default path to use for the freezer database.
-    fn default_freezer_db_path(&self) -> PathBuf {
-        self.get_data_dir().join(DEFAULT_FREEZER_DB_DIR)
+    fn default_freezer_db_path(&self, is_legacy: bool) -> Option<PathBuf> {
+        self.get_data_dir(is_legacy)
+            .map(|data_dir| data_dir.join(DEFAULT_FREEZER_DB_DIR))
     }
 
     /// Returns the path to which the client may initialize the on-disk freezer database.
     ///
     /// Will attempt to use the user-supplied path from e.g. the CLI, or will default
     /// to a directory in the data_dir if no path is provided.
-    pub fn get_freezer_db_path(&self) -> PathBuf {
+    pub fn get_freezer_db_path(&self, is_legacy: bool) -> Option<PathBuf> {
         self.freezer_db_path
             .clone()
-            .unwrap_or_else(|| self.default_freezer_db_path())
+            .or_else(|| self.default_freezer_db_path(is_legacy))
     }
 
     /// Get the freezer DB path, creating it if necessary.
-    pub fn create_freezer_db_path(&self) -> Result<PathBuf, String> {
-        ensure_dir_exists(self.get_freezer_db_path())
+    pub fn create_freezer_db_path(&self, is_legacy: bool) -> Result<PathBuf, String> {
+        let freezer_db_path = self
+            .get_freezer_db_path(is_legacy)
+            .ok_or("Unable to locate user home directory")?;
+        ensure_dir_exists(freezer_db_path)
+    }
+
+    ///
+    pub fn get_data_dir_legacy(&self) -> Option<PathBuf> {
+        dirs::home_dir().map(|home_dir| home_dir.join(&self.data_dir))
     }
 
     /// Returns the core path for the client.
     ///
     /// Will not create any directories.
-    pub fn get_data_dir(&self) -> PathBuf {
-        self.data_dir.clone()
+    pub fn get_data_dir(&self, is_legacy: bool) -> Option<PathBuf> {
+        if is_legacy {
+            self.get_data_dir_legacy()
+        } else {
+            Some(self.data_dir.clone())
+        }
     }
 
     /// Returns the core path for the client.
     ///
     /// Creates the directory if it does not exist.
-    pub fn create_data_dir(&self) -> Result<PathBuf, String> {
-        ensure_dir_exists(self.get_data_dir())
+    pub fn create_data_dir(&self, is_legacy: bool) -> Result<PathBuf, String> {
+        let path = self
+            .get_data_dir(is_legacy)
+            .ok_or("Unable to locate user home directory")?;
+        ensure_dir_exists(path)
     }
 }
 

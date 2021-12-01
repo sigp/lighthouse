@@ -61,9 +61,16 @@ impl<E: EthSpec> ProductionBeaconNode<E> {
         let client_genesis = client_config.genesis.clone();
         let store_config = client_config.store.clone();
         let log = context.log().clone();
-        let datadir = client_config.create_data_dir()?;
-        let db_path = client_config.create_db_path()?;
-        let freezer_db_path = client_config.create_freezer_db_path()?;
+
+        let is_legacy = client_config.data_dir.is_relative();
+
+        let datadir = client_config.create_data_dir(is_legacy)?;
+        let db_path = client_config.create_db_path(is_legacy)?;
+        let freezer_db_path = client_config.create_freezer_db_path(is_legacy)?;
+        if is_legacy {
+            warn!(log, "Using data_dir"; "datadir" => ?datadir);
+        }
+
         let executor = context.executor.clone();
 
         if !client_config.chain.enable_lock_timeouts {
