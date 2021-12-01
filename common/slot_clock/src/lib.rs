@@ -102,14 +102,4 @@ pub trait SlotClock: Send + Sync + Sized + Clone {
     fn sync_committee_contribution_production_delay(&self) -> Duration {
         self.slot_duration() * 2 / 3
     }
-
-    /// An implementation of the method described in the consensus spec here:
-    ///
-    /// https://github.com/ethereum/consensus-specs/blob/dev/specs/merge/beacon-chain.md#compute_timestamp_at_slot
-    fn compute_timestamp_at_slot(&self, slot: Slot) -> Option<u64> {
-        let slots_since_genesis = slot.as_u64().checked_sub(self.genesis_slot().as_u64())?;
-        slots_since_genesis
-            .checked_mul(self.slot_duration().as_secs())
-            .and_then(|since_genesis| self.genesis_duration().as_secs().checked_add(since_genesis))
-    }
 }
