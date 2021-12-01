@@ -1,5 +1,6 @@
 use super::*;
 use serde::{Deserialize, Serialize};
+use std::convert::TryFrom;
 use types::{EthSpec, FixedVector, Transaction, Unsigned, VariableList};
 
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
@@ -261,44 +262,10 @@ pub struct JsonExecutePayloadV1Response {
     pub validation_error: Option<String>,
 }
 
-impl From<ExecutePayloadResponseStatus> for JsonExecutePayloadV1ResponseStatus {
-    fn from(e: ExecutePayloadResponseStatus) -> Self {
-        match e {
-            ExecutePayloadResponseStatus::Valid => JsonExecutePayloadV1ResponseStatus::Valid,
-            ExecutePayloadResponseStatus::Invalid => JsonExecutePayloadV1ResponseStatus::Invalid,
-            ExecutePayloadResponseStatus::Syncing => JsonExecutePayloadV1ResponseStatus::Syncing,
-        }
-    }
-}
-impl From<JsonExecutePayloadV1ResponseStatus> for ExecutePayloadResponseStatus {
-    fn from(j: JsonExecutePayloadV1ResponseStatus) -> Self {
-        match j {
-            JsonExecutePayloadV1ResponseStatus::Valid => ExecutePayloadResponseStatus::Valid,
-            JsonExecutePayloadV1ResponseStatus::Invalid => ExecutePayloadResponseStatus::Invalid,
-            JsonExecutePayloadV1ResponseStatus::Syncing => ExecutePayloadResponseStatus::Syncing,
-        }
-    }
-}
+impl TryFrom<JsonExecutePayloadV1Response> for ExecutePayloadResponse {
+    type Error = &'static str;
 
-impl From<ExecutePayloadResponse> for JsonExecutePayloadV1Response {
-    fn from(e: ExecutePayloadResponse) -> Self {
-        // Use this verbose deconstruction pattern to ensure no field is left unused.
-        let ExecutePayloadResponse {
-            status,
-            latest_valid_hash,
-            validation_error,
-        } = e;
-
-        Self {
-            status: status.into(),
-            latest_valid_hash,
-            validation_error,
-        }
-    }
-}
-
-impl From<JsonExecutePayloadV1Response> for ExecutePayloadResponse {
-    fn from(j: JsonExecutePayloadV1Response) -> Self {
+    fn try_from(j: JsonExecutePayloadV1Response) -> Result<Self, Self::Error> {
         // Use this verbose deconstruction pattern to ensure no field is left unused.
         let JsonExecutePayloadV1Response {
             status,
@@ -306,11 +273,22 @@ impl From<JsonExecutePayloadV1Response> for ExecutePayloadResponse {
             validation_error,
         } = j;
 
-        Self {
-            status: status.into(),
-            latest_valid_hash,
+        let status = match status {
+            JsonExecutePayloadV1ResponseStatus::Valid => latest_valid_hash
+                .map(|latest_valid_hash| ExecutePayloadResponseStatus::Valid { latest_valid_hash })
+                .ok_or("valid response  is missing latest_valid_hash")?,
+            JsonExecutePayloadV1ResponseStatus::Invalid => latest_valid_hash
+                .map(|latest_valid_hash| ExecutePayloadResponseStatus::Invalid {
+                    latest_valid_hash,
+                })
+                .ok_or("invalid response  is missing latest_valid_hash")?,
+            JsonExecutePayloadV1ResponseStatus::Syncing => ExecutePayloadResponseStatus::Syncing,
+        };
+
+        Ok(Self {
+            status,
             validation_error,
-        }
+        })
     }
 }
 

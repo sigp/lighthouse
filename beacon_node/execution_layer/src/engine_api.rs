@@ -17,6 +17,7 @@ pub enum Error {
     Reqwest(reqwest::Error),
     BadResponse(String),
     RequestFailed(String),
+    InvalidExecutePayloadResponse(&'static str),
     JsonRpc(RpcError),
     Json(serde_json::Error),
     ServerMessage { code: i64, message: String },
@@ -74,15 +75,14 @@ pub trait EngineApi {
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum ExecutePayloadResponseStatus {
-    Valid,
-    Invalid,
+    Valid { latest_valid_hash: Hash256 },
+    Invalid { latest_valid_hash: Hash256 },
     Syncing,
 }
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct ExecutePayloadResponse {
     pub status: ExecutePayloadResponseStatus,
-    pub latest_valid_hash: Option<Hash256>,
     pub validation_error: Option<String>,
 }
 

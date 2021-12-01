@@ -241,15 +241,15 @@ impl<T: EthSpec> ExecutionBlockGenerator<T> {
         } else {
             return ExecutePayloadResponse {
                 status: ExecutePayloadResponseStatus::Syncing,
-                latest_valid_hash: None,
                 validation_error: None,
             };
         };
 
         if payload.block_number != parent.block_number() + 1 {
             return ExecutePayloadResponse {
-                status: ExecutePayloadResponseStatus::Invalid,
-                latest_valid_hash: Some(parent.block_hash()),
+                status: ExecutePayloadResponseStatus::Invalid {
+                    latest_valid_hash: parent.block_hash(),
+                },
                 validation_error: Some("invalid block number".to_string()),
             };
         }
@@ -258,8 +258,9 @@ impl<T: EthSpec> ExecutionBlockGenerator<T> {
         self.pending_payloads.insert(payload.block_hash, payload);
 
         ExecutePayloadResponse {
-            status: ExecutePayloadResponseStatus::Valid,
-            latest_valid_hash: Some(valid_hash),
+            status: ExecutePayloadResponseStatus::Valid {
+                latest_valid_hash: valid_hash,
+            },
             validation_error: None,
         }
     }

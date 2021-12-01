@@ -8,6 +8,7 @@ use reqwest::header::CONTENT_TYPE;
 use sensitive_url::SensitiveUrl;
 use serde::de::DeserializeOwned;
 use serde_json::json;
+use std::convert::TryInto;
 use std::time::Duration;
 use types::EthSpec;
 
@@ -147,7 +148,9 @@ impl EngineApi for HttpJsonRpc {
             )
             .await?;
 
-        Ok(response.into())
+        response
+            .try_into()
+            .map_err(Error::InvalidExecutePayloadResponse)
     }
 
     async fn get_payload_v1<T: EthSpec>(
@@ -780,10 +783,11 @@ mod test {
                         .await
                         .unwrap();
 
+                    let latest_valid_hash = Hash256::from_str("0x3559e851470f6e7bbed1db474980683e8c315bfce99b2a6ef47c057c04de7858").unwrap();
+
                     assert_eq!(response,
                         ExecutePayloadResponse {
-                            status: ExecutePayloadResponseStatus::Valid,
-                            latest_valid_hash: Some(Hash256::from_str("0x3559e851470f6e7bbed1db474980683e8c315bfce99b2a6ef47c057c04de7858").unwrap()),
+                            status: ExecutePayloadResponseStatus::Valid { latest_valid_hash },
                             validation_error: None
                         }
                     );

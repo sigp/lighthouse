@@ -57,19 +57,12 @@ pub async fn handle_rpc<T: EthSpec>(
         ENGINE_EXECUTE_PAYLOAD_V1 => {
             let request: JsonExecutionPayloadV1<T> = get_param(params, 0)?;
 
-            let response = if let Some(status) = *ctx.static_execute_payload_response.lock() {
-                match status {
-                    ExecutePayloadResponseStatus::Valid => ExecutePayloadResponse {
-                        status,
-                        latest_valid_hash: Some(request.block_hash),
-                        validation_error: None,
+            let response = if *ctx.all_payloads_valid.lock() {
+                ExecutePayloadResponse {
+                    status: ExecutePayloadResponseStatus::Valid {
+                        latest_valid_hash: request.block_hash,
                     },
-                    ExecutePayloadResponseStatus::Syncing => ExecutePayloadResponse {
-                        status,
-                        latest_valid_hash: None,
-                        validation_error: None,
-                    },
-                    _ => unimplemented!("invalid static executePayloadResponse"),
+                    validation_error: None,
                 }
             } else {
                 ctx.execution_block_generator
@@ -77,7 +70,27 @@ pub async fn handle_rpc<T: EthSpec>(
                     .execute_payload(request.into())
             };
 
-            Ok(serde_json::to_value(JsonExecutePayloadV1Response::from(response)).unwrap())
+            let (status, latest_valid_hash) = match response.status {
+                ExecutePayloadResponseStatus::Valid { latest_valid_hash } => (
+                    JsonExecutePayloadV1ResponseStatus::Valid,
+                    Some(latest_valid_hash),
+                ),
+                ExecutePayloadResponseStatus::Invalid { latest_valid_hash } => (
+                    JsonExecutePayloadV1ResponseStatus::Invalid,
+                    Some(latest_valid_hash),
+                ),
+                ExecutePayloadResponseStatus::Syncing => {
+                    (JsonExecutePayloadV1ResponseStatus::Syncing, None)
+                }
+            };
+
+            let json_response = JsonExecutePayloadV1Response {
+                status,
+                latest_valid_hash,
+                validation_error: None,
+            };
+
+            Ok(serde_json::to_value(json_response).unwrap())
         }
         ENGINE_GET_PAYLOAD_V1 => {
             let request: JsonPayloadIdRequest = get_param(params, 0)?;

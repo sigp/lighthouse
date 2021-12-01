@@ -17,6 +17,7 @@ pub enum Error<T> {
     ProtoArrayError(String),
     InvalidProtoArrayBytes(String),
     InvalidLegacyProtoArrayBytes(String),
+    FailedToProcessInvalidExecutionPayload(String),
     MissingProtoArrayBlock(Hash256),
     UnknownAncestor {
         ancestor_slot: Slot,
@@ -462,6 +463,16 @@ where
         }
 
         Ok(true)
+    }
+
+    pub fn on_invalid_execution_payload(
+        &mut self,
+        invalid_root: Hash256,
+        latest_valid_ancestor_root: Hash256,
+    ) -> Result<(), Error<T::Error>> {
+        self.proto_array
+            .process_execution_payload_invalidation(invalid_root, latest_valid_ancestor_root)
+            .map_err(Error::FailedToProcessInvalidExecutionPayload)
     }
 
     /// Add `block` to the fork choice DAG.

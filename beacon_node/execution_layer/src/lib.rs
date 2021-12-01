@@ -321,7 +321,7 @@ impl ExecutionLayer {
     pub async fn execute_payload<T: EthSpec>(
         &self,
         execution_payload: &ExecutionPayload<T>,
-    ) -> Result<(ExecutePayloadResponseStatus, Option<Hash256>), Error> {
+    ) -> Result<ExecutePayloadResponseStatus, Error> {
         debug!(
             self.log(),
             "Issuing engine_executePayload";
@@ -336,45 +336,37 @@ impl ExecutionLayer {
             .await;
 
         let mut errors = vec![];
-        let mut valid = 0;
-        let mut invalid = 0;
+        let mut valid_responses: Vec<Hash256> = vec![];
+        let mut invalid_responses: Vec<Hash256> = vec![];
         let mut syncing = 0;
-        let mut invalid_latest_valid_hash = vec![];
         for result in broadcast_results {
-            match result.map(|response| (response.latest_valid_hash, response.status)) {
-                Ok((Some(latest_hash), ExecutePayloadResponseStatus::Valid)) => {
-                    if latest_hash == execution_payload.block_hash {
-                        valid += 1;
+            match result.map(|response| response.status) {
+                Ok(ExecutePayloadResponseStatus::Valid { latest_valid_hash }) => {
+                    if latest_valid_hash == execution_payload.block_hash {
+                        valid_responses.push(latest_valid_hash);
                     } else {
-                        invalid += 1;
                         errors.push(EngineError::Api {
                             id: "unknown".to_string(),
                             error: engine_api::Error::BadResponse(
                                 format!(
-                                    "execute_payload: response.status = Valid but invalid latest_valid_hash. Expected({:?}) Found({:?})",
+                                    "execute_payload: response.status.is_ok(), but mismatched latest_valid_hash. Expected({:?}) Found({:?})",
                                     execution_payload.block_hash,
-                                    latest_hash,
+                                    latest_valid_hash,
                                 )
                             ),
                         });
-                        invalid_latest_valid_hash.push(latest_hash);
                     }
                 }
-                Ok((Some(latest_hash), ExecutePayloadResponseStatus::Invalid)) => {
-                    invalid += 1;
-                    invalid_latest_valid_hash.push(latest_hash);
+                Ok(ExecutePayloadResponseStatus::Invalid { latest_valid_hash }) => {
+                    invalid_responses.push(latest_valid_hash);
                 }
-                Ok((_, ExecutePayloadResponseStatus::Syncing)) => syncing += 1,
-                Ok((None, status)) => errors.push(EngineError::Api {
-                    id: "unknown".to_string(),
-                    error: engine_api::Error::BadResponse(format!(
-                        "execute_payload: status {:?} returned with null latest_valid_hash",
-                        status
-                    )),
-                }),
+                Ok(ExecutePayloadResponseStatus::Syncing) => syncing += 1,
                 Err(e) => errors.push(e),
             }
         }
+
+        let valid = valid_responses.len();
+        let invalid = invalid_responses.len();
 
         if valid > 0 && invalid > 0 {
             crit!(
@@ -384,15 +376,12 @@ impl ExecutionLayer {
             );
         }
 
-        if valid > 0 {
-            Ok((
-                ExecutePayloadResponseStatus::Valid,
-                Some(execution_payload.block_hash),
-            ))
-        } else if invalid > 0 {
-            Ok((ExecutePayloadResponseStatus::Invalid, None))
+        if let Some(latest_valid_hash) = valid_responses.first().copied() {
+            Ok(ExecutePayloadResponseStatus::Valid { latest_valid_hash })
+        } else if let Some(latest_valid_hash) = invalid_responses.first().copied() {
+            Ok(ExecutePayloadResponseStatus::Invalid { latest_valid_hash })
         } else if syncing > 0 {
-            Ok((ExecutePayloadResponseStatus::Syncing, None))
+            Ok(ExecutePayloadResponseStatus::Syncing)
         } else {
             Err(Error::EngineErrors(errors))
         }
