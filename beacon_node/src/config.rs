@@ -40,7 +40,13 @@ pub fn get_config<E: EthSpec>(
         ..Default::default()
     };
 
-    let is_legacy = client_config.data_dir.is_relative();
+    // Use the legacy options if there is already a `chain_db` in
+    // the legacy path.
+    let is_legacy = client_config
+        .get_db_path(true)
+        .ok_or("Failed to get db path")?
+        .exists();
+
     // If necessary, remove any existing database and configuration
     if client_config.data_dir.exists() && cli_args.is_present("purge-db") {
         // Remove the chain_db.

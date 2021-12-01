@@ -62,7 +62,12 @@ impl<E: EthSpec> ProductionBeaconNode<E> {
         let store_config = client_config.store.clone();
         let log = context.log().clone();
 
-        let is_legacy = client_config.data_dir.is_relative();
+        // Use the legacy options if there is already a `chain_db` in
+        // the legacy path.
+        let is_legacy = client_config
+            .get_db_path(true)
+            .ok_or("Failed to get db path")?
+            .exists();
 
         let datadir = client_config.create_data_dir(is_legacy)?;
         let db_path = client_config.create_db_path(is_legacy)?;
