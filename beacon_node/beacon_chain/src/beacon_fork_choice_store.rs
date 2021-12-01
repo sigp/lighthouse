@@ -217,12 +217,13 @@ where
         };
         let finalized_checkpoint = justified_checkpoint;
 
+        // FIXME(sproul): avoid `to_vec` perf penalty
         Self {
             store,
             balances_cache: <_>::default(),
             time: anchor_state.slot(),
             justified_checkpoint,
-            justified_balances: anchor_state.balances().clone().into(),
+            justified_balances: anchor_state.balances().to_vec(),
             finalized_checkpoint,
             best_justified_checkpoint: justified_checkpoint,
             _phantom: PhantomData,
@@ -327,8 +328,7 @@ where
                 .map_err(Error::FailedToReadState)?
                 .ok_or_else(|| Error::MissingState(justified_block.state_root()))?
                 .balances()
-                .clone()
-                .into();
+                .to_vec();
         }
 
         Ok(())

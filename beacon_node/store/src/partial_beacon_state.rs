@@ -48,7 +48,7 @@ where
 
     // Registry
     pub validators: VList<Validator, T::ValidatorRegistryLimit>,
-    pub balances: VariableList<u64, T::ValidatorRegistryLimit>,
+    pub balances: VList<u64, T::ValidatorRegistryLimit>,
 
     // Shuffling
     /// Randao value from the current slot, for patching into the per-epoch randao vector.

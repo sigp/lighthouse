@@ -25,6 +25,7 @@ lighthouse_metrics = { path = "../../common/lighthouse_metrics" }
 lru = "0.6.0"
 sloggers = "2.0.2"
 directory = { path = "../../common/directory" }
+tree_hash = "0.4.0"
 
 [features]
 milhouse = ["state_processing/milhouse"]

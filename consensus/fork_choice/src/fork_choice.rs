@@ -352,12 +352,15 @@ where
 
         let store = &mut self.fc_store;
 
+        // FIXME(sproul): plumb VList through fork choice
+        let justified_balances = store.justified_balances().to_vec();
+
         self.proto_array
             .find_head(
                 store.justified_checkpoint().epoch,
                 store.justified_checkpoint().root,
                 store.finalized_checkpoint().epoch,
-                store.justified_balances(),
+                &justified_balances,
             )
             .map_err(Into::into)
     }

@@ -17,6 +17,7 @@
 use self::UpdatePattern::*;
 use crate::*;
 use ssz::{Decode, Encode};
+use tree_hash::TreeHash;
 use typenum::Unsigned;
 use types::VList;
 
@@ -56,7 +57,7 @@ pub trait Field<E: EthSpec>: Copy {
     /// The type of value stored in this field: the `T` from `FixedVector<T, N>`.
     ///
     /// The `Default` impl will be used to fill extra vector entries.
-    type Value: Decode + Encode + Default + Clone + PartialEq + std::fmt::Debug;
+    type Value: TreeHash + Decode + Encode + Default + Clone + PartialEq + std::fmt::Debug;
 
     /// The length of this field: the `N` from `FixedVector<T, N>`.
     type Length: Unsigned;

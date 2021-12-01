@@ -1,6 +1,6 @@
 use crate::per_epoch_processing::Error;
 use safe_arith::{SafeArith, SafeArithIter};
-use types::{BeaconState, BeaconStateError, ChainSpec, EthSpec, GetValidatorMut, Unsigned};
+use types::{BeaconState, ChainSpec, EthSpec, GetBalanceMut, GetValidatorMut, Unsigned};
 
 /// Process slashings.
 pub fn process_slashings<T: EthSpec>(
@@ -15,7 +15,7 @@ pub fn process_slashings<T: EthSpec>(
     let adjusted_total_slashing_balance =
         std::cmp::min(sum_slashings.safe_mul(slashing_multiplier)?, total_balance);
 
-    let (validators, balances) = state.validators_and_balances_mut();
+    let (validators, mut balances) = state.validators_and_balances_mut();
     for index in 0..validators.len() {
         let validator = validators.get_validator(index)?;
         if validator.slashed
@@ -32,9 +32,7 @@ pub fn process_slashings<T: EthSpec>(
                 .safe_mul(increment)?;
 
             // Equivalent to `decrease_balance(state, index, penalty)`, but avoids borrowing `state`.
-            let balance = balances
-                .get_mut(index)
-                .ok_or(BeaconStateError::BalancesOutOfBounds(index))?;
+            let balance = balances.get_balance_mut(index)?;
             *balance = balance.saturating_sub(penalty);
         }
     }

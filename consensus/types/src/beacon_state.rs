@@ -53,6 +53,11 @@ pub type ValidatorsMut<'a, N> = ListMut<'a, Validator, N>;
 #[cfg(not(feature = "milhouse"))]
 pub type ValidatorsMut<'a, N> = &'a mut VList<Validator, N>;
 
+#[cfg(feature = "milhouse")]
+pub type BalancesMut<'a, N> = ListMut<'a, u64, N>;
+#[cfg(not(feature = "milhouse"))]
+pub type BalancesMut<'a, N> = ListMut<'a, u64, N>;
+
 pub const CACHED_EPOCHS: usize = 3;
 const MAX_RANDOM_BYTE: u64 = (1 << 8) - 1;
 
@@ -251,9 +256,11 @@ where
     #[superstruct(getter(rename = "validators_raw"))]
     #[test_random(default)]
     pub validators: VList<Validator, T::ValidatorRegistryLimit>,
-    #[compare_fields(as_slice)]
-    #[serde(with = "ssz_types::serde_utils::quoted_u64_var_list")]
-    pub balances: VariableList<u64, T::ValidatorRegistryLimit>,
+    // FIXME(sproul): serde quoting
+    // #[serde(with = "ssz_types::serde_utils::quoted_u64_var_list")]
+    #[superstruct(getter(rename = "balances_raw"))]
+    #[test_random(default)]
+    pub balances: VList<u64, T::ValidatorRegistryLimit>,
 
     // Randomness
     pub randao_mixes: FixedVector<Hash256, T::EpochsPerHistoricalVector>,
@@ -365,8 +372,8 @@ impl<T: EthSpec> BeaconState<T> {
             eth1_deposit_index: 0,
 
             // Validator registry
-            validators: VList::empty(),      // Set later.
-            balances: VariableList::empty(), // Set later.
+            validators: VList::empty(), // Set later.
+            balances: VList::empty(),   // Set later.
 
             // Randomness
             randao_mixes: FixedVector::from_elem(Hash256::zero()),
@@ -1122,10 +1129,28 @@ impl<T: EthSpec> BeaconState<T> {
         }
     }
 
+    pub fn balances(&self) -> &VList<u64, T::ValidatorRegistryLimit> {
+        self.balances_raw()
+    }
+
+    pub fn balances_mut(&mut self) -> BalancesMut<T::ValidatorRegistryLimit> {
+        #[cfg(not(feature = "milhouse"))]
+        {
+            self.balances_raw_mut()
+        }
+        #[cfg(feature = "milhouse")]
+        {
+            self.balances_raw_mut().as_mut()
+        }
+    }
+
     /// Convenience accessor for validators and balances simultaneously.
     pub fn validators_and_balances_mut(
         &mut self,
-    ) -> (ValidatorsMut<T::ValidatorRegistryLimit>, &mut [u64]) {
+    ) -> (
+        ValidatorsMut<T::ValidatorRegistryLimit>,
+        BalancesMut<T::ValidatorRegistryLimit>,
+    ) {
         #[cfg(not(feature = "milhouse"))]
         match self {
             BeaconState::Base(state) => (&mut state.validators, &mut state.balances),
@@ -1134,8 +1159,8 @@ impl<T: EthSpec> BeaconState<T> {
 
         #[cfg(feature = "milhouse")]
         match self {
-            BeaconState::Base(state) => (state.validators.as_mut(), &mut state.balances),
-            BeaconState::Altair(state) => (state.validators.as_mut(), &mut state.balances),
+            BeaconState::Base(state) => (state.validators.as_mut(), state.balances.as_mut()),
+            BeaconState::Altair(state) => (state.validators.as_mut(), state.balances.as_mut()),
         }
     }
 
@@ -1213,13 +1238,6 @@ impl<T: EthSpec> BeaconState<T> {
         self.inactivity_scores_mut()?
             .get_mut(validator_index)
             .ok_or(Error::InactivityScoresOutOfBounds(validator_index))
-    }
-
-    /// Get a mutable reference to the balance of a single validator.
-    pub fn get_balance_mut(&mut self, validator_index: usize) -> Result<&mut u64, Error> {
-        self.balances_mut()
-            .get_mut(validator_index)
-            .ok_or(Error::BalancesOutOfBounds(validator_index))
     }
 
     ///  Return the epoch at which an activation or exit triggered in ``epoch`` takes effect.

@@ -3481,6 +3481,7 @@ dependencies = [
  "eth2_ssz 0.4.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "parking_lot",
  "serde",
+ "smallvec",
  "tree_hash 0.4.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "typenum",
 ]
@@ -5611,6 +5612,7 @@ dependencies = [
  "sloggers",
  "state_processing",
  "tempfile",
+ "tree_hash 0.4.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "types",
 ]
 
