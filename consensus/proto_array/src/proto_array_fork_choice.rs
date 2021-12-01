@@ -154,6 +154,16 @@ impl ProtoArrayForkChoice {
         })
     }
 
+    pub fn process_execution_payload_invalidation(
+        &mut self,
+        invalid_root: Hash256,
+        latest_valid_ancestor_root: Hash256,
+    ) -> Result<(), String> {
+        self.proto_array
+            .propagate_execution_payload_invalidation(invalid_root, latest_valid_ancestor_root)
+            .map_err(|e| format!("Failed to process invalid payload: {:?}", e))
+    }
+
     pub fn process_attestation(
         &mut self,
         validator_index: usize,

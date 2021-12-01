@@ -14,12 +14,13 @@ use crate::{
 use execution_layer::ExecutePayloadResponseStatus;
 use fork_choice::PayloadVerificationStatus;
 use proto_array::{Block as ProtoBlock, ExecutionStatus};
-use slog::debug;
+use slog::{crit, debug, warn};
 use slot_clock::SlotClock;
 use state_processing::per_block_processing::{
     compute_timestamp_at_slot, is_execution_enabled, is_merge_transition_complete,
     partially_verify_execution_payload,
 };
+use tree_hash::TreeHash;
 use types::*;
 
 /// Verify that `execution_payload` contained by `block` is considered valid by an execution
@@ -57,10 +58,33 @@ pub fn execute_payload<T: BeaconChainTypes>(
         .block_on(|execution_layer| execution_layer.execute_payload(execution_payload));
 
     match execute_payload_response {
-        Ok((status, _latest_valid_hash)) => match status {
-            ExecutePayloadResponseStatus::Valid => Ok(PayloadVerificationStatus::Verified),
-            // TODO(merge): invalidate any invalid ancestors of this block in fork choice.
-            ExecutePayloadResponseStatus::Invalid => {
+        Ok(status) => match status {
+            ExecutePayloadResponseStatus::Valid { .. } => Ok(PayloadVerificationStatus::Verified),
+            ExecutePayloadResponseStatus::Invalid { latest_valid_hash } => {
+                // TODO(paul): pass this value to avoid double hashing?
+                let invalid_root = block.tree_hash_root();
+                match chain
+                    .fork_choice
+                    .write()
+                    .on_invalid_execution_payload(invalid_root, latest_valid_hash)
+                {
+                    Ok(()) => warn!(
+                        chain.log,
+                        "Invalid execution payload in block";
+                        "latest_valid_hash" => ?latest_valid_hash,
+                        "root" => ?invalid_root,
+                    ),
+                    Err(e) => {
+                        crit!(
+                            chain.log,
+                            "Failed to process invalid payload";
+                            "latest_valid_hash" => ?latest_valid_hash,
+                            "root" => ?invalid_root,
+                        );
+
+                        return Err(BeaconChainError::from(e).into());
+                    }
+                }
                 Err(ExecutionPayloadError::RejectedByExecutionEngine.into())
             }
             ExecutePayloadResponseStatus::Syncing => Ok(PayloadVerificationStatus::NotVerified),
