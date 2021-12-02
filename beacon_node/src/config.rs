@@ -18,7 +18,7 @@ use types::{Address, Checkpoint, Epoch, EthSpec, Hash256, PublicKeyBytes, GRAFFI
 
 // TODO(merge): remove this default value. It's just there to make life easy during
 // early testnets.
-const DEFAULT_FEE_RECIPIENT: [u8; 20] =
+const DEFAULT_SUGGESTED_FEE_RECIPIENT: [u8; 20] =
     [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1];
 
 /// Gets the fully-initialized global client.
@@ -253,11 +253,11 @@ pub fn get_config<E: EthSpec>(
         client_config.execution_endpoints = Some(client_config.eth1.endpoints.clone());
     }
 
-    client_config.fee_recipient = Some(
+    client_config.suggested_fee_recipient = Some(
         clap_utils::parse_optional(cli_args, "fee-recipient")?
             // TODO(merge): remove this default value. It's just there to make life easy during
             // early testnets.
-            .unwrap_or_else(|| Address::from(DEFAULT_FEE_RECIPIENT)),
+            .unwrap_or_else(|| Address::from(DEFAULT_SUGGESTED_FEE_RECIPIENT)),
     );
 
     if let Some(freezer_dir) = cli_args.value_of("freezer-dir") {

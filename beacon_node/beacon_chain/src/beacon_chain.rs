@@ -66,7 +66,7 @@ use ssz::Encode;
 use state_processing::{
     common::get_indexed_attestation,
     per_block_processing,
-    per_block_processing::{errors::AttestationValidationError, is_merge_complete},
+    per_block_processing::{errors::AttestationValidationError, is_merge_transition_complete},
     per_slot_processing,
     state_advance::{complete_state_advance, partial_state_advance},
     BlockSignatureStrategy, SigVerifiedOp,
@@ -195,7 +195,7 @@ pub struct HeadInfo {
     pub genesis_time: u64,
     pub genesis_validators_root: Hash256,
     pub proposer_shuffling_decision_root: Hash256,
-    pub is_merge_complete: bool,
+    pub is_merge_transition_complete: bool,
     pub execution_payload_block_hash: Option<Hash256>,
 }
 
@@ -1023,7 +1023,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 genesis_time: head.beacon_state.genesis_time(),
                 genesis_validators_root: head.beacon_state.genesis_validators_root(),
                 proposer_shuffling_decision_root,
-                is_merge_complete: is_merge_complete(&head.beacon_state),
+                is_merge_transition_complete: is_merge_transition_complete(&head.beacon_state),
                 execution_payload_block_hash: head
                     .beacon_block
                     .message()
@@ -3153,7 +3153,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .body()
             .execution_payload()
             .map(|ep| ep.block_hash);
-        let is_merge_complete = is_merge_complete(&new_head.beacon_state);
+        let is_merge_transition_complete = is_merge_transition_complete(&new_head.beacon_state);
 
         drop(lag_timer);
 
@@ -3387,7 +3387,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         // If this is a post-merge block, update the execution layer.
         if let Some(new_head_execution_block_hash) = new_head_execution_block_hash_opt {
-            if is_merge_complete {
+            if is_merge_transition_complete {
                 let execution_layer = self
                     .execution_layer
                     .clone()

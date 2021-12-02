@@ -17,7 +17,7 @@ use proto_array::{Block as ProtoBlock, ExecutionStatus};
 use slog::debug;
 use slot_clock::SlotClock;
 use state_processing::per_block_processing::{
-    compute_timestamp_at_slot, is_execution_enabled, is_merge_complete,
+    compute_timestamp_at_slot, is_execution_enabled, is_merge_transition_complete,
     partially_verify_execution_payload,
 };
 use types::*;
@@ -150,7 +150,7 @@ pub fn validate_execution_payload_for_gossip<T: BeaconChainTypes>(
         // This logic should match `is_execution_enabled`. We use only the execution block hash of
         // the parent here in order to avoid loading the parent state during gossip verification.
 
-        let is_merge_complete = match parent_block.execution_status {
+        let is_merge_transition_complete = match parent_block.execution_status {
             // Optimistically declare that an "unknown" status block has completed the merge.
             ExecutionStatus::Valid(_) | ExecutionStatus::Unknown(_) => true,
             // It's impossible for an irrelevant block to have completed the merge. It is pre-merge
@@ -165,7 +165,7 @@ pub fn validate_execution_payload_for_gossip<T: BeaconChainTypes>(
             }
         };
 
-        if is_merge_complete || execution_payload != &<_>::default() {
+        if is_merge_transition_complete || execution_payload != &<_>::default() {
             let expected_timestamp = chain
                 .slot_clock
                 .start_of(block.slot())
@@ -247,7 +247,7 @@ pub async fn prepare_execution_payload<T: BeaconChainTypes>(
         .as_ref()
         .ok_or(BlockProductionError::ExecutionLayerMissing)?;
 
-    let parent_hash = if !is_merge_complete(state) {
+    let parent_hash = if !is_merge_transition_complete(state) {
         let is_terminal_block_hash_set = spec.terminal_block_hash != Hash256::zero();
         let is_activation_epoch_reached =
             state.current_epoch() >= spec.terminal_block_hash_activation_epoch;
@@ -292,7 +292,7 @@ pub async fn prepare_execution_payload<T: BeaconChainTypes>(
                 .map(|ep| ep.block_hash)
         };
 
-    // Note: the fee_recipient is stored in the `execution_layer`, it will add this parameter.
+    // Note: the suggested_fee_recipient is stored in the `execution_layer`, it will add this parameter.
     let execution_payload = execution_layer
         .get_payload(
             parent_hash,
