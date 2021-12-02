@@ -367,7 +367,7 @@ fn run<E: EthSpec>(
     let logfile_compress = matches.is_present("logfile-compress");
 
     // Construct the path to the log file.
-    let mut log_path: Option<PathBuf> = parse_optional(matches, "logfile")?;
+    let mut log_path: Option<PathBuf> = clap_utils::parse_optional(matches, "logfile")?;
     if log_path.is_none() {
         log_path = match matches.subcommand_name() {
             Some("beacon_node") => Some(

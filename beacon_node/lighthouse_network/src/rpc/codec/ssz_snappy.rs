@@ -697,9 +697,9 @@ mod tests {
         version: Version,
         message: &mut BytesMut,
     ) -> Result<Option<RPCResponse<Spec>>, RPCError> {
-        let max_packet_size = 1_048_576;
         let snappy_protocol_id = ProtocolId::new(protocol, version, Encoding::SSZSnappy);
         let fork_context = Arc::new(fork_context());
+        let max_packet_size = max_rpc_size(&fork_context);
         let mut snappy_outbound_codec =
             SSZSnappyOutboundCodec::<Spec>::new(snappy_protocol_id, max_packet_size, fork_context);
         // decode message just as snappy message
@@ -1124,7 +1124,7 @@ mod tests {
         );
     }
 
-    /// Test sending a message with encoded length prefix > MAX_RPC_SIZE.
+    /// Test sending a message with encoded length prefix > max_rpc_size.
     #[test]
     fn test_decode_invalid_length() {
         // 10 byte snappy stream identifier

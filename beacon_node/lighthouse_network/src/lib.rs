@@ -16,7 +16,7 @@ pub mod rpc;
 mod service;
 pub mod types;
 
-pub use config::GOSSIP_MAX_SIZE;
+pub use config::gossip_max_size;
 
 use serde::{de, Deserialize, Deserializer, Serialize, Serializer};
 use std::str::FromStr;

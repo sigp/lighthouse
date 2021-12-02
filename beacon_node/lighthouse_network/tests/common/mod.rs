@@ -17,7 +17,7 @@ type E = MinimalEthSpec;
 use tempfile::Builder as TempBuilder;
 
 /// Returns a dummy fork context
-fn fork_context() -> ForkContext {
+pub fn fork_context() -> ForkContext {
     let mut chain_spec = E::default_spec();
     // Set fork_epoch to `Some` to ensure that the `ForkContext` object
     // includes altair in the list of forks

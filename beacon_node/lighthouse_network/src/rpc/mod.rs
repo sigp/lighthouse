@@ -30,7 +30,7 @@ pub use methods::{
     RPCResponseErrorCode, RequestId, ResponseTermination, StatusMessage, MAX_REQUEST_BLOCKS,
 };
 pub(crate) use outbound::OutboundRequest;
-pub use protocol::{Protocol, RPCError, MAX_RPC_SIZE};
+pub use protocol::{max_rpc_size, Protocol, RPCError};
 
 pub(crate) mod codec;
 mod handler;
@@ -186,6 +186,7 @@ where
             SubstreamProtocol::new(
                 RPCProtocol {
                     fork_context: self.fork_context.clone(),
+                    max_rpc_size: max_rpc_size(&self.fork_context),
                     phantom: PhantomData,
                 },
                 (),

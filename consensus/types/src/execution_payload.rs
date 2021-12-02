@@ -1,5 +1,4 @@
 use crate::{test_utils::TestRandom, *};
-use safe_arith::{ArithError, SafeArith};
 use serde_derive::{Deserialize, Serialize};
 use ssz::Encode;
 use ssz_derive::{Decode, Encode};
@@ -44,19 +43,6 @@ impl<T: EthSpec> ExecutionPayload<T> {
         Self::default()
     }
 
-    /// Returns the ssz size of `self`.
-    pub fn payload_size(&self) -> Result<usize, ArithError> {
-        let mut tx_size = ssz::BYTES_PER_LENGTH_OFFSET.safe_mul(self.transactions.len())?;
-        for tx in self.transactions.iter() {
-            tx_size.safe_add_assign(tx.len())?;
-        }
-        Self::empty()
-            .as_ssz_bytes()
-            .len()
-            .safe_add(<u8 as Encode>::ssz_fixed_len().safe_mul(self.extra_data.len())?)?
-            .safe_add(tx_size)
-    }
-
     #[allow(clippy::integer_arithmetic)]
     /// Returns the maximum size of an execution payload.
     pub fn max_execution_payload_size() -> usize {
@@ -66,28 +52,5 @@ impl<T: EthSpec> ExecutionPayload<T> {
         + (T::max_extra_data_bytes() * <u8 as Encode>::ssz_fixed_len())
         // Max size of variable length `transactions` field
         + (T::max_transactions_per_payload() * (ssz::BYTES_PER_LENGTH_OFFSET + T::max_bytes_per_transaction()))
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_payload_size() {
-        let mut payload = ExecutionPayload::<crate::MainnetEthSpec>::empty();
-
-        assert_eq!(
-            payload.as_ssz_bytes().len(),
-            payload.payload_size().unwrap()
-        );
-
-        payload.extra_data = VariableList::from(vec![42; 16]);
-        payload.transactions = VariableList::from(vec![VariableList::from(vec![42; 42])]);
-
-        assert_eq!(
-            payload.as_ssz_bytes().len(),
-            payload.payload_size().unwrap()
-        );
     }
 }
