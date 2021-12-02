@@ -1,7 +1,7 @@
 //! Defines the `BeaconForkChoiceStore` which provides the persistent storage for the `ForkChoice`
 //! struct.
 //!
-//! Additionally, the private `BalancesCache` struct is defined; a cache designed to avoid database
+//! Additionally, the `BalancesCache` struct is defined; a cache designed to avoid database
 //! reads when fork choice requires the validator balances of the justified state.
 
 use crate::{metrics, BeaconSnapshot};

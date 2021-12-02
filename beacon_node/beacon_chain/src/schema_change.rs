@@ -113,13 +113,13 @@ pub fn migrate_schema<T: BeaconChainTypes>(
 
             Ok(())
         }
-        // - Migration updating `justified_epoch` to `justified_checkpoint` and `finalized_epoch` to
-        //    `finalized_checkpoint`.
-        // - Adding `proposer_boost_root`
-        // - This migration also includes a potential update to the justified
-        //     checkpoint in case the fork choice store's justified checkpoint + finalized checkpoint
-        //     combination does not actually exist for any blocks in fork choice. This was possible in
-        //     the consensus spec prior to v1.1.6.
+        // 1. Add `proposer_boost_root`
+        // 2. Update `justified_epoch` to `justified_checkpoint` and `finalized_epoch` to
+        //  `finalized_checkpoint`.
+        // 3. This migration also includes a potential update to the justified
+        //  checkpoint in case the fork choice store's justified checkpoint + finalized checkpoint
+        //  combination does not actually exist for any blocks in fork choice. This was possible in
+        //  the consensus spec prior to v1.1.6.
         //
         // Relevant issues:
         //
@@ -129,7 +129,6 @@ pub fn migrate_schema<T: BeaconChainTypes>(
         (SchemaVersion(6), SchemaVersion(7)) => {
             let fork_choice_opt = db.get_item::<LegacyPersistedForkChoice>(&FORK_CHOICE_DB_KEY)?;
             if let Some(legacy_persisted_fork_choice) = fork_choice_opt {
-
                 // This migrates the `PersistedForkChoiceStore`, adding the `proposer_boost_root` field.
                 let mut persisted_fork_choice = legacy_persisted_fork_choice.into();
 

@@ -101,7 +101,6 @@ impl ProtoArray {
             });
         }
 
-        //TODO(merge): should this too be updated to only epoch rather than the checkpoint?
         if justified_checkpoint != self.justified_checkpoint
             || finalized_checkpoint != self.finalized_checkpoint
         {
@@ -109,6 +108,7 @@ impl ProtoArray {
             self.finalized_checkpoint = finalized_checkpoint;
         }
 
+        // Default the proposer boost score to zero.
         let mut proposer_boost_score = 0;
 
         // Iterate backwards through all indices in `self.nodes`.
@@ -130,9 +130,15 @@ impl ProtoArray {
                 .copied()
                 .ok_or(Error::InvalidNodeDelta(node_index))?;
 
+            // If we find the node for which the proposer boost was previously applied, decrease
+            // the delta by the previous score amount.
             if self.previous_proposer_boost.root == node.root {
                 node_delta -= self.previous_proposer_boost.score as i64;
             }
+            // If we find the node matching the current proposer boost root, increase
+            // the delta by the previous score amount.
+            //
+            // https://github.com/ethereum/consensus-specs/blob/dev/specs/phase0/fork-choice.md#get_latest_attesting_balance
             if proposer_boost_root != Hash256::zero() && proposer_boost_root == node.root {
                 let num_validators = new_balances.len() as u64;
                 let average_balance = new_balances.iter().sum::<u64>() / num_validators;
@@ -176,6 +182,7 @@ impl ProtoArray {
             }
         }
 
+        // After applying all deltas, update the `previous_proposer_boost`.
         self.previous_proposer_boost = ProposerBoost {
             root: proposer_boost_root,
             score: proposer_boost_score,
