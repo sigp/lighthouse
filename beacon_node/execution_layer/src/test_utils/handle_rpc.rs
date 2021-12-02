@@ -77,6 +77,16 @@ pub async fn handle_rpc<T: EthSpec>(
                     status: ExecutePayloadResponseStatus::Invalid { latest_valid_hash },
                     message: None,
                 },
+                FixedPayloadResponse::Syncing => {
+                    // Try to import the block, ignore the response.
+                    ctx.execution_block_generator
+                        .write()
+                        .execute_payload(request.into());
+                    ExecutePayloadResponse {
+                        status: ExecutePayloadResponseStatus::Syncing,
+                        message: None,
+                    }
+                }
             };
 
             let (status, latest_valid_hash) = match response.status {

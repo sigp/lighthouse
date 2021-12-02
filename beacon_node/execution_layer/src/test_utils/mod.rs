@@ -31,6 +31,7 @@ pub enum FixedPayloadResponse {
     None,
     Valid,
     Invalid { latest_valid_hash: Hash256 },
+    Syncing,
 }
 
 pub struct MockServer<T: EthSpec> {
@@ -128,6 +129,10 @@ impl<T: EthSpec> MockServer<T> {
     pub fn all_payloads_invalid(&self, latest_valid_hash: Hash256) {
         *self.ctx.fixed_payload_response.lock() =
             FixedPayloadResponse::Invalid { latest_valid_hash };
+    }
+
+    pub fn all_payloads_syncing(&self) {
+        *self.ctx.fixed_payload_response.lock() = FixedPayloadResponse::Syncing;
     }
 
     pub fn full_payload_verification(&self) {
