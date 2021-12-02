@@ -27,6 +27,12 @@ mod execution_block_generator;
 mod handle_rpc;
 mod mock_execution_layer;
 
+pub enum FixedPayloadResponse {
+    None,
+    Valid,
+    Invalid,
+}
+
 pub struct MockServer<T: EthSpec> {
     _shutdown_tx: oneshot::Sender<()>,
     listen_socket_addr: SocketAddr,
@@ -61,7 +67,7 @@ impl<T: EthSpec> MockServer<T> {
             last_echo_request: last_echo_request.clone(),
             execution_block_generator: RwLock::new(execution_block_generator),
             preloaded_responses,
-            all_payloads_valid: <_>::default(),
+            fixed_payload_response: Arc::new(Mutex::new(FixedPayloadResponse::None)),
             _phantom: PhantomData,
         });
 
@@ -116,7 +122,15 @@ impl<T: EthSpec> MockServer<T> {
     }
 
     pub fn all_payloads_valid(&self) {
-        *self.ctx.all_payloads_valid.lock() = true;
+        *self.ctx.fixed_payload_response.lock() = FixedPayloadResponse::Valid;
+    }
+
+    pub fn all_payloads_invalid(&self) {
+        *self.ctx.fixed_payload_response.lock() = FixedPayloadResponse::Invalid;
+    }
+
+    pub fn full_payload_verification(&self) {
+        *self.ctx.fixed_payload_response.lock() = FixedPayloadResponse::None;
     }
 
     pub fn insert_pow_block(
@@ -186,7 +200,7 @@ pub struct Context<T: EthSpec> {
     pub last_echo_request: Arc<RwLock<Option<Bytes>>>,
     pub execution_block_generator: RwLock<ExecutionBlockGenerator<T>>,
     pub preloaded_responses: Arc<Mutex<Vec<serde_json::Value>>>,
-    pub all_payloads_valid: Arc<Mutex<bool>>,
+    pub fixed_payload_response: Arc<Mutex<FixedPayloadResponse>>,
     pub _phantom: PhantomData<T>,
 }
 

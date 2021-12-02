@@ -1,4 +1,4 @@
-use super::Context;
+use super::{Context, FixedPayloadResponse};
 use crate::engine_api::{http::*, ExecutePayloadResponse, ExecutePayloadResponseStatus};
 use crate::json_structures::*;
 use serde::de::DeserializeOwned;
@@ -57,17 +57,23 @@ pub async fn handle_rpc<T: EthSpec>(
         ENGINE_EXECUTE_PAYLOAD_V1 => {
             let request: JsonExecutionPayloadV1<T> = get_param(params, 0)?;
 
-            let response = if *ctx.all_payloads_valid.lock() {
-                ExecutePayloadResponse {
-                    status: ExecutePayloadResponseStatus::Valid {
-                        latest_valid_hash: request.block_hash,
-                    },
-                    validation_error: None,
-                }
-            } else {
-                ctx.execution_block_generator
+            let response = match *ctx.fixed_payload_response.lock() {
+                FixedPayloadResponse::None => ctx
+                    .execution_block_generator
                     .write()
-                    .execute_payload(request.into())
+                    .execute_payload(request.into()),
+                FixedPayloadResponse::Valid => {
+                    let latest_valid_hash = request.block_hash;
+                    // Try to import the block, ignore the response.
+                    ctx.execution_block_generator
+                        .write()
+                        .execute_payload(request.into());
+                    ExecutePayloadResponse {
+                        status: ExecutePayloadResponseStatus::Valid { latest_valid_hash },
+                        validation_error: None,
+                    }
+                }
+                FixedPayloadResponse::Invalid => unimplemented!(),
             };
 
             let (status, latest_valid_hash) = match response.status {
