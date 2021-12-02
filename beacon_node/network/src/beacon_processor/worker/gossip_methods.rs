@@ -826,11 +826,11 @@ impl<T: BeaconChainTypes> Worker<T> {
                 metrics::inc_counter(&metrics::BEACON_PROCESSOR_GOSSIP_BLOCK_REQUEUED_TOTAL);
 
                 if reprocess_tx
-                    .try_send(ReprocessQueueMessage::EarlyBlock(Box::new(QueuedBlock {
+                    .try_send(ReprocessQueueMessage::EarlyBlock(QueuedBlock {
                         peer_id,
-                        block: verified_block,
+                        block: Box::new(verified_block),
                         seen_timestamp: seen_duration,
-                    })))
+                    }))
                     .is_err()
                 {
                     error!(
