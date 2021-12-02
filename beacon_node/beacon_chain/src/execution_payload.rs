@@ -20,7 +20,6 @@ use state_processing::per_block_processing::{
     compute_timestamp_at_slot, is_execution_enabled, is_merge_transition_complete,
     partially_verify_execution_payload,
 };
-use tree_hash::TreeHash;
 use types::*;
 
 /// Verify that `execution_payload` contained by `block` is considered valid by an execution
@@ -36,6 +35,7 @@ pub fn execute_payload<T: BeaconChainTypes>(
     chain: &BeaconChain<T>,
     state: &BeaconState<T::EthSpec>,
     block: BeaconBlockRef<T::EthSpec>,
+    block_root: Hash256,
 ) -> Result<PayloadVerificationStatus, BlockError<T::EthSpec>> {
     if !is_execution_enabled(state, block.body()) {
         return Ok(PayloadVerificationStatus::Irrelevant);
@@ -61,25 +61,23 @@ pub fn execute_payload<T: BeaconChainTypes>(
         Ok(status) => match status {
             ExecutePayloadResponseStatus::Valid { .. } => Ok(PayloadVerificationStatus::Verified),
             ExecutePayloadResponseStatus::Invalid { latest_valid_hash } => {
-                // TODO(paul): pass this value to avoid double hashing?
-                let invalid_root = block.tree_hash_root();
                 match chain
                     .fork_choice
                     .write()
-                    .on_invalid_execution_payload(invalid_root, latest_valid_hash)
+                    .on_invalid_execution_payload(block_root, latest_valid_hash)
                 {
                     Ok(()) => warn!(
                         chain.log,
                         "Invalid execution payload in block";
                         "latest_valid_hash" => ?latest_valid_hash,
-                        "root" => ?invalid_root,
+                        "root" => ?block_root,
                     ),
                     Err(e) => {
                         crit!(
                             chain.log,
                             "Failed to process invalid payload";
                             "latest_valid_hash" => ?latest_valid_hash,
-                            "root" => ?invalid_root,
+                            "root" => ?block_root,
                         );
 
                         return Err(BeaconChainError::from(e).into());
