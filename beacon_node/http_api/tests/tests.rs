@@ -2310,7 +2310,7 @@ impl ApiTester {
             self.attestations
                 .clone()
                 .into_iter()
-                .map(|attestation| EventKind::Attestation(attestation))
+                .map(|attestation| EventKind::Attestation(Box::new(attestation)))
                 .collect::<Vec<_>>()
                 .as_slice()
         );

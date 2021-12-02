@@ -242,11 +242,9 @@ enum Error {
     PubkeyDecode(bls::Error),
     /// The file read from disk does not have a contiguous list of validator public keys. The file
     /// has become corrupted.
-    // This is actually logged out when this error is hit, the linter misses it though.
-    #[allow(dead_code)]
     InconsistentIndex {
-        expected: Option<usize>,
-        found: usize,
+        _expected: Option<usize>,
+        _found: usize,
     },
 }
 
@@ -298,8 +296,8 @@ impl ValidatorPubkeyCacheFile {
                 indices.insert(pubkey, index);
             } else {
                 return Err(Error::InconsistentIndex {
-                    expected,
-                    found: index,
+                    _expected: expected,
+                    _found: index,
                 });
             }
         }

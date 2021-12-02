@@ -48,11 +48,9 @@ enum Error {
     StateAlreadyAdvanced {
         block_root: Hash256,
     },
-    // This is actually logged out when this error is hit, the linter misses it though.
-    #[allow(dead_code)]
     BadStateSlot {
-        state_slot: Slot,
-        block_slot: Slot,
+        _state_slot: Slot,
+        _block_slot: Slot,
     },
 }
 
@@ -234,8 +232,8 @@ fn advance_head<T: BeaconChainTypes>(
         // Advancing more than one slot without storing the intermediate state would corrupt the
         // database. Future works might store temporary, intermediate states inside this function.
         return Err(Error::BadStateSlot {
-            block_slot: head_slot,
-            state_slot: state.slot(),
+            _block_slot: head_slot,
+            _state_slot: state.slot(),
         });
     };
 
