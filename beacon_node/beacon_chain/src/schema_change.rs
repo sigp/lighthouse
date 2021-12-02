@@ -4,6 +4,7 @@ mod migrate_schema_7;
 
 use crate::beacon_chain::{BeaconChainTypes, FORK_CHOICE_DB_KEY, OP_POOL_DB_KEY};
 use crate::persisted_fork_choice::PersistedForkChoice;
+use crate::schema_change::migrate_schema_7::LegacyPersistedForkChoice;
 use crate::validator_pubkey_cache::ValidatorPubkeyCache;
 use operation_pool::{PersistedOperationPool, PersistedOperationPoolBase};
 use slog::{warn, Logger};
@@ -112,19 +113,26 @@ pub fn migrate_schema<T: BeaconChainTypes>(
 
             Ok(())
         }
-        // Migration updating `justified_epoch` to `justified_checkpoint` and `finalized_epoch` to
-        // `finalized_checkpoint`. This migration also includes a potential update to the justified
-        // checkpoint in case the fork choice store's justified checkpoint + finalized checkpoint
-        // combination does not actually exist for any blocks in fork choice. This was possible in
-        // the consensus spec prior to v1.1.6.
+        // - Migration updating `justified_epoch` to `justified_checkpoint` and `finalized_epoch` to
+        //    `finalized_checkpoint`.
+        // - Adding `proposer_boost_root`
+        // - This migration also includes a potential update to the justified
+        //     checkpoint in case the fork choice store's justified checkpoint + finalized checkpoint
+        //     combination does not actually exist for any blocks in fork choice. This was possible in
+        //     the consensus spec prior to v1.1.6.
         //
         // Relevant issues:
         //
         // https://github.com/sigp/lighthouse/issues/2741
         // https://github.com/ethereum/consensus-specs/pull/2727
+        // https://github.com/ethereum/consensus-specs/pull/2730
         (SchemaVersion(6), SchemaVersion(7)) => {
-            let fork_choice_opt = db.get_item::<PersistedForkChoice>(&FORK_CHOICE_DB_KEY)?;
-            if let Some(mut persisted_fork_choice) = fork_choice_opt {
+            let fork_choice_opt = db.get_item::<LegacyPersistedForkChoice>(&FORK_CHOICE_DB_KEY)?;
+            if let Some(legacy_persisted_fork_choice) = fork_choice_opt {
+
+                // This migrates the `PersistedForkChoiceStore`, adding the `proposer_boost_root` field.
+                let mut persisted_fork_choice = legacy_persisted_fork_choice.into();
+
                 let result = migrate_schema_7::update_legacy_fork_choice::<T>(
                     &mut persisted_fork_choice,
                     db.clone(),

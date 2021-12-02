@@ -69,7 +69,7 @@ struct CacheItem {
 ///
 /// It is effectively a mapping of `epoch_boundary_block_root -> state.balances`.
 #[derive(PartialEq, Clone, Default, Debug, Encode, Decode)]
-struct BalancesCache {
+pub struct BalancesCache {
     items: Vec<CacheItem>,
 }
 
@@ -339,13 +339,12 @@ where
 
 /// A container which allows persisting the `BeaconForkChoiceStore` to the on-disk database.
 #[derive(Encode, Decode)]
-// FIXME(boost): migration to add proposer_boost_root
 pub struct PersistedForkChoiceStore {
-    balances_cache: BalancesCache,
-    time: Slot,
+    pub balances_cache: BalancesCache,
+    pub time: Slot,
     pub finalized_checkpoint: Checkpoint,
     pub justified_checkpoint: Checkpoint,
-    justified_balances: Vec<u64>,
-    best_justified_checkpoint: Checkpoint,
-    proposer_boost_root: Hash256,
+    pub justified_balances: Vec<u64>,
+    pub best_justified_checkpoint: Checkpoint,
+    pub proposer_boost_root: Hash256,
 }

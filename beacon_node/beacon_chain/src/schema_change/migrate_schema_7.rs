@@ -4,20 +4,24 @@ use super::migrate_schema_6::{
 
 ///! These functions and structs are only relevant to the database migration from schema 6 to 7.
 use crate::beacon_chain::BeaconChainTypes;
+use crate::beacon_fork_choice_store::{BalancesCache, PersistedForkChoiceStore};
 use crate::persisted_fork_choice::PersistedForkChoice;
 use crate::types::{Checkpoint, Epoch, Hash256};
 use crate::types::{EthSpec, Slot};
 use crate::{BeaconForkChoiceStore, BeaconSnapshot};
 use fork_choice::ForkChoice;
+use fork_choice::PersistedForkChoice as PersistedForkChoiceBytes;
 use itertools::Itertools;
 use proto_array::{core::ProtoNode, core::SszContainer, ProtoArrayForkChoice};
 use ssz::four_byte_option_impl;
 use ssz::{Decode, Encode};
+use ssz_derive::{Decode, Encode};
 use std::collections::HashMap;
 use std::sync::Arc;
 use store::hot_cold_store::HotColdDB;
 use store::iter::BlockRootsIterator;
 use store::Error as StoreError;
+use store::{DBColumn, Error, StoreItem};
 
 // Define a "legacy" implementation of `Option<usize>` which uses four bytes for encoding the union
 // selector.
@@ -311,4 +315,57 @@ fn update_store_justified_checkpoint(
     persisted_fork_choice.fork_choice.proto_array_bytes = fork_choice.as_bytes();
     persisted_fork_choice.fork_choice_store.justified_checkpoint = justified_checkpoint;
     Ok(())
+}
+
+#[derive(Encode, Decode)]
+pub struct LegacyPersistedForkChoice {
+    pub fork_choice: PersistedForkChoiceBytes,
+    pub fork_choice_store: LegacyPersistedForkChoiceStore,
+}
+
+impl StoreItem for LegacyPersistedForkChoice {
+    fn db_column() -> DBColumn {
+        DBColumn::ForkChoice
+    }
+
+    fn as_store_bytes(&self) -> Vec<u8> {
+        self.as_ssz_bytes()
+    }
+
+    fn from_store_bytes(bytes: &[u8]) -> std::result::Result<Self, Error> {
+        Self::from_ssz_bytes(bytes).map_err(Into::into)
+    }
+}
+
+impl Into<PersistedForkChoice> for LegacyPersistedForkChoice {
+    fn into(self) -> PersistedForkChoice {
+        PersistedForkChoice {
+            fork_choice: self.fork_choice,
+            fork_choice_store: self.fork_choice_store.into(),
+        }
+    }
+}
+
+#[derive(Encode, Decode)]
+pub struct LegacyPersistedForkChoiceStore {
+    balances_cache: BalancesCache,
+    time: Slot,
+    pub finalized_checkpoint: Checkpoint,
+    pub justified_checkpoint: Checkpoint,
+    justified_balances: Vec<u64>,
+    best_justified_checkpoint: Checkpoint,
+}
+
+impl Into<PersistedForkChoiceStore> for LegacyPersistedForkChoiceStore {
+    fn into(self) -> PersistedForkChoiceStore {
+        PersistedForkChoiceStore {
+            balances_cache: self.balances_cache,
+            time: self.time,
+            finalized_checkpoint: self.finalized_checkpoint,
+            justified_checkpoint: self.justified_checkpoint,
+            justified_balances: self.justified_balances,
+            best_justified_checkpoint: self.best_justified_checkpoint,
+            proposer_boost_root: Hash256::zero(),
+        }
+    }
 }
