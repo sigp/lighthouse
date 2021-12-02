@@ -1331,7 +1331,7 @@ fn load_parent<T: BeaconChainTypes>(
             metrics::inc_counter(&metrics::BLOCK_PROCESSING_SNAPSHOT_CACHE_CLONES);
             debug!(
                 chain.log,
-                "Cloned snapshot for late block";
+                "Cloned snapshot for late block/skipped slot";
                 "slot" => %block.slot(),
                 "parent_slot" => %snapshot.beacon_block.slot(),
                 "parent_root" => ?block.parent_root(),
