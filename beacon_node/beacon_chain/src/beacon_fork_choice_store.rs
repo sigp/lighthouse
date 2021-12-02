@@ -83,12 +83,6 @@ impl BalancesCache {
         block_root: Hash256,
         state: &BeaconState<E>,
     ) -> Result<(), Error> {
-        // We are only interested in balances from states that are at the start of an epoch,
-        // because this is where the `current_justified_checkpoint.root` will point.
-        if !Self::is_first_block_in_epoch(block_root, state)? {
-            return Ok(());
-        }
-
         let epoch_boundary_slot = state.current_epoch().start_slot(E::slots_per_epoch());
         let epoch_boundary_root = if epoch_boundary_slot == state.slot() {
             block_root
@@ -98,6 +92,10 @@ impl BalancesCache {
             *state.get_block_root(epoch_boundary_slot)?
         };
 
+        // Check if there already exists a cache entry for the epoch boundary block of the current
+        // epoch. We rely on the invariant that effective balances do not change for the duration
+        // of a single epoch, so even if the block on the epoch boundary itself is skipped we can
+        // still update its cache entry from any subsequent state in that epoch.
         if self.position(epoch_boundary_root).is_none() {
             let item = CacheItem {
                 block_root: epoch_boundary_root,
@@ -114,31 +112,6 @@ impl BalancesCache {
         Ok(())
     }
 
-    /// Returns `true` if the given `block_root` is the first/only block to have been processed in
-    /// the epoch of the given `state`.
-    ///
-    /// We can determine if it is the first block by looking back through `state.block_roots` to
-    /// see if there is a block in the current epoch with a different root.
-    fn is_first_block_in_epoch<E: EthSpec>(
-        block_root: Hash256,
-        state: &BeaconState<E>,
-    ) -> Result<bool, Error> {
-        let mut prior_block_found = false;
-
-        for slot in state.current_epoch().slot_iter(E::slots_per_epoch()) {
-            if slot < state.slot() {
-                if *state.get_block_root(slot)? != block_root {
-                    prior_block_found = true;
-                    break;
-                }
-            } else {
-                break;
-            }
-        }
-
-        Ok(!prior_block_found)
-    }
-
     fn position(&self, block_root: Hash256) -> Option<usize> {
         self.items
             .iter()
@@ -147,10 +120,10 @@ impl BalancesCache {
 
     /// Get the balances for the given `block_root`, if any.
     ///
-    /// If some balances are found, they are removed from the cache.
+    /// If some balances are found, they are cloned from the cache.
     pub fn get(&mut self, block_root: Hash256) -> Option<Vec<u64>> {
         let i = self.position(block_root)?;
-        Some(self.items.remove(i).balances)
+        Some(self.items[i].balances.clone())
     }
 }
 
