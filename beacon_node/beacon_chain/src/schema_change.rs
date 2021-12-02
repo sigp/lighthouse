@@ -4,7 +4,7 @@ mod migrate_schema_7;
 
 use crate::beacon_chain::{BeaconChainTypes, FORK_CHOICE_DB_KEY, OP_POOL_DB_KEY};
 use crate::persisted_fork_choice::PersistedForkChoice;
-use crate::schema_change::migrate_schema_7::LegacyPersistedForkChoice;
+use crate::schema_change::migrate_schema_6::LegacyPersistedForkChoice;
 use crate::validator_pubkey_cache::ValidatorPubkeyCache;
 use operation_pool::{PersistedOperationPool, PersistedOperationPoolBase};
 use slog::{warn, Logger};
@@ -102,22 +102,25 @@ pub fn migrate_schema<T: BeaconChainTypes>(
         }
         // Migration for adding `execution_status` field to the fork choice store.
         (SchemaVersion(5), SchemaVersion(6)) => {
-            let fork_choice_opt = db.get_item::<PersistedForkChoice>(&FORK_CHOICE_DB_KEY)?;
+            let fork_choice_opt = db.get_item::<LegacyPersistedForkChoice>(&FORK_CHOICE_DB_KEY)?;
             if let Some(mut persisted_fork_choice) = fork_choice_opt {
                 migrate_schema_6::update_execution_statuses::<T>(&mut persisted_fork_choice)
                     .map_err(StoreError::SchemaMigrationError)?;
-                db.put_item::<PersistedForkChoice>(&FORK_CHOICE_DB_KEY, &persisted_fork_choice)?;
+                db.put_item::<LegacyPersistedForkChoice>(
+                    &FORK_CHOICE_DB_KEY,
+                    &persisted_fork_choice,
+                )?;
             }
 
             db.store_schema_version(to)?;
 
             Ok(())
         }
-        // 1. Add `proposer_boost_root`
+        // 1. Add `proposer_boost_root`.
         // 2. Update `justified_epoch` to `justified_checkpoint` and `finalized_epoch` to
         //  `finalized_checkpoint`.
         // 3. This migration also includes a potential update to the justified
-        //  checkpoint in case the fork choice store's justified checkpoint + finalized checkpoint
+        //  checkpoint in case the fork choice store's justified checkpoint and finalized checkpoint
         //  combination does not actually exist for any blocks in fork choice. This was possible in
         //  the consensus spec prior to v1.1.6.
         //
