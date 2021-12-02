@@ -5,10 +5,10 @@ use crate::builder::{
 use deposit_contract::decode_eth1_tx_data;
 use derivative::Derivative;
 use eth2_keystore::{Error as KeystoreError, Keystore, PlainText};
+use lockfile::{Lockfile, LockfileError};
 use std::fs::{read, write, OpenOptions};
 use std::io;
 use std::path::{Path, PathBuf};
-use lockfile::{Lockfile, LockfileError};
 use tree_hash::TreeHash;
 use types::{DepositData, Hash256, Keypair};
 
@@ -85,7 +85,10 @@ impl ValidatorDir {
         let lockfile_path = dir.join(format!("{}.lock", VOTING_KEYSTORE_FILE));
         let lockfile = Lockfile::new(lockfile_path).map_err(Error::LockfileError)?;
 
-        Ok(Self { dir, _lockfile: lockfile })
+        Ok(Self {
+            dir,
+            _lockfile: lockfile,
+        })
     }
 
     /// Returns the `dir` provided to `Self::open`.
