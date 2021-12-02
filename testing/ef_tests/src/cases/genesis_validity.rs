@@ -7,6 +7,7 @@ use types::{BeaconState, EthSpec, ForkName};
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct Metadata {
+    #[serde(rename(deserialize = "description"))]
     _description: String,
 }
 
