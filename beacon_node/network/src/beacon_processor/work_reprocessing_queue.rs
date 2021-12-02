@@ -51,7 +51,7 @@ const MAXIMUM_QUEUED_ATTESTATIONS: usize = 16_384;
 /// Messages that the scheduler can receive.
 pub enum ReprocessQueueMessage<T: BeaconChainTypes> {
     /// A block that has been received early and we should queue for later processing.
-    EarlyBlock(QueuedBlock<T>),
+    EarlyBlock(Box<QueuedBlock<T>>),
     /// A block that was successfully processed. We use this to handle attestations for unknown
     /// blocks.
     BlockImported(Hash256),
@@ -63,7 +63,7 @@ pub enum ReprocessQueueMessage<T: BeaconChainTypes> {
 
 /// Events sent by the scheduler once they are ready for re-processing.
 pub enum ReadyWork<T: BeaconChainTypes> {
-    Block(QueuedBlock<T>),
+    Block(Box<QueuedBlock<T>>),
     Unaggregate(QueuedUnaggregate<T::EthSpec>),
     Aggregate(QueuedAggregate<T::EthSpec>),
 }
@@ -98,7 +98,7 @@ pub struct QueuedBlock<T: BeaconChainTypes> {
 /// Unifies the different messages processed by the block delay queue.
 enum InboundEvent<T: BeaconChainTypes> {
     /// A block that was queued for later processing and is ready for import.
-    ReadyBlock(QueuedBlock<T>),
+    ReadyBlock(Box<QueuedBlock<T>>),
     /// An aggregated or unaggregated attestation is ready for re-processing.
     ReadyAttestation(QueuedAttestationId),
     /// A `DelayQueue` returned an error.
@@ -166,7 +166,9 @@ impl<T: BeaconChainTypes> Stream for ReprocessQueue<T> {
         // existing blocks before new ones.
         match self.block_delay_queue.poll_expired(cx) {
             Poll::Ready(Some(Ok(queued_block))) => {
-                return Poll::Ready(Some(InboundEvent::ReadyBlock(queued_block.into_inner())));
+                return Poll::Ready(Some(InboundEvent::ReadyBlock(Box::new(
+                    queued_block.into_inner(),
+                ))));
             }
             Poll::Ready(Some(Err(e))) => {
                 return Poll::Ready(Some(InboundEvent::DelayQueueError(e, "block_queue")));
@@ -275,7 +277,7 @@ impl<T: BeaconChainTypes> ReprocessQueue<T> {
                     // Queue the block until the start of the appropriate slot, plus
                     // `ADDITIONAL_QUEUED_BLOCK_DELAY`.
                     self.block_delay_queue.insert(
-                        early_block,
+                        *early_block,
                         duration_till_slot + ADDITIONAL_QUEUED_BLOCK_DELAY,
                     );
                 } else {
