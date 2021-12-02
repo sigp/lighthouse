@@ -13,6 +13,9 @@ use std::time::Duration;
 use tokio::runtime::Runtime;
 use types::{ChainSpec, EnrForkId, EthSpec, ForkContext, Hash256, MinimalEthSpec};
 
+pub mod behaviour;
+pub mod swarm;
+
 type E = MinimalEthSpec;
 use tempfile::Builder as TempBuilder;
 
