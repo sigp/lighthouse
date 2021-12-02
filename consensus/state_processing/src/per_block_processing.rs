@@ -310,7 +310,7 @@ pub fn partially_verify_execution_payload<T: EthSpec>(
     payload: &ExecutionPayload<T>,
     spec: &ChainSpec,
 ) -> Result<(), BlockProcessingError> {
-    if is_merge_complete(state) {
+    if is_merge_transition_complete(state) {
         block_verify!(
             payload.parent_hash == state.latest_execution_payload_header()?.block_hash,
             BlockProcessingError::ExecutionHashChainIncontiguous {
@@ -355,7 +355,7 @@ pub fn process_execution_payload<T: EthSpec>(
 
     *state.latest_execution_payload_header_mut()? = ExecutionPayloadHeader {
         parent_hash: payload.parent_hash,
-        coinbase: payload.coinbase,
+        fee_recipient: payload.fee_recipient,
         state_root: payload.state_root,
         receipt_root: payload.receipt_root,
         logs_bloom: payload.logs_bloom.clone(),
@@ -377,17 +377,22 @@ pub fn process_execution_payload<T: EthSpec>(
 /// the merge has happened or if we're on the transition block. Thus we don't want to propagate
 /// errors from the `BeaconState` being an earlier variant than `BeaconStateMerge` as we'd have to
 /// repeaetedly write code to treat these errors as false.
-/// https://github.com/ethereum/consensus-specs/blob/dev/specs/merge/beacon-chain.md#is_merge_complete
-pub fn is_merge_complete<T: EthSpec>(state: &BeaconState<T>) -> bool {
+/// https://github.com/ethereum/consensus-specs/blob/dev/specs/merge/beacon-chain.md#is_merge_transition_complete
+pub fn is_merge_transition_complete<T: EthSpec>(state: &BeaconState<T>) -> bool {
     state
         .latest_execution_payload_header()
         .map(|header| *header != <ExecutionPayloadHeader<T>>::default())
         .unwrap_or(false)
 }
-/// https://github.com/ethereum/consensus-specs/blob/dev/specs/merge/beacon-chain.md#is_merge_block
-pub fn is_merge_block<T: EthSpec>(state: &BeaconState<T>, body: BeaconBlockBodyRef<T>) -> bool {
+/// https://github.com/ethereum/consensus-specs/blob/dev/specs/merge/beacon-chain.md#is_merge_transition_block
+pub fn is_merge_transition_block<T: EthSpec>(
+    state: &BeaconState<T>,
+    body: BeaconBlockBodyRef<T>,
+) -> bool {
     body.execution_payload()
-        .map(|payload| !is_merge_complete(state) && *payload != <ExecutionPayload<T>>::default())
+        .map(|payload| {
+            !is_merge_transition_complete(state) && *payload != <ExecutionPayload<T>>::default()
+        })
         .unwrap_or(false)
 }
 /// https://github.com/ethereum/consensus-specs/blob/dev/specs/merge/beacon-chain.md#is_execution_enabled
@@ -395,7 +400,7 @@ pub fn is_execution_enabled<T: EthSpec>(
     state: &BeaconState<T>,
     body: BeaconBlockBodyRef<T>,
 ) -> bool {
-    is_merge_block(state, body) || is_merge_complete(state)
+    is_merge_transition_block(state, body) || is_merge_transition_complete(state)
 }
 
 /// https://github.com/ethereum/consensus-specs/blob/dev/specs/merge/beacon-chain.md#compute_timestamp_at_slot

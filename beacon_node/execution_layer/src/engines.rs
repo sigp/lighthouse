@@ -49,7 +49,7 @@ struct PayloadIdCacheKey {
     pub head_block_hash: Hash256,
     pub timestamp: u64,
     pub random: Hash256,
-    pub fee_recipient: Address,
+    pub suggested_fee_recipient: Address,
 }
 
 /// An execution engine.
@@ -76,7 +76,7 @@ impl<T> Engine<T> {
         head_block_hash: Hash256,
         timestamp: u64,
         random: Hash256,
-        fee_recipient: Address,
+        suggested_fee_recipient: Address,
     ) -> Option<PayloadId> {
         self.payload_id_cache
             .lock()
@@ -85,7 +85,7 @@ impl<T> Engine<T> {
                 head_block_hash,
                 timestamp,
                 random,
-                fee_recipient,
+                suggested_fee_recipient,
             })
             .cloned()
     }
@@ -392,7 +392,7 @@ impl PayloadIdCacheKey {
             head_block_hash: state.head_block_hash,
             timestamp: attributes.timestamp,
             random: attributes.random,
-            fee_recipient: attributes.fee_recipient,
+            suggested_fee_recipient: attributes.suggested_fee_recipient,
         }
     }
 }

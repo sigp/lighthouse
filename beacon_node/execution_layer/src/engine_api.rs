@@ -107,7 +107,7 @@ pub struct ExecutionBlock {
 pub struct PayloadAttributes {
     pub timestamp: u64,
     pub random: Hash256,
-    pub fee_recipient: Address,
+    pub suggested_fee_recipient: Address,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
