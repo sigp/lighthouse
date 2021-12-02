@@ -5,7 +5,6 @@ use crate::builder::{
 use deposit_contract::decode_eth1_tx_data;
 use derivative::Derivative;
 use eth2_keystore::{Error as KeystoreError, Keystore, PlainText};
-use lockfile::{Lockfile, LockfileError};
 use std::fs::{read, write, OpenOptions};
 use std::io;
 use std::path::{Path, PathBuf};
@@ -18,7 +17,6 @@ pub const ETH1_DEPOSIT_TX_HASH_FILE: &str = "eth1-deposit-tx-hash.txt";
 #[derive(Debug)]
 pub enum Error {
     DirectoryDoesNotExist(PathBuf),
-    LockfileError(LockfileError),
     UnableToOpenKeystore(io::Error),
     UnableToReadKeystore(KeystoreError),
     UnableToOpenPassword(io::Error),
@@ -62,8 +60,6 @@ pub struct Eth1DepositData {
 #[derivative(PartialEq)]
 pub struct ValidatorDir {
     dir: PathBuf,
-    #[derivative(PartialEq = "ignore")]
-    lockfile: Lockfile,
 }
 
 impl ValidatorDir {
@@ -80,12 +76,7 @@ impl ValidatorDir {
             return Err(Error::DirectoryDoesNotExist(dir));
         }
 
-        // Lock the keystore file that *might* be in this directory.
-        // This is not ideal, see: https://github.com/sigp/lighthouse/issues/1978
-        let lockfile_path = dir.join(format!("{}.lock", VOTING_KEYSTORE_FILE));
-        let lockfile = Lockfile::new(lockfile_path).map_err(Error::LockfileError)?;
-
-        Ok(Self { dir, lockfile })
+        Ok(Self { dir })
     }
 
     /// Returns the `dir` provided to `Self::open`.

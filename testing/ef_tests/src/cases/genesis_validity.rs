@@ -7,7 +7,7 @@ use types::{BeaconState, EthSpec, ForkName};
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct Metadata {
-    description: String,
+    _description: String,
 }
 
 #[derive(Debug, Clone, Deserialize)]

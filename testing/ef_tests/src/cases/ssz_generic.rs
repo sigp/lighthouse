@@ -15,7 +15,7 @@ use types::{BitList, BitVector, FixedVector, ForkName, VariableList};
 #[derive(Debug, Clone, Deserialize)]
 struct Metadata {
     root: String,
-    signing_root: Option<String>,
+    _signing_root: Option<String>,
 }
 
 #[derive(Debug, Clone)]

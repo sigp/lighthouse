@@ -62,8 +62,6 @@ pub struct MonitoringHttpClient {
     client: reqwest::Client,
     /// Path to the hot database. Required for getting db size metrics
     db_path: Option<PathBuf>,
-    /// Path to the freezer database.
-    freezer_db_path: Option<PathBuf>,
     monitoring_endpoint: SensitiveUrl,
     log: slog::Logger,
 }
@@ -73,7 +71,6 @@ impl MonitoringHttpClient {
         Ok(Self {
             client: reqwest::Client::new(),
             db_path: config.db_path.clone(),
-            freezer_db_path: config.freezer_db_path.clone(),
             monitoring_endpoint: SensitiveUrl::parse(&config.monitoring_endpoint)
                 .map_err(|e| format!("Invalid monitoring endpoint: {:?}", e))?,
             log,

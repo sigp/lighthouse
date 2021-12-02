@@ -41,9 +41,19 @@ const MAX_ADVANCE_DISTANCE: u64 = 4;
 enum Error {
     BeaconChain(BeaconChainError),
     HeadMissingFromSnapshotCache(Hash256),
-    MaxDistanceExceeded { current_slot: Slot, head_slot: Slot },
-    StateAlreadyAdvanced { block_root: Hash256 },
-    BadStateSlot { state_slot: Slot, block_slot: Slot },
+    MaxDistanceExceeded {
+        current_slot: Slot,
+        head_slot: Slot,
+    },
+    StateAlreadyAdvanced {
+        block_root: Hash256,
+    },
+    // This is actually logged out when this error is hit, the linter misses it though.
+    #[allow(dead_code)]
+    BadStateSlot {
+        state_slot: Slot,
+        block_slot: Slot,
+    },
 }
 
 impl From<BeaconChainError> for Error {

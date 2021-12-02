@@ -60,7 +60,7 @@ pub enum Step<B, A, P> {
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Meta {
-    description: String,
+    _description: String,
 }
 
 #[derive(Debug)]

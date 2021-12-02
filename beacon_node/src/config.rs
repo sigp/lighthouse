@@ -226,7 +226,7 @@ pub fn get_config<E: EthSpec>(
         client_config.sync_eth1_chain = true;
         client_config.eth1.endpoints = endpoints
             .split(',')
-            .map(|s| SensitiveUrl::parse(s))
+            .map(SensitiveUrl::parse)
             .collect::<Result<_, _>>()
             .map_err(|e| format!("eth1-endpoints contains an invalid URL {:?}", e))?;
     }
@@ -245,7 +245,7 @@ pub fn get_config<E: EthSpec>(
         client_config.sync_eth1_chain = true;
         client_config.execution_endpoints = endpoints
             .split(',')
-            .map(|s| SensitiveUrl::parse(s))
+            .map(SensitiveUrl::parse)
             .collect::<Result<_, _>>()
             .map(Some)
             .map_err(|e| format!("execution-endpoints contains an invalid URL {:?}", e))?;
