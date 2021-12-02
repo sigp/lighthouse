@@ -8,12 +8,12 @@ use reqwest::header::CONTENT_TYPE;
 use sensitive_url::SensitiveUrl;
 use serde::de::DeserializeOwned;
 use serde_json::json;
+use std::sync::atomic::{AtomicU32, Ordering};
 use std::time::Duration;
 use types::EthSpec;
 
 pub use reqwest::Client;
 
-const STATIC_ID: u32 = 1;
 pub const JSONRPC_VERSION: &str = "2.0";
 
 pub const RETURN_FULL_TRANSACTION_OBJECTS: bool = false;
@@ -36,9 +36,32 @@ pub const ENGINE_GET_PAYLOAD_TIMEOUT: Duration = Duration::from_secs(2);
 pub const ENGINE_FORKCHOICE_UPDATED_V1: &str = "engine_forkchoiceUpdatedV1";
 pub const ENGINE_FORKCHOICE_UPDATED_TIMEOUT: Duration = Duration::from_millis(500);
 
+/// Initial value of the JSON-RPC request id to reset the id cached by the engine.
+pub const MESSAGE_ORDER_RESET_ID: u32 = 0;
+
+/// A strictly increasing counter over u32 for JSON-RPC request ids.
+///
+/// Uses an `AtomicU32` to ensure atomicity of increment operations.
+#[derive(Debug)]
+pub struct JsonRpcId(AtomicU32);
+
+impl JsonRpcId {
+    /// Create a new instance of the counter. Initialized with
+    /// `MESSAGE_ORDER_RESET_ID`.
+    pub fn new() -> Self {
+        Self(AtomicU32::new(MESSAGE_ORDER_RESET_ID))
+    }
+
+    /// Atomically increment `self` by 1 and return the old value.
+    pub fn get_and_increment(&self) -> u32 {
+        self.0.fetch_add(1, Ordering::Relaxed)
+    }
+}
+
 pub struct HttpJsonRpc {
     pub client: Client,
     pub url: SensitiveUrl,
+    json_rpc_id: JsonRpcId,
 }
 
 impl HttpJsonRpc {
@@ -46,6 +69,7 @@ impl HttpJsonRpc {
         Ok(Self {
             client: Client::builder().build()?,
             url,
+            json_rpc_id: JsonRpcId::new(),
         })
     }
 
@@ -59,7 +83,7 @@ impl HttpJsonRpc {
             jsonrpc: JSONRPC_VERSION,
             method,
             params,
-            id: STATIC_ID,
+            id: self.json_rpc_id.get_and_increment(),
         };
 
         let body: JsonResponseBody = self
