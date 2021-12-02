@@ -59,7 +59,7 @@ pub struct JsonPayloadIdResponse {
 #[serde(bound = "T: EthSpec", rename_all = "camelCase")]
 pub struct JsonExecutionPayloadV1<T: EthSpec> {
     pub parent_hash: Hash256,
-    pub coinbase: Address,
+    pub fee_recipient: Address,
     pub state_root: Hash256,
     pub receipt_root: Hash256,
     #[serde(with = "serde_logs_bloom")]
@@ -87,7 +87,7 @@ impl<T: EthSpec> From<ExecutionPayload<T>> for JsonExecutionPayloadV1<T> {
         // Use this verbose deconstruction pattern to ensure no field is left unused.
         let ExecutionPayload {
             parent_hash,
-            coinbase,
+            fee_recipient,
             state_root,
             receipt_root,
             logs_bloom,
@@ -104,7 +104,7 @@ impl<T: EthSpec> From<ExecutionPayload<T>> for JsonExecutionPayloadV1<T> {
 
         Self {
             parent_hash,
-            coinbase,
+            fee_recipient,
             state_root,
             receipt_root,
             logs_bloom,
@@ -126,7 +126,7 @@ impl<T: EthSpec> From<JsonExecutionPayloadV1<T>> for ExecutionPayload<T> {
         // Use this verbose deconstruction pattern to ensure no field is left unused.
         let JsonExecutionPayloadV1 {
             parent_hash,
-            coinbase,
+            fee_recipient,
             state_root,
             receipt_root,
             logs_bloom,
@@ -143,7 +143,7 @@ impl<T: EthSpec> From<JsonExecutionPayloadV1<T>> for ExecutionPayload<T> {
 
         Self {
             parent_hash,
-            coinbase,
+            fee_recipient,
             state_root,
             receipt_root,
             logs_bloom,
@@ -166,7 +166,7 @@ pub struct JsonPayloadAttributesV1 {
     #[serde(with = "eth2_serde_utils::u64_hex_be")]
     pub timestamp: u64,
     pub random: Hash256,
-    pub fee_recipient: Address,
+    pub suggested_fee_recipient: Address,
 }
 
 impl From<PayloadAttributes> for JsonPayloadAttributesV1 {
@@ -175,13 +175,13 @@ impl From<PayloadAttributes> for JsonPayloadAttributesV1 {
         let PayloadAttributes {
             timestamp,
             random,
-            fee_recipient,
+            suggested_fee_recipient,
         } = p;
 
         Self {
             timestamp,
             random,
-            fee_recipient,
+            suggested_fee_recipient,
         }
     }
 }
@@ -192,13 +192,13 @@ impl From<JsonPayloadAttributesV1> for PayloadAttributes {
         let JsonPayloadAttributesV1 {
             timestamp,
             random,
-            fee_recipient,
+            suggested_fee_recipient,
         } = j;
 
         Self {
             timestamp,
             random,
-            fee_recipient,
+            suggested_fee_recipient,
         }
     }
 }
