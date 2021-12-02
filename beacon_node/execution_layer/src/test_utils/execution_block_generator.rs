@@ -232,7 +232,7 @@ impl<T: EthSpec> ExecutionBlockGenerator<T> {
     }
 
     pub fn get_payload(&mut self, id: &PayloadId) -> Option<ExecutionPayload<T>> {
-        self.payload_ids.remove(id)
+        self.payload_ids.get(id).cloned()
     }
 
     pub fn execute_payload(&mut self, payload: ExecutionPayload<T>) -> ExecutePayloadResponse {

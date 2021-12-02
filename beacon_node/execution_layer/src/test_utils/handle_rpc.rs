@@ -73,7 +73,10 @@ pub async fn handle_rpc<T: EthSpec>(
                         validation_error: None,
                     }
                 }
-                FixedPayloadResponse::Invalid => unimplemented!(),
+                FixedPayloadResponse::Invalid { latest_valid_hash } => ExecutePayloadResponse {
+                    status: ExecutePayloadResponseStatus::Invalid { latest_valid_hash },
+                    message: None,
+                },
             };
 
             let (status, latest_valid_hash) = match response.status {

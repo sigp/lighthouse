@@ -311,14 +311,14 @@ impl ProtoArray {
 
     pub fn propagate_execution_payload_invalidation(
         &mut self,
-        invalid_root: Hash256,
-        latest_valid_ancestor_root: Hash256,
+        head_block_root: Hash256,
+        latest_valid_ancestor_hash: Hash256,
     ) -> Result<(), Error> {
         let mut invalidated_indices: HashSet<usize> = <_>::default();
         let mut index = *self
             .indices
-            .get(&invalid_root)
-            .ok_or(Error::NodeUnknown(invalid_root))?;
+            .get(&head_block_root)
+            .ok_or(Error::NodeUnknown(head_block_root))?;
         let first_potential_descendant = index + 1;
 
         // Collect all *ancestors* which were declared invalid since they reside between the
@@ -329,11 +329,18 @@ impl ProtoArray {
                 .get_mut(index)
                 .ok_or(Error::InvalidNodeIndex(index))?;
 
-            if node.root == latest_valid_ancestor_root {
-                // It might be new knowledge that this block is valid, ensure that it and all
-                // ancestors are marked as valid.
-                self.propagate_execution_payload_validation(index)?;
-                break;
+            match node.execution_status {
+                ExecutionStatus::Valid(hash)
+                | ExecutionStatus::Invalid(hash)
+                | ExecutionStatus::Unknown(hash) => {
+                    if hash == latest_valid_ancestor_hash {
+                        // It might be new knowledge that this block is valid, ensure that it and all
+                        // ancestors are marked as valid.
+                        self.propagate_execution_payload_validation(index)?;
+                        break;
+                    }
+                }
+                ExecutionStatus::Irrelevant(_) => break,
             }
 
             match &node.execution_status {

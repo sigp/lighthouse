@@ -30,7 +30,7 @@ mod mock_execution_layer;
 pub enum FixedPayloadResponse {
     None,
     Valid,
-    Invalid,
+    Invalid { latest_valid_hash: Hash256 },
 }
 
 pub struct MockServer<T: EthSpec> {
@@ -125,8 +125,9 @@ impl<T: EthSpec> MockServer<T> {
         *self.ctx.fixed_payload_response.lock() = FixedPayloadResponse::Valid;
     }
 
-    pub fn all_payloads_invalid(&self) {
-        *self.ctx.fixed_payload_response.lock() = FixedPayloadResponse::Invalid;
+    pub fn all_payloads_invalid(&self, latest_valid_hash: Hash256) {
+        *self.ctx.fixed_payload_response.lock() =
+            FixedPayloadResponse::Invalid { latest_valid_hash };
     }
 
     pub fn full_payload_verification(&self) {

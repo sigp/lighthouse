@@ -61,10 +61,11 @@ pub fn execute_payload<T: BeaconChainTypes>(
         Ok(status) => match status {
             ExecutePayloadResponseStatus::Valid { .. } => Ok(PayloadVerificationStatus::Verified),
             ExecutePayloadResponseStatus::Invalid { latest_valid_hash } => {
+                let head_block_root = block.parent_root();
                 match chain
                     .fork_choice
                     .write()
-                    .on_invalid_execution_payload(block_root, latest_valid_hash)
+                    .on_invalid_execution_payload(head_block_root, latest_valid_hash)
                 {
                     Ok(()) => warn!(
                         chain.log,

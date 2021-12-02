@@ -70,7 +70,17 @@ impl InvalidPayloadRig {
                 self.valid_blocks.insert(block_root);
             }
             Payload::Invalid => {
-                mock_execution_layer.server.all_payloads_invalid();
+                let parent = self
+                    .harness
+                    .chain
+                    .get_block(&block.message().parent_root())
+                    .unwrap()
+                    .unwrap();
+                let parent_payload = parent.message().body().execution_payload().unwrap();
+                mock_execution_layer
+                    .server
+                    .all_payloads_invalid(parent_payload.block_hash);
+
                 match self.harness.process_block(slot, block.clone()) {
                     Err(BlockError::ExecutionPayloadError(
                         ExecutionPayloadError::RejectedByExecutionEngine,
