@@ -321,14 +321,13 @@ where
                 .deconstruct()
                 .0;
 
-            self.justified_balances = self
+            let state = self
                 .store
                 .get_state(&justified_block.state_root(), Some(justified_block.slot()))
                 .map_err(Error::FailedToReadState)?
-                .ok_or_else(|| Error::MissingState(justified_block.state_root()))?
-                .balances()
-                .clone()
-                .into();
+                .ok_or_else(|| Error::MissingState(justified_block.state_root()))?;
+
+            self.justified_balances = get_effective_balances(&state);
         }
 
         Ok(())
