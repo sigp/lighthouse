@@ -14,12 +14,12 @@ use libp2p::core::{
     connection::ConnectionLimits, identity::Keypair, multiaddr::Multiaddr, muxing::StreamMuxerBox,
     transport::Boxed,
 };
+use libp2p::gossipsub::open_metrics_client::registry::Registry;
 use libp2p::{
     bandwidth::{BandwidthLogging, BandwidthSinks},
     core, noise,
     swarm::{SwarmBuilder, SwarmEvent},
     PeerId, Swarm, Transport,
-    
 };
 use slog::{crit, debug, info, o, trace, warn, Logger};
 use ssz::Decode;
@@ -29,10 +29,8 @@ use std::pin::Pin;
 use std::sync::Arc;
 use std::time::Duration;
 use types::{ChainSpec, EnrForkId, EthSpec, ForkContext};
-use libp2p::gossipsub::open_metrics_client::registry::Registry;
 
 use crate::peer_manager::{MIN_OUTBOUND_ONLY_FACTOR, PEER_EXCESS_FACTOR, PRIORITY_PEER_EXCESS};
-
 
 pub const NETWORK_KEY_FILENAME: &str = "key";
 /// The maximum simultaneous libp2p connections per peer.
@@ -106,7 +104,6 @@ impl<TSpec: EthSpec> Service<TSpec> {
                 .iter()
                 .map(|x| PeerId::from(x.clone()))
                 .collect(),
-
             &log,
         ));
 
@@ -124,13 +121,8 @@ impl<TSpec: EthSpec> Service<TSpec> {
                 .map_err(|e| format!("Failed to build transport: {:?}", e))?;
 
             // Lighthouse network behaviour
-            let behaviour = Behaviour::new(
-                &local_keypair,
-                ctx,
-                network_globals.clone(),
-                &log,
-            )
-            .await?;
+            let behaviour =
+                Behaviour::new(&local_keypair, ctx, network_globals.clone(), &log).await?;
 
             // use the executor for libp2p
             struct Executor(task_executor::TaskExecutor);

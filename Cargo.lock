@@ -1185,8 +1185,7 @@ dependencies = [
 [[package]]
 name = "discv5"
 version = "0.1.0-beta.11"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8a4968631f2eb03ef8dff74fe355440bcf4bd1c514c4326325fc739640c4ec53"
+source = "git+https://github.com/sigp/discv5?branch=bandwidth-metrics#1d4ba1a05e567af1e19b8ea5ddfb3593854b7d58"
 dependencies = [
  "aes",
  "aes-gcm",
@@ -2777,7 +2776,7 @@ checksum = "c7d73b3f436185384286bd8098d17ec07c9a7d2388a6599f824d8502b529702a"
 [[package]]
 name = "libp2p"
 version = "0.42.0"
-source = "git+https://github.com/sigp/rust-libp2p?branch=gossipsub-network-performance-metrics#6af6fffa158d8dc22826756c1e54d3a8ca2160dd"
+source = "git+https://github.com/sigp/rust-libp2p?branch=gossipsub-network-performance-metrics#5572fd2f6f8b7c6414444c194927570236a33049"
 dependencies = [
  "atomic",
  "bytes",
@@ -2842,7 +2841,7 @@ dependencies = [
 [[package]]
 name = "libp2p-core"
 version = "0.31.0"
-source = "git+https://github.com/sigp/rust-libp2p?branch=gossipsub-network-performance-metrics#6af6fffa158d8dc22826756c1e54d3a8ca2160dd"
+source = "git+https://github.com/sigp/rust-libp2p?branch=gossipsub-network-performance-metrics#5572fd2f6f8b7c6414444c194927570236a33049"
 dependencies = [
  "asn1_der",
  "bs58",
@@ -2876,7 +2875,7 @@ dependencies = [
 [[package]]
 name = "libp2p-dns"
 version = "0.31.0"
-source = "git+https://github.com/sigp/rust-libp2p?branch=gossipsub-network-performance-metrics#6af6fffa158d8dc22826756c1e54d3a8ca2160dd"
+source = "git+https://github.com/sigp/rust-libp2p?branch=gossipsub-network-performance-metrics#5572fd2f6f8b7c6414444c194927570236a33049"
 dependencies = [
  "futures",
  "libp2p-core 0.31.0",
@@ -2888,7 +2887,7 @@ dependencies = [
 [[package]]
 name = "libp2p-gossipsub"
 version = "0.35.0"
-source = "git+https://github.com/sigp/rust-libp2p?branch=gossipsub-network-performance-metrics#6af6fffa158d8dc22826756c1e54d3a8ca2160dd"
+source = "git+https://github.com/sigp/rust-libp2p?branch=gossipsub-network-performance-metrics#5572fd2f6f8b7c6414444c194927570236a33049"
 dependencies = [
  "asynchronous-codec",
  "base64 0.13.0",
@@ -2916,7 +2915,7 @@ dependencies = [
 [[package]]
 name = "libp2p-identify"
 version = "0.33.0"
-source = "git+https://github.com/sigp/rust-libp2p?branch=gossipsub-network-performance-metrics#6af6fffa158d8dc22826756c1e54d3a8ca2160dd"
+source = "git+https://github.com/sigp/rust-libp2p?branch=gossipsub-network-performance-metrics#5572fd2f6f8b7c6414444c194927570236a33049"
 dependencies = [
  "futures",
  "futures-timer",
@@ -2932,7 +2931,7 @@ dependencies = [
 [[package]]
 name = "libp2p-metrics"
 version = "0.3.0"
-source = "git+https://github.com/sigp/rust-libp2p?branch=gossipsub-network-performance-metrics#6af6fffa158d8dc22826756c1e54d3a8ca2160dd"
+source = "git+https://github.com/sigp/rust-libp2p?branch=gossipsub-network-performance-metrics#5572fd2f6f8b7c6414444c194927570236a33049"
 dependencies = [
  "libp2p-core 0.31.0",
  "libp2p-gossipsub",
@@ -2944,7 +2943,7 @@ dependencies = [
 [[package]]
 name = "libp2p-mplex"
 version = "0.31.0"
-source = "git+https://github.com/sigp/rust-libp2p?branch=gossipsub-network-performance-metrics#6af6fffa158d8dc22826756c1e54d3a8ca2160dd"
+source = "git+https://github.com/sigp/rust-libp2p?branch=gossipsub-network-performance-metrics#5572fd2f6f8b7c6414444c194927570236a33049"
 dependencies = [
  "asynchronous-codec",
  "bytes",
@@ -2961,7 +2960,7 @@ dependencies = [
 [[package]]
 name = "libp2p-noise"
 version = "0.34.0"
-source = "git+https://github.com/sigp/rust-libp2p?branch=gossipsub-network-performance-metrics#6af6fffa158d8dc22826756c1e54d3a8ca2160dd"
+source = "git+https://github.com/sigp/rust-libp2p?branch=gossipsub-network-performance-metrics#5572fd2f6f8b7c6414444c194927570236a33049"
 dependencies = [
  "bytes",
  "curve25519-dalek",
@@ -2982,7 +2981,7 @@ dependencies = [
 [[package]]
 name = "libp2p-swarm"
 version = "0.33.0"
-source = "git+https://github.com/sigp/rust-libp2p?branch=gossipsub-network-performance-metrics#6af6fffa158d8dc22826756c1e54d3a8ca2160dd"
+source = "git+https://github.com/sigp/rust-libp2p?branch=gossipsub-network-performance-metrics#5572fd2f6f8b7c6414444c194927570236a33049"
 dependencies = [
  "either",
  "futures",
@@ -2998,7 +2997,7 @@ dependencies = [
 [[package]]
 name = "libp2p-swarm-derive"
 version = "0.26.1"
-source = "git+https://github.com/sigp/rust-libp2p?branch=gossipsub-network-performance-metrics#6af6fffa158d8dc22826756c1e54d3a8ca2160dd"
+source = "git+https://github.com/sigp/rust-libp2p?branch=gossipsub-network-performance-metrics#5572fd2f6f8b7c6414444c194927570236a33049"
 dependencies = [
  "quote",
  "syn",
@@ -3007,7 +3006,7 @@ dependencies = [
 [[package]]
 name = "libp2p-tcp"
 version = "0.31.0"
-source = "git+https://github.com/sigp/rust-libp2p?branch=gossipsub-network-performance-metrics#6af6fffa158d8dc22826756c1e54d3a8ca2160dd"
+source = "git+https://github.com/sigp/rust-libp2p?branch=gossipsub-network-performance-metrics#5572fd2f6f8b7c6414444c194927570236a33049"
 dependencies = [
  "futures",
  "futures-timer",
@@ -3023,7 +3022,7 @@ dependencies = [
 [[package]]
 name = "libp2p-websocket"
 version = "0.33.0"
-source = "git+https://github.com/sigp/rust-libp2p?branch=gossipsub-network-performance-metrics#6af6fffa158d8dc22826756c1e54d3a8ca2160dd"
+source = "git+https://github.com/sigp/rust-libp2p?branch=gossipsub-network-performance-metrics#5572fd2f6f8b7c6414444c194927570236a33049"
 dependencies = [
  "either",
  "futures",
@@ -3040,7 +3039,7 @@ dependencies = [
 [[package]]
 name = "libp2p-yamux"
 version = "0.35.0"
-source = "git+https://github.com/sigp/rust-libp2p?branch=gossipsub-network-performance-metrics#6af6fffa158d8dc22826756c1e54d3a8ca2160dd"
+source = "git+https://github.com/sigp/rust-libp2p?branch=gossipsub-network-performance-metrics#5572fd2f6f8b7c6414444c194927570236a33049"
 dependencies = [
  "futures",
  "libp2p-core 0.31.0",
@@ -3628,7 +3627,7 @@ dependencies = [
 [[package]]
 name = "multistream-select"
 version = "0.11.0"
-source = "git+https://github.com/sigp/rust-libp2p?branch=gossipsub-network-performance-metrics#6af6fffa158d8dc22826756c1e54d3a8ca2160dd"
+source = "git+https://github.com/sigp/rust-libp2p?branch=gossipsub-network-performance-metrics#5572fd2f6f8b7c6414444c194927570236a33049"
 dependencies = [
  "bytes",
  "futures",

@@ -52,7 +52,6 @@ pub fn gather_prometheus_metrics<T: BeaconChainTypes>(
     encoder
         .encode(&lighthouse_metrics::gather(), &mut buffer)
         .unwrap();
-
     // encode gossipsub metrics also if they exist
     if let Some(registry) = ctx.gossipsub_registry.as_ref() {
         if let Ok(registry_locked) = registry.lock() {

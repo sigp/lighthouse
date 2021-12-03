@@ -10,15 +10,17 @@ use beacon_chain::{BeaconChain, BeaconChainError, BeaconChainTypes};
 use futures::future::OptionFuture;
 use futures::prelude::*;
 use lighthouse_network::{
+    open_metrics_client::registry::Registry, MessageAcceptance, Service as LibP2PService,
+};
+use lighthouse_network::{
     rpc::{GoodbyeReason, RPCResponseErrorCode, RequestId},
-    Libp2pEvent, PeerAction, PeerRequestId, PubsubMessage, ReportSource, Request, Response, Subnet,Context
-    
+    Context, Libp2pEvent, PeerAction, PeerRequestId, PubsubMessage, ReportSource, Request,
+    Response, Subnet,
 };
 use lighthouse_network::{
     types::{GossipEncoding, GossipTopic},
     BehaviourEvent, MessageId, NetworkGlobals, PeerId,
 };
-use lighthouse_network::{MessageAcceptance, Service as LibP2PService, open_metrics_client::registry::Registry};
 use slog::{crit, debug, error, info, o, trace, warn};
 use std::{net::SocketAddr, pin::Pin, sync::Arc, time::Duration};
 use store::HotColdDB;
@@ -211,12 +213,8 @@ impl<T: BeaconChainTypes> NetworkService<T> {
         };
 
         // launch libp2p service
-        let (network_globals, mut libp2p) = LibP2PService::new(
-            executor.clone(),
-            service_context,
-            &network_log,
-        )
-        .await?;
+        let (network_globals, mut libp2p) =
+            LibP2PService::new(executor.clone(), service_context, &network_log).await?;
 
         // Repopulate the DHT with stored ENR's if discovery is not disabled.
         if !config.disable_discovery {

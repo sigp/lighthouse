@@ -16,10 +16,9 @@ use eth2::{
     types::{BlockId, StateId},
     BeaconNodeHttpClient, Error as ApiError, Timeouts,
 };
-use lighthouse_network::{NetworkGlobals, open_metrics_client::registry::Registry};
 use execution_layer::ExecutionLayer;
 use genesis::{interop_genesis_state, Eth1GenesisService, DEFAULT_ETH1_BLOCK_HASH};
-use lighthouse_network::NetworkGlobals;
+use lighthouse_network::{open_metrics_client::registry::Registry, NetworkGlobals};
 use monitoring_api::{MonitoringHttpClient, ProcessType};
 use network::{NetworkConfig, NetworkMessage, NetworkService};
 use slasher::Slasher;
@@ -454,12 +453,18 @@ where
         // If gossipsub metrics are required we build a registry to record them
         let mut gossipsub_registry = if config.metrics_enabled {
             Some(Registry::default())
-        } else { None};
+        } else {
+            None
+        };
 
-        let (network_globals, network_send) =
-            NetworkService::start(beacon_chain, config, context.executor, gossipsub_registry.as_mut())
-                .await
-                .map_err(|e| format!("Failed to start network: {:?}", e))?;
+        let (network_globals, network_send) = NetworkService::start(
+            beacon_chain,
+            config,
+            context.executor,
+            gossipsub_registry.as_mut().map(|registry| registry.sub_registry_with_prefix("gossipsub")),
+        )
+        .await
+        .map_err(|e| format!("Failed to start network: {:?}", e))?;
 
         self.network_globals = Some(network_globals);
         self.network_send = Some(network_send);
@@ -624,7 +629,10 @@ where
                 chain: self.beacon_chain.clone(),
                 db_path: self.db_path.clone(),
                 freezer_db_path: self.freezer_db_path.clone(),
-                gossipsub_registry: self.gossipsub_registry.take().map(|v| std::sync::Mutex::new(v)),
+                gossipsub_registry: self
+                    .gossipsub_registry
+                    .take()
+                    .map(|v| std::sync::Mutex::new(v)),
                 log: log.clone(),
             });
 

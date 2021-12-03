@@ -4,8 +4,8 @@
 mod metrics;
 
 use beacon_chain::{BeaconChain, BeaconChainTypes};
-use lighthouse_version::version_with_platform;
 use lighthouse_network::open_metrics_client::registry::Registry;
+use lighthouse_version::version_with_platform;
 use serde::{Deserialize, Serialize};
 use slog::{crit, info, Logger};
 use std::future::Future;

@@ -23,6 +23,14 @@ lazy_static! {
         "libp2p_peer_disconnect_event_total",
         "Count of libp2p peer disconnect events"
     );
+    pub static ref DISCOVERY_SENT_BYTES: Result<IntGauge> = try_create_int_gauge(
+        "discovery_sent_bytes",
+        "The number of bytes sent in discovery"
+    );
+    pub static ref DISCOVERY_RECV_BYTES: Result<IntGauge> = try_create_int_gauge(
+        "discovery_recv_bytes",
+        "The number of bytes received in discovery"
+    );
     pub static ref DISCOVERY_QUEUE: Result<IntGauge> = try_create_int_gauge(
         "discovery_queue_size",
         "The number of discovery queries awaiting execution"
@@ -35,11 +43,7 @@ lazy_static! {
         "discovery_sessions",
         "The number of active discovery sessions with peers"
     );
-    pub static ref DISCOVERY_REQS_IP: Result<GaugeVec> = try_create_float_gauge_vec(
-        "discovery_reqs_per_ip",
-        "Unsolicited discovery requests per ip per second",
-        &["Addresses"]
-    );
+
     pub static ref PEERS_PER_CLIENT: Result<IntGaugeVec> = try_create_int_gauge_vec(
         "libp2p_peers_per_client",
         "The connected peers via client implementation",
@@ -127,22 +131,8 @@ pub fn check_nat() {
 
 pub fn scrape_discovery_metrics() {
     let metrics = discv5::metrics::Metrics::from(discv5::Discv5::raw_metrics());
-
     set_float_gauge(&DISCOVERY_REQS, metrics.unsolicited_requests_per_second);
-
     set_gauge(&DISCOVERY_SESSIONS, metrics.active_sessions as i64);
-
-    let process_gauge_vec = |gauge: &Result<GaugeVec>, metrics: discv5::metrics::Metrics| {
-        if let Ok(gauge_vec) = gauge {
-            gauge_vec.reset();
-            for (ip, value) in metrics.requests_per_ip_per_second.iter() {
-                if let Ok(metric) = gauge_vec.get_metric_with_label_values(&[&format!("{:?}", ip)])
-                {
-                    metric.set(*value);
-                }
-            }
-        }
-    };
-
-    process_gauge_vec(&DISCOVERY_REQS_IP, metrics);
+    set_gauge(&DISCOVERY_SENT_BYTES, metrics.bytes_sent as i64);
+    set_gauge(&DISCOVERY_RECV_BYTES, metrics.bytes_recv as i64);
 }

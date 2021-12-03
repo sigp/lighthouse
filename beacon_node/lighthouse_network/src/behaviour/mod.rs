@@ -8,7 +8,7 @@ use crate::peer_manager::{
     ConnectionDirection, PeerManager, PeerManagerEvent,
 };
 use crate::rpc::*;
-use crate::service::{METADATA_FILENAME, Context as ServiceContext};
+use crate::service::{Context as ServiceContext, METADATA_FILENAME};
 use crate::types::{
     subnet_from_topic_hash, GossipEncoding, GossipKind, GossipTopic, SnappyTransform, Subnet,
     SubnetDiscovery,
@@ -49,7 +49,6 @@ use types::{
     consts::altair::SYNC_COMMITTEE_SUBNET_COUNT, EnrForkId, EthSpec, ForkContext,
     SignedBeaconBlock, Slot, SubnetId, SyncSubnetId,
 };
-
 
 pub mod gossipsub_scoring_parameters;
 
@@ -231,8 +230,10 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
         config.gs_config = gossipsub_config(ctx.fork_context.clone());
 
         // If metrics are enabled for gossipsub build the configuration
-        let gossipsub_metrics = ctx.gossipsub_registry.map(|registry| (registry, GossipsubMetricsConfig::default()));
-       
+        let gossipsub_metrics = ctx
+            .gossipsub_registry
+            .map(|registry| (registry, GossipsubMetricsConfig::default()));
+
         let snappy_transform = SnappyTransform::new(config.gs_config.max_transmit_size());
         let mut gossipsub = Gossipsub::new_with_subscription_filter_and_transform(
             MessageAuthenticity::Anonymous,

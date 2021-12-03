@@ -8,15 +8,15 @@ use crate::{Subnet, SubnetDiscovery};
 use discv5::Enr;
 use hashset_delay::HashSetDelay;
 use libp2p::identify::IdentifyInfo;
-use peerdb::{BanOperation, BanResult, ScoreUpdateResult, client::ClientKind};
+use peerdb::{client::ClientKind, BanOperation, BanResult, ScoreUpdateResult};
 use slog::{debug, error, warn};
 use smallvec::SmallVec;
 use std::{
     sync::Arc,
     time::{Duration, Instant},
 };
-use types::{EthSpec, SyncSubnetId};
 use strum::IntoEnumIterator;
+use types::{EthSpec, SyncSubnetId};
 
 pub use libp2p::core::{identity::Keypair, Multiaddr};
 
@@ -621,15 +621,17 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
         let mut clients_per_peer = HashMap::new();
 
         for (_peer, peer_info) in self.network_globals.peers.read().connected_peers() {
-            connected_peer_count +=1;
-            if let PeerConnectionStatus::Connected { n_in, .. }  = peer_info.connection_status() {
+            connected_peer_count += 1;
+            if let PeerConnectionStatus::Connected { n_in, .. } = peer_info.connection_status() {
                 if *n_in > 0 {
-                    inbound_connected_peers +=1;
+                    inbound_connected_peers += 1;
                 } else {
-                    outbound_connected_peers +=1;
+                    outbound_connected_peers += 1;
                 }
             }
-            *clients_per_peer.entry(peer_info.client().kind.to_string()).or_default() +=1;
+            *clients_per_peer
+                .entry(peer_info.client().kind.to_string())
+                .or_default() += 1;
         }
 
         metrics::set_gauge(&metrics::PEERS_CONNECTED, connected_peer_count);
@@ -639,7 +641,11 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
 
         for client_kind in ClientKind::iter() {
             let value = clients_per_peer.get(&client_kind.to_string()).unwrap_or(&0);
-            metrics::set_gauge_vec(&metrics::PEERS_PER_CLIENT, &[&client_kind.to_string()], *value as i64);
+            metrics::set_gauge_vec(
+                &metrics::PEERS_PER_CLIENT,
+                &[&client_kind.to_string()],
+                *value as i64,
+            );
         }
     }
 
