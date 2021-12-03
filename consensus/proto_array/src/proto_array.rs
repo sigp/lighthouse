@@ -140,8 +140,14 @@ impl ProtoArray {
             //
             // https://github.com/ethereum/consensus-specs/blob/dev/specs/phase0/fork-choice.md#get_latest_attesting_balance
             if proposer_boost_root != Hash256::zero() && proposer_boost_root == node.root {
-                let num_validators = new_balances.len() as u64;
-                let average_balance = new_balances.iter().sum::<u64>() / num_validators;
+                let (total_balance, num_validators) = new_balances
+                    .iter()
+                    // We need to filter zero balances here to get an accurate active validator count.
+                    // This is because we default inactive validator balances to zero when creating
+                    // this balances array.
+                    .filter(|b| b != 0)
+                    .fold((0, 0), |(sum, count, balance)| (sum + balance, count + 1));
+                let average_balance = total_balance / num_validators;
                 let committee_size = num_validators / E::slots_per_epoch();
                 let committee_weight = committee_size * average_balance;
                 proposer_boost_score =
