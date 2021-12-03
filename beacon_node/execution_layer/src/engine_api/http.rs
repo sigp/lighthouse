@@ -462,7 +462,7 @@ mod test {
                     {
                         "timestamp":"0x5",
                         "random": HASH_00,
-                        "feeRecipient": ADDRESS_00
+                        "suggestedFeeRecipient": ADDRESS_00
                     }]
                 }),
             )
@@ -617,7 +617,7 @@ mod test {
                     {
                         "timestamp":"0x5",
                         "random": HASH_00,
-                        "feeRecipient":"0xa94f5374fce5edbc8e2a8697c15331677e6ebf0b"
+                        "suggestedFeeRecipient":"0xa94f5374fce5edbc8e2a8697c15331677e6ebf0b"
                     }]
                 })
             )
