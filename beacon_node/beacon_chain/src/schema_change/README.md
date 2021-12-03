@@ -27,7 +27,7 @@ just have to handle manually resyncing any test nodes (use checkpoint sync).
 
 ## Naming Conventions
 
-Prefer to name versions of structs by _the version at which the change was introduced__. For example
+Prefer to name versions of structs by _the version at which the change was introduced_. For example
 if you add a field to `Foo` in v9, call the previous version `FooV1` (assuming this is `Foo`'s first
 migration) and write a schema change that migrates from `FooV1` to `FooV9`.
 
