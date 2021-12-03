@@ -40,8 +40,8 @@ excluded_paths = [
     "tests/mainnet/merge/merkle/single_proof",
     "tests/minimal/merge/merkle/single_proof",
     #FIXME(merge): Merge transition tests are  now available but not yet passing
-    "tests/mainnet/merge/transition"
-    "tests/minimal/merge/transition"
+    "tests/mainnet/merge/transition/core"
+    "tests/minimal/merge/transition/core"
 ]
 
 def normalize_path(path):
