@@ -56,7 +56,7 @@ pub(crate) fn update_with_reinitialized_fork_choice<T: BeaconChainTypes>(
     Ok(())
 }
 
-pub(crate) fn update_legacy_fork_choice<T: BeaconChainTypes>(
+pub(crate) fn update_fork_choice<T: BeaconChainTypes>(
     persisted_fork_choice: &mut PersistedForkChoiceV7,
     db: Arc<HotColdDB<T::EthSpec, T::HotStore, T::ColdStore>>,
 ) -> Result<(), StoreError> {
@@ -72,7 +72,7 @@ pub(crate) fn update_legacy_fork_choice<T: BeaconChainTypes>(
                 ))
             })?;
 
-    // Clone the legacy proto nodes in order to maintain information about `node.justified_epoch`
+    // Clone the V6 proto nodes in order to maintain information about `node.justified_epoch`
     // and `node.finalized_epoch`.
     let nodes_v6 = ssz_container_v6.nodes.clone();
 
@@ -84,7 +84,6 @@ pub(crate) fn update_legacy_fork_choice<T: BeaconChainTypes>(
     let ssz_container_v7: SszContainerSchemaV7 =
         ssz_container_v6.into_ssz_container_v7(justified_checkpoint, finalized_checkpoint);
     let ssz_container: SszContainer = ssz_container_v7.into();
-
     let mut fork_choice: ProtoArrayForkChoice = ssz_container.into();
 
     update_checkpoints::<T>(finalized_checkpoint.root, &nodes_v6, &mut fork_choice, db)
