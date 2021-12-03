@@ -136,7 +136,7 @@ impl ProtoArray {
                 node_delta -= self.previous_proposer_boost.score as i64;
             }
             // If we find the node matching the current proposer boost root, increase
-            // the delta by the previous score amount.
+            // the delta by the new score amount.
             //
             // https://github.com/ethereum/consensus-specs/blob/dev/specs/phase0/fork-choice.md#get_latest_attesting_balance
             if proposer_boost_root != Hash256::zero() && proposer_boost_root == node.root {
