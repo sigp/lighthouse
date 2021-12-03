@@ -50,7 +50,7 @@ Avoid names like:
 
 Previously the schema migration code would name types by the _last_ version at which they were
 valid. For example if `Foo` changed in `V9` then we would name the two variants `FooV8` and `FooV9`.
-The problem with this scheme is that if `Foo` changes again in future at say v12 then `FooV9` would
+The problem with this scheme is that if `Foo` changes again in the future at say v12 then `FooV9` would
 need to be renamed to `FooV11`, which is annoying. Using the _first_ valid version as described
 above does not have this issue.
 
