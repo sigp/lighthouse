@@ -62,7 +62,8 @@ pub enum Step<B, A, P> {
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Meta {
-    description: String,
+    #[serde(rename(deserialize = "description"))]
+    _description: String,
 }
 
 #[derive(Debug)]

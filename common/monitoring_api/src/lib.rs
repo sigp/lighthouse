@@ -128,7 +128,7 @@ impl MonitoringHttpClient {
             Error::BeaconMetricsFailed("Beacon metrics require db path".to_string())
         })?;
 
-        let freezer_db_path = self.db_path.as_ref().ok_or_else(|| {
+        let freezer_db_path = self.freezer_db_path.as_ref().ok_or_else(|| {
             Error::BeaconMetricsFailed("Beacon metrics require freezer db path".to_string())
         })?;
         let metrics =
