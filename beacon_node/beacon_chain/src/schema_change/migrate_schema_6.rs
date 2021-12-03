@@ -1,22 +1,19 @@
-use crate::beacon_fork_choice_store::{BalancesCache, PersistedForkChoiceStore};
-use crate::persisted_fork_choice::PersistedForkChoice;
+///! These functions and structs are only relevant to the database migration from schema 5 to 6.
+use crate::persisted_fork_choice::PersistedForkChoiceV1;
 use crate::types::{AttestationShufflingId, Checkpoint, Epoch, Hash256, Slot};
 use crate::BeaconChainTypes;
-
-use fork_choice::PersistedForkChoice as PersistedForkChoiceBytes;
-///! These functions and structs are only relevant to the database migration from schema 5 to 6.
 use proto_array::core::{ProposerBoost, ProtoNode, SszContainer, VoteTracker};
 use proto_array::ExecutionStatus;
 use ssz::four_byte_option_impl;
 use ssz::{Decode, Encode};
 use ssz_derive::{Decode, Encode};
-use store::{DBColumn, Error, StoreItem};
+
 // Define a "legacy" implementation of `Option<usize>` which uses four bytes for encoding the union
 // selector.
 four_byte_option_impl!(four_byte_option_usize, usize);
 
 pub(crate) fn update_execution_statuses<T: BeaconChainTypes>(
-    persisted_fork_choice: &mut LegacyPersistedForkChoice,
+    persisted_fork_choice: &mut PersistedForkChoiceV1,
 ) -> Result<(), String> {
     let legacy_container =
         LegacySszContainer::from_ssz_bytes(&persisted_fork_choice.fork_choice.proto_array_bytes)
@@ -170,59 +167,6 @@ impl Into<ProtoNode> for ProtoNodeSchema5 {
             best_child: self.best_child,
             best_descendant: self.best_descendant,
             execution_status: self.execution_status,
-        }
-    }
-}
-
-#[derive(Encode, Decode)]
-pub struct LegacyPersistedForkChoice {
-    pub fork_choice: PersistedForkChoiceBytes,
-    pub fork_choice_store: LegacyPersistedForkChoiceStore,
-}
-
-impl StoreItem for LegacyPersistedForkChoice {
-    fn db_column() -> DBColumn {
-        DBColumn::ForkChoice
-    }
-
-    fn as_store_bytes(&self) -> Vec<u8> {
-        self.as_ssz_bytes()
-    }
-
-    fn from_store_bytes(bytes: &[u8]) -> std::result::Result<Self, Error> {
-        Self::from_ssz_bytes(bytes).map_err(Into::into)
-    }
-}
-
-impl Into<PersistedForkChoice> for LegacyPersistedForkChoice {
-    fn into(self) -> PersistedForkChoice {
-        PersistedForkChoice {
-            fork_choice: self.fork_choice,
-            fork_choice_store: self.fork_choice_store.into(),
-        }
-    }
-}
-
-#[derive(Encode, Decode)]
-pub struct LegacyPersistedForkChoiceStore {
-    balances_cache: BalancesCache,
-    time: Slot,
-    pub finalized_checkpoint: Checkpoint,
-    pub justified_checkpoint: Checkpoint,
-    justified_balances: Vec<u64>,
-    best_justified_checkpoint: Checkpoint,
-}
-
-impl Into<PersistedForkChoiceStore> for LegacyPersistedForkChoiceStore {
-    fn into(self) -> PersistedForkChoiceStore {
-        PersistedForkChoiceStore {
-            balances_cache: self.balances_cache,
-            time: self.time,
-            finalized_checkpoint: self.finalized_checkpoint,
-            justified_checkpoint: self.justified_checkpoint,
-            justified_balances: self.justified_balances,
-            best_justified_checkpoint: self.best_justified_checkpoint,
-            proposer_boost_root: Hash256::zero(),
         }
     }
 }

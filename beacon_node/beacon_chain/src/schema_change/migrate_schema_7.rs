@@ -4,7 +4,8 @@ use super::migrate_schema_6::{
 
 ///! These functions and structs are only relevant to the database migration from schema 6 to 7.
 use crate::beacon_chain::BeaconChainTypes;
-use crate::persisted_fork_choice::PersistedForkChoice;
+use crate::beacon_fork_choice_store::{PersistedForkChoiceStoreV1, PersistedForkChoiceStoreV7};
+use crate::persisted_fork_choice::{PersistedForkChoiceV1, PersistedForkChoiceV7};
 use crate::types::{Checkpoint, Epoch, Hash256};
 use crate::types::{EthSpec, Slot};
 use crate::{BeaconForkChoiceStore, BeaconSnapshot};
@@ -26,7 +27,7 @@ four_byte_option_impl!(four_byte_option_usize, usize);
 /// This method is used to re-initialize fork choice from the finalized state in case we hit an
 /// error during this migration.
 pub(crate) fn update_with_reinitialized_fork_choice<T: BeaconChainTypes>(
-    persisted_fork_choice: &mut PersistedForkChoice,
+    persisted_fork_choice: &mut PersistedForkChoiceV7,
     db: Arc<HotColdDB<T::EthSpec, T::HotStore, T::ColdStore>>,
 ) -> Result<(), String> {
     let anchor_block_root = persisted_fork_choice
@@ -59,7 +60,7 @@ pub(crate) fn update_with_reinitialized_fork_choice<T: BeaconChainTypes>(
 }
 
 pub(crate) fn update_legacy_fork_choice<T: BeaconChainTypes>(
-    persisted_fork_choice: &mut PersistedForkChoice,
+    persisted_fork_choice: &mut PersistedForkChoiceV7,
     db: Arc<HotColdDB<T::EthSpec, T::HotStore, T::ColdStore>>,
 ) -> Result<(), StoreError> {
     // `PersistedForkChoice` stores the `ProtoArray` as a `Vec<u8>`. Deserialize these
@@ -292,7 +293,7 @@ fn find_finalized_descendant_heads(
 }
 
 fn update_store_justified_checkpoint(
-    persisted_fork_choice: &mut PersistedForkChoice,
+    persisted_fork_choice: &mut PersistedForkChoiceV7,
     fork_choice: &mut ProtoArrayForkChoice,
 ) -> Result<(), String> {
     let justified_checkpoint = fork_choice
@@ -311,4 +312,28 @@ fn update_store_justified_checkpoint(
     persisted_fork_choice.fork_choice.proto_array_bytes = fork_choice.as_bytes();
     persisted_fork_choice.fork_choice_store.justified_checkpoint = justified_checkpoint;
     Ok(())
+}
+
+// Add a zero `proposer_boost_root` when migrating from V1-6 to V7.
+impl From<PersistedForkChoiceStoreV1> for PersistedForkChoiceStoreV7 {
+    fn from(other: PersistedForkChoiceStoreV1) -> Self {
+        Self {
+            balances_cache: other.balances_cache,
+            time: other.time,
+            finalized_checkpoint: other.finalized_checkpoint,
+            justified_checkpoint: other.justified_checkpoint,
+            justified_balances: other.justified_balances,
+            best_justified_checkpoint: other.best_justified_checkpoint,
+            proposer_boost_root: Hash256::zero(),
+        }
+    }
+}
+
+impl From<PersistedForkChoiceV1> for PersistedForkChoiceV7 {
+    fn from(other: PersistedForkChoiceV1) -> Self {
+        Self {
+            fork_choice: other.fork_choice,
+            fork_choice_store: other.fork_choice_store.into(),
+        }
+    }
 }
