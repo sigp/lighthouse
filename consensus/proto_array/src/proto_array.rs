@@ -145,8 +145,8 @@ impl ProtoArray {
                     // We need to filter zero balances here to get an accurate active validator count.
                     // This is because we default inactive validator balances to zero when creating
                     // this balances array.
-                    .filter(|b| b != 0)
-                    .fold((0, 0), |(sum, count, balance)| (sum + balance, count + 1));
+                    .filter(|b| **b != 0)
+                    .fold((0, 0), |(sum, count), balance| (sum + *balance, count + 1));
                 let average_balance = total_balance / num_validators;
                 let committee_size = num_validators / E::slots_per_epoch();
                 let committee_weight = committee_size * average_balance;
