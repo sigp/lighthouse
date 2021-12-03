@@ -1,6 +1,6 @@
 ///! These functions and structs are only relevant to the database migration from schema 5 to 6.
 use crate::persisted_fork_choice::PersistedForkChoiceV1;
-use crate::schema_change::types::{SszContainerSchemaV1, SszContainerSchemaV6};
+use crate::schema_change::types::{SszContainerV1, SszContainerV6};
 use crate::BeaconChainTypes;
 use ssz::four_byte_option_impl;
 use ssz::{Decode, Encode};
@@ -13,7 +13,7 @@ pub(crate) fn update_execution_statuses<T: BeaconChainTypes>(
     persisted_fork_choice: &mut PersistedForkChoiceV1,
 ) -> Result<(), String> {
     let ssz_container_v1 =
-        SszContainerSchemaV1::from_ssz_bytes(&persisted_fork_choice.fork_choice.proto_array_bytes)
+        SszContainerV1::from_ssz_bytes(&persisted_fork_choice.fork_choice.proto_array_bytes)
             .map_err(|e| {
                 format!(
                     "Failed to decode ProtoArrayForkChoice during schema migration: {:?}",
@@ -21,7 +21,7 @@ pub(crate) fn update_execution_statuses<T: BeaconChainTypes>(
                 )
             })?;
 
-    let ssz_container_v6: SszContainerSchemaV6 = ssz_container_v1.into();
+    let ssz_container_v6: SszContainerV6 = ssz_container_v1.into();
 
     persisted_fork_choice.fork_choice.proto_array_bytes = ssz_container_v6.as_ssz_bytes();
     Ok(())

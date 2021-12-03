@@ -2,7 +2,7 @@
 use crate::beacon_chain::BeaconChainTypes;
 use crate::beacon_fork_choice_store::{PersistedForkChoiceStoreV1, PersistedForkChoiceStoreV7};
 use crate::persisted_fork_choice::{PersistedForkChoiceV1, PersistedForkChoiceV7};
-use crate::schema_change::types::{ProtoNodeSchemaV6, SszContainerSchemaV6, SszContainerSchemaV7};
+use crate::schema_change::types::{ProtoNodeV6, SszContainerV6, SszContainerV7};
 use crate::types::{Checkpoint, Epoch, Hash256};
 use crate::types::{EthSpec, Slot};
 use crate::{BeaconForkChoiceStore, BeaconSnapshot};
@@ -64,7 +64,7 @@ pub(crate) fn update_fork_choice<T: BeaconChainTypes>(
     // bytes assuming the legacy struct, and transform them to the new struct before
     // re-serializing.
     let ssz_container_v6 =
-        SszContainerSchemaV6::from_ssz_bytes(&persisted_fork_choice.fork_choice.proto_array_bytes)
+        SszContainerV6::from_ssz_bytes(&persisted_fork_choice.fork_choice.proto_array_bytes)
             .map_err(|e| {
                 StoreError::SchemaMigrationError(format!(
                     "Failed to decode ProtoArrayForkChoice during schema migration: {:?}",
@@ -81,7 +81,7 @@ pub(crate) fn update_fork_choice<T: BeaconChainTypes>(
 
     // These transformations instantiate `node.justified_checkpoint` and `node.finalized_checkpoint`
     // to `None`.
-    let ssz_container_v7: SszContainerSchemaV7 =
+    let ssz_container_v7: SszContainerV7 =
         ssz_container_v6.into_ssz_container_v7(justified_checkpoint, finalized_checkpoint);
     let ssz_container: SszContainer = ssz_container_v7.into();
     let mut fork_choice: ProtoArrayForkChoice = ssz_container.into();
@@ -105,7 +105,7 @@ struct HeadInfo {
 
 fn update_checkpoints<T: BeaconChainTypes>(
     finalized_root: Hash256,
-    legacy_nodes: &[ProtoNodeSchemaV6],
+    nodes_v6: &[ProtoNodeV6],
     fork_choice: &mut ProtoArrayForkChoice,
     db: Arc<HotColdDB<T::EthSpec, T::HotStore, T::ColdStore>>,
 ) -> Result<(), String> {
@@ -117,9 +117,9 @@ fn update_checkpoints<T: BeaconChainTypes>(
         // We don't need to worry about whether the are finalized or justified epochs.
         let mut relevant_epochs = vec![];
         let relevant_epoch_finder = |index, _: &mut ProtoNode| {
-            let (justified_epoch, finalized_epoch) = legacy_nodes
+            let (justified_epoch, finalized_epoch) = nodes_v6
                 .get(index)
-                .map(|node: &ProtoNodeSchemaV6| (node.justified_epoch, node.finalized_epoch))
+                .map(|node: &ProtoNodeV6| (node.justified_epoch, node.finalized_epoch))
                 .ok_or_else(|| "Head index not found in legacy proto nodes".to_string())?;
             relevant_epochs.push(justified_epoch);
             relevant_epochs.push(finalized_epoch);
@@ -144,9 +144,9 @@ fn update_checkpoints<T: BeaconChainTypes>(
         // Apply this mutator to the chain of descendants from this head, adding justified
         // and finalized checkpoints for each.
         let node_mutator = |index, node: &mut ProtoNode| {
-            let (justified_epoch, finalized_epoch) = legacy_nodes
+            let (justified_epoch, finalized_epoch) = nodes_v6
                 .get(index)
-                .map(|node: &ProtoNodeSchemaV6| (node.justified_epoch, node.finalized_epoch))
+                .map(|node: &ProtoNodeV6| (node.justified_epoch, node.finalized_epoch))
                 .ok_or_else(|| "Head index not found in legacy proto nodes".to_string())?;
 
             // Update the checkpoints only if they haven't already been populated.

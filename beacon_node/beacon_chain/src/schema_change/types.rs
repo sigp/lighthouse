@@ -16,7 +16,7 @@ four_byte_option_impl!(four_byte_option_checkpoint, Checkpoint);
     variant_attributes(derive(Clone, PartialEq, Debug, Encode, Decode)),
     no_enum
 )]
-pub struct ProtoNodeSchema {
+pub struct ProtoNode {
     pub slot: Slot,
     pub state_root: Hash256,
     pub target_root: Hash256,
@@ -44,9 +44,9 @@ pub struct ProtoNodeSchema {
     pub execution_status: ExecutionStatus,
 }
 
-impl Into<ProtoNodeSchemaV6> for ProtoNodeSchemaV1 {
-    fn into(self) -> ProtoNodeSchemaV6 {
-        ProtoNodeSchemaV6 {
+impl Into<ProtoNodeV6> for ProtoNodeV1 {
+    fn into(self) -> ProtoNodeV6 {
+        ProtoNodeV6 {
             slot: self.slot,
             state_root: self.state_root,
             target_root: self.target_root,
@@ -68,9 +68,9 @@ impl Into<ProtoNodeSchemaV6> for ProtoNodeSchemaV1 {
     }
 }
 
-impl Into<ProtoNodeSchemaV7> for ProtoNodeSchemaV6 {
-    fn into(self) -> ProtoNodeSchemaV7 {
-        ProtoNodeSchemaV7 {
+impl Into<ProtoNodeV7> for ProtoNodeV6 {
+    fn into(self) -> ProtoNodeV7 {
+        ProtoNodeV7 {
             slot: self.slot,
             state_root: self.state_root,
             target_root: self.target_root,
@@ -88,7 +88,7 @@ impl Into<ProtoNodeSchemaV7> for ProtoNodeSchemaV6 {
     }
 }
 
-impl Into<ProtoNode> for ProtoNodeSchemaV7 {
+impl Into<ProtoNode> for ProtoNodeV7 {
     fn into(self) -> ProtoNode {
         ProtoNode {
             slot: self.slot,
@@ -114,7 +114,7 @@ impl Into<ProtoNode> for ProtoNodeSchemaV7 {
     no_enum
 )]
 #[derive(Encode, Decode)]
-pub struct SszContainerSchema {
+pub struct SszContainer {
     pub votes: Vec<VoteTracker>,
     pub balances: Vec<u64>,
     pub prune_threshold: usize,
@@ -127,21 +127,21 @@ pub struct SszContainerSchema {
     #[superstruct(only(V7))]
     pub finalized_checkpoint: Checkpoint,
     #[superstruct(only(V1))]
-    pub nodes: Vec<ProtoNodeSchemaV1>,
+    pub nodes: Vec<ProtoNodeV1>,
     #[superstruct(only(V6))]
-    pub nodes: Vec<ProtoNodeSchemaV6>,
+    pub nodes: Vec<ProtoNodeV6>,
     #[superstruct(only(V7))]
-    pub nodes: Vec<ProtoNodeSchemaV7>,
+    pub nodes: Vec<ProtoNodeV7>,
     pub indices: Vec<(Hash256, usize)>,
     #[superstruct(only(V7))]
     pub previous_proposer_boost: ProposerBoost,
 }
 
-impl Into<SszContainerSchemaV6> for SszContainerSchemaV1 {
-    fn into(self) -> SszContainerSchemaV6 {
+impl Into<SszContainerV6> for SszContainerV1 {
+    fn into(self) -> SszContainerV6 {
         let nodes = self.nodes.into_iter().map(Into::into).collect();
 
-        SszContainerSchemaV6 {
+        SszContainerV6 {
             votes: self.votes,
             balances: self.balances,
             prune_threshold: self.prune_threshold,
@@ -153,15 +153,15 @@ impl Into<SszContainerSchemaV6> for SszContainerSchemaV1 {
     }
 }
 
-impl SszContainerSchemaV6 {
+impl SszContainerV6 {
     pub(crate) fn into_ssz_container_v7(
         self,
         justified_checkpoint: Checkpoint,
         finalized_checkpoint: Checkpoint,
-    ) -> SszContainerSchemaV7 {
+    ) -> SszContainerV7 {
         let nodes = self.nodes.into_iter().map(Into::into).collect();
 
-        SszContainerSchemaV7 {
+        SszContainerV7 {
             votes: self.votes,
             balances: self.balances,
             prune_threshold: self.prune_threshold,
@@ -174,7 +174,7 @@ impl SszContainerSchemaV6 {
     }
 }
 
-impl Into<SszContainer> for SszContainerSchemaV7 {
+impl Into<SszContainer> for SszContainerV7 {
     fn into(self) -> SszContainer {
         let nodes = self.nodes.into_iter().map(Into::into).collect();
 
