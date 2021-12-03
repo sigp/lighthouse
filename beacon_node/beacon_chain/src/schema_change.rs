@@ -1,6 +1,7 @@
 //! Utilities for managing database schema changes.
-mod migrate_schema_6;
-mod migrate_schema_7;
+mod migration_schema_v6;
+mod migration_schema_v7;
+mod types;
 
 use crate::beacon_chain::{BeaconChainTypes, FORK_CHOICE_DB_KEY, OP_POOL_DB_KEY};
 use crate::persisted_fork_choice::{PersistedForkChoiceV1, PersistedForkChoiceV7};
@@ -105,7 +106,7 @@ pub fn migrate_schema<T: BeaconChainTypes>(
             // bytes for the fork choice updated to V6.
             let fork_choice_opt = db.get_item::<PersistedForkChoiceV1>(&FORK_CHOICE_DB_KEY)?;
             if let Some(mut persisted_fork_choice) = fork_choice_opt {
-                migrate_schema_6::update_execution_statuses::<T>(&mut persisted_fork_choice)
+                migration_schema_v6::update_execution_statuses::<T>(&mut persisted_fork_choice)
                     .map_err(StoreError::SchemaMigrationError)?;
                 db.put_item::<PersistedForkChoiceV1>(&FORK_CHOICE_DB_KEY, &persisted_fork_choice)?;
             }
@@ -133,7 +134,7 @@ pub fn migrate_schema<T: BeaconChainTypes>(
                 // This migrates the `PersistedForkChoiceStore`, adding the `proposer_boost_root` field.
                 let mut persisted_fork_choice = legacy_persisted_fork_choice.into();
 
-                let result = migrate_schema_7::update_legacy_fork_choice::<T>(
+                let result = migration_schema_v7::update_legacy_fork_choice::<T>(
                     &mut persisted_fork_choice,
                     db.clone(),
                 );
@@ -141,7 +142,7 @@ pub fn migrate_schema<T: BeaconChainTypes>(
                 // Fall back to re-initializing fork choice from an anchor state if necessary.
                 if let Err(e) = result {
                     warn!(log, "Unable to migrate to database schema 7, re-initializing fork choice"; "error" => ?e);
-                    migrate_schema_7::update_with_reinitialized_fork_choice::<T>(
+                    migration_schema_v7::update_with_reinitialized_fork_choice::<T>(
                         &mut persisted_fork_choice,
                         db.clone(),
                     )

@@ -1,11 +1,8 @@
-use super::migrate_schema_6::{
-    ProtoNodeSchema5 as LegacyProtoNode, SszContainerSchema5 as LegacySszContainer,
-};
-
 ///! These functions and structs are only relevant to the database migration from schema 6 to 7.
 use crate::beacon_chain::BeaconChainTypes;
 use crate::beacon_fork_choice_store::{PersistedForkChoiceStoreV1, PersistedForkChoiceStoreV7};
 use crate::persisted_fork_choice::{PersistedForkChoiceV1, PersistedForkChoiceV7};
+use crate::schema_change::types::{ProtoNodeSchemaV6, SszContainerSchemaV6, SszContainerSchemaV7};
 use crate::types::{Checkpoint, Epoch, Hash256};
 use crate::types::{EthSpec, Slot};
 use crate::{BeaconForkChoiceStore, BeaconSnapshot};
@@ -66,8 +63,8 @@ pub(crate) fn update_legacy_fork_choice<T: BeaconChainTypes>(
     // `PersistedForkChoice` stores the `ProtoArray` as a `Vec<u8>`. Deserialize these
     // bytes assuming the legacy struct, and transform them to the new struct before
     // re-serializing.
-    let legacy_container =
-        LegacySszContainer::from_ssz_bytes(&persisted_fork_choice.fork_choice.proto_array_bytes)
+    let ssz_container_v6 =
+        SszContainerSchemaV6::from_ssz_bytes(&persisted_fork_choice.fork_choice.proto_array_bytes)
             .map_err(|e| {
                 StoreError::SchemaMigrationError(format!(
                     "Failed to decode ProtoArrayForkChoice during schema migration: {:?}",
@@ -77,25 +74,21 @@ pub(crate) fn update_legacy_fork_choice<T: BeaconChainTypes>(
 
     // Clone the legacy proto nodes in order to maintain information about `node.justified_epoch`
     // and `node.finalized_epoch`.
-    let legacy_nodes = legacy_container.nodes.clone();
+    let nodes_v6 = ssz_container_v6.nodes.clone();
 
     let justified_checkpoint = persisted_fork_choice.fork_choice_store.justified_checkpoint;
     let finalized_checkpoint = persisted_fork_choice.fork_choice_store.finalized_checkpoint;
 
     // These transformations instantiate `node.justified_checkpoint` and `node.finalized_checkpoint`
     // to `None`.
-    let container: SszContainer =
-        legacy_container.into_ssz_container(justified_checkpoint, finalized_checkpoint);
+    let ssz_container_v7: SszContainerSchemaV7 =
+        ssz_container_v6.into_ssz_container_v7(justified_checkpoint, finalized_checkpoint);
+    let ssz_container: SszContainer = ssz_container_v7.into();
 
-    let mut fork_choice: ProtoArrayForkChoice = container.into();
+    let mut fork_choice: ProtoArrayForkChoice = ssz_container.into();
 
-    update_checkpoints::<T>(
-        finalized_checkpoint.root,
-        &legacy_nodes,
-        &mut fork_choice,
-        db,
-    )
-    .map_err(StoreError::SchemaMigrationError)?;
+    update_checkpoints::<T>(finalized_checkpoint.root, &nodes_v6, &mut fork_choice, db)
+        .map_err(StoreError::SchemaMigrationError)?;
 
     // Update the justified checkpoint in the store in case we have a discrepancy
     // between the store and the proto array nodes.
@@ -113,7 +106,7 @@ struct HeadInfo {
 
 fn update_checkpoints<T: BeaconChainTypes>(
     finalized_root: Hash256,
-    legacy_nodes: &[LegacyProtoNode],
+    legacy_nodes: &[ProtoNodeSchemaV6],
     fork_choice: &mut ProtoArrayForkChoice,
     db: Arc<HotColdDB<T::EthSpec, T::HotStore, T::ColdStore>>,
 ) -> Result<(), String> {
@@ -127,7 +120,7 @@ fn update_checkpoints<T: BeaconChainTypes>(
         let relevant_epoch_finder = |index, _: &mut ProtoNode| {
             let (justified_epoch, finalized_epoch) = legacy_nodes
                 .get(index)
-                .map(|node: &LegacyProtoNode| (node.justified_epoch, node.finalized_epoch))
+                .map(|node: &ProtoNodeSchemaV6| (node.justified_epoch, node.finalized_epoch))
                 .ok_or_else(|| "Head index not found in legacy proto nodes".to_string())?;
             relevant_epochs.push(justified_epoch);
             relevant_epochs.push(finalized_epoch);
@@ -154,7 +147,7 @@ fn update_checkpoints<T: BeaconChainTypes>(
         let node_mutator = |index, node: &mut ProtoNode| {
             let (justified_epoch, finalized_epoch) = legacy_nodes
                 .get(index)
-                .map(|node: &LegacyProtoNode| (node.justified_epoch, node.finalized_epoch))
+                .map(|node: &ProtoNodeSchemaV6| (node.justified_epoch, node.finalized_epoch))
                 .ok_or_else(|| "Head index not found in legacy proto nodes".to_string())?;
 
             // Update the checkpoints only if they haven't already been populated.
