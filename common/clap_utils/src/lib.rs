@@ -1,7 +1,8 @@
 //! A helper library for parsing values from `clap::ArgMatches`.
 
 use clap::ArgMatches;
-use eth2_network_config::Eth2NetworkConfig;
+use eth2_network_config::{Eth2NetworkConfig, DEFAULT_HARDCODED_NETWORK};
+use ethereum_types::U256 as Uint256;
 use ssz::Decode;
 use std::path::PathBuf;
 use std::str::FromStr;
@@ -12,6 +13,47 @@ pub const BAD_TESTNET_DIR_MESSAGE: &str = "The hard-coded testnet directory was 
                                         This happens when Lighthouse is migrating between spec versions \
                                         or when there is no default public network to connect to. \
                                         During these times you must specify a --testnet-dir.";
+
+/// Try to parse the eth2 network config from the `network`, `testnet-dir` flags in that order.
+/// Returns the default hardcoded testnet if neither flags are set.
+pub fn get_eth2_network_config(cli_args: &ArgMatches) -> Result<Eth2NetworkConfig, String> {
+    let optional_network_config = if cli_args.is_present("network") {
+        parse_hardcoded_network(cli_args, "network")?
+    } else if cli_args.is_present("testnet-dir") {
+        parse_testnet_dir(cli_args, "testnet-dir")?
+    } else {
+        // if neither is present, assume the default network
+        Eth2NetworkConfig::constant(DEFAULT_HARDCODED_NETWORK)?
+    };
+
+    let mut eth2_network_config =
+        optional_network_config.ok_or_else(|| BAD_TESTNET_DIR_MESSAGE.to_string())?;
+
+    if let Some(string) = parse_optional::<String>(cli_args, "terminal-total-difficulty-override")?
+    {
+        let stripped = string.replace(",", "");
+        let terminal_total_difficulty = Uint256::from_dec_str(&stripped).map_err(|e| {
+            format!(
+                "Could not parse --terminal-total-difficulty-override as decimal value: {:?}",
+                e
+            )
+        })?;
+
+        eth2_network_config.config.terminal_total_difficulty = terminal_total_difficulty;
+    }
+
+    if let Some(hash) = parse_optional(cli_args, "terminal-block-hash-override")? {
+        eth2_network_config.config.terminal_block_hash = hash;
+    }
+
+    if let Some(epoch) = parse_optional(cli_args, "terminal-block-hash-epoch-override")? {
+        eth2_network_config
+            .config
+            .terminal_block_hash_activation_epoch = epoch;
+    }
+
+    Ok(eth2_network_config)
+}
 
 /// Attempts to load the testnet dir at the path if `name` is in `matches`, returning an error if
 /// the path cannot be found or the testnet dir is invalid.

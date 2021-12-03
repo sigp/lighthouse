@@ -62,10 +62,10 @@ impl<T: EthSpec> SyncNetworkContext<T> {
 
     pub fn status_peers<C: ToStatusMessage>(
         &mut self,
-        chain: C,
+        chain: &C,
         peers: impl Iterator<Item = PeerId>,
     ) {
-        if let Ok(status_message) = &chain.status_message() {
+        if let Ok(status_message) = chain.status_message() {
             for peer_id in peers {
                 debug!(
                     self.log,

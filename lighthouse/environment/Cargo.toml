@@ -7,7 +7,7 @@ edition = "2018"
 [dependencies]
 tokio = { version = "1.14.0", features = ["macros", "rt", "rt-multi-thread", "signal" ] }
 slog = { version = "2.5.2", features = ["max_level_trace"] }
-sloggers = "2.0.2"
+sloggers = { version = "2.1.1", features = ["json"] }
 types = { path = "../../consensus/types" }
 eth2_config = { path = "../../common/eth2_config" }
 task_executor = { path = "../../common/task_executor" }
@@ -18,7 +18,6 @@ slog-async = "2.5.0"
 futures = "0.3.7"
 slog-json = "2.3.0"
 exit-future = "0.2.0"
-filesystem = {"path" = "../../common/filesystem"}
 
 [target.'cfg(not(target_family = "unix"))'.dependencies]
 ctrlc = { version = "3.1.6", features = ["termination"] }

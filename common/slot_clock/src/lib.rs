@@ -65,6 +65,9 @@ pub trait SlotClock: Send + Sync + Sized + Clone {
     /// Returns the first slot to be returned at the genesis time.
     fn genesis_slot(&self) -> Slot;
 
+    /// Returns the `Duration` from `UNIX_EPOCH` to the genesis time.
+    fn genesis_duration(&self) -> Duration;
+
     /// Returns the slot if the internal clock were advanced by `duration`.
     fn now_with_future_tolerance(&self, tolerance: Duration) -> Option<Slot> {
         self.slot_of(self.now_duration()?.checked_add(tolerance)?)

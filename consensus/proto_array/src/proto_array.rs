@@ -1,4 +1,4 @@
-use crate::{error::Error, Block};
+use crate::{error::Error, Block, ExecutionStatus};
 use serde_derive::{Deserialize, Serialize};
 use ssz::four_byte_option_impl;
 use ssz_derive::{Decode, Encode};
@@ -35,6 +35,54 @@ pub struct ProtoNode {
     best_child: Option<usize>,
     #[ssz(with = "four_byte_option_usize")]
     best_descendant: Option<usize>,
+    /// Indicates if an execution node has marked this block as valid. Also contains the execution
+    /// block hash.
+    pub execution_status: ExecutionStatus,
+}
+
+/// Only used for SSZ deserialization of the persisted fork choice during the database migration
+/// from schema 4 to schema 5.
+#[derive(Encode, Decode)]
+pub struct LegacyProtoNode {
+    pub slot: Slot,
+    pub state_root: Hash256,
+    pub target_root: Hash256,
+    pub current_epoch_shuffling_id: AttestationShufflingId,
+    pub next_epoch_shuffling_id: AttestationShufflingId,
+    pub root: Hash256,
+    #[ssz(with = "four_byte_option_usize")]
+    pub parent: Option<usize>,
+    pub justified_epoch: Epoch,
+    pub finalized_epoch: Epoch,
+    weight: u64,
+    #[ssz(with = "four_byte_option_usize")]
+    best_child: Option<usize>,
+    #[ssz(with = "four_byte_option_usize")]
+    best_descendant: Option<usize>,
+}
+
+impl Into<ProtoNode> for LegacyProtoNode {
+    fn into(self) -> ProtoNode {
+        ProtoNode {
+            slot: self.slot,
+            state_root: self.state_root,
+            target_root: self.target_root,
+            current_epoch_shuffling_id: self.current_epoch_shuffling_id,
+            next_epoch_shuffling_id: self.next_epoch_shuffling_id,
+            root: self.root,
+            parent: self.parent,
+            justified_epoch: self.justified_epoch,
+            finalized_epoch: self.finalized_epoch,
+            weight: self.weight,
+            best_child: self.best_child,
+            best_descendant: self.best_descendant,
+            // We set the following execution value as if the block is a pre-merge-fork block. This
+            // is safe as long as we never import a merge block with the old version of proto-array.
+            // This will be safe since we can't actually process merge blocks until we've made this
+            // change to fork choice.
+            execution_status: ExecutionStatus::irrelevant(),
+        }
+    }
 }
 
 #[derive(PartialEq, Debug, Serialize, Deserialize, Clone)]
@@ -178,6 +226,7 @@ impl ProtoArray {
             weight: 0,
             best_child: None,
             best_descendant: None,
+            execution_status: block.execution_status,
         };
 
         self.indices.insert(node.root, node_index);
@@ -185,9 +234,56 @@ impl ProtoArray {
 
         if let Some(parent_index) = node.parent {
             self.maybe_update_best_child_and_descendant(parent_index, node_index)?;
+
+            if matches!(block.execution_status, ExecutionStatus::Valid(_)) {
+                self.propagate_execution_payload_verification(parent_index)?;
+            }
         }
 
         Ok(())
+    }
+
+    pub fn propagate_execution_payload_verification(
+        &mut self,
+        verified_node_index: usize,
+    ) -> Result<(), Error> {
+        let mut index = verified_node_index;
+        loop {
+            let node = self
+                .nodes
+                .get_mut(index)
+                .ok_or(Error::InvalidNodeIndex(index))?;
+            let parent_index = match node.execution_status {
+                // We have reached a node that we already know is valid. No need to iterate further
+                // since we assume an ancestors have already been set to valid.
+                ExecutionStatus::Valid(_) => return Ok(()),
+                // We have reached an irrelevant node, this node is prior to a terminal execution
+                // block. There's no need to iterate further, it's impossible for this block to have
+                // any relevant ancestors.
+                ExecutionStatus::Irrelevant(_) => return Ok(()),
+                // The block has an unknown status, set it to valid since any ancestor of a valid
+                // payload can be considered valid.
+                ExecutionStatus::Unknown(payload_block_hash) => {
+                    node.execution_status = ExecutionStatus::Valid(payload_block_hash);
+                    if let Some(parent_index) = node.parent {
+                        parent_index
+                    } else {
+                        // We have reached the root block, iteration complete.
+                        return Ok(());
+                    }
+                }
+                // An ancestor of the valid payload was invalid. This is a serious error which
+                // indicates a consensus failure in the execution node. This is unrecoverable.
+                ExecutionStatus::Invalid(ancestor_payload_block_hash) => {
+                    return Err(Error::InvalidAncestorOfValidPayload {
+                        ancestor_block_root: node.root,
+                        ancestor_payload_block_hash,
+                    })
+                }
+            };
+
+            index = parent_index;
+        }
     }
 
     /// Follows the best-descendant links to find the best-block (i.e., head-block).

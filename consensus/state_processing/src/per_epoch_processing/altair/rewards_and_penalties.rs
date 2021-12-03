@@ -119,7 +119,7 @@ pub fn get_inactivity_penalty_deltas<T: EthSpec>(
                 .safe_mul(state.get_inactivity_score(index)?)?;
             let penalty_denominator = spec
                 .inactivity_score_bias
-                .safe_mul(spec.inactivity_penalty_quotient_altair)?;
+                .safe_mul(spec.inactivity_penalty_quotient_for_state(state))?;
             delta.penalize(penalty_numerator.safe_div(penalty_denominator)?)?;
         }
         deltas

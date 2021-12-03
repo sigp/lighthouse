@@ -15,6 +15,7 @@ use crate::{
     Eth1ChainBackend, ServerSentEventHandler,
 };
 use eth1::Config as Eth1Config;
+use execution_layer::ExecutionLayer;
 use fork_choice::ForkChoice;
 use futures::channel::mpsc::Sender;
 use operation_pool::{OperationPool, PersistedOperationPool};
@@ -75,6 +76,7 @@ pub struct BeaconChainBuilder<T: BeaconChainTypes> {
     >,
     op_pool: Option<OperationPool<T::EthSpec>>,
     eth1_chain: Option<Eth1Chain<T::Eth1Chain, T::EthSpec>>,
+    execution_layer: Option<ExecutionLayer>,
     event_handler: Option<ServerSentEventHandler<T::EthSpec>>,
     slot_clock: Option<T::SlotClock>,
     shutdown_sender: Option<Sender<ShutdownReason>>,
@@ -115,6 +117,7 @@ where
             fork_choice: None,
             op_pool: None,
             eth1_chain: None,
+            execution_layer: None,
             event_handler: None,
             slot_clock: None,
             shutdown_sender: None,
@@ -476,6 +479,12 @@ where
         self
     }
 
+    /// Sets the `BeaconChain` execution layer.
+    pub fn execution_layer(mut self, execution_layer: Option<ExecutionLayer>) -> Self {
+        self.execution_layer = execution_layer;
+        self
+    }
+
     /// Sets the `BeaconChain` event handler backend.
     ///
     /// For example, provide `ServerSentEventHandler` as a `handler`.
@@ -737,6 +746,7 @@ where
             observed_proposer_slashings: <_>::default(),
             observed_attester_slashings: <_>::default(),
             eth1_chain: self.eth1_chain,
+            execution_layer: self.execution_layer,
             genesis_validators_root: canonical_head.beacon_state.genesis_validators_root(),
             canonical_head: TimeoutRwLock::new(canonical_head.clone()),
             genesis_block_root,
@@ -909,7 +919,9 @@ fn descriptive_db_error(item: &str, error: &StoreError) -> String {
 mod test {
     use super::*;
     use eth2_hashing::hash;
-    use genesis::{generate_deterministic_keypairs, interop_genesis_state};
+    use genesis::{
+        generate_deterministic_keypairs, interop_genesis_state, DEFAULT_ETH1_BLOCK_HASH,
+    };
     use sloggers::{null::NullLoggerBuilder, Build};
     use ssz::Encode;
     use std::time::Duration;
@@ -941,6 +953,8 @@ mod test {
         let genesis_state = interop_genesis_state(
             &generate_deterministic_keypairs(validator_count),
             genesis_time,
+            Hash256::from_slice(DEFAULT_ETH1_BLOCK_HASH),
+            None,
             &spec,
         )
         .expect("should create interop genesis state");
@@ -1006,8 +1020,14 @@ mod test {
 
         let keypairs = generate_deterministic_keypairs(validator_count);
 
-        let state = interop_genesis_state::<TestEthSpec>(&keypairs, genesis_time, spec)
-            .expect("should build state");
+        let state = interop_genesis_state::<TestEthSpec>(
+            &keypairs,
+            genesis_time,
+            Hash256::from_slice(DEFAULT_ETH1_BLOCK_HASH),
+            None,
+            spec,
+        )
+        .expect("should build state");
 
         assert_eq!(
             state.eth1_data().block_hash,

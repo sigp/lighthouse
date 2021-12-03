@@ -2,7 +2,7 @@
 use clap::ArgMatches;
 use slog::{o, Drain, Level, Logger};
 
-use std::convert::TryFrom;
+use eth2_network_config::Eth2NetworkConfig;
 use std::fs::File;
 use std::path::PathBuf;
 mod cli;
@@ -19,6 +19,7 @@ pub fn run(
     lh_matches: &ArgMatches<'_>,
     bn_matches: &ArgMatches<'_>,
     eth_spec_id: EthSpecId,
+    eth2_network_config: &Eth2NetworkConfig,
     debug_level: String,
 ) {
     let debug_level = match debug_level.as_str() {
@@ -56,8 +57,12 @@ pub fn run(
     let log = slog_scope::logger();
     // Run the main function emitting any errors
     if let Err(e) = match eth_spec_id {
-        EthSpecId::Minimal => main::<types::MinimalEthSpec>(lh_matches, bn_matches, log),
-        EthSpecId::Mainnet => main::<types::MainnetEthSpec>(lh_matches, bn_matches, log),
+        EthSpecId::Minimal => {
+            main::<types::MinimalEthSpec>(lh_matches, bn_matches, eth2_network_config, log)
+        }
+        EthSpecId::Mainnet => {
+            main::<types::MainnetEthSpec>(lh_matches, bn_matches, eth2_network_config, log)
+        }
     } {
         slog::crit!(slog_scope::logger(), "{}", e);
     }
@@ -66,6 +71,7 @@ pub fn run(
 fn main<T: EthSpec>(
     lh_matches: &ArgMatches<'_>,
     bn_matches: &ArgMatches<'_>,
+    eth2_network_config: &Eth2NetworkConfig,
     log: slog::Logger,
 ) -> Result<(), String> {
     // Builds a custom executor for the bootnode
@@ -74,8 +80,8 @@ fn main<T: EthSpec>(
         .build()
         .map_err(|e| format!("Failed to build runtime: {}", e))?;
 
-    // Parse the CLI args into a useable config
-    let config: BootNodeConfig<T> = BootNodeConfig::try_from(bn_matches)?;
+    // parse the CLI args into a useable config
+    let config: BootNodeConfig<T> = BootNodeConfig::new(bn_matches, eth2_network_config)?;
 
     // Dump config if `dump-config` flag is set
     let dump_config = clap_utils::parse_optional::<PathBuf>(lh_matches, "dump-config")?;

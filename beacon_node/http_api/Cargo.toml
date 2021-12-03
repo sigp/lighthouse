@@ -24,14 +24,14 @@ lighthouse_metrics = { path = "../../common/lighthouse_metrics" }
 lazy_static = "1.4.0"
 warp_utils = { path = "../../common/warp_utils" }
 slot_clock = { path = "../../common/slot_clock" }
-eth2_ssz = "0.4.0"
+eth2_ssz = "0.4.1"
 bs58 = "0.4.0"
 futures = "0.3.8"
 
 [dev-dependencies]
 store = { path = "../store" }
 environment = { path = "../../lighthouse/environment" }
-tree_hash = "0.4.0"
+tree_hash = "0.4.1"
 sensitive_url = { path = "../../common/sensitive_url" }
 
 [[test]]

@@ -20,7 +20,7 @@ use beacon_chain::{
     observed_operations::ObservationOutcome,
     validator_monitor::{get_block_delay_ms, timestamp_now},
     AttestationError as AttnError, BeaconChain, BeaconChainError, BeaconChainTypes,
-    WhenSlotSkipped,
+    HeadSafetyStatus, WhenSlotSkipped,
 };
 use block_id::BlockId;
 use eth2::types::{self as api_types, EndpointVersion, ValidatorId};
@@ -97,6 +97,7 @@ pub struct Config {
     pub allow_origin: Option<String>,
     pub serve_legacy_spec: bool,
     pub tls_config: Option<TlsConfig>,
+    pub allow_sync_stalled: bool,
 }
 
 impl Default for Config {
@@ -108,6 +109,7 @@ impl Default for Config {
             allow_origin: None,
             serve_legacy_spec: true,
             tls_config: None,
+            allow_sync_stalled: false,
         }
     }
 }
@@ -237,6 +239,7 @@ pub fn serve<T: BeaconChainTypes>(
     shutdown: impl Future<Output = ()> + Send + Sync + 'static,
 ) -> Result<HttpServer, Error> {
     let config = ctx.config.clone();
+    let allow_sync_stalled = config.allow_sync_stalled;
     let log = ctx.log.clone();
 
     // Configure CORS.
@@ -337,44 +340,78 @@ pub fn serve<T: BeaconChainTypes>(
             }
         });
 
-    // Create a `warp` filter that rejects request whilst the node is syncing.
-    let not_while_syncing_filter = warp::any()
-        .and(network_globals.clone())
-        .and(chain_filter.clone())
-        .and_then(
-            |network_globals: Arc<NetworkGlobals<T::EthSpec>>, chain: Arc<BeaconChain<T>>| async move {
-                match *network_globals.sync_state.read() {
-                    SyncState::SyncingFinalized { .. } => {
-                        let head_slot = chain.best_slot().map_err(warp_utils::reject::beacon_chain_error)?;
+    // Create a `warp` filter that rejects requests whilst the node is syncing.
+    let not_while_syncing_filter =
+        warp::any()
+            .and(network_globals.clone())
+            .and(chain_filter.clone())
+            .and_then(
+                move |network_globals: Arc<NetworkGlobals<T::EthSpec>>,
+                      chain: Arc<BeaconChain<T>>| async move {
+                    match *network_globals.sync_state.read() {
+                        SyncState::SyncingFinalized { .. } => {
+                            let head_slot = chain
+                                .best_slot()
+                                .map_err(warp_utils::reject::beacon_chain_error)?;
 
-                        let current_slot = chain
-                            .slot_clock
-                            .now_or_genesis()
-                            .ok_or_else(|| {
-                                warp_utils::reject::custom_server_error(
-                                    "unable to read slot clock".to_string(),
-                                )
-                            })?;
+                            let current_slot =
+                                chain.slot_clock.now_or_genesis().ok_or_else(|| {
+                                    warp_utils::reject::custom_server_error(
+                                        "unable to read slot clock".to_string(),
+                                    )
+                                })?;
 
-                        let tolerance = SYNC_TOLERANCE_EPOCHS * T::EthSpec::slots_per_epoch();
+                            let tolerance = SYNC_TOLERANCE_EPOCHS * T::EthSpec::slots_per_epoch();
 
-                        if head_slot + tolerance >= current_slot {
-                            Ok(())
-                        } else {
-                            Err(warp_utils::reject::not_synced(format!(
-                                "head slot is {}, current slot is {}",
-                                head_slot, current_slot
-                            )))
+                            if head_slot + tolerance >= current_slot {
+                                Ok(())
+                            } else {
+                                Err(warp_utils::reject::not_synced(format!(
+                                    "head slot is {}, current slot is {}",
+                                    head_slot, current_slot
+                                )))
+                            }
                         }
+                        SyncState::SyncingHead { .. }
+                        | SyncState::SyncTransition
+                        | SyncState::BackFillSyncing { .. } => Ok(()),
+                        SyncState::Synced => Ok(()),
+                        SyncState::Stalled if allow_sync_stalled => Ok(()),
+                        SyncState::Stalled => Err(warp_utils::reject::not_synced(
+                            "sync is stalled".to_string(),
+                        )),
                     }
-                    SyncState::SyncingHead { .. } | SyncState::SyncTransition | SyncState::BackFillSyncing { .. }  => Ok(()),
-                    SyncState::Synced => Ok(()),
-                    SyncState::Stalled => Err(warp_utils::reject::not_synced(
-                        "sync is stalled".to_string(),
-                    )),
+                },
+            )
+            .untuple_one();
+
+    // Create a `warp` filter that rejects requests unless the head has been verified by the
+    // execution layer.
+    let only_with_safe_head = warp::any()
+        .and(chain_filter.clone())
+        .and_then(move |chain: Arc<BeaconChain<T>>| async move {
+            let status = chain.head_safety_status().map_err(|e| {
+                warp_utils::reject::custom_server_error(format!(
+                    "failed to read head safety status: {:?}",
+                    e
+                ))
+            })?;
+            match status {
+                HeadSafetyStatus::Safe(_) => Ok(()),
+                HeadSafetyStatus::Unsafe(hash) => {
+                    Err(warp_utils::reject::custom_server_error(format!(
+                        "optimistic head hash {:?} has not been verified by the execution layer",
+                        hash
+                    )))
                 }
-            },
-        )
+                HeadSafetyStatus::Invalid(hash) => {
+                    Err(warp_utils::reject::custom_server_error(format!(
+                        "the head block has an invalid payload {:?}, this may be unrecoverable",
+                        hash
+                    )))
+                }
+            }
+        })
         .untuple_one();
 
     // Create a `warp` filter that provides access to the logger.
@@ -1850,6 +1887,7 @@ pub fn serve<T: BeaconChainTypes>(
         .and(warp::path::end())
         .and(warp::query::<api_types::ValidatorAttestationDataQuery>())
         .and(not_while_syncing_filter.clone())
+        .and(only_with_safe_head.clone())
         .and(chain_filter.clone())
         .and_then(
             |query: api_types::ValidatorAttestationDataQuery, chain: Arc<BeaconChain<T>>| {
@@ -1882,6 +1920,7 @@ pub fn serve<T: BeaconChainTypes>(
         .and(warp::path::end())
         .and(warp::query::<api_types::ValidatorAggregateAttestationQuery>())
         .and(not_while_syncing_filter.clone())
+        .and(only_with_safe_head.clone())
         .and(chain_filter.clone())
         .and_then(
             |query: api_types::ValidatorAggregateAttestationQuery, chain: Arc<BeaconChain<T>>| {
@@ -1952,6 +1991,7 @@ pub fn serve<T: BeaconChainTypes>(
         .and(warp::path::end())
         .and(warp::query::<SyncContributionData>())
         .and(not_while_syncing_filter.clone())
+        .and(only_with_safe_head)
         .and(chain_filter.clone())
         .and_then(
             |sync_committee_data: SyncContributionData, chain: Arc<BeaconChain<T>>| {

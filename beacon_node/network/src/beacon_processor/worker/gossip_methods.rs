@@ -5,7 +5,8 @@ use beacon_chain::{
     observed_operations::ObservationOutcome,
     sync_committee_verification::Error as SyncCommitteeError,
     validator_monitor::get_block_delay_ms,
-    BeaconChainError, BeaconChainTypes, BlockError, ForkChoiceError, GossipVerifiedBlock,
+    BeaconChainError, BeaconChainTypes, BlockError, ExecutionPayloadError, ForkChoiceError,
+    GossipVerifiedBlock,
 };
 use lighthouse_network::{Client, MessageAcceptance, MessageId, PeerAction, PeerId, ReportSource};
 use slog::{crit, debug, error, info, trace, warn};
@@ -706,7 +707,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                     self.log,
                     "New block received";
                     "slot" => verified_block.block.slot(),
-                    "hash" => ?verified_block.block_root
+                    "root" => ?verified_block.block_root
                 );
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Accept);
 
@@ -746,6 +747,14 @@ impl<T: BeaconChainTypes> Worker<T> {
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
                 return None;
             }
+            // TODO(merge): reconsider peer scoring for this event.
+            Err(e @BlockError::ExecutionPayloadError(ExecutionPayloadError::RequestFailed(_)))
+            | Err(e @BlockError::ExecutionPayloadError(ExecutionPayloadError::NoExecutionConnection)) => {
+                debug!(self.log, "Could not verify block for gossip, ignoring the block";
+                            "error" => %e);
+                self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
+                return None;
+            }
             Err(e @ BlockError::StateRootMismatch { .. })
             | Err(e @ BlockError::IncorrectBlockProposer { .. })
             | Err(e @ BlockError::BlockSlotLimitReached)
@@ -759,6 +768,10 @@ impl<T: BeaconChainTypes> Worker<T> {
             | Err(e @ BlockError::TooManySkippedSlots { .. })
             | Err(e @ BlockError::WeakSubjectivityConflict)
             | Err(e @ BlockError::InconsistentFork(_))
+            // TODO(merge): reconsider peer scoring for this event.
+            | Err(e @ BlockError::ExecutionPayloadError(_))
+            // TODO(merge): reconsider peer scoring for this event.
+            | Err(e @ BlockError::ParentExecutionPayloadInvalid { .. })
             | Err(e @ BlockError::GenesisBlock) => {
                 warn!(self.log, "Could not verify block for gossip, rejecting the block";
                             "error" => %e);

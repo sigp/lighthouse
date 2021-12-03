@@ -9,6 +9,6 @@ edition = "2018"
 [dependencies]
 state_processing = { path = "../../consensus/state_processing" }
 types = { path = "../../consensus/types" }
-eth2_ssz = "0.4.0"
+eth2_ssz = "0.4.1"
 beacon_chain = { path = "../../beacon_node/beacon_chain" }
 lazy_static = "1.4.0"

@@ -6,8 +6,8 @@ use eth1::{DEFAULT_CHAIN_ID, DEFAULT_NETWORK_ID};
 use eth1_test_rig::GanacheEth1Instance;
 use futures::prelude::*;
 use node_test_rig::{
-    environment::EnvironmentBuilder, testing_client_config, testing_validator_config,
-    ClientGenesis, ValidatorFiles,
+    environment::{EnvironmentBuilder, LoggerConfig},
+    testing_client_config, testing_validator_config, ClientGenesis, ValidatorFiles,
 };
 use rayon::prelude::*;
 use sensitive_url::SensitiveUrl;
@@ -53,7 +53,15 @@ pub fn run_eth1_sim(matches: &ArgMatches) -> Result<(), String> {
     let log_format = None;
 
     let mut env = EnvironmentBuilder::minimal()
-        .async_logger(log_level, log_format)?
+        .initialize_logger(LoggerConfig {
+            path: None,
+            debug_level: log_level,
+            logfile_debug_level: "debug",
+            log_format,
+            max_log_size: 0,
+            max_log_number: 0,
+            compression: false,
+        })?
         .multi_threaded_tokio_runtime()?
         .build()?;
 

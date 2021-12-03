@@ -10,7 +10,9 @@ use beacon_chain::{
     BeaconChain, BeaconChainError, BeaconForkChoiceStore, ChainConfig, ForkChoiceError,
     StateSkipConfig, WhenSlotSkipped,
 };
-use fork_choice::{ForkChoiceStore, InvalidAttestation, InvalidBlock, QueuedAttestation};
+use fork_choice::{
+    ForkChoiceStore, InvalidAttestation, InvalidBlock, PayloadVerificationStatus, QueuedAttestation,
+};
 use store::MemoryStore;
 use types::{
     test_utils::generate_deterministic_keypair, BeaconBlock, BeaconBlockRef, BeaconState,
@@ -273,6 +275,7 @@ impl ForkChoiceTest {
                 &block,
                 block.canonical_root(),
                 &state,
+                PayloadVerificationStatus::Verified,
                 &self.harness.chain.spec,
             )
             .unwrap();
@@ -314,6 +317,7 @@ impl ForkChoiceTest {
                 &block,
                 block.canonical_root(),
                 &state,
+                PayloadVerificationStatus::Verified,
                 &self.harness.chain.spec,
             )
             .err()

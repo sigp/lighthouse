@@ -40,6 +40,7 @@ macro_rules! easy_from_to {
 pub enum BeaconChainError {
     InsufficientValidators,
     UnableToReadSlot,
+    UnableToComputeTimeAtSlot,
     RevertedFinalizedEpoch {
         previous_epoch: Epoch,
         new_epoch: Epoch,
@@ -133,6 +134,11 @@ pub enum BeaconChainError {
         new_slot: Slot,
     },
     AltairForkDisabled,
+    ExecutionLayerMissing,
+    ExecutionForkChoiceUpdateFailed(execution_layer::Error),
+    HeadMissingFromForkChoice(Hash256),
+    FinalizedBlockMissingFromForkChoice(Hash256),
+    InvalidFinalizedPayloadShutdownError(TrySendError<ShutdownReason>),
 }
 
 easy_from_to!(SlotProcessingError, BeaconChainError);
@@ -174,6 +180,13 @@ pub enum BlockProductionError {
         produce_at_slot: Slot,
         state_slot: Slot,
     },
+    ExecutionLayerMissing,
+    BlockingFailed(execution_layer::Error),
+    TerminalPoWBlockLookupFailed(execution_layer::Error),
+    GetPayloadFailed(execution_layer::Error),
+    FailedToReadFinalizedBlock(store::Error),
+    MissingFinalizedBlock(Hash256),
+    BlockTooLarge(usize),
 }
 
 easy_from_to!(BlockProcessingError, BlockProductionError);

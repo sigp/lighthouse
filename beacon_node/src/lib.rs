@@ -13,7 +13,7 @@ use beacon_chain::{
 use clap::ArgMatches;
 pub use cli::cli_app;
 pub use client::{Client, ClientBuilder, ClientConfig, ClientGenesis};
-pub use config::{get_config, get_data_dir, get_eth2_network_config, set_network_config};
+pub use config::{get_config, get_data_dir, set_network_config};
 use environment::RuntimeContext;
 pub use eth2_config::Eth2Config;
 use slasher::Slasher;
@@ -46,8 +46,7 @@ impl<E: EthSpec> ProductionBeaconNode<E> {
         context: RuntimeContext<E>,
         matches: ArgMatches<'static>,
     ) -> Result<Self, String> {
-        let client_config =
-            get_config::<E>(&matches, &context.eth2_config().spec, context.log().clone())?;
+        let client_config = get_config::<E>(&matches, &context)?;
         Self::new(context, client_config).await
     }
 
@@ -66,6 +65,15 @@ impl<E: EthSpec> ProductionBeaconNode<E> {
         let db_path = client_config.create_db_path()?;
         let freezer_db_path = client_config.create_freezer_db_path()?;
         let executor = context.executor.clone();
+
+        if let Some(legacy_dir) = client_config.get_existing_legacy_data_dir() {
+            warn!(
+                log,
+                "Legacy datadir location";
+                "msg" => "this occurs when using relative paths for a datadir location",
+                "location" => ?legacy_dir,
+            )
+        }
 
         if !client_config.chain.enable_lock_timeouts {
             info!(log, "Disabling lock timeouts globally");
