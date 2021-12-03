@@ -3,8 +3,7 @@ mod migrate_schema_6;
 mod migrate_schema_7;
 
 use crate::beacon_chain::{BeaconChainTypes, FORK_CHOICE_DB_KEY, OP_POOL_DB_KEY};
-use crate::persisted_fork_choice::PersistedForkChoice;
-use crate::schema_change::migrate_schema_6::LegacyPersistedForkChoice;
+use crate::persisted_fork_choice::{PersistedForkChoiceV1, PersistedForkChoiceV7};
 use crate::validator_pubkey_cache::ValidatorPubkeyCache;
 use operation_pool::{PersistedOperationPool, PersistedOperationPoolBase};
 use slog::{warn, Logger};
@@ -102,14 +101,13 @@ pub fn migrate_schema<T: BeaconChainTypes>(
         }
         // Migration for adding `execution_status` field to the fork choice store.
         (SchemaVersion(5), SchemaVersion(6)) => {
-            let fork_choice_opt = db.get_item::<LegacyPersistedForkChoice>(&FORK_CHOICE_DB_KEY)?;
+            // The top-level `PersistedForkChoice` struct is still V1 but will have its internal
+            // bytes for the fork choice updated to V6.
+            let fork_choice_opt = db.get_item::<PersistedForkChoiceV1>(&FORK_CHOICE_DB_KEY)?;
             if let Some(mut persisted_fork_choice) = fork_choice_opt {
                 migrate_schema_6::update_execution_statuses::<T>(&mut persisted_fork_choice)
                     .map_err(StoreError::SchemaMigrationError)?;
-                db.put_item::<LegacyPersistedForkChoice>(
-                    &FORK_CHOICE_DB_KEY,
-                    &persisted_fork_choice,
-                )?;
+                db.put_item::<PersistedForkChoiceV1>(&FORK_CHOICE_DB_KEY, &persisted_fork_choice)?;
             }
 
             db.store_schema_version(to)?;
@@ -130,7 +128,7 @@ pub fn migrate_schema<T: BeaconChainTypes>(
         // https://github.com/ethereum/consensus-specs/pull/2727
         // https://github.com/ethereum/consensus-specs/pull/2730
         (SchemaVersion(6), SchemaVersion(7)) => {
-            let fork_choice_opt = db.get_item::<LegacyPersistedForkChoice>(&FORK_CHOICE_DB_KEY)?;
+            let fork_choice_opt = db.get_item::<PersistedForkChoiceV1>(&FORK_CHOICE_DB_KEY)?;
             if let Some(legacy_persisted_fork_choice) = fork_choice_opt {
                 // This migrates the `PersistedForkChoiceStore`, adding the `proposer_boost_root` field.
                 let mut persisted_fork_choice = legacy_persisted_fork_choice.into();
@@ -151,7 +149,7 @@ pub fn migrate_schema<T: BeaconChainTypes>(
                 }
 
                 // Store the converted fork choice store under the same key.
-                db.put_item::<PersistedForkChoice>(&FORK_CHOICE_DB_KEY, &persisted_fork_choice)?;
+                db.put_item::<PersistedForkChoiceV7>(&FORK_CHOICE_DB_KEY, &persisted_fork_choice)?;
             }
 
             db.store_schema_version(to)?;

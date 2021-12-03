@@ -11,6 +11,7 @@ use ssz_derive::{Decode, Encode};
 use std::marker::PhantomData;
 use std::sync::Arc;
 use store::{Error as StoreError, HotColdDB, ItemStore};
+use superstruct::superstruct;
 use types::{BeaconBlock, BeaconState, BeaconStateError, Checkpoint, EthSpec, Hash256, Slot};
 
 #[derive(Debug)]
@@ -338,7 +339,7 @@ where
 }
 
 /// A container which allows persisting the `BeaconForkChoiceStore` to the on-disk database.
-#[derive(Encode, Decode)]
+#[superstruct(variants(V1, V7), variant_attributes(derive(Encode, Decode)), no_enum)]
 pub struct PersistedForkChoiceStore {
     pub balances_cache: BalancesCache,
     pub time: Slot,
@@ -346,5 +347,8 @@ pub struct PersistedForkChoiceStore {
     pub justified_checkpoint: Checkpoint,
     pub justified_balances: Vec<u64>,
     pub best_justified_checkpoint: Checkpoint,
+    #[superstruct(only(V7))]
     pub proposer_boost_root: Hash256,
 }
+
+pub type PersistedForkChoiceStore = PersistedForkChoiceStoreV7;
