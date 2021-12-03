@@ -121,7 +121,6 @@ pub struct GossipAttestationPackage<E: EthSpec> {
     peer_id: PeerId,
     attestation: Box<Attestation<E>>,
     subnet_id: SubnetId,
-    beacon_block_root: Hash256,
     should_import: bool,
     seen_timestamp: Duration,
 }
@@ -138,7 +137,6 @@ impl<E: EthSpec> GossipAttestationPackage<E> {
         Self {
             message_id,
             peer_id,
-            beacon_block_root: attestation.data.beacon_block_root,
             attestation,
             subnet_id,
             should_import,
@@ -830,7 +828,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                 if reprocess_tx
                     .try_send(ReprocessQueueMessage::EarlyBlock(QueuedBlock {
                         peer_id,
-                        block: verified_block,
+                        block: Box::new(verified_block),
                         seen_timestamp: seen_duration,
                     }))
                     .is_err()

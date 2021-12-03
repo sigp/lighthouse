@@ -11,7 +11,7 @@ use std::path::{Path, PathBuf};
 /// outage) caused the lockfile not to be deleted.
 #[derive(Debug)]
 pub struct Lockfile {
-    file: File,
+    _file: File,
     path: PathBuf,
     file_existed: bool,
 }
@@ -43,7 +43,7 @@ impl Lockfile {
             _ => LockfileError::IoError(path.clone(), e),
         })?;
         Ok(Self {
-            file,
+            _file: file,
             path,
             file_existed,
         })

@@ -131,7 +131,7 @@ impl Config {
         if let Some(beacon_nodes) = parse_optional::<String>(cli_args, "beacon-nodes")? {
             config.beacon_nodes = beacon_nodes
                 .split(',')
-                .map(|s| SensitiveUrl::parse(s))
+                .map(SensitiveUrl::parse)
                 .collect::<Result<_, _>>()
                 .map_err(|e| format!("Unable to parse beacon node URL: {:?}", e))?;
         }

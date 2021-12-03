@@ -777,7 +777,7 @@ pub struct SseLateHead {
 #[derive(PartialEq, Debug, Serialize, Clone)]
 #[serde(bound = "T: EthSpec", untagged)]
 pub enum EventKind<T: EthSpec> {
-    Attestation(Attestation<T>),
+    Attestation(Box<Attestation<T>>),
     Block(SseBlock),
     FinalizedCheckpoint(SseFinalizedCheckpoint),
     Head(SseHead),
