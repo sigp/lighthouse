@@ -99,7 +99,7 @@ impl<'a> AlignedRecordDecorator<'a> {
 
 impl<'a> Write for AlignedRecordDecorator<'a> {
     fn write(&mut self, buf: &[u8]) -> Result<usize> {
-        if buf.iter().any(|c| is_ascii_control(c)) {
+        if buf.iter().any(u8::is_ascii_control) {
             let filtered = buf
                 .iter()
                 .cloned()

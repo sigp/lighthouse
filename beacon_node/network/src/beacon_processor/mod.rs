@@ -63,7 +63,7 @@ use types::{
     SyncCommitteeMessage, SyncSubnetId,
 };
 use work_reprocessing_queue::{
-    spawn_reprocess_scheduler, QueuedAggregate, QueuedBlock, QueuedUnaggregate, ReadyWork,
+    spawn_reprocess_scheduler, QueuedAggregate, QueuedUnaggregate, ReadyWork,
 };
 
 use worker::{Toolbox, Worker};
@@ -72,6 +72,7 @@ mod tests;
 mod work_reprocessing_queue;
 mod worker;
 
+use crate::beacon_processor::work_reprocessing_queue::QueuedBlock;
 pub use worker::{GossipAggregatePackage, GossipAttestationPackage, ProcessId};
 
 /// The maximum size of the channel for work events to the `BeaconProcessor`.
@@ -574,7 +575,7 @@ impl<T: BeaconChainTypes> std::convert::From<ReadyWork<T>> for WorkEvent<T> {
                 drop_during_sync: false,
                 work: Work::DelayedImportBlock {
                     peer_id,
-                    block: Box::new(block),
+                    block,
                     seen_timestamp,
                 },
             },
