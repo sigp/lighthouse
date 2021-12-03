@@ -310,6 +310,7 @@ where
             finalized_block_state_root,
             *fc_store.justified_checkpoint(),
             *fc_store.finalized_checkpoint(),
+            fc_store.proposer_boost_root(),
             current_epoch_shuffling_id,
             next_epoch_shuffling_id,
             execution_status,
