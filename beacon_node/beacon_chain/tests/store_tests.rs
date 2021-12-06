@@ -2223,9 +2223,10 @@ fn assert_chains_pretty_much_the_same<T: BeaconChainTypes>(a: &BeaconChain<T>, b
     );
 
     let slot = a.slot().unwrap();
+    let spec = T::EthSpec::default_spec();
     assert!(
-        a.fork_choice.write().get_head(slot).unwrap()
-            == b.fork_choice.write().get_head(slot).unwrap(),
+        a.fork_choice.write().get_head(slot, &spec).unwrap()
+            == b.fork_choice.write().get_head(slot, &spec).unwrap(),
         "fork_choice heads should be equal"
     );
 }

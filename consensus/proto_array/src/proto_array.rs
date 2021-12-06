@@ -5,7 +5,7 @@ use ssz::four_byte_option_impl;
 use ssz::Encode;
 use ssz_derive::{Decode, Encode};
 use std::collections::HashMap;
-use types::{AttestationShufflingId, Checkpoint, Epoch, EthSpec, Hash256, Slot};
+use types::{AttestationShufflingId, ChainSpec, Checkpoint, Epoch, EthSpec, Hash256, Slot};
 
 // Define a "legacy" implementation of `Option<usize>` which uses four bytes for encoding the union
 // selector.
@@ -93,6 +93,7 @@ impl ProtoArray {
         finalized_checkpoint: Checkpoint,
         new_balances: &[u64],
         proposer_boost_root: Hash256,
+        spec: &ChainSpec,
     ) -> Result<(), Error> {
         if deltas.len() != self.indices.len() {
             return Err(Error::InvalidDeltaLen {
@@ -133,26 +134,20 @@ impl ProtoArray {
             // If we find the node for which the proposer boost was previously applied, decrease
             // the delta by the previous score amount.
             if self.previous_proposer_boost.root == node.root {
-                node_delta -= self.previous_proposer_boost.score as i64;
+                node_delta = node_delta
+                    .checked_sub(self.previous_proposer_boost.score as i64)
+                    .ok_or(Error::DeltaOverflow(node_index))?;
             }
             // If we find the node matching the current proposer boost root, increase
             // the delta by the new score amount.
             //
             // https://github.com/ethereum/consensus-specs/blob/dev/specs/phase0/fork-choice.md#get_latest_attesting_balance
             if proposer_boost_root != Hash256::zero() && proposer_boost_root == node.root {
-                let (total_balance, num_validators) = new_balances
-                    .iter()
-                    // We need to filter zero balances here to get an accurate active validator count.
-                    // This is because we default inactive validator balances to zero when creating
-                    // this balances array.
-                    .filter(|b| **b != 0)
-                    .fold((0, 0), |(sum, count), balance| (sum + *balance, count + 1));
-                let average_balance = total_balance / num_validators;
-                let committee_size = num_validators / E::slots_per_epoch();
-                let committee_weight = committee_size * average_balance;
-                proposer_boost_score =
-                    (committee_weight * E::default_spec().proposer_score_boost) / 100;
-                node_delta += proposer_boost_score as i64;
+                proposer_boost_score = calculate_proposer_boost::<E>(new_balances, spec)
+                    .ok_or(Error::ProposerBoostOverflow(node_index))?;
+                node_delta = node_delta
+                    .checked_add(proposer_boost_score as i64)
+                    .ok_or(Error::DeltaOverflow(node_index))?;
             };
 
             // Apply the delta to the node.
@@ -568,6 +563,38 @@ impl ProtoArray {
         self.iter_nodes(block_root)
             .map(|node| (node.root, node.slot))
     }
+}
+
+/// A helper method to calculate the proposer boost based on the given `validator_balances`.
+/// This does *not* do any verification about whether a boost should or should not be applied.
+/// The `validator_balances` array used here is assumed to be structured like the one stored in
+/// the `BalancesCache`, where *effective* balances are stored and inactive balances are defaulted
+/// to zero.
+///
+/// Returns `None` if there is an overflow or underflow when calculating the score.
+///
+/// https://github.com/ethereum/consensus-specs/blob/dev/specs/phase0/fork-choice.md#get_latest_attesting_balance
+fn calculate_proposer_boost<E: EthSpec>(
+    validator_balances: &[u64],
+    spec: &ChainSpec,
+) -> Option<u64> {
+    let mut total_balance: u64 = 0;
+    let mut num_validators: u64 = 0;
+    for &balance in validator_balances {
+        // We need to filter zero balances here to get an accurate active validator count.
+        // This is because we default inactive validator balances to zero when creating
+        // this balances array.
+        if balance != 0 {
+            total_balance = total_balance.checked_add(balance)?;
+            num_validators = num_validators.checked_add(1)?;
+        }
+    }
+    let average_balance = total_balance.checked_div(num_validators)?;
+    let committee_size = num_validators.checked_div(E::slots_per_epoch())?;
+    let committee_weight = committee_size.checked_mul(average_balance)?;
+    committee_weight
+        .checked_mul(spec.proposer_score_boost)?
+        .checked_div(100)
 }
 
 /// Reverse iterator over one path through a `ProtoArray`.

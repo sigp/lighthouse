@@ -5,7 +5,7 @@ use serde_derive::{Deserialize, Serialize};
 use ssz::{Decode, Encode};
 use ssz_derive::{Decode, Encode};
 use std::collections::HashMap;
-use types::{AttestationShufflingId, Checkpoint, Epoch, EthSpec, Hash256, Slot};
+use types::{AttestationShufflingId, ChainSpec, Checkpoint, Epoch, EthSpec, Hash256, Slot};
 
 pub const DEFAULT_PRUNE_THRESHOLD: usize = 256;
 
@@ -182,6 +182,7 @@ impl ProtoArrayForkChoice {
         finalized_checkpoint: Checkpoint,
         justified_state_balances: &[u64],
         proposer_boost_root: Hash256,
+        spec: &ChainSpec,
     ) -> Result<Hash256, String> {
         let old_balances = &mut self.balances;
 
@@ -202,6 +203,7 @@ impl ProtoArrayForkChoice {
                 finalized_checkpoint,
                 new_balances,
                 proposer_boost_root,
+                spec,
             )
             .map_err(|e| format!("find_head apply_score_changes failed: {:?}", e))?;
 

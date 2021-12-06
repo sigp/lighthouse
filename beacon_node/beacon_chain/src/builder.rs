@@ -591,7 +591,7 @@ where
         };
 
         let initial_head_block_root = fork_choice
-            .get_head(current_slot)
+            .get_head(current_slot, &self.spec)
             .map_err(|e| format!("Unable to get fork choice head: {:?}", e))?;
 
         // Try to decode the head block according to the current fork, if that fails, try

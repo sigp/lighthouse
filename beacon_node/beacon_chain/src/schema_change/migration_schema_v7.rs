@@ -126,7 +126,7 @@ fn update_checkpoints<T: BeaconChainTypes>(
             Ok(())
         };
 
-        apply_to_chain_of_descendants(
+        apply_to_chain_of_ancestors(
             finalized_root,
             head.index,
             fork_choice,
@@ -174,7 +174,7 @@ fn update_checkpoints<T: BeaconChainTypes>(
             Ok(())
         };
 
-        apply_to_chain_of_descendants(finalized_root, head.index, fork_choice, node_mutator)?;
+        apply_to_chain_of_ancestors(finalized_root, head.index, fork_choice, node_mutator)?;
     }
     Ok(())
 }
@@ -211,9 +211,9 @@ fn map_relevant_epochs_to_roots<T: BeaconChainTypes>(
     Ok(roots_by_epoch)
 }
 
-/// Applies a mutator to every node in a chain for descendants from the `finalized_root`, starting
-/// with the node at the given `head_index`.
-fn apply_to_chain_of_descendants<F>(
+/// Applies a mutator to every node in a chain, starting from the node at the given given
+/// `head_index` and iterating through ancestors until the `finalized_root` is reached.
+fn apply_to_chain_of_ancestors<F>(
     finalized_root: Hash256,
     head_index: usize,
     fork_choice: &mut ProtoArrayForkChoice,

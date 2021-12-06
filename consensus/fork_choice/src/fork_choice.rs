@@ -392,7 +392,11 @@ where
     /// Is equivalent to:
     ///
     /// https://github.com/ethereum/eth2.0-specs/blob/v0.12.1/specs/phase0/fork-choice.md#get_head
-    pub fn get_head(&mut self, current_slot: Slot) -> Result<Hash256, Error<T::Error>> {
+    pub fn get_head(
+        &mut self,
+        current_slot: Slot,
+        spec: &ChainSpec,
+    ) -> Result<Hash256, Error<T::Error>> {
         self.update_time(current_slot)?;
 
         let store = &mut self.fc_store;
@@ -403,6 +407,7 @@ where
                 *store.finalized_checkpoint(),
                 store.justified_balances(),
                 store.proposer_boost_root(),
+                spec,
             )
             .map_err(Into::into)
     }

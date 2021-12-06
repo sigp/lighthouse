@@ -4,7 +4,7 @@ mod votes;
 
 use crate::proto_array_fork_choice::{Block, ExecutionStatus, ProtoArrayForkChoice};
 use serde_derive::{Deserialize, Serialize};
-use types::{AttestationShufflingId, Checkpoint, Epoch, Hash256, MainnetEthSpec, Slot};
+use types::{AttestationShufflingId, Checkpoint, Epoch, EthSpec, Hash256, MainnetEthSpec, Slot};
 
 pub use ffg_updates::*;
 pub use no_votes::*;
@@ -80,6 +80,7 @@ impl ForkChoiceTestDefinition {
                             finalized_checkpoint,
                             &justified_state_balances,
                             Hash256::zero(),
+                            &MainnetEthSpec::default_spec(),
                         )
                         .map_err(|e| e)
                         .unwrap_or_else(|e| {
@@ -103,6 +104,7 @@ impl ForkChoiceTestDefinition {
                         finalized_checkpoint,
                         &justified_state_balances,
                         Hash256::zero(),
+                        &MainnetEthSpec::default_spec(),
                     );
 
                     assert!(

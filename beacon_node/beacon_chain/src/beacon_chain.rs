@@ -3023,7 +3023,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
     fn fork_choice_internal(&self) -> Result<(), Error> {
         // Determine the root of the block that is the head of the chain.
-        let beacon_block_root = self.fork_choice.write().get_head(self.slot()?)?;
+        let beacon_block_root = self
+            .fork_choice
+            .write()
+            .get_head(self.slot()?, &self.spec)?;
 
         let current_head = self.head_info()?;
         let old_finalized_checkpoint = current_head.finalized_checkpoint;

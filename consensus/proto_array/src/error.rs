@@ -13,6 +13,7 @@ pub enum Error {
     InvalidParentDelta(usize),
     InvalidNodeDelta(usize),
     DeltaOverflow(usize),
+    ProposerBoostOverflow(usize),
     IndexOverflow(&'static str),
     InvalidDeltaLen {
         deltas: usize,
