@@ -211,7 +211,7 @@ fn map_relevant_epochs_to_roots<T: BeaconChainTypes>(
     Ok(roots_by_epoch)
 }
 
-/// Applies a mutator to every node in a chain, starting from the node at the given given
+/// Applies a mutator to every node in a chain, starting from the node at the given
 /// `head_index` and iterating through ancestors until the `finalized_root` is reached.
 fn apply_to_chain_of_ancestors<F>(
     finalized_root: Hash256,
