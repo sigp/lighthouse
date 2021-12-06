@@ -13,7 +13,9 @@ use std::time::Duration;
 use tokio::runtime::Runtime;
 use types::{ChainSpec, EnrForkId, EthSpec, ForkContext, Hash256, MinimalEthSpec};
 
+#[allow(unused)]
 pub mod behaviour;
+#[allow(unused)]
 pub mod swarm;
 
 type E = MinimalEthSpec;
@@ -44,6 +46,7 @@ impl std::ops::DerefMut for Libp2pInstance {
     }
 }
 
+#[allow(unused)]
 pub fn build_log(level: slog::Level, enabled: bool) -> slog::Logger {
     let decorator = slog_term::TermDecorator::new().build();
     let drain = slog_term::FullFormat::new(decorator).build().fuse();

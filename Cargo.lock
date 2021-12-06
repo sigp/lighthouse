@@ -3314,6 +3314,7 @@ dependencies = [
  "tokio-util",
  "types",
  "unsigned-varint 0.6.0",
+ "void",
 ]
 
 [[package]]

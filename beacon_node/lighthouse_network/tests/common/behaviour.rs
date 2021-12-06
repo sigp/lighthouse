@@ -24,17 +24,19 @@ use std::collections::HashMap;
 use std::task::{Context, Poll};
 
 use libp2p::core::connection::{ConnectedPoint, ConnectionId, ListenerId};
-use libp2p::swarm::{
-    DialError, IntoProtocolsHandler, NetworkBehaviour, NetworkBehaviourAction, PollParameters,
-    ProtocolsHandler,
+use libp2p::swarm::protocols_handler::{
+    DummyProtocolsHandler, IntoProtocolsHandler, ProtocolsHandler,
 };
+use libp2p::swarm::{DialError, NetworkBehaviour, NetworkBehaviourAction, PollParameters};
 use libp2p::{Multiaddr, PeerId};
 
 /// A `MockBehaviour` is a `NetworkBehaviour` that allows for
 /// the instrumentation of return values, without keeping
 /// any further state.
-pub struct MockBehaviour<THandler, TOutEvent>
-where
+pub struct MockBehaviour<
+    THandler = DummyProtocolsHandler,
+    TOutEvent = <DummyProtocolsHandler as ProtocolsHandler>::OutEvent,
+> where
     THandler: ProtocolsHandler,
 {
     /// The prototype protocols handler that is cloned for every
@@ -89,9 +91,8 @@ where
     }
 }
 
-/// A `CallTraceBehaviour` is a `NetworkBehaviour` that tracks
-/// invocations of callback methods and their arguments, wrapping
-/// around an inner behaviour. It ensures certain invariants are met.
+/// A `CallTraceBehaviour` is a `NetworkBehaviour` that tracks invocations of callback methods and
+/// their arguments, wrapping around an inner behaviour. It ensures certain invariants are met.
 pub struct CallTraceBehaviour<TInner>
 where
     TInner: NetworkBehaviour,

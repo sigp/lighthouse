@@ -1,7 +1,9 @@
 use super::behaviour::{CallTraceBehaviour, MockBehaviour};
 
-use libp2p::swarm::{NetworkBehaviour, Swarm, SwarmBuilder};
+use libp2p::swarm::{NetworkBehaviour, Swarm, SwarmBuilder, SwarmEvent};
 use libp2p::Transport;
+
+use futures::StreamExt;
 
 pub fn new_test_swarm<B>(behaviour: B) -> Swarm<B>
 where
@@ -21,4 +23,18 @@ where
 
 pub fn random_multiaddr() -> libp2p::multiaddr::Multiaddr {
     libp2p::multiaddr::Protocol::Memory(rand::random::<u64>()).into()
+}
+
+/// Bind a memory multiaddr to a compatible swarm.
+pub async fn bind_listener<B: NetworkBehaviour>(
+    swarm: &mut Swarm<B>,
+) -> libp2p::multiaddr::Multiaddr {
+    swarm.listen_on(random_multiaddr()).unwrap();
+    match swarm.select_next_some().await {
+        SwarmEvent::NewListenAddr {
+            listener_id: _,
+            address,
+        } => address,
+        _ => panic!("Testing swarm's first event should be a new listener"),
+    }
 }
