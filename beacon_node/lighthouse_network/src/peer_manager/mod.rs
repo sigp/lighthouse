@@ -875,23 +875,7 @@ mod tests {
             ..Default::default()
         };
         let log = build_log(slog::Level::Debug, false);
-        let globals = {
-            let keypair = libp2p::identity::Keypair::generate_secp256k1();
-            let enr_key: CombinedKey = CombinedKey::from_libp2p(&keypair).unwrap();
-            let enr = discv5::enr::EnrBuilder::new("v4").build(&enr_key).unwrap();
-            NetworkGlobals::new(
-                enr,
-                9000,
-                9000,
-                MetaData::V2(MetaDataV2 {
-                    seq_number: 0,
-                    attnets: Default::default(),
-                    syncnets: Default::default(),
-                }),
-                vec![],
-                &log,
-            )
-        };
+        let globals = NetworkGlobals::new_test_globals(&log);
         PeerManager::new(config, Arc::new(globals), &log)
             .await
             .unwrap()

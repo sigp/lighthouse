@@ -1063,7 +1063,6 @@ impl<TSpec: EthSpec> NetworkBehaviour for Discovery<TSpec> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::rpc::methods::{MetaData, MetaDataV2};
     use enr::EnrBuilder;
     use slog::{o, Drain};
     use std::net::UdpSocket;
@@ -1095,21 +1094,8 @@ mod tests {
             discovery_port: unused_port(),
             ..Default::default()
         };
-        let enr_key: CombinedKey = CombinedKey::from_libp2p(&keypair).unwrap();
-        let enr: Enr = build_enr::<E>(&enr_key, &config, EnrForkId::default()).unwrap();
         let log = build_log(slog::Level::Debug, false);
-        let globals = NetworkGlobals::new(
-            enr,
-            9000,
-            9000,
-            MetaData::V2(MetaDataV2 {
-                seq_number: 0,
-                attnets: Default::default(),
-                syncnets: Default::default(),
-            }),
-            vec![],
-            &log,
-        );
+        let globals = NetworkGlobals::new_test_globals(&log);
         Discovery::new(&keypair, &config, Arc::new(globals), &log)
             .await
             .unwrap()
