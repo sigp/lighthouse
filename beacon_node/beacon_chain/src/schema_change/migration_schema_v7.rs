@@ -196,7 +196,7 @@ fn map_relevant_epochs_to_roots<T: BeaconChainTypes>(
     let mut iter = std::iter::once(Ok((head_root, head_slot)))
         .chain(BlockRootsIterator::from_block(db, head_root).map_err(|e| format!("{:?}", e))?);
     let mut roots_by_epoch = HashMap::new();
-    for epoch in relevant_epochs.into_iter() {
+    for epoch in relevant_epochs {
         let start_slot = epoch.start_slot(T::EthSpec::slots_per_epoch());
 
         let root = iter
