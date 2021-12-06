@@ -51,6 +51,11 @@ pub struct SwarmPool<B: NetworkBehaviour> {
 }
 
 impl<B: NetworkBehaviour> SwarmPool<B> {
+    pub fn with_capacity(capacity: usize) -> Self {
+        Self {
+            swarms: HashMap::with_capacity(capacity),
+        }
+    }
     pub fn insert(&mut self, swarm: Swarm<B>) -> PeerId {
         let peer_id = *swarm.local_peer_id();
         self.swarms.insert(peer_id, swarm);
@@ -63,6 +68,14 @@ impl<B: NetworkBehaviour> SwarmPool<B> {
 
     pub fn get_mut(&mut self, peer_id: &PeerId) -> Option<&mut Swarm<B>> {
         self.swarms.get_mut(peer_id)
+    }
+
+    pub fn swarms(&self) -> &HashMap<PeerId, Swarm<B>> {
+        &self.swarms
+    }
+
+    pub fn swarms_mut(&mut self) -> &mut HashMap<PeerId, Swarm<B>> {
+        &mut self.swarms
     }
 }
 

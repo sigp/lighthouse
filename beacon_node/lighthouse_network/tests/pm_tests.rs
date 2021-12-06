@@ -1,8 +1,17 @@
 mod common;
-use std::sync::Arc;
+use std::{
+    collections::{HashMap, HashSet},
+    sync::Arc,
+};
 
-use common::behaviour::{CallTraceBehaviour, MockBehaviour};
-use lighthouse_network::{peer_manager::PeerManagerEvent, NetworkGlobals, PeerManager};
+use common::{
+    behaviour::{CallTraceBehaviour, MockBehaviour},
+    swarm,
+};
+use lighthouse_network::{
+    peer_manager::{config::Config, PeerManagerEvent},
+    NetworkGlobals, PeerAction, PeerId, PeerManager, ReportSource,
+};
 use types::MinimalEthSpec as E;
 
 use futures::StreamExt;
@@ -31,6 +40,10 @@ impl Service {
             }
             SwarmEvent::Behaviour(Ev(PeerManagerEvent::UnBanned(peer_id, _addr_vec))) => {
                 self.swarm.unban_peer_id(*peer_id);
+            }
+            SwarmEvent::Behaviour(Ev(PeerManagerEvent::DisconnectPeer(peer_id, _reason))) => {
+                // directly disconnect here.
+                self.swarm.disconnect_peer_id(*peer_id);
             }
             _ => {}
         }
@@ -72,31 +85,121 @@ impl Behaviour {
 }
 
 #[tokio::test]
-async fn doa() {
+async fn banned_peers_consistency() {
     let log = common::build_log(slog::Level::Debug, true);
+    let pm_log = log.new(slog::o!("who" => "[PM]"));
     let globals: Arc<NetworkGlobals<E>> = Arc::new(NetworkGlobals::new_test_globals(&log));
-    let pm_config = lighthouse_network::peer_manager::config::Config::default();
-    let pm = PeerManager::new(pm_config, globals.clone(), &log)
-        .await
-        .unwrap();
-    let b = Behaviour::new(pm);
-    let mut pm_swarm = common::swarm::new_test_swarm(b);
-    let pm_addr = common::swarm::bind_listener(&mut pm_swarm).await;
-    let mut pm_service = Service { swarm: pm_swarm };
-    let mut peer_swarm =
-        common::swarm::new_test_swarm(DummyBehaviour::with_keep_alive(KeepAlive::Yes));
-    let _peer_addr = common::swarm::bind_listener(&mut peer_swarm).await;
 
-    // Dial
-    peer_swarm.dial(pm_addr).unwrap();
+    // Build the peer manager.
+    let (mut pm_service, pm_addr) = {
+        let pm_config = Config {
+            discovery_enabled: false,
+            ..Default::default()
+        };
+        let pm = PeerManager::new(pm_config, globals.clone(), &pm_log)
+            .await
+            .unwrap();
+        let mut pm_swarm = swarm::new_test_swarm(Behaviour::new(pm));
+        let pm_addr = swarm::bind_listener(&mut pm_swarm).await;
+        let service = Service { swarm: pm_swarm };
+        (service, pm_addr)
+    };
+
+    // max banned peers is 1000 in theory.
+    let peers_to_ban = 1020; // TODO: use the constant or move to config.
+
+    // Build all the dummy peers needed.
+    let (mut swarm_pool, peers) = {
+        let mut pool = swarm::SwarmPool::with_capacity(peers_to_ban);
+        let mut peers = HashSet::with_capacity(peers_to_ban);
+        for _ in 0..peers_to_ban {
+            let mut peer_swarm =
+                swarm::new_test_swarm(DummyBehaviour::with_keep_alive(KeepAlive::Yes));
+            let _peer_addr = swarm::bind_listener(&mut peer_swarm).await;
+            // It is ok to dial all at the same time since the swarm handles an event at a time.
+            peer_swarm.dial(pm_addr.clone()).unwrap();
+            let peer_id = pool.insert(peer_swarm);
+            peers.insert(peer_id);
+        }
+        (pool, peers)
+    };
+
+    // we track banned peers at the swarm level here since there is no access to that info.
+    let mut swarm_banned_peers = HashMap::with_capacity(peers_to_ban);
+
     loop {
+        // poll the pm and dummy swarms.
         tokio::select! {
-            peer_ev = peer_swarm.select_next_some() => {
-                debug!(log, "[Peer] {:?}", peer_ev);
-            },
             pm_event = pm_service.select_next_some() => {
                 debug!(log, "[PM] {:?}", pm_event);
+                match pm_event {
+                    SwarmEvent::Behaviour(Ev(ev)) => match ev {
+                        PeerManagerEvent::Banned(peer_id, _) => {
+                            let has_been_unbanned = false;
+                            swarm_banned_peers.insert(peer_id, has_been_unbanned);
+                        }
+                        PeerManagerEvent::UnBanned(peer_id, _) => {
+                            *swarm_banned_peers.get_mut(&peer_id).expect("Unbanned peer must be banned first") = true;
+                        }
+                        _ => {}
+                    }
+                    SwarmEvent::ConnectionEstablished {
+                        peer_id,
+                        endpoint: _,
+                        num_established: _,
+                        concurrent_dial_errors: _,
+                    } => {
+                        assert!(peers.contains(&peer_id));
+                        // now we report the peer as banned.
+                        pm_service
+                            .swarm
+                            .behaviour_mut()
+                            .pm_call_trace
+                            .inner()
+                            .report_peer(
+                                &peer_id,
+                                PeerAction::Fatal,
+                                ReportSource::Processor,
+                                None
+                            );
+                    },
+                    _ => {}
+                }
             }
+            Some((_peer_id, _peer_ev)) = swarm_pool.next() => {
+                // we need to poll the swarms to keep the peers going
+            }
+        }
+
+        if swarm_banned_peers.len() == peers_to_ban {
+            let pdb = globals.peers.read();
+            let inconsistencies = swarm_banned_peers
+                .into_iter()
+                .map(|(peer_id, was_unbanned)| {
+                    let is_consistent = if !was_unbanned {
+                        if let Some(peer_info) = pdb.peer_info(&peer_id) {
+                            peer_info.is_banned()
+                        } else {
+                            // We forgot abound a banned peer
+                            false
+                        }
+                    } else {
+                        if let Some(peer_info) = pdb.peer_info(&peer_id) {
+                            !peer_info.is_banned()
+                        } else {
+                            // If we forgot the peer it's ok
+                            true
+                        }
+                    };
+                    is_consistent
+                });
+            assert_eq!(
+                inconsistencies
+                    .filter(|is_consistent| *is_consistent)
+                    .count(),
+                peers_to_ban
+            );
+            return;
         }
     }
 }
