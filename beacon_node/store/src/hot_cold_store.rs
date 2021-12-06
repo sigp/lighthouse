@@ -975,6 +975,21 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         self.hot_db.put(&SCHEMA_VERSION_KEY, &schema_version)
     }
 
+    /// Store the database schema version atomically with additional operations.
+    pub fn store_schema_version_atomically(
+        &self,
+        schema_version: SchemaVersion,
+        mut ops: Vec<KeyValueStoreOp>,
+    ) -> Result<(), Error> {
+        let column = SchemaVersion::db_column().into();
+        let key = SCHEMA_VERSION_KEY.as_bytes();
+        let db_key = get_key_for_col(column, key);
+        let op = KeyValueStoreOp::PutKeyValue(db_key, schema_version.as_store_bytes());
+        ops.push(op);
+
+        self.hot_db.do_atomically(ops)
+    }
+
     /// Initialise the anchor info for checkpoint sync starting from `block`.
     pub fn init_anchor_info(&self, block: BeaconBlockRef<'_, E>) -> Result<KeyValueStoreOp, Error> {
         let anchor_slot = block.slot();

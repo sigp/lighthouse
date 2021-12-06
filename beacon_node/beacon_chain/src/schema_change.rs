@@ -5,6 +5,7 @@ mod types;
 
 use crate::beacon_chain::{BeaconChainTypes, FORK_CHOICE_DB_KEY, OP_POOL_DB_KEY};
 use crate::persisted_fork_choice::{PersistedForkChoiceV1, PersistedForkChoiceV7};
+use crate::store::{get_key_for_col, KeyValueStoreOp};
 use crate::validator_pubkey_cache::ValidatorPubkeyCache;
 use operation_pool::{PersistedOperationPool, PersistedOperationPoolBase};
 use slog::{warn, Logger};
@@ -102,16 +103,25 @@ pub fn migrate_schema<T: BeaconChainTypes>(
         }
         // Migration for adding `execution_status` field to the fork choice store.
         (SchemaVersion(5), SchemaVersion(6)) => {
+            // Database operations to be done atomically
+            let mut ops = vec![];
+
             // The top-level `PersistedForkChoice` struct is still V1 but will have its internal
             // bytes for the fork choice updated to V6.
             let fork_choice_opt = db.get_item::<PersistedForkChoiceV1>(&FORK_CHOICE_DB_KEY)?;
             if let Some(mut persisted_fork_choice) = fork_choice_opt {
                 migration_schema_v6::update_execution_statuses::<T>(&mut persisted_fork_choice)
                     .map_err(StoreError::SchemaMigrationError)?;
-                db.put_item::<PersistedForkChoiceV1>(&FORK_CHOICE_DB_KEY, &persisted_fork_choice)?;
+
+                let column = PersistedForkChoiceV1::db_column().into();
+                let key = FORK_CHOICE_DB_KEY.as_bytes();
+                let db_key = get_key_for_col(column, key);
+                let op =
+                    KeyValueStoreOp::PutKeyValue(db_key, persisted_fork_choice.as_store_bytes());
+                ops.push(op);
             }
 
-            db.store_schema_version(to)?;
+            db.store_schema_version_atomically(to, ops)?;
 
             Ok(())
         }
@@ -129,6 +139,9 @@ pub fn migrate_schema<T: BeaconChainTypes>(
         // https://github.com/ethereum/consensus-specs/pull/2727
         // https://github.com/ethereum/consensus-specs/pull/2730
         (SchemaVersion(6), SchemaVersion(7)) => {
+            // Database operations to be done atomically
+            let mut ops = vec![];
+
             let fork_choice_opt = db.get_item::<PersistedForkChoiceV1>(&FORK_CHOICE_DB_KEY)?;
             if let Some(persisted_fork_choice_v1) = fork_choice_opt {
                 // This migrates the `PersistedForkChoiceStore`, adding the `proposer_boost_root` field.
@@ -150,13 +163,15 @@ pub fn migrate_schema<T: BeaconChainTypes>(
                 }
 
                 // Store the converted fork choice store under the same key.
-                db.put_item::<PersistedForkChoiceV7>(
-                    &FORK_CHOICE_DB_KEY,
-                    &persisted_fork_choice_v7,
-                )?;
+                let column = PersistedForkChoiceV7::db_column().into();
+                let key = FORK_CHOICE_DB_KEY.as_bytes();
+                let db_key = get_key_for_col(column, key);
+                let op =
+                    KeyValueStoreOp::PutKeyValue(db_key, persisted_fork_choice_v7.as_store_bytes());
+                ops.push(op);
             }
 
-            db.store_schema_version(to)?;
+            db.store_schema_version_atomically(to, ops)?;
 
             Ok(())
         }
