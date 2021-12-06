@@ -148,7 +148,7 @@ impl<E: EthSpec> Case for ForkChoiceTest<E> {
         // TODO(merge): enable these tests before production.
         // This test will fail until this PR is merged and released:
         //
-        // https://github.com/ethereum/consensus-specs/pull/2753
+        // https://github.com/ethereum/consensus-specs/pull/2760
         if self.description == "shorter_chain_but_heavier_weight"
             // This test is skipped until we can do retrospective confirmations of the terminal
             // block after an optimistic sync.
