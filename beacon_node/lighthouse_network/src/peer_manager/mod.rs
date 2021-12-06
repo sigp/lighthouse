@@ -635,7 +635,6 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
         }
 
         metrics::set_gauge(&metrics::PEERS_CONNECTED, connected_peer_count);
-        metrics::set_gauge(&metrics::PEERS_CONNECTED_INTEROP, connected_peer_count);
         metrics::set_gauge(&metrics::NETWORK_INBOUND_PEERS, inbound_connected_peers);
         metrics::set_gauge(&metrics::NETWORK_OUTBOUND_PEERS, outbound_connected_peers);
 
@@ -743,7 +742,6 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
         // increment prometheus metrics
         metrics::inc_counter(&metrics::PEER_CONNECT_EVENT_COUNT);
         metrics::set_gauge(&metrics::PEERS_CONNECTED, connected_peers);
-        metrics::set_gauge(&metrics::PEERS_CONNECTED_INTEROP, connected_peers);
 
         true
     }
