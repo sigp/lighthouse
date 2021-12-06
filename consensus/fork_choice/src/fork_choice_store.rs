@@ -19,7 +19,7 @@ use types::{BeaconBlock, BeaconState, Checkpoint, EthSpec, Hash256, Slot};
 pub trait ForkChoiceStore<T: EthSpec>: Sized {
     type Error;
 
-    /// Returns the slot of the last value passed to `Self::set_current_slot`.
+    /// Returns the last value passed to `Self::set_current_slot`.
     fn get_current_slot(&self) -> Slot;
 
     /// Set the value to be returned by `Self::get_current_slot`.
