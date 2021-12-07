@@ -88,7 +88,7 @@ impl Behaviour {
 
 #[tokio::test]
 async fn banned_peers_consistency() {
-    let log = common::build_log(slog::Level::Debug, true);
+    let log = common::build_log(slog::Level::Debug, false);
     let pm_log = log.new(slog::o!("who" => "[PM]"));
     let globals: Arc<NetworkGlobals<E>> = Arc::new(NetworkGlobals::new_test_globals(&log));
 
