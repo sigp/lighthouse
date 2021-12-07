@@ -4,7 +4,7 @@ use std::convert::TryInto;
 use std::time::Duration;
 use tokio::{runtime, task::JoinHandle};
 use tokio_postgres::{config::Config as PostgresConfig, Client, NoTls, Row};
-use types::{BeaconBlockHeader, Epoch, EthSpec, Hash256, Slot};
+use types::{BeaconBlockHeader, EthSpec, Hash256, Slot};
 
 pub use config::Config;
 pub use error::Error;
@@ -94,17 +94,6 @@ impl Database {
             )
             .await?;
 
-        db.client
-            .execute(
-                "CREATE TABLE canonical_epochs (
-                epoch integer PRIMARY KEY,
-                root char(66),
-                beacon_block char(66) REFERENCES beacon_blocks(root)
-            )",
-                &[],
-            )
-            .await?;
-
         Ok(db)
     }
 
@@ -155,19 +144,6 @@ impl Database {
         tx: &'a Transaction<'a>,
         slot: Slot,
     ) -> Result<(), Error> {
-        let epoch = slot.epoch(T::slots_per_epoch());
-        let epoch_end_slot = epoch.end_slot(T::slots_per_epoch());
-
-        // Optionally remove the canonical epoch.
-        if slot < epoch_end_slot {
-            tx.execute(
-                "DELETE FROM canonical_epochs
-                    WHERE epoch > $1",
-                &[&encode_epoch(epoch)?],
-            )
-            .await?;
-        }
-
         tx.execute(
             "DELETE FROM canonical_slots
                 WHERE slot > $1",
@@ -184,18 +160,6 @@ impl Database {
         root: Hash256,
     ) -> Result<(), Error> {
         let root = encode_hash256(root);
-        let epoch = slot.epoch(T::slots_per_epoch());
-        let epoch_end_slot = epoch.end_slot(T::slots_per_epoch());
-
-        // Optionally update the canonical epoch.
-        if slot == epoch_end_slot {
-            tx.execute(
-                "INSERT INTO canonical_epochs (epoch, root)
-                VALUES ($1, $2)",
-                &[&encode_epoch(epoch)?, &root],
-            )
-            .await?;
-        }
 
         tx.execute(
             "INSERT INTO canonical_slots (slot, root)
@@ -340,10 +304,6 @@ fn row_to_slot(row: &Row, index: usize) -> Result<Slot, Error> {
 
 fn encode_hash256(h: Hash256) -> String {
     format!("{:?}", h)
-}
-
-fn encode_epoch(e: Epoch) -> Result<i32, Error> {
-    e.as_u64().try_into().map_err(|_| Error::InvalidSlot)
 }
 
 fn encode_slot(s: Slot) -> Result<i32, Error> {

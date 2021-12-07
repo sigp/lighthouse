@@ -14,7 +14,7 @@ pub async fn run_once<T: EthSpec>(config: &Config) -> Result<(), Error> {
 
     let mut db = Database::connect(&config).await?;
 
-    // TODO(paul): lock the canonical slots and epochs tables?
+    // TODO(paul): lock the canonical slots table?
 
     perform_head_update::<T>(&mut db, &bn).await?;
     perform_backfill::<T>(&mut db, &bn).await?;
