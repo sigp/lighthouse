@@ -22,7 +22,7 @@ use libp2p::{
     NetworkBehaviour,
 };
 
-use slog::{debug, info};
+use slog::debug;
 
 /// Struct that mimics the lighthouse_network::Service with respect to handling peer manager
 /// events.
