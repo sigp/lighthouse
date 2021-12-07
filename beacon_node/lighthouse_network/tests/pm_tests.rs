@@ -1,3 +1,5 @@
+#![cfg(not(debug_assertions))]
+
 mod common;
 use std::{
     collections::{HashMap, HashSet},
@@ -86,7 +88,7 @@ impl Behaviour {
 
 #[tokio::test]
 async fn banned_peers_consistency() {
-    let log = common::build_log(slog::Level::Debug, false);
+    let log = common::build_log(slog::Level::Debug, true);
     let pm_log = log.new(slog::o!("who" => "[PM]"));
     let globals: Arc<NetworkGlobals<E>> = Arc::new(NetworkGlobals::new_test_globals(&log));
 
@@ -105,8 +107,9 @@ async fn banned_peers_consistency() {
         (service, pm_addr)
     };
 
-    // max banned peers is 1000 in theory.
-    let peers_to_ban = 1020; // TODO: use the constant or move to config.
+    let excess_banned_peers = 15;
+    let peers_to_ban =
+        lighthouse_network::peer_manager::peerdb::MAX_BANNED_PEERS + excess_banned_peers;
 
     // Build all the dummy peers needed.
     let (mut swarm_pool, peers) = {
@@ -126,6 +129,9 @@ async fn banned_peers_consistency() {
 
     // we track banned peers at the swarm level here since there is no access to that info.
     let mut swarm_banned_peers = HashMap::with_capacity(peers_to_ban);
+    let mut peers_unbanned = 0;
+    let timeout = tokio::time::sleep(tokio::time::Duration::from_secs(30));
+    futures::pin_mut!(timeout);
 
     loop {
         // poll the pm and dummy swarms.
@@ -140,6 +146,7 @@ async fn banned_peers_consistency() {
                         }
                         PeerManagerEvent::UnBanned(peer_id, _) => {
                             *swarm_banned_peers.get_mut(&peer_id).expect("Unbanned peer must be banned first") = true;
+                            peers_unbanned += 1;
                         }
                         _ => {}
                     }
@@ -169,9 +176,12 @@ async fn banned_peers_consistency() {
             Some((_peer_id, _peer_ev)) = swarm_pool.next() => {
                 // we need to poll the swarms to keep the peers going
             }
+            _ = timeout.as_mut() => {
+                panic!("Test timeout.")
+            }
         }
 
-        if swarm_banned_peers.len() == peers_to_ban {
+        if peers_unbanned == excess_banned_peers {
             let pdb = globals.peers.read();
             let inconsistencies = swarm_banned_peers
                 .into_iter()
