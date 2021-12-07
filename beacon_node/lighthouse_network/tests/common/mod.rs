@@ -13,8 +13,10 @@ use std::time::Duration;
 use tokio::runtime::Runtime;
 use types::{ChainSpec, EnrForkId, EthSpec, ForkContext, Hash256, MinimalEthSpec};
 
+#[allow(clippy::type_complexity)]
 #[allow(unused)]
 pub mod behaviour;
+#[allow(clippy::type_complexity)]
 #[allow(unused)]
 pub mod swarm;
 

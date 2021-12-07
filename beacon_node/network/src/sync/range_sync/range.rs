@@ -371,7 +371,7 @@ mod tests {
     use beacon_chain::eth1_chain::CachingEth1Backend;
     use beacon_chain::parking_lot::RwLock;
     use lighthouse_network::rpc::BlocksByRangeRequest;
-    use lighthouse_network::{libp2p, Request};
+    use lighthouse_network::Request;
     use lighthouse_network::{rpc::StatusMessage, NetworkGlobals};
     use slog::{o, Drain};
 
