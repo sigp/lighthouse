@@ -62,12 +62,12 @@ pub async fn handle_rpc<T: EthSpec>(
                     ExecutePayloadResponseStatus::Valid => ExecutePayloadResponse {
                         status,
                         latest_valid_hash: Some(request.block_hash),
-                        message: None,
+                        validation_error: None,
                     },
                     ExecutePayloadResponseStatus::Syncing => ExecutePayloadResponse {
                         status,
                         latest_valid_hash: None,
-                        message: None,
+                        validation_error: None,
                     },
                     _ => unimplemented!("invalid static executePayloadResponse"),
                 }

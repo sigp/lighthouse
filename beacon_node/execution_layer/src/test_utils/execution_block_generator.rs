@@ -242,7 +242,7 @@ impl<T: EthSpec> ExecutionBlockGenerator<T> {
             return ExecutePayloadResponse {
                 status: ExecutePayloadResponseStatus::Syncing,
                 latest_valid_hash: None,
-                message: None,
+                validation_error: None,
             };
         };
 
@@ -250,7 +250,7 @@ impl<T: EthSpec> ExecutionBlockGenerator<T> {
             return ExecutePayloadResponse {
                 status: ExecutePayloadResponseStatus::Invalid,
                 latest_valid_hash: Some(parent.block_hash()),
-                message: Some("invalid block number".to_string()),
+                validation_error: Some("invalid block number".to_string()),
             };
         }
 
@@ -260,7 +260,7 @@ impl<T: EthSpec> ExecutionBlockGenerator<T> {
         ExecutePayloadResponse {
             status: ExecutePayloadResponseStatus::Valid,
             latest_valid_hash: Some(valid_hash),
-            message: None,
+            validation_error: None,
         }
     }
 

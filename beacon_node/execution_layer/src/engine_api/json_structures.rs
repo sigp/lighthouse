@@ -258,7 +258,7 @@ pub enum JsonExecutePayloadV1ResponseStatus {
 pub struct JsonExecutePayloadV1Response {
     pub status: JsonExecutePayloadV1ResponseStatus,
     pub latest_valid_hash: Option<Hash256>,
-    pub message: Option<String>,
+    pub validation_error: Option<String>,
 }
 
 impl From<ExecutePayloadResponseStatus> for JsonExecutePayloadV1ResponseStatus {
@@ -286,13 +286,13 @@ impl From<ExecutePayloadResponse> for JsonExecutePayloadV1Response {
         let ExecutePayloadResponse {
             status,
             latest_valid_hash,
-            message,
+            validation_error,
         } = e;
 
         Self {
             status: status.into(),
             latest_valid_hash,
-            message,
+            validation_error,
         }
     }
 }
@@ -303,13 +303,13 @@ impl From<JsonExecutePayloadV1Response> for ExecutePayloadResponse {
         let JsonExecutePayloadV1Response {
             status,
             latest_valid_hash,
-            message,
+            validation_error,
         } = j;
 
         Self {
             status: status.into(),
             latest_valid_hash,
-            message,
+            validation_error,
         }
     }
 }
