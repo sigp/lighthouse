@@ -112,15 +112,7 @@ impl<TSpec: EthSpec> NetworkBehaviour for PeerManager<TSpec> {
         _failed_addresses: Option<&Vec<Multiaddr>>,
     ) {
         // Log the connection
-        match &endpoint {
-            ConnectedPoint::Listener { .. } => {
-                debug!(self.log, "Connection established"; "peer_id" => %peer_id, "connection" => "Incoming");
-            }
-            ConnectedPoint::Dialer { .. } => {
-                debug!(self.log, "Connection established"; "peer_id" => %peer_id, "connection" => "Outgoing");
-                // TODO: Ensure we have that address registered.
-            }
-        }
+        debug!(self.log, "Connection established"; "peer_id" => %peer_id, "connection" => ?endpoint.to_endpoint());
 
         // Check to make sure the peer is not supposed to be banned
         match self.ban_status(peer_id) {
