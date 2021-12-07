@@ -134,8 +134,10 @@ impl<TSpec: EthSpec> NetworkBehaviour for PeerManager<TSpec> {
             BanResult::NotBanned => {}
         }
 
+        // Count dialing peers in the limit if the peer dialied us.
+        let count_dialing = endpoint.is_listener();
         // Check the connection limits
-        if self.peer_limit_reached()
+        if self.peer_limit_reached(count_dialing)
             && self
                 .network_globals
                 .peers
