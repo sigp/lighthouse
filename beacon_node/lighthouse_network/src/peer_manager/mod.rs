@@ -850,9 +850,6 @@ enum ConnectingType {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::discovery::enr_ext::CombinedKeyExt;
-    use crate::rpc::methods::{MetaData, MetaDataV2};
-    use discv5::enr::CombinedKey;
     use slog::{o, Drain};
     use types::MinimalEthSpec as E;
 

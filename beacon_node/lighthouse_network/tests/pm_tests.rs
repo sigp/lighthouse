@@ -10,7 +10,7 @@ use common::{
 };
 use lighthouse_network::{
     peer_manager::{config::Config, PeerManagerEvent},
-    NetworkGlobals, PeerAction, PeerId, PeerManager, ReportSource,
+    NetworkGlobals, PeerAction, PeerInfo, PeerManager, ReportSource,
 };
 use types::MinimalEthSpec as E;
 
@@ -43,7 +43,7 @@ impl Service {
             }
             SwarmEvent::Behaviour(Ev(PeerManagerEvent::DisconnectPeer(peer_id, _reason))) => {
                 // directly disconnect here.
-                self.swarm.disconnect_peer_id(*peer_id);
+                let _ = self.swarm.disconnect_peer_id(*peer_id);
             }
             _ => {}
         }
@@ -86,7 +86,7 @@ impl Behaviour {
 
 #[tokio::test]
 async fn banned_peers_consistency() {
-    let log = common::build_log(slog::Level::Debug, true);
+    let log = common::build_log(slog::Level::Debug, false);
     let pm_log = log.new(slog::o!("who" => "[PM]"));
     let globals: Arc<NetworkGlobals<E>> = Arc::new(NetworkGlobals::new_test_globals(&log));
 
@@ -176,22 +176,11 @@ async fn banned_peers_consistency() {
             let inconsistencies = swarm_banned_peers
                 .into_iter()
                 .map(|(peer_id, was_unbanned)| {
-                    let is_consistent = if !was_unbanned {
-                        if let Some(peer_info) = pdb.peer_info(&peer_id) {
-                            peer_info.is_banned()
-                        } else {
-                            // We forgot abound a banned peer
-                            false
-                        }
-                    } else {
-                        if let Some(peer_info) = pdb.peer_info(&peer_id) {
-                            !peer_info.is_banned()
-                        } else {
-                            // If we forgot the peer it's ok
-                            true
-                        }
-                    };
-                    is_consistent
+                    was_unbanned
+                        != pdb.peer_info(&peer_id).map_or(
+                            false, /* We forgot about a banned peer */
+                            PeerInfo::is_banned,
+                        )
                 });
             assert_eq!(
                 inconsistencies

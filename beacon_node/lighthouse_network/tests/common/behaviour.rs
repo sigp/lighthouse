@@ -215,7 +215,7 @@ where
     }
 
     fn addresses_of_peer(&mut self, p: &PeerId) -> Vec<Multiaddr> {
-        self.addresses_of_peer.push(p.clone());
+        self.addresses_of_peer.push(*p);
         self.inner.addresses_of_peer(p)
     }
 
@@ -226,7 +226,7 @@ where
                 .any(|(peer_id, _, _)| peer_id == peer),
             "`inject_connected` is called after at least one `inject_connection_established`."
         );
-        self.inject_connected.push(peer.clone());
+        self.inject_connected.push(*peer);
         self.inner.inject_connected(peer);
     }
 
@@ -237,8 +237,7 @@ where
         e: &ConnectedPoint,
         errors: Option<&Vec<Multiaddr>>,
     ) {
-        self.inject_connection_established
-            .push((p.clone(), c.clone(), e.clone()));
+        self.inject_connection_established.push((*p, *c, e.clone()));
         self.inner.inject_connection_established(p, c, e, errors);
     }
 
@@ -260,7 +259,7 @@ where
         e: &ConnectedPoint,
         handler: <Self::ProtocolsHandler as IntoProtocolsHandler>::Handler,
     ) {
-        let connection = (p.clone(), c.clone(), e.clone());
+        let connection = (*p, *c, e.clone());
         assert!(
             self.inject_connection_established.contains(&connection),
             "`inject_connection_closed` is called only for connections for \
@@ -290,7 +289,7 @@ where
             "`inject_event` is never called for closed connections."
         );
 
-        self.inject_event.push((p.clone(), c.clone(), e.clone()));
+        self.inject_event.push((p, c, e.clone()));
         self.inner.inject_event(p, c, e);
     }
 
@@ -330,7 +329,7 @@ where
     }
 
     fn inject_listener_error(&mut self, l: ListenerId, e: &(dyn std::error::Error + 'static)) {
-        self.inject_listener_error.push(l.clone());
+        self.inject_listener_error.push(l);
         self.inner.inject_listener_error(l, e);
     }
 
