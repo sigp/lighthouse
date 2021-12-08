@@ -74,6 +74,8 @@ impl HttpJsonRpc {
             .json()
             .await?;
 
+        dbg!(&body);
+
         match (body.result, body.error) {
             (result, None) => serde_json::from_value(result).map_err(Into::into),
             (_, Some(error)) => {
@@ -291,7 +293,7 @@ mod test {
             "parentHash": HASH_00,
             "feeRecipient": ADDRESS_01,
             "stateRoot": HASH_01,
-            "receiptRoot": HASH_00,
+            "receiptsRoot": HASH_00,
             "logsBloom": LOGS_BLOOM_01,
             "random": HASH_01,
             "blockNumber": "0x0",
@@ -462,7 +464,7 @@ mod test {
                     {
                         "timestamp":"0x5",
                         "random": HASH_00,
-                        "feeRecipient": ADDRESS_00
+                        "suggestedFeeRecipient": ADDRESS_00
                     }]
                 }),
             )
@@ -518,7 +520,7 @@ mod test {
                         "parentHash": HASH_00,
                         "feeRecipient": ADDRESS_01,
                         "stateRoot": HASH_01,
-                        "receiptRoot": HASH_00,
+                        "receiptsRoot": HASH_00,
                         "logsBloom": LOGS_BLOOM_01,
                         "random": HASH_01,
                         "blockNumber": "0x0",
@@ -617,7 +619,7 @@ mod test {
                     {
                         "timestamp":"0x5",
                         "random": HASH_00,
-                        "feeRecipient":"0xa94f5374fce5edbc8e2a8697c15331677e6ebf0b"
+                        "suggestedFeeRecipient":"0xa94f5374fce5edbc8e2a8697c15331677e6ebf0b"
                     }]
                 })
             )
@@ -680,7 +682,7 @@ mod test {
                         "parentHash":"0x3b8fb240d288781d4aac94d3fd16809ee413bc99294a085798a589dae51ddd4a",
                         "feeRecipient":"0xa94f5374fce5edbc8e2a8697c15331677e6ebf0b",
                         "stateRoot":"0xca3149fa9e37db08d1cd49c9061db1002ef1cd58db2210f2115c8c989b2bdf45",
-                        "receiptRoot":"0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421",
+                        "receiptsRoot":"0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421",
                         "logsBloom": LOGS_BLOOM_00,
                         "random": HASH_00,
                         "blockNumber":"0x1",
@@ -750,7 +752,7 @@ mod test {
                         "parentHash":"0x3b8fb240d288781d4aac94d3fd16809ee413bc99294a085798a589dae51ddd4a",
                         "feeRecipient":"0xa94f5374fce5edbc8e2a8697c15331677e6ebf0b",
                         "stateRoot":"0xca3149fa9e37db08d1cd49c9061db1002ef1cd58db2210f2115c8c989b2bdf45",
-                        "receiptRoot":"0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421",
+                        "receiptsRoot":"0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421",
                         "logsBloom": LOGS_BLOOM_00,
                         "random": HASH_00,
                         "blockNumber":"0x1",
