@@ -266,42 +266,6 @@ async fn short_chain() {
 }
 
 #[tokio::test]
-async fn long_chain() {
-    Tester::new()
-        .await
-        .extend_chain(BACKFILL_SLOT_COUNT * 3)
-        .assert_canonical_slots_empty()
-        .await
-        .perform_head_update()
-        .await
-        /*
-         * Perform three separate backfills.
-         */
-        .perform_backfill(BACKFILL_SLOT_COUNT)
-        .await
-        .perform_backfill(BACKFILL_SLOT_COUNT)
-        .await
-        .perform_backfill(BACKFILL_SLOT_COUNT)
-        .await
-        /*
-         * Insert blocks in three separate routines.
-         */
-        .update_unknown_blocks(BACKFILL_SLOT_COUNT as i64)
-        .await
-        .update_unknown_blocks(BACKFILL_SLOT_COUNT as i64)
-        .await
-        .update_unknown_blocks(BACKFILL_SLOT_COUNT as i64)
-        .await
-        // Capture genesis block
-        .update_unknown_blocks(1)
-        .await
-        .assert_canonical_slots_not_empty()
-        .await
-        .assert_canonical_chain_consistent()
-        .await;
-}
-
-#[tokio::test]
 async fn chain_grows() {
     Tester::new()
         .await
