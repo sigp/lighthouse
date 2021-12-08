@@ -152,6 +152,7 @@ where
             let context = runtime_context.service_context("exec".into());
             let execution_layer = ExecutionLayer::from_urls(
                 execution_endpoints,
+                config.payload_builder,
                 config.suggested_fee_recipient,
                 context.executor.clone(),
                 context.log().clone(),

@@ -58,6 +58,7 @@ pub struct Engine<T> {
     pub api: T,
     payload_id_cache: Mutex<LruCache<PayloadIdCacheKey, PayloadId>>,
     state: RwLock<EngineState>,
+    is_payload_builder: bool,
 }
 
 impl<T> Engine<T> {
@@ -68,6 +69,17 @@ impl<T> Engine<T> {
             api,
             payload_id_cache: Mutex::new(LruCache::new(PAYLOAD_ID_LRU_CACHE_SIZE)),
             state: RwLock::new(EngineState::Offline),
+            is_payload_builder: false,
+        }
+    }
+
+    pub fn new_payload_builder(id: String, api: T) -> Self {
+        Self {
+            id,
+            api,
+            payload_id_cache: Mutex::new(LruCache::new(PAYLOAD_ID_LRU_CACHE_SIZE)),
+            state: RwLock::new(EngineState::Offline),
+            is_payload_builder: true,
         }
     }
 
@@ -127,6 +139,13 @@ pub struct Engines<T> {
     pub engines: Vec<Engine<T>>,
     pub latest_forkchoice_state: RwLock<Option<ForkChoiceState>>,
     pub log: Logger,
+}
+
+#[derive(Copy, Clone)]
+pub enum IncludeEngines {
+    All,
+    OnlyBuilder,
+    OnlyEngines,
 }
 
 #[derive(Debug)]
@@ -258,18 +277,28 @@ impl<T: EngineApi> Engines<T> {
     ///
     /// This function might try to run `func` twice. If all nodes return an error on the first time
     /// it runs, it will try to upcheck all offline nodes and then run the function again.
-    pub async fn first_success<'a, F, G, H>(&'a self, func: F) -> Result<H, Vec<EngineError>>
+    pub async fn first_success<'a, F, G, H>(
+        &'a self,
+        func: F,
+        include_engines: IncludeEngines,
+    ) -> Result<H, Vec<EngineError>>
     where
         F: Fn(&'a Engine<T>) -> G + Copy,
         G: Future<Output = Result<H, EngineApiError>>,
     {
-        match self.first_success_without_retry(func).await {
+        match self
+            .first_success_without_retry(func, include_engines)
+            .await
+        {
             Ok(result) => Ok(result),
             Err(mut first_errors) => {
                 // Try to recover some nodes.
                 self.upcheck_not_synced(Logging::Enabled).await;
                 // Retry the call on all nodes.
-                match self.first_success_without_retry(func).await {
+                match self
+                    .first_success_without_retry(func, include_engines)
+                    .await
+                {
                     Ok(result) => Ok(result),
                     Err(second_errors) => {
                         first_errors.extend(second_errors);
@@ -285,6 +314,7 @@ impl<T: EngineApi> Engines<T> {
     async fn first_success_without_retry<'a, F, G, H>(
         &'a self,
         func: F,
+        include_engines: IncludeEngines,
     ) -> Result<H, Vec<EngineError>>
     where
         F: Fn(&'a Engine<T>) -> G,
@@ -293,6 +323,19 @@ impl<T: EngineApi> Engines<T> {
         let mut errors = vec![];
 
         for engine in &self.engines {
+            match include_engines {
+                IncludeEngines::All => {}
+                IncludeEngines::OnlyEngines => {
+                    if !engine.is_payload_builder {
+                        continue;
+                    }
+                }
+                IncludeEngines::OnlyBuilder => {
+                    if engine.is_payload_builder {
+                        continue;
+                    }
+                }
+            };
             let engine_synced = *engine.state.read().await == EngineState::Synced;
             if engine_synced {
                 match func(engine).await {
@@ -326,12 +369,16 @@ impl<T: EngineApi> Engines<T> {
     ///
     /// This function might try to run `func` twice. If all nodes return an error on the first time
     /// it runs, it will try to upcheck all offline nodes and then run the function again.
-    pub async fn broadcast<'a, F, G, H>(&'a self, func: F) -> Vec<Result<H, EngineError>>
+    pub async fn broadcast<'a, F, G, H>(
+        &'a self,
+        func: F,
+        include_engines: IncludeEngines,
+    ) -> Vec<Result<H, EngineError>>
     where
         F: Fn(&'a Engine<T>) -> G + Copy,
         G: Future<Output = Result<H, EngineApiError>>,
     {
-        let first_results = self.broadcast_without_retry(func).await;
+        let first_results = self.broadcast_without_retry(func, include_engines).await;
 
         let mut any_offline = false;
         for result in &first_results {
@@ -344,7 +391,7 @@ impl<T: EngineApi> Engines<T> {
 
         if any_offline {
             self.upcheck_not_synced(Logging::Enabled).await;
-            self.broadcast_without_retry(func).await
+            self.broadcast_without_retry(func, include_engines).await
         } else {
             first_results
         }
@@ -354,33 +401,44 @@ impl<T: EngineApi> Engines<T> {
     pub async fn broadcast_without_retry<'a, F, G, H>(
         &'a self,
         func: F,
+        include_engines: IncludeEngines,
     ) -> Vec<Result<H, EngineError>>
     where
         F: Fn(&'a Engine<T>) -> G,
         G: Future<Output = Result<H, EngineApiError>>,
     {
         let func = &func;
-        let futures = self.engines.iter().map(|engine| async move {
-            let is_offline = *engine.state.read().await == EngineState::Offline;
-            if !is_offline {
-                func(engine).await.map_err(|error| {
-                    debug!(
-                        self.log,
-                        "Execution engine call failed";
-                        "error" => ?error,
-                        "id" => &engine.id
-                    );
-                    EngineError::Api {
+        let futures = self
+            .engines
+            .iter()
+            .filter(|engine| {
+                match include_engines {
+                    IncludeEngines::All => true,
+                    IncludeEngines::OnlyEngines => !engine.is_payload_builder,
+                    IncludeEngines::OnlyBuilder => engine.is_payload_builder,
+                }
+            })
+            .map(|engine| async move {
+                let is_offline = *engine.state.read().await == EngineState::Offline;
+                if !is_offline {
+                    func(engine).await.map_err(|error| {
+                        debug!(
+                            self.log,
+                            "Execution engine call failed";
+                            "error" => ?error,
+                            "id" => &engine.id
+                        );
+                        EngineError::Api {
+                            id: engine.id.clone(),
+                            error,
+                        }
+                    })
+                } else {
+                    Err(EngineError::Offline {
                         id: engine.id.clone(),
-                        error,
-                    }
-                })
-            } else {
-                Err(EngineError::Offline {
-                    id: engine.id.clone(),
-                })
-            }
-        });
+                    })
+                }
+            });
 
         join_all(futures).await
     }

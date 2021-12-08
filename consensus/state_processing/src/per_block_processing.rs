@@ -328,7 +328,8 @@ pub fn process_randao_private<T: EthSpec>(
     if verify_signatures.is_true() {
         // Verify RANDAO reveal signature.
         block_verify!(
-            randao_signature_set_private(state, |i| get_pubkey_from_state(state, i), block, spec)?.verify(),
+            randao_signature_set_private(state, |i| get_pubkey_from_state(state, i), block, spec)?
+                .verify(),
             BlockProcessingError::RandaoSignatureInvalid
         );
     }
@@ -451,6 +452,25 @@ pub fn process_execution_payload<T: EthSpec>(
     Ok(())
 }
 
+/// Calls `partially_verify_execution_payload` and then updates the payload header in the `state`.
+///
+/// ## Specification
+///
+/// Partially equivalent to the `process_execution_payload` function:
+///
+/// https://github.com/ethereum/consensus-specs/blob/v1.1.5/specs/merge/beacon-chain.md#process_execution_payload
+pub fn process_execution_payload_header<T: EthSpec>(
+    state: &mut BeaconState<T>,
+    payload: &ExecutionPayloadHeader<T>,
+    spec: &ChainSpec,
+) -> Result<(), BlockProcessingError> {
+    partially_verify_execution_payload_header(state, payload, spec)?;
+
+    *state.latest_execution_payload_header_mut()? = payload.clone();
+
+    Ok(())
+}
+
 //TODO: here
 /// Performs *partial* verification of the `payload`.
 ///
@@ -464,7 +484,7 @@ pub fn process_execution_payload<T: EthSpec>(
 /// https://github.com/ethereum/consensus-specs/blob/v1.1.5/specs/merge/beacon-chain.md#process_execution_payload
 pub fn partially_verify_execution_payload_header<T: EthSpec>(
     state: &BeaconState<T>,
-    payload: &ExecutionPayload<T>,
+    payload: &ExecutionPayloadHeader<T>,
     spec: &ChainSpec,
 ) -> Result<(), BlockProcessingError> {
     if is_merge_transition_complete(state) {
@@ -524,6 +544,26 @@ pub fn is_execution_enabled<T: EthSpec>(
     body: BeaconBlockBodyRef<T>,
 ) -> bool {
     is_merge_transition_block(state, body) || is_merge_transition_complete(state)
+}
+
+/// https://github.com/ethereum/consensus-specs/blob/dev/specs/merge/beacon-chain.md#is_execution_enabled
+pub fn is_execution_enabled_private<T: EthSpec>(
+    state: &BeaconState<T>,
+    body: PrivateBeaconBlockBodyRef<T>,
+) -> bool {
+    is_merge_transition_block_private(state, body) || is_merge_transition_complete(state)
+}
+/// https://github.com/ethereum/consensus-specs/blob/dev/specs/merge/beacon-chain.md#is_merge_transition_block
+pub fn is_merge_transition_block_private<T: EthSpec>(
+    state: &BeaconState<T>,
+    body: PrivateBeaconBlockBodyRef<T>,
+) -> bool {
+    body.execution_payload_header()
+        .map(|payload_header| {
+            !is_merge_transition_complete(state)
+                && *payload_header != <ExecutionPayloadHeader<T>>::default()
+        })
+        .unwrap_or(false)
 }
 
 /// https://github.com/ethereum/consensus-specs/blob/dev/specs/merge/beacon-chain.md#compute_timestamp_at_slot

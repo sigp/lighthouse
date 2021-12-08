@@ -6,7 +6,7 @@ pub const LATEST_TAG: &str = "latest";
 
 use crate::engines::ForkChoiceState;
 pub use types::{Address, EthSpec, ExecutionPayload, Hash256, Uint256};
-use types::ExecutionPayloadHeader;
+use types::{ExecutionPayloadHeader, SignedBeaconBlock};
 
 pub mod http;
 pub mod json_structures;
@@ -71,12 +71,19 @@ pub trait EngineApi {
         forkchoice_state: ForkChoiceState,
         payload_attributes: Option<PayloadAttributes>,
     ) -> Result<ForkchoiceUpdatedResponse, Error>;
+}
 
-    //TODO: here
-    async fn get_payload_header<T: EthSpec>(
+#[async_trait]
+pub trait BuilderApi {
+    async fn get_payload_header_v1<T: EthSpec>(
         &self,
         payload_id: PayloadId,
     ) -> Result<ExecutionPayloadHeader<T>, Error>;
+
+    async fn propose_blinded_block_v1<T: EthSpec>(
+        &self,
+        block: SignedBeaconBlock<T>,
+    ) -> Result<ProposeBlindedBlockResponse, Error>;
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -126,4 +133,16 @@ pub enum ForkchoiceUpdatedResponseStatus {
 pub struct ForkchoiceUpdatedResponse {
     pub status: ForkchoiceUpdatedResponseStatus,
     pub payload_id: Option<PayloadId>,
+}
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum ProposeBlindedBlockResponseStatus {
+    Valid,
+    Invalid,
+    Syncing,
+}
+#[derive(Clone, Debug, PartialEq)]
+pub struct ProposeBlindedBlockResponse {
+    pub status: ProposeBlindedBlockResponseStatus,
+    pub latest_valid_hash: Option<Hash256>,
+    pub validation_error: Option<String>,
 }

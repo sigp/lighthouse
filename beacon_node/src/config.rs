@@ -253,6 +253,11 @@ pub fn get_config<E: EthSpec>(
         client_config.execution_endpoints = Some(client_config.eth1.endpoints.clone());
     }
 
+    if let Some(url) = cli_args.value_of("payload-builder") {
+        client_config.payload_builder = Some(SensitiveUrl::parse(url)
+            .map_err(|e| format!("payload-builder contains an invalid URL {:?}", e))?);
+    }
+
     client_config.suggested_fee_recipient = Some(
         clap_utils::parse_optional(cli_args, "fee-recipient")?
             // TODO(merge): remove this default value. It's just there to make life easy during

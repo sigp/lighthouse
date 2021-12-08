@@ -18,8 +18,9 @@ use tokio::{
     sync::{Mutex, MutexGuard},
     time::{sleep, sleep_until, Instant},
 };
-use types::ChainSpec;
+use types::{ChainSpec, ExecutionPayloadHeader};
 
+use crate::engines::IncludeEngines;
 pub use engine_api::{http::HttpJsonRpc, ExecutePayloadResponseStatus};
 
 mod engine_api;
@@ -72,6 +73,7 @@ impl ExecutionLayer {
     /// Instantiate `Self` with `urls.len()` engines, all using the JSON-RPC via HTTP.
     pub fn from_urls(
         urls: Vec<SensitiveUrl>,
+        payload_builder_url: Option<SensitiveUrl>,
         suggested_fee_recipient: Option<Address>,
         executor: TaskExecutor,
         log: Logger,
@@ -80,7 +82,7 @@ impl ExecutionLayer {
             return Err(Error::NoEngines);
         }
 
-        let engines = urls
+        let mut engines : Vec<Engine<HttpJsonRpc>> = urls
             .into_iter()
             .map(|url| {
                 let id = url.to_string();
@@ -88,6 +90,12 @@ impl ExecutionLayer {
                 Ok(Engine::new(id, api))
             })
             .collect::<Result<_, ApiError>>()?;
+
+        if let Some(url) = payload_builder_url {
+            let id = url.to_string();
+            let api = HttpJsonRpc::new(url)?;
+            engines.push(Engine::new_payload_builder(id, api));
+        }
 
         let inner = Inner {
             engines: Engines {
@@ -265,74 +273,46 @@ impl ExecutionLayer {
             "parent_hash" => ?parent_hash,
         );
         self.engines()
-            .first_success(|engine| async move {
-                let payload_id = if let Some(id) = engine
-                    .get_payload_id(parent_hash, timestamp, random, suggested_fee_recipient)
-                    .await
-                {
-                    // The payload id has been cached for this engine.
-                    id
-                } else {
-                    // The payload id has *not* been cached for this engine. Trigger an artificial
-                    // fork choice update to retrieve a payload ID.
-                    //
-                    // TODO(merge): a better algorithm might try to favour a node that already had a
-                    // cached payload id, since a payload that has had more time to produce is
-                    // likely to be more profitable.
-                    let fork_choice_state = ForkChoiceState {
-                        head_block_hash: parent_hash,
-                        safe_block_hash: parent_hash,
-                        finalized_block_hash,
+            .first_success(
+                |engine| async move {
+                    let payload_id = if let Some(id) = engine
+                        .get_payload_id(parent_hash, timestamp, random, suggested_fee_recipient)
+                        .await
+                    {
+                        // The payload id has been cached for this engine.
+                        id
+                    } else {
+                        // The payload id has *not* been cached for this engine. Trigger an artificial
+                        // fork choice update to retrieve a payload ID.
+                        //
+                        // TODO(merge): a better algorithm might try to favour a node that already had a
+                        // cached payload id, since a payload that has had more time to produce is
+                        // likely to be more profitable.
+                        let fork_choice_state = ForkChoiceState {
+                            head_block_hash: parent_hash,
+                            safe_block_hash: parent_hash,
+                            finalized_block_hash,
+                        };
+                        let payload_attributes = PayloadAttributes {
+                            timestamp,
+                            random,
+                            suggested_fee_recipient,
+                        };
+
+                        engine
+                            .notify_forkchoice_updated(
+                                fork_choice_state,
+                                Some(payload_attributes),
+                                self.log(),
+                            )
+                            .await?
+                            .ok_or(ApiError::PayloadIdUnavailable)?
                     };
-                    let payload_attributes = PayloadAttributes {
-                        timestamp,
-                        random,
-                        suggested_fee_recipient,
-                    };
 
-                    engine
-                        .notify_forkchoice_updated(
-                            fork_choice_state,
-                            Some(payload_attributes),
-                            self.log(),
-                        )
-                        .await?
-                        .ok_or(ApiError::PayloadIdUnavailable)?
-                };
-
-                engine.api.get_payload_v1(payload_id).await
-            })
-            .await
-            .map_err(Error::EngineErrors)
-    }
-
-    //TODO: here
-    pub async fn get_payload_header<T: EthSpec>(
-        &self,
-        parent_hash: Hash256,
-        timestamp: u64,
-        random: Hash256,
-    ) -> Result<ExecutionPayloadHeader<T>, Error> {
-        let fee_recipient = self.fee_recipient()?;
-        debug!(
-            self.log(),
-            "Issuing engine_getPayload";
-            "fee_recipient" => ?fee_recipient,
-            "random" => ?random,
-            "timestamp" => timestamp,
-            "parent_hash" => ?parent_hash,
-        );
-        self.engines()
-            .first_success(|engine| async move {
-                // TODO(merge): make a cache for these IDs, so we don't always have to perform this
-                // request.
-                let payload_id = engine
-                    .api
-                    .prepare_payload(parent_hash, timestamp, random, fee_recipient)
-                    .await?;
-
-                engine.api.get_payload_header(payload_id).await
-            })
+                    engine.api.get_payload_v1(payload_id).await
+                },
+                IncludeEngines::OnlyEngines,
+            )
             .await
             .map_err(Error::EngineErrors)
     }
@@ -363,7 +343,10 @@ impl ExecutionLayer {
 
         let broadcast_results = self
             .engines()
-            .broadcast(|engine| engine.api.execute_payload_v1(execution_payload.clone()))
+            .broadcast(
+                |engine| engine.api.execute_payload_v1(execution_payload.clone()),
+                IncludeEngines::OnlyEngines,
+            )
             .await;
 
         let mut errors = vec![];
@@ -466,11 +449,14 @@ impl ExecutionLayer {
 
         let broadcast_results = self
             .engines()
-            .broadcast(|engine| async move {
-                engine
-                    .notify_forkchoice_updated(forkchoice_state, payload_attributes, self.log())
-                    .await
-            })
+            .broadcast(
+                |engine| async move {
+                    engine
+                        .notify_forkchoice_updated(forkchoice_state, payload_attributes, self.log())
+                        .await
+                },
+                IncludeEngines::All,
+            )
             .await;
 
         if broadcast_results.iter().any(Result::is_ok) {
@@ -497,23 +483,26 @@ impl ExecutionLayer {
     ) -> Result<Option<Hash256>, Error> {
         let hash_opt = self
             .engines()
-            .first_success(|engine| async move {
-                let terminal_block_hash = spec.terminal_block_hash;
-                if terminal_block_hash != Hash256::zero() {
-                    if self
-                        .get_pow_block(engine, terminal_block_hash)
-                        .await?
-                        .is_some()
-                    {
-                        return Ok(Some(terminal_block_hash));
-                    } else {
-                        return Ok(None);
+            .first_success(
+                |engine| async move {
+                    let terminal_block_hash = spec.terminal_block_hash;
+                    if terminal_block_hash != Hash256::zero() {
+                        if self
+                            .get_pow_block(engine, terminal_block_hash)
+                            .await?
+                            .is_some()
+                        {
+                            return Ok(Some(terminal_block_hash));
+                        } else {
+                            return Ok(None);
+                        }
                     }
-                }
 
-                self.get_pow_block_hash_at_total_difficulty(engine, spec)
-                    .await
-            })
+                    self.get_pow_block_hash_at_total_difficulty(engine, spec)
+                        .await
+                },
+                IncludeEngines::OnlyEngines,
+            )
             .await
             .map_err(Error::EngineErrors)?;
 
@@ -608,19 +597,22 @@ impl ExecutionLayer {
     ) -> Result<Option<bool>, Error> {
         let broadcast_results = self
             .engines()
-            .broadcast(|engine| async move {
-                if let Some(pow_block) = self.get_pow_block(engine, block_hash).await? {
-                    if let Some(pow_parent) =
-                        self.get_pow_block(engine, pow_block.parent_hash).await?
-                    {
-                        return Ok(Some(
-                            self.is_valid_terminal_pow_block(pow_block, pow_parent, spec),
-                        ));
+            .broadcast(
+                |engine| async move {
+                    if let Some(pow_block) = self.get_pow_block(engine, block_hash).await? {
+                        if let Some(pow_parent) =
+                            self.get_pow_block(engine, pow_block.parent_hash).await?
+                        {
+                            return Ok(Some(
+                                self.is_valid_terminal_pow_block(pow_block, pow_parent, spec),
+                            ));
+                        }
                     }
-                }
 
-                Ok(None)
-            })
+                    Ok(None)
+                },
+                IncludeEngines::OnlyEngines,
+            )
             .await;
 
         let mut errors = vec![];
@@ -698,6 +690,67 @@ impl ExecutionLayer {
         } else {
             Ok(None)
         }
+    }
+
+    pub async fn get_payload_header<T: EthSpec>(
+        &self,
+        parent_hash: Hash256,
+        timestamp: u64,
+        random: Hash256,
+        finalized_block_hash: Hash256,
+    ) -> Result<ExecutionPayloadHeader<T>, Error> {
+        let suggested_fee_recipient = self.suggested_fee_recipient()?;
+        debug!(
+            self.log(),
+            "Issuing engine_getPayloadHeader";
+            "suggested_fee_recipient" => ?suggested_fee_recipient,
+            "random" => ?random,
+            "timestamp" => timestamp,
+            "parent_hash" => ?parent_hash,
+        );
+        self.engines()
+            .first_success(
+                |engine| async move {
+                    let payload_id = if let Some(id) = engine
+                        .get_payload_id(parent_hash, timestamp, random, suggested_fee_recipient)
+                        .await
+                    {
+                        // The payload id has been cached for this engine.
+                        id
+                    } else {
+                        // The payload id has *not* been cached for this engine. Trigger an artificial
+                        // fork choice update to retrieve a payload ID.
+                        //
+                        // TODO(merge): a better algorithm might try to favour a node that already had a
+                        // cached payload id, since a payload that has had more time to produce is
+                        // likely to be more profitable.
+                        let fork_choice_state = ForkChoiceState {
+                            head_block_hash: parent_hash,
+                            safe_block_hash: parent_hash,
+                            finalized_block_hash,
+                        };
+                        let payload_attributes = PayloadAttributes {
+                            timestamp,
+                            random,
+                            suggested_fee_recipient,
+                        };
+
+                        engine
+                            .notify_forkchoice_updated(
+                                fork_choice_state,
+                                Some(payload_attributes),
+                                self.log(),
+                            )
+                            .await?
+                            .ok_or(ApiError::PayloadIdUnavailable)?
+                    };
+
+                    engine.api.get_payload_header_v1(payload_id).await
+                },
+                IncludeEngines::OnlyBuilder,
+            )
+            .await
+            .map_err(Error::EngineErrors)
     }
 }
 

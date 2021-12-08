@@ -55,6 +55,84 @@ pub struct JsonPayloadIdResponse {
     pub payload_id: PayloadId,
 }
 
+// #[derive(Debug, PartialEq, Default, Serialize, Deserialize)]
+// #[serde(bound = "T: EthSpec", rename_all = "camelCase")]
+// pub struct JsonSignedBeaconBlock<E: EthSpec> {
+//     pub message: BeaconBlockMerge<E>,
+//     pub signature: Signature,
+// }
+//
+// #[derive(Debug, PartialEq, Default, Serialize, Deserialize)]
+// #[serde(bound = "T: EthSpec", rename_all = "camelCase")]
+// pub struct JsonBeaconBlock<E: EthSpec> {
+//     pub message: BeaconBlockMerge<E>,
+//     pub signature: Signature,
+// }
+
+#[derive(Debug, PartialEq, Default, Serialize, Deserialize)]
+#[serde(bound = "T: EthSpec", rename_all = "camelCase")]
+pub struct JsonExecutionPayloadHeaderV1<T: EthSpec> {
+    pub parent_hash: Hash256,
+    pub fee_recipient: Address,
+    pub state_root: Hash256,
+    pub receipt_root: Hash256,
+    #[serde(with = "serde_logs_bloom")]
+    pub logs_bloom: FixedVector<u8, T::BytesPerLogsBloom>,
+    pub random: Hash256,
+    #[serde(with = "eth2_serde_utils::u64_hex_be")]
+    pub block_number: u64,
+    #[serde(with = "eth2_serde_utils::u64_hex_be")]
+    pub gas_limit: u64,
+    #[serde(with = "eth2_serde_utils::u64_hex_be")]
+    pub gas_used: u64,
+    #[serde(with = "eth2_serde_utils::u64_hex_be")]
+    pub timestamp: u64,
+    #[serde(with = "ssz_types::serde_utils::hex_var_list")]
+    pub extra_data: VariableList<u8, T::MaxExtraDataBytes>,
+    pub base_fee_per_gas: Uint256,
+    pub block_hash: Hash256,
+    pub transactions_root: Hash256,
+}
+
+impl<T: EthSpec> From<JsonExecutionPayloadHeaderV1<T>> for ExecutionPayloadHeader<T> {
+    fn from(e: JsonExecutionPayloadHeaderV1<T>) -> Self {
+        // Use this verbose deconstruction pattern to ensure no field is left unused.
+        let JsonExecutionPayloadHeaderV1 {
+            parent_hash,
+            fee_recipient,
+            state_root,
+            receipt_root,
+            logs_bloom,
+            random,
+            block_number,
+            gas_limit,
+            gas_used,
+            timestamp,
+            extra_data,
+            base_fee_per_gas,
+            block_hash,
+            transactions_root,
+        } = e;
+
+        Self {
+            parent_hash,
+            fee_recipient,
+            state_root,
+            receipt_root,
+            logs_bloom,
+            random,
+            block_number,
+            gas_limit,
+            gas_used,
+            timestamp,
+            extra_data,
+            base_fee_per_gas,
+            block_hash,
+            transactions_root,
+        }
+    }
+}
+
 #[derive(Debug, PartialEq, Default, Serialize, Deserialize)]
 #[serde(bound = "T: EthSpec", rename_all = "camelCase")]
 pub struct JsonExecutionPayloadV1<T: EthSpec> {
@@ -370,6 +448,84 @@ impl From<ForkchoiceUpdatedResponse> for JsonForkchoiceUpdatedV1Response {
         Self {
             status: status.into(),
             payload_id: payload_id.map(Into::into),
+        }
+    }
+}
+
+#[derive(Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum JsonProposeBlindedBlockResponseStatus {
+    Valid,
+    Invalid,
+    Syncing,
+}
+#[derive(Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct JsonProposeBlindedBlockResponse {
+    pub status: JsonProposeBlindedBlockResponseStatus,
+    pub latest_valid_hash: Option<Hash256>,
+    pub validation_error: Option<String>,
+}
+
+impl From<JsonProposeBlindedBlockResponseStatus> for ProposeBlindedBlockResponseStatus {
+    fn from(j: JsonProposeBlindedBlockResponseStatus) -> Self {
+        match j {
+            JsonProposeBlindedBlockResponseStatus::Valid => {
+                ProposeBlindedBlockResponseStatus::Valid
+            }
+            JsonProposeBlindedBlockResponseStatus::Invalid => {
+                ProposeBlindedBlockResponseStatus::Invalid
+            }
+            JsonProposeBlindedBlockResponseStatus::Syncing => {
+                ProposeBlindedBlockResponseStatus::Syncing
+            }
+        }
+    }
+}
+impl From<ProposeBlindedBlockResponseStatus> for JsonProposeBlindedBlockResponseStatus {
+    fn from(f: ProposeBlindedBlockResponseStatus) -> Self {
+        match f {
+            ProposeBlindedBlockResponseStatus::Valid => {
+                JsonProposeBlindedBlockResponseStatus::Valid
+            }
+            ProposeBlindedBlockResponseStatus::Invalid => {
+                JsonProposeBlindedBlockResponseStatus::Invalid
+            }
+            ProposeBlindedBlockResponseStatus::Syncing => {
+                JsonProposeBlindedBlockResponseStatus::Syncing
+            }
+        }
+    }
+}
+impl From<JsonProposeBlindedBlockResponse> for ProposeBlindedBlockResponse {
+    fn from(j: JsonProposeBlindedBlockResponse) -> Self {
+        // Use this verbose deconstruction pattern to ensure no field is left unused.
+        let JsonProposeBlindedBlockResponse {
+            status,
+            latest_valid_hash,
+            validation_error,
+        } = j;
+
+        Self {
+            status: status.into(),
+            latest_valid_hash,
+            validation_error,
+        }
+    }
+}
+impl From<ProposeBlindedBlockResponse> for JsonProposeBlindedBlockResponse {
+    fn from(f: ProposeBlindedBlockResponse) -> Self {
+        // Use this verbose deconstruction pattern to ensure no field is left unused.
+        let ProposeBlindedBlockResponse {
+            status,
+            latest_valid_hash,
+            validation_error,
+        } = f;
+
+        Self {
+            status: status.into(),
+            latest_valid_hash,
+            validation_error,
         }
     }
 }

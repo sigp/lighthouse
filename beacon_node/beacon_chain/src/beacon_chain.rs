@@ -15,7 +15,7 @@ use crate::chain_config::ChainConfig;
 use crate::errors::{BeaconChainError as Error, BlockProductionError};
 use crate::eth1_chain::{Eth1Chain, Eth1ChainBackend};
 use crate::events::ServerSentEventHandler;
-use crate::execution_payload::get_execution_payload;
+use crate::execution_payload::{get_execution_payload, get_execution_payload_header};
 use crate::head_tracker::HeadTracker;
 use crate::historical_blocks::HistoricalBlockError;
 use crate::migrate::BackgroundMigrator;
@@ -62,8 +62,8 @@ use safe_arith::SafeArith;
 use slasher::Slasher;
 use slog::{crit, debug, error, info, trace, warn, Logger};
 use slot_clock::SlotClock;
-use state_processing::per_block_processing::per_block_processing_private;
 use ssz::Encode;
+use state_processing::per_block_processing::per_block_processing_private;
 use state_processing::{
     common::get_indexed_attestation,
     per_block_processing,
@@ -3189,42 +3189,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     SyncAggregate::new()
                 }))
         };
-        // Closure to fetch a sync aggregate in cases where it is required.
-        let get_execution_payload_header = |latest_execution_payload_header: &ExecutionPayloadHeader<
-            T::EthSpec,
-        >|
-         -> Result<ExecutionPayloadHeader<_>, BlockProductionError> {
-            let execution_layer = self
-                .execution_layer
-                .as_ref()
-                .ok_or(BlockProductionError::ExecutionLayerMissing)?;
-
-            let parent_hash;
-            if !is_merge_complete(&state) {
-                let terminal_pow_block_hash = execution_layer
-                    .block_on(|execution_layer| execution_layer.get_terminal_pow_block_hash())
-                    .map_err(BlockProductionError::TerminalPoWBlockLookupFailed)?;
-
-                if let Some(terminal_pow_block_hash) = terminal_pow_block_hash {
-                    parent_hash = terminal_pow_block_hash;
-                } else {
-                    return Ok(<_>::default());
-                }
-            } else {
-                parent_hash = latest_execution_payload_header.block_hash;
-            }
-
-            let timestamp =
-                compute_timestamp_at_slot(&state, &self.spec).map_err(BeaconStateError::from)?;
-            let random = *state.get_randao_mix(state.current_epoch())?;
-
-            execution_layer
-                .block_on(|execution_layer| {
-                    execution_layer.get_payload_header(parent_hash, timestamp, random)
-                })
-                .map_err(BlockProductionError::GetPayloadFailed)
-        };
-
         let inner_block = match &state {
             BeaconState::Base(_) => PrivateBeaconBlock::Base(PrivateBeaconBlockBase {
                 slot,
@@ -3262,10 +3226,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     },
                 })
             }
-            BeaconState::Merge(state) => {
+            BeaconState::Merge(_) => {
                 let sync_aggregate = get_sync_aggregate()?;
-                let execution_payload_header =
-                    get_execution_payload_header(&state.latest_execution_payload_header)?;
+                let execution_payload_header = get_execution_payload_header(self, &state)?;
                 PrivateBeaconBlock::Merge(PrivateBeaconBlockMerge {
                     slot,
                     proposer_index,
@@ -3293,6 +3256,19 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             Signature::empty(),
         );
 
+        let block_size = block.ssz_bytes_len();
+        debug!(
+            self.log,
+            "Produced block on state";
+            "block_size" => block_size,
+        );
+
+        metrics::observe(&metrics::BLOCK_SIZE, block_size as f64);
+
+        if block_size > self.config.max_network_size {
+            return Err(BlockProductionError::BlockTooLarge(block_size));
+        }
+
         let process_timer = metrics::start_timer(&metrics::BLOCK_PRODUCTION_PROCESS_TIMES);
         per_block_processing_private(&mut state, &block, &self.spec)?;
         drop(process_timer);
@@ -3308,7 +3284,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         trace!(
             self.log,
-            "Produced beacon block";
+            "Produced blinded beacon block";
             "parent" => %block.parent_root(),
             "attestations" => block.body().attestations().len(),
             "slot" => block.slot()
