@@ -84,9 +84,9 @@ pub mod slot_data;
 #[cfg(feature = "sqlite")]
 pub mod sqlite;
 
-pub mod private_beacon_block;
-pub mod private_beacon_block_body;
-pub mod signed_private_beacon_block;
+pub mod blinded_beacon_block;
+pub mod blinded_beacon_block_body;
+pub mod signed_blinded_beacon_block;
 
 use ethereum_types::{H160, H256};
 
@@ -130,13 +130,13 @@ pub use crate::participation_flags::ParticipationFlags;
 pub use crate::participation_list::ParticipationList;
 pub use crate::pending_attestation::PendingAttestation;
 pub use crate::preset::{AltairPreset, BasePreset};
-pub use crate::private_beacon_block::{
-    PrivateBeaconBlock, PrivateBeaconBlockAltair, PrivateBeaconBlockBase, PrivateBeaconBlockMerge,
-    PrivateBeaconBlockRef, PrivateBeaconBlockRefMut,
+pub use crate::blinded_beacon_block::{
+    BlindedBeaconBlock, BlindedBeaconBlockAltair, BlindedBeaconBlockBase, BlindedBeaconBlockMerge,
+    BlindedBeaconBlockRef, BlindedBeaconBlockRefMut,
 };
-pub use crate::private_beacon_block_body::{
-    PrivateBeaconBlockBody, PrivateBeaconBlockBodyAltair, PrivateBeaconBlockBodyBase,
-    PrivateBeaconBlockBodyMerge, PrivateBeaconBlockBodyRef, PrivateBeaconBlockBodyRefMut,
+pub use crate::blinded_beacon_block_body::{
+    BlindedBeaconBlockBody, BlindedBeaconBlockBodyAltair, BlindedBeaconBlockBodyBase,
+    BlindedBeaconBlockBodyMerge, BlindedBeaconBlockBodyRef, BlindedBeaconBlockBodyRefMut,
 };
 pub use crate::proposer_slashing::ProposerSlashing;
 pub use crate::relative_epoch::{Error as RelativeEpochError, RelativeEpoch};
@@ -149,9 +149,9 @@ pub use crate::signed_beacon_block::{
 };
 pub use crate::signed_beacon_block_header::SignedBeaconBlockHeader;
 pub use crate::signed_contribution_and_proof::SignedContributionAndProof;
-pub use crate::signed_private_beacon_block::{
-    SignedPrivateBeaconBlock, SignedPrivateBeaconBlockAltair, SignedPrivateBeaconBlockBase,
-    SignedPrivateBeaconBlockHash, SignedPrivateBeaconBlockMerge,
+pub use crate::signed_blinded_beacon_block::{
+    SignedBlindedBeaconBlock, SignedBlindedBeaconBlockAltair, SignedBlindedBeaconBlockBase,
+    SignedBlindedBeaconBlockHash, SignedBlindedBeaconBlockMerge,
 };
 pub use crate::signed_voluntary_exit::SignedVoluntaryExit;
 pub use crate::signing_data::{SignedRoot, SigningData};

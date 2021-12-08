@@ -35,7 +35,7 @@ pub fn process_operations<'a, T: EthSpec>(
 
 pub fn process_operations_private<'a, T: EthSpec>(
     state: &mut BeaconState<T>,
-    block_body: PrivateBeaconBlockBodyRef<'a, T>,
+    block_body: BlindedBeaconBlockBodyRef<'a, T>,
     proposer_index: u64,
     verify_signatures: VerifySignatures,
     spec: &ChainSpec,
@@ -270,16 +270,16 @@ pub fn process_attestations<'a, T: EthSpec>(
 /// the fork.
 pub fn process_attestations_private<'a, T: EthSpec>(
     state: &mut BeaconState<T>,
-    block_body: PrivateBeaconBlockBodyRef<'a, T>,
+    block_body: BlindedBeaconBlockBodyRef<'a, T>,
     proposer_index: u64,
     verify_signatures: VerifySignatures,
     spec: &ChainSpec,
 ) -> Result<(), BlockProcessingError> {
     match block_body {
-        PrivateBeaconBlockBodyRef::Base(_) => {
+        BlindedBeaconBlockBodyRef::Base(_) => {
             base::process_attestations(state, block_body.attestations(), verify_signatures, spec)?;
         }
-        PrivateBeaconBlockBodyRef::Altair(_) | PrivateBeaconBlockBodyRef::Merge(_) => {
+        BlindedBeaconBlockBodyRef::Altair(_) | BlindedBeaconBlockBodyRef::Merge(_) => {
             altair::process_attestations(
                 state,
                 block_body.attestations(),

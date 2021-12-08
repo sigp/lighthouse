@@ -18,7 +18,7 @@ use tokio::{
     sync::{Mutex, MutexGuard},
     time::{sleep, sleep_until, Instant},
 };
-use types::{ChainSpec, ExecutionPayloadHeader, SignedBeaconBlock, SignedPrivateBeaconBlock};
+use types::{ChainSpec, ExecutionPayloadHeader, SignedBlindedBeaconBlock};
 
 use crate::engines::IncludeEngines;
 pub use engine_api::{http::HttpJsonRpc, ExecutePayloadResponseStatus};
@@ -757,7 +757,7 @@ impl ExecutionLayer {
 
     pub async fn propose_blinded_beacon_block<T: EthSpec>(
         &self,
-        block: SignedPrivateBeaconBlock<T>,
+        block: SignedBlindedBeaconBlock<T>,
     ) -> Result<JsonProposeBlindedBlockResponse, Error> {
         debug!(
             self.log(),

@@ -44,7 +44,7 @@ use tokio_stream::{wrappers::BroadcastStream, StreamExt};
 use types::{
     Attestation, AttesterSlashing, BeaconStateError, CommitteeCache, ConfigAndPreset, Epoch,
     EthSpec, ForkName, ProposerSlashing, RelativeEpoch, SignedAggregateAndProof, SignedBeaconBlock,
-    SignedContributionAndProof, SignedPrivateBeaconBlock, SignedVoluntaryExit, Slot,
+    SignedContributionAndProof, SignedBlindedBeaconBlock, SignedVoluntaryExit, Slot,
     SyncCommitteeMessage, SyncContributionData,
 };
 use version::{
@@ -1026,9 +1026,9 @@ pub fn serve<T: BeaconChainTypes>(
         .and(chain_filter.clone())
         .and(log_filter.clone())
         .and_then(
-            |block: SignedPrivateBeaconBlock<T::EthSpec>,
+            |block: SignedBlindedBeaconBlock<T::EthSpec>,
              chain: Arc<BeaconChain<T>>,
-             log: Logger| async {
+             _log: Logger| async {
                 tokio::task::spawn_blocking(|| {
                     async move {
                         if let Some(el) = chain.execution_layer.as_ref() {

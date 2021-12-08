@@ -5,7 +5,7 @@ use crate::{
     signing_method::{Error as SigningError, SignableMessage, SigningContext, SigningMethod},
 };
 use account_utils::{validator_definitions::ValidatorDefinition, ZeroizeString};
-use eth2::types::SignedPrivateBeaconBlock;
+use eth2::types::SignedBlindedBeaconBlock;
 use parking_lot::{Mutex, RwLock};
 use slashing_protection::{NotSafe, Safe, SlashingDatabase};
 use slog::{crit, error, info, warn, Logger};
@@ -15,7 +15,7 @@ use std::marker::PhantomData;
 use std::path::Path;
 use std::sync::Arc;
 use task_executor::TaskExecutor;
-use types::private_beacon_block::PrivateBeaconBlock;
+use types::blinded_beacon_block::BlindedBeaconBlock;
 use types::{
     attestation::Error as AttestationError, graffiti::GraffitiString, AggregateAndProof,
     Attestation, BeaconBlock, ChainSpec, ContributionAndProof, Domain, Epoch, EthSpec, Fork,
@@ -431,9 +431,9 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
     pub async fn sign_block_private(
         &self,
         validator_pubkey: PublicKeyBytes,
-        block: PrivateBeaconBlock<E>,
+        block: BlindedBeaconBlock<E>,
         current_slot: Slot,
-    ) -> Result<SignedPrivateBeaconBlock<E>, Error> {
+    ) -> Result<SignedBlindedBeaconBlock<E>, Error> {
         // Make sure the block slot is not higher than the current slot to avoid potential attacks.
         if block.slot() > current_slot {
             warn!(
@@ -467,13 +467,13 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
                 let signing_method = self.doppelganger_checked_signing_method(validator_pubkey)?;
                 let signature = signing_method
                     .get_signature(
-                        SignableMessage::PrivateBeaconBlock(&block),
+                        SignableMessage::BlindedBeaconBlock(&block),
                         signing_context,
                         &self.spec,
                         &self.task_executor,
                     )
                     .await?;
-                Ok(SignedPrivateBeaconBlock::from_block(block, signature))
+                Ok(SignedBlindedBeaconBlock::from_block(block, signature))
             }
             Ok(Safe::SameData) => {
                 warn!(

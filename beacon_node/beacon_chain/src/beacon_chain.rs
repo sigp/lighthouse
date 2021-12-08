@@ -347,7 +347,7 @@ pub struct BeaconChain<T: BeaconChainTypes> {
 }
 
 type BeaconBlockAndState<T> = (BeaconBlock<T>, BeaconState<T>);
-type PrivateBeaconBlockAndState<T> = (PrivateBeaconBlock<T>, BeaconState<T>);
+type BlindedBeaconBlockAndState<T> = (BlindedBeaconBlock<T>, BeaconState<T>);
 
 impl<T: BeaconChainTypes> BeaconChain<T> {
     /// Persists the head tracker and fork choice.
@@ -2776,7 +2776,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         randao_reveal: Signature,
         slot: Slot,
         validator_graffiti: Option<Graffiti>,
-    ) -> Result<PrivateBeaconBlockAndState<T::EthSpec>, BlockProductionError> {
+    ) -> Result<BlindedBeaconBlockAndState<T::EthSpec>, BlockProductionError> {
         metrics::inc_counter(&metrics::BLOCK_PRODUCTION_REQUESTS);
         let _complete_timer = metrics::start_timer(&metrics::BLOCK_PRODUCTION_TIMES);
 
@@ -3081,7 +3081,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         produce_at_slot: Slot,
         randao_reveal: Signature,
         validator_graffiti: Option<Graffiti>,
-    ) -> Result<PrivateBeaconBlockAndState<T::EthSpec>, BlockProductionError> {
+    ) -> Result<BlindedBeaconBlockAndState<T::EthSpec>, BlockProductionError> {
         let eth1_chain = self
             .eth1_chain
             .as_ref()
@@ -3190,12 +3190,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 }))
         };
         let inner_block = match &state {
-            BeaconState::Base(_) => PrivateBeaconBlock::Base(PrivateBeaconBlockBase {
+            BeaconState::Base(_) => BlindedBeaconBlock::Base(BlindedBeaconBlockBase {
                 slot,
                 proposer_index,
                 parent_root,
                 state_root: Hash256::zero(),
-                body: PrivateBeaconBlockBodyBase {
+                body: BlindedBeaconBlockBodyBase {
                     randao_reveal,
                     eth1_data,
                     graffiti,
@@ -3208,12 +3208,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             }),
             BeaconState::Altair(_) => {
                 let sync_aggregate = get_sync_aggregate()?;
-                PrivateBeaconBlock::Altair(PrivateBeaconBlockAltair {
+                BlindedBeaconBlock::Altair(BlindedBeaconBlockAltair {
                     slot,
                     proposer_index,
                     parent_root,
                     state_root: Hash256::zero(),
-                    body: PrivateBeaconBlockBodyAltair {
+                    body: BlindedBeaconBlockBodyAltair {
                         randao_reveal,
                         eth1_data,
                         graffiti,
@@ -3229,12 +3229,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             BeaconState::Merge(_) => {
                 let sync_aggregate = get_sync_aggregate()?;
                 let execution_payload_header = get_execution_payload_header(self, &state)?;
-                PrivateBeaconBlock::Merge(PrivateBeaconBlockMerge {
+                BlindedBeaconBlock::Merge(BlindedBeaconBlockMerge {
                     slot,
                     proposer_index,
                     parent_root,
                     state_root: Hash256::zero(),
-                    body: PrivateBeaconBlockBodyMerge {
+                    body: BlindedBeaconBlockBodyMerge {
                         randao_reveal,
                         eth1_data,
                         graffiti,
@@ -3250,7 +3250,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             }
         };
 
-        let block = SignedPrivateBeaconBlock::from_block(
+        let block = SignedBlindedBeaconBlock::from_block(
             inner_block,
             // The block is not signed here, that is the task of a validator client.
             Signature::empty(),

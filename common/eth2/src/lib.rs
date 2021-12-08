@@ -15,7 +15,7 @@ pub mod types;
 
 use self::mixin::{RequestAccept, ResponseForkName, ResponseOptional};
 use self::types::{Error as ResponseError, *};
-use crate::types::private_beacon_block::PrivateBeaconBlock;
+use crate::types::blinded_beacon_block::BlindedBeaconBlock;
 use ::types::map_fork_name_with;
 use futures::Stream;
 use futures_util::StreamExt;
@@ -29,7 +29,7 @@ use std::convert::TryFrom;
 use std::fmt;
 use std::iter::Iterator;
 use std::time::Duration;
-use store::signed_private_beacon_block::SignedPrivateBeaconBlock;
+use store::signed_blinded_beacon_block::SignedBlindedBeaconBlock;
 
 pub const V1: EndpointVersion = EndpointVersion(1);
 pub const V2: EndpointVersion = EndpointVersion(2);
@@ -592,7 +592,7 @@ impl BeaconNodeHttpClient {
     /// Returns `Ok(None)` on a 404 error.
     pub async fn post_beacon_blocks_private<T: EthSpec>(
         &self,
-        block: &SignedPrivateBeaconBlock<T>,
+        block: &SignedBlindedBeaconBlock<T>,
     ) -> Result<(), Error> {
         let mut path = self.server.full.clone();
 
@@ -1176,7 +1176,7 @@ impl BeaconNodeHttpClient {
         slot: Slot,
         randao_reveal: &SignatureBytes,
         graffiti: Option<&Graffiti>,
-    ) -> Result<GenericResponse<PrivateBeaconBlock<T>>, Error> {
+    ) -> Result<GenericResponse<BlindedBeaconBlock<T>>, Error> {
         let mut path = self.server.full.clone();
 
         path.path_segments_mut()

@@ -2,7 +2,7 @@
 
 use super::Error;
 use serde::{Deserialize, Serialize};
-use types::private_beacon_block::PrivateBeaconBlock;
+use types::blinded_beacon_block::BlindedBeaconBlock;
 use types::*;
 
 #[derive(Debug, PartialEq, Copy, Clone, Serialize)]
@@ -46,9 +46,9 @@ pub enum Web3SignerObject<'a, T: EthSpec> {
         version: ForkName,
         block: &'a BeaconBlock<T>,
     },
-    PrivateBeaconBlock {
+    BlindedBeaconBlock {
         version: ForkName,
-        block: &'a PrivateBeaconBlock<T>,
+        block: &'a BlindedBeaconBlock<T>,
     },
     #[allow(dead_code)]
     Deposit {
@@ -83,14 +83,14 @@ impl<'a, T: EthSpec> Web3SignerObject<'a, T> {
         Ok(Web3SignerObject::BeaconBlock { version, block })
     }
 
-    pub fn private_beacon_block(block: &'a PrivateBeaconBlock<T>) -> Result<Self, Error> {
+    pub fn blinded_beacon_block(block: &'a BlindedBeaconBlock<T>) -> Result<Self, Error> {
         let version = match block {
-            PrivateBeaconBlock::Base(_) => ForkName::Phase0,
-            PrivateBeaconBlock::Altair(_) => ForkName::Altair,
-            PrivateBeaconBlock::Merge(_) => return Err(Error::MergeForkNotSupported),
+            BlindedBeaconBlock::Base(_) => ForkName::Phase0,
+            BlindedBeaconBlock::Altair(_) => ForkName::Altair,
+            BlindedBeaconBlock::Merge(_) => return Err(Error::MergeForkNotSupported),
         };
 
-        Ok(Web3SignerObject::PrivateBeaconBlock { version, block })
+        Ok(Web3SignerObject::BlindedBeaconBlock { version, block })
     }
 
     pub fn message_type(&self) -> MessageType {
@@ -99,7 +99,7 @@ impl<'a, T: EthSpec> Web3SignerObject<'a, T> {
             Web3SignerObject::AggregateAndProof(_) => MessageType::AggregateAndProof,
             Web3SignerObject::Attestation(_) => MessageType::Attestation,
             Web3SignerObject::BeaconBlock { .. } => MessageType::BlockV2,
-            Web3SignerObject::PrivateBeaconBlock { .. } => MessageType::PrivateBlockV2,
+            Web3SignerObject::BlindedBeaconBlock { .. } => MessageType::PrivateBlockV2,
             Web3SignerObject::Deposit { .. } => MessageType::Deposit,
             Web3SignerObject::RandaoReveal { .. } => MessageType::RandaoReveal,
             Web3SignerObject::VoluntaryExit(_) => MessageType::VoluntaryExit,

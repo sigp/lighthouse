@@ -1,4 +1,4 @@
-use crate::private_beacon_block::PrivateBeaconBlock;
+use crate::blinded_beacon_block::BlindedBeaconBlock;
 use crate::*;
 use bls::Signature;
 use serde_derive::{Deserialize, Serialize};
@@ -10,33 +10,33 @@ use tree_hash_derive::TreeHash;
 
 #[cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary))]
 #[derive(PartialEq, Eq, Hash, Clone, Copy)]
-pub struct SignedPrivateBeaconBlockHash(Hash256);
+pub struct SignedBlindedBeaconBlockHash(Hash256);
 
-impl fmt::Debug for SignedPrivateBeaconBlockHash {
+impl fmt::Debug for SignedBlindedBeaconBlockHash {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "SignedPrivateBeaconBlockHash({:?})", self.0)
+        write!(f, "SignedBlindedBeaconBlockHash({:?})", self.0)
     }
 }
 
-impl fmt::Display for SignedPrivateBeaconBlockHash {
+impl fmt::Display for SignedBlindedBeaconBlockHash {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{}", self.0)
     }
 }
 
-impl From<Hash256> for SignedPrivateBeaconBlockHash {
-    fn from(hash: Hash256) -> SignedPrivateBeaconBlockHash {
-        SignedPrivateBeaconBlockHash(hash)
+impl From<Hash256> for SignedBlindedBeaconBlockHash {
+    fn from(hash: Hash256) -> SignedBlindedBeaconBlockHash {
+        SignedBlindedBeaconBlockHash(hash)
     }
 }
 
-impl From<SignedPrivateBeaconBlockHash> for Hash256 {
-    fn from(signed_beacon_block_hash: SignedPrivateBeaconBlockHash) -> Hash256 {
+impl From<SignedBlindedBeaconBlockHash> for Hash256 {
+    fn from(signed_beacon_block_hash: SignedBlindedBeaconBlockHash) -> Hash256 {
         signed_beacon_block_hash.0
     }
 }
 
-/// A `PrivateBeaconBlock` and a signature from its proposer.
+/// A `BlindedBeaconBlock` and a signature from its proposer.
 #[superstruct(
     variants(Base, Altair, Merge),
     variant_attributes(
@@ -60,17 +60,17 @@ impl From<SignedPrivateBeaconBlockHash> for Hash256 {
 #[cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary))]
 #[tree_hash(enum_behaviour = "transparent")]
 #[ssz(enum_behaviour = "transparent")]
-pub struct SignedPrivateBeaconBlock<E: EthSpec> {
+pub struct SignedBlindedBeaconBlock<E: EthSpec> {
     #[superstruct(only(Base), partial_getter(rename = "message_base"))]
-    pub message: PrivateBeaconBlockBase<E>,
+    pub message: BlindedBeaconBlockBase<E>,
     #[superstruct(only(Altair), partial_getter(rename = "message_altair"))]
-    pub message: PrivateBeaconBlockAltair<E>,
+    pub message: BlindedBeaconBlockAltair<E>,
     #[superstruct(only(Merge), partial_getter(rename = "message_merge"))]
-    pub message: PrivateBeaconBlockMerge<E>,
+    pub message: BlindedBeaconBlockMerge<E>,
     pub signature: Signature,
 }
 
-impl<E: EthSpec> SignedPrivateBeaconBlock<E> {
+impl<E: EthSpec> SignedBlindedBeaconBlock<E> {
     /// Returns the name of the fork pertaining to `self`.
     ///
     /// Will return an `Err` if `self` has been instantiated to a variant conflicting with the fork
@@ -82,21 +82,21 @@ impl<E: EthSpec> SignedPrivateBeaconBlock<E> {
     /// SSZ decode with fork variant determined by slot.
     pub fn from_ssz_bytes(bytes: &[u8], spec: &ChainSpec) -> Result<Self, ssz::DecodeError> {
         Self::from_ssz_bytes_with(bytes, |bytes| {
-            PrivateBeaconBlock::from_ssz_bytes(bytes, spec)
+            BlindedBeaconBlock::from_ssz_bytes(bytes, spec)
         })
     }
 
     /// SSZ decode which attempts to decode all variants (slow).
     pub fn any_from_ssz_bytes(bytes: &[u8]) -> Result<Self, ssz::DecodeError> {
-        Self::from_ssz_bytes_with(bytes, PrivateBeaconBlock::any_from_ssz_bytes)
+        Self::from_ssz_bytes_with(bytes, BlindedBeaconBlock::any_from_ssz_bytes)
     }
 
     /// SSZ decode with custom decode function.
     pub fn from_ssz_bytes_with(
         bytes: &[u8],
-        block_decoder: impl FnOnce(&[u8]) -> Result<PrivateBeaconBlock<E>, ssz::DecodeError>,
+        block_decoder: impl FnOnce(&[u8]) -> Result<BlindedBeaconBlock<E>, ssz::DecodeError>,
     ) -> Result<Self, ssz::DecodeError> {
-        // We need the customer decoder for `PrivateBeaconBlock`, which doesn't compose with the other
+        // We need the customer decoder for `BlindedBeaconBlock`, which doesn't compose with the other
         // SSZ utils, so we duplicate some parts of `ssz_derive` here.
         let mut builder = ssz::SszDecoderBuilder::new(bytes);
 
@@ -105,27 +105,27 @@ impl<E: EthSpec> SignedPrivateBeaconBlock<E> {
 
         let mut decoder = builder.build()?;
 
-        // Read the first item as a `PrivateBeaconBlock`.
+        // Read the first item as a `BlindedBeaconBlock`.
         let message = decoder.decode_next_with(block_decoder)?;
         let signature = decoder.decode_next()?;
 
         Ok(Self::from_block(message, signature))
     }
 
-    /// Create a new `SignedPrivateBeaconBlock` from a `PrivateBeaconBlock` and `Signature`.
-    pub fn from_block(block: PrivateBeaconBlock<E>, signature: Signature) -> Self {
+    /// Create a new `SignedBlindedBeaconBlock` from a `BlindedBeaconBlock` and `Signature`.
+    pub fn from_block(block: BlindedBeaconBlock<E>, signature: Signature) -> Self {
         match block {
-            PrivateBeaconBlock::Base(message) => {
-                SignedPrivateBeaconBlock::Base(SignedPrivateBeaconBlockBase { message, signature })
+            BlindedBeaconBlock::Base(message) => {
+                SignedBlindedBeaconBlock::Base(SignedBlindedBeaconBlockBase { message, signature })
             }
-            PrivateBeaconBlock::Altair(message) => {
-                SignedPrivateBeaconBlock::Altair(SignedPrivateBeaconBlockAltair {
+            BlindedBeaconBlock::Altair(message) => {
+                SignedBlindedBeaconBlock::Altair(SignedBlindedBeaconBlockAltair {
                     message,
                     signature,
                 })
             }
-            PrivateBeaconBlock::Merge(message) => {
-                SignedPrivateBeaconBlock::Merge(SignedPrivateBeaconBlockMerge {
+            BlindedBeaconBlock::Merge(message) => {
+                SignedBlindedBeaconBlock::Merge(SignedBlindedBeaconBlockMerge {
                     message,
                     signature,
                 })
@@ -133,46 +133,46 @@ impl<E: EthSpec> SignedPrivateBeaconBlock<E> {
         }
     }
 
-    /// Deconstruct the `SignedPrivateBeaconBlock` into a `PrivateBeaconBlock` and `Signature`.
+    /// Deconstruct the `SignedBlindedBeaconBlock` into a `BlindedBeaconBlock` and `Signature`.
     ///
-    /// This is necessary to get a `&PrivateBeaconBlock` from a `SignedPrivateBeaconBlock` because
-    /// `SignedPrivateBeaconBlock` only contains a `PrivateBeaconBlock` _variant_.
-    pub fn deconstruct(self) -> (PrivateBeaconBlock<E>, Signature) {
+    /// This is necessary to get a `&BlindedBeaconBlock` from a `SignedBlindedBeaconBlock` because
+    /// `SignedBlindedBeaconBlock` only contains a `BlindedBeaconBlock` _variant_.
+    pub fn deconstruct(self) -> (BlindedBeaconBlock<E>, Signature) {
         match self {
-            SignedPrivateBeaconBlock::Base(block) => {
-                (PrivateBeaconBlock::Base(block.message), block.signature)
+            SignedBlindedBeaconBlock::Base(block) => {
+                (BlindedBeaconBlock::Base(block.message), block.signature)
             }
-            SignedPrivateBeaconBlock::Altair(block) => {
-                (PrivateBeaconBlock::Altair(block.message), block.signature)
+            SignedBlindedBeaconBlock::Altair(block) => {
+                (BlindedBeaconBlock::Altair(block.message), block.signature)
             }
-            SignedPrivateBeaconBlock::Merge(block) => {
-                (PrivateBeaconBlock::Merge(block.message), block.signature)
+            SignedBlindedBeaconBlock::Merge(block) => {
+                (BlindedBeaconBlock::Merge(block.message), block.signature)
             }
         }
     }
 
     /// Accessor for the block's `message` field as a ref.
-    pub fn message(&self) -> PrivateBeaconBlockRef<'_, E> {
+    pub fn message(&self) -> BlindedBeaconBlockRef<'_, E> {
         match self {
-            SignedPrivateBeaconBlock::Base(inner) => PrivateBeaconBlockRef::Base(&inner.message),
-            SignedPrivateBeaconBlock::Altair(inner) => {
-                PrivateBeaconBlockRef::Altair(&inner.message)
+            SignedBlindedBeaconBlock::Base(inner) => BlindedBeaconBlockRef::Base(&inner.message),
+            SignedBlindedBeaconBlock::Altair(inner) => {
+                BlindedBeaconBlockRef::Altair(&inner.message)
             }
-            SignedPrivateBeaconBlock::Merge(inner) => PrivateBeaconBlockRef::Merge(&inner.message),
+            SignedBlindedBeaconBlock::Merge(inner) => BlindedBeaconBlockRef::Merge(&inner.message),
         }
     }
 
     /// Accessor for the block's `message` as a mutable reference (for testing only).
-    pub fn message_mut(&mut self) -> PrivateBeaconBlockRefMut<'_, E> {
+    pub fn message_mut(&mut self) -> BlindedBeaconBlockRefMut<'_, E> {
         match self {
-            SignedPrivateBeaconBlock::Base(inner) => {
-                PrivateBeaconBlockRefMut::Base(&mut inner.message)
+            SignedBlindedBeaconBlock::Base(inner) => {
+                BlindedBeaconBlockRefMut::Base(&mut inner.message)
             }
-            SignedPrivateBeaconBlock::Altair(inner) => {
-                PrivateBeaconBlockRefMut::Altair(&mut inner.message)
+            SignedBlindedBeaconBlock::Altair(inner) => {
+                BlindedBeaconBlockRefMut::Altair(&mut inner.message)
             }
-            SignedPrivateBeaconBlock::Merge(inner) => {
-                PrivateBeaconBlockRefMut::Merge(&mut inner.message)
+            SignedBlindedBeaconBlock::Merge(inner) => {
+                BlindedBeaconBlockRefMut::Merge(&mut inner.message)
             }
         }
     }

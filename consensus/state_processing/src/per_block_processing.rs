@@ -167,7 +167,7 @@ pub fn per_block_processing<T: EthSpec>(
 
 pub fn per_block_processing_private<T: EthSpec>(
     state: &mut BeaconState<T>,
-    signed_block: &SignedPrivateBeaconBlock<T>,
+    signed_block: &SignedBlindedBeaconBlock<T>,
     spec: &ChainSpec,
 ) -> Result<(), BlockProcessingError> {
     let block = signed_block.message();
@@ -321,7 +321,7 @@ pub fn process_randao<T: EthSpec>(
 /// `state.latest_randao_mixes`.
 pub fn process_randao_private<T: EthSpec>(
     state: &mut BeaconState<T>,
-    block: PrivateBeaconBlockRef<'_, T>,
+    block: BlindedBeaconBlockRef<'_, T>,
     verify_signatures: VerifySignatures,
     spec: &ChainSpec,
 ) -> Result<(), BlockProcessingError> {
@@ -549,14 +549,14 @@ pub fn is_execution_enabled<T: EthSpec>(
 /// https://github.com/ethereum/consensus-specs/blob/dev/specs/merge/beacon-chain.md#is_execution_enabled
 pub fn is_execution_enabled_private<T: EthSpec>(
     state: &BeaconState<T>,
-    body: PrivateBeaconBlockBodyRef<T>,
+    body: BlindedBeaconBlockBodyRef<T>,
 ) -> bool {
     is_merge_transition_block_private(state, body) || is_merge_transition_complete(state)
 }
 /// https://github.com/ethereum/consensus-specs/blob/dev/specs/merge/beacon-chain.md#is_merge_transition_block
 pub fn is_merge_transition_block_private<T: EthSpec>(
     state: &BeaconState<T>,
-    body: PrivateBeaconBlockBodyRef<T>,
+    body: BlindedBeaconBlockBodyRef<T>,
 ) -> bool {
     body.execution_payload_header()
         .map(|payload_header| {

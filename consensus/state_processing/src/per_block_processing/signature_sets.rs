@@ -9,7 +9,7 @@ use tree_hash::TreeHash;
 use types::{
     AggregateSignature, AttesterSlashing, BeaconBlockRef, BeaconState, BeaconStateError, ChainSpec,
     DepositData, Domain, Epoch, EthSpec, Fork, Hash256, InconsistentFork, IndexedAttestation,
-    PrivateBeaconBlockRef, ProposerSlashing, PublicKey, PublicKeyBytes, Signature,
+    BlindedBeaconBlockRef, ProposerSlashing, PublicKey, PublicKeyBytes, Signature,
     SignedAggregateAndProof, SignedBeaconBlock, SignedBeaconBlockHeader,
     SignedContributionAndProof, SignedRoot, SignedVoluntaryExit, SigningData, Slot, SyncAggregate,
     SyncAggregatorSelectionData, Unsigned,
@@ -187,7 +187,7 @@ where
 pub fn randao_signature_set_private<'a, T, F>(
     state: &'a BeaconState<T>,
     get_pubkey: F,
-    block: PrivateBeaconBlockRef<'a, T>,
+    block: BlindedBeaconBlockRef<'a, T>,
     spec: &'a ChainSpec,
 ) -> Result<SignatureSet<'a>>
 where

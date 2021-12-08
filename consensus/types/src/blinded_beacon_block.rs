@@ -1,8 +1,8 @@
-use crate::private_beacon_block_body::{
-    PrivateBeaconBlockBodyAltair, PrivateBeaconBlockBodyBase, PrivateBeaconBlockBodyMerge,
-    PrivateBeaconBlockBodyRef, PrivateBeaconBlockBodyRefMut,
+use crate::blinded_beacon_block_body::{
+    BlindedBeaconBlockBodyAltair, BlindedBeaconBlockBodyBase, BlindedBeaconBlockBodyMerge,
+    BlindedBeaconBlockBodyRef, BlindedBeaconBlockBodyRefMut,
 };
-use crate::signed_private_beacon_block::SignedPrivateBeaconBlock;
+use crate::signed_blinded_beacon_block::SignedBlindedBeaconBlock;
 use crate::test_utils::TestRandom;
 use crate::*;
 use bls::Signature;
@@ -43,7 +43,7 @@ use tree_hash_derive::TreeHash;
 #[cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary))]
 #[tree_hash(enum_behaviour = "transparent")]
 #[ssz(enum_behaviour = "transparent")]
-pub struct PrivateBeaconBlock<T: EthSpec> {
+pub struct BlindedBeaconBlock<T: EthSpec> {
     #[superstruct(getter(copy))]
     pub slot: Slot,
     #[superstruct(getter(copy))]
@@ -54,25 +54,25 @@ pub struct PrivateBeaconBlock<T: EthSpec> {
     #[superstruct(getter(copy))]
     pub state_root: Hash256,
     #[superstruct(only(Base), partial_getter(rename = "body_base"))]
-    pub body: PrivateBeaconBlockBodyBase<T>,
+    pub body: BlindedBeaconBlockBodyBase<T>,
     #[superstruct(only(Altair), partial_getter(rename = "body_altair"))]
-    pub body: PrivateBeaconBlockBodyAltair<T>,
+    pub body: BlindedBeaconBlockBodyAltair<T>,
     #[superstruct(only(Merge), partial_getter(rename = "body_merge"))]
-    pub body: PrivateBeaconBlockBodyMerge<T>,
+    pub body: BlindedBeaconBlockBodyMerge<T>,
 }
 
-impl<T: EthSpec> SignedRoot for PrivateBeaconBlock<T> {}
-impl<'a, T: EthSpec> SignedRoot for PrivateBeaconBlockRef<'a, T> {}
+impl<T: EthSpec> SignedRoot for BlindedBeaconBlock<T> {}
+impl<'a, T: EthSpec> SignedRoot for BlindedBeaconBlockRef<'a, T> {}
 
-impl<T: EthSpec> PrivateBeaconBlock<T> {
+impl<T: EthSpec> BlindedBeaconBlock<T> {
     /// Returns an empty block to be used during genesis.
     pub fn empty(spec: &ChainSpec) -> Self {
         if spec.merge_fork_epoch == Some(T::genesis_epoch()) {
-            Self::Merge(PrivateBeaconBlockMerge::empty(spec))
+            Self::Merge(BlindedBeaconBlockMerge::empty(spec))
         } else if spec.altair_fork_epoch == Some(T::genesis_epoch()) {
-            Self::Altair(PrivateBeaconBlockAltair::empty(spec))
+            Self::Altair(BlindedBeaconBlockAltair::empty(spec))
         } else {
-            Self::Base(PrivateBeaconBlockBase::empty(spec))
+            Self::Base(BlindedBeaconBlockBase::empty(spec))
         }
     }
 
@@ -102,24 +102,24 @@ impl<T: EthSpec> PrivateBeaconBlock<T> {
     /// Usually it's better to prefer `from_ssz_bytes` which will decode the correct variant based
     /// on the fork slot.
     pub fn any_from_ssz_bytes(bytes: &[u8]) -> Result<Self, ssz::DecodeError> {
-        PrivateBeaconBlockMerge::from_ssz_bytes(bytes)
-            .map(PrivateBeaconBlock::Merge)
+        BlindedBeaconBlockMerge::from_ssz_bytes(bytes)
+            .map(BlindedBeaconBlock::Merge)
             .or_else(|_| {
-                PrivateBeaconBlockAltair::from_ssz_bytes(bytes)
-                    .map(PrivateBeaconBlock::Altair)
+                BlindedBeaconBlockAltair::from_ssz_bytes(bytes)
+                    .map(BlindedBeaconBlock::Altair)
                     .or_else(|_| {
-                        PrivateBeaconBlockBase::from_ssz_bytes(bytes).map(PrivateBeaconBlock::Base)
+                        BlindedBeaconBlockBase::from_ssz_bytes(bytes).map(BlindedBeaconBlock::Base)
                     })
             })
     }
 
-    /// Convenience accessor for the `body` as a `PrivateBeaconBlockBodyRef`.
-    pub fn body(&self) -> PrivateBeaconBlockBodyRef<'_, T> {
+    /// Convenience accessor for the `body` as a `BlindedBeaconBlockBodyRef`.
+    pub fn body(&self) -> BlindedBeaconBlockBodyRef<'_, T> {
         self.to_ref().body()
     }
 
-    /// Convenience accessor for the `body` as a `PrivateBeaconBlockBodyRefMut`.
-    pub fn body_mut(&mut self) -> PrivateBeaconBlockBodyRefMut<'_, T> {
+    /// Convenience accessor for the `body` as a `BlindedBeaconBlockBodyRefMut`.
+    pub fn body_mut(&mut self) -> BlindedBeaconBlockBodyRefMut<'_, T> {
         self.to_mut().body_mut()
     }
 
@@ -153,14 +153,14 @@ impl<T: EthSpec> PrivateBeaconBlock<T> {
         self.to_ref().body_root()
     }
 
-    /// Signs `self`, producing a `SignedPrivateBeaconBlock`.
+    /// Signs `self`, producing a `SignedBlindedBeaconBlock`.
     pub fn sign(
         self,
         secret_key: &SecretKey,
         fork: &Fork,
         genesis_validators_root: Hash256,
         spec: &ChainSpec,
-    ) -> SignedPrivateBeaconBlock<T> {
+    ) -> SignedBlindedBeaconBlock<T> {
         let domain = spec.get_domain(
             self.epoch(),
             Domain::BeaconProposer,
@@ -169,11 +169,11 @@ impl<T: EthSpec> PrivateBeaconBlock<T> {
         );
         let message = self.signing_root(domain);
         let signature = secret_key.sign(message);
-        SignedPrivateBeaconBlock::from_block(self, signature)
+        SignedBlindedBeaconBlock::from_block(self, signature)
     }
 }
 
-impl<'a, T: EthSpec> PrivateBeaconBlockRef<'a, T> {
+impl<'a, T: EthSpec> BlindedBeaconBlockRef<'a, T> {
     /// Returns the name of the fork pertaining to `self`.
     ///
     /// Will return an `Err` if `self` has been instantiated to a variant conflicting with the fork
@@ -181,9 +181,9 @@ impl<'a, T: EthSpec> PrivateBeaconBlockRef<'a, T> {
     pub fn fork_name(&self, spec: &ChainSpec) -> Result<ForkName, InconsistentFork> {
         let fork_at_slot = spec.fork_name_at_slot::<T>(self.slot());
         let object_fork = match self {
-            PrivateBeaconBlockRef::Base { .. } => ForkName::Base,
-            PrivateBeaconBlockRef::Altair { .. } => ForkName::Altair,
-            PrivateBeaconBlockRef::Merge { .. } => ForkName::Merge,
+            BlindedBeaconBlockRef::Base { .. } => ForkName::Base,
+            BlindedBeaconBlockRef::Altair { .. } => ForkName::Altair,
+            BlindedBeaconBlockRef::Merge { .. } => ForkName::Merge,
         };
 
         if fork_at_slot == object_fork {
@@ -196,21 +196,21 @@ impl<'a, T: EthSpec> PrivateBeaconBlockRef<'a, T> {
         }
     }
 
-    /// Convenience accessor for the `body` as a `PrivateBeaconBlockBodyRef`.
-    pub fn body(&self) -> PrivateBeaconBlockBodyRef<'a, T> {
+    /// Convenience accessor for the `body` as a `BlindedBeaconBlockBodyRef`.
+    pub fn body(&self) -> BlindedBeaconBlockBodyRef<'a, T> {
         match self {
-            PrivateBeaconBlockRef::Base(block) => PrivateBeaconBlockBodyRef::Base(&block.body),
-            PrivateBeaconBlockRef::Altair(block) => PrivateBeaconBlockBodyRef::Altair(&block.body),
-            PrivateBeaconBlockRef::Merge(block) => PrivateBeaconBlockBodyRef::Merge(&block.body),
+            BlindedBeaconBlockRef::Base(block) => BlindedBeaconBlockBodyRef::Base(&block.body),
+            BlindedBeaconBlockRef::Altair(block) => BlindedBeaconBlockBodyRef::Altair(&block.body),
+            BlindedBeaconBlockRef::Merge(block) => BlindedBeaconBlockBodyRef::Merge(&block.body),
         }
     }
 
     /// Return the tree hash root of the block's body.
     pub fn body_root(&self) -> Hash256 {
         match self {
-            PrivateBeaconBlockRef::Base(block) => block.body.tree_hash_root(),
-            PrivateBeaconBlockRef::Altair(block) => block.body.tree_hash_root(),
-            PrivateBeaconBlockRef::Merge(block) => block.body.tree_hash_root(),
+            BlindedBeaconBlockRef::Base(block) => block.body.tree_hash_root(),
+            BlindedBeaconBlockRef::Altair(block) => block.body.tree_hash_root(),
+            BlindedBeaconBlockRef::Merge(block) => block.body.tree_hash_root(),
         }
     }
 
@@ -239,32 +239,32 @@ impl<'a, T: EthSpec> PrivateBeaconBlockRef<'a, T> {
     }
 }
 
-impl<'a, T: EthSpec> PrivateBeaconBlockRefMut<'a, T> {
+impl<'a, T: EthSpec> BlindedBeaconBlockRefMut<'a, T> {
     /// Convert a mutable reference to a beacon block to a mutable ref to its body.
-    pub fn body_mut(self) -> PrivateBeaconBlockBodyRefMut<'a, T> {
+    pub fn body_mut(self) -> BlindedBeaconBlockBodyRefMut<'a, T> {
         match self {
-            PrivateBeaconBlockRefMut::Base(block) => {
-                PrivateBeaconBlockBodyRefMut::Base(&mut block.body)
+            BlindedBeaconBlockRefMut::Base(block) => {
+                BlindedBeaconBlockBodyRefMut::Base(&mut block.body)
             }
-            PrivateBeaconBlockRefMut::Altair(block) => {
-                PrivateBeaconBlockBodyRefMut::Altair(&mut block.body)
+            BlindedBeaconBlockRefMut::Altair(block) => {
+                BlindedBeaconBlockBodyRefMut::Altair(&mut block.body)
             }
-            PrivateBeaconBlockRefMut::Merge(block) => {
-                PrivateBeaconBlockBodyRefMut::Merge(&mut block.body)
+            BlindedBeaconBlockRefMut::Merge(block) => {
+                BlindedBeaconBlockBodyRefMut::Merge(&mut block.body)
             }
         }
     }
 }
 
-impl<T: EthSpec> PrivateBeaconBlockBase<T> {
+impl<T: EthSpec> BlindedBeaconBlockBase<T> {
     /// Returns an empty block to be used during genesis.
     pub fn empty(spec: &ChainSpec) -> Self {
-        PrivateBeaconBlockBase {
+        BlindedBeaconBlockBase {
             slot: spec.genesis_slot,
             proposer_index: 0,
             parent_root: Hash256::zero(),
             state_root: Hash256::zero(),
-            body: PrivateBeaconBlockBodyBase {
+            body: BlindedBeaconBlockBodyBase {
                 randao_reveal: Signature::empty(),
                 eth1_data: Eth1Data {
                     deposit_root: Hash256::zero(),
@@ -343,7 +343,7 @@ impl<T: EthSpec> PrivateBeaconBlockBase<T> {
             signature: Signature::empty(),
         };
 
-        let mut block = PrivateBeaconBlockBase::<T>::empty(spec);
+        let mut block = BlindedBeaconBlockBase::<T>::empty(spec);
         for _ in 0..T::MaxProposerSlashings::to_usize() {
             block
                 .body
@@ -376,15 +376,15 @@ impl<T: EthSpec> PrivateBeaconBlockBase<T> {
     }
 }
 
-impl<T: EthSpec> PrivateBeaconBlockAltair<T> {
+impl<T: EthSpec> BlindedBeaconBlockAltair<T> {
     /// Returns an empty Altair block to be used during genesis.
     pub fn empty(spec: &ChainSpec) -> Self {
-        PrivateBeaconBlockAltair {
+        BlindedBeaconBlockAltair {
             slot: spec.genesis_slot,
             proposer_index: 0,
             parent_root: Hash256::zero(),
             state_root: Hash256::zero(),
-            body: PrivateBeaconBlockBodyAltair {
+            body: BlindedBeaconBlockBodyAltair {
                 randao_reveal: Signature::empty(),
                 eth1_data: Eth1Data {
                     deposit_root: Hash256::zero(),
@@ -404,17 +404,17 @@ impl<T: EthSpec> PrivateBeaconBlockAltair<T> {
 
     /// Return an Altair block where the block has maximum size.
     pub fn full(spec: &ChainSpec) -> Self {
-        let base_block = PrivateBeaconBlockBase::full(spec);
+        let base_block = BlindedBeaconBlockBase::full(spec);
         let sync_aggregate = SyncAggregate {
             sync_committee_signature: AggregateSignature::empty(),
             sync_committee_bits: BitVector::default(),
         };
-        PrivateBeaconBlockAltair {
+        BlindedBeaconBlockAltair {
             slot: spec.genesis_slot,
             proposer_index: 0,
             parent_root: Hash256::zero(),
             state_root: Hash256::zero(),
-            body: PrivateBeaconBlockBodyAltair {
+            body: BlindedBeaconBlockBodyAltair {
                 proposer_slashings: base_block.body.proposer_slashings,
                 attester_slashings: base_block.body.attester_slashings,
                 attestations: base_block.body.attestations,
@@ -433,15 +433,15 @@ impl<T: EthSpec> PrivateBeaconBlockAltair<T> {
     }
 }
 
-impl<T: EthSpec> PrivateBeaconBlockMerge<T> {
+impl<T: EthSpec> BlindedBeaconBlockMerge<T> {
     /// Returns an empty Merge block to be used during genesis.
     pub fn empty(spec: &ChainSpec) -> Self {
-        PrivateBeaconBlockMerge {
+        BlindedBeaconBlockMerge {
             slot: spec.genesis_slot,
             proposer_index: 0,
             parent_root: Hash256::zero(),
             state_root: Hash256::zero(),
-            body: PrivateBeaconBlockBodyMerge {
+            body: BlindedBeaconBlockBodyMerge {
                 randao_reveal: Signature::empty(),
                 eth1_data: Eth1Data {
                     deposit_root: Hash256::zero(),
@@ -462,13 +462,13 @@ impl<T: EthSpec> PrivateBeaconBlockMerge<T> {
 
     /// Return an Merge block where the block has maximum size.
     pub fn full(spec: &ChainSpec) -> Self {
-        let altair_block = PrivateBeaconBlockAltair::full(spec);
-        PrivateBeaconBlockMerge {
+        let altair_block = BlindedBeaconBlockAltair::full(spec);
+        BlindedBeaconBlockMerge {
             slot: spec.genesis_slot,
             proposer_index: 0,
             parent_root: Hash256::zero(),
             state_root: Hash256::zero(),
-            body: PrivateBeaconBlockBodyMerge {
+            body: BlindedBeaconBlockBodyMerge {
                 proposer_slashings: altair_block.body.proposer_slashings,
                 attester_slashings: altair_block.body.attester_slashings,
                 attestations: altair_block.body.attestations,
@@ -495,26 +495,26 @@ mod tests {
     use crate::{ForkName, MainnetEthSpec};
     use ssz::Encode;
 
-    type PrivateBeaconBlock = super::PrivateBeaconBlock<MainnetEthSpec>;
-    type PrivateBeaconBlockBase = super::PrivateBeaconBlockBase<MainnetEthSpec>;
-    type PrivateBeaconBlockAltair = super::PrivateBeaconBlockAltair<MainnetEthSpec>;
+    type BlindedBeaconBlock = super::BlindedBeaconBlock<MainnetEthSpec>;
+    type BlindedBeaconBlockBase = super::BlindedBeaconBlockBase<MainnetEthSpec>;
+    type BlindedBeaconBlockAltair = super::BlindedBeaconBlockAltair<MainnetEthSpec>;
 
     #[test]
     fn roundtrip_base_block() {
         let rng = &mut XorShiftRng::from_seed([42; 16]);
         let spec = &ForkName::Base.make_genesis_spec(MainnetEthSpec::default_spec());
 
-        let inner_block = PrivateBeaconBlockBase {
+        let inner_block = BlindedBeaconBlockBase {
             slot: Slot::random_for_test(rng),
             proposer_index: u64::random_for_test(rng),
             parent_root: Hash256::random_for_test(rng),
             state_root: Hash256::random_for_test(rng),
-            body: PrivateBeaconBlockBodyBase::random_for_test(rng),
+            body: BlindedBeaconBlockBodyBase::random_for_test(rng),
         };
-        let block = PrivateBeaconBlock::Base(inner_block.clone());
+        let block = BlindedBeaconBlock::Base(inner_block.clone());
 
         test_ssz_tree_hash_pair_with(&block, &inner_block, |bytes| {
-            PrivateBeaconBlock::from_ssz_bytes(bytes, spec)
+            BlindedBeaconBlock::from_ssz_bytes(bytes, spec)
         });
     }
 
@@ -523,17 +523,17 @@ mod tests {
         let rng = &mut XorShiftRng::from_seed([42; 16]);
         let spec = &ForkName::Altair.make_genesis_spec(MainnetEthSpec::default_spec());
 
-        let inner_block = PrivateBeaconBlockAltair {
+        let inner_block = BlindedBeaconBlockAltair {
             slot: Slot::random_for_test(rng),
             proposer_index: u64::random_for_test(rng),
             parent_root: Hash256::random_for_test(rng),
             state_root: Hash256::random_for_test(rng),
-            body: PrivateBeaconBlockBodyAltair::random_for_test(rng),
+            body: BlindedBeaconBlockBodyAltair::random_for_test(rng),
         };
-        let block = PrivateBeaconBlock::Altair(inner_block.clone());
+        let block = BlindedBeaconBlock::Altair(inner_block.clone());
 
         test_ssz_tree_hash_pair_with(&block, &inner_block, |bytes| {
-            PrivateBeaconBlock::from_ssz_bytes(bytes, spec)
+            BlindedBeaconBlock::from_ssz_bytes(bytes, spec)
         });
     }
 
@@ -553,9 +553,9 @@ mod tests {
         let mut spec = E::default_spec();
         spec.altair_fork_epoch = Some(fork_epoch);
 
-        // PrivateBeaconBlockBase
+        // BlindedBeaconBlockBase
         {
-            let good_base_block = PrivateBeaconBlock::Base(PrivateBeaconBlockBase {
+            let good_base_block = BlindedBeaconBlock::Base(BlindedBeaconBlockBase {
                 slot: base_slot,
                 ..<_>::random_for_test(rng)
             });
@@ -567,17 +567,17 @@ mod tests {
             };
 
             assert_eq!(
-                PrivateBeaconBlock::from_ssz_bytes(&good_base_block.as_ssz_bytes(), &spec)
+                BlindedBeaconBlock::from_ssz_bytes(&good_base_block.as_ssz_bytes(), &spec)
                     .expect("good base block can be decoded"),
                 good_base_block
             );
-            PrivateBeaconBlock::from_ssz_bytes(&bad_base_block.as_ssz_bytes(), &spec)
+            BlindedBeaconBlock::from_ssz_bytes(&bad_base_block.as_ssz_bytes(), &spec)
                 .expect_err("bad base block cannot be decoded");
         }
 
-        // PrivateBeaconBlockAltair
+        // BlindedBeaconBlockAltair
         {
-            let good_altair_block = PrivateBeaconBlock::Altair(PrivateBeaconBlockAltair {
+            let good_altair_block = BlindedBeaconBlock::Altair(BlindedBeaconBlockAltair {
                 slot: altair_slot,
                 ..<_>::random_for_test(rng)
             });
@@ -589,11 +589,11 @@ mod tests {
             };
 
             assert_eq!(
-                PrivateBeaconBlock::from_ssz_bytes(&good_altair_block.as_ssz_bytes(), &spec)
+                BlindedBeaconBlock::from_ssz_bytes(&good_altair_block.as_ssz_bytes(), &spec)
                     .expect("good altair block can be decoded"),
                 good_altair_block
             );
-            PrivateBeaconBlock::from_ssz_bytes(&bad_altair_block.as_ssz_bytes(), &spec)
+            BlindedBeaconBlock::from_ssz_bytes(&bad_altair_block.as_ssz_bytes(), &spec)
                 .expect_err("bad altair block cannot be decoded");
         }
     }
