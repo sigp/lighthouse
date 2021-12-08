@@ -65,4 +65,14 @@ impl WatchHttpClient {
 
         self.get_opt(url).await
     }
+
+    pub async fn get_highest_canonical_slot(&self) -> Result<Option<Slot>, Error> {
+        let url = self
+            .server
+            .join("v1/")?
+            .join("canonical_slots/")?
+            .join("highest")?;
+
+        self.get_opt(url).await
+    }
 }

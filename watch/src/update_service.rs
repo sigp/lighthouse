@@ -40,7 +40,8 @@ pub async fn update_unknown_blocks<'a>(
 ) -> Result<(), Error> {
     let tx = db.transaction().await?;
 
-    for root in Database::unknown_canonical_blocks(&tx, max_blocks).await? {
+    let roots = Database::unknown_canonical_blocks(&tx, max_blocks).await?;
+    for root in roots {
         if let Some(header) = get_header(bn, BlockId::Root(root)).await? {
             Database::insert_canonical_header_if_not_exists(&tx, &header, root).await?;
         }
@@ -139,7 +140,10 @@ pub async fn reverse_fill_canonical_slots<'a, T: EthSpec>(
                 info!("Reverse fill completed at canonical slot {}", header.slot);
                 break;
             }
-        } else {
+        } else if Database::lowest_canonical_slot(&tx)
+            .await?
+            .map_or(false, |slot| slot >= header.slot)
+        {
             if count >= max_count {
                 info!(
                     "Reverse fill stopped at canonical slot {} with {} slots updated",

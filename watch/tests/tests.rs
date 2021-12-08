@@ -39,7 +39,6 @@ impl Tester {
             .deterministic_keypairs(VALIDATOR_COUNT)
             .fresh_ephemeral_store()
             .build();
-        harness.advance_slot();
 
         /*
          * Spawn a Beacon Node HTTP API.
@@ -118,6 +117,7 @@ impl Tester {
 
     /// Extend the chain on the beacon chain harness. Do not update watch.
     pub fn extend_chain(self, num_blocks: usize) -> Self {
+        self.harness.advance_slot();
         self.harness.extend_chain(
             num_blocks,
             BlockStrategy::OnCanonicalHead,
@@ -166,6 +166,32 @@ impl Tester {
         let lowest_slot = self.client.get_lowest_canonical_slot().await.unwrap();
 
         assert_eq!(lowest_slot, None);
+
+        self
+    }
+
+    pub async fn assert_lowest_canonical_slot(self, expected: Slot) -> Self {
+        let slot = self
+            .client
+            .get_lowest_canonical_slot()
+            .await
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(slot, expected);
+
+        self
+    }
+
+    pub async fn assert_highest_canonical_slot(self, expected: Slot) -> Self {
+        let slot = self
+            .client
+            .get_highest_canonical_slot()
+            .await
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(slot, expected);
 
         self
     }
@@ -221,7 +247,7 @@ pub fn random_dbname() -> String {
         .collect();
     // Postgres gets weird about capitals in database names.
     s.make_ascii_lowercase();
-    s
+    format!("test_{}", s)
 }
 
 #[tokio::test]
@@ -271,6 +297,54 @@ async fn long_chain() {
         .await
         .assert_canonical_slots_not_empty()
         .await
+        .assert_canonical_chain_consistent()
+        .await;
+}
+
+#[tokio::test]
+async fn chain_grows() {
+    Tester::new()
+        .await
+        // Apply four blocks to the chain.
+        .extend_chain(4)
+        .perform_head_update()
+        .await
+        // Head update should insert one block.
+        .assert_lowest_canonical_slot(Slot::new(4))
+        .await
+        .assert_highest_canonical_slot(Slot::new(4))
+        .await
+        // Fill back to genesis.
+        .perform_backfill(4)
+        .await
+        // All blocks should be present.
+        .assert_lowest_canonical_slot(Slot::new(0))
+        .await
+        .assert_highest_canonical_slot(Slot::new(4))
+        .await
+        // Apply one block to the chain.
+        .extend_chain(1)
+        .perform_head_update()
+        .await
+        // All blocks should be present.
+        .assert_lowest_canonical_slot(Slot::new(0))
+        .await
+        .assert_highest_canonical_slot(Slot::new(5))
+        .await
+        // Apply two blocks to the chain.
+        .extend_chain(2)
+        // Update the head.
+        .perform_head_update()
+        .await
+        // All blocks should be present.
+        .assert_lowest_canonical_slot(Slot::new(0))
+        .await
+        .assert_highest_canonical_slot(Slot::new(7))
+        .await
+        // Insert all blocks.
+        .update_unknown_blocks(i64::max_value())
+        .await
+        // Check the chain is consistent
         .assert_canonical_chain_consistent()
         .await;
 }

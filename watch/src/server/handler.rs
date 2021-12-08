@@ -21,7 +21,6 @@ pub async fn get_block(
     db: &mut Database,
     block_id: BlockId,
 ) -> Result<Option<WatchBeaconBlock>, Error> {
-    // TODO(remove tx)
     let tx = db.transaction().await?;
 
     let block_opt = match block_id {
@@ -33,10 +32,15 @@ pub async fn get_block(
 }
 
 pub async fn get_lowest_slot(db: &mut Database) -> Result<Option<Slot>, Error> {
-    // TODO(remove tx)
     let tx = db.transaction().await?;
-
     Database::lowest_canonical_slot(&tx)
+        .await
+        .map_err(Into::into)
+}
+
+pub async fn get_highest_slot(db: &mut Database) -> Result<Option<Slot>, Error> {
+    let tx = db.transaction().await?;
+    Database::highest_canonical_slot(&tx)
         .await
         .map_err(Into::into)
 }

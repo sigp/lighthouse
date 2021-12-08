@@ -212,6 +212,29 @@ impl Database {
         }
     }
 
+    pub async fn highest_canonical_slot<'a>(
+        tx: &'a Transaction<'a>,
+    ) -> Result<Option<Slot>, Error> {
+        let row_opt = tx
+            .query_opt(
+                "SELECT MAX(slot)
+                FROM canonical_slots",
+                &[],
+            )
+            .await?;
+
+        if let Some(row) = row_opt {
+            if let Ok(slot) = row.try_get::<_, i32>("max") {
+                let slot: u64 = slot.try_into().map_err(|_| Error::InvalidSlot)?;
+                Ok(Some(slot.into()))
+            } else {
+                Ok(None)
+            }
+        } else {
+            Ok(None)
+        }
+    }
+
     pub async fn unknown_canonical_blocks<'a>(
         tx: &'a Transaction<'a>,
         count: i64,

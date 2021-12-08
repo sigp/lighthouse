@@ -136,8 +136,20 @@ pub fn start_server<T: EthSpec>(
             respond_opt(response)
         });
 
+    let highest_slot = warp::path("v1")
+        .and(warp::path("canonical_slots"))
+        .and(warp::path("highest"))
+        .and(ctx_filter.clone())
+        .and_then(|ctx: Arc<Context<T>>| async move {
+            let response = handler::with_db(&ctx.config, |mut db| async move {
+                handler::get_highest_slot(&mut db).await
+            })
+            .await;
+            respond_opt(response)
+        });
+
     let routes = warp::get()
-        .and(beacon_blocks.or(lowest_slot))
+        .and(beacon_blocks.or(lowest_slot).or(highest_slot))
         // Add a `Server` header.
         .map(|reply| warp::reply::with_header(reply, "Server", "lighthouse-watch"));
 
