@@ -124,6 +124,21 @@ pub async fn perform_backfill<'a, T: EthSpec>(
     Ok(())
 }
 
+/// Fills the `canonical_slots` table.
+///
+/// It is asssumed that the `header` and `header_root` are at the head of the chain. The
+/// `next_non_skipped_block` is used to ensure any skip slots between that value and `header.slot`
+/// are filled with `header_root`.
+///
+/// The `max_count` value determines how many slots should be filled between the lowest canonical
+/// slot in the database and the 0 slot (i.e., genesis slot).
+///
+/// ## Notes
+///
+/// The `max_count` value is not respsected when there is a gap in the canonical slots. This means
+/// that if there is some distance between the highest slot in the DB and the `header.slot`, then
+/// this function will *always* ensure there is a contigious chain (although that chain may not
+/// always go back to genesis).
 pub async fn reverse_fill_canonical_slots<'a, T: EthSpec>(
     tx: &'a Transaction<'a>,
     bn: &BeaconNodeHttpClient,
@@ -140,6 +155,11 @@ pub async fn reverse_fill_canonical_slots<'a, T: EthSpec>(
                 info!("Reverse fill completed at canonical slot {}", header.slot);
                 break;
             }
+        // If the lowest slot in the database is the slot of the header, then start to enforce the
+        // max_count rule.
+        //
+        // *Not* applying the max_count rule until we're at the lowest slot ensures that any gaps
+        // between slots are filled.
         } else if Database::lowest_canonical_slot(&tx)
             .await?
             .map_or(false, |slot| slot >= header.slot)
