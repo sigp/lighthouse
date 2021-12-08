@@ -201,7 +201,7 @@ impl Database {
             .await?;
 
         if let Some(row) = row_opt {
-            if let Ok(slot) = row.try_get::<_, i32>(0) {
+            if let Ok(slot) = row.try_get::<_, i32>("min") {
                 let slot: u64 = slot.try_into().map_err(|_| Error::InvalidSlot)?;
                 Ok(Some(slot.into()))
             } else {
