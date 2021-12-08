@@ -408,6 +408,12 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                        WILL BE REMOVED BEFORE THE MERGE ENTERS PRODUCTION")
                 .requires("merge")
         )
+        .arg(
+            Arg::with_name("payload-builder")
+                .long("payload-builder")
+                .help("The URL of a service compatible with the MEV-boost API.")
+                .requires("merge")
+        )
 
         /*
          * Database purging and compaction.
