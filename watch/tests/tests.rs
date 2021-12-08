@@ -3,7 +3,7 @@
 use beacon_chain::test_utils::{
     AttestationStrategy, BeaconChainHarness, BlockStrategy, EphemeralHarnessType,
 };
-use eth2::types::BlockId;
+use eth2::{types::BlockId, BeaconNodeHttpClient};
 use http_api::test_utils::{create_api_server, ApiServer};
 use network::NetworkMessage;
 use rand::distributions::Alphanumeric;
@@ -16,7 +16,7 @@ use watch::{
     client::WatchHttpClient,
     database::{Config, Database},
     server::{start_server, Context},
-    update_service::{self, BACKFILL_SLOT_COUNT},
+    update_service::{self, *},
 };
 
 type E = MainnetEthSpec;
@@ -134,6 +134,34 @@ impl Tester {
         self
     }
 
+    async fn get_db_and_bn(&self) -> (Database, BeaconNodeHttpClient) {
+        let db = get_db_connection(&self.config).await.unwrap();
+        let bn = get_beacon_client(&self.config).unwrap();
+        (db, bn)
+    }
+
+    pub async fn perform_head_update(self) -> Self {
+        let (mut db, bn) = self.get_db_and_bn().await;
+        perform_head_update::<E>(&mut db, &bn).await.unwrap();
+        self
+    }
+
+    pub async fn perform_backfill(self, max_slots: usize) -> Self {
+        let (mut db, bn) = self.get_db_and_bn().await;
+        perform_backfill::<E>(&mut db, &bn, max_slots)
+            .await
+            .unwrap();
+        self
+    }
+
+    pub async fn update_unknown_blocks(self, max_blocks: i64) -> Self {
+        let (mut db, bn) = self.get_db_and_bn().await;
+        update_unknown_blocks(&mut db, &bn, max_blocks)
+            .await
+            .unwrap();
+        self
+    }
+
     pub async fn assert_canonical_slots_empty(self) -> Self {
         let lowest_slot = self.client.get_lowest_canonical_slot().await.unwrap();
 
@@ -218,7 +246,28 @@ async fn long_chain() {
         .extend_chain(BACKFILL_SLOT_COUNT * 3)
         .assert_canonical_slots_empty()
         .await
-        .run_update_service(3)
+        .perform_head_update()
+        .await
+        /*
+         * Perform three separate backfills.
+         */
+        .perform_backfill(BACKFILL_SLOT_COUNT)
+        .await
+        .perform_backfill(BACKFILL_SLOT_COUNT)
+        .await
+        .perform_backfill(BACKFILL_SLOT_COUNT)
+        .await
+        /*
+         * Insert blocks in three separate routines.
+         */
+        .update_unknown_blocks(BACKFILL_SLOT_COUNT as i64)
+        .await
+        .update_unknown_blocks(BACKFILL_SLOT_COUNT as i64)
+        .await
+        .update_unknown_blocks(BACKFILL_SLOT_COUNT as i64)
+        .await
+        // Capture genesis block
+        .update_unknown_blocks(1)
         .await
         .assert_canonical_slots_not_empty()
         .await

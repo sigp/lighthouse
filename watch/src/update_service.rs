@@ -8,28 +8,39 @@ const DEFAULT_TIMEOUT: Duration = Duration::from_secs(5);
 pub const BACKFILL_SLOT_COUNT: usize = 64;
 
 pub async fn run_once<T: EthSpec>(config: &Config) -> Result<(), Error> {
-    let beacon_node_url =
-        SensitiveUrl::parse(&config.beacon_node_url).map_err(Error::SensitiveUrl)?;
-    let bn = BeaconNodeHttpClient::new(beacon_node_url, Timeouts::set_all(DEFAULT_TIMEOUT));
-
-    let mut db = Database::connect(&config).await?;
+    let bn = get_beacon_client(config)?;
+    let mut db = get_db_connection(config).await?;
 
     // TODO(paul): lock the canonical slots table?
 
     perform_head_update::<T>(&mut db, &bn).await?;
-    perform_backfill::<T>(&mut db, &bn).await?;
-    update_unknown_blocks(&mut db, &bn).await?;
+    perform_backfill::<T>(&mut db, &bn, BACKFILL_SLOT_COUNT).await?;
+    update_unknown_blocks(&mut db, &bn, BACKFILL_SLOT_COUNT as i64).await?;
 
     Ok(())
+}
+
+pub fn get_beacon_client(config: &Config) -> Result<BeaconNodeHttpClient, Error> {
+    let beacon_node_url =
+        SensitiveUrl::parse(&config.beacon_node_url).map_err(Error::SensitiveUrl)?;
+    Ok(BeaconNodeHttpClient::new(
+        beacon_node_url,
+        Timeouts::set_all(DEFAULT_TIMEOUT),
+    ))
+}
+
+pub async fn get_db_connection(config: &Config) -> Result<Database, Error> {
+    Database::connect(&config).await
 }
 
 pub async fn update_unknown_blocks<'a>(
     db: &mut Database,
     bn: &BeaconNodeHttpClient,
+    max_blocks: i64,
 ) -> Result<(), Error> {
     let tx = db.transaction().await?;
 
-    for root in Database::unknown_canonical_blocks(&tx, BACKFILL_SLOT_COUNT as i64).await? {
+    for root in Database::unknown_canonical_blocks(&tx, max_blocks).await? {
         if let Some(header) = get_header(bn, BlockId::Root(root)).await? {
             Database::insert_canonical_header_if_not_exists(&tx, &header, root).await?;
         }
@@ -85,15 +96,14 @@ pub async fn perform_head_update<'a, T: EthSpec>(
 pub async fn perform_backfill<'a, T: EthSpec>(
     db: &mut Database,
     bn: &BeaconNodeHttpClient,
+    max_backfill_slots: usize,
 ) -> Result<(), Error> {
     let tx = db.transaction().await?;
 
-    dbg!("this");
     if let Some(lowest_slot) = Database::lowest_canonical_slot(&tx)
         .await?
         .filter(|lowest_slot| *lowest_slot != 0)
     {
-        dbg!(lowest_slot);
         if let Some(header) = get_header(&bn, BlockId::Slot(lowest_slot - 1)).await? {
             let header_root = header.canonical_root();
             reverse_fill_canonical_slots::<T>(
@@ -102,7 +112,7 @@ pub async fn perform_backfill<'a, T: EthSpec>(
                 lowest_slot,
                 header,
                 header_root,
-                BACKFILL_SLOT_COUNT,
+                max_backfill_slots,
             )
             .await?;
         }
