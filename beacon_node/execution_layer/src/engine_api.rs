@@ -6,7 +6,8 @@ pub const LATEST_TAG: &str = "latest";
 
 use crate::engines::ForkChoiceState;
 pub use types::{Address, EthSpec, ExecutionPayload, Hash256, Uint256};
-use types::{ExecutionPayloadHeader, SignedBeaconBlock};
+use types::{ExecutionPayloadHeader, SignedBeaconBlock, SignedPrivateBeaconBlock};
+use crate::engine_api::json_structures::JsonProposeBlindedBlockResponse;
 
 pub mod http;
 pub mod json_structures;
@@ -82,8 +83,8 @@ pub trait BuilderApi {
 
     async fn propose_blinded_block_v1<T: EthSpec>(
         &self,
-        block: SignedBeaconBlock<T>,
-    ) -> Result<ProposeBlindedBlockResponse, Error>;
+        block: SignedPrivateBeaconBlock<T>,
+    ) -> Result<JsonProposeBlindedBlockResponse, Error>;
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]

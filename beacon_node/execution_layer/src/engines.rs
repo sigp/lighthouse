@@ -58,7 +58,7 @@ pub struct Engine<T> {
     pub api: T,
     payload_id_cache: Mutex<LruCache<PayloadIdCacheKey, PayloadId>>,
     state: RwLock<EngineState>,
-    is_payload_builder: bool,
+    pub is_payload_builder: bool,
 }
 
 impl<T> Engine<T> {
@@ -411,12 +411,10 @@ impl<T: EngineApi> Engines<T> {
         let futures = self
             .engines
             .iter()
-            .filter(|engine| {
-                match include_engines {
-                    IncludeEngines::All => true,
-                    IncludeEngines::OnlyEngines => !engine.is_payload_builder,
-                    IncludeEngines::OnlyBuilder => engine.is_payload_builder,
-                }
+            .filter(|engine| match include_engines {
+                IncludeEngines::All => true,
+                IncludeEngines::OnlyEngines => !engine.is_payload_builder,
+                IncludeEngines::OnlyBuilder => engine.is_payload_builder,
             })
             .map(|engine| async move {
                 let is_offline = *engine.state.read().await == EngineState::Offline;

@@ -9,7 +9,7 @@ use sensitive_url::SensitiveUrl;
 use serde::de::DeserializeOwned;
 use serde_json::json;
 use std::time::Duration;
-use types::EthSpec;
+use types::{EthSpec, SignedPrivateBeaconBlock};
 
 pub use reqwest::Client;
 
@@ -212,8 +212,8 @@ impl BuilderApi for HttpJsonRpc {
 
     async fn propose_blinded_block_v1<T: EthSpec>(
         &self,
-        block: SignedBeaconBlock<T>,
-    ) -> Result<ProposeBlindedBlockResponse, Error> {
+        block: SignedPrivateBeaconBlock<T>,
+    ) -> Result<JsonProposeBlindedBlockResponse, Error> {
         let params = json!([block]);
 
         let response: JsonProposeBlindedBlockResponse = self
@@ -224,7 +224,7 @@ impl BuilderApi for HttpJsonRpc {
             )
             .await?;
 
-        Ok(response.into())
+        Ok(response)
     }
 }
 #[cfg(test)]

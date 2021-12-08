@@ -18,10 +18,11 @@ use tokio::{
     sync::{Mutex, MutexGuard},
     time::{sleep, sleep_until, Instant},
 };
-use types::{ChainSpec, ExecutionPayloadHeader};
+use types::{ChainSpec, ExecutionPayloadHeader, SignedBeaconBlock, SignedPrivateBeaconBlock};
 
 use crate::engines::IncludeEngines;
 pub use engine_api::{http::HttpJsonRpc, ExecutePayloadResponseStatus};
+use crate::engine_api::json_structures::JsonProposeBlindedBlockResponse;
 
 mod engine_api;
 mod engines;
@@ -34,6 +35,7 @@ const EXECUTION_BLOCKS_LRU_CACHE_SIZE: usize = 128;
 #[derive(Debug)]
 pub enum Error {
     NoEngines,
+    NoPayloadBuilder,
     ApiError(ApiError),
     EngineErrors(Vec<EngineError>),
     NotSynced,
@@ -82,7 +84,7 @@ impl ExecutionLayer {
             return Err(Error::NoEngines);
         }
 
-        let mut engines : Vec<Engine<HttpJsonRpc>> = urls
+        let mut engines: Vec<Engine<HttpJsonRpc>> = urls
             .into_iter()
             .map(|url| {
                 let id = url.to_string();
@@ -702,7 +704,7 @@ impl ExecutionLayer {
         let suggested_fee_recipient = self.suggested_fee_recipient()?;
         debug!(
             self.log(),
-            "Issuing engine_getPayloadHeader";
+            "Issuing builder_getPayloadHeader";
             "suggested_fee_recipient" => ?suggested_fee_recipient,
             "random" => ?random,
             "timestamp" => timestamp,
@@ -751,6 +753,27 @@ impl ExecutionLayer {
             )
             .await
             .map_err(Error::EngineErrors)
+    }
+
+    pub async fn propose_blinded_beacon_block<T: EthSpec>(
+        &self,
+        block: SignedPrivateBeaconBlock<T>,
+    ) -> Result<JsonProposeBlindedBlockResponse, Error> {
+        debug!(
+            self.log(),
+            "Issuing builder_proposeBlindedBlock";
+            "root" => ?block.canonical_root(),
+        );
+        for engine in &self.engines().engines {
+            if engine.is_payload_builder {
+                return engine
+                    .api
+                    .propose_blinded_block_v1(block)
+                    .await
+                    .map_err(Error::ApiError);
+            }
+        }
+        Err(Error::NoPayloadBuilder)
     }
 }
 

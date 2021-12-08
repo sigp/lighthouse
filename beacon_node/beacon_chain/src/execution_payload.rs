@@ -306,7 +306,6 @@ pub async fn prepare_execution_payload<T: BeaconChainTypes>(
     Ok(Some(execution_payload))
 }
 
-
 pub fn get_execution_payload_header<T: BeaconChainTypes>(
     chain: &BeaconChain<T>,
     state: &BeaconState<T::EthSpec>,

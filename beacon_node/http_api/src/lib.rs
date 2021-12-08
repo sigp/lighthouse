@@ -1023,16 +1023,32 @@ pub fn serve<T: BeaconChainTypes>(
         .and(warp::path("blocks_private"))
         .and(warp::path::end())
         .and(warp::body::json())
-        .and(eth1_service_filter.clone())
+        .and(chain_filter.clone())
         .and(log_filter.clone())
         .and_then(
             |block: SignedPrivateBeaconBlock<T::EthSpec>,
-             eth1_service: eth1::Service,
-             log: Logger| {
-                blocking_json_task(move || {
-                    // TODO: should just forward to the relay
-                    Ok::<(), warp::Rejection>(())
+             chain: Arc<BeaconChain<T>>,
+             log: Logger| async {
+                tokio::task::spawn_blocking(|| {
+                    async move {
+                        if let Some(el) = chain.execution_layer.as_ref() {
+                            el.propose_blinded_beacon_block(block).await.map_err(|e| {
+                                warp_utils::reject::custom_server_error(format!(
+                                    "proposal failed: {:?}",
+                                    e
+                                ))
+                            })
+                        } else {
+                            Err(warp_utils::reject::custom_server_error(
+                                "no execution layer found".to_string(),
+                            ))
+                        }
+                    }
                 })
+                .await
+                .map_err(|_| warp::reject::reject())?
+                .await
+                .map(|resp| warp::reply::json(&resp))
             },
         );
 
@@ -2253,6 +2269,7 @@ pub fn serve<T: BeaconChainTypes>(
                         ))
                     })?;
 
+                    //TODO: update this to a header
                     let (block, _) = chain
                         .produce_block_private(randao_reveal, slot, query.graffiti.map(Into::into))
                         .map_err(warp_utils::reject::block_production_error)?;
