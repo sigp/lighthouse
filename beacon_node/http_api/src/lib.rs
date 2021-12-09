@@ -44,7 +44,7 @@ use tokio_stream::{wrappers::BroadcastStream, StreamExt};
 use types::{
     Attestation, AttesterSlashing, BeaconStateError, CommitteeCache, ConfigAndPreset, Epoch,
     EthSpec, ForkName, ProposerSlashing, RelativeEpoch, SignedAggregateAndProof, SignedBeaconBlock,
-    SignedContributionAndProof, SignedBlindedBeaconBlock, SignedVoluntaryExit, Slot,
+    SignedBlindedBeaconBlock, SignedContributionAndProof, SignedVoluntaryExit, Slot,
     SyncCommitteeMessage, SyncContributionData,
 };
 use version::{
@@ -56,7 +56,7 @@ use warp::sse::Event;
 use warp::Reply;
 use warp::{http::Response, Filter};
 use warp_utils::task::{blocking_json_task, blocking_task};
-
+use types::*;
 const API_PREFIX: &str = "eth";
 
 /// If the node is within this many epochs from the head, we declare it to be synced regardless of
@@ -1032,12 +1032,53 @@ pub fn serve<T: BeaconChainTypes>(
                 tokio::task::spawn_blocking(|| {
                     async move {
                         if let Some(el) = chain.execution_layer.as_ref() {
-                            el.propose_blinded_beacon_block(block).await.map_err(|e| {
+                            let mut block_clone = block.clone();
+                            let payload = el.propose_blinded_beacon_block(block).await.map_err(|e| {
                                 warp_utils::reject::custom_server_error(format!(
                                     "proposal failed: {:?}",
                                     e
                                 ))
-                            })
+                            })?;
+                            let new_block = SignedBeaconBlock::Merge(SignedBeaconBlockMerge {
+                                message: BeaconBlockMerge {
+                                    slot: block_clone.message(). slot(),
+                                    proposer_index: block_clone.message(). proposer_index(),
+                                    parent_root: block_clone.message(). parent_root(),
+                                    state_root: block_clone.message(). state_root(),
+                                    body: BeaconBlockBodyMerge {
+                                        randao_reveal: block_clone.message().body().randao_reveal().clone(),
+                                        eth1_data: block_clone.message().body().eth1_data().clone(),
+                                        graffiti: *block_clone.message().body().graffiti(),
+                                        proposer_slashings: block_clone.message().body().proposer_slashings().clone(),
+                                        attester_slashings: block_clone.message().body().attester_slashings().clone(),
+                                        attestations: block_clone.message().body().attestations().clone(),
+                                        deposits: block_clone.message().body().deposits().clone(),
+                                        voluntary_exits: block_clone.message().body().voluntary_exits().clone(),
+                                        sync_aggregate: block_clone.message().body().sync_aggregate().unwrap().clone(),
+                                        execution_payload: payload.result,
+                                    },
+                                },
+                                signature: block_clone.signature().clone(),
+                            });
+
+                            match chain.process_block(new_block.clone()) {
+                                Ok(root) => {
+
+                                    // Update the head since it's likely this block will become the new
+                                    // head.
+                                    chain
+                                        .fork_choice()
+                                        .map_err(warp_utils::reject::beacon_chain_error)?;
+
+                                    Ok(())
+                                }
+                                Err(e) => {
+                                    let msg = format!("{:?}", e);
+
+                                    Err(warp_utils::reject::broadcast_without_import(msg))
+                                }
+                            }
+
                         } else {
                             Err(warp_utils::reject::custom_server_error(
                                 "no execution layer found".to_string(),

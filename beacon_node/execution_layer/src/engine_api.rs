@@ -4,10 +4,10 @@ use serde::{Deserialize, Serialize};
 
 pub const LATEST_TAG: &str = "latest";
 
+use crate::engine_api::json_structures::JsonProposeBlindedBlockResponse;
 use crate::engines::ForkChoiceState;
 pub use types::{Address, EthSpec, ExecutionPayload, Hash256, Uint256};
 use types::{ExecutionPayloadHeader, SignedBlindedBeaconBlock};
-use crate::engine_api::json_structures::JsonProposeBlindedBlockResponse;
 
 pub mod http;
 pub mod json_structures;
@@ -84,7 +84,7 @@ pub trait BuilderApi {
     async fn propose_blinded_block_v1<T: EthSpec>(
         &self,
         block: SignedBlindedBeaconBlock<T>,
-    ) -> Result<JsonProposeBlindedBlockResponse, Error>;
+    ) -> Result<JsonProposeBlindedBlockResponse<T>, Error>;
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]

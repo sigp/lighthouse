@@ -213,10 +213,10 @@ impl BuilderApi for HttpJsonRpc {
     async fn propose_blinded_block_v1<T: EthSpec>(
         &self,
         block: SignedBlindedBeaconBlock<T>,
-    ) -> Result<JsonProposeBlindedBlockResponse, Error> {
+    ) -> Result<JsonProposeBlindedBlockResponse<T>, Error> {
         let params = json!([block]);
 
-        let response: JsonProposeBlindedBlockResponse = self
+        let response: JsonProposeBlindedBlockResponse<T> = self
             .rpc_request(
                 BUILDER_PROPOSE_BLINDED_BLOCK_V1,
                 params,
@@ -538,7 +538,7 @@ mod test {
                             parent_hash: Hash256::repeat_byte(0),
                             fee_recipient: Address::repeat_byte(1),
                             state_root: Hash256::repeat_byte(1),
-                            receipt_root: Hash256::repeat_byte(0),
+                            receipts_root: Hash256::repeat_byte(0),
                             logs_bloom: vec![1; 256].into(),
                             random: Hash256::repeat_byte(1),
                             block_number: 0,
@@ -745,7 +745,7 @@ mod test {
                             parent_hash: Hash256::from_str("0x3b8fb240d288781d4aac94d3fd16809ee413bc99294a085798a589dae51ddd4a").unwrap(),
                             fee_recipient: Address::from_str("0xa94f5374fce5edbc8e2a8697c15331677e6ebf0b").unwrap(),
                             state_root: Hash256::from_str("0xca3149fa9e37db08d1cd49c9061db1002ef1cd58db2210f2115c8c989b2bdf45").unwrap(),
-                            receipt_root: Hash256::from_str("0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421").unwrap(),
+                            receipts_root: Hash256::from_str("0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421").unwrap(),
                             logs_bloom: vec![0; 256].into(),
                             random: Hash256::zero(),
                             block_number: 1,
@@ -770,7 +770,7 @@ mod test {
                             parent_hash: Hash256::from_str("0x3b8fb240d288781d4aac94d3fd16809ee413bc99294a085798a589dae51ddd4a").unwrap(),
                             fee_recipient: Address::from_str("0xa94f5374fce5edbc8e2a8697c15331677e6ebf0b").unwrap(),
                             state_root: Hash256::from_str("0xca3149fa9e37db08d1cd49c9061db1002ef1cd58db2210f2115c8c989b2bdf45").unwrap(),
-                            receipt_root: Hash256::from_str("0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421").unwrap(),
+                            receipts_root: Hash256::from_str("0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421").unwrap(),
                             logs_bloom: vec![0; 256].into(),
                             random: Hash256::zero(),
                             block_number: 1,

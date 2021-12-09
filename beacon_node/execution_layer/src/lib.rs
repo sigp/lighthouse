@@ -20,9 +20,9 @@ use tokio::{
 };
 use types::{ChainSpec, ExecutionPayloadHeader, SignedBlindedBeaconBlock};
 
+use crate::engine_api::json_structures::JsonProposeBlindedBlockResponse;
 use crate::engines::IncludeEngines;
 pub use engine_api::{http::HttpJsonRpc, ExecutePayloadResponseStatus};
-use crate::engine_api::json_structures::JsonProposeBlindedBlockResponse;
 
 mod engine_api;
 mod engines;
@@ -758,7 +758,7 @@ impl ExecutionLayer {
     pub async fn propose_blinded_beacon_block<T: EthSpec>(
         &self,
         block: SignedBlindedBeaconBlock<T>,
-    ) -> Result<JsonProposeBlindedBlockResponse, Error> {
+    ) -> Result<JsonProposeBlindedBlockResponse<T>, Error> {
         debug!(
             self.log(),
             "Issuing builder_proposeBlindedBlock";

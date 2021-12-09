@@ -3259,7 +3259,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let block_size = block.ssz_bytes_len();
         debug!(
             self.log,
-            "Produced block on state";
+            "Produced blinded block on state";
             "block_size" => block_size,
         );
 

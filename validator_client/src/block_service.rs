@@ -5,11 +5,11 @@ use crate::{
 use crate::{http_metrics::metrics, validator_store::ValidatorStore};
 use environment::RuntimeContext;
 use eth2::types::Graffiti;
+use itertools::merge;
 use slog::{crit, debug, error, info, trace, warn};
 use slot_clock::SlotClock;
 use std::ops::Deref;
 use std::sync::Arc;
-use itertools::merge;
 use tokio::sync::mpsc;
 use types::{EthSpec, PublicKeyBytes, Slot};
 
@@ -213,7 +213,13 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
         }
 
         let private_tx_proposals = self.private_tx_proposals;
-        let merge_slot = self.context.eth2_config.spec.merge_fork_epoch.unwrap().start_slot(E::slots_per_epoch());
+        let merge_slot = self
+            .context
+            .eth2_config
+            .spec
+            .merge_fork_epoch
+            .unwrap()
+            .start_slot(E::slots_per_epoch());
         let now = self.slot_clock.now().unwrap();
         for validator_pubkey in proposers {
             let service = self.clone();

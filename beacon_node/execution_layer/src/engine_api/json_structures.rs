@@ -75,7 +75,7 @@ pub struct JsonExecutionPayloadHeaderV1<T: EthSpec> {
     pub parent_hash: Hash256,
     pub fee_recipient: Address,
     pub state_root: Hash256,
-    pub receipt_root: Hash256,
+    pub receipts_root: Hash256,
     #[serde(with = "serde_logs_bloom")]
     pub logs_bloom: FixedVector<u8, T::BytesPerLogsBloom>,
     pub random: Hash256,
@@ -101,7 +101,7 @@ impl<T: EthSpec> From<JsonExecutionPayloadHeaderV1<T>> for ExecutionPayloadHeade
             parent_hash,
             fee_recipient,
             state_root,
-            receipt_root,
+            receipts_root,
             logs_bloom,
             random,
             block_number,
@@ -118,7 +118,7 @@ impl<T: EthSpec> From<JsonExecutionPayloadHeaderV1<T>> for ExecutionPayloadHeade
             parent_hash,
             fee_recipient,
             state_root,
-            receipt_root,
+            receipts_root,
             logs_bloom,
             random,
             block_number,
@@ -167,7 +167,7 @@ impl<T: EthSpec> From<ExecutionPayload<T>> for JsonExecutionPayloadV1<T> {
             parent_hash,
             fee_recipient,
             state_root,
-            receipt_root,
+            receipts_root,
             logs_bloom,
             random,
             block_number,
@@ -184,7 +184,7 @@ impl<T: EthSpec> From<ExecutionPayload<T>> for JsonExecutionPayloadV1<T> {
             parent_hash,
             fee_recipient,
             state_root,
-            receipts_root: receipt_root,
+            receipts_root,
             logs_bloom,
             random,
             block_number,
@@ -223,7 +223,7 @@ impl<T: EthSpec> From<JsonExecutionPayloadV1<T>> for ExecutionPayload<T> {
             parent_hash,
             fee_recipient,
             state_root,
-            receipt_root: receipts_root,
+            receipts_root,
             logs_bloom,
             random,
             block_number,
@@ -461,10 +461,10 @@ pub enum JsonProposeBlindedBlockResponseStatus {
 }
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct JsonProposeBlindedBlockResponse {
-    pub status: JsonProposeBlindedBlockResponseStatus,
-    pub latest_valid_hash: Option<Hash256>,
-    pub validation_error: Option<String>,
+#[serde(bound = "E: EthSpec")]
+pub struct JsonProposeBlindedBlockResponse<E: EthSpec> {
+    pub result: ExecutionPayload<E>,
+    pub error: Option<String>,
 }
 
 impl From<JsonProposeBlindedBlockResponseStatus> for ProposeBlindedBlockResponseStatus {
@@ -494,38 +494,6 @@ impl From<ProposeBlindedBlockResponseStatus> for JsonProposeBlindedBlockResponse
             ProposeBlindedBlockResponseStatus::Syncing => {
                 JsonProposeBlindedBlockResponseStatus::Syncing
             }
-        }
-    }
-}
-impl From<JsonProposeBlindedBlockResponse> for ProposeBlindedBlockResponse {
-    fn from(j: JsonProposeBlindedBlockResponse) -> Self {
-        // Use this verbose deconstruction pattern to ensure no field is left unused.
-        let JsonProposeBlindedBlockResponse {
-            status,
-            latest_valid_hash,
-            validation_error,
-        } = j;
-
-        Self {
-            status: status.into(),
-            latest_valid_hash,
-            validation_error,
-        }
-    }
-}
-impl From<ProposeBlindedBlockResponse> for JsonProposeBlindedBlockResponse {
-    fn from(f: ProposeBlindedBlockResponse) -> Self {
-        // Use this verbose deconstruction pattern to ensure no field is left unused.
-        let ProposeBlindedBlockResponse {
-            status,
-            latest_valid_hash,
-            validation_error,
-        } = f;
-
-        Self {
-            status: status.into(),
-            latest_valid_hash,
-            validation_error,
         }
     }
 }
