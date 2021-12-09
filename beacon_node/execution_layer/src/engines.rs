@@ -326,12 +326,12 @@ impl<T: EngineApi> Engines<T> {
             match include_engines {
                 IncludeEngines::All => {}
                 IncludeEngines::OnlyEngines => {
-                    if !engine.is_payload_builder {
+                    if engine.is_payload_builder {
                         continue;
                     }
                 }
                 IncludeEngines::OnlyBuilder => {
-                    if engine.is_payload_builder {
+                    if !engine.is_payload_builder {
                         continue;
                     }
                 }

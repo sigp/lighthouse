@@ -413,6 +413,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .long("payload-builder")
                 .help("The URL of a service compatible with the MEV-boost API.")
                 .requires("merge")
+                .takes_value(true)
         )
 
         /*
