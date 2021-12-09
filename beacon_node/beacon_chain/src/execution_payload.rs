@@ -338,7 +338,28 @@ pub async fn prepare_execution_payload_header<T: BeaconChainTypes>(
         .as_ref()
         .ok_or(BlockProductionError::ExecutionLayerMissing)?;
 
-    let parent_hash = state.latest_execution_payload_header()?.block_hash;
+    let parent_hash = if !is_merge_transition_complete(state) {
+        let is_terminal_block_hash_set = spec.terminal_block_hash != Hash256::zero();
+        let is_activation_epoch_reached =
+            state.current_epoch() >= spec.terminal_block_hash_activation_epoch;
+
+        if is_terminal_block_hash_set && !is_activation_epoch_reached {
+            return Ok(None);
+        }
+
+        let terminal_pow_block_hash = execution_layer
+            .get_terminal_pow_block_hash(spec)
+            .await
+            .map_err(BlockProductionError::TerminalPoWBlockLookupFailed)?;
+
+        if let Some(terminal_pow_block_hash) = terminal_pow_block_hash {
+            terminal_pow_block_hash
+        } else {
+            return Ok(None);
+        }
+    } else {
+        state.latest_execution_payload_header()?.block_hash
+    };
 
     let timestamp = compute_timestamp_at_slot(state, spec).map_err(BeaconStateError::from)?;
     let random = *state.get_randao_mix(state.current_epoch())?;
