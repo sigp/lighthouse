@@ -457,7 +457,7 @@ impl ExecutionLayer {
                         .notify_forkchoice_updated(forkchoice_state, payload_attributes, self.log())
                         .await
                 },
-                IncludeEngines::All,
+                IncludeEngines::OnlyEngines,
             )
             .await;
 

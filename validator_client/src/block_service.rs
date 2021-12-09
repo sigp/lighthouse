@@ -9,6 +9,7 @@ use slog::{crit, debug, error, info, trace, warn};
 use slot_clock::SlotClock;
 use std::ops::Deref;
 use std::sync::Arc;
+use itertools::merge;
 use tokio::sync::mpsc;
 use types::{EthSpec, PublicKeyBytes, Slot};
 
@@ -212,13 +213,14 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
         }
 
         let private_tx_proposals = self.private_tx_proposals;
-
+        let merge_slot = self.context.eth2_config.spec.merge_fork_epoch.unwrap().start_slot(E::slots_per_epoch());
+        let now = self.slot_clock.now().unwrap();
         for validator_pubkey in proposers {
             let service = self.clone();
             let log = log.clone();
             self.inner.context.executor.spawn(
                 async move {
-                    let publish_result = if private_tx_proposals {
+                    let publish_result = if private_tx_proposals && now > merge_slot {
                         service.publish_block_private(slot, validator_pubkey).await
                     } else {
                         service.publish_block(slot, validator_pubkey).await
