@@ -74,7 +74,6 @@ for root, dirs, files in os.walk(tests_dir_filename):
             accessed_files += 1
 
 # Exit with an error if there were any files missed.
-print(missed)
 assert len(missed) == 0, "{} missed files".format(len(missed))
 
 print("Accessed {} files ({} intentionally excluded)".format(accessed_files, excluded_files))

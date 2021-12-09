@@ -74,8 +74,6 @@ impl HttpJsonRpc {
             .json()
             .await?;
 
-        dbg!(&body);
-
         match (body.result, body.error) {
             (result, None) => serde_json::from_value(result).map_err(Into::into),
             (_, Some(error)) => {
