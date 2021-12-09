@@ -411,6 +411,12 @@ fn finality() {
     FinalityHandler::<MainnetEthSpec>::default().run();
 }
 
+/*
+ * Temporarily disabled due to addition of proposer boosting.
+ *
+ * These tests will be reintroduced in:
+ * https://github.com/sigp/lighthouse/pull/2822
+ *
 #[test]
 fn fork_choice_get_head() {
     ForkChoiceGetHeadHandler::<MinimalEthSpec>::default().run();
@@ -428,6 +434,7 @@ fn fork_choice_on_merge_block() {
     ForkChoiceOnMergeBlockHandler::<MinimalEthSpec>::default().run();
     ForkChoiceOnMergeBlockHandler::<MainnetEthSpec>::default().run();
 }
+*/
 
 #[test]
 fn genesis_initialization() {

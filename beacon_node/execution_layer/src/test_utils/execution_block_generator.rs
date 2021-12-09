@@ -325,7 +325,7 @@ impl<T: EthSpec> ExecutionBlockGenerator<T> {
                 let mut execution_payload = ExecutionPayload {
                     parent_hash: forkchoice_state.head_block_hash,
                     fee_recipient: attributes.suggested_fee_recipient,
-                    receipts_root: Hash256::repeat_byte(42),
+                    receipt_root: Hash256::repeat_byte(42),
                     state_root: Hash256::repeat_byte(43),
                     logs_bloom: vec![0; 256].into(),
                     random: attributes.random,
