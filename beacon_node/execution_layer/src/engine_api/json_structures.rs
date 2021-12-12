@@ -61,7 +61,7 @@ pub struct JsonExecutionPayloadV1<T: EthSpec> {
     pub parent_hash: Hash256,
     pub fee_recipient: Address,
     pub state_root: Hash256,
-    pub receipt_root: Hash256,
+    pub receipts_root: Hash256,
     #[serde(with = "serde_logs_bloom")]
     pub logs_bloom: FixedVector<u8, T::BytesPerLogsBloom>,
     pub random: Hash256,
@@ -106,7 +106,7 @@ impl<T: EthSpec> From<ExecutionPayload<T>> for JsonExecutionPayloadV1<T> {
             parent_hash,
             fee_recipient,
             state_root,
-            receipt_root,
+            receipts_root: receipt_root,
             logs_bloom,
             random,
             block_number,
@@ -128,7 +128,7 @@ impl<T: EthSpec> From<JsonExecutionPayloadV1<T>> for ExecutionPayload<T> {
             parent_hash,
             fee_recipient,
             state_root,
-            receipt_root,
+            receipts_root,
             logs_bloom,
             random,
             block_number,
@@ -145,7 +145,7 @@ impl<T: EthSpec> From<JsonExecutionPayloadV1<T>> for ExecutionPayload<T> {
             parent_hash,
             fee_recipient,
             state_root,
-            receipt_root,
+            receipt_root: receipts_root,
             logs_bloom,
             random,
             block_number,
@@ -258,7 +258,7 @@ pub enum JsonExecutePayloadV1ResponseStatus {
 pub struct JsonExecutePayloadV1Response {
     pub status: JsonExecutePayloadV1ResponseStatus,
     pub latest_valid_hash: Option<Hash256>,
-    pub message: Option<String>,
+    pub validation_error: Option<String>,
 }
 
 impl From<ExecutePayloadResponseStatus> for JsonExecutePayloadV1ResponseStatus {
@@ -286,13 +286,13 @@ impl From<ExecutePayloadResponse> for JsonExecutePayloadV1Response {
         let ExecutePayloadResponse {
             status,
             latest_valid_hash,
-            message,
+            validation_error,
         } = e;
 
         Self {
             status: status.into(),
             latest_valid_hash,
-            message,
+            validation_error,
         }
     }
 }
@@ -303,13 +303,13 @@ impl From<JsonExecutePayloadV1Response> for ExecutePayloadResponse {
         let JsonExecutePayloadV1Response {
             status,
             latest_valid_hash,
-            message,
+            validation_error,
         } = j;
 
         Self {
             status: status.into(),
             latest_valid_hash,
-            message,
+            validation_error,
         }
     }
 }

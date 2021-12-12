@@ -70,6 +70,7 @@ use state_processing::{
 use std::borrow::Cow;
 use std::fs;
 use std::io::Write;
+use std::time::Duration;
 use store::{Error as DBError, HotColdDB, HotStateSummary, KeyValueStore, StoreOp};
 use tree_hash::TreeHash;
 use types::{
@@ -1418,6 +1419,8 @@ fn load_parent<T: BeaconChainTypes>(
     ),
     BlockError<T::EthSpec>,
 > {
+    let spec = &chain.spec;
+
     // Reject any block if its parent is not known to fork choice.
     //
     // A block that is not in fork choice is either:
@@ -1436,15 +1439,43 @@ fn load_parent<T: BeaconChainTypes>(
         return Err(BlockError::ParentUnknown(Box::new(block)));
     }
 
+    let block_delay = chain
+        .block_times_cache
+        .read()
+        .get_block_delays(
+            block.canonical_root(),
+            chain
+                .slot_clock
+                .start_of(block.slot())
+                .unwrap_or_else(|| Duration::from_secs(0)),
+        )
+        .observed;
+
     let db_read_timer = metrics::start_timer(&metrics::BLOCK_PROCESSING_DB_READ);
 
-    let result = if let Some(snapshot) = chain
+    let result = if let Some((snapshot, cloned)) = chain
         .snapshot_cache
         .try_write_for(BLOCK_PROCESSING_CACHE_LOCK_TIMEOUT)
         .and_then(|mut snapshot_cache| {
-            snapshot_cache.get_state_for_block_processing(block.parent_root())
+            snapshot_cache.get_state_for_block_processing(
+                block.parent_root(),
+                block.slot(),
+                block_delay,
+                spec,
+            )
         }) {
-        Ok((snapshot.into_pre_state(), block))
+        if cloned {
+            metrics::inc_counter(&metrics::BLOCK_PROCESSING_SNAPSHOT_CACHE_CLONES);
+            debug!(
+                chain.log,
+                "Cloned snapshot for late block/skipped slot";
+                "slot" => %block.slot(),
+                "parent_slot" => %snapshot.beacon_block.slot(),
+                "parent_root" => ?block.parent_root(),
+                "block_delay" => ?block_delay,
+            );
+        }
+        Ok((snapshot, block))
     } else {
         // Load the blocks parent block from the database, returning invalid if that block is not
         // found.
@@ -1473,6 +1504,16 @@ fn load_parent<T: BeaconChainTypes>(
             .ok_or_else(|| {
                 BeaconChainError::DBInconsistent(format!("Missing state {:?}", parent_state_root))
             })?;
+
+        metrics::inc_counter(&metrics::BLOCK_PROCESSING_SNAPSHOT_CACHE_MISSES);
+        debug!(
+            chain.log,
+            "Missed snapshot cache";
+            "slot" => block.slot(),
+            "parent_slot" => parent_block.slot(),
+            "parent_root" => ?block.parent_root(),
+            "block_delay" => ?block_delay,
+        );
 
         Ok((
             PreProcessingSnapshot {

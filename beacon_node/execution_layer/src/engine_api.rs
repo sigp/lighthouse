@@ -83,7 +83,7 @@ pub enum ExecutePayloadResponseStatus {
 pub struct ExecutePayloadResponse {
     pub status: ExecutePayloadResponseStatus,
     pub latest_valid_hash: Option<Hash256>,
-    pub message: Option<String>,
+    pub validation_error: Option<String>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Serialize)]

@@ -39,7 +39,7 @@ excluded_paths = [
     "tests/minimal/altair/merkle/single_proof",
     "tests/mainnet/merge/merkle/single_proof",
     "tests/minimal/merge/merkle/single_proof",
-     #FIXME(merge): Merge transition tests are  now available but not yet passing
+    # FIXME(merge): Merge transition tests are  now available but not yet passing
     "tests/mainnet/merge/transition/",
     "tests/minimal/merge/transition/",
 ]

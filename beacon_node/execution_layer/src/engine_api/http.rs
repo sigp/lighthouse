@@ -291,7 +291,7 @@ mod test {
             "parentHash": HASH_00,
             "feeRecipient": ADDRESS_01,
             "stateRoot": HASH_01,
-            "receiptRoot": HASH_00,
+            "receiptsRoot": HASH_00,
             "logsBloom": LOGS_BLOOM_01,
             "random": HASH_01,
             "blockNumber": "0x0",
@@ -518,7 +518,7 @@ mod test {
                         "parentHash": HASH_00,
                         "feeRecipient": ADDRESS_01,
                         "stateRoot": HASH_01,
-                        "receiptRoot": HASH_00,
+                        "receiptsRoot": HASH_00,
                         "logsBloom": LOGS_BLOOM_01,
                         "random": HASH_01,
                         "blockNumber": "0x0",
@@ -680,7 +680,7 @@ mod test {
                         "parentHash":"0x3b8fb240d288781d4aac94d3fd16809ee413bc99294a085798a589dae51ddd4a",
                         "feeRecipient":"0xa94f5374fce5edbc8e2a8697c15331677e6ebf0b",
                         "stateRoot":"0xca3149fa9e37db08d1cd49c9061db1002ef1cd58db2210f2115c8c989b2bdf45",
-                        "receiptRoot":"0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421",
+                        "receiptsRoot":"0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421",
                         "logsBloom": LOGS_BLOOM_00,
                         "random": HASH_00,
                         "blockNumber":"0x1",
@@ -750,7 +750,7 @@ mod test {
                         "parentHash":"0x3b8fb240d288781d4aac94d3fd16809ee413bc99294a085798a589dae51ddd4a",
                         "feeRecipient":"0xa94f5374fce5edbc8e2a8697c15331677e6ebf0b",
                         "stateRoot":"0xca3149fa9e37db08d1cd49c9061db1002ef1cd58db2210f2115c8c989b2bdf45",
-                        "receiptRoot":"0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421",
+                        "receiptsRoot":"0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421",
                         "logsBloom": LOGS_BLOOM_00,
                         "random": HASH_00,
                         "blockNumber":"0x1",
@@ -785,7 +785,7 @@ mod test {
                         ExecutePayloadResponse {
                             status: ExecutePayloadResponseStatus::Valid,
                             latest_valid_hash: Some(Hash256::from_str("0x3559e851470f6e7bbed1db474980683e8c315bfce99b2a6ef47c057c04de7858").unwrap()),
-                            message: None
+                            validation_error: None
                         }
                     );
                 },
