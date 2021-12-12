@@ -1,11 +1,11 @@
 //! Utilities for managing database schema changes.
 mod migration_schema_v6;
 mod migration_schema_v7;
+mod migration_schema_v8;
 mod types;
 
 use crate::beacon_chain::{BeaconChainTypes, FORK_CHOICE_DB_KEY, OP_POOL_DB_KEY};
 use crate::persisted_fork_choice::{PersistedForkChoiceV1, PersistedForkChoiceV7};
-use crate::store::{get_key_for_col, KeyValueStoreOp};
 use crate::validator_pubkey_cache::ValidatorPubkeyCache;
 use operation_pool::{PersistedOperationPool, PersistedOperationPoolBase};
 use slog::{warn, Logger};
@@ -113,12 +113,8 @@ pub fn migrate_schema<T: BeaconChainTypes>(
                 migration_schema_v6::update_execution_statuses::<T>(&mut persisted_fork_choice)
                     .map_err(StoreError::SchemaMigrationError)?;
 
-                let column = PersistedForkChoiceV1::db_column().into();
-                let key = FORK_CHOICE_DB_KEY.as_bytes();
-                let db_key = get_key_for_col(column, key);
-                let op =
-                    KeyValueStoreOp::PutKeyValue(db_key, persisted_fork_choice.as_store_bytes());
-                ops.push(op);
+                // Store the converted fork choice store under the same key.
+                ops.push(persisted_fork_choice.as_kv_store_op(FORK_CHOICE_DB_KEY));
             }
 
             db.store_schema_version_atomically(to, ops)?;
@@ -163,12 +159,22 @@ pub fn migrate_schema<T: BeaconChainTypes>(
                 }
 
                 // Store the converted fork choice store under the same key.
-                let column = PersistedForkChoiceV7::db_column().into();
-                let key = FORK_CHOICE_DB_KEY.as_bytes();
-                let db_key = get_key_for_col(column, key);
-                let op =
-                    KeyValueStoreOp::PutKeyValue(db_key, persisted_fork_choice_v7.as_store_bytes());
-                ops.push(op);
+                ops.push(persisted_fork_choice_v7.as_kv_store_op(FORK_CHOICE_DB_KEY));
+            }
+
+            db.store_schema_version_atomically(to, ops)?;
+
+            Ok(())
+        }
+        // Migration to add an `epoch` key to the fork choice's balances cache.
+        (SchemaVersion(7), SchemaVersion(8)) => {
+            let mut ops = vec![];
+            let fork_choice_opt = db.get_item::<PersistedForkChoiceV7>(&FORK_CHOICE_DB_KEY)?;
+            if let Some(fork_choice) = fork_choice_opt {
+                let updated_fork_choice =
+                    migration_schema_v8::update_fork_choice::<T>(fork_choice, db.clone())?;
+
+                ops.push(updated_fork_choice.as_kv_store_op(FORK_CHOICE_DB_KEY));
             }
 
             db.store_schema_version_atomically(to, ops)?;
