@@ -72,6 +72,15 @@ pub struct ForkChoiceTest<E: EthSpec> {
     pub steps: Vec<Step<SignedBeaconBlock<E>, Attestation<E>, PowBlock>>,
 }
 
+/// Spec for fork choice tests, with proposer boosting enabled.
+///
+/// This function can be deleted once `ChainSpec::mainnet` enables proposer boosting by default.
+pub fn fork_choice_spec<E: EthSpec>(fork_name: ForkName) -> ChainSpec {
+    let mut spec = testing_spec::<E>(fork_name);
+    spec.proposer_score_boost = Some(70);
+    spec
+}
+
 impl<E: EthSpec> LoadCase for ForkChoiceTest<E> {
     fn load_from_dir(path: &Path, fork_name: ForkName) -> Result<Self, Error> {
         let description = path
@@ -81,7 +90,7 @@ impl<E: EthSpec> LoadCase for ForkChoiceTest<E> {
             .to_str()
             .expect("path must be valid OsStr")
             .to_string();
-        let spec = &testing_spec::<E>(fork_name);
+        let spec = &fork_choice_spec::<E>(fork_name);
         let steps: Vec<Step<String, String, String>> = yaml_decode_file(&path.join("steps.yaml"))?;
         // Resolve the object names in `steps.yaml` into actual decoded block/attestation objects.
         let steps = steps
@@ -143,7 +152,7 @@ impl<E: EthSpec> Case for ForkChoiceTest<E> {
     }
 
     fn result(&self, _case_index: usize, fork_name: ForkName) -> Result<(), Error> {
-        let tester = Tester::new(self, testing_spec::<E>(fork_name))?;
+        let tester = Tester::new(self, fork_choice_spec::<E>(fork_name))?;
 
         // TODO(merge): enable these tests before production.
         // This test will fail until this PR is merged and released:

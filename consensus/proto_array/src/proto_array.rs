@@ -110,7 +110,7 @@ impl ProtoArray {
         }
 
         // Default the proposer boost score to zero.
-        let mut proposer_boost_score = 0;
+        let mut proposer_score = 0;
 
         // Iterate backwards through all indices in `self.nodes`.
         for node_index in (0..self.nodes.len()).rev() {
@@ -142,13 +142,16 @@ impl ProtoArray {
             // the delta by the new score amount.
             //
             // https://github.com/ethereum/consensus-specs/blob/dev/specs/phase0/fork-choice.md#get_latest_attesting_balance
-            if proposer_boost_root != Hash256::zero() && proposer_boost_root == node.root {
-                proposer_boost_score = calculate_proposer_boost::<E>(new_balances, spec)
-                    .ok_or(Error::ProposerBoostOverflow(node_index))?;
-                node_delta = node_delta
-                    .checked_add(proposer_boost_score as i64)
-                    .ok_or(Error::DeltaOverflow(node_index))?;
-            };
+            if let Some(proposer_score_boost) = spec.proposer_score_boost {
+                if proposer_boost_root != Hash256::zero() && proposer_boost_root == node.root {
+                    proposer_score =
+                        calculate_proposer_boost::<E>(new_balances, proposer_score_boost)
+                            .ok_or(Error::ProposerBoostOverflow(node_index))?;
+                    node_delta = node_delta
+                        .checked_add(proposer_score as i64)
+                        .ok_or(Error::DeltaOverflow(node_index))?;
+                }
+            }
 
             // Apply the delta to the node.
             if node_delta < 0 {
@@ -186,7 +189,7 @@ impl ProtoArray {
         // After applying all deltas, update the `previous_proposer_boost`.
         self.previous_proposer_boost = ProposerBoost {
             root: proposer_boost_root,
-            score: proposer_boost_score,
+            score: proposer_score,
         };
 
         // A second time, iterate backwards through all indices in `self.nodes`.
@@ -576,7 +579,7 @@ impl ProtoArray {
 /// https://github.com/ethereum/consensus-specs/blob/dev/specs/phase0/fork-choice.md#get_latest_attesting_balance
 fn calculate_proposer_boost<E: EthSpec>(
     validator_balances: &[u64],
-    spec: &ChainSpec,
+    proposer_score_boost: u64,
 ) -> Option<u64> {
     let mut total_balance: u64 = 0;
     let mut num_validators: u64 = 0;
@@ -593,7 +596,7 @@ fn calculate_proposer_boost<E: EthSpec>(
     let committee_size = num_validators.checked_div(E::slots_per_epoch())?;
     let committee_weight = committee_size.checked_mul(average_balance)?;
     committee_weight
-        .checked_mul(spec.proposer_score_boost)?
+        .checked_mul(proposer_score_boost)?
         .checked_div(100)
 }
 
