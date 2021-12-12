@@ -289,9 +289,9 @@ mod test {
     > {
         let mut json = json!({
             "parentHash": HASH_00,
-            "coinbase": ADDRESS_01,
+            "feeRecipient": ADDRESS_01,
             "stateRoot": HASH_01,
-            "receiptRoot": HASH_00,
+            "receiptsRoot": HASH_00,
             "logsBloom": LOGS_BLOOM_01,
             "random": HASH_01,
             "blockNumber": "0x0",
@@ -445,7 +445,7 @@ mod test {
                             Some(PayloadAttributes {
                                 timestamp: 5,
                                 random: Hash256::zero(),
-                                fee_recipient: Address::repeat_byte(0),
+                                suggested_fee_recipient: Address::repeat_byte(0),
                             }),
                         )
                         .await;
@@ -462,7 +462,7 @@ mod test {
                     {
                         "timestamp":"0x5",
                         "random": HASH_00,
-                        "feeRecipient": ADDRESS_00
+                        "suggestedFeeRecipient": ADDRESS_00
                     }]
                 }),
             )
@@ -494,7 +494,7 @@ mod test {
                     let _ = client
                         .execute_payload_v1::<MainnetEthSpec>(ExecutionPayload {
                             parent_hash: Hash256::repeat_byte(0),
-                            coinbase: Address::repeat_byte(1),
+                            fee_recipient: Address::repeat_byte(1),
                             state_root: Hash256::repeat_byte(1),
                             receipt_root: Hash256::repeat_byte(0),
                             logs_bloom: vec![1; 256].into(),
@@ -516,9 +516,9 @@ mod test {
                     "method": ENGINE_EXECUTE_PAYLOAD_V1,
                     "params": [{
                         "parentHash": HASH_00,
-                        "coinbase": ADDRESS_01,
+                        "feeRecipient": ADDRESS_01,
                         "stateRoot": HASH_01,
-                        "receiptRoot": HASH_00,
+                        "receiptsRoot": HASH_00,
                         "logsBloom": LOGS_BLOOM_01,
                         "random": HASH_01,
                         "blockNumber": "0x0",
@@ -600,7 +600,7 @@ mod test {
                             Some(PayloadAttributes {
                                 timestamp: 5,
                                 random: Hash256::zero(),
-                                fee_recipient: Address::from_str("0xa94f5374fce5edbc8e2a8697c15331677e6ebf0b").unwrap(),
+                                suggested_fee_recipient: Address::from_str("0xa94f5374fce5edbc8e2a8697c15331677e6ebf0b").unwrap(),
                             })
                         )
                         .await;
@@ -617,7 +617,7 @@ mod test {
                     {
                         "timestamp":"0x5",
                         "random": HASH_00,
-                        "feeRecipient":"0xa94f5374fce5edbc8e2a8697c15331677e6ebf0b"
+                        "suggestedFeeRecipient":"0xa94f5374fce5edbc8e2a8697c15331677e6ebf0b"
                     }]
                 })
             )
@@ -643,7 +643,7 @@ mod test {
                             Some(PayloadAttributes {
                                 timestamp: 5,
                                 random: Hash256::zero(),
-                                fee_recipient: Address::from_str("0xa94f5374fce5edbc8e2a8697c15331677e6ebf0b").unwrap(),
+                                suggested_fee_recipient: Address::from_str("0xa94f5374fce5edbc8e2a8697c15331677e6ebf0b").unwrap(),
                             })
                         )
                         .await
@@ -678,9 +678,9 @@ mod test {
                     "id":STATIC_ID,
                     "result":{
                         "parentHash":"0x3b8fb240d288781d4aac94d3fd16809ee413bc99294a085798a589dae51ddd4a",
-                        "coinbase":"0xa94f5374fce5edbc8e2a8697c15331677e6ebf0b",
+                        "feeRecipient":"0xa94f5374fce5edbc8e2a8697c15331677e6ebf0b",
                         "stateRoot":"0xca3149fa9e37db08d1cd49c9061db1002ef1cd58db2210f2115c8c989b2bdf45",
-                        "receiptRoot":"0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421",
+                        "receiptsRoot":"0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421",
                         "logsBloom": LOGS_BLOOM_00,
                         "random": HASH_00,
                         "blockNumber":"0x1",
@@ -701,7 +701,7 @@ mod test {
 
                     let expected = ExecutionPayload {
                             parent_hash: Hash256::from_str("0x3b8fb240d288781d4aac94d3fd16809ee413bc99294a085798a589dae51ddd4a").unwrap(),
-                            coinbase: Address::from_str("0xa94f5374fce5edbc8e2a8697c15331677e6ebf0b").unwrap(),
+                            fee_recipient: Address::from_str("0xa94f5374fce5edbc8e2a8697c15331677e6ebf0b").unwrap(),
                             state_root: Hash256::from_str("0xca3149fa9e37db08d1cd49c9061db1002ef1cd58db2210f2115c8c989b2bdf45").unwrap(),
                             receipt_root: Hash256::from_str("0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421").unwrap(),
                             logs_bloom: vec![0; 256].into(),
@@ -726,7 +726,7 @@ mod test {
                     let _ = client
                         .execute_payload_v1::<MainnetEthSpec>(ExecutionPayload {
                             parent_hash: Hash256::from_str("0x3b8fb240d288781d4aac94d3fd16809ee413bc99294a085798a589dae51ddd4a").unwrap(),
-                            coinbase: Address::from_str("0xa94f5374fce5edbc8e2a8697c15331677e6ebf0b").unwrap(),
+                            fee_recipient: Address::from_str("0xa94f5374fce5edbc8e2a8697c15331677e6ebf0b").unwrap(),
                             state_root: Hash256::from_str("0xca3149fa9e37db08d1cd49c9061db1002ef1cd58db2210f2115c8c989b2bdf45").unwrap(),
                             receipt_root: Hash256::from_str("0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421").unwrap(),
                             logs_bloom: vec![0; 256].into(),
@@ -748,9 +748,9 @@ mod test {
                     "method": ENGINE_EXECUTE_PAYLOAD_V1,
                     "params": [{
                         "parentHash":"0x3b8fb240d288781d4aac94d3fd16809ee413bc99294a085798a589dae51ddd4a",
-                        "coinbase":"0xa94f5374fce5edbc8e2a8697c15331677e6ebf0b",
+                        "feeRecipient":"0xa94f5374fce5edbc8e2a8697c15331677e6ebf0b",
                         "stateRoot":"0xca3149fa9e37db08d1cd49c9061db1002ef1cd58db2210f2115c8c989b2bdf45",
-                        "receiptRoot":"0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421",
+                        "receiptsRoot":"0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421",
                         "logsBloom": LOGS_BLOOM_00,
                         "random": HASH_00,
                         "blockNumber":"0x1",
@@ -785,7 +785,7 @@ mod test {
                         ExecutePayloadResponse {
                             status: ExecutePayloadResponseStatus::Valid,
                             latest_valid_hash: Some(Hash256::from_str("0x3559e851470f6e7bbed1db474980683e8c315bfce99b2a6ef47c057c04de7858").unwrap()),
-                            message: None
+                            validation_error: None
                         }
                     );
                 },

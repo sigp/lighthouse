@@ -563,7 +563,6 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
     pub fn unban_peer(&mut self, peer_id: &PeerId, ip_addresses: Vec<IpAddr>) {
         // first try and convert the peer_id to a node_id.
         if let Ok(node_id) = peer_id_to_node_id(peer_id) {
-            // If we could convert this peer id, remove it from the DHT and ban it from discovery.
             self.discv5.ban_node_remove(&node_id);
         }
 
