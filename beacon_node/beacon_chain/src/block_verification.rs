@@ -60,7 +60,7 @@ use safe_arith::ArithError;
 use slog::{debug, error, Logger};
 use slot_clock::SlotClock;
 use ssz::Encode;
-use state_processing::per_block_processing::is_merge_block;
+use state_processing::per_block_processing::is_merge_transition_block;
 use state_processing::{
     block_signature_verifier::{BlockSignatureVerifier, Error as BlockSignatureVerifierError},
     per_block_processing, per_slot_processing,
@@ -1114,7 +1114,7 @@ impl<'a, T: BeaconChainTypes> FullyVerifiedBlock<'a, T> {
         //   early.
         // - Doing the check here means we can keep our fork-choice implementation "pure". I.e., no
         //   calls to remote servers.
-        if is_merge_block(&state, block.message().body()) {
+        if is_merge_transition_block(&state, block.message().body()) {
             validate_merge_block(chain, block.message())?
         }
 

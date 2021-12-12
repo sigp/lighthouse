@@ -39,6 +39,19 @@ excluded_paths = [
     "tests/minimal/altair/merkle/single_proof",
     "tests/mainnet/merge/merkle/single_proof",
     "tests/minimal/merge/merkle/single_proof",
+    # Temporarily disabled due to addition of proposer boosting.
+    #
+    # These tests will be reintroduced in:
+    # https://github.com/sigp/lighthouse/pull/2822
+    "tests/minimal/phase0/fork_choice",
+    "tests/minimal/altair/fork_choice",
+    "tests/minimal/merge/fork_choice",
+    "tests/mainnet/phase0/fork_choice",
+    "tests/mainnet/altair/fork_choice",
+    "tests/mainnet/merge/fork_choice",
+    # Tests yet to be implemented.
+    "tests/mainnet/merge/transition",
+    "tests/minimal/merge/transition",
 ]
 
 def normalize_path(path):

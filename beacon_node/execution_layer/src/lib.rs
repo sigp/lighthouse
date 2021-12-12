@@ -48,7 +48,7 @@ impl From<ApiError> for Error {
 
 struct Inner {
     engines: Engines<HttpJsonRpc>,
-    fee_recipient: Option<Address>,
+    suggested_fee_recipient: Option<Address>,
     execution_blocks: Mutex<LruCache<Hash256, ExecutionBlock>>,
     executor: TaskExecutor,
     log: Logger,
@@ -72,7 +72,7 @@ impl ExecutionLayer {
     /// Instantiate `Self` with `urls.len()` engines, all using the JSON-RPC via HTTP.
     pub fn from_urls(
         urls: Vec<SensitiveUrl>,
-        fee_recipient: Option<Address>,
+        suggested_fee_recipient: Option<Address>,
         executor: TaskExecutor,
         log: Logger,
     ) -> Result<Self, Error> {
@@ -95,7 +95,7 @@ impl ExecutionLayer {
                 latest_forkchoice_state: <_>::default(),
                 log: log.clone(),
             },
-            fee_recipient,
+            suggested_fee_recipient,
             execution_blocks: Mutex::new(LruCache::new(EXECUTION_BLOCKS_LRU_CACHE_SIZE)),
             executor,
             log,
@@ -116,9 +116,9 @@ impl ExecutionLayer {
         &self.inner.executor
     }
 
-    fn fee_recipient(&self) -> Result<Address, Error> {
+    fn suggested_fee_recipient(&self) -> Result<Address, Error> {
         self.inner
-            .fee_recipient
+            .suggested_fee_recipient
             .ok_or(Error::FeeRecipientUnspecified)
     }
 
@@ -255,11 +255,11 @@ impl ExecutionLayer {
         random: Hash256,
         finalized_block_hash: Hash256,
     ) -> Result<ExecutionPayload<T>, Error> {
-        let fee_recipient = self.fee_recipient()?;
+        let suggested_fee_recipient = self.suggested_fee_recipient()?;
         debug!(
             self.log(),
             "Issuing engine_getPayload";
-            "fee_recipient" => ?fee_recipient,
+            "suggested_fee_recipient" => ?suggested_fee_recipient,
             "random" => ?random,
             "timestamp" => timestamp,
             "parent_hash" => ?parent_hash,
@@ -267,7 +267,7 @@ impl ExecutionLayer {
         self.engines()
             .first_success(|engine| async move {
                 let payload_id = if let Some(id) = engine
-                    .get_payload_id(parent_hash, timestamp, random, fee_recipient)
+                    .get_payload_id(parent_hash, timestamp, random, suggested_fee_recipient)
                     .await
                 {
                     // The payload id has been cached for this engine.
@@ -287,7 +287,7 @@ impl ExecutionLayer {
                     let payload_attributes = PayloadAttributes {
                         timestamp,
                         random,
-                        fee_recipient,
+                        suggested_fee_recipient,
                     };
 
                     engine
@@ -521,13 +521,6 @@ impl ExecutionLayer {
 
         self.execution_blocks().await.put(block.block_hash, block);
 
-        // TODO(merge): This implementation adheres to the following PR in the `dev` branch:
-        //
-        // https://github.com/ethereum/consensus-specs/pull/2719
-        //
-        // Therefore this implementation is not strictly v1.1.5, it is more lenient to some
-        // edge-cases during EL genesis. We should revisit this prior to the merge to ensure that
-        // this implementation becomes canonical.
         loop {
             let block_reached_ttd = block.total_difficulty >= spec.terminal_total_difficulty;
             if block_reached_ttd {

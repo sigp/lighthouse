@@ -121,7 +121,7 @@ impl<T: EthSpec> MockExecutionLayer<T> {
                 Some(PayloadAttributes {
                     timestamp,
                     random,
-                    fee_recipient: Address::repeat_byte(42),
+                    suggested_fee_recipient: Address::repeat_byte(42),
                 }),
             )
             .await
