@@ -43,8 +43,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             }
         }
 
-        let mut prev_epoch_rewards = HashMap::new();
-        let mut curr_epoch_rewards = HashMap::new();
+        let mut prev_epoch_rewards = HashMap::with_capacity(state.validators().len());
+        let mut curr_epoch_rewards = HashMap::with_capacity(state.validators().len());
 
         for cover in &per_attestation_rewards {
             for (&validator_index, &reward) in &cover.fresh_validators_rewards {
