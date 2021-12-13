@@ -461,7 +461,9 @@ where
             beacon_chain,
             config,
             context.executor,
-            gossipsub_registry.as_mut().map(|registry| registry.sub_registry_with_prefix("gossipsub")),
+            gossipsub_registry
+                .as_mut()
+                .map(|registry| registry.sub_registry_with_prefix("gossipsub")),
         )
         .await
         .map_err(|e| format!("Failed to start network: {:?}", e))?;
