@@ -51,7 +51,7 @@ use eth2::types::{
     EventKind, SseBlock, SseChainReorg, SseFinalizedCheckpoint, SseHead, SseLateHead, SyncDuty,
 };
 use execution_layer::ExecutionLayer;
-use fork_choice::ForkChoice;
+use fork_choice::{AttestationFromBlock, ForkChoice};
 use futures::channel::mpsc::Sender;
 use itertools::process_results;
 use itertools::Itertools;
@@ -1700,7 +1700,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         self.fork_choice
             .write()
-            .on_attestation(self.slot()?, verified.indexed_attestation())
+            .on_attestation(
+                self.slot()?,
+                verified.indexed_attestation(),
+                AttestationFromBlock::False,
+            )
             .map_err(Into::into)
     }
 
@@ -2443,11 +2447,17 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         {
             let _fork_choice_block_timer =
                 metrics::start_timer(&metrics::FORK_CHOICE_PROCESS_BLOCK_TIMES);
+            let block_delay = self
+                .slot_clock
+                .seconds_from_current_slot_start(self.spec.seconds_per_slot)
+                .ok_or(Error::UnableToComputeTimeAtSlot)?;
+
             fork_choice
                 .on_block(
                     current_slot,
                     &block,
                     block_root,
+                    block_delay,
                     &state,
                     payload_verification_status,
                     &self.spec,
@@ -2472,7 +2482,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             let indexed_attestation = get_indexed_attestation(committee.committee, attestation)
                 .map_err(|e| BlockError::BeaconChainError(e.into()))?;
 
-            match fork_choice.on_attestation(current_slot, &indexed_attestation) {
+            match fork_choice.on_attestation(
+                current_slot,
+                &indexed_attestation,
+                AttestationFromBlock::True,
+            ) {
                 Ok(()) => Ok(()),
                 // Ignore invalid attestations whilst importing attestations from a block. The
                 // block might be very old and therefore the attestations useless to fork choice.
@@ -3009,7 +3023,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
     fn fork_choice_internal(&self) -> Result<(), Error> {
         // Determine the root of the block that is the head of the chain.
-        let beacon_block_root = self.fork_choice.write().get_head(self.slot()?)?;
+        let beacon_block_root = self
+            .fork_choice
+            .write()
+            .get_head(self.slot()?, &self.spec)?;
 
         let current_head = self.head_info()?;
         let old_finalized_checkpoint = current_head.finalized_checkpoint;

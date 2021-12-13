@@ -125,6 +125,15 @@ impl<'a, T: EthSpec, Hot: ItemStore<T>, Cold: ItemStore<T>> BlockRootsIterator<'
             inner: RootsIterator::owned(store, beacon_state),
         }
     }
+
+    pub fn from_block(
+        store: Arc<HotColdDB<T, Hot, Cold>>,
+        block_hash: Hash256,
+    ) -> Result<Self, Error> {
+        Ok(Self {
+            inner: RootsIterator::from_block(store, block_hash)?,
+        })
+    }
 }
 
 impl<'a, T: EthSpec, Hot: ItemStore<T>, Cold: ItemStore<T>> Iterator

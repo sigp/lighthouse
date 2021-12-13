@@ -72,7 +72,7 @@ impl<E: EthSpec> Case for TransitionTest<E> {
     fn is_enabled_for_fork(fork_name: ForkName) -> bool {
         // Upgrades exist targeting all forks except phase0/base.
         // Transition tests also need BLS.
-        // FIXME(merge): enable merge tests once available
+        // FIXME(merge): Merge transition tests are  now available but not yet passing
         cfg!(not(feature = "fake_crypto"))
             && fork_name != ForkName::Base
             && fork_name != ForkName::Merge

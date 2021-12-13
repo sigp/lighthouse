@@ -8,5 +8,7 @@ pub use crate::proto_array_fork_choice::{Block, ExecutionStatus, ProtoArrayForkC
 pub use error::Error;
 
 pub mod core {
-    pub use super::proto_array::ProtoArray;
+    pub use super::proto_array::{ProposerBoost, ProtoArray, ProtoNode};
+    pub use super::proto_array_fork_choice::VoteTracker;
+    pub use super::ssz_container::SszContainer;
 }
