@@ -133,7 +133,9 @@ impl ProtoArray {
 
             // If we find the node for which the proposer boost was previously applied, decrease
             // the delta by the previous score amount.
-            if self.previous_proposer_boost.root == node.root {
+            if self.previous_proposer_boost.root != Hash256::zero()
+                && self.previous_proposer_boost.root == node.root
+            {
                 node_delta = node_delta
                     .checked_sub(self.previous_proposer_boost.score as i64)
                     .ok_or(Error::DeltaOverflow(node_index))?;
