@@ -38,10 +38,6 @@ pub struct AttestationRewards {
     pub prev_epoch_total: u64,
     /// Total rewards from current epoch attestations.
     pub curr_epoch_total: u64,
-    /// Map from validator index to reward for including that validator's prev epoch attestation.
-    pub prev_epoch_rewards: HashMap<u64, u64>,
-    /// Map from validator index to reward for including that validator's current epoch attestation.
-    pub curr_epoch_rewards: HashMap<u64, u64>,
     /// Vec of attestation rewards for each attestation included.
     ///
     /// Each element of the vec is a map from validator index to reward.

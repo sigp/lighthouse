@@ -2,7 +2,6 @@ use crate::{BeaconChain, BeaconChainError, BeaconChainTypes};
 use eth2::lighthouse::{AttestationRewards, BlockReward, BlockRewardMeta};
 use operation_pool::{AttMaxCover, MaxCover};
 use state_processing::per_block_processing::altair::sync_committee::compute_sync_aggregate_rewards;
-use std::collections::HashMap;
 use types::{BeaconBlockRef, BeaconState, EthSpec, Hash256, RelativeEpoch};
 
 impl<T: BeaconChainTypes> BeaconChain<T> {
@@ -43,25 +42,20 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             }
         }
 
-        let mut prev_epoch_rewards = HashMap::with_capacity(state.validators().len());
-        let mut curr_epoch_rewards = HashMap::with_capacity(state.validators().len());
+        let mut prev_epoch_total = 0;
+        let mut curr_epoch_total = 0;
 
         for cover in &per_attestation_rewards {
-            for (&validator_index, &reward) in &cover.fresh_validators_rewards {
-                if reward != 0 {
-                    if cover.att.data.slot.epoch(T::EthSpec::slots_per_epoch())
-                        == state.current_epoch()
-                    {
-                        assert!(curr_epoch_rewards.insert(validator_index, reward).is_none());
-                    } else {
-                        assert!(prev_epoch_rewards.insert(validator_index, reward).is_none());
-                    }
+            for &reward in cover.fresh_validators_rewards.values() {
+                if cover.att.data.slot.epoch(T::EthSpec::slots_per_epoch()) == state.current_epoch()
+                {
+                    curr_epoch_total += reward;
+                } else {
+                    prev_epoch_total += reward;
                 }
             }
         }
 
-        let prev_epoch_total = prev_epoch_rewards.values().sum::<u64>();
-        let curr_epoch_total = curr_epoch_rewards.values().sum::<u64>();
         let attestation_total = prev_epoch_total + curr_epoch_total;
 
         // Drop the covers.
@@ -74,8 +68,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             total: attestation_total,
             prev_epoch_total,
             curr_epoch_total,
-            prev_epoch_rewards,
-            curr_epoch_rewards,
             per_attestation_rewards,
         };
 
