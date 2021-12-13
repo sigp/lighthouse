@@ -1,13 +1,8 @@
 use beacon_chain::{BeaconChain, BeaconChainError, BeaconChainTypes, WhenSlotSkipped};
 use eth2::lighthouse::{BlockReward, BlockRewardsQuery};
-use state_processing::{
-    per_block_processing, per_block_processing::BlockSignatureStrategy,
-    state_advance::complete_state_advance,
-};
+use state_processing::BlockReplayer;
 use std::sync::Arc;
-use warp_utils::reject::{
-    beacon_chain_error, beacon_state_error, custom_bad_request, custom_server_error,
-};
+use warp_utils::reject::{beacon_chain_error, beacon_state_error, custom_bad_request};
 
 pub fn get_block_rewards<T: BeaconChainTypes>(
     query: BlockRewardsQuery,
@@ -50,38 +45,29 @@ pub fn get_block_rewards<T: BeaconChainTypes>(
 
     let mut block_rewards = Vec::with_capacity(blocks.len());
 
-    for block in &blocks {
-        // Advance to block slot.
-        complete_state_advance(&mut state, None, block.slot(), &chain.spec).map_err(|e| {
-            custom_server_error(format!(
-                "state advance to slot {} failed: {:?}",
-                block.slot(),
-                e
-            ))
-        })?;
+    let mut block_replayer = BlockReplayer::new(state, &chain.spec)
+        .pre_block_hook(Box::new(|state, block| {
+            // Compute block reward.
+            let block_reward =
+                chain.compute_block_reward(block.message(), block.canonical_root(), &state)?;
+            block_rewards.push(block_reward);
+            Ok(())
+        }))
+        .state_root_iter(
+            chain
+                .forwards_iter_state_roots_until(prior_slot, end_slot)
+                .map_err(beacon_chain_error)?,
+        );
 
-        // Compute block reward.
-        let block_reward = chain
-            .compute_block_reward(block.message(), block.canonical_root(), &state)
-            .map_err(beacon_chain_error)?;
-        block_rewards.push(block_reward);
+    block_replayer
+        .apply_blocks(blocks)
+        .map_err(beacon_chain_error)?;
 
-        // Apply block.
-        per_block_processing(
-            &mut state,
-            block,
-            None,
-            BlockSignatureStrategy::NoVerification,
-            &chain.spec,
-        )
-        .map_err(|e| {
-            custom_server_error(format!(
-                "block processing failed at slot {}: {:?}",
-                block.slot(),
-                e
-            ))
-        })?;
+    if block_replayer.state_root_miss {
+        eprintln!("State root miss, start: {}, end: {}", start_slot, end_slot);
     }
+
+    drop(block_replayer);
 
     Ok(block_rewards)
 }
