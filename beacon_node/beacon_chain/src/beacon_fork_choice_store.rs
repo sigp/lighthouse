@@ -12,7 +12,9 @@ use std::marker::PhantomData;
 use std::sync::Arc;
 use store::{Error as StoreError, HotColdDB, ItemStore};
 use superstruct::superstruct;
-use types::{BeaconBlock, BeaconState, BeaconStateError, Checkpoint, EthSpec, Hash256, Slot};
+use types::{
+    BeaconBlock, BeaconState, BeaconStateError, Checkpoint, Epoch, EthSpec, Hash256, Slot,
+};
 
 #[derive(Debug)]
 pub enum Error {
@@ -56,23 +58,33 @@ pub fn get_effective_balances<T: EthSpec>(state: &BeaconState<T>) -> Vec<u64> {
         .collect()
 }
 
-/// An item that is stored in the `BalancesCache`.
-#[derive(PartialEq, Clone, Debug, Encode, Decode)]
-struct CacheItem {
-    /// The block root at which `self.balances` are valid.
-    block_root: Hash256,
-    /// The effective balances from a `BeaconState` validator registry.
-    balances: Vec<u64>,
+#[superstruct(
+    variants(V1, V8),
+    variant_attributes(derive(PartialEq, Clone, Debug, Encode, Decode)),
+    no_enum
+)]
+pub(crate) struct CacheItem {
+    pub(crate) block_root: Hash256,
+    #[superstruct(only(V8))]
+    pub(crate) epoch: Epoch,
+    pub(crate) balances: Vec<u64>,
 }
 
-/// Provides a cache to avoid reading `BeaconState` from disk when updating the current justified
-/// checkpoint.
-///
-/// It is effectively a mapping of `epoch_boundary_block_root -> state.balances`.
-#[derive(PartialEq, Clone, Default, Debug, Encode, Decode)]
+pub(crate) type CacheItem = CacheItemV8;
+
+#[superstruct(
+    variants(V1, V8),
+    variant_attributes(derive(PartialEq, Clone, Default, Debug, Encode, Decode)),
+    no_enum
+)]
 pub struct BalancesCache {
-    items: Vec<CacheItem>,
+    #[superstruct(only(V1))]
+    pub(crate) items: Vec<CacheItemV1>,
+    #[superstruct(only(V8))]
+    pub(crate) items: Vec<CacheItemV8>,
 }
+
+pub type BalancesCache = BalancesCacheV8;
 
 impl BalancesCache {
     /// Inspect the given `state` and determine the root of the block at the first slot of
@@ -83,13 +95,8 @@ impl BalancesCache {
         block_root: Hash256,
         state: &BeaconState<E>,
     ) -> Result<(), Error> {
-        // We are only interested in balances from states that are at the start of an epoch,
-        // because this is where the `current_justified_checkpoint.root` will point.
-        if !Self::is_first_block_in_epoch(block_root, state)? {
-            return Ok(());
-        }
-
-        let epoch_boundary_slot = state.current_epoch().start_slot(E::slots_per_epoch());
+        let epoch = state.current_epoch();
+        let epoch_boundary_slot = epoch.start_slot(E::slots_per_epoch());
         let epoch_boundary_root = if epoch_boundary_slot == state.slot() {
             block_root
         } else {
@@ -98,9 +105,14 @@ impl BalancesCache {
             *state.get_block_root(epoch_boundary_slot)?
         };
 
-        if self.position(epoch_boundary_root).is_none() {
+        // Check if there already exists a cache entry for the epoch boundary block of the current
+        // epoch. We rely on the invariant that effective balances do not change for the duration
+        // of a single epoch, so even if the block on the epoch boundary itself is skipped we can
+        // still update its cache entry from any subsequent state in that epoch.
+        if self.position(epoch_boundary_root, epoch).is_none() {
             let item = CacheItem {
                 block_root: epoch_boundary_root,
+                epoch,
                 balances: get_effective_balances(state),
             };
 
@@ -114,43 +126,18 @@ impl BalancesCache {
         Ok(())
     }
 
-    /// Returns `true` if the given `block_root` is the first/only block to have been processed in
-    /// the epoch of the given `state`.
-    ///
-    /// We can determine if it is the first block by looking back through `state.block_roots` to
-    /// see if there is a block in the current epoch with a different root.
-    fn is_first_block_in_epoch<E: EthSpec>(
-        block_root: Hash256,
-        state: &BeaconState<E>,
-    ) -> Result<bool, Error> {
-        let mut prior_block_found = false;
-
-        for slot in state.current_epoch().slot_iter(E::slots_per_epoch()) {
-            if slot < state.slot() {
-                if *state.get_block_root(slot)? != block_root {
-                    prior_block_found = true;
-                    break;
-                }
-            } else {
-                break;
-            }
-        }
-
-        Ok(!prior_block_found)
-    }
-
-    fn position(&self, block_root: Hash256) -> Option<usize> {
+    fn position(&self, block_root: Hash256, epoch: Epoch) -> Option<usize> {
         self.items
             .iter()
-            .position(|item| item.block_root == block_root)
+            .position(|item| item.block_root == block_root && item.epoch == epoch)
     }
 
     /// Get the balances for the given `block_root`, if any.
     ///
-    /// If some balances are found, they are removed from the cache.
-    pub fn get(&mut self, block_root: Hash256) -> Option<Vec<u64>> {
-        let i = self.position(block_root)?;
-        Some(self.items.remove(i).balances)
+    /// If some balances are found, they are cloned from the cache.
+    pub fn get(&mut self, block_root: Hash256, epoch: Epoch) -> Option<Vec<u64>> {
+        let i = self.position(block_root, epoch)?;
+        Some(self.items[i].balances.clone())
     }
 }
 
@@ -303,7 +290,10 @@ where
     fn set_justified_checkpoint(&mut self, checkpoint: Checkpoint) -> Result<(), Error> {
         self.justified_checkpoint = checkpoint;
 
-        if let Some(balances) = self.balances_cache.get(self.justified_checkpoint.root) {
+        if let Some(balances) = self.balances_cache.get(
+            self.justified_checkpoint.root,
+            self.justified_checkpoint.epoch,
+        ) {
             metrics::inc_counter(&metrics::BALANCES_CACHE_HITS);
             self.justified_balances = balances;
         } else {
@@ -338,16 +328,23 @@ where
 }
 
 /// A container which allows persisting the `BeaconForkChoiceStore` to the on-disk database.
-#[superstruct(variants(V1, V7), variant_attributes(derive(Encode, Decode)), no_enum)]
+#[superstruct(
+    variants(V1, V7, V8),
+    variant_attributes(derive(Encode, Decode)),
+    no_enum
+)]
 pub struct PersistedForkChoiceStore {
-    pub balances_cache: BalancesCache,
+    #[superstruct(only(V1, V7))]
+    pub balances_cache: BalancesCacheV1,
+    #[superstruct(only(V8))]
+    pub balances_cache: BalancesCacheV8,
     pub time: Slot,
     pub finalized_checkpoint: Checkpoint,
     pub justified_checkpoint: Checkpoint,
     pub justified_balances: Vec<u64>,
     pub best_justified_checkpoint: Checkpoint,
-    #[superstruct(only(V7))]
+    #[superstruct(only(V7, V8))]
     pub proposer_boost_root: Hash256,
 }
 
-pub type PersistedForkChoiceStore = PersistedForkChoiceStoreV7;
+pub type PersistedForkChoiceStore = PersistedForkChoiceStoreV8;
