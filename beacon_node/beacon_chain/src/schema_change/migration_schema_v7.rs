@@ -147,7 +147,7 @@ fn update_checkpoints<T: BeaconChainTypes>(
             let (justified_epoch, finalized_epoch) = nodes_v6
                 .get(index)
                 .map(|node: &ProtoNodeV6| (node.justified_epoch, node.finalized_epoch))
-                .ok_or_else(|| "Head index not found in legacy proto nodes".to_string())?;
+                .ok_or_else(|| "Index not found in legacy proto nodes".to_string())?;
 
             // Update the checkpoints only if they haven't already been populated.
             if node.justified_checkpoint.is_none() {
