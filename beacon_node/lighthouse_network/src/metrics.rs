@@ -10,7 +10,7 @@ lazy_static! {
         "Count of libp2p socked updated events (when our view of our IP address has changed)"
     );
     pub static ref PEERS_CONNECTED: Result<IntGauge> = try_create_int_gauge(
-        "libp2p_connected_peers",
+        "libp2p_peers",
         "Count of libp2p peers currently connected"
     );
 
