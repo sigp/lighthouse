@@ -176,7 +176,7 @@ fn update_checkpoints<T: BeaconChainTypes>(
 
 /// Coverts the given `HashSet<Epoch>` to a `Vec<Epoch>` then reverse sorts by `Epoch`. Next, a
 /// single `BlockRootsIterator` is created which is used to iterate backwards from the given
-/// `head_root` and `head_slot` and find the block root at the start slot of each epoch.
+/// `head_root` and `head_slot`, finding the block root at the start slot of each epoch.
 fn map_relevant_epochs_to_roots<T: BeaconChainTypes>(
     head_root: Hash256,
     head_slot: Slot,
