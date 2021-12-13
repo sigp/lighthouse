@@ -7,11 +7,10 @@ use crate::types::{Checkpoint, Epoch, Hash256};
 use crate::types::{EthSpec, Slot};
 use crate::{BeaconForkChoiceStore, BeaconSnapshot};
 use fork_choice::ForkChoice;
-use itertools::Itertools;
 use proto_array::{core::ProtoNode, core::SszContainer, ProtoArrayForkChoice};
 use ssz::four_byte_option_impl;
 use ssz::{Decode, Encode};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use store::hot_cold_store::HotColdDB;
 use store::iter::BlockRootsIterator;
@@ -115,14 +114,14 @@ fn update_checkpoints<T: BeaconChainTypes>(
     for head in heads {
         // `relevant_epochs` are epochs for which we will need to find the root at the start slot.
         // We don't need to worry about whether the are finalized or justified epochs.
-        let mut relevant_epochs = vec![];
+        let mut relevant_epochs = HashSet::new();
         let relevant_epoch_finder = |index, _: &mut ProtoNode| {
             let (justified_epoch, finalized_epoch) = nodes_v6
                 .get(index)
                 .map(|node: &ProtoNodeV6| (node.justified_epoch, node.finalized_epoch))
                 .ok_or_else(|| "Head index not found in legacy proto nodes".to_string())?;
-            relevant_epochs.push(justified_epoch);
-            relevant_epochs.push(finalized_epoch);
+            relevant_epochs.insert(justified_epoch);
+            relevant_epochs.insert(finalized_epoch);
             Ok(())
         };
 
@@ -134,12 +133,8 @@ fn update_checkpoints<T: BeaconChainTypes>(
         )?;
 
         // find the block roots associated with each relevant epoch.
-        let roots_by_epoch = map_relevant_epochs_to_roots::<T>(
-            head.root,
-            head.slot,
-            relevant_epochs.as_slice(),
-            db.clone(),
-        )?;
+        let roots_by_epoch =
+            map_relevant_epochs_to_roots::<T>(head.root, head.slot, relevant_epochs, db.clone())?;
 
         // Apply this mutator to the chain of descendants from this head, adding justified
         // and finalized checkpoints for each.
@@ -179,17 +174,17 @@ fn update_checkpoints<T: BeaconChainTypes>(
     Ok(())
 }
 
-/// Sorts and de-duplicates the given `epochs` and creates a single `BlockRootsIterator`. Iterates
-/// backwards from the given `head_root` and `head_slot` and finds the block root at the start slot
-/// of each epoch.
+/// Coverts the given `HashSet<Epoch>` to a `Vec<Epoch>` then reverse sorts by `Epoch`. Next, a
+/// single `BlockRootsIterator` is created which is used to iterate backwards from the given
+/// `head_root` and `head_slot` and find the block root at the start slot of each epoch.
 fn map_relevant_epochs_to_roots<T: BeaconChainTypes>(
     head_root: Hash256,
     head_slot: Slot,
-    epochs: &[Epoch],
+    epochs: HashSet<Epoch>,
     db: Arc<HotColdDB<T::EthSpec, T::HotStore, T::ColdStore>>,
 ) -> Result<HashMap<Epoch, Hash256>, String> {
-    // Remove duplicates and reverse sort the epochs.
-    let mut relevant_epochs = epochs.iter().copied().unique().collect::<Vec<_>>();
+    // Convert the `HashSet` to a `Vec` and reverse sort the epochs.
+    let mut relevant_epochs = epochs.into_iter().collect::<Vec<_>>();
     relevant_epochs.sort_unstable_by(|a, b| b.cmp(a));
 
     // Iterate backwards from the given `head_root` and `head_slot` and find the block root at each epoch.
@@ -260,12 +255,12 @@ fn find_finalized_descendant_heads(
     finalized_root: Hash256,
     fork_choice: &ProtoArrayForkChoice,
 ) -> Vec<HeadInfo> {
-    let nodes_referenced_as_parents: Vec<usize> = fork_choice
+    let nodes_referenced_as_parents: HashSet<usize> = fork_choice
         .core_proto_array()
         .nodes
         .iter()
         .filter_map(|node| node.parent)
-        .collect::<Vec<_>>();
+        .collect::<HashSet<_>>();
 
     fork_choice
         .core_proto_array()
@@ -292,12 +287,13 @@ fn update_store_justified_checkpoint(
         .core_proto_array()
         .nodes
         .iter()
-        .find_map(|node| {
+        .filter_map(|node| {
             (node.finalized_checkpoint
                 == Some(persisted_fork_choice.fork_choice_store.finalized_checkpoint))
             .then(|| node.justified_checkpoint)
             .flatten()
         })
+        .max_by_key(|justified_checkpoint| justified_checkpoint.epoch)
         .ok_or("Proto node with current finalized checkpoint not found")?;
 
     fork_choice.core_proto_array_mut().justified_checkpoint = justified_checkpoint;
