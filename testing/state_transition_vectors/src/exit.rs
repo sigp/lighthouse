@@ -2,7 +2,7 @@ use super::*;
 use beacon_chain::test_utils::{BeaconChainHarness, EphemeralHarnessType};
 use state_processing::{
     per_block_processing, per_block_processing::errors::ExitInvalid, BlockProcessingError,
-    BlockSignatureStrategy,
+    BlockSignatureStrategy, VerifyBlockRoot,
 };
 use types::{BeaconBlock, BeaconState, Epoch, EthSpec, SignedBeaconBlock};
 
@@ -66,6 +66,7 @@ impl ExitTest {
             block,
             None,
             BlockSignatureStrategy::VerifyIndividual,
+            VerifyBlockRoot::True,
             &E::default_spec(),
         )
     }

@@ -5,6 +5,7 @@ use crate::decode::{ssz_decode_file_with, ssz_decode_state, yaml_decode_file};
 use serde_derive::Deserialize;
 use state_processing::{
     per_block_processing, per_slot_processing, BlockProcessingError, BlockSignatureStrategy,
+    VerifyBlockRoot,
 };
 use types::{BeaconState, EthSpec, ForkName, RelativeEpoch, SignedBeaconBlock};
 
@@ -98,6 +99,7 @@ impl<E: EthSpec> Case for SanityBlocks<E> {
                     signed_block,
                     None,
                     BlockSignatureStrategy::VerifyIndividual,
+                    VerifyBlockRoot::True,
                     spec,
                 )?;
 
@@ -106,6 +108,7 @@ impl<E: EthSpec> Case for SanityBlocks<E> {
                     signed_block,
                     None,
                     BlockSignatureStrategy::VerifyBulk,
+                    VerifyBlockRoot::True,
                     spec,
                 )?;
 

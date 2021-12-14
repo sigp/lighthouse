@@ -126,7 +126,7 @@ fn randomised_skips() {
         "head should be at the current slot"
     );
 
-    check_split_slot(&harness, store);
+    check_split_slot(&harness, store.clone());
     check_chain_dump(&harness, num_blocks_produced + 1);
     check_iterators(&harness);
 }
@@ -358,6 +358,105 @@ fn epoch_boundary_state_attestation_processing() {
     assert!(checked_pre_fin);
 }
 
+// Test that the `end_slot` for forwards state root iterators works correctly.
+#[test]
+fn forwards_state_roots_iter_until() {
+    let num_blocks_produced = E::slots_per_epoch() * 17;
+    let db_path = tempdir().unwrap();
+    let store = get_store(&db_path);
+    let harness = get_harness(store.clone(), LOW_VALIDATOR_COUNT);
+
+    let all_validators = &harness.get_all_validators();
+    let (mut head_state, mut head_state_root) = harness.get_current_state_and_root();
+    let mut state_roots = vec![head_state_root];
+
+    for slot in (1..=num_blocks_produced).map(Slot::from) {
+        let (_, mut state) = harness
+            .add_attested_block_at_slot(slot, head_state, head_state_root, all_validators)
+            .unwrap();
+        head_state_root = state.update_tree_hash_cache().unwrap();
+        head_state = state;
+        state_roots.push(head_state_root);
+    }
+
+    check_finalization(&harness, num_blocks_produced);
+    check_split_slot(&harness, store.clone());
+
+    // The last restore point slot is the point at which the hybrid forwards iterator behaviour
+    // changes.
+    let last_restore_point_slot = store.get_latest_restore_point_slot();
+    assert!(last_restore_point_slot > 0);
+
+    let chain = &harness.chain;
+    let head_state = harness.get_current_state();
+    let head_slot = head_state.slot();
+    assert_eq!(head_slot, num_blocks_produced);
+
+    let test_range = |start_slot: Slot, end_slot: Slot| {
+        let mut iter = chain
+            .forwards_iter_state_roots_until(start_slot, end_slot)
+            .unwrap();
+
+        for slot in (start_slot.as_u64()..=end_slot.as_u64()).map(Slot::new) {
+            let expected_root = state_roots[slot.as_usize()];
+            assert_eq!(iter.next().unwrap().unwrap(), (expected_root, slot));
+        }
+    };
+
+    let split_slot = store.get_split_slot();
+    assert!(split_slot > last_restore_point_slot);
+
+    test_range(Slot::new(0), last_restore_point_slot);
+    test_range(last_restore_point_slot, last_restore_point_slot);
+    test_range(last_restore_point_slot - 1, last_restore_point_slot);
+    test_range(Slot::new(0), last_restore_point_slot - 1);
+    test_range(Slot::new(0), split_slot);
+    test_range(last_restore_point_slot - 1, split_slot);
+    test_range(Slot::new(0), head_state.slot());
+}
+
+#[test]
+fn block_replay_with_inaccurate_state_roots() {
+    let num_blocks_produced = E::slots_per_epoch() * 3 + 31;
+    let db_path = tempdir().unwrap();
+    let store = get_store(&db_path);
+    let harness = get_harness(store.clone(), LOW_VALIDATOR_COUNT);
+    let chain = &harness.chain;
+
+    harness.extend_chain(
+        num_blocks_produced as usize,
+        BlockStrategy::OnCanonicalHead,
+        AttestationStrategy::AllValidators,
+    );
+
+    // Slot must not be 0 mod 32 or else no blocks will be replayed.
+    let (mut head_state, head_root) = harness.get_current_state_and_root();
+    assert_ne!(head_state.slot() % 32, 0);
+
+    let mut fast_head_state = store
+        .get_inconsistent_state_for_attestation_verification_only(
+            &head_root,
+            Some(head_state.slot()),
+        )
+        .unwrap()
+        .unwrap();
+    assert_eq!(head_state.validators(), fast_head_state.validators());
+
+    head_state.build_all_committee_caches(&chain.spec).unwrap();
+    fast_head_state
+        .build_all_committee_caches(&chain.spec)
+        .unwrap();
+
+    assert_eq!(
+        head_state
+            .get_cached_active_validator_indices(RelativeEpoch::Current)
+            .unwrap(),
+        fast_head_state
+            .get_cached_active_validator_indices(RelativeEpoch::Current)
+            .unwrap()
+    );
+}
+
 #[test]
 fn delete_blocks_and_states() {
     let db_path = tempdir().unwrap();
@@ -430,7 +529,7 @@ fn delete_blocks_and_states() {
     // Delete faulty fork
     // Attempting to load those states should find them unavailable
     for (state_root, slot) in
-        StateRootsIterator::new(store.clone(), &faulty_head_state).map(Result::unwrap)
+        StateRootsIterator::new(&store, &faulty_head_state).map(Result::unwrap)
     {
         if slot <= unforked_blocks {
             break;
@@ -441,7 +540,7 @@ fn delete_blocks_and_states() {
 
     // Double-deleting should also be OK (deleting non-existent things is fine)
     for (state_root, slot) in
-        StateRootsIterator::new(store.clone(), &faulty_head_state).map(Result::unwrap)
+        StateRootsIterator::new(&store, &faulty_head_state).map(Result::unwrap)
     {
         if slot <= unforked_blocks {
             break;
@@ -451,7 +550,7 @@ fn delete_blocks_and_states() {
 
     // Deleting the blocks from the fork should remove them completely
     for (block_root, slot) in
-        BlockRootsIterator::new(store.clone(), &faulty_head_state).map(Result::unwrap)
+        BlockRootsIterator::new(&store, &faulty_head_state).map(Result::unwrap)
     {
         if slot <= unforked_blocks + 1 {
             break;

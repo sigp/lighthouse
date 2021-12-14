@@ -20,7 +20,7 @@ use state_processing::{
     },
     signature_sets::Error as SignatureSetError,
     state_advance::Error as StateAdvanceError,
-    BlockProcessingError, SlotProcessingError,
+    BlockProcessingError, BlockReplayError, SlotProcessingError,
 };
 use std::time::Duration;
 use task_executor::ShutdownReason;
@@ -86,6 +86,7 @@ pub enum BeaconChainError {
     ValidatorPubkeyCacheIncomplete(usize),
     SignatureSetError(SignatureSetError),
     BlockSignatureVerifierError(state_processing::block_signature_verifier::Error),
+    BlockReplayError(BlockReplayError),
     DuplicateValidatorPublicKey,
     ValidatorPubkeyCacheFileError(String),
     ValidatorIndexUnknown(usize),
@@ -160,6 +161,7 @@ easy_from_to!(ArithError, BeaconChainError);
 easy_from_to!(ForkChoiceStoreError, BeaconChainError);
 easy_from_to!(HistoricalBlockError, BeaconChainError);
 easy_from_to!(StateAdvanceError, BeaconChainError);
+easy_from_to!(BlockReplayError, BeaconChainError);
 
 #[derive(Debug)]
 pub enum BlockProductionError {

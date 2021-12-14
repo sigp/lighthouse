@@ -4,12 +4,11 @@ use crate::errors::{Error, Result};
 use crate::iter::{BlockRootsIterator, StateRootsIterator};
 use crate::{HotColdDB, ItemStore};
 use itertools::process_results;
-use std::sync::Arc;
 use types::{BeaconState, ChainSpec, EthSpec, Hash256, Slot};
 
 /// Forwards block roots iterator that makes use of the `block_roots` table in the freezer DB.
-pub struct FrozenForwardsBlockRootsIterator<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> {
-    inner: ChunkedVectorIter<BlockRoots, E, Hot, Cold>,
+pub struct FrozenForwardsBlockRootsIterator<'a, E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> {
+    inner: ChunkedVectorIter<'a, BlockRoots, E, Hot, Cold>,
 }
 
 /// Forwards block roots iterator that reverses a backwards iterator (only good for short ranges).
@@ -19,9 +18,9 @@ pub struct SimpleForwardsBlockRootsIterator {
 }
 
 /// Fusion of the above two approaches to forwards iteration. Fast and efficient.
-pub enum HybridForwardsBlockRootsIterator<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> {
+pub enum HybridForwardsBlockRootsIterator<'a, E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> {
     PreFinalization {
-        iter: Box<FrozenForwardsBlockRootsIterator<E, Hot, Cold>>,
+        iter: Box<FrozenForwardsBlockRootsIterator<'a, E, Hot, Cold>>,
         /// Data required by the `PostFinalization` iterator when we get to it.
         continuation_data: Box<Option<(BeaconState<E>, Hash256)>>,
     },
@@ -30,11 +29,11 @@ pub enum HybridForwardsBlockRootsIterator<E: EthSpec, Hot: ItemStore<E>, Cold: I
     },
 }
 
-impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>>
-    FrozenForwardsBlockRootsIterator<E, Hot, Cold>
+impl<'a, E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>>
+    FrozenForwardsBlockRootsIterator<'a, E, Hot, Cold>
 {
     pub fn new(
-        store: Arc<HotColdDB<E, Hot, Cold>>,
+        store: &'a HotColdDB<E, Hot, Cold>,
         start_slot: Slot,
         last_restore_point_slot: Slot,
         spec: &ChainSpec,
@@ -50,8 +49,8 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>>
     }
 }
 
-impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> Iterator
-    for FrozenForwardsBlockRootsIterator<E, Hot, Cold>
+impl<'a, E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> Iterator
+    for FrozenForwardsBlockRootsIterator<'a, E, Hot, Cold>
 {
     type Item = (Hash256, Slot);
 
@@ -64,7 +63,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> Iterator
 
 impl SimpleForwardsBlockRootsIterator {
     pub fn new<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>>(
-        store: Arc<HotColdDB<E, Hot, Cold>>,
+        store: &HotColdDB<E, Hot, Cold>,
         start_slot: Slot,
         end_state: BeaconState<E>,
         end_block_root: Hash256,
@@ -91,11 +90,11 @@ impl Iterator for SimpleForwardsBlockRootsIterator {
     }
 }
 
-impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>>
-    HybridForwardsBlockRootsIterator<E, Hot, Cold>
+impl<'a, E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>>
+    HybridForwardsBlockRootsIterator<'a, E, Hot, Cold>
 {
     pub fn new(
-        store: Arc<HotColdDB<E, Hot, Cold>>,
+        store: &'a HotColdDB<E, Hot, Cold>,
         start_slot: Slot,
         end_state: BeaconState<E>,
         end_block_root: Hash256,
@@ -148,7 +147,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>>
 
                         *self = PostFinalization {
                             iter: SimpleForwardsBlockRootsIterator::new(
-                                iter.inner.store.clone(),
+                                iter.inner.store,
                                 Slot::from(iter.inner.end_vindex),
                                 end_state,
                                 end_block_root,
@@ -163,8 +162,8 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>>
     }
 }
 
-impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> Iterator
-    for HybridForwardsBlockRootsIterator<E, Hot, Cold>
+impl<'a, E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> Iterator
+    for HybridForwardsBlockRootsIterator<'a, E, Hot, Cold>
 {
     type Item = Result<(Hash256, Slot)>;
 
@@ -174,8 +173,8 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> Iterator
 }
 
 /// Forwards state roots iterator that makes use of the `state_roots` table in the freezer DB.
-pub struct FrozenForwardsStateRootsIterator<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> {
-    inner: ChunkedVectorIter<StateRoots, E, Hot, Cold>,
+pub struct FrozenForwardsStateRootsIterator<'a, E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> {
+    inner: ChunkedVectorIter<'a, StateRoots, E, Hot, Cold>,
 }
 
 /// Forwards state roots iterator that reverses a backwards iterator (only good for short ranges).
@@ -185,9 +184,9 @@ pub struct SimpleForwardsStateRootsIterator {
 }
 
 /// Fusion of the above two approaches to forwards iteration. Fast and efficient.
-pub enum HybridForwardsStateRootsIterator<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> {
+pub enum HybridForwardsStateRootsIterator<'a, E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> {
     PreFinalization {
-        iter: Box<FrozenForwardsStateRootsIterator<E, Hot, Cold>>,
+        iter: Box<FrozenForwardsStateRootsIterator<'a, E, Hot, Cold>>,
         /// Data required by the `PostFinalization` iterator when we get to it.
         continuation_data: Box<Option<(BeaconState<E>, Hash256)>>,
     },
@@ -196,11 +195,11 @@ pub enum HybridForwardsStateRootsIterator<E: EthSpec, Hot: ItemStore<E>, Cold: I
     },
 }
 
-impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>>
-    FrozenForwardsStateRootsIterator<E, Hot, Cold>
+impl<'a, E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>>
+    FrozenForwardsStateRootsIterator<'a, E, Hot, Cold>
 {
     pub fn new(
-        store: Arc<HotColdDB<E, Hot, Cold>>,
+        store: &'a HotColdDB<E, Hot, Cold>,
         start_slot: Slot,
         last_restore_point_slot: Slot,
         spec: &ChainSpec,
@@ -216,8 +215,8 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>>
     }
 }
 
-impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> Iterator
-    for FrozenForwardsStateRootsIterator<E, Hot, Cold>
+impl<'a, E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> Iterator
+    for FrozenForwardsStateRootsIterator<'a, E, Hot, Cold>
 {
     type Item = (Hash256, Slot);
 
@@ -230,7 +229,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> Iterator
 
 impl SimpleForwardsStateRootsIterator {
     pub fn new<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>>(
-        store: Arc<HotColdDB<E, Hot, Cold>>,
+        store: &HotColdDB<E, Hot, Cold>,
         start_slot: Slot,
         end_state: BeaconState<E>,
         end_state_root: Hash256,
@@ -257,14 +256,15 @@ impl Iterator for SimpleForwardsStateRootsIterator {
     }
 }
 
-impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>>
-    HybridForwardsStateRootsIterator<E, Hot, Cold>
+impl<'a, E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>>
+    HybridForwardsStateRootsIterator<'a, E, Hot, Cold>
 {
+    /// The `end_slot` hint is *inclusive*.
     pub fn new(
-        store: Arc<HotColdDB<E, Hot, Cold>>,
+        store: &'a HotColdDB<E, Hot, Cold>,
         start_slot: Slot,
-        end_state: BeaconState<E>,
-        end_state_root: Hash256,
+        end_slot: Option<Slot>,
+        get_state: impl FnOnce() -> (BeaconState<E>, Hash256),
         spec: &ChainSpec,
     ) -> Result<Self> {
         use HybridForwardsStateRootsIterator::*;
@@ -272,16 +272,28 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>>
         let latest_restore_point_slot = store.get_latest_restore_point_slot();
 
         let result = if start_slot < latest_restore_point_slot {
+            let iter = Box::new(FrozenForwardsStateRootsIterator::new(
+                store,
+                start_slot,
+                latest_restore_point_slot,
+                spec,
+            ));
+
+            // No continuation data is needed if the forwards iterator plans to halt before
+            // `end_slot`. If it tries to continue further a `NoContinuationData` error will be
+            // returned.
+            let continuation_data =
+                if end_slot.map_or(false, |end_slot| end_slot < latest_restore_point_slot) {
+                    Box::new(None)
+                } else {
+                    Box::new(Some(get_state()))
+                };
             PreFinalization {
-                iter: Box::new(FrozenForwardsStateRootsIterator::new(
-                    store,
-                    start_slot,
-                    latest_restore_point_slot,
-                    spec,
-                )),
-                continuation_data: Box::new(Some((end_state, end_state_root))),
+                iter,
+                continuation_data,
             }
         } else {
+            let (end_state, end_state_root) = get_state();
             PostFinalization {
                 iter: SimpleForwardsStateRootsIterator::new(
                     store,
@@ -314,7 +326,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>>
 
                         *self = PostFinalization {
                             iter: SimpleForwardsStateRootsIterator::new(
-                                iter.inner.store.clone(),
+                                iter.inner.store,
                                 Slot::from(iter.inner.end_vindex),
                                 end_state,
                                 end_state_root,
@@ -329,8 +341,8 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>>
     }
 }
 
-impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> Iterator
-    for HybridForwardsStateRootsIterator<E, Hot, Cold>
+impl<'a, E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> Iterator
+    for HybridForwardsStateRootsIterator<'a, E, Hot, Cold>
 {
     type Item = Result<(Hash256, Slot)>;
 
