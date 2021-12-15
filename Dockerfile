@@ -5,7 +5,7 @@ ARG PORTABLE
 ENV PORTABLE $PORTABLE
 RUN cd lighthouse && make
 
-FROM debian:buster-slim
+FROM ubuntu:latest
 RUN apt-get update && apt-get -y upgrade && apt-get install -y --no-install-recommends \
   libssl-dev \
   ca-certificates \
