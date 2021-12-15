@@ -10,7 +10,8 @@ type PreBlockHook<'a, E, Error> =
     Box<dyn FnMut(&mut BeaconState<E>, &SignedBeaconBlock<E>) -> Result<(), Error> + 'a>;
 type PostBlockHook<'a, E, Error> = PreBlockHook<'a, E, Error>;
 type PreSlotHook<'a, E, Error> = Box<dyn FnMut(&mut BeaconState<E>) -> Result<(), Error> + 'a>;
-type PostSlotHook<'a, E, Error> = PreSlotHook<'a, E, Error>;
+type PostSlotHook<'a, E, Error> =
+    Box<dyn FnMut(&mut BeaconState<E>, bool) -> Result<(), Error> + 'a>;
 type StateRootIterDefault<Error> = std::iter::Empty<Result<(Hash256, Slot), Error>>;
 
 /// Efficiently apply blocks to a state while configuring various parameters.
@@ -146,6 +147,9 @@ where
     }
 
     /// Run a function immediately after slot processing has advanced the state to the next slot.
+    ///
+    /// The hook receives the state and a bool indicating if this state corresponds to a skipped
+    /// slot (i.e. it will not have a block applied).
     pub fn post_slot_hook(mut self, hook: PostSlotHook<'a, E, Error>) -> Self {
         self.post_slot_hook = Some(hook);
         self
@@ -216,7 +220,8 @@ where
                     .map_err(BlockReplayError::from)?;
 
                 if let Some(ref mut post_slot_hook) = self.post_slot_hook {
-                    post_slot_hook(&mut self.state)?;
+                    let is_skipped_slot = self.state.slot() < block.slot();
+                    post_slot_hook(&mut self.state, is_skipped_slot)?;
                 }
             }
 
@@ -252,7 +257,10 @@ where
                     .map_err(BlockReplayError::from)?;
 
                 if let Some(ref mut post_slot_hook) = self.post_slot_hook {
-                    post_slot_hook(&mut self.state)?;
+                    // No more blocks to apply (from our perspective) so we consider these slots
+                    // skipped.
+                    let is_skipped_slot = true;
+                    post_slot_hook(&mut self.state, is_skipped_slot)?;
                 }
             }
         }
