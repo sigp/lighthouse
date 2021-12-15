@@ -467,6 +467,13 @@ pub struct JsonProposeBlindedBlockResponse<E: EthSpec> {
     pub error: Option<String>,
 }
 
+impl<E: EthSpec> From<JsonProposeBlindedBlockResponse<E>> for ExecutionPayload<E> {
+    fn from(j: JsonProposeBlindedBlockResponse<E>) -> Self {
+        let JsonProposeBlindedBlockResponse { result, error: _ } = j;
+        result
+    }
+}
+
 impl From<JsonProposeBlindedBlockResponseStatus> for ProposeBlindedBlockResponseStatus {
     fn from(j: JsonProposeBlindedBlockResponseStatus) -> Self {
         match j {

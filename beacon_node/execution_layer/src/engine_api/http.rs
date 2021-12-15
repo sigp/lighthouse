@@ -213,10 +213,10 @@ impl BuilderApi for HttpJsonRpc {
     async fn propose_blinded_block_v1<T: EthSpec>(
         &self,
         block: SignedBlindedBeaconBlock<T>,
-    ) -> Result<JsonProposeBlindedBlockResponse<T>, Error> {
+    ) -> Result<ExecutionPayload<T>, Error> {
         let params = json!([block]);
 
-        let response: JsonProposeBlindedBlockResponse<T> = self
+        let response: JsonExecutionPayloadV1<T> = self
             .rpc_request(
                 BUILDER_PROPOSE_BLINDED_BLOCK_V1,
                 params,
@@ -224,7 +224,7 @@ impl BuilderApi for HttpJsonRpc {
             )
             .await?;
 
-        Ok(response)
+        Ok(response.into())
     }
 }
 #[cfg(test)]

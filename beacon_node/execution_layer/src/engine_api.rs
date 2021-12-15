@@ -84,7 +84,7 @@ pub trait BuilderApi {
     async fn propose_blinded_block_v1<T: EthSpec>(
         &self,
         block: SignedBlindedBeaconBlock<T>,
-    ) -> Result<JsonProposeBlindedBlockResponse<T>, Error>;
+    ) -> Result<ExecutionPayload<T>, Error>;
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]

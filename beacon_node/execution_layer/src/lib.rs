@@ -758,7 +758,7 @@ impl ExecutionLayer {
     pub async fn propose_blinded_beacon_block<T: EthSpec>(
         &self,
         block: SignedBlindedBeaconBlock<T>,
-    ) -> Result<JsonProposeBlindedBlockResponse<T>, Error> {
+    ) -> Result<ExecutionPayload<T>, Error> {
         debug!(
             self.log(),
             "Issuing builder_proposeBlindedBlock";
