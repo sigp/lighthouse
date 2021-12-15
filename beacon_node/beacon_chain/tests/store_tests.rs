@@ -14,6 +14,7 @@ use lazy_static::lazy_static;
 use logging::test_logger;
 use maplit::hashset;
 use rand::Rng;
+use state_processing::BlockReplayer;
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::convert::TryInto;
@@ -455,6 +456,80 @@ fn block_replay_with_inaccurate_state_roots() {
             .get_cached_active_validator_indices(RelativeEpoch::Current)
             .unwrap()
     );
+}
+
+#[test]
+fn block_replayer_hooks() {
+    let db_path = tempdir().unwrap();
+    let store = get_store(&db_path);
+    let harness = get_harness(store.clone(), LOW_VALIDATOR_COUNT);
+    let chain = &harness.chain;
+
+    let block_slots = vec![1, 3, 5, 10, 11, 12, 13, 14, 31, 32, 33]
+        .into_iter()
+        .map(Slot::new)
+        .collect::<Vec<_>>();
+    let max_slot = *block_slots.last().unwrap();
+    let all_slots = (0..=max_slot.as_u64()).map(Slot::new).collect::<Vec<_>>();
+
+    let (state, state_root) = harness.get_current_state_and_root();
+    let all_validators = harness.get_all_validators();
+    let (_, _, end_block_root, mut end_state) = harness.add_attested_blocks_at_slots(
+        state.clone(),
+        state_root,
+        &block_slots,
+        &all_validators,
+    );
+
+    let blocks = store
+        .load_blocks_to_replay(Slot::new(0), max_slot, end_block_root.into())
+        .unwrap();
+
+    let mut pre_slots = vec![];
+    let mut post_slots = vec![];
+    let mut pre_block_slots = vec![];
+    let mut post_block_slots = vec![];
+
+    let mut replay_state = BlockReplayer::<MinimalEthSpec>::new(state, &chain.spec)
+        .pre_slot_hook(Box::new(|state| {
+            pre_slots.push(state.slot());
+            Ok(())
+        }))
+        .post_slot_hook(Box::new(|state, is_skip_slot| {
+            if is_skip_slot {
+                assert!(!block_slots.contains(&state.slot()));
+            } else {
+                assert!(block_slots.contains(&state.slot()));
+            }
+            post_slots.push(state.slot());
+            Ok(())
+        }))
+        .pre_block_hook(Box::new(|state, block| {
+            assert_eq!(state.slot(), block.slot());
+            pre_block_slots.push(block.slot());
+            Ok(())
+        }))
+        .post_block_hook(Box::new(|state, block| {
+            assert_eq!(state.slot(), block.slot());
+            post_block_slots.push(block.slot());
+            Ok(())
+        }))
+        .apply_blocks(blocks, None)
+        .unwrap()
+        .into_state();
+
+    // All but last slot seen by pre-slot hook
+    assert_eq!(&pre_slots, all_slots.split_last().unwrap().1);
+    // All but 0th slot seen by post-slot hook
+    assert_eq!(&post_slots, all_slots.split_first().unwrap().1);
+    // All blocks seen by both hooks
+    assert_eq!(pre_block_slots, block_slots);
+    assert_eq!(post_block_slots, block_slots);
+
+    // States match.
+    end_state.drop_all_caches().unwrap();
+    replay_state.drop_all_caches().unwrap();
+    assert_eq!(end_state, replay_state);
 }
 
 #[test]
