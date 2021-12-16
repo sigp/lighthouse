@@ -133,11 +133,11 @@ same `datadir` as a previous network. I.e if you have been running the
 boot-up).
 
 If you find yourself with a low peer count and is not reaching the target you
-expect. Try setting up the correct port forwards as described in `3.` above.
+expect. Try setting up the correct port forwards as described [here](./advanced_networking.md#nat-traversal-port-forwarding).
 
 ### What should I do if I lose my slashing protection database?
 
-See [here.](./slashing-protection.md#misplaced-slashing-database)
+See [here](./slashing-protection.md#misplaced-slashing-database).
 
 ### How do I update lighthouse?
 
