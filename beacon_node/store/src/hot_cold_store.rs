@@ -434,7 +434,13 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         end_block_root: Hash256,
         spec: &ChainSpec,
     ) -> Result<impl Iterator<Item = Result<(Hash256, Slot), Error>> + '_, Error> {
-        HybridForwardsBlockRootsIterator::new(self, start_slot, end_state, end_block_root, spec)
+        HybridForwardsBlockRootsIterator::new(
+            self,
+            start_slot,
+            None,
+            || (end_state, end_block_root),
+            spec,
+        )
     }
 
     pub fn forwards_state_roots_iterator(
