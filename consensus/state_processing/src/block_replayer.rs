@@ -1,8 +1,7 @@
 use crate::{
-    per_block_processing, per_slot_processing, BlockProcessingError, BlockSignatureStrategy,
-    SlotProcessingError, VerifyBlockRoot,
+    per_block_processing, per_epoch_processing::EpochProcessingSummary, per_slot_processing,
+    BlockProcessingError, BlockSignatureStrategy, SlotProcessingError, VerifyBlockRoot,
 };
-use safe_arith::{ArithError, SafeArith};
 use std::marker::PhantomData;
 use types::{BeaconState, ChainSpec, EthSpec, Hash256, SignedBeaconBlock, Slot};
 
@@ -10,8 +9,10 @@ type PreBlockHook<'a, E, Error> =
     Box<dyn FnMut(&mut BeaconState<E>, &SignedBeaconBlock<E>) -> Result<(), Error> + 'a>;
 type PostBlockHook<'a, E, Error> = PreBlockHook<'a, E, Error>;
 type PreSlotHook<'a, E, Error> = Box<dyn FnMut(&mut BeaconState<E>) -> Result<(), Error> + 'a>;
-type PostSlotHook<'a, E, Error> =
-    Box<dyn FnMut(&mut BeaconState<E>, bool) -> Result<(), Error> + 'a>;
+type PostSlotHook<'a, E, Error> = Box<
+    dyn FnMut(&mut BeaconState<E>, Option<EpochProcessingSummary<E>>, bool) -> Result<(), Error>
+        + 'a,
+>;
 type StateRootIterDefault<Error> = std::iter::Empty<Result<(Hash256, Slot), Error>>;
 
 /// Efficiently apply blocks to a state while configuring various parameters.
@@ -27,6 +28,7 @@ pub struct BlockReplayer<
     spec: &'a ChainSpec,
     state_root_strategy: StateRootStrategy,
     block_sig_strategy: BlockSignatureStrategy,
+    verify_block_root: Option<VerifyBlockRoot>,
     pre_block_hook: Option<PreBlockHook<'a, Spec, Error>>,
     post_block_hook: Option<PostBlockHook<'a, Spec, Error>>,
     pre_slot_hook: Option<PreSlotHook<'a, Spec, Error>>,
@@ -41,7 +43,6 @@ pub enum BlockReplayError {
     NoBlocks,
     SlotProcessing(SlotProcessingError),
     BlockProcessing(BlockProcessingError),
-    Arith(ArithError),
 }
 
 impl From<SlotProcessingError> for BlockReplayError {
@@ -53,12 +54,6 @@ impl From<SlotProcessingError> for BlockReplayError {
 impl From<BlockProcessingError> for BlockReplayError {
     fn from(e: BlockProcessingError) -> Self {
         Self::BlockProcessing(e)
-    }
-}
-
-impl From<ArithError> for BlockReplayError {
-    fn from(e: ArithError) -> Self {
-        Self::Arith(e)
     }
 }
 
@@ -82,14 +77,16 @@ where
     ///
     /// Defaults:
     ///
-    /// - *No signature verification*
+    /// - Full (bulk) signature verification
     /// - Accurate state roots
+    /// - Full block root verification
     pub fn new(state: BeaconState<E>, spec: &'a ChainSpec) -> Self {
         Self {
             state,
             spec,
             state_root_strategy: StateRootStrategy::Accurate,
-            block_sig_strategy: BlockSignatureStrategy::NoVerification,
+            block_sig_strategy: BlockSignatureStrategy::VerifyBulk,
+            verify_block_root: Some(VerifyBlockRoot::True),
             pre_block_hook: None,
             post_block_hook: None,
             pre_slot_hook: None,
@@ -102,15 +99,30 @@ where
 
     /// Set the replayer's state root strategy different from the default.
     pub fn state_root_strategy(mut self, state_root_strategy: StateRootStrategy) -> Self {
+        if state_root_strategy == StateRootStrategy::Inconsistent {
+            self.verify_block_root = None;
+        }
         self.state_root_strategy = state_root_strategy;
         self
     }
 
     /// Set the replayer's block signature verification strategy.
-    ///
-    /// Use this to enable signature verification if desired.
     pub fn block_signature_strategy(mut self, block_sig_strategy: BlockSignatureStrategy) -> Self {
         self.block_sig_strategy = block_sig_strategy;
+        self
+    }
+
+    /// Disable signature verification during replay.
+    ///
+    /// If you are truly _replaying_ blocks then you will almost certainly want to disable
+    /// signature checks for performance.
+    pub fn no_signature_verification(self) -> Self {
+        self.block_signature_strategy(BlockSignatureStrategy::NoVerification)
+    }
+
+    /// Verify only the block roots of the initial few blocks, and trust the rest.
+    pub fn minimal_block_root_verification(mut self) -> Self {
+        self.verify_block_root = None;
         self
     }
 
@@ -184,8 +196,8 @@ where
         }
 
         // Otherwise try to source a root from the previous block.
-        if i > 0 {
-            if let Some(prev_block) = blocks.get(i.safe_sub(1).map_err(BlockReplayError::from)?) {
+        if let Some(prev_i) = i.checked_sub(1) {
+            if let Some(prev_block) = blocks.get(prev_i) {
                 if prev_block.slot() == slot {
                     return Ok(Some(prev_block.state_root()));
                 }
@@ -206,7 +218,8 @@ where
         target_slot: Option<Slot>,
     ) -> Result<Self, Error> {
         for (i, block) in blocks.iter().enumerate() {
-            if block.slot() <= self.state.slot() {
+            // Allow one additional block at the start which is only used for its state root.
+            if i == 0 && block.slot() <= self.state.slot() {
                 continue;
             }
 
@@ -216,12 +229,12 @@ where
                 }
 
                 let state_root = self.get_state_root(self.state.slot(), &blocks, i)?;
-                per_slot_processing(&mut self.state, state_root, self.spec)
+                let summary = per_slot_processing(&mut self.state, state_root, self.spec)
                     .map_err(BlockReplayError::from)?;
 
                 if let Some(ref mut post_slot_hook) = self.post_slot_hook {
                     let is_skipped_slot = self.state.slot() < block.slot();
-                    post_slot_hook(&mut self.state, is_skipped_slot)?;
+                    post_slot_hook(&mut self.state, summary, is_skipped_slot)?;
                 }
             }
 
@@ -229,14 +242,22 @@ where
                 pre_block_hook(&mut self.state, block)?;
             }
 
-            // Skip block root verification: this is faster and also compatible with inaccurate
-            // state root replay.
+            let verify_block_root = self.verify_block_root.unwrap_or_else(|| {
+                // If no explicit policy is set, verify only the first 1 or 2 block roots if using
+                // accurate state roots. Inaccurate state roots require block root verification to
+                // be off.
+                if i <= 1 && self.state_root_strategy == StateRootStrategy::Accurate {
+                    VerifyBlockRoot::True
+                } else {
+                    VerifyBlockRoot::False
+                }
+            });
             per_block_processing(
                 &mut self.state,
                 block,
                 None,
                 self.block_sig_strategy,
-                VerifyBlockRoot::False,
+                verify_block_root,
                 self.spec,
             )
             .map_err(BlockReplayError::from)?;
@@ -253,14 +274,14 @@ where
                 }
 
                 let state_root = self.get_state_root(self.state.slot(), &blocks, blocks.len())?;
-                per_slot_processing(&mut self.state, state_root, self.spec)
+                let summary = per_slot_processing(&mut self.state, state_root, self.spec)
                     .map_err(BlockReplayError::from)?;
 
                 if let Some(ref mut post_slot_hook) = self.post_slot_hook {
                     // No more blocks to apply (from our perspective) so we consider these slots
                     // skipped.
                     let is_skipped_slot = true;
-                    post_slot_hook(&mut self.state, is_skipped_slot)?;
+                    post_slot_hook(&mut self.state, summary, is_skipped_slot)?;
                 }
             }
         }

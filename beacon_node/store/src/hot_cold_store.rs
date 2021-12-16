@@ -898,8 +898,10 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         state_root_iter: Option<impl Iterator<Item = Result<(Hash256, Slot), Error>>>,
         state_root_strategy: StateRootStrategy,
     ) -> Result<BeaconState<E>, Error> {
-        let mut block_replayer =
-            BlockReplayer::new(state, &self.spec).state_root_strategy(state_root_strategy);
+        let mut block_replayer = BlockReplayer::new(state, &self.spec)
+            .state_root_strategy(state_root_strategy)
+            .no_signature_verification()
+            .minimal_block_root_verification();
 
         let have_state_root_iterator = state_root_iter.is_some();
         if let Some(state_root_iter) = state_root_iter {

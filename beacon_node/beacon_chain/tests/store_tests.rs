@@ -495,11 +495,14 @@ fn block_replayer_hooks() {
             pre_slots.push(state.slot());
             Ok(())
         }))
-        .post_slot_hook(Box::new(|state, is_skip_slot| {
+        .post_slot_hook(Box::new(|state, epoch_summary, is_skip_slot| {
             if is_skip_slot {
                 assert!(!block_slots.contains(&state.slot()));
             } else {
                 assert!(block_slots.contains(&state.slot()));
+            }
+            if state.slot() % E::slots_per_epoch() == 0 {
+                assert!(epoch_summary.is_some());
             }
             post_slots.push(state.slot());
             Ok(())
