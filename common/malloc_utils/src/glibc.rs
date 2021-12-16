@@ -82,26 +82,7 @@ lazy_static! {
 
 /// Calls `mallinfo` and updates Prometheus metrics with the results.
 pub fn scrape_mallinfo_metrics() {
-    // The docs for this function say it is thread-unsafe since it may return inconsistent results.
-    // Since these are just metrics it's not a concern to us if they're sometimes inconsistent.
-    //
-    // There exists a `mallinfo2` function, however it was released in February 2021 and this seems
-    // too recent to rely on.
-    //
-    // Docs:
-    //
-    // https://man7.org/linux/man-pages/man3/mallinfo.3.html
     let mallinfo = mallinfo();
-
-    /// Cast a C integer as returned by `mallinfo` to an unsigned i64.
-    ///
-    /// A cast from `i32` to `i64` preserves the sign bit, resulting in incorrect negative values.
-    /// Going via `u32` treats the sign bit as part of the number.
-    ///
-    /// Results are still wrong for memory usage over 4GiB due to limitations of mallinfo.
-    fn unsigned_i64(x: i32) -> i64 {
-        x as u32 as i64
-    }
 
     set_gauge(&MALLINFO_ARENA, unsigned_i64(mallinfo.arena));
     set_gauge(&MALLINFO_ORDBLKS, unsigned_i64(mallinfo.ordblks));
@@ -112,6 +93,23 @@ pub fn scrape_mallinfo_metrics() {
     set_gauge(&MALLINFO_UORDBLKS, unsigned_i64(mallinfo.uordblks));
     set_gauge(&MALLINFO_FORDBLKS, unsigned_i64(mallinfo.fordblks));
     set_gauge(&MALLINFO_KEEPCOST, unsigned_i64(mallinfo.keepcost));
+}
+
+/// Cast a C integer as returned by `mallinfo` to an unsigned i64.
+///
+/// A cast from `i32` to `i64` preserves the sign bit, resulting in incorrect negative values.
+/// Going via `u32` treats the sign bit as part of the number.
+///
+/// Results are still wrong for memory usage over 4GiB due to limitations of mallinfo.
+#[cfg(not(feature = "mallinfo2"))]
+fn unsigned_i64(x: i32) -> i64 {
+    x as u32 as i64
+}
+
+/// Cast a C `size_t` as returned by `mallinfo2` to an unsigned i64.
+#[cfg(feature = "mallinfo2")]
+fn unsigned_i64(x: usize) -> i64 {
+    x as i64
 }
 
 /// Perform all configuration routines.
@@ -146,10 +144,22 @@ fn mallopt(param: c_int, val: c_int) -> c_int {
     unsafe { libc::mallopt(param, val) }
 }
 
+/// By default we use `mallinfo`, but it overflows, so `mallinfo2` should be enabled if available.
+///
+/// https://man7.org/linux/man-pages/man3/mallinfo.3.html
+#[cfg(not(feature = "mallinfo2"))]
 fn mallinfo() -> libc::mallinfo {
     // Prevent this function from being called in parallel with any other non-thread-safe function.
     let _lock = GLOBAL_LOCK.lock();
     unsafe { libc::mallinfo() }
+}
+
+/// Use `mallinfo2` if enabled.
+#[cfg(feature = "mallinfo2")]
+fn mallinfo() -> libc::mallinfo2 {
+    // Prevent this function from being called in parallel with any other non-thread-safe function.
+    let _lock = GLOBAL_LOCK.lock();
+    unsafe { libc::mallinfo2() }
 }
 
 fn into_result(result: c_int) -> Result<(), c_int> {

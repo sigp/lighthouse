@@ -350,8 +350,13 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
 
     /// Reports whether the peer limit is reached in which case we stop allowing new incoming
     /// connections.
-    pub fn peer_limit_reached(&self) -> bool {
-        self.network_globals.connected_or_dialing_peers() >= self.max_peers()
+    pub fn peer_limit_reached(&self, count_dialing: bool) -> bool {
+        let max_peers = self.max_peers();
+        if count_dialing {
+            self.network_globals.connected_or_dialing_peers() >= max_peers
+        } else {
+            self.network_globals.connected_peers() >= max_peers
+        }
     }
 
     /// Updates `PeerInfo` with `identify` information.
