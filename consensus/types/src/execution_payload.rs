@@ -1,18 +1,35 @@
+use std::fmt::Debug;
+use serde::de::DeserializeOwned;
 use crate::{test_utils::TestRandom, *};
+use serde::{Serialize as Ser, Deserialize as De};
 use serde_derive::{Deserialize, Serialize};
-use ssz::Encode;
+use ssz::{Decode, Encode};
 use ssz_derive::{Decode, Encode};
 use test_random_derive::TestRandom;
 use tree_hash_derive::TreeHash;
+use tree_hash::TreeHash;
 
 pub type Transaction<T> = VariableList<u8, T>;
+
+pub trait Txnss<T> : Default + Debug + Clone + PartialEq  +  Encode + Decode + TreeHash + TestRandom  {
+    fn hash_tree_root(&self) -> Hash256;
+}
+
+impl <T: EthSpec>  Txnss<T> for  ExecTxs<T>{
+    fn hash_tree_root(&self) -> Hash256{
+        Hash256::zero()
+    }
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(with = "ssz_types::serde_utils::list_of_hex_var_list")]
+struct ExecTxs<T: EthSpec> = VariableList<Transaction<<T as EthSpec>::MaxBytesPerTransaction>, <T as EthSpec>::MaxTransactionsPerPayload>;
 
 #[cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary))]
 #[derive(
     Default, Debug, Clone, PartialEq, Serialize, Deserialize, Encode, Decode, TreeHash, TestRandom,
 )]
-#[serde(bound = "T: EthSpec")]
-pub struct ExecutionPayload<T: EthSpec> {
+pub struct ExecutionPayload< T: EthSpec, Txns : Txnss<T>> {
     pub parent_hash: Hash256,
     pub fee_recipient: Address,
     pub state_root: Hash256,
@@ -34,11 +51,10 @@ pub struct ExecutionPayload<T: EthSpec> {
     pub base_fee_per_gas: Uint256,
     pub block_hash: Hash256,
     #[serde(with = "ssz_types::serde_utils::list_of_hex_var_list")]
-    pub transactions:
-        VariableList<Transaction<T::MaxBytesPerTransaction>, T::MaxTransactionsPerPayload>,
+    pub transactions: Txns,
 }
 
-impl<T: EthSpec> ExecutionPayload<T> {
+impl< T: EthSpec, Txns : Txnss<T>> ExecutionPayload<T, Txns> {
     pub fn empty() -> Self {
         Self::default()
     }

@@ -1,3 +1,4 @@
+use std::marker::PhantomData;
 use crate::beacon_block_body::{
     BeaconBlockBodyAltair, BeaconBlockBodyBase, BeaconBlockBodyMerge, BeaconBlockBodyRef,
     BeaconBlockBodyRefMut,
@@ -12,6 +13,7 @@ use superstruct::superstruct;
 use test_random_derive::TestRandom;
 use tree_hash::TreeHash;
 use tree_hash_derive::TreeHash;
+use crate::execution_payload::Txnss;
 
 /// A block of the `BeaconChain`.
 #[superstruct(
@@ -42,7 +44,7 @@ use tree_hash_derive::TreeHash;
 #[cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary))]
 #[tree_hash(enum_behaviour = "transparent")]
 #[ssz(enum_behaviour = "transparent")]
-pub struct BeaconBlock<T: EthSpec> {
+pub struct BeaconBlock<T: EthSpec, Txns = VariableList<Transaction<<T as EthSpec>::MaxBytesPerTransaction>, <T as EthSpec>::MaxTransactionsPerPayload>> where Txns: Txnss<T>{
     #[superstruct(getter(copy))]
     pub slot: Slot,
     #[superstruct(getter(copy))]
@@ -53,11 +55,11 @@ pub struct BeaconBlock<T: EthSpec> {
     #[superstruct(getter(copy))]
     pub state_root: Hash256,
     #[superstruct(only(Base), partial_getter(rename = "body_base"))]
-    pub body: BeaconBlockBodyBase<T>,
+    pub body: BeaconBlockBodyBase<T, Txns>,
     #[superstruct(only(Altair), partial_getter(rename = "body_altair"))]
-    pub body: BeaconBlockBodyAltair<T>,
+    pub body: BeaconBlockBodyAltair<T, Txns>,
     #[superstruct(only(Merge), partial_getter(rename = "body_merge"))]
-    pub body: BeaconBlockBodyMerge<T>,
+    pub body: BeaconBlockBodyMerge<T, Txns>,
 }
 
 impl<T: EthSpec> SignedRoot for BeaconBlock<T> {}
@@ -170,7 +172,7 @@ impl<T: EthSpec> BeaconBlock<T> {
     }
 }
 
-impl<'a, T: EthSpec> BeaconBlockRef<'a, T> {
+impl<'a, T: EthSpec, Txns : Txnss<T>> BeaconBlockRef<'a, T, Txns> {
     /// Returns the name of the fork pertaining to `self`.
     ///
     /// Will return an `Err` if `self` has been instantiated to a variant conflicting with the fork
@@ -194,7 +196,7 @@ impl<'a, T: EthSpec> BeaconBlockRef<'a, T> {
     }
 
     /// Convenience accessor for the `body` as a `BeaconBlockBodyRef`.
-    pub fn body(&self) -> BeaconBlockBodyRef<'a, T> {
+    pub fn body(&self) -> BeaconBlockBodyRef<'a, T, Txns> {
         match self {
             BeaconBlockRef::Base(block) => BeaconBlockBodyRef::Base(&block.body),
             BeaconBlockRef::Altair(block) => BeaconBlockBodyRef::Altair(&block.body),
@@ -237,7 +239,7 @@ impl<'a, T: EthSpec> BeaconBlockRef<'a, T> {
 
     /// Extracts a reference to an execution payload from a block, returning an error if the block
     /// is pre-merge.
-    pub fn execution_payload(&self) -> Result<&ExecutionPayload<T>, InconsistentFork> {
+    pub fn execution_payload(&self) -> Result<&ExecutionPayload<T, Txns>, InconsistentFork> {
         self.body()
             .execution_payload()
             .ok_or_else(|| InconsistentFork {
@@ -279,6 +281,7 @@ impl<T: EthSpec> BeaconBlockBase<T> {
                 attestations: VariableList::empty(),
                 deposits: VariableList::empty(),
                 voluntary_exits: VariableList::empty(),
+                _phantom: PhantomData,
             },
         }
     }
@@ -400,6 +403,7 @@ impl<T: EthSpec> BeaconBlockAltair<T> {
                 deposits: VariableList::empty(),
                 voluntary_exits: VariableList::empty(),
                 sync_aggregate: SyncAggregate::empty(),
+                _phantom: PhantomData,
             },
         }
     }
@@ -430,6 +434,7 @@ impl<T: EthSpec> BeaconBlockAltair<T> {
                     deposit_count: 0,
                 },
                 graffiti: Graffiti::default(),
+                _phantom: PhantomData,
             },
         }
     }

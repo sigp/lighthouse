@@ -1,3 +1,4 @@
+use std::marker::PhantomData;
 use crate::test_utils::TestRandom;
 use crate::*;
 use serde_derive::{Deserialize, Serialize};
@@ -6,6 +7,7 @@ use ssz_types::VariableList;
 use superstruct::superstruct;
 use test_random_derive::TestRandom;
 use tree_hash_derive::TreeHash;
+use crate::execution_payload::Txnss;
 
 /// The body of a `BeaconChain` block, containing operations.
 ///
@@ -34,7 +36,7 @@ use tree_hash_derive::TreeHash;
 #[serde(untagged)]
 #[serde(bound = "T: EthSpec")]
 #[cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary))]
-pub struct BeaconBlockBody<T: EthSpec> {
+pub struct BeaconBlockBody<T: EthSpec, Txns = VariableList<Transaction<<T as EthSpec>::MaxBytesPerTransaction>, <T as EthSpec>::MaxTransactionsPerPayload>> where Txns: Txnss< T>{
     pub randao_reveal: Signature,
     pub eth1_data: Eth1Data,
     pub graffiti: Graffiti,
@@ -46,10 +48,14 @@ pub struct BeaconBlockBody<T: EthSpec> {
     #[superstruct(only(Altair, Merge))]
     pub sync_aggregate: SyncAggregate<T>,
     #[superstruct(only(Merge))]
-    pub execution_payload: ExecutionPayload<T>,
+    pub execution_payload: ExecutionPayload<T, Txns>,
+    #[superstruct(only(Base, Altair))]
+    #[ssz(skip_serializing, skip_deserializing)]
+    #[tree_hash(skip_hashing)]
+    pub _phantom: PhantomData<Txns>
 }
 
-impl<'a, T: EthSpec> BeaconBlockBodyRef<'a, T> {
+impl<'a, T: EthSpec, Txns : Txnss<T>> BeaconBlockBodyRef<'a, T, Txns> {
     /// Access the sync aggregate from the block's body, if one exists.
     pub fn sync_aggregate(self) -> Option<&'a SyncAggregate<T>> {
         match self {
@@ -60,7 +66,7 @@ impl<'a, T: EthSpec> BeaconBlockBodyRef<'a, T> {
     }
 
     /// Access the execution payload from the block's body, if one exists.
-    pub fn execution_payload(self) -> Option<&'a ExecutionPayload<T>> {
+    pub fn execution_payload(self) -> Option<&'a ExecutionPayload<T, Txns>> {
         match self {
             BeaconBlockBodyRef::Base(_) => None,
             BeaconBlockBodyRef::Altair(_) => None,

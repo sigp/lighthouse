@@ -1,3 +1,4 @@
+use std::marker::PhantomData;
 use crate::*;
 use rand::RngCore;
 use rand::SeedableRng;
@@ -23,6 +24,12 @@ pub fn test_random_instance<T: TestRandom>() -> T {
 
 pub trait TestRandom {
     fn random_for_test(rng: &mut impl RngCore) -> Self;
+}
+
+impl <T>TestRandom for PhantomData<T> {
+    fn random_for_test(rng: &mut impl RngCore) -> Self {
+        PhantomData::default()
+    }
 }
 
 impl TestRandom for bool {
