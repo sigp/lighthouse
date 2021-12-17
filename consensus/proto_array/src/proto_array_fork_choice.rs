@@ -1,5 +1,5 @@
 use crate::error::Error;
-use crate::proto_array::{ProposerBoost, ProtoArray};
+use crate::proto_array::{calculate_proposer_boost, ProposerBoost, ProtoArray};
 use crate::ssz_container::SszContainer;
 use serde_derive::{Deserialize, Serialize};
 use ssz::{Decode, Encode};
@@ -92,9 +92,24 @@ where
         &mut self.0[i]
     }
 
+    pub fn iter(&self) -> impl Iterator<Item = &T> {
+        self.0.iter()
+    }
+
     pub fn iter_mut(&mut self) -> impl Iterator<Item = &mut T> {
         self.0.iter_mut()
     }
+}
+
+/// Information about the proposer head used for opportunistic re-orgs.
+#[derive(Default, Clone)]
+pub struct ProposerHead {
+    /// If set, the head block that the proposer should build upon.
+    pub re_org_head: Option<Hash256>,
+    /// The weight difference between the canonical head and its parent.
+    pub canonical_head_weight: Option<u64>,
+    /// The computed fraction of the active committee balance below which we can re-org.
+    pub re_org_weight_threshold: Option<u64>,
 }
 
 #[derive(PartialEq)]
@@ -212,6 +227,73 @@ impl ProtoArrayForkChoice {
         self.proto_array
             .find_head(&justified_checkpoint.root)
             .map_err(|e| format!("find_head failed: {:?}", e))
+    }
+
+    pub fn get_proposer_head<E: EthSpec>(
+        &self,
+        justified_state_balances: &[u64],
+        canonical_head: Hash256,
+        re_org_vote_fraction: u64,
+    ) -> Result<ProposerHead, String> {
+        let nodes = self
+            .proto_array
+            .iter_nodes(&canonical_head)
+            .take(2)
+            .collect::<Vec<_>>();
+        if nodes.len() != 2 {
+            return Ok(ProposerHead::default());
+        }
+        let head_node = nodes[0];
+        let parent_node = nodes[1];
+
+        // Re-org conditions.
+        let is_single_slot_re_org = parent_node.slot + 1 == head_node.slot;
+        let re_org_weight_threshold =
+            calculate_proposer_boost::<E>(justified_state_balances, re_org_vote_fraction)
+                .ok_or_else(|| {
+                    "overflow calculating committee weight for proposer boost".to_string()
+                })?;
+        let canonical_head_weight = self
+            .get_block_unique_weight(canonical_head, justified_state_balances)
+            .map_err(|e| format!("overflow calculating head weight: {:?}", e))?;
+        let is_weak_head = canonical_head_weight < re_org_weight_threshold;
+
+        let re_org_head = (is_single_slot_re_org && is_weak_head).then(|| parent_node.root);
+
+        Ok(ProposerHead {
+            re_org_head,
+            canonical_head_weight: Some(canonical_head_weight),
+            re_org_weight_threshold: Some(re_org_weight_threshold),
+        })
+    }
+
+    /// Compute the sum of attester balances of attestations to a specific block root.
+    ///
+    /// This weight is the weight unique to the block, *not* including the weight of its ancestors.
+    ///
+    /// Any `proposer_boost` in effect is ignored: only attestations are counted.
+    fn get_block_unique_weight(
+        &self,
+        block_root: Hash256,
+        justified_balances: &[u64],
+    ) -> Result<u64, Error> {
+        let mut unique_weight = 0u64;
+        for (validator_index, vote) in self.votes.iter().enumerate() {
+            // Check the `next_root` as we care about the most recent attestations, including ones
+            // from the previous slot that have just been dequeued but haven't run fully through
+            // fork choice yet.
+            if vote.next_root == block_root {
+                let validator_balance = justified_balances
+                    .get(validator_index)
+                    .copied()
+                    .unwrap_or(0);
+
+                unique_weight = unique_weight
+                    .checked_add(validator_balance)
+                    .ok_or(Error::UniqueWeightOverflow(block_root))?;
+            }
+        }
+        Ok(unique_weight)
     }
 
     pub fn maybe_prune(&mut self, finalized_root: Hash256) -> Result<(), String> {

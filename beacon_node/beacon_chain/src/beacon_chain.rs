@@ -34,7 +34,7 @@ use crate::observed_operations::{ObservationOutcome, ObservedOperations};
 use crate::persisted_beacon_chain::{PersistedBeaconChain, DUMMY_CANONICAL_HEAD_BLOCK_ROOT};
 use crate::persisted_fork_choice::PersistedForkChoice;
 use crate::shuffling_cache::{BlockShufflingIds, ShufflingCache};
-use crate::snapshot_cache::SnapshotCache;
+use crate::snapshot_cache::{BlockProductionPreState, SnapshotCache};
 use crate::sync_committee_verification::{
     Error as SyncCommitteeError, VerifiedSyncCommitteeMessage, VerifiedSyncContribution,
 };
@@ -100,6 +100,9 @@ pub const ATTESTATION_CACHE_LOCK_TIMEOUT: Duration = Duration::from_secs(1);
 /// The time-out before failure during an operation to take a read/write RwLock on the
 /// validator pubkey cache.
 pub const VALIDATOR_PUBKEY_CACHE_LOCK_TIMEOUT: Duration = Duration::from_secs(1);
+
+/// The latest delay from the start of the slot at which to attempt a 1-slot re-org.
+const MAX_RE_ORG_SLOT_DELAY: Duration = Duration::from_secs(2);
 
 // These keys are all zero because they get stored in different columns, see `DBColumn` type.
 pub const BEACON_CHAIN_DB_KEY: Hash256 = Hash256::zero();
@@ -2723,8 +2726,18 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .head_info()
             .map_err(BlockProductionError::UnableToGetHeadInfo)?;
         let (state, state_root_opt) = if head_info.slot < slot {
+            // Attempt an aggressive re-org if configured and the conditions are right.
+            if let Some(re_org_state) = self.get_state_for_re_org(slot, &head_info)? {
+                info!(
+                    self.log,
+                    "Proposing block to re-org current head";
+                    "slot" => slot,
+                    "head" => %head_info.block_root,
+                );
+                (re_org_state.pre_state, re_org_state.state_root)
+            }
             // Normal case: proposing a block atop the current head. Use the snapshot cache.
-            if let Some(pre_state) = self
+            else if let Some(pre_state) = self
                 .snapshot_cache
                 .try_read_for(BLOCK_PROCESSING_CACHE_LOCK_TIMEOUT)
                 .and_then(|snapshot_cache| {
@@ -2767,6 +2780,76 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             randao_reveal,
             validator_graffiti,
         )
+    }
+
+    fn get_state_for_re_org(
+        &self,
+        slot: Slot,
+        head_info: &HeadInfo,
+    ) -> Result<Option<BlockProductionPreState<T::EthSpec>>, BlockProductionError> {
+        if let Some(re_org_threshold) = self.config.re_org_threshold {
+            let canonical_head = head_info.block_root;
+            let slot_delay = self
+                .slot_clock
+                .seconds_from_current_slot_start(self.spec.seconds_per_slot)
+                .ok_or(BlockProductionError::UnableToReadSlot)?;
+
+            // Check that we're producing a block one slot after the current head, and early enough
+            // in the slot to be able to propagate widely.
+            if head_info.slot + 1 == slot && slot_delay < MAX_RE_ORG_SLOT_DELAY {
+                // Is the current head weak and appropriate for re-orging?
+                let proposer_head = self.fork_choice.write().get_proposer_head(
+                    slot,
+                    canonical_head,
+                    re_org_threshold,
+                )?;
+                if let Some(re_org_head) = proposer_head.re_org_head {
+                    // Only attempt a re-org if we hit the snapshot cache.
+                    if let Some(pre_state) = self
+                        .snapshot_cache
+                        .try_read_for(BLOCK_PROCESSING_CACHE_LOCK_TIMEOUT)
+                        .and_then(|snapshot_cache| {
+                            snapshot_cache.get_state_for_block_production(re_org_head)
+                        })
+                    {
+                        debug!(
+                            self.log,
+                            "Attempting re-org due to weak head";
+                            "head" => ?canonical_head,
+                            "re_org_head" => ?re_org_head,
+                            "head_weight" => ?proposer_head.canonical_head_weight,
+                            "re_org_weight" => ?proposer_head.re_org_weight_threshold,
+                        );
+                        return Ok(Some(pre_state));
+                    } else {
+                        debug!(
+                            self.log,
+                            "Not attempting re-org due to cache miss";
+                            "head" => ?canonical_head,
+                            "re_org_head" => ?re_org_head,
+                            "head_weight" => ?proposer_head.canonical_head_weight,
+                            "re_org_weight" => ?proposer_head.re_org_weight_threshold,
+                        );
+                    }
+                } else {
+                    debug!(
+                        self.log,
+                        "Not attempting re-org due to strong head";
+                        "head" => ?canonical_head,
+                        "head_weight" => ?proposer_head.canonical_head_weight,
+                        "re_org_weight" => ?proposer_head.re_org_weight_threshold,
+                    );
+                }
+            } else {
+                debug!(
+                    self.log,
+                    "Not attempting re-org due to slot distance";
+                    "head" => ?canonical_head,
+                );
+            }
+        }
+
+        Ok(None)
     }
 
     /// Produce a block for some `slot` upon the given `state`.

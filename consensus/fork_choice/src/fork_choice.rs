@@ -1,5 +1,5 @@
 use crate::ForkChoiceStore;
-use proto_array::{Block as ProtoBlock, ExecutionStatus, ProtoArrayForkChoice};
+use proto_array::{Block as ProtoBlock, ExecutionStatus, ProposerHead, ProtoArrayForkChoice};
 use ssz_derive::{Decode, Encode};
 use std::cmp::Ordering;
 use std::marker::PhantomData;
@@ -408,6 +408,25 @@ where
                 store.justified_balances(),
                 store.proposer_boost_root(),
                 spec,
+            )
+            .map_err(Into::into)
+    }
+
+    pub fn get_proposer_head(
+        &mut self,
+        current_slot: Slot,
+        canonical_head: Hash256,
+        re_org_threshold: u64,
+    ) -> Result<ProposerHead, Error<T::Error>> {
+        // Calling `update_time` is essential, as it needs to dequeue attestations from the previous
+        // slot so we can see how many attesters voted for the canonical head.
+        self.update_time(current_slot)?;
+
+        self.proto_array
+            .get_proposer_head::<E>(
+                self.fc_store.justified_balances(),
+                canonical_head,
+                re_org_threshold,
             )
             .map_err(Into::into)
     }

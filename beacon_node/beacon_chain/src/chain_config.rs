@@ -1,6 +1,8 @@
 use serde_derive::{Deserialize, Serialize};
 use types::Checkpoint;
 
+pub const DEFAULT_RE_ORG_THRESHOLD: u64 = 10;
+
 #[derive(Debug, PartialEq, Eq, Clone, Deserialize, Serialize)]
 pub struct ChainConfig {
     /// Maximum number of slots to skip when importing a consensus message (e.g., block,
@@ -18,6 +20,8 @@ pub struct ChainConfig {
     pub enable_lock_timeouts: bool,
     /// The max size of a message that can be sent over the network.
     pub max_network_size: usize,
+    /// Maximum percentage of weight at which to attempt re-orging the canonical head.
+    pub re_org_threshold: Option<u64>,
 }
 
 impl Default for ChainConfig {
@@ -28,6 +32,7 @@ impl Default for ChainConfig {
             reconstruct_historic_states: false,
             enable_lock_timeouts: true,
             max_network_size: 10 * 1_048_576, // 10M
+            re_org_threshold: None,
         }
     }
 }

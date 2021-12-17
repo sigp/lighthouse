@@ -1,3 +1,4 @@
+use beacon_chain::chain_config::DEFAULT_RE_ORG_THRESHOLD;
 use clap::ArgMatches;
 use clap_utils::flags::DISABLE_MALLOC_TUNING_FLAG;
 use client::{ClientConfig, ClientGenesis};
@@ -560,6 +561,17 @@ pub fn get_config<E: EthSpec>(
 
     if cli_args.is_present("disable-lock-timeouts") {
         client_config.chain.enable_lock_timeouts = false;
+    }
+
+    if let Some(enable_re_orgs) = clap_utils::parse_optional(cli_args, "enable-proposer-re-orgs")? {
+        if enable_re_orgs {
+            client_config.chain.re_org_threshold = Some(
+                clap_utils::parse_optional(cli_args, "proposer-re-org-fraction")?
+                    .unwrap_or(DEFAULT_RE_ORG_THRESHOLD),
+            );
+        } else {
+            client_config.chain.re_org_threshold = None;
+        }
     }
 
     Ok(client_config)

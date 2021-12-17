@@ -51,4 +51,6 @@ exec lighthouse \
 	--port $network_port \
 	--http-port $http_port \
 	--disable-packet-filter \
-	--target-peers $((BN_COUNT - 1))
+	--target-peers $((BN_COUNT - 1)) \
+    --enable-proposer-re-orgs true \
+    --proposer-re-org-fraction 60

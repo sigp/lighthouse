@@ -625,4 +625,18 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                        experimental as it may obscure performance issues.")
                 .takes_value(false)
         )
+        .arg(
+            Arg::with_name("enable-proposer-re-orgs")
+                .long("enable-proposer-re-orgs")
+                .help("Attempt to re-org out weak/late blocks from other proposers \
+                       (dangerous, experimental)")
+                .takes_value(true)
+        )
+        .arg(
+            Arg::with_name("proposer-re-org-fraction")
+                .long("proposer-re-org-fraction")
+                .help("Percentage of vote weight below which to attempt a proposer re-org")
+                .requires("enable-proposer-re-orgs")
+                .takes_value(true)
+        )
 }
