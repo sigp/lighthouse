@@ -1024,90 +1024,99 @@ pub fn serve<T: BeaconChainTypes>(
         .and(warp::path::end())
         .and(warp::body::json())
         .and(chain_filter.clone())
+        .and(network_tx_filter.clone())
         .and(log_filter.clone())
         .and_then(
             |block: SignedBlindedBeaconBlock<T::EthSpec>,
              chain: Arc<BeaconChain<T>>,
-             log: Logger|  {
+             network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>,
+             log: Logger| {
                 blocking_json_task(move || {
-
                     if let Some(el) = chain.execution_layer.as_ref() {
-                            let mut block_clone = block.clone();
-                            let payload =
-                                el.block_on(|el|el.propose_blinded_beacon_block(block.clone())).map_err(|e| {
-                                    warp_utils::reject::custom_server_error(format!(
-                                        "proposal failed: {:?}",
-                                        e
-                                    ))
-                                })?;
-                            let new_block = SignedBeaconBlock::Merge(SignedBeaconBlockMerge {
-                                message: BeaconBlockMerge {
-                                    slot: block_clone.message().slot(),
-                                    proposer_index: block_clone.message().proposer_index(),
-                                    parent_root: block_clone.message().parent_root(),
-                                    state_root: block_clone.message().state_root(),
-                                    body: BeaconBlockBodyMerge {
-                                        randao_reveal: block_clone
-                                            .message()
-                                            .body()
-                                            .randao_reveal()
-                                            .clone(),
-                                        eth1_data: block_clone.message().body().eth1_data().clone(),
-                                        graffiti: *block_clone.message().body().graffiti(),
-                                        proposer_slashings: block_clone
-                                            .message()
-                                            .body()
-                                            .proposer_slashings()
-                                            .clone(),
-                                        attester_slashings: block_clone
-                                            .message()
-                                            .body()
-                                            .attester_slashings()
-                                            .clone(),
-                                        attestations: block_clone
-                                            .message()
-                                            .body()
-                                            .attestations()
-                                            .clone(),
-                                        deposits: block_clone.message().body().deposits().clone(),
-                                        voluntary_exits: block_clone
-                                            .message()
-                                            .body()
-                                            .voluntary_exits()
-                                            .clone(),
-                                        sync_aggregate: block_clone
-                                            .message()
-                                            .body()
-                                            .sync_aggregate()
-                                            .unwrap()
-                                            .clone(),
-                                        execution_payload: payload,
-                                    },
+                        let mut block_clone = block.clone();
+                        let payload = el
+                            .block_on(|el| el.propose_blinded_beacon_block(block.clone()))
+                            .map_err(|e| {
+                                warp_utils::reject::custom_server_error(format!(
+                                    "proposal failed: {:?}",
+                                    e
+                                ))
+                            })?;
+                        let new_block = SignedBeaconBlock::Merge(SignedBeaconBlockMerge {
+                            message: BeaconBlockMerge {
+                                slot: block_clone.message().slot(),
+                                proposer_index: block_clone.message().proposer_index(),
+                                parent_root: block_clone.message().parent_root(),
+                                state_root: block_clone.message().state_root(),
+                                body: BeaconBlockBodyMerge {
+                                    randao_reveal: block_clone
+                                        .message()
+                                        .body()
+                                        .randao_reveal()
+                                        .clone(),
+                                    eth1_data: block_clone.message().body().eth1_data().clone(),
+                                    graffiti: *block_clone.message().body().graffiti(),
+                                    proposer_slashings: block_clone
+                                        .message()
+                                        .body()
+                                        .proposer_slashings()
+                                        .clone(),
+                                    attester_slashings: block_clone
+                                        .message()
+                                        .body()
+                                        .attester_slashings()
+                                        .clone(),
+                                    attestations: block_clone
+                                        .message()
+                                        .body()
+                                        .attestations()
+                                        .clone(),
+                                    deposits: block_clone.message().body().deposits().clone(),
+                                    voluntary_exits: block_clone
+                                        .message()
+                                        .body()
+                                        .voluntary_exits()
+                                        .clone(),
+                                    sync_aggregate: block_clone
+                                        .message()
+                                        .body()
+                                        .sync_aggregate()
+                                        .unwrap()
+                                        .clone(),
+                                    execution_payload: payload,
                                 },
-                                signature: block_clone.signature().clone(),
-                            });
+                            },
+                            signature: block_clone.signature().clone(),
+                        });
 
-                            match chain.process_block(new_block.clone()) {
-                                Ok(root) => {
-                                    // Update the head since it's likely this block will become the new
-                                    // head.
-                                    chain
-                                        .fork_choice()
-                                        .map_err(warp_utils::reject::beacon_chain_error)?;
+                        // Send the block, regardless of whether or not it is valid. The API
+                        // specification is very clear that this is the desired behaviour.
+                        publish_pubsub_message(
+                            &network_tx,
+                            PubsubMessage::BeaconBlock(Box::new(new_block.clone())),
+                        )?;
 
-                                    Ok(())
-                                }
-                                Err(e) => {
-                                    let msg = format!("{:?}", e);
+                        match chain.process_block(new_block.clone()) {
+                            Ok(root) => {
+                                // Update the head since it's likely this block will become the new
+                                // head.
+                                chain
+                                    .fork_choice()
+                                    .map_err(warp_utils::reject::beacon_chain_error)?;
 
-                                    Err(warp_utils::reject::broadcast_without_import(msg))
-                                }
+                                Ok(())
                             }
-                        } else {
-                            Err(warp_utils::reject::custom_server_error(
-                                "no execution layer found".to_string(),
-                            ))
+                            Err(e) => {
+                                let msg = format!("{:?}", e);
+
+                                Err(warp_utils::reject::broadcast_without_import(msg))
+                            }
                         }
+                    } else {
+                        Err(warp_utils::reject::custom_server_error(
+                            "no execution layer found".to_string(),
+                        ))
+                    }
                 })
             },
         );
