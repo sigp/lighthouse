@@ -443,6 +443,16 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         )
     }
 
+    pub fn forwards_block_roots_iterator_until(
+        &self,
+        start_slot: Slot,
+        end_slot: Slot,
+        get_state: impl FnOnce() -> (BeaconState<E>, Hash256),
+        spec: &ChainSpec,
+    ) -> Result<HybridForwardsBlockRootsIterator<E, Hot, Cold>, Error> {
+        HybridForwardsBlockRootsIterator::new(self, start_slot, Some(end_slot), get_state, spec)
+    }
+
     pub fn forwards_state_roots_iterator(
         &self,
         start_slot: Slot,

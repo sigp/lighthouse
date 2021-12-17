@@ -359,9 +359,9 @@ fn epoch_boundary_state_attestation_processing() {
     assert!(checked_pre_fin);
 }
 
-// Test that the `end_slot` for forwards state root iterators works correctly.
+// Test that the `end_slot` for forwards block and state root iterators works correctly.
 #[test]
-fn forwards_state_roots_iter_until() {
+fn forwards_iter_block_and_state_roots_until() {
     let num_blocks_produced = E::slots_per_epoch() * 17;
     let db_path = tempdir().unwrap();
     let store = get_store(&db_path);
@@ -369,14 +369,17 @@ fn forwards_state_roots_iter_until() {
 
     let all_validators = &harness.get_all_validators();
     let (mut head_state, mut head_state_root) = harness.get_current_state_and_root();
+    let head_block_root = harness.chain.head_info().unwrap().block_root;
+    let mut block_roots = vec![head_block_root];
     let mut state_roots = vec![head_state_root];
 
     for slot in (1..=num_blocks_produced).map(Slot::from) {
-        let (_, mut state) = harness
+        let (block_root, mut state) = harness
             .add_attested_block_at_slot(slot, head_state, head_state_root, all_validators)
             .unwrap();
         head_state_root = state.update_tree_hash_cache().unwrap();
         head_state = state;
+        block_roots.push(block_root.into());
         state_roots.push(head_state_root);
     }
 
@@ -394,13 +397,19 @@ fn forwards_state_roots_iter_until() {
     assert_eq!(head_slot, num_blocks_produced);
 
     let test_range = |start_slot: Slot, end_slot: Slot| {
-        let mut iter = chain
+        let mut block_root_iter = chain
+            .forwards_iter_block_roots_until(start_slot, end_slot)
+            .unwrap();
+        let mut state_root_iter = chain
             .forwards_iter_state_roots_until(start_slot, end_slot)
             .unwrap();
 
         for slot in (start_slot.as_u64()..=end_slot.as_u64()).map(Slot::new) {
-            let expected_root = state_roots[slot.as_usize()];
-            assert_eq!(iter.next().unwrap().unwrap(), (expected_root, slot));
+            let block_root = block_roots[slot.as_usize()];
+            assert_eq!(block_root_iter.next().unwrap().unwrap(), (block_root, slot));
+
+            let state_root = state_roots[slot.as_usize()];
+            assert_eq!(state_root_iter.next().unwrap().unwrap(), (state_root, slot));
         }
     };
 

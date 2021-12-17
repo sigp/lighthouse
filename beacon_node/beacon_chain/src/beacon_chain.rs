@@ -511,6 +511,43 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         Ok(iter.map(|result| result.map_err(Into::into)))
     }
 
+    /// Even more efficient variant of `forwards_iter_block_roots` that will avoid cloning the head
+    /// state if it isn't required for the requested range of blocks.
+    pub fn forwards_iter_block_roots_until(
+        &self,
+        start_slot: Slot,
+        end_slot: Slot,
+    ) -> Result<impl Iterator<Item = Result<(Hash256, Slot), Error>> + '_, Error> {
+        let oldest_block_slot = self.store.get_oldest_block_slot();
+        if start_slot < oldest_block_slot {
+            return Err(Error::HistoricalBlockError(
+                HistoricalBlockError::BlockOutOfRange {
+                    slot: start_slot,
+                    oldest_block_slot,
+                },
+            ));
+        }
+
+        self.with_head(move |head| {
+            let iter = self.store.forwards_block_roots_iterator_until(
+                start_slot,
+                end_slot,
+                || {
+                    (
+                        head.beacon_state.clone_with_only_committee_caches(),
+                        head.beacon_block_root,
+                    )
+                },
+                &self.spec,
+            )?;
+            Ok(iter
+                .map(|result| result.map_err(Into::into))
+                .take_while(move |result| {
+                    result.as_ref().map_or(true, |(_, slot)| *slot <= end_slot)
+                }))
+        })
+    }
+
     /// Traverse backwards from `block_root` to find the block roots of its ancestors.
     ///
     /// ## Notes
@@ -663,7 +700,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             let iter = self.store.forwards_state_roots_iterator_until(
                 start_slot,
                 end_slot,
-                || (head.beacon_state.clone(), head.beacon_state_root()),
+                || {
+                    (
+                        head.beacon_state.clone_with_only_committee_caches(),
+                        head.beacon_state_root(),
+                    )
+                },
                 &self.spec,
             )?;
             Ok(iter
@@ -731,18 +773,21 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             return Ok(Some(root));
         }
 
-        process_results(self.forwards_iter_state_roots(request_slot)?, |mut iter| {
-            if let Some((root, slot)) = iter.next() {
-                if slot == request_slot {
-                    Ok(Some(root))
+        process_results(
+            self.forwards_iter_state_roots_until(request_slot, request_slot)?,
+            |mut iter| {
+                if let Some((root, slot)) = iter.next() {
+                    if slot == request_slot {
+                        Ok(Some(root))
+                    } else {
+                        // Sanity check.
+                        Err(Error::InconsistentForwardsIter { request_slot, slot })
+                    }
                 } else {
-                    // Sanity check.
-                    Err(Error::InconsistentForwardsIter { request_slot, slot })
+                    Ok(None)
                 }
-            } else {
-                Ok(None)
-            }
-        })?
+            },
+        )?
     }
 
     /// Returns the block root at the given slot, if any. Only returns roots in the canonical chain.
@@ -813,11 +858,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             return Ok(root_opt);
         }
 
-        if let Some(((prev_root, _), (curr_root, curr_slot))) =
-            process_results(self.forwards_iter_block_roots(prev_slot)?, |iter| {
-                iter.tuple_windows().next()
-            })?
-        {
+        if let Some(((prev_root, _), (curr_root, curr_slot))) = process_results(
+            self.forwards_iter_block_roots_until(prev_slot, request_slot)?,
+            |iter| iter.tuple_windows().next(),
+        )? {
             // Sanity check.
             if curr_slot != request_slot {
                 return Err(Error::InconsistentForwardsIter {
@@ -865,18 +909,21 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             return Ok(Some(root));
         }
 
-        process_results(self.forwards_iter_block_roots(request_slot)?, |mut iter| {
-            if let Some((root, slot)) = iter.next() {
-                if slot == request_slot {
-                    Ok(Some(root))
+        process_results(
+            self.forwards_iter_block_roots_until(request_slot, request_slot)?,
+            |mut iter| {
+                if let Some((root, slot)) = iter.next() {
+                    if slot == request_slot {
+                        Ok(Some(root))
+                    } else {
+                        // Sanity check.
+                        Err(Error::InconsistentForwardsIter { request_slot, slot })
+                    }
                 } else {
-                    // Sanity check.
-                    Err(Error::InconsistentForwardsIter { request_slot, slot })
+                    Ok(None)
                 }
-            } else {
-                Ok(None)
-            }
-        })?
+            },
+        )?
     }
 
     /// Returns the block at the given root, if any.
@@ -1135,12 +1182,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 Ok(state)
             }
             Ordering::Less => {
-                let state_root = process_results(self.forwards_iter_state_roots(slot)?, |iter| {
-                    iter.take_while(|(_, current_slot)| *current_slot >= slot)
-                        .find(|(_, current_slot)| *current_slot == slot)
-                        .map(|(root, _slot)| root)
-                })?
-                .ok_or(Error::NoStateForSlot(slot))?;
+                let state_root =
+                    process_results(self.forwards_iter_state_roots_until(slot, slot)?, |iter| {
+                        iter.take_while(|(_, current_slot)| *current_slot >= slot)
+                            .find(|(_, current_slot)| *current_slot == slot)
+                            .map(|(root, _slot)| root)
+                    })?
+                    .ok_or(Error::NoStateForSlot(slot))?;
 
                 Ok(self
                     .get_state(&state_root, Some(slot))?
