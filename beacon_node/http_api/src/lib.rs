@@ -1028,13 +1028,13 @@ pub fn serve<T: BeaconChainTypes>(
         .and_then(
             |block: SignedBlindedBeaconBlock<T::EthSpec>,
              chain: Arc<BeaconChain<T>>,
-             _log: Logger| async {
-                tokio::task::spawn_blocking(|| {
-                    async move {
-                        if let Some(el) = chain.execution_layer.as_ref() {
+             log: Logger|  {
+                blocking_json_task(move || {
+
+                    if let Some(el) = chain.execution_layer.as_ref() {
                             let mut block_clone = block.clone();
                             let payload =
-                                el.propose_blinded_beacon_block(block).await.map_err(|e| {
+                                el.block_on(|el|el.propose_blinded_beacon_block(block.clone())).map_err(|e| {
                                     warp_utils::reject::custom_server_error(format!(
                                         "proposal failed: {:?}",
                                         e
@@ -1108,12 +1108,7 @@ pub fn serve<T: BeaconChainTypes>(
                                 "no execution layer found".to_string(),
                             ))
                         }
-                    }
                 })
-                .await
-                .map_err(|_| warp::reject::reject())?
-                .await
-                .map(|resp| warp::reply::json(&resp))
             },
         );
 
