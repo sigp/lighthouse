@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use tree_hash::TreeHash;
 use tree_hash_derive::TreeHash;
-use types::{EthSpec, ExecutionPayload, Hash256, Uint256};
+use types::{EthSpec, ExecTransactions, ExecutionPayload, Hash256, Uint256};
 
 const GAS_LIMIT: u64 = 16384;
 const GAS_USED: u64 = GAS_LIMIT - 1;

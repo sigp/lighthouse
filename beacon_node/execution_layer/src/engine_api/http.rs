@@ -9,8 +9,9 @@ use sensitive_url::SensitiveUrl;
 use serde::de::DeserializeOwned;
 use serde_json::json;
 use std::time::Duration;
-use types::{EthSpec, SignedBlindedBeaconBlock};
+use types::{EthSpec, ExecTransactions, SignedBlindedBeaconBlock, Transactions};
 
+use crate::BlockType;
 pub use reqwest::Client;
 
 const STATIC_ID: u32 = 1;
@@ -156,14 +157,19 @@ impl EngineApi for HttpJsonRpc {
         Ok(response.into())
     }
 
-    async fn get_payload_v1<T: EthSpec>(
+    async fn get_payload_v1<T: EthSpec, Txns: Transactions<T>>(
         &self,
         payload_id: PayloadId,
-    ) -> Result<ExecutionPayload<T>, Error> {
+        block_type: BlockType,
+    ) -> Result<ExecutionPayload<T, Txns>, Error> {
         let params = json!([JsonPayloadIdRequest::from(payload_id)]);
 
-        let response: JsonExecutionPayloadV1<T> = self
-            .rpc_request(ENGINE_GET_PAYLOAD_V1, params, ENGINE_GET_PAYLOAD_TIMEOUT)
+        let response: JsonExecutionPayloadV1<T, Txns> = self
+            .rpc_request(
+                block_type.get_endpoint(),
+                params,
+                ENGINE_GET_PAYLOAD_TIMEOUT,
+            )
             .await?;
 
         Ok(response.into())
@@ -193,30 +199,13 @@ impl EngineApi for HttpJsonRpc {
 
 #[async_trait]
 impl BuilderApi for HttpJsonRpc {
-    async fn get_payload_header_v1<T: EthSpec>(
-        &self,
-        payload_id: PayloadId,
-    ) -> Result<ExecutionPayloadHeader<T>, Error> {
-        let params = json!([JsonPayloadIdRequest::from(payload_id)]);
-
-        let response: JsonExecutionPayloadHeaderV1<T> = self
-            .rpc_request(
-                BUILDER_GET_PAYLOAD_HEADER_V1,
-                params,
-                BUILDER_GET_PAYLOAD_HEADER_TIMEOUT,
-            )
-            .await?;
-
-        Ok(response.into())
-    }
-
     async fn propose_blinded_block_v1<T: EthSpec>(
         &self,
         block: SignedBlindedBeaconBlock<T>,
     ) -> Result<ExecutionPayload<T>, Error> {
         let params = json!([block]);
 
-        let response: JsonExecutionPayloadV1<T> = self
+        let response: JsonExecutionPayloadV1<T, ExecTransactions<T>> = self
             .rpc_request(
                 BUILDER_PROPOSE_BLINDED_BLOCK_V1,
                 params,
@@ -234,7 +223,7 @@ mod test {
     use std::future::Future;
     use std::str::FromStr;
     use std::sync::Arc;
-    use types::{MainnetEthSpec, Transaction, Unsigned, VariableList};
+    use types::{ExecTransactions, MainnetEthSpec, Transaction, Unsigned, VariableList};
 
     struct Tester {
         server: MockServer<MainnetEthSpec>,

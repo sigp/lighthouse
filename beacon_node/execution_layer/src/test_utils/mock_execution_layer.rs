@@ -6,7 +6,7 @@ use environment::null_logger;
 use sensitive_url::SensitiveUrl;
 use std::sync::Arc;
 use task_executor::TaskExecutor;
-use types::{Address, ChainSpec, Epoch, EthSpec, Hash256, Uint256};
+use types::{Address, ChainSpec, Epoch, EthSpec, ExecTransactions, Hash256, Uint256};
 
 pub struct ExecutionLayerRuntime {
     pub runtime: Option<Arc<tokio::runtime::Runtime>>,
@@ -130,7 +130,13 @@ impl<T: EthSpec> MockExecutionLayer<T> {
 
         let payload = self
             .el
-            .get_payload::<T>(parent_hash, timestamp, random, finalized_block_hash)
+            .get_payload::<T, ExecTransactions<T>>(
+                parent_hash,
+                timestamp,
+                random,
+                finalized_block_hash,
+                BlockType::Full,
+            )
             .await
             .unwrap();
         let block_hash = payload.block_hash;

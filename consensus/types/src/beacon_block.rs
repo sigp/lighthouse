@@ -1,19 +1,19 @@
-use std::marker::PhantomData;
 use crate::beacon_block_body::{
     BeaconBlockBodyAltair, BeaconBlockBodyBase, BeaconBlockBodyMerge, BeaconBlockBodyRef,
     BeaconBlockBodyRefMut,
 };
+use crate::execution_payload::ExecTransactions;
 use crate::test_utils::TestRandom;
 use crate::*;
 use bls::Signature;
 use serde_derive::{Deserialize, Serialize};
-use ssz::{Decode, DecodeError};
+use ssz::{Decode, DecodeError, Encode};
 use ssz_derive::{Decode, Encode};
+use std::marker::PhantomData;
 use superstruct::superstruct;
 use test_random_derive::TestRandom;
 use tree_hash::TreeHash;
 use tree_hash_derive::TreeHash;
-use crate::execution_payload::Txnss;
 
 /// A block of the `BeaconChain`.
 #[superstruct(
@@ -30,7 +30,7 @@ use crate::execution_payload::Txnss;
             TreeHash,
             TestRandom
         ),
-        serde(bound = "T: EthSpec", deny_unknown_fields),
+        serde(bound = "T: EthSpec, Txns: Transactions<T>", deny_unknown_fields),
         cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary)),
     ),
     ref_attributes(
@@ -40,11 +40,11 @@ use crate::execution_payload::Txnss;
 )]
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize, Encode, TreeHash)]
 #[serde(untagged)]
-#[serde(bound = "T: EthSpec")]
+#[serde(bound = "T: EthSpec, Txns: Transactions<T>")]
 #[cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary))]
 #[tree_hash(enum_behaviour = "transparent")]
 #[ssz(enum_behaviour = "transparent")]
-pub struct BeaconBlock<T: EthSpec, Txns = VariableList<Transaction<<T as EthSpec>::MaxBytesPerTransaction>, <T as EthSpec>::MaxTransactionsPerPayload>> where Txns: Txnss<T>{
+pub struct BeaconBlock<T: EthSpec, Txns: Transactions<T> = ExecTransactions<T>> {
     #[superstruct(getter(copy))]
     pub slot: Slot,
     #[superstruct(getter(copy))]
@@ -62,10 +62,10 @@ pub struct BeaconBlock<T: EthSpec, Txns = VariableList<Transaction<<T as EthSpec
     pub body: BeaconBlockBodyMerge<T, Txns>,
 }
 
-impl<T: EthSpec> SignedRoot for BeaconBlock<T> {}
-impl<'a, T: EthSpec> SignedRoot for BeaconBlockRef<'a, T> {}
+impl<T: EthSpec, Txns: Transactions<T>> SignedRoot for BeaconBlock<T, Txns> {}
+impl<'a, T: EthSpec, Txns: Transactions<T>> SignedRoot for BeaconBlockRef<'a, T, Txns> {}
 
-impl<T: EthSpec> BeaconBlock<T> {
+impl<T: EthSpec, Txns: Transactions<T>> BeaconBlock<T, Txns> {
     /// Returns an empty block to be used during genesis.
     pub fn empty(spec: &ChainSpec) -> Self {
         if spec.merge_fork_epoch == Some(T::genesis_epoch()) {
@@ -113,12 +113,12 @@ impl<T: EthSpec> BeaconBlock<T> {
     }
 
     /// Convenience accessor for the `body` as a `BeaconBlockBodyRef`.
-    pub fn body(&self) -> BeaconBlockBodyRef<'_, T> {
+    pub fn body(&self) -> BeaconBlockBodyRef<'_, T, Txns> {
         self.to_ref().body()
     }
 
     /// Convenience accessor for the `body` as a `BeaconBlockBodyRefMut`.
-    pub fn body_mut(&mut self) -> BeaconBlockBodyRefMut<'_, T> {
+    pub fn body_mut(&mut self) -> BeaconBlockBodyRefMut<'_, T, Txns> {
         self.to_mut().body_mut()
     }
 
@@ -159,7 +159,7 @@ impl<T: EthSpec> BeaconBlock<T> {
         fork: &Fork,
         genesis_validators_root: Hash256,
         spec: &ChainSpec,
-    ) -> SignedBeaconBlock<T> {
+    ) -> SignedBeaconBlock<T, Txns> {
         let domain = spec.get_domain(
             self.epoch(),
             Domain::BeaconProposer,
@@ -172,7 +172,7 @@ impl<T: EthSpec> BeaconBlock<T> {
     }
 }
 
-impl<'a, T: EthSpec, Txns : Txnss<T>> BeaconBlockRef<'a, T, Txns> {
+impl<'a, T: EthSpec, Txns: Transactions<T>> BeaconBlockRef<'a, T, Txns> {
     /// Returns the name of the fork pertaining to `self`.
     ///
     /// Will return an `Err` if `self` has been instantiated to a variant conflicting with the fork
@@ -249,9 +249,9 @@ impl<'a, T: EthSpec, Txns : Txnss<T>> BeaconBlockRef<'a, T, Txns> {
     }
 }
 
-impl<'a, T: EthSpec> BeaconBlockRefMut<'a, T> {
+impl<'a, T: EthSpec, Txns: Transactions<T>> BeaconBlockRefMut<'a, T, Txns> {
     /// Convert a mutable reference to a beacon block to a mutable ref to its body.
-    pub fn body_mut(self) -> BeaconBlockBodyRefMut<'a, T> {
+    pub fn body_mut(self) -> BeaconBlockBodyRefMut<'a, T, Txns> {
         match self {
             BeaconBlockRefMut::Base(block) => BeaconBlockBodyRefMut::Base(&mut block.body),
             BeaconBlockRefMut::Altair(block) => BeaconBlockBodyRefMut::Altair(&mut block.body),
@@ -260,7 +260,7 @@ impl<'a, T: EthSpec> BeaconBlockRefMut<'a, T> {
     }
 }
 
-impl<T: EthSpec> BeaconBlockBase<T> {
+impl<T: EthSpec, Txns: Transactions<T>> BeaconBlockBase<T, Txns> {
     /// Returns an empty block to be used during genesis.
     pub fn empty(spec: &ChainSpec) -> Self {
         BeaconBlockBase {
@@ -348,7 +348,7 @@ impl<T: EthSpec> BeaconBlockBase<T> {
             signature: Signature::empty(),
         };
 
-        let mut block = BeaconBlockBase::<T>::empty(spec);
+        let mut block = BeaconBlockBase::<T, Txns>::empty(spec);
         for _ in 0..T::MaxProposerSlashings::to_usize() {
             block
                 .body
@@ -381,7 +381,7 @@ impl<T: EthSpec> BeaconBlockBase<T> {
     }
 }
 
-impl<T: EthSpec> BeaconBlockAltair<T> {
+impl<T: EthSpec, Txns: Transactions<T>> BeaconBlockAltair<T, Txns> {
     /// Returns an empty Altair block to be used during genesis.
     pub fn empty(spec: &ChainSpec) -> Self {
         BeaconBlockAltair {
@@ -410,7 +410,7 @@ impl<T: EthSpec> BeaconBlockAltair<T> {
 
     /// Return an Altair block where the block has maximum size.
     pub fn full(spec: &ChainSpec) -> Self {
-        let base_block = BeaconBlockBase::full(spec);
+        let base_block: BeaconBlockBase<_, Txns> = BeaconBlockBase::full(spec);
         let sync_aggregate = SyncAggregate {
             sync_committee_signature: AggregateSignature::empty(),
             sync_committee_bits: BitVector::default(),
@@ -440,7 +440,7 @@ impl<T: EthSpec> BeaconBlockAltair<T> {
     }
 }
 
-impl<T: EthSpec> BeaconBlockMerge<T> {
+impl<T: EthSpec, Txns: Transactions<T>> BeaconBlockMerge<T, Txns> {
     /// Returns an empty Merge block to be used during genesis.
     pub fn empty(spec: &ChainSpec) -> Self {
         BeaconBlockMerge {
@@ -469,7 +469,7 @@ impl<T: EthSpec> BeaconBlockMerge<T> {
 
     /// Return an Merge block where the block has maximum size.
     pub fn full(spec: &ChainSpec) -> Self {
-        let altair_block = BeaconBlockAltair::full(spec);
+        let altair_block: BeaconBlockAltair<_, Txns> = BeaconBlockAltair::full(spec);
         BeaconBlockMerge {
             slot: spec.genesis_slot,
             proposer_index: 0,

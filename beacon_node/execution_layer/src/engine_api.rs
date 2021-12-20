@@ -1,13 +1,15 @@
 use async_trait::async_trait;
 use eth1::http::RpcError;
+use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 
 pub const LATEST_TAG: &str = "latest";
 
 use crate::engine_api::json_structures::JsonProposeBlindedBlockResponse;
 use crate::engines::ForkChoiceState;
+use crate::BlockType;
 pub use types::{Address, EthSpec, ExecutionPayload, Hash256, Uint256};
-use types::{ExecutionPayloadHeader, SignedBlindedBeaconBlock};
+use types::{ExecutionPayloadHeader, SignedBlindedBeaconBlock, Transactions};
 
 pub mod http;
 pub mod json_structures;
@@ -62,10 +64,11 @@ pub trait EngineApi {
         execution_payload: ExecutionPayload<T>,
     ) -> Result<ExecutePayloadResponse, Error>;
 
-    async fn get_payload_v1<T: EthSpec>(
+    async fn get_payload_v1<T: EthSpec, Txns: Transactions<T>>(
         &self,
         payload_id: PayloadId,
-    ) -> Result<ExecutionPayload<T>, Error>;
+        block_type: BlockType,
+    ) -> Result<ExecutionPayload<T, Txns>, Error>;
 
     async fn forkchoice_updated_v1(
         &self,
@@ -76,11 +79,6 @@ pub trait EngineApi {
 
 #[async_trait]
 pub trait BuilderApi {
-    async fn get_payload_header_v1<T: EthSpec>(
-        &self,
-        payload_id: PayloadId,
-    ) -> Result<ExecutionPayloadHeader<T>, Error>;
-
     async fn propose_blinded_block_v1<T: EthSpec>(
         &self,
         block: SignedBlindedBeaconBlock<T>,

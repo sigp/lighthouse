@@ -81,9 +81,9 @@ impl VerifySignatures {
 /// re-calculating the root when it is already known. Note `block_root` should be equal to the
 /// tree hash root of the block, NOT the signing root of the block. This function takes
 /// care of mixing in the domain.
-pub fn per_block_processing<T: EthSpec>(
+pub fn per_block_processing<T: EthSpec, Txns: Transactions<T>>(
     state: &mut BeaconState<T>,
-    signed_block: &SignedBeaconBlock<T>,
+    signed_block: &SignedBeaconBlock<T, Txns>,
     block_root: Option<Hash256>,
     block_signature_strategy: BlockSignatureStrategy,
     spec: &ChainSpec,
@@ -274,9 +274,9 @@ pub fn process_block_header<T: EthSpec>(
 /// Verifies the signature of a block.
 ///
 /// Spec v0.12.1
-pub fn verify_block_signature<T: EthSpec>(
+pub fn verify_block_signature<T: EthSpec, Txns: Transactions<T>>(
     state: &BeaconState<T>,
-    block: &SignedBeaconBlock<T>,
+    block: &SignedBeaconBlock<T, Txns>,
     block_root: Option<Hash256>,
     spec: &ChainSpec,
 ) -> Result<(), BlockOperationError<HeaderInvalid>> {
@@ -297,9 +297,9 @@ pub fn verify_block_signature<T: EthSpec>(
 
 /// Verifies the `randao_reveal` against the block's proposer pubkey and updates
 /// `state.latest_randao_mixes`.
-pub fn process_randao<T: EthSpec>(
+pub fn process_randao<T: EthSpec, Txns: Transactions<T>>(
     state: &mut BeaconState<T>,
-    block: BeaconBlockRef<'_, T>,
+    block: BeaconBlockRef<'_, T, Txns>,
     verify_signatures: VerifySignatures,
     spec: &ChainSpec,
 ) -> Result<(), BlockProcessingError> {
@@ -384,9 +384,9 @@ pub fn get_new_eth1_data<T: EthSpec>(
 /// Contains a partial set of checks from the `process_execution_payload` function:
 ///
 /// https://github.com/ethereum/consensus-specs/blob/v1.1.5/specs/merge/beacon-chain.md#process_execution_payload
-pub fn partially_verify_execution_payload<T: EthSpec>(
+pub fn partially_verify_execution_payload<T: EthSpec, Txns: Transactions<T>>(
     state: &BeaconState<T>,
-    payload: &ExecutionPayload<T>,
+    payload: &ExecutionPayload<T, Txns>,
     spec: &ChainSpec,
 ) -> Result<(), BlockProcessingError> {
     if is_merge_transition_complete(state) {
@@ -425,9 +425,9 @@ pub fn partially_verify_execution_payload<T: EthSpec>(
 /// Partially equivalent to the `process_execution_payload` function:
 ///
 /// https://github.com/ethereum/consensus-specs/blob/v1.1.5/specs/merge/beacon-chain.md#process_execution_payload
-pub fn process_execution_payload<T: EthSpec>(
+pub fn process_execution_payload<T: EthSpec, Txns: Transactions<T>>(
     state: &mut BeaconState<T>,
-    payload: &ExecutionPayload<T>,
+    payload: &ExecutionPayload<T, Txns>,
     spec: &ChainSpec,
 ) -> Result<(), BlockProcessingError> {
     partially_verify_execution_payload(state, payload, spec)?;
@@ -528,20 +528,21 @@ pub fn is_merge_transition_complete<T: EthSpec>(state: &BeaconState<T>) -> bool 
         .unwrap_or(false)
 }
 /// https://github.com/ethereum/consensus-specs/blob/dev/specs/merge/beacon-chain.md#is_merge_transition_block
-pub fn is_merge_transition_block<T: EthSpec>(
+pub fn is_merge_transition_block<T: EthSpec, Txns: Transactions<T>>(
     state: &BeaconState<T>,
-    body: BeaconBlockBodyRef<T>,
+    body: BeaconBlockBodyRef<T, Txns>,
 ) -> bool {
     body.execution_payload()
         .map(|payload| {
-            !is_merge_transition_complete(state) && *payload != <ExecutionPayload<T>>::default()
+            !is_merge_transition_complete(state)
+                && *payload != <ExecutionPayload<T, Txns>>::default()
         })
         .unwrap_or(false)
 }
 /// https://github.com/ethereum/consensus-specs/blob/dev/specs/merge/beacon-chain.md#is_execution_enabled
-pub fn is_execution_enabled<T: EthSpec>(
+pub fn is_execution_enabled<T: EthSpec, Txns: Transactions<T>>(
     state: &BeaconState<T>,
-    body: BeaconBlockBodyRef<T>,
+    body: BeaconBlockBodyRef<T, Txns>,
 ) -> bool {
     is_merge_transition_block(state, body) || is_merge_transition_complete(state)
 }

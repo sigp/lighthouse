@@ -8,6 +8,8 @@ use engine_api::{Error as ApiError, *};
 use engines::{Engine, EngineError, Engines, ForkChoiceState, Logging};
 use lru::LruCache;
 use sensitive_url::SensitiveUrl;
+use serde::de::DeserializeOwned;
+use serde::Serialize;
 use slog::{crit, debug, error, info, Logger};
 use slot_clock::SlotClock;
 use std::future::Future;
@@ -18,8 +20,9 @@ use tokio::{
     sync::{Mutex, MutexGuard},
     time::{sleep, sleep_until, Instant},
 };
-use types::{ChainSpec, ExecutionPayloadHeader, SignedBlindedBeaconBlock};
+use types::{ChainSpec, ExecutionPayloadHeader, SignedBlindedBeaconBlock, Transactions};
 
+use crate::engine_api::http::{BUILDER_GET_PAYLOAD_HEADER_V1, ENGINE_GET_PAYLOAD_V1};
 use crate::engine_api::json_structures::JsonProposeBlindedBlockResponse;
 use crate::engines::IncludeEngines;
 pub use engine_api::{http::HttpJsonRpc, ExecutePayloadResponseStatus};
@@ -46,6 +49,21 @@ pub enum Error {
 impl From<ApiError> for Error {
     fn from(e: ApiError) -> Self {
         Error::ApiError(e)
+    }
+}
+
+#[derive(PartialEq, Eq, Hash, Clone, Copy)]
+pub enum BlockType {
+    Full,
+    Blinded,
+}
+
+impl BlockType {
+    fn get_endpoint(&self) -> &str {
+        match self {
+            BlockType::Full => ENGINE_GET_PAYLOAD_V1,
+            BlockType::Blinded => BUILDER_GET_PAYLOAD_HEADER_V1,
+        }
     }
 }
 
@@ -258,13 +276,14 @@ impl ExecutionLayer {
     ///
     /// The result will be returned from the first node that returns successfully. No more nodes
     /// will be contacted.
-    pub async fn get_payload<T: EthSpec>(
+    pub async fn get_payload<T: EthSpec, Txns: Transactions<T>>(
         &self,
         parent_hash: Hash256,
         timestamp: u64,
         random: Hash256,
         finalized_block_hash: Hash256,
-    ) -> Result<ExecutionPayload<T>, Error> {
+        block_type: BlockType,
+    ) -> Result<ExecutionPayload<T, Txns>, Error> {
         let suggested_fee_recipient = self.suggested_fee_recipient()?;
         debug!(
             self.log(),
@@ -311,7 +330,10 @@ impl ExecutionLayer {
                             .ok_or(ApiError::PayloadIdUnavailable)?
                     };
 
-                    engine.api.get_payload_v1(payload_id).await
+                    engine
+                        .api
+                        .get_payload_v1::<T, Txns>(payload_id, block_type)
+                        .await
                 },
                 IncludeEngines::OnlyEngines,
             )
@@ -692,67 +714,6 @@ impl ExecutionLayer {
         } else {
             Ok(None)
         }
-    }
-
-    pub async fn get_payload_header<T: EthSpec>(
-        &self,
-        parent_hash: Hash256,
-        timestamp: u64,
-        random: Hash256,
-        finalized_block_hash: Hash256,
-    ) -> Result<ExecutionPayloadHeader<T>, Error> {
-        let suggested_fee_recipient = self.suggested_fee_recipient()?;
-        debug!(
-            self.log(),
-            "Issuing builder_getPayloadHeader";
-            "suggested_fee_recipient" => ?suggested_fee_recipient,
-            "random" => ?random,
-            "timestamp" => timestamp,
-            "parent_hash" => ?parent_hash,
-        );
-        self.engines()
-            .first_success(
-                |engine| async move {
-                    let payload_id = if let Some(id) = engine
-                        .get_payload_id(parent_hash, timestamp, random, suggested_fee_recipient)
-                        .await
-                    {
-                        // The payload id has been cached for this engine.
-                        id
-                    } else {
-                        // The payload id has *not* been cached for this engine. Trigger an artificial
-                        // fork choice update to retrieve a payload ID.
-                        //
-                        // TODO(merge): a better algorithm might try to favour a node that already had a
-                        // cached payload id, since a payload that has had more time to produce is
-                        // likely to be more profitable.
-                        let fork_choice_state = ForkChoiceState {
-                            head_block_hash: parent_hash,
-                            safe_block_hash: parent_hash,
-                            finalized_block_hash,
-                        };
-                        let payload_attributes = PayloadAttributes {
-                            timestamp,
-                            random,
-                            suggested_fee_recipient,
-                        };
-
-                        engine
-                            .notify_forkchoice_updated(
-                                fork_choice_state,
-                                Some(payload_attributes),
-                                self.log(),
-                            )
-                            .await?
-                            .ok_or(ApiError::PayloadIdUnavailable)?
-                    };
-
-                    engine.api.get_payload_header_v1(payload_id).await
-                },
-                IncludeEngines::OnlyBuilder,
-            )
-            .await
-            .map_err(Error::EngineErrors)
     }
 
     pub async fn propose_blinded_beacon_block<T: EthSpec>(

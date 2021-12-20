@@ -15,7 +15,7 @@ use execution_layer::{
     test_utils::{
         ExecutionBlockGenerator, ExecutionLayerRuntime, MockExecutionLayer, DEFAULT_TERMINAL_BLOCK,
     },
-    ExecutionLayer,
+    BlockType, ExecutionLayer,
 };
 use futures::channel::mpsc::Receiver;
 pub use genesis::{interop_genesis_state, DEFAULT_ETH1_BLOCK_HASH};
@@ -588,7 +588,14 @@ where
 
         let (block, state) = self
             .chain
-            .produce_block_on_state(state, None, slot, randao_reveal, Some(graffiti))
+            .produce_block_on_state(
+                state,
+                None,
+                slot,
+                randao_reveal,
+                Some(graffiti),
+                BlockType::Full,
+            )
             .unwrap();
 
         let signed_block = block.sign(
@@ -642,7 +649,14 @@ where
 
         let (block, state) = self
             .chain
-            .produce_block_on_state(state, None, slot, randao_reveal, Some(graffiti))
+            .produce_block_on_state(
+                state,
+                None,
+                slot,
+                randao_reveal,
+                Some(graffiti),
+                BlockType::Full,
+            )
             .unwrap();
 
         let signed_block = block.sign(

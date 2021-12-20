@@ -1,13 +1,15 @@
-use std::marker::PhantomData;
+use crate::execution_payload::ExecTransactions;
 use crate::test_utils::TestRandom;
 use crate::*;
 use serde_derive::{Deserialize, Serialize};
+use ssz::{Decode, Encode};
 use ssz_derive::{Decode, Encode};
 use ssz_types::VariableList;
+use std::marker::PhantomData;
 use superstruct::superstruct;
 use test_random_derive::TestRandom;
+use tree_hash::TreeHash;
 use tree_hash_derive::TreeHash;
-use crate::execution_payload::Txnss;
 
 /// The body of a `BeaconChain` block, containing operations.
 ///
@@ -26,7 +28,7 @@ use crate::execution_payload::Txnss;
             TreeHash,
             TestRandom
         ),
-        serde(bound = "T: EthSpec", deny_unknown_fields),
+        serde(bound = "T: EthSpec, Txns: Transactions<T>", deny_unknown_fields),
         cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary))
     ),
     cast_error(ty = "Error", expr = "Error::IncorrectStateVariant"),
@@ -34,9 +36,9 @@ use crate::execution_payload::Txnss;
 )]
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 #[serde(untagged)]
-#[serde(bound = "T: EthSpec")]
+#[serde(bound = "T: EthSpec, Txns: Transactions<T>")]
 #[cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary))]
-pub struct BeaconBlockBody<T: EthSpec, Txns = VariableList<Transaction<<T as EthSpec>::MaxBytesPerTransaction>, <T as EthSpec>::MaxTransactionsPerPayload>> where Txns: Txnss< T>{
+pub struct BeaconBlockBody<T: EthSpec, Txns: Transactions<T> = ExecTransactions<T>> {
     pub randao_reveal: Signature,
     pub eth1_data: Eth1Data,
     pub graffiti: Graffiti,
@@ -52,10 +54,10 @@ pub struct BeaconBlockBody<T: EthSpec, Txns = VariableList<Transaction<<T as Eth
     #[superstruct(only(Base, Altair))]
     #[ssz(skip_serializing, skip_deserializing)]
     #[tree_hash(skip_hashing)]
-    pub _phantom: PhantomData<Txns>
+    pub _phantom: PhantomData<Txns>,
 }
 
-impl<'a, T: EthSpec, Txns : Txnss<T>> BeaconBlockBodyRef<'a, T, Txns> {
+impl<'a, T: EthSpec, Txns: Transactions<T>> BeaconBlockBodyRef<'a, T, Txns> {
     /// Access the sync aggregate from the block's body, if one exists.
     pub fn sync_aggregate(self) -> Option<&'a SyncAggregate<T>> {
         match self {
