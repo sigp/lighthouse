@@ -2774,6 +2774,7 @@ dependencies = [
  "libp2p-metrics",
  "libp2p-mplex",
  "libp2p-noise",
+ "libp2p-plaintext",
  "libp2p-swarm",
  "libp2p-swarm-derive",
  "libp2p-tcp",
@@ -2964,6 +2965,23 @@ dependencies = [
  "static_assertions",
  "x25519-dalek",
  "zeroize",
+]
+
+[[package]]
+name = "libp2p-plaintext"
+version = "0.30.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5fba1a6ff33e4a274c89a3b1d78b9f34f32af13265cc5c46c16938262d4e945a"
+dependencies = [
+ "asynchronous-codec",
+ "bytes",
+ "futures",
+ "libp2p-core 0.30.0",
+ "log",
+ "prost 0.9.0",
+ "prost-build 0.9.0",
+ "unsigned-varint 0.7.1",
+ "void",
 ]
 
 [[package]]
@@ -3262,6 +3280,7 @@ dependencies = [
  "tokio-util",
  "types",
  "unsigned-varint 0.6.0",
+ "void",
 ]
 
 [[package]]
