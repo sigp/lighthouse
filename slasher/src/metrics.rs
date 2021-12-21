@@ -4,7 +4,7 @@ pub use lighthouse_metrics::*;
 lazy_static! {
     pub static ref SLASHER_DATABASE_SIZE: Result<IntGauge> = try_create_int_gauge(
         "slasher_database_size",
-        "Size of the LMDB database backing the slasher, in bytes"
+        "Size of the database backing the slasher, in bytes"
     );
     pub static ref SLASHER_RUN_TIME: Result<Histogram> = try_create_histogram(
         "slasher_process_batch_time",
@@ -39,5 +39,18 @@ lazy_static! {
     pub static ref SLASHER_COMPRESSION_RATIO: Result<Gauge> = try_create_float_gauge(
         "slasher_compression_ratio",
         "Compression ratio for min-max array chunks (higher is better)"
+    );
+    pub static ref SLASHER_NUM_ATTESTATION_ROOT_QUERIES: Result<IntCounter> =
+        try_create_int_counter(
+            "slasher_num_attestation_root_queries",
+            "Number of requests for an attestation data root",
+        );
+    pub static ref SLASHER_NUM_ATTESTATION_ROOT_HITS: Result<IntCounter> = try_create_int_counter(
+        "slasher_num_attestation_root_hits",
+        "Number of requests for an attestation data root that hit the LRU cache",
+    );
+    pub static ref SLASHER_ATTESTATION_ROOT_CACHE_SIZE: Result<IntGauge> = try_create_int_gauge(
+        "slasher_attestation_root_cache_size",
+        "Number of attestation data roots cached in memory"
     );
 }

@@ -510,6 +510,12 @@ pub fn get_config<E: EthSpec>(
             slasher_config.max_db_size_mbs = max_db_size_gbs * 1024;
         }
 
+        if let Some(attestation_cache_size) =
+            clap_utils::parse_optional(cli_args, "slasher-att-cache-size")?
+        {
+            slasher_config.attestation_root_cache_size = attestation_cache_size;
+        }
+
         if let Some(chunk_size) = clap_utils::parse_optional(cli_args, "slasher-chunk-size")? {
             slasher_config.chunk_size = chunk_size;
         }

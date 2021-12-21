@@ -515,9 +515,17 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
             Arg::with_name("slasher-max-db-size")
                 .long("slasher-max-db-size")
                 .help(
-                    "Maximum size of the LMDB database used by the slasher."
+                    "Maximum size of the MDBX database used by the slasher."
                 )
                 .value_name("GIGABYTES")
+                .requires("slasher")
+                .takes_value(true)
+        )
+        .arg(
+            Arg::with_name("slasher-att-cache-size")
+                .long("slasher-att-cache-size")
+                .help("Set the maximum number of attestation roots for the slasher to cache")
+                .value_name("COUNT")
                 .requires("slasher")
                 .takes_value(true)
         )

@@ -830,11 +830,7 @@ fn block_gossip_verification() {
 fn verify_block_for_gossip_slashing_detection() {
     let slasher_dir = tempdir().unwrap();
     let slasher = Arc::new(
-        Slasher::open(
-            SlasherConfig::new(slasher_dir.path().into()).for_testing(),
-            test_logger(),
-        )
-        .unwrap(),
+        Slasher::open(SlasherConfig::new(slasher_dir.path().into()), test_logger()).unwrap(),
     );
 
     let inner_slasher = slasher.clone();
