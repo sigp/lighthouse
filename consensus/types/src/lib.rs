@@ -152,7 +152,7 @@ pub use crate::signed_beacon_block::{
 pub use crate::signed_beacon_block_header::SignedBeaconBlockHeader;
 pub use crate::signed_blinded_beacon_block::{
     SignedBlindedBeaconBlock, SignedBlindedBeaconBlockAltair, SignedBlindedBeaconBlockBase,
-    SignedBlindedBeaconBlockHash, SignedBlindedBeaconBlockMerge,
+    SignedBlindedBeaconBlockMerge,
 };
 pub use crate::signed_contribution_and_proof::SignedContributionAndProof;
 pub use crate::signed_voluntary_exit::SignedVoluntaryExit;

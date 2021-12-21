@@ -13,19 +13,8 @@ use tree_hash_derive::TreeHash;
 #[superstruct(
     variants(Base, Altair, Merge),
     variant_attributes(
-        derive(
-            Debug,
-            PartialEq,
-            Clone,
-            Serialize,
-            Deserialize,
-            Encode,
-            Decode,
-            TreeHash,
-            TestRandom
-        ),
+        derive(Debug, PartialEq, Clone, Serialize, Deserialize,),
         serde(bound = "T: EthSpec", deny_unknown_fields),
-        cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary))
     ),
     cast_error(ty = "Error", expr = "Error::IncorrectStateVariant"),
     partial_getter_error(ty = "Error", expr = "Error::IncorrectStateVariant")
@@ -33,7 +22,6 @@ use tree_hash_derive::TreeHash;
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 #[serde(untagged)]
 #[serde(bound = "T: EthSpec")]
-#[cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary))]
 pub struct BlindedBeaconBlockBody<T: EthSpec> {
     pub randao_reveal: Signature,
     pub eth1_data: Eth1Data,
@@ -49,43 +37,87 @@ pub struct BlindedBeaconBlockBody<T: EthSpec> {
     pub execution_payload_header: ExecutionPayloadHeader<T>,
 }
 
-impl<'a, T: EthSpec> BlindedBeaconBlockBodyRef<'a, T> {
-    /// Access the sync aggregate from the block's body, if one exists.
-    pub fn sync_aggregate(self) -> Option<&'a SyncAggregate<T>> {
-        match self {
-            BlindedBeaconBlockBodyRef::Base(_) => None,
-            BlindedBeaconBlockBodyRef::Altair(inner) => Some(&inner.sync_aggregate),
-            BlindedBeaconBlockBodyRef::Merge(inner) => Some(&inner.sync_aggregate),
+impl<E: EthSpec> From<BeaconBlockBody<E, BlindedTransactions>> for BlindedBeaconBlockBody<E> {
+    fn from(block: BeaconBlockBody<E, BlindedTransactions>) -> Self {
+        match block {
+            BeaconBlockBody::Base(b) => {
+                let BeaconBlockBodyBase {
+                    randao_reveal,
+                    eth1_data,
+                    graffiti,
+                    proposer_slashings,
+                    attester_slashings,
+                    attestations,
+                    deposits,
+                    voluntary_exits,
+                    sync_aggregate,
+                    execution_payload_header,
+                } = b;
+                BlindedBeaconBlockBody::Base(BlindedBeaconBlockBodyBase {
+                    randao_reveal,
+                    eth1_data,
+                    graffiti,
+                    proposer_slashings,
+                    attester_slashings,
+                    attestations,
+                    deposits,
+                    voluntary_exits,
+                    sync_aggregate,
+                    execution_payload_header,
+                })
+            }
+            BeaconBlockBody::Altair(b) => {
+                let BeaconBlockBodyAltair {
+                    randao_reveal,
+                    eth1_data,
+                    graffiti,
+                    proposer_slashings,
+                    attester_slashings,
+                    attestations,
+                    deposits,
+                    voluntary_exits,
+                    sync_aggregate,
+                    execution_payload_header,
+                } = b;
+                BlindedBeaconBlockBody::Altair(BlindedBeaconBlockBodyAltair {
+                    randao_reveal,
+                    eth1_data,
+                    graffiti,
+                    proposer_slashings,
+                    attester_slashings,
+                    attestations,
+                    deposits,
+                    voluntary_exits,
+                    sync_aggregate,
+                    execution_payload_header,
+                })
+            }
+            BeaconBlockBody::Merge(b) => {
+                let BeaconBlockBodyMerge {
+                    randao_reveal,
+                    eth1_data,
+                    graffiti,
+                    proposer_slashings,
+                    attester_slashings,
+                    attestations,
+                    deposits,
+                    voluntary_exits,
+                    sync_aggregate,
+                    execution_payload_header,
+                } = b;
+                BlindedBeaconBlockBody::Merge(BlindedBeaconBlockBodyMerge {
+                    randao_reveal,
+                    eth1_data,
+                    graffiti,
+                    proposer_slashings,
+                    attester_slashings,
+                    attestations,
+                    deposits,
+                    voluntary_exits,
+                    sync_aggregate,
+                    execution_payload_header,
+                })
+            }
         }
-    }
-
-    /// Access the execution payload from the block's body, if one exists.
-    pub fn execution_payload_header(self) -> Option<&'a ExecutionPayloadHeader<T>> {
-        match self {
-            BlindedBeaconBlockBodyRef::Base(_) => None,
-            BlindedBeaconBlockBodyRef::Altair(_) => None,
-            BlindedBeaconBlockBodyRef::Merge(inner) => Some(&inner.execution_payload_header),
-        }
-    }
-
-    /// Get the fork_name of this object
-    pub fn fork_name(self) -> ForkName {
-        match self {
-            BlindedBeaconBlockBodyRef::Base { .. } => ForkName::Base,
-            BlindedBeaconBlockBodyRef::Altair { .. } => ForkName::Altair,
-            BlindedBeaconBlockBodyRef::Merge { .. } => ForkName::Merge,
-        }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    mod base {
-        use super::super::*;
-        ssz_and_tree_hash_tests!(BlindedBeaconBlockBodyBase<MainnetEthSpec>);
-    }
-    mod altair {
-        use super::super::*;
-        ssz_and_tree_hash_tests!(BlindedBeaconBlockBodyAltair<MainnetEthSpec>);
     }
 }
