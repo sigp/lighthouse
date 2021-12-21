@@ -72,7 +72,6 @@ pub struct SlasherDB<E: EthSpec> {
     /// LRU cache mapping indexed attestation IDs to their attestation data roots.
     attestation_root_cache: Mutex<LruCache<IndexedAttestationId, Hash256>>,
     pub(crate) config: Arc<Config>,
-    pub(crate) log: Logger,
     _phantom: PhantomData<E>,
 }
 
@@ -288,7 +287,6 @@ impl<E: EthSpec> SlasherDB<E> {
             env,
             attestation_root_cache,
             config,
-            log,
             _phantom: PhantomData,
         };
 
