@@ -135,7 +135,6 @@ impl<T: EthSpec> MockExecutionLayer<T> {
                 timestamp,
                 random,
                 finalized_block_hash,
-                BlockType::Full,
             )
             .await
             .unwrap();

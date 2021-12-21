@@ -20,12 +20,16 @@ use tokio::{
     sync::{Mutex, MutexGuard},
     time::{sleep, sleep_until, Instant},
 };
-use types::{ChainSpec, ExecutionPayloadHeader, SignedBlindedBeaconBlock, Transactions};
+use types::{
+    BlindedTransactions, ChainSpec, ExecutionPayloadHeader, SignedBeaconBlock,
+    SignedBlindedBeaconBlock, Transactions,
+};
 
 use crate::engine_api::http::{BUILDER_GET_PAYLOAD_HEADER_V1, ENGINE_GET_PAYLOAD_V1};
 use crate::engine_api::json_structures::JsonProposeBlindedBlockResponse;
 use crate::engines::IncludeEngines;
 pub use engine_api::{http::HttpJsonRpc, ExecutePayloadResponseStatus};
+use types::execution_payload::BlockType;
 
 mod engine_api;
 mod engines;
@@ -49,21 +53,6 @@ pub enum Error {
 impl From<ApiError> for Error {
     fn from(e: ApiError) -> Self {
         Error::ApiError(e)
-    }
-}
-
-#[derive(PartialEq, Eq, Hash, Clone, Copy)]
-pub enum BlockType {
-    Full,
-    Blinded,
-}
-
-impl BlockType {
-    fn get_endpoint(&self) -> &str {
-        match self {
-            BlockType::Full => ENGINE_GET_PAYLOAD_V1,
-            BlockType::Blinded => BUILDER_GET_PAYLOAD_HEADER_V1,
-        }
     }
 }
 
@@ -282,7 +271,6 @@ impl ExecutionLayer {
         timestamp: u64,
         random: Hash256,
         finalized_block_hash: Hash256,
-        block_type: BlockType,
     ) -> Result<ExecutionPayload<T, Txns>, Error> {
         let suggested_fee_recipient = self.suggested_fee_recipient()?;
         debug!(
@@ -293,6 +281,11 @@ impl ExecutionLayer {
             "timestamp" => timestamp,
             "parent_hash" => ?parent_hash,
         );
+
+        let include_engines = match Txns::block_type() {
+            BlockType::Full => IncludeEngines::OnlyEngines,
+            BlockType::Blinded => IncludeEngines::OnlyBuilder,
+        };
         self.engines()
             .first_success(
                 |engine| async move {
@@ -329,13 +322,17 @@ impl ExecutionLayer {
                             .await?
                             .ok_or(ApiError::PayloadIdUnavailable)?
                     };
-
-                    engine
-                        .api
-                        .get_payload_v1::<T, Txns>(payload_id, block_type)
-                        .await
+                    match Txns::block_type() {
+                        BlockType::Full => engine.api.get_payload_v1::<T, Txns>(payload_id).await,
+                        BlockType::Blinded => {
+                            engine
+                                .api
+                                .get_payload_header_v1::<T, Txns>(payload_id)
+                                .await
+                        }
+                    }
                 },
-                IncludeEngines::OnlyEngines,
+                include_engines,
             )
             .await
             .map_err(Error::EngineErrors)
@@ -718,7 +715,7 @@ impl ExecutionLayer {
 
     pub async fn propose_blinded_beacon_block<T: EthSpec>(
         &self,
-        block: SignedBlindedBeaconBlock<T>,
+        block: SignedBeaconBlock<T, BlindedTransactions>,
     ) -> Result<ExecutionPayload<T>, Error> {
         debug!(
             self.log(),

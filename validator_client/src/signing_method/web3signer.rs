@@ -36,7 +36,7 @@ pub struct ForkInfo {
 
 #[derive(Debug, PartialEq, Serialize)]
 #[serde(bound = "T: EthSpec", rename_all = "snake_case")]
-pub enum Web3SignerObject<'a, T: EthSpec> {
+pub enum Web3SignerObject<'a, T: EthSpec, Txns: Transactions<T>> {
     AggregationSlot {
         slot: Slot,
     },
@@ -44,11 +44,7 @@ pub enum Web3SignerObject<'a, T: EthSpec> {
     Attestation(&'a AttestationData),
     BeaconBlock {
         version: ForkName,
-        block: &'a BeaconBlock<T>,
-    },
-    BlindedBeaconBlock {
-        version: ForkName,
-        block: &'a BlindedBeaconBlock<T>,
+        block: &'a BeaconBlock<T, Txns>,
     },
     #[allow(dead_code)]
     Deposit {
@@ -72,8 +68,8 @@ pub enum Web3SignerObject<'a, T: EthSpec> {
     ContributionAndProof(&'a ContributionAndProof<T>),
 }
 
-impl<'a, T: EthSpec> Web3SignerObject<'a, T> {
-    pub fn beacon_block(block: &'a BeaconBlock<T>) -> Result<Self, Error> {
+impl<'a, T: EthSpec, Txns: Transactions<T>> Web3SignerObject<'a, T, Txns> {
+    pub fn beacon_block(block: &'a BeaconBlock<T, Txns>) -> Result<Self, Error> {
         let version = match block {
             BeaconBlock::Base(_) => ForkName::Phase0,
             BeaconBlock::Altair(_) => ForkName::Altair,
@@ -83,23 +79,12 @@ impl<'a, T: EthSpec> Web3SignerObject<'a, T> {
         Ok(Web3SignerObject::BeaconBlock { version, block })
     }
 
-    pub fn blinded_beacon_block(block: &'a BlindedBeaconBlock<T>) -> Result<Self, Error> {
-        let version = match block {
-            BlindedBeaconBlock::Base(_) => ForkName::Phase0,
-            BlindedBeaconBlock::Altair(_) => ForkName::Altair,
-            BlindedBeaconBlock::Merge(_) => return Err(Error::MergeForkNotSupported),
-        };
-
-        Ok(Web3SignerObject::BlindedBeaconBlock { version, block })
-    }
-
     pub fn message_type(&self) -> MessageType {
         match self {
             Web3SignerObject::AggregationSlot { .. } => MessageType::AggregationSlot,
             Web3SignerObject::AggregateAndProof(_) => MessageType::AggregateAndProof,
             Web3SignerObject::Attestation(_) => MessageType::Attestation,
             Web3SignerObject::BeaconBlock { .. } => MessageType::BlockV2,
-            Web3SignerObject::BlindedBeaconBlock { .. } => MessageType::PrivateBlockV2,
             Web3SignerObject::Deposit { .. } => MessageType::Deposit,
             Web3SignerObject::RandaoReveal { .. } => MessageType::RandaoReveal,
             Web3SignerObject::VoluntaryExit(_) => MessageType::VoluntaryExit,
@@ -116,7 +101,7 @@ impl<'a, T: EthSpec> Web3SignerObject<'a, T> {
 
 #[derive(Debug, PartialEq, Serialize)]
 #[serde(bound = "T: EthSpec")]
-pub struct SigningRequest<'a, T: EthSpec> {
+pub struct SigningRequest<'a, T: EthSpec, Txns: Transactions<T>> {
     #[serde(rename = "type")]
     pub message_type: MessageType,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -124,7 +109,7 @@ pub struct SigningRequest<'a, T: EthSpec> {
     #[serde(rename = "signingRoot")]
     pub signing_root: Hash256,
     #[serde(flatten)]
-    pub object: Web3SignerObject<'a, T>,
+    pub object: Web3SignerObject<'a, T, Txns>,
 }
 
 #[derive(Debug, PartialEq, Deserialize)]

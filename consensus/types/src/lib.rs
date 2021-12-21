@@ -125,7 +125,7 @@ pub use crate::enr_fork_id::EnrForkId;
 pub use crate::eth1_data::Eth1Data;
 pub use crate::eth_spec::EthSpecId;
 pub use crate::execution_payload::{
-    BlindedTransactions, ExecTransactions, ExecutionPayload, Transaction, Transactions,
+    BlindedTransactions, BlockType, ExecTransactions, ExecutionPayload, Transaction, Transactions,
 };
 pub use crate::execution_payload_header::ExecutionPayloadHeader;
 pub use crate::fork::Fork;

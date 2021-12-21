@@ -50,7 +50,7 @@ use crate::{metrics, BeaconChainError};
 use eth2::types::{
     EventKind, SseBlock, SseChainReorg, SseFinalizedCheckpoint, SseHead, SseLateHead, SyncDuty,
 };
-use execution_layer::{BlockType, ExecutionLayer};
+use execution_layer::ExecutionLayer;
 use fork_choice::{AttestationFromBlock, ForkChoice};
 use futures::channel::mpsc::Sender;
 use itertools::process_results;
@@ -63,7 +63,6 @@ use slasher::Slasher;
 use slog::{crit, debug, error, info, trace, warn, Logger};
 use slot_clock::SlotClock;
 use ssz::Encode;
-use state_processing::per_block_processing::per_block_processing_private;
 use state_processing::{
     common::get_indexed_attestation,
     per_block_processing,
@@ -2712,7 +2711,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         randao_reveal: Signature,
         slot: Slot,
         validator_graffiti: Option<Graffiti>,
-        block_type: BlockType,
     ) -> Result<BeaconBlockAndState<T::EthSpec, Txns>, BlockProductionError> {
         metrics::inc_counter(&metrics::BLOCK_PRODUCTION_REQUESTS);
         let _complete_timer = metrics::start_timer(&metrics::BLOCK_PRODUCTION_TIMES);
@@ -2770,72 +2768,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             slot,
             randao_reveal,
             validator_graffiti,
-            block_type,
-        )
-    }
-
-    pub fn produce_block_private(
-        &self,
-        randao_reveal: Signature,
-        slot: Slot,
-        validator_graffiti: Option<Graffiti>,
-    ) -> Result<BlindedBeaconBlockAndState<T::EthSpec>, BlockProductionError> {
-        metrics::inc_counter(&metrics::BLOCK_PRODUCTION_REQUESTS);
-        let _complete_timer = metrics::start_timer(&metrics::BLOCK_PRODUCTION_TIMES);
-
-        // Producing a block requires the tree hash cache, so clone a full state corresponding to
-        // the head from the snapshot cache. Unfortunately we can't move the snapshot out of the
-        // cache (which would be fast), because we need to re-process the block after it has been
-        // signed. If we miss the cache or we're producing a block that conflicts with the head,
-        // fall back to getting the head from `slot - 1`.
-        let state_load_timer = metrics::start_timer(&metrics::BLOCK_PRODUCTION_STATE_LOAD_TIMES);
-        let head_info = self
-            .head_info()
-            .map_err(BlockProductionError::UnableToGetHeadInfo)?;
-        let (state, state_root_opt) = if head_info.slot < slot {
-            // Normal case: proposing a block atop the current head. Use the snapshot cache.
-            if let Some(pre_state) = self
-                .snapshot_cache
-                .try_read_for(BLOCK_PROCESSING_CACHE_LOCK_TIMEOUT)
-                .and_then(|snapshot_cache| {
-                    snapshot_cache.get_state_for_block_production(head_info.block_root)
-                })
-            {
-                (pre_state.pre_state, pre_state.state_root)
-            } else {
-                warn!(
-                    self.log,
-                    "Block production cache miss";
-                    "message" => "this block is more likely to be orphaned",
-                    "slot" => slot,
-                );
-                let state = self
-                    .state_at_slot(slot - 1, StateSkipConfig::WithStateRoots)
-                    .map_err(|_| BlockProductionError::UnableToProduceAtSlot(slot))?;
-
-                (state, None)
-            }
-        } else {
-            warn!(
-                self.log,
-                "Producing block that conflicts with head";
-                "message" => "this block is more likely to be orphaned",
-                "slot" => slot,
-            );
-            let state = self
-                .state_at_slot(slot - 1, StateSkipConfig::WithStateRoots)
-                .map_err(|_| BlockProductionError::UnableToProduceAtSlot(slot))?;
-
-            (state, None)
-        };
-        drop(state_load_timer);
-
-        self.produce_block_on_state_private(
-            state,
-            state_root_opt,
-            slot,
-            randao_reveal,
-            validator_graffiti,
         )
     }
 
@@ -2858,7 +2790,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         produce_at_slot: Slot,
         randao_reveal: Signature,
         validator_graffiti: Option<Graffiti>,
-        block_type: BlockType,
     ) -> Result<BeaconBlockAndState<T::EthSpec, Txns>, BlockProductionError> {
         let eth1_chain = self
             .eth1_chain
@@ -3009,7 +2940,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             }
             BeaconState::Merge(_) => {
                 let sync_aggregate = get_sync_aggregate()?;
-                let execution_payload = get_execution_payload::<T, Txns>(self, &state, block_type)?;
+                let execution_payload = get_execution_payload::<T, Txns>(self, &state)?;
                 BeaconBlock::Merge(BeaconBlockMerge {
                     slot,
                     proposer_index,
@@ -3072,225 +3003,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         trace!(
             self.log,
             "Produced beacon block";
-            "parent" => %block.parent_root(),
-            "attestations" => block.body().attestations().len(),
-            "slot" => block.slot()
-        );
-
-        Ok((block, state))
-    }
-
-    pub fn produce_block_on_state_private(
-        &self,
-        mut state: BeaconState<T::EthSpec>,
-        state_root_opt: Option<Hash256>,
-        produce_at_slot: Slot,
-        randao_reveal: Signature,
-        validator_graffiti: Option<Graffiti>,
-    ) -> Result<BlindedBeaconBlockAndState<T::EthSpec>, BlockProductionError> {
-        let eth1_chain = self
-            .eth1_chain
-            .as_ref()
-            .ok_or(BlockProductionError::NoEth1ChainConnection)?;
-
-        // It is invalid to try to produce a block using a state from a future slot.
-        if state.slot() > produce_at_slot {
-            return Err(BlockProductionError::StateSlotTooHigh {
-                produce_at_slot,
-                state_slot: state.slot(),
-            });
-        }
-
-        let slot_timer = metrics::start_timer(&metrics::BLOCK_PRODUCTION_SLOT_PROCESS_TIMES);
-
-        // Ensure the state has performed a complete transition into the required slot.
-        complete_state_advance(&mut state, state_root_opt, produce_at_slot, &self.spec)?;
-
-        drop(slot_timer);
-
-        state.build_committee_cache(RelativeEpoch::Current, &self.spec)?;
-
-        let parent_root = if state.slot() > 0 {
-            *state
-                .get_block_root(state.slot() - 1)
-                .map_err(|_| BlockProductionError::UnableToGetBlockRootFromState)?
-        } else {
-            state.latest_block_header().canonical_root()
-        };
-
-        let (proposer_slashings, attester_slashings, voluntary_exits) =
-            self.op_pool.get_slashings_and_exits(&state, &self.spec);
-
-        let eth1_data = eth1_chain.eth1_data_for_block_production(&state, &self.spec)?;
-        let deposits = eth1_chain
-            .deposits_for_block_inclusion(&state, &eth1_data, &self.spec)?
-            .into();
-
-        // Iterate through the naive aggregation pool and ensure all the attestations from there
-        // are included in the operation pool.
-        let unagg_import_timer =
-            metrics::start_timer(&metrics::BLOCK_PRODUCTION_UNAGGREGATED_TIMES);
-        for attestation in self.naive_aggregation_pool.read().iter() {
-            if let Err(e) = self.op_pool.insert_attestation(
-                attestation.clone(),
-                &state.fork(),
-                state.genesis_validators_root(),
-                &self.spec,
-            ) {
-                // Don't stop block production if there's an error, just create a log.
-                error!(
-                    self.log,
-                    "Attestation did not transfer to op pool";
-                    "reason" => ?e
-                );
-            }
-        }
-        drop(unagg_import_timer);
-
-        // Override the beacon node's graffiti with graffiti from the validator, if present.
-        let graffiti = match validator_graffiti {
-            Some(graffiti) => graffiti,
-            None => self.graffiti,
-        };
-
-        let attestation_packing_timer =
-            metrics::start_timer(&metrics::BLOCK_PRODUCTION_ATTESTATION_TIMES);
-
-        let mut prev_filter_cache = HashMap::new();
-        let prev_attestation_filter = |att: &&Attestation<T::EthSpec>| {
-            self.filter_op_pool_attestation(&mut prev_filter_cache, *att, &state)
-        };
-        let mut curr_filter_cache = HashMap::new();
-        let curr_attestation_filter = |att: &&Attestation<T::EthSpec>| {
-            self.filter_op_pool_attestation(&mut curr_filter_cache, *att, &state)
-        };
-
-        let attestations = self
-            .op_pool
-            .get_attestations(
-                &state,
-                prev_attestation_filter,
-                curr_attestation_filter,
-                &self.spec,
-            )
-            .map_err(BlockProductionError::OpPoolError)?
-            .into();
-        drop(attestation_packing_timer);
-
-        let slot = state.slot();
-        let proposer_index = state.get_beacon_proposer_index(state.slot(), &self.spec)? as u64;
-
-        // Closure to fetch a sync aggregate in cases where it is required.
-        let get_sync_aggregate = || -> Result<SyncAggregate<_>, BlockProductionError> {
-            Ok(self
-                .op_pool
-                .get_sync_aggregate(&state)
-                .map_err(BlockProductionError::OpPoolError)?
-                .unwrap_or_else(|| {
-                    warn!(
-                        self.log,
-                        "Producing block with no sync contributions";
-                        "slot" => state.slot(),
-                    );
-                    SyncAggregate::new()
-                }))
-        };
-        let inner_block = match &state {
-            BeaconState::Base(_) => BlindedBeaconBlock::Base(BlindedBeaconBlockBase {
-                slot,
-                proposer_index,
-                parent_root,
-                state_root: Hash256::zero(),
-                body: BlindedBeaconBlockBodyBase {
-                    randao_reveal,
-                    eth1_data,
-                    graffiti,
-                    proposer_slashings: proposer_slashings.into(),
-                    attester_slashings: attester_slashings.into(),
-                    attestations,
-                    deposits,
-                    voluntary_exits: voluntary_exits.into(),
-                },
-            }),
-            BeaconState::Altair(_) => {
-                let sync_aggregate = get_sync_aggregate()?;
-                BlindedBeaconBlock::Altair(BlindedBeaconBlockAltair {
-                    slot,
-                    proposer_index,
-                    parent_root,
-                    state_root: Hash256::zero(),
-                    body: BlindedBeaconBlockBodyAltair {
-                        randao_reveal,
-                        eth1_data,
-                        graffiti,
-                        proposer_slashings: proposer_slashings.into(),
-                        attester_slashings: attester_slashings.into(),
-                        attestations,
-                        deposits,
-                        voluntary_exits: voluntary_exits.into(),
-                        sync_aggregate,
-                    },
-                })
-            }
-            BeaconState::Merge(_) => {
-                let sync_aggregate = get_sync_aggregate()?;
-                let execution_payload_header = ExecutionPayloadHeader::default();
-                BlindedBeaconBlock::Merge(BlindedBeaconBlockMerge {
-                    slot,
-                    proposer_index,
-                    parent_root,
-                    state_root: Hash256::zero(),
-                    body: BlindedBeaconBlockBodyMerge {
-                        randao_reveal,
-                        eth1_data,
-                        graffiti,
-                        proposer_slashings: proposer_slashings.into(),
-                        attester_slashings: attester_slashings.into(),
-                        attestations,
-                        deposits,
-                        voluntary_exits: voluntary_exits.into(),
-                        sync_aggregate,
-                        execution_payload_header,
-                    },
-                })
-            }
-        };
-
-        let block = SignedBlindedBeaconBlock::from_block(
-            inner_block,
-            // The block is not signed here, that is the task of a validator client.
-            Signature::empty(),
-        );
-
-        let block_size = block.ssz_bytes_len();
-        debug!(
-            self.log,
-            "Produced blinded block on state";
-            "block_size" => block_size,
-        );
-
-        metrics::observe(&metrics::BLOCK_SIZE, block_size as f64);
-
-        if block_size > self.config.max_network_size {
-            return Err(BlockProductionError::BlockTooLarge(block_size));
-        }
-
-        let process_timer = metrics::start_timer(&metrics::BLOCK_PRODUCTION_PROCESS_TIMES);
-        per_block_processing_private(&mut state, &block, &self.spec)?;
-        drop(process_timer);
-
-        let state_root_timer = metrics::start_timer(&metrics::BLOCK_PRODUCTION_STATE_ROOT_TIMES);
-        let state_root = state.update_tree_hash_cache()?;
-        drop(state_root_timer);
-
-        let (mut block, _) = block.deconstruct();
-        *block.state_root_mut() = state_root;
-
-        metrics::inc_counter(&metrics::BLOCK_PRODUCTION_SUCCESSES);
-
-        trace!(
-            self.log,
-            "Produced blinded beacon block";
             "parent" => %block.parent_root(),
             "attestations" => block.body().attestations().len(),
             "slot" => block.slot()

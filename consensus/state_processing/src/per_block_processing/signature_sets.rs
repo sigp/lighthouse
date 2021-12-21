@@ -183,38 +183,6 @@ where
     ))
 }
 
-/// A signature set that is valid if the block proposers randao reveal signature is correct.
-pub fn randao_signature_set_private<'a, T, F>(
-    state: &'a BeaconState<T>,
-    get_pubkey: F,
-    block: BlindedBeaconBlockRef<'a, T>,
-    spec: &'a ChainSpec,
-) -> Result<SignatureSet<'a>>
-where
-    T: EthSpec,
-    F: Fn(usize) -> Option<Cow<'a, PublicKey>>,
-{
-    let proposer_index = state.get_beacon_proposer_index(block.slot(), spec)?;
-
-    let domain = spec.get_domain(
-        block.slot().epoch(T::slots_per_epoch()),
-        Domain::Randao,
-        &state.fork(),
-        state.genesis_validators_root(),
-    );
-
-    let message = block
-        .slot()
-        .epoch(T::slots_per_epoch())
-        .signing_root(domain);
-
-    Ok(SignatureSet::single_pubkey(
-        block.body().randao_reveal(),
-        get_pubkey(proposer_index).ok_or_else(|| Error::ValidatorUnknown(proposer_index as u64))?,
-        message,
-    ))
-}
-
 /// Returns two signature sets, one for each `BlockHeader` included in the `ProposerSlashing`.
 pub fn proposer_slashing_signature_set<'a, T, F>(
     state: &'a BeaconState<T>,

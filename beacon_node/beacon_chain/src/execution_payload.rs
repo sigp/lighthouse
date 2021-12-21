@@ -11,7 +11,7 @@ use crate::{
     BeaconChain, BeaconChainError, BeaconChainTypes, BlockError, BlockProductionError,
     ExecutionPayloadError,
 };
-use execution_layer::{BlockType, ExecutePayloadResponseStatus};
+use execution_layer::ExecutePayloadResponseStatus;
 use fork_choice::PayloadVerificationStatus;
 use proto_array::{Block as ProtoBlock, ExecutionStatus};
 use serde::de::DeserializeOwned;
@@ -206,19 +206,14 @@ pub fn validate_execution_payload_for_gossip<T: BeaconChainTypes>(
 pub fn get_execution_payload<T: BeaconChainTypes, Txns: Transactions<T::EthSpec>>(
     chain: &BeaconChain<T>,
     state: &BeaconState<T::EthSpec>,
-    block_type: BlockType,
 ) -> Result<ExecutionPayload<T::EthSpec, Txns>, BlockProductionError> {
-    Ok(
-        prepare_execution_payload_blocking::<T, Txns>(chain, state, block_type)?
-            .unwrap_or_default(),
-    )
+    Ok(prepare_execution_payload_blocking::<T, Txns>(chain, state)?.unwrap_or_default())
 }
 
 /// Wraps the async `prepare_execution_payload` function as a blocking task.
 pub fn prepare_execution_payload_blocking<T: BeaconChainTypes, Txns: Transactions<T::EthSpec>>(
     chain: &BeaconChain<T>,
     state: &BeaconState<T::EthSpec>,
-    block_type: BlockType,
 ) -> Result<Option<ExecutionPayload<T::EthSpec, Txns>>, BlockProductionError> {
     let execution_layer = chain
         .execution_layer
@@ -226,9 +221,7 @@ pub fn prepare_execution_payload_blocking<T: BeaconChainTypes, Txns: Transaction
         .ok_or(BlockProductionError::ExecutionLayerMissing)?;
 
     execution_layer
-        .block_on_generic(|_| async {
-            prepare_execution_payload::<T, Txns>(chain, state, block_type).await
-        })
+        .block_on_generic(|_| async { prepare_execution_payload::<T, Txns>(chain, state).await })
         .map_err(BlockProductionError::BlockingFailed)?
 }
 
@@ -252,7 +245,6 @@ pub async fn prepare_execution_payload<
 >(
     chain: &BeaconChain<T>,
     state: &BeaconState<T::EthSpec>,
-    block_type: BlockType,
 ) -> Result<Option<ExecutionPayload<T::EthSpec, Txns>>, BlockProductionError> {
     let spec = &chain.spec;
     let execution_layer = chain
@@ -312,7 +304,6 @@ pub async fn prepare_execution_payload<
             timestamp,
             random,
             finalized_block_hash.unwrap_or_else(Hash256::zero),
-            block_type,
         )
         .await
         .map_err(BlockProductionError::GetPayloadFailed)?;

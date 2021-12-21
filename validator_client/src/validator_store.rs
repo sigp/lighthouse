@@ -5,7 +5,7 @@ use crate::{
     signing_method::{Error as SigningError, SignableMessage, SigningContext, SigningMethod},
 };
 use account_utils::{validator_definitions::ValidatorDefinition, ZeroizeString};
-use eth2::types::SignedBlindedBeaconBlock;
+use eth2::types::{SignedBlindedBeaconBlock, Transactions};
 use parking_lot::{Mutex, RwLock};
 use slashing_protection::{NotSafe, Safe, SlashingDatabase};
 use slog::{crit, error, info, warn, Logger};
@@ -18,10 +18,11 @@ use task_executor::TaskExecutor;
 use types::blinded_beacon_block::BlindedBeaconBlock;
 use types::{
     attestation::Error as AttestationError, graffiti::GraffitiString, AggregateAndProof,
-    Attestation, BeaconBlock, ChainSpec, ContributionAndProof, Domain, Epoch, EthSpec, Fork,
-    Graffiti, Hash256, Keypair, PublicKeyBytes, SelectionProof, Signature, SignedAggregateAndProof,
-    SignedBeaconBlock, SignedContributionAndProof, Slot, SyncAggregatorSelectionData,
-    SyncCommitteeContribution, SyncCommitteeMessage, SyncSelectionProof, SyncSubnetId,
+    Attestation, BeaconBlock, BlindedTransactions, ChainSpec, ContributionAndProof, Domain, Epoch,
+    EthSpec, Fork, Graffiti, Hash256, Keypair, PublicKeyBytes, SelectionProof, Signature,
+    SignedAggregateAndProof, SignedBeaconBlock, SignedContributionAndProof, Slot,
+    SyncAggregatorSelectionData, SyncCommitteeContribution, SyncCommitteeMessage,
+    SyncSelectionProof, SyncSubnetId,
 };
 use validator_dir::ValidatorDir;
 
@@ -336,7 +337,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
         let signing_context = self.signing_context(Domain::Randao, signing_epoch);
 
         let signature = signing_method
-            .get_signature::<E>(
+            .get_signature::<E, BlindedTransactions>(
                 SignableMessage::RandaoReveal(signing_epoch),
                 signing_context,
                 &self.spec,
@@ -351,12 +352,12 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
         self.validators.read().graffiti(validator_pubkey)
     }
 
-    pub async fn sign_block(
+    pub async fn sign_block<Txns: Transactions<E>>(
         &self,
         validator_pubkey: PublicKeyBytes,
-        block: BeaconBlock<E>,
+        block: BeaconBlock<E, Txns>,
         current_slot: Slot,
-    ) -> Result<SignedBeaconBlock<E>, Error> {
+    ) -> Result<SignedBeaconBlock<E, Txns>, Error> {
         // Make sure the block slot is not higher than the current slot to avoid potential attacks.
         if block.slot() > current_slot {
             warn!(
@@ -389,7 +390,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
 
                 let signing_method = self.doppelganger_checked_signing_method(validator_pubkey)?;
                 let signature = signing_method
-                    .get_signature(
+                    .get_signature::<E, Txns>(
                         SignableMessage::BeaconBlock(&block),
                         signing_context,
                         &self.spec,
@@ -428,83 +429,6 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
         }
     }
 
-    pub async fn sign_block_private(
-        &self,
-        validator_pubkey: PublicKeyBytes,
-        block: BlindedBeaconBlock<E>,
-        current_slot: Slot,
-    ) -> Result<SignedBlindedBeaconBlock<E>, Error> {
-        // Make sure the block slot is not higher than the current slot to avoid potential attacks.
-        if block.slot() > current_slot {
-            warn!(
-                self.log,
-                "Not signing block with slot greater than current slot";
-                "block_slot" => block.slot().as_u64(),
-                "current_slot" => current_slot.as_u64()
-            );
-            return Err(Error::GreaterThanCurrentSlot {
-                slot: block.slot(),
-                current_slot,
-            });
-        }
-
-        let signing_epoch = block.epoch();
-        let signing_context = self.signing_context(Domain::BeaconProposer, signing_epoch);
-        let domain_hash = signing_context.domain_hash(&self.spec);
-
-        // Check for slashing conditions.
-        let slashing_status = self.slashing_protection.check_and_insert_block_proposal(
-            &validator_pubkey,
-            &block.block_header(),
-            domain_hash,
-        );
-
-        match slashing_status {
-            // We can safely sign this block without slashing.
-            Ok(Safe::Valid) => {
-                // metrics::inc_counter_vec(&metrics::SIGNED_BLOCKS_TOTAL, &[metrics::SUCCESS]);
-
-                let signing_method = self.doppelganger_checked_signing_method(validator_pubkey)?;
-                let signature = signing_method
-                    .get_signature(
-                        SignableMessage::BlindedBeaconBlock(&block),
-                        signing_context,
-                        &self.spec,
-                        &self.task_executor,
-                    )
-                    .await?;
-                Ok(SignedBlindedBeaconBlock::from_block(block, signature))
-            }
-            Ok(Safe::SameData) => {
-                warn!(
-                    self.log,
-                    "Skipping signing of previously signed block";
-                );
-                // metrics::inc_counter_vec(&metrics::SIGNED_BLOCKS_TOTAL, &[metrics::SAME_DATA]);
-                Err(Error::SameData)
-            }
-            Err(NotSafe::UnregisteredValidator(pk)) => {
-                warn!(
-                    self.log,
-                    "Not signing block for unregistered validator";
-                    "msg" => "Carefully consider running with --init-slashing-protection (see --help)",
-                    "public_key" => format!("{:?}", pk)
-                );
-                // metrics::inc_counter_vec(&metrics::SIGNED_BLOCKS_TOTAL, &[metrics::UNREGISTERED]);
-                Err(Error::Slashable(NotSafe::UnregisteredValidator(pk)))
-            }
-            Err(e) => {
-                crit!(
-                    self.log,
-                    "Not signing slashable block";
-                    "error" => format!("{:?}", e)
-                );
-                // metrics::inc_counter_vec(&metrics::SIGNED_BLOCKS_TOTAL, &[metrics::SLASHABLE]);
-                Err(Error::Slashable(e))
-            }
-        }
-    }
-
     pub async fn sign_attestation(
         &self,
         validator_pubkey: PublicKeyBytes,
@@ -535,7 +459,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
             Ok(Safe::Valid) => {
                 let signing_method = self.doppelganger_checked_signing_method(validator_pubkey)?;
                 let signature = signing_method
-                    .get_signature::<E>(
+                    .get_signature::<E, BlindedTransactions>(
                         SignableMessage::AttestationData(&attestation.data),
                         signing_context,
                         &self.spec,
@@ -612,7 +536,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
 
         let signing_method = self.doppelganger_checked_signing_method(validator_pubkey)?;
         let signature = signing_method
-            .get_signature(
+            .get_signature::<E, BlindedTransactions>(
                 SignableMessage::SignedAggregateAndProof(&message),
                 signing_context,
                 &self.spec,
@@ -645,7 +569,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
         let signing_method = self.doppelganger_bypassed_signing_method(validator_pubkey)?;
 
         let signature = signing_method
-            .get_signature::<E>(
+            .get_signature::<E, BlindedTransactions>(
                 SignableMessage::SelectionProof(slot),
                 signing_context,
                 &self.spec,
@@ -684,7 +608,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
         };
 
         let signature = signing_method
-            .get_signature::<E>(
+            .get_signature::<E, BlindedTransactions>(
                 SignableMessage::SyncSelectionProof(&message),
                 signing_context,
                 &self.spec,
@@ -710,7 +634,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
         let signing_method = self.doppelganger_bypassed_signing_method(*validator_pubkey)?;
 
         let signature = signing_method
-            .get_signature::<E>(
+            .get_signature::<E, BlindedTransactions>(
                 SignableMessage::SyncCommitteeSignature {
                     beacon_block_root,
                     slot,
@@ -755,7 +679,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
         };
 
         let signature = signing_method
-            .get_signature(
+            .get_signature::<E, BlindedTransactions>(
                 SignableMessage::SignedContributionAndProof(&message),
                 signing_context,
                 &self.spec,

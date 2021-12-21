@@ -35,8 +35,6 @@ mod verify_deposit;
 mod verify_exit;
 mod verify_proposer_slashing;
 
-use crate::per_block_processing::process_operations::process_operations_private;
-use crate::signature_sets::randao_signature_set_private;
 #[cfg(feature = "arbitrary-fuzz")]
 use arbitrary::Arbitrary;
 
@@ -165,63 +163,6 @@ pub fn per_block_processing<T: EthSpec, Txns: Transactions<T>>(
     Ok(())
 }
 
-pub fn per_block_processing_private<T: EthSpec>(
-    state: &mut BeaconState<T>,
-    signed_block: &SignedBlindedBeaconBlock<T>,
-    spec: &ChainSpec,
-) -> Result<(), BlockProcessingError> {
-    let block = signed_block.message();
-
-    // Verify that the `SignedBeaconBlock` instantiation matches the fork at `signed_block.slot()`.
-    signed_block
-        .fork_name(spec)
-        .map_err(BlockProcessingError::InconsistentBlockFork)?;
-
-    // Verify that the `BeaconState` instantiation matches the fork at `state.slot()`.
-    state
-        .fork_name(spec)
-        .map_err(BlockProcessingError::InconsistentStateFork)?;
-
-    let proposer_index = process_block_header(state, block.temporary_block_header(), spec)?;
-
-    // Ensure the current and previous epoch caches are built.
-    state.build_committee_cache(RelativeEpoch::Previous, spec)?;
-    state.build_committee_cache(RelativeEpoch::Current, spec)?;
-
-    // The call to the `process_execution_payload` must happen before the call to the
-    // `process_randao` as the former depends on the `randao_mix` computed with the reveal of the
-    // previous block.
-    if is_execution_enabled_private(state, block.body()) {
-        let payload = block
-            .body()
-            .execution_payload_header()
-            .ok_or(BlockProcessingError::IncorrectStateType)?;
-        process_execution_payload_header(state, payload, spec)?;
-    }
-
-    process_randao_private(state, block, VerifySignatures::True, spec)?;
-    process_eth1_data(state, block.body().eth1_data())?;
-    process_operations_private(
-        state,
-        block.body(),
-        proposer_index,
-        VerifySignatures::True,
-        spec,
-    )?;
-
-    if let Some(sync_aggregate) = block.body().sync_aggregate() {
-        process_sync_aggregate(
-            state,
-            sync_aggregate,
-            proposer_index,
-            VerifySignatures::True,
-            spec,
-        )?;
-    }
-
-    Ok(())
-}
-
 /// Processes the block header, returning the proposer index.
 pub fn process_block_header<T: EthSpec>(
     state: &mut BeaconState<T>,
@@ -307,29 +248,6 @@ pub fn process_randao<T: EthSpec, Txns: Transactions<T>>(
         // Verify RANDAO reveal signature.
         block_verify!(
             randao_signature_set(state, |i| get_pubkey_from_state(state, i), block, spec)?.verify(),
-            BlockProcessingError::RandaoSignatureInvalid
-        );
-    }
-
-    // Update the current epoch RANDAO mix.
-    state.update_randao_mix(state.current_epoch(), block.body().randao_reveal())?;
-
-    Ok(())
-}
-
-/// Verifies the `randao_reveal` against the block's proposer pubkey and updates
-/// `state.latest_randao_mixes`.
-pub fn process_randao_private<T: EthSpec>(
-    state: &mut BeaconState<T>,
-    block: BlindedBeaconBlockRef<'_, T>,
-    verify_signatures: VerifySignatures,
-    spec: &ChainSpec,
-) -> Result<(), BlockProcessingError> {
-    if verify_signatures.is_true() {
-        // Verify RANDAO reveal signature.
-        block_verify!(
-            randao_signature_set_private(state, |i| get_pubkey_from_state(state, i), block, spec)?
-                .verify(),
             BlockProcessingError::RandaoSignatureInvalid
         );
     }
@@ -452,70 +370,6 @@ pub fn process_execution_payload<T: EthSpec, Txns: Transactions<T>>(
     Ok(())
 }
 
-/// Calls `partially_verify_execution_payload` and then updates the payload header in the `state`.
-///
-/// ## Specification
-///
-/// Partially equivalent to the `process_execution_payload` function:
-///
-/// https://github.com/ethereum/consensus-specs/blob/v1.1.5/specs/merge/beacon-chain.md#process_execution_payload
-pub fn process_execution_payload_header<T: EthSpec>(
-    state: &mut BeaconState<T>,
-    payload: &ExecutionPayloadHeader<T>,
-    spec: &ChainSpec,
-) -> Result<(), BlockProcessingError> {
-    partially_verify_execution_payload_header(state, payload, spec)?;
-
-    *state.latest_execution_payload_header_mut()? = payload.clone();
-
-    Ok(())
-}
-
-//TODO: here
-/// Performs *partial* verification of the `payload`.
-///
-/// The verification is partial, since the execution payload is not verified against an execution
-/// engine. That is expected to be performed by an upstream function.
-///
-/// ## Specification
-///
-/// Contains a partial set of checks from the `process_execution_payload` function:
-///
-/// https://github.com/ethereum/consensus-specs/blob/v1.1.5/specs/merge/beacon-chain.md#process_execution_payload
-pub fn partially_verify_execution_payload_header<T: EthSpec>(
-    state: &BeaconState<T>,
-    payload: &ExecutionPayloadHeader<T>,
-    spec: &ChainSpec,
-) -> Result<(), BlockProcessingError> {
-    if is_merge_transition_complete(state) {
-        block_verify!(
-            payload.parent_hash == state.latest_execution_payload_header()?.block_hash,
-            BlockProcessingError::ExecutionHashChainIncontiguous {
-                expected: state.latest_execution_payload_header()?.block_hash,
-                found: payload.parent_hash,
-            }
-        );
-    }
-    block_verify!(
-        payload.random == *state.get_randao_mix(state.current_epoch())?,
-        BlockProcessingError::ExecutionRandaoMismatch {
-            expected: *state.get_randao_mix(state.current_epoch())?,
-            found: payload.random,
-        }
-    );
-
-    let timestamp = compute_timestamp_at_slot(state, spec)?;
-    block_verify!(
-        payload.timestamp == timestamp,
-        BlockProcessingError::ExecutionInvalidTimestamp {
-            expected: timestamp,
-            found: payload.timestamp,
-        }
-    );
-
-    Ok(())
-}
-
 /// These functions will definitely be called before the merge. Their entire purpose is to check if
 /// the merge has happened or if we're on the transition block. Thus we don't want to propagate
 /// errors from the `BeaconState` being an earlier variant than `BeaconStateMerge` as we'd have to
@@ -546,27 +400,6 @@ pub fn is_execution_enabled<T: EthSpec, Txns: Transactions<T>>(
 ) -> bool {
     is_merge_transition_block(state, body) || is_merge_transition_complete(state)
 }
-
-/// https://github.com/ethereum/consensus-specs/blob/dev/specs/merge/beacon-chain.md#is_execution_enabled
-pub fn is_execution_enabled_private<T: EthSpec>(
-    state: &BeaconState<T>,
-    body: BlindedBeaconBlockBodyRef<T>,
-) -> bool {
-    is_merge_transition_block_private(state, body) || is_merge_transition_complete(state)
-}
-/// https://github.com/ethereum/consensus-specs/blob/dev/specs/merge/beacon-chain.md#is_merge_transition_block
-pub fn is_merge_transition_block_private<T: EthSpec>(
-    state: &BeaconState<T>,
-    body: BlindedBeaconBlockBodyRef<T>,
-) -> bool {
-    body.execution_payload_header()
-        .map(|payload_header| {
-            !is_merge_transition_complete(state)
-                && *payload_header != <ExecutionPayloadHeader<T>>::default()
-        })
-        .unwrap_or(false)
-}
-
 /// https://github.com/ethereum/consensus-specs/blob/dev/specs/merge/beacon-chain.md#compute_timestamp_at_slot
 pub fn compute_timestamp_at_slot<T: EthSpec>(
     state: &BeaconState<T>,

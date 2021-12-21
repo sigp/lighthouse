@@ -24,7 +24,6 @@ use beacon_chain::{
 };
 use block_id::BlockId;
 use eth2::types::{self as api_types, EndpointVersion, ValidatorId};
-use execution_layer::BlockType;
 use lighthouse_network::{types::SyncState, EnrExt, NetworkGlobals, PeerId, PubsubMessage};
 use lighthouse_version::version_with_platform;
 use network::NetworkMessage;
@@ -1028,7 +1027,7 @@ pub fn serve<T: BeaconChainTypes>(
         .and(network_tx_filter.clone())
         .and(log_filter.clone())
         .and_then(
-            |block: SignedBlindedBeaconBlock<T::EthSpec>,
+            |block: SignedBeaconBlock<T::EthSpec, BlindedTransactions>,
              chain: Arc<BeaconChain<T>>,
              network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>,
              log: Logger| {
@@ -1982,7 +1981,6 @@ pub fn serve<T: BeaconChainTypes>(
                             randao_reveal,
                             slot,
                             query.graffiti.map(Into::into),
-                            BlockType::Full,
                         )
                         .map_err(warp_utils::reject::block_production_error)?;
                     let fork_name = block
@@ -2350,7 +2348,6 @@ pub fn serve<T: BeaconChainTypes>(
                             randao_reveal,
                             slot,
                             query.graffiti.map(Into::into),
-                            BlockType::Blinded,
                         )
                         .map_err(warp_utils::reject::block_production_error)?;
                     Ok(api_types::GenericResponse::from(block))

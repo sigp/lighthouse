@@ -570,9 +570,9 @@ impl BeaconNodeHttpClient {
     /// `POST beacon/blocks`
     ///
     /// Returns `Ok(None)` on a 404 error.
-    pub async fn post_beacon_blocks<T: EthSpec>(
+    pub async fn post_beacon_blocks<T: EthSpec, Txns: Transactions<T>>(
         &self,
-        block: &SignedBeaconBlock<T>,
+        block: &SignedBeaconBlock<T, Txns>,
     ) -> Result<(), Error> {
         let mut path = self.eth_path(V1)?;
 
@@ -590,9 +590,9 @@ impl BeaconNodeHttpClient {
     /// `POST lighthouse/beacon/blocks_private`
     ///
     /// Returns `Ok(None)` on a 404 error.
-    pub async fn post_beacon_blocks_private<T: EthSpec>(
+    pub async fn post_beacon_blocks_private<T: EthSpec, Txns: Transactions<T>>(
         &self,
-        block: &SignedBlindedBeaconBlock<T>,
+        block: &SignedBeaconBlock<T, Txns>,
     ) -> Result<(), Error> {
         let mut path = self.server.full.clone();
 
@@ -601,6 +601,8 @@ impl BeaconNodeHttpClient {
             .push("lighthouse")
             .push("beacon")
             .push("blocks_private");
+
+        //FIXME(sean): into header?
 
         self.post_with_timeout(path, block, self.timeouts.proposal)
             .await?;
@@ -1145,12 +1147,12 @@ impl BeaconNodeHttpClient {
     }
 
     /// `GET v2/validator/blocks/{slot}`
-    pub async fn get_validator_blocks<T: EthSpec>(
+    pub async fn get_validator_blocks<T: EthSpec, Txns: Transactions<T>>(
         &self,
         slot: Slot,
         randao_reveal: &SignatureBytes,
         graffiti: Option<&Graffiti>,
-    ) -> Result<ForkVersionedResponse<BeaconBlock<T>>, Error> {
+    ) -> Result<ForkVersionedResponse<BeaconBlock<T, Txns>>, Error> {
         let mut path = self.eth_path(V2)?;
 
         path.path_segments_mut()
@@ -1171,12 +1173,12 @@ impl BeaconNodeHttpClient {
     }
 
     /// `GET lighthouse/validator/blocks_private/{slot}`
-    pub async fn get_validator_blocks_private<T: EthSpec>(
+    pub async fn get_validator_blocks_private<T: EthSpec, Txns: Transactions<T>>(
         &self,
         slot: Slot,
         randao_reveal: &SignatureBytes,
         graffiti: Option<&Graffiti>,
-    ) -> Result<GenericResponse<BlindedBeaconBlock<T>>, Error> {
+    ) -> Result<GenericResponse<BeaconBlock<T, Txns>>, Error> {
         let mut path = self.server.full.clone();
 
         path.path_segments_mut()

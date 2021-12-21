@@ -33,10 +33,9 @@ pub enum Error {
 }
 
 /// Enumerates all messages that can be signed by a validator.
-pub enum SignableMessage<'a, T: EthSpec> {
+pub enum SignableMessage<'a, T: EthSpec, Txns: Transactions<T> = ExecTransactions<T>> {
     RandaoReveal(Epoch),
-    BeaconBlock(&'a BeaconBlock<T>),
-    BlindedBeaconBlock(&'a BlindedBeaconBlock<T>),
+    BeaconBlock(&'a BeaconBlock<T, Txns>),
     AttestationData(&'a AttestationData),
     SignedAggregateAndProof(&'a AggregateAndProof<T>),
     SelectionProof(Slot),
@@ -48,7 +47,7 @@ pub enum SignableMessage<'a, T: EthSpec> {
     SignedContributionAndProof(&'a ContributionAndProof<T>),
 }
 
-impl<'a, T: EthSpec> SignableMessage<'a, T> {
+impl<'a, T: EthSpec, Txns: Transactions<T>> SignableMessage<'a, T, Txns> {
     /// Returns the `SignedRoot` for the contained message.
     ///
     /// The actual `SignedRoot` trait is not used since it also requires a `TreeHash` impl, which is
@@ -57,7 +56,6 @@ impl<'a, T: EthSpec> SignableMessage<'a, T> {
         match self {
             SignableMessage::RandaoReveal(epoch) => epoch.signing_root(domain),
             SignableMessage::BeaconBlock(b) => b.signing_root(domain),
-            SignableMessage::BlindedBeaconBlock(b) => b.signing_root(domain),
             SignableMessage::AttestationData(a) => a.signing_root(domain),
             SignableMessage::SignedAggregateAndProof(a) => a.signing_root(domain),
             SignableMessage::SelectionProof(slot) => slot.signing_root(domain),
@@ -115,9 +113,9 @@ impl SigningContext {
 
 impl SigningMethod {
     /// Return the signature of `signable_message`, with respect to the `signing_context`.
-    pub async fn get_signature<T: EthSpec>(
+    pub async fn get_signature<T: EthSpec, Txns: Transactions<T>>(
         &self,
-        signable_message: SignableMessage<'_, T>,
+        signable_message: SignableMessage<'_, T, Txns>,
         signing_context: SigningContext,
         spec: &ChainSpec,
         executor: &TaskExecutor,
@@ -163,9 +161,6 @@ impl SigningMethod {
                         Web3SignerObject::RandaoReveal { epoch }
                     }
                     SignableMessage::BeaconBlock(block) => Web3SignerObject::beacon_block(block)?,
-                    SignableMessage::BlindedBeaconBlock(block) => {
-                        Web3SignerObject::blinded_beacon_block(block)?
-                    }
                     SignableMessage::AttestationData(a) => Web3SignerObject::Attestation(a),
                     SignableMessage::SignedAggregateAndProof(a) => {
                         Web3SignerObject::AggregateAndProof(a)

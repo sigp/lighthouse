@@ -9,9 +9,11 @@ use sensitive_url::SensitiveUrl;
 use serde::de::DeserializeOwned;
 use serde_json::json;
 use std::time::Duration;
-use types::{EthSpec, ExecTransactions, SignedBlindedBeaconBlock, Transactions};
+use types::{
+    BlindedTransactions, EthSpec, ExecTransactions, SignedBeaconBlock, SignedBlindedBeaconBlock,
+    Transactions,
+};
 
-use crate::BlockType;
 pub use reqwest::Client;
 
 const STATIC_ID: u32 = 1;
@@ -160,16 +162,11 @@ impl EngineApi for HttpJsonRpc {
     async fn get_payload_v1<T: EthSpec, Txns: Transactions<T>>(
         &self,
         payload_id: PayloadId,
-        block_type: BlockType,
     ) -> Result<ExecutionPayload<T, Txns>, Error> {
         let params = json!([JsonPayloadIdRequest::from(payload_id)]);
 
         let response: JsonExecutionPayloadV1<T, Txns> = self
-            .rpc_request(
-                block_type.get_endpoint(),
-                params,
-                ENGINE_GET_PAYLOAD_TIMEOUT,
-            )
+            .rpc_request(ENGINE_GET_PAYLOAD_V1, params, ENGINE_GET_PAYLOAD_TIMEOUT)
             .await?;
 
         Ok(response.into())
@@ -199,9 +196,26 @@ impl EngineApi for HttpJsonRpc {
 
 #[async_trait]
 impl BuilderApi for HttpJsonRpc {
+    async fn get_payload_header_v1<T: EthSpec, Txns: Transactions<T>>(
+        &self,
+        payload_id: PayloadId,
+    ) -> Result<ExecutionPayload<T, Txns>, Error> {
+        let params = json!([JsonPayloadIdRequest::from(payload_id)]);
+
+        let response: JsonExecutionPayloadV1<T, Txns> = self
+            .rpc_request(
+                BUILDER_GET_PAYLOAD_HEADER_V1,
+                params,
+                BUILDER_GET_PAYLOAD_HEADER_TIMEOUT,
+            )
+            .await?;
+
+        Ok(response.into())
+    }
+
     async fn propose_blinded_block_v1<T: EthSpec>(
         &self,
-        block: SignedBlindedBeaconBlock<T>,
+        block: SignedBeaconBlock<T, BlindedTransactions>,
     ) -> Result<ExecutionPayload<T>, Error> {
         let params = json!([block]);
 
@@ -537,7 +551,7 @@ mod test {
                             extra_data: vec![].into(),
                             base_fee_per_gas: Uint256::from(1),
                             block_hash: Hash256::repeat_byte(1),
-                            transactions: vec![].into(),
+                            transactions: ExecTransactions(vec![].into()),
                         })
                         .await;
                 },
@@ -744,7 +758,7 @@ mod test {
                             extra_data: vec![].into(),
                             base_fee_per_gas: Uint256::from(7),
                             block_hash: Hash256::from_str("0x3559e851470f6e7bbed1db474980683e8c315bfce99b2a6ef47c057c04de7858").unwrap(),
-                            transactions: vec![].into(),
+                            transactions: ExecTransactions(vec![].into()),
                         };
 
                     assert_eq!(payload, expected);
@@ -769,7 +783,7 @@ mod test {
                             extra_data: vec![].into(),
                             base_fee_per_gas: Uint256::from(7),
                             block_hash: Hash256::from_str("0x3559e851470f6e7bbed1db474980683e8c315bfce99b2a6ef47c057c04de7858").unwrap(),
-                            transactions: vec![].into(),
+                            transactions: ExecTransactions(vec![].into()),
                         })
                         .await;
                 },

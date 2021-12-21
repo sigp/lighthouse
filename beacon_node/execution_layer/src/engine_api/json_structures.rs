@@ -56,11 +56,8 @@ pub struct JsonPayloadIdResponse {
 }
 
 #[derive(Debug, PartialEq, Default, Serialize, Deserialize)]
-#[serde(
-    bound = "T: EthSpec, Txns: serde::Serialize + serde::de::DeserializeOwned",
-    rename_all = "camelCase"
-)]
-pub struct JsonExecutionPayloadV1<T: EthSpec, Txns> {
+#[serde(bound = "T: EthSpec", rename_all = "camelCase")]
+pub struct JsonExecutionPayloadV1<T: EthSpec, Txns: Transactions<T>> {
     pub parent_hash: Hash256,
     pub fee_recipient: Address,
     pub state_root: Hash256,
@@ -80,7 +77,7 @@ pub struct JsonExecutionPayloadV1<T: EthSpec, Txns> {
     pub extra_data: VariableList<u8, T::MaxExtraDataBytes>,
     pub base_fee_per_gas: Uint256,
     pub block_hash: Hash256,
-    #[serde(with = "serde_transactions")]
+    #[serde(with = "serde_transactions", alias = "transactionsRoot")]
     pub transactions: Txns,
 }
 
@@ -476,71 +473,65 @@ pub mod serde_logs_bloom {
 pub mod serde_transactions {
     use super::*;
     use eth2_serde_utils::hex;
+    use serde::de::{EnumAccess, MapAccess};
     use serde::ser::SerializeSeq;
     use serde::{de, Deserializer, Serializer};
     use std::marker::PhantomData;
+    use std::str::FromStr;
+    use types::execution_payload::BlockType;
+    use types::{BlindedTransactions, Transactions};
 
-    type Value<M, N> = VariableList<Transaction<M>, N>;
+    // type Value<M, N> = VariableList<Transaction<M>, N>;
+    type Value<Txns> = Txns;
 
     #[derive(Default)]
-    pub struct ListOfBytesListVisitor<M, N> {
-        _phantom_m: PhantomData<M>,
-        _phantom_n: PhantomData<N>,
+    pub struct TxnVisitor<E, Txns> {
+        _phantom_e: PhantomData<E>,
+        _phantom_txn: PhantomData<Txns>,
     }
 
-    impl<'a, M: Unsigned, N: Unsigned> serde::de::Visitor<'a> for ListOfBytesListVisitor<M, N> {
-        type Value = Value<M, N>;
+    impl<'a, E: EthSpec, Txns: Transactions<E>> serde::de::Visitor<'a> for TxnVisitor<E, Txns> {
+        type Value = Value<Txns>;
 
         fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
-            write!(formatter, "a list of 0x-prefixed byte lists")
+            match Txns::block_type() {
+                BlockType::Full => write!(formatter, "a list of 0x-prefixed byte lists"),
+                BlockType::Blinded => write!(formatter, "32 bytes hex-encoded"),
+            }
         }
 
         fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
         where
             A: serde::de::SeqAccess<'a>,
         {
-            let mut outer = VariableList::default();
+            Self::Value::visit_seq_execution(seq)
+        }
 
-            while let Some(val) = seq.next_element::<String>()? {
-                let inner_vec = hex::decode(&val).map_err(de::Error::custom)?;
-                let transaction = VariableList::new(inner_vec).map_err(|e| {
-                    serde::de::Error::custom(format!("transaction too large: {:?}", e))
-                })?;
-                outer.push(transaction).map_err(|e| {
-                    serde::de::Error::custom(format!("too many transactions: {:?}", e))
-                })?;
-            }
-
-            Ok(outer)
+        fn visit_string<Err>(self, v: String) -> Result<Self::Value, Err>
+        where
+            Err: de::Error,
+        {
+            Self::Value::visit_string_execution(v)
         }
     }
 
-    //FIXME(sean): add trait methods to assist in serialize/deserialize for rpc and rest
-    pub fn serialize<S, M: Unsigned, N: Unsigned>(
-        value: &Value<M, N>,
+    pub fn serialize<S, E: EthSpec, Txns: Transactions<E>>(
+        value: &Value<Txns>,
         serializer: S,
     ) -> Result<S::Ok, S::Error>
     where
         S: Serializer,
     {
-        let mut seq = serializer.serialize_seq(Some(value.len()))?;
-        for transaction in value {
-            // It's important to match on the inner values of the transaction. Serializing the
-            // entire `Transaction` will result in appending the SSZ union prefix byte. The
-            // execution node does not want that.
-            let hex = hex::encode(&transaction[..]);
-            seq.serialize_element(&hex)?;
-        }
-        seq.end()
+        value.serialize_execution(serializer)
     }
 
-    pub fn deserialize<'de, D, M: Unsigned, N: Unsigned>(
+    pub fn deserialize<'de, D, E: EthSpec, Txns: Transactions<E>>(
         deserializer: D,
-    ) -> Result<Value<M, N>, D::Error>
+    ) -> Result<Value<Txns>, D::Error>
     where
         D: Deserializer<'de>,
     {
-        let visitor: ListOfBytesListVisitor<M, N> = <_>::default();
+        let visitor: TxnVisitor<E, Txns> = <_>::default();
         deserializer.deserialize_any(visitor)
     }
 }
