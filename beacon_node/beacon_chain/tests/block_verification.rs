@@ -10,7 +10,7 @@ use slasher::{Config as SlasherConfig, Slasher};
 use state_processing::{
     common::get_indexed_attestation,
     per_block_processing::{per_block_processing, BlockSignatureStrategy},
-    per_slot_processing, BlockProcessingError,
+    per_slot_processing, BlockProcessingError, VerifyBlockRoot,
 };
 use std::sync::Arc;
 use tempfile::tempdir;
@@ -978,6 +978,7 @@ fn add_base_block_to_altair_chain() {
                 &base_block,
                 None,
                 BlockSignatureStrategy::NoVerification,
+                VerifyBlockRoot::True,
                 &harness.chain.spec,
             ),
             Err(BlockProcessingError::InconsistentBlockFork(
@@ -1096,6 +1097,7 @@ fn add_altair_block_to_base_chain() {
                 &altair_block,
                 None,
                 BlockSignatureStrategy::NoVerification,
+                VerifyBlockRoot::True,
                 &harness.chain.spec,
             ),
             Err(BlockProcessingError::InconsistentBlockFork(

@@ -22,12 +22,11 @@ use leveldb::iterator::LevelDBIterator;
 use lru::LruCache;
 use parking_lot::{Mutex, RwLock};
 use serde_derive::{Deserialize, Serialize};
-use slog::{debug, error, info, trace, Logger};
+use slog::{debug, error, info, trace, warn, Logger};
 use ssz::{Decode, Encode};
 use ssz_derive::{Decode, Encode};
 use state_processing::{
-    per_block_processing, per_slot_processing, BlockProcessingError, BlockSignatureStrategy,
-    SlotProcessingError,
+    BlockProcessingError, BlockReplayer, SlotProcessingError, StateRootStrategy,
 };
 use std::cmp::min;
 use std::convert::TryInto;
@@ -36,16 +35,6 @@ use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 use types::*;
-
-/// Defines how blocks should be replayed on states.
-#[derive(PartialEq)]
-pub enum BlockReplay {
-    /// Perform all transitions faithfully to the specification.
-    Accurate,
-    /// Don't compute state roots, eventually computing an invalid beacon state that can only be
-    /// used for obtaining shuffling.
-    InconsistentStateRoots,
-}
 
 /// On-disk database that stores finalized states efficiently.
 ///
@@ -373,10 +362,10 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
                 // chain. This way we avoid returning a state that doesn't match `state_root`.
                 self.load_cold_state(state_root)
             } else {
-                self.load_hot_state(state_root, BlockReplay::Accurate)
+                self.load_hot_state(state_root, StateRootStrategy::Accurate)
             }
         } else {
-            match self.load_hot_state(state_root, BlockReplay::Accurate)? {
+            match self.load_hot_state(state_root, StateRootStrategy::Accurate)? {
                 Some(state) => Ok(Some(state)),
                 None => self.load_cold_state(state_root),
             }
@@ -414,7 +403,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             }
             .into())
         } else {
-            self.load_hot_state(state_root, BlockReplay::InconsistentStateRoots)
+            self.load_hot_state(state_root, StateRootStrategy::Inconsistent)
         }
     }
 
@@ -439,23 +428,55 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
     }
 
     pub fn forwards_block_roots_iterator(
-        store: Arc<Self>,
+        &self,
         start_slot: Slot,
         end_state: BeaconState<E>,
         end_block_root: Hash256,
         spec: &ChainSpec,
-    ) -> Result<impl Iterator<Item = Result<(Hash256, Slot), Error>>, Error> {
-        HybridForwardsBlockRootsIterator::new(store, start_slot, end_state, end_block_root, spec)
+    ) -> Result<impl Iterator<Item = Result<(Hash256, Slot), Error>> + '_, Error> {
+        HybridForwardsBlockRootsIterator::new(
+            self,
+            start_slot,
+            None,
+            || (end_state, end_block_root),
+            spec,
+        )
+    }
+
+    pub fn forwards_block_roots_iterator_until(
+        &self,
+        start_slot: Slot,
+        end_slot: Slot,
+        get_state: impl FnOnce() -> (BeaconState<E>, Hash256),
+        spec: &ChainSpec,
+    ) -> Result<HybridForwardsBlockRootsIterator<E, Hot, Cold>, Error> {
+        HybridForwardsBlockRootsIterator::new(self, start_slot, Some(end_slot), get_state, spec)
     }
 
     pub fn forwards_state_roots_iterator(
-        store: Arc<Self>,
+        &self,
         start_slot: Slot,
         end_state_root: Hash256,
         end_state: BeaconState<E>,
         spec: &ChainSpec,
-    ) -> Result<impl Iterator<Item = Result<(Hash256, Slot), Error>>, Error> {
-        HybridForwardsStateRootsIterator::new(store, start_slot, end_state, end_state_root, spec)
+    ) -> Result<impl Iterator<Item = Result<(Hash256, Slot), Error>> + '_, Error> {
+        HybridForwardsStateRootsIterator::new(
+            self,
+            start_slot,
+            None,
+            || (end_state, end_state_root),
+            spec,
+        )
+    }
+
+    pub fn forwards_state_roots_iterator_until(
+        &self,
+        start_slot: Slot,
+        end_slot: Slot,
+        get_state: impl FnOnce() -> (BeaconState<E>, Hash256),
+        spec: &ChainSpec,
+    ) -> Result<HybridForwardsStateRootsIterator<E, Hot, Cold>, Error> {
+        HybridForwardsStateRootsIterator::new(self, start_slot, Some(end_slot), get_state, spec)
     }
 
     /// Load an epoch boundary state by using the hot state summary look-up.
@@ -472,10 +493,10 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         {
             // NOTE: minor inefficiency here because we load an unnecessary hot state summary
             //
-            // `BlockReplay` should be irrelevant here since we never replay blocks for an epoch
+            // `StateRootStrategy` should be irrelevant here since we never replay blocks for an epoch
             // boundary state in the hot DB.
             let state = self
-                .load_hot_state(&epoch_boundary_state_root, BlockReplay::Accurate)?
+                .load_hot_state(&epoch_boundary_state_root, StateRootStrategy::Accurate)?
                 .ok_or(HotColdDBError::MissingEpochBoundaryState(
                     epoch_boundary_state_root,
                 ))?;
@@ -620,7 +641,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
     pub fn load_hot_state(
         &self,
         state_root: &Hash256,
-        block_replay: BlockReplay,
+        state_root_strategy: StateRootStrategy,
     ) -> Result<Option<BeaconState<E>>, Error> {
         metrics::inc_counter(&metrics::BEACON_STATE_HOT_GET_COUNT);
 
@@ -648,7 +669,13 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             } else {
                 let blocks =
                     self.load_blocks_to_replay(boundary_state.slot(), slot, latest_block_root)?;
-                self.replay_blocks(boundary_state, blocks, slot, block_replay)?
+                self.replay_blocks(
+                    boundary_state,
+                    blocks,
+                    slot,
+                    no_state_root_iter(),
+                    state_root_strategy,
+                )?
             };
 
             Ok(Some(state))
@@ -777,7 +804,22 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         )?;
 
         // 3. Replay the blocks on top of the low restore point.
-        self.replay_blocks(low_restore_point, blocks, slot, BlockReplay::Accurate)
+        // Use a forwards state root iterator to avoid doing any tree hashing.
+        // The state root of the high restore point should never be used, so is safely set to 0.
+        let state_root_iter = self.forwards_state_roots_iterator_until(
+            low_restore_point.slot(),
+            slot,
+            || (high_restore_point, Hash256::zero()),
+            &self.spec,
+        )?;
+
+        self.replay_blocks(
+            low_restore_point,
+            blocks,
+            slot,
+            Some(state_root_iter),
+            StateRootStrategy::Accurate,
+        )
     }
 
     /// Get the restore point with the given index, or if it is out of bounds, the split state.
@@ -860,89 +902,35 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
     /// to have any caches built, beyond those immediately required by block processing.
     fn replay_blocks(
         &self,
-        mut state: BeaconState<E>,
-        mut blocks: Vec<SignedBeaconBlock<E>>,
+        state: BeaconState<E>,
+        blocks: Vec<SignedBeaconBlock<E>>,
         target_slot: Slot,
-        block_replay: BlockReplay,
+        state_root_iter: Option<impl Iterator<Item = Result<(Hash256, Slot), Error>>>,
+        state_root_strategy: StateRootStrategy,
     ) -> Result<BeaconState<E>, Error> {
-        if block_replay == BlockReplay::InconsistentStateRoots {
-            for i in 0..blocks.len() {
-                let prev_block_root = if i > 0 {
-                    blocks[i - 1].canonical_root()
-                } else {
-                    // Not read.
-                    Hash256::zero()
-                };
+        let mut block_replayer = BlockReplayer::new(state, &self.spec)
+            .state_root_strategy(state_root_strategy)
+            .no_signature_verification()
+            .minimal_block_root_verification();
 
-                let (state_root, parent_root) = match &mut blocks[i] {
-                    SignedBeaconBlock::Base(block) => (
-                        &mut block.message.state_root,
-                        &mut block.message.parent_root,
-                    ),
-                    SignedBeaconBlock::Altair(block) => (
-                        &mut block.message.state_root,
-                        &mut block.message.parent_root,
-                    ),
-                    SignedBeaconBlock::Merge(block) => (
-                        &mut block.message.state_root,
-                        &mut block.message.parent_root,
-                    ),
-                };
+        let have_state_root_iterator = state_root_iter.is_some();
+        if let Some(state_root_iter) = state_root_iter {
+            block_replayer = block_replayer.state_root_iter(state_root_iter);
+        }
 
-                *state_root = Hash256::zero();
-                if i > 0 {
-                    *parent_root = prev_block_root;
+        block_replayer
+            .apply_blocks(blocks, Some(target_slot))
+            .map(|block_replayer| {
+                if have_state_root_iterator && block_replayer.state_root_miss() {
+                    warn!(
+                        self.log,
+                        "State root iterator miss";
+                        "slot" => target_slot,
+                    );
                 }
-            }
-        }
 
-        let state_root_from_prev_block = |i: usize, state: &BeaconState<E>| {
-            if i > 0 {
-                let prev_block = blocks[i - 1].message();
-                if prev_block.slot() == state.slot() {
-                    Some(prev_block.state_root())
-                } else {
-                    None
-                }
-            } else {
-                None
-            }
-        };
-
-        for (i, block) in blocks.iter().enumerate() {
-            if block.slot() <= state.slot() {
-                continue;
-            }
-
-            while state.slot() < block.slot() {
-                let state_root = match block_replay {
-                    BlockReplay::Accurate => state_root_from_prev_block(i, &state),
-                    BlockReplay::InconsistentStateRoots => Some(Hash256::zero()),
-                };
-                per_slot_processing(&mut state, state_root, &self.spec)
-                    .map_err(HotColdDBError::BlockReplaySlotError)?;
-            }
-
-            per_block_processing(
-                &mut state,
-                block,
-                None,
-                BlockSignatureStrategy::NoVerification,
-                &self.spec,
-            )
-            .map_err(HotColdDBError::BlockReplayBlockError)?;
-        }
-
-        while state.slot() < target_slot {
-            let state_root = match block_replay {
-                BlockReplay::Accurate => state_root_from_prev_block(blocks.len(), &state),
-                BlockReplay::InconsistentStateRoots => Some(Hash256::zero()),
-            };
-            per_slot_processing(&mut state, state_root, &self.spec)
-                .map_err(HotColdDBError::BlockReplaySlotError)?;
-        }
-
-        Ok(state)
+                block_replayer.into_state()
+            })
     }
 
     /// Fetch a copy of the current split slot from memory.
@@ -1309,7 +1297,7 @@ pub fn migrate_database<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>>(
 
     // 1. Copy all of the states between the head and the split slot, from the hot DB
     // to the cold DB.
-    let state_root_iter = StateRootsIterator::new(store.clone(), frozen_head);
+    let state_root_iter = StateRootsIterator::new(&store, frozen_head);
     for maybe_pair in state_root_iter.take_while(|result| match result {
         Ok((_, slot)) => {
             slot >= &current_split_slot
@@ -1421,6 +1409,11 @@ impl StoreItem for Split {
     fn from_store_bytes(bytes: &[u8]) -> Result<Self, Error> {
         Ok(Self::from_ssz_bytes(bytes)?)
     }
+}
+
+/// Type hint.
+fn no_state_root_iter() -> Option<std::iter::Empty<Result<(Hash256, Slot), Error>>> {
+    None
 }
 
 /// Struct for summarising a state in the hot database.

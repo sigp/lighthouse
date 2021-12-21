@@ -68,6 +68,14 @@ impl VerifySignatures {
     }
 }
 
+/// Control verification of the latest block header.
+#[cfg_attr(feature = "arbitrary-fuzz", derive(Arbitrary))]
+#[derive(PartialEq, Clone, Copy)]
+pub enum VerifyBlockRoot {
+    True,
+    False,
+}
+
 /// Updates the state for a new block, whilst validating that the block is valid, optionally
 /// checking the block proposer signature.
 ///
@@ -84,6 +92,7 @@ pub fn per_block_processing<T: EthSpec>(
     signed_block: &SignedBeaconBlock<T>,
     block_root: Option<Hash256>,
     block_signature_strategy: BlockSignatureStrategy,
+    verify_block_root: VerifyBlockRoot,
     spec: &ChainSpec,
 ) -> Result<(), BlockProcessingError> {
     let block = signed_block.message();
@@ -120,7 +129,7 @@ pub fn per_block_processing<T: EthSpec>(
         BlockSignatureStrategy::VerifyRandao => VerifySignatures::False,
     };
 
-    let proposer_index = process_block_header(state, block, spec)?;
+    let proposer_index = process_block_header(state, block, verify_block_root, spec)?;
 
     if verify_signatures.is_true() {
         verify_block_signature(state, signed_block, block_root, spec)?;
@@ -167,6 +176,7 @@ pub fn per_block_processing<T: EthSpec>(
 pub fn process_block_header<T: EthSpec>(
     state: &mut BeaconState<T>,
     block: BeaconBlockRef<'_, T>,
+    verify_block_root: VerifyBlockRoot,
     spec: &ChainSpec,
 ) -> Result<u64, BlockOperationError<HeaderInvalid>> {
     // Verify that the slots match
@@ -195,14 +205,16 @@ pub fn process_block_header<T: EthSpec>(
         }
     );
 
-    let expected_previous_block_root = state.latest_block_header().tree_hash_root();
-    verify!(
-        block.parent_root() == expected_previous_block_root,
-        HeaderInvalid::ParentBlockRootMismatch {
-            state: expected_previous_block_root,
-            block: block.parent_root(),
-        }
-    );
+    if verify_block_root == VerifyBlockRoot::True {
+        let expected_previous_block_root = state.latest_block_header().tree_hash_root();
+        verify!(
+            block.parent_root() == expected_previous_block_root,
+            HeaderInvalid::ParentBlockRootMismatch {
+                state: expected_previous_block_root,
+                block: block.parent_root(),
+            }
+        );
+    }
 
     *state.latest_block_header_mut() = block.temporary_block_header();
 
