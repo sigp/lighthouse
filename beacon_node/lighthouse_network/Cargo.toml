@@ -5,8 +5,7 @@ authors = ["Sigma Prime <contact@sigmaprime.io>"]
 edition = "2018"
 
 [dependencies]
-#discv5 = { version = "0.1.0-beta.11", features = ["libp2p"] }
-discv5 = { git = "https://github.com/sigp/discv5", branch="bandwidth-metrics", features = ["libp2p"] }
+discv5 = { version = "0.1.0-beta.12", features = ["libp2p"] }
 unsigned-varint = { version = "0.6.0", features = ["codec"] }
 types = { path =  "../../consensus/types" }
 hashset_delay = { path = "../../common/hashset_delay" }
@@ -43,8 +42,8 @@ superstruct = "0.2.0"
 [dependencies.libp2p]
 # version = "0.41.0"
 default-features = false
-git = "https://github.com/sigp/rust-libp2p"
-branch = "gossipsub-network-performance-metrics"
+git = "https://github.com/libp2p/rust-libp2p"
+rev = "17861d9cac121f7e448585a7f052d5eab4618826" # Latest libp2p master
 features = ["websocket", "identify", "mplex", "yamux", "noise", "gossipsub", "dns-tokio", "tcp-tokio"]
 
 [dev-dependencies]
