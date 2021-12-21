@@ -235,7 +235,7 @@ pub fn cli_run(matches: &ArgMatches, validator_dir: PathBuf) -> Result<(), Strin
                     *old_passwd = password_opt;
                     defs.save(&validator_dir)
                         .map_err(|e| format!("Unable to save {}: {:?}", CONFIG_FILENAME, e))?;
-                    eprintln!("Update password for public key {}", voting_pubkey);
+                    eprintln!("Password updated for public key {}", voting_pubkey);
                 }
             }
             eprintln!(
