@@ -89,7 +89,7 @@ impl InvalidPayloadRig {
                 } else {
                     mock_execution_layer.server.full_payload_verification();
                 }
-                self.harness.process_block(slot, block.clone()).unwrap();
+                self.harness.process_block(slot, block).unwrap();
                 self.valid_blocks.insert(block_root);
                 // TODO: check syncing blocks are optimistic.
             }
@@ -101,7 +101,7 @@ impl InvalidPayloadRig {
                     .server
                     .all_payloads_invalid(latest_valid_hash);
 
-                match self.harness.process_block(slot, block.clone()) {
+                match self.harness.process_block(slot, block) {
                     Err(BlockError::ExecutionPayloadError(
                         ExecutionPayloadError::RejectedByExecutionEngine,
                     )) => (),

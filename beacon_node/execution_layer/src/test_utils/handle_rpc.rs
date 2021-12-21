@@ -75,7 +75,7 @@ pub async fn handle_rpc<T: EthSpec>(
                 }
                 FixedPayloadResponse::Invalid { latest_valid_hash } => ExecutePayloadResponse {
                     status: ExecutePayloadResponseStatus::Invalid { latest_valid_hash },
-                    message: None,
+                    validation_error: None,
                 },
                 FixedPayloadResponse::Syncing => {
                     // Try to import the block, ignore the response.
@@ -84,7 +84,7 @@ pub async fn handle_rpc<T: EthSpec>(
                         .execute_payload(request.into());
                     ExecutePayloadResponse {
                         status: ExecutePayloadResponseStatus::Syncing,
-                        message: None,
+                        validation_error: None,
                     }
                 }
             };
