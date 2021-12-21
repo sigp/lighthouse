@@ -16,6 +16,8 @@ pub struct ChainConfig {
     pub reconstruct_historic_states: bool,
     /// Whether timeouts on `TimeoutRwLock`s are enabled or not.
     pub enable_lock_timeouts: bool,
+    /// The max size of a message that can be sent over the network.
+    pub max_network_size: usize,
 }
 
 impl Default for ChainConfig {
@@ -25,6 +27,7 @@ impl Default for ChainConfig {
             weak_subjectivity_checkpoint: None,
             reconstruct_historic_states: false,
             enable_lock_timeouts: true,
+            max_network_size: 10 * 1_048_576, // 10M
         }
     }
 }

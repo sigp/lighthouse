@@ -243,8 +243,8 @@ enum Error {
     /// The file read from disk does not have a contiguous list of validator public keys. The file
     /// has become corrupted.
     InconsistentIndex {
-        expected: Option<usize>,
-        found: usize,
+        _expected: Option<usize>,
+        _found: usize,
     },
 }
 
@@ -296,8 +296,8 @@ impl ValidatorPubkeyCacheFile {
                 indices.insert(pubkey, index);
             } else {
                 return Err(Error::InconsistentIndex {
-                    expected,
-                    found: index,
+                    _expected: expected,
+                    _found: index,
                 });
             }
         }

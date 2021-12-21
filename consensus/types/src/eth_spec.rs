@@ -3,11 +3,14 @@ use crate::*;
 use safe_arith::SafeArith;
 use serde_derive::{Deserialize, Serialize};
 use ssz_types::typenum::{
-    Unsigned, U0, U1024, U1099511627776, U128, U16, U16777216, U2, U2048, U32, U4, U4096, U512,
-    U64, U65536, U8, U8192,
+    Unsigned, U0, U1024, U1073741824, U1099511627776, U128, U16, U16777216, U2, U2048, U32, U4,
+    U4096, U512, U64, U65536, U8, U8192,
 };
 use std::fmt::{self, Debug};
 use std::str::FromStr;
+
+use ssz_types::typenum::{bit::B0, UInt, U1048576, U256, U625};
+pub type U5000 = UInt<UInt<UInt<U625, B0>, B0>, B0>; // 625 * 8 = 5000
 
 const MAINNET: &str = "mainnet";
 const MINIMAL: &str = "minimal";
@@ -80,6 +83,15 @@ pub trait EthSpec: 'static + Default + Sync + Send + Clone + Debug + PartialEq +
     type SyncCommitteeSize: Unsigned + Clone + Sync + Send + Debug + PartialEq;
     /// The number of `sync_committee` subnets.
     type SyncCommitteeSubnetCount: Unsigned + Clone + Sync + Send + Debug + PartialEq;
+    /*
+     * New in Merge
+     */
+    type MaxBytesPerTransaction: Unsigned + Clone + Sync + Send + Debug + PartialEq;
+    type MaxTransactionsPerPayload: Unsigned + Clone + Sync + Send + Debug + PartialEq;
+    type BytesPerLogsBloom: Unsigned + Clone + Sync + Send + Debug + PartialEq;
+    type GasLimitDenominator: Unsigned + Clone + Sync + Send + Debug + PartialEq;
+    type MinGasLimit: Unsigned + Clone + Sync + Send + Debug + PartialEq;
+    type MaxExtraDataBytes: Unsigned + Clone + Sync + Send + Debug + PartialEq;
     /*
      * Derived values (set these CAREFULLY)
      */
@@ -187,6 +199,26 @@ pub trait EthSpec: 'static + Default + Sync + Send + Clone + Debug + PartialEq +
     fn sync_subcommittee_size() -> usize {
         Self::SyncSubcommitteeSize::to_usize()
     }
+
+    /// Returns the `MAX_BYTES_PER_TRANSACTION` constant for this specification.
+    fn max_bytes_per_transaction() -> usize {
+        Self::MaxBytesPerTransaction::to_usize()
+    }
+
+    /// Returns the `MAX_TRANSACTIONS_PER_PAYLOAD` constant for this specification.
+    fn max_transactions_per_payload() -> usize {
+        Self::MaxTransactionsPerPayload::to_usize()
+    }
+
+    /// Returns the `MAX_EXTRA_DATA_BYTES` constant for this specification.
+    fn max_extra_data_bytes() -> usize {
+        Self::MaxExtraDataBytes::to_usize()
+    }
+
+    /// Returns the `BYTES_PER_LOGS_BLOOM` constant for this specification.
+    fn bytes_per_logs_bloom() -> usize {
+        Self::BytesPerLogsBloom::to_usize()
+    }
 }
 
 /// Macro to inherit some type values from another EthSpec.
@@ -221,6 +253,12 @@ impl EthSpec for MainnetEthSpec {
     type MaxVoluntaryExits = U16;
     type SyncCommitteeSize = U512;
     type SyncCommitteeSubnetCount = U4;
+    type MaxBytesPerTransaction = U1073741824; // 1,073,741,824
+    type MaxTransactionsPerPayload = U1048576; // 1,048,576
+    type BytesPerLogsBloom = U256;
+    type GasLimitDenominator = U1024;
+    type MinGasLimit = U5000;
+    type MaxExtraDataBytes = U32;
     type SyncSubcommitteeSize = U128; // 512 committee size / 4 sync committee subnet count
     type MaxPendingAttestations = U4096; // 128 max attestations * 32 slots per epoch
     type SlotsPerEth1VotingPeriod = U2048; // 64 epochs * 32 slots per epoch
@@ -262,7 +300,13 @@ impl EthSpec for MinimalEthSpec {
         MaxAttesterSlashings,
         MaxAttestations,
         MaxDeposits,
-        MaxVoluntaryExits
+        MaxVoluntaryExits,
+        MaxBytesPerTransaction,
+        MaxTransactionsPerPayload,
+        BytesPerLogsBloom,
+        GasLimitDenominator,
+        MinGasLimit,
+        MaxExtraDataBytes
     });
 
     fn default_spec() -> ChainSpec {

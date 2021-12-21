@@ -101,6 +101,7 @@ pub struct ChainSpec {
      * Fork choice
      */
     pub safe_slots_to_update_justified: u64,
+    pub proposer_score_boost: Option<u64>,
 
     /*
      * Eth1
@@ -127,6 +128,19 @@ pub struct ChainSpec {
     pub altair_fork_version: [u8; 4],
     /// The Altair fork epoch is optional, with `None` representing "Altair never happens".
     pub altair_fork_epoch: Option<Epoch>,
+
+    /*
+     * Merge hard fork params
+     */
+    pub inactivity_penalty_quotient_merge: u64,
+    pub min_slashing_penalty_quotient_merge: u64,
+    pub proportional_slashing_multiplier_merge: u64,
+    pub merge_fork_version: [u8; 4],
+    /// The Merge fork epoch is optional, with `None` representing "Merge never happens".
+    pub merge_fork_epoch: Option<Epoch>,
+    pub terminal_total_difficulty: Uint256,
+    pub terminal_block_hash: Hash256,
+    pub terminal_block_hash_activation_epoch: Epoch,
 
     /*
      * Networking
@@ -156,7 +170,7 @@ impl ChainSpec {
     ) -> EnrForkId {
         EnrForkId {
             fork_digest: self.fork_digest::<T>(slot, genesis_validators_root),
-            next_fork_version: self.next_fork_version(),
+            next_fork_version: self.next_fork_version::<T>(slot),
             next_fork_epoch: self
                 .next_fork_epoch::<T>(slot)
                 .map(|(_, e)| e)
@@ -178,10 +192,12 @@ impl ChainSpec {
 
     /// Returns the `next_fork_version`.
     ///
-    /// Since `next_fork_version = current_fork_version` if no future fork is planned,
-    /// this function returns `altair_fork_version` until the next fork is planned.
-    pub fn next_fork_version(&self) -> [u8; 4] {
-        self.altair_fork_version
+    /// `next_fork_version = current_fork_version` if no future fork is planned,
+    pub fn next_fork_version<E: EthSpec>(&self, slot: Slot) -> [u8; 4] {
+        match self.next_fork_epoch::<E>(slot) {
+            Some((fork, _)) => self.fork_version_for_name(fork),
+            None => self.fork_version_for_name(self.fork_name_at_slot::<E>(slot)),
+        }
     }
 
     /// Returns the epoch of the next scheduled fork along with its corresponding `ForkName`.
@@ -201,9 +217,12 @@ impl ChainSpec {
 
     /// Returns the name of the fork which is active at `epoch`.
     pub fn fork_name_at_epoch(&self, epoch: Epoch) -> ForkName {
-        match self.altair_fork_epoch {
-            Some(fork_epoch) if epoch >= fork_epoch => ForkName::Altair,
-            _ => ForkName::Base,
+        match self.merge_fork_epoch {
+            Some(fork_epoch) if epoch >= fork_epoch => ForkName::Merge,
+            _ => match self.altair_fork_epoch {
+                Some(fork_epoch) if epoch >= fork_epoch => ForkName::Altair,
+                _ => ForkName::Base,
+            },
         }
     }
 
@@ -212,6 +231,7 @@ impl ChainSpec {
         match fork_name {
             ForkName::Base => self.genesis_fork_version,
             ForkName::Altair => self.altair_fork_version,
+            ForkName::Merge => self.merge_fork_version,
         }
     }
 
@@ -220,6 +240,40 @@ impl ChainSpec {
         match fork_name {
             ForkName::Base => Some(Epoch::new(0)),
             ForkName::Altair => self.altair_fork_epoch,
+            ForkName::Merge => self.merge_fork_epoch,
+        }
+    }
+
+    /// For a given `BeaconState`, return the inactivity penalty quotient associated with its variant.
+    pub fn inactivity_penalty_quotient_for_state<T: EthSpec>(&self, state: &BeaconState<T>) -> u64 {
+        match state {
+            BeaconState::Base(_) => self.inactivity_penalty_quotient,
+            BeaconState::Altair(_) => self.inactivity_penalty_quotient_altair,
+            BeaconState::Merge(_) => self.inactivity_penalty_quotient_merge,
+        }
+    }
+
+    /// For a given `BeaconState`, return the proportional slashing multiplier associated with its variant.
+    pub fn proportional_slashing_multiplier_for_state<T: EthSpec>(
+        &self,
+        state: &BeaconState<T>,
+    ) -> u64 {
+        match state {
+            BeaconState::Base(_) => self.proportional_slashing_multiplier,
+            BeaconState::Altair(_) => self.proportional_slashing_multiplier_altair,
+            BeaconState::Merge(_) => self.proportional_slashing_multiplier_merge,
+        }
+    }
+
+    /// For a given `BeaconState`, return the minimum slashing penalty quotient associated with its variant.
+    pub fn min_slashing_penalty_quotient_for_state<T: EthSpec>(
+        &self,
+        state: &BeaconState<T>,
+    ) -> u64 {
+        match state {
+            BeaconState::Base(_) => self.min_slashing_penalty_quotient,
+            BeaconState::Altair(_) => self.min_slashing_penalty_quotient_altair,
+            BeaconState::Merge(_) => self.min_slashing_penalty_quotient_merge,
         }
     }
 
@@ -355,7 +409,7 @@ impl ChainSpec {
              * Constants
              */
             genesis_slot: Slot::new(0),
-            far_future_epoch: Epoch::new(u64::max_value()),
+            far_future_epoch: Epoch::new(u64::MAX),
             base_rewards_per_epoch: 4,
             deposit_contract_tree_depth: 32,
 
@@ -436,6 +490,7 @@ impl ChainSpec {
              * Fork choice
              */
             safe_slots_to_update_justified: 8,
+            proposer_score_boost: None,
 
             /*
              * Eth1
@@ -467,6 +522,26 @@ impl ChainSpec {
             domain_contribution_and_proof: 9,
             altair_fork_version: [0x01, 0x00, 0x00, 0x00],
             altair_fork_epoch: Some(Epoch::new(74240)),
+
+            /*
+             * Merge hard fork params
+             */
+            inactivity_penalty_quotient_merge: u64::checked_pow(2, 24)
+                .expect("pow does not overflow"),
+            min_slashing_penalty_quotient_merge: u64::checked_pow(2, 5)
+                .expect("pow does not overflow"),
+            proportional_slashing_multiplier_merge: 3,
+            merge_fork_version: [0x02, 0x00, 0x00, 0x00],
+            merge_fork_epoch: None,
+            terminal_total_difficulty: Uint256::MAX
+                .checked_sub(Uint256::from(2u64.pow(10)))
+                .expect("subtraction does not overflow")
+                // Add 1 since the spec declares `2**256 - 2**10` and we use
+                // `Uint256::MAX` which is `2*256- 1`.
+                .checked_add(Uint256::one())
+                .expect("addition does not overflow"),
+            terminal_block_hash: Hash256::zero(),
+            terminal_block_hash_activation_epoch: Epoch::new(u64::MAX),
 
             /*
              * Network specific
@@ -507,6 +582,9 @@ impl ChainSpec {
             epochs_per_sync_committee_period: Epoch::new(8),
             altair_fork_version: [0x01, 0x00, 0x00, 0x01],
             altair_fork_epoch: None,
+            // Merge
+            merge_fork_version: [0x02, 0x00, 0x00, 0x01],
+            merge_fork_epoch: None,
             // Other
             network_id: 2, // lighthouse testnet network id
             deposit_chain_id: 5,
@@ -533,6 +611,11 @@ pub struct Config {
     #[serde(default)]
     pub preset_base: String,
 
+    #[serde(with = "eth2_serde_utils::quoted_u256")]
+    pub terminal_total_difficulty: Uint256,
+    pub terminal_block_hash: Hash256,
+    pub terminal_block_hash_activation_epoch: Epoch,
+
     #[serde(with = "eth2_serde_utils::quoted_u64")]
     min_genesis_active_validator_count: u64,
     #[serde(with = "eth2_serde_utils::quoted_u64")]
@@ -547,6 +630,12 @@ pub struct Config {
     #[serde(serialize_with = "serialize_fork_epoch")]
     #[serde(deserialize_with = "deserialize_fork_epoch")]
     pub altair_fork_epoch: Option<MaybeQuoted<Epoch>>,
+
+    #[serde(with = "eth2_serde_utils::bytes_4_hex")]
+    merge_fork_version: [u8; 4],
+    #[serde(serialize_with = "serialize_fork_epoch")]
+    #[serde(deserialize_with = "deserialize_fork_epoch")]
+    pub merge_fork_epoch: Option<MaybeQuoted<Epoch>>,
 
     #[serde(with = "eth2_serde_utils::quoted_u64")]
     seconds_per_slot: u64,
@@ -569,6 +658,8 @@ pub struct Config {
     min_per_epoch_churn_limit: u64,
     #[serde(with = "eth2_serde_utils::quoted_u64")]
     churn_limit_quotient: u64,
+
+    proposer_score_boost: Option<MaybeQuoted<u64>>,
 
     #[serde(with = "eth2_serde_utils::quoted_u64")]
     deposit_chain_id: u64,
@@ -629,6 +720,10 @@ impl Config {
         Self {
             preset_base: T::spec_name().to_string(),
 
+            terminal_total_difficulty: spec.terminal_total_difficulty,
+            terminal_block_hash: spec.terminal_block_hash,
+            terminal_block_hash_activation_epoch: spec.terminal_block_hash_activation_epoch,
+
             min_genesis_active_validator_count: spec.min_genesis_active_validator_count,
             min_genesis_time: spec.min_genesis_time,
             genesis_fork_version: spec.genesis_fork_version,
@@ -637,6 +732,10 @@ impl Config {
             altair_fork_version: spec.altair_fork_version,
             altair_fork_epoch: spec
                 .altair_fork_epoch
+                .map(|epoch| MaybeQuoted { value: epoch }),
+            merge_fork_version: spec.merge_fork_version,
+            merge_fork_epoch: spec
+                .merge_fork_epoch
                 .map(|epoch| MaybeQuoted { value: epoch }),
 
             seconds_per_slot: spec.seconds_per_slot,
@@ -650,6 +749,8 @@ impl Config {
             ejection_balance: spec.ejection_balance,
             churn_limit_quotient: spec.churn_limit_quotient,
             min_per_epoch_churn_limit: spec.min_per_epoch_churn_limit,
+
+            proposer_score_boost: spec.proposer_score_boost.map(|value| MaybeQuoted { value }),
 
             deposit_chain_id: spec.deposit_chain_id,
             deposit_network_id: spec.deposit_network_id,
@@ -668,12 +769,17 @@ impl Config {
         // Pattern match here to avoid missing any fields.
         let &Config {
             ref preset_base,
+            terminal_total_difficulty,
+            terminal_block_hash,
+            terminal_block_hash_activation_epoch,
             min_genesis_active_validator_count,
             min_genesis_time,
             genesis_fork_version,
             genesis_delay,
             altair_fork_version,
             altair_fork_epoch,
+            merge_fork_epoch,
+            merge_fork_version,
             seconds_per_slot,
             seconds_per_eth1_block,
             min_validator_withdrawability_delay,
@@ -684,6 +790,7 @@ impl Config {
             ejection_balance,
             min_per_epoch_churn_limit,
             churn_limit_quotient,
+            proposer_score_boost,
             deposit_chain_id,
             deposit_network_id,
             deposit_contract_address,
@@ -700,6 +807,8 @@ impl Config {
             genesis_delay,
             altair_fork_version,
             altair_fork_epoch: altair_fork_epoch.map(|q| q.value),
+            merge_fork_epoch: merge_fork_epoch.map(|q| q.value),
+            merge_fork_version,
             seconds_per_slot,
             seconds_per_eth1_block,
             min_validator_withdrawability_delay,
@@ -710,9 +819,13 @@ impl Config {
             ejection_balance,
             min_per_epoch_churn_limit,
             churn_limit_quotient,
+            proposer_score_boost: proposer_score_boost.map(|q| q.value),
             deposit_chain_id,
             deposit_network_id,
             deposit_contract_address,
+            terminal_total_difficulty,
+            terminal_block_hash,
+            terminal_block_hash_activation_epoch,
             ..chain_spec.clone()
         })
     }

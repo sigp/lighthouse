@@ -2,6 +2,7 @@
 
 use std::fmt;
 use std::sync::Mutex;
+use std::time::Duration;
 
 use beacon_chain::test_utils::{
     AttestationStrategy, BeaconChainHarness, BlockStrategy, EphemeralHarnessType,
@@ -10,7 +11,9 @@ use beacon_chain::{
     BeaconChain, BeaconChainError, BeaconForkChoiceStore, ChainConfig, ForkChoiceError,
     StateSkipConfig, WhenSlotSkipped,
 };
-use fork_choice::{ForkChoiceStore, InvalidAttestation, InvalidBlock, QueuedAttestation};
+use fork_choice::{
+    ForkChoiceStore, InvalidAttestation, InvalidBlock, PayloadVerificationStatus, QueuedAttestation,
+};
 use store::MemoryStore;
 use types::{
     test_utils::generate_deterministic_keypair, BeaconBlock, BeaconBlockRef, BeaconState,
@@ -272,7 +275,9 @@ impl ForkChoiceTest {
                 current_slot,
                 &block,
                 block.canonical_root(),
+                Duration::from_secs(0),
                 &state,
+                PayloadVerificationStatus::Verified,
                 &self.harness.chain.spec,
             )
             .unwrap();
@@ -313,7 +318,9 @@ impl ForkChoiceTest {
                 current_slot,
                 &block,
                 block.canonical_root(),
+                Duration::from_secs(0),
                 &state,
+                PayloadVerificationStatus::Verified,
                 &self.harness.chain.spec,
             )
             .err()

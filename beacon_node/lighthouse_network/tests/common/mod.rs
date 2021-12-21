@@ -13,15 +13,23 @@ use std::time::Duration;
 use tokio::runtime::Runtime;
 use types::{ChainSpec, EnrForkId, EthSpec, ForkContext, Hash256, MinimalEthSpec};
 
+#[allow(clippy::type_complexity)]
+#[allow(unused)]
+pub mod behaviour;
+#[allow(clippy::type_complexity)]
+#[allow(unused)]
+pub mod swarm;
+
 type E = MinimalEthSpec;
 use tempfile::Builder as TempBuilder;
 
 /// Returns a dummy fork context
-fn fork_context() -> ForkContext {
+pub fn fork_context() -> ForkContext {
     let mut chain_spec = E::default_spec();
     // Set fork_epoch to `Some` to ensure that the `ForkContext` object
     // includes altair in the list of forks
     chain_spec.altair_fork_epoch = Some(types::Epoch::new(42));
+    chain_spec.merge_fork_epoch = Some(types::Epoch::new(84));
     ForkContext::new::<E>(types::Slot::new(0), Hash256::zero(), &chain_spec)
 }
 
@@ -40,6 +48,7 @@ impl std::ops::DerefMut for Libp2pInstance {
     }
 }
 
+#[allow(unused)]
 pub fn build_log(level: slog::Level, enabled: bool) -> slog::Logger {
     let decorator = slog_term::TermDecorator::new().build();
     let drain = slog_term::FullFormat::new(decorator).build().fuse();

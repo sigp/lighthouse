@@ -371,7 +371,7 @@ mod tests {
     use beacon_chain::eth1_chain::CachingEth1Backend;
     use beacon_chain::parking_lot::RwLock;
     use lighthouse_network::rpc::BlocksByRangeRequest;
-    use lighthouse_network::{libp2p, Request};
+    use lighthouse_network::Request;
     use lighthouse_network::{rpc::StatusMessage, NetworkGlobals};
     use slog::{o, Drain};
 
@@ -568,29 +568,7 @@ mod tests {
             log.new(o!("component" => "range")),
         );
         let (network_tx, network_rx) = mpsc::unbounded_channel();
-        let globals = {
-            use lighthouse_network::discovery::enr_ext::CombinedKeyExt;
-            use lighthouse_network::discv5::enr::CombinedKey;
-            use lighthouse_network::discv5::enr::EnrBuilder;
-            use lighthouse_network::rpc::methods::{MetaData, MetaDataV2};
-
-            let keypair = libp2p::identity::Keypair::generate_secp256k1();
-            let enr_key: CombinedKey = CombinedKey::from_libp2p(&keypair).unwrap();
-            let enr = EnrBuilder::new("v4").build(&enr_key).unwrap();
-            let globals = NetworkGlobals::new(
-                enr,
-                9000,
-                9000,
-                MetaData::V2(MetaDataV2 {
-                    seq_number: 0,
-                    attnets: Default::default(),
-                    syncnets: Default::default(),
-                }),
-                vec![],
-                &log,
-            );
-            Arc::new(globals)
-        };
+        let globals = Arc::new(NetworkGlobals::new_test_globals(&log));
         let cx = SyncNetworkContext::new(
             network_tx,
             globals.clone(),

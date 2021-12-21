@@ -40,6 +40,9 @@
 //!            END
 //!
 //! ```
+use crate::execution_payload::{
+    execute_payload, validate_execution_payload_for_gossip, validate_merge_block,
+};
 use crate::snapshot_cache::PreProcessingSnapshot;
 use crate::validator_monitor::HISTORIC_EPOCHS as VALIDATOR_MONITOR_HISTORIC_EPOCHS;
 use crate::validator_pubkey_cache::ValidatorPubkeyCache;
@@ -50,12 +53,14 @@ use crate::{
     },
     metrics, BeaconChain, BeaconChainError, BeaconChainTypes,
 };
-use fork_choice::{ForkChoice, ForkChoiceStore};
+use fork_choice::{ForkChoice, ForkChoiceStore, PayloadVerificationStatus};
 use parking_lot::RwLockReadGuard;
 use proto_array::Block as ProtoBlock;
+use safe_arith::ArithError;
 use slog::{debug, error, Logger};
 use slot_clock::SlotClock;
 use ssz::Encode;
+use state_processing::per_block_processing::is_merge_transition_block;
 use state_processing::{
     block_signature_verifier::{BlockSignatureVerifier, Error as BlockSignatureVerifierError},
     per_block_processing, per_slot_processing,
@@ -65,6 +70,7 @@ use state_processing::{
 use std::borrow::Cow;
 use std::fs;
 use std::io::Write;
+use std::time::Duration;
 use store::{Error as DBError, HotColdDB, HotStateSummary, KeyValueStore, StoreOp};
 use tree_hash::TreeHash;
 use types::{
@@ -223,6 +229,105 @@ pub enum BlockError<T: EthSpec> {
     ///
     /// The block is invalid and the peer is faulty.
     InconsistentFork(InconsistentFork),
+    /// There was an error while validating the ExecutionPayload
+    ///
+    /// ## Peer scoring
+    ///
+    /// See `ExecutionPayloadError` for scoring information
+    ExecutionPayloadError(ExecutionPayloadError),
+    /// The block references an parent block which has an execution payload which was found to be
+    /// invalid.
+    ///
+    /// ## Peer scoring
+    ///
+    /// TODO(merge): reconsider how we score peers for this.
+    ///
+    /// The peer sent us an invalid block, but I'm not really sure how to score this in an
+    /// "optimistic" sync world.
+    ParentExecutionPayloadInvalid { parent_root: Hash256 },
+}
+
+/// Returned when block validation failed due to some issue verifying
+/// the execution payload.
+#[derive(Debug)]
+pub enum ExecutionPayloadError {
+    /// There's no eth1 connection (mandatory after merge)
+    ///
+    /// ## Peer scoring
+    ///
+    /// As this is our fault, do not penalize the peer
+    NoExecutionConnection,
+    /// Error occurred during engine_executePayload
+    ///
+    /// ## Peer scoring
+    ///
+    /// Some issue with our configuration, do not penalize peer
+    RequestFailed(execution_layer::Error),
+    /// The execution engine returned INVALID for the payload
+    ///
+    /// ## Peer scoring
+    ///
+    /// The block is invalid and the peer is faulty
+    RejectedByExecutionEngine,
+    /// The execution payload timestamp does not match the slot
+    ///
+    /// ## Peer scoring
+    ///
+    /// The block is invalid and the peer is faulty
+    InvalidPayloadTimestamp { expected: u64, found: u64 },
+    /// The execution payload references an execution block that cannot trigger the merge.
+    ///
+    /// ## Peer scoring
+    ///
+    /// The block is invalid and the peer sent us a block that passes gossip propagation conditions,
+    /// but is invalid upon further verification.
+    InvalidTerminalPoWBlock { parent_hash: Hash256 },
+    /// The `TERMINAL_BLOCK_HASH` is set, but the block has not reached the
+    /// `TERMINAL_BLOCK_HASH_ACTIVATION_EPOCH`.
+    ///
+    /// ## Peer scoring
+    ///
+    /// The block is invalid and the peer sent us a block that passes gossip propagation conditions,
+    /// but is invalid upon further verification.
+    InvalidActivationEpoch {
+        activation_epoch: Epoch,
+        epoch: Epoch,
+    },
+    /// The `TERMINAL_BLOCK_HASH` is set, but does not match the value specified by the block.
+    ///
+    /// ## Peer scoring
+    ///
+    /// The block is invalid and the peer sent us a block that passes gossip propagation conditions,
+    /// but is invalid upon further verification.
+    InvalidTerminalBlockHash {
+        terminal_block_hash: Hash256,
+        payload_parent_hash: Hash256,
+    },
+    /// The execution node failed to provide a parent block to a known block. This indicates an
+    /// issue with the execution node.
+    ///
+    /// ## Peer scoring
+    ///
+    /// The peer is not necessarily invalid.
+    PoWParentMissing(Hash256),
+}
+
+impl From<execution_layer::Error> for ExecutionPayloadError {
+    fn from(e: execution_layer::Error) -> Self {
+        ExecutionPayloadError::RequestFailed(e)
+    }
+}
+
+impl<T: EthSpec> From<ExecutionPayloadError> for BlockError<T> {
+    fn from(e: ExecutionPayloadError) -> Self {
+        BlockError::ExecutionPayloadError(e)
+    }
+}
+
+impl<T: EthSpec> From<InconsistentFork> for BlockError<T> {
+    fn from(e: InconsistentFork) -> Self {
+        BlockError::InconsistentFork(e)
+    }
 }
 
 impl<T: EthSpec> std::fmt::Display for BlockError<T> {
@@ -274,6 +379,12 @@ impl<T: EthSpec> From<SlotProcessingError> for BlockError<T> {
 impl<T: EthSpec> From<DBError> for BlockError<T> {
     fn from(e: DBError) -> Self {
         BlockError::BeaconChainError(BeaconChainError::DBError(e))
+    }
+}
+
+impl<T: EthSpec> From<ArithError> for BlockError<T> {
+    fn from(e: ArithError) -> Self {
+        BlockError::BeaconChainError(BeaconChainError::ArithError(e))
     }
 }
 
@@ -428,6 +539,7 @@ pub struct FullyVerifiedBlock<'a, T: BeaconChainTypes> {
     pub state: BeaconState<T::EthSpec>,
     pub parent_block: SignedBeaconBlock<T::EthSpec>,
     pub confirmation_db_batch: Vec<StoreOp<'a, T::EthSpec>>,
+    pub payload_verification_status: PayloadVerificationStatus,
 }
 
 /// Implemented on types that can be converted into a `FullyVerifiedBlock`.
@@ -667,6 +779,9 @@ impl<T: BeaconChainTypes> GossipVerifiedBlock<T> {
                 local_shuffling: expected_proposer as u64,
             });
         }
+
+        // Validate the block's execution_payload (if any).
+        validate_execution_payload_for_gossip(&parent_block, block.message(), chain)?;
 
         Ok(Self {
             block,
@@ -989,6 +1104,28 @@ impl<'a, T: BeaconChainTypes> FullyVerifiedBlock<'a, T> {
             }
         }
 
+        // If this block triggers the merge, check to ensure that it references valid execution
+        // blocks.
+        //
+        // The specification defines this check inside `on_block` in the fork-choice specification,
+        // however we perform the check here for two reasons:
+        //
+        // - There's no point in importing a block that will fail fork choice, so it's best to fail
+        //   early.
+        // - Doing the check here means we can keep our fork-choice implementation "pure". I.e., no
+        //   calls to remote servers.
+        if is_merge_transition_block(&state, block.message().body()) {
+            validate_merge_block(chain, block.message())?
+        }
+
+        // The specification declares that this should be run *inside* `per_block_processing`,
+        // however we run it here to keep `per_block_processing` pure (i.e., no calls to external
+        // servers).
+        //
+        // It is important that this function is called *after* `per_slot_processing`, since the
+        // `randao` may change.
+        let payload_verification_status = execute_payload(chain, &state, block.message())?;
+
         // If the block is sufficiently recent, notify the validator monitor.
         if let Some(slot) = chain.slot_clock.now() {
             let epoch = slot.epoch(T::EthSpec::slots_per_epoch());
@@ -1093,6 +1230,7 @@ impl<'a, T: BeaconChainTypes> FullyVerifiedBlock<'a, T> {
             state,
             parent_block: parent.beacon_block,
             confirmation_db_batch,
+            payload_verification_status,
         })
     }
 }
@@ -1281,6 +1419,8 @@ fn load_parent<T: BeaconChainTypes>(
     ),
     BlockError<T::EthSpec>,
 > {
+    let spec = &chain.spec;
+
     // Reject any block if its parent is not known to fork choice.
     //
     // A block that is not in fork choice is either:
@@ -1299,15 +1439,43 @@ fn load_parent<T: BeaconChainTypes>(
         return Err(BlockError::ParentUnknown(Box::new(block)));
     }
 
+    let block_delay = chain
+        .block_times_cache
+        .read()
+        .get_block_delays(
+            block.canonical_root(),
+            chain
+                .slot_clock
+                .start_of(block.slot())
+                .unwrap_or_else(|| Duration::from_secs(0)),
+        )
+        .observed;
+
     let db_read_timer = metrics::start_timer(&metrics::BLOCK_PROCESSING_DB_READ);
 
-    let result = if let Some(snapshot) = chain
+    let result = if let Some((snapshot, cloned)) = chain
         .snapshot_cache
         .try_write_for(BLOCK_PROCESSING_CACHE_LOCK_TIMEOUT)
         .and_then(|mut snapshot_cache| {
-            snapshot_cache.get_state_for_block_processing(block.parent_root())
+            snapshot_cache.get_state_for_block_processing(
+                block.parent_root(),
+                block.slot(),
+                block_delay,
+                spec,
+            )
         }) {
-        Ok((snapshot.into_pre_state(), block))
+        if cloned {
+            metrics::inc_counter(&metrics::BLOCK_PROCESSING_SNAPSHOT_CACHE_CLONES);
+            debug!(
+                chain.log,
+                "Cloned snapshot for late block/skipped slot";
+                "slot" => %block.slot(),
+                "parent_slot" => %snapshot.beacon_block.slot(),
+                "parent_root" => ?block.parent_root(),
+                "block_delay" => ?block_delay,
+            );
+        }
+        Ok((snapshot, block))
     } else {
         // Load the blocks parent block from the database, returning invalid if that block is not
         // found.
@@ -1336,6 +1504,16 @@ fn load_parent<T: BeaconChainTypes>(
             .ok_or_else(|| {
                 BeaconChainError::DBInconsistent(format!("Missing state {:?}", parent_state_root))
             })?;
+
+        metrics::inc_counter(&metrics::BLOCK_PROCESSING_SNAPSHOT_CACHE_MISSES);
+        debug!(
+            chain.log,
+            "Missed snapshot cache";
+            "slot" => block.slot(),
+            "parent_slot" => parent_block.slot(),
+            "parent_root" => ?block.parent_root(),
+            "block_delay" => ?block_delay,
+        );
 
         Ok((
             PreProcessingSnapshot {

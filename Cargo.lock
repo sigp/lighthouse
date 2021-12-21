@@ -298,9 +298,10 @@ dependencies = [
  "eth1",
  "eth2",
  "eth2_hashing 0.2.0 (registry+https://github.com/rust-lang/crates.io-index)",
- "eth2_ssz 0.4.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "eth2_ssz",
  "eth2_ssz_derive 0.3.0 (registry+https://github.com/rust-lang/crates.io-index)",
- "eth2_ssz_types 0.2.1 (registry+https://github.com/rust-lang/crates.io-index)",
+ "eth2_ssz_types",
+ "execution_layer",
  "fork_choice",
  "futures",
  "genesis",
@@ -318,6 +319,7 @@ dependencies = [
  "rand 0.7.3",
  "rayon",
  "safe_arith",
+ "sensitive_url",
  "serde",
  "serde_derive",
  "slasher",
@@ -328,10 +330,11 @@ dependencies = [
  "state_processing",
  "store",
  "strum",
+ "superstruct",
  "task_executor",
  "tempfile",
  "tokio",
- "tree_hash 0.4.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "tree_hash",
  "types",
 ]
 
@@ -468,15 +471,15 @@ dependencies = [
  "arbitrary",
  "blst",
  "eth2_hashing 0.2.0 (registry+https://github.com/rust-lang/crates.io-index)",
- "eth2_serde_utils 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
- "eth2_ssz 0.4.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "eth2_serde_utils",
+ "eth2_ssz",
  "ethereum-types 0.12.1",
  "hex",
  "milagro_bls",
  "rand 0.7.3",
  "serde",
  "serde_derive",
- "tree_hash 0.4.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "tree_hash",
  "zeroize",
 ]
 
@@ -499,7 +502,8 @@ dependencies = [
  "beacon_node",
  "clap",
  "clap_utils",
- "eth2_ssz 0.4.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "eth2_network_config",
+ "eth2_ssz",
  "hex",
  "lighthouse_network",
  "log",
@@ -600,14 +604,14 @@ name = "cached_tree_hash"
 version = "0.1.0"
 dependencies = [
  "eth2_hashing 0.2.0 (registry+https://github.com/rust-lang/crates.io-index)",
- "eth2_ssz 0.4.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "eth2_ssz",
  "eth2_ssz_derive 0.3.0 (registry+https://github.com/rust-lang/crates.io-index)",
- "eth2_ssz_types 0.2.1 (registry+https://github.com/rust-lang/crates.io-index)",
+ "eth2_ssz_types",
  "ethereum-types 0.12.1",
  "quickcheck",
  "quickcheck_macros",
  "smallvec",
- "tree_hash 0.4.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "tree_hash",
 ]
 
 [[package]]
@@ -720,7 +724,8 @@ dependencies = [
  "clap",
  "dirs",
  "eth2_network_config",
- "eth2_ssz 0.4.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "eth2_ssz",
+ "ethereum-types 0.12.1",
  "hex",
 ]
 
@@ -736,6 +741,7 @@ dependencies = [
  "eth1",
  "eth2",
  "eth2_config",
+ "execution_layer",
  "genesis",
  "http_api",
  "http_metrics",
@@ -1012,36 +1018,12 @@ dependencies = [
 
 [[package]]
 name = "darling"
-version = "0.12.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5f2c43f534ea4b0b049015d00269734195e6d3f0f6635cb692251aca6f9f8b3c"
-dependencies = [
- "darling_core 0.12.4",
- "darling_macro 0.12.4",
-]
-
-[[package]]
-name = "darling"
 version = "0.13.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "757c0ded2af11d8e739c4daea1ac623dd1624b06c844cf3f5a39f1bdbd99bb12"
 dependencies = [
- "darling_core 0.13.0",
- "darling_macro 0.13.0",
-]
-
-[[package]]
-name = "darling_core"
-version = "0.12.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8e91455b86830a1c21799d94524df0845183fa55bafd9aa137b01c7d1065fa36"
-dependencies = [
- "fnv",
- "ident_case",
- "proc-macro2",
- "quote",
- "strsim 0.10.0",
- "syn",
+ "darling_core",
+ "darling_macro",
 ]
 
 [[package]]
@@ -1060,22 +1042,11 @@ dependencies = [
 
 [[package]]
 name = "darling_macro"
-version = "0.12.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "29b5acf0dea37a7f66f7b25d2c5e93fd46f8f6968b1a5d7a3e02e97768afc95a"
-dependencies = [
- "darling_core 0.12.4",
- "quote",
- "syn",
-]
-
-[[package]]
-name = "darling_macro"
 version = "0.13.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ade7bff147130fe5e6d39f089c6bd49ec0250f35d70b2eebf72afdfc919f15cc"
 dependencies = [
- "darling_core 0.13.0",
+ "darling_core",
  "quote",
  "syn",
 ]
@@ -1111,13 +1082,13 @@ checksum = "b72465f46d518f6015d9cf07f7f3013a95dd6b9c2747c3d65ae0cce43929d14f"
 name = "deposit_contract"
 version = "0.2.0"
 dependencies = [
- "eth2_ssz 0.4.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "eth2_ssz",
  "ethabi 12.0.0",
  "hex",
  "reqwest",
  "serde_json",
  "sha2",
- "tree_hash 0.4.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "tree_hash",
  "types",
 ]
 
@@ -1155,14 +1126,14 @@ dependencies = [
 
 [[package]]
 name = "derive_more"
-version = "0.99.16"
+version = "0.99.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "40eebddd2156ce1bb37b20bbe5151340a31828b1f2d22ba4141f3531710e38df"
+checksum = "4fb810d30a7c1953f91334de7244731fc3f3c10d7fe163338a35b9f640960321"
 dependencies = [
  "convert_case",
  "proc-macro2",
  "quote",
- "rustc_version 0.3.3",
+ "rustc_version 0.4.0",
  "syn",
 ]
 
@@ -1309,9 +1280,10 @@ dependencies = [
  "compare_fields",
  "compare_fields_derive",
  "derivative",
- "eth2_ssz 0.4.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "eth2_ssz",
  "eth2_ssz_derive 0.3.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "ethereum-types 0.12.1",
+ "fork_choice",
  "fs2",
  "hex",
  "rayon",
@@ -1323,7 +1295,7 @@ dependencies = [
  "state_processing",
  "store",
  "swap_or_not_shuffle",
- "tree_hash 0.4.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "tree_hash",
  "tree_hash_derive 0.4.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "types",
 ]
@@ -1451,7 +1423,7 @@ dependencies = [
  "environment",
  "eth1_test_rig",
  "eth2",
- "eth2_ssz 0.4.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "eth2_ssz",
  "eth2_ssz_derive 0.3.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "fallback",
  "futures",
@@ -1470,7 +1442,7 @@ dependencies = [
  "task_executor",
  "tokio",
  "toml",
- "tree_hash 0.4.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "tree_hash",
  "types",
  "web3",
 ]
@@ -1493,8 +1465,8 @@ dependencies = [
  "account_utils",
  "bytes",
  "eth2_keystore",
- "eth2_serde_utils 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
- "eth2_ssz 0.4.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "eth2_serde_utils",
+ "eth2_ssz",
  "eth2_ssz_derive 0.3.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "futures",
  "futures-util",
@@ -1599,7 +1571,7 @@ version = "0.2.0"
 dependencies = [
  "enr",
  "eth2_config",
- "eth2_ssz 0.4.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "eth2_ssz",
  "serde_yaml",
  "tempfile",
  "types",
@@ -1608,8 +1580,9 @@ dependencies = [
 
 [[package]]
 name = "eth2_serde_utils"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
+ "ethereum-types 0.12.1",
  "hex",
  "serde",
  "serde_derive",
@@ -1617,31 +1590,10 @@ dependencies = [
 ]
 
 [[package]]
-name = "eth2_serde_utils"
-version = "0.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "477fffc25490dfc866288273f96344c6879676a1337187fc39245cd422e10825"
-dependencies = [
- "hex",
- "serde",
- "serde_derive",
-]
-
-[[package]]
 name = "eth2_ssz"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "eth2_ssz_derive 0.3.0 (registry+https://github.com/rust-lang/crates.io-index)",
- "ethereum-types 0.12.1",
- "smallvec",
-]
-
-[[package]]
-name = "eth2_ssz"
-version = "0.4.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "948e343aa022785c07193f41ed37adfd9dd0350368060803b8302c7f798e8306"
-dependencies = [
  "ethereum-types 0.12.1",
  "smallvec",
 ]
@@ -1650,7 +1602,7 @@ dependencies = [
 name = "eth2_ssz_derive"
 version = "0.3.0"
 dependencies = [
- "darling 0.13.0",
+ "darling",
  "proc-macro2",
  "quote",
  "syn",
@@ -1662,7 +1614,7 @@ version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "635b86d2c941bb71e7419a571e1763d65c93e51a1bafc400352e3bef6ff59fc9"
 dependencies = [
- "darling 0.13.0",
+ "darling",
  "proc-macro2",
  "quote",
  "syn",
@@ -1670,31 +1622,16 @@ dependencies = [
 
 [[package]]
 name = "eth2_ssz_types"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "arbitrary",
- "eth2_serde_utils 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
- "eth2_ssz 0.4.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "eth2_serde_utils",
+ "eth2_ssz",
  "serde",
  "serde_derive",
  "serde_json",
- "tree_hash 0.4.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "tree_hash",
  "tree_hash_derive 0.4.0 (registry+https://github.com/rust-lang/crates.io-index)",
- "typenum",
-]
-
-[[package]]
-name = "eth2_ssz_types"
-version = "0.2.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a9423ac7fb37037f828a32b724cdfa65ea62290055811731402a90fb8a5bcbb1"
-dependencies = [
- "arbitrary",
- "eth2_serde_utils 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
- "eth2_ssz 0.4.0 (registry+https://github.com/rust-lang/crates.io-index)",
- "serde",
- "serde_derive",
- "tree_hash 0.4.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "typenum",
 ]
 
@@ -1819,6 +1756,35 @@ dependencies = [
  "impl-serde",
  "primitive-types 0.10.1",
  "uint 0.9.1",
+]
+
+[[package]]
+name = "execution_layer"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "bytes",
+ "environment",
+ "eth1",
+ "eth2_serde_utils",
+ "eth2_ssz_types",
+ "exit-future",
+ "futures",
+ "hex",
+ "lru",
+ "parking_lot",
+ "reqwest",
+ "sensitive_url",
+ "serde",
+ "serde_json",
+ "slog",
+ "slot_clock",
+ "task_executor",
+ "tokio",
+ "tree_hash",
+ "tree_hash_derive 0.4.0",
+ "types",
+ "warp 0.3.0",
 ]
 
 [[package]]
@@ -1959,7 +1925,7 @@ name = "fork_choice"
 version = "0.1.0"
 dependencies = [
  "beacon_chain",
- "eth2_ssz 0.4.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "eth2_ssz",
  "eth2_ssz_derive 0.3.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "proto_array",
  "store",
@@ -2122,7 +2088,7 @@ dependencies = [
  "eth1",
  "eth1_test_rig",
  "eth2_hashing 0.2.0 (registry+https://github.com/rust-lang/crates.io-index)",
- "eth2_ssz 0.4.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "eth2_ssz",
  "futures",
  "int_to_bytes",
  "merkle_proof",
@@ -2131,7 +2097,7 @@ dependencies = [
  "slog",
  "state_processing",
  "tokio",
- "tree_hash 0.4.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "tree_hash",
  "types",
 ]
 
@@ -2404,7 +2370,7 @@ dependencies = [
  "environment",
  "eth1",
  "eth2",
- "eth2_ssz 0.4.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "eth2_ssz",
  "futures",
  "hex",
  "lazy_static",
@@ -2420,9 +2386,9 @@ dependencies = [
  "store",
  "tokio",
  "tokio-stream",
- "tree_hash 0.4.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "tree_hash",
  "types",
- "warp",
+ "warp 0.3.2",
  "warp_utils",
 ]
 
@@ -2443,7 +2409,7 @@ dependencies = [
  "store",
  "tokio",
  "types",
- "warp",
+ "warp 0.3.2",
  "warp_utils",
 ]
 
@@ -2620,6 +2586,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "input_buffer"
+version = "0.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f97967975f448f1a7ddb12b0bc41069d09ed6a1c161a92687e057325db35d413"
+dependencies = [
+ "bytes",
+]
+
+[[package]]
 name = "instant"
 version = "0.1.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2751,9 +2726,10 @@ dependencies = [
  "eth1_test_rig",
  "eth2",
  "eth2_network_config",
- "eth2_ssz 0.4.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "eth2_ssz",
  "eth2_wallet",
  "genesis",
+ "int_to_bytes",
  "lighthouse_network",
  "lighthouse_version",
  "log",
@@ -2762,7 +2738,7 @@ dependencies = [
  "serde_json",
  "serde_yaml",
  "state_processing",
- "tree_hash 0.4.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "tree_hash",
  "types",
  "validator_dir",
  "web3",
@@ -2869,6 +2845,7 @@ dependencies = [
  "libp2p-metrics",
  "libp2p-mplex",
  "libp2p-noise",
+ "libp2p-plaintext",
  "libp2p-swarm",
  "libp2p-swarm-derive",
  "libp2p-tcp",
@@ -3059,6 +3036,23 @@ dependencies = [
  "static_assertions",
  "x25519-dalek",
  "zeroize",
+]
+
+[[package]]
+name = "libp2p-plaintext"
+version = "0.30.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5fba1a6ff33e4a274c89a3b1d78b9f34f32af13265cc5c46c16938262d4e945a"
+dependencies = [
+ "asynchronous-codec",
+ "bytes",
+ "futures",
+ "libp2p-core 0.30.0",
+ "log",
+ "prost 0.9.0",
+ "prost-build 0.9.0",
+ "unsigned-varint 0.7.1",
+ "void",
 ]
 
 [[package]]
@@ -3323,9 +3317,9 @@ dependencies = [
  "dirs",
  "discv5",
  "error-chain",
- "eth2_ssz 0.4.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "eth2_ssz",
  "eth2_ssz_derive 0.3.0 (registry+https://github.com/rust-lang/crates.io-index)",
- "eth2_ssz_types 0.2.1 (registry+https://github.com/rust-lang/crates.io-index)",
+ "eth2_ssz_types",
  "exit-future",
  "fnv",
  "futures",
@@ -3357,6 +3351,7 @@ dependencies = [
  "tokio-util",
  "types",
  "unsigned-varint 0.6.0",
+ "void",
 ]
 
 [[package]]
@@ -3654,6 +3649,24 @@ checksum = "e5ce46fe64a9d73be07dcbe690a38ce1b293be448fd8ce1e6c1b8062c9f72c6a"
 
 [[package]]
 name = "multipart"
+version = "0.17.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d050aeedc89243f5347c3e237e3e13dc76fbe4ae3742a57b94dc14f69acf76d4"
+dependencies = [
+ "buf_redux",
+ "httparse",
+ "log",
+ "mime",
+ "mime_guess",
+ "quick-error",
+ "rand 0.7.3",
+ "safemem",
+ "tempfile",
+ "twoway",
+]
+
+[[package]]
+name = "multipart"
 version = "0.18.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "00dec633863867f29cb39df64a397cdf4a6354708ddd7759f70c7fb51c5f9182"
@@ -3709,8 +3722,8 @@ dependencies = [
  "beacon_chain",
  "environment",
  "error-chain",
- "eth2_ssz 0.4.0 (registry+https://github.com/rust-lang/crates.io-index)",
- "eth2_ssz_types 0.2.1 (registry+https://github.com/rust-lang/crates.io-index)",
+ "eth2_ssz",
+ "eth2_ssz_types",
  "exit-future",
  "fnv",
  "futures",
@@ -3959,18 +3972,18 @@ checksum = "28988d872ab76095a6e6ac88d99b54fd267702734fd7ffe610ca27f533ddb95a"
 
 [[package]]
 name = "openssl-src"
-version = "300.0.2+3.0.0"
+version = "111.17.0+1.1.1m"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "14a760a11390b1a5daf72074d4f6ff1a6e772534ae191f999f57e9ee8146d1fb"
+checksum = "05d6a336abd10814198f66e2a91ccd7336611f30334119ca8ce300536666fcf4"
 dependencies = [
  "cc",
 ]
 
 [[package]]
 name = "openssl-sys"
-version = "0.9.71"
+version = "0.9.72"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7df13d165e607909b363a4757a6f133f8a818a74e9d3a98d09c6128e15fa4c73"
+checksum = "7e46109c383602735fa0a2e48dd2b7c892b048e1bf69e5c3b1d804b7d9c203cb"
 dependencies = [
  "autocfg 1.0.1",
  "cc",
@@ -3986,7 +3999,7 @@ version = "0.2.0"
 dependencies = [
  "beacon_chain",
  "derivative",
- "eth2_ssz 0.4.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "eth2_ssz",
  "eth2_ssz_derive 0.3.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "itertools",
  "lazy_static",
@@ -4503,7 +4516,7 @@ dependencies = [
 name = "proto_array"
 version = "0.2.0"
 dependencies = [
- "eth2_ssz 0.4.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "eth2_ssz",
  "eth2_ssz_derive 0.3.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "serde",
  "serde_derive",
@@ -4889,9 +4902,9 @@ dependencies = [
 
 [[package]]
 name = "rusqlite"
-version = "0.25.3"
+version = "0.25.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "57adcf67c8faaf96f3248c2a7b419a0dbc52ebe36ba83dd57fe83827c1ea4eb3"
+checksum = "5c4b1eaf239b47034fb450ee9cdedd7d0226571689d8823030c4b6c2cb407152"
 dependencies = [
  "bitflags",
  "fallible-iterator",
@@ -5351,7 +5364,7 @@ version = "0.1.0"
 dependencies = [
  "bincode",
  "byteorder",
- "eth2_ssz 0.4.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "eth2_ssz",
  "eth2_ssz_derive 0.3.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "filesystem",
  "flate2",
@@ -5370,7 +5383,7 @@ dependencies = [
  "slog",
  "sloggers",
  "tempfile",
- "tree_hash 0.4.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "tree_hash",
  "tree_hash_derive 0.4.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "types",
 ]
@@ -5396,7 +5409,7 @@ dependencies = [
 name = "slashing_protection"
 version = "0.1.0"
 dependencies = [
- "eth2_serde_utils 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "eth2_serde_utils",
  "filesystem",
  "lazy_static",
  "r2d2",
@@ -5631,8 +5644,8 @@ dependencies = [
  "bls",
  "env_logger 0.9.0",
  "eth2_hashing 0.2.0 (registry+https://github.com/rust-lang/crates.io-index)",
- "eth2_ssz 0.4.0 (registry+https://github.com/rust-lang/crates.io-index)",
- "eth2_ssz_types 0.2.1 (registry+https://github.com/rust-lang/crates.io-index)",
+ "eth2_ssz",
+ "eth2_ssz_types",
  "int_to_bytes",
  "integer-sqrt",
  "itertools",
@@ -5642,7 +5655,7 @@ dependencies = [
  "rayon",
  "safe_arith",
  "smallvec",
- "tree_hash 0.4.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "tree_hash",
  "types",
 ]
 
@@ -5651,7 +5664,7 @@ name = "state_transition_vectors"
 version = "0.1.0"
 dependencies = [
  "beacon_chain",
- "eth2_ssz 0.4.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "eth2_ssz",
  "lazy_static",
  "state_processing",
  "types",
@@ -5670,7 +5683,7 @@ dependencies = [
  "beacon_chain",
  "db-key",
  "directory",
- "eth2_ssz 0.4.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "eth2_ssz",
  "eth2_ssz_derive 0.3.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "itertools",
  "lazy_static",
@@ -5728,11 +5741,11 @@ checksum = "6bdef32e8150c2a081110b42772ffe7d7c9032b606bc226c8260fd97e0976601"
 
 [[package]]
 name = "superstruct"
-version = "0.2.0"
+version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8bf7f6700d7c135cf4e4900c2cfba9a12ecad1fdc45594aad48f6b344b2589a0"
+checksum = "ecffe12af481bd0b8950f90676d61fb1e5fc33f1f1c41ce5df11e83fb509aaab"
 dependencies = [
- "darling 0.12.4",
+ "darling",
  "itertools",
  "proc-macro2",
  "quote",
@@ -5750,9 +5763,9 @@ dependencies = [
 
 [[package]]
 name = "syn"
-version = "1.0.81"
+version = "1.0.82"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f2afee18b8beb5a596ecb4a2dce128c719b4ba399d34126b9e4396e3f9860966"
+checksum = "8daf5dd0bb60cbd4137b1b587d2fc0ae729bc07cf01cd70b36a1ed5ade3b9d59"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -6073,6 +6086,19 @@ dependencies = [
 
 [[package]]
 name = "tokio-tungstenite"
+version = "0.13.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e1a5f475f1b9d077ea1017ecbc60890fda8e54942d680ca0b1d2b47cfa2d861b"
+dependencies = [
+ "futures-util",
+ "log",
+ "pin-project 1.0.8",
+ "tokio",
+ "tungstenite 0.12.0",
+]
+
+[[package]]
+name = "tokio-tungstenite"
 version = "0.15.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "511de3f85caf1c98983545490c3d09685fa8eb634e57eec22bb4db271f46cbd8"
@@ -6081,7 +6107,7 @@ dependencies = [
  "log",
  "pin-project 1.0.8",
  "tokio",
- "tungstenite",
+ "tungstenite 0.14.0",
 ]
 
 [[package]]
@@ -6149,6 +6175,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "tracing-futures"
+version = "0.2.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "97d095ae15e245a057c8e8451bab9b3ee1e1f68e9ba2b4fbc18d0ac5237835f2"
+dependencies = [
+ "pin-project 1.0.8",
+ "tracing",
+]
+
+[[package]]
 name = "tracing-log"
 version = "0.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6212,11 +6248,11 @@ dependencies = [
 
 [[package]]
 name = "tree_hash"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "beacon_chain",
  "eth2_hashing 0.2.0 (registry+https://github.com/rust-lang/crates.io-index)",
- "eth2_ssz 0.4.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "eth2_ssz",
  "eth2_ssz_derive 0.3.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "ethereum-types 0.12.1",
  "rand 0.7.3",
@@ -6226,21 +6262,10 @@ dependencies = [
 ]
 
 [[package]]
-name = "tree_hash"
-version = "0.4.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3f9c8a86fad3169a65aad2265d3c6a8bc119d0b771046af3c1b2fb0e9b12182b"
-dependencies = [
- "eth2_hashing 0.2.0 (registry+https://github.com/rust-lang/crates.io-index)",
- "ethereum-types 0.12.1",
- "smallvec",
-]
-
-[[package]]
 name = "tree_hash_derive"
 version = "0.4.0"
 dependencies = [
- "darling 0.13.0",
+ "darling",
  "quote",
  "syn",
 ]
@@ -6251,7 +6276,7 @@ version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3cd22d128157837a4434bb51119aef11103f17bfe8c402ce688cf25aa1e608ad"
 dependencies = [
- "darling 0.13.0",
+ "darling",
  "quote",
  "syn",
 ]
@@ -6309,6 +6334,25 @@ checksum = "59547bce71d9c38b83d9c0e92b6066c4253371f15005def0c30d9657f50c7642"
 
 [[package]]
 name = "tungstenite"
+version = "0.12.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8ada8297e8d70872fa9a551d93250a9f407beb9f37ef86494eb20012a2ff7c24"
+dependencies = [
+ "base64 0.13.0",
+ "byteorder",
+ "bytes",
+ "http",
+ "httparse",
+ "input_buffer",
+ "log",
+ "rand 0.8.4",
+ "sha-1",
+ "url",
+ "utf-8",
+]
+
+[[package]]
+name = "tungstenite"
 version = "0.14.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a0b2d8558abd2e276b0a8df5c05a2ec762609344191e5fd23e292c910e9165b5"
@@ -6355,10 +6399,10 @@ dependencies = [
  "derivative",
  "eth2_hashing 0.2.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "eth2_interop_keypairs",
- "eth2_serde_utils 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
- "eth2_ssz 0.4.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "eth2_serde_utils",
+ "eth2_ssz",
  "eth2_ssz_derive 0.3.0 (registry+https://github.com/rust-lang/crates.io-index)",
- "eth2_ssz_types 0.2.1 (registry+https://github.com/rust-lang/crates.io-index)",
+ "eth2_ssz_types",
  "ethereum-types 0.12.1",
  "hex",
  "int_to_bytes",
@@ -6381,7 +6425,7 @@ dependencies = [
  "swap_or_not_shuffle",
  "tempfile",
  "test_random_derive",
- "tree_hash 0.4.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "tree_hash",
  "tree_hash_derive 0.4.0 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
@@ -6543,7 +6587,7 @@ dependencies = [
  "environment",
  "eth2",
  "eth2_keystore",
- "eth2_serde_utils 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "eth2_serde_utils",
  "exit-future",
  "filesystem",
  "futures",
@@ -6571,11 +6615,11 @@ dependencies = [
  "task_executor",
  "tempfile",
  "tokio",
- "tree_hash 0.4.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "tree_hash",
  "types",
  "url",
  "validator_dir",
- "warp",
+ "warp 0.3.2",
  "warp_utils",
 ]
 
@@ -6592,7 +6636,7 @@ dependencies = [
  "lockfile",
  "rand 0.7.3",
  "tempfile",
- "tree_hash 0.4.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "tree_hash",
  "types",
 ]
 
@@ -6643,6 +6687,36 @@ dependencies = [
 
 [[package]]
 name = "warp"
+version = "0.3.0"
+source = "git+https://github.com/macladson/warp?rev=dfa259e#dfa259e19b7490e6bc4bf247e8b76f671d29a0eb"
+dependencies = [
+ "bytes",
+ "futures",
+ "headers",
+ "http",
+ "hyper",
+ "log",
+ "mime",
+ "mime_guess",
+ "multipart 0.17.1",
+ "percent-encoding",
+ "pin-project 1.0.8",
+ "scoped-tls",
+ "serde",
+ "serde_json",
+ "serde_urlencoded",
+ "tokio",
+ "tokio-rustls",
+ "tokio-stream",
+ "tokio-tungstenite 0.13.0",
+ "tokio-util",
+ "tower-service",
+ "tracing",
+ "tracing-futures",
+]
+
+[[package]]
+name = "warp"
 version = "0.3.2"
 source = "git+https://github.com/macladson/warp?rev=7e75acc#7e75acc368229a46a236a8c991bf251fe7fe50ef"
 dependencies = [
@@ -6655,7 +6729,7 @@ dependencies = [
  "log",
  "mime",
  "mime_guess",
- "multipart",
+ "multipart 0.18.0",
  "percent-encoding",
  "pin-project 1.0.8",
  "scoped-tls",
@@ -6665,7 +6739,7 @@ dependencies = [
  "tokio",
  "tokio-rustls",
  "tokio-stream",
- "tokio-tungstenite",
+ "tokio-tungstenite 0.15.0",
  "tokio-util",
  "tower-service",
  "tracing",
@@ -6685,7 +6759,7 @@ dependencies = [
  "state_processing",
  "tokio",
  "types",
- "warp",
+ "warp 0.3.2",
 ]
 
 [[package]]
