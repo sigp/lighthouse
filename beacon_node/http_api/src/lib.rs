@@ -41,12 +41,12 @@ use std::pin::Pin;
 use std::sync::Arc;
 use tokio::sync::mpsc::UnboundedSender;
 use tokio_stream::{wrappers::BroadcastStream, StreamExt};
-use types::*;
 use types::{
-    Attestation, AttesterSlashing, BeaconStateError, CommitteeCache, ConfigAndPreset, Epoch,
-    EthSpec, ForkName, ProposerSlashing, RelativeEpoch, SignedAggregateAndProof, SignedBeaconBlock,
-    SignedContributionAndProof, SignedVoluntaryExit, Slot, SyncCommitteeMessage,
-    SyncContributionData,
+    Attestation, AttesterSlashing, BeaconBlockBodyMerge, BeaconBlockMerge, BeaconStateError,
+    BlindedTransactions, CommitteeCache, ConfigAndPreset, Epoch, EthSpec, ExecTransactions,
+    ForkName, ProposerSlashing, RelativeEpoch, SignedAggregateAndProof, SignedBeaconBlock,
+    SignedBeaconBlockMerge, SignedContributionAndProof, SignedVoluntaryExit, Slot,
+    SyncCommitteeMessage, SyncContributionData,
 };
 use version::{
     add_consensus_version_header, fork_versioned_response, inconsistent_fork_rejection,
