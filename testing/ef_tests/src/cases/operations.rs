@@ -12,7 +12,7 @@ use state_processing::per_block_processing::{
         altair, base, process_attester_slashings, process_deposits, process_exits,
         process_proposer_slashings,
     },
-    process_sync_aggregate, VerifySignatures,
+    process_sync_aggregate, VerifyBlockRoot, VerifySignatures,
 };
 use std::fmt::Debug;
 use std::path::Path;
@@ -183,7 +183,7 @@ impl<E: EthSpec> Operation<E> for BeaconBlock<E> {
         spec: &ChainSpec,
         _: &Operations<E, Self>,
     ) -> Result<(), BlockProcessingError> {
-        process_block_header(state, self.to_ref(), spec)?;
+        process_block_header(state, self.to_ref(), VerifyBlockRoot::True, spec)?;
         Ok(())
     }
 }

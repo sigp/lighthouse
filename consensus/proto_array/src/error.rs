@@ -1,4 +1,4 @@
-use types::{Epoch, Hash256};
+use types::{Checkpoint, Epoch, Hash256};
 
 #[derive(Clone, PartialEq, Debug)]
 pub enum Error {
@@ -13,6 +13,7 @@ pub enum Error {
     InvalidParentDelta(usize),
     InvalidNodeDelta(usize),
     DeltaOverflow(usize),
+    ProposerBoostOverflow(usize),
     IndexOverflow(&'static str),
     InvalidDeltaLen {
         deltas: usize,
@@ -22,16 +23,19 @@ pub enum Error {
         current_finalized_epoch: Epoch,
         new_finalized_epoch: Epoch,
     },
-    InvalidBestNode {
-        start_root: Hash256,
-        justified_epoch: Epoch,
-        finalized_epoch: Epoch,
-        head_root: Hash256,
-        head_justified_epoch: Epoch,
-        head_finalized_epoch: Epoch,
-    },
+    InvalidBestNode(Box<InvalidBestNodeInfo>),
     InvalidAncestorOfValidPayload {
         ancestor_block_root: Hash256,
         ancestor_payload_block_hash: Hash256,
     },
+}
+
+#[derive(Clone, PartialEq, Debug)]
+pub struct InvalidBestNodeInfo {
+    pub start_root: Hash256,
+    pub justified_checkpoint: Checkpoint,
+    pub finalized_checkpoint: Checkpoint,
+    pub head_root: Hash256,
+    pub head_justified_checkpoint: Option<Checkpoint>,
+    pub head_finalized_checkpoint: Option<Checkpoint>,
 }

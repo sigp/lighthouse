@@ -1,5 +1,6 @@
 use crate::{metrics, service::NetworkMessage, sync::SyncMessage};
 
+use beacon_chain::store::Error;
 use beacon_chain::{
     attestation_verification::{Error as AttnError, VerifiedAttestation},
     observed_operations::ObservationOutcome,
@@ -13,6 +14,7 @@ use slog::{crit, debug, error, info, trace, warn};
 use slot_clock::SlotClock;
 use ssz::Encode;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use store::hot_cold_store::HotColdDBError;
 use tokio::sync::mpsc;
 use types::{
     Attestation, AttesterSlashing, EthSpec, Hash256, IndexedAttestation, ProposerSlashing,
@@ -1578,6 +1580,12 @@ impl<T: BeaconChainTypes> Worker<T> {
                 // attestations that have too many skip slots.
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Reject);
                 self.gossip_penalize_peer(peer_id, PeerAction::MidToleranceError);
+            }
+            AttnError::BeaconChainError(BeaconChainError::DBError(Error::HotColdDBError(
+                HotColdDBError::AttestationStateIsFinalized { .. },
+            ))) => {
+                debug!(self.log, "Attestation for finalized state"; "peer_id" => % peer_id);
+                self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
             }
             AttnError::BeaconChainError(e) => {
                 /*

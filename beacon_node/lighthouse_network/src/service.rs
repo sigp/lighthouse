@@ -14,13 +14,13 @@ use libp2p::core::{
     connection::ConnectionLimits, identity::Keypair, multiaddr::Multiaddr, muxing::StreamMuxerBox,
     transport::Boxed,
 };
-use libp2p::gossipsub::open_metrics_client::registry::Registry;
 use libp2p::{
     bandwidth::{BandwidthLogging, BandwidthSinks},
     core, noise,
     swarm::{SwarmBuilder, SwarmEvent},
     PeerId, Swarm, Transport,
 };
+use open_metrics_client::registry::Registry;
 use slog::{crit, debug, info, o, trace, warn, Logger};
 use ssz::Decode;
 use std::fs::File;
@@ -72,9 +72,9 @@ pub struct Context<'a> {
 }
 
 impl<TSpec: EthSpec> Service<TSpec> {
-    pub async fn new<'a>(
+    pub async fn new(
         executor: task_executor::TaskExecutor,
-        ctx: Context<'a>,
+        ctx: Context<'_>,
         log: &Logger,
     ) -> error::Result<(Arc<NetworkGlobals<TSpec>>, Self)> {
         let log = log.new(o!("service"=> "libp2p"));

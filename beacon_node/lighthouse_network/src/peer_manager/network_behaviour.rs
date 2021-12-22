@@ -111,25 +111,10 @@ impl<TSpec: EthSpec> NetworkBehaviour for PeerManager<TSpec> {
         endpoint: &ConnectedPoint,
         _failed_addresses: Option<&Vec<Multiaddr>>,
     ) {
-        // Log the connection
-        match &endpoint {
-            ConnectedPoint::Listener { .. } => {
-                debug!(self.log, "Connection established"; "peer_id" => %peer_id, "connection" => "Incoming");
-
-                // Update metrics
-                // Update the NAT status if there is a port in the ENR
-                if self.network_globals.local_enr.read().udp().is_some() {
-                    metrics::check_nat();
-                }
-            }
-            ConnectedPoint::Dialer { .. } => {
-                debug!(self.log, "Connection established"; "peer_id" => %peer_id, "connection" => "Outgoing");
-                // Update metrics
-                // Update the NAT status if there is a port in the ENR
-                if self.network_globals.local_enr.read().udp().is_some() {
-                    metrics::check_nat();
-                }
-            }
+        debug!(self.log, "Connection established"; "peer_id" => %peer_id, "connection" => ?endpoint.to_endpoint());
+        // Check NAT if metrics are enabled
+        if self.network_globals.local_enr.read().udp().is_some() {
+            metrics::check_nat();
         }
 
         // Check to make sure the peer is not supposed to be banned
@@ -152,8 +137,10 @@ impl<TSpec: EthSpec> NetworkBehaviour for PeerManager<TSpec> {
             BanResult::NotBanned => {}
         }
 
+        // Count dialing peers in the limit if the peer dialied us.
+        let count_dialing = endpoint.is_listener();
         // Check the connection limits
-        if self.peer_limit_reached()
+        if self.peer_limit_reached(count_dialing)
             && self
                 .network_globals
                 .peers

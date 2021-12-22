@@ -181,9 +181,9 @@ pub struct Behaviour<TSpec: EthSpec> {
 
 /// Implements the combined behaviour for the libp2p service.
 impl<TSpec: EthSpec> Behaviour<TSpec> {
-    pub async fn new<'a>(
+    pub async fn new(
         local_key: &Keypair,
-        ctx: ServiceContext<'a>,
+        ctx: ServiceContext<'_>,
         network_globals: Arc<NetworkGlobals<TSpec>>,
         log: &slog::Logger,
     ) -> error::Result<Self> {

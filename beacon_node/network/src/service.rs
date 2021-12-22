@@ -153,11 +153,11 @@ pub struct NetworkService<T: BeaconChainTypes> {
 
 impl<T: BeaconChainTypes> NetworkService<T> {
     #[allow(clippy::type_complexity)]
-    pub async fn start<'a>(
+    pub async fn start(
         beacon_chain: Arc<BeaconChain<T>>,
         config: &NetworkConfig,
         executor: task_executor::TaskExecutor,
-        gossipsub_registry: Option<&'a mut Registry>,
+        gossipsub_registry: Option<&'_ mut Registry>,
     ) -> error::Result<(
         Arc<NetworkGlobals<T::EthSpec>>,
         mpsc::UnboundedSender<NetworkMessage<T::EthSpec>>,
@@ -205,7 +205,7 @@ impl<T: BeaconChainTypes> NetworkService<T> {
 
         // construct the libp2p service context
         let service_context = Context {
-            config: &config,
+            config,
             enr_fork_id,
             fork_context: fork_context.clone(),
             chain_spec: &beacon_chain.spec,

@@ -62,12 +62,13 @@ impl<'de> Deserialize<'de> for PeerIdSerialized {
     }
 }
 
-pub use libp2p::gossipsub::open_metrics_client;
-
 pub use crate::types::{
     error, Enr, EnrSyncCommitteeBitfield, GossipTopic, NetworkGlobals, PubsubMessage, Subnet,
     SubnetDiscovery,
 };
+
+pub use open_metrics_client;
+
 pub use behaviour::{BehaviourEvent, Gossipsub, PeerRequestId, Request, Response};
 pub use config::Config as NetworkConfig;
 pub use discovery::{CombinedKeyExt, EnrExt, Eth2Enr};

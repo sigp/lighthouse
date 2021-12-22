@@ -1097,7 +1097,7 @@ mod tests {
             ..Default::default()
         };
         let enr_key: CombinedKey = CombinedKey::from_libp2p(&keypair).unwrap();
-        let enr: Enr = build_enr::<E>(&enr_key, &config, EnrForkId::default()).unwrap();
+        let enr: Enr = build_enr::<E>(&enr_key, &config, &EnrForkId::default()).unwrap();
         let log = build_log(slog::Level::Debug, false);
         let globals = NetworkGlobals::new(
             enr,

@@ -355,8 +355,13 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
 
     /// Reports whether the peer limit is reached in which case we stop allowing new incoming
     /// connections.
-    pub fn peer_limit_reached(&self) -> bool {
-        self.network_globals.connected_or_dialing_peers() >= self.max_peers()
+    pub fn peer_limit_reached(&self, count_dialing: bool) -> bool {
+        let max_peers = self.max_peers();
+        if count_dialing {
+            self.network_globals.connected_or_dialing_peers() >= max_peers
+        } else {
+            self.network_globals.connected_peers() >= max_peers
+        }
     }
 
     /// Updates `PeerInfo` with `identify` information.
@@ -680,7 +685,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
     ///
     /// This is also called when dialing a peer fails.
     fn inject_disconnect(&mut self, peer_id: &PeerId) {
-        let ban_operation = self
+        let (ban_operation, purged_peers) = self
             .network_globals
             .peers
             .write()
@@ -695,6 +700,11 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
         self.inbound_ping_peers.remove(peer_id);
         self.outbound_ping_peers.remove(peer_id);
         self.status_peers.remove(peer_id);
+        self.events.extend(
+            purged_peers
+                .into_iter()
+                .map(|(peer_id, unbanned_ips)| PeerManagerEvent::UnBanned(peer_id, unbanned_ips)),
+        );
     }
 
     /// Registers a peer as connected. The `ingoing` parameter determines if the peer is being
@@ -950,9 +960,6 @@ enum ConnectingType {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::discovery::enr_ext::CombinedKeyExt;
-    use crate::rpc::methods::{MetaData, MetaDataV2};
-    use discv5::enr::CombinedKey;
     use slog::{o, Drain};
     use types::MinimalEthSpec as E;
 
@@ -975,23 +982,7 @@ mod tests {
             ..Default::default()
         };
         let log = build_log(slog::Level::Debug, false);
-        let globals = {
-            let keypair = libp2p::identity::Keypair::generate_secp256k1();
-            let enr_key: CombinedKey = CombinedKey::from_libp2p(&keypair).unwrap();
-            let enr = discv5::enr::EnrBuilder::new("v4").build(&enr_key).unwrap();
-            NetworkGlobals::new(
-                enr,
-                9000,
-                9000,
-                MetaData::V2(MetaDataV2 {
-                    seq_number: 0,
-                    attnets: Default::default(),
-                    syncnets: Default::default(),
-                }),
-                vec![],
-                &log,
-            )
-        };
+        let globals = NetworkGlobals::new_test_globals(&log);
         PeerManager::new(config, Arc::new(globals), &log)
             .await
             .unwrap()

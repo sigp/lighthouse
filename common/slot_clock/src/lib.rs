@@ -11,6 +11,7 @@ pub use crate::manual_slot_clock::ManualSlotClock;
 pub use crate::manual_slot_clock::ManualSlotClock as TestingSlotClock;
 pub use crate::system_time_slot_clock::SystemTimeSlotClock;
 pub use metrics::scrape_for_metrics;
+use types::consts::merge::INTERVALS_PER_SLOT;
 pub use types::Slot;
 
 /// A clock that reports the current slot.
@@ -82,24 +83,33 @@ pub trait SlotClock: Send + Sync + Sized + Clone {
     /// Returns the delay between the start of the slot and when unaggregated attestations should be
     /// produced.
     fn unagg_attestation_production_delay(&self) -> Duration {
-        self.slot_duration() / 3
+        self.slot_duration() / INTERVALS_PER_SLOT as u32
     }
 
     /// Returns the delay between the start of the slot and when sync committee messages should be
     /// produced.
     fn sync_committee_message_production_delay(&self) -> Duration {
-        self.slot_duration() / 3
+        self.slot_duration() / INTERVALS_PER_SLOT as u32
     }
 
     /// Returns the delay between the start of the slot and when aggregated attestations should be
     /// produced.
     fn agg_attestation_production_delay(&self) -> Duration {
-        self.slot_duration() * 2 / 3
+        self.slot_duration() * 2 / INTERVALS_PER_SLOT as u32
     }
 
     /// Returns the delay between the start of the slot and when partially aggregated `SyncCommitteeContribution` should be
     /// produced.
     fn sync_committee_contribution_production_delay(&self) -> Duration {
-        self.slot_duration() * 2 / 3
+        self.slot_duration() * 2 / INTERVALS_PER_SLOT as u32
+    }
+
+    /// Returns the `Duration` since the start of the current `Slot`. Useful in determining whether to apply proposer boosts.
+    fn seconds_from_current_slot_start(&self, seconds_per_slot: u64) -> Option<Duration> {
+        self.now_duration()
+            .and_then(|now| now.checked_sub(self.genesis_duration()))
+            .map(|duration_into_slot| {
+                Duration::from_secs(duration_into_slot.as_secs() % seconds_per_slot)
+            })
     }
 }
