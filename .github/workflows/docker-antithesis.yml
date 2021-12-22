@@ -26,6 +26,6 @@ jobs:
             - name: Build AMD64 dockerfile (with push)
               run: |
                   docker build \
-                      --tag ${ANTITHESIS_SERVER}/${REPOSITORY}/$IMAGE_NAME[:$TAG] \
+                      --tag ${ANTITHESIS_SERVER}/${REPOSITORY}/${IMAGE_NAME}:${TAG} \
                       --file ./testing/antithesis/Dockerfile.libvoidstar .
-                  docker push ${ANTITHESIS_SERVER}/${REPOSITORY}/$IMAGE_NAME[:$TAG]
+                  docker push ${ANTITHESIS_SERVER}/${REPOSITORY}/${IMAGE_NAME}:${TAG}
