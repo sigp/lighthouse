@@ -43,7 +43,7 @@ genesis = { path = "../genesis" }
 int_to_bytes = { path = "../../consensus/int_to_bytes" }
 rand = "0.7.3"
 proto_array = { path = "../../consensus/proto_array" }
-lru = "0.6.0"
+lru = "0.7.1"
 tempfile = "3.1.0"
 bitvec = "0.19.3"
 bls = { path = "../../crypto/bls" }

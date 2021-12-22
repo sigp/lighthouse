@@ -2275,6 +2275,22 @@ pub fn serve<T: BeaconChainTypes>(
             })
         });
 
+    // GET lighthouse/nat
+    let get_lighthouse_nat = warp::path("lighthouse")
+        .and(warp::path("nat"))
+        .and(warp::path::end())
+        .and_then(|| {
+            blocking_json_task(move || {
+                Ok(api_types::GenericResponse::from(
+                    lighthouse_network::metrics::NAT_OPEN
+                        .as_ref()
+                        .map(|v| v.get())
+                        .unwrap_or(0)
+                        != 0,
+                ))
+            })
+        });
+
     // GET lighthouse/peers
     let get_lighthouse_peers = warp::path("lighthouse")
         .and(warp::path("peers"))
@@ -2622,6 +2638,7 @@ pub fn serve<T: BeaconChainTypes>(
                 .or(get_validator_sync_committee_contribution.boxed())
                 .or(get_lighthouse_health.boxed())
                 .or(get_lighthouse_syncing.boxed())
+                .or(get_lighthouse_nat.boxed())
                 .or(get_lighthouse_peers.boxed())
                 .or(get_lighthouse_peers_connected.boxed())
                 .or(get_lighthouse_proto_array.boxed())

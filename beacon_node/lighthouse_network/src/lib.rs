@@ -10,7 +10,7 @@ mod config;
 
 #[allow(clippy::mutable_key_type)] // PeerId in hashmaps are no longer permitted by clippy
 pub mod discovery;
-mod metrics;
+pub mod metrics;
 pub mod peer_manager;
 pub mod rpc;
 mod service;
@@ -66,13 +66,16 @@ pub use crate::types::{
     error, Enr, EnrSyncCommitteeBitfield, GossipTopic, NetworkGlobals, PubsubMessage, Subnet,
     SubnetDiscovery,
 };
+
+pub use open_metrics_client;
+
 pub use behaviour::{BehaviourEvent, Gossipsub, PeerRequestId, Request, Response};
 pub use config::Config as NetworkConfig;
 pub use discovery::{CombinedKeyExt, EnrExt, Eth2Enr};
 pub use discv5;
 pub use libp2p;
 pub use libp2p::bandwidth::BandwidthSinks;
-pub use libp2p::gossipsub::{MessageAcceptance, MessageId, Topic, TopicHash};
+pub use libp2p::gossipsub::{IdentTopic, MessageAcceptance, MessageId, Topic, TopicHash};
 pub use libp2p::{core::ConnectedPoint, PeerId, Swarm};
 pub use libp2p::{multiaddr, Multiaddr};
 pub use metrics::scrape_discovery_metrics;
@@ -82,4 +85,4 @@ pub use peer_manager::{
     peerdb::PeerDB,
     ConnectionDirection, PeerConnectionStatus, PeerInfo, PeerManager, SyncInfo, SyncStatus,
 };
-pub use service::{load_private_key, Libp2pEvent, Service, NETWORK_KEY_FILENAME};
+pub use service::{load_private_key, Context, Libp2pEvent, Service, NETWORK_KEY_FILENAME};

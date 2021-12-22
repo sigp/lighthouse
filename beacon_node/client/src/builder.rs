@@ -18,7 +18,7 @@ use eth2::{
 };
 use execution_layer::ExecutionLayer;
 use genesis::{interop_genesis_state, Eth1GenesisService, DEFAULT_ETH1_BLOCK_HASH};
-use lighthouse_network::NetworkGlobals;
+use lighthouse_network::{open_metrics_client::registry::Registry, NetworkGlobals};
 use monitoring_api::{MonitoringHttpClient, ProcessType};
 use network::{NetworkConfig, NetworkMessage, NetworkService};
 use slasher::Slasher;
@@ -65,6 +65,7 @@ pub struct ClientBuilder<T: BeaconChainTypes> {
     eth1_service: Option<Eth1Service>,
     network_globals: Option<Arc<NetworkGlobals<T::EthSpec>>>,
     network_send: Option<UnboundedSender<NetworkMessage<T::EthSpec>>>,
+    gossipsub_registry: Option<Registry>,
     db_path: Option<PathBuf>,
     freezer_db_path: Option<PathBuf>,
     http_api_config: http_api::Config,
@@ -96,6 +97,7 @@ where
             eth1_service: None,
             network_globals: None,
             network_send: None,
+            gossipsub_registry: None,
             db_path: None,
             freezer_db_path: None,
             http_api_config: <_>::default(),
@@ -448,13 +450,27 @@ where
             .ok_or("network requires a runtime_context")?
             .clone();
 
-        let (network_globals, network_send) =
-            NetworkService::start(beacon_chain, config, context.executor)
-                .await
-                .map_err(|e| format!("Failed to start network: {:?}", e))?;
+        // If gossipsub metrics are required we build a registry to record them
+        let mut gossipsub_registry = if config.metrics_enabled {
+            Some(Registry::default())
+        } else {
+            None
+        };
+
+        let (network_globals, network_send) = NetworkService::start(
+            beacon_chain,
+            config,
+            context.executor,
+            gossipsub_registry
+                .as_mut()
+                .map(|registry| registry.sub_registry_with_prefix("gossipsub")),
+        )
+        .await
+        .map_err(|e| format!("Failed to start network: {:?}", e))?;
 
         self.network_globals = Some(network_globals);
         self.network_send = Some(network_send);
+        self.gossipsub_registry = gossipsub_registry;
 
         Ok(self)
     }
@@ -562,13 +578,13 @@ where
         Ok(self)
     }
 
-    /// Consumers the builder, returning a `Client` if all necessary components have been
+    /// Consumes the builder, returning a `Client` if all necessary components have been
     /// specified.
     ///
     /// If type inference errors are being raised, see the comment on the definition of `Self`.
     #[allow(clippy::type_complexity)]
     pub fn build(
-        self,
+        mut self,
     ) -> Result<Client<Witness<TSlotClock, TEth1Backend, TEthSpec, THotStore, TColdStore>>, String>
     {
         let runtime_context = self
@@ -615,6 +631,7 @@ where
                 chain: self.beacon_chain.clone(),
                 db_path: self.db_path.clone(),
                 freezer_db_path: self.freezer_db_path.clone(),
+                gossipsub_registry: self.gossipsub_registry.take().map(std::sync::Mutex::new),
                 log: log.clone(),
             });
 

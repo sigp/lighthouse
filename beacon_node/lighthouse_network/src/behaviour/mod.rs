@@ -8,18 +8,19 @@ use crate::peer_manager::{
     ConnectionDirection, PeerManager, PeerManagerEvent,
 };
 use crate::rpc::*;
-use crate::service::METADATA_FILENAME;
+use crate::service::{Context as ServiceContext, METADATA_FILENAME};
 use crate::types::{
     subnet_from_topic_hash, GossipEncoding, GossipKind, GossipTopic, SnappyTransform, Subnet,
     SubnetDiscovery,
 };
 use crate::Eth2Enr;
-use crate::{error, metrics, Enr, NetworkConfig, NetworkGlobals, PubsubMessage, TopicHash};
+use crate::{error, metrics, Enr, NetworkGlobals, PubsubMessage, TopicHash};
 use libp2p::{
     core::{
         connection::ConnectionId, identity::Keypair, multiaddr::Protocol as MProtocol, Multiaddr,
     },
     gossipsub::{
+        metrics::Config as GossipsubMetricsConfig,
         subscription_filter::{MaxCountSubscriptionFilter, WhitelistSubscriptionFilter},
         Gossipsub as BaseGossipsub, GossipsubEvent, IdentTopic as Topic, MessageAcceptance,
         MessageAuthenticity, MessageId,
@@ -45,7 +46,7 @@ use std::{
     task::{Context, Poll},
 };
 use types::{
-    consts::altair::SYNC_COMMITTEE_SUBNET_COUNT, ChainSpec, EnrForkId, EthSpec, ForkContext,
+    consts::altair::SYNC_COMMITTEE_SUBNET_COUNT, EnrForkId, EthSpec, ForkContext,
     SignedBeaconBlock, Slot, SubnetId, SyncSubnetId,
 };
 
@@ -182,13 +183,13 @@ pub struct Behaviour<TSpec: EthSpec> {
 impl<TSpec: EthSpec> Behaviour<TSpec> {
     pub async fn new(
         local_key: &Keypair,
-        mut config: NetworkConfig,
+        ctx: ServiceContext<'_>,
         network_globals: Arc<NetworkGlobals<TSpec>>,
         log: &slog::Logger,
-        fork_context: Arc<ForkContext>,
-        chain_spec: &ChainSpec,
     ) -> error::Result<Self> {
         let behaviour_log = log.new(o!());
+
+        let mut config = ctx.config.clone();
 
         // Set up the Identify Behaviour
         let identify_config = if config.private {
@@ -215,25 +216,29 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
             .eth2()
             .expect("Local ENR must have a fork id");
 
-        let possible_fork_digests = fork_context.all_fork_digests();
+        let possible_fork_digests = ctx.fork_context.all_fork_digests();
         let filter = MaxCountSubscriptionFilter {
             filter: Self::create_whitelist_filter(
                 possible_fork_digests,
-                chain_spec.attestation_subnet_count,
+                ctx.chain_spec.attestation_subnet_count,
                 SYNC_COMMITTEE_SUBNET_COUNT,
             ),
             max_subscribed_topics: 200,
             max_subscriptions_per_request: 150, // 148 in theory = (64 attestation + 4 sync committee + 6 core topics) * 2
         };
 
-        config.gs_config = gossipsub_config(fork_context.clone());
+        config.gs_config = gossipsub_config(ctx.fork_context.clone());
 
-        // Build and configure the Gossipsub behaviour
+        // If metrics are enabled for gossipsub build the configuration
+        let gossipsub_metrics = ctx
+            .gossipsub_registry
+            .map(|registry| (registry, GossipsubMetricsConfig::default()));
+
         let snappy_transform = SnappyTransform::new(config.gs_config.max_transmit_size());
         let mut gossipsub = Gossipsub::new_with_subscription_filter_and_transform(
             MessageAuthenticity::Anonymous,
             config.gs_config.clone(),
-            None, // No metrics for the time being
+            gossipsub_metrics,
             filter,
             snappy_transform,
         )
@@ -246,7 +251,7 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
 
         let thresholds = lighthouse_gossip_thresholds();
 
-        let score_settings = PeerScoreSettings::new(chain_spec, &config.gs_config);
+        let score_settings = PeerScoreSettings::new(ctx.chain_spec, &config.gs_config);
 
         // Prepare scoring parameters
         let params = score_settings.get_peer_score_params(
@@ -267,6 +272,7 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
 
         let peer_manager_cfg = PeerManagerCfg {
             discovery_enabled: !config.disable_discovery,
+            metrics_enabled: config.metrics_enabled,
             target_peer_count: config.target_peers,
             ..Default::default()
         };
@@ -274,7 +280,7 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
         Ok(Behaviour {
             // Sub-behaviours
             gossipsub,
-            eth2_rpc: RPC::new(fork_context.clone(), log.clone()),
+            eth2_rpc: RPC::new(ctx.fork_context.clone(), log.clone()),
             discovery,
             identify: Identify::new(identify_config),
             // Auxiliary fields
@@ -287,7 +293,7 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
             network_dir: config.network_dir.clone(),
             log: behaviour_log,
             score_settings,
-            fork_context,
+            fork_context: ctx.fork_context,
             update_gossipsub_scores,
         })
     }
@@ -393,14 +399,15 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
             .remove(&topic);
 
         // unsubscribe from the topic
-        let topic: Topic = topic.into();
+        let libp2p_topic: Topic = topic.clone().into();
 
-        match self.gossipsub.unsubscribe(&topic) {
+        match self.gossipsub.unsubscribe(&libp2p_topic) {
             Err(_) => {
-                warn!(self.log, "Failed to unsubscribe from topic"; "topic" => %topic);
+                warn!(self.log, "Failed to unsubscribe from topic"; "topic" => %libp2p_topic);
                 false
             }
             Ok(v) => {
+                // Inform the network
                 debug!(self.log, "Unsubscribed to topic"; "topic" => %topic);
                 v
             }
@@ -732,6 +739,18 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
 
     /// Convenience function to propagate a request.
     fn propagate_request(&mut self, id: PeerRequestId, peer_id: PeerId, request: Request) {
+        // Increment metrics
+        match &request {
+            Request::Status(_) => {
+                metrics::inc_counter_vec(&metrics::TOTAL_RPC_REQUESTS, &["status"])
+            }
+            Request::BlocksByRange { .. } => {
+                metrics::inc_counter_vec(&metrics::TOTAL_RPC_REQUESTS, &["blocks_by_range"])
+            }
+            Request::BlocksByRoot { .. } => {
+                metrics::inc_counter_vec(&metrics::TOTAL_RPC_REQUESTS, &["blocks_by_root"])
+            }
+        }
         self.add_event(BehaviourEvent::RequestReceived {
             peer_id,
             id,

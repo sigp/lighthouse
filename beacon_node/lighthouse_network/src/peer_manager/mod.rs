@@ -8,13 +8,14 @@ use crate::{Subnet, SubnetDiscovery};
 use discv5::Enr;
 use hashset_delay::HashSetDelay;
 use libp2p::identify::IdentifyInfo;
-use peerdb::{BanOperation, BanResult, ScoreUpdateResult};
+use peerdb::{client::ClientKind, BanOperation, BanResult, ScoreUpdateResult};
 use slog::{debug, error, warn};
 use smallvec::SmallVec;
 use std::{
     sync::Arc,
     time::{Duration, Instant},
 };
+use strum::IntoEnumIterator;
 use types::{EthSpec, SyncSubnetId};
 
 pub use libp2p::core::{identity::Keypair, Multiaddr};
@@ -71,6 +72,8 @@ pub struct PeerManager<TSpec: EthSpec> {
     heartbeat: tokio::time::Interval,
     /// Keeps track of whether the discovery service is enabled or not.
     discovery_enabled: bool,
+    /// Keeps track if the current instance is reporting metrics or not.
+    metrics_enabled: bool,
     /// The logger associated with the `PeerManager`.
     log: slog::Logger,
 }
@@ -111,6 +114,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
     ) -> error::Result<Self> {
         let config::Config {
             discovery_enabled,
+            metrics_enabled,
             target_peer_count,
             status_interval,
             ping_interval_inbound,
@@ -130,6 +134,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
             sync_committee_subnets: Default::default(),
             heartbeat,
             discovery_enabled,
+            metrics_enabled,
             log: log.clone(),
         })
     }
@@ -378,19 +383,21 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
                     "protocols" => ?info.protocols
                 );
 
-                // update the peer client kind metric
-                if let Some(v) = metrics::get_int_gauge(
-                    &metrics::PEERS_PER_CLIENT,
-                    &[&peer_info.client().kind.to_string()],
+                // update the peer client kind metric if the peer is connected
+                if matches!(
+                    peer_info.connection_status(),
+                    PeerConnectionStatus::Connected { .. }
+                        | PeerConnectionStatus::Disconnecting { .. }
                 ) {
-                    v.inc()
-                };
-                if let Some(v) = metrics::get_int_gauge(
-                    &metrics::PEERS_PER_CLIENT,
-                    &[&previous_kind.to_string()],
-                ) {
-                    v.dec()
-                };
+                    metrics::inc_gauge_vec(
+                        &metrics::PEERS_PER_CLIENT,
+                        &[&peer_info.client().kind.to_string()],
+                    );
+                    metrics::dec_gauge_vec(
+                        &metrics::PEERS_PER_CLIENT,
+                        &[&previous_kind.to_string()],
+                    );
+                }
             }
         } else {
             error!(self.log, "Received an Identify response from an unknown peer"; "peer_id" => peer_id.to_string());
@@ -606,6 +613,46 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
         }
     }
 
+    // This function updates metrics for all connected peers.
+    fn update_connected_peer_metrics(&self) {
+        // Do nothing if we don't have metrics enabled.
+        if !self.metrics_enabled {
+            return;
+        }
+
+        let mut connected_peer_count = 0;
+        let mut inbound_connected_peers = 0;
+        let mut outbound_connected_peers = 0;
+        let mut clients_per_peer = HashMap::new();
+
+        for (_peer, peer_info) in self.network_globals.peers.read().connected_peers() {
+            connected_peer_count += 1;
+            if let PeerConnectionStatus::Connected { n_in, .. } = peer_info.connection_status() {
+                if *n_in > 0 {
+                    inbound_connected_peers += 1;
+                } else {
+                    outbound_connected_peers += 1;
+                }
+            }
+            *clients_per_peer
+                .entry(peer_info.client().kind.to_string())
+                .or_default() += 1;
+        }
+
+        metrics::set_gauge(&metrics::PEERS_CONNECTED, connected_peer_count);
+        metrics::set_gauge(&metrics::NETWORK_INBOUND_PEERS, inbound_connected_peers);
+        metrics::set_gauge(&metrics::NETWORK_OUTBOUND_PEERS, outbound_connected_peers);
+
+        for client_kind in ClientKind::iter() {
+            let value = clients_per_peer.get(&client_kind.to_string()).unwrap_or(&0);
+            metrics::set_gauge_vec(
+                &metrics::PEERS_PER_CLIENT,
+                &[&client_kind.to_string()],
+                *value as i64,
+            );
+        }
+    }
+
     /* Internal functions */
 
     /// Sets a peer as connected as long as their reputation allows it
@@ -705,22 +752,6 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
         // increment prometheus metrics
         metrics::inc_counter(&metrics::PEER_CONNECT_EVENT_COUNT);
         metrics::set_gauge(&metrics::PEERS_CONNECTED, connected_peers);
-        metrics::set_gauge(&metrics::PEERS_CONNECTED_INTEROP, connected_peers);
-
-        // Increment the PEERS_PER_CLIENT metric
-        if let Some(kind) = self
-            .network_globals
-            .peers
-            .read()
-            .peer_info(peer_id)
-            .map(|peer_info| peer_info.client().kind.clone())
-        {
-            if let Some(v) =
-                metrics::get_int_gauge(&metrics::PEERS_PER_CLIENT, &[&kind.to_string()])
-            {
-                v.inc()
-            };
-        }
 
         true
     }
@@ -802,6 +833,9 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
             self.handle_score_action(&peer_id, action, None);
         }
 
+        // Update peer score metrics;
+        self.update_peer_score_metrics();
+
         // Maintain minimum count for sync committee peers.
         self.maintain_sync_committee_peers();
 
@@ -838,6 +872,75 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
 
         for peer_id in disconnecting_peers {
             self.disconnect_peer(peer_id, GoodbyeReason::TooManyPeers);
+        }
+    }
+
+    // Update metrics related to peer scoring.
+    fn update_peer_score_metrics(&self) {
+        if !self.metrics_enabled {
+            return;
+        }
+        // reset the gauges
+        let _ = metrics::PEER_SCORE_DISTRIBUTION
+            .as_ref()
+            .map(|gauge| gauge.reset());
+        let _ = metrics::PEER_SCORE_PER_CLIENT
+            .as_ref()
+            .map(|gauge| gauge.reset());
+
+        let mut avg_score_per_client: HashMap<String, (f64, usize)> = HashMap::with_capacity(5);
+        {
+            let peers_db_read_lock = self.network_globals.peers.read();
+            let connected_peers = peers_db_read_lock.best_peers_by_status(PeerInfo::is_connected);
+            let total_peers = connected_peers.len();
+            for (id, (_peer, peer_info)) in connected_peers.into_iter().enumerate() {
+                // First quartile
+                if id == 0 {
+                    metrics::set_gauge_vec(
+                        &metrics::PEER_SCORE_DISTRIBUTION,
+                        &["1st"],
+                        peer_info.score().score() as i64,
+                    );
+                } else if id == (total_peers * 3 / 4).saturating_sub(1) {
+                    metrics::set_gauge_vec(
+                        &metrics::PEER_SCORE_DISTRIBUTION,
+                        &["3/4"],
+                        peer_info.score().score() as i64,
+                    );
+                } else if id == (total_peers / 2).saturating_sub(1) {
+                    metrics::set_gauge_vec(
+                        &metrics::PEER_SCORE_DISTRIBUTION,
+                        &["1/2"],
+                        peer_info.score().score() as i64,
+                    );
+                } else if id == (total_peers / 4).saturating_sub(1) {
+                    metrics::set_gauge_vec(
+                        &metrics::PEER_SCORE_DISTRIBUTION,
+                        &["1/4"],
+                        peer_info.score().score() as i64,
+                    );
+                } else if id == total_peers.saturating_sub(1) {
+                    metrics::set_gauge_vec(
+                        &metrics::PEER_SCORE_DISTRIBUTION,
+                        &["last"],
+                        peer_info.score().score() as i64,
+                    );
+                }
+
+                let mut score_peers: &mut (f64, usize) = avg_score_per_client
+                    .entry(peer_info.client().kind.to_string())
+                    .or_default();
+                score_peers.0 += peer_info.score().score();
+                score_peers.1 += 1;
+            }
+        } // read lock ended
+
+        for (client, (score, peers)) in avg_score_per_client {
+            metrics::set_float_gauge_vec(
+                &metrics::PEER_SCORE_PER_CLIENT,
+                &[&client.to_string()],
+                score / (peers as f64),
+            );
         }
     }
 }

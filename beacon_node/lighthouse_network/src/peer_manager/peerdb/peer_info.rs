@@ -19,8 +19,6 @@ use PeerConnectionStatus::*;
 #[derive(Clone, Debug, Serialize)]
 #[serde(bound = "T: EthSpec")]
 pub struct PeerInfo<T: EthSpec> {
-    /// The connection status of the peer
-    _status: PeerStatus,
     /// The peers reputation
     score: Score,
     /// Client managing this peer
@@ -57,7 +55,6 @@ pub struct PeerInfo<T: EthSpec> {
 impl<TSpec: EthSpec> Default for PeerInfo<TSpec> {
     fn default() -> PeerInfo<TSpec> {
         PeerInfo {
-            _status: Default::default(),
             score: Score::default(),
             client: Client::default(),
             connection_status: Default::default(),
@@ -384,21 +381,6 @@ impl<T: EthSpec> PeerInfo<T> {
     #[cfg(test)]
     pub fn set_gossipsub_score(&mut self, score: f64) {
         self.score.set_gossipsub_score(score);
-    }
-}
-
-#[derive(Clone, Debug, Serialize)]
-/// The current health status of the peer.
-pub enum PeerStatus {
-    /// The peer is healthy.
-    Healthy,
-    /// The peer is clogged. It has not been responding to requests on time.
-    _Clogged,
-}
-
-impl Default for PeerStatus {
-    fn default() -> Self {
-        PeerStatus::Healthy
     }
 }
 

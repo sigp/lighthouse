@@ -4,6 +4,7 @@
 mod metrics;
 
 use beacon_chain::{BeaconChain, BeaconChainTypes};
+use lighthouse_network::open_metrics_client::registry::Registry;
 use lighthouse_version::version_with_platform;
 use serde::{Deserialize, Serialize};
 use slog::{crit, info, Logger};
@@ -39,6 +40,7 @@ pub struct Context<T: BeaconChainTypes> {
     pub chain: Option<Arc<BeaconChain<T>>>,
     pub db_path: Option<PathBuf>,
     pub freezer_db_path: Option<PathBuf>,
+    pub gossipsub_registry: Option<std::sync::Mutex<Registry>>,
     pub log: Logger,
 }
 

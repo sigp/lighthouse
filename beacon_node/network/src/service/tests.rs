@@ -67,9 +67,10 @@ mod tests {
             // Create a new network service which implicitly gets dropped at the
             // end of the block.
 
-            let _network_service = NetworkService::start(beacon_chain.clone(), &config, executor)
-                .await
-                .unwrap();
+            let _network_service =
+                NetworkService::start(beacon_chain.clone(), &config, executor, None)
+                    .await
+                    .unwrap();
             drop(signal);
         });
 

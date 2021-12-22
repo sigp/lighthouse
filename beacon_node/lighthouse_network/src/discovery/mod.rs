@@ -1039,6 +1039,7 @@ impl<TSpec: EthSpec> NetworkBehaviour for Discovery<TSpec> {
                         Discv5Event::SocketUpdated(socket) => {
                             info!(self.log, "Address updated"; "ip" => %socket.ip(), "udp_port" => %socket.port());
                             metrics::inc_counter(&metrics::ADDRESS_UPDATE_COUNT);
+                            metrics::check_nat();
                             // Discv5 will have updated our local ENR. We save the updated version
                             // to disk.
                             let enr = self.discv5.local_enr();
@@ -1096,7 +1097,7 @@ mod tests {
             ..Default::default()
         };
         let enr_key: CombinedKey = CombinedKey::from_libp2p(&keypair).unwrap();
-        let enr: Enr = build_enr::<E>(&enr_key, &config, EnrForkId::default()).unwrap();
+        let enr: Enr = build_enr::<E>(&enr_key, &config, &EnrForkId::default()).unwrap();
         let log = build_log(slog::Level::Debug, false);
         let globals = NetworkGlobals::new(
             enr,

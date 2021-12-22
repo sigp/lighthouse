@@ -20,6 +20,7 @@ use libp2p::{
     swarm::{SwarmBuilder, SwarmEvent},
     PeerId, Swarm, Transport,
 };
+use open_metrics_client::registry::Registry;
 use slog::{crit, debug, info, o, trace, warn, Logger};
 use ssz::Decode;
 use std::fs::File;
@@ -62,27 +63,34 @@ pub struct Service<TSpec: EthSpec> {
     pub log: Logger,
 }
 
+pub struct Context<'a> {
+    pub config: &'a NetworkConfig,
+    pub enr_fork_id: EnrForkId,
+    pub fork_context: Arc<ForkContext>,
+    pub chain_spec: &'a ChainSpec,
+    pub gossipsub_registry: Option<&'a mut Registry>,
+}
+
 impl<TSpec: EthSpec> Service<TSpec> {
     pub async fn new(
         executor: task_executor::TaskExecutor,
-        config: &NetworkConfig,
-        enr_fork_id: EnrForkId,
+        ctx: Context<'_>,
         log: &Logger,
-        fork_context: Arc<ForkContext>,
-        chain_spec: &ChainSpec,
     ) -> error::Result<(Arc<NetworkGlobals<TSpec>>, Self)> {
         let log = log.new(o!("service"=> "libp2p"));
         trace!(log, "Libp2p Service starting");
 
+        let config = ctx.config;
         // initialise the node's ID
         let local_keypair = load_private_key(config, &log);
 
         // Create an ENR or load from disk if appropriate
         let enr =
-            enr::build_or_load_enr::<TSpec>(local_keypair.clone(), config, enr_fork_id, &log)?;
+            enr::build_or_load_enr::<TSpec>(local_keypair.clone(), config, &ctx.enr_fork_id, &log)?;
 
         let local_peer_id = enr.peer_id();
 
+        // Construct the metadata
         let meta_data = load_or_build_metadata(&config.network_dir, &log);
 
         // set up a collection of variables accessible outside of the network crate
@@ -113,15 +121,8 @@ impl<TSpec: EthSpec> Service<TSpec> {
                 .map_err(|e| format!("Failed to build transport: {:?}", e))?;
 
             // Lighthouse network behaviour
-            let behaviour = Behaviour::new(
-                &local_keypair,
-                config.clone(),
-                network_globals.clone(),
-                &log,
-                fork_context,
-                chain_spec,
-            )
-            .await?;
+            let behaviour =
+                Behaviour::new(&local_keypair, ctx, network_globals.clone(), &log).await?;
 
             // use the executor for libp2p
             struct Executor(task_executor::TaskExecutor);

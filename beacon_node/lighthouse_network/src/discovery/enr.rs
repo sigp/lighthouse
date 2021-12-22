@@ -127,7 +127,7 @@ pub fn use_or_load_enr(
 pub fn build_or_load_enr<T: EthSpec>(
     local_key: Keypair,
     config: &NetworkConfig,
-    enr_fork_id: EnrForkId,
+    enr_fork_id: &EnrForkId,
     log: &slog::Logger,
 ) -> Result<Enr, String> {
     // Build the local ENR.
@@ -163,7 +163,7 @@ pub fn create_enr_builder_from_config<T: EnrKey>(
 pub fn build_enr<T: EthSpec>(
     enr_key: &CombinedKey,
     config: &NetworkConfig,
-    enr_fork_id: EnrForkId,
+    enr_fork_id: &EnrForkId,
 ) -> Result<Enr, String> {
     let mut builder = create_enr_builder_from_config(config, true);
 

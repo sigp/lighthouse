@@ -23,7 +23,7 @@ bytes = "1.1.0"
 task_executor = { path = "../../common/task_executor" }
 hex = "0.4.2"
 eth2_ssz_types = "0.2.2"
-lru = "0.6.0"
+lru = "0.7.1"
 exit-future = "0.2.0"
 tree_hash = "0.4.1"
 tree_hash_derive = { path = "../../consensus/tree_hash_derive"}

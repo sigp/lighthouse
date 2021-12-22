@@ -128,19 +128,18 @@ pub async fn build_libp2p_instance(
     let (signal, exit) = exit_future::signal();
     let (shutdown_tx, _) = futures::channel::mpsc::channel(1);
     let executor = task_executor::TaskExecutor::new(rt, exit, log.clone(), shutdown_tx);
-    let fork_context = Arc::new(fork_context());
+    let libp2p_context = lighthouse_network::Context {
+        config: &config,
+        enr_fork_id: EnrForkId::default(),
+        fork_context: Arc::new(fork_context()),
+        chain_spec: &ChainSpec::minimal(),
+        gossipsub_registry: None,
+    };
     Libp2pInstance(
-        LibP2PService::new(
-            executor,
-            &config,
-            EnrForkId::default(),
-            &log,
-            fork_context,
-            &ChainSpec::minimal(),
-        )
-        .await
-        .expect("should build libp2p instance")
-        .1,
+        LibP2PService::new(executor, libp2p_context, &log)
+            .await
+            .expect("should build libp2p instance")
+            .1,
         signal,
     )
 }
