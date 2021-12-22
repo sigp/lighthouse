@@ -3162,9 +3162,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             return Ok(());
         }
 
-        // Clear the early attester cache so it can't conflict with `self.canonical_head`.
-        self.early_attester_cache.write().clear();
-
         let lag_timer = metrics::start_timer(&metrics::FORK_CHOICE_SET_HEAD_LAG_TIMES);
 
         // At this point we know that the new head block is not the same as the previous one
@@ -3304,6 +3301,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let is_merge_transition_complete = is_merge_transition_complete(&new_head.beacon_state);
 
         drop(lag_timer);
+
+        // Clear the early attester cache so it can't conflict with `self.canonical_head`.
+        self.early_attester_cache.write().clear();
 
         // Update the snapshot that stores the head of the chain at the time it received the
         // block.
