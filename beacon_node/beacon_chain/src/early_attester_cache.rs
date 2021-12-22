@@ -110,6 +110,8 @@ impl<E: EthSpec> EarlyAttesterCache<E> {
             .get_committee_length::<E>(request_slot, request_index, spec)
             .ok()?;
 
+        metrics::inc_counter(&metrics::BEACON_EARLY_ATTESTER_CACHE_HITS);
+
         Some(Attestation {
             aggregation_bits: BitList::with_capacity(committee_len).ok()?,
             data: AttestationData {
