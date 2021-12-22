@@ -65,7 +65,7 @@ pub fn execute_payload<T: BeaconChainTypes>(
             }
             ExecutePayloadResponseStatus::Syncing => Ok(PayloadVerificationStatus::NotVerified),
         },
-        Err(_) => Ok(PayloadVerificationStatus::NotVerified),
+        Err(_) => Err(ExecutionPayloadError::RejectedByExecutionEngine.into()),
     }
 }
 
