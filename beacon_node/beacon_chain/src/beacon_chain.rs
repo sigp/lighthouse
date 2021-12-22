@@ -108,6 +108,9 @@ pub const OP_POOL_DB_KEY: Hash256 = Hash256::zero();
 pub const ETH1_CACHE_DB_KEY: Hash256 = Hash256::zero();
 pub const FORK_CHOICE_DB_KEY: Hash256 = Hash256::zero();
 
+/// Defines how old a block can be before it's a candidate for the early attester cache.
+const EARLY_ATTESTER_CACHE_HISTORIC_SLOTS: u64 = 4;
+
 /// Defines the behaviour when a block/block-root for a skipped slot is requested.
 pub enum WhenSlotSkipped {
     /// If the slot is a skip slot, return `None`.
@@ -2635,24 +2638,37 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             }
         }
 
-        let new_head_root = fork_choice
-            .get_head(self.slot()?, &self.spec)
-            .map_err(BeaconChainError::from)?;
+        // If the block is recent enough, check to see if it becomes the head block. If so, apply it
+        // to the early attester cache. This will allow attestations to the block without waiting
+        // for the block and state to be inserted to the database.
+        //
+        // Only performing this check on recent blocks avoids slowing down sync with lots of calls
+        // to fork choice `get_head`.
+        if block.slot() + EARLY_ATTESTER_CACHE_HISTORIC_SLOTS >= current_slot {
+            let new_head_root = fork_choice
+                .get_head(current_slot, &self.spec)
+                .map_err(BeaconChainError::from)?;
 
-        if new_head_root == block_root {
-            if let Some(proto_block) = fork_choice.get_block(&block_root) {
-                if let Err(e) = self.early_attester_cache.write().add_head_block(
-                    block_root,
-                    signed_block.clone(),
-                    proto_block,
-                    &state,
-                    &self.spec,
-                ) {
-                    warn!(
-                        self.log,
-                        "Early attester cache insert failed";
-                        "error" => ?e
-                    );
+            if new_head_root == block_root {
+                if let Some(proto_block) = fork_choice.get_block(&block_root) {
+                    // IMPORTANT WARNING ABOUT DEADLOCKS:
+                    //
+                    // Here were are taking a write-lock on the early attester cache whilst holding
+                    // a write-lock on fork choice. This means that any other component in the
+                    // application that takes locks in reverse order will DEADLOCK!
+                    if let Err(e) = self.early_attester_cache.write().add_head_block(
+                        block_root,
+                        signed_block.clone(),
+                        proto_block,
+                        &state,
+                        &self.spec,
+                    ) {
+                        warn!(
+                            self.log,
+                            "Early attester cache insert failed";
+                            "error" => ?e
+                        );
+                    }
                 }
             }
         }
