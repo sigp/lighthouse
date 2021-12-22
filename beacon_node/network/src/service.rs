@@ -640,7 +640,6 @@ fn spawn_service<T: BeaconChainTypes>(
                                 message,
                                 ..
                             } => {
-                                // Update prometheus metrics.
                                 match message {
                                     // attestation information gets processed in the attestation service
                                     PubsubMessage::Attestation(ref subnet_and_attestation) => {
