@@ -45,8 +45,8 @@ use types::*;
 use types::{
     Attestation, AttesterSlashing, BeaconStateError, CommitteeCache, ConfigAndPreset, Epoch,
     EthSpec, ForkName, ProposerSlashing, RelativeEpoch, SignedAggregateAndProof, SignedBeaconBlock,
-    SignedBlindedBeaconBlock, SignedContributionAndProof, SignedVoluntaryExit, Slot,
-    SyncCommitteeMessage, SyncContributionData,
+    SignedContributionAndProof, SignedVoluntaryExit, Slot, SyncCommitteeMessage,
+    SyncContributionData,
 };
 use version::{
     add_consensus_version_header, fork_versioned_response, inconsistent_fork_rejection,
@@ -1030,10 +1030,10 @@ pub fn serve<T: BeaconChainTypes>(
             |block: SignedBeaconBlock<T::EthSpec, BlindedTransactions>,
              chain: Arc<BeaconChain<T>>,
              network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>,
-             log: Logger| {
+             _log: Logger| {
                 blocking_json_task(move || {
                     if let Some(el) = chain.execution_layer.as_ref() {
-                        let mut block_clone = block.clone();
+                        let block_clone = block.clone();
                         let payload = el
                             .block_on(|el| el.propose_blinded_beacon_block(block.clone()))
                             .map_err(|e| {
@@ -1097,7 +1097,7 @@ pub fn serve<T: BeaconChainTypes>(
                         )?;
 
                         match chain.process_block(new_block.clone()) {
-                            Ok(root) => {
+                            Ok(_) => {
                                 // Update the head since it's likely this block will become the new
                                 // head.
                                 chain

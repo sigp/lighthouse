@@ -10,7 +10,6 @@ use reqwest::Client;
 use std::path::PathBuf;
 use std::sync::Arc;
 use task_executor::TaskExecutor;
-use types::blinded_beacon_block::BlindedBeaconBlock;
 use types::*;
 use url::Url;
 use web3signer::{ForkInfo, SigningRequest, SigningResponse};

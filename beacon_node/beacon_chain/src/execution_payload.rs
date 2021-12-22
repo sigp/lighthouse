@@ -15,7 +15,7 @@ use execution_layer::ExecutePayloadResponseStatus;
 use fork_choice::PayloadVerificationStatus;
 use proto_array::{Block as ProtoBlock, ExecutionStatus};
 use serde::de::DeserializeOwned;
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use slog::debug;
 use slot_clock::SlotClock;
 use state_processing::per_block_processing::{

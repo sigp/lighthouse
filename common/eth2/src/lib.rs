@@ -15,7 +15,6 @@ pub mod types;
 
 use self::mixin::{RequestAccept, ResponseForkName, ResponseOptional};
 use self::types::{Error as ResponseError, *};
-use crate::types::blinded_beacon_block::BlindedBeaconBlock;
 use ::types::map_fork_name_with;
 use futures::Stream;
 use futures_util::StreamExt;
@@ -29,7 +28,6 @@ use std::convert::TryFrom;
 use std::fmt;
 use std::iter::Iterator;
 use std::time::Duration;
-use store::signed_blinded_beacon_block::SignedBlindedBeaconBlock;
 
 pub const V1: EndpointVersion = EndpointVersion(1);
 pub const V2: EndpointVersion = EndpointVersion(2);

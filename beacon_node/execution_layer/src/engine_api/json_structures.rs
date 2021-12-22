@@ -529,14 +529,10 @@ pub mod serde_logs_bloom {
 /// Serializes the `transactions` field of an `ExecutionPayload`.
 pub mod serde_transactions {
     use super::*;
-    use eth2_serde_utils::hex;
-    use serde::de::{EnumAccess, MapAccess};
-    use serde::ser::SerializeSeq;
     use serde::{de, Deserializer, Serializer};
     use std::marker::PhantomData;
-    use std::str::FromStr;
     use types::execution_payload::BlockType;
-    use types::{BlindedTransactions, Transactions};
+    use types::Transactions;
 
     // type Value<M, N> = VariableList<Transaction<M>, N>;
     type Value<Txns> = Txns;
@@ -557,7 +553,7 @@ pub mod serde_transactions {
             }
         }
 
-        fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
+        fn visit_seq<A>(self, seq: A) -> Result<Self::Value, A::Error>
         where
             A: serde::de::SeqAccess<'a>,
         {

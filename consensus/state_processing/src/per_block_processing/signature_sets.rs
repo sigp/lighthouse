@@ -7,12 +7,12 @@ use ssz::DecodeError;
 use std::borrow::Cow;
 use tree_hash::TreeHash;
 use types::{
-    AggregateSignature, AttesterSlashing, BeaconBlockRef, BeaconState, BeaconStateError,
-    BlindedBeaconBlockRef, ChainSpec, DepositData, Domain, Epoch, EthSpec, Fork, Hash256,
-    InconsistentFork, IndexedAttestation, ProposerSlashing, PublicKey, PublicKeyBytes, Signature,
-    SignedAggregateAndProof, SignedBeaconBlock, SignedBeaconBlockHeader,
-    SignedContributionAndProof, SignedRoot, SignedVoluntaryExit, SigningData, Slot, SyncAggregate,
-    SyncAggregatorSelectionData, Transactions, Unsigned,
+    AggregateSignature, AttesterSlashing, BeaconBlockRef, BeaconState, BeaconStateError, ChainSpec,
+    DepositData, Domain, Epoch, EthSpec, Fork, Hash256, InconsistentFork, IndexedAttestation,
+    ProposerSlashing, PublicKey, PublicKeyBytes, Signature, SignedAggregateAndProof,
+    SignedBeaconBlock, SignedBeaconBlockHeader, SignedContributionAndProof, SignedRoot,
+    SignedVoluntaryExit, SigningData, Slot, SyncAggregate, SyncAggregatorSelectionData,
+    Transactions, Unsigned,
 };
 
 pub type Result<T> = std::result::Result<T, Error>;

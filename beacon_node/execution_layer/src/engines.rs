@@ -143,7 +143,6 @@ pub struct Engines<T> {
 
 #[derive(Copy, Clone)]
 pub enum IncludeEngines {
-    All,
     OnlyBuilder,
     OnlyEngines,
 }
@@ -324,7 +323,6 @@ impl<T: EngineApi> Engines<T> {
 
         for engine in &self.engines {
             match include_engines {
-                IncludeEngines::All => {}
                 IncludeEngines::OnlyEngines => {
                     if engine.is_payload_builder {
                         continue;
@@ -412,7 +410,6 @@ impl<T: EngineApi> Engines<T> {
             .engines
             .iter()
             .filter(|engine| match include_engines {
-                IncludeEngines::All => true,
                 IncludeEngines::OnlyEngines => !engine.is_payload_builder,
                 IncludeEngines::OnlyBuilder => engine.is_payload_builder,
             })

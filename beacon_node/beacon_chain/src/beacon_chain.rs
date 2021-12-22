@@ -347,7 +347,6 @@ pub struct BeaconChain<T: BeaconChainTypes> {
 }
 
 type BeaconBlockAndState<T, Txns> = (BeaconBlock<T, Txns>, BeaconState<T>);
-type BlindedBeaconBlockAndState<T> = (BlindedBeaconBlock<T>, BeaconState<T>);
 
 impl<T: BeaconChainTypes> BeaconChain<T> {
     /// Persists the head tracker and fork choice.

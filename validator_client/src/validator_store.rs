@@ -5,7 +5,7 @@ use crate::{
     signing_method::{Error as SigningError, SignableMessage, SigningContext, SigningMethod},
 };
 use account_utils::{validator_definitions::ValidatorDefinition, ZeroizeString};
-use eth2::types::{SignedBlindedBeaconBlock, Transactions};
+use eth2::types::Transactions;
 use parking_lot::{Mutex, RwLock};
 use slashing_protection::{NotSafe, Safe, SlashingDatabase};
 use slog::{crit, error, info, warn, Logger};
@@ -15,7 +15,6 @@ use std::marker::PhantomData;
 use std::path::Path;
 use std::sync::Arc;
 use task_executor::TaskExecutor;
-use types::blinded_beacon_block::BlindedBeaconBlock;
 use types::{
     attestation::Error as AttestationError, graffiti::GraffitiString, AggregateAndProof,
     Attestation, BeaconBlock, BlindedTransactions, ChainSpec, ContributionAndProof, Domain, Epoch,

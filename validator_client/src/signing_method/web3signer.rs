@@ -2,7 +2,6 @@
 
 use super::Error;
 use serde::{Deserialize, Serialize};
-use types::blinded_beacon_block::BlindedBeaconBlock;
 use types::*;
 
 #[derive(Debug, PartialEq, Copy, Clone, Serialize)]
@@ -12,7 +11,6 @@ pub enum MessageType {
     AggregateAndProof,
     Attestation,
     BlockV2,
-    PrivateBlockV2,
     Deposit,
     RandaoReveal,
     VoluntaryExit,

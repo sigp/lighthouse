@@ -108,7 +108,6 @@ pub use crate::beacon_committee::{BeaconCommittee, OwnedBeaconCommittee};
 pub use crate::beacon_state::{BeaconTreeHashCache, Error as BeaconStateError, *};
 pub use crate::blinded_beacon_block::{
     BlindedBeaconBlock, BlindedBeaconBlockAltair, BlindedBeaconBlockBase, BlindedBeaconBlockMerge,
-    BlindedBeaconBlockRef, BlindedBeaconBlockRefMut,
 };
 pub use crate::blinded_beacon_block_body::{
     BlindedBeaconBlockBody, BlindedBeaconBlockBodyAltair, BlindedBeaconBlockBodyBase,

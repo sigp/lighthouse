@@ -1,4 +1,5 @@
 use crate::{test_utils::TestRandom, *};
+use eth2_serde_utils::hex;
 use serde::de::DeserializeOwned;
 use serde::ser::SerializeSeq;
 use serde::{de, Serialize as Ser, Serializer};
@@ -159,7 +160,10 @@ impl<T: EthSpec> Transactions<T> for ExecTransactions<T> {
     where
         E: de::Error,
     {
-        Ok(ExecTransactions::default())
+        Err(serde::de::Error::custom(format!(
+            "cannot deserialize {} as executable transactions",
+            v
+        )))
     }
 }
 
@@ -181,7 +185,7 @@ impl<T: EthSpec> Transactions<T> for BlindedTransactions {
     {
         let val = seq
             .next_element::<String>()?
-            .ok_or(de::Error::custom("empty transactions root field"))?;
+            .ok_or_else(|| de::Error::custom("empty transactions root field"))?;
         let inner_vec = hex::decode(&val).map_err(de::Error::custom)?;
         Ok(Hash256::from_slice(&inner_vec))
     }
@@ -189,7 +193,7 @@ impl<T: EthSpec> Transactions<T> for BlindedTransactions {
     where
         E: de::Error,
     {
-        Ok(Hash256::from_str(&v).map_err(de::Error::custom)?)
+        Hash256::from_str(&v).map_err(de::Error::custom)
     }
 }
 
