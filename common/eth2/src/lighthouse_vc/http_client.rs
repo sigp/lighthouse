@@ -96,7 +96,7 @@ impl ValidatorClientHttpClient {
             .map_err(|_| Error::InvalidSignatureHeader)?
             .to_string();
 
-        let body = response.bytes().await.map_err(Error::Reqwest)?;
+        let body = response.bytes().await.map_err(Error::Request)?;
 
         let message =
             Message::parse_slice(digest(&SHA256, &body).as_ref()).expect("sha256 is 32 bytes");
@@ -141,7 +141,7 @@ impl ValidatorClientHttpClient {
             .headers(self.headers()?)
             .send()
             .await
-            .map_err(Error::Reqwest)?;
+            .map_err(Error::Request)?;
         let response = ok_or_error(response).await?;
         self.signed_json(response).await
     }
@@ -154,7 +154,7 @@ impl ValidatorClientHttpClient {
             .headers(self.headers()?)
             .send()
             .await
-            .map_err(Error::Reqwest)?;
+            .map_err(Error::Request)?;
         match ok_or_error(response).await {
             Ok(resp) => self.signed_json(resp).await.map(Option::Some),
             Err(err) => {
@@ -180,7 +180,7 @@ impl ValidatorClientHttpClient {
             .json(body)
             .send()
             .await
-            .map_err(Error::Reqwest)?;
+            .map_err(Error::Request)?;
         let response = ok_or_error(response).await?;
         self.signed_json(response).await
     }
@@ -194,7 +194,7 @@ impl ValidatorClientHttpClient {
             .json(body)
             .send()
             .await
-            .map_err(Error::Reqwest)?;
+            .map_err(Error::Request)?;
         let response = ok_or_error(response).await?;
         self.signed_body(response).await?;
         Ok(())

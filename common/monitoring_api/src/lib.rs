@@ -23,7 +23,7 @@ pub const TIMEOUT_DURATION: u64 = 5;
 #[derive(Debug)]
 pub enum Error {
     /// The `reqwest` client raised an error.
-    Reqwest(reqwest::Error),
+    Request(reqwest::Error),
     /// The supplied URL is badly formatted. It should look something like `http://127.0.0.1:5052`.
     InvalidUrl(SensitiveUrl),
     SystemMetricsFailed(String),
@@ -38,7 +38,7 @@ pub enum Error {
 impl std::fmt::Display for Error {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match &self {
-            Error::Reqwest(e) => write!(f, "Reqwest error: {}", e),
+            Error::Request(e) => write!(f, "Request error: {}", e),
             // Print the debug value
             e => write!(f, "{:?}", e),
         }
@@ -89,7 +89,7 @@ impl MonitoringHttpClient {
             .timeout(Duration::from_secs(TIMEOUT_DURATION))
             .send()
             .await
-            .map_err(Error::Reqwest)?;
+            .map_err(Error::Request)?;
         ok_or_error(response).await?;
         Ok(())
     }

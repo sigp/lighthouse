@@ -17,7 +17,7 @@ use account_utils::{
 use eth2_keystore::Keystore;
 use lighthouse_metrics::set_gauge;
 use lockfile::{Lockfile, LockfileError};
-use reqwest::{Certificate, Client, Error as ReqwestError};
+use reqwest::{Certificate, Client, Error as RequestError};
 use slog::{debug, error, info, warn, Logger};
 use std::collections::{HashMap, HashSet};
 use std::fs::File;
@@ -81,8 +81,8 @@ pub enum Error {
     InvalidWeb3SignerUrl(String),
     /// Unable to read the root certificate file for the remote signer.
     InvalidWeb3SignerRootCertificateFile(io::Error),
-    InvalidWeb3SignerRootCertificate(ReqwestError),
-    UnableToBuildWeb3SignerClient(ReqwestError),
+    InvalidWeb3SignerRootCertificate(RequestError),
+    UnableToBuildWeb3SignerClient(RequestError),
 }
 
 impl From<LockfileError> for Error {

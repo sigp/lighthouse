@@ -32,7 +32,7 @@ pub const V2: EndpointVersion = EndpointVersion(2);
 #[derive(Debug)]
 pub enum Error {
     /// The `reqwest` client raised an error.
-    Reqwest(reqwest::Error),
+    Request(reqwest::Error),
     /// The server returned an error message where the body was able to be parsed.
     ServerMessage(ErrorMessage),
     /// The server returned an error message with an array of errors.
@@ -59,7 +59,7 @@ impl Error {
     /// If the error has a HTTP status code, return it.
     pub fn status(&self) -> Option<StatusCode> {
         match self {
-            Error::Reqwest(error) => error.status(),
+            Error::Request(error) => error.status(),
             Error::ServerMessage(msg) => StatusCode::try_from(msg.code).ok(),
             Error::ServerIndexedMessage(msg) => StatusCode::try_from(msg.code).ok(),
             Error::StatusCode(status) => Some(*status),
@@ -161,12 +161,12 @@ impl BeaconNodeHttpClient {
 
     /// Perform a HTTP GET request.
     async fn get<T: DeserializeOwned, U: IntoUrl>(&self, url: U) -> Result<T, Error> {
-        let response = self.client.get(url).send().await.map_err(Error::Reqwest)?;
+        let response = self.client.get(url).send().await.map_err(Error::Request)?;
         ok_or_error(response)
             .await?
             .json()
             .await
-            .map_err(Error::Reqwest)
+            .map_err(Error::Request)
     }
 
     /// Perform a HTTP GET request with a custom timeout.
@@ -181,19 +181,19 @@ impl BeaconNodeHttpClient {
             .timeout(timeout)
             .send()
             .await
-            .map_err(Error::Reqwest)?;
+            .map_err(Error::Request)?;
         ok_or_error(response)
             .await?
             .json()
             .await
-            .map_err(Error::Reqwest)
+            .map_err(Error::Request)
     }
 
     /// Perform a HTTP GET request, returning `None` on a 404 error.
     async fn get_opt<T: DeserializeOwned, U: IntoUrl>(&self, url: U) -> Result<Option<T>, Error> {
-        let response = self.client.get(url).send().await.map_err(Error::Reqwest)?;
+        let response = self.client.get(url).send().await.map_err(Error::Request)?;
         match ok_or_error(response).await {
-            Ok(resp) => resp.json().await.map(Option::Some).map_err(Error::Reqwest),
+            Ok(resp) => resp.json().await.map(Option::Some).map_err(Error::Request),
             Err(err) => {
                 if err.status() == Some(StatusCode::NOT_FOUND) {
                     Ok(None)
@@ -216,9 +216,9 @@ impl BeaconNodeHttpClient {
             .timeout(timeout)
             .send()
             .await
-            .map_err(Error::Reqwest)?;
+            .map_err(Error::Request)?;
         match ok_or_error(response).await {
-            Ok(resp) => resp.json().await.map(Option::Some).map_err(Error::Reqwest),
+            Ok(resp) => resp.json().await.map(Option::Some).map_err(Error::Request),
             Err(err) => {
                 if err.status() == Some(StatusCode::NOT_FOUND) {
                     Ok(None)
@@ -241,12 +241,12 @@ impl BeaconNodeHttpClient {
             .header(ACCEPT, accept_header.to_string())
             .send()
             .await
-            .map_err(Error::Reqwest)?;
+            .map_err(Error::Request)?;
         match ok_or_error(response).await {
             Ok(resp) => Ok(Some(
                 resp.bytes()
                     .await
-                    .map_err(Error::Reqwest)?
+                    .map_err(Error::Request)?
                     .into_iter()
                     .collect::<Vec<_>>(),
             )),
@@ -276,7 +276,7 @@ impl BeaconNodeHttpClient {
             .await?
             .json()
             .await
-            .map_err(Error::Reqwest)
+            .map_err(Error::Request)
     }
 
     /// Perform a HTTP POST request with a custom timeout.
@@ -301,7 +301,7 @@ impl BeaconNodeHttpClient {
             .await?
             .json()
             .await
-            .map_err(Error::Reqwest)
+            .map_err(Error::Request)
     }
 
     /// Generic POST function supporting arbitrary responses and timeouts.
@@ -315,7 +315,7 @@ impl BeaconNodeHttpClient {
         if let Some(timeout) = timeout {
             builder = builder.timeout(timeout);
         }
-        let response = builder.json(body).send().await.map_err(Error::Reqwest)?;
+        let response = builder.json(body).send().await.map_err(Error::Request)?;
         ok_or_error(response).await
     }
 
@@ -971,7 +971,7 @@ impl BeaconNodeHttpClient {
             .get(path)
             .send()
             .await
-            .map_err(Error::Reqwest)?
+            .map_err(Error::Request)?
             .status();
         if status == StatusCode::OK || status == StatusCode::PARTIAL_CONTENT {
             Ok(status)
@@ -1344,11 +1344,11 @@ impl BeaconNodeHttpClient {
             .get(path)
             .send()
             .await
-            .map_err(Error::Reqwest)?
+            .map_err(Error::Request)?
             .bytes_stream()
             .map(|next| match next {
                 Ok(bytes) => EventKind::from_sse_bytes(bytes.as_ref()),
-                Err(e) => Err(Error::Reqwest(e)),
+                Err(e) => Err(Error::Request(e)),
             }))
     }
 

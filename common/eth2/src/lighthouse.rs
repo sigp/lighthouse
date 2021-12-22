@@ -330,12 +330,12 @@ pub struct DatabaseInfo {
 impl BeaconNodeHttpClient {
     /// Perform a HTTP GET request, returning `None` on a 404 error.
     async fn get_bytes_opt<U: IntoUrl>(&self, url: U) -> Result<Option<Vec<u8>>, Error> {
-        let response = self.client.get(url).send().await.map_err(Error::Reqwest)?;
+        let response = self.client.get(url).send().await.map_err(Error::Request)?;
         match ok_or_error(response).await {
             Ok(resp) => Ok(Some(
                 resp.bytes()
                     .await
-                    .map_err(Error::Reqwest)?
+                    .map_err(Error::Request)?
                     .into_iter()
                     .collect::<Vec<_>>(),
             )),
