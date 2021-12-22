@@ -993,9 +993,7 @@ fn verify_head_block_is_known<T: BeaconChainTypes>(
         .or_else(|| {
             chain
                 .early_attester_cache
-                .read()
                 .get_proto_block(attestation.data.beacon_block_root)
-                .cloned()
         });
 
     if let Some(block) = block_opt {
@@ -1251,11 +1249,7 @@ where
     //
     // We do not delay consideration for later, we simply drop the attestation.
     if !chain.fork_choice.read().contains_block(&target.root)
-        && chain
-            .early_attester_cache
-            .read()
-            .get_proto_block(target.root)
-            .is_none()
+        && chain.early_attester_cache.contains_block(target.root)
     {
         return Err(Error::UnknownTargetRoot(target.root));
     }

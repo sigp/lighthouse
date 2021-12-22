@@ -1,4 +1,8 @@
-use crate::attester_cache::{CommitteeLengths, Error};
+use crate::{
+    attester_cache::{CommitteeLengths, Error},
+    metrics,
+};
+use parking_lot::RwLock;
 use proto_array::Block as ProtoBlock;
 use types::*;
 
@@ -29,20 +33,20 @@ pub struct CacheItem<E: EthSpec> {
 /// - Provide a block which can be sent to peers via RPC.
 #[derive(Default)]
 pub struct EarlyAttesterCache<E: EthSpec> {
-    item: Option<CacheItem<E>>,
+    item: RwLock<Option<CacheItem<E>>>,
 }
 
 impl<E: EthSpec> EarlyAttesterCache<E> {
     /// Removes the cached item, meaning that all future calls to `Self::try_attest` will return
     /// `None` until a new cache item is added.
-    pub fn clear(&mut self) {
-        self.item = None
+    pub fn clear(&self) {
+        *self.item.write() = None
     }
 
     /// Updates the cache item, so that `Self::try_attest` with return `Some` when given suitable
     /// parameters.
     pub fn add_head_block(
-        &mut self,
+        &self,
         beacon_block_root: Hash256,
         block: SignedBeaconBlock<E>,
         proto_block: ProtoBlock,
@@ -72,7 +76,7 @@ impl<E: EthSpec> EarlyAttesterCache<E> {
             proto_block,
         };
 
-        self.item = Some(item);
+        *self.item.write() = Some(item);
 
         Ok(())
     }
@@ -88,15 +92,15 @@ impl<E: EthSpec> EarlyAttesterCache<E> {
         request_index: CommitteeIndex,
         spec: &ChainSpec,
     ) -> Option<Attestation<E>> {
-        let item = self.item.as_ref()?;
-        let request_epoch = request_slot.epoch(E::slots_per_epoch());
+        let lock = self.item.read();
+        let item = lock.as_ref()?;
 
+        let request_epoch = request_slot.epoch(E::slots_per_epoch());
         if request_epoch != item.epoch {
             return None;
         }
 
         let committee_count = item.committee_lengths.get_committee_count::<E>(spec).ok()?;
-
         if request_index >= committee_count as u64 {
             return None;
         }
@@ -119,19 +123,29 @@ impl<E: EthSpec> EarlyAttesterCache<E> {
         })
     }
 
-    /// Returns the block, if `block_root` matches the cached item.
-    pub fn get_block(&self, block_root: Hash256) -> Option<&SignedBeaconBlock<E>> {
+    /// Returns `true` if `block_root` matches the cached item.
+    pub fn contains_block(&self, block_root: Hash256) -> bool {
         self.item
+            .read()
+            .as_ref()
+            .map_or(false, |item| item.beacon_block_root == block_root)
+    }
+
+    /// Returns the block, if `block_root` matches the cached item.
+    pub fn get_block(&self, block_root: Hash256) -> Option<SignedBeaconBlock<E>> {
+        self.item
+            .read()
             .as_ref()
             .filter(|item| item.beacon_block_root == block_root)
-            .map(|item| &item.block)
+            .map(|item| item.block.clone())
     }
 
     /// Returns the proto-array block, if `block_root` matches the cached item.
-    pub fn get_proto_block(&self, block_root: Hash256) -> Option<&ProtoBlock> {
+    pub fn get_proto_block(&self, block_root: Hash256) -> Option<ProtoBlock> {
         self.item
+            .read()
             .as_ref()
             .filter(|item| item.beacon_block_root == block_root)
-            .map(|item| &item.proto_block)
+            .map(|item| item.proto_block.clone())
     }
 }

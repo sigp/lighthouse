@@ -333,7 +333,7 @@ pub struct BeaconChain<T: BeaconChainTypes> {
     /// A cache used when producing attestations.
     pub(crate) attester_cache: Arc<AttesterCache>,
     /// A cache used when producing attestations whilst the head block is still being imported.
-    pub early_attester_cache: RwLock<EarlyAttesterCache<T::EthSpec>>,
+    pub early_attester_cache: EarlyAttesterCache<T::EthSpec>,
     /// A cache used to keep track of various block timings.
     pub block_times_cache: Arc<RwLock<BlockTimesCache>>,
     /// A list of any hard-coded forks that have been disabled.
@@ -946,8 +946,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let block_opt = self.store.get_block(block_root)?;
 
         if block_opt.is_none() {
-            if let Some(block) = self.early_attester_cache.read().get_block(*block_root) {
-                return Ok(Some(block.clone()));
+            if let Some(block) = self.early_attester_cache.get_block(*block_root) {
+                return Ok(Some(block));
             }
         }
 
@@ -1452,7 +1452,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         if let Some(attestation) =
             self.early_attester_cache
-                .read()
                 .try_attest(request_slot, request_index, &self.spec)
         {
             return Ok(attestation);
@@ -2651,12 +2650,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
             if new_head_root == block_root {
                 if let Some(proto_block) = fork_choice.get_block(&block_root) {
-                    // IMPORTANT WARNING ABOUT DEADLOCKS:
-                    //
-                    // Here were are taking a write-lock on the early attester cache whilst holding
-                    // a write-lock on fork choice. This means that any other component in the
-                    // application that takes locks in reverse order will DEADLOCK!
-                    if let Err(e) = self.early_attester_cache.write().add_head_block(
+                    if let Err(e) = self.early_attester_cache.add_head_block(
                         block_root,
                         signed_block.clone(),
                         proto_block,
@@ -3320,7 +3314,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         drop(lag_timer);
 
         // Clear the early attester cache so it can't conflict with `self.canonical_head`.
-        self.early_attester_cache.write().clear();
+        self.early_attester_cache.clear();
 
         // Update the snapshot that stores the head of the chain at the time it received the
         // block.
