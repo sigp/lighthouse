@@ -931,10 +931,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
     /// Returns the block at the given root, if any.
     ///
+    /// Will also check the early attester cache for the block.
+    ///
     /// ## Errors
     ///
     /// May return a database error.
-    pub fn get_block(
+    pub fn get_block_checking_early_attester_cache(
         &self,
         block_root: &Hash256,
     ) -> Result<Option<SignedBeaconBlock<T::EthSpec>>, Error> {
@@ -947,6 +949,18 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         }
 
         Ok(block_opt)
+    }
+
+    /// Returns the block at the given root, if any.
+    ///
+    /// ## Errors
+    ///
+    /// May return a database error.
+    pub fn get_block(
+        &self,
+        block_root: &Hash256,
+    ) -> Result<Option<SignedBeaconBlock<T::EthSpec>>, Error> {
+        Ok(self.store.get_block(block_root)?)
     }
 
     /// Returns the state at the given root, if any.
