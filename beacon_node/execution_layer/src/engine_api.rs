@@ -1,20 +1,14 @@
+use crate::engines::ForkChoiceState;
 use async_trait::async_trait;
 use eth1::http::RpcError;
-use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
-
-pub const LATEST_TAG: &str = "latest";
-
-use crate::engine_api::json_structures::JsonProposeBlindedBlockResponse;
-use crate::engines::ForkChoiceState;
 pub use types::{Address, EthSpec, ExecutionPayload, Hash256, Uint256};
-use types::{
-    BlindedTransactions, ExecutionPayloadHeader, SignedBeaconBlock, SignedBlindedBeaconBlock,
-    Transactions,
-};
+use types::{BlindedTransactions, SignedBeaconBlock, Transactions};
 
 pub mod http;
 pub mod json_structures;
+
+pub const LATEST_TAG: &str = "latest";
 
 pub type PayloadId = [u8; 8];
 

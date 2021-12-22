@@ -1,5 +1,4 @@
 use crate::{test_utils::TestRandom, *};
-use regex::internal::Input;
 use serde::de::DeserializeOwned;
 use serde::ser::SerializeSeq;
 use serde::{de, Serialize as Ser, Serializer};

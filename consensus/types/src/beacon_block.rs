@@ -7,7 +7,7 @@ use crate::test_utils::TestRandom;
 use crate::*;
 use bls::Signature;
 use serde_derive::{Deserialize, Serialize};
-use ssz::{Decode, DecodeError, Encode};
+use ssz::{Decode, DecodeError};
 use ssz_derive::{Decode, Encode};
 use std::marker::PhantomData;
 use superstruct::superstruct;

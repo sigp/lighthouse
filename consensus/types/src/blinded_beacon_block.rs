@@ -1,17 +1,9 @@
 use crate::blinded_beacon_block_body::{
     BlindedBeaconBlockBodyAltair, BlindedBeaconBlockBodyBase, BlindedBeaconBlockBodyMerge,
-    BlindedBeaconBlockBodyRef, BlindedBeaconBlockBodyRefMut,
 };
-use crate::test_utils::TestRandom;
 use crate::*;
-use bls::Signature;
 use serde_derive::{Deserialize, Serialize};
-use ssz::{Decode, DecodeError};
-use ssz_derive::{Decode, Encode};
 use superstruct::superstruct;
-use test_random_derive::TestRandom;
-use tree_hash::TreeHash;
-use tree_hash_derive::TreeHash;
 
 /// A block of the `BeaconChain`.
 #[superstruct(
@@ -41,5 +33,3 @@ pub struct BlindedBeaconBlock<T: EthSpec> {
     #[superstruct(only(Merge), partial_getter(rename = "body_merge"))]
     pub body: BlindedBeaconBlockBodyMerge<T>,
 }
-
-

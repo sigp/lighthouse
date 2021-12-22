@@ -1,12 +1,7 @@
-use crate::blinded_beacon_block::BlindedBeaconBlock;
 use crate::*;
 use bls::Signature;
 use serde_derive::{Deserialize, Serialize};
-use ssz_derive::{Decode, Encode};
-use std::fmt;
 use superstruct::superstruct;
-use tree_hash::TreeHash;
-use tree_hash_derive::TreeHash;
 
 /// A `BlindedBeaconBlock` and a signature from its proposer.
 #[superstruct(

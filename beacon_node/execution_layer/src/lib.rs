@@ -4,12 +4,12 @@
 //! This crate only provides useful functionality for "The Merge", it does not provide any of the
 //! deposit-contract functionality that the `beacon_node/eth1` crate already provides.
 
+use crate::engines::IncludeEngines;
+pub use engine_api::{http::HttpJsonRpc, ExecutePayloadResponseStatus};
 use engine_api::{Error as ApiError, *};
 use engines::{Engine, EngineError, Engines, ForkChoiceState, Logging};
 use lru::LruCache;
 use sensitive_url::SensitiveUrl;
-use serde::de::DeserializeOwned;
-use serde::Serialize;
 use slog::{crit, debug, error, info, Logger};
 use slot_clock::SlotClock;
 use std::future::Future;
@@ -20,16 +20,8 @@ use tokio::{
     sync::{Mutex, MutexGuard},
     time::{sleep, sleep_until, Instant},
 };
-use types::{
-    BlindedTransactions, ChainSpec, ExecutionPayloadHeader, SignedBeaconBlock,
-    SignedBlindedBeaconBlock, Transactions,
-};
-
-use crate::engine_api::http::{BUILDER_GET_PAYLOAD_HEADER_V1, ENGINE_GET_PAYLOAD_V1};
-use crate::engine_api::json_structures::JsonProposeBlindedBlockResponse;
-use crate::engines::IncludeEngines;
-pub use engine_api::{http::HttpJsonRpc, ExecutePayloadResponseStatus};
 use types::execution_payload::BlockType;
+use types::{BlindedTransactions, ChainSpec, SignedBeaconBlock, Transactions};
 
 mod engine_api;
 mod engines;

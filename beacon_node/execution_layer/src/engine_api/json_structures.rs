@@ -1,6 +1,6 @@
 use super::*;
 use serde::{Deserialize, Serialize};
-use types::{EthSpec, FixedVector, Transaction, Transactions, Unsigned, VariableList};
+use types::{EthSpec, FixedVector, Transactions, Unsigned, VariableList};
 
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -82,7 +82,7 @@ pub struct JsonExecutionPayloadHeaderV1<T: EthSpec, Txns: Transactions<T>> {
 }
 
 impl<T: EthSpec, Txns: Transactions<T>> From<JsonExecutionPayloadHeaderV1<T, Txns>>
-for ExecutionPayload<T, Txns>
+    for ExecutionPayload<T, Txns>
 {
     fn from(e: JsonExecutionPayloadHeaderV1<T, Txns>) -> Self {
         // Use this verbose deconstruction pattern to ensure no field is left unused.
@@ -147,7 +147,6 @@ pub struct JsonExecutionPayloadV1<T: EthSpec, Txns: Transactions<T>> {
     #[serde(with = "serde_transactions")]
     pub transactions: Txns,
 }
-
 
 impl<T: EthSpec, Txns: Transactions<T>> From<ExecutionPayload<T, Txns>>
     for JsonExecutionPayloadV1<T, Txns>

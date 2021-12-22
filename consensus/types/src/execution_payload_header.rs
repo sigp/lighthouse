@@ -75,4 +75,3 @@ impl<T: EthSpec> From<ExecutionPayload<T, BlindedTransactions>> for ExecutionPay
         }
     }
 }
-
