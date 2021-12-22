@@ -934,7 +934,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
     /// Returns the block at the given root, if any.
     ///
-    /// Will also check the early attester cache for the block.
+    /// Will also check the early attester cache for the block. Because of this, there's no
+    /// guarantee that a block returned from this function has a `BeaconState` available in
+    /// `self.store`. The expected use for this function is *only* for returning blocks requested
+    /// from P2P peers.
     ///
     /// ## Errors
     ///
@@ -943,13 +946,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         &self,
         block_root: &Hash256,
     ) -> Result<Option<SignedBeaconBlock<T::EthSpec>>, Error> {
-        let block_opt = self.store.get_block(block_root)?;
-
-        if block_opt.is_none() {
-            if let Some(block) = self.early_attester_cache.get_block(*block_root) {
-                return Ok(Some(block));
-            }
-        }
+        let block_opt = self
+            .store
+            .get_block(block_root)?
+            .or_else(|| self.early_attester_cache.get_block(*block_root));
 
         Ok(block_opt)
     }
@@ -1450,11 +1450,27 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     ) -> Result<Attestation<T::EthSpec>, Error> {
         let _total_timer = metrics::start_timer(&metrics::ATTESTATION_PRODUCTION_SECONDS);
 
-        if let Some(attestation) =
-            self.early_attester_cache
-                .try_attest(request_slot, request_index, &self.spec)
+        // The early attester cache will return `Some(attestation)` in the scenario where there is a
+        // block being imported that will become the head block, but that block has not yet been
+        // inserted into the database and set as `self.canonical_head`.
+        //
+        // In effect, the early attester cache prevents slow database IO from causing missed
+        // head/target votes.
+        match self
+            .early_attester_cache
+            .try_attest(request_slot, request_index, &self.spec)
         {
-            return Ok(attestation);
+            // The cache matched this request, return the value.
+            Ok(Some(attestation)) => return Ok(attestation),
+            // The cache did not match this request, proceed with the rest of this function.
+            Ok(None) => (),
+            // The cache returned an error. Log the error and proceed with the rest of this
+            // function.
+            Err(e) => warn!(
+                self.log,
+                "Early attester cache failed";
+                "error" => ?e
+            ),
         }
 
         let slots_per_epoch = T::EthSpec::slots_per_epoch();
@@ -3313,7 +3329,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         drop(lag_timer);
 
-        // Clear the early attester cache so it can't conflict with `self.canonical_head`.
+        // Clear the early attester cache in case it conflicts with `self.canonical_head`.
         self.early_attester_cache.clear();
 
         // Update the snapshot that stores the head of the chain at the time it received the

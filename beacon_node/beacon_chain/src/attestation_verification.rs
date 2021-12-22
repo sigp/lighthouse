@@ -1249,7 +1249,7 @@ where
     //
     // We do not delay consideration for later, we simply drop the attestation.
     if !chain.fork_choice.read().contains_block(&target.root)
-        && chain.early_attester_cache.contains_block(target.root)
+        && !chain.early_attester_cache.contains_block(target.root)
     {
         return Err(Error::UnknownTargetRoot(target.root));
     }

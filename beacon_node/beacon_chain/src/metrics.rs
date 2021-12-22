@@ -245,7 +245,7 @@ lazy_static! {
      */
     pub static ref BEACON_EARLY_ATTESTER_CACHE_HITS: Result<IntCounter> = try_create_int_counter(
         "beacon_early_attester_cache_hits",
-        "Count of times the early attester cache prevents a head miss"
+        "Count of times the early attester cache returns an attestation"
     );
 
     /*

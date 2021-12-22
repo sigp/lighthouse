@@ -133,6 +133,7 @@ fn produces_attestations() {
                     .early_attester_cache
                     .try_attest(slot, index, &chain.spec)
                     .unwrap()
+                    .unwrap()
             };
 
             assert_eq!(

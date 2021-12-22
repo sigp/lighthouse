@@ -8,7 +8,7 @@ use types::*;
 
 pub struct CacheItem<E: EthSpec> {
     /*
-     * Attesting details
+     * Values used to create attestations.
      */
     epoch: Epoch,
     committee_lengths: CommitteeLengths,
@@ -16,7 +16,7 @@ pub struct CacheItem<E: EthSpec> {
     source: Checkpoint,
     target: Checkpoint,
     /*
-     * Cached values
+     * Values used to make the block available.
      */
     block: SignedBeaconBlock<E>,
     proto_block: ProtoBlock,
@@ -81,7 +81,7 @@ impl<E: EthSpec> EarlyAttesterCache<E> {
         Ok(())
     }
 
-    /// Will return `Some(attestation)` if:
+    /// Will return `Some(attestation)` if all the following conditions are met:
     ///
     /// - There is a cache `item` present.
     /// - If `request_slot` is in the same epoch as `item.epoch`.
@@ -91,32 +91,33 @@ impl<E: EthSpec> EarlyAttesterCache<E> {
         request_slot: Slot,
         request_index: CommitteeIndex,
         spec: &ChainSpec,
-    ) -> Option<Attestation<E>> {
+    ) -> Result<Option<Attestation<E>>, Error> {
         let lock = self.item.read();
-        let item = lock.as_ref()?;
+        let item = if let Some(item) = lock.as_ref() {
+            item
+        } else {
+            return Ok(None);
+        };
 
         let request_epoch = request_slot.epoch(E::slots_per_epoch());
         if request_epoch != item.epoch {
-            return None;
+            return Ok(None);
         }
 
         let committee_count = item
             .committee_lengths
-            .get_committee_count_per_slot::<E>(spec)
-            .ok()?;
+            .get_committee_count_per_slot::<E>(spec)?;
         if request_index >= committee_count as u64 {
-            return None;
+            return Ok(None);
         }
 
-        let committee_len = item
-            .committee_lengths
-            .get_committee_length::<E>(request_slot, request_index, spec)
-            .ok()?;
+        let committee_len =
+            item.committee_lengths
+                .get_committee_length::<E>(request_slot, request_index, spec)?;
 
-        metrics::inc_counter(&metrics::BEACON_EARLY_ATTESTER_CACHE_HITS);
-
-        Some(Attestation {
-            aggregation_bits: BitList::with_capacity(committee_len).ok()?,
+        let attestation = Attestation {
+            aggregation_bits: BitList::with_capacity(committee_len)
+                .map_err(BeaconStateError::from)?,
             data: AttestationData {
                 slot: request_slot,
                 index: request_index,
@@ -125,7 +126,11 @@ impl<E: EthSpec> EarlyAttesterCache<E> {
                 target: item.target,
             },
             signature: AggregateSignature::empty(),
-        })
+        };
+
+        metrics::inc_counter(&metrics::BEACON_EARLY_ATTESTER_CACHE_HITS);
+
+        Ok(Some(attestation))
     }
 
     /// Returns `true` if `block_root` matches the cached item.
