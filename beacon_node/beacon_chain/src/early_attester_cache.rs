@@ -100,7 +100,10 @@ impl<E: EthSpec> EarlyAttesterCache<E> {
             return None;
         }
 
-        let committee_count = item.committee_lengths.get_committee_count::<E>(spec).ok()?;
+        let committee_count = item
+            .committee_lengths
+            .get_committee_count_per_slot::<E>(spec)
+            .ok()?;
         if request_index >= committee_count as u64 {
             return None;
         }

@@ -101,11 +101,11 @@ impl CommitteeLengths {
         })
     }
 
-    /// Get the length of the committee at the given `slot` and `committee_index`.
-    pub fn get_committee_count<T: EthSpec>(
+    /// Get the count of committees per each slot of `self.epoch`.
+    pub fn get_committee_count_per_slot<T: EthSpec>(
         &self,
         spec: &ChainSpec,
-    ) -> Result<CommitteeLength, Error> {
+    ) -> Result<usize, Error> {
         T::get_committee_count_per_slot(self.active_validator_indices_len, spec).map_err(Into::into)
     }
 
@@ -128,8 +128,7 @@ impl CommitteeLengths {
         }
 
         let slots_per_epoch = slots_per_epoch as usize;
-        let committees_per_slot =
-            T::get_committee_count_per_slot(self.active_validator_indices_len, spec)?;
+        let committees_per_slot = self.get_committee_count_per_slot::<T>(spec)?;
         let index_in_epoch = compute_committee_index_in_epoch(
             slot,
             slots_per_epoch,
