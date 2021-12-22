@@ -12,6 +12,7 @@ use crate::block_verification::{
     IntoFullyVerifiedBlock,
 };
 use crate::chain_config::ChainConfig;
+use crate::early_attester_cache::EarlyAttesterCache;
 use crate::errors::{BeaconChainError as Error, BlockProductionError};
 use crate::eth1_chain::{Eth1Chain, Eth1ChainBackend};
 use crate::events::ServerSentEventHandler;
@@ -328,6 +329,8 @@ pub struct BeaconChain<T: BeaconChainTypes> {
     pub(crate) validator_pubkey_cache: TimeoutRwLock<ValidatorPubkeyCache<T>>,
     /// A cache used when producing attestations.
     pub(crate) attester_cache: Arc<AttesterCache>,
+    /// A cache used when producing attestations whilst the head block is still being imported.
+    pub(crate) early_attester_cache: RwLock<EarlyAttesterCache<T::EthSpec>>,
     /// A cache used to keep track of various block timings.
     pub block_times_cache: Arc<RwLock<BlockTimesCache>>,
     /// A list of any hard-coded forks that have been disabled.
@@ -935,7 +938,15 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         &self,
         block_root: &Hash256,
     ) -> Result<Option<SignedBeaconBlock<T::EthSpec>>, Error> {
-        Ok(self.store.get_block(block_root)?)
+        let block_opt = self.store.get_block(block_root)?;
+
+        if block_opt.is_none() {
+            if let Some(block) = self.early_attester_cache.read().get_block(*block_root) {
+                return Ok(Some(block.clone()));
+            }
+        }
+
+        Ok(block_opt)
     }
 
     /// Returns the state at the given root, if any.
@@ -1421,6 +1432,14 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         request_index: CommitteeIndex,
     ) -> Result<Attestation<T::EthSpec>, Error> {
         let _total_timer = metrics::start_timer(&metrics::ATTESTATION_PRODUCTION_SECONDS);
+
+        if let Some(attestation) = self
+            .early_attester_cache
+            .read()
+            .try_attest(request_slot, request_index)
+        {
+            return Ok(attestation);
+        }
 
         let slots_per_epoch = T::EthSpec::slots_per_epoch();
         let request_epoch = request_slot.epoch(slots_per_epoch);
@@ -2602,6 +2621,27 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             }
         }
 
+        let new_head_root = fork_choice
+            .get_head(self.slot()?, &self.spec)
+            .map_err(BeaconChainError::from)?;
+
+        if new_head_root == block_root {
+            if let Some(proto_block) = fork_choice.get_block(&block_root) {
+                if let Err(e) = self.early_attester_cache.write().add_head_block(
+                    block_root,
+                    signed_block.clone(),
+                    proto_block,
+                    &state,
+                ) {
+                    error!(
+                        self.log,
+                        "Early attester cache insert failed";
+                        "error" => ?e
+                    );
+                }
+            }
+        }
+
         // Register sync aggregate with validator monitor
         if let Ok(sync_aggregate) = block.body().sync_aggregate() {
             // `SyncCommittee` for the sync_aggregate should correspond to the duty slot
@@ -3107,6 +3147,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         if beacon_block_root == current_head.block_root {
             return Ok(());
         }
+
+        // Clear the early attester cache so it can't conflict with `self.canonical_head`.
+        self.early_attester_cache.write().clear();
 
         let lag_timer = metrics::start_timer(&metrics::FORK_CHOICE_SET_HEAD_LAG_TIMES);
 
