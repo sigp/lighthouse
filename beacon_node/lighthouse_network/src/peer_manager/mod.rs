@@ -877,6 +877,9 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
 
     // Update metrics related to peer scoring.
     fn update_peer_score_metrics(&self) {
+        if !self.metrics_enabled {
+            return;
+        }
         // reset the gauges
         let _ = metrics::PEER_SCORE_DISTRIBUTION
             .as_ref()

@@ -5,7 +5,6 @@
 use libp2p::identify::IdentifyInfo;
 use serde::Serialize;
 use strum::{AsRefStr, AsStaticStr, EnumIter};
-// use strum_macros::EnumIter;
 
 /// Various client and protocol information related to a node.
 #[derive(Clone, Debug, Serialize)]
