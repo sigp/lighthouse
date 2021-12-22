@@ -7,6 +7,7 @@ pub struct CacheItem<E: EthSpec> {
      */
     epoch: Epoch,
     committee_len: usize,
+    committee_count: u64,
     beacon_block_root: Hash256,
     source: Checkpoint,
     target: Checkpoint,
@@ -36,6 +37,7 @@ impl<E: EthSpec> EarlyAttesterCache<E> {
     ) -> Result<(), BeaconStateError> {
         let epoch = state.current_epoch();
         let committee_len = state.get_beacon_committee(state.slot(), 0)?.committee.len();
+        let committee_count = state.get_epoch_committee_count(RelativeEpoch::Current)?;
         let source = state.current_justified_checkpoint();
         let target_slot = epoch.start_slot(E::slots_per_epoch());
         let target = Checkpoint {
@@ -50,6 +52,7 @@ impl<E: EthSpec> EarlyAttesterCache<E> {
         let item = CacheItem {
             epoch,
             committee_len,
+            committee_count,
             beacon_block_root,
             source,
             target,
@@ -74,7 +77,9 @@ impl<E: EthSpec> EarlyAttesterCache<E> {
             return None;
         }
 
-        // TODO: check committee count.
+        if request_index >= item.committee_count {
+            return None;
+        }
 
         Some(Attestation {
             aggregation_bits: BitList::with_capacity(item.committee_len).ok()?,
