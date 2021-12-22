@@ -122,6 +122,22 @@ fn produces_attestations() {
             );
             assert_eq!(data.target.epoch, state.current_epoch(), "bad target epoch");
             assert_eq!(data.target.root, target_root, "bad target root");
+
+            let early_attestation = {
+                let mut early_attester_cache = chain.early_attester_cache.write();
+                let proto_block = chain.fork_choice.read().get_block(&block_root).unwrap();
+                early_attester_cache
+                    .add_head_block(block_root, block.clone(), proto_block, &state, &chain.spec)
+                    .unwrap();
+                early_attester_cache
+                    .try_attest(slot, index, &chain.spec)
+                    .unwrap()
+            };
+
+            assert_eq!(
+                attestation, early_attestation,
+                "early attester cache inconsistent"
+            );
         }
     }
 }

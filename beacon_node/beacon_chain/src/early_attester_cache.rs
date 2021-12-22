@@ -1,3 +1,4 @@
+use crate::attester_cache::{CommitteeLengths, Error};
 use proto_array::Block as ProtoBlock;
 use types::*;
 
@@ -6,8 +7,7 @@ pub struct CacheItem<E: EthSpec> {
      * Attesting details
      */
     epoch: Epoch,
-    committee_len: usize,
-    committee_count: u64,
+    committee_lengths: CommitteeLengths,
     beacon_block_root: Hash256,
     source: Checkpoint,
     target: Checkpoint,
@@ -18,26 +18,39 @@ pub struct CacheItem<E: EthSpec> {
     proto_block: ProtoBlock,
 }
 
+/// Provides a single-item cache which allows for attesting to blocks before those blocks have
+/// reached the database.
+///
+/// This cache stores enough information to allow Lighthouse to:
+///
+/// - Produce an attestation without using `chain.canonical_head`.
+/// - Verify that a block root exists (i.e., will be imported in the future) during attestation
+///     verification.
+/// - Provide a block which can be sent to peers via RPC.
 #[derive(Default)]
 pub struct EarlyAttesterCache<E: EthSpec> {
     item: Option<CacheItem<E>>,
 }
 
 impl<E: EthSpec> EarlyAttesterCache<E> {
+    /// Removes the cached item, meaning that all future calls to `Self::try_attest` will return
+    /// `None` until a new cache item is added.
     pub fn clear(&mut self) {
         self.item = None
     }
 
+    /// Updates the cache item, so that `Self::try_attest` with return `Some` when given suitable
+    /// parameters.
     pub fn add_head_block(
         &mut self,
         beacon_block_root: Hash256,
         block: SignedBeaconBlock<E>,
         proto_block: ProtoBlock,
         state: &BeaconState<E>,
-    ) -> Result<(), BeaconStateError> {
+        spec: &ChainSpec,
+    ) -> Result<(), Error> {
         let epoch = state.current_epoch();
-        let committee_len = state.get_beacon_committee(state.slot(), 0)?.committee.len();
-        let committee_count = state.get_epoch_committee_count(RelativeEpoch::Current)?;
+        let committee_lengths = CommitteeLengths::new(state, spec)?;
         let source = state.current_justified_checkpoint();
         let target_slot = epoch.start_slot(E::slots_per_epoch());
         let target = Checkpoint {
@@ -51,8 +64,7 @@ impl<E: EthSpec> EarlyAttesterCache<E> {
 
         let item = CacheItem {
             epoch,
-            committee_len,
-            committee_count,
+            committee_lengths,
             beacon_block_root,
             source,
             target,
@@ -65,10 +77,16 @@ impl<E: EthSpec> EarlyAttesterCache<E> {
         Ok(())
     }
 
+    /// Will return `Some(attestation)` if:
+    ///
+    /// - There is a cache `item` present.
+    /// - If `request_slot` is in the same epoch as `item.epoch`.
+    /// - If `request_index` does not exceed `item.comittee_count`.
     pub fn try_attest(
         &self,
         request_slot: Slot,
         request_index: CommitteeIndex,
+        spec: &ChainSpec,
     ) -> Option<Attestation<E>> {
         let item = self.item.as_ref()?;
         let request_epoch = request_slot.epoch(E::slots_per_epoch());
@@ -77,12 +95,19 @@ impl<E: EthSpec> EarlyAttesterCache<E> {
             return None;
         }
 
-        if request_index >= item.committee_count {
+        let committee_count = item.committee_lengths.get_committee_count::<E>(spec).ok()?;
+
+        if request_index >= committee_count as u64 {
             return None;
         }
 
+        let committee_len = item
+            .committee_lengths
+            .get_committee_length::<E>(request_slot, request_index, spec)
+            .ok()?;
+
         Some(Attestation {
-            aggregation_bits: BitList::with_capacity(item.committee_len).ok()?,
+            aggregation_bits: BitList::with_capacity(committee_len).ok()?,
             data: AttestationData {
                 slot: request_slot,
                 index: request_index,
@@ -94,6 +119,7 @@ impl<E: EthSpec> EarlyAttesterCache<E> {
         })
     }
 
+    /// Returns the block, if `block_root` matches the cached item.
     pub fn get_block(&self, block_root: Hash256) -> Option<&SignedBeaconBlock<E>> {
         self.item
             .as_ref()
@@ -101,6 +127,7 @@ impl<E: EthSpec> EarlyAttesterCache<E> {
             .map(|item| &item.block)
     }
 
+    /// Returns the proto-array block, if `block_root` matches the cached item.
     pub fn get_proto_block(&self, block_root: Hash256) -> Option<&ProtoBlock> {
         self.item
             .as_ref()

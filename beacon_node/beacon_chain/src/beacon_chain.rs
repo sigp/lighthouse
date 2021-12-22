@@ -330,7 +330,7 @@ pub struct BeaconChain<T: BeaconChainTypes> {
     /// A cache used when producing attestations.
     pub(crate) attester_cache: Arc<AttesterCache>,
     /// A cache used when producing attestations whilst the head block is still being imported.
-    pub(crate) early_attester_cache: RwLock<EarlyAttesterCache<T::EthSpec>>,
+    pub early_attester_cache: RwLock<EarlyAttesterCache<T::EthSpec>>,
     /// A cache used to keep track of various block timings.
     pub block_times_cache: Arc<RwLock<BlockTimesCache>>,
     /// A list of any hard-coded forks that have been disabled.
@@ -1447,10 +1447,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     ) -> Result<Attestation<T::EthSpec>, Error> {
         let _total_timer = metrics::start_timer(&metrics::ATTESTATION_PRODUCTION_SECONDS);
 
-        if let Some(attestation) = self
-            .early_attester_cache
-            .read()
-            .try_attest(request_slot, request_index)
+        if let Some(attestation) =
+            self.early_attester_cache
+                .read()
+                .try_attest(request_slot, request_index, &self.spec)
         {
             return Ok(attestation);
         }
@@ -2646,6 +2646,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     signed_block.clone(),
                     proto_block,
                     &state,
+                    &self.spec,
                 ) {
                     warn!(
                         self.log,
