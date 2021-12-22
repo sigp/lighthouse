@@ -202,7 +202,7 @@ impl BuilderApi for HttpJsonRpc {
     ) -> Result<ExecutionPayload<T, Txns>, Error> {
         let params = json!([JsonPayloadIdRequest::from(payload_id)]);
 
-        let response: JsonExecutionPayloadV1<T, Txns> = self
+        let response: JsonExecutionPayloadHeaderV1<T, Txns> = self
             .rpc_request(
                 BUILDER_GET_PAYLOAD_HEADER_V1,
                 params,
@@ -217,7 +217,9 @@ impl BuilderApi for HttpJsonRpc {
         &self,
         block: SignedBeaconBlock<T, BlindedTransactions>,
     ) -> Result<ExecutionPayload<T>, Error> {
-        let params = json!([block]);
+        let blinded_block = SignedBlindedBeaconBlock::from(block);
+
+        let params = json!([blinded_block]);
 
         let response: JsonExecutionPayloadV1<T, ExecTransactions<T>> = self
             .rpc_request(

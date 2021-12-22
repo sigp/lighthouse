@@ -198,7 +198,7 @@ impl<T: EthSpec> Transactions<T> for BlindedTransactions {
 #[derive(
     Default, Debug, Clone, PartialEq, Serialize, Deserialize, Encode, Decode, TreeHash, TestRandom,
 )]
-#[serde(bound = "Txns: Transactions<T>")]
+#[serde(bound = "Txns: Transactions<T>", deny_unknown_fields)]
 pub struct ExecutionPayload<T: EthSpec, Txns: Transactions<T> = ExecTransactions<T>> {
     pub parent_hash: Hash256,
     pub fee_recipient: Address,
@@ -220,7 +220,6 @@ pub struct ExecutionPayload<T: EthSpec, Txns: Transactions<T> = ExecTransactions
     #[serde(with = "eth2_serde_utils::quoted_u256")]
     pub base_fee_per_gas: Uint256,
     pub block_hash: Hash256,
-    #[serde(alias = "transactions_root")]
     pub transactions: Txns,
 }
 

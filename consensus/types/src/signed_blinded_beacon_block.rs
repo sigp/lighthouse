@@ -34,19 +34,126 @@ impl<E: EthSpec> From<SignedBeaconBlock<E, BlindedTransactions>> for SignedBlind
         match block {
             SignedBeaconBlock::Base(b) => {
                 let SignedBeaconBlockBase { message, signature } = b;
-                SignedBlindedBeaconBlock::Base(SignedBlindedBeaconBlockBase { message, signature })
+                let BeaconBlockBase {
+                    slot,
+                    proposer_index,
+                    parent_root,
+                    state_root,
+                    body,
+                } = message;
+                let BeaconBlockBodyBase {
+                    randao_reveal,
+                    eth1_data,
+                    graffiti,
+                    proposer_slashings,
+                    attester_slashings,
+                    attestations,
+                    deposits,
+                    voluntary_exits,
+                    _phantom,
+                } = body;
+                SignedBlindedBeaconBlock::Base(SignedBlindedBeaconBlockBase {
+                    message: BlindedBeaconBlockBase {
+                        slot,
+                        proposer_index,
+                        parent_root,
+                        state_root,
+                        body: BlindedBeaconBlockBodyBase {
+                            randao_reveal,
+                            eth1_data,
+                            graffiti,
+                            proposer_slashings,
+                            attester_slashings,
+                            attestations,
+                            deposits,
+                            voluntary_exits,
+                        },
+                    },
+                    signature,
+                })
             }
             SignedBeaconBlock::Altair(b) => {
                 let SignedBeaconBlockAltair { message, signature } = b;
+                let BeaconBlockAltair {
+                    slot,
+                    proposer_index,
+                    parent_root,
+                    state_root,
+                    body,
+                } = message;
+                let BeaconBlockBodyAltair {
+                    randao_reveal,
+                    eth1_data,
+                    graffiti,
+                    proposer_slashings,
+                    attester_slashings,
+                    attestations,
+                    deposits,
+                    voluntary_exits,
+                    sync_aggregate,
+                    _phantom,
+                } = body;
                 SignedBlindedBeaconBlock::Altair(SignedBlindedBeaconBlockAltair {
-                    message,
+                    message: BlindedBeaconBlockAltair {
+                        slot,
+                        proposer_index,
+                        parent_root,
+                        state_root,
+                        body: BlindedBeaconBlockBodyAltair {
+                            randao_reveal,
+                            eth1_data,
+                            graffiti,
+                            proposer_slashings,
+                            attester_slashings,
+                            attestations,
+                            deposits,
+                            voluntary_exits,
+                            sync_aggregate,
+                        },
+                    },
                     signature,
                 })
             }
             SignedBeaconBlock::Merge(b) => {
                 let SignedBeaconBlockMerge { message, signature } = b;
+                let BeaconBlockMerge {
+                    slot,
+                    proposer_index,
+                    parent_root,
+                    state_root,
+                    body,
+                } = message;
+                let BeaconBlockBodyMerge {
+                    randao_reveal,
+                    eth1_data,
+                    graffiti,
+                    proposer_slashings,
+                    attester_slashings,
+                    attestations,
+                    deposits,
+                    voluntary_exits,
+                    sync_aggregate,
+                    execution_payload,
+                } = body;
                 SignedBlindedBeaconBlock::Merge(SignedBlindedBeaconBlockMerge {
-                    message,
+                    message: BlindedBeaconBlockMerge {
+                        slot,
+                        proposer_index,
+                        parent_root,
+                        state_root,
+                        body: BlindedBeaconBlockBodyMerge {
+                            randao_reveal,
+                            eth1_data,
+                            graffiti,
+                            proposer_slashings,
+                            attester_slashings,
+                            attestations,
+                            deposits,
+                            voluntary_exits,
+                            sync_aggregate,
+                            execution_payload_header: execution_payload.into(),
+                        },
+                    },
                     signature,
                 })
             }

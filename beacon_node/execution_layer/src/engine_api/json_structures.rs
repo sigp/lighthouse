@@ -57,6 +57,73 @@ pub struct JsonPayloadIdResponse {
 
 #[derive(Debug, PartialEq, Default, Serialize, Deserialize)]
 #[serde(bound = "T: EthSpec", rename_all = "camelCase")]
+pub struct JsonExecutionPayloadHeaderV1<T: EthSpec, Txns: Transactions<T>> {
+    pub parent_hash: Hash256,
+    pub fee_recipient: Address,
+    pub state_root: Hash256,
+    pub receipts_root: Hash256,
+    #[serde(with = "serde_logs_bloom")]
+    pub logs_bloom: FixedVector<u8, T::BytesPerLogsBloom>,
+    pub random: Hash256,
+    #[serde(with = "eth2_serde_utils::u64_hex_be")]
+    pub block_number: u64,
+    #[serde(with = "eth2_serde_utils::u64_hex_be")]
+    pub gas_limit: u64,
+    #[serde(with = "eth2_serde_utils::u64_hex_be")]
+    pub gas_used: u64,
+    #[serde(with = "eth2_serde_utils::u64_hex_be")]
+    pub timestamp: u64,
+    #[serde(with = "ssz_types::serde_utils::hex_var_list")]
+    pub extra_data: VariableList<u8, T::MaxExtraDataBytes>,
+    pub base_fee_per_gas: Uint256,
+    pub block_hash: Hash256,
+    #[serde(with = "serde_transactions")]
+    pub transactions_root: Txns,
+}
+
+impl<T: EthSpec, Txns: Transactions<T>> From<JsonExecutionPayloadHeaderV1<T, Txns>>
+for ExecutionPayload<T, Txns>
+{
+    fn from(e: JsonExecutionPayloadHeaderV1<T, Txns>) -> Self {
+        // Use this verbose deconstruction pattern to ensure no field is left unused.
+        let JsonExecutionPayloadHeaderV1 {
+            parent_hash,
+            fee_recipient,
+            state_root,
+            receipts_root,
+            logs_bloom,
+            random,
+            block_number,
+            gas_limit,
+            gas_used,
+            timestamp,
+            extra_data,
+            base_fee_per_gas,
+            block_hash,
+            transactions_root,
+        } = e;
+
+        Self {
+            parent_hash,
+            fee_recipient,
+            state_root,
+            receipts_root,
+            logs_bloom,
+            random,
+            block_number,
+            gas_limit,
+            gas_used,
+            timestamp,
+            extra_data,
+            base_fee_per_gas,
+            block_hash,
+            transactions: transactions_root,
+        }
+    }
+}
+
+#[derive(Debug, PartialEq, Default, Serialize, Deserialize)]
+#[serde(bound = "T: EthSpec", rename_all = "camelCase")]
 pub struct JsonExecutionPayloadV1<T: EthSpec, Txns: Transactions<T>> {
     pub parent_hash: Hash256,
     pub fee_recipient: Address,
@@ -77,19 +144,10 @@ pub struct JsonExecutionPayloadV1<T: EthSpec, Txns: Transactions<T>> {
     pub extra_data: VariableList<u8, T::MaxExtraDataBytes>,
     pub base_fee_per_gas: Uint256,
     pub block_hash: Hash256,
-    #[serde(with = "serde_transactions", alias = "transactionsRoot")]
+    #[serde(with = "serde_transactions")]
     pub transactions: Txns,
 }
 
-#[derive(Debug, PartialEq, Default, Serialize, Deserialize)]
-pub struct JsonExecTransactions<T: EthSpec>(
-    VariableList<
-        Transaction<<T as EthSpec>::MaxBytesPerTransaction>,
-        <T as EthSpec>::MaxTransactionsPerPayload,
-    >,
-);
-
-use types::ExecTransactions;
 
 impl<T: EthSpec, Txns: Transactions<T>> From<ExecutionPayload<T, Txns>>
     for JsonExecutionPayloadV1<T, Txns>

@@ -2,6 +2,7 @@ use crate::{test_utils::TestRandom, *};
 use serde_derive::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
 use test_random_derive::TestRandom;
+use tree_hash::TreeHash;
 use tree_hash_derive::TreeHash;
 
 #[cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary))]
@@ -37,3 +38,41 @@ impl<T: EthSpec> ExecutionPayloadHeader<T> {
         Self::default()
     }
 }
+
+impl<T: EthSpec> From<ExecutionPayload<T, BlindedTransactions>> for ExecutionPayloadHeader<T> {
+    fn from(payload: ExecutionPayload<T, BlindedTransactions>) -> Self {
+        let ExecutionPayload {
+            parent_hash,
+            fee_recipient,
+            state_root,
+            receipts_root,
+            logs_bloom,
+            random,
+            block_number,
+            gas_limit,
+            gas_used,
+            timestamp,
+            extra_data,
+            base_fee_per_gas,
+            block_hash,
+            transactions,
+        } = payload;
+        Self {
+            parent_hash,
+            fee_recipient,
+            state_root,
+            receipts_root,
+            logs_bloom,
+            random,
+            block_number,
+            gas_limit,
+            gas_used,
+            timestamp,
+            extra_data,
+            base_fee_per_gas,
+            block_hash,
+            transactions_root: transactions,
+        }
+    }
+}
+
