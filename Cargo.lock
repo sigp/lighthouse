@@ -301,7 +301,7 @@ dependencies = [
  "lazy_static",
  "lighthouse_metrics",
  "logging",
- "lru 0.6.6",
+ "lru",
  "maplit",
  "merkle_proof",
  "operation_pool",
@@ -1261,7 +1261,7 @@ dependencies = [
  "hkdf",
  "lazy_static",
  "libp2p-core 0.30.0",
- "lru 0.7.1",
+ "lru",
  "parking_lot",
  "rand 0.8.4",
  "rlp 0.5.1",
@@ -1847,7 +1847,7 @@ dependencies = [
  "exit-future",
  "futures",
  "hex",
- "lru 0.6.6",
+ "lru",
  "parking_lot",
  "reqwest",
  "sensitive_url",
@@ -3078,7 +3078,7 @@ dependencies = [
  "libp2p-core 0.31.0",
  "libp2p-swarm",
  "log",
- "lru 0.7.1",
+ "lru",
  "prost",
  "prost-build",
  "smallvec",
@@ -3400,7 +3400,7 @@ dependencies = [
  "libp2p",
  "lighthouse_metrics",
  "lighthouse_version",
- "lru 0.6.6",
+ "lru",
  "open-metrics-client",
  "parking_lot",
  "rand 0.7.3",
@@ -3476,15 +3476,6 @@ dependencies = [
  "slog",
  "slog-term",
  "sloggers",
-]
-
-[[package]]
-name = "lru"
-version = "0.6.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7ea2d928b485416e8908cff2d97d621db22b27f7b3b6729e438bcf42c671ba91"
-dependencies = [
- "hashbrown",
 ]
 
 [[package]]
@@ -5451,7 +5442,7 @@ dependencies = [
  "libmdbx",
  "lighthouse_metrics",
  "logging",
- "lru 0.6.6",
+ "lru",
  "maplit",
  "parking_lot",
  "rand 0.7.3",
@@ -5768,7 +5759,7 @@ dependencies = [
  "lazy_static",
  "leveldb",
  "lighthouse_metrics",
- "lru 0.6.6",
+ "lru",
  "parking_lot",
  "serde",
  "serde_derive",
