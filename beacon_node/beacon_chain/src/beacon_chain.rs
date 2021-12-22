@@ -2647,7 +2647,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     proto_block,
                     &state,
                 ) {
-                    error!(
+                    warn!(
                         self.log,
                         "Early attester cache insert failed";
                         "error" => ?e
