@@ -5479,6 +5479,7 @@ dependencies = [
 name = "slashing_protection"
 version = "0.1.0"
 dependencies = [
+ "arbitrary",
  "eth2_serde_utils",
  "filesystem",
  "lazy_static",
