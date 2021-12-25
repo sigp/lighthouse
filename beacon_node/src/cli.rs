@@ -407,6 +407,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                        address whilst the merge is in development stages. THE DEFAULT VALUE \
                        WILL BE REMOVED BEFORE THE MERGE ENTERS PRODUCTION")
                 .requires("merge")
+                .takes_value(true)
         )
 
         /*
