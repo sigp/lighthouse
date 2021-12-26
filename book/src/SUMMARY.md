@@ -10,6 +10,7 @@
     * [Build from Source](./installation-source.md)
     * [Raspberry Pi 4](./pi.md)
     * [Cross-Compiling](./cross-compiling.md)
+    * [Homebrew](./homebrew.md)
 * [Key Management](./key-management.md)
     * [Create a wallet](./wallet-create.md)
     * [Create a validator](./validator-create.md)
