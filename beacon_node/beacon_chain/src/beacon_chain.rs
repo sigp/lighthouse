@@ -1099,6 +1099,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     .message()
                     .body()
                     .execution_payload()
+                    .ok()
                     .map(|ep| ep.block_hash),
             })
         })
@@ -2602,7 +2603,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         }
 
         // Register sync aggregate with validator monitor
-        if let Some(sync_aggregate) = block.body().sync_aggregate() {
+        if let Ok(sync_aggregate) = block.body().sync_aggregate() {
             // `SyncCommittee` for the sync_aggregate should correspond to the duty slot
             let duty_epoch = block.slot().epoch(T::EthSpec::slots_per_epoch());
             let sync_committee = self.sync_committee_at_epoch(duty_epoch)?;
@@ -2643,7 +2644,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 block.body().attestations().len() as f64,
             );
 
-            if let Some(sync_aggregate) = block.body().sync_aggregate() {
+            if let Ok(sync_aggregate) = block.body().sync_aggregate() {
                 metrics::set_gauge(
                     &metrics::BLOCK_SYNC_AGGREGATE_SET_BITS,
                     sync_aggregate.num_set_bits() as i64,
@@ -3241,6 +3242,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .message()
             .body()
             .execution_payload()
+            .ok()
             .map(|ep| ep.block_hash);
         let is_merge_transition_complete = is_merge_transition_complete(&new_head.beacon_state);
 
@@ -3528,6 +3530,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .message()
             .body()
             .execution_payload()
+            .ok()
             .map(|ep| ep.block_hash)
             .unwrap_or_else(Hash256::zero);
 

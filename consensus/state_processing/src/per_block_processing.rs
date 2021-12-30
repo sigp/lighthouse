@@ -148,10 +148,7 @@ pub fn per_block_processing<T: EthSpec>(
     // `process_randao` as the former depends on the `randao_mix` computed with the reveal of the
     // previous block.
     if is_execution_enabled(state, block.body()) {
-        let payload = block
-            .body()
-            .execution_payload()
-            .ok_or(BlockProcessingError::IncorrectStateType)?;
+        let payload = block.body().execution_payload()?;
         process_execution_payload(state, payload, spec)?;
     }
 
@@ -159,7 +156,7 @@ pub fn per_block_processing<T: EthSpec>(
     process_eth1_data(state, block.body().eth1_data())?;
     process_operations(state, block.body(), proposer_index, verify_signatures, spec)?;
 
-    if let Some(sync_aggregate) = block.body().sync_aggregate() {
+    if let Ok(sync_aggregate) = block.body().sync_aggregate() {
         process_sync_aggregate(
             state,
             sync_aggregate,
