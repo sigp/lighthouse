@@ -15,6 +15,7 @@ use crate::block_verification::{
 use crate::chain_config::ChainConfig;
 use crate::early_attester_cache::EarlyAttesterCache;
 use crate::errors::{BeaconChainError as Error, BlockProductionError};
+use crate::eth1_cache::{Eth1Cache, Eth1CacheData};
 use crate::eth1_chain::{Eth1Chain, Eth1ChainBackend};
 use crate::events::ServerSentEventHandler;
 use crate::execution_payload::{get_execution_payload, PreparePayloadHandle};
@@ -116,6 +117,9 @@ pub const ATTESTATION_CACHE_LOCK_TIMEOUT: Duration = Duration::from_secs(1);
 /// The time-out before failure during an operation to take a read/write RwLock on the
 /// validator pubkey cache.
 pub const VALIDATOR_PUBKEY_CACHE_LOCK_TIMEOUT: Duration = Duration::from_secs(1);
+
+/// The timeout for the eth1_cache
+pub const ETH1_CACHE_LOCK_TIMEOUT: Duration = Duration::from_millis(200);
 
 // These keys are all zero because they get stored in different columns, see `DBColumn` type.
 pub const BEACON_CHAIN_DB_KEY: Hash256 = Hash256::zero();
@@ -359,6 +363,8 @@ pub struct BeaconChain<T: BeaconChainTypes> {
     pub(crate) snapshot_cache: TimeoutRwLock<SnapshotCache<T::EthSpec>>,
     /// Caches the attester shuffling for a given epoch and shuffling key root.
     pub shuffling_cache: TimeoutRwLock<ShufflingCache>,
+    /// A cache of eth1_data at epoch boundaries for deposit finalization
+    pub eth1_data_cache: TimeoutRwLock<Eth1DataCache>,
     /// Caches the beacon block proposer shuffling for a given epoch and shuffling key root.
     pub beacon_proposer_cache: Mutex<BeaconProposerCache>,
     /// Caches a map of `validator_index -> validator_pubkey`.
@@ -2966,6 +2972,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let parent_root = block.parent_root();
         let slot = block.slot();
 
+        let current_eth1_cache_data = Eth1CacheData {
+            eth1_data: state.eth1_data().clone(),
+            eth1_deposit_index: state.eth1_deposit_index(),
+        };
+        let current_finalized_checkpoint = state.finalized_checkpoint();
         self.snapshot_cache
             .try_write_for(BLOCK_PROCESSING_CACHE_LOCK_TIMEOUT)
             .ok_or(Error::SnapshotCacheLockTimeout)
@@ -3037,6 +3048,58 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     .imported
                     .unwrap_or_else(|| Duration::from_secs(0)),
             );
+        }
+
+        // Do not write to eth1 data cache for blocks older than 5 epochs, this helps reduce
+        // noise during sync
+        if block_delay_total < self.slot_clock.slot_duration() * 160 {
+            let parent_block_epoch = fully_verified_block
+                .parent_block
+                .slot()
+                .epoch(T::EthSpec::slots_per_epoch());
+            if parent_block_epoch < current_epoch {
+                // we've crossed epoch boundary, store Eth1CacheData
+                let (checkpoint, eth1_cache_data) =
+                    if current_slot % T::EthSpec::slots_per_epoch() == 0 {
+                        // current block is the checkpoint
+                        (
+                            Checkpoint {
+                                epoch: current_epoch,
+                                root: block_root,
+                            },
+                            current_eth1_cache_data,
+                        )
+                    } else {
+                        // parent block is the checkpoint
+                        (
+                            Checkpoint {
+                                epoch: current_epoch,
+                                root: fully_verified_block.parent_block.canonical_root(),
+                            },
+                            fully_verified_block.parent_eth1_cache_data,
+                        )
+                    };
+
+                if let Some(Some(finalized_eth1_data)) = self
+                    .eth1_cache
+                    .try_write_for(ETH1_CACHE_LOCK_TIMEOUT)
+                    .map(|mut cache| {
+                        cache.insert(checkpoint, eth1_cache_data);
+                        cache.finalize(&current_finalized_checkpoint)
+                    })
+                {
+                    if let Some(eth1_chain) = self.eth1_chain.as_ref() {
+                        let finalized_deposit_count = finalized_eth1_data.deposit_count;
+                        eth1_chain.finalize_eth1_data(finalized_eth1_data);
+                        debug!(
+                            self.log,
+                            "called eth1_chain.finalize_eth1_data()";
+                            "epoch" => current_finalized_checkpoint.epoch,
+                            "deposit count" => finalized_deposit_count,
+                        );
+                    }
+                }
+            }
         }
 
         // Inform the unknown block cache, in case it was waiting on this block.

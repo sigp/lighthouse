@@ -181,12 +181,11 @@ impl MerkleTree {
         matches!(self, MerkleTree::Leaf(_))
     }
 
-    /// Finalize deposits up to deposit with `index`
+    /// Finalize deposits up to deposit with count = deposits_to_finalize
     pub fn finalize_deposits(
         &mut self,
-        left_count: usize,
-        index: usize,
-        depth: usize,
+        deposits_to_finalize: usize,
+        level: usize,
     ) -> Result<(), MerkleTreeError> {
         match self {
             MerkleTree::Finalized(_) => Ok(()),
@@ -196,14 +195,15 @@ impl MerkleTree {
                 Ok(())
             }
             MerkleTree::Node(hash, left, right) => {
-                let leaf_nodes = 2usize.pow(depth as u32);
-                if left_count + leaf_nodes - 1 <= index {
+                let deposits = 0x1 << level;
+                if deposits <= deposits_to_finalize {
                     *self = MerkleTree::Finalized(*hash);
                     return Ok(());
                 }
-                left.finalize_deposits(left_count, index, depth - 1)?;
-                if left_count + leaf_nodes / 2 <= index {
-                    right.finalize_deposits(left_count + leaf_nodes / 2, index, depth - 1)?;
+                left.finalize_deposits(deposits_to_finalize, level - 1)?;
+                let remaining = (deposits_to_finalize as i64) - (deposits as i64) / 2;
+                if remaining > 0 {
+                    right.finalize_deposits(remaining as usize, level - 1)?;
                 }
                 Ok(())
             }
@@ -231,7 +231,6 @@ impl MerkleTree {
         finalized_branches: &[H256],
         deposits: usize,
         level: usize,
-        depth: usize,
     ) -> Result<Self, MerkleTreeError> {
         if finalized_branches == EMPTY_SLICE {
             return if deposits == 0 {
@@ -249,14 +248,10 @@ impl MerkleTree {
             return Err(MerkleTreeError::InvalidSnapshot(InvalidSnapshot::EndOfTree));
         }
 
-        let left_subtree = 0x1 << level - 1;
+        let left_subtree = 0x1 << (level - 1);
         if deposits <= left_subtree {
-            let left = MerkleTree::from_finalized_snapshot(
-                finalized_branches,
-                deposits,
-                level - 1,
-                depth,
-            )?;
+            let left =
+                MerkleTree::from_finalized_snapshot(finalized_branches, deposits, level - 1)?;
             let right = MerkleTree::Zero(level - 1);
             let hash = H256::from_slice(&hash32_concat(
                 left.hash().as_bytes(),
@@ -269,7 +264,6 @@ impl MerkleTree {
                 &finalized_branches[1..],
                 deposits - left_subtree,
                 level - 1,
-                depth,
             )?;
             let hash = H256::from_slice(&hash32_concat(
                 left.hash().as_bytes(),

@@ -38,7 +38,7 @@ pub enum Error {
     /// You can't finalize what's already been finalized and the cache must have the logs
     /// that you wish to finalize
     InvalidFinalizeIndex {
-        requested_index: u64,
+        requested_count: u64,
         currently_finalized: u64,
         deposit_count: u64,
     },
@@ -231,7 +231,7 @@ impl DepositCache {
         self.logs.iter()
     }
 
-    /// Returns the i'th deposit log.
+    /// Returns the deposit log with INDEX i.
     pub fn get_log(&self, i: usize) -> Option<&DepositLog> {
         let finalized_deposit_count = self.finalized_deposit_count.unwrap_or(0) as usize;
         if i < finalized_deposit_count {
@@ -241,7 +241,7 @@ impl DepositCache {
         }
     }
 
-    /// Returns the deposit root with deposit_count i
+    /// Returns the deposit root with DEPOSIT COUNT i
     pub fn get_root(&self, i: usize) -> Option<&Hash256> {
         let finalized_deposit_count = self.finalized_deposit_count.unwrap_or(0) as usize;
         if i < finalized_deposit_count {
@@ -251,35 +251,37 @@ impl DepositCache {
         }
     }
 
+    /// Returns the finalized deposit count
+    pub fn finalized_deposit_count(&self) -> Option<u64> {
+        self.finalized_deposit_count
+    }
+
     /// Finalizes the cache up to `index`
     pub fn finalize(&mut self, eth1_block: Eth1Block) -> Result<(), Error> {
-        let index = eth1_block
-            .deposit_count
-            .map(|count| count - 1)
-            .ok_or(Error::Internal(
-                "Eth1Block did not contain deposit_count".to_string(),
-            ))?;
-        let finalized_deposit_count = self.finalized_deposit_count.unwrap_or(0);
+        let deposits_to_finalize = eth1_block.deposit_count.ok_or_else(|| {
+            Error::Internal("Eth1Block did not contain deposit_count".to_string())
+        })?;
 
-        if index > self.len() as u64 || index < finalized_deposit_count {
+        let currently_finalized = self.finalized_deposit_count.unwrap_or(0);
+        if deposits_to_finalize > self.len() as u64 || deposits_to_finalize <= currently_finalized {
             Err(Error::InvalidFinalizeIndex {
-                requested_index: index,
-                currently_finalized: finalized_deposit_count,
+                requested_count: deposits_to_finalize,
+                currently_finalized,
                 deposit_count: self.len() as u64,
             })
         } else {
             let finalized_log = self
-                .get_log(index as usize)
+                .get_log((deposits_to_finalize - 1) as usize)
                 .cloned()
                 .expect("log should exist");
-            let drop = (index + 1 - finalized_deposit_count) as usize;
+            let drop = (deposits_to_finalize - currently_finalized) as usize;
             self.deposit_tree
-                .finalize(index as usize, eth1_block.hash)
+                .finalize(deposits_to_finalize as usize, eth1_block.hash)
                 .map_err(Error::DepositTree)?;
             self.logs.drain(0..drop);
             self.leaves.drain(0..drop);
             self.deposit_roots.drain(0..drop);
-            self.finalized_deposit_count = Some(finalized_log.index + 1);
+            self.finalized_deposit_count = Some(deposits_to_finalize);
             self.finalized_block_height = Some(finalized_log.block_number);
 
             Ok(())
@@ -370,7 +372,7 @@ impl DepositCache {
             .finalized_deposit_count
             .map(|count| start - count + 1)
             .unwrap_or(1)
-            <= 0
+            == 0
         {
             // Can't ask for deposits before or on the finalized deposit
             Err(Error::DepositRangeInvalid {
@@ -393,7 +395,7 @@ impl DepositCache {
             )
             .map_err(Error::DepositTree)?;
             for leaf in leaves {
-                tree.push_leaf(leaf.clone()).map_err(Error::DepositTree)?;
+                tree.push_leaf(*leaf).map_err(Error::DepositTree)?;
             }
 
             let mut deposits = vec![];
@@ -660,7 +662,7 @@ pub mod tests {
         // Range higher than count.
         assert!(tree.get_deposits(0, 4, 2).is_err());
 
-        let block7 = fake_eth1_block(&tree.get_log(7).expect("should return log"));
+        let block7 = fake_eth1_block(tree.get_log(7).expect("should return log"));
         tree.finalize(block7).expect("should finalize");
         // Range starts <= finalized deposit
         assert!(tree.get_deposits(7, 9, 2).is_err());
@@ -933,13 +935,13 @@ pub mod tests {
     #[test]
     fn ssz_encode_decode_with_finalization() {
         let mut deposit_cache = get_cache_with_deposits(512);
-        let block383 = fake_eth1_block(&deposit_cache.get_log(383).expect("should return log"));
+        let block383 = fake_eth1_block(deposit_cache.get_log(383).expect("should return log"));
         deposit_cache.finalize(block383).expect("should finalize");
         let mut first_recovery = ssz_round_trip(&deposit_cache);
 
         verify_equality(&deposit_cache, &first_recovery);
         // finalize again to verify equality after multiple finalizations
-        let block447 = fake_eth1_block(&deposit_cache.get_log(447).expect("should return log"));
+        let block447 = fake_eth1_block(deposit_cache.get_log(447).expect("should return log"));
         first_recovery.finalize(block447).expect("should finalize");
 
         let mut second_recovery = ssz_round_trip(&first_recovery);
@@ -947,7 +949,7 @@ pub mod tests {
 
         // verify equality of a tree that finalized block383, block447, block479
         // with a tree that finalized block383, block479
-        let block479 = fake_eth1_block(&deposit_cache.get_log(479).expect("should return log"));
+        let block479 = fake_eth1_block(deposit_cache.get_log(479).expect("should return log"));
         second_recovery
             .finalize(block479.clone())
             .expect("should finalize");

@@ -13,6 +13,7 @@ pub mod canonical_head;
 pub mod chain_config;
 mod early_attester_cache;
 mod errors;
+mod eth1_cache;
 pub mod eth1_chain;
 pub mod events;
 pub mod execution_payload;

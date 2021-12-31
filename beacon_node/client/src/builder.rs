@@ -278,6 +278,16 @@ where
                 let slots_per_epoch = TEthSpec::slots_per_epoch();
 
                 debug!(context.log(), "Downloading finalized block");
+                // want to get deposit snapshot first
+                let deposit_snapshot_result =
+                    remote.get_deposit_snapshot().await.map_err(|e| match e {
+                        ApiError::InvalidSsz(e) => format!(
+                            "Unable to parse SSZ: {:?}. Ensure the checkpoint-sync-url refers to a \
+                            node for the correct network",
+                            e
+                        ),
+                        e => format!("Error fetching deposit snapshot from remote: {:?}", e),
+                    });
 
                 // Find a suitable finalized block on an epoch boundary.
                 let mut block = remote
@@ -362,9 +372,52 @@ where
                     "state_root" => ?state_root,
                 );
 
+                let service = match deposit_snapshot_result {
+                    Ok(Some(deposit_snapshot)) => match Eth1Service::from_deposit_snapshot(
+                        config.eth1,
+                        context.log().clone(),
+                        spec,
+                        deposit_snapshot,
+                    )
+                    .await
+                    {
+                        Ok(service) => {
+                            let deposits_loaded = service.get_deposit_snapshot().deposits;
+                            info!(
+                                context.log(),
+                                "Loaded deposit cache from snapshot";
+                                "deposit count" => deposits_loaded,
+                            );
+                            Some(service)
+                        }
+                        Err(e) => {
+                            warn!(context.log(),
+                                "Unable to load deposit snapshot";
+                                "error" => format!("{:?}", e)
+                            );
+                            None
+                        }
+                    },
+                    Ok(None) => {
+                        warn!(
+                            context.log(),
+                            "Error loading deposit snapshot from remote: received NULL"
+                        );
+                        None
+                    }
+                    Err(e) => {
+                        warn!(
+                            context.log(),
+                            "Error loading deposit snapshot from remote";
+                            "error" => e
+                        );
+                        None
+                    }
+                };
+
                 builder
                     .weak_subjectivity_state(state, block, genesis_state)
-                    .map(|v| (v, None))?
+                    .map(|v| (v, service))?
             }
             ClientGenesis::DepositContract => {
                 info!(

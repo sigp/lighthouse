@@ -23,7 +23,7 @@ use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::sync::RwLock as TRwLock;
 use tokio::time::{interval_at, Duration, Instant};
-use types::{ChainSpec, EthSpec, Unsigned};
+use types::{ChainSpec, DepositTreeSnapshot, Eth1Data, EthSpec, Unsigned};
 
 /// Indicates the default eth1 chain id we use for the deposit contract.
 pub const DEFAULT_CHAIN_ID: Eth1Id = Eth1Id::Goerli;
@@ -92,6 +92,22 @@ pub struct EndpointsCache {
 }
 
 impl EndpointsCache {
+    fn from_config(config: &Config, log: Logger) -> Self {
+        EndpointsCache {
+            fallback: Fallback::new(
+                config
+                    .endpoints
+                    .clone()
+                    .into_iter()
+                    .map(EndpointWithState::new)
+                    .collect(),
+            ),
+            config_network_id: config.network_id.clone(),
+            config_chain_id: config.chain_id.clone(),
+            log,
+        }
+    }
+
     /// Checks the usability of an endpoint. Results get cached and therefore only the first call
     /// for each endpoint does the real check.
     async fn state(&self, endpoint: &EndpointWithState) -> EndpointState {
@@ -163,6 +179,18 @@ impl EndpointsCache {
             .await
     }
 
+    #[tokio::main]
+    pub async fn first_success_blocking<'a, F, O, R>(
+        &'a self,
+        func: F,
+    ) -> Result<(O, usize), FallbackError<SingleEndpointError>>
+    where
+        F: Fn(&'a SensitiveUrl) -> R,
+        R: Future<Output = Result<O, SingleEndpointError>>,
+    {
+        self.first_success(func).await
+    }
+
     pub async fn reset_errorred_endpoints(&self) {
         for endpoint in &self.fallback.servers {
             if let Some(state) = get_state(endpoint).await {
@@ -181,7 +209,13 @@ async fn endpoint_state(
     config_chain_id: &Eth1Id,
     log: &Logger,
 ) -> EndpointState {
-    let error_connecting = |e| {
+    let error_connecting = |e: String| {
+        debug!(
+            log,
+            "eth1 endpoint error";
+            "endpoint" => %endpoint,
+            "error" => &e,
+        );
         warn!(
             log,
             "Error connecting to eth1 node endpoint";
@@ -342,6 +376,10 @@ pub enum Error {
     FallbackError(FallbackError<SingleEndpointError>),
     /// There was an unexpected internal error.
     Internal(String),
+    /// Error finalizing deposit
+    FailedToFinalizeDeposit(String),
+    /// There was a problem Initializing from deposit snapshot
+    FailedToInitializeFromSnapshot(String),
 }
 
 /// The success message for an Eth1Data cache update.
@@ -510,12 +548,64 @@ impl Service {
                     config.deposit_contract_deploy_block,
                 )),
                 endpoints_cache: RwLock::new(None),
+                to_finalize: RwLock::new(None),
                 remote_head_block: RwLock::new(None),
                 config: RwLock::new(config),
                 spec,
             }),
             log,
         }
+    }
+
+    /// Creates a new service, initializing the deposit tree from a snapshot.
+    /// DOES attempt to connect to eth1 node because we need to get last processed block
+    pub async fn from_deposit_snapshot(
+        config: Config,
+        log: Logger,
+        spec: ChainSpec,
+        deposit_snapshot: DepositTreeSnapshot,
+    ) -> Result<Self, Error> {
+        // first get eth1_block from endpoint
+        let endpoints = Arc::new(EndpointsCache::from_config(&config, log.clone()));
+        let block_hash_ref = &deposit_snapshot.eth1_block_hash;
+        let http_block = endpoints
+            .clone()
+            .first_success(|e| async move {
+                get_block(
+                    e,
+                    BlockQuery::Hash(*block_hash_ref),
+                    Duration::from_millis(GET_BLOCK_TIMEOUT_MILLIS),
+                )
+                .map_err(SingleEndpointError::BlockDownloadFailed)
+                .await
+            })
+            .await
+            .map_err(Error::FallbackError)?
+            .0;
+
+        let deposit_cache = DepositUpdater::from_snapshot(
+            config.deposit_contract_deploy_block,
+            deposit_snapshot,
+            http_block.number,
+        )
+        .map_err(Error::FailedToInitializeFromSnapshot)?;
+
+        Ok(Self {
+            inner: Arc::new(Inner {
+                block_cache: <_>::default(),
+                deposit_cache: RwLock::new(deposit_cache),
+                endpoints_cache: RwLock::new(Some(endpoints)),
+                to_finalize: RwLock::new(None),
+                remote_head_block: RwLock::new(None),
+                config: RwLock::new(config),
+                spec,
+            }),
+            log,
+        })
+    }
+
+    pub fn set_to_finalize(&self, eth1_data: Option<Eth1Data>) {
+        *(self.inner.to_finalize.write()) = eth1_data;
     }
 
     /// Returns the follow distance that has been shortened to accommodate for differences in the
@@ -898,6 +988,38 @@ impl Service {
                 "deposits" => format!("{:?}", deposit),
             ),
         };
+        let to_finalize = self.inner.to_finalize.write().take();
+        if let Some(eth1_data) = to_finalize {
+            let tree_finalized = self
+                .inner
+                .deposit_cache
+                .read()
+                .cache
+                .finalized_deposit_count()
+                .unwrap_or(0);
+            let finalize_deposit_count = eth1_data.deposit_count;
+            if finalize_deposit_count > tree_finalized {
+                match self.finalize_deposits(eth1_data) {
+                    Err(e) => error!(
+                        self.log,
+                        "Failed to finalize deposit cache";
+                        "error" => format!("{:?}", e),
+                    ),
+                    Ok(()) => info!(
+                        self.log,
+                        "Successfully finalized deposit tree";
+                        "finalized deposit count" => finalize_deposit_count,
+                    ),
+                }
+            } else {
+                debug!(
+                    self.log,
+                    "Deposits tree already finalized";
+                    "tree finalized" => tree_finalized,
+                    "deposit_count" => finalize_deposit_count,
+                );
+            }
+        }
         Ok(())
     }
 
@@ -931,6 +1053,31 @@ impl Service {
             latest_cached_block.as_ref(),
             &self.inner.spec,
         )
+    }
+
+    pub fn finalize_deposits(&self, eth1_data: Eth1Data) -> Result<(), Error> {
+        let opt_eth1_block = self
+            .inner
+            .block_cache
+            .read()
+            .block_by_hash(&eth1_data.block_hash)
+            .cloned();
+        if let Some(eth1_block) = opt_eth1_block {
+            self.inner
+                .deposit_cache
+                .write()
+                .cache
+                .finalize(eth1_block)
+                .map_err(|e| Error::FailedToFinalizeDeposit(format!("{:?}", e)))
+        } else {
+            Err(Error::FailedToFinalizeDeposit(
+                "Finalized block not found in block cache".to_string(),
+            ))
+        }
+    }
+
+    pub fn get_deposit_snapshot(&self) -> DepositTreeSnapshot {
+        self.inner.deposit_cache.read().cache.get_deposit_snapshot()
     }
 
     /// Contacts the remote eth1 node and attempts to import deposit logs up to the configured

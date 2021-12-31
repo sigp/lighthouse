@@ -10,7 +10,7 @@ use ssz::four_byte_option_impl;
 use ssz::{Decode, Encode};
 use ssz_derive::{Decode, Encode};
 use std::sync::Arc;
-use types::ChainSpec;
+use types::{ChainSpec, DepositTreeSnapshot, Eth1Data};
 
 // Define "legacy" implementations of `Option<u64>` which use four bytes for encoding the union
 // selector.
@@ -30,6 +30,21 @@ impl DepositUpdater {
             last_processed_block: None,
         }
     }
+
+    pub fn from_snapshot(
+        deposit_contract_deploy_block: u64,
+        snapshot: DepositTreeSnapshot,
+        last_processed_block: u64,
+    ) -> Result<Self, String> {
+        Ok(Self {
+            cache: DepositCache::from_deposit_snapshot(
+                deposit_contract_deploy_block,
+                snapshot,
+                last_processed_block,
+            )?,
+            last_processed_block: Some(last_processed_block),
+        })
+    }
 }
 
 #[derive(Default)]
@@ -37,6 +52,7 @@ pub struct Inner {
     pub block_cache: RwLock<BlockCache>,
     pub deposit_cache: RwLock<DepositUpdater>,
     pub endpoints_cache: RwLock<Option<Arc<EndpointsCache>>>,
+    pub to_finalize: RwLock<Option<Eth1Data>>,
     pub config: RwLock<Config>,
     pub remote_head_block: RwLock<Option<Eth1Block>>,
     pub spec: ChainSpec,
@@ -107,6 +123,7 @@ impl SszEth1Cache {
                 last_processed_block: self.last_processed_block,
             }),
             endpoints_cache: RwLock::new(None),
+            to_finalize: RwLock::new(None),
             // Set the remote head_block zero when creating a new instance. We only care about
             // present and future eth1 nodes.
             remote_head_block: RwLock::new(None),
@@ -134,6 +151,7 @@ impl SszLegacyEth1Cache {
                 last_processed_block: self.last_processed_block,
             }),
             endpoints_cache: RwLock::new(None),
+            to_finalize: RwLock::new(None),
             // Set the remote head_block zero when creating a new instance. We only care about
             // present and future eth1 nodes.
             remote_head_block: RwLock::new(None),

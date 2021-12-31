@@ -56,14 +56,14 @@ impl DepositDataTree {
         Ok(())
     }
 
-    /// Finalize deposits up to leaf at `index`
+    /// Finalize deposits up to `count`
     pub fn finalize(
         &mut self,
-        index: usize,
+        count: usize,
         eth1_block_hash: Hash256,
     ) -> Result<(), MerkleTreeError> {
-        self.tree.finalize_deposits(0, index as usize, self.depth)?;
-        self.deposits_finalized = index + 1;
+        self.tree.finalize_deposits(count, self.depth)?;
+        self.deposits_finalized = count;
         self.finalized_eth1_block_hash = Some(eth1_block_hash);
         Ok(())
     }
@@ -73,9 +73,7 @@ impl DepositDataTree {
         DepositTreeSnapshot {
             branches: self.tree.get_finalized_snapshot(),
             deposits: self.deposits_finalized as u64,
-            eth1_block_hash: self
-                .finalized_eth1_block_hash
-                .unwrap_or_else(|| Hash256::zero()),
+            eth1_block_hash: self.finalized_eth1_block_hash.unwrap_or_else(Hash256::zero),
         }
     }
 
@@ -93,7 +91,6 @@ impl DepositDataTree {
             tree: MerkleTree::from_finalized_snapshot(
                 &snapshot.branches,
                 snapshot.deposits as usize,
-                depth,
                 depth,
             )?,
             mix_in_length: snapshot.deposits as usize,
