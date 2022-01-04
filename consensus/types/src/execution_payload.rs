@@ -15,15 +15,6 @@ use tree_hash_derive::TreeHash;
 pub type Transaction<T> = VariableList<u8, T>;
 pub type BlindedTransactions = Hash256;
 
-// pub type ExecTransactions<T> = VariableList<Transaction<<T as EthSpec>::MaxBytesPerTransaction>, <T as EthSpec>::MaxTransactionsPerPayload>;
-
-// impl<T: EthSpec> Ser for ExecTransactions<T> {
-//     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-//         where
-//             S: Serializer{
-//     }
-// }
-
 #[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(transparent)]
 pub struct ExecTransactions<T: EthSpec>(
