@@ -63,7 +63,7 @@ pub struct Eth1DepositData {
 pub struct ValidatorDir {
     dir: PathBuf,
     #[derivative(PartialEq = "ignore")]
-    lockfile: Lockfile,
+    _lockfile: Lockfile,
 }
 
 impl ValidatorDir {
@@ -85,7 +85,10 @@ impl ValidatorDir {
         let lockfile_path = dir.join(format!("{}.lock", VOTING_KEYSTORE_FILE));
         let lockfile = Lockfile::new(lockfile_path).map_err(Error::LockfileError)?;
 
-        Ok(Self { dir, lockfile })
+        Ok(Self {
+            dir,
+            _lockfile: lockfile,
+        })
     }
 
     /// Returns the `dir` provided to `Self::open`.

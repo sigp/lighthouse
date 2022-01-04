@@ -82,11 +82,11 @@ pub fn cli_run<T: EthSpec>(
 ) -> Result<(), String> {
     let slashing_protection_db_path = validator_base_dir.join(SLASHING_PROTECTION_FILENAME);
 
-    let testnet_config = env
-        .testnet
+    let eth2_network_config = env
+        .eth2_network_config
         .ok_or("Unable to get testnet configuration from the environment")?;
 
-    let genesis_validators_root = testnet_config
+    let genesis_validators_root = eth2_network_config
         .beacon_state::<T>()
         .map(|state: BeaconState<T>| state.genesis_validators_root())
         .map_err(|e| {

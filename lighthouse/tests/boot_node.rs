@@ -1,8 +1,8 @@
 use boot_node::config::BootNodeConfigSerialization;
 
 use crate::exec::{CommandLineTestExec, CompletedTest};
-use beacon_node::get_eth2_network_config;
 use clap::ArgMatches;
+use clap_utils::get_eth2_network_config;
 use lighthouse_network::discovery::ENR_FILENAME;
 use lighthouse_network::Enr;
 use std::fs::File;

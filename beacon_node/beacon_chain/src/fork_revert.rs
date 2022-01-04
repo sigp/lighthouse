@@ -1,10 +1,13 @@
 use crate::{BeaconForkChoiceStore, BeaconSnapshot};
-use fork_choice::ForkChoice;
+use fork_choice::{ForkChoice, PayloadVerificationStatus};
 use itertools::process_results;
 use slog::{info, warn, Logger};
 use state_processing::state_advance::complete_state_advance;
-use state_processing::{per_block_processing, per_block_processing::BlockSignatureStrategy};
+use state_processing::{
+    per_block_processing, per_block_processing::BlockSignatureStrategy, VerifyBlockRoot,
+};
 use std::sync::Arc;
+use std::time::Duration;
 use store::{iter::ParentRootBlockIterator, HotColdDB, ItemStore};
 use types::{BeaconState, ChainSpec, EthSpec, ForkName, Hash256, SignedBeaconBlock, Slot};
 
@@ -160,13 +163,29 @@ pub fn reset_fork_choice_to_finalization<E: EthSpec, Hot: ItemStore<E>, Cold: It
             &block,
             None,
             BlockSignatureStrategy::NoVerification,
+            VerifyBlockRoot::True,
             spec,
         )
         .map_err(|e| format!("Error replaying block: {:?}", e))?;
 
+        // Setting this to unverified is the safest solution, since we don't have a way to
+        // retro-actively determine if they were valid or not.
+        //
+        // This scenario is so rare that it seems OK to double-verify some blocks.
+        let payload_verification_status = PayloadVerificationStatus::NotVerified;
+
         let (block, _) = block.deconstruct();
         fork_choice
-            .on_block(block.slot(), &block, block.canonical_root(), &state, spec)
+            .on_block(
+                block.slot(),
+                &block,
+                block.canonical_root(),
+                // Reward proposer boost. We are reinforcing the canonical chain.
+                Duration::from_secs(0),
+                &state,
+                payload_verification_status,
+                spec,
+            )
             .map_err(|e| format!("Error applying replayed block to fork choice: {:?}", e))?;
     }
 

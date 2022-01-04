@@ -7,6 +7,7 @@ members = [
     "beacon_node/client",
     "beacon_node/eth1",
     "beacon_node/lighthouse_network",
+    "beacon_node/execution_layer",
     "beacon_node/http_api",
     "beacon_node/http_metrics",
     "beacon_node/network",
@@ -85,9 +86,9 @@ members = [
 
 [patch]
 [patch.crates-io]
+fixed-hash = { git = "https://github.com/paritytech/parity-common", rev="df638ab0885293d21d656dc300d39236b69ce57d" }
+warp = { git = "https://github.com/macladson/warp", rev ="7e75acc" }
 eth2_ssz = { path = "consensus/ssz" }
 eth2_ssz_types = { path = "consensus/ssz_types" }
-eth2_ssz_derive = { path = "consensus/ssz_derive" }
 tree_hash = { path = "consensus/tree_hash" }
-tree_hash_derive = { path = "consensus/tree_hash_derive" }
-fixed-hash = { git = "https://github.com/paritytech/parity-common", rev="df638ab0885293d21d656dc300d39236b69ce57d" }
+eth2_serde_utils = { path = "consensus/serde_utils" }

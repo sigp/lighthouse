@@ -16,8 +16,10 @@ use std::sync::Arc;
 use std::time::Duration;
 use types::{ForkContext, ForkName};
 
-/// The maximum transmit size of gossip messages in bytes.
-pub const GOSSIP_MAX_SIZE: usize = 1_048_576;
+/// The maximum transmit size of gossip messages in bytes pre-merge.
+const GOSSIP_MAX_SIZE: usize = 1_048_576; // 1M
+/// The maximum transmit size of gossip messages in bytes post-merge.
+const GOSSIP_MAX_SIZE_POST_MERGE: usize = 10 * 1_048_576; // 10M
 /// This is a constant to be used in discovery. The lower bound of the gossipsub mesh.
 pub const MESH_N_LOW: usize = 6;
 
@@ -39,6 +41,15 @@ pub const DUPLICATE_CACHE_TIME: Duration = Duration::from_secs(33 * 12 + 1);
 // specification. We leave it here for posterity.
 // const MESSAGE_DOMAIN_INVALID_SNAPPY: [u8; 4] = [0, 0, 0, 0];
 const MESSAGE_DOMAIN_VALID_SNAPPY: [u8; 4] = [1, 0, 0, 0];
+
+/// The maximum size of gossip messages.
+pub fn gossip_max_size(is_merge_enabled: bool) -> usize {
+    if is_merge_enabled {
+        GOSSIP_MAX_SIZE_POST_MERGE
+    } else {
+        GOSSIP_MAX_SIZE
+    }
+}
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(default)]
@@ -209,7 +220,9 @@ pub fn gossipsub_config(fork_context: Arc<ForkContext>) -> GossipsubConfig {
     ) -> Vec<u8> {
         let topic_bytes = message.topic.as_str().as_bytes();
         match fork_context.current_fork() {
-            ForkName::Altair => {
+            // according to: https://github.com/ethereum/consensus-specs/blob/dev/specs/merge/p2p-interface.md#the-gossip-domain-gossipsub
+            // the derivation of the message-id remains the same in the merge
+            ForkName::Altair | ForkName::Merge => {
                 let topic_len_bytes = topic_bytes.len().to_le_bytes();
                 let mut vec = Vec::with_capacity(
                     prefix.len() + topic_len_bytes.len() + topic_bytes.len() + message.data.len(),
@@ -229,6 +242,7 @@ pub fn gossipsub_config(fork_context: Arc<ForkContext>) -> GossipsubConfig {
         }
     }
 
+    let is_merge_enabled = fork_context.fork_exists(ForkName::Merge);
     let gossip_message_id = move |message: &GossipsubMessage| {
         MessageId::from(
             &Sha256::digest(
@@ -237,7 +251,7 @@ pub fn gossipsub_config(fork_context: Arc<ForkContext>) -> GossipsubConfig {
         )
     };
     GossipsubConfigBuilder::default()
-        .max_transmit_size(GOSSIP_MAX_SIZE)
+        .max_transmit_size(gossip_max_size(is_merge_enabled))
         .heartbeat_interval(Duration::from_millis(700))
         .mesh_n(8)
         .mesh_n_low(MESH_N_LOW)

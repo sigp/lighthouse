@@ -68,6 +68,14 @@ impl VerifySignatures {
     }
 }
 
+/// Control verification of the latest block header.
+#[cfg_attr(feature = "arbitrary-fuzz", derive(Arbitrary))]
+#[derive(PartialEq, Clone, Copy)]
+pub enum VerifyBlockRoot {
+    True,
+    False,
+}
+
 /// Updates the state for a new block, whilst validating that the block is valid, optionally
 /// checking the block proposer signature.
 ///
@@ -84,6 +92,7 @@ pub fn per_block_processing<T: EthSpec>(
     signed_block: &SignedBeaconBlock<T>,
     block_root: Option<Hash256>,
     block_signature_strategy: BlockSignatureStrategy,
+    verify_block_root: VerifyBlockRoot,
     spec: &ChainSpec,
 ) -> Result<(), BlockProcessingError> {
     let block = signed_block.message();
@@ -120,7 +129,7 @@ pub fn per_block_processing<T: EthSpec>(
         BlockSignatureStrategy::VerifyRandao => VerifySignatures::False,
     };
 
-    let proposer_index = process_block_header(state, block, spec)?;
+    let proposer_index = process_block_header(state, block, verify_block_root, spec)?;
 
     if verify_signatures.is_true() {
         verify_block_signature(state, signed_block, block_root, spec)?;
@@ -135,14 +144,25 @@ pub fn per_block_processing<T: EthSpec>(
     state.build_committee_cache(RelativeEpoch::Previous, spec)?;
     state.build_committee_cache(RelativeEpoch::Current, spec)?;
 
+    // The call to the `process_execution_payload` must happen before the call to the
+    // `process_randao` as the former depends on the `randao_mix` computed with the reveal of the
+    // previous block.
+    if is_execution_enabled(state, block.body()) {
+        let payload = block
+            .body()
+            .execution_payload()
+            .ok_or(BlockProcessingError::IncorrectStateType)?;
+        process_execution_payload(state, payload, spec)?;
+    }
+
     process_randao(state, block, verify_randao, spec)?;
     process_eth1_data(state, block.body().eth1_data())?;
     process_operations(state, block.body(), proposer_index, verify_signatures, spec)?;
 
-    if let BeaconBlockRef::Altair(inner) = block {
+    if let Some(sync_aggregate) = block.body().sync_aggregate() {
         process_sync_aggregate(
             state,
-            &inner.body.sync_aggregate,
+            sync_aggregate,
             proposer_index,
             verify_signatures,
             spec,
@@ -156,6 +176,7 @@ pub fn per_block_processing<T: EthSpec>(
 pub fn process_block_header<T: EthSpec>(
     state: &mut BeaconState<T>,
     block: BeaconBlockRef<'_, T>,
+    verify_block_root: VerifyBlockRoot,
     spec: &ChainSpec,
 ) -> Result<u64, BlockOperationError<HeaderInvalid>> {
     // Verify that the slots match
@@ -184,14 +205,16 @@ pub fn process_block_header<T: EthSpec>(
         }
     );
 
-    let expected_previous_block_root = state.latest_block_header().tree_hash_root();
-    verify!(
-        block.parent_root() == expected_previous_block_root,
-        HeaderInvalid::ParentBlockRootMismatch {
-            state: expected_previous_block_root,
-            block: block.parent_root(),
-        }
-    );
+    if verify_block_root == VerifyBlockRoot::True {
+        let expected_previous_block_root = state.latest_block_header().tree_hash_root();
+        verify!(
+            block.parent_root() == expected_previous_block_root,
+            HeaderInvalid::ParentBlockRootMismatch {
+                state: expected_previous_block_root,
+                block: block.parent_root(),
+            }
+        );
+    }
 
     *state.latest_block_header_mut() = block.temporary_block_header();
 
@@ -282,4 +305,123 @@ pub fn get_new_eth1_data<T: EthSpec>(
     } else {
         Ok(None)
     }
+}
+
+/// Performs *partial* verification of the `payload`.
+///
+/// The verification is partial, since the execution payload is not verified against an execution
+/// engine. That is expected to be performed by an upstream function.
+///
+/// ## Specification
+///
+/// Contains a partial set of checks from the `process_execution_payload` function:
+///
+/// https://github.com/ethereum/consensus-specs/blob/v1.1.5/specs/merge/beacon-chain.md#process_execution_payload
+pub fn partially_verify_execution_payload<T: EthSpec>(
+    state: &BeaconState<T>,
+    payload: &ExecutionPayload<T>,
+    spec: &ChainSpec,
+) -> Result<(), BlockProcessingError> {
+    if is_merge_transition_complete(state) {
+        block_verify!(
+            payload.parent_hash == state.latest_execution_payload_header()?.block_hash,
+            BlockProcessingError::ExecutionHashChainIncontiguous {
+                expected: state.latest_execution_payload_header()?.block_hash,
+                found: payload.parent_hash,
+            }
+        );
+    }
+    block_verify!(
+        payload.random == *state.get_randao_mix(state.current_epoch())?,
+        BlockProcessingError::ExecutionRandaoMismatch {
+            expected: *state.get_randao_mix(state.current_epoch())?,
+            found: payload.random,
+        }
+    );
+
+    let timestamp = compute_timestamp_at_slot(state, spec)?;
+    block_verify!(
+        payload.timestamp == timestamp,
+        BlockProcessingError::ExecutionInvalidTimestamp {
+            expected: timestamp,
+            found: payload.timestamp,
+        }
+    );
+
+    Ok(())
+}
+
+/// Calls `partially_verify_execution_payload` and then updates the payload header in the `state`.
+///
+/// ## Specification
+///
+/// Partially equivalent to the `process_execution_payload` function:
+///
+/// https://github.com/ethereum/consensus-specs/blob/v1.1.5/specs/merge/beacon-chain.md#process_execution_payload
+pub fn process_execution_payload<T: EthSpec>(
+    state: &mut BeaconState<T>,
+    payload: &ExecutionPayload<T>,
+    spec: &ChainSpec,
+) -> Result<(), BlockProcessingError> {
+    partially_verify_execution_payload(state, payload, spec)?;
+
+    *state.latest_execution_payload_header_mut()? = ExecutionPayloadHeader {
+        parent_hash: payload.parent_hash,
+        fee_recipient: payload.fee_recipient,
+        state_root: payload.state_root,
+        receipt_root: payload.receipt_root,
+        logs_bloom: payload.logs_bloom.clone(),
+        random: payload.random,
+        block_number: payload.block_number,
+        gas_limit: payload.gas_limit,
+        gas_used: payload.gas_used,
+        timestamp: payload.timestamp,
+        extra_data: payload.extra_data.clone(),
+        base_fee_per_gas: payload.base_fee_per_gas,
+        block_hash: payload.block_hash,
+        transactions_root: payload.transactions.tree_hash_root(),
+    };
+
+    Ok(())
+}
+
+/// These functions will definitely be called before the merge. Their entire purpose is to check if
+/// the merge has happened or if we're on the transition block. Thus we don't want to propagate
+/// errors from the `BeaconState` being an earlier variant than `BeaconStateMerge` as we'd have to
+/// repeaetedly write code to treat these errors as false.
+/// https://github.com/ethereum/consensus-specs/blob/dev/specs/merge/beacon-chain.md#is_merge_transition_complete
+pub fn is_merge_transition_complete<T: EthSpec>(state: &BeaconState<T>) -> bool {
+    state
+        .latest_execution_payload_header()
+        .map(|header| *header != <ExecutionPayloadHeader<T>>::default())
+        .unwrap_or(false)
+}
+/// https://github.com/ethereum/consensus-specs/blob/dev/specs/merge/beacon-chain.md#is_merge_transition_block
+pub fn is_merge_transition_block<T: EthSpec>(
+    state: &BeaconState<T>,
+    body: BeaconBlockBodyRef<T>,
+) -> bool {
+    body.execution_payload()
+        .map(|payload| {
+            !is_merge_transition_complete(state) && *payload != <ExecutionPayload<T>>::default()
+        })
+        .unwrap_or(false)
+}
+/// https://github.com/ethereum/consensus-specs/blob/dev/specs/merge/beacon-chain.md#is_execution_enabled
+pub fn is_execution_enabled<T: EthSpec>(
+    state: &BeaconState<T>,
+    body: BeaconBlockBodyRef<T>,
+) -> bool {
+    is_merge_transition_block(state, body) || is_merge_transition_complete(state)
+}
+
+/// https://github.com/ethereum/consensus-specs/blob/dev/specs/merge/beacon-chain.md#compute_timestamp_at_slot
+pub fn compute_timestamp_at_slot<T: EthSpec>(
+    state: &BeaconState<T>,
+    spec: &ChainSpec,
+) -> Result<u64, ArithError> {
+    let slots_since_genesis = state.slot().as_u64().safe_sub(spec.genesis_slot.as_u64())?;
+    slots_since_genesis
+        .safe_mul(spec.seconds_per_slot)
+        .and_then(|since_genesis| state.genesis_time().safe_add(since_genesis))
 }

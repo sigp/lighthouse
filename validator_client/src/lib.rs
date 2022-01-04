@@ -84,7 +84,6 @@ pub struct ProductionValidatorClient<T: EthSpec> {
     doppelganger_service: Option<Arc<DoppelgangerService>>,
     validator_store: Arc<ValidatorStore<SystemTimeSlotClock, T>>,
     http_api_listen_addr: Option<SocketAddr>,
-    http_metrics_ctx: Option<Arc<http_metrics::Context<T>>>,
     config: Config,
 }
 
@@ -431,7 +430,6 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
             validator_store,
             config,
             http_api_listen_addr: None,
-            http_metrics_ctx,
         })
     }
 

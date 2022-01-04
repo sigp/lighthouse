@@ -2,15 +2,16 @@
 
 mod metrics;
 
-use beacon_node::{get_eth2_network_config, ProductionBeaconNode};
+use beacon_node::ProductionBeaconNode;
 use clap::{App, Arg, ArgMatches};
+use directory::{parse_path_or_default, DEFAULT_BEACON_NODE_DIR, DEFAULT_VALIDATOR_DIR};
 use clap_utils::flags::{
     CONFIG_FILE_FLAG, DATADIR_FLAG, DEBUG_LEVEL_FLAG, DISABLE_MALLOC_TUNING_FLAG, DUMP_CONFIG_FLAG,
     ENV_LOG_FLAG, IMMEDIATE_SHUTDOWN_FLAG, LOGFILE_FLAG, LOG_FORMAT_FLAG, NETWORK_FLAG, SPEC_FLAG,
-    TESTNET_DIR_FLAG,
+    TESTNET_DIR_FLAG, get_eth2_network_config
 };
 use env_logger::{Builder, Env};
-use environment::EnvironmentBuilder;
+use environment::{EnvironmentBuilder, LoggerConfig};
 use eth2_hashing::have_sha_extensions;
 use eth2_network_config::{Eth2NetworkConfig, DEFAULT_HARDCODED_NETWORK, HARDCODED_NET_NAMES};
 use lighthouse_version::VERSION;
@@ -104,23 +105,68 @@ fn main() {
                 .long(LOGFILE_FLAG)
                 .value_name("FILE")
                 .help(
-                    "File path where output will be written.",
-                )
-                .takes_value(true),
+                    "File path where the log file will be stored. Once it grows to the \
+                    value specified in `--logfile-max-size` a new log file is generated where \
+                    future logs are stored. \
+                    Once the number of log files exceeds the value specified in \
+                    `--logfile-max-number` the oldest log file will be overwritten.")
+                .takes_value(true)
+                .global(true),
+        )
+        .arg(
+            Arg::with_name("logfile-debug-level")
+                .long("logfile-debug-level")
+                .value_name("LEVEL")
+                .help("The verbosity level used when emitting logs to the log file.")
+                .takes_value(true)
+                .possible_values(&["info", "debug", "trace", "warn", "error", "crit"])
+                .default_value("debug")
+                .global(true),
+        )
+        .arg(
+            Arg::with_name("logfile-max-size")
+                .long("logfile-max-size")
+                .value_name("SIZE")
+                .help(
+                    "The maximum size (in MB) each log file can grow to before rotating. If set \
+                    to 0, background file logging is disabled.")
+                .takes_value(true)
+                .default_value("200")
+                .global(true),
+        )
+        .arg(
+            Arg::with_name("logfile-max-number")
+                .long("logfile-max-number")
+                .value_name("COUNT")
+                .help(
+                    "The maximum number of log files that will be stored. If set to 0, \
+                    background file logging is disabled.")
+                .takes_value(true)
+                .default_value("5")
+                .global(true),
+        )
+        .arg(
+            Arg::with_name("logfile-compress")
+                .long("logfile-compress")
+                .help(
+                    "If present, compress old log files. This can help reduce the space needed \
+                    to store old logs.")
+                .global(true),
         )
         .arg(
             Arg::new(LOG_FORMAT_FLAG)
                 .long(LOG_FORMAT_FLAG)
                 .value_name("FORMAT")
-                .help("Specifies the format used for logging.")
+                .help("Specifies the log format used when emitting logs to the terminal.")
                 .possible_values(&["JSON"])
-                .takes_value(true),
+                .takes_value(true)
+                .global(true),
         )
         .arg(
             Arg::new(DEBUG_LEVEL_FLAG)
                 .long(DEBUG_LEVEL_FLAG)
                 .value_name("LEVEL")
-                .help("The verbosity level for emitting logs.")
+                .help("Specifies the verbosity level used when emitting logs to the terminal.")
                 .takes_value(true)
                 .possible_values(&["info", "debug", "trace", "warn", "error", "crit"])
                 .global(true)
@@ -188,6 +234,45 @@ fn main() {
                     specific memory allocation issues."
                 )
                 .global(true),
+        )
+        .arg(
+            Arg::new("terminal-total-difficulty-override")
+                .long("terminal-total-difficulty-override")
+                .value_name("INTEGER")
+                .help("Used to coordinate manual overrides to the TERMINAL_TOTAL_DIFFICULTY parameter. \
+                       Accepts a 256-bit decimal integer (not a hex value). \
+                       This flag should only be used if the user has a clear understanding that \
+                       the broad Ethereum community has elected to override the terminal difficulty. \
+                       Incorrect use of this flag will cause your node to experience a consensus
+                       failure. Be extremely careful with this flag.")
+                .takes_value(true)
+                .global(true)
+        )
+        .arg(
+            Arg::new("terminal-block-hash-override")
+                .long("terminal-block-hash-override")
+                .value_name("TERMINAL_BLOCK_HASH")
+                .help("Used to coordinate manual overrides to the TERMINAL_BLOCK_HASH parameter. \
+                       This flag should only be used if the user has a clear understanding that \
+                       the broad Ethereum community has elected to override the terminal PoW block. \
+                       Incorrect use of this flag will cause your node to experience a consensus
+                       failure. Be extremely careful with this flag.")
+                .requires("terminal-block-hash-epoch-override")
+                .takes_value(true)
+                .global(true)
+        )
+        .arg(
+            Arg::new("terminal-block-hash-epoch-override")
+                .long("terminal-block-hash-epoch-override")
+                .value_name("EPOCH")
+                .help("Used to coordinate manual overrides to the TERMINAL_BLOCK_HASH_ACTIVATION_EPOCH \
+                       parameter. This flag should only be used if the user has a clear understanding \
+                       that the broad Ethereum community has elected to override the terminal PoW block. \
+                       Incorrect use of this flag will cause your node to experience a consensus
+                       failure. Be extremely careful with this flag.")
+                .requires("terminal-block-hash-override")
+                .takes_value(true)
+                .global(true)
         );
 
     // Get a copy of all the command line args, because they will be consumed during the first call
@@ -271,8 +356,8 @@ fn main() {
         Builder::from_env(Env::default()).init();
     }
 
-    let result = get_eth2_network_config(&cli_matches).and_then(|testnet_config| {
-        let eth_spec_id = testnet_config.eth_spec_id()?;
+    let result = get_eth2_network_config(&cli_matches).and_then(|eth2_network_config| {
+        let eth_spec_id = eth2_network_config.eth_spec_id()?;
 
         // boot node subcommand circumvents the environment
         if let Some(bootnode_matches) = cli_matches.subcommand_matches("boot_node") {
@@ -282,15 +367,21 @@ fn main() {
                 .expect("Debug-level must be present")
                 .into();
 
-            boot_node::run(&cli_matches, bootnode_matches, eth_spec_id, debug_info);
+            boot_node::run(
+                &cli_matches,
+                bootnode_matches,
+                eth_spec_id,
+                &eth2_network_config,
+                debug_info,
+            );
 
             return Ok(());
         }
 
         match eth_spec_id {
-            EthSpecId::Mainnet => run(EnvironmentBuilder::mainnet(), &cli_matches, testnet_config),
+            EthSpecId::Mainnet => run(EnvironmentBuilder::mainnet(), &cli_matches, eth2_network_config),
             #[cfg(feature = "spec-minimal")]
-            EthSpecId::Minimal => run(EnvironmentBuilder::minimal(), &cli_matches, testnet_config),
+            EthSpecId::Minimal => run(EnvironmentBuilder::minimal(), &cli_matches, eth2_network_config),
             #[cfg(not(feature = "spec-minimal"))]
             other => {
                 eprintln!(
@@ -320,7 +411,7 @@ fn main() {
 fn run<E: EthSpec>(
     environment_builder: EnvironmentBuilder<E>,
     matches: &ArgMatches,
-    testnet_config: Eth2NetworkConfig,
+    eth2_network_config: Eth2NetworkConfig,
 ) -> Result<(), String> {
     if std::mem::size_of::<usize>() != 8 {
         return Err(format!(
@@ -335,18 +426,61 @@ fn run<E: EthSpec>(
 
     let log_format = matches.value_of("log-format");
 
-    let builder = if let Some(log_path) = matches.value_of("logfile") {
-        let path = log_path
-            .parse::<PathBuf>()
-            .map_err(|e| format!("Failed to parse log path: {:?}", e))?;
-        environment_builder.log_to_file(path, debug_level, log_format)?
-    } else {
-        environment_builder.async_logger(debug_level, log_format)?
+    let logfile_debug_level = matches
+        .value_of("logfile-debug-level")
+        .ok_or("Expected --logfile-debug-level flag")?;
+
+    let logfile_max_size: u64 = matches
+        .value_of("logfile-max-size")
+        .ok_or("Expected --logfile-max-size flag")?
+        .parse()
+        .map_err(|e| format!("Failed to parse `logfile-max-size`: {:?}", e))?;
+
+    let logfile_max_number: usize = matches
+        .value_of("logfile-max-number")
+        .ok_or("Expected --logfile-max-number flag")?
+        .parse()
+        .map_err(|e| format!("Failed to parse `logfile-max-number`: {:?}", e))?;
+
+    let logfile_compress = matches.is_present("logfile-compress");
+
+    // Construct the path to the log file.
+    let mut log_path: Option<PathBuf> = clap_utils::parse_optional(matches, "logfile")?;
+    if log_path.is_none() {
+        log_path = match matches.subcommand_name() {
+            Some("beacon_node") => Some(
+                parse_path_or_default(matches, "datadir")?
+                    .join(DEFAULT_BEACON_NODE_DIR)
+                    .join("logs")
+                    .join("beacon")
+                    .with_extension("log"),
+            ),
+            Some("validator_client") => Some(
+                parse_path_or_default(matches, "datadir")?
+                    .join(DEFAULT_VALIDATOR_DIR)
+                    .join("logs")
+                    .join("validator")
+                    .with_extension("log"),
+            ),
+            _ => None,
+        };
+    }
+
+    let logger_config = LoggerConfig {
+        path: log_path,
+        debug_level,
+        logfile_debug_level,
+        log_format,
+        max_log_size: logfile_max_size * 1_024 * 1_024,
+        max_log_number: logfile_max_number,
+        compression: logfile_compress,
     };
+
+    let builder = environment_builder.initialize_logger(logger_config)?;
 
     let mut environment = builder
         .multi_threaded_tokio_runtime()?
-        .optional_eth2_network_config(Some(testnet_config))?
+        .optional_eth2_network_config(Some(eth2_network_config))?
         .build()?;
 
     let log = environment.core_context().log().clone();
@@ -413,11 +547,7 @@ fn run<E: EthSpec>(
             let context = environment.core_context();
             let log = context.log().clone();
             let executor = context.executor.clone();
-            let config = beacon_node::get_config::<E>(
-                matches,
-                &context.eth2_config().spec,
-                context.log().clone(),
-            )?;
+            let config = beacon_node::get_config::<E>(matches, &context)?;
             let shutdown_flag = matches.is_present("immediate-shutdown");
             if let Some(dump_path) = clap_utils::parse_optional::<PathBuf>(matches, "dump-config")?
             {

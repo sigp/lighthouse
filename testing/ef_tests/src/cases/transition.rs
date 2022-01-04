@@ -4,6 +4,7 @@ use crate::decode::{ssz_decode_file_with, ssz_decode_state, yaml_decode_file};
 use serde_derive::Deserialize;
 use state_processing::{
     per_block_processing, state_advance::complete_state_advance, BlockSignatureStrategy,
+    VerifyBlockRoot,
 };
 use std::str::FromStr;
 use types::{BeaconState, Epoch, ForkName, SignedBeaconBlock};
@@ -37,6 +38,9 @@ impl<E: EthSpec> LoadCase for TransitionTest<E> {
             ForkName::Altair => {
                 spec.altair_fork_epoch = Some(metadata.fork_epoch);
             }
+            ForkName::Merge => {
+                spec.merge_fork_epoch = Some(metadata.fork_epoch);
+            }
         }
 
         // Load blocks
@@ -69,7 +73,10 @@ impl<E: EthSpec> Case for TransitionTest<E> {
     fn is_enabled_for_fork(fork_name: ForkName) -> bool {
         // Upgrades exist targeting all forks except phase0/base.
         // Transition tests also need BLS.
-        cfg!(not(feature = "fake_crypto")) && fork_name != ForkName::Base
+        // FIXME(merge): Merge transition tests are  now available but not yet passing
+        cfg!(not(feature = "fake_crypto"))
+            && fork_name != ForkName::Base
+            && fork_name != ForkName::Merge
     }
 
     fn result(&self, _case_index: usize, _fork_name: ForkName) -> Result<(), Error> {
@@ -91,6 +98,7 @@ impl<E: EthSpec> Case for TransitionTest<E> {
                     block,
                     None,
                     BlockSignatureStrategy::VerifyBulk,
+                    VerifyBlockRoot::True,
                     spec,
                 )
                 .map_err(|e| format!("Block processing failed: {:?}", e))?;

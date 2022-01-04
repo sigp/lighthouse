@@ -12,7 +12,7 @@ env:
   # Deny warnings in CI
   RUSTFLAGS: "-D warnings"
   # The Nightly version used for cargo-udeps, might need updating from time to time.
-  PINNED_NIGHTLY: nightly-2021-06-09
+  PINNED_NIGHTLY: nightly-2021-12-01
 jobs:
   target-branch-check:
     name: target-branch-check
@@ -54,6 +54,12 @@ jobs:
       run: npm install -g ganache-cli
     - name: Install make
       run: choco install -y make
+    - uses: KyleMayes/install-llvm-action@v1
+      with:
+        version: "13.0"
+        directory: ${{ runner.temp }}/llvm
+    - name: Set LIBCLANG_PATH
+      run: echo "LIBCLANG_PATH=$((gcm clang).source -replace "clang.exe")" >> $env:GITHUB_ENV
     - name: Run tests in release
       run: make test-release
   beacon-chain-tests:

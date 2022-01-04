@@ -6,9 +6,8 @@ pub fn get_ffg_case_01_test_definition() -> ForkChoiceTestDefinition {
 
     // Ensure that the head starts at the finalized block.
     ops.push(Operation::FindHead {
-        justified_epoch: Epoch::new(0),
-        justified_root: get_hash(0),
-        finalized_epoch: Epoch::new(0),
+        justified_checkpoint: get_checkpoint(0),
+        finalized_checkpoint: get_checkpoint(0),
         justified_state_balances: balances.clone(),
         expected_head: get_hash(0),
     });
@@ -26,22 +25,22 @@ pub fn get_ffg_case_01_test_definition() -> ForkChoiceTestDefinition {
         slot: Slot::new(1),
         root: get_hash(1),
         parent_root: get_hash(0),
-        justified_epoch: Epoch::new(0),
-        finalized_epoch: Epoch::new(0),
+        justified_checkpoint: get_checkpoint(0),
+        finalized_checkpoint: get_checkpoint(0),
     });
     ops.push(Operation::ProcessBlock {
         slot: Slot::new(2),
         root: get_hash(2),
         parent_root: get_hash(1),
-        justified_epoch: Epoch::new(1),
-        finalized_epoch: Epoch::new(0),
+        justified_checkpoint: get_checkpoint(1),
+        finalized_checkpoint: get_checkpoint(0),
     });
     ops.push(Operation::ProcessBlock {
         slot: Slot::new(3),
         root: get_hash(3),
         parent_root: get_hash(2),
-        justified_epoch: Epoch::new(2),
-        finalized_epoch: Epoch::new(1),
+        justified_checkpoint: get_checkpoint(2),
+        finalized_checkpoint: get_checkpoint(1),
     });
 
     // Ensure that with justified epoch 0 we find 3
@@ -54,9 +53,8 @@ pub fn get_ffg_case_01_test_definition() -> ForkChoiceTestDefinition {
     //            |
     //            3 <- head
     ops.push(Operation::FindHead {
-        justified_epoch: Epoch::new(0),
-        justified_root: get_hash(0),
-        finalized_epoch: Epoch::new(0),
+        justified_checkpoint: get_checkpoint(0),
+        finalized_checkpoint: get_checkpoint(0),
         justified_state_balances: balances.clone(),
         expected_head: get_hash(3),
     });
@@ -71,9 +69,8 @@ pub fn get_ffg_case_01_test_definition() -> ForkChoiceTestDefinition {
     //            |
     //            3 <- head
     ops.push(Operation::FindHead {
-        justified_epoch: Epoch::new(1),
-        justified_root: get_hash(2),
-        finalized_epoch: Epoch::new(0),
+        justified_checkpoint: get_checkpoint(1),
+        finalized_checkpoint: get_checkpoint(0),
         justified_state_balances: balances.clone(),
         expected_head: get_hash(2),
     });
@@ -88,9 +85,8 @@ pub fn get_ffg_case_01_test_definition() -> ForkChoiceTestDefinition {
     //            |
     //            3 <- start + head
     ops.push(Operation::FindHead {
-        justified_epoch: Epoch::new(2),
-        justified_root: get_hash(3),
-        finalized_epoch: Epoch::new(1),
+        justified_checkpoint: get_checkpoint(2),
+        finalized_checkpoint: get_checkpoint(1),
         justified_state_balances: balances,
         expected_head: get_hash(3),
     });
@@ -98,9 +94,8 @@ pub fn get_ffg_case_01_test_definition() -> ForkChoiceTestDefinition {
     // END OF TESTS
     ForkChoiceTestDefinition {
         finalized_block_slot: Slot::new(0),
-        justified_epoch: Epoch::new(1),
-        finalized_epoch: Epoch::new(1),
-        finalized_root: get_hash(0),
+        justified_checkpoint: get_checkpoint(0),
+        finalized_checkpoint: get_checkpoint(0),
         operations: ops,
     }
 }
@@ -111,9 +106,8 @@ pub fn get_ffg_case_02_test_definition() -> ForkChoiceTestDefinition {
 
     // Ensure that the head starts at the finalized block.
     ops.push(Operation::FindHead {
-        justified_epoch: Epoch::new(1),
-        justified_root: get_hash(0),
-        finalized_epoch: Epoch::new(1),
+        justified_checkpoint: get_checkpoint(0),
+        finalized_checkpoint: get_checkpoint(0),
         justified_state_balances: balances.clone(),
         expected_head: get_hash(0),
     });
@@ -137,36 +131,48 @@ pub fn get_ffg_case_02_test_definition() -> ForkChoiceTestDefinition {
         slot: Slot::new(1),
         root: get_hash(1),
         parent_root: get_hash(0),
-        justified_epoch: Epoch::new(0),
-        finalized_epoch: Epoch::new(0),
+        justified_checkpoint: get_checkpoint(0),
+        finalized_checkpoint: get_checkpoint(0),
     });
     ops.push(Operation::ProcessBlock {
         slot: Slot::new(2),
         root: get_hash(3),
         parent_root: get_hash(1),
-        justified_epoch: Epoch::new(1),
-        finalized_epoch: Epoch::new(0),
+        justified_checkpoint: Checkpoint {
+            epoch: Epoch::new(1),
+            root: get_hash(1),
+        },
+        finalized_checkpoint: get_checkpoint(0),
     });
     ops.push(Operation::ProcessBlock {
         slot: Slot::new(3),
         root: get_hash(5),
         parent_root: get_hash(3),
-        justified_epoch: Epoch::new(1),
-        finalized_epoch: Epoch::new(0),
+        justified_checkpoint: Checkpoint {
+            epoch: Epoch::new(1),
+            root: get_hash(1),
+        },
+        finalized_checkpoint: get_checkpoint(0),
     });
     ops.push(Operation::ProcessBlock {
         slot: Slot::new(4),
         root: get_hash(7),
         parent_root: get_hash(5),
-        justified_epoch: Epoch::new(1),
-        finalized_epoch: Epoch::new(0),
+        justified_checkpoint: Checkpoint {
+            epoch: Epoch::new(1),
+            root: get_hash(1),
+        },
+        finalized_checkpoint: get_checkpoint(0),
     });
     ops.push(Operation::ProcessBlock {
-        slot: Slot::new(4),
+        slot: Slot::new(5),
         root: get_hash(9),
         parent_root: get_hash(7),
-        justified_epoch: Epoch::new(2),
-        finalized_epoch: Epoch::new(0),
+        justified_checkpoint: Checkpoint {
+            epoch: Epoch::new(2),
+            root: get_hash(3),
+        },
+        finalized_checkpoint: get_checkpoint(0),
     });
 
     //  Right branch
@@ -174,36 +180,42 @@ pub fn get_ffg_case_02_test_definition() -> ForkChoiceTestDefinition {
         slot: Slot::new(1),
         root: get_hash(2),
         parent_root: get_hash(0),
-        justified_epoch: Epoch::new(0),
-        finalized_epoch: Epoch::new(0),
+        justified_checkpoint: get_checkpoint(0),
+        finalized_checkpoint: get_checkpoint(0),
     });
     ops.push(Operation::ProcessBlock {
         slot: Slot::new(2),
         root: get_hash(4),
         parent_root: get_hash(2),
-        justified_epoch: Epoch::new(0),
-        finalized_epoch: Epoch::new(0),
+        justified_checkpoint: get_checkpoint(0),
+        finalized_checkpoint: get_checkpoint(0),
     });
     ops.push(Operation::ProcessBlock {
         slot: Slot::new(3),
         root: get_hash(6),
         parent_root: get_hash(4),
-        justified_epoch: Epoch::new(0),
-        finalized_epoch: Epoch::new(0),
+        justified_checkpoint: get_checkpoint(0),
+        finalized_checkpoint: get_checkpoint(0),
     });
     ops.push(Operation::ProcessBlock {
         slot: Slot::new(4),
         root: get_hash(8),
         parent_root: get_hash(6),
-        justified_epoch: Epoch::new(1),
-        finalized_epoch: Epoch::new(0),
+        justified_checkpoint: Checkpoint {
+            epoch: Epoch::new(1),
+            root: get_hash(2),
+        },
+        finalized_checkpoint: get_checkpoint(0),
     });
     ops.push(Operation::ProcessBlock {
-        slot: Slot::new(4),
+        slot: Slot::new(5),
         root: get_hash(10),
         parent_root: get_hash(8),
-        justified_epoch: Epoch::new(2),
-        finalized_epoch: Epoch::new(0),
+        justified_checkpoint: Checkpoint {
+            epoch: Epoch::new(2),
+            root: get_hash(4),
+        },
+        finalized_checkpoint: get_checkpoint(0),
     });
 
     // Ensure that if we start at 0 we find 10 (just: 0, fin: 0).
@@ -220,25 +232,28 @@ pub fn get_ffg_case_02_test_definition() -> ForkChoiceTestDefinition {
     //         |   |
     //         9  10 <-- head
     ops.push(Operation::FindHead {
-        justified_epoch: Epoch::new(0),
-        justified_root: get_hash(0),
-        finalized_epoch: Epoch::new(0),
+        justified_checkpoint: get_checkpoint(0),
+        finalized_checkpoint: get_checkpoint(0),
         justified_state_balances: balances.clone(),
         expected_head: get_hash(10),
     });
     // Same as above, but with justified epoch 2.
     ops.push(Operation::FindHead {
-        justified_epoch: Epoch::new(2),
-        justified_root: get_hash(0),
-        finalized_epoch: Epoch::new(0),
+        justified_checkpoint: Checkpoint {
+            epoch: Epoch::new(2),
+            root: get_hash(4),
+        },
+        finalized_checkpoint: get_checkpoint(0),
         justified_state_balances: balances.clone(),
         expected_head: get_hash(10),
     });
     // Same as above, but with justified epoch 3 (should be invalid).
     ops.push(Operation::InvalidFindHead {
-        justified_epoch: Epoch::new(3),
-        justified_root: get_hash(0),
-        finalized_epoch: Epoch::new(0),
+        justified_checkpoint: Checkpoint {
+            epoch: Epoch::new(3),
+            root: get_hash(6),
+        },
+        finalized_checkpoint: get_checkpoint(0),
         justified_state_balances: balances.clone(),
     });
 
@@ -275,25 +290,28 @@ pub fn get_ffg_case_02_test_definition() -> ForkChoiceTestDefinition {
     //         |   |
     // head -> 9  10
     ops.push(Operation::FindHead {
-        justified_epoch: Epoch::new(0),
-        justified_root: get_hash(0),
-        finalized_epoch: Epoch::new(0),
+        justified_checkpoint: get_checkpoint(0),
+        finalized_checkpoint: get_checkpoint(0),
         justified_state_balances: balances.clone(),
         expected_head: get_hash(9),
     });
     // Save as above but justified epoch 2.
     ops.push(Operation::FindHead {
-        justified_epoch: Epoch::new(2),
-        justified_root: get_hash(0),
-        finalized_epoch: Epoch::new(0),
+        justified_checkpoint: Checkpoint {
+            epoch: Epoch::new(2),
+            root: get_hash(3),
+        },
+        finalized_checkpoint: get_checkpoint(0),
         justified_state_balances: balances.clone(),
         expected_head: get_hash(9),
     });
     // Save as above but justified epoch 3 (should fail).
     ops.push(Operation::InvalidFindHead {
-        justified_epoch: Epoch::new(3),
-        justified_root: get_hash(0),
-        finalized_epoch: Epoch::new(0),
+        justified_checkpoint: Checkpoint {
+            epoch: Epoch::new(3),
+            root: get_hash(5),
+        },
+        finalized_checkpoint: get_checkpoint(0),
         justified_state_balances: balances.clone(),
     });
 
@@ -330,25 +348,28 @@ pub fn get_ffg_case_02_test_definition() -> ForkChoiceTestDefinition {
     //         |   |
     //         9  10 <-- head
     ops.push(Operation::FindHead {
-        justified_epoch: Epoch::new(0),
-        justified_root: get_hash(0),
-        finalized_epoch: Epoch::new(0),
+        justified_checkpoint: get_checkpoint(0),
+        finalized_checkpoint: get_checkpoint(0),
         justified_state_balances: balances.clone(),
         expected_head: get_hash(10),
     });
     // Same as above but justified epoch 2.
     ops.push(Operation::FindHead {
-        justified_epoch: Epoch::new(2),
-        justified_root: get_hash(0),
-        finalized_epoch: Epoch::new(0),
+        justified_checkpoint: Checkpoint {
+            epoch: Epoch::new(2),
+            root: get_hash(4),
+        },
+        finalized_checkpoint: get_checkpoint(0),
         justified_state_balances: balances.clone(),
         expected_head: get_hash(10),
     });
     // Same as above but justified epoch 3 (should fail).
     ops.push(Operation::InvalidFindHead {
-        justified_epoch: Epoch::new(3),
-        justified_root: get_hash(0),
-        finalized_epoch: Epoch::new(0),
+        justified_checkpoint: Checkpoint {
+            epoch: Epoch::new(3),
+            root: get_hash(6),
+        },
+        finalized_checkpoint: get_checkpoint(0),
         justified_state_balances: balances.clone(),
     });
 
@@ -366,25 +387,31 @@ pub fn get_ffg_case_02_test_definition() -> ForkChoiceTestDefinition {
     //          |   |
     //  head -> 9  10
     ops.push(Operation::FindHead {
-        justified_epoch: Epoch::new(0),
-        justified_root: get_hash(1),
-        finalized_epoch: Epoch::new(0),
+        justified_checkpoint: Checkpoint {
+            epoch: Epoch::new(0),
+            root: get_hash(1),
+        },
+        finalized_checkpoint: get_checkpoint(0),
         justified_state_balances: balances.clone(),
         expected_head: get_hash(9),
     });
     // Same as above but justified epoch 2.
     ops.push(Operation::FindHead {
-        justified_epoch: Epoch::new(2),
-        justified_root: get_hash(1),
-        finalized_epoch: Epoch::new(0),
+        justified_checkpoint: Checkpoint {
+            epoch: Epoch::new(2),
+            root: get_hash(3),
+        },
+        finalized_checkpoint: get_checkpoint(0),
         justified_state_balances: balances.clone(),
         expected_head: get_hash(9),
     });
     // Same as above but justified epoch 3 (should fail).
     ops.push(Operation::InvalidFindHead {
-        justified_epoch: Epoch::new(3),
-        justified_root: get_hash(1),
-        finalized_epoch: Epoch::new(0),
+        justified_checkpoint: Checkpoint {
+            epoch: Epoch::new(3),
+            root: get_hash(5),
+        },
+        finalized_checkpoint: get_checkpoint(0),
         justified_state_balances: balances.clone(),
     });
 
@@ -402,34 +429,36 @@ pub fn get_ffg_case_02_test_definition() -> ForkChoiceTestDefinition {
     //          |   |
     //          9  10 <- head
     ops.push(Operation::FindHead {
-        justified_epoch: Epoch::new(0),
-        justified_root: get_hash(2),
-        finalized_epoch: Epoch::new(0),
+        justified_checkpoint: get_checkpoint(0),
+        finalized_checkpoint: get_checkpoint(0),
         justified_state_balances: balances.clone(),
         expected_head: get_hash(10),
     });
     // Same as above but justified epoch 2.
     ops.push(Operation::FindHead {
-        justified_epoch: Epoch::new(2),
-        justified_root: get_hash(2),
-        finalized_epoch: Epoch::new(0),
+        justified_checkpoint: Checkpoint {
+            epoch: Epoch::new(2),
+            root: get_hash(4),
+        },
+        finalized_checkpoint: get_checkpoint(0),
         justified_state_balances: balances.clone(),
         expected_head: get_hash(10),
     });
     // Same as above but justified epoch 3 (should fail).
     ops.push(Operation::InvalidFindHead {
-        justified_epoch: Epoch::new(3),
-        justified_root: get_hash(2),
-        finalized_epoch: Epoch::new(0),
+        justified_checkpoint: Checkpoint {
+            epoch: Epoch::new(3),
+            root: get_hash(6),
+        },
+        finalized_checkpoint: get_checkpoint(0),
         justified_state_balances: balances,
     });
 
     // END OF TESTS
     ForkChoiceTestDefinition {
         finalized_block_slot: Slot::new(0),
-        justified_epoch: Epoch::new(1),
-        finalized_epoch: Epoch::new(1),
-        finalized_root: get_hash(0),
+        justified_checkpoint: get_checkpoint(0),
+        finalized_checkpoint: get_checkpoint(0),
         operations: ops,
     }
 }

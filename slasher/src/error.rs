@@ -1,10 +1,10 @@
-use crate::Config;
+use crate::config::{Config, DiskConfig};
 use std::io;
-use types::{Epoch, Hash256};
+use types::Epoch;
 
 #[derive(Debug)]
 pub enum Error {
-    DatabaseError(lmdb::Error),
+    DatabaseError(mdbx::Error),
     DatabaseIOError(io::Error),
     DatabasePermissionsError(filesystem::Error),
     SszDecodeError(ssz::DecodeError),
@@ -19,12 +19,16 @@ pub enum Error {
         chunk_size: usize,
         history_length: usize,
     },
+    ConfigInvalidHistoryLength {
+        history_length: usize,
+        max_history_length: usize,
+    },
     ConfigInvalidZeroParameter {
         config: Config,
     },
     ConfigIncompatible {
-        on_disk_config: Config,
-        config: Config,
+        on_disk_config: DiskConfig,
+        config: DiskConfig,
     },
     ConfigMissing,
     DistanceTooLarge,
@@ -43,22 +47,26 @@ pub enum Error {
     ProposerKeyCorrupt {
         length: usize,
     },
-    IndexedAttestationKeyCorrupt {
+    IndexedAttestationIdKeyCorrupt {
+        length: usize,
+    },
+    IndexedAttestationIdCorrupt {
         length: usize,
     },
     MissingIndexedAttestation {
-        root: Hash256,
+        id: u64,
     },
     MissingAttesterKey,
     MissingProposerKey,
-    MissingIndexedAttestationKey,
-    AttesterRecordInconsistentRoot,
+    MissingIndexedAttestationId,
+    MissingIndexedAttestationIdKey,
+    InconsistentAttestationDataRoot,
 }
 
-impl From<lmdb::Error> for Error {
-    fn from(e: lmdb::Error) -> Self {
+impl From<mdbx::Error> for Error {
+    fn from(e: mdbx::Error) -> Self {
         match e {
-            lmdb::Error::Other(os_error) => Error::from(io::Error::from_raw_os_error(os_error)),
+            mdbx::Error::Other(os_error) => Error::from(io::Error::from_raw_os_error(os_error)),
             _ => Error::DatabaseError(e),
         }
     }

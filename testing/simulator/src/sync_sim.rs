@@ -3,7 +3,8 @@ use crate::local_network::LocalNetwork;
 use clap::ArgMatches;
 use futures::prelude::*;
 use node_test_rig::{
-    environment::EnvironmentBuilder, testing_client_config, ClientGenesis, ValidatorFiles,
+    environment::{EnvironmentBuilder, LoggerConfig},
+    testing_client_config, ClientGenesis, ValidatorFiles,
 };
 use node_test_rig::{testing_validator_config, ClientConfig};
 use std::cmp::max;
@@ -45,7 +46,15 @@ fn syncing_sim(
     log_format: Option<&str>,
 ) -> Result<(), String> {
     let mut env = EnvironmentBuilder::minimal()
-        .async_logger(log_level, log_format)?
+        .initialize_logger(LoggerConfig {
+            path: None,
+            debug_level: log_level,
+            logfile_debug_level: "debug",
+            log_format,
+            max_log_size: 0,
+            max_log_number: 0,
+            compression: false,
+        })?
         .multi_threaded_tokio_runtime()?
         .build()?;
 

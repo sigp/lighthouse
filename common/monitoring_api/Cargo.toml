@@ -9,7 +9,7 @@ edition = "2018"
 [dependencies]
 reqwest = { version = "0.11.0", features = ["json","stream"] }
 task_executor = { path = "../task_executor" }
-tokio = "1.10.0"
+tokio = "1.14.0"
 eth2 = {path = "../eth2"}
 serde_json = "1.0.58"
 serde = "1.0.116"

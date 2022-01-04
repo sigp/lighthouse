@@ -29,6 +29,7 @@ use types::{EthSpec, ForkContext};
 pub struct OutboundRequestContainer<TSpec: EthSpec> {
     pub req: OutboundRequest<TSpec>,
     pub fork_context: Arc<ForkContext>,
+    pub max_rpc_size: usize,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -150,7 +151,7 @@ where
             Encoding::SSZSnappy => {
                 let ssz_snappy_codec = BaseOutboundCodec::new(SSZSnappyOutboundCodec::new(
                     protocol,
-                    usize::max_value(),
+                    self.max_rpc_size,
                     self.fork_context.clone(),
                 ));
                 OutboundCodec::SSZSnappy(ssz_snappy_codec)

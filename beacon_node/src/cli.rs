@@ -239,6 +239,13 @@ pub fn cli_app<'a>() -> App<'a> {
                     over TLS. Must not be password-protected.")
                 .takes_value(true)
         )
+        .arg(
+            Arg::with_name("http-allow-sync-stalled")
+                .long("http-allow-sync-stalled")
+                .help("Forces the HTTP to indicate that the node is synced when sync is actually \
+                    stalled. This is useful for very small testnets. TESTING ONLY. DO NOT USE ON \
+                    MAINNET.")
+        )
         /* Prometheus metrics HTTP server related arguments */
         .arg(
             Arg::new("metrics")
@@ -370,6 +377,36 @@ pub fn cli_app<'a>() -> App<'a> {
                 .help("Specifies how many blocks the database should cache in memory [default: 5]")
                 .takes_value(true)
         )
+        /*
+         * Execution Layer Integration
+         */
+        .arg(
+            Arg::with_name("merge")
+                .long("merge")
+                .help("Enable the features necessary to run merge testnets. This feature \
+                       is unstable and is for developers only.")
+                .takes_value(false),
+        )
+        .arg(
+            Arg::with_name("execution-endpoints")
+                .long("execution-endpoints")
+                .value_name("EXECUTION-ENDPOINTS")
+                .help("One or more comma-delimited server endpoints for HTTP JSON-RPC connection. \
+                       If multiple endpoints are given the endpoints are used as fallback in the \
+                       given order. Also enables the --merge flag. \
+                       If this flag is omitted and the --eth1-endpoints is supplied, those values \
+                       will be used. Defaults to http://127.0.0.1:8545.")
+                .takes_value(true)
+        )
+        .arg(
+            Arg::with_name("fee-recipient")
+                .long("fee-recipient")
+                .help("Once the merge has happened, this address will receive transaction fees \
+                       collected from any blocks produced by this node. Defaults to a junk \
+                       address whilst the merge is in development stages. THE DEFAULT VALUE \
+                       WILL BE REMOVED BEFORE THE MERGE ENTERS PRODUCTION")
+                .requires("merge")
+        )
 
         /*
          * Database purging and compaction.
@@ -477,9 +514,17 @@ pub fn cli_app<'a>() -> App<'a> {
             Arg::new("slasher-max-db-size")
                 .long("slasher-max-db-size")
                 .help(
-                    "Maximum size of the LMDB database used by the slasher."
+                    "Maximum size of the MDBX database used by the slasher."
                 )
                 .value_name("GIGABYTES")
+                .requires("slasher")
+                .takes_value(true)
+        )
+        .arg(
+            Arg::with_name("slasher-att-cache-size")
+                .long("slasher-att-cache-size")
+                .help("Set the maximum number of attestation roots for the slasher to cache")
+                .value_name("COUNT")
                 .requires("slasher")
                 .takes_value(true)
         )

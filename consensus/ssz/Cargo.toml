@@ -1,6 +1,6 @@
 [package]
 name = "eth2_ssz"
-version = "0.4.0"
+version = "0.4.1"
 authors = ["Paul Hauner <paul@sigmaprime.io>"]
 edition = "2018"
 description = "SimpleSerialize (SSZ) as used in Ethereum 2.0"

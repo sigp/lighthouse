@@ -91,7 +91,7 @@ pub struct QueuedAggregate<T: EthSpec> {
 /// A block that arrived early and has been queued for later import.
 pub struct QueuedBlock<T: BeaconChainTypes> {
     pub peer_id: PeerId,
-    pub block: GossipVerifiedBlock<T>,
+    pub block: Box<GossipVerifiedBlock<T>>,
     pub seen_timestamp: Duration,
 }
 

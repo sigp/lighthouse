@@ -20,7 +20,7 @@ spec-minimal = []
 [dependencies]
 beacon_node = { "path" = "../beacon_node" }
 slog = { version = "2.5.2", features = ["max_level_trace"] }
-sloggers = "2.0.2"
+sloggers = { version = "2.1.1", features = ["json"] }
 types = { "path" = "../consensus/types" }
 bls = { path = "../crypto/bls" }
 eth2_hashing = "0.2.0"
@@ -41,6 +41,7 @@ serde = { version = "1.0.116", features = ["derive"] }
 serde_json = "1.0.59"
 task_executor = { path = "../common/task_executor" }
 malloc_utils = { path = "../common/malloc_utils" }
+directory = { path = "../common/directory" }
 
 [dev-dependencies]
 tempfile = "3.1.0"

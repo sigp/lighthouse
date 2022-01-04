@@ -18,6 +18,14 @@ lazy_static! {
         "beacon_block_processing_successes_total",
         "Count of blocks processed without error"
     );
+    pub static ref BLOCK_PROCESSING_SNAPSHOT_CACHE_MISSES: Result<IntCounter> = try_create_int_counter(
+        "beacon_block_processing_snapshot_cache_misses",
+        "Count of snapshot cache misses"
+    );
+    pub static ref BLOCK_PROCESSING_SNAPSHOT_CACHE_CLONES: Result<IntCounter> = try_create_int_counter(
+        "beacon_block_processing_snapshot_cache_clones",
+        "Count of snapshot cache clones"
+    );
     pub static ref BLOCK_PROCESSING_TIMES: Result<Histogram> =
         try_create_histogram("beacon_block_processing_seconds", "Full runtime of block processing");
     pub static ref BLOCK_PROCESSING_BLOCK_ROOT: Result<Histogram> = try_create_histogram(
@@ -105,6 +113,11 @@ lazy_static! {
     pub static ref OPERATIONS_PER_BLOCK_ATTESTATION: Result<Histogram> = try_create_histogram(
         "beacon_operations_per_block_attestation_total",
         "Number of attestations in a block"
+    );
+
+    pub static ref BLOCK_SIZE: Result<Histogram> = try_create_histogram(
+        "beacon_block_total_size",
+        "Size of a signed beacon block"
     );
 
     /*
