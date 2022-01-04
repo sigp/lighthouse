@@ -24,7 +24,7 @@ sloggers = "2.0.2"
 types = { "path" = "../consensus/types" }
 bls = { path = "../crypto/bls" }
 eth2_hashing = "0.2.0"
-clap = "3.0.0-beta.5"
+clap = "3.0.1"
 env_logger = "0.9.0"
 environment = { path = "./environment" }
 boot_node = { path = "../boot_node" }
