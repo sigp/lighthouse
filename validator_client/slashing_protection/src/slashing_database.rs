@@ -648,29 +648,17 @@ impl SlashingDatabase {
         // Summary of minimum and maximum messages pre-import.
         let prev_summary = self.validator_summary(pubkey, txn)?;
 
-        // If the interchange contains a new maximum slot block, import it.
+        // If the interchange contains any blocks, update the database with the new max slot.
         let max_block = record.signed_blocks.iter().max_by_key(|b| b.slot);
 
         if let Some(max_block) = max_block {
-            // Block is relevant if there are no previous blocks, or new block has slot greater than
-            // previous maximum.
-            if prev_summary
-                .max_block_slot
-                .map_or(true, |max_block_slot| max_block.slot > max_block_slot)
-            {
-                self.insert_block_proposal(
-                    txn,
-                    pubkey,
-                    max_block.slot,
-                    max_block
-                        .signing_root
-                        .map(SigningRoot::from)
-                        .unwrap_or_default(),
-                )?;
+            // Store new synthetic block with maximum slot and null signing root. Remove all other
+            // blocks.
+            let new_max_slot = max_or(prev_summary.max_block_slot, max_block.slot);
+            let signing_root = SigningRoot::default();
 
-                // Prune the database so that it contains *only* the new block.
-                self.prune_signed_blocks(&record.pubkey, max_block.slot, txn)?;
-            }
+            self.clear_signed_blocks(pubkey, txn)?;
+            self.insert_block_proposal(txn, pubkey, new_max_slot, signing_root)?;
         }
 
         // Find the attestations with max source and max target. Unless the input contains slashable
@@ -896,6 +884,23 @@ impl SlashingDatabase {
 
         txn.execute(
             "DELETE FROM signed_attestations WHERE validator_id = ?1",
+            params![validator_id],
+        )?;
+        Ok(())
+    }
+
+    /// Remove all blocks signed by a given `public_key`.
+    ///
+    /// Dangerous, should only be used immediately before inserting a new block in the same
+    /// transacation.
+    fn clear_signed_blocks(
+        &self,
+        public_key: &PublicKeyBytes,
+        txn: &Transaction,
+    ) -> Result<(), NotSafe> {
+        let validator_id = self.get_validator_id_in_txn(txn, public_key)?;
+        txn.execute(
+            "DELETE FROM signed_blocks WHERE validator_id = ?1",
             params![validator_id],
         )?;
         Ok(())

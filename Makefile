@@ -157,9 +157,10 @@ lint:
 make-ef-tests:
 	make -C $(EF_TESTS)
 
-# Verifies that state_processing feature arbitrary-fuzz will compile
+# Verifies that crates compile with fuzzing features enabled
 arbitrary-fuzz:
-	cargo check --manifest-path=consensus/state_processing/Cargo.toml --features arbitrary-fuzz
+	cargo check -p state_processing --features arbitrary-fuzz
+	cargo check -p slashing_protection --features arbitrary-fuzz
 
 # Runs cargo audit (Audit Cargo.lock files for crates with security vulnerabilities reported to the RustSec Advisory Database)
 audit:
