@@ -18,7 +18,7 @@ pub const MNEMONIC_FLAG: &str = "mnemonic-path";
 
 pub fn cli_app<'a>() -> App<'a> {
     App::new(CMD)
-        .about(
+        .help(
             "Recovers validator private keys given a BIP-39 mnemonic phrase. \
             If you did not specify a `--first-index` or count `--count`, by default this will \
             only recover the keys associated with the validator at index 0 for an HD wallet \
@@ -27,7 +27,7 @@ pub fn cli_app<'a>() -> App<'a> {
             Arg::new(FIRST_INDEX_FLAG)
                 .long(FIRST_INDEX_FLAG)
                 .value_name("FIRST_INDEX")
-                .about("The first of consecutive key indexes you wish to recover.")
+                .help("The first of consecutive key indexes you wish to recover.")
                 .takes_value(true)
                 .required(false)
                 .default_value("0"),
@@ -36,7 +36,7 @@ pub fn cli_app<'a>() -> App<'a> {
             Arg::new(COUNT_FLAG)
                 .long(COUNT_FLAG)
                 .value_name("COUNT")
-                .about("The number of validator keys you wish to recover. Counted consecutively from the provided `--first_index`.")
+                .help("The number of validator keys you wish to recover. Counted consecutively from the provided `--first_index`.")
                 .takes_value(true)
                 .required(false)
                 .default_value("1"),
@@ -45,7 +45,7 @@ pub fn cli_app<'a>() -> App<'a> {
             Arg::new(MNEMONIC_FLAG)
                 .long(MNEMONIC_FLAG)
                 .value_name("MNEMONIC_PATH")
-                .about(
+                .help(
                     "If present, the mnemonic will be read in from this file.",
                 )
                 .takes_value(true)
@@ -54,7 +54,7 @@ pub fn cli_app<'a>() -> App<'a> {
             Arg::new(SECRETS_DIR_FLAG)
                 .long(SECRETS_DIR_FLAG)
                 .value_name("SECRETS_DIR")
-                .about(
+                .help(
                     "The path where the validator keystore passwords will be stored. \
                     Defaults to ~/.lighthouse/{network}/secrets",
                 )
@@ -63,7 +63,7 @@ pub fn cli_app<'a>() -> App<'a> {
         .arg(
             Arg::new(STORE_WITHDRAW_FLAG)
                 .long(STORE_WITHDRAW_FLAG)
-                .about(
+                .help(
                     "If present, the withdrawal keystore will be stored alongside the voting \
                     keypair. It is generally recommended to *not* store the withdrawal key and \
                     instead generate them from the wallet seed when required.",
@@ -74,7 +74,7 @@ pub fn cli_app<'a>() -> App<'a> {
                 .takes_value(false)
                 .hidden(cfg!(windows))
                 .long(STDIN_INPUTS_FLAG)
-                .about("If present, read all user inputs from stdin instead of tty."),
+                .help("If present, read all user inputs from stdin instead of tty."),
         )
 }
 

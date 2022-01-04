@@ -12,39 +12,39 @@ pub const ALL: &str = "all";
 
 pub fn cli_app<'a>() -> App<'a> {
     App::new(CMD)
-        .about("Modify validator status in validator_definitions.yml.")
+        .help("Modify validator status in validator_definitions.yml.")
         .subcommand(
             App::new(ENABLE)
-                .about("Enable validator(s) in validator_definitions.yml.")
+                .help("Enable validator(s) in validator_definitions.yml.")
                 .arg(
                     Arg::new(PUBKEY_FLAG)
                         .long(PUBKEY_FLAG)
                         .value_name("PUBKEY")
-                        .about("Validator pubkey to enable")
+                        .help("Validator pubkey to enable")
                         .takes_value(true),
                 )
                 .arg(
                     Arg::new(ALL)
                         .long(ALL)
-                        .about("Enable all validators in the validator directory")
+                        .help("Enable all validators in the validator directory")
                         .takes_value(false)
                         .conflicts_with(PUBKEY_FLAG),
                 ),
         )
         .subcommand(
             App::new(DISABLE)
-                .about("Disable validator(s) in validator_definitions.yml.")
+                .help("Disable validator(s) in validator_definitions.yml.")
                 .arg(
                     Arg::new(PUBKEY_FLAG)
                         .long(PUBKEY_FLAG)
                         .value_name("PUBKEY")
-                        .about("Validator pubkey to disable")
+                        .help("Validator pubkey to disable")
                         .takes_value(true),
                 )
                 .arg(
                     Arg::new(ALL)
                         .long(ALL)
-                        .about("Disable all validators in the validator directory")
+                        .help("Disable all validators in the validator directory")
                         .takes_value(false)
                         .conflicts_with(PUBKEY_FLAG),
                 ),

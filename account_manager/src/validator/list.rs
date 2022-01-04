@@ -5,7 +5,7 @@ use std::path::PathBuf;
 pub const CMD: &str = "list";
 
 pub fn cli_app<'a>() -> App<'a> {
-    App::new(CMD).about("Lists the public keys of all validators.")
+    App::new(CMD).help("Lists the public keys of all validators.")
 }
 
 pub fn cli_run(validator_dir: PathBuf) -> Result<(), String> {

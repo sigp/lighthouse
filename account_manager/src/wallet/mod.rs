@@ -11,12 +11,12 @@ pub const CMD: &str = "wallet";
 
 pub fn cli_app<'a>() -> App<'a> {
     App::new(CMD)
-        .about("Manage wallets, from which validator keys can be derived.")
+        .help("Manage wallets, from which validator keys can be derived.")
         .arg(
             Arg::new(WALLETS_DIR_FLAG)
                 .long(WALLETS_DIR_FLAG)
                 .value_name("WALLETS_DIRECTORY")
-                .about("A path containing Eth2 EIP-2386 wallets. Defaults to ~/.lighthouse/{network}/wallets")
+                .help("A path containing Eth2 EIP-2386 wallets. Defaults to ~/.lighthouse/{network}/wallets")
                 .takes_value(true)
                 .conflicts_with("datadir"),
         )

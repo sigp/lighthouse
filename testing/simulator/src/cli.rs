@@ -4,10 +4,10 @@ pub fn cli_app<'a>() -> App<'a> {
     App::new("simulator")
         .version(crate_version!())
         .author("Sigma Prime <contact@sigmaprime.io>")
-        .about("Options for interacting with simulator")
+        .help("Options for interacting with simulator")
         .subcommand(
             App::new("eth1-sim")
-            .about(
+            .help(
                 "Lighthouse Beacon Chain Simulator creates `n` beacon node and validator clients, \
                     each with `v` validators. A deposit contract is deployed at the start of the \
                     simulation using a local `ganache-cli` instance (you must have `ganache-cli` \
@@ -23,63 +23,63 @@ pub fn cli_app<'a>() -> App<'a> {
                         .long("nodes")
                         .takes_value(true)
                         .default_value("4")
-                        .about("Number of beacon nodes"))
+                        .help("Number of beacon nodes"))
                     .arg(Arg::new("validators_per_node")
                         .short('v')
                         .long("validators_per_node")
                         .takes_value(true)
                         .default_value("20")
-                        .about("Number of validators"))
+                        .help("Number of validators"))
                     .arg(Arg::new("speed_up_factor")
                         .short('s')
                         .long("speed_up_factor")
                         .takes_value(true)
                         .default_value("3")
-                        .about("Speed up factor. Please use a divisor of 12."))
+                        .help("Speed up factor. Please use a divisor of 12."))
                     .arg(Arg::new("continue_after_checks")
                         .short('c')
                         .long("continue_after_checks")
                         .takes_value(false)
-                        .about("Continue after checks (default false)"))
+                        .help("Continue after checks (default false)"))
         )
         .subcommand(
             App::new("no-eth1-sim")
-            .about("Runs a simulator that bypasses the eth1 chain. Useful for faster testing of
+            .help("Runs a simulator that bypasses the eth1 chain. Useful for faster testing of
                 components that don't rely upon eth1")
                     .arg(Arg::new("nodes")
                         .short('n')
                         .long("nodes")
                         .takes_value(true)
                         .default_value("4")
-                        .about("Number of beacon nodes"))
+                        .help("Number of beacon nodes"))
                     .arg(Arg::new("validators_per_node")
                         .short('v')
                         .long("validators_per_node")
                         .takes_value(true)
                         .default_value("20")
-                        .about("Number of validators"))
+                        .help("Number of validators"))
                     .arg(Arg::new("speed_up_factor")
                         .short('s')
                         .long("speed_up_factor")
                         .takes_value(true)
                         .default_value("3")
-                        .about("Speed up factor"))
+                        .help("Speed up factor"))
                     .arg(Arg::new("continue_after_checks")
                         .short('c')
                         .long("continue_after_checks")
                         .takes_value(false)
-                        .about("Continue after checks (default false)"))
+                        .help("Continue after checks (default false)"))
         )
         .subcommand(
             App::new("syncing-sim")
-                .about("Run the syncing simulation")
+                .help("Run the syncing simulation")
                 .arg(
                     Arg::new("speedup")
                         .short('s')
                         .long("speedup")
                         .takes_value(true)
                         .default_value("15")
-                        .about("Speed up factor for eth1 blocks and slot production"),
+                        .help("Speed up factor for eth1 blocks and slot production"),
                 )
                 .arg(
                     Arg::new("initial_delay")
@@ -87,14 +87,14 @@ pub fn cli_app<'a>() -> App<'a> {
                         .long("initial_delay")
                         .takes_value(true)
                         .default_value("5")
-                        .about("Epoch delay for new beacon node to start syncing"),
+                        .help("Epoch delay for new beacon node to start syncing"),
                 )
                 .arg(
                     Arg::new("sync_timeout")
                         .long("sync_timeout")
                         .takes_value(true)
                         .default_value("10")
-                        .about("Number of epochs after which newly added beacon nodes must be synced"),
+                        .help("Number of epochs after which newly added beacon nodes must be synced"),
                 )
                 .arg(
                     Arg::new("strategy")
@@ -102,7 +102,7 @@ pub fn cli_app<'a>() -> App<'a> {
                         .takes_value(true)
                         .default_value("all")
                         .possible_values(&["one-node", "two-nodes", "mixed", "all"])
-                        .about("Sync verification strategy to run."),
+                        .help("Sync verification strategy to run."),
                 ),
         )
 }

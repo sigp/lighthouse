@@ -30,12 +30,12 @@ pub const PROMPT: &str = "WARNING: WITHDRAWING STAKED ETH IS NOT CURRENTLY POSSI
 
 pub fn cli_app<'a>() -> App<'a> {
     App::new("exit")
-        .about("Submits a VoluntaryExit to the beacon chain for a given validator keystore.")
+        .help("Submits a VoluntaryExit to the beacon chain for a given validator keystore.")
         .arg(
             Arg::new(KEYSTORE_FLAG)
                 .long(KEYSTORE_FLAG)
                 .value_name("KEYSTORE_PATH")
-                .about("The path to the EIP-2335 voting keystore for the validator")
+                .help("The path to the EIP-2335 voting keystore for the validator")
                 .takes_value(true)
                 .required(true),
         )
@@ -43,28 +43,28 @@ pub fn cli_app<'a>() -> App<'a> {
             Arg::new(PASSWORD_FILE_FLAG)
                 .long(PASSWORD_FILE_FLAG)
                 .value_name("PASSWORD_FILE_PATH")
-                .about("The path to the password file which unlocks the validator voting keystore")
+                .help("The path to the password file which unlocks the validator voting keystore")
                 .takes_value(true),
         )
         .arg(
             Arg::new(BEACON_SERVER_FLAG)
                 .long(BEACON_SERVER_FLAG)
                 .value_name("NETWORK_ADDRESS")
-                .about("Address to a beacon node HTTP API")
+                .help("Address to a beacon node HTTP API")
                 .default_value(DEFAULT_BEACON_NODE)
                 .takes_value(true),
         )
         .arg(
             Arg::new(NO_WAIT)
                 .long(NO_WAIT)
-                .about("Exits after publishing the voluntary exit without waiting for confirmation that the exit was included in the beacon chain")
+                .help("Exits after publishing the voluntary exit without waiting for confirmation that the exit was included in the beacon chain")
         )
         .arg(
             Arg::new(STDIN_INPUTS_FLAG)
                 .takes_value(false)
                 .hidden(cfg!(windows))
                 .long(STDIN_INPUTS_FLAG)
-                .about("If present, read all user inputs from stdin instead of tty."),
+                .help("If present, read all user inputs from stdin instead of tty."),
         )
 }
 

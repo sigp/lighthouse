@@ -17,12 +17,12 @@ pub const CMD: &str = "validator";
 
 pub fn cli_app<'a>() -> App<'a> {
     App::new(CMD)
-        .about("Provides commands for managing Eth2 validators.")
+        .help("Provides commands for managing Eth2 validators.")
         .arg(
             Arg::new(VALIDATOR_DIR_FLAG)
                 .long(VALIDATOR_DIR_FLAG)
                 .value_name("VALIDATOR_DIRECTORY")
-                .about(
+                .help(
                     "The path to search for validator directories. \
                     Defaults to ~/.lighthouse/{network}/validators",
                 )

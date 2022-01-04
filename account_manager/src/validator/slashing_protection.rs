@@ -21,22 +21,22 @@ pub const PUBKEYS_FLAG: &str = "pubkeys";
 
 pub fn cli_app<'a>() -> App<'a> {
     App::new(CMD)
-        .about("Import or export slashing protection data to or from another client")
+        .help("Import or export slashing protection data to or from another client")
         .subcommand(
             App::new(IMPORT_CMD)
-                .about("Import an interchange file")
+                .help("Import an interchange file")
                 .arg(
                     Arg::new(IMPORT_FILE_ARG)
                         .takes_value(true)
                         .value_name("FILE")
-                        .about("The slashing protection interchange file to import (.json)"),
+                        .help("The slashing protection interchange file to import (.json)"),
                 )
                 .arg(
                     Arg::new(MINIFY_FLAG)
                         .long(MINIFY_FLAG)
                         .takes_value(true)
                         .possible_values(&["false", "true"])
-                        .about(
+                        .help(
                             "Deprecated: Lighthouse no longer requires minification on import \
                              because it always minifies",
                         ),
@@ -44,19 +44,19 @@ pub fn cli_app<'a>() -> App<'a> {
         )
         .subcommand(
             App::new(EXPORT_CMD)
-                .about("Export an interchange file")
+                .help("Export an interchange file")
                 .arg(
                     Arg::new(EXPORT_FILE_ARG)
                         .takes_value(true)
                         .value_name("FILE")
-                        .about("The filename to export the interchange file to"),
+                        .help("The filename to export the interchange file to"),
                 )
                 .arg(
                     Arg::new(PUBKEYS_FLAG)
                         .long(PUBKEYS_FLAG)
                         .takes_value(true)
                         .value_name("PUBKEYS")
-                        .about(
+                        .help(
                             "List of public keys to export history for. Keys should be 0x-prefixed, \
                              comma-separated. All known keys will be exported if omitted",
                         ),
@@ -67,7 +67,7 @@ pub fn cli_app<'a>() -> App<'a> {
                         .takes_value(true)
                         .default_value("false")
                         .possible_values(&["false", "true"])
-                        .about(
+                        .help(
                             "Minify the output file. This will make it smaller and faster to \
                              import, but not faster to generate.",
                         ),

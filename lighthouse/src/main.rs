@@ -66,7 +66,7 @@ fn main() {
     let app = App::new("Lighthouse")
         .version(version.as_str())
         .author("Sigma Prime <contact@sigmaprime.io>")
-        .about(
+        .help(
             "Ethereum 2.0 client by Sigma Prime. Provides a full-featured beacon \
              node, a validator client and utilities for managing validator accounts.",
         )
@@ -76,7 +76,7 @@ fn main() {
         .arg(
         Arg::new(CONFIG_FILE_FLAG)
             .long(CONFIG_FILE_FLAG)
-            .about(
+            .help(
                 "The filepath to a YAML file with flag values. To override any options in \
                     the config file, specify the same option in the command line."
             )
@@ -87,7 +87,7 @@ fn main() {
                 .short('s')
                 .long(SPEC_FLAG)
                 .value_name("DEPRECATED")
-                .about("This flag is deprecated, it will be disallowed in a future release. This \
+                .help("This flag is deprecated, it will be disallowed in a future release. This \
                     value is now derived from the --network or --testnet-dir flags.")
                 .takes_value(true)
                 .global(true)
@@ -95,7 +95,7 @@ fn main() {
         .arg(
             Arg::new(ENV_LOG_FLAG)
                 .short('l')
-                .about("Enables environment logging giving access to sub-protocol logs such as discv5 and libp2p",
+                .help("Enables environment logging giving access to sub-protocol logs such as discv5 and libp2p",
                 )
                 .takes_value(false),
         )
@@ -103,7 +103,7 @@ fn main() {
             Arg::new(LOGFILE_FLAG)
                 .long(LOGFILE_FLAG)
                 .value_name("FILE")
-                .about(
+                .help(
                     "File path where output will be written.",
                 )
                 .takes_value(true),
@@ -112,7 +112,7 @@ fn main() {
             Arg::new(LOG_FORMAT_FLAG)
                 .long(LOG_FORMAT_FLAG)
                 .value_name("FORMAT")
-                .about("Specifies the format used for logging.")
+                .help("Specifies the format used for logging.")
                 .possible_values(&["JSON"])
                 .takes_value(true),
         )
@@ -120,7 +120,7 @@ fn main() {
             Arg::new(DEBUG_LEVEL_FLAG)
                 .long(DEBUG_LEVEL_FLAG)
                 .value_name("LEVEL")
-                .about("The verbosity level for emitting logs.")
+                .help("The verbosity level for emitting logs.")
                 .takes_value(true)
                 .possible_values(&["info", "debug", "trace", "warn", "error", "crit"])
                 .global(true)
@@ -132,7 +132,7 @@ fn main() {
                 .short('d')
                 .value_name("DIR")
                 .global(true)
-                .about(
+                .help(
                     "Used to specify a custom root data directory for lighthouse keys and databases. \
                     Defaults to $HOME/.lighthouse/{network} where network is the value of the `network` flag \
                     Note: Users should specify separate custom datadirs for different networks.")
@@ -143,7 +143,7 @@ fn main() {
                 .short('t')
                 .long(TESTNET_DIR_FLAG)
                 .value_name("DIR")
-                .about(
+                .help(
                     "Path to directory containing eth2_testnet specs. Defaults to \
                       a hard-coded Lighthouse testnet. Only effective if there is no \
                       existing database.",
@@ -155,7 +155,7 @@ fn main() {
             Arg::new(NETWORK_FLAG)
                 .long(NETWORK_FLAG)
                 .value_name("network")
-                .about("Name of the Eth2 chain Lighthouse will sync and follow.")
+                .help("Name of the Eth2 chain Lighthouse will sync and follow.")
                 .possible_values(HARDCODED_NET_NAMES)
                 .conflicts_with("testnet-dir")
                 .takes_value(true)
@@ -166,7 +166,7 @@ fn main() {
             Arg::new(DUMP_CONFIG_FLAG)
                 .long(DUMP_CONFIG_FLAG)
                 .hidden(true)
-                .about("Dumps the config to a desired location. Used for testing only.")
+                .help("Dumps the config to a desired location. Used for testing only.")
                 .takes_value(true)
                 .global(true)
         )
@@ -174,7 +174,7 @@ fn main() {
             Arg::new(IMMEDIATE_SHUTDOWN_FLAG)
                 .long(IMMEDIATE_SHUTDOWN_FLAG)
                 .hidden(true)
-                .about(
+                .help(
                     "Shuts down immediately after the Beacon Node or Validator has successfully launched. \
                     Used for testing only, DO NOT USE IN PRODUCTION.")
                 .global(true)
@@ -182,7 +182,7 @@ fn main() {
         .arg(
             Arg::new(DISABLE_MALLOC_TUNING_FLAG)
                 .long(DISABLE_MALLOC_TUNING_FLAG)
-                .about(
+                .help(
                     "If present, do not configure the system allocator. Providing this flag will \
                     generally increase memory usage, it should only be provided when debugging \
                     specific memory allocation issues."

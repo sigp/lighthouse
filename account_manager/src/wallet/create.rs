@@ -35,12 +35,12 @@ pub const RETYPE_PASSWORD_PROMPT: &str = "Please re-enter your wallet's new pass
 
 pub fn cli_app<'a>() -> App<'a> {
     App::new(CMD)
-        .about("Creates a new HD (hierarchical-deterministic) EIP-2386 wallet.")
+        .help("Creates a new HD (hierarchical-deterministic) EIP-2386 wallet.")
         .arg(
             Arg::new(NAME_FLAG)
                 .long(NAME_FLAG)
                 .value_name("WALLET_NAME")
-                .about(
+                .help(
                     "The wallet will be created with this name. It is not allowed to \
                             create two wallets with the same name for the same --base-dir.",
                 )
@@ -50,7 +50,7 @@ pub fn cli_app<'a>() -> App<'a> {
             Arg::new(PASSWORD_FLAG)
                 .long(PASSWORD_FLAG)
                 .value_name("WALLET_PASSWORD_PATH")
-                .about(
+                .help(
                     "A path to a file containing the password which will unlock the wallet. \
                     If the file does not exist, a random password will be generated and \
                     saved at that path. To avoid confusion, if the file does not already \
@@ -62,7 +62,7 @@ pub fn cli_app<'a>() -> App<'a> {
             Arg::new(TYPE_FLAG)
                 .long(TYPE_FLAG)
                 .value_name("WALLET_TYPE")
-                .about(
+                .help(
                     "The type of wallet to create. Only HD (hierarchical-deterministic) \
                             wallets are supported presently..",
                 )
@@ -74,7 +74,7 @@ pub fn cli_app<'a>() -> App<'a> {
             Arg::new(MNEMONIC_FLAG)
                 .long(MNEMONIC_FLAG)
                 .value_name("MNEMONIC_PATH")
-                .about(
+                .help(
                     "If present, the mnemonic will be saved to this file. DO NOT SHARE THE MNEMONIC.",
                 )
                 .takes_value(true)
@@ -84,13 +84,13 @@ pub fn cli_app<'a>() -> App<'a> {
                 .takes_value(false)
                 .hidden(cfg!(windows))
                 .long(STDIN_INPUTS_FLAG)
-                .about("If present, read all user inputs from stdin instead of tty."),
+                .help("If present, read all user inputs from stdin instead of tty."),
         )
         .arg(
             Arg::new(MNEMONIC_LENGTH_FLAG)
                 .long(MNEMONIC_LENGTH_FLAG)
                 .value_name("MNEMONIC_LENGTH")
-                .about("The number of words to use for the mnemonic phrase.")
+                .help("The number of words to use for the mnemonic phrase.")
                 .takes_value(true)
                 .validator(|len| {
                     match len.parse::<usize>().ok().and_then(|words| MnemonicType::for_word_count(words).ok()) {

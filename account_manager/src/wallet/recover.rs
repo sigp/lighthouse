@@ -9,12 +9,12 @@ pub const MNEMONIC_FLAG: &str = "mnemonic-path";
 
 pub fn cli_app<'a>() -> App<'a> {
     App::new(CMD)
-        .about("Recovers an EIP-2386 wallet from a given a BIP-39 mnemonic phrase.")
+        .help("Recovers an EIP-2386 wallet from a given a BIP-39 mnemonic phrase.")
         .arg(
             Arg::new(NAME_FLAG)
                 .long(NAME_FLAG)
                 .value_name("WALLET_NAME")
-                .about(
+                .help(
                     "The wallet will be created with this name. It is not allowed to \
                             create two wallets with the same name for the same --base-dir.",
                 )
@@ -24,7 +24,7 @@ pub fn cli_app<'a>() -> App<'a> {
             Arg::new(PASSWORD_FLAG)
                 .long(PASSWORD_FLAG)
                 .value_name("PASSWORD_FILE_PATH")
-                .about(
+                .help(
                     "This will be the new password for your recovered wallet. \
                     A path to a file containing the password which will unlock the wallet. \
                     If the file does not exist, a random password will be generated and \
@@ -37,14 +37,14 @@ pub fn cli_app<'a>() -> App<'a> {
             Arg::new(MNEMONIC_FLAG)
                 .long(MNEMONIC_FLAG)
                 .value_name("MNEMONIC_PATH")
-                .about("If present, the mnemonic will be read in from this file.")
+                .help("If present, the mnemonic will be read in from this file.")
                 .takes_value(true),
         )
         .arg(
             Arg::new(TYPE_FLAG)
                 .long(TYPE_FLAG)
                 .value_name("WALLET_TYPE")
-                .about(
+                .help(
                     "The type of wallet to create. Only HD (hierarchical-deterministic) \
                             wallets are supported presently..",
                 )
@@ -57,7 +57,7 @@ pub fn cli_app<'a>() -> App<'a> {
                 .takes_value(false)
                 .hidden(cfg!(windows))
                 .long(STDIN_INPUTS_FLAG)
-                .about("If present, read all user inputs from stdin instead of tty."),
+                .help("If present, read all user inputs from stdin instead of tty."),
         )
 }
 

@@ -3,7 +3,7 @@ use clap::{App, Arg};
 pub fn cli_app<'a>() -> App<'a> {
     App::new("validator_client")
         .visible_aliases(&["v", "vc", "validator"])
-        .about(
+        .help(
             "When connected to a beacon node, performs the duties of a staked \
                 validator (e.g., proposing blocks and attestations).",
         )
@@ -12,7 +12,7 @@ pub fn cli_app<'a>() -> App<'a> {
             Arg::new("beacon-node")
                 .long("beacon-node")
                 .value_name("NETWORK_ADDRESS")
-                .about("Deprecated. Use --beacon-nodes.")
+                .help("Deprecated. Use --beacon-nodes.")
                 .takes_value(true)
                 .conflicts_with("beacon-nodes"),
         )
@@ -20,7 +20,7 @@ pub fn cli_app<'a>() -> App<'a> {
             Arg::new("beacon-nodes")
                 .long("beacon-nodes")
                 .value_name("NETWORK_ADDRESSES")
-                .about("Comma-separated addresses to one or more beacon node HTTP APIs. \
+                .help("Comma-separated addresses to one or more beacon node HTTP APIs. \
                        Default is http://localhost:5052."
                 )
                 .takes_value(true),
@@ -30,7 +30,7 @@ pub fn cli_app<'a>() -> App<'a> {
             Arg::new("server")
                 .long("server")
                 .value_name("NETWORK_ADDRESS")
-                .about("Deprecated. Use --beacon-nodes.")
+                .help("Deprecated. Use --beacon-nodes.")
                 .takes_value(true)
                 .conflicts_with_all(&["beacon-node", "beacon-nodes"]),
         )
@@ -38,7 +38,7 @@ pub fn cli_app<'a>() -> App<'a> {
             Arg::new("validators-dir")
                 .long("validators-dir")
                 .value_name("VALIDATORS_DIR")
-                .about(
+                .help(
                     "The directory which contains the validator keystores, deposit data for \
                     each validator along with the common slashing protection database \
                     and the validator_definitions.yml"
@@ -50,7 +50,7 @@ pub fn cli_app<'a>() -> App<'a> {
             Arg::new("secrets-dir")
                 .long("secrets-dir")
                 .value_name("SECRETS_DIRECTORY")
-                .about(
+                .help(
                     "The directory which contains the password to unlock the validator \
                     voting keypairs. Each password should be contained in a file where the \
                     name is the 0x-prefixed hex representation of the validators voting public \
@@ -62,14 +62,14 @@ pub fn cli_app<'a>() -> App<'a> {
         .arg(
             Arg::new("delete-lockfiles")
             .long("delete-lockfiles")
-            .about(
+            .help(
                 "DEPRECATED. This flag does nothing and will be removed in a future release."
             )
         )
         .arg(
             Arg::new("init-slashing-protection")
                 .long("init-slashing-protection")
-                .about(
+                .help(
                     "If present, do not require the slashing protection database to exist before \
                      running. You SHOULD NOT use this flag unless you're certain that a new \
                      slashing protection database is required. Usually, your database \
@@ -80,7 +80,7 @@ pub fn cli_app<'a>() -> App<'a> {
         .arg(
             Arg::new("disable-auto-discover")
             .long("disable-auto-discover")
-            .about(
+            .help(
                 "If present, do not attempt to discover new validators in the validators-dir. Validators \
                 will need to be manually added to the validator_definitions.yml file."
             )
@@ -88,7 +88,7 @@ pub fn cli_app<'a>() -> App<'a> {
         .arg(
             Arg::new("allow-unsynced")
                 .long("allow-unsynced")
-                .about(
+                .help(
                     "If present, the validator client will still poll for duties if the beacon
                       node is not synced.",
                 ),
@@ -96,7 +96,7 @@ pub fn cli_app<'a>() -> App<'a> {
         .arg(
             Arg::new("use-long-timeouts")
                 .long("use-long-timeouts")
-                .about("If present, the validator client will use longer timeouts for requests \
+                .help("If present, the validator client will use longer timeouts for requests \
                         made to the beacon node. This flag is generally not recommended, \
                         longer timeouts can cause missed duties when fallbacks are used.")
         )
@@ -105,7 +105,7 @@ pub fn cli_app<'a>() -> App<'a> {
                 .long("beacon-nodes-tls-certs")
                 .value_name("CERTIFICATE-FILES")
                 .takes_value(true)
-                .about("Comma-separated paths to custom TLS certificates to use when connecting \
+                .help("Comma-separated paths to custom TLS certificates to use when connecting \
                         to a beacon node. These certificates must be in PEM format and are used \
                         in addition to the OS trust store. Commas must only be used as a \
                         delimiter, and must not be part of the certificate path.")
@@ -114,14 +114,14 @@ pub fn cli_app<'a>() -> App<'a> {
         .arg(
             Arg::new("graffiti")
                 .long("graffiti")
-                .about("Specify your custom graffiti to be included in blocks.")
+                .help("Specify your custom graffiti to be included in blocks.")
                 .value_name("GRAFFITI")
                 .takes_value(true)
         )
         .arg(
             Arg::new("graffiti-file")
                 .long("graffiti-file")
-                .about("Specify a graffiti file to load validator graffitis from.")
+                .help("Specify a graffiti file to load validator graffitis from.")
                 .value_name("GRAFFITI-FILE")
                 .takes_value(true)
                 .conflicts_with("graffiti")
@@ -130,7 +130,7 @@ pub fn cli_app<'a>() -> App<'a> {
         .arg(
             Arg::new("http")
                 .long("http")
-                .about("Enable the RESTful HTTP API server. Disabled by default.")
+                .help("Enable the RESTful HTTP API server. Disabled by default.")
                 .takes_value(false),
         )
         /*
@@ -144,7 +144,7 @@ pub fn cli_app<'a>() -> App<'a> {
              Arg::new("http-address")
                  .long("http-address")
                  .value_name("ADDRESS")
-                 .about("Set the address for the HTTP address. The HTTP server is not encrypted \
+                 .help("Set the address for the HTTP address. The HTTP server is not encrypted \
                         and therefore it is unsafe to publish on a public network. When this \
                         flag is used, it additionally requires the explicit use of the \
                         `--unencrypted-http-transport` flag to ensure the user is aware of the \
@@ -155,7 +155,7 @@ pub fn cli_app<'a>() -> App<'a> {
          .arg(
              Arg::new("unencrypted-http-transport")
                  .long("unencrypted-http-transport")
-                 .about("This is a safety flag to ensure that the user is aware that the http \
+                 .help("This is a safety flag to ensure that the user is aware that the http \
                         transport is unencrypted and using a custom HTTP address is unsafe.")
                  .requires("http-address"),
          )
@@ -163,7 +163,7 @@ pub fn cli_app<'a>() -> App<'a> {
             Arg::new("http-port")
                 .long("http-port")
                 .value_name("PORT")
-                .about("Set the listen TCP port for the RESTful HTTP API server.")
+                .help("Set the listen TCP port for the RESTful HTTP API server.")
                 .default_value("5062")
                 .takes_value(true),
         )
@@ -171,7 +171,7 @@ pub fn cli_app<'a>() -> App<'a> {
             Arg::new("http-allow-origin")
                 .long("http-allow-origin")
                 .value_name("ORIGIN")
-                .about("Set the value of the Access-Control-Allow-Origin response HTTP header. \
+                .help("Set the value of the Access-Control-Allow-Origin response HTTP header. \
                     Use * to allow any origin (not recommended in production). \
                     If no value is supplied, the CORS allowed origin is set to the listen \
                     address of this server (e.g., http://localhost:5062).")
@@ -181,14 +181,14 @@ pub fn cli_app<'a>() -> App<'a> {
         .arg(
             Arg::new("metrics")
                 .long("metrics")
-                .about("Enable the Prometheus metrics HTTP server. Disabled by default.")
+                .help("Enable the Prometheus metrics HTTP server. Disabled by default.")
                 .takes_value(false),
         )
         .arg(
             Arg::new("metrics-address")
                 .long("metrics-address")
                 .value_name("ADDRESS")
-                .about("Set the listen address for the Prometheus metrics HTTP server.")
+                .help("Set the listen address for the Prometheus metrics HTTP server.")
                 .default_value("127.0.0.1")
                 .takes_value(true),
         )
@@ -196,7 +196,7 @@ pub fn cli_app<'a>() -> App<'a> {
             Arg::new("metrics-port")
                 .long("metrics-port")
                 .value_name("PORT")
-                .about("Set the listen TCP port for the Prometheus metrics HTTP server.")
+                .help("Set the listen TCP port for the Prometheus metrics HTTP server.")
                 .default_value("5064")
                 .takes_value(true),
         )
@@ -204,7 +204,7 @@ pub fn cli_app<'a>() -> App<'a> {
             Arg::new("metrics-allow-origin")
                 .long("metrics-allow-origin")
                 .value_name("ORIGIN")
-                .about("Set the value of the Access-Control-Allow-Origin response HTTP header. \
+                .help("Set the value of the Access-Control-Allow-Origin response HTTP header. \
                     Use * to allow any origin (not recommended in production). \
                     If no value is supplied, the CORS allowed origin is set to the listen \
                     address of this server (e.g., http://localhost:5064).")
@@ -217,7 +217,7 @@ pub fn cli_app<'a>() -> App<'a> {
             Arg::new("monitoring-endpoint")
                 .long("monitoring-endpoint")
                 .value_name("ADDRESS")
-                .about("Enables the monitoring service for sending system metrics to a remote endpoint. \
+                .help("Enables the monitoring service for sending system metrics to a remote endpoint. \
                 This can be used to monitor your setup on certain services (e.g. beaconcha.in). \
                 This flag sets the endpoint where the beacon node metrics will be sent. \
                 Note: This will send information to a remote sever which may identify and associate your \
@@ -229,7 +229,7 @@ pub fn cli_app<'a>() -> App<'a> {
             Arg::new("enable-doppelganger-protection")
                 .long("enable-doppelganger-protection")
                 .value_name("ENABLE_DOPPELGANGER_PROTECTION")
-                .about("If this flag is set, Lighthouse will delay startup for three epochs and \
+                .help("If this flag is set, Lighthouse will delay startup for three epochs and \
                     monitor for messages on the network by any of the validators managed by this \
                     client. This will result in three (possibly four) epochs worth of missed \
                     attestations. If an attestation is detected during this period, it means it is \
