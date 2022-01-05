@@ -6,7 +6,7 @@ pub fn cli_app<'a>(file_args: Option<&'a HashMap<&'a str, &'a str>>) -> App<'a> 
     App::new("beacon_node", file_args)
         .visible_aliases(&["b", "bn", "beacon"])
         .author("Sigma Prime <contact@sigmaprime.io>")
-        .override_help("The primary component which connects to the Ethereum 2.0 P2P network and \
+        .about("The primary component which connects to the Ethereum 2.0 P2P network and \
                 downloads, verifies and stores blocks. Provides a HTTP API for querying \
                 the beacon chain and publishing messages to the network.")
         /*

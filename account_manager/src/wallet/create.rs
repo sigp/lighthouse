@@ -35,7 +35,7 @@ pub const RETYPE_PASSWORD_PROMPT: &str = "Please re-enter your wallet's new pass
 
 pub fn cli_app<'a>() -> App<'a> {
     App::new(CMD)
-        .override_help("Creates a new HD (hierarchical-deterministic) EIP-2386 wallet.")
+        .about("Creates a new HD (hierarchical-deterministic) EIP-2386 wallet.")
         .arg(
             Arg::new(NAME_FLAG)
                 .long(NAME_FLAG)

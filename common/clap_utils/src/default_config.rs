@@ -34,8 +34,8 @@ impl<'a> DefaultConfigApp<'a> {
         self
     }
 
-    pub fn override_help<S: Into<&'a str>>(mut self, help: S) -> Self {
-        self.app = self.app.override_help(help);
+    pub fn about<O: Into<Option<&'a str>>>(mut self, about: O) -> Self {
+        self.app = self.app.about(about);
         self
     }
 

@@ -9,7 +9,7 @@ pub const MNEMONIC_FLAG: &str = "mnemonic-path";
 
 pub fn cli_app<'a>() -> App<'a> {
     App::new(CMD)
-        .override_help("Recovers an EIP-2386 wallet from a given a BIP-39 mnemonic phrase.")
+        .about("Recovers an EIP-2386 wallet from a given a BIP-39 mnemonic phrase.")
         .arg(
             Arg::new(NAME_FLAG)
                 .long(NAME_FLAG)

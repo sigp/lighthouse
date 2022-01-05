@@ -6,7 +6,7 @@ use std::path::PathBuf;
 pub const CMD: &str = "list";
 
 pub fn cli_app<'a>() -> App<'a> {
-    App::new(CMD).override_help("Lists the names of all wallets.")
+    App::new(CMD).about("Lists the names of all wallets.")
 }
 
 pub fn cli_run(wallet_base_dir: PathBuf) -> Result<(), String> {

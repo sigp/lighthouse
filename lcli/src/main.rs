@@ -30,7 +30,7 @@ fn main() {
 
     let matches = App::new("Lighthouse CLI Tool")
         .version(lighthouse_version::VERSION)
-        .override_help("Performs various testing-related tasks, including defining testnets.")
+        .about("Performs various testing-related tasks, including defining testnets.")
         .arg(
             Arg::new("spec")
                 .short('s')
@@ -53,7 +53,7 @@ fn main() {
         )
         .subcommand(
             App::new("skip-slots")
-                .override_help(
+                .about(
                     "Performs a state transition from some state across some number of skip slots",
                 )
                 .arg(
@@ -81,7 +81,7 @@ fn main() {
         )
         .subcommand(
             App::new("transition-blocks")
-                .override_help("Performs a state transition given a pre-state and block")
+                .about("Performs a state transition given a pre-state and block")
                 .arg(
                     Arg::new("pre-state")
                         .value_name("BEACON_STATE")
@@ -107,7 +107,7 @@ fn main() {
         )
         .subcommand(
             App::new("pretty-ssz")
-                .override_help("Parses SSZ-encoded data from a file")
+                .about("Parses SSZ-encoded data from a file")
                 .arg(
                     Arg::new("format")
                         .short('f')
@@ -136,7 +136,7 @@ fn main() {
         )
         .subcommand(
             App::new("deploy-deposit-contract")
-                .override_help(
+                .about(
                     "Deploy a testing eth1 deposit contract.",
                 )
                 .arg(
@@ -168,7 +168,7 @@ fn main() {
         )
         .subcommand(
             App::new("eth1-genesis")
-                .override_help("Listens to the eth1 chain and finds the genesis beacon state")
+                .about("Listens to the eth1 chain and finds the genesis beacon state")
                 .arg(
                     Arg::new("eth1-endpoint")
                         .short('e')
@@ -192,7 +192,7 @@ fn main() {
         )
         .subcommand(
             App::new("interop-genesis")
-                .override_help("Produces an interop-compatible genesis state using deterministic keypairs")
+                .about("Produces an interop-compatible genesis state using deterministic keypairs")
                 .arg(
                     Arg::new("validator-count")
                         .long("validator-count")
@@ -223,7 +223,7 @@ fn main() {
         )
         .subcommand(
             App::new("change-genesis-time")
-                .override_help(
+                .about(
                     "Loads a file with an SSZ-encoded BeaconState and modifies the genesis time.",
                 )
                 .arg(
@@ -245,7 +245,7 @@ fn main() {
         )
         .subcommand(
             App::new("replace-state-pubkeys")
-                .override_help(
+                .about(
                     "Loads a file with an SSZ-encoded BeaconState and replaces \
                     all the validator pubkeys with ones derived from the mnemonic \
                     such that validator indices correspond to EIP-2334 voting keypair \
@@ -325,7 +325,7 @@ fn main() {
         )
         .subcommand(
             App::new("new-testnet")
-                .override_help(
+                .about(
                     "Produce a new testnet directory. If any of the optional flags are not
                     supplied the values will remain the default for the --spec flag",
                 )
@@ -504,7 +504,7 @@ fn main() {
         )
         .subcommand(
             App::new("check-deposit-data")
-                .override_help("Checks the integrity of some deposit data.")
+                .about("Checks the integrity of some deposit data.")
                 .arg(
                     Arg::new("deposit-amount")
                         .index(1)
@@ -527,7 +527,7 @@ fn main() {
         )
         .subcommand(
             App::new("generate-bootnode-enr")
-                .override_help("Generates an ENR address to be used as a pre-genesis boot node.")
+                .about("Generates an ENR address to be used as a pre-genesis boot node.")
                 .arg(
                     Arg::new("ip")
                         .long("ip")
@@ -576,7 +576,7 @@ fn main() {
         )
         .subcommand(
             App::new("insecure-validators")
-                .override_help("Produces validator directories with INSECURE, deterministic keypairs.")
+                .about("Produces validator directories with INSECURE, deterministic keypairs.")
                 .arg(
                     Arg::new("count")
                         .long("count")
@@ -601,7 +601,7 @@ fn main() {
         )
         .subcommand(
             App::new("etl-block-efficiency")
-                .override_help(
+                .about(
                     "Performs ETL analysis of block efficiency. Requires a Beacon Node API to \
                     extract data from.",
                 )

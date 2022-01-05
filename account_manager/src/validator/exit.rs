@@ -30,7 +30,7 @@ pub const PROMPT: &str = "WARNING: WITHDRAWING STAKED ETH IS NOT CURRENTLY POSSI
 
 pub fn cli_app<'a>() -> App<'a> {
     App::new("exit")
-        .override_help("Submits a VoluntaryExit to the beacon chain for a given validator keystore.")
+        .about("Submits a VoluntaryExit to the beacon chain for a given validator keystore.")
         .arg(
             Arg::new(KEYSTORE_FLAG)
                 .long(KEYSTORE_FLAG)

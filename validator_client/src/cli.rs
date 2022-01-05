@@ -5,7 +5,7 @@ use std::collections::HashMap;
 pub fn cli_app<'a>(file_args: Option<&'a HashMap<&'a str, &'a str>>) -> App<'a> {
     App::new("validator_client", file_args)
         .visible_aliases(&["v", "vc", "validator"])
-        .override_help(
+        .about(
             "When connected to a beacon node, performs the duties of a staked \
                 validator (e.g., proposing blocks and attestations).",
         )

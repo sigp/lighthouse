@@ -196,7 +196,7 @@ fn new_app<'a>(
     App::new("Lighthouse", file_args)
         .version(version)
         .author("Sigma Prime <contact@sigmaprime.io>")
-        .override_help(
+        .about(
             "Ethereum 2.0 client by Sigma Prime. Provides a full-featured beacon \
              node, a validator client and utilities for managing validator accounts.",
         )

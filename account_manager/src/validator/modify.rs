@@ -12,10 +12,10 @@ pub const ALL: &str = "all";
 
 pub fn cli_app<'a>() -> App<'a> {
     App::new(CMD)
-        .override_help("Modify validator status in validator_definitions.yml.")
+        .about("Modify validator status in validator_definitions.yml.")
         .subcommand(
             App::new(ENABLE)
-                .override_help("Enable validator(s) in validator_definitions.yml.")
+                .about("Enable validator(s) in validator_definitions.yml.")
                 .arg(
                     Arg::new(PUBKEY_FLAG)
                         .long(PUBKEY_FLAG)
@@ -33,7 +33,7 @@ pub fn cli_app<'a>() -> App<'a> {
         )
         .subcommand(
             App::new(DISABLE)
-                .override_help("Disable validator(s) in validator_definitions.yml.")
+                .about("Disable validator(s) in validator_definitions.yml.")
                 .arg(
                     Arg::new(PUBKEY_FLAG)
                         .long(PUBKEY_FLAG)

@@ -28,7 +28,7 @@ pub const WALLET_PASSWORD_PROMPT: &str = "Enter your wallet's password:";
 
 pub fn cli_app<'a>() -> App<'a> {
     App::new(CMD)
-        .override_help(
+        .about(
             "Creates new validators from an existing EIP-2386 wallet using the EIP-2333 HD key \
             derivation scheme.",
         )
