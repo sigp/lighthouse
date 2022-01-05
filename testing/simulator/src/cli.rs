@@ -2,7 +2,6 @@ use clap::{App, Arg};
 
 pub fn cli_app<'a>() -> App<'a> {
     App::new("simulator")
-        .version(crate_version!())
         .author("Sigma Prime <contact@sigmaprime.io>")
         .help("Options for interacting with simulator")
         .subcommand(

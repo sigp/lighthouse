@@ -1,5 +1,26 @@
 use clap::ArgMatches;
-use clap_utils::flags::DISABLE_MALLOC_TUNING_FLAG;
+use clap_utils::flags::{
+    AUTO_COMPACT_DB_FLAG, BLOCK_CACHE_SIZE_FLAG, BOOT_NODES_FLAG, CHECKPOINT_BLOCK_FLAG,
+    CHECKPOINT_STATE_FLAG, CHECKPOINT_SYNC_URL_FLAG, COMPACT_DB_FLAG, DATADIR_FLAG,
+    DISABLE_DISCOVERY_FLAG, DISABLE_ENR_AUTO_UPDATE_FLAG, DISABLE_LOCK_TIMEOUTS_FLAG,
+    DISABLE_MALLOC_TUNING_FLAG, DISABLE_PACKET_FILTER_FLAG, DISABLE_UPNP_FLAG, DISCOVERY_PORT_FLAG,
+    DUMMY_ETH1_FLAG, ENR_ADDRESS_FLAG, ENR_MATCH_FLAG, ENR_TCP_PORT_FLAG, ENR_UDP_PORT_FLAG,
+    ETH1_BLOCKS_PER_LOG_QUERY_FLAG, ETH1_ENDPOINT_FLAG, ETH1_FLAG, ETH1_PURGE_CACHE_FLAG,
+    EXECUTION_ENDPOINTS_FLAG, FEE_RECIPIENT_FLAG, FREEZER_DIR_FLAG, GRAFFITI_FLAG,
+    HTTP_ADDRESS_FLAG, HTTP_ALLOW_ORIGIN_FLAG, HTTP_ALLOW_SYNC_STALLED_FLAG,
+    HTTP_DISABLE_LEGACY_SPEC_FLAG, HTTP_ENABLE_TLS_FLAG, HTTP_FLAG, HTTP_PORT_FLAG,
+    HTTP_TLS_CERT_FLAG, HTTP_TLS_KEY_FLAG, IMPORT_ALL_ATTESTATIONS_FLAG, LIBP2P_ADDRESSES_FLAG,
+    LISTEN_ADDRESS_FLAG, MAX_SKIP_SLOTS_FLAG, MERGE_FLAG, METRICS_ADDRESS_FLAG,
+    METRICS_ALLOW_ORIGIN_FLAG, METRICS_FLAG, METRICS_PORT_FLAG, MONITORING_ENDPOINT_FLAG,
+    NETWORK_DIR_FLAG, PORT_FLAG, PRIVATE_FLAG, PURGE_DB_FLAG, RECONSTRUCT_HISTORIC_STATE_FLAG,
+    SHUTDOWN_AFTER_SYNC_FLAG, SLASHER_ATT_CACHE_SIZE_FLAG, SLASHER_BROADCAST_FLAG,
+    SLASHER_CHUNK_SIZE_FLAG, SLASHER_DIR_FLAG, SLASHER_FLAG, SLASHER_HISTORY_LENGTH_FLAG,
+    SLASHER_MAX_DB_SIZE_FLAG, SLASHER_SLOT_OFFSET_FLAG, SLASHER_UPDATE_PERIOD_FLAG,
+    SLASHER_VALIDATOR_CHUNK_SI_FLAG, SLOTS_PER_RESTORE_POINT_FLAG, STAKING_FLAG,
+    SUBSCRIBE_ALL_SUBNETS_FLAG, TARGET_PEERS_FLAG, TRUSTED_PEERS_FLAG, VALIDATOR_MONITOR_AUTO_FLAG,
+    VALIDATOR_MONITOR_FILE_FLAG, VALIDATOR_MONITOR_PUBKEYS_FLAG, WSS_CHECKPOINT_FLAG,
+    ZERO_PORTS_FLAG,
+};
 use client::{ClientConfig, ClientGenesis};
 use directory::{DEFAULT_BEACON_NODE_DIR, DEFAULT_NETWORK_DIR, DEFAULT_ROOT_DIR};
 use environment::RuntimeContext;
@@ -41,7 +62,7 @@ pub fn get_config<E: EthSpec>(
     };
 
     // If necessary, remove any existing database and configuration
-    if client_config.data_dir.exists() && cli_args.is_present("purge-db") {
+    if client_config.data_dir.exists() && cli_args.is_present(PURGE_DB_FLAG) {
         // Remove the chain_db.
         let chain_db = client_config.get_db_path();
         if chain_db.exists() {
@@ -83,7 +104,7 @@ pub fn get_config<E: EthSpec>(
      * Note: the config values set here can be overwritten by other more specific cli params
      */
 
-    if cli_args.is_present("staking") {
+    if cli_args.is_present(STAKING_FLAG) {
         client_config.http_api.enabled = true;
         client_config.sync_eth1_chain = true;
     }
@@ -92,23 +113,23 @@ pub fn get_config<E: EthSpec>(
      * Http API server
      */
 
-    if cli_args.is_present("http") {
+    if cli_args.is_present(HTTP_FLAG) {
         client_config.http_api.enabled = true;
     }
 
-    if let Some(address) = cli_args.value_of("http-address") {
+    if let Some(address) = cli_args.value_of(HTTP_ADDRESS_FLAG) {
         client_config.http_api.listen_addr = address
             .parse::<Ipv4Addr>()
             .map_err(|_| "http-address is not a valid IPv4 address.")?;
     }
 
-    if let Some(port) = cli_args.value_of("http-port") {
+    if let Some(port) = cli_args.value_of(HTTP_PORT_FLAG) {
         client_config.http_api.listen_port = port
             .parse::<u16>()
             .map_err(|_| "http-port is not a valid u16.")?;
     }
 
-    if let Some(allow_origin) = cli_args.value_of("http-allow-origin") {
+    if let Some(allow_origin) = cli_args.value_of(HTTP_ALLOW_ORIGIN_FLAG) {
         // Pre-validate the config value to give feedback to the user on node startup, instead of
         // as late as when the first API response is produced.
         hyper::header::HeaderValue::from_str(allow_origin)
@@ -117,26 +138,26 @@ pub fn get_config<E: EthSpec>(
         client_config.http_api.allow_origin = Some(allow_origin.to_string());
     }
 
-    if cli_args.is_present("http-disable-legacy-spec") {
+    if cli_args.is_present(HTTP_DISABLE_LEGACY_SPEC_FLAG) {
         client_config.http_api.serve_legacy_spec = false;
     }
 
-    if cli_args.is_present("http-enable-tls") {
+    if cli_args.is_present(HTTP_ENABLE_TLS_FLAG) {
         client_config.http_api.tls_config = Some(TlsConfig {
             cert: cli_args
-                .value_of("http-tls-cert")
-                .ok_or("--http-tls-cert was not provided.")?
+                .value_of(HTTP_TLS_CERT_FLAG)
+                .ok_or(&format!("--{} was not provided.", HTTP_TLS_CERT_FLAG))?
                 .parse::<PathBuf>()
                 .map_err(|_| "http-tls-cert is not a valid path name.")?,
             key: cli_args
-                .value_of("http-tls-key")
-                .ok_or("--http-tls-key was not provided.")?
+                .value_of(HTTP_TLS_KEY_FLAG)
+                .ok_or(&format!("--{} was not provided.", HTTP_TLS_KEY_FLAG))?
                 .parse::<PathBuf>()
                 .map_err(|_| "http-tls-key is not a valid path name.")?,
         });
     }
 
-    if cli_args.is_present("http-allow-sync-stalled") {
+    if cli_args.is_present(HTTP_ALLOW_SYNC_STALLED_FLAG) {
         client_config.http_api.allow_sync_stalled = true;
     }
 
@@ -144,23 +165,23 @@ pub fn get_config<E: EthSpec>(
      * Prometheus metrics HTTP server
      */
 
-    if cli_args.is_present("metrics") {
+    if cli_args.is_present(METRICS_FLAG) {
         client_config.http_metrics.enabled = true;
     }
 
-    if let Some(address) = cli_args.value_of("metrics-address") {
+    if let Some(address) = cli_args.value_of(METRICS_ADDRESS_FLAG) {
         client_config.http_metrics.listen_addr = address
             .parse::<Ipv4Addr>()
             .map_err(|_| "metrics-address is not a valid IPv4 address.")?;
     }
 
-    if let Some(port) = cli_args.value_of("metrics-port") {
+    if let Some(port) = cli_args.value_of(METRICS_PORT_FLAG) {
         client_config.http_metrics.listen_port = port
             .parse::<u16>()
             .map_err(|_| "metrics-port is not a valid u16.")?;
     }
 
-    if let Some(allow_origin) = cli_args.value_of("metrics-allow-origin") {
+    if let Some(allow_origin) = cli_args.value_of(METRICS_ALLOW_ORIGIN_FLAG) {
         // Pre-validate the config value to give feedback to the user on node startup, instead of
         // as late as when the first API response is produced.
         hyper::header::HeaderValue::from_str(allow_origin)
@@ -172,7 +193,7 @@ pub fn get_config<E: EthSpec>(
     /*
      * Explorer metrics
      */
-    if let Some(monitoring_endpoint) = cli_args.value_of("monitoring-endpoint") {
+    if let Some(monitoring_endpoint) = cli_args.value_of(MONITORING_ENDPOINT_FLAG) {
         client_config.monitoring_api = Some(monitoring_api::Config {
             db_path: None,
             freezer_db_path: None,
@@ -182,7 +203,7 @@ pub fn get_config<E: EthSpec>(
 
     // Log a warning indicating an open HTTP server if it wasn't specified explicitly
     // (e.g. using the --staking flag).
-    if cli_args.is_present("staking") {
+    if cli_args.is_present(STAKING_FLAG) {
         warn!(
             log,
             "Running HTTP server on port {}", client_config.http_api.listen_port
@@ -201,22 +222,22 @@ pub fn get_config<E: EthSpec>(
     // When present, use an eth1 backend that generates deterministic junk.
     //
     // Useful for running testnets without the overhead of a deposit contract.
-    if cli_args.is_present("dummy-eth1") {
+    if cli_args.is_present(DUMMY_ETH1_FLAG) {
         client_config.dummy_eth1_backend = true;
     }
 
     // When present, attempt to sync to an eth1 node.
     //
     // Required for block production.
-    if cli_args.is_present("eth1") {
+    if cli_args.is_present(ETH1_FLAG) {
         client_config.sync_eth1_chain = true;
     }
 
     // Defines the URL to reach the eth1 node.
-    if let Some(endpoint) = cli_args.value_of("eth1-endpoint") {
+    if let Some(endpoint) = cli_args.value_of(ETH1_ENDPOINT_FLAG) {
         warn!(
             log,
-            "The --eth1-endpoint flag is deprecated";
+            "The --{} flag is deprecated", ETH1_ENDPOINT_FLAG;
             "msg" => "please use --eth1-endpoints instead"
         );
         client_config.sync_eth1_chain = true;
@@ -231,17 +252,17 @@ pub fn get_config<E: EthSpec>(
             .map_err(|e| format!("eth1-endpoints contains an invalid URL {:?}", e))?;
     }
 
-    if let Some(val) = cli_args.value_of("eth1-blocks-per-log-query") {
+    if let Some(val) = cli_args.value_of(ETH1_BLOCKS_PER_LOG_QUERY_FLAG) {
         client_config.eth1.blocks_per_log_query = val
             .parse()
             .map_err(|_| "eth1-blocks-per-log-query is not a valid integer".to_string())?;
     }
 
-    if cli_args.is_present("eth1-purge-cache") {
+    if cli_args.is_present(ETH1_PURGE_CACHE_FLAG) {
         client_config.eth1.purge_cache = true;
     }
 
-    if let Some(endpoints) = cli_args.value_of("execution-endpoints") {
+    if let Some(endpoints) = cli_args.value_of(EXECUTION_ENDPOINTS_FLAG) {
         client_config.sync_eth1_chain = true;
         client_config.execution_endpoints = endpoints
             .split(',')
@@ -249,22 +270,22 @@ pub fn get_config<E: EthSpec>(
             .collect::<Result<_, _>>()
             .map(Some)
             .map_err(|e| format!("execution-endpoints contains an invalid URL {:?}", e))?;
-    } else if cli_args.is_present("merge") {
+    } else if cli_args.is_present(MERGE_FLAG) {
         client_config.execution_endpoints = Some(client_config.eth1.endpoints.clone());
     }
 
     client_config.suggested_fee_recipient = Some(
-        clap_utils::parse_optional(cli_args, "fee-recipient")?
+        clap_utils::parse_optional(cli_args, FEE_RECIPIENT_FLAG)?
             // TODO(merge): remove this default value. It's just there to make life easy during
             // early testnets.
             .unwrap_or_else(|| Address::from(DEFAULT_SUGGESTED_FEE_RECIPIENT)),
     );
 
-    if let Some(freezer_dir) = cli_args.value_of("freezer-dir") {
+    if let Some(freezer_dir) = cli_args.value_of(FREEZER_DIR_FLAG) {
         client_config.freezer_db_path = Some(PathBuf::from(freezer_dir));
     }
 
-    if let Some(slots_per_restore_point) = cli_args.value_of("slots-per-restore-point") {
+    if let Some(slots_per_restore_point) = cli_args.value_of(SLOTS_PER_RESTORE_POINT_FLAG) {
         client_config.store.slots_per_restore_point = slots_per_restore_point
             .parse()
             .map_err(|_| "slots-per-restore-point is not a valid integer".to_string())?;
@@ -275,14 +296,14 @@ pub fn get_config<E: EthSpec>(
         );
     }
 
-    if let Some(block_cache_size) = cli_args.value_of("block-cache-size") {
+    if let Some(block_cache_size) = cli_args.value_of(BLOCK_CACHE_SIZE_FLAG) {
         client_config.store.block_cache_size = block_cache_size
             .parse()
             .map_err(|_| "block-cache-size is not a valid integer".to_string())?;
     }
 
-    client_config.store.compact_on_init = cli_args.is_present("compact-db");
-    if let Some(compact_on_prune) = cli_args.value_of("auto-compact-db") {
+    client_config.store.compact_on_init = cli_args.is_present(COMPACT_DB_FLAG);
+    if let Some(compact_on_prune) = cli_args.value_of(AUTO_COMPACT_DB_FLAG) {
         client_config.store.compact_on_prune = compact_on_prune
             .parse()
             .map_err(|_| "auto-compact-db takes a boolean".to_string())?;
@@ -297,7 +318,7 @@ pub fn get_config<E: EthSpec>(
      * from lighthouse.
      * Discovery address is set to localhost by default.
      */
-    if cli_args.is_present("zero-ports") {
+    if cli_args.is_present(ZERO_PORTS_FLAG) {
         if client_config.network.enr_address == Some(IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0))) {
             client_config.network.enr_address = None
         }
@@ -346,65 +367,66 @@ pub fn get_config<E: EthSpec>(
         }
     }
 
-    client_config.genesis = if let Some(genesis_state_bytes) =
-        eth2_network_config.genesis_state_bytes.clone()
-    {
-        // Set up weak subjectivity sync, or start from the hardcoded genesis state.
-        if let (Some(initial_state_path), Some(initial_block_path)) = (
-            cli_args.value_of("checkpoint-state"),
-            cli_args.value_of("checkpoint-block"),
-        ) {
-            let read = |path: &str| {
-                use std::fs::File;
-                use std::io::Read;
-                File::open(Path::new(path))
-                    .and_then(|mut f| {
-                        let mut buffer = vec![];
-                        f.read_to_end(&mut buffer)?;
-                        Ok(buffer)
-                    })
-                    .map_err(|e| format!("Unable to open {}: {:?}", path, e))
-            };
+    client_config.genesis =
+        if let Some(genesis_state_bytes) = eth2_network_config.genesis_state_bytes.clone() {
+            // Set up weak subjectivity sync, or start from the hardcoded genesis state.
+            if let (Some(initial_state_path), Some(initial_block_path)) = (
+                cli_args.value_of(CHECKPOINT_STATE_FLAG),
+                cli_args.value_of(CHECKPOINT_BLOCK_FLAG),
+            ) {
+                let read = |path: &str| {
+                    use std::fs::File;
+                    use std::io::Read;
+                    File::open(Path::new(path))
+                        .and_then(|mut f| {
+                            let mut buffer = vec![];
+                            f.read_to_end(&mut buffer)?;
+                            Ok(buffer)
+                        })
+                        .map_err(|e| format!("Unable to open {}: {:?}", path, e))
+                };
 
-            let anchor_state_bytes = read(initial_state_path)?;
-            let anchor_block_bytes = read(initial_block_path)?;
+                let anchor_state_bytes = read(initial_state_path)?;
+                let anchor_block_bytes = read(initial_block_path)?;
 
-            ClientGenesis::WeakSubjSszBytes {
-                genesis_state_bytes,
-                anchor_state_bytes,
-                anchor_block_bytes,
-            }
-        } else if let Some(remote_bn_url) = cli_args.value_of("checkpoint-sync-url") {
-            let url = SensitiveUrl::parse(remote_bn_url)
-                .map_err(|e| format!("Invalid checkpoint sync URL: {:?}", e))?;
+                ClientGenesis::WeakSubjSszBytes {
+                    genesis_state_bytes,
+                    anchor_state_bytes,
+                    anchor_block_bytes,
+                }
+            } else if let Some(remote_bn_url) = cli_args.value_of(CHECKPOINT_SYNC_URL_FLAG) {
+                let url = SensitiveUrl::parse(remote_bn_url)
+                    .map_err(|e| format!("Invalid checkpoint sync URL: {:?}", e))?;
 
-            ClientGenesis::CheckpointSyncUrl {
-                genesis_state_bytes,
-                url,
+                ClientGenesis::CheckpointSyncUrl {
+                    genesis_state_bytes,
+                    url,
+                }
+            } else {
+                // Note: re-serializing the genesis state is not so efficient, however it avoids adding
+                // trait bounds to the `ClientGenesis` enum. This would have significant flow-on
+                // effects.
+                ClientGenesis::SszBytes {
+                    genesis_state_bytes,
+                }
             }
         } else {
-            // Note: re-serializing the genesis state is not so efficient, however it avoids adding
-            // trait bounds to the `ClientGenesis` enum. This would have significant flow-on
-            // effects.
-            ClientGenesis::SszBytes {
-                genesis_state_bytes,
-            }
-        }
-    } else {
-        if cli_args.is_present("checkpoint-state") || cli_args.is_present("checkpoint-sync-url") {
-            return Err(
+            if cli_args.is_present(CHECKPOINT_STATE_FLAG)
+                || cli_args.is_present(CHECKPOINT_SYNC_URL_FLAG)
+            {
+                return Err(
                 "Checkpoint sync is not available for this network as no genesis state is known"
                     .to_string(),
             );
-        }
-        ClientGenesis::DepositContract
-    };
+            }
+            ClientGenesis::DepositContract
+        };
 
-    if cli_args.is_present("reconstruct-historic-states") {
+    if cli_args.is_present(RECONSTRUCT_HISTORIC_STATE_FLAG) {
         client_config.chain.reconstruct_historic_states = true;
     }
 
-    let raw_graffiti = if let Some(graffiti) = cli_args.value_of("graffiti") {
+    let raw_graffiti = if let Some(graffiti) = cli_args.value_of(GRAFFITI_FLAG) {
         if graffiti.len() > GRAFFITI_BYTES_LEN {
             return Err(format!(
                 "Your graffiti is too long! {} bytes maximum!",
@@ -413,7 +435,7 @@ pub fn get_config<E: EthSpec>(
         }
 
         graffiti.as_bytes()
-    } else if cli_args.is_present("private") {
+    } else if cli_args.is_present(PRIVATE_FLAG) {
         b""
     } else {
         lighthouse_version::VERSION.as_bytes()
@@ -423,7 +445,7 @@ pub fn get_config<E: EthSpec>(
     client_config.graffiti.0[..trimmed_graffiti_len]
         .copy_from_slice(&raw_graffiti[..trimmed_graffiti_len]);
 
-    if let Some(wss_checkpoint) = cli_args.value_of("wss-checkpoint") {
+    if let Some(wss_checkpoint) = cli_args.value_of(WSS_CHECKPOINT_FLAG) {
         let mut split = wss_checkpoint.split(':');
         let root_str = split
             .next()
@@ -458,7 +480,7 @@ pub fn get_config<E: EthSpec>(
         client_config.chain.weak_subjectivity_checkpoint = Some(Checkpoint { epoch, root })
     }
 
-    if let Some(max_skip_slots) = cli_args.value_of("max-skip-slots") {
+    if let Some(max_skip_slots) = cli_args.value_of(MAX_SKIP_SLOTS_FLAG) {
         client_config.chain.import_max_skip_slots = match max_skip_slots {
             "none" => None,
             n => Some(
@@ -471,8 +493,8 @@ pub fn get_config<E: EthSpec>(
     client_config.chain.max_network_size =
         lighthouse_network::gossip_max_size(spec.merge_fork_epoch.is_some());
 
-    if cli_args.is_present("slasher") {
-        let slasher_dir = if let Some(slasher_dir) = cli_args.value_of("slasher-dir") {
+    if cli_args.is_present(SLASHER_FLAG) {
+        let slasher_dir = if let Some(slasher_dir) = cli_args.value_of(SLASHER_DIR_FLAG) {
             PathBuf::from(slasher_dir)
         } else {
             client_config.data_dir.join("slasher_db")
@@ -480,13 +502,14 @@ pub fn get_config<E: EthSpec>(
 
         let mut slasher_config = slasher::Config::new(slasher_dir);
 
-        if let Some(update_period) = clap_utils::parse_optional(cli_args, "slasher-update-period")?
+        if let Some(update_period) =
+            clap_utils::parse_optional(cli_args, SLASHER_UPDATE_PERIOD_FLAG)?
         {
             slasher_config.update_period = update_period;
         }
 
         if let Some(slot_offset) =
-            clap_utils::parse_optional::<f64>(cli_args, "slasher-slot-offset")?
+            clap_utils::parse_optional::<f64>(cli_args, SLASHER_SLOT_OFFSET_FLAG)?
         {
             if slot_offset.is_finite() {
                 slasher_config.slot_offset = slot_offset;
@@ -499,72 +522,82 @@ pub fn get_config<E: EthSpec>(
         }
 
         if let Some(history_length) =
-            clap_utils::parse_optional(cli_args, "slasher-history-length")?
+            clap_utils::parse_optional(cli_args, SLASHER_HISTORY_LENGTH_FLAG)?
         {
             slasher_config.history_length = history_length;
         }
 
         if let Some(max_db_size_gbs) =
-            clap_utils::parse_optional::<usize>(cli_args, "slasher-max-db-size")?
+            clap_utils::parse_optional::<usize>(cli_args, SLASHER_MAX_DB_SIZE_FLAG)?
         {
             slasher_config.max_db_size_mbs = max_db_size_gbs * 1024;
         }
 
         if let Some(attestation_cache_size) =
-            clap_utils::parse_optional(cli_args, "slasher-att-cache-size")?
+            clap_utils::parse_optional(cli_args, SLASHER_ATT_CACHE_SIZE_FLAG)?
         {
             slasher_config.attestation_root_cache_size = attestation_cache_size;
         }
 
-        if let Some(chunk_size) = clap_utils::parse_optional(cli_args, "slasher-chunk-size")? {
+        if let Some(chunk_size) = clap_utils::parse_optional(cli_args, SLASHER_CHUNK_SIZE_FLAG)? {
             slasher_config.chunk_size = chunk_size;
         }
 
         if let Some(validator_chunk_size) =
-            clap_utils::parse_optional(cli_args, "slasher-validator-chunk-size")?
+            clap_utils::parse_optional(cli_args, SLASHER_VALIDATOR_CHUNK_SI_FLAG)?
         {
             slasher_config.validator_chunk_size = validator_chunk_size;
         }
 
-        slasher_config.broadcast = cli_args.is_present("slasher-broadcast");
+        slasher_config.broadcast = cli_args.is_present(SLASHER_BROADCAST_FLAG);
 
         client_config.slasher = Some(slasher_config);
     }
 
-    if cli_args.is_present("validator-monitor-auto") {
+    if cli_args.is_present(VALIDATOR_MONITOR_AUTO_FLAG) {
         client_config.validator_monitor_auto = true;
     }
 
-    if let Some(pubkeys) = cli_args.value_of("validator-monitor-pubkeys") {
+    if let Some(pubkeys) = cli_args.value_of(VALIDATOR_MONITOR_PUBKEYS_FLAG) {
         let pubkeys = pubkeys
             .split(',')
             .map(PublicKeyBytes::from_str)
             .collect::<Result<Vec<_>, _>>()
-            .map_err(|e| format!("Invalid --validator-monitor-pubkeys value: {:?}", e))?;
+            .map_err(|e| {
+                format!(
+                    "Invalid --{} value: {:?}",
+                    VALIDATOR_MONITOR_PUBKEYS_FLAG, e
+                )
+            })?;
         client_config
             .validator_monitor_pubkeys
             .extend_from_slice(&pubkeys);
     }
 
-    if let Some(path) = cli_args.value_of("validator-monitor-file") {
+    if let Some(path) = cli_args.value_of(VALIDATOR_MONITOR_FILE_FLAG) {
         let string = fs::read(path)
-            .map_err(|e| format!("Unable to read --validator-monitor-file: {}", e))
+            .map_err(|e| format!("Unable to read --{}: {}", VALIDATOR_MONITOR_FILE_FLAG, e))
             .and_then(|bytes| {
                 String::from_utf8(bytes)
-                    .map_err(|e| format!("--validator-monitor-file is not utf8: {}", e))
+                    .map_err(|e| format!("--{} is not utf8: {}", VALIDATOR_MONITOR_FILE_FLAG, e))
             })?;
         let pubkeys = string
             .trim_end() // Remove trailing white space
             .split(',')
             .map(PublicKeyBytes::from_str)
             .collect::<Result<Vec<_>, _>>()
-            .map_err(|e| format!("Invalid --validator-monitor-file contents: {:?}", e))?;
+            .map_err(|e| {
+                format!(
+                    "Invalid --{} contents: {:?}",
+                    VALIDATOR_MONITOR_FILE_FLAG, e
+                )
+            })?;
         client_config
             .validator_monitor_pubkeys
             .extend_from_slice(&pubkeys);
     }
 
-    if cli_args.is_present("disable-lock-timeouts") {
+    if cli_args.is_present(DISABLE_LOCK_TIMEOUTS_FLAG) {
         client_config.chain.enable_lock_timeouts = false;
     }
 
@@ -580,38 +613,38 @@ pub fn set_network_config(
     use_listening_port_as_enr_port_by_default: bool,
 ) -> Result<(), String> {
     // If a network dir has been specified, override the `datadir` definition.
-    if let Some(dir) = cli_args.value_of("network-dir") {
+    if let Some(dir) = cli_args.value_of(NETWORK_DIR_FLAG) {
         config.network_dir = PathBuf::from(dir);
     } else {
         config.network_dir = data_dir.join(DEFAULT_NETWORK_DIR);
     };
 
-    if cli_args.is_present("subscribe-all-subnets") {
+    if cli_args.is_present(SUBSCRIBE_ALL_SUBNETS_FLAG) {
         config.subscribe_all_subnets = true;
     }
 
-    if cli_args.is_present("import-all-attestations") {
+    if cli_args.is_present(IMPORT_ALL_ATTESTATIONS_FLAG) {
         config.import_all_attestations = true;
     }
 
-    if cli_args.is_present("shutdown-after-sync") {
+    if cli_args.is_present(SHUTDOWN_AFTER_SYNC_FLAG) {
         config.shutdown_after_sync = true;
     }
 
-    if let Some(listen_address_str) = cli_args.value_of("listen-address") {
+    if let Some(listen_address_str) = cli_args.value_of(LISTEN_ADDRESS_FLAG) {
         let listen_address = listen_address_str
             .parse()
             .map_err(|_| format!("Invalid listen address: {:?}", listen_address_str))?;
         config.listen_address = listen_address;
     }
 
-    if let Some(target_peers_str) = cli_args.value_of("target-peers") {
+    if let Some(target_peers_str) = cli_args.value_of(TARGET_PEERS_FLAG) {
         config.target_peers = target_peers_str
             .parse::<usize>()
             .map_err(|_| format!("Invalid number of target peers: {}", target_peers_str))?;
     }
 
-    if let Some(port_str) = cli_args.value_of("port") {
+    if let Some(port_str) = cli_args.value_of(PORT_FLAG) {
         let port = port_str
             .parse::<u16>()
             .map_err(|_| format!("Invalid port: {}", port_str))?;
@@ -619,14 +652,14 @@ pub fn set_network_config(
         config.discovery_port = port;
     }
 
-    if let Some(port_str) = cli_args.value_of("discovery-port") {
+    if let Some(port_str) = cli_args.value_of(DISCOVERY_PORT_FLAG) {
         let port = port_str
             .parse::<u16>()
             .map_err(|_| format!("Invalid port: {}", port_str))?;
         config.discovery_port = port;
     }
 
-    if let Some(boot_enr_str) = cli_args.value_of("boot-nodes") {
+    if let Some(boot_enr_str) = cli_args.value_of(BOOT_NODES_FLAG) {
         let mut enrs: Vec<Enr> = vec![];
         let mut multiaddrs: Vec<Multiaddr> = vec![];
         for addr in boot_enr_str.split(',') {
@@ -651,7 +684,7 @@ pub fn set_network_config(
         config.boot_nodes_multiaddr = multiaddrs;
     }
 
-    if let Some(libp2p_addresses_str) = cli_args.value_of("libp2p-addresses") {
+    if let Some(libp2p_addresses_str) = cli_args.value_of(LIBP2P_ADDRESSES_FLAG) {
         config.libp2p_nodes = libp2p_addresses_str
             .split(',')
             .map(|multiaddr| {
@@ -662,7 +695,7 @@ pub fn set_network_config(
             .collect::<Result<Vec<Multiaddr>, _>>()?;
     }
 
-    if let Some(trusted_peers_str) = cli_args.value_of("trusted-peers") {
+    if let Some(trusted_peers_str) = cli_args.value_of(TRUSTED_PEERS_FLAG) {
         config.trusted_peers = trusted_peers_str
             .split(',')
             .map(|peer_id| {
@@ -673,7 +706,7 @@ pub fn set_network_config(
             .collect::<Result<Vec<PeerIdSerialized>, _>>()?;
     }
 
-    if let Some(enr_udp_port_str) = cli_args.value_of("enr-udp-port") {
+    if let Some(enr_udp_port_str) = cli_args.value_of(ENR_UDP_PORT_FLAG) {
         config.enr_udp_port = Some(
             enr_udp_port_str
                 .parse::<u16>()
@@ -681,7 +714,7 @@ pub fn set_network_config(
         );
     }
 
-    if let Some(enr_tcp_port_str) = cli_args.value_of("enr-tcp-port") {
+    if let Some(enr_tcp_port_str) = cli_args.value_of(ENR_TCP_PORT_FLAG) {
         config.enr_tcp_port = Some(
             enr_tcp_port_str
                 .parse::<u16>()
@@ -689,7 +722,7 @@ pub fn set_network_config(
         );
     }
 
-    if cli_args.is_present("enr-match") {
+    if cli_args.is_present(ENR_MATCH_FLAG) {
         // set the enr address to localhost if the address is 0.0.0.0
         if config.listen_address == "0.0.0.0".parse::<IpAddr>().expect("valid ip addr") {
             config.enr_address = Some("127.0.0.1".parse::<IpAddr>().expect("valid ip addr"));
@@ -699,7 +732,7 @@ pub fn set_network_config(
         config.enr_udp_port = Some(config.discovery_port);
     }
 
-    if let Some(enr_address) = cli_args.value_of("enr-address") {
+    if let Some(enr_address) = cli_args.value_of(ENR_ADDRESS_FLAG) {
         let resolved_addr = match enr_address.parse::<IpAddr>() {
             Ok(addr) => addr, // // Input is an IpAddr
             Err(_) => {
@@ -739,29 +772,29 @@ pub fn set_network_config(
         config.enr_address = Some(resolved_addr);
     }
 
-    if cli_args.is_present("disable-enr-auto-update") {
+    if cli_args.is_present(DISABLE_ENR_AUTO_UPDATE_FLAG) {
         config.discv5_config.enr_update = false;
     }
 
-    if cli_args.is_present("disable-packet-filter") {
+    if cli_args.is_present(DISABLE_PACKET_FILTER_FLAG) {
         warn!(log, "Discv5 packet filter is disabled");
         config.discv5_config.enable_packet_filter = false;
     }
 
-    if cli_args.is_present("disable-discovery") {
+    if cli_args.is_present(DISABLE_DISCOVERY_FLAG) {
         config.disable_discovery = true;
         warn!(log, "Discovery is disabled. New peers will not be found");
     }
 
-    if cli_args.is_present("disable-upnp") {
+    if cli_args.is_present(DISABLE_UPNP_FLAG) {
         config.upnp_enabled = false;
     }
 
-    if cli_args.is_present("private") {
+    if cli_args.is_present(PRIVATE_FLAG) {
         config.private = true;
     }
 
-    if cli_args.is_present("metrics") {
+    if cli_args.is_present(METRICS_FLAG) {
         config.metrics_enabled = true;
     }
 
@@ -776,7 +809,7 @@ pub fn get_data_dir(cli_args: &ArgMatches) -> PathBuf {
     // directory and the testnet name onto it.
 
     cli_args
-        .value_of("datadir")
+        .value_of(DATADIR_FLAG)
         .map(|path| PathBuf::from(path).join(DEFAULT_BEACON_NODE_DIR))
         .or_else(|| {
             dirs::home_dir().map(|home| {

@@ -273,11 +273,11 @@ fn main() {
                 ),
         )
         .subcommand(
-            SubCommand::with_name("create-payload-header")
+            App::new("create-payload-header")
                 .about("Generates an SSZ file containing bytes for an `ExecutionPayloadHeader`. \
                 Useful as input for `lcli new-testnet --execution-payload-header FILE`. ")
                 .arg(
-                    Arg::with_name("execution-block-hash")
+                    Arg::new("execution-block-hash")
                         .long("execution-block-hash")
                         .value_name("BLOCK_HASH")
                         .takes_value(true)
@@ -290,14 +290,14 @@ fn main() {
                         ),
                 )
                 .arg(
-                    Arg::with_name("genesis-time")
+                    Arg::new("genesis-time")
                         .long("genesis-time")
                         .value_name("INTEGER")
                         .takes_value(true)
                         .help("The genesis time when generating an execution payload.")
                 )
                 .arg(
-                    Arg::with_name("base-fee-per-gas")
+                    Arg::new("base-fee-per-gas")
                         .long("base-fee-per-gas")
                         .value_name("INTEGER")
                         .takes_value(true)
@@ -306,7 +306,7 @@ fn main() {
                         .default_value("1000000000"),
                 )
                 .arg(
-                    Arg::with_name("gas-limit")
+                    Arg::new("gas-limit")
                         .long("gas-limit")
                         .value_name("INTEGER")
                         .takes_value(true)
@@ -315,7 +315,7 @@ fn main() {
                         .default_value("30000000"),
                 )
                 .arg(
-                    Arg::with_name("file")
+                    Arg::new("file")
                         .long("file")
                         .value_name("FILE")
                         .takes_value(true)

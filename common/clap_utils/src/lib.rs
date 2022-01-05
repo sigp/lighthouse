@@ -9,6 +9,9 @@ use std::fs;
 use std::path::PathBuf;
 use std::str::FromStr;
 
+pub use default_config::DefaultConfigApp;
+
+mod default_config;
 pub mod flags;
 
 pub const BAD_TESTNET_DIR_MESSAGE: &str = "The hard-coded testnet directory was invalid. \

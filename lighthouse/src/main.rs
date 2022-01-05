@@ -3,13 +3,21 @@
 mod metrics;
 
 use beacon_node::ProductionBeaconNode;
-use clap::{App, Arg, ArgMatches};
-use directory::{parse_path_or_default, DEFAULT_BEACON_NODE_DIR, DEFAULT_VALIDATOR_DIR};
+use clap::{AppSettings, Arg, ArgMatches};
 use clap_utils::flags::{
-    CONFIG_FILE_FLAG, DATADIR_FLAG, DEBUG_LEVEL_FLAG, DISABLE_MALLOC_TUNING_FLAG, DUMP_CONFIG_FLAG,
-    ENV_LOG_FLAG, IMMEDIATE_SHUTDOWN_FLAG, LOGFILE_FLAG, LOG_FORMAT_FLAG, NETWORK_FLAG, SPEC_FLAG,
-    TESTNET_DIR_FLAG, get_eth2_network_config
+    LOGFILE_COMPRESS, LOGFILE_DEBUG_LEVEL, LOGFILE_MAX_NUMBER, LOGFILE_MAX_SIZE,
+    TERMINAL_BLOCK_HASH_EPOCH_OVERRIDE, TERMINAL_BLOCK_HASH_OVERRIDE,
+    TERMINAL_TOTAL_DIFFICULTY_OVERRIDE,
 };
+use clap_utils::{
+    flags::{
+        CONFIG_FILE_FLAG, DATADIR_FLAG, DEBUG_LEVEL_FLAG, DISABLE_MALLOC_TUNING_FLAG,
+        DUMP_CONFIG_FLAG, ENV_LOG_FLAG, IMMEDIATE_SHUTDOWN_FLAG, LOGFILE_FLAG, LOG_FORMAT_FLAG,
+        NETWORK_FLAG, SPEC_FLAG, TESTNET_DIR_FLAG,
+    },
+    get_eth2_network_config, DefaultConfigApp as App,
+};
+use directory::{parse_path_or_default, DEFAULT_BEACON_NODE_DIR, DEFAULT_VALIDATOR_DIR};
 use env_logger::{Builder, Env};
 use environment::{EnvironmentBuilder, LoggerConfig};
 use eth2_hashing::have_sha_extensions;
@@ -20,6 +28,7 @@ use slog::{crit, info, warn};
 use std::collections::HashMap;
 use std::env;
 use std::fs::File;
+use std::ops::Deref;
 use std::path::PathBuf;
 use std::process::exit;
 use task_executor::ShutdownReason;
@@ -56,43 +65,166 @@ fn main() {
         cfg!(feature = "spec-minimal"),
     );
 
-    // Due to lifetimes in `App`, this needs to be initialized before `App`.
-    let mut file_args = HashMap::new();
-    let beacon_node_app = beacon_node::cli_app();
-    let boot_node_app = boot_node::cli_app();
-    let validator_client_app = validator_client::cli_app();
-    let account_manager_app = account_manager::cli_app();
+    // Get a copy of all the command line args, because they will be consumed during the first call
+    // to `get_matches_mut`, and we will require them for the second call.
+    let mut args = vec![];
+    for arg in env::args_os() {
+        args.push(arg);
+    }
+    eprintln!("{:?}", args);
 
-    // Parse the CLI parameters.
-    let app = App::new("Lighthouse")
-        .version(version.as_str())
+    // This first `get_matches` is purely to get the `--config-file` flag if it's present.
+    let mut cli_matches = new_app(version.as_str(), long_version.as_str(), None)
+        .subcommand(beacon_node::cli_app(None))
+        .subcommand(boot_node::cli_app())
+        .subcommand(validator_client::cli_app())
+        .subcommand(account_manager::cli_app())
+        .get_matches();
+
+    let file_name_opt = cli_matches.value_of(CONFIG_FILE_FLAG);
+
+    let mut file_args = HashMap::new();
+
+    if let Some(file_name) = file_name_opt {
+        let yaml_config = clap_utils::parse_file_config(file_name);
+        match yaml_config {
+            Ok(yaml) => {
+                for (key, value) in yaml.iter() {
+                    file_args.insert(&**key, &**value);
+                }
+
+                eprintln!("{:?}", args);
+
+                cli_matches = new_app(version.as_str(), long_version.as_str(), Some(&file_args))
+                    .subcommand(beacon_node::cli_app(Some(&file_args)))
+                    .subcommand(boot_node::cli_app())
+                    .subcommand(validator_client::cli_app())
+                    .subcommand(account_manager::cli_app())
+                    .get_matches_from(args);
+            }
+            Err(e) => {
+                eprintln!("Unable read config from file: {}", e);
+                exit(1);
+            }
+        }
+    };
+
+    // Configure the allocator early in the process, before it has the chance to use the default values for
+    // anything important.
+    //
+    // Only apply this optimization for the beacon node. It's the only process with a substantial
+    // memory footprint.
+    let is_beacon_node = cli_matches.subcommand_name() == Some("beacon_node");
+    if is_beacon_node && !cli_matches.is_present(DISABLE_MALLOC_TUNING_FLAG) {
+        if let Err(e) = configure_memory_allocator() {
+            eprintln!(
+                "Unable to configure the memory allocator: {} \n\
+                Try providing the --{} flag",
+                e, DISABLE_MALLOC_TUNING_FLAG
+            );
+            exit(1)
+        }
+    }
+
+    // Debugging output for libp2p and external crates.
+    if cli_matches.is_present("env_log") {
+        Builder::from_env(Env::default()).init();
+    }
+
+    let result = get_eth2_network_config(&cli_matches).and_then(|eth2_network_config| {
+        let eth_spec_id = eth2_network_config.eth_spec_id()?;
+
+        // boot node subcommand circumvents the environment
+        if let Some(bootnode_matches) = cli_matches.subcommand_matches("boot_node") {
+            // The bootnode uses the main debug-level flag
+            let debug_info = cli_matches
+                .value_of(DEBUG_LEVEL_FLAG)
+                .expect(&format!("{} must be present", DEBUG_LEVEL_FLAG))
+                .into();
+
+            boot_node::run(
+                &cli_matches,
+                bootnode_matches,
+                eth_spec_id,
+                &eth2_network_config,
+                debug_info,
+            );
+
+            return Ok(());
+        }
+
+        match eth_spec_id {
+            EthSpecId::Mainnet => run(
+                EnvironmentBuilder::mainnet(),
+                &cli_matches,
+                eth2_network_config,
+            ),
+            #[cfg(feature = "spec-minimal")]
+            EthSpecId::Minimal => run(
+                EnvironmentBuilder::minimal(),
+                &cli_matches,
+                eth2_network_config,
+            ),
+            #[cfg(not(feature = "spec-minimal"))]
+            other => {
+                eprintln!(
+                    "Eth spec `{}` is not supported by this build of Lighthouse",
+                    other
+                );
+                eprintln!("You must compile with a feature flag to enable this spec variant");
+                exit(1);
+            }
+        }
+    });
+
+    // `std::process::exit` does not run destructors so we drop manually.
+    drop(cli_matches);
+
+    // Return the appropriate error code.
+    match result {
+        Ok(()) => exit(0),
+        Err(e) => {
+            eprintln!("{}", e);
+            drop(e);
+            exit(1)
+        }
+    }
+}
+
+fn new_app<'a>(
+    version: &'a str,
+    long_version: &'a str,
+    file_args: Option<&'a HashMap<&'a str, &'a str>>,
+) -> App<'a> {
+    App::new("Lighthouse", file_args)
+        .version(version)
         .author("Sigma Prime <contact@sigmaprime.io>")
-        .help(
+        .override_help(
             "Ethereum 2.0 client by Sigma Prime. Provides a full-featured beacon \
              node, a validator client and utilities for managing validator accounts.",
         )
         .long_version(
-            long_version.as_str()
+            long_version
         )
         .arg(
-        Arg::new(CONFIG_FILE_FLAG)
-            .long(CONFIG_FILE_FLAG)
-            .help(
-                "The filepath to a YAML file with flag values. To override any options in \
+            Arg::new(CONFIG_FILE_FLAG)
+                .long(CONFIG_FILE_FLAG)
+                .help(
+                    "The filepath to a YAML file with flag values. To override any options in \
                     the config file, specify the same option in the command line."
-            )
-            .global(true)
-            .takes_value(true),
-        ).arg(
-            Arg::new(SPEC_FLAG)
-                .short('s')
-                .long(SPEC_FLAG)
-                .value_name("DEPRECATED")
-                .help("This flag is deprecated, it will be disallowed in a future release. This \
-                    value is now derived from the --network or --testnet-dir flags.")
-                .takes_value(true)
+                )
                 .global(true)
-        )
+                .takes_value(true),
+        ).arg(
+        Arg::new(SPEC_FLAG)
+            .short('s')
+            .long(SPEC_FLAG)
+            .value_name("DEPRECATED")
+            .help("This flag is deprecated, it will be disallowed in a future release. This \
+                    value is now derived from the --network or --testnet-dir flags.")
+            .takes_value(true)
+            .global(true)
+    )
         .arg(
             Arg::new(ENV_LOG_FLAG)
                 .short('l')
@@ -114,8 +246,8 @@ fn main() {
                 .global(true),
         )
         .arg(
-            Arg::with_name("logfile-debug-level")
-                .long("logfile-debug-level")
+            Arg::new(LOGFILE_DEBUG_LEVEL)
+                .long(LOGFILE_DEBUG_LEVEL)
                 .value_name("LEVEL")
                 .help("The verbosity level used when emitting logs to the log file.")
                 .takes_value(true)
@@ -124,8 +256,8 @@ fn main() {
                 .global(true),
         )
         .arg(
-            Arg::with_name("logfile-max-size")
-                .long("logfile-max-size")
+            Arg::new(LOGFILE_MAX_SIZE)
+                .long(LOGFILE_MAX_SIZE)
                 .value_name("SIZE")
                 .help(
                     "The maximum size (in MB) each log file can grow to before rotating. If set \
@@ -135,8 +267,8 @@ fn main() {
                 .global(true),
         )
         .arg(
-            Arg::with_name("logfile-max-number")
-                .long("logfile-max-number")
+            Arg::new(LOGFILE_MAX_NUMBER)
+                .long(LOGFILE_MAX_NUMBER)
                 .value_name("COUNT")
                 .help(
                     "The maximum number of log files that will be stored. If set to 0, \
@@ -146,8 +278,8 @@ fn main() {
                 .global(true),
         )
         .arg(
-            Arg::with_name("logfile-compress")
-                .long("logfile-compress")
+            Arg::new(LOGFILE_COMPRESS)
+                .long(LOGFILE_COMPRESS)
                 .help(
                     "If present, compress old log files. This can help reduce the space needed \
                     to store old logs.")
@@ -211,7 +343,7 @@ fn main() {
         .arg(
             Arg::new(DUMP_CONFIG_FLAG)
                 .long(DUMP_CONFIG_FLAG)
-                .hidden(true)
+                .hide(true)
                 .help("Dumps the config to a desired location. Used for testing only.")
                 .takes_value(true)
                 .global(true)
@@ -219,7 +351,7 @@ fn main() {
         .arg(
             Arg::new(IMMEDIATE_SHUTDOWN_FLAG)
                 .long(IMMEDIATE_SHUTDOWN_FLAG)
-                .hidden(true)
+                .hide(true)
                 .help(
                     "Shuts down immediately after the Beacon Node or Validator has successfully launched. \
                     Used for testing only, DO NOT USE IN PRODUCTION.")
@@ -236,8 +368,8 @@ fn main() {
                 .global(true),
         )
         .arg(
-            Arg::new("terminal-total-difficulty-override")
-                .long("terminal-total-difficulty-override")
+            Arg::new(TERMINAL_TOTAL_DIFFICULTY_OVERRIDE)
+                .long(TERMINAL_TOTAL_DIFFICULTY_OVERRIDE)
                 .value_name("INTEGER")
                 .help("Used to coordinate manual overrides to the TERMINAL_TOTAL_DIFFICULTY parameter. \
                        Accepts a 256-bit decimal integer (not a hex value). \
@@ -249,8 +381,8 @@ fn main() {
                 .global(true)
         )
         .arg(
-            Arg::new("terminal-block-hash-override")
-                .long("terminal-block-hash-override")
+            Arg::new(TERMINAL_BLOCK_HASH_OVERRIDE)
+                .long(TERMINAL_BLOCK_HASH_OVERRIDE)
                 .value_name("TERMINAL_BLOCK_HASH")
                 .help("Used to coordinate manual overrides to the TERMINAL_BLOCK_HASH parameter. \
                        This flag should only be used if the user has a clear understanding that \
@@ -262,8 +394,8 @@ fn main() {
                 .global(true)
         )
         .arg(
-            Arg::new("terminal-block-hash-epoch-override")
-                .long("terminal-block-hash-epoch-override")
+            Arg::new(TERMINAL_BLOCK_HASH_EPOCH_OVERRIDE)
+                .long(TERMINAL_BLOCK_HASH_EPOCH_OVERRIDE)
                 .value_name("EPOCH")
                 .help("Used to coordinate manual overrides to the TERMINAL_BLOCK_HASH_ACTIVATION_EPOCH \
                        parameter. This flag should only be used if the user has a clear understanding \
@@ -272,140 +404,8 @@ fn main() {
                        failure. Be extremely careful with this flag.")
                 .requires("terminal-block-hash-override")
                 .takes_value(true)
-                .global(true)
-        );
-
-    // Get a copy of all the command line args, because they will be consumed during the first call
-    // to `get_matches_mut`, and we will require them for the second call.
-    let mut args = vec![];
-    for arg in env::args_os() {
-        args.push(arg);
-    }
-
-    // Clone all apps here because `get_matches` propagates globals that we may need to overwrite
-    // later.
-    let mut app_clone = app.clone();
-    let mut beacon_node_app_clone = beacon_node_app.clone();
-    let mut boot_node_app_clone = boot_node_app.clone();
-    let mut validator_client_app_clone = validator_client_app.clone();
-    let mut account_manager_app_clone = account_manager_app.clone();
-
-    // This first `get_matches` is purely to get the `--config-file` flag if it's present.
-    let first_matches = app
-        .subcommand(beacon_node_app)
-        .subcommand(boot_node_app)
-        .subcommand(validator_client_app)
-        .subcommand(account_manager_app)
-        .get_matches();
-    let file_name_opt = first_matches.value_of("config-file");
-    if let Some(file_name) = file_name_opt {
-        let yaml_config = clap_utils::parse_file_config(file_name);
-        match yaml_config {
-            Ok(yaml) => {
-                for entry in yaml {
-                    file_args.insert(entry.0, entry.1);
-                }
-            }
-            Err(e) => {
-                eprintln!("Unable read config from file: {}", e);
-                exit(1);
-            }
-        }
-    };
-
-    // Here we mutate the default values of all args that we are gathering from file. This lets us
-    // make sure the file arg is only used if the command line arg is not also provided.
-    for (arg_name, arg_value) in file_args.iter() {
-        beacon_node_app_clone =
-            beacon_node_app_clone.mut_arg(&**arg_name, |arg| arg.default_value(&**arg_value));
-        boot_node_app_clone =
-            boot_node_app_clone.mut_arg(&**arg_name, |arg| arg.default_value(&**arg_value));
-        validator_client_app_clone =
-            validator_client_app_clone.mut_arg(&**arg_name, |arg| arg.default_value(&**arg_value));
-        account_manager_app_clone =
-            account_manager_app_clone.mut_arg(&**arg_name, |arg| arg.default_value(&**arg_value));
-        app_clone = app_clone.mut_arg(&**arg_name, |arg| arg.default_value(&**arg_value))
-    }
-
-    let cli_matches = app_clone
-        .subcommand(beacon_node_app_clone)
-        .subcommand(boot_node_app_clone)
-        .subcommand(validator_client_app_clone)
-        .subcommand(account_manager_app_clone)
-        .get_matches_from(args);
-
-    // Configure the allocator early in the process, before it has the chance to use the default values for
-    // anything important.
-    //
-    // Only apply this optimization for the beacon node. It's the only process with a substantial
-    // memory footprint.
-    let is_beacon_node = cli_matches.subcommand_name() == Some("beacon_node");
-    if is_beacon_node && !cli_matches.is_present(DISABLE_MALLOC_TUNING_FLAG) {
-        if let Err(e) = configure_memory_allocator() {
-            eprintln!(
-                "Unable to configure the memory allocator: {} \n\
-                Try providing the --{} flag",
-                e, DISABLE_MALLOC_TUNING_FLAG
-            );
-            exit(1)
-        }
-    }
-
-    // Debugging output for libp2p and external crates.
-    if cli_matches.is_present("env_log") {
-        Builder::from_env(Env::default()).init();
-    }
-
-    let result = get_eth2_network_config(&cli_matches).and_then(|eth2_network_config| {
-        let eth_spec_id = eth2_network_config.eth_spec_id()?;
-
-        // boot node subcommand circumvents the environment
-        if let Some(bootnode_matches) = cli_matches.subcommand_matches("boot_node") {
-            // The bootnode uses the main debug-level flag
-            let debug_info = cli_matches
-                .value_of("debug-level")
-                .expect("Debug-level must be present")
-                .into();
-
-            boot_node::run(
-                &cli_matches,
-                bootnode_matches,
-                eth_spec_id,
-                &eth2_network_config,
-                debug_info,
-            );
-
-            return Ok(());
-        }
-
-        match eth_spec_id {
-            EthSpecId::Mainnet => run(EnvironmentBuilder::mainnet(), &cli_matches, eth2_network_config),
-            #[cfg(feature = "spec-minimal")]
-            EthSpecId::Minimal => run(EnvironmentBuilder::minimal(), &cli_matches, eth2_network_config),
-            #[cfg(not(feature = "spec-minimal"))]
-            other => {
-                eprintln!(
-                    "Eth spec `{}` is not supported by this build of Lighthouse",
-                    other
-                );
-                eprintln!("You must compile with a feature flag to enable this spec variant");
-                exit(1);
-            }
-        }
-    });
-
-    // `std::process::exit` does not run destructors so we drop manually.
-    drop(cli_matches);
-
-    // Return the appropriate error code.
-    match result {
-        Ok(()) => exit(0),
-        Err(e) => {
-            eprintln!("{}", e);
-            drop(e);
-            exit(1)
-        }
-    }
+                .global(true),
+        )
 }
 
 fn run<E: EthSpec>(
@@ -421,31 +421,31 @@ fn run<E: EthSpec>(
     }
 
     let debug_level = matches
-        .value_of("debug-level")
-        .ok_or("Expected --debug-level flag")?;
+        .value_of(DEBUG_LEVEL_FLAG)
+        .ok_or(&format!("Expected --{} flag", DEBUG_LEVEL_FLAG))?;
 
-    let log_format = matches.value_of("log-format");
+    let log_format = matches.value_of(LOG_FORMAT_FLAG);
 
     let logfile_debug_level = matches
-        .value_of("logfile-debug-level")
-        .ok_or("Expected --logfile-debug-level flag")?;
+        .value_of(LOGFILE_DEBUG_LEVEL)
+        .ok_or(&format!("Expected --{} flag", LOGFILE_DEBUG_LEVEL))?;
 
     let logfile_max_size: u64 = matches
-        .value_of("logfile-max-size")
-        .ok_or("Expected --logfile-max-size flag")?
+        .value_of(LOGFILE_MAX_SIZE)
+        .ok_or(&format!("Expected --{} flag", LOGFILE_MAX_SIZE))?
         .parse()
-        .map_err(|e| format!("Failed to parse `logfile-max-size`: {:?}", e))?;
+        .map_err(|e| format!("Failed to parse `{}`: {:?}", LOGFILE_MAX_SIZE, e))?;
 
     let logfile_max_number: usize = matches
-        .value_of("logfile-max-number")
-        .ok_or("Expected --logfile-max-number flag")?
+        .value_of(LOGFILE_MAX_NUMBER)
+        .ok_or(&format!("Expected --{} flag", LOGFILE_MAX_NUMBER))?
         .parse()
-        .map_err(|e| format!("Failed to parse `logfile-max-number`: {:?}", e))?;
+        .map_err(|e| format!("Failed to parse `{}`: {:?}", LOGFILE_MAX_NUMBER, e))?;
 
-    let logfile_compress = matches.is_present("logfile-compress");
+    let logfile_compress = matches.is_present(LOGFILE_COMPRESS);
 
     // Construct the path to the log file.
-    let mut log_path: Option<PathBuf> = clap_utils::parse_optional(matches, "logfile")?;
+    let mut log_path: Option<PathBuf> = clap_utils::parse_optional(matches, LOGFILE_FLAG)?;
     if log_path.is_none() {
         log_path = match matches.subcommand_name() {
             Some("beacon_node") => Some(
@@ -491,7 +491,7 @@ fn run<E: EthSpec>(
     // Allow Prometheus access to the version and commit of the Lighthouse build.
     metrics::expose_lighthouse_version();
 
-    if matches.is_present("spec") {
+    if matches.is_present(SPEC_FLAG) {
         warn!(
             log,
             "The --spec flag is deprecated and will be removed in a future release"
@@ -516,8 +516,8 @@ fn run<E: EthSpec>(
     // Creating a command which can run both might be useful future works.
 
     // Print an indication of which network is currently in use.
-    let optional_testnet = clap_utils::parse_optional::<String>(matches, "network")?;
-    let optional_testnet_dir = clap_utils::parse_optional::<PathBuf>(matches, "testnet-dir")?;
+    let optional_testnet = clap_utils::parse_optional::<String>(matches, NETWORK_FLAG)?;
+    let optional_testnet_dir = clap_utils::parse_optional::<PathBuf>(matches, TESTNET_DIR_FLAG)?;
 
     let network_name = match (optional_testnet, optional_testnet_dir) {
         (Some(testnet), None) => testnet,
@@ -548,8 +548,9 @@ fn run<E: EthSpec>(
             let log = context.log().clone();
             let executor = context.executor.clone();
             let config = beacon_node::get_config::<E>(matches, &context)?;
-            let shutdown_flag = matches.is_present("immediate-shutdown");
-            if let Some(dump_path) = clap_utils::parse_optional::<PathBuf>(matches, "dump-config")?
+            let shutdown_flag = matches.is_present(IMMEDIATE_SHUTDOWN_FLAG);
+            if let Some(dump_path) =
+                clap_utils::parse_optional::<PathBuf>(matches, DUMP_CONFIG_FLAG)?
             {
                 let mut file = File::create(dump_path)
                     .map_err(|e| format!("Failed to create dumped config: {:?}", e))?;
@@ -581,8 +582,9 @@ fn run<E: EthSpec>(
             let executor = context.executor.clone();
             let config = validator_client::Config::from_cli(matches, context.log())
                 .map_err(|e| format!("Unable to initialize validator config: {}", e))?;
-            let shutdown_flag = matches.is_present("immediate-shutdown");
-            if let Some(dump_path) = clap_utils::parse_optional::<PathBuf>(matches, "dump-config")?
+            let shutdown_flag = matches.is_present(IMMEDIATE_SHUTDOWN_FLAG);
+            if let Some(dump_path) =
+                clap_utils::parse_optional::<PathBuf>(matches, DUMP_CONFIG_FLAG)?
             {
                 let mut file = File::create(dump_path)
                     .map_err(|e| format!("Failed to create dumped config: {:?}", e))?;
