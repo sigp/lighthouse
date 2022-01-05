@@ -11,7 +11,7 @@ pub const CMD: &str = "wallet";
 
 pub fn cli_app<'a>() -> App<'a> {
     App::new(CMD)
-        .help("Manage wallets, from which validator keys can be derived.")
+        .override_help("Manage wallets, from which validator keys can be derived.")
         .arg(
             Arg::new(WALLETS_DIR_FLAG)
                 .long(WALLETS_DIR_FLAG)

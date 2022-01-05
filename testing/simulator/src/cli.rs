@@ -3,10 +3,10 @@ use clap::{App, Arg};
 pub fn cli_app<'a>() -> App<'a> {
     App::new("simulator")
         .author("Sigma Prime <contact@sigmaprime.io>")
-        .help("Options for interacting with simulator")
+        .override_help("Options for interacting with simulator")
         .subcommand(
             App::new("eth1-sim")
-            .help(
+            .override_help(
                 "Lighthouse Beacon Chain Simulator creates `n` beacon node and validator clients, \
                     each with `v` validators. A deposit contract is deployed at the start of the \
                     simulation using a local `ganache-cli` instance (you must have `ganache-cli` \
@@ -43,7 +43,7 @@ pub fn cli_app<'a>() -> App<'a> {
         )
         .subcommand(
             App::new("no-eth1-sim")
-            .help("Runs a simulator that bypasses the eth1 chain. Useful for faster testing of
+            .override_help("Runs a simulator that bypasses the eth1 chain. Useful for faster testing of
                 components that don't rely upon eth1")
                     .arg(Arg::new("nodes")
                         .short('n')
@@ -71,7 +71,7 @@ pub fn cli_app<'a>() -> App<'a> {
         )
         .subcommand(
             App::new("syncing-sim")
-                .help("Run the syncing simulation")
+                .override_help("Run the syncing simulation")
                 .arg(
                     Arg::new("speedup")
                         .short('s')

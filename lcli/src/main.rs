@@ -30,7 +30,7 @@ fn main() {
 
     let matches = App::new("Lighthouse CLI Tool")
         .version(lighthouse_version::VERSION)
-        .help("Performs various testing-related tasks, including defining testnets.")
+        .override_help("Performs various testing-related tasks, including defining testnets.")
         .arg(
             Arg::new("spec")
                 .short('s')
@@ -53,7 +53,7 @@ fn main() {
         )
         .subcommand(
             App::new("skip-slots")
-                .help(
+                .override_help(
                     "Performs a state transition from some state across some number of skip slots",
                 )
                 .arg(
@@ -81,7 +81,7 @@ fn main() {
         )
         .subcommand(
             App::new("transition-blocks")
-                .help("Performs a state transition given a pre-state and block")
+                .override_help("Performs a state transition given a pre-state and block")
                 .arg(
                     Arg::new("pre-state")
                         .value_name("BEACON_STATE")
@@ -107,7 +107,7 @@ fn main() {
         )
         .subcommand(
             App::new("pretty-ssz")
-                .help("Parses SSZ-encoded data from a file")
+                .override_help("Parses SSZ-encoded data from a file")
                 .arg(
                     Arg::new("format")
                         .short('f')
@@ -136,7 +136,7 @@ fn main() {
         )
         .subcommand(
             App::new("deploy-deposit-contract")
-                .help(
+                .override_help(
                     "Deploy a testing eth1 deposit contract.",
                 )
                 .arg(
@@ -168,7 +168,7 @@ fn main() {
         )
         .subcommand(
             App::new("eth1-genesis")
-                .help("Listens to the eth1 chain and finds the genesis beacon state")
+                .override_help("Listens to the eth1 chain and finds the genesis beacon state")
                 .arg(
                     Arg::new("eth1-endpoint")
                         .short('e')
@@ -192,7 +192,7 @@ fn main() {
         )
         .subcommand(
             App::new("interop-genesis")
-                .help("Produces an interop-compatible genesis state using deterministic keypairs")
+                .override_help("Produces an interop-compatible genesis state using deterministic keypairs")
                 .arg(
                     Arg::new("validator-count")
                         .long("validator-count")
@@ -223,7 +223,7 @@ fn main() {
         )
         .subcommand(
             App::new("change-genesis-time")
-                .help(
+                .override_help(
                     "Loads a file with an SSZ-encoded BeaconState and modifies the genesis time.",
                 )
                 .arg(
@@ -245,7 +245,7 @@ fn main() {
         )
         .subcommand(
             App::new("replace-state-pubkeys")
-                .help(
+                .override_help(
                     "Loads a file with an SSZ-encoded BeaconState and replaces \
                     all the validator pubkeys with ones derived from the mnemonic \
                     such that validator indices correspond to EIP-2334 voting keypair \
@@ -325,7 +325,7 @@ fn main() {
         )
         .subcommand(
             App::new("new-testnet")
-                .help(
+                .override_help(
                     "Produce a new testnet directory. If any of the optional flags are not
                     supplied the values will remain the default for the --spec flag",
                 )
@@ -337,7 +337,7 @@ fn main() {
                         .help("Overwrites any previous testnet configurations"),
                 )
                 .arg(
-                    Arg::with_name("interop-genesis-state")
+                    Arg::new("interop-genesis-state")
                         .long("interop-genesis-state")
                         .takes_value(false)
                         .help(
@@ -463,7 +463,7 @@ fn main() {
                         ),
                 )
                 .arg(
-                    Arg::with_name("merge-fork-epoch")
+                    Arg::new("merge-fork-epoch")
                         .long("merge-fork-epoch")
                         .value_name("EPOCH")
                         .takes_value(true)
@@ -472,14 +472,14 @@ fn main() {
                         ),
                 )
                 .arg(
-                    Arg::with_name("eth1-block-hash")
+                    Arg::new("eth1-block-hash")
                         .long("eth1-block-hash")
                         .value_name("BLOCK_HASH")
                         .takes_value(true)
                         .help("The eth1 block hash used when generating a genesis state."),
                 )
                 .arg(
-                    Arg::with_name("execution-payload-header")
+                    Arg::new("execution-payload-header")
                         .long("execution-payload-header")
                         .value_name("FILE")
                         .takes_value(true)
@@ -488,14 +488,14 @@ fn main() {
                             used in the genesis state."),
                 )
                 .arg(
-                    Arg::with_name("validator-count")
+                    Arg::new("validator-count")
                         .long("validator-count")
                         .value_name("INTEGER")
                         .takes_value(true)
                         .help("The number of validators when generating a genesis state."),
                 )
                 .arg(
-                    Arg::with_name("genesis-time")
+                    Arg::new("genesis-time")
                         .long("genesis-time")
                         .value_name("INTEGER")
                         .takes_value(true)
@@ -504,7 +504,7 @@ fn main() {
         )
         .subcommand(
             App::new("check-deposit-data")
-                .help("Checks the integrity of some deposit data.")
+                .override_help("Checks the integrity of some deposit data.")
                 .arg(
                     Arg::new("deposit-amount")
                         .index(1)
@@ -527,7 +527,7 @@ fn main() {
         )
         .subcommand(
             App::new("generate-bootnode-enr")
-                .help("Generates an ENR address to be used as a pre-genesis boot node.")
+                .override_help("Generates an ENR address to be used as a pre-genesis boot node.")
                 .arg(
                     Arg::new("ip")
                         .long("ip")
@@ -576,7 +576,7 @@ fn main() {
         )
         .subcommand(
             App::new("insecure-validators")
-                .help("Produces validator directories with INSECURE, deterministic keypairs.")
+                .override_help("Produces validator directories with INSECURE, deterministic keypairs.")
                 .arg(
                     Arg::new("count")
                         .long("count")
@@ -601,7 +601,7 @@ fn main() {
         )
         .subcommand(
             App::new("etl-block-efficiency")
-                .help(
+                .override_help(
                     "Performs ETL analysis of block efficiency. Requires a Beacon Node API to \
                     extract data from.",
                 )

@@ -28,7 +28,7 @@ pub const WALLET_PASSWORD_PROMPT: &str = "Enter your wallet's password:";
 
 pub fn cli_app<'a>() -> App<'a> {
     App::new(CMD)
-        .help(
+        .override_help(
             "Creates new validators from an existing EIP-2386 wallet using the EIP-2333 HD key \
             derivation scheme.",
         )
@@ -106,7 +106,7 @@ pub fn cli_app<'a>() -> App<'a> {
         .arg(
             Arg::new(STDIN_INPUTS_FLAG)
                 .takes_value(false)
-                .hidden(cfg!(windows))
+                .hide(cfg!(windows))
                 .long(STDIN_INPUTS_FLAG)
                 .help("If present, read all user inputs from stdin instead of tty."),
         )

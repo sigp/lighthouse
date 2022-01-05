@@ -15,9 +15,6 @@
 //! easy-to-find files and stdout only contained info from the simulation.
 //!
 
-#[macro_use]
-extern crate clap;
-
 mod checks;
 mod cli;
 mod eth1_sim;

@@ -9,7 +9,7 @@ pub const MNEMONIC_FLAG: &str = "mnemonic-path";
 
 pub fn cli_app<'a>() -> App<'a> {
     App::new(CMD)
-        .help("Recovers an EIP-2386 wallet from a given a BIP-39 mnemonic phrase.")
+        .override_help("Recovers an EIP-2386 wallet from a given a BIP-39 mnemonic phrase.")
         .arg(
             Arg::new(NAME_FLAG)
                 .long(NAME_FLAG)
@@ -55,7 +55,7 @@ pub fn cli_app<'a>() -> App<'a> {
         .arg(
             Arg::new(STDIN_INPUTS_FLAG)
                 .takes_value(false)
-                .hidden(cfg!(windows))
+                .hide(cfg!(windows))
                 .long(STDIN_INPUTS_FLAG)
                 .help("If present, read all user inputs from stdin instead of tty."),
         )

@@ -23,35 +23,6 @@ fn build_node<E: EthSpec>(env: &mut Environment<E>) -> LocalBeaconNode<E> {
         .expect("should block until node created")
 }
 
-use clap::Parser;
-
-#[test]
-fn skip_1() {
-    #[derive(Parser, Debug, PartialEq)]
-    struct Opt {
-        #[clap(short)]
-        x: u32,
-        #[clap(skip)]
-        s: u32,
-    }
-
-    assert!(Opt::try_parse_from(&["test", "-x", "10", "20"]).is_err());
-
-    let mut opt = Opt::parse_from(&["test", "-x", "10"]);
-    assert_eq!(
-        opt,
-        Opt {
-            x: 10,
-            s: 0, // default
-        }
-    );
-    opt.x = 10;
-
-    opt.update_from(&["test", "-s", "22"]);
-
-    assert_eq!(opt, Opt { x: 10, s: 22 });
-}
-
 #[test]
 fn http_server_genesis_state() {
     let mut env = env_builder()

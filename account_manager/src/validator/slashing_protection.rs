@@ -21,10 +21,10 @@ pub const PUBKEYS_FLAG: &str = "pubkeys";
 
 pub fn cli_app<'a>() -> App<'a> {
     App::new(CMD)
-        .help("Import or export slashing protection data to or from another client")
+        .override_help("Import or export slashing protection data to or from another client")
         .subcommand(
             App::new(IMPORT_CMD)
-                .help("Import an interchange file")
+                .override_help("Import an interchange file")
                 .arg(
                     Arg::new(IMPORT_FILE_ARG)
                         .takes_value(true)
@@ -44,7 +44,7 @@ pub fn cli_app<'a>() -> App<'a> {
         )
         .subcommand(
             App::new(EXPORT_CMD)
-                .help("Export an interchange file")
+                .override_help("Export an interchange file")
                 .arg(
                     Arg::new(EXPORT_FILE_ARG)
                         .takes_value(true)

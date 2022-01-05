@@ -6,7 +6,7 @@ edition = "2018"
 
 [dependencies]
 bls = { path = "../crypto/bls" }
-clap = "3.0.1"
+clap = "3.0.4"
 types = { path = "../consensus/types" }
 environment = { path = "../lighthouse/environment" }
 eth2_network_config = { path = "../common/eth2_network_config" }

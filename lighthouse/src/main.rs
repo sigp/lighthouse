@@ -3,7 +3,7 @@
 mod metrics;
 
 use beacon_node::ProductionBeaconNode;
-use clap::{AppSettings, Arg, ArgMatches};
+use clap::{Arg, ArgMatches};
 use clap_utils::flags::{
     LOGFILE_COMPRESS, LOGFILE_DEBUG_LEVEL, LOGFILE_MAX_NUMBER, LOGFILE_MAX_SIZE,
     TERMINAL_BLOCK_HASH_EPOCH_OVERRIDE, TERMINAL_BLOCK_HASH_OVERRIDE,
@@ -28,7 +28,6 @@ use slog::{crit, info, warn};
 use std::collections::HashMap;
 use std::env;
 use std::fs::File;
-use std::ops::Deref;
 use std::path::PathBuf;
 use std::process::exit;
 use task_executor::ShutdownReason;
@@ -53,59 +52,11 @@ fn main() {
         std::env::set_var("RUST_BACKTRACE", "1");
     }
 
-    let version = VERSION.replace("Lighthouse/", "");
-    let long_version = format!(
-        "{}\n\
-                 BLS library: {}\n\
-                 SHA256 hardware acceleration: {}\n\
-                 Specs: mainnet (true), minimal ({})",
-        version,
-        bls_library_name(),
-        have_sha_extensions(),
-        cfg!(feature = "spec-minimal"),
-    );
-
-    // Get a copy of all the command line args, because they will be consumed during the first call
-    // to `get_matches_mut`, and we will require them for the second call.
-    let mut args = vec![];
-    for arg in env::args_os() {
-        args.push(arg);
-    }
-    eprintln!("{:?}", args);
-
-    // This first `get_matches` is purely to get the `--config-file` flag if it's present.
-    let mut cli_matches = new_app(version.as_str(), long_version.as_str(), None)
-        .subcommand(beacon_node::cli_app(None))
-        .subcommand(boot_node::cli_app())
-        .subcommand(validator_client::cli_app())
-        .subcommand(account_manager::cli_app())
-        .get_matches();
-
-    let file_name_opt = cli_matches.value_of(CONFIG_FILE_FLAG);
-
-    let mut file_args = HashMap::new();
-
-    if let Some(file_name) = file_name_opt {
-        let yaml_config = clap_utils::parse_file_config(file_name);
-        match yaml_config {
-            Ok(yaml) => {
-                for (key, value) in yaml.iter() {
-                    file_args.insert(&**key, &**value);
-                }
-
-                eprintln!("{:?}", args);
-
-                cli_matches = new_app(version.as_str(), long_version.as_str(), Some(&file_args))
-                    .subcommand(beacon_node::cli_app(Some(&file_args)))
-                    .subcommand(boot_node::cli_app())
-                    .subcommand(validator_client::cli_app())
-                    .subcommand(account_manager::cli_app())
-                    .get_matches_from(args);
-            }
-            Err(e) => {
-                eprintln!("Unable read config from file: {}", e);
-                exit(1);
-            }
+    let cli_matches = match get_cli_matches() {
+        Ok(matches) => matches,
+        Err(e) => {
+            eprintln!("Unable read config from file: {}", e);
+            exit(1);
         }
     };
 
@@ -127,7 +78,7 @@ fn main() {
     }
 
     // Debugging output for libp2p and external crates.
-    if cli_matches.is_present("env_log") {
+    if cli_matches.is_present(ENV_LOG_FLAG) {
         Builder::from_env(Env::default()).init();
     }
 
@@ -139,7 +90,7 @@ fn main() {
             // The bootnode uses the main debug-level flag
             let debug_info = cli_matches
                 .value_of(DEBUG_LEVEL_FLAG)
-                .expect(&format!("{} must be present", DEBUG_LEVEL_FLAG))
+                .unwrap_or_else(|| panic!("{} must be present", DEBUG_LEVEL_FLAG))
                 .into();
 
             boot_node::run(
@@ -191,6 +142,52 @@ fn main() {
     }
 }
 
+/// Get CLI args and return an `ArgMatches`. If the `--config-file` flag is provided, this will
+/// make sure each args falls back to the specified file for config. File config will only
+/// by used if the equivalent CLI args are not present.
+fn get_cli_matches() -> Result<ArgMatches, String> {
+    let version = VERSION.replace("Lighthouse/", "");
+    let long_version = format!(
+        "{}\n\
+                 BLS library: {}\n\
+                 SHA256 hardware acceleration: {}\n\
+                 Specs: mainnet (true), minimal ({})",
+        version,
+        bls_library_name(),
+        have_sha_extensions(),
+        cfg!(feature = "spec-minimal"),
+    );
+
+    // Get a copy of all the command line args, because they will be consumed during the first call
+    // to `get_matches`, and we will require them for the second call (if the second call is necessary).
+    let mut args = vec![];
+    for arg in env::args_os() {
+        args.push(arg);
+    }
+
+    // This first `get_matches` is  used to get the `--config-file` flag if it's present. If it isn't
+    // present, this `ArgMatches` will be returned.
+    let mut cli_matches = new_app(version.as_str(), long_version.as_str(), None).get_matches();
+
+    let file_name_opt = cli_matches.value_of(CONFIG_FILE_FLAG);
+
+    if let Some(file_name) = file_name_opt {
+        let file_config = clap_utils::parse_file_config(file_name)?;
+
+        let mut file_args = HashMap::new();
+        for (key, value) in file_config.iter() {
+            file_args.insert(&**key, &**value);
+        }
+
+        cli_matches = new_app(version.as_str(), long_version.as_str(), Some(&file_args))
+            .get_matches_from(args);
+    };
+    Ok(cli_matches)
+}
+
+/// Instantiate a new `App<'a>`, using the given map of file args as fallback config.
+///
+/// Note: `App<'a>` here is actually the `clap_utils::DefaultConfigApp<'a>` wrapper around `cli::App<'a>`.
 fn new_app<'a>(
     version: &'a str,
     long_version: &'a str,
@@ -405,7 +402,10 @@ fn new_app<'a>(
                 .requires("terminal-block-hash-override")
                 .takes_value(true)
                 .global(true),
-        )
+        ).subcommand(beacon_node::cli_app(file_args))
+        .subcommand(boot_node::cli_app(file_args))
+        .subcommand(validator_client::cli_app(file_args))
+        .subcommand(account_manager::cli_app())
 }
 
 fn run<E: EthSpec>(
@@ -449,14 +449,14 @@ fn run<E: EthSpec>(
     if log_path.is_none() {
         log_path = match matches.subcommand_name() {
             Some("beacon_node") => Some(
-                parse_path_or_default(matches, "datadir")?
+                parse_path_or_default(matches, DATADIR_FLAG)?
                     .join(DEFAULT_BEACON_NODE_DIR)
                     .join("logs")
                     .join("beacon")
                     .with_extension("log"),
             ),
             Some("validator_client") => Some(
-                parse_path_or_default(matches, "datadir")?
+                parse_path_or_default(matches, DATADIR_FLAG)?
                     .join(DEFAULT_VALIDATOR_DIR)
                     .join("logs")
                     .join("validator")

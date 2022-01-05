@@ -1,6 +1,3 @@
-#[macro_use]
-extern crate clap;
-
 mod cli;
 mod config;
 

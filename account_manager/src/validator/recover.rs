@@ -18,7 +18,7 @@ pub const MNEMONIC_FLAG: &str = "mnemonic-path";
 
 pub fn cli_app<'a>() -> App<'a> {
     App::new(CMD)
-        .help(
+        .override_help(
             "Recovers validator private keys given a BIP-39 mnemonic phrase. \
             If you did not specify a `--first-index` or count `--count`, by default this will \
             only recover the keys associated with the validator at index 0 for an HD wallet \
@@ -72,7 +72,7 @@ pub fn cli_app<'a>() -> App<'a> {
         .arg(
             Arg::new(STDIN_INPUTS_FLAG)
                 .takes_value(false)
-                .hidden(cfg!(windows))
+                .hide(cfg!(windows))
                 .long(STDIN_INPUTS_FLAG)
                 .help("If present, read all user inputs from stdin instead of tty."),
         )

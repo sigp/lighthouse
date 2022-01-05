@@ -48,7 +48,7 @@ impl<'a> DefaultConfigApp<'a> {
         if let Some(value) = self
             .default_config
             .as_ref()
-            .map(|file_config| file_config.get(a.get_name()).map(|v| *v))
+            .map(|file_config| file_config.get(a.get_name()).copied())
             .flatten()
         {
             self.app = self.app.arg(a.default_value(value))
@@ -67,7 +67,7 @@ impl<'a> DefaultConfigApp<'a> {
         self.app.get_matches()
     }
 
-    pub fn get_matches_from<I, T>(mut self, itr: I) -> ArgMatches
+    pub fn get_matches_from<I, T>(self, itr: I) -> ArgMatches
     where
         I: IntoIterator<Item = T>,
         T: Into<OsString> + Clone,

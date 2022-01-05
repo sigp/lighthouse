@@ -1,9 +1,11 @@
-use clap::{App, Arg};
+use clap::Arg;
+use clap_utils::DefaultConfigApp as App;
+use std::collections::HashMap;
 
-pub fn cli_app<'a>() -> App<'a> {
-    App::new("validator_client")
+pub fn cli_app<'a>(file_args: Option<&'a HashMap<&'a str, &'a str>>) -> App<'a> {
+    App::new("validator_client", file_args)
         .visible_aliases(&["v", "vc", "validator"])
-        .help(
+        .override_help(
             "When connected to a beacon node, performs the duties of a staked \
                 validator (e.g., proposing blocks and attestations).",
         )
