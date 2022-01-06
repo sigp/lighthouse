@@ -3072,7 +3072,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         trace!(
             self.log,
             "Produced beacon block";
-            "parent" => %block.parent_root(),
+            "parent" => ?block.parent_root(),
             "attestations" => block.body().attestations().len(),
             "slot" => block.slot()
         );
@@ -3178,10 +3178,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             warn!(
                 self.log,
                 "Beacon chain re-org";
-                "previous_head" => %current_head.block_root,
+                "previous_head" => ?current_head.block_root,
                 "previous_slot" => current_head.slot,
-                "new_head_parent" => %new_head.beacon_block.parent_root(),
-                "new_head" => %beacon_block_root,
+                "new_head_parent" => ?new_head.beacon_block.parent_root(),
+                "new_head" => ?beacon_block_root,
                 "new_slot" => new_head.beacon_block.slot(),
                 "reorg_distance" => reorg_distance,
             );
@@ -3189,11 +3189,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             debug!(
                 self.log,
                 "Head beacon block";
-                "justified_root" => %new_head.beacon_state.current_justified_checkpoint().root,
+                "justified_root" => ?new_head.beacon_state.current_justified_checkpoint().root,
                 "justified_epoch" => new_head.beacon_state.current_justified_checkpoint().epoch,
-                "finalized_root" => %new_head.beacon_state.finalized_checkpoint().root,
+                "finalized_root" => ?new_head.beacon_state.finalized_checkpoint().root,
                 "finalized_epoch" => new_head.beacon_state.finalized_checkpoint().epoch,
-                "root" => %beacon_block_root,
+                "root" => ?beacon_block_root,
                 "slot" => new_head.beacon_block.slot(),
             );
         };
