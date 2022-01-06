@@ -2,6 +2,7 @@ use validator_client::Config;
 
 use crate::exec::CommandLineTestExec;
 use bls::{Keypair, PublicKeyBytes};
+use clap_utils::flags::*;
 use std::fs::File;
 use std::io::Write;
 use std::net::Ipv4Addr;
@@ -55,8 +56,8 @@ fn datadir_flag() {
 fn validators_and_secrets_dir_flags() {
     let dir = TempDir::new().expect("Unable to create temporary directory");
     CommandLineTest::new()
-        .flag("validators-dir", dir.path().join("validators").to_str())
-        .flag("secrets-dir", dir.path().join("secrets").to_str())
+        .flag(VALIDATORS_DIR_FLAG, dir.path().join("validators").to_str())
+        .flag(SECRETS_DIR_FLAG, dir.path().join("secrets").to_str())
         .run_with_no_datadir()
         .with_config(|config| {
             assert_eq!(config.validator_dir, dir.path().join("validators"));
@@ -68,7 +69,7 @@ fn validators_and_secrets_dir_flags() {
 fn beacon_nodes_flag() {
     CommandLineTest::new()
         .flag(
-            "beacon-nodes",
+            BEACON_NODES_FLAG,
             Some("http://localhost:1001,https://project:secret@infura.io/"),
         )
         .run()
@@ -89,7 +90,7 @@ fn beacon_nodes_flag() {
 #[test]
 fn allow_unsynced_flag() {
     CommandLineTest::new()
-        .flag("allow-unsynced", None)
+        .flag(ALLOW_UNSYNCED_FLAG, None)
         .run()
         .with_config(|config| assert!(config.allow_unsynced_beacon_node));
 }
@@ -97,7 +98,7 @@ fn allow_unsynced_flag() {
 #[test]
 fn disable_auto_discover_flag() {
     CommandLineTest::new()
-        .flag("disable-auto-discover", None)
+        .flag(DISABLE_AUTO_DISCOVER_FLAG, None)
         .run()
         .with_config(|config| assert!(config.disable_auto_discover));
 }
@@ -105,7 +106,7 @@ fn disable_auto_discover_flag() {
 #[test]
 fn init_slashing_protections_flag() {
     CommandLineTest::new()
-        .flag("init-slashing-protection", None)
+        .flag(INIT_SLASHING_PROTECTION_FLAG, None)
         .run()
         .with_config(|config| assert!(config.init_slashing_protection));
 }
@@ -113,7 +114,7 @@ fn init_slashing_protections_flag() {
 #[test]
 fn use_long_timeouts_flag() {
     CommandLineTest::new()
-        .flag("use-long-timeouts", None)
+        .flag(USE_LONG_TIMEOUTS_FLAG, None)
         .run()
         .with_config(|config| assert!(config.use_long_timeouts));
 }
@@ -123,7 +124,7 @@ fn beacon_nodes_tls_certs_flag() {
     let dir = TempDir::new().expect("Unable to create temporary directory");
     CommandLineTest::new()
         .flag(
-            "beacon-nodes-tls-certs",
+            BEACON_NODES_TLS_CERTS_FLAG,
             Some(
                 vec![
                     dir.path().join("certificate.crt").to_str().unwrap(),
@@ -149,7 +150,7 @@ fn beacon_nodes_tls_certs_flag() {
 #[test]
 fn graffiti_flag() {
     CommandLineTest::new()
-        .flag("graffiti", Some("nice-graffiti"))
+        .flag(GRAFFITI_FLAG, Some("nice-graffiti"))
         .run()
         .with_config(|config| {
             assert_eq!(
@@ -169,7 +170,7 @@ fn graffiti_file_flag() {
         .expect("Unable to write to file");
     CommandLineTest::new()
         .flag(
-            "graffiti-file",
+            GRAFFITI_FILE_FLAG,
             dir.path().join("graffiti.txt").as_os_str().to_str(),
         )
         .run()
@@ -199,7 +200,7 @@ fn graffiti_file_with_pk_flag() {
         .expect("Unable to write to file");
     CommandLineTest::new()
         .flag(
-            "graffiti-file",
+            GRAFFITI_FILE_FLAG,
             dir.path().join("graffiti.txt").as_os_str().to_str(),
         )
         .run()
@@ -222,7 +223,7 @@ fn graffiti_file_with_pk_flag() {
 #[test]
 fn http_flag() {
     CommandLineTest::new()
-        .flag("http", None)
+        .flag(HTTP_FLAG, None)
         .run()
         .with_config(|config| assert!(config.http_api.enabled));
 }
@@ -230,8 +231,8 @@ fn http_flag() {
 fn http_address_flag() {
     let addr = "127.0.0.99".parse::<Ipv4Addr>().unwrap();
     CommandLineTest::new()
-        .flag("http-address", Some("127.0.0.99"))
-        .flag("unencrypted-http-transport", None)
+        .flag(HTTP_ADDRESS_FLAG, Some("127.0.0.99"))
+        .flag(UNENCRYPTED_HTTP_TRANSPORT_FLAG, None)
         .run()
         .with_config(|config| assert_eq!(config.http_api.listen_addr, addr));
 }
@@ -240,21 +241,21 @@ fn http_address_flag() {
 fn missing_unencrypted_http_transport_flag() {
     let addr = "127.0.0.99".parse::<Ipv4Addr>().unwrap();
     CommandLineTest::new()
-        .flag("http-address", Some("127.0.0.99"))
+        .flag(HTTP_ADDRESS_FLAG, Some("127.0.0.99"))
         .run()
         .with_config(|config| assert_eq!(config.http_api.listen_addr, addr));
 }
 #[test]
 fn http_port_flag() {
     CommandLineTest::new()
-        .flag("http-port", Some("9090"))
+        .flag(HTTP_PORT_FLAG, Some("9090"))
         .run()
         .with_config(|config| assert_eq!(config.http_api.listen_port, 9090));
 }
 #[test]
 fn http_allow_origin_flag() {
     CommandLineTest::new()
-        .flag("http-allow-origin", Some("http://localhost:9009"))
+        .flag(HTTP_ALLOW_ORIGIN_FLAG, Some("http://localhost:9009"))
         .run()
         .with_config(|config| {
             assert_eq!(
@@ -266,7 +267,7 @@ fn http_allow_origin_flag() {
 #[test]
 fn http_allow_origin_all_flag() {
     CommandLineTest::new()
-        .flag("http-allow-origin", Some("*"))
+        .flag(HTTP_ALLOW_ORIGIN_FLAG, Some("*"))
         .run()
         .with_config(|config| assert_eq!(config.http_api.allow_origin, Some("*".to_string())));
 }
@@ -275,7 +276,7 @@ fn http_allow_origin_all_flag() {
 #[test]
 fn metrics_flag() {
     CommandLineTest::new()
-        .flag("metrics", None)
+        .flag(METRICS_FLAG, None)
         .run()
         .with_config(|config| assert!(config.http_metrics.enabled));
 }
@@ -283,21 +284,21 @@ fn metrics_flag() {
 fn metrics_address_flag() {
     let addr = "127.0.0.99".parse::<Ipv4Addr>().unwrap();
     CommandLineTest::new()
-        .flag("metrics-address", Some("127.0.0.99"))
+        .flag(METRICS_ADDRESS_FLAG, Some("127.0.0.99"))
         .run()
         .with_config(|config| assert_eq!(config.http_metrics.listen_addr, addr));
 }
 #[test]
 fn metrics_port_flag() {
     CommandLineTest::new()
-        .flag("metrics-port", Some("9090"))
+        .flag(METRICS_PORT_FLAG, Some("9090"))
         .run()
         .with_config(|config| assert_eq!(config.http_metrics.listen_port, 9090));
 }
 #[test]
 fn metrics_allow_origin_flag() {
     CommandLineTest::new()
-        .flag("metrics-allow-origin", Some("http://localhost:9009"))
+        .flag(METRICS_ALLOW_ORIGIN_FLAG, Some("http://localhost:9009"))
         .run()
         .with_config(|config| {
             assert_eq!(
@@ -309,14 +310,14 @@ fn metrics_allow_origin_flag() {
 #[test]
 fn metrics_allow_origin_all_flag() {
     CommandLineTest::new()
-        .flag("metrics-allow-origin", Some("*"))
+        .flag(METRICS_ALLOW_ORIGIN_FLAG, Some("*"))
         .run()
         .with_config(|config| assert_eq!(config.http_metrics.allow_origin, Some("*".to_string())));
 }
 #[test]
 pub fn malloc_tuning_flag() {
     CommandLineTest::new()
-        .flag("disable-malloc-tuning", None)
+        .flag(DISABLE_MALLOC_TUNING_FLAG, None)
         // Simply ensure that the node can start with this flag, it's very difficult to observe the
         // effects of it.
         .run();
@@ -324,7 +325,7 @@ pub fn malloc_tuning_flag() {
 #[test]
 fn doppelganger_protection_flag() {
     CommandLineTest::new()
-        .flag("enable-doppelganger-protection", None)
+        .flag(ENABLE_DOPPELGANGER_PROTECTION_FLAG, None)
         .run()
         .with_config(|config| assert!(config.enable_doppelganger_protection));
 }

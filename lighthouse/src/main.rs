@@ -167,7 +167,7 @@ fn get_cli_matches() -> Result<ArgMatches, String> {
 
     // This first `get_matches` is  used to get the `--config-file` flag if it's present. If it isn't
     // present, this `ArgMatches` will be returned.
-    let mut cli_matches = new_app(version.as_str(), long_version.as_str(), None).get_matches();
+    let mut cli_matches = new_app(version.as_str(), long_version.as_str(), None)?.get_matches();
 
     let file_name_opt = cli_matches.value_of(CONFIG_FILE_FLAG);
 
@@ -179,7 +179,7 @@ fn get_cli_matches() -> Result<ArgMatches, String> {
             file_args.insert(&**key, &**value);
         }
 
-        cli_matches = new_app(version.as_str(), long_version.as_str(), Some(&file_args))
+        cli_matches = new_app(version.as_str(), long_version.as_str(), Some(&file_args))?
             .get_matches_from(args);
     };
     Ok(cli_matches)
@@ -192,8 +192,8 @@ fn new_app<'a>(
     version: &'a str,
     long_version: &'a str,
     file_args: Option<&'a HashMap<&'a str, &'a str>>,
-) -> App<'a> {
-    App::new("Lighthouse", file_args)
+) -> Result<App<'a>, String> {
+    Ok(App::new("Lighthouse", file_args)
         .version(version)
         .author("Sigma Prime <contact@sigmaprime.io>")
         .about(
@@ -207,7 +207,8 @@ fn new_app<'a>(
             Arg::new(CONFIG_FILE_FLAG)
                 .long(CONFIG_FILE_FLAG)
                 .help(
-                    "The filepath to a YAML file with flag values. To override any options in \
+                    "The filepath to a YAML or TOML file with flag values. The filename must \
+                     end in `.toml`, `.yml`, or `.yaml`. To override any options in \
                     the config file, specify the same option in the command line."
                 )
                 .global(true)
@@ -402,10 +403,10 @@ fn new_app<'a>(
                 .requires("terminal-block-hash-override")
                 .takes_value(true)
                 .global(true),
-        ).subcommand(beacon_node::cli_app(file_args))
-        .subcommand(boot_node::cli_app(file_args))
-        .subcommand(validator_client::cli_app(file_args))
-        .subcommand(account_manager::cli_app())
+        ).subcommand(beacon_node::cli_app(file_args)?)
+        .subcommand(boot_node::cli_app(file_args)?)
+        .subcommand(validator_client::cli_app(file_args)?)
+        .subcommand(account_manager::cli_app()))
 }
 
 fn run<E: EthSpec>(

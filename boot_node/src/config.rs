@@ -1,5 +1,8 @@
 use beacon_node::{get_data_dir, set_network_config};
 use clap::ArgMatches;
+use clap_utils::flags::{
+    BOOT_NODES_FLAG, ENABLE_ENR_AUTO_UPDATE_FLAG, ENR_UDP_PORT_FLAG, NETWORK_DIR_FLAG,
+};
 use eth2_network_config::Eth2NetworkConfig;
 use lighthouse_network::discv5::{enr::CombinedKey, Discv5Config, Enr};
 use lighthouse_network::{
@@ -39,7 +42,7 @@ impl<T: EthSpec> BootNodeConfig<T> {
                 boot_nodes.extend_from_slice(enr);
             }
 
-            if let Some(nodes) = matches.value_of("boot-nodes") {
+            if let Some(nodes) = matches.value_of(BOOT_NODES_FLAG) {
                 boot_nodes.extend_from_slice(
                     &nodes
                         .split(',')
@@ -58,12 +61,12 @@ impl<T: EthSpec> BootNodeConfig<T> {
         set_network_config(&mut network_config, matches, &data_dir, &logger, true)?;
 
         // Set the enr-udp-port to the default listening port if it was not specified.
-        if !matches.is_present("enr-udp-port") {
+        if !matches.is_present(ENR_UDP_PORT_FLAG) {
             network_config.enr_udp_port = Some(network_config.discovery_port);
         }
 
         // By default this is enabled. If it is not set, revert to false.
-        if !matches.is_present("enable-enr-auto-update") {
+        if !matches.is_present(ENABLE_ENR_AUTO_UPDATE_FLAG) {
             network_config.discv5_config.enr_update = false;
         }
 
@@ -74,7 +77,7 @@ impl<T: EthSpec> BootNodeConfig<T> {
         let private_key = load_private_key(&network_config, &logger);
         let local_key = CombinedKey::from_libp2p(&private_key)?;
 
-        let local_enr = if let Some(dir) = matches.value_of("network-dir") {
+        let local_enr = if let Some(dir) = matches.value_of(NETWORK_DIR_FLAG) {
             let network_dir: PathBuf = dir.into();
             load_enr_from_disk(&network_dir)?
         } else {

@@ -12,6 +12,7 @@ use std::str::FromStr;
 pub use default_config::DefaultConfigApp;
 
 mod default_config;
+#[macro_use]
 pub mod flags;
 
 pub const BAD_TESTNET_DIR_MESSAGE: &str = "The hard-coded testnet directory was invalid. \
@@ -163,10 +164,10 @@ pub fn parse_ssz_optional<T: Decode>(
         .transpose()
 }
 
-/// Attempts to parse a file into a `HashMap<String,String>`. Requires the filename end in `.yaml`
+/// Attempts to parse a file into a `HashMap<String,String>`. Requires the filename end in `.yaml`/`.yml`
 /// for a YAML config file or `.toml` for a TOML config file.
 pub fn parse_file_config(file_name: &str) -> Result<HashMap<String, String>, String> {
-    if file_name.ends_with(".yaml") {
+    if file_name.ends_with(".yaml") || file_name.ends_with(".yml") {
         fs::read_to_string(file_name)
             .map_err(|e| e.to_string())
             .and_then(|yaml| serde_yaml::from_str(yaml.as_str()).map_err(|e| e.to_string()))
@@ -175,6 +176,6 @@ pub fn parse_file_config(file_name: &str) -> Result<HashMap<String, String>, Str
             .map_err(|e| e.to_string())
             .and_then(|toml| toml::from_str(toml.as_str()).map_err(|e| e.to_string()))
     } else {
-        Err("config file must have extension `.yaml` or `.toml`".to_string())
+        Err("config file must have extension `.yml`, `.yaml` or `.toml`".to_string())
     }
 }

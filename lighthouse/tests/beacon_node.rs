@@ -1,6 +1,7 @@
 use beacon_node::ClientConfig as Config;
 
 use crate::exec::{CommandLineTestExec, CompletedTest};
+use clap_utils::flags::*;
 use lighthouse_network::PeerId;
 use std::fs::File;
 use std::io::Write;
@@ -61,7 +62,7 @@ fn datadir_flag() {
 #[test]
 fn staking_flag() {
     CommandLineTest::new()
-        .flag("staking", None)
+        .flag(STAKING_FLAG, None)
         .run_with_zero_port()
         .with_config(|config| {
             assert!(config.http_api.enabled);
@@ -79,7 +80,7 @@ fn wss_checkpoint_flag() {
     });
     CommandLineTest::new()
         .flag(
-            "wss-checkpoint",
+            WSS_CHECKPOINT_FLAG,
             Some("0xdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef:1010"),
         )
         .run_with_zero_port()
@@ -88,7 +89,7 @@ fn wss_checkpoint_flag() {
 #[test]
 fn max_skip_slots_flag() {
     CommandLineTest::new()
-        .flag("max-skip-slots", Some("10"))
+        .flag(MAX_SKIP_SLOTS_FLAG, Some("10"))
         .run_with_zero_port()
         .with_config(|config| assert_eq!(config.chain.import_max_skip_slots, Some(10)));
 }
@@ -103,7 +104,7 @@ fn enable_lock_timeouts_default() {
 #[test]
 fn disable_lock_timeouts_flag() {
     CommandLineTest::new()
-        .flag("disable-lock-timeouts", None)
+        .flag(DISABLE_LOCK_TIMEOUTS_FLAG, None)
         .run_with_zero_port()
         .with_config(|config| assert!(!config.chain.enable_lock_timeouts));
 }
@@ -112,7 +113,7 @@ fn disable_lock_timeouts_flag() {
 fn freezer_dir_flag() {
     let dir = TempDir::new().expect("Unable to create temporary directory");
     CommandLineTest::new()
-        .flag("freezer-dir", dir.path().as_os_str().to_str())
+        .flag(FREEZER_DIR_FLAG, dir.path().as_os_str().to_str())
         .run_with_zero_port()
         .with_config(|config| assert_eq!(config.freezer_db_path, Some(dir.path().to_path_buf())));
 }
@@ -120,7 +121,7 @@ fn freezer_dir_flag() {
 #[test]
 fn graffiti_flag() {
     CommandLineTest::new()
-        .flag("graffiti", Some("nice-graffiti"))
+        .flag(GRAFFITI_FLAG, Some("nice-graffiti"))
         .run_with_zero_port()
         .with_config(|config| {
             assert_eq!(
@@ -135,7 +136,7 @@ fn trusted_peers_flag() {
     let peers = vec![PeerId::random(), PeerId::random()];
     CommandLineTest::new()
         .flag(
-            "trusted-peers",
+            TRUSTED_PEERS_FLAG,
             Some(format!("{},{}", peers[0].to_string(), peers[1].to_string()).as_str()),
         )
         .run_with_zero_port()
@@ -155,14 +156,14 @@ fn trusted_peers_flag() {
 #[test]
 fn dummy_eth1_flag() {
     CommandLineTest::new()
-        .flag("dummy-eth1", None)
+        .flag(DUMMY_ETH1_FLAG, None)
         .run_with_zero_port()
         .with_config(|config| assert!(config.dummy_eth1_backend));
 }
 #[test]
 fn eth1_flag() {
     CommandLineTest::new()
-        .flag("eth1", None)
+        .flag(ETH1_FLAG, None)
         .run_with_zero_port()
         .with_config(|config| assert!(config.sync_eth1_chain));
 }
@@ -170,7 +171,7 @@ fn eth1_flag() {
 fn eth1_endpoints_flag() {
     CommandLineTest::new()
         .flag(
-            "eth1-endpoints",
+            ETH1_ENDPOINTS_FLAG,
             Some("http://localhost:9545,https://infura.io/secret"),
         )
         .run_with_zero_port()
@@ -194,14 +195,14 @@ fn eth1_endpoints_flag() {
 #[test]
 fn eth1_blocks_per_log_query_flag() {
     CommandLineTest::new()
-        .flag("eth1-blocks-per-log-query", Some("500"))
+        .flag(ETH1_BLOCKS_PER_LOG_QUERY_FLAG, Some("500"))
         .run_with_zero_port()
         .with_config(|config| assert_eq!(config.eth1.blocks_per_log_query, 500));
 }
 #[test]
 fn eth1_purge_cache_flag() {
     CommandLineTest::new()
-        .flag("eth1-purge-cache", None)
+        .flag(ETH1_PURGE_CACHE_FLAG, None)
         .run_with_zero_port()
         .with_config(|config| assert!(config.eth1.purge_cache));
 }
@@ -211,14 +212,14 @@ fn eth1_purge_cache_flag() {
 fn network_dir_flag() {
     let dir = TempDir::new().expect("Unable to create temporary directory");
     CommandLineTest::new()
-        .flag("network-dir", dir.path().as_os_str().to_str())
+        .flag(NETWORK_DIR_FLAG, dir.path().as_os_str().to_str())
         .run_with_zero_port()
         .with_config(|config| assert_eq!(config.network.network_dir, dir.path()));
 }
 #[test]
 fn network_target_peers_flag() {
     CommandLineTest::new()
-        .flag("target-peers", Some("55"))
+        .flag(TARGET_PEERS_FLAG, Some("55"))
         .run_with_zero_port()
         .with_config(|config| {
             assert_eq!(config.network.target_peers, "55".parse::<usize>().unwrap());
@@ -227,21 +228,21 @@ fn network_target_peers_flag() {
 #[test]
 fn network_subscribe_all_subnets_flag() {
     CommandLineTest::new()
-        .flag("subscribe-all-subnets", None)
+        .flag(SUBSCRIBE_ALL_SUBNETS_FLAG, None)
         .run_with_zero_port()
         .with_config(|config| assert!(config.network.subscribe_all_subnets));
 }
 #[test]
 fn network_import_all_attestations_flag() {
     CommandLineTest::new()
-        .flag("import-all-attestations", None)
+        .flag(IMPORT_ALL_ATTESTATIONS_FLAG, None)
         .run_with_zero_port()
         .with_config(|config| assert!(config.network.import_all_attestations));
 }
 #[test]
 fn network_shutdown_after_sync_flag() {
     CommandLineTest::new()
-        .flag("shutdown-after-sync", None)
+        .flag(SHUTDOWN_AFTER_SYNC_FLAG, None)
         .run_with_zero_port()
         .with_config(|config| assert!(config.network.shutdown_after_sync));
 }
@@ -255,7 +256,7 @@ fn network_shutdown_after_sync_disabled_flag() {
 fn network_listen_address_flag() {
     let addr = "127.0.0.2".parse::<Ipv4Addr>().unwrap();
     CommandLineTest::new()
-        .flag("listen-address", Some("127.0.0.2"))
+        .flag(LISTEN_ADDRESS_FLAG, Some("127.0.0.2"))
         .run_with_zero_port()
         .with_config(|config| assert_eq!(config.network.listen_address, addr));
 }
@@ -263,7 +264,7 @@ fn network_listen_address_flag() {
 fn network_port_flag() {
     let port = unused_port("tcp").expect("Unable to find unused port.");
     CommandLineTest::new()
-        .flag("port", Some(port.to_string().as_str()))
+        .flag(PORT_FLAG, Some(port.to_string().as_str()))
         .run()
         .with_config(|config| {
             assert_eq!(config.network.libp2p_port, port);
@@ -275,8 +276,8 @@ fn network_port_and_discovery_port_flags() {
     let port1 = unused_port("tcp").expect("Unable to find unused port.");
     let port2 = unused_port("udp").expect("Unable to find unused port.");
     CommandLineTest::new()
-        .flag("port", Some(port1.to_string().as_str()))
-        .flag("discovery-port", Some(port2.to_string().as_str()))
+        .flag(PORT_FLAG, Some(port1.to_string().as_str()))
+        .flag(DISCOVERY_PORT_FLAG, Some(port2.to_string().as_str()))
         .run()
         .with_config(|config| {
             assert_eq!(config.network.libp2p_port, port1);
@@ -286,14 +287,14 @@ fn network_port_and_discovery_port_flags() {
 #[test]
 fn disable_discovery_flag() {
     CommandLineTest::new()
-        .flag("disable-discovery", None)
+        .flag(DISABLE_DISCOVERY_FLAG, None)
         .run_with_zero_port()
         .with_config(|config| assert!(config.network.disable_discovery));
 }
 #[test]
 fn disable_upnp_flag() {
     CommandLineTest::new()
-        .flag("disable-upnp", None)
+        .flag(DISABLE_UPNP_FLAG, None)
         .run_with_zero_port()
         .with_config(|config| assert!(!config.network.upnp_enabled));
 }
@@ -349,7 +350,7 @@ fn boot_nodes_flag() {
                 enr:-LK4QFOFWca5ABQzxiCRcy37G7wy1K6zD4qMYBSN5ozzanwze_XVvXVhCk9JvF0cHXOBZrHK1E4vU7Gn-a0bHVczoDU6h2F0dG5ldHOIAAAAAAAAAACEZXRoMpA7CIeVAAAgCf__________gmlkgnY0gmlwhNIy-4iJc2VjcDI1NmsxoQJA3AXQJ6M3NpBWtJS3HPtbXG14t7qHjXuIaL6IOz89T4N0Y3CCIyiDdWRwgiMo";
     let enr: Vec<&str> = nodes.split(',').collect();
     CommandLineTest::new()
-        .flag("boot-nodes", Some(nodes))
+        .flag(BOOT_NODES_FLAG, Some(nodes))
         .run_with_zero_port()
         .with_config(|config| {
             assert_eq!(config.network.boot_nodes_enr[0].to_base64(), enr[0]);
@@ -362,7 +363,7 @@ fn boot_nodes_multiaddr_flag() {
                 /ip4/192.167.55.55/tcp/9000/p2p/16Uiu2HAkynrfLjeoBP7R3WFyDad2NfduVhkWpx8f8ygpSSfP1yen";
     let multiaddr: Vec<&str> = nodes.split(',').collect();
     CommandLineTest::new()
-        .flag("boot-nodes", Some(nodes))
+        .flag(BOOT_NODES_FLAG, Some(nodes))
         .run_with_zero_port()
         .with_config(|config| {
             assert_eq!(
@@ -378,7 +379,7 @@ fn boot_nodes_multiaddr_flag() {
 #[test]
 fn private_flag() {
     CommandLineTest::new()
-        .flag("private", None)
+        .flag(PRIVATE_FLAG, None)
         .run_with_zero_port()
         .with_config(|config| assert!(config.network.private));
 }
@@ -398,7 +399,7 @@ fn zero_ports_flag() {
 fn enr_udp_port_flags() {
     let port = unused_port("udp").expect("Unable to find unused port.");
     CommandLineTest::new()
-        .flag("enr-udp-port", Some(port.to_string().as_str()))
+        .flag(ENR_UDP_PORT_FLAG, Some(port.to_string().as_str()))
         .run_with_zero_port()
         .with_config(|config| assert_eq!(config.network.enr_udp_port, Some(port)));
 }
@@ -406,7 +407,7 @@ fn enr_udp_port_flags() {
 fn enr_tcp_port_flags() {
     let port = unused_port("tcp").expect("Unable to find unused port.");
     CommandLineTest::new()
-        .flag("enr-tcp-port", Some(port.to_string().as_str()))
+        .flag(ENR_TCP_PORT_FLAG, Some(port.to_string().as_str()))
         .run_with_zero_port()
         .with_config(|config| assert_eq!(config.network.enr_tcp_port, Some(port)));
 }
@@ -416,10 +417,10 @@ fn enr_match_flag() {
     let port1 = unused_port("udp").expect("Unable to find unused port.");
     let port2 = unused_port("udp").expect("Unable to find unused port.");
     CommandLineTest::new()
-        .flag("enr-match", None)
-        .flag("listen-address", Some("127.0.0.2"))
-        .flag("discovery-port", Some(port1.to_string().as_str()))
-        .flag("port", Some(port2.to_string().as_str()))
+        .flag(ENR_MATCH_FLAG, None)
+        .flag(LISTEN_ADDRESS_FLAG, Some("127.0.0.2"))
+        .flag(DISCOVERY_PORT_FLAG, Some(port1.to_string().as_str()))
+        .flag(PORT_FLAG, Some(port2.to_string().as_str()))
         .run()
         .with_config(|config| {
             assert_eq!(config.network.listen_address, addr);
@@ -433,8 +434,8 @@ fn enr_address_flag() {
     let addr = "192.167.1.1".parse::<IpAddr>().unwrap();
     let port = unused_port("udp").expect("Unable to find unused port.");
     CommandLineTest::new()
-        .flag("enr-address", Some("192.167.1.1"))
-        .flag("enr-udp-port", Some(port.to_string().as_str()))
+        .flag(ENR_ADDRESS_FLAG, Some("192.167.1.1"))
+        .flag(ENR_UDP_PORT_FLAG, Some(port.to_string().as_str()))
         .run_with_zero_port()
         .with_config(|config| {
             assert_eq!(config.network.enr_address, Some(addr));
@@ -447,8 +448,8 @@ fn enr_address_dns_flag() {
     let ipv6addr = "::1".parse::<IpAddr>().unwrap();
     let port = unused_port("udp").expect("Unable to find unused port.");
     CommandLineTest::new()
-        .flag("enr-address", Some("localhost"))
-        .flag("enr-udp-port", Some(port.to_string().as_str()))
+        .flag(ENR_ADDRESS_FLAG, Some("localhost"))
+        .flag(ENR_UDP_PORT_FLAG, Some(port.to_string().as_str()))
         .run_with_zero_port()
         .with_config(|config| {
             assert!(
@@ -461,7 +462,7 @@ fn enr_address_dns_flag() {
 #[test]
 fn disable_enr_auto_update_flag() {
     CommandLineTest::new()
-        .flag("disable-enr-auto-update", None)
+        .flag(DISABLE_ENR_AUTO_UPDATE_FLAG, None)
         .run_with_zero_port()
         .with_config(|config| assert!(config.network.discv5_config.enr_update));
 }
@@ -470,7 +471,7 @@ fn disable_enr_auto_update_flag() {
 #[test]
 fn http_flag() {
     CommandLineTest::new()
-        .flag("http", None)
+        .flag(HTTP_FLAG, None)
         .run_with_zero_port()
         .with_config(|config| assert!(config.http_api.enabled));
 }
@@ -478,7 +479,7 @@ fn http_flag() {
 fn http_address_flag() {
     let addr = "127.0.0.99".parse::<Ipv4Addr>().unwrap();
     CommandLineTest::new()
-        .flag("http-address", Some("127.0.0.99"))
+        .flag(HTTP_ADDRESS_FLAG, Some("127.0.0.99"))
         .run_with_zero_port()
         .with_config(|config| assert_eq!(config.http_api.listen_addr, addr));
 }
@@ -487,15 +488,15 @@ fn http_port_flag() {
     let port1 = unused_port("tcp").expect("Unable to find unused port.");
     let port2 = unused_port("tcp").expect("Unable to find unused port.");
     CommandLineTest::new()
-        .flag("http-port", Some(port1.to_string().as_str()))
-        .flag("port", Some(port2.to_string().as_str()))
+        .flag(HTTP_PORT_FLAG, Some(port1.to_string().as_str()))
+        .flag(PORT_FLAG, Some(port2.to_string().as_str()))
         .run()
         .with_config(|config| assert_eq!(config.http_api.listen_port, port1));
 }
 #[test]
 fn http_allow_origin_flag() {
     CommandLineTest::new()
-        .flag("http-allow-origin", Some("127.0.0.99"))
+        .flag(HTTP_ALLOW_ORIGIN_FLAG, Some("127.0.0.99"))
         .run_with_zero_port()
         .with_config(|config| {
             assert_eq!(config.http_api.allow_origin, Some("127.0.0.99".to_string()));
@@ -504,7 +505,7 @@ fn http_allow_origin_flag() {
 #[test]
 fn http_allow_origin_all_flag() {
     CommandLineTest::new()
-        .flag("http-allow-origin", Some("*"))
+        .flag(HTTP_ALLOW_ORIGIN_FLAG, Some("*"))
         .run_with_zero_port()
         .with_config(|config| assert_eq!(config.http_api.allow_origin, Some("*".to_string())));
 }
@@ -512,13 +513,13 @@ fn http_allow_origin_all_flag() {
 fn http_tls_flags() {
     let dir = TempDir::new().expect("Unable to create temporary directory");
     CommandLineTest::new()
-        .flag("http-enable-tls", None)
+        .flag(HTTP_ENABLE_TLS_FLAG, None)
         .flag(
-            "http-tls-cert",
+            HTTP_TLS_CERT_FLAG,
             dir.path().join("certificate.crt").as_os_str().to_str(),
         )
         .flag(
-            "http-tls-key",
+            HTTP_TLS_KEY_FLAG,
             dir.path().join("private.key").as_os_str().to_str(),
         )
         .run_with_zero_port()
@@ -537,7 +538,7 @@ fn http_tls_flags() {
 #[test]
 fn metrics_flag() {
     CommandLineTest::new()
-        .flag("metrics", None)
+        .flag(METRICS_FLAG, None)
         .run_with_zero_port()
         .with_config(|config| {
             assert!(config.http_metrics.enabled);
@@ -548,8 +549,8 @@ fn metrics_flag() {
 fn metrics_address_flag() {
     let addr = "127.0.0.99".parse::<Ipv4Addr>().unwrap();
     CommandLineTest::new()
-        .flag("metrics", None)
-        .flag("metrics-address", Some("127.0.0.99"))
+        .flag(METRICS_FLAG, None)
+        .flag(METRICS_ADDRESS_FLAG, Some("127.0.0.99"))
         .run_with_zero_port()
         .with_config(|config| assert_eq!(config.http_metrics.listen_addr, addr));
 }
@@ -558,17 +559,17 @@ fn metrics_port_flag() {
     let port1 = unused_port("tcp").expect("Unable to find unused port.");
     let port2 = unused_port("tcp").expect("Unable to find unused port.");
     CommandLineTest::new()
-        .flag("metrics", None)
-        .flag("metrics-port", Some(port1.to_string().as_str()))
-        .flag("port", Some(port2.to_string().as_str()))
+        .flag(METRICS_FLAG, None)
+        .flag(METRICS_PORT_FLAG, Some(port1.to_string().as_str()))
+        .flag(PORT_FLAG, Some(port2.to_string().as_str()))
         .run()
         .with_config(|config| assert_eq!(config.http_metrics.listen_port, port1));
 }
 #[test]
 fn metrics_allow_origin_flag() {
     CommandLineTest::new()
-        .flag("metrics", None)
-        .flag("metrics-allow-origin", Some("http://localhost:5059"))
+        .flag(METRICS_FLAG, None)
+        .flag(METRICS_ALLOW_ORIGIN_FLAG, Some("http://localhost:5059"))
         .run_with_zero_port()
         .with_config(|config| {
             assert_eq!(
@@ -580,8 +581,8 @@ fn metrics_allow_origin_flag() {
 #[test]
 fn metrics_allow_origin_all_flag() {
     CommandLineTest::new()
-        .flag("metrics", None)
-        .flag("metrics-allow-origin", Some("*"))
+        .flag(METRICS_FLAG, None)
+        .flag(METRICS_ALLOW_ORIGIN_FLAG, Some("*"))
         .run_with_zero_port()
         .with_config(|config| assert_eq!(config.http_metrics.allow_origin, Some("*".to_string())));
 }
@@ -590,14 +591,14 @@ fn metrics_allow_origin_all_flag() {
 #[test]
 fn validator_monitor_auto_flag() {
     CommandLineTest::new()
-        .flag("validator-monitor-auto", None)
+        .flag(VALIDATOR_MONITOR_AUTO_FLAG, None)
         .run_with_zero_port()
         .with_config(|config| assert!(config.validator_monitor_auto));
 }
 #[test]
 fn validator_monitor_pubkeys_flag() {
     CommandLineTest::new()
-        .flag("validator-monitor-pubkeys", Some("0xdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef,\
+        .flag(VALIDATOR_MONITOR_PUBKEYS_FLAG, Some("0xdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef,\
                                                 0xbeefdeadbeefdeaddeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef"))
         .run_with_zero_port()
         .with_config(|config| {
@@ -613,7 +614,7 @@ fn validator_monitor_file_flag() {
                 0xbeefdeadbeefdeaddeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef")
         .expect("Unable to write to file");
     CommandLineTest::new()
-        .flag("validator-monitor-file", dir.path().join("pubkeys.txt").as_os_str().to_str())
+        .flag(VALIDATOR_MONITOR_FILE_FLAG, dir.path().join("pubkeys.txt").as_os_str().to_str())
         .run_with_zero_port()
         .with_config(|config| {
             assert_eq!(config.validator_monitor_pubkeys[0].to_string(), "0xdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef");
@@ -625,36 +626,36 @@ fn validator_monitor_file_flag() {
 #[test]
 fn slots_per_restore_point_flag() {
     CommandLineTest::new()
-        .flag("slots-per-restore-point", Some("64"))
+        .flag(SLOTS_PER_RESTORE_POINT_FLAG, Some("64"))
         .run_with_zero_port()
         .with_config(|config| assert_eq!(config.store.slots_per_restore_point, 64));
 }
 #[test]
 fn block_cache_size_flag() {
     CommandLineTest::new()
-        .flag("block-cache-size", Some("4"))
+        .flag(BLOCK_CACHE_SIZE_FLAG, Some("4"))
         .run_with_zero_port()
         .with_config(|config| assert_eq!(config.store.block_cache_size, 4_usize));
 }
 #[test]
 fn auto_compact_db_flag() {
     CommandLineTest::new()
-        .flag("auto-compact-db", Some("false"))
+        .flag(AUTO_COMPACT_DB_FLAG, Some("false"))
         .run_with_zero_port()
         .with_config(|config| assert!(!config.store.compact_on_prune));
 }
 #[test]
 fn compact_db_flag() {
     CommandLineTest::new()
-        .flag("auto-compact-db", Some("false"))
-        .flag("compact-db", None)
+        .flag(AUTO_COMPACT_DB_FLAG, Some("false"))
+        .flag(COMPACT_DB_FLAG, None)
         .run_with_zero_port()
         .with_config(|config| assert!(config.store.compact_on_init));
 }
 #[test]
 fn reconstruct_historic_states_flag() {
     CommandLineTest::new()
-        .flag("reconstruct-historic-states", None)
+        .flag(RECONSTRUCT_HISTORIC_STATE_FLAG, None)
         .run_with_zero_port()
         .with_config(|config| assert!(config.chain.reconstruct_historic_states));
 }
@@ -669,7 +670,7 @@ fn no_reconstruct_historic_states_flag() {
 #[test]
 fn slasher_flag() {
     CommandLineTest::new()
-        .flag("slasher", None)
+        .flag(SLASHER_FLAG, None)
         .run_with_zero_port()
         .with_config_and_dir(|config, dir| {
             if let Some(slasher_config) = &config.slasher {
@@ -686,8 +687,8 @@ fn slasher_flag() {
 fn slasher_dir_flag() {
     let dir = TempDir::new().expect("Unable to create temporary directory");
     CommandLineTest::new()
-        .flag("slasher", None)
-        .flag("slasher-dir", dir.path().as_os_str().to_str())
+        .flag(SLASHER_FLAG, None)
+        .flag(SLASHER_DIR_FLAG, dir.path().as_os_str().to_str())
         .run_with_zero_port()
         .with_config(|config| {
             if let Some(slasher_config) = &config.slasher {
@@ -700,8 +701,8 @@ fn slasher_dir_flag() {
 #[test]
 fn slasher_update_period_flag() {
     CommandLineTest::new()
-        .flag("slasher", None)
-        .flag("slasher-update-period", Some("100"))
+        .flag(SLASHER_FLAG, None)
+        .flag(SLASHER_UPDATE_PERIOD_FLAG, Some("100"))
         .run_with_zero_port()
         .with_config(|config| {
             if let Some(slasher_config) = &config.slasher {
@@ -714,8 +715,8 @@ fn slasher_update_period_flag() {
 #[test]
 fn slasher_slot_offset_flag() {
     CommandLineTest::new()
-        .flag("slasher", None)
-        .flag("slasher-slot-offset", Some("11.25"))
+        .flag(SLASHER_FLAG, None)
+        .flag(SLASHER_SLOT_OFFSET_FLAG, Some("11.25"))
         .run()
         .with_config(|config| {
             let slasher_config = config.slasher.as_ref().unwrap();
@@ -726,15 +727,15 @@ fn slasher_slot_offset_flag() {
 #[should_panic]
 fn slasher_slot_offset_nan_flag() {
     CommandLineTest::new()
-        .flag("slasher", None)
-        .flag("slasher-slot-offset", Some("NaN"))
+        .flag(SLASHER_FLAG, None)
+        .flag(SLASHER_SLOT_OFFSET_FLAG, Some("NaN"))
         .run();
 }
 #[test]
 fn slasher_history_length_flag() {
     CommandLineTest::new()
-        .flag("slasher", None)
-        .flag("slasher-history-length", Some("2048"))
+        .flag(SLASHER_FLAG, None)
+        .flag(SLASHER_HISTORY_LENGTH_FLAG, Some("2048"))
         .run_with_zero_port()
         .with_config(|config| {
             if let Some(slasher_config) = &config.slasher {
@@ -747,8 +748,8 @@ fn slasher_history_length_flag() {
 #[test]
 fn slasher_max_db_size_flag() {
     CommandLineTest::new()
-        .flag("slasher", None)
-        .flag("slasher-max-db-size", Some("10"))
+        .flag(SLASHER_FLAG, None)
+        .flag(SLASHER_MAX_DB_SIZE_FLAG, Some("10"))
         .run_with_zero_port()
         .with_config(|config| {
             let slasher_config = config
@@ -761,8 +762,8 @@ fn slasher_max_db_size_flag() {
 #[test]
 fn slasher_attestation_cache_size_flag() {
     CommandLineTest::new()
-        .flag("slasher", None)
-        .flag("slasher-att-cache-size", Some("10000"))
+        .flag(SLASHER_FLAG, None)
+        .flag(SLASHER_ATT_CACHE_SIZE_FLAG, Some("10000"))
         .run()
         .with_config(|config| {
             let slasher_config = config
@@ -775,8 +776,8 @@ fn slasher_attestation_cache_size_flag() {
 #[test]
 fn slasher_chunk_size_flag() {
     CommandLineTest::new()
-        .flag("slasher", None)
-        .flag("slasher-chunk-size", Some("32"))
+        .flag(SLASHER_FLAG, None)
+        .flag(SLASHER_CHUNK_SIZE_FLAG, Some("32"))
         .run_with_zero_port()
         .with_config(|config| {
             let slasher_config = config
@@ -789,8 +790,8 @@ fn slasher_chunk_size_flag() {
 #[test]
 fn slasher_validator_chunk_size_flag() {
     CommandLineTest::new()
-        .flag("slasher", None)
-        .flag("slasher-validator-chunk-size", Some("512"))
+        .flag(SLASHER_FLAG, None)
+        .flag(SLASHER_VALIDATOR_CHUNK_SIZE_FLAG, Some("512"))
         .run_with_zero_port()
         .with_config(|config| {
             let slasher_config = config
@@ -803,8 +804,8 @@ fn slasher_validator_chunk_size_flag() {
 #[test]
 fn slasher_broadcast_flag() {
     CommandLineTest::new()
-        .flag("slasher", None)
-        .flag("slasher-broadcast", None)
+        .flag(SLASHER_FLAG, None)
+        .flag(SLASHER_BROADCAST_FLAG, None)
         .run_with_zero_port()
         .with_config(|config| {
             let slasher_config = config
@@ -817,7 +818,7 @@ fn slasher_broadcast_flag() {
 #[test]
 pub fn malloc_tuning_flag() {
     CommandLineTest::new()
-        .flag("disable-malloc-tuning", None)
+        .flag(DISABLE_MALLOC_TUNING_FLAG, None)
         .run_with_zero_port()
         .with_config(|config| {
             assert!(!config.http_metrics.allocator_metrics_enabled);
@@ -827,8 +828,8 @@ pub fn malloc_tuning_flag() {
 #[should_panic]
 fn ensure_panic_on_failed_launch() {
     CommandLineTest::new()
-        .flag("slasher", None)
-        .flag("slasher-chunk-size", Some("10"))
+        .flag(SLASHER_FLAG, None)
+        .flag(SLASHER_CHUNK_SIZE_FLAG, Some("10"))
         .run_with_zero_port()
         .with_config(|config| {
             let slasher_config = config

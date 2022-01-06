@@ -2,6 +2,9 @@ use boot_node::config::BootNodeConfigSerialization;
 
 use crate::exec::{CommandLineTestExec, CompletedTest};
 use clap::ArgMatches;
+use clap_utils::flags::{
+    BOOT_NODES_FLAG, ENR_UDP_PORT_FLAG, LISTEN_ADDRESS_FLAG, NETWORK_DIR_FLAG, PORT_FLAG,
+};
 use clap_utils::get_eth2_network_config;
 use lighthouse_network::discovery::ENR_FILENAME;
 use lighthouse_network::Enr;
@@ -72,7 +75,7 @@ fn enr_address_arg() {
 fn port_flag() {
     let port = unused_port();
     CommandLineTest::new()
-        .flag("port", Some(port.to_string().as_str()))
+        .flag(PORT_FLAG, Some(port.to_string().as_str()))
         .run_with_ip()
         .with_config(|config| {
             assert_eq!(config.listen_socket.port(), port);
@@ -83,7 +86,7 @@ fn port_flag() {
 fn listen_address_flag() {
     let addr = "127.0.0.2".parse::<Ipv4Addr>().unwrap();
     CommandLineTest::new()
-        .flag("listen-address", Some("127.0.0.2"))
+        .flag(LISTEN_ADDRESS_FLAG, Some("127.0.0.2"))
         .run_with_ip()
         .with_config(|config| {
             assert_eq!(config.listen_socket.ip(), addr);
@@ -113,7 +116,7 @@ fn boot_nodes_flag() {
     expect_enr.extend_from_slice(&extra_enr);
 
     CommandLineTest::new()
-        .flag("boot-nodes", Some(extra_nodes))
+        .flag(BOOT_NODES_FLAG, Some(extra_nodes))
         .run_with_ip()
         .with_config(|config| {
             assert_eq!(config.boot_nodes.len(), expect_enr.len());
@@ -132,7 +135,7 @@ fn boot_nodes_flag() {
 fn enr_port_flag() {
     let port = unused_port();
     CommandLineTest::new()
-        .flag("enr-port", Some(port.to_string().as_str()))
+        .flag(ENR_UDP_PORT_FLAG, Some(port.to_string().as_str()))
         .run_with_ip()
         .with_config(|config| {
             assert_eq!(config.local_enr.udp(), Some(port));
@@ -151,7 +154,7 @@ fn network_dir_flag() {
     save_enr_to_disk(tmp_dir.path(), &enr).unwrap();
 
     CommandLineTest::new()
-        .flag("network-dir", Some(tmp_dir.path().to_str().unwrap()))
+        .flag(NETWORK_DIR_FLAG, Some(tmp_dir.path().to_str().unwrap()))
         .run()
         .with_config(|config| assert_eq!(config.local_enr, enr))
 }

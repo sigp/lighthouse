@@ -1,3 +1,4 @@
+use clap_utils::flags::{DATADIR_FLAG, DUMP_CONFIG_FLAG, IMMEDIATE_SHUTDOWN_FLAG};
 use serde::de::DeserializeOwned;
 use serde_json::from_reader;
 use std::fs::File;
@@ -32,11 +33,11 @@ pub trait CommandLineTestExec {
 
         // Add args --datadir <tmp_dir> --dump-config <tmp_config_path> --immediate-shutdown
         let cmd = self.cmd_mut();
-        cmd.arg("--datadir")
+        cmd.arg(format!("--{}", DATADIR_FLAG))
             .arg(tmp_dir.path().as_os_str())
-            .arg(format!("--{}", "--dump-config"))
+            .arg(format!("--{}", DUMP_CONFIG_FLAG))
             .arg(tmp_config_path.as_os_str())
-            .arg("--immediate-shutdown");
+            .arg(format!("--{}", IMMEDIATE_SHUTDOWN_FLAG));
 
         // Run the command.
         let output = output_result(cmd);
@@ -62,9 +63,9 @@ pub trait CommandLineTestExec {
 
         // Add args --datadir <tmp_dir> --dump-config <tmp_config_path> --immediate-shutdown
         let cmd = self.cmd_mut();
-        cmd.arg(format!("--{}", "--dump-config"))
+        cmd.arg(format!("--{}", DUMP_CONFIG_FLAG))
             .arg(tmp_config_path.as_os_str())
-            .arg("--immediate-shutdown");
+            .arg(format!("--{}", IMMEDIATE_SHUTDOWN_FLAG));
 
         // Run the command.
         let output = output_result(cmd);

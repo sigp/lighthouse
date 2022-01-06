@@ -15,3 +15,4 @@ eth2_network_config = { path = "../eth2_network_config" }
 eth2_ssz = "0.4.1"
 serde_yaml = "0.8.21"
 toml = "0.5.6"
+lazy_static = "1.4.0"

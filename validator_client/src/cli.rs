@@ -1,9 +1,20 @@
 use clap::Arg;
-use clap_utils::DefaultConfigApp as App;
+use clap_utils::{flags::*, DefaultConfigApp as App};
 use std::collections::HashMap;
 
-pub fn cli_app<'a>(file_args: Option<&'a HashMap<&'a str, &'a str>>) -> App<'a> {
-    App::new("validator_client", file_args)
+pub fn cli_app<'a>(file_args: Option<&'a HashMap<&'a str, &'a str>>) -> Result<App<'a>, String> {
+    if let Some(args) = file_args {
+        for key in args.keys() {
+            if !GLOBAL_FLAGS.contains(key)
+                && !VALIDATOR_FLAGS.contains(key)
+                && !BEACON_VALIDATOR_FLAGS.contains(key)
+            {
+                return Err(format!("--{} is not a valid validator client flag.", key));
+            }
+        }
+    }
+
+    Ok(App::new("validator_client", file_args)
         .visible_aliases(&["v", "vc", "validator"])
         .about(
             "When connected to a beacon node, performs the duties of a staked \
@@ -11,16 +22,16 @@ pub fn cli_app<'a>(file_args: Option<&'a HashMap<&'a str, &'a str>>) -> App<'a> 
         )
         // This argument is deprecated, use `--beacon-nodes` instead.
         .arg(
-            Arg::new("beacon-node")
-                .long("beacon-node")
+            Arg::new(BEACON_NODE_FLAG)
+                .long(BEACON_NODE_FLAG)
                 .value_name("NETWORK_ADDRESS")
                 .help("Deprecated. Use --beacon-nodes.")
                 .takes_value(true)
                 .conflicts_with("beacon-nodes"),
         )
         .arg(
-            Arg::new("beacon-nodes")
-                .long("beacon-nodes")
+            Arg::new(BEACON_NODES_FLAG)
+                .long(BEACON_NODES_FLAG)
                 .value_name("NETWORK_ADDRESSES")
                 .help("Comma-separated addresses to one or more beacon node HTTP APIs. \
                        Default is http://localhost:5052."
@@ -29,16 +40,16 @@ pub fn cli_app<'a>(file_args: Option<&'a HashMap<&'a str, &'a str>>) -> App<'a> 
         )
         // This argument is deprecated, use `--beacon-nodes` instead.
         .arg(
-            Arg::new("server")
-                .long("server")
+            Arg::new(SERVER_FLAG)
+                .long(SERVER_FLAG)
                 .value_name("NETWORK_ADDRESS")
                 .help("Deprecated. Use --beacon-nodes.")
                 .takes_value(true)
                 .conflicts_with_all(&["beacon-node", "beacon-nodes"]),
         )
         .arg(
-            Arg::new("validators-dir")
-                .long("validators-dir")
+            Arg::new(VALIDATORS_DIR_FLAG)
+                .long(VALIDATORS_DIR_FLAG)
                 .value_name("VALIDATORS_DIR")
                 .help(
                     "The directory which contains the validator keystores, deposit data for \
@@ -49,8 +60,8 @@ pub fn cli_app<'a>(file_args: Option<&'a HashMap<&'a str, &'a str>>) -> App<'a> 
                 .conflicts_with("datadir")
         )
         .arg(
-            Arg::new("secrets-dir")
-                .long("secrets-dir")
+            Arg::new(SECRETS_DIR_FLAG)
+                .long(SECRETS_DIR_FLAG)
                 .value_name("SECRETS_DIRECTORY")
                 .help(
                     "The directory which contains the password to unlock the validator \
@@ -62,15 +73,15 @@ pub fn cli_app<'a>(file_args: Option<&'a HashMap<&'a str, &'a str>>) -> App<'a> 
                 .conflicts_with("datadir")
         )
         .arg(
-            Arg::new("delete-lockfiles")
-            .long("delete-lockfiles")
+            Arg::new(DELETE_LOCKFILES_FLAG)
+            .long(DELETE_LOCKFILES_FLAG)
             .help(
                 "DEPRECATED. This flag does nothing and will be removed in a future release."
             )
         )
         .arg(
-            Arg::new("init-slashing-protection")
-                .long("init-slashing-protection")
+            Arg::new(INIT_SLASHING_PROTECTION_FLAG)
+                .long(INIT_SLASHING_PROTECTION_FLAG)
                 .help(
                     "If present, do not require the slashing protection database to exist before \
                      running. You SHOULD NOT use this flag unless you're certain that a new \
@@ -80,31 +91,31 @@ pub fn cli_app<'a>(file_args: Option<&'a HashMap<&'a str, &'a str>>) -> App<'a> 
                 )
         )
         .arg(
-            Arg::new("disable-auto-discover")
-            .long("disable-auto-discover")
+            Arg::new(DISABLE_AUTO_DISCOVER_FLAG)
+            .long(DISABLE_AUTO_DISCOVER_FLAG)
             .help(
                 "If present, do not attempt to discover new validators in the validators-dir. Validators \
                 will need to be manually added to the validator_definitions.yml file."
             )
         )
         .arg(
-            Arg::new("allow-unsynced")
-                .long("allow-unsynced")
+            Arg::new(ALLOW_UNSYNCED_FLAG)
+                .long(ALLOW_UNSYNCED_FLAG)
                 .help(
                     "If present, the validator client will still poll for duties if the beacon
                       node is not synced.",
                 ),
         )
         .arg(
-            Arg::new("use-long-timeouts")
-                .long("use-long-timeouts")
+            Arg::new(USE_LONG_TIMEOUTS_FLAG)
+                .long(USE_LONG_TIMEOUTS_FLAG)
                 .help("If present, the validator client will use longer timeouts for requests \
                         made to the beacon node. This flag is generally not recommended, \
                         longer timeouts can cause missed duties when fallbacks are used.")
         )
         .arg(
-            Arg::new("beacon-nodes-tls-certs")
-                .long("beacon-nodes-tls-certs")
+            Arg::new(BEACON_NODES_TLS_CERTS_FLAG)
+                .long(BEACON_NODES_TLS_CERTS_FLAG)
                 .value_name("CERTIFICATE-FILES")
                 .takes_value(true)
                 .help("Comma-separated paths to custom TLS certificates to use when connecting \
@@ -114,15 +125,15 @@ pub fn cli_app<'a>(file_args: Option<&'a HashMap<&'a str, &'a str>>) -> App<'a> 
         )
         // This overwrites the graffiti configured in the beacon node.
         .arg(
-            Arg::new("graffiti")
-                .long("graffiti")
+            Arg::new(GRAFFITI_FLAG)
+                .long(GRAFFITI_FLAG)
                 .help("Specify your custom graffiti to be included in blocks.")
                 .value_name("GRAFFITI")
                 .takes_value(true)
         )
         .arg(
-            Arg::new("graffiti-file")
-                .long("graffiti-file")
+            Arg::new(GRAFFITI_FILE_FLAG)
+                .long(GRAFFITI_FILE_FLAG)
                 .help("Specify a graffiti file to load validator graffitis from.")
                 .value_name("GRAFFITI-FILE")
                 .takes_value(true)
@@ -130,8 +141,8 @@ pub fn cli_app<'a>(file_args: Option<&'a HashMap<&'a str, &'a str>>) -> App<'a> 
         )
         /* REST API related arguments */
         .arg(
-            Arg::new("http")
-                .long("http")
+            Arg::new(HTTP_FLAG)
+                .long(HTTP_FLAG)
                 .help("Enable the RESTful HTTP API server. Disabled by default.")
                 .takes_value(false),
         )
@@ -143,8 +154,8 @@ pub fn cli_app<'a>(file_args: Option<&'a HashMap<&'a str, &'a str>>) -> App<'a> 
          * must also be used in order to make it clear to the user that this is unsafe.
          */
          .arg(
-             Arg::new("http-address")
-                 .long("http-address")
+             Arg::new(HTTP_ADDRESS_FLAG)
+                 .long(HTTP_ADDRESS_FLAG)
                  .value_name("ADDRESS")
                  .help("Set the address for the HTTP address. The HTTP server is not encrypted \
                         and therefore it is unsafe to publish on a public network. When this \
@@ -155,23 +166,23 @@ pub fn cli_app<'a>(file_args: Option<&'a HashMap<&'a str, &'a str>>) -> App<'a> 
                 .requires("unencrypted-http-transport"),
          )
          .arg(
-             Arg::new("unencrypted-http-transport")
-                 .long("unencrypted-http-transport")
+             Arg::new(UNENCRYPTED_HTTP_TRANSPORT_FLAG)
+                 .long(UNENCRYPTED_HTTP_TRANSPORT_FLAG)
                  .help("This is a safety flag to ensure that the user is aware that the http \
                         transport is unencrypted and using a custom HTTP address is unsafe.")
                  .requires("http-address"),
          )
         .arg(
-            Arg::new("http-port")
-                .long("http-port")
+            Arg::new(HTTP_PORT_FLAG)
+                .long(HTTP_PORT_FLAG)
                 .value_name("PORT")
                 .help("Set the listen TCP port for the RESTful HTTP API server.")
                 .default_value("5062")
                 .takes_value(true),
         )
         .arg(
-            Arg::new("http-allow-origin")
-                .long("http-allow-origin")
+            Arg::new(HTTP_ALLOW_ORIGIN_FLAG)
+                .long(HTTP_ALLOW_ORIGIN_FLAG)
                 .value_name("ORIGIN")
                 .help("Set the value of the Access-Control-Allow-Origin response HTTP header. \
                     Use * to allow any origin (not recommended in production). \
@@ -181,30 +192,30 @@ pub fn cli_app<'a>(file_args: Option<&'a HashMap<&'a str, &'a str>>) -> App<'a> 
         )
         /* Prometheus metrics HTTP server related arguments */
         .arg(
-            Arg::new("metrics")
-                .long("metrics")
+            Arg::new(METRICS_FLAG)
+                .long(METRICS_FLAG)
                 .help("Enable the Prometheus metrics HTTP server. Disabled by default.")
                 .takes_value(false),
         )
         .arg(
-            Arg::new("metrics-address")
-                .long("metrics-address")
+            Arg::new(METRICS_ADDRESS_FLAG)
+                .long(METRICS_ADDRESS_FLAG)
                 .value_name("ADDRESS")
                 .help("Set the listen address for the Prometheus metrics HTTP server.")
                 .default_value("127.0.0.1")
                 .takes_value(true),
         )
         .arg(
-            Arg::new("metrics-port")
-                .long("metrics-port")
+            Arg::new(METRICS_PORT_FLAG)
+                .long(METRICS_PORT_FLAG)
                 .value_name("PORT")
                 .help("Set the listen TCP port for the Prometheus metrics HTTP server.")
                 .default_value("5064")
                 .takes_value(true),
         )
         .arg(
-            Arg::new("metrics-allow-origin")
-                .long("metrics-allow-origin")
+            Arg::new(METRICS_ALLOW_ORIGIN_FLAG)
+                .long(METRICS_ALLOW_ORIGIN_FLAG)
                 .value_name("ORIGIN")
                 .help("Set the value of the Access-Control-Allow-Origin response HTTP header. \
                     Use * to allow any origin (not recommended in production). \
@@ -216,8 +227,8 @@ pub fn cli_app<'a>(file_args: Option<&'a HashMap<&'a str, &'a str>>) -> App<'a> 
          * Explorer metrics
          */
          .arg(
-            Arg::new("monitoring-endpoint")
-                .long("monitoring-endpoint")
+            Arg::new(MONITORING_ENDPOINT_FLAG)
+                .long(MONITORING_ENDPOINT_FLAG)
                 .value_name("ADDRESS")
                 .help("Enables the monitoring service for sending system metrics to a remote endpoint. \
                 This can be used to monitor your setup on certain services (e.g. beaconcha.in). \
@@ -228,8 +239,8 @@ pub fn cli_app<'a>(file_args: Option<&'a HashMap<&'a str, &'a str>>) -> App<'a> 
                 .takes_value(true),
         )
         .arg(
-            Arg::new("enable-doppelganger-protection")
-                .long("enable-doppelganger-protection")
+            Arg::new(ENABLE_DOPPELGANGER_PROTECTION_FLAG)
+                .long(ENABLE_DOPPELGANGER_PROTECTION_FLAG)
                 .value_name("ENABLE_DOPPELGANGER_PROTECTION")
                 .help("If this flag is set, Lighthouse will delay startup for three epochs and \
                     monitor for messages on the network by any of the validators managed by this \
@@ -241,5 +252,5 @@ pub fn cli_app<'a>(file_args: Option<&'a HashMap<&'a str, &'a str>>) -> App<'a> 
                     ENABLE this functionality, without this flag Lighthouse will begin attesting \
                     immediately.")
                 .takes_value(false),
-        )
+        ))
 }

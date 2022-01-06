@@ -1,32 +1,25 @@
 # File Config
 
-The `lighthouse` binary provides all necessary Ethereum 2.0 functionality. It
-has two primary sub-commands:
+Load config from a YAML or TOML formatted file using the `--config-file` flag.  To override an option
+specified in the configuration file, specify the same option in the command line. Separate config
+files must be used for the beacon node and validator client.
 
-- `$ lighthouse beacon_node`: the largest and most fundamental component which connects to
-  the p2p network, processes messages and tracks the head of the beacon
-  chain.
-- `$ lighthouse validator_client`: a lightweight but important component which loads a validators private
-  key and signs messages using a `beacon_node` as a source-of-truth.
+Things to keep in mind:
+- Each config filename must end in `.toml`, `.yml`, or `.yaml`.
+- A flag will be enabled if **any** value is set for it in the config file. Our examples use `true` for clarity.
+- If a flag is set in a config file, it **cannot** be overridden to false via command line arguments.
+- We **do not** currently support loading config for any account management commands from file (`lighthouse account_manager` or `lighthouse am`).
+- All `TOML` values must be set as strings.
 
-There are also some ancillary binaries like `lcli` and `account_manager`, but
-these are primarily for testing.
-
-## Documentation
-
-Each binary supports the `--help` flag, this is the best source of
-documentation.
-
+### Examples
+The following command:
 ```bash
-$ lighthouse beacon_node --help
+$ lighthouse --debug-level debug beacon_node --port 8000 --http --http-port 6052 --eth1-endpoints "http://localhost:8545,http://localhost:9545"
 ```
-
+Would be equivalent to this YAML config:
 ```bash
-$ lighthouse validator_client --help
+$ lighthouse --config-file ./beacon-config.yaml
 ```
-- a flag will be enabled if any value is set for it in the config file.
-- if a flag is set in a config file, it can not be overridden to false via command line arguments.
-
 ```yaml
 port: 8000
 debug-level: "debug"
@@ -34,9 +27,10 @@ http: true
 http-port: 6052
 eth1-endpoints: "http://localhost:8545,http://localhost:9545"
 ```
-
-Note: all `TOML` values must be set as strings.
-
+And this TOML config:
+```bash
+$ lighthouse --config-file ./beacon-config.toml
+```
 ```toml
 port = "8000"
 debug-level = "debug"

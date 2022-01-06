@@ -1,99 +1,169 @@
 //! CLI flags used across the Lighthouse code base can be located here.
+use lazy_static::lazy_static;
+
+macro_rules! generate_flag_constants {
+    ($group_name:ident, $(($key:ident, $value:expr)),+) => {
+        $(pub const $key: &str = $value;)+
+        lazy_static! {
+            pub static ref $group_name: Vec<&'static str> = {
+                let mut v = vec![];
+                $(v.push($value);)+
+                v
+            };
+        }
+    }
+}
 
 // Top level / Global
-pub const CONFIG_FILE_FLAG: &str = "config-file";
-pub const SPEC_FLAG: &str = "spec";
-pub const ENV_LOG_FLAG: &str = "env_log";
-pub const LOGFILE_FLAG: &str = "logfile";
-pub const LOGFILE_DEBUG_LEVEL: &str = "logfile-debug-level";
-pub const LOGFILE_MAX_SIZE: &str = "logfile-max-size";
-pub const LOGFILE_MAX_NUMBER: &str = "logfile-max-number";
-pub const LOGFILE_COMPRESS: &str = "logfile-compress";
-pub const LOG_FORMAT_FLAG: &str = "log-format";
-pub const DEBUG_LEVEL_FLAG: &str = "debug-level";
-pub const DATADIR_FLAG: &str = "datadir";
-pub const TESTNET_DIR_FLAG: &str = "testnet-dir";
-pub const NETWORK_FLAG: &str = "network";
-pub const DUMP_CONFIG_FLAG: &str = "dump-config";
-pub const IMMEDIATE_SHUTDOWN_FLAG: &str = "immediate-shutdown";
-pub const DISABLE_MALLOC_TUNING_FLAG: &str = "disable-malloc-tuning";
-pub const TERMINAL_TOTAL_DIFFICULTY_OVERRIDE: &str = "terminal-total-difficulty-override";
-pub const TERMINAL_BLOCK_HASH_OVERRIDE: &str = "terminal-block-hash-override";
-pub const TERMINAL_BLOCK_HASH_EPOCH_OVERRIDE: &str = "terminal-block-hash-epoch-override";
+generate_flag_constants!(
+    GLOBAL_FLAGS,
+    (CONFIG_FILE_FLAG, "config-file"),
+    (SPEC_FLAG, "spec"),
+    (ENV_LOG_FLAG, "env_log"),
+    (LOGFILE_FLAG, "logfile"),
+    (LOGFILE_DEBUG_LEVEL, "logfile-debug-level"),
+    (LOGFILE_MAX_SIZE, "logfile-max-size"),
+    (LOGFILE_MAX_NUMBER, "logfile-max-number"),
+    (LOGFILE_COMPRESS, "logfile-compress"),
+    (LOG_FORMAT_FLAG, "log-format"),
+    (DEBUG_LEVEL_FLAG, "debug-level"),
+    (DATADIR_FLAG, "datadir"),
+    (TESTNET_DIR_FLAG, "testnet-dir"),
+    (NETWORK_FLAG, "network"),
+    (DUMP_CONFIG_FLAG, "dump-config"),
+    (IMMEDIATE_SHUTDOWN_FLAG, "immediate-shutdown"),
+    (DISABLE_MALLOC_TUNING_FLAG, "disable-malloc-tuning"),
+    (
+        TERMINAL_TOTAL_DIFFICULTY_OVERRIDE,
+        "terminal-total-difficulty-override"
+    ),
+    (TERMINAL_BLOCK_HASH_OVERRIDE, "terminal-block-hash-override"),
+    (
+        TERMINAL_BLOCK_HASH_EPOCH_OVERRIDE,
+        "terminal-block-hash-epoch-override"
+    )
+);
 
 // Beacon node
-pub const NETWORK_DIR_FLAG: &str = "network-dir";
-pub const FREEZER_DIR_FLAG: &str = "freezer-dir";
-pub const SUBSCRIBE_ALL_SUBNETS_FLAG: &str = "subscribe-all-subnets";
-pub const IMPORT_ALL_ATTESTATIONS_FLAG: &str = "import-all-attestations";
-pub const DISABLE_PACKET_FILTER_FLAG: &str = "disable-packet-filter";
-pub const SHUTDOWN_AFTER_SYNC_FLAG: &str = "shutdown-after-sync";
-pub const ZERO_PORTS_FLAG: &str = "zero-ports";
-pub const LISTEN_ADDRESS_FLAG: &str = "listen-address";
-pub const PORT_FLAG: &str = "port";
-pub const DISCOVERY_PORT_FLAG: &str = "discovery-port";
-pub const TARGET_PEERS_FLAG: &str = "target-peers";
-pub const BOOT_NODES_FLAG: &str = "boot-nodes";
-pub const DISABLE_UPNP_FLAG: &str = "disable-upnp";
-pub const PRIVATE_FLAG: &str = "private";
-pub const ENR_UDP_PORT_FLAG: &str = "enr-udp-port";
-pub const ENR_TCP_PORT_FLAG: &str = "enr-tcp-port";
-pub const ENR_ADDRESS_FLAG: &str = "enr-address";
-pub const ENR_MATCH_FLAG: &str = "enr-match";
-pub const DISABLE_ENR_AUTO_UPDATE_FLAG: &str = "disable-enr-auto-update";
-pub const LIBP2P_ADDRESSES_FLAG: &str = "libp2p-addresses";
-pub const DISABLE_DISCOVERY_FLAG: &str = "disable-discovery";
-pub const TRUSTED_PEERS_FLAG: &str = "trusted-peers";
-pub const HTTP_FLAG: &str = "http";
-pub const HTTP_ADDRESS_FLAG: &str = "http-address";
-pub const HTTP_PORT_FLAG: &str = "http-port";
-pub const HTTP_ALLOW_ORIGIN_FLAG: &str = "http-allow-origin";
-pub const HTTP_DISABLE_LEGACY_SPEC_FLAG: &str = "http-disable-legacy-spec";
-pub const HTTP_ENABLE_TLS_FLAG: &str = "http-enable-tls";
-pub const HTTP_TLS_CERT_FLAG: &str = "http-tls-cert";
-pub const HTTP_TLS_KEY_FLAG: &str = "http-tls-key";
-pub const HTTP_ALLOW_SYNC_STALLED_FLAG: &str = "http-allow-sync-stalled";
-pub const METRICS_FLAG: &str = "metrics";
-pub const METRICS_ADDRESS_FLAG: &str = "metrics-address";
-pub const METRICS_PORT_FLAG: &str = "metrics-port";
-pub const METRICS_ALLOW_ORIGIN_FLAG: &str = "metrics-allow-origin";
-pub const MONITORING_ENDPOINT_FLAG: &str = "monitoring-endpoint";
-pub const STAKING_FLAG: &str = "staking";
-pub const ETH1_FLAG: &str = "eth1";
-pub const DUMMY_ETH1_FLAG: &str = "dummy-eth1";
-pub const ETH1_ENDPOINT_FLAG: &str = "eth1-endpoint";
-pub const ETH1_ENDPOINTS_FLAG: &str = "eth1-endpoints";
-pub const ETH1_PURGE_CACHE_FLAG: &str = "eth1-purge-cache";
-pub const ETH1_BLOCKS_PER_LOG_QUERY_FLAG: &str = "eth1-blocks-per-log-query";
-pub const SLOTS_PER_RESTORE_POINT_FLAG: &str = "slots-per-restore-point";
-pub const BLOCK_CACHE_SIZE_FLAG: &str = "block-cache-size";
-pub const MERGE_FLAG: &str = "merge";
-pub const EXECUTION_ENDPOINTS_FLAG: &str = "execution-endpoints";
-pub const FEE_RECIPIENT_FLAG: &str = "fee-recipient";
-pub const PURGE_DB_FLAG: &str = "purge-db";
-pub const COMPACT_DB_FLAG: &str = "compact-db";
-pub const AUTO_COMPACT_DB_FLAG: &str = "auto-compact-db";
-pub const GRAFFITI_FLAG: &str = "graffiti";
-pub const MAX_SKIP_SLOTS_FLAG: &str = "max-skip-slots";
-pub const SLASHER_FLAG: &str = "slasher";
-pub const SLASHER_DIR_FLAG: &str = "slasher-dir";
-pub const SLASHER_UPDATE_PERIOD_FLAG: &str = "slasher-update-period";
-pub const SLASHER_SLOT_OFFSET_FLAG: &str = "slasher-slot-offset";
-pub const SLASHER_HISTORY_LENGTH_FLAG: &str = "slasher-history-length";
-pub const SLASHER_MAX_DB_SIZE_FLAG: &str = "slasher-max-db-size";
-pub const SLASHER_ATT_CACHE_SIZE_FLAG: &str = "slasher-att-cache-size";
-pub const SLASHER_CHUNK_SIZE_FLAG: &str = "slasher-chunk-size";
-pub const SLASHER_VALIDATOR_CHUNK_SI_FLAG: &str = "slasher-validator-chunk-size";
-pub const SLASHER_BROADCAST_FLAG: &str = "slasher-broadcast";
-pub const WSS_CHECKPOINT_FLAG: &str = "wss-checkpoint";
-pub const CHECKPOINT_STATE_FLAG: &str = "checkpoint-state";
-pub const CHECKPOINT_BLOCK_FLAG: &str = "checkpoint-block";
-pub const CHECKPOINT_SYNC_URL_FLAG: &str = "checkpoint-sync-url";
-pub const RECONSTRUCT_HISTORIC_STATE_FLAG: &str = "reconstruct-historic-states";
-pub const VALIDATOR_MONITOR_AUTO_FLAG: &str = "validator-monitor-auto";
-pub const VALIDATOR_MONITOR_PUBKEYS_FLAG: &str = "validator-monitor-pubkeys";
-pub const VALIDATOR_MONITOR_FILE_FLAG: &str = "validator-monitor-file";
-pub const DISABLE_LOCK_TIMEOUTS_FLAG: &str = "disable-lock-timeouts";
+generate_flag_constants!(
+    BEACON_NODE_FLAGS,
+    (FREEZER_DIR_FLAG, "freezer-dir"),
+    (SUBSCRIBE_ALL_SUBNETS_FLAG, "subscribe-all-subnets"),
+    (IMPORT_ALL_ATTESTATIONS_FLAG, "import-all-attestations"),
+    (SHUTDOWN_AFTER_SYNC_FLAG, "shutdown-after-sync"),
+    (ZERO_PORTS_FLAG, "zero-ports"),
+    (DISCOVERY_PORT_FLAG, "discovery-port"),
+    (TARGET_PEERS_FLAG, "target-peers"),
+    (DISABLE_UPNP_FLAG, "disable-upnp"),
+    (PRIVATE_FLAG, "private"),
+    (ENR_TCP_PORT_FLAG, "enr-tcp-port"),
+    (ENR_MATCH_FLAG, "enr-match"),
+    (DISABLE_ENR_AUTO_UPDATE_FLAG, "disable-enr-auto-update"),
+    (LIBP2P_ADDRESSES_FLAG, "libp2p-addresses"),
+    (DISABLE_DISCOVERY_FLAG, "disable-discovery"),
+    (TRUSTED_PEERS_FLAG, "trusted-peers"),
+    (HTTP_DISABLE_LEGACY_SPEC_FLAG, "http-disable-legacy-spec"),
+    (HTTP_ENABLE_TLS_FLAG, "http-enable-tls"),
+    (HTTP_TLS_CERT_FLAG, "http-tls-cert"),
+    (HTTP_TLS_KEY_FLAG, "http-tls-key"),
+    (HTTP_ALLOW_SYNC_STALLED_FLAG, "http-allow-sync-stalled"),
+    (STAKING_FLAG, "staking"),
+    (ETH1_FLAG, "eth1"),
+    (DUMMY_ETH1_FLAG, "dummy-eth1"),
+    (ETH1_ENDPOINT_FLAG, "eth1-endpoint"),
+    (ETH1_ENDPOINTS_FLAG, "eth1-endpoints"),
+    (ETH1_PURGE_CACHE_FLAG, "eth1-purge-cache"),
+    (ETH1_BLOCKS_PER_LOG_QUERY_FLAG, "eth1-blocks-per-log-query"),
+    (SLOTS_PER_RESTORE_POINT_FLAG, "slots-per-restore-point"),
+    (BLOCK_CACHE_SIZE_FLAG, "block-cache-size"),
+    (MERGE_FLAG, "merge"),
+    (EXECUTION_ENDPOINTS_FLAG, "execution-endpoints"),
+    (FEE_RECIPIENT_FLAG, "fee-recipient"),
+    (PURGE_DB_FLAG, "purge-db"),
+    (COMPACT_DB_FLAG, "compact-db"),
+    (AUTO_COMPACT_DB_FLAG, "auto-compact-db"),
+    (MAX_SKIP_SLOTS_FLAG, "max-skip-slots"),
+    (SLASHER_FLAG, "slasher"),
+    (SLASHER_DIR_FLAG, "slasher-dir"),
+    (SLASHER_UPDATE_PERIOD_FLAG, "slasher-update-period"),
+    (SLASHER_SLOT_OFFSET_FLAG, "slasher-slot-offset"),
+    (SLASHER_HISTORY_LENGTH_FLAG, "slasher-history-length"),
+    (SLASHER_MAX_DB_SIZE_FLAG, "slasher-max-db-size"),
+    (SLASHER_ATT_CACHE_SIZE_FLAG, "slasher-att-cache-size"),
+    (SLASHER_CHUNK_SIZE_FLAG, "slasher-chunk-size"),
+    (
+        SLASHER_VALIDATOR_CHUNK_SIZE_FLAG,
+        "slasher-validator-chunk-size"
+    ),
+    (SLASHER_BROADCAST_FLAG, "slasher-broadcast"),
+    (WSS_CHECKPOINT_FLAG, "wss-checkpoint"),
+    (CHECKPOINT_STATE_FLAG, "checkpoint-state"),
+    (CHECKPOINT_BLOCK_FLAG, "checkpoint-block"),
+    (CHECKPOINT_SYNC_URL_FLAG, "checkpoint-sync-url"),
+    (
+        RECONSTRUCT_HISTORIC_STATE_FLAG,
+        "reconstruct-historic-states"
+    ),
+    (VALIDATOR_MONITOR_AUTO_FLAG, "validator-monitor-auto"),
+    (VALIDATOR_MONITOR_PUBKEYS_FLAG, "validator-monitor-pubkeys"),
+    (VALIDATOR_MONITOR_FILE_FLAG, "validator-monitor-file"),
+    (DISABLE_LOCK_TIMEOUTS_FLAG, "disable-lock-timeouts")
+);
 
 // Validator client
+generate_flag_constants!(
+    VALIDATOR_FLAGS,
+    (BEACON_NODE_FLAG, "beacon-node"),
+    (BEACON_NODES_FLAG, "beacon-nodes"),
+    (SERVER_FLAG, "server"),
+    (VALIDATORS_DIR_FLAG, "validators-dir"),
+    (SECRETS_DIR_FLAG, "secrets-dir"),
+    (DELETE_LOCKFILES_FLAG, "delete-lockfiles"),
+    (INIT_SLASHING_PROTECTION_FLAG, "init-slashing-protection"),
+    (DISABLE_AUTO_DISCOVER_FLAG, "disable-auto-discover"),
+    (ALLOW_UNSYNCED_FLAG, "allow-unsynced"),
+    (USE_LONG_TIMEOUTS_FLAG, "use-long-timeouts"),
+    (BEACON_NODES_TLS_CERTS_FLAG, "beacon-nodes-tls-certs"),
+    (GRAFFITI_FILE_FLAG, "graffiti-file"),
+    (
+        UNENCRYPTED_HTTP_TRANSPORT_FLAG,
+        "unencrypted-http-transport"
+    ),
+    (
+        ENABLE_DOPPELGANGER_PROTECTION_FLAG,
+        "enable-doppelganger-protection"
+    )
+);
+
 // Boot node
+generate_flag_constants!(
+    BOOT_NODE_FLAGS,
+    (ENABLE_ENR_AUTO_UPDATE_FLAG, "enable-enr-auto-update")
+);
+
+// Beacon/Validator Common
+generate_flag_constants!(
+    BEACON_VALIDATOR_FLAGS,
+    (HTTP_FLAG, "http"),
+    (HTTP_ADDRESS_FLAG, "http-address"),
+    (HTTP_PORT_FLAG, "http-port"),
+    (HTTP_ALLOW_ORIGIN_FLAG, "http-allow-origin"),
+    (METRICS_FLAG, "metrics"),
+    (METRICS_ADDRESS_FLAG, "metrics-address"),
+    (METRICS_PORT_FLAG, "metrics-port"),
+    (METRICS_ALLOW_ORIGIN_FLAG, "metrics-allow-origin"),
+    (MONITORING_ENDPOINT_FLAG, "monitoring-endpoint"),
+    (GRAFFITI_FLAG, "graffiti")
+);
+
+// Beacon/Boot node Common
+generate_flag_constants!(
+    BEACON_BOOT_NODE_FLAGS,
+    (ENR_ADDRESS_FLAG, "enr-address"),
+    (PORT_FLAG, "port"),
+    (LISTEN_ADDRESS_FLAG, "listen-address"),
+    (BOOT_NODES_FLAG, "boot-nodes"),
+    (ENR_UDP_PORT_FLAG, "enr-udp-port"),
+    (DISABLE_PACKET_FILTER_FLAG, "disable-packet-filter"),
+    (NETWORK_DIR_FLAG, "network-dir")
+);
