@@ -799,7 +799,7 @@ mod test {
         );
     }
 
-    fn needs_genesis_value_of_test_randao<F: Field<TestSpec>>(_: F) {
+    fn needs_genesis_value_test_randao<F: Field<TestSpec>>(_: F) {
         let spec = &TestSpec::default_spec();
         let max = TestSpec::slots_per_epoch() as u64 * (F::Length::to_u64() - 1);
         for i in 0..max {
@@ -814,6 +814,6 @@ mod test {
 
     #[test]
     fn needs_genesis_value_randao() {
-        needs_genesis_value_of_test_randao(RandaoMixes);
+        needs_genesis_value_test_randao(RandaoMixes);
     }
 }

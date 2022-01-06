@@ -25,7 +25,8 @@ pub fn cli_app<'a>(file_args: Option<&'a HashMap<&'a str, &'a str>>) -> Result<A
         surface compared to a full beacon node.")
         .arg(
             Arg::new(ENR_ADDRESS_FLAG)
-                .value_name(ENR_ADDRESS_FLAG)
+                .long(ENR_ADDRESS_FLAG)
+                .value_name("IP-ADDRESS")
                 .help("The external IP address/ DNS address to broadcast to other peers on how to reach this node. \
                 If a DNS address is provided, the enr-address is set to the IP address it resolves to and \
                 does not auto-update based on PONG responses in discovery.")

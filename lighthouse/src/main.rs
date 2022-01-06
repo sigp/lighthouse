@@ -5,9 +5,9 @@ mod metrics;
 use beacon_node::ProductionBeaconNode;
 use clap::{Arg, ArgMatches};
 use clap_utils::flags::{
-    LOGFILE_COMPRESS, LOGFILE_DEBUG_LEVEL, LOGFILE_MAX_NUMBER, LOGFILE_MAX_SIZE,
-    TERMINAL_BLOCK_HASH_EPOCH_OVERRIDE, TERMINAL_BLOCK_HASH_OVERRIDE,
-    TERMINAL_TOTAL_DIFFICULTY_OVERRIDE,
+    LOGFILE_COMPRESS_FLAG, LOGFILE_DEBUG_LEVEL_FLAG, LOGFILE_MAX_NUMBER_FLAG,
+    LOGFILE_MAX_SIZE_FLAG, TERMINAL_BLOCK_HASH_EPOCH_OVERRIDE_FLAG,
+    TERMINAL_BLOCK_HASH_OVERRIDE_FLAG, TERMINAL_TOTAL_DIFFICULTY_OVERRIDE_FLAG,
 };
 use clap_utils::{
     flags::{
@@ -55,7 +55,7 @@ fn main() {
     let cli_matches = match get_cli_matches() {
         Ok(matches) => matches,
         Err(e) => {
-            eprintln!("Unable read config from file: {}", e);
+            eprintln!("Unable validate lighthouse config: {}", e);
             exit(1);
         }
     };
@@ -244,8 +244,8 @@ fn new_app<'a>(
                 .global(true),
         )
         .arg(
-            Arg::new(LOGFILE_DEBUG_LEVEL)
-                .long(LOGFILE_DEBUG_LEVEL)
+            Arg::new(LOGFILE_DEBUG_LEVEL_FLAG)
+                .long(LOGFILE_DEBUG_LEVEL_FLAG)
                 .value_name("LEVEL")
                 .help("The verbosity level used when emitting logs to the log file.")
                 .takes_value(true)
@@ -254,8 +254,8 @@ fn new_app<'a>(
                 .global(true),
         )
         .arg(
-            Arg::new(LOGFILE_MAX_SIZE)
-                .long(LOGFILE_MAX_SIZE)
+            Arg::new(LOGFILE_MAX_SIZE_FLAG)
+                .long(LOGFILE_MAX_SIZE_FLAG)
                 .value_name("SIZE")
                 .help(
                     "The maximum size (in MB) each log file can grow to before rotating. If set \
@@ -265,8 +265,8 @@ fn new_app<'a>(
                 .global(true),
         )
         .arg(
-            Arg::new(LOGFILE_MAX_NUMBER)
-                .long(LOGFILE_MAX_NUMBER)
+            Arg::new(LOGFILE_MAX_NUMBER_FLAG)
+                .long(LOGFILE_MAX_NUMBER_FLAG)
                 .value_name("COUNT")
                 .help(
                     "The maximum number of log files that will be stored. If set to 0, \
@@ -276,8 +276,8 @@ fn new_app<'a>(
                 .global(true),
         )
         .arg(
-            Arg::new(LOGFILE_COMPRESS)
-                .long(LOGFILE_COMPRESS)
+            Arg::new(LOGFILE_COMPRESS_FLAG)
+                .long(LOGFILE_COMPRESS_FLAG)
                 .help(
                     "If present, compress old log files. This can help reduce the space needed \
                     to store old logs.")
@@ -366,8 +366,8 @@ fn new_app<'a>(
                 .global(true),
         )
         .arg(
-            Arg::new(TERMINAL_TOTAL_DIFFICULTY_OVERRIDE)
-                .long(TERMINAL_TOTAL_DIFFICULTY_OVERRIDE)
+            Arg::new(TERMINAL_TOTAL_DIFFICULTY_OVERRIDE_FLAG)
+                .long(TERMINAL_TOTAL_DIFFICULTY_OVERRIDE_FLAG)
                 .value_name("INTEGER")
                 .help("Used to coordinate manual overrides to the TERMINAL_TOTAL_DIFFICULTY parameter. \
                        Accepts a 256-bit decimal integer (not a hex value). \
@@ -379,8 +379,8 @@ fn new_app<'a>(
                 .global(true)
         )
         .arg(
-            Arg::new(TERMINAL_BLOCK_HASH_OVERRIDE)
-                .long(TERMINAL_BLOCK_HASH_OVERRIDE)
+            Arg::new(TERMINAL_BLOCK_HASH_OVERRIDE_FLAG)
+                .long(TERMINAL_BLOCK_HASH_OVERRIDE_FLAG)
                 .value_name("TERMINAL_BLOCK_HASH")
                 .help("Used to coordinate manual overrides to the TERMINAL_BLOCK_HASH parameter. \
                        This flag should only be used if the user has a clear understanding that \
@@ -392,8 +392,8 @@ fn new_app<'a>(
                 .global(true)
         )
         .arg(
-            Arg::new(TERMINAL_BLOCK_HASH_EPOCH_OVERRIDE)
-                .long(TERMINAL_BLOCK_HASH_EPOCH_OVERRIDE)
+            Arg::new(TERMINAL_BLOCK_HASH_EPOCH_OVERRIDE_FLAG)
+                .long(TERMINAL_BLOCK_HASH_EPOCH_OVERRIDE_FLAG)
                 .value_name("EPOCH")
                 .help("Used to coordinate manual overrides to the TERMINAL_BLOCK_HASH_ACTIVATION_EPOCH \
                        parameter. This flag should only be used if the user has a clear understanding \
@@ -428,22 +428,22 @@ fn run<E: EthSpec>(
     let log_format = matches.value_of(LOG_FORMAT_FLAG);
 
     let logfile_debug_level = matches
-        .value_of(LOGFILE_DEBUG_LEVEL)
-        .ok_or(&format!("Expected --{} flag", LOGFILE_DEBUG_LEVEL))?;
+        .value_of(LOGFILE_DEBUG_LEVEL_FLAG)
+        .ok_or(&format!("Expected --{} flag", LOGFILE_DEBUG_LEVEL_FLAG))?;
 
     let logfile_max_size: u64 = matches
-        .value_of(LOGFILE_MAX_SIZE)
-        .ok_or(&format!("Expected --{} flag", LOGFILE_MAX_SIZE))?
+        .value_of(LOGFILE_MAX_SIZE_FLAG)
+        .ok_or(&format!("Expected --{} flag", LOGFILE_MAX_SIZE_FLAG))?
         .parse()
-        .map_err(|e| format!("Failed to parse `{}`: {:?}", LOGFILE_MAX_SIZE, e))?;
+        .map_err(|e| format!("Failed to parse `{}`: {:?}", LOGFILE_MAX_SIZE_FLAG, e))?;
 
     let logfile_max_number: usize = matches
-        .value_of(LOGFILE_MAX_NUMBER)
-        .ok_or(&format!("Expected --{} flag", LOGFILE_MAX_NUMBER))?
+        .value_of(LOGFILE_MAX_NUMBER_FLAG)
+        .ok_or(&format!("Expected --{} flag", LOGFILE_MAX_NUMBER_FLAG))?
         .parse()
-        .map_err(|e| format!("Failed to parse `{}`: {:?}", LOGFILE_MAX_NUMBER, e))?;
+        .map_err(|e| format!("Failed to parse `{}`: {:?}", LOGFILE_MAX_NUMBER_FLAG, e))?;
 
-    let logfile_compress = matches.is_present(LOGFILE_COMPRESS);
+    let logfile_compress = matches.is_present(LOGFILE_COMPRESS_FLAG);
 
     // Construct the path to the log file.
     let mut log_path: Option<PathBuf> = clap_utils::parse_optional(matches, LOGFILE_FLAG)?;
