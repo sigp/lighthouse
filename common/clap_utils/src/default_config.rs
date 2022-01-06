@@ -1,3 +1,7 @@
+use crate::flags::{
+    BEACON_BOOT_NODE_FLAGS, BEACON_NODE_FLAGS, BEACON_VALIDATOR_FLAGS, BOOT_NODE_FLAGS,
+    GLOBAL_FLAGS, VALIDATOR_FLAGS,
+};
 use clap::{App, Arg, ArgMatches};
 use std::collections::HashMap;
 use std::ffi::OsString;
@@ -67,12 +71,53 @@ impl<'a> DefaultConfigApp<'a> {
         self.app.get_matches()
     }
 
-    pub fn get_matches_from<I, T>(self, itr: I) -> ArgMatches
+    pub fn get_matches_from<I, T>(self, itr: I) -> Result<ArgMatches, String>
     where
         I: IntoIterator<Item = T>,
         T: Into<OsString> + Clone,
     {
-        self.app.get_matches_from(itr)
+        let matches = self.app.get_matches_from(itr);
+
+        // Validate the default config.
+        if let Some(args) = self.default_config {
+            match matches.subcommand_name() {
+                Some("beacon_node") => {
+                    for key in args.keys() {
+                        if !GLOBAL_FLAGS.contains(key)
+                            && !BEACON_NODE_FLAGS.contains(key)
+                            && !BEACON_BOOT_NODE_FLAGS.contains(key)
+                            && !BEACON_VALIDATOR_FLAGS.contains(key)
+                        {
+                            return Err(format!("--{} is not a valid beacon node flag.", key));
+                        }
+                    }
+                }
+                Some("validator_client") => {
+                    for key in args.keys() {
+                        if !GLOBAL_FLAGS.contains(key)
+                            && !VALIDATOR_FLAGS.contains(key)
+                            && !BEACON_VALIDATOR_FLAGS.contains(key)
+                        {
+                            return Err(format!("--{} is not a valid validator client flag.", key));
+                        }
+                    }
+                }
+                Some("boot_node") => {
+                    for key in args.keys() {
+                        if !GLOBAL_FLAGS.contains(key)
+                            && !BOOT_NODE_FLAGS.contains(key)
+                            && !BEACON_BOOT_NODE_FLAGS.contains(key)
+                        {
+                            return Err(format!("--{} is not a valid boot node flag.", key));
+                        }
+                    }
+                }
+                // Invalid subcommand validation is covered elsewhere.
+                _ => {}
+            }
+        }
+
+        Ok(matches)
     }
 }
 

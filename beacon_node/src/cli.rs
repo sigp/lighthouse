@@ -2,20 +2,8 @@ use clap::Arg;
 use clap_utils::{flags::*, DefaultConfigApp as App};
 use std::collections::HashMap;
 
-pub fn cli_app<'a>(file_args: Option<&'a HashMap<&'a str, &'a str>>) -> Result<App<'a>, String> {
-    if let Some(args) = file_args {
-        for key in args.keys() {
-            if !BEACON_NODE_FLAGS.contains(key)
-                && !BEACON_BOOT_NODE_FLAGS.contains(key)
-                && !BEACON_VALIDATOR_FLAGS.contains(key)
-                && !GLOBAL_FLAGS.contains(key)
-            {
-                return Err(format!("--{} is not a valid beacon node flag.", key));
-            }
-        }
-    }
-
-    Ok(App::new("beacon_node", file_args)
+pub fn cli_app<'a>(file_args: Option<&'a HashMap<&'a str, &'a str>>) -> App<'a> {
+    App::new("beacon_node", file_args)
         .visible_aliases(&["b", "bn", "beacon"])
         .author("Sigma Prime <contact@sigmaprime.io>")
         .about("The primary component which connects to the Ethereum 2.0 P2P network and \
@@ -644,5 +632,5 @@ pub fn cli_app<'a>(file_args: Option<&'a HashMap<&'a str, &'a str>>) -> Result<A
                        lead to less spurious failures on slow hardware but is considered \
                        experimental as it may obscure performance issues.")
                 .takes_value(false)
-        ))
+        )
 }

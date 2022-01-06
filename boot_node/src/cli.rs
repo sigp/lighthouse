@@ -5,19 +5,8 @@ use clap_utils::{flags::*, DefaultConfigApp as App};
 use std::collections::HashMap;
 
 // TODO: Add DOS prevention CLI params
-pub fn cli_app<'a>(file_args: Option<&'a HashMap<&'a str, &'a str>>) -> Result<App<'a>, String> {
-    if let Some(args) = file_args {
-        for key in args.keys() {
-            if !GLOBAL_FLAGS.contains(key)
-                && !BOOT_NODE_FLAGS.contains(key)
-                && !BEACON_BOOT_NODE_FLAGS.contains(key)
-            {
-                return Err(format!("--{} is not a valid boot node flag.", key));
-            }
-        }
-    }
-
-    Ok(App::new("boot_node", file_args)
+pub fn cli_app<'a>(file_args: Option<&'a HashMap<&'a str, &'a str>>) -> App<'a> {
+    App::new("boot_node", file_args)
         .about("Start a special Lighthouse process that only serves as a discv5 boot-node. This \
         process will *not* import blocks or perform most typical beacon node functions. Instead, it \
         will simply run the discv5 service and assist nodes on the network to discover each other. \
@@ -84,5 +73,5 @@ pub fn cli_app<'a>(file_args: Option<&'a HashMap<&'a str, &'a str>>) -> Result<A
                 .long("network-dir")
                 .help("The directory which contains the enr and it's assoicated private key")
                 .takes_value(true)
-        ))
+        )
 }

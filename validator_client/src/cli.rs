@@ -2,19 +2,8 @@ use clap::Arg;
 use clap_utils::{flags::*, DefaultConfigApp as App};
 use std::collections::HashMap;
 
-pub fn cli_app<'a>(file_args: Option<&'a HashMap<&'a str, &'a str>>) -> Result<App<'a>, String> {
-    if let Some(args) = file_args {
-        for key in args.keys() {
-            if !GLOBAL_FLAGS.contains(key)
-                && !VALIDATOR_FLAGS.contains(key)
-                && !BEACON_VALIDATOR_FLAGS.contains(key)
-            {
-                return Err(format!("--{} is not a valid validator client flag.", key));
-            }
-        }
-    }
-
-    Ok(App::new("validator_client", file_args)
+pub fn cli_app<'a>(file_args: Option<&'a HashMap<&'a str, &'a str>>) -> App<'a> {
+    App::new("validator_client", file_args)
         .visible_aliases(&["v", "vc", "validator"])
         .about(
             "When connected to a beacon node, performs the duties of a staked \
@@ -252,5 +241,5 @@ pub fn cli_app<'a>(file_args: Option<&'a HashMap<&'a str, &'a str>>) -> Result<A
                     ENABLE this functionality, without this flag Lighthouse will begin attesting \
                     immediately.")
                 .takes_value(false),
-        ))
+        )
 }
