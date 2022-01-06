@@ -3,7 +3,8 @@ use boot_node::config::BootNodeConfigSerialization;
 use crate::exec::{CommandLineTestExec, CompletedTest};
 use clap::ArgMatches;
 use clap_utils::flags::{
-    BOOT_NODES_FLAG, ENR_UDP_PORT_FLAG, LISTEN_ADDRESS_FLAG, NETWORK_DIR_FLAG, PORT_FLAG,
+    BOOT_NODES_FLAG, ENR_ADDRESS_FLAG, ENR_UDP_PORT_FLAG, LISTEN_ADDRESS_FLAG, NETWORK_DIR_FLAG,
+    PORT_FLAG,
 };
 use clap_utils::get_eth2_network_config;
 use lighthouse_network::discovery::ENR_FILENAME;
@@ -41,7 +42,7 @@ impl CommandLineTest {
     }
 
     fn run_with_ip(&mut self) -> CompletedTest<BootNodeConfigSerialization> {
-        self.cmd.arg(IP_ADDRESS);
+        self.flag(ENR_ADDRESS_FLAG, Some(IP_ADDRESS));
         self.run()
     }
 }
