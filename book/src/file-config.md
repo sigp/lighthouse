@@ -9,7 +9,6 @@ Things to keep in mind:
 - A flag will be enabled if **any** value is set for it in the config file. Our examples use `true` for clarity.
 - If a flag is set in a config file, it **cannot** be overridden to false via command line arguments.
 - We **do not** currently support loading config for any account management commands from file (`lighthouse account_manager` or `lighthouse am`).
-- All `TOML` values must be set as strings.
 
 ### Examples
 The following command:
@@ -21,20 +20,20 @@ Would be equivalent to this YAML config:
 $ lighthouse --config-file ./beacon-config.yaml
 ```
 ```yaml
-port: 8000
 debug-level: "debug"
-http: true
+port: 8000
 http-port: 6052
-eth1-endpoints: "http://localhost:8545,http://localhost:9545"
+staking: true
+eth1-endpoints: ["http://localhost:8545", "http://localhost:9545"]
 ```
 And this TOML config:
 ```bash
 $ lighthouse --config-file ./beacon-config.toml
 ```
 ```toml
-port = "8000"
 debug-level = "debug"
-http = "true"
-http-port = "6052"
-eth1-endpoints = "http://localhost:8545,http://localhost:9545"
+port = 8000
+http-port = 6052
+staking = true
+eth1-endpoints = ["http://localhost:8545", "http://localhost:9545"]
 ```
