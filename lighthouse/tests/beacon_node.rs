@@ -211,9 +211,9 @@ fn eth1_purge_cache_flag() {
 fn merge_fee_recipient_flag() {
     CommandLineTest::new()
         .flag("merge", None)
-        .flag("fee-recipient", Some("0xa94f5374fce5edbc8e2a8697c15331677e6ebf0b"))
+        .flag("fee-recipient", Some("0x00000000219ab540356cbb839cbe05303d7705fa"))
         .run_with_zero_port()
-        .with_config(|config| assert_eq!(config.suggested_fee_recipient, Some(Address::from_str("0xa94f5374fce5edbc8e2a8697c15331677e6ebf0b").unwrap())));
+        .with_config(|config| assert_eq!(config.suggested_fee_recipient, Some(Address::from_str("0x00000000219ab540356cbb839cbe05303d7705fa").unwrap())));
 }
 
 // Tests for Network flags.
