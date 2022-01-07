@@ -589,7 +589,7 @@ where
             .on_verified_block(block, block_root, state)
             .map_err(Error::AfterBlockFailed)?;
 
-        let execution_status = if let Some(execution_payload) = block.body().execution_payload() {
+        let execution_status = if let Ok(execution_payload) = block.body().execution_payload() {
             let block_hash = execution_payload.block_hash;
 
             if block_hash == Hash256::zero() {

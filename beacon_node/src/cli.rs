@@ -400,13 +400,15 @@ pub fn cli_app<'a>(file_args: Option<&'a HashMap<&'a str, &'a str>>) -> App<'a> 
                 .takes_value(true)
         )
         .arg(
-            Arg::new(FEE_RECIPIENT_FLAG)
-                .long(FEE_RECIPIENT_FLAG)
+            Arg::new("fee-recipient")
+                .long("fee-recipient")
+                .value_name("FEE-RECIPIENT")
                 .help("Once the merge has happened, this address will receive transaction fees \
                        collected from any blocks produced by this node. Defaults to a junk \
                        address whilst the merge is in development stages. THE DEFAULT VALUE \
                        WILL BE REMOVED BEFORE THE MERGE ENTERS PRODUCTION")
                 .requires("merge")
+                .takes_value(true)
         )
 
         /*

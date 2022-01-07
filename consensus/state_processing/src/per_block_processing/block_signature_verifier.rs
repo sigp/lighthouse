@@ -302,7 +302,7 @@ where
 
     /// Include the signature of the block's sync aggregate (if it exists) for verification.
     pub fn include_sync_aggregate(&mut self, block: &'a SignedBeaconBlock<T>) -> Result<()> {
-        if let Some(sync_aggregate) = block.message().body().sync_aggregate() {
+        if let Ok(sync_aggregate) = block.message().body().sync_aggregate() {
             if let Some(signature_set) = sync_aggregate_signature_set(
                 &self.decompressor,
                 sync_aggregate,
