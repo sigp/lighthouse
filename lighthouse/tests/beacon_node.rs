@@ -11,7 +11,7 @@ use std::process::Command;
 use std::str::FromStr;
 use std::string::ToString;
 use tempfile::TempDir;
-use types::{Checkpoint, Epoch, Hash256};
+use types::{Address, Checkpoint, Epoch, Hash256};
 
 const DEFAULT_ETH1_ENDPOINT: &str = "http://localhost:8545/";
 
@@ -204,6 +204,24 @@ fn eth1_purge_cache_flag() {
         .flag("eth1-purge-cache", None)
         .run_with_zero_port()
         .with_config(|config| assert!(config.eth1.purge_cache));
+}
+
+// Tests for Merge flags.
+#[test]
+fn merge_fee_recipient_flag() {
+    CommandLineTest::new()
+        .flag("merge", None)
+        .flag(
+            "fee-recipient",
+            Some("0x00000000219ab540356cbb839cbe05303d7705fa"),
+        )
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert_eq!(
+                config.suggested_fee_recipient,
+                Some(Address::from_str("0x00000000219ab540356cbb839cbe05303d7705fa").unwrap())
+            )
+        });
 }
 
 // Tests for Network flags.

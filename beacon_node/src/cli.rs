@@ -402,11 +402,13 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
         .arg(
             Arg::with_name("fee-recipient")
                 .long("fee-recipient")
+                .value_name("FEE-RECIPIENT")
                 .help("Once the merge has happened, this address will receive transaction fees \
                        collected from any blocks produced by this node. Defaults to a junk \
                        address whilst the merge is in development stages. THE DEFAULT VALUE \
                        WILL BE REMOVED BEFORE THE MERGE ENTERS PRODUCTION")
                 .requires("merge")
+                .takes_value(true)
         )
 
         /*
