@@ -274,6 +274,9 @@ pub async fn run<T: EthSpec>(matches: &ArgMatches<'_>) -> Result<(), String> {
             // Add them to the set.
             included_attestations_set.extend(attestations_in_block.clone());
 
+            // Remove expired available attestations.
+            available_attestations_set.retain(|x| x.slot >= (slot.as_u64().saturating_sub(32)));
+
             // Don't write data from the initialization epoch.
             if epoch != initialization_epoch {
                 let included = attestations_in_block.len();
@@ -309,9 +312,6 @@ pub async fn run<T: EthSpec>(matches: &ArgMatches<'_>) -> Result<(), String> {
                     }
                 }
             }
-
-            // Remove expired available attestations.
-            available_attestations_set.retain(|x| x.slot >= (slot.as_u64().saturating_sub(32)));
         }
 
         let mut offline = "None".to_string();
