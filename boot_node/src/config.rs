@@ -132,13 +132,15 @@ impl<T: EthSpec> BootNodeConfig<T> {
 
 /// The set of configuration parameters that can safely be (de)serialized.
 ///
-/// Its fields are a subset of the fields of `BootNodeConfig`.
+/// Its fields are a subset of the fields of `BootNodeConfig`, some of them are copied from `Discv5Config`.
 #[derive(Serialize, Deserialize)]
 pub struct BootNodeConfigSerialization {
     pub listen_socket: SocketAddr,
     // TODO: Generalise to multiaddr
     pub boot_nodes: Vec<Enr>,
     pub local_enr: Enr,
+    pub disable_packet_filter: bool,
+    pub enable_enr_auto_update: bool,
 }
 
 impl BootNodeConfigSerialization {
@@ -150,7 +152,7 @@ impl BootNodeConfigSerialization {
             boot_nodes,
             local_enr,
             local_key: _,
-            discv5_config: _,
+            discv5_config,
             phantom: _,
         } = config;
 
@@ -158,6 +160,8 @@ impl BootNodeConfigSerialization {
             listen_socket: *listen_socket,
             boot_nodes: boot_nodes.clone(),
             local_enr: local_enr.clone(),
+            disable_packet_filter: !discv5_config.enable_packet_filter,
+            enable_enr_auto_update: discv5_config.enr_update,
         }
     }
 }

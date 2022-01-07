@@ -139,9 +139,25 @@ fn enr_port_flag() {
         })
 }
 
-// TODO add tests for flags `enable-enr-auto-update` and `disable-packet-filter`.
-//
-// These options end up in `Discv5Config`, which doesn't support serde (de)serialization.
+#[test]
+fn disable_packet_filter_flag() {
+    CommandLineTest::new()
+        .flag("disable-packet-filter", None)
+        .run_with_ip()
+        .with_config(|config| {
+            assert_eq!(config.disable_packet_filter, true);
+        });
+}
+
+#[test]
+fn enable_enr_auto_update_flag() {
+    CommandLineTest::new()
+        .flag("enable-enr-auto-update", None)
+        .run_with_ip()
+        .with_config(|config| {
+            assert_eq!(config.enable_enr_auto_update, true);
+        });
+}
 
 #[test]
 fn network_dir_flag() {
