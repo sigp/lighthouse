@@ -2,7 +2,7 @@ TESTS_TAG := v5.2.1
 GENERATE_DIR := generated-tests
 OUTPUT_DIR := interchange-tests
 TARBALL := $(OUTPUT_DIR)-$(TESTS_TAG).tar.gz
-ARCHIVE_URL := https://github.com/eth2-clients/slashing-protection-interchange-tests/tarball/$(TESTS_TAG)
+ARCHIVE_URL := https://github.com/eth-clients/slashing-protection-interchange-tests/tarball/$(TESTS_TAG)
 
 ifeq ($(OS),Windows_NT)
 ifeq (, $(shell where rm))
