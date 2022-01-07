@@ -207,13 +207,21 @@ fn eth1_purge_cache_flag() {
 }
 
 // Tests for Merge flags.
-#[test] 
+#[test]
 fn merge_fee_recipient_flag() {
     CommandLineTest::new()
         .flag("merge", None)
-        .flag("fee-recipient", Some("0x00000000219ab540356cbb839cbe05303d7705fa"))
+        .flag(
+            "fee-recipient",
+            Some("0x00000000219ab540356cbb839cbe05303d7705fa"),
+        )
         .run_with_zero_port()
-        .with_config(|config| assert_eq!(config.suggested_fee_recipient, Some(Address::from_str("0x00000000219ab540356cbb839cbe05303d7705fa").unwrap())));
+        .with_config(|config| {
+            assert_eq!(
+                config.suggested_fee_recipient,
+                Some(Address::from_str("0x00000000219ab540356cbb839cbe05303d7705fa").unwrap())
+            )
+        });
 }
 
 // Tests for Network flags.
