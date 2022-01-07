@@ -3370,6 +3370,7 @@ dependencies = [
  "eth2_network_config",
  "futures",
  "lazy_static",
+ "lcli",
  "lighthouse_metrics",
  "lighthouse_network",
  "lighthouse_version",
