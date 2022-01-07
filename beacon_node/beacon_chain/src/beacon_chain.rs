@@ -1099,6 +1099,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     .message()
                     .body()
                     .execution_payload()
+                    .ok()
                     .map(|ep| ep.block_hash),
             })
         })
@@ -2602,7 +2603,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         }
 
         // Register sync aggregate with validator monitor
-        if let Some(sync_aggregate) = block.body().sync_aggregate() {
+        if let Ok(sync_aggregate) = block.body().sync_aggregate() {
             // `SyncCommittee` for the sync_aggregate should correspond to the duty slot
             let duty_epoch = block.slot().epoch(T::EthSpec::slots_per_epoch());
             let sync_committee = self.sync_committee_at_epoch(duty_epoch)?;
@@ -2643,7 +2644,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 block.body().attestations().len() as f64,
             );
 
-            if let Some(sync_aggregate) = block.body().sync_aggregate() {
+            if let Ok(sync_aggregate) = block.body().sync_aggregate() {
                 metrics::set_gauge(
                     &metrics::BLOCK_SYNC_AGGREGATE_SET_BITS,
                     sync_aggregate.num_set_bits() as i64,
@@ -3071,7 +3072,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         trace!(
             self.log,
             "Produced beacon block";
-            "parent" => %block.parent_root(),
+            "parent" => ?block.parent_root(),
             "attestations" => block.body().attestations().len(),
             "slot" => block.slot()
         );
@@ -3177,10 +3178,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             warn!(
                 self.log,
                 "Beacon chain re-org";
-                "previous_head" => %current_head.block_root,
+                "previous_head" => ?current_head.block_root,
                 "previous_slot" => current_head.slot,
-                "new_head_parent" => %new_head.beacon_block.parent_root(),
-                "new_head" => %beacon_block_root,
+                "new_head_parent" => ?new_head.beacon_block.parent_root(),
+                "new_head" => ?beacon_block_root,
                 "new_slot" => new_head.beacon_block.slot(),
                 "reorg_distance" => reorg_distance,
             );
@@ -3188,11 +3189,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             debug!(
                 self.log,
                 "Head beacon block";
-                "justified_root" => %new_head.beacon_state.current_justified_checkpoint().root,
+                "justified_root" => ?new_head.beacon_state.current_justified_checkpoint().root,
                 "justified_epoch" => new_head.beacon_state.current_justified_checkpoint().epoch,
-                "finalized_root" => %new_head.beacon_state.finalized_checkpoint().root,
+                "finalized_root" => ?new_head.beacon_state.finalized_checkpoint().root,
                 "finalized_epoch" => new_head.beacon_state.finalized_checkpoint().epoch,
-                "root" => %beacon_block_root,
+                "root" => ?beacon_block_root,
                 "slot" => new_head.beacon_block.slot(),
             );
         };
@@ -3241,6 +3242,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .message()
             .body()
             .execution_payload()
+            .ok()
             .map(|ep| ep.block_hash);
         let is_merge_transition_complete = is_merge_transition_complete(&new_head.beacon_state);
 
@@ -3528,6 +3530,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .message()
             .body()
             .execution_payload()
+            .ok()
             .map(|ep| ep.block_hash)
             .unwrap_or_else(Hash256::zero);
 

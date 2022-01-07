@@ -3,11 +3,13 @@
 use clap::ArgMatches;
 use eth2_network_config::{Eth2NetworkConfig, DEFAULT_HARDCODED_NETWORK};
 use ethereum_types::U256 as Uint256;
+use serde_yaml::Value as YamlValue;
 use ssz::Decode;
 use std::collections::HashMap;
 use std::fs;
 use std::path::PathBuf;
 use std::str::FromStr;
+use toml::Value as TomlValue;
 
 pub use default_config::DefaultConfigApp;
 
@@ -171,11 +173,57 @@ pub fn parse_file_config(file_name: &str) -> Result<HashMap<String, String>, Str
         fs::read_to_string(file_name)
             .map_err(|e| e.to_string())
             .and_then(|yaml| serde_yaml::from_str(yaml.as_str()).map_err(|e| e.to_string()))
+            .and_then(|parsed| to_string_map(parsed, yaml_value_to_string))
     } else if file_name.ends_with(".toml") {
         fs::read_to_string(file_name)
             .map_err(|e| e.to_string())
             .and_then(|toml| toml::from_str(toml.as_str()).map_err(|e| e.to_string()))
+            .and_then(|parsed| to_string_map(parsed, toml_value_to_string))
     } else {
         Err("config file must have extension `.yml`, `.yaml` or `.toml`".to_string())
     }
+}
+
+fn to_string_map<V, F: Fn(V) -> Result<String, String>>(
+    map: HashMap<String, V>,
+    f: F,
+) -> Result<HashMap<String, String>, String> {
+    let mut new_map = HashMap::new();
+    for (key, value) in map.into_iter() {
+        new_map.insert(key, f(value)?);
+    }
+    Ok(new_map)
+}
+
+fn toml_value_to_string(value: TomlValue) -> Result<String, String> {
+    let string_value = match value {
+        TomlValue::String(v) => v,
+        TomlValue::Integer(v) => v.to_string(),
+        TomlValue::Float(v) => v.to_string(),
+        TomlValue::Boolean(v) => v.to_string(),
+        TomlValue::Datetime(v) => v.to_string(),
+        TomlValue::Array(v) => v
+            .into_iter()
+            .map(toml_value_to_string)
+            .collect::<Result<Vec<_>, _>>()?
+            .join(","),
+        TomlValue::Table(_) => return Err("Unable to parse YAML table".to_string()),
+    };
+    Ok(string_value)
+}
+
+fn yaml_value_to_string(value: YamlValue) -> Result<String, String> {
+    let string_value = match value {
+        YamlValue::String(v) => v,
+        YamlValue::Null => "".to_string(),
+        YamlValue::Bool(v) => v.to_string(),
+        YamlValue::Number(v) => v.to_string(),
+        YamlValue::Sequence(v) => v
+            .into_iter()
+            .map(yaml_value_to_string)
+            .collect::<Result<Vec<_>, _>>()?
+            .join(","),
+        YamlValue::Mapping(_) => return Err("Unable to parse TOML table".to_string()),
+    };
+    Ok(string_value)
 }

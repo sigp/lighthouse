@@ -50,24 +50,6 @@ pub struct BeaconBlockBody<T: EthSpec> {
 }
 
 impl<'a, T: EthSpec> BeaconBlockBodyRef<'a, T> {
-    /// Access the sync aggregate from the block's body, if one exists.
-    pub fn sync_aggregate(self) -> Option<&'a SyncAggregate<T>> {
-        match self {
-            BeaconBlockBodyRef::Base(_) => None,
-            BeaconBlockBodyRef::Altair(inner) => Some(&inner.sync_aggregate),
-            BeaconBlockBodyRef::Merge(inner) => Some(&inner.sync_aggregate),
-        }
-    }
-
-    /// Access the execution payload from the block's body, if one exists.
-    pub fn execution_payload(self) -> Option<&'a ExecutionPayload<T>> {
-        match self {
-            BeaconBlockBodyRef::Base(_) => None,
-            BeaconBlockBodyRef::Altair(_) => None,
-            BeaconBlockBodyRef::Merge(inner) => Some(&inner.execution_payload),
-        }
-    }
-
     /// Get the fork_name of this object
     pub fn fork_name(self) -> ForkName {
         match self {
