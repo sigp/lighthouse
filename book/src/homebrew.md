@@ -29,7 +29,7 @@ Alternatively, you can find the `lighthouse` binary at:
 
 ### Maintenance
 
-The [formula] is kept up-to-date by the Homebrew community and a bot that lists for new releases.
+The [formula][] is kept up-to-date by the Homebrew community and a bot that lists for new releases.
 
 The package source can be found in the [homebrew-core](https://github.com/Homebrew/homebrew-core/blob/master/Formula/lighthouse.rb) repo.
 
