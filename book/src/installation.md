@@ -8,6 +8,10 @@ There are three core methods to obtain the Lighthouse application:
 - [Docker images](./docker.md).
 - [Building from source](./installation-source.md).
 
+The community maintains additional installation methods (currently only one).
+
+- [Homebrew package](./homebrew.md).
+
 Additionally, there are two extra guides for specific uses:
 
 - [Rapsberry Pi 4 guide](./pi.md).
