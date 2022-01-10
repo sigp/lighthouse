@@ -154,15 +154,10 @@ impl<E: EthSpec> Case for ForkChoiceTest<E> {
     fn result(&self, _case_index: usize, fork_name: ForkName) -> Result<(), Error> {
         let tester = Tester::new(self, fork_choice_spec::<E>(fork_name))?;
 
-        // TODO(merge): enable these tests before production.
-        // This test will fail until this PR is merged and released:
-        //
-        // https://github.com/ethereum/consensus-specs/pull/2760
-        if self.description == "shorter_chain_but_heavier_weight"
-            // This test is skipped until we can do retrospective confirmations of the terminal
-            // block after an optimistic sync.
-            || self.description == "block_lookup_failed"
-        {
+        // TODO(merge): re-enable this test before production.
+        // This test is skipped until we can do retrospective confirmations of the terminal
+        // block after an optimistic sync.
+        if self.description == "block_lookup_failed" {
             return Err(Error::SkippedKnownFailure);
         };
 
