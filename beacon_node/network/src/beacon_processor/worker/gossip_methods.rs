@@ -1273,7 +1273,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
             }
             AttnError::PastSlot { .. } => {
-                // Produce a slot clock frozen at the time we received the attestation from the
+                // Produce a slot clock frozen at the time we received the message from the
                 // network.
                 let seen_clock = &self.chain.slot_clock.freeze_at(seen_timestamp);
                 let hindsight_verification =
@@ -1705,7 +1705,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                 let excessively_late = received_slot + 1 < sync_committee_message_slot;
 
                 // This closure will lazily produce a slot clock frozen at the time we received the
-                // attestation from the network.
+                // message from the network.
                 let invalid_in_hindsight = || {
                     let seen_clock = &self.chain.slot_clock.freeze_at(seen_timestamp);
                     let hindsight_verification =
