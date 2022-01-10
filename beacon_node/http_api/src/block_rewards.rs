@@ -1,5 +1,6 @@
 use beacon_chain::{BeaconChain, BeaconChainError, BeaconChainTypes, WhenSlotSkipped};
 use eth2::lighthouse::{BlockReward, BlockRewardsQuery};
+use slog::{warn, Logger};
 use state_processing::BlockReplayer;
 use std::sync::Arc;
 use warp_utils::reject::{beacon_chain_error, beacon_state_error, custom_bad_request};
@@ -7,6 +8,7 @@ use warp_utils::reject::{beacon_chain_error, beacon_state_error, custom_bad_requ
 pub fn get_block_rewards<T: BeaconChainTypes>(
     query: BlockRewardsQuery,
     chain: Arc<BeaconChain<T>>,
+    log: Logger,
 ) -> Result<Vec<BlockReward>, warp::Rejection> {
     let start_slot = query.start_slot;
     let end_slot = query.end_slot;
@@ -45,11 +47,11 @@ pub fn get_block_rewards<T: BeaconChainTypes>(
 
     let mut block_rewards = Vec::with_capacity(blocks.len());
 
-    let mut block_replayer = BlockReplayer::new(state, &chain.spec)
+    let block_replayer = BlockReplayer::new(state, &chain.spec)
         .pre_block_hook(Box::new(|state, block| {
             // Compute block reward.
             let block_reward =
-                chain.compute_block_reward(block.message(), block.canonical_root(), &state)?;
+                chain.compute_block_reward(block.message(), block.canonical_root(), state)?;
             block_rewards.push(block_reward);
             Ok(())
         }))
@@ -57,14 +59,19 @@ pub fn get_block_rewards<T: BeaconChainTypes>(
             chain
                 .forwards_iter_state_roots_until(prior_slot, end_slot)
                 .map_err(beacon_chain_error)?,
-        );
-
-    block_replayer
-        .apply_blocks(blocks)
+        )
+        .no_signature_verification()
+        .minimal_block_root_verification()
+        .apply_blocks(blocks, None)
         .map_err(beacon_chain_error)?;
 
-    if block_replayer.state_root_miss {
-        eprintln!("State root miss, start: {}, end: {}", start_slot, end_slot);
+    if block_replayer.state_root_miss() {
+        warn!(
+            log,
+            "Block reward state root miss";
+            "start_slot" => start_slot,
+            "end_slot" => end_slot,
+        );
     }
 
     drop(block_replayer);

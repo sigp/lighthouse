@@ -2537,8 +2537,9 @@ pub fn serve<T: BeaconChainTypes>(
         .and(warp::query::<eth2::lighthouse::BlockRewardsQuery>())
         .and(warp::path::end())
         .and(chain_filter.clone())
-        .and_then(|query, chain: Arc<BeaconChain<T>>| {
-            blocking_json_task(move || block_rewards::get_block_rewards(query, chain))
+        .and(log_filter.clone())
+        .and_then(|query, chain, log| {
+            blocking_json_task(move || block_rewards::get_block_rewards(query, chain, log))
         });
 
     let get_events = eth1_v1

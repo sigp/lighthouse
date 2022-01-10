@@ -11,12 +11,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         block_root: Hash256,
         state: &BeaconState<T::EthSpec>,
     ) -> Result<BlockReward, BeaconChainError> {
-        // FIXME(sproul): proper error
-        assert_eq!(
-            block.slot(),
-            state.slot(),
-            "state should be advanced to block slot"
-        );
+        if block.slot() != state.slot() {
+            return Err(BeaconChainError::BlockRewardSlotError);
+        }
 
         let active_indices = state.get_cached_active_validator_indices(RelativeEpoch::Current)?;
         let total_active_balance = state.get_total_balance(active_indices, &self.spec)?;
@@ -25,11 +22,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .attestations()
             .iter()
             .map(|att| {
-                // FIXME(sproul): handle error
                 AttMaxCover::new(att, state, total_active_balance, &self.spec)
-                    .expect("can construct max cover")
+                    .ok_or(BeaconChainError::BlockRewardAttestationError)
             })
-            .collect::<Vec<_>>();
+            .collect::<Result<Vec<_>, _>>()?;
 
         // Update the attestation rewards for each previous attestation included.
         // This is O(n^2) in the number of attestations n.
@@ -72,10 +68,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         };
 
         // Sync committee rewards.
-        let sync_committee_rewards = if let Some(sync_aggregate) = block.body().sync_aggregate() {
-            // FIXME(sproul): errors
-            let (_, proposer_reward_per_bit) =
-                compute_sync_aggregate_rewards(state, &self.spec).unwrap();
+        let sync_committee_rewards = if let Ok(sync_aggregate) = block.body().sync_aggregate() {
+            let (_, proposer_reward_per_bit) = compute_sync_aggregate_rewards(state, &self.spec)
+                .map_err(|_| BeaconChainError::BlockRewardSyncError)?;
             sync_aggregate.sync_committee_bits.num_set_bits() as u64 * proposer_reward_per_bit
         } else {
             0
