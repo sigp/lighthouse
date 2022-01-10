@@ -12,4 +12,4 @@ slog = "2.5.2"
 slog-term = "2.6.0"
 lighthouse_metrics = { path = "../lighthouse_metrics" }
 lazy_static = "1.4.0"
-sloggers = "2.0.2"
+sloggers = { version = "2.1.1", features = ["json"] }

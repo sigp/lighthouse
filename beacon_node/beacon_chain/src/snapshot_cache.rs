@@ -1,11 +1,17 @@
 use crate::BeaconSnapshot;
 use std::cmp;
+use std::time::Duration;
 use types::{
-    beacon_state::CloneConfig, BeaconState, Epoch, EthSpec, Hash256, SignedBeaconBlock, Slot,
+    beacon_state::CloneConfig, BeaconState, ChainSpec, Epoch, EthSpec, Hash256, SignedBeaconBlock,
+    Slot,
 };
 
 /// The default size of the cache.
 pub const DEFAULT_SNAPSHOT_CACHE_SIZE: usize = 4;
+
+/// The minimum block delay to clone the state in the cache instead of removing it.
+/// This helps keep block processing fast during re-orgs from late blocks.
+const MINIMUM_BLOCK_DELAY_FOR_CLONE: Duration = Duration::from_secs(6);
 
 /// This snapshot is to be used for verifying a child of `self.beacon_block`.
 #[derive(Debug)]
@@ -59,6 +65,22 @@ impl<T: EthSpec> CacheItem<T> {
             beacon_block: self.beacon_block,
             beacon_block_root: self.beacon_block_root,
             pre_state: self.pre_state.unwrap_or(self.beacon_state),
+            beacon_state_root,
+        }
+    }
+
+    pub fn clone_as_pre_state(&self) -> PreProcessingSnapshot<T> {
+        // Do not include the beacon state root if the state has been advanced.
+        let beacon_state_root =
+            Some(self.beacon_block.state_root()).filter(|_| self.pre_state.is_none());
+
+        PreProcessingSnapshot {
+            beacon_block: self.beacon_block.clone(),
+            beacon_block_root: self.beacon_block_root,
+            pre_state: self
+                .pre_state
+                .as_ref()
+                .map_or_else(|| self.beacon_state.clone(), |pre_state| pre_state.clone()),
             beacon_state_root,
         }
     }
@@ -178,11 +200,36 @@ impl<T: EthSpec> SnapshotCache<T> {
     /// If available, returns a `CacheItem` that should be used for importing/processing a block.
     /// The method will remove the block from `self`, carrying across any caches that may or may not
     /// be built.
-    pub fn get_state_for_block_processing(&mut self, block_root: Hash256) -> Option<CacheItem<T>> {
+    ///
+    /// In the event the block being processed was observed late, clone the cache instead of
+    /// moving it. This allows us to process the next block quickly in the case of a re-org.
+    /// Additionally, if the slot was skipped, clone the cache. This ensures blocks that are
+    /// later than 1 slot still have access to the cache and can be processed quickly.
+    pub fn get_state_for_block_processing(
+        &mut self,
+        block_root: Hash256,
+        block_slot: Slot,
+        block_delay: Option<Duration>,
+        spec: &ChainSpec,
+    ) -> Option<(PreProcessingSnapshot<T>, bool)> {
         self.snapshots
             .iter()
             .position(|snapshot| snapshot.beacon_block_root == block_root)
-            .map(|i| self.snapshots.remove(i))
+            .map(|i| {
+                if let Some(cache) = self.snapshots.get(i) {
+                    if block_slot > cache.beacon_block.slot() + 1 {
+                        return (cache.clone_as_pre_state(), true);
+                    }
+                    if let Some(delay) = block_delay {
+                        if delay >= MINIMUM_BLOCK_DELAY_FOR_CLONE
+                            && delay <= Duration::from_secs(spec.seconds_per_slot) * 4
+                        {
+                            return (cache.clone_as_pre_state(), true);
+                        }
+                    }
+                }
+                (self.snapshots.remove(i).into_pre_state(), false)
+            })
     }
 
     /// If available, obtains a clone of a `BeaconState` that should be used for block production.
@@ -320,6 +367,7 @@ mod test {
 
     #[test]
     fn insert_get_prune_update() {
+        let spec = MainnetEthSpec::default_spec();
         let mut cache = SnapshotCache::new(CACHE_SIZE, get_snapshot(0));
 
         // Insert a bunch of entries in the cache. It should look like this:
@@ -359,7 +407,12 @@ mod test {
 
         assert!(
             cache
-                .get_state_for_block_processing(Hash256::from_low_u64_be(1))
+                .get_state_for_block_processing(
+                    Hash256::from_low_u64_be(1),
+                    Slot::new(0),
+                    None,
+                    &spec
+                )
                 .is_none(),
             "the snapshot with the lowest slot should have been removed during the insert function"
         );
@@ -377,8 +430,14 @@ mod test {
         );
         assert_eq!(
             cache
-                .get_state_for_block_processing(Hash256::from_low_u64_be(0))
+                .get_state_for_block_processing(
+                    Hash256::from_low_u64_be(0),
+                    Slot::new(0),
+                    None,
+                    &spec
+                )
                 .expect("the head should still be in the cache")
+                .0
                 .beacon_block_root,
             Hash256::from_low_u64_be(0),
             "get_state_for_block_processing should get the correct snapshot"
@@ -409,8 +468,14 @@ mod test {
         // Ensure that the new head value was not removed from the cache.
         assert_eq!(
             cache
-                .get_state_for_block_processing(Hash256::from_low_u64_be(2))
+                .get_state_for_block_processing(
+                    Hash256::from_low_u64_be(2),
+                    Slot::new(0),
+                    None,
+                    &spec
+                )
                 .expect("the new head should still be in the cache")
+                .0
                 .beacon_block_root,
             Hash256::from_low_u64_be(2),
             "get_state_for_block_processing should get the correct snapshot"

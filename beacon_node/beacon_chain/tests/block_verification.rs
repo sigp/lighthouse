@@ -1,18 +1,16 @@
 #![cfg(not(debug_assertions))]
 
-#[macro_use]
-extern crate lazy_static;
-
 use beacon_chain::test_utils::{
     AttestationStrategy, BeaconChainHarness, BlockStrategy, EphemeralHarnessType,
 };
 use beacon_chain::{BeaconSnapshot, BlockError, ChainSegmentResult};
+use lazy_static::lazy_static;
 use logging::test_logger;
 use slasher::{Config as SlasherConfig, Slasher};
 use state_processing::{
     common::get_indexed_attestation,
     per_block_processing::{per_block_processing, BlockSignatureStrategy},
-    per_slot_processing, BlockProcessingError,
+    per_slot_processing, BlockProcessingError, VerifyBlockRoot,
 };
 use std::sync::Arc;
 use tempfile::tempdir;
@@ -832,11 +830,7 @@ fn block_gossip_verification() {
 fn verify_block_for_gossip_slashing_detection() {
     let slasher_dir = tempdir().unwrap();
     let slasher = Arc::new(
-        Slasher::open(
-            SlasherConfig::new(slasher_dir.path().into()).for_testing(),
-            test_logger(),
-        )
-        .unwrap(),
+        Slasher::open(SlasherConfig::new(slasher_dir.path().into()), test_logger()).unwrap(),
     );
 
     let inner_slasher = slasher.clone();
@@ -980,6 +974,7 @@ fn add_base_block_to_altair_chain() {
                 &base_block,
                 None,
                 BlockSignatureStrategy::NoVerification,
+                VerifyBlockRoot::True,
                 &harness.chain.spec,
             ),
             Err(BlockProcessingError::InconsistentBlockFork(
@@ -1098,6 +1093,7 @@ fn add_altair_block_to_base_chain() {
                 &altair_block,
                 None,
                 BlockSignatureStrategy::NoVerification,
+                VerifyBlockRoot::True,
                 &harness.chain.spec,
             ),
             Err(BlockProcessingError::InconsistentBlockFork(

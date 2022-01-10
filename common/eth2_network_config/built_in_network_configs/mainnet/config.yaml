@@ -3,6 +3,14 @@
 # Extends the mainnet preset
 PRESET_BASE: 'mainnet'
 
+# Transition
+# ---------------------------------------------------------------
+# TBD, 2**256-2**10 is a placeholder
+TERMINAL_TOTAL_DIFFICULTY: 115792089237316195423570985008687907853269984665640564039457584007913129638912
+# By default, don't use these params
+TERMINAL_BLOCK_HASH: 0x0000000000000000000000000000000000000000000000000000000000000000
+TERMINAL_BLOCK_HASH_ACTIVATION_EPOCH: 18446744073709551615
+
 # Genesis
 # ---------------------------------------------------------------
 # `2**14` (= 16,384)
@@ -62,6 +70,12 @@ MIN_PER_EPOCH_CHURN_LIMIT: 4
 # 2**16 (= 65,536)
 CHURN_LIMIT_QUOTIENT: 65536
 
+
+# Fork choice
+# ---------------------------------------------------------------
+# TODO: enable once proposer boosting is desired on mainnet
+# 70%
+# PROPOSER_SCORE_BOOST: 70
 
 # Deposit contract
 # ---------------------------------------------------------------

@@ -14,6 +14,7 @@ mod bls_verify_msg;
 mod common;
 mod epoch_processing;
 mod fork;
+mod fork_choice;
 mod genesis_initialization;
 mod genesis_validity;
 mod operations;
@@ -25,6 +26,7 @@ mod ssz_generic;
 mod ssz_static;
 mod transition;
 
+pub use self::fork_choice::*;
 pub use bls_aggregate_sigs::*;
 pub use bls_aggregate_verify::*;
 pub use bls_eth_aggregate_pubkeys::*;

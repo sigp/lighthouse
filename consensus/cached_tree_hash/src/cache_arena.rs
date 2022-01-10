@@ -491,8 +491,8 @@ mod tests {
             subs.push(sub);
         }
 
-        for mut sub in subs.iter_mut() {
-            test_routine(arena, &mut sub);
+        for sub in subs.iter_mut() {
+            test_routine(arena, sub);
         }
     }
 }

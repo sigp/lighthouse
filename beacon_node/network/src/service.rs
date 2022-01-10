@@ -10,14 +10,17 @@ use beacon_chain::{BeaconChain, BeaconChainError, BeaconChainTypes};
 use futures::future::OptionFuture;
 use futures::prelude::*;
 use lighthouse_network::{
+    open_metrics_client::registry::Registry, MessageAcceptance, Service as LibP2PService,
+};
+use lighthouse_network::{
     rpc::{GoodbyeReason, RPCResponseErrorCode, RequestId},
-    Libp2pEvent, PeerAction, PeerRequestId, PubsubMessage, ReportSource, Request, Response, Subnet,
+    Context, Libp2pEvent, PeerAction, PeerRequestId, PubsubMessage, ReportSource, Request,
+    Response, Subnet,
 };
 use lighthouse_network::{
     types::{GossipEncoding, GossipTopic},
     BehaviourEvent, MessageId, NetworkGlobals, PeerId,
 };
-use lighthouse_network::{MessageAcceptance, Service as LibP2PService};
 use slog::{crit, debug, error, info, o, trace, warn};
 use std::{net::SocketAddr, pin::Pin, sync::Arc, time::Duration};
 use store::HotColdDB;
@@ -32,7 +35,7 @@ use types::{
 mod tests;
 
 /// The interval (in seconds) that various network metrics will update.
-const METRIC_UPDATE_INTERVAL: u64 = 1;
+const METRIC_UPDATE_INTERVAL: u64 = 5;
 /// Number of slots before the fork when we should subscribe to the new fork topics.
 const SUBSCRIBE_DELAY_SLOTS: u64 = 2;
 /// Delay after a fork where we unsubscribe from pre-fork topics.
@@ -154,6 +157,7 @@ impl<T: BeaconChainTypes> NetworkService<T> {
         beacon_chain: Arc<BeaconChain<T>>,
         config: &NetworkConfig,
         executor: task_executor::TaskExecutor,
+        gossipsub_registry: Option<&'_ mut Registry>,
     ) -> error::Result<(
         Arc<NetworkGlobals<T::EthSpec>>,
         mpsc::UnboundedSender<NetworkMessage<T::EthSpec>>,
@@ -199,16 +203,18 @@ impl<T: BeaconChainTypes> NetworkService<T> {
 
         debug!(network_log, "Current fork"; "fork_name" => ?fork_context.current_fork());
 
-        // launch libp2p service
-        let (network_globals, mut libp2p) = LibP2PService::new(
-            executor.clone(),
+        // construct the libp2p service context
+        let service_context = Context {
             config,
             enr_fork_id,
-            &network_log,
-            fork_context.clone(),
-            &beacon_chain.spec,
-        )
-        .await?;
+            fork_context: fork_context.clone(),
+            chain_spec: &beacon_chain.spec,
+            gossipsub_registry,
+        };
+
+        // launch libp2p service
+        let (network_globals, mut libp2p) =
+            LibP2PService::new(executor.clone(), service_context, &network_log).await?;
 
         // Repopulate the DHT with stored ENR's if discovery is not disabled.
         if !config.disable_discovery {
@@ -324,21 +330,13 @@ fn spawn_service<T: BeaconChainTypes>(
     // spawn on the current executor
     executor.spawn(async move {
 
-        let mut metric_update_counter = 0;
         loop {
             // build the futures to check simultaneously
             tokio::select! {
                 _ = service.metrics_update.tick(), if service.metrics_enabled => {
                     // update various network metrics
-                    metric_update_counter +=1;
-                    if metric_update_counter % T::EthSpec::default_spec().seconds_per_slot == 0 {
-                        // if a slot has occurred, reset the metrics
-                        let _ = metrics::ATTESTATIONS_PUBLISHED_PER_SUBNET_PER_SLOT
-                            .as_ref()
-                            .map(|gauge| gauge.reset());
-                    }
                     metrics::update_gossip_metrics::<T::EthSpec>(
-                        service.libp2p.swarm.behaviour_mut().gs(),
+                        service.libp2p.swarm.behaviour().gs(),
                         &service.network_globals,
                     );
                     // update sync metrics
@@ -445,7 +443,6 @@ fn spawn_service<T: BeaconChainTypes>(
                                     "count" => messages.len(),
                                     "topics" => ?topic_kinds
                                 );
-                                metrics::expose_publish_metrics(&messages);
                                 service.libp2p.swarm.behaviour_mut().publish(messages);
                         }
                         NetworkMessage::ReportPeer { peer_id, action, source } => service.libp2p.report_peer(&peer_id, action, source),
@@ -643,9 +640,6 @@ fn spawn_service<T: BeaconChainTypes>(
                                 message,
                                 ..
                             } => {
-                                // Update prometheus metrics.
-                                metrics::expose_receive_metrics(&message);
-
                                 match message {
                                     // attestation information gets processed in the attestation service
                                     PubsubMessage::Attestation(ref subnet_and_attestation) => {

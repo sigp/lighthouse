@@ -125,7 +125,7 @@ impl TaskExecutor {
 
     /// Spawn a future on the tokio runtime.
     ///
-    /// The future is wrapped in an `exit_future::Exit`. The task is canceled when the corresponding
+    /// The future is wrapped in an `exit_future::Exit`. The task is cancelled when the corresponding
     /// exit_future `Signal` is fired/dropped.
     ///
     /// The future is monitored via another spawned future to ensure that it doesn't panic. In case

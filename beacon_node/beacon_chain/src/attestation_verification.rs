@@ -1203,7 +1203,7 @@ type CommitteesPerSlot = u64;
 
 /// Returns the `indexed_attestation` and committee count per slot for the `attestation` using the
 /// public keys cached in the `chain`.
-fn obtain_indexed_attestation_and_committees_per_slot<T: BeaconChainTypes>(
+pub fn obtain_indexed_attestation_and_committees_per_slot<T: BeaconChainTypes>(
     chain: &BeaconChain<T>,
     attestation: &Attestation<T::EthSpec>,
 ) -> Result<(IndexedAttestation<T::EthSpec>, CommitteesPerSlot), Error> {

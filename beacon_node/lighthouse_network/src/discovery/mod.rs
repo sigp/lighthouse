@@ -563,7 +563,6 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
     pub fn unban_peer(&mut self, peer_id: &PeerId, ip_addresses: Vec<IpAddr>) {
         // first try and convert the peer_id to a node_id.
         if let Ok(node_id) = peer_id_to_node_id(peer_id) {
-            // If we could convert this peer id, remove it from the DHT and ban it from discovery.
             self.discv5.ban_node_remove(&node_id);
         }
 
@@ -959,12 +958,24 @@ impl<TSpec: EthSpec> NetworkBehaviour for Discovery<TSpec> {
         &mut self,
         peer_id: Option<PeerId>,
         _handler: Self::ProtocolsHandler,
-        _error: &DialError,
+        error: &DialError,
     ) {
         if let Some(peer_id) = peer_id {
-            // set peer as disconnected in discovery DHT
-            debug!(self.log, "Marking peer disconnected in DHT"; "peer_id" => %peer_id);
-            self.disconnect_peer(&peer_id);
+            match error {
+                DialError::Banned
+                | DialError::LocalPeerId
+                | DialError::InvalidPeerId
+                | DialError::ConnectionIo(_)
+                | DialError::NoAddresses
+                | DialError::Transport(_) => {
+                    // set peer as disconnected in discovery DHT
+                    debug!(self.log, "Marking peer disconnected in DHT"; "peer_id" => %peer_id);
+                    self.disconnect_peer(&peer_id);
+                }
+                DialError::ConnectionLimit(_)
+                | DialError::DialPeerConditionFalse(_)
+                | DialError::Aborted => {}
+            }
         }
     }
 
@@ -1028,6 +1039,7 @@ impl<TSpec: EthSpec> NetworkBehaviour for Discovery<TSpec> {
                         Discv5Event::SocketUpdated(socket) => {
                             info!(self.log, "Address updated"; "ip" => %socket.ip(), "udp_port" => %socket.port());
                             metrics::inc_counter(&metrics::ADDRESS_UPDATE_COUNT);
+                            metrics::check_nat();
                             // Discv5 will have updated our local ENR. We save the updated version
                             // to disk.
                             let enr = self.discv5.local_enr();
@@ -1085,7 +1097,7 @@ mod tests {
             ..Default::default()
         };
         let enr_key: CombinedKey = CombinedKey::from_libp2p(&keypair).unwrap();
-        let enr: Enr = build_enr::<E>(&enr_key, &config, EnrForkId::default()).unwrap();
+        let enr: Enr = build_enr::<E>(&enr_key, &config, &EnrForkId::default()).unwrap();
         let log = build_log(slog::Level::Debug, false);
         let globals = NetworkGlobals::new(
             enr,

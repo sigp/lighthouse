@@ -1,6 +1,7 @@
 use crate::Context;
 use beacon_chain::BeaconChainTypes;
 use lighthouse_metrics::{Encoder, TextEncoder};
+use lighthouse_network::open_metrics_client::encoding::text::encode;
 use malloc_utils::scrape_allocator_metrics;
 
 pub use lighthouse_metrics::*;
@@ -51,6 +52,12 @@ pub fn gather_prometheus_metrics<T: BeaconChainTypes>(
     encoder
         .encode(&lighthouse_metrics::gather(), &mut buffer)
         .unwrap();
+    // encode gossipsub metrics also if they exist
+    if let Some(registry) = ctx.gossipsub_registry.as_ref() {
+        if let Ok(registry_locked) = registry.lock() {
+            let _ = encode(&mut buffer, &registry_locked);
+        }
+    }
 
     String::from_utf8(buffer).map_err(|e| format!("Failed to encode prometheus info: {:?}", e))
 }

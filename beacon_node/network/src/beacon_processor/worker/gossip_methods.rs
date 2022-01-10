@@ -1,17 +1,20 @@
 use crate::{metrics, service::NetworkMessage, sync::SyncMessage};
 
+use beacon_chain::store::Error;
 use beacon_chain::{
     attestation_verification::{Error as AttnError, VerifiedAttestation},
     observed_operations::ObservationOutcome,
     sync_committee_verification::Error as SyncCommitteeError,
     validator_monitor::get_block_delay_ms,
-    BeaconChainError, BeaconChainTypes, BlockError, ForkChoiceError, GossipVerifiedBlock,
+    BeaconChainError, BeaconChainTypes, BlockError, ExecutionPayloadError, ForkChoiceError,
+    GossipVerifiedBlock,
 };
 use lighthouse_network::{Client, MessageAcceptance, MessageId, PeerAction, PeerId, ReportSource};
 use slog::{crit, debug, error, info, trace, warn};
 use slot_clock::SlotClock;
 use ssz::Encode;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use store::hot_cold_store::HotColdDBError;
 use tokio::sync::mpsc;
 use types::{
     Attestation, AttesterSlashing, EthSpec, Hash256, IndexedAttestation, ProposerSlashing,
@@ -120,7 +123,6 @@ pub struct GossipAttestationPackage<E: EthSpec> {
     peer_id: PeerId,
     attestation: Box<Attestation<E>>,
     subnet_id: SubnetId,
-    beacon_block_root: Hash256,
     should_import: bool,
     seen_timestamp: Duration,
 }
@@ -137,7 +139,6 @@ impl<E: EthSpec> GossipAttestationPackage<E> {
         Self {
             message_id,
             peer_id,
-            beacon_block_root: attestation.data.beacon_block_root,
             attestation,
             subnet_id,
             should_import,
@@ -706,7 +707,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                     self.log,
                     "New block received";
                     "slot" => verified_block.block.slot(),
-                    "hash" => ?verified_block.block_root
+                    "root" => ?verified_block.block_root
                 );
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Accept);
 
@@ -746,6 +747,14 @@ impl<T: BeaconChainTypes> Worker<T> {
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
                 return None;
             }
+            // TODO(merge): reconsider peer scoring for this event.
+            Err(e @BlockError::ExecutionPayloadError(ExecutionPayloadError::RequestFailed(_)))
+            | Err(e @BlockError::ExecutionPayloadError(ExecutionPayloadError::NoExecutionConnection)) => {
+                debug!(self.log, "Could not verify block for gossip, ignoring the block";
+                            "error" => %e);
+                self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
+                return None;
+            }
             Err(e @ BlockError::StateRootMismatch { .. })
             | Err(e @ BlockError::IncorrectBlockProposer { .. })
             | Err(e @ BlockError::BlockSlotLimitReached)
@@ -759,6 +768,10 @@ impl<T: BeaconChainTypes> Worker<T> {
             | Err(e @ BlockError::TooManySkippedSlots { .. })
             | Err(e @ BlockError::WeakSubjectivityConflict)
             | Err(e @ BlockError::InconsistentFork(_))
+            // TODO(merge): reconsider peer scoring for this event.
+            | Err(e @ BlockError::ExecutionPayloadError(_))
+            // TODO(merge): reconsider peer scoring for this event.
+            | Err(e @ BlockError::ParentExecutionPayloadInvalid { .. })
             | Err(e @ BlockError::GenesisBlock) => {
                 warn!(self.log, "Could not verify block for gossip, rejecting the block";
                             "error" => %e);
@@ -817,7 +830,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                 if reprocess_tx
                     .try_send(ReprocessQueueMessage::EarlyBlock(QueuedBlock {
                         peer_id,
-                        block: verified_block,
+                        block: Box::new(verified_block),
                         seen_timestamp: seen_duration,
                     }))
                     .is_err()
@@ -1567,6 +1580,12 @@ impl<T: BeaconChainTypes> Worker<T> {
                 // attestations that have too many skip slots.
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Reject);
                 self.gossip_penalize_peer(peer_id, PeerAction::MidToleranceError);
+            }
+            AttnError::BeaconChainError(BeaconChainError::DBError(Error::HotColdDBError(
+                HotColdDBError::AttestationStateIsFinalized { .. },
+            ))) => {
+                debug!(self.log, "Attestation for finalized state"; "peer_id" => % peer_id);
+                self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
             }
             AttnError::BeaconChainError(e) => {
                 /*

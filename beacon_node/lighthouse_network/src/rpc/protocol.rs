@@ -21,8 +21,8 @@ use tokio_util::{
     compat::{Compat, FuturesAsyncReadCompatExt},
 };
 use types::{
-    BeaconBlock, BeaconBlockAltair, BeaconBlockBase, EthSpec, ForkContext, Hash256, MainnetEthSpec,
-    Signature, SignedBeaconBlock,
+    BeaconBlock, BeaconBlockAltair, BeaconBlockBase, BeaconBlockMerge, EthSpec, ForkContext,
+    ForkName, Hash256, MainnetEthSpec, Signature, SignedBeaconBlock,
 };
 
 lazy_static! {
@@ -53,6 +53,18 @@ lazy_static! {
     )
     .as_ssz_bytes()
     .len();
+
+    pub static ref SIGNED_BEACON_BLOCK_MERGE_MIN: usize = SignedBeaconBlock::<MainnetEthSpec>::from_block(
+        BeaconBlock::Merge(BeaconBlockMerge::<MainnetEthSpec>::empty(&MainnetEthSpec::default_spec())),
+        Signature::empty(),
+    )
+    .as_ssz_bytes()
+    .len();
+
+    /// The `BeaconBlockMerge` block has an `ExecutionPayload` field which has a max size ~16 GiB for future proofing.
+    /// We calculate the value from its fields instead of constructing the block and checking the length.
+    pub static ref SIGNED_BEACON_BLOCK_MERGE_MAX: usize = types::ExecutionPayload::<MainnetEthSpec>::max_execution_payload_size();
+
     pub static ref BLOCKS_BY_ROOT_REQUEST_MIN: usize =
         VariableList::<Hash256, MaxRequestBlocks>::from(Vec::<Hash256>::new())
     .as_ssz_bytes()
@@ -80,8 +92,10 @@ lazy_static! {
 
 }
 
-/// The maximum bytes that can be sent across the RPC.
-const MAX_RPC_SIZE: usize = 1_048_576; // 1M
+/// The maximum bytes that can be sent across the RPC pre-merge.
+pub(crate) const MAX_RPC_SIZE: usize = 1_048_576; // 1M
+/// The maximum bytes that can be sent across the RPC post-merge.
+pub(crate) const MAX_RPC_SIZE_POST_MERGE: usize = 10 * 1_048_576; // 10M
 /// The protocol prefix the RPC protocol id.
 const PROTOCOL_PREFIX: &str = "/eth2/beacon_chain/req";
 /// Time allowed for the first byte of a request to arrive before we time out (Time To First Byte).
@@ -89,6 +103,15 @@ const TTFB_TIMEOUT: u64 = 5;
 /// The number of seconds to wait for the first bytes of a request once a protocol has been
 /// established before the stream is terminated.
 const REQUEST_TIMEOUT: u64 = 15;
+
+/// Returns the maximum bytes that can be sent across the RPC.
+pub fn max_rpc_size(fork_context: &ForkContext) -> usize {
+    if fork_context.fork_exists(ForkName::Merge) {
+        MAX_RPC_SIZE_POST_MERGE
+    } else {
+        MAX_RPC_SIZE
+    }
+}
 
 /// Protocol names to be used.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -158,6 +181,7 @@ impl std::fmt::Display for Version {
 #[derive(Debug, Clone)]
 pub struct RPCProtocol<TSpec: EthSpec> {
     pub fork_context: Arc<ForkContext>,
+    pub max_rpc_size: usize,
     pub phantom: PhantomData<TSpec>,
 }
 
@@ -194,9 +218,10 @@ impl RpcLimits {
         Self { min, max }
     }
 
-    /// Returns true if the given length is out of bounds, false otherwise.
-    pub fn is_out_of_bounds(&self, length: usize) -> bool {
-        length > self.max || length < self.min
+    /// Returns true if the given length is greater than `max_rpc_size` or out of
+    /// bounds for the given ssz type, returns false otherwise.
+    pub fn is_out_of_bounds(&self, length: usize, max_rpc_size: usize) -> bool {
+        length > std::cmp::min(self.max, max_rpc_size) || length < self.min
     }
 }
 
@@ -253,12 +278,18 @@ impl ProtocolId {
             Protocol::Goodbye => RpcLimits::new(0, 0), // Goodbye request has no response
             Protocol::BlocksByRange => RpcLimits::new(
                 std::cmp::min(
-                    *SIGNED_BEACON_BLOCK_ALTAIR_MIN,
-                    *SIGNED_BEACON_BLOCK_BASE_MIN,
+                    std::cmp::min(
+                        *SIGNED_BEACON_BLOCK_ALTAIR_MIN,
+                        *SIGNED_BEACON_BLOCK_BASE_MIN,
+                    ),
+                    *SIGNED_BEACON_BLOCK_MERGE_MIN,
                 ),
                 std::cmp::max(
-                    *SIGNED_BEACON_BLOCK_ALTAIR_MAX,
-                    *SIGNED_BEACON_BLOCK_BASE_MAX,
+                    std::cmp::max(
+                        *SIGNED_BEACON_BLOCK_ALTAIR_MAX,
+                        *SIGNED_BEACON_BLOCK_BASE_MAX,
+                    ),
+                    *SIGNED_BEACON_BLOCK_MERGE_MAX,
                 ),
             ),
             Protocol::BlocksByRoot => RpcLimits::new(
@@ -346,7 +377,7 @@ where
                 Encoding::SSZSnappy => {
                     let ssz_snappy_codec = BaseInboundCodec::new(SSZSnappyInboundCodec::new(
                         protocol,
-                        MAX_RPC_SIZE,
+                        self.max_rpc_size,
                         self.fork_context.clone(),
                     ));
                     InboundCodec::SSZSnappy(ssz_snappy_codec)

@@ -19,7 +19,7 @@ use types::{BeaconBlock, BeaconState, Checkpoint, EthSpec, Hash256, Slot};
 pub trait ForkChoiceStore<T: EthSpec>: Sized {
     type Error;
 
-    /// Returns the last value passed to `Self::update_time`.
+    /// Returns the last value passed to `Self::set_current_slot`.
     fn get_current_slot(&self) -> Slot;
 
     /// Set the value to be returned by `Self::get_current_slot`.
@@ -50,6 +50,9 @@ pub trait ForkChoiceStore<T: EthSpec>: Sized {
     /// Returns the `finalized_checkpoint`.
     fn finalized_checkpoint(&self) -> &Checkpoint;
 
+    /// Returns the `proposer_boost_root`.
+    fn proposer_boost_root(&self) -> Hash256;
+
     /// Sets `finalized_checkpoint`.
     fn set_finalized_checkpoint(&mut self, checkpoint: Checkpoint);
 
@@ -58,4 +61,7 @@ pub trait ForkChoiceStore<T: EthSpec>: Sized {
 
     /// Sets the `best_justified_checkpoint`.
     fn set_best_justified_checkpoint(&mut self, checkpoint: Checkpoint);
+
+    /// Sets the proposer boost root.
+    fn set_proposer_boost_root(&mut self, proposer_boost_root: Hash256);
 }

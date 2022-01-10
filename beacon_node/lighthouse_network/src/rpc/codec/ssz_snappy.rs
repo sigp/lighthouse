@@ -17,7 +17,7 @@ use std::sync::Arc;
 use tokio_util::codec::{Decoder, Encoder};
 use types::{
     EthSpec, ForkContext, ForkName, SignedBeaconBlock, SignedBeaconBlockAltair,
-    SignedBeaconBlockBase,
+    SignedBeaconBlockBase, SignedBeaconBlockMerge,
 };
 use unsigned_varint::codec::Uvi;
 
@@ -145,7 +145,7 @@ impl<TSpec: EthSpec> Decoder for SSZSnappyInboundCodec<TSpec> {
         // Should not attempt to decode rpc chunks with `length > max_packet_size` or not within bounds of
         // packet size for ssz container corresponding to `self.protocol`.
         let ssz_limits = self.protocol.rpc_request_limits();
-        if length > self.max_packet_size || ssz_limits.is_out_of_bounds(length) {
+        if ssz_limits.is_out_of_bounds(length, self.max_packet_size) {
             return Err(RPCError::InvalidData);
         }
         // Calculate worst case compression length for given uncompressed length
@@ -280,7 +280,7 @@ impl<TSpec: EthSpec> Decoder for SSZSnappyOutboundCodec<TSpec> {
         // Should not attempt to decode rpc chunks with `length > max_packet_size` or not within bounds of
         // packet size for ssz container corresponding to `self.protocol`.
         let ssz_limits = self.protocol.rpc_response_limits::<TSpec>();
-        if length > self.max_packet_size || ssz_limits.is_out_of_bounds(length) {
+        if ssz_limits.is_out_of_bounds(length, self.max_packet_size) {
             return Err(RPCError::InvalidData);
         }
         // Calculate worst case compression length for given uncompressed length
@@ -375,7 +375,7 @@ fn handle_error<T>(
 }
 
 /// Returns `Some(context_bytes)` for encoding RPC responses that require context bytes.
-/// Returns `None` when context bytes are not required.  
+/// Returns `None` when context bytes are not required.
 fn context_bytes<T: EthSpec>(
     protocol: &ProtocolId,
     fork_context: &ForkContext,
@@ -383,23 +383,24 @@ fn context_bytes<T: EthSpec>(
 ) -> Option<[u8; CONTEXT_BYTES_LEN]> {
     // Add the context bytes if required
     if protocol.has_context_bytes() {
-        if let RPCCodedResponse::Success(RPCResponse::BlocksByRange(res)) = resp {
-            if let SignedBeaconBlock::Altair { .. } = **res {
-                // Altair context being `None` implies that "altair never happened".
-                // This code should be unreachable if altair is disabled since only Version::V1 would be valid in that case.
-                return fork_context.to_context_bytes(ForkName::Altair);
-            } else if let SignedBeaconBlock::Base { .. } = **res {
-                return Some(fork_context.genesis_context_bytes());
-            }
-        }
-
-        if let RPCCodedResponse::Success(RPCResponse::BlocksByRoot(res)) = resp {
-            if let SignedBeaconBlock::Altair { .. } = **res {
-                // Altair context being `None` implies that "altair never happened".
-                // This code should be unreachable if altair is disabled since only Version::V1 would be valid in that case.
-                return fork_context.to_context_bytes(ForkName::Altair);
-            } else if let SignedBeaconBlock::Base { .. } = **res {
-                return Some(fork_context.genesis_context_bytes());
+        if let RPCCodedResponse::Success(rpc_variant) = resp {
+            if let RPCResponse::BlocksByRange(ref_box_block)
+            | RPCResponse::BlocksByRoot(ref_box_block) = rpc_variant
+            {
+                return match **ref_box_block {
+                    // NOTE: If you are adding another fork type here, be sure to modify the
+                    //       `fork_context.to_context_bytes()` function to support it as well!
+                    SignedBeaconBlock::Merge { .. } => {
+                        // Merge context being `None` implies that "merge never happened".
+                        fork_context.to_context_bytes(ForkName::Merge)
+                    }
+                    SignedBeaconBlock::Altair { .. } => {
+                        // Altair context being `None` implies that "altair never happened".
+                        // This code should be unreachable if altair is disabled since only Version::V1 would be valid in that case.
+                        fork_context.to_context_bytes(ForkName::Altair)
+                    }
+                    SignedBeaconBlock::Base { .. } => Some(fork_context.genesis_context_bytes()),
+                };
             }
         }
     }
@@ -559,6 +560,11 @@ fn handle_v2_response<T: EthSpec>(
                 ForkName::Base => Ok(Some(RPCResponse::BlocksByRange(Box::new(
                     SignedBeaconBlock::Base(SignedBeaconBlockBase::from_ssz_bytes(decoded_buffer)?),
                 )))),
+                ForkName::Merge => Ok(Some(RPCResponse::BlocksByRange(Box::new(
+                    SignedBeaconBlock::Merge(SignedBeaconBlockMerge::from_ssz_bytes(
+                        decoded_buffer,
+                    )?),
+                )))),
             },
             Protocol::BlocksByRoot => match fork_name {
                 ForkName::Altair => Ok(Some(RPCResponse::BlocksByRoot(Box::new(
@@ -568,6 +574,11 @@ fn handle_v2_response<T: EthSpec>(
                 )))),
                 ForkName::Base => Ok(Some(RPCResponse::BlocksByRoot(Box::new(
                     SignedBeaconBlock::Base(SignedBeaconBlockBase::from_ssz_bytes(decoded_buffer)?),
+                )))),
+                ForkName::Merge => Ok(Some(RPCResponse::BlocksByRoot(Box::new(
+                    SignedBeaconBlock::Merge(SignedBeaconBlockMerge::from_ssz_bytes(
+                        decoded_buffer,
+                    )?),
                 )))),
             },
             _ => Err(RPCError::ErrorResponse(
@@ -686,9 +697,9 @@ mod tests {
         version: Version,
         message: &mut BytesMut,
     ) -> Result<Option<RPCResponse<Spec>>, RPCError> {
-        let max_packet_size = 1_048_576;
         let snappy_protocol_id = ProtocolId::new(protocol, version, Encoding::SSZSnappy);
         let fork_context = Arc::new(fork_context());
+        let max_packet_size = max_rpc_size(&fork_context);
         let mut snappy_outbound_codec =
             SSZSnappyOutboundCodec::<Spec>::new(snappy_protocol_id, max_packet_size, fork_context);
         // decode message just as snappy message
@@ -1109,6 +1120,45 @@ mod tests {
         // 10 (for stream identifier) + 176156 + 8103 = 184269 > `max_compressed_len`. Hence, decoding should fail with `InvalidData`.
         assert_eq!(
             decode(Protocol::BlocksByRange, Version::V2, &mut dst).unwrap_err(),
+            RPCError::InvalidData
+        );
+    }
+
+    /// Test sending a message with encoded length prefix > max_rpc_size.
+    #[test]
+    fn test_decode_invalid_length() {
+        // 10 byte snappy stream identifier
+        let stream_identifier: &'static [u8] = b"\xFF\x06\x00\x00sNaPpY";
+
+        assert_eq!(stream_identifier.len(), 10);
+
+        // Status message is 84 bytes uncompressed. `max_compressed_len` is 32 + 84 + 84/6 = 130.
+        let status_message_bytes = StatusMessage {
+            fork_digest: [0; 4],
+            finalized_root: Hash256::from_low_u64_be(0),
+            finalized_epoch: Epoch::new(1),
+            head_root: Hash256::from_low_u64_be(0),
+            head_slot: Slot::new(1),
+        }
+        .as_ssz_bytes();
+
+        let mut uvi_codec: Uvi<usize> = Uvi::default();
+        let mut dst = BytesMut::with_capacity(1024);
+
+        // Insert length-prefix
+        uvi_codec.encode(MAX_RPC_SIZE + 1, &mut dst).unwrap();
+
+        // Insert snappy stream identifier
+        dst.extend_from_slice(stream_identifier);
+
+        // Insert payload
+        let mut writer = FrameEncoder::new(Vec::new());
+        writer.write_all(&status_message_bytes).unwrap();
+        writer.flush().unwrap();
+        dst.extend_from_slice(writer.get_ref());
+
+        assert_eq!(
+            decode(Protocol::Status, Version::V1, &mut dst).unwrap_err(),
             RPCError::InvalidData
         );
     }
