@@ -902,7 +902,7 @@ impl<TSpec: EthSpec> NetworkBehaviourEventProcess<RPCMessage<TSpec>> for Behavio
             debug!(
                 self.log,
                 "Ignoring rpc message of disconnecting peer";
-                "peer" => %peer_id
+                "event" => ?event,
             );
             return;
         }

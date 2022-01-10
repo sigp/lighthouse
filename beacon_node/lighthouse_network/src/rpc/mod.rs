@@ -86,6 +86,7 @@ impl<T: EthSpec> std::fmt::Display for RPCSend<T> {
 }
 
 /// Messages sent to the user from the RPC protocol.
+#[derive(Debug)]
 pub struct RPCMessage<TSpec: EthSpec> {
     /// The peer that sent the message.
     pub peer_id: PeerId,
