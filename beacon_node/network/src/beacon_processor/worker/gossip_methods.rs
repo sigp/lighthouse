@@ -1275,10 +1275,10 @@ impl<T: BeaconChainTypes> Worker<T> {
             AttnError::PastSlot { .. } => {
                 // Produce a slot clock frozen at the time we received the attestation from the
                 // network.
-                let clock_at_observation = &self.chain.slot_clock.freeze_at(seen_timestamp);
+                let seen_clock = &self.chain.slot_clock.freeze_at(seen_timestamp);
                 let hindsight_verification =
                     attestation_verification::verify_propagation_slot_range(
-                        clock_at_observation,
+                        seen_clock,
                         failed_att.attestation(),
                     );
 
@@ -1694,27 +1694,27 @@ impl<T: BeaconChainTypes> Worker<T> {
                     "type" => ?message_type,
                 );
 
-                // Produce a slot clock frozen at the time we received the attestation from the
-                // network.
-                let invalid_in_hindsight = || {
-                    let clock_at_observation = &self.chain.slot_clock.freeze_at(seen_timestamp);
-                    let hindsight_verification =
-                        sync_committee_verification::verify_propagation_slot_range(
-                            clock_at_observation,
-                            &sync_committee_message_slot,
-                        );
-                    hindsight_verification.is_err()
-                };
-
                 // Compute the slot when we received the message.
                 let received_slot = self
                     .chain
                     .slot_clock
                     .slot_of(seen_timestamp)
-                    .unwrap_or(self.chain.slot_clock.genesis_slot());
+                    .unwrap_or_else(|| self.chain.slot_clock.genesis_slot());
 
                 // The message is "excessively" late if it was more than one slot late.
                 let excessively_late = received_slot + 1 < sync_committee_message_slot;
+
+                // This closure will lazily produce a slot clock frozen at the time we received the
+                // attestation from the network.
+                let invalid_in_hindsight = || {
+                    let seen_clock = &self.chain.slot_clock.freeze_at(seen_timestamp);
+                    let hindsight_verification =
+                        sync_committee_verification::verify_propagation_slot_range(
+                            seen_clock,
+                            &sync_committee_message_slot,
+                        );
+                    hindsight_verification.is_err()
+                };
 
                 // Penalize the peer if the message was more than one slot late
                 if excessively_late && invalid_in_hindsight() {
