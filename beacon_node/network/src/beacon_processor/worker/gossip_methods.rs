@@ -1705,7 +1705,8 @@ impl<T: BeaconChainTypes> Worker<T> {
                 let excessively_late = received_slot > sync_committee_message_slot + 1;
 
                 // This closure will lazily produce a slot clock frozen at the time we received the
-                // message from the network.
+                // message from the network and return a bool indicating if the message was invalid
+                // at the time of receipt too.
                 let invalid_in_hindsight = || {
                     let seen_clock = &self.chain.slot_clock.freeze_at(seen_timestamp);
                     let hindsight_verification =
