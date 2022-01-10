@@ -113,6 +113,10 @@ pub trait SlotClock: Send + Sync + Sized + Clone {
             })
     }
 
+    /// Produces a *new* slot clock with the same configuration of `self`, except that clock is
+    /// "frozen" at the `freeze_at` time.
+    ///
+    /// This is useful for observing the slot clock at arbitrary fixed points in time.
     fn freeze_at(&self, freeze_at: Duration) -> ManualSlotClock {
         let slot_clock = ManualSlotClock::new(
             self.genesis_slot(),

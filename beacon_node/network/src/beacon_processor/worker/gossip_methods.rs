@@ -1680,10 +1680,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                 // Do not propagate these messages.
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
             }
-            SyncCommitteeError::PastSlot {
-                message_slot,
-                earliest_permissible_slot,
-            } => {
+            SyncCommitteeError::PastSlot { .. } => {
                 /*
                  * This error can be triggered by a mismatch between our slot and the peer.
                  *
@@ -1699,17 +1696,28 @@ impl<T: BeaconChainTypes> Worker<T> {
 
                 // Produce a slot clock frozen at the time we received the attestation from the
                 // network.
-                let clock_at_observation = &self.chain.slot_clock.freeze_at(seen_timestamp);
-                let hindsight_verification =
-                    sync_committee_verification::verify_propagation_slot_range(
-                        clock_at_observation,
-                        &sync_committee_message_slot,
-                    );
-                let excessively_late = *message_slot + 1 < *earliest_permissible_slot;
+                let invalid_in_hindsight = || {
+                    let clock_at_observation = &self.chain.slot_clock.freeze_at(seen_timestamp);
+                    let hindsight_verification =
+                        sync_committee_verification::verify_propagation_slot_range(
+                            clock_at_observation,
+                            &sync_committee_message_slot,
+                        );
+                    hindsight_verification.is_err()
+                };
 
-                // Only penalize the peer if it would have been invalid at the moment we received
-                // it.
-                if hindsight_verification.is_err() && excessively_late {
+                // Compute the slot when we received the message.
+                let received_slot = self
+                    .chain
+                    .slot_clock
+                    .slot_of(seen_timestamp)
+                    .unwrap_or(self.chain.slot_clock.genesis_slot());
+
+                // The message is "excessively" late if it was more than one slot late.
+                let excessively_late = received_slot + 1 < sync_committee_message_slot;
+
+                // Penalize the peer if the message was more than one slot late
+                if excessively_late && invalid_in_hindsight() {
                     self.gossip_penalize_peer(peer_id, PeerAction::HighToleranceError);
                 }
 
