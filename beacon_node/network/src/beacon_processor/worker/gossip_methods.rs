@@ -2,7 +2,9 @@ use crate::{metrics, service::NetworkMessage, sync::SyncMessage};
 
 use beacon_chain::store::Error;
 use beacon_chain::{
-    attestation_verification::{Error as AttnError, VerifiedAttestation},
+    attestation_verification::{
+        verify_propagation_slot_range, Error as AttnError, VerifiedAttestation,
+    },
     observed_operations::ObservationOutcome,
     sync_committee_verification::Error as SyncCommitteeError,
     validator_monitor::get_block_delay_ms,
@@ -100,18 +102,20 @@ enum FailedAtt<T: EthSpec> {
 
 impl<T: EthSpec> FailedAtt<T> {
     pub fn beacon_block_root(&self) -> &Hash256 {
-        match self {
-            FailedAtt::Unaggregate { attestation, .. } => &attestation.data.beacon_block_root,
-            FailedAtt::Aggregate { attestation, .. } => {
-                &attestation.message.aggregate.data.beacon_block_root
-            }
-        }
+        &self.attestation().data.beacon_block_root
     }
 
     pub fn kind(&self) -> &'static str {
         match self {
             FailedAtt::Unaggregate { .. } => "unaggregated",
             FailedAtt::Aggregate { .. } => "aggregated",
+        }
+    }
+
+    pub fn attestation(&self) -> &Attestation<T> {
+        match self {
+            FailedAtt::Unaggregate { attestation, .. } => attestation,
+            FailedAtt::Aggregate { attestation, .. } => &attestation.message.aggregate,
         }
     }
 }
@@ -410,6 +414,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                     },
                     reprocess_tx,
                     error,
+                    seen_timestamp,
                 );
             }
         }
@@ -608,6 +613,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                     },
                     reprocess_tx,
                     error,
+                    seen_timestamp,
                 );
             }
         }
@@ -1232,6 +1238,7 @@ impl<T: BeaconChainTypes> Worker<T> {
         failed_att: FailedAtt<T::EthSpec>,
         reprocess_tx: Option<mpsc::Sender<ReprocessQueueMessage<T>>>,
         error: AttnError,
+        seen_timestamp: Duration,
     ) {
         let beacon_block_root = failed_att.beacon_block_root();
         let attestation_type = failed_att.kind();
@@ -1239,8 +1246,7 @@ impl<T: BeaconChainTypes> Worker<T> {
         match &error {
             AttnError::FutureEpoch { .. }
             | AttnError::PastEpoch { .. }
-            | AttnError::FutureSlot { .. }
-            | AttnError::PastSlot { .. } => {
+            | AttnError::FutureSlot { .. } => {
                 /*
                  * These errors can be triggered by a mismatch between our slot and the peer.
                  *
@@ -1260,6 +1266,21 @@ impl<T: BeaconChainTypes> Worker<T> {
                 self.gossip_penalize_peer(peer_id, PeerAction::LowToleranceError);
 
                 // Do not propagate these messages.
+                self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
+            }
+            AttnError::PastSlot { .. } => {
+                // Produce a slot clock frozen at the time we received the attestation from the
+                // network.
+                let clock_at_observation = &self.chain.slot_clock.freeze_at(seen_timestamp);
+                let hindsight_verification =
+                    verify_propagation_slot_range(clock_at_observation, failed_att.attestation());
+
+                // Only penalize the peer if it would have been invalid at the moment we received
+                // it.
+                if hindsight_verification.is_err() {
+                    self.gossip_penalize_peer(peer_id, PeerAction::LowToleranceError);
+                }
+
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
             }
             AttnError::InvalidSelectionProof { .. } | AttnError::InvalidSignature => {

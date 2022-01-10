@@ -112,4 +112,14 @@ pub trait SlotClock: Send + Sync + Sized + Clone {
                 Duration::from_secs(duration_into_slot.as_secs() % seconds_per_slot)
             })
     }
+
+    fn freeze_at(&self, freeze_at: Duration) -> ManualSlotClock {
+        let slot_clock = ManualSlotClock::new(
+            self.genesis_slot(),
+            self.genesis_duration(),
+            self.slot_duration(),
+        );
+        slot_clock.set_current_time(freeze_at);
+        slot_clock
+    }
 }
