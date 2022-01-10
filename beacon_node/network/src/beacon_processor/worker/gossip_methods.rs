@@ -1702,7 +1702,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                     .unwrap_or_else(|| self.chain.slot_clock.genesis_slot());
 
                 // The message is "excessively" late if it was more than one slot late.
-                let excessively_late = received_slot + 1 < sync_committee_message_slot;
+                let excessively_late = received_slot > sync_committee_message_slot + 1;
 
                 // This closure will lazily produce a slot clock frozen at the time we received the
                 // message from the network.
