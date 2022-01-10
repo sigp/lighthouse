@@ -108,7 +108,7 @@ pub const OP_POOL_DB_KEY: Hash256 = Hash256::zero();
 pub const ETH1_CACHE_DB_KEY: Hash256 = Hash256::zero();
 pub const FORK_CHOICE_DB_KEY: Hash256 = Hash256::zero();
 
-/// Defines how old a block can be before it's a candidate for the early attester cache.
+/// Defines how old a block can be before it's no longer a candidate for the early attester cache.
 const EARLY_ATTESTER_CACHE_HISTORIC_SLOTS: u64 = 4;
 
 /// Defines the behaviour when a block/block-root for a skipped slot is requested.
@@ -2679,6 +2679,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                             "error" => ?e
                         );
                     }
+                } else {
+                    warn!(
+                        self.log,
+                        "Early attester block missing";
+                        "block_root" => ?block_root
+                    );
                 }
             }
         }
