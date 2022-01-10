@@ -2,11 +2,9 @@ use crate::{metrics, service::NetworkMessage, sync::SyncMessage};
 
 use beacon_chain::store::Error;
 use beacon_chain::{
-    attestation_verification::{
-        verify_propagation_slot_range, Error as AttnError, VerifiedAttestation,
-    },
+    attestation_verification::{self, Error as AttnError, VerifiedAttestation},
     observed_operations::ObservationOutcome,
-    sync_committee_verification::Error as SyncCommitteeError,
+    sync_committee_verification::{self, Error as SyncCommitteeError},
     validator_monitor::get_block_delay_ms,
     BeaconChainError, BeaconChainTypes, BlockError, ExecutionPayloadError, ForkChoiceError,
     GossipVerifiedBlock,
@@ -21,7 +19,7 @@ use tokio::sync::mpsc;
 use types::{
     Attestation, AttesterSlashing, EthSpec, Hash256, IndexedAttestation, ProposerSlashing,
     SignedAggregateAndProof, SignedBeaconBlock, SignedContributionAndProof, SignedVoluntaryExit,
-    SubnetId, SyncCommitteeMessage, SyncSubnetId,
+    Slot, SubnetId, SyncCommitteeMessage, SyncSubnetId,
 };
 
 use super::{
@@ -1123,6 +1121,7 @@ impl<T: BeaconChainTypes> Worker<T> {
         subnet_id: SyncSubnetId,
         seen_timestamp: Duration,
     ) {
+        let message_slot = sync_signature.slot;
         let sync_signature = match self
             .chain
             .verify_sync_committee_message_for_gossip(sync_signature, subnet_id)
@@ -1134,6 +1133,8 @@ impl<T: BeaconChainTypes> Worker<T> {
                     message_id,
                     "sync_signature",
                     e,
+                    message_slot,
+                    seen_timestamp,
                 );
                 return;
             }
@@ -1183,6 +1184,7 @@ impl<T: BeaconChainTypes> Worker<T> {
         sync_contribution: SignedContributionAndProof<T::EthSpec>,
         seen_timestamp: Duration,
     ) {
+        let contribution_slot = sync_contribution.message.contribution.slot;
         let sync_contribution = match self
             .chain
             .verify_sync_contribution_for_gossip(sync_contribution)
@@ -1195,6 +1197,8 @@ impl<T: BeaconChainTypes> Worker<T> {
                     message_id,
                     "sync_contribution",
                     e,
+                    contribution_slot,
+                    seen_timestamp,
                 );
                 return;
             }
@@ -1273,7 +1277,10 @@ impl<T: BeaconChainTypes> Worker<T> {
                 // network.
                 let clock_at_observation = &self.chain.slot_clock.freeze_at(seen_timestamp);
                 let hindsight_verification =
-                    verify_propagation_slot_range(clock_at_observation, failed_att.attestation());
+                    attestation_verification::verify_propagation_slot_range(
+                        clock_at_observation,
+                        failed_att.attestation(),
+                    );
 
                 // Only penalize the peer if it would have been invalid at the moment we received
                 // it.
@@ -1646,6 +1653,8 @@ impl<T: BeaconChainTypes> Worker<T> {
         message_id: MessageId,
         message_type: &str,
         error: SyncCommitteeError,
+        sync_committee_message_slot: Slot,
+        seen_timestamp: Duration,
     ) {
         metrics::register_sync_committee_error(&error);
 
@@ -1688,12 +1697,22 @@ impl<T: BeaconChainTypes> Worker<T> {
                     "type" => ?message_type,
                 );
 
-                // We tolerate messages that were just one slot late.
-                if *message_slot + 1 < *earliest_permissible_slot {
+                // Produce a slot clock frozen at the time we received the attestation from the
+                // network.
+                let clock_at_observation = &self.chain.slot_clock.freeze_at(seen_timestamp);
+                let hindsight_verification =
+                    sync_committee_verification::verify_propagation_slot_range(
+                        clock_at_observation,
+                        &sync_committee_message_slot,
+                    );
+                let excessively_late = *message_slot + 1 < *earliest_permissible_slot;
+
+                // Only penalize the peer if it would have been invalid at the moment we received
+                // it.
+                if hindsight_verification.is_err() && excessively_late {
                     self.gossip_penalize_peer(peer_id, PeerAction::HighToleranceError);
                 }
 
-                // Do not propagate these messages.
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
             }
             SyncCommitteeError::EmptyAggregationBitfield => {
