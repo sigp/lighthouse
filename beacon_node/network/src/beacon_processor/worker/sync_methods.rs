@@ -23,9 +23,11 @@ pub enum ProcessId {
     ParentLookup(PeerId, Hash256),
 }
 
-#[derive(Debug)]
-struct ProcessBlocksError {
+/// Returned when a chain segment import fails.
+struct ChainSegmentFailed {
+    /// To be displayed in logs.
     message: String,
+    /// Used to penalize peers.
     peer_action: Option<PeerAction>,
 }
 
@@ -206,7 +208,7 @@ impl<T: BeaconChainTypes> Worker<T> {
     fn process_blocks<'a>(
         &self,
         downloaded_blocks: impl Iterator<Item = &'a SignedBeaconBlock<T::EthSpec>>,
-    ) -> (usize, Result<(), ProcessBlocksError>) {
+    ) -> (usize, Result<(), ChainSegmentFailed>) {
         let blocks = downloaded_blocks.cloned().collect::<Vec<_>>();
         match self.chain.process_chain_segment(blocks) {
             ChainSegmentResult::Successful { imported_blocks } => {
@@ -236,7 +238,7 @@ impl<T: BeaconChainTypes> Worker<T> {
     fn process_backfill_blocks(
         &self,
         blocks: &[SignedBeaconBlock<T::EthSpec>],
-    ) -> (usize, Result<(), ProcessBlocksError>) {
+    ) -> (usize, Result<(), ChainSegmentFailed>) {
         match self.chain.import_historical_block_batch(blocks) {
             Ok(imported_blocks) => {
                 metrics::inc_counter(
@@ -264,8 +266,9 @@ impl<T: BeaconChainTypes> Worker<T> {
                                 "expected_root" => ?expected_block_root
                             );
 
-                            ProcessBlocksError {
+                            ChainSegmentFailed {
                                 message: String::from("mismatched_block_root"),
+                                // The peer is faulty if they send blocks with bad roots.
                                 peer_action: Some(PeerAction::LowToleranceError),
                             }
                         }
@@ -277,8 +280,9 @@ impl<T: BeaconChainTypes> Worker<T> {
                                 "error" => ?e
                             );
 
-                            ProcessBlocksError {
+                            ChainSegmentFailed {
                                 message: "invalid_signature".into(),
+                                // The peer is faulty if they bad signatures.
                                 peer_action: Some(PeerAction::LowToleranceError),
                             }
                         }
@@ -289,37 +293,53 @@ impl<T: BeaconChainTypes> Worker<T> {
                                 "error" => "pubkey_cache_timeout"
                             );
 
-                            ProcessBlocksError {
+                            ChainSegmentFailed {
                                 message: "pubkey_cache_timeout".into(),
+                                // This is an internal error, do not penalize the peer.
                                 peer_action: None,
                             }
                         }
                         HistoricalBlockError::NoAnchorInfo => {
                             warn!(self.log, "Backfill not required");
 
-                            ProcessBlocksError {
+                            ChainSegmentFailed {
                                 message: String::from("no_anchor_info"),
+                                // There is no need to do a historical sync, this is not a fault of
+                                // the peer.
                                 peer_action: None,
                             }
                         }
-                        HistoricalBlockError::IndexOutOfBounds
-                        | HistoricalBlockError::BlockOutOfRange { .. } => {
+                        HistoricalBlockError::IndexOutOfBounds => {
                             error!(
                                 self.log,
-                                "Backfill batch processing error";
+                                "Backfill batch OOB error";
                                 "error" => ?e,
                             );
-                            ProcessBlocksError {
+                            ChainSegmentFailed {
                                 message: String::from("logic_error"),
+                                // This should never occur, don't penalize the peer.
+                                peer_action: None,
+                            }
+                        }
+                        HistoricalBlockError::BlockOutOfRange { .. } => {
+                            error!(
+                                self.log,
+                                "Backfill batch error";
+                                "error" => ?e,
+                            );
+                            ChainSegmentFailed {
+                                message: String::from("unexpected_error"),
+                                // This should never occur, don't penalize the peer.
                                 peer_action: None,
                             }
                         }
                     },
                     other => {
                         warn!(self.log, "Backfill batch processing error"; "error" => ?other);
-                        ProcessBlocksError {
+                        ChainSegmentFailed {
                             message: format!("{:?}", other),
-                            peer_action: Some(PeerAction::LowToleranceError),
+                            // This is an internal error, don't penalize the peer.
+                            peer_action: None,
                         }
                     }
                 };
@@ -350,12 +370,13 @@ impl<T: BeaconChainTypes> Worker<T> {
     fn handle_failed_chain_segment(
         &self,
         error: BlockError<T::EthSpec>,
-    ) -> Result<(), ProcessBlocksError> {
+    ) -> Result<(), ChainSegmentFailed> {
         match error {
             BlockError::ParentUnknown(block) => {
                 // blocks should be sequential and all parents should exist
-                Err(ProcessBlocksError {
+                Err(ChainSegmentFailed {
                     message: format!("Block has an unknown parent: {}", block.parent_root()),
+                    // Peers are faulty if they send non-sequential blocks.
                     peer_action: Some(PeerAction::LowToleranceError),
                 })
             }
@@ -387,11 +408,12 @@ impl<T: BeaconChainTypes> Worker<T> {
                     );
                 }
 
-                Err(ProcessBlocksError {
+                Err(ChainSegmentFailed {
                     message: format!(
                         "Block with slot {} is higher than the current slot {}",
                         block_slot, present_slot
                     ),
+                    // Peers are faulty if they send blocks from the future.
                     peer_action: Some(PeerAction::LowToleranceError),
                 })
             }
@@ -410,7 +432,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                     "outcome" => ?e,
                 );
 
-                Err(ProcessBlocksError {
+                Err(ChainSegmentFailed {
                     message: format!("Internal error whilst processing block: {:?}", e),
                     // Do not penalize peers for internal errors.
                     peer_action: None,
@@ -423,7 +445,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                     "outcome" => %other,
                 );
 
-                Err(ProcessBlocksError {
+                Err(ChainSegmentFailed {
                     message: format!("Peer sent invalid block. Reason: {:?}", other),
                     // Do not penalize peers for internal errors.
                     peer_action: None,
