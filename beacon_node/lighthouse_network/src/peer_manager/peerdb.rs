@@ -531,8 +531,8 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
                     ScoreTransitionResult::Unbanned => {
                         error!(
                             self.log,
-                            "msg" => %msg,
                             "Report peer action lead to an unbanning";
+                            "msg" => %msg,
                             "peer_id" => %peer_id
                         );
                         ScoreUpdateResult::NoAction
