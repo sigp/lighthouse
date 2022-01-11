@@ -137,7 +137,10 @@ pub enum BatchProcessResult {
     /// The batch was completed successfully. It carries whether the sent batch contained blocks.
     Success(bool),
     /// The batch processing failed. It carries whether the processing imported any block.
-    Failed(bool),
+    Failed {
+        imported_blocks: bool,
+        peer_action: Option<PeerAction>,
+    },
 }
 
 /// Maintains a sequential list of parents to lookup and the lookup's current state.

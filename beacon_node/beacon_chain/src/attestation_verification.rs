@@ -986,11 +986,17 @@ fn verify_head_block_is_known<T: BeaconChainTypes>(
     attestation: &Attestation<T::EthSpec>,
     max_skip_slots: Option<u64>,
 ) -> Result<ProtoBlock, Error> {
-    if let Some(block) = chain
+    let block_opt = chain
         .fork_choice
         .read()
         .get_block(&attestation.data.beacon_block_root)
-    {
+        .or_else(|| {
+            chain
+                .early_attester_cache
+                .get_proto_block(attestation.data.beacon_block_root)
+        });
+
+    if let Some(block) = block_opt {
         // Reject any block that exceeds our limit on skipped slots.
         if let Some(max_skip_slots) = max_skip_slots {
             if attestation.data.slot > block.slot + max_skip_slots {
@@ -1242,7 +1248,9 @@ where
     // processing an attestation that does not include our latest finalized block in its chain.
     //
     // We do not delay consideration for later, we simply drop the attestation.
-    if !chain.fork_choice.read().contains_block(&target.root) {
+    if !chain.fork_choice.read().contains_block(&target.root)
+        && !chain.early_attester_cache.contains_block(target.root)
+    {
         return Err(Error::UnknownTargetRoot(target.root));
     }
 
