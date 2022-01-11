@@ -9,6 +9,7 @@ mod block_times_cache;
 mod block_verification;
 pub mod builder;
 pub mod chain_config;
+mod early_attester_cache;
 mod errors;
 pub mod eth1_chain;
 pub mod events;

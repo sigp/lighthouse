@@ -241,6 +241,14 @@ lazy_static! {
         try_create_int_counter("beacon_shuffling_cache_misses_total", "Count of times shuffling cache fulfils request");
 
     /*
+     * Early attester cache
+     */
+    pub static ref BEACON_EARLY_ATTESTER_CACHE_HITS: Result<IntCounter> = try_create_int_counter(
+        "beacon_early_attester_cache_hits",
+        "Count of times the early attester cache returns an attestation"
+    );
+
+    /*
      * Attestation Production
      */
     pub static ref ATTESTATION_PRODUCTION_SECONDS: Result<Histogram> = try_create_histogram(
