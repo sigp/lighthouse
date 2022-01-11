@@ -659,6 +659,7 @@ pub struct Config {
     #[serde(with = "eth2_serde_utils::quoted_u64")]
     churn_limit_quotient: u64,
 
+    #[serde(skip_serializing_if = "Option::is_none")]
     proposer_score_boost: Option<MaybeQuoted<u64>>,
 
     #[serde(with = "eth2_serde_utils::quoted_u64")]
