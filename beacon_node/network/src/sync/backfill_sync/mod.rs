@@ -676,7 +676,7 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
                             "score_adjustment" => %peer_action
                                 .as_ref()
                                 .map(ToString::to_string)
-                                .unwrap_or("None".into()),
+                                .unwrap_or_else(|| "None".into()),
                             "batch_epoch"=> batch_id
                         );
 
