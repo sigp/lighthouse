@@ -788,7 +788,7 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
                                 network.report_peer(
                                     attempt.peer_id,
                                     action,
-                                    "reprocessed_batch_original_peer",
+                                    "reprocessed_backfill_original_peer",
                                 );
                             } else {
                                 // The same peer corrected it's previous mistake. There was an error, so we
@@ -801,7 +801,7 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
                                 network.report_peer(
                                     attempt.peer_id,
                                     action,
-                                    "reprocessed_batch_same_peer",
+                                    "reprocessed_backfill_same_peer",
                                 );
                             }
                         }
