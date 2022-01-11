@@ -1454,7 +1454,6 @@ impl<T: BeaconChainTypes> Worker<T> {
                 } else {
                     // We shouldn't make any further attempts to process this attestation.
                     // Downscore the peer.
-                    self.gossip_penalize_peer(peer_id, PeerAction::LowToleranceError);
                     self.propagate_validation_result(
                         message_id,
                         peer_id,
