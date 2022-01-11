@@ -492,6 +492,8 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
         source: ReportSource,
         msg: &'static str,
     ) -> ScoreUpdateResult {
+        metrics::inc_counter_vec(&metrics::REPORT_PEER_MSGS, &[msg]);
+
         match self.peers.get_mut(peer_id) {
             Some(info) => {
                 let previous_state = info.score_state();
