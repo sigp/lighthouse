@@ -5,3 +5,4 @@ pub mod cors;
 pub mod metrics;
 pub mod reject;
 pub mod task;
+pub mod query;

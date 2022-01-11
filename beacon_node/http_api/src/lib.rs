@@ -55,7 +55,10 @@ use warp::http::StatusCode;
 use warp::sse::Event;
 use warp::Reply;
 use warp::{http::Response, Filter};
-use warp_utils::task::{blocking_json_task, blocking_task};
+use warp_utils::{
+    query::multi_key_query,
+    task::{blocking_json_task, blocking_task},
+};
 
 const API_PREFIX: &str = "eth";
 
@@ -505,7 +508,7 @@ pub fn serve<T: BeaconChainTypes>(
         .clone()
         .and(warp::path("validator_balances"))
         .and(warp::path::end())
-        .and(warp::query::<api_types::ValidatorBalancesQuery>())
+        .and(multi_key_query::<api_types::ValidatorBalancesQuery>())
         .and_then(
             |state_id: StateId,
              chain: Arc<BeaconChain<T>>,
@@ -521,7 +524,7 @@ pub fn serve<T: BeaconChainTypes>(
                                 // filter by validator id(s) if provided
                                 .filter(|(index, (validator, _))| {
                                     query.id.as_ref().map_or(true, |ids| {
-                                        ids.0.iter().any(|id| match id {
+                                        ids.iter().any(|id| match id {
                                             ValidatorId::PublicKey(pubkey) => {
                                                 &validator.pubkey == pubkey
                                             }
@@ -548,7 +551,7 @@ pub fn serve<T: BeaconChainTypes>(
     let get_beacon_state_validators = beacon_states_path
         .clone()
         .and(warp::path("validators"))
-        .and(warp::query::<api_types::ValidatorsQuery>())
+        .and(multi_key_query::<api_types::ValidatorsQuery>())
         .and(warp::path::end())
         .and_then(
             |state_id: StateId, chain: Arc<BeaconChain<T>>, query: api_types::ValidatorsQuery| {
@@ -566,7 +569,7 @@ pub fn serve<T: BeaconChainTypes>(
                                 // filter by validator id(s) if provided
                                 .filter(|(index, (validator, _))| {
                                     query.id.as_ref().map_or(true, |ids| {
-                                        ids.0.iter().any(|id| match id {
+                                        ids.iter().any(|id| match id {
                                             ValidatorId::PublicKey(pubkey) => {
                                                 &validator.pubkey == pubkey
                                             }
@@ -586,8 +589,8 @@ pub fn serve<T: BeaconChainTypes>(
 
                                     let status_matches =
                                         query.status.as_ref().map_or(true, |statuses| {
-                                            statuses.0.contains(&status)
-                                                || statuses.0.contains(&status.superstatus())
+                                            statuses.contains(&status)
+                                                || statuses.contains(&status.superstatus())
                                         });
 
                                     if status_matches {
@@ -1721,7 +1724,7 @@ pub fn serve<T: BeaconChainTypes>(
         .and(warp::path("node"))
         .and(warp::path("peers"))
         .and(warp::path::end())
-        .and(warp::query::<api_types::PeersQuery>())
+        .and(multi_key_query::<api_types::PeersQuery>())
         .and(network_globals.clone())
         .and_then(
             |query: api_types::PeersQuery, network_globals: Arc<NetworkGlobals<T::EthSpec>>| {
@@ -1755,11 +1758,11 @@ pub fn serve<T: BeaconChainTypes>(
                                 );
 
                                 let state_matches = query.state.as_ref().map_or(true, |states| {
-                                    states.0.iter().any(|state_param| *state_param == state)
+                                    states.iter().any(|state_param| *state_param == state)
                                 });
                                 let direction_matches =
                                     query.direction.as_ref().map_or(true, |directions| {
-                                        directions.0.iter().any(|dir_param| *dir_param == direction)
+                                        directions.iter().any(|dir_param| *dir_param == direction)
                                     });
 
                                 if state_matches && direction_matches {
@@ -2534,16 +2537,16 @@ pub fn serve<T: BeaconChainTypes>(
     let get_events = eth1_v1
         .and(warp::path("events"))
         .and(warp::path::end())
-        .and(warp::query::<api_types::EventQuery>())
+        .and(multi_key_query::<api_types::EventQuery>())
         .and(chain_filter)
         .and_then(
             |topics: api_types::EventQuery, chain: Arc<BeaconChain<T>>| {
                 blocking_task(move || {
                     // for each topic subscribed spawn a new subscription
-                    let mut receivers = Vec::with_capacity(topics.topics.0.len());
+                    let mut receivers = Vec::with_capacity(topics.topics.len());
 
                     if let Some(event_handler) = chain.event_handler.as_ref() {
-                        for topic in topics.topics.0.clone() {
+                        for topic in topics.topics.clone() {
                             let receiver = match topic {
                                 api_types::EventTopic::Head => event_handler.subscribe_head(),
                                 api_types::EventTopic::Block => event_handler.subscribe_block(),
