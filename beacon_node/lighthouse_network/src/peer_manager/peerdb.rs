@@ -529,13 +529,23 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
                     }
                     ScoreTransitionResult::NoAction => ScoreUpdateResult::NoAction,
                     ScoreTransitionResult::Unbanned => {
-                        error!(self.log, "Report peer action lead to an unbanning"; "peer_id" => %peer_id);
+                        error!(
+                            self.log,
+                            "msg" => %msg,
+                            "Report peer action lead to an unbanning";
+                            "peer_id" => %peer_id
+                        );
                         ScoreUpdateResult::NoAction
                     }
                 }
             }
             None => {
-                debug!(self.log, "Reporting a peer that doesn't exist"; "peer_id" =>%peer_id);
+                debug!(
+                    self.log,
+                    "Reporting a peer that doesn't exist";
+                    "msg" => %msg,
+                    "peer_id" =>%peer_id
+                );
                 ScoreUpdateResult::NoAction
             }
         }
