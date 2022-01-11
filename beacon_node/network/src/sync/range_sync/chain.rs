@@ -521,9 +521,15 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                     // report all peers.
                     // There are some edge cases with forks that could land us in this situation.
                     // This should be unlikely, so we tolerate these errors, but not often.
-                    warn!(self.log, "Batch failed to download. Dropping chain scoring peers";
-                        "score_adjustment" => ?peer_action,
-                        "batch_epoch"=> batch_id);
+                    warn!(
+                        self.log,
+                        "Batch failed to download. Dropping chain scoring peers";
+                        "score_adjustment" => %peer_action
+                            .as_ref()
+                            .map(ToString::to_string)
+                            .unwrap_or("None".into()),
+                        "batch_epoch"=> batch_id
+                    );
 
                     if let Some(peer_action) = peer_action {
                         for (peer, _) in self.peers.drain() {

@@ -546,7 +546,7 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
                 batch_id,
                 &BatchProcessResult::Failed {
                     imported_blocks: false,
-                    // TODO(paul): check this
+                    // The beacon processor queue is full, no need to penalize the peer.
                     peer_action: None,
                 },
             )
@@ -670,9 +670,15 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
                         // that it is likely all peers are sending invalid batches
                         // repeatedly and are either malicious or faulty. We stop the backfill sync and
                         // report all synced peers that have participated.
-                        warn!(self.log, "Backfill batch failed to download. Penalizing peers";
-                        "score_adjustment" => ?peer_action,
-                        "batch_epoch"=> batch_id);
+                        warn!(
+                            self.log,
+                            "Backfill batch failed to download. Penalizing peers";
+                            "score_adjustment" => %peer_action
+                                .as_ref()
+                                .map(ToString::to_string)
+                                .unwrap_or("None".into()),
+                            "batch_epoch"=> batch_id
+                        );
 
                         if let Some(peer_action) = peer_action {
                             for peer in self.participating_peers.drain() {
