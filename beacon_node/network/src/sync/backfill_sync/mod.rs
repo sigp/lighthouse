@@ -541,7 +541,15 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
             // blocks to continue, and the chain is expecting a processing result that won't
             // arrive.  To mitigate this, (fake) fail this processing so that the batch is
             // re-downloaded.
-            self.on_batch_process_result(network, batch_id, &BatchProcessResult::Failed(false))
+            self.on_batch_process_result(
+                network,
+                batch_id,
+                &BatchProcessResult::Failed {
+                    imported_blocks: false,
+                    // The beacon processor queue is full, no need to penalize the peer.
+                    peer_action: None,
+                },
+            )
         } else {
             Ok(ProcessResult::Successful)
         }
@@ -621,7 +629,10 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
                     self.process_completed_batches(network)
                 }
             }
-            BatchProcessResult::Failed(imported_blocks) => {
+            BatchProcessResult::Failed {
+                imported_blocks,
+                peer_action,
+            } => {
                 let batch = match self.batches.get_mut(&batch_id) {
                     Some(v) => v,
                     None => {
@@ -659,12 +670,20 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
                         // that it is likely all peers are sending invalid batches
                         // repeatedly and are either malicious or faulty. We stop the backfill sync and
                         // report all synced peers that have participated.
-                        let action = PeerAction::LowToleranceError;
-                        warn!(self.log, "Backfill batch failed to download. Penalizing peers";
-                        "score_adjustment" => %action,
-                        "batch_epoch"=> batch_id);
-                        for peer in self.participating_peers.drain() {
-                            network.report_peer(peer, action);
+                        warn!(
+                            self.log,
+                            "Backfill batch failed to download. Penalizing peers";
+                            "score_adjustment" => %peer_action
+                                .as_ref()
+                                .map(ToString::to_string)
+                                .unwrap_or_else(|| "None".into()),
+                            "batch_epoch"=> batch_id
+                        );
+
+                        if let Some(peer_action) = peer_action {
+                            for peer in self.participating_peers.drain() {
+                                network.report_peer(peer, *peer_action);
+                            }
                         }
                         self.fail_sync(BackFillError::BatchProcessingFailed(batch_id))
                             .map(|_| ProcessResult::Successful)

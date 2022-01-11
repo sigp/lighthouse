@@ -313,7 +313,14 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
             // blocks to continue, and the chain is expecting a processing result that won't
             // arrive.  To mitigate this, (fake) fail this processing so that the batch is
             // re-downloaded.
-            self.on_batch_process_result(network, batch_id, &BatchProcessResult::Failed(false))
+            self.on_batch_process_result(
+                network,
+                batch_id,
+                &BatchProcessResult::Failed {
+                    imported_blocks: false,
+                    peer_action: None,
+                },
+            )
         } else {
             Ok(KeepChain)
         }
@@ -488,7 +495,10 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                     self.process_completed_batches(network)
                 }
             }
-            BatchProcessResult::Failed(imported_blocks) => {
+            BatchProcessResult::Failed {
+                imported_blocks,
+                peer_action,
+            } => {
                 let batch = self.batches.get_mut(&batch_id).ok_or_else(|| {
                     RemoveChain::WrongChainState(format!(
                         "Batch not found for current processing target {}",
@@ -511,12 +521,20 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                     // report all peers.
                     // There are some edge cases with forks that could land us in this situation.
                     // This should be unlikely, so we tolerate these errors, but not often.
-                    let action = PeerAction::LowToleranceError;
-                    warn!(self.log, "Batch failed to download. Dropping chain scoring peers";
-                        "score_adjustment" => %action,
-                        "batch_epoch"=> batch_id);
-                    for (peer, _) in self.peers.drain() {
-                        network.report_peer(peer, action);
+                    warn!(
+                        self.log,
+                        "Batch failed to download. Dropping chain scoring peers";
+                        "score_adjustment" => %peer_action
+                            .as_ref()
+                            .map(ToString::to_string)
+                            .unwrap_or_else(|| "None".into()),
+                        "batch_epoch"=> batch_id
+                    );
+
+                    if let Some(peer_action) = peer_action {
+                        for (peer, _) in self.peers.drain() {
+                            network.report_peer(peer, *peer_action);
+                        }
                     }
                     Err(RemoveChain::ChainFailed(batch_id))
                 } else {
