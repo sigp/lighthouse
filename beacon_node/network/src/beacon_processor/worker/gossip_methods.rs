@@ -178,11 +178,12 @@ impl<T: BeaconChainTypes> Worker<T> {
     /* Auxiliary functions */
 
     /// Penalizes a peer for misbehaviour.
-    fn gossip_penalize_peer(&self, peer_id: PeerId, action: PeerAction) {
+    fn gossip_penalize_peer(&self, peer_id: PeerId, action: PeerAction, msg: &'static str) {
         self.send_network_message(NetworkMessage::ReportPeer {
             peer_id,
             action,
             source: ReportSource::Gossipsub,
+            msg,
         })
     }
 
@@ -734,16 +735,23 @@ impl<T: BeaconChainTypes> Worker<T> {
                 self.send_sync_message(SyncMessage::UnknownBlock(peer_id, block));
                 return None;
             }
+            Err(e @ BlockError::BeaconChainError(_)) => {
+                debug!(
+                    self.log,
+                    "Gossip block beacon chain error";
+                    "error" => ?e,
+                );
+                return None;
+            }
             Err(e @ BlockError::FutureSlot { .. })
             | Err(e @ BlockError::WouldRevertFinalizedSlot { .. })
             | Err(e @ BlockError::BlockIsAlreadyKnown)
             | Err(e @ BlockError::RepeatProposal { .. })
-            | Err(e @ BlockError::NotFinalizedDescendant { .. })
-            | Err(e @ BlockError::BeaconChainError(_)) => {
+            | Err(e @ BlockError::NotFinalizedDescendant { .. }) => {
                 debug!(self.log, "Could not verify block for gossip, ignoring the block";
                             "error" => %e);
                 // Prevent recurring behaviour by penalizing the peer slightly.
-                self.gossip_penalize_peer(peer_id, PeerAction::HighToleranceError);
+                self.gossip_penalize_peer(peer_id, PeerAction::HighToleranceError, "gossip_block_high");
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
                 return None;
             }
@@ -776,7 +784,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                 warn!(self.log, "Could not verify block for gossip, rejecting the block";
                             "error" => %e);
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Reject);
-                self.gossip_penalize_peer(peer_id, PeerAction::LowToleranceError);
+                self.gossip_penalize_peer(peer_id, PeerAction::LowToleranceError, "gossip_block_low");
                 return None;
             }
         };
@@ -927,7 +935,11 @@ impl<T: BeaconChainTypes> Worker<T> {
                     "block root" => ?block.canonical_root(),
                     "block slot" => block.slot()
                 );
-                self.gossip_penalize_peer(peer_id, PeerAction::MidToleranceError);
+                self.gossip_penalize_peer(
+                    peer_id,
+                    PeerAction::MidToleranceError,
+                    "bad_gossip_block_ssz",
+                );
                 trace!(
                     self.log,
                     "Invalid gossip beacon block ssz";
@@ -969,7 +981,11 @@ impl<T: BeaconChainTypes> Worker<T> {
                 // the fault on the peer.
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
                 // We still penalize a peer slightly to prevent overuse of invalids.
-                self.gossip_penalize_peer(peer_id, PeerAction::HighToleranceError);
+                self.gossip_penalize_peer(
+                    peer_id,
+                    PeerAction::HighToleranceError,
+                    "invalid_gossip_exit",
+                );
                 return;
             }
         };
@@ -1028,7 +1044,11 @@ impl<T: BeaconChainTypes> Worker<T> {
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
 
                 // Penalize peer slightly for invalids.
-                self.gossip_penalize_peer(peer_id, PeerAction::HighToleranceError);
+                self.gossip_penalize_peer(
+                    peer_id,
+                    PeerAction::HighToleranceError,
+                    "invalid_gossip_proposer_slashing",
+                );
                 return;
             }
         };
@@ -1079,7 +1099,11 @@ impl<T: BeaconChainTypes> Worker<T> {
                 );
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
                 // Penalize peer slightly for invalids.
-                self.gossip_penalize_peer(peer_id, PeerAction::HighToleranceError);
+                self.gossip_penalize_peer(
+                    peer_id,
+                    PeerAction::HighToleranceError,
+                    "invalid_gossip_attester_slashing",
+                );
                 return;
             }
         };
@@ -1257,7 +1281,11 @@ impl<T: BeaconChainTypes> Worker<T> {
 
                 // Peers that are slow or not to spec can spam us with these messages draining our
                 // bandwidth. We therefore penalize these peers when they do this.
-                self.gossip_penalize_peer(peer_id, PeerAction::LowToleranceError);
+                self.gossip_penalize_peer(
+                    peer_id,
+                    PeerAction::LowToleranceError,
+                    "attn_past_or_future",
+                );
 
                 // Do not propagate these messages.
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
@@ -1269,7 +1297,11 @@ impl<T: BeaconChainTypes> Worker<T> {
                  * The peer has published an invalid consensus message.
                  */
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Reject);
-                self.gossip_penalize_peer(peer_id, PeerAction::LowToleranceError);
+                self.gossip_penalize_peer(
+                    peer_id,
+                    PeerAction::LowToleranceError,
+                    "attn_selection_proof",
+                );
             }
             AttnError::EmptyAggregationBitfield => {
                 /*
@@ -1279,7 +1311,11 @@ impl<T: BeaconChainTypes> Worker<T> {
                  *
                  */
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Reject);
-                self.gossip_penalize_peer(peer_id, PeerAction::LowToleranceError);
+                self.gossip_penalize_peer(
+                    peer_id,
+                    PeerAction::LowToleranceError,
+                    "attn_empty_agg_bitfield",
+                );
             }
             AttnError::AggregatorPubkeyUnknown(_) => {
                 /*
@@ -1296,7 +1332,11 @@ impl<T: BeaconChainTypes> Worker<T> {
                  * The peer has published an invalid consensus message.
                  */
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Reject);
-                self.gossip_penalize_peer(peer_id, PeerAction::LowToleranceError);
+                self.gossip_penalize_peer(
+                    peer_id,
+                    PeerAction::LowToleranceError,
+                    "attn_agg_pubkey",
+                );
             }
             AttnError::AggregatorNotInCommittee { .. } => {
                 /*
@@ -1313,7 +1353,11 @@ impl<T: BeaconChainTypes> Worker<T> {
                  * The peer has published an invalid consensus message.
                  */
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Reject);
-                self.gossip_penalize_peer(peer_id, PeerAction::LowToleranceError);
+                self.gossip_penalize_peer(
+                    peer_id,
+                    PeerAction::LowToleranceError,
+                    "attn_agg_not_in_committee",
+                );
             }
             AttnError::AttestationAlreadyKnown { .. } => {
                 /*
@@ -1389,7 +1433,11 @@ impl<T: BeaconChainTypes> Worker<T> {
                     "type" => ?attestation_type,
                 );
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Reject);
-                self.gossip_penalize_peer(peer_id, PeerAction::LowToleranceError);
+                self.gossip_penalize_peer(
+                    peer_id,
+                    PeerAction::LowToleranceError,
+                    "attn_val_index_too_high",
+                );
             }
             AttnError::UnknownHeadBlock { beacon_block_root } => {
                 trace!(
@@ -1454,7 +1502,11 @@ impl<T: BeaconChainTypes> Worker<T> {
                 } else {
                     // We shouldn't make any further attempts to process this attestation.
                     // Downscore the peer.
-                    self.gossip_penalize_peer(peer_id, PeerAction::LowToleranceError);
+                    self.gossip_penalize_peer(
+                        peer_id,
+                        PeerAction::LowToleranceError,
+                        "attn_unknown_head",
+                    );
                     self.propagate_validation_result(
                         message_id,
                         peer_id,
@@ -1482,7 +1534,11 @@ impl<T: BeaconChainTypes> Worker<T> {
                  * The peer has published an invalid consensus message.
                  */
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Reject);
-                self.gossip_penalize_peer(peer_id, PeerAction::LowToleranceError);
+                self.gossip_penalize_peer(
+                    peer_id,
+                    PeerAction::LowToleranceError,
+                    "attn_unknown_target",
+                );
             }
             AttnError::BadTargetEpoch => {
                 /*
@@ -1492,7 +1548,11 @@ impl<T: BeaconChainTypes> Worker<T> {
                  * The peer has published an invalid consensus message.
                  */
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Reject);
-                self.gossip_penalize_peer(peer_id, PeerAction::LowToleranceError);
+                self.gossip_penalize_peer(
+                    peer_id,
+                    PeerAction::LowToleranceError,
+                    "attn_bad_target",
+                );
             }
             AttnError::NoCommitteeForSlotAndIndex { .. } => {
                 /*
@@ -1501,7 +1561,11 @@ impl<T: BeaconChainTypes> Worker<T> {
                  * The peer has published an invalid consensus message.
                  */
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Reject);
-                self.gossip_penalize_peer(peer_id, PeerAction::LowToleranceError);
+                self.gossip_penalize_peer(
+                    peer_id,
+                    PeerAction::LowToleranceError,
+                    "attn_no_committee",
+                );
             }
             AttnError::NotExactlyOneAggregationBitSet(_) => {
                 /*
@@ -1510,7 +1574,11 @@ impl<T: BeaconChainTypes> Worker<T> {
                  * The peer has published an invalid consensus message.
                  */
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Reject);
-                self.gossip_penalize_peer(peer_id, PeerAction::LowToleranceError);
+                self.gossip_penalize_peer(
+                    peer_id,
+                    PeerAction::LowToleranceError,
+                    "attn_too_many_agg_bits",
+                );
             }
             AttnError::AttestsToFutureBlock { .. } => {
                 /*
@@ -1519,7 +1587,11 @@ impl<T: BeaconChainTypes> Worker<T> {
                  * The peer has published an invalid consensus message.
                  */
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Reject);
-                self.gossip_penalize_peer(peer_id, PeerAction::LowToleranceError);
+                self.gossip_penalize_peer(
+                    peer_id,
+                    PeerAction::LowToleranceError,
+                    "attn_future_block",
+                );
             }
             AttnError::InvalidSubnetId { received, expected } => {
                 /*
@@ -1532,7 +1604,11 @@ impl<T: BeaconChainTypes> Worker<T> {
                     "received" => ?received,
                 );
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Reject);
-                self.gossip_penalize_peer(peer_id, PeerAction::LowToleranceError);
+                self.gossip_penalize_peer(
+                    peer_id,
+                    PeerAction::LowToleranceError,
+                    "attn_invalid_subnet_id",
+                );
             }
             AttnError::Invalid(_) => {
                 /*
@@ -1541,7 +1617,11 @@ impl<T: BeaconChainTypes> Worker<T> {
                  * The peer has published an invalid consensus message.
                  */
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Reject);
-                self.gossip_penalize_peer(peer_id, PeerAction::LowToleranceError);
+                self.gossip_penalize_peer(
+                    peer_id,
+                    PeerAction::LowToleranceError,
+                    "attn_invalid_state_processing",
+                );
             }
             AttnError::InvalidTargetEpoch { .. } => {
                 /*
@@ -1550,7 +1630,11 @@ impl<T: BeaconChainTypes> Worker<T> {
                  * The peer has published an invalid consensus message.
                  */
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Reject);
-                self.gossip_penalize_peer(peer_id, PeerAction::LowToleranceError);
+                self.gossip_penalize_peer(
+                    peer_id,
+                    PeerAction::LowToleranceError,
+                    "attn_invalid_target_epoch",
+                );
             }
             AttnError::InvalidTargetRoot { .. } => {
                 /*
@@ -1559,7 +1643,11 @@ impl<T: BeaconChainTypes> Worker<T> {
                  * The peer has published an invalid consensus message.
                  */
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Reject);
-                self.gossip_penalize_peer(peer_id, PeerAction::LowToleranceError);
+                self.gossip_penalize_peer(
+                    peer_id,
+                    PeerAction::LowToleranceError,
+                    "attn_invalid_target_root",
+                );
             }
             AttnError::TooManySkippedSlots {
                 head_block_slot,
@@ -1579,7 +1667,11 @@ impl<T: BeaconChainTypes> Worker<T> {
                 // In this case we wish to penalize gossipsub peers that do this to avoid future
                 // attestations that have too many skip slots.
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Reject);
-                self.gossip_penalize_peer(peer_id, PeerAction::MidToleranceError);
+                self.gossip_penalize_peer(
+                    peer_id,
+                    PeerAction::MidToleranceError,
+                    "attn_too_many_skipped_slots",
+                );
             }
             AttnError::BeaconChainError(BeaconChainError::DBError(Error::HotColdDBError(
                 HotColdDBError::AttestationStateIsFinalized { .. },
@@ -1602,8 +1694,6 @@ impl<T: BeaconChainTypes> Worker<T> {
                     "error" => ?e,
                 );
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
-                // Penalize the peer slightly
-                self.gossip_penalize_peer(peer_id, PeerAction::HighToleranceError);
             }
         }
 
@@ -1645,7 +1735,11 @@ impl<T: BeaconChainTypes> Worker<T> {
 
                 // Unlike attestations, we have a zero slot buffer in case of sync committee messages,
                 // so we don't penalize heavily.
-                self.gossip_penalize_peer(peer_id, PeerAction::HighToleranceError);
+                self.gossip_penalize_peer(
+                    peer_id,
+                    PeerAction::HighToleranceError,
+                    "sync_future_slot",
+                );
 
                 // Do not propagate these messages.
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
@@ -1669,7 +1763,11 @@ impl<T: BeaconChainTypes> Worker<T> {
 
                 // We tolerate messages that were just one slot late.
                 if *message_slot + 1 < *earliest_permissible_slot {
-                    self.gossip_penalize_peer(peer_id, PeerAction::HighToleranceError);
+                    self.gossip_penalize_peer(
+                        peer_id,
+                        PeerAction::HighToleranceError,
+                        "sync_past_slot",
+                    );
                 }
 
                 // Do not propagate these messages.
@@ -1683,7 +1781,11 @@ impl<T: BeaconChainTypes> Worker<T> {
                  *
                  */
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Reject);
-                self.gossip_penalize_peer(peer_id, PeerAction::LowToleranceError);
+                self.gossip_penalize_peer(
+                    peer_id,
+                    PeerAction::LowToleranceError,
+                    "sync_empty_agg_bitfield",
+                );
             }
             SyncCommitteeError::InvalidSelectionProof { .. }
             | SyncCommitteeError::InvalidSignature => {
@@ -1693,7 +1795,11 @@ impl<T: BeaconChainTypes> Worker<T> {
                  * The peer has published an invalid consensus message.
                  */
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Reject);
-                self.gossip_penalize_peer(peer_id, PeerAction::LowToleranceError);
+                self.gossip_penalize_peer(
+                    peer_id,
+                    PeerAction::LowToleranceError,
+                    "sync_invalid_proof_or_sig",
+                );
             }
             SyncCommitteeError::AggregatorNotInCommittee { .. }
             | SyncCommitteeError::AggregatorPubkeyUnknown(_) => {
@@ -1704,7 +1810,11 @@ impl<T: BeaconChainTypes> Worker<T> {
                 * The peer has published an invalid consensus message.
                 */
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Reject);
-                self.gossip_penalize_peer(peer_id, PeerAction::LowToleranceError);
+                self.gossip_penalize_peer(
+                    peer_id,
+                    PeerAction::LowToleranceError,
+                    "sync_bad_aggregator",
+                );
             }
             SyncCommitteeError::SyncContributionAlreadyKnown(_)
             | SyncCommitteeError::AggregatorAlreadyKnown(_) => {
@@ -1737,7 +1847,11 @@ impl<T: BeaconChainTypes> Worker<T> {
                     "type" => ?message_type,
                 );
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Reject);
-                self.gossip_penalize_peer(peer_id, PeerAction::LowToleranceError);
+                self.gossip_penalize_peer(
+                    peer_id,
+                    PeerAction::LowToleranceError,
+                    "sync_unknown_validator",
+                );
             }
             SyncCommitteeError::UnknownValidatorPubkey(_) => {
                 debug!(
@@ -1747,7 +1861,11 @@ impl<T: BeaconChainTypes> Worker<T> {
                     "type" => ?message_type,
                 );
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Reject);
-                self.gossip_penalize_peer(peer_id, PeerAction::LowToleranceError);
+                self.gossip_penalize_peer(
+                    peer_id,
+                    PeerAction::LowToleranceError,
+                    "sync_unknown_validator_pubkey",
+                );
             }
             SyncCommitteeError::InvalidSubnetId { received, expected } => {
                 /*
@@ -1760,7 +1878,11 @@ impl<T: BeaconChainTypes> Worker<T> {
                     "received" => ?received,
                 );
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Reject);
-                self.gossip_penalize_peer(peer_id, PeerAction::LowToleranceError);
+                self.gossip_penalize_peer(
+                    peer_id,
+                    PeerAction::LowToleranceError,
+                    "sync_invalid_subnet_id",
+                );
             }
             SyncCommitteeError::Invalid(_) => {
                 /*
@@ -1769,7 +1891,11 @@ impl<T: BeaconChainTypes> Worker<T> {
                  * The peer has published an invalid consensus message.
                  */
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Reject);
-                self.gossip_penalize_peer(peer_id, PeerAction::LowToleranceError);
+                self.gossip_penalize_peer(
+                    peer_id,
+                    PeerAction::LowToleranceError,
+                    "sync_invalid_state_processing",
+                );
             }
             SyncCommitteeError::PriorSyncCommitteeMessageKnown { .. } => {
                 /*
@@ -1785,7 +1911,11 @@ impl<T: BeaconChainTypes> Worker<T> {
                 );
                 // We still penalize the peer slightly. We don't want this to be a recurring
                 // behaviour.
-                self.gossip_penalize_peer(peer_id, PeerAction::HighToleranceError);
+                self.gossip_penalize_peer(
+                    peer_id,
+                    PeerAction::HighToleranceError,
+                    "sync_prior_known",
+                );
 
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
 
@@ -1806,8 +1936,6 @@ impl<T: BeaconChainTypes> Worker<T> {
                     "error" => ?e,
                 );
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
-                // Penalize the peer slightly
-                self.gossip_penalize_peer(peer_id, PeerAction::HighToleranceError);
             }
             SyncCommitteeError::BeaconStateError(e) => {
                 /*
@@ -1825,7 +1953,11 @@ impl<T: BeaconChainTypes> Worker<T> {
                 );
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
                 // Penalize the peer slightly
-                self.gossip_penalize_peer(peer_id, PeerAction::HighToleranceError);
+                self.gossip_penalize_peer(
+                    peer_id,
+                    PeerAction::HighToleranceError,
+                    "sync_beacon_state_error",
+                );
             }
             SyncCommitteeError::ContributionError(e) => {
                 error!(
@@ -1836,7 +1968,11 @@ impl<T: BeaconChainTypes> Worker<T> {
                 );
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
                 // Penalize the peer slightly
-                self.gossip_penalize_peer(peer_id, PeerAction::HighToleranceError);
+                self.gossip_penalize_peer(
+                    peer_id,
+                    PeerAction::HighToleranceError,
+                    "sync_contribution_error",
+                );
             }
             SyncCommitteeError::SyncCommitteeError(e) => {
                 error!(
@@ -1847,7 +1983,11 @@ impl<T: BeaconChainTypes> Worker<T> {
                 );
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
                 // Penalize the peer slightly
-                self.gossip_penalize_peer(peer_id, PeerAction::HighToleranceError);
+                self.gossip_penalize_peer(
+                    peer_id,
+                    PeerAction::HighToleranceError,
+                    "sync_committee_error",
+                );
             }
             SyncCommitteeError::ArithError(e) => {
                 /*
@@ -1860,7 +2000,11 @@ impl<T: BeaconChainTypes> Worker<T> {
                     "error" => ?e,
                 );
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
-                self.gossip_penalize_peer(peer_id, PeerAction::LowToleranceError);
+                self.gossip_penalize_peer(
+                    peer_id,
+                    PeerAction::LowToleranceError,
+                    "sync_arith_error",
+                );
             }
             SyncCommitteeError::InvalidSubcommittee { .. } => {
                 /*
@@ -1868,7 +2012,11 @@ impl<T: BeaconChainTypes> Worker<T> {
                 an invalid message.
                 */
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Reject);
-                self.gossip_penalize_peer(peer_id, PeerAction::LowToleranceError);
+                self.gossip_penalize_peer(
+                    peer_id,
+                    PeerAction::LowToleranceError,
+                    "sync_invalid_subcommittee",
+                );
             }
         }
         debug!(

@@ -664,7 +664,7 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
                         "score_adjustment" => %action,
                         "batch_epoch"=> batch_id);
                         for peer in self.participating_peers.drain() {
-                            network.report_peer(peer, action);
+                            network.report_peer(peer, action, "backfill_batch_failed");
                         }
                         self.fail_sync(BackFillError::BatchProcessingFailed(batch_id))
                             .map(|_| ProcessResult::Successful)
@@ -785,7 +785,11 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
                                     "batch_epoch" => id, "score_adjustment" => %action,
                                     "original_peer" => %attempt.peer_id, "new_peer" => %processed_attempt.peer_id
                                 );
-                                network.report_peer(attempt.peer_id, action);
+                                network.report_peer(
+                                    attempt.peer_id,
+                                    action,
+                                    "reprocessed_batch_original_peer",
+                                );
                             } else {
                                 // The same peer corrected it's previous mistake. There was an error, so we
                                 // negative score the original peer.
@@ -794,7 +798,11 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
                                     "batch_epoch" => id, "score_adjustment" => %action,
                                     "original_peer" => %attempt.peer_id, "new_peer" => %processed_attempt.peer_id
                                 );
-                                network.report_peer(attempt.peer_id, action);
+                                network.report_peer(
+                                    attempt.peer_id,
+                                    action,
+                                    "reprocessed_batch_same_peer",
+                                );
                             }
                         }
                     }
