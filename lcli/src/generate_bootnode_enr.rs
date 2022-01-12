@@ -1,7 +1,7 @@
 use clap::ArgMatches;
 use lighthouse_network::{
     discovery::{build_enr, CombinedKey, CombinedKeyExt, Keypair, ENR_FILENAME},
-    NetworkConfig, NETWORK_KEY_FILENAME,
+    Enr, NetworkConfig, NETWORK_KEY_FILENAME,
 };
 use std::fs;
 use std::fs::File;
@@ -18,6 +18,18 @@ pub fn run<T: EthSpec>(matches: &ArgMatches) -> Result<(), String> {
     let genesis_fork_version: [u8; 4] =
         clap_utils::parse_ssz_required(matches, "genesis-fork-version")?;
 
+    let _ = generate_enr::<T>(ip, udp_port, tcp_port, output_dir, genesis_fork_version)?;
+
+    Ok(())
+}
+
+pub fn generate_enr<T: EthSpec>(
+    ip: IpAddr,
+    udp_port: u16,
+    tcp_port: u16,
+    output_dir: PathBuf,
+    genesis_fork_version: [u8; 4],
+) -> Result<Enr, String> {
     if output_dir.exists() {
         return Err(format!(
             "{:?} already exists, will not override",
@@ -61,5 +73,5 @@ pub fn run<T: EthSpec>(matches: &ArgMatches) -> Result<(), String> {
         .write_all(&secret_bytes)
         .map_err(|e| format!("Unable to write key to {}: {:?}", NETWORK_KEY_FILENAME, e))?;
 
-    Ok(())
+    Ok(enr)
 }

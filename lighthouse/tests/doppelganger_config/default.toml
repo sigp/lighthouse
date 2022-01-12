@@ -1,0 +1,65 @@
+[global]
+validator-count = 80
+beacon-count = 4
+spec = "mainnet"
+datadir = "~/.lighthouse/local-testnet"
+boot-address = "127.0.0.1:7000"
+
+[ganache]
+defaultBalanceEther = 1000000000
+gasLimit = 1000000000
+accounts = 10
+mnemonic = "vast thought differ pull jewel broom cook wrist tribe word before omit"
+port = 8545
+blockTime = 1
+networkId = "4242"
+chainId = "4242"
+
+[lcli.deploy-deposit-contract]
+eth1-http = "http://localhost:8545"
+confirmations = 1
+validator-count = 80
+
+[lcli.new-testnet]
+spec = "mainnet"
+deposit-contract-address = "8c594691c0e592ffa21f153a16ae41db5befcaaa"
+testnet-dir = "~/.lighthouse/local-testnet/testnet"
+min-genesis-active-validator-count = 80
+validator-count = 80
+genesis-delay = 0
+genesis-fork-version = "0x42424242"
+altair-fork-epoch = "18446744073709551615"
+eth1-id = "4242"
+eth1-follow-distance = 1
+seconds-per-slot = 1
+seconds-per-eth1-block = 1
+force = true
+interop-genesis-state = true
+boot-address = "127.0.0.1:7000"
+boot-dir =  "~/.lighthouse/local-testnet/bootnode"
+
+[boot_node]
+testnet-dir = "~/.lighthouse/local-testnet/testnet"
+port = 7000
+listen-address = "127.0.0.1"
+disable-packet-filter = true
+network-dir = "~/.lighthouse/local-testnet/bootnode"
+
+[beacon.default]
+debug-level = "debug"
+subscribe-all-subnets = true
+datadir = "~/.lighthouse/local-testnet/bn_1"
+testnet-dir = "~/.lighthouse/local-testnet/testnet"
+staking = true
+port = 9000
+http-port = 5052
+disable-packet-filter = true
+target-peers = 3
+
+[validator.default]
+debug-level = "debug"
+datadir = "~/.lighthouse/local-testnet/bn_1"
+testnet-dir = "~/.lighthouse/local-testnet/testnet"
+init-slashing-protection = true
+beacon-nodes = "localhost:5052"
+enable-doppelganger-detection = true

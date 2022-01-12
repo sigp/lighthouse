@@ -1,11 +1,14 @@
+use crate::generate_bootnode_enr::generate_enr;
 use clap::ArgMatches;
 use clap_utils::{parse_optional, parse_required, parse_ssz_optional};
 use eth2_network_config::Eth2NetworkConfig;
 use genesis::interop_genesis_state;
+use sensitive_url::SensitiveUrl;
 use ssz::Decode;
 use ssz::Encode;
 use std::fs::File;
 use std::io::Read;
+use std::net::{IpAddr, Ipv4Addr};
 use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
 use types::{
@@ -118,9 +121,35 @@ pub fn run<T: EthSpec>(testnet_dir_path: PathBuf, matches: &ArgMatches) -> Resul
         None
     };
 
+    let mut boot_enrs = vec![];
+
+    if let (Some(addr), Some(dir)) = (
+        parse_optional::<String>(&matches, "boot-address")?,
+        parse_optional::<String>(&matches, "boot-dir")?,
+    ) {
+        let url = SensitiveUrl::parse(addr.as_str()).unwrap();
+        let host_addr = url
+            .full
+            .domain()
+            .unwrap()
+            .to_string()
+            .parse::<IpAddr>()
+            .unwrap();
+        let port = url.full.port().unwrap();
+        let enr = generate_enr::<T>(
+            host_addr,
+            port,
+            port,
+            PathBuf::from(dir),
+            spec.genesis_fork_version,
+        )
+        .unwrap();
+        boot_enrs.push(enr);
+    };
+
     let testnet = Eth2NetworkConfig {
         deposit_contract_deploy_block,
-        boot_enr: Some(vec![]),
+        boot_enr: Some(boot_enrs),
         genesis_state_bytes,
         config: Config::from_chain_spec::<T>(&spec),
     };

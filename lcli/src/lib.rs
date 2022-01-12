@@ -1,21 +1,21 @@
 #[macro_use]
 extern crate log;
 
-use std::collections::HashMap;
-use clap::{Arg, ArgMatches};
-use clap_utils::{DefaultConfigApp as App, parse_path_with_default_in_home_dir, parse_required};
-use environment::{EnvironmentBuilder, LoggerConfig};
-use std::path::PathBuf;
-use types::{EthSpec, EthSpecId};
 use crate::parse_ssz::run_parse_ssz;
 use crate::transition_blocks::run_transition_blocks;
+use clap::{App, Arg, ArgMatches};
+use clap_utils::{parse_path_with_default_in_home_dir, parse_required};
+use environment::{EnvironmentBuilder, LoggerConfig};
+use std::collections::HashMap;
+use std::path::PathBuf;
+use types::{EthSpec, EthSpecId};
 
 pub mod change_genesis_time;
 pub mod check_deposit_data;
 pub mod create_payload_header;
 pub mod deploy_deposit_contract;
-pub mod etl;
 pub mod eth1_genesis;
+pub mod etl;
 pub mod generate_bootnode_enr;
 pub mod insecure_validators;
 pub mod interop_genesis;
@@ -25,8 +25,8 @@ pub mod replace_state_pubkeys;
 pub mod skip_slots;
 pub mod transition_blocks;
 
-pub fn new_app<'a>(default_config: Option<&'a HashMap<&'a str, &'a str>>,) -> App<'a> {
-    App::new("Lighthouse CLI Tool", default_config)
+pub fn new_app<'a>(default_config: Option<&'a HashMap<&'a str, &'a str>>) -> App<'a> {
+    App::new("Lighthouse CLI Tool")
         .version(lighthouse_version::VERSION)
         .about("Performs various testing-related tasks, including defining testnets.")
         .arg(
@@ -50,7 +50,7 @@ pub fn new_app<'a>(default_config: Option<&'a HashMap<&'a str, &'a str>>,) -> Ap
                 .help("The testnet dir. Defaults to ~/.lighthouse/testnet"),
         )
         .subcommand(
-            App::new("skip-slots", default_config)
+            App::new("skip-slots")
                 .about(
                     "Performs a state transition from some state across some number of skip slots",
                 )
@@ -78,7 +78,7 @@ pub fn new_app<'a>(default_config: Option<&'a HashMap<&'a str, &'a str>>,) -> Ap
                 ),
         )
         .subcommand(
-            App::new("transition-blocks", default_config)
+            App::new("transition-blocks")
                 .about("Performs a state transition given a pre-state and block")
                 .arg(
                     Arg::new("pre-state")
@@ -104,7 +104,7 @@ pub fn new_app<'a>(default_config: Option<&'a HashMap<&'a str, &'a str>>,) -> Ap
                 ),
         )
         .subcommand(
-            App::new("pretty-ssz", default_config)
+            App::new("pretty-ssz")
                 .about("Parses SSZ-encoded data from a file")
                 .arg(
                     Arg::new("format")
@@ -133,7 +133,7 @@ pub fn new_app<'a>(default_config: Option<&'a HashMap<&'a str, &'a str>>,) -> Ap
                 )
         )
         .subcommand(
-            App::new("deploy-deposit-contract", default_config)
+            App::new("deploy-deposit-contract")
                 .about(
                     "Deploy a testing eth1 deposit contract.",
                 )
@@ -165,7 +165,7 @@ pub fn new_app<'a>(default_config: Option<&'a HashMap<&'a str, &'a str>>,) -> Ap
                 )
         )
         .subcommand(
-            App::new("eth1-genesis", default_config)
+            App::new("eth1-genesis")
                 .about("Listens to the eth1 chain and finds the genesis beacon state")
                 .arg(
                     Arg::new("eth1-endpoint")
@@ -189,7 +189,7 @@ pub fn new_app<'a>(default_config: Option<&'a HashMap<&'a str, &'a str>>,) -> Ap
                 ),
         )
         .subcommand(
-            App::new("interop-genesis", default_config)
+            App::new("interop-genesis")
                 .about("Produces an interop-compatible genesis state using deterministic keypairs")
                 .arg(
                     Arg::new("validator-count")
@@ -220,7 +220,7 @@ pub fn new_app<'a>(default_config: Option<&'a HashMap<&'a str, &'a str>>,) -> Ap
                 ),
         )
         .subcommand(
-            App::new("change-genesis-time", default_config)
+            App::new("change-genesis-time")
                 .about(
                     "Loads a file with an SSZ-encoded BeaconState and modifies the genesis time.",
                 )
@@ -242,7 +242,7 @@ pub fn new_app<'a>(default_config: Option<&'a HashMap<&'a str, &'a str>>,) -> Ap
                 ),
         )
         .subcommand(
-            App::new("replace-state-pubkeys", default_config)
+            App::new("replace-state-pubkeys")
                 .about(
                     "Loads a file with an SSZ-encoded BeaconState and replaces \
                     all the validator pubkeys with ones derived from the mnemonic \
@@ -271,7 +271,7 @@ pub fn new_app<'a>(default_config: Option<&'a HashMap<&'a str, &'a str>>,) -> Ap
                 ),
         )
         .subcommand(
-            App::new("create-payload-header", default_config)
+            App::new("create-payload-header")
                 .about("Generates an SSZ file containing bytes for an `ExecutionPayloadHeader`. \
                 Useful as input for `lcli new-testnet --execution-payload-header FILE`. ")
                 .arg(
@@ -322,7 +322,7 @@ pub fn new_app<'a>(default_config: Option<&'a HashMap<&'a str, &'a str>>,) -> Ap
                 )
         )
         .subcommand(
-            App::new("new-testnet", default_config)
+            App::new("new-testnet")
                 .about(
                     "Produce a new testnet directory. If any of the optional flags are not
                     supplied the values will remain the default for the --spec flag",
@@ -499,9 +499,28 @@ pub fn new_app<'a>(default_config: Option<&'a HashMap<&'a str, &'a str>>,) -> Ap
                         .takes_value(true)
                         .help("The genesis time when generating a genesis state."),
                 )
+                .arg(
+                    Arg::new("boot-address")
+                        .long("boot-address")
+                        .value_name("IP-ADDRESS")
+                        .takes_value(true)
+                        .required(false)
+                        .requires("boot-dir")
+                        .help("A boot node ENR will be generated for the provided IP address and \
+                            added to the `boot_enr.yaml` file. Example: 127.0.0.1:7000"),
+                )
+                .arg(
+                    Arg::new("boot-dir")
+                        .long("boot-dir")
+                        .value_name("PATH")
+                        .takes_value(true)
+                        .required(false)
+                        .requires("boot-address")
+                        .help("The output directory of the generated boot node files."),
+                )
         )
         .subcommand(
-            App::new("check-deposit-data", default_config)
+            App::new("check-deposit-data")
                 .about("Checks the integrity of some deposit data.")
                 .arg(
                     Arg::new("deposit-amount")
@@ -524,7 +543,7 @@ pub fn new_app<'a>(default_config: Option<&'a HashMap<&'a str, &'a str>>,) -> Ap
                 ),
         )
         .subcommand(
-            App::new("generate-bootnode-enr", default_config)
+            App::new("generate-bootnode-enr")
                 .about("Generates an ENR address to be used as a pre-genesis boot node.")
                 .arg(
                     Arg::new("ip")
@@ -573,7 +592,7 @@ pub fn new_app<'a>(default_config: Option<&'a HashMap<&'a str, &'a str>>,) -> Ap
                 ),
         )
         .subcommand(
-            App::new("insecure-validators", default_config)
+            App::new("insecure-validators")
                 .about("Produces validator directories with INSECURE, deterministic keypairs.")
                 .arg(
                     Arg::new("count")
@@ -598,7 +617,7 @@ pub fn new_app<'a>(default_config: Option<&'a HashMap<&'a str, &'a str>>,) -> Ap
                 )
         )
         .subcommand(
-            App::new("etl-block-efficiency", default_config)
+            App::new("etl-block-efficiency")
                 .about(
                     "Performs ETL analysis of block efficiency. Requires a Beacon Node API to \
                     extract data from.",
@@ -655,15 +674,17 @@ pub fn new_app<'a>(default_config: Option<&'a HashMap<&'a str, &'a str>>,) -> Ap
                 )
         )
 }
-pub fn run(matches: &ArgMatches) -> Result<(),String> {
-    parse_required::<EthSpecId>(&matches, "spec")
-        .and_then(|eth_spec_id| match eth_spec_id {
-            EthSpecId::Minimal => run_with_env(EnvironmentBuilder::minimal(), &matches),
-            EthSpecId::Mainnet => run_with_env(EnvironmentBuilder::mainnet(), &matches),
-        })
+pub fn run(matches: &ArgMatches) -> Result<(), String> {
+    parse_required::<EthSpecId>(&matches, "spec").and_then(|eth_spec_id| match eth_spec_id {
+        EthSpecId::Minimal => run_with_env(EnvironmentBuilder::minimal(), &matches),
+        EthSpecId::Mainnet => run_with_env(EnvironmentBuilder::mainnet(), &matches),
+    })
 }
 
-fn run_with_env<T: EthSpec>(env_builder: EnvironmentBuilder<T>, matches: &ArgMatches) -> Result<(), String> {
+fn run_with_env<T: EthSpec>(
+    env_builder: EnvironmentBuilder<T>,
+    matches: &ArgMatches,
+) -> Result<(), String> {
     let env = env_builder
         .multi_threaded_tokio_runtime()
         .map_err(|e| format!("should start tokio runtime: {:?}", e))?

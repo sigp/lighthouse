@@ -3,13 +3,13 @@
 use clap::ArgMatches;
 use eth2_network_config::{Eth2NetworkConfig, DEFAULT_HARDCODED_NETWORK};
 use ethereum_types::U256 as Uint256;
-use serde_yaml::Value as YamlValue;
+pub use serde_yaml::Value as YamlValue;
 use ssz::Decode;
 use std::collections::HashMap;
 use std::fs;
 use std::path::PathBuf;
 use std::str::FromStr;
-use toml::Value as TomlValue;
+pub use toml::Value as TomlValue;
 
 pub use default_config::DefaultConfigApp;
 
@@ -184,7 +184,7 @@ pub fn parse_file_config(file_name: &str) -> Result<HashMap<String, String>, Str
     }
 }
 
-fn to_string_map<V, F: Fn(V) -> Result<String, String>>(
+pub fn to_string_map<V, F: Fn(V) -> Result<String, String>>(
     map: HashMap<String, V>,
     f: F,
 ) -> Result<HashMap<String, String>, String> {
@@ -195,7 +195,7 @@ fn to_string_map<V, F: Fn(V) -> Result<String, String>>(
     Ok(new_map)
 }
 
-fn toml_value_to_string(value: TomlValue) -> Result<String, String> {
+pub fn toml_value_to_string(value: TomlValue) -> Result<String, String> {
     let string_value = match value {
         TomlValue::String(v) => v,
         TomlValue::Integer(v) => v.to_string(),
