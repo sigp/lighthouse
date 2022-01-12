@@ -429,6 +429,7 @@ pub struct AttestationPoolQuery {
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ValidatorsQuery {
     #[serde(default, deserialize_with = "option_query_vec")]
     pub id: Option<Vec<ValidatorId>>,
@@ -542,7 +543,7 @@ where
 {
     let vec: Vec<QueryVec<T>> = Deserialize::deserialize(deserializer)?;
     if vec.is_empty() {
-        return Ok(None)
+        return Ok(None);
     }
 
     Ok(Some(Vec::from(QueryVec::from(vec))))
@@ -567,7 +568,7 @@ impl<T: FromStr> TryFrom<String> for QueryVec<T> {
         Ok(Self {
             values: string
                 .split(',')
-                .map(|s| s.parse().map_err(|_| "unable to parse".to_string()))
+                .map(|s| s.parse().map_err(|_| "unable to parse query".to_string()))
                 .collect::<Result<Vec<T>, String>>()?,
         })
     }
@@ -580,6 +581,7 @@ impl<T: FromStr> From<QueryVec<T>> for Vec<T> {
 }
 
 #[derive(Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ValidatorBalancesQuery {
     #[serde(default, deserialize_with = "option_query_vec")]
     pub id: Option<Vec<ValidatorId>>,
@@ -644,6 +646,7 @@ pub struct BeaconCommitteeSubscription {
 }
 
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct PeersQuery {
     #[serde(default, deserialize_with = "option_query_vec")]
     pub state: Option<Vec<PeerState>>,
@@ -902,6 +905,7 @@ impl<T: EthSpec> EventKind<T> {
 }
 
 #[derive(Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct EventQuery {
     #[serde(deserialize_with = "query_vec")]
     pub topics: Vec<EventTopic>,
@@ -1006,7 +1010,9 @@ mod tests {
     fn query_vec() {
         assert_eq!(
             QueryVec::try_from("0,1,2".to_string()).unwrap(),
-            QueryVec { values: vec![0_u64, 1, 2] }
+            QueryVec {
+                values: vec![0_u64, 1, 2]
+            }
         );
     }
 }

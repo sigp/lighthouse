@@ -512,8 +512,9 @@ pub fn serve<T: BeaconChainTypes>(
         .and_then(
             |state_id: StateId,
              chain: Arc<BeaconChain<T>>,
-             query: api_types::ValidatorBalancesQuery| {
+             query_res: Result<api_types::ValidatorBalancesQuery, warp::Rejection>| {
                 blocking_json_task(move || {
+                    let query = query_res?;
                     state_id
                         .map_state(&chain, |state| {
                             Ok(state
@@ -551,11 +552,14 @@ pub fn serve<T: BeaconChainTypes>(
     let get_beacon_state_validators = beacon_states_path
         .clone()
         .and(warp::path("validators"))
-        .and(multi_key_query::<api_types::ValidatorsQuery>())
         .and(warp::path::end())
+        .and(multi_key_query::<api_types::ValidatorsQuery>())
         .and_then(
-            |state_id: StateId, chain: Arc<BeaconChain<T>>, query: api_types::ValidatorsQuery| {
+            |state_id: StateId,
+             chain: Arc<BeaconChain<T>>,
+             query_res: Result<api_types::ValidatorsQuery, warp::Rejection>| {
                 blocking_json_task(move || {
+                    let query = query_res?;
                     state_id
                         .map_state(&chain, |state| {
                             let epoch = state.current_epoch();
@@ -623,6 +627,7 @@ pub fn serve<T: BeaconChainTypes>(
         .and(warp::path::end())
         .and_then(
             |state_id: StateId, chain: Arc<BeaconChain<T>>, validator_id: ValidatorId| {
+                println!("Ran single validator endpoints");
                 blocking_json_task(move || {
                     state_id
                         .map_state(&chain, |state| {
@@ -1727,8 +1732,10 @@ pub fn serve<T: BeaconChainTypes>(
         .and(multi_key_query::<api_types::PeersQuery>())
         .and(network_globals.clone())
         .and_then(
-            |query: api_types::PeersQuery, network_globals: Arc<NetworkGlobals<T::EthSpec>>| {
+            |query_res: Result<api_types::PeersQuery, warp::Rejection>,
+             network_globals: Arc<NetworkGlobals<T::EthSpec>>| {
                 blocking_json_task(move || {
+                    let query = query_res?;
                     let mut peers: Vec<api_types::PeerData> = Vec::new();
                     network_globals
                         .peers
@@ -2540,8 +2547,10 @@ pub fn serve<T: BeaconChainTypes>(
         .and(multi_key_query::<api_types::EventQuery>())
         .and(chain_filter)
         .and_then(
-            |topics: api_types::EventQuery, chain: Arc<BeaconChain<T>>| {
+            |topics_res: Result<api_types::EventQuery, warp::Rejection>,
+             chain: Arc<BeaconChain<T>>| {
                 blocking_task(move || {
+                    let topics = topics_res?;
                     // for each topic subscribed spawn a new subscription
                     let mut receivers = Vec::with_capacity(topics.topics.len());
 
@@ -2609,8 +2618,8 @@ pub fn serve<T: BeaconChainTypes>(
                 .or(get_beacon_state_fork.boxed())
                 .or(get_beacon_state_finality_checkpoints.boxed())
                 .or(get_beacon_state_validator_balances.boxed())
-                .or(get_beacon_state_validators.boxed())
                 .or(get_beacon_state_validators_id.boxed())
+                .or(get_beacon_state_validators.boxed())
                 .or(get_beacon_state_committees.boxed())
                 .or(get_beacon_state_sync_committees.boxed())
                 .or(get_beacon_headers.boxed())
