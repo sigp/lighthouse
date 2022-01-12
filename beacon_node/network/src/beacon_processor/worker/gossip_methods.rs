@@ -741,6 +741,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                     "Gossip block beacon chain error";
                     "error" => ?e,
                 );
+                self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
                 return None;
             }
             Err(e @ BlockError::FutureSlot { .. })
