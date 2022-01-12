@@ -1273,7 +1273,7 @@ impl<T: BeaconChainTypes> Worker<T> {
         let attestation_type = failed_att.kind();
         metrics::register_attestation_error(&error);
         match &error {
-            AttnError::FutureEpoch { .. } | AttnError::FutureSlot { .. } => {
+            AttnError::FutureSlot { .. } => {
                 /*
                  * These errors can be triggered by a mismatch between our slot and the peer.
                  *
@@ -1293,13 +1293,13 @@ impl<T: BeaconChainTypes> Worker<T> {
                 self.gossip_penalize_peer(
                     peer_id,
                     PeerAction::LowToleranceError,
-                    "attn_for_future",
+                    "attn_future_slot",
                 );
 
                 // Do not propagate these messages.
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
             }
-            AttnError::PastSlot { .. } | AttnError::PastEpoch { .. } => {
+            AttnError::PastSlot { .. } => {
                 // Produce a slot clock frozen at the time we received the message from the
                 // network.
                 let seen_clock = &self.chain.slot_clock.freeze_at(seen_timestamp);
@@ -1315,7 +1315,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                     self.gossip_penalize_peer(
                         peer_id,
                         PeerAction::LowToleranceError,
-                        "attn_from_past",
+                        "attn_past_slot",
                     );
                 }
 
