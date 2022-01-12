@@ -452,7 +452,7 @@ impl<'a, T: BeaconChainTypes> IndexedAggregatedAttestation<'a, T> {
         // MAXIMUM_GOSSIP_CLOCK_DISPARITY allowance).
         //
         // We do not queue future attestations for later processing.
-        verify_propagation_slot_range(chain, attestation)?;
+        verify_propagation_slot_range(&chain.slot_clock, attestation)?;
 
         // Check the attestation's epoch matches its target.
         if attestation.data.slot.epoch(T::EthSpec::slots_per_epoch())
@@ -716,7 +716,7 @@ impl<'a, T: BeaconChainTypes> IndexedUnaggregatedAttestation<'a, T> {
         // MAXIMUM_GOSSIP_CLOCK_DISPARITY allowance).
         //
         // We do not queue future attestations for later processing.
-        verify_propagation_slot_range(chain, attestation)?;
+        verify_propagation_slot_range(&chain.slot_clock, attestation)?;
 
         // Check to ensure that the attestation is "unaggregated". I.e., it has exactly one
         // aggregation bit set.
@@ -1019,14 +1019,13 @@ fn verify_head_block_is_known<T: BeaconChainTypes>(
 /// to the current slot of the `chain`.
 ///
 /// Accounts for `MAXIMUM_GOSSIP_CLOCK_DISPARITY`.
-pub fn verify_propagation_slot_range<T: BeaconChainTypes>(
-    chain: &BeaconChain<T>,
-    attestation: &Attestation<T::EthSpec>,
+pub fn verify_propagation_slot_range<S: SlotClock, E: EthSpec>(
+    slot_clock: &S,
+    attestation: &Attestation<E>,
 ) -> Result<(), Error> {
     let attestation_slot = attestation.data.slot;
 
-    let latest_permissible_slot = chain
-        .slot_clock
+    let latest_permissible_slot = slot_clock
         .now_with_future_tolerance(MAXIMUM_GOSSIP_CLOCK_DISPARITY)
         .ok_or(BeaconChainError::UnableToReadSlot)?;
     if attestation_slot > latest_permissible_slot {
@@ -1037,11 +1036,10 @@ pub fn verify_propagation_slot_range<T: BeaconChainTypes>(
     }
 
     // Taking advantage of saturating subtraction on `Slot`.
-    let earliest_permissible_slot = chain
-        .slot_clock
+    let earliest_permissible_slot = slot_clock
         .now_with_past_tolerance(MAXIMUM_GOSSIP_CLOCK_DISPARITY)
         .ok_or(BeaconChainError::UnableToReadSlot)?
-        - T::EthSpec::slots_per_epoch();
+        - E::slots_per_epoch();
     if attestation_slot < earliest_permissible_slot {
         return Err(Error::PastSlot {
             attestation_slot,
