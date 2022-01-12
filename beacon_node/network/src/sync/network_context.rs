@@ -170,13 +170,14 @@ impl<T: EthSpec> SyncNetworkContext<T> {
     }
 
     /// Reports to the scoring algorithm the behaviour of a peer.
-    pub fn report_peer(&mut self, peer_id: PeerId, action: PeerAction) {
+    pub fn report_peer(&mut self, peer_id: PeerId, action: PeerAction, msg: &'static str) {
         debug!(self.log, "Sync reporting peer"; "peer_id" => %peer_id, "action" => %action);
         self.network_send
             .send(NetworkMessage::ReportPeer {
                 peer_id,
                 action,
                 source: ReportSource::SyncService,
+                msg,
             })
             .unwrap_or_else(|e| {
                 warn!(self.log, "Could not report peer, channel failed"; "error"=> %e);

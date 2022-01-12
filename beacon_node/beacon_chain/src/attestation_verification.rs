@@ -183,24 +183,6 @@ pub enum Error {
     /// single-participant attestation from this validator for this epoch and should not observe
     /// another.
     PriorAttestationKnown { validator_index: u64, epoch: Epoch },
-    /// The attestation is for an epoch in the future (with respect to the gossip clock disparity).
-    ///
-    /// ## Peer scoring
-    ///
-    /// Assuming the local clock is correct, the peer has sent an invalid message.
-    FutureEpoch {
-        attestation_epoch: Epoch,
-        current_epoch: Epoch,
-    },
-    /// The attestation is for an epoch in the past (with respect to the gossip clock disparity).
-    ///
-    /// ## Peer scoring
-    ///
-    /// Assuming the local clock is correct, the peer has sent an invalid message.
-    PastEpoch {
-        attestation_epoch: Epoch,
-        current_epoch: Epoch,
-    },
     /// The attestation is attesting to a state that is later than itself. (Viz., attesting to the
     /// future).
     ///

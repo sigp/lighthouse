@@ -106,6 +106,15 @@ lazy_static! {
     /// The number of peers that we dialed us.
     pub static ref NETWORK_OUTBOUND_PEERS: Result<IntGauge> =
         try_create_int_gauge("network_outbound_peers","The number of peers that are currently connected that we dialed.");
+
+    /*
+     * Peer Reporting
+     */
+    pub static ref REPORT_PEER_MSGS: Result<IntCounterVec> = try_create_int_counter_vec(
+        "libp2p_report_peer_msgs_total",
+        "Number of peer reports per msg",
+        &["msg"]
+    );
 }
 
 /// Checks if we consider the NAT open.
