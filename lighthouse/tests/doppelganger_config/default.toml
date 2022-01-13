@@ -41,7 +41,7 @@ listen-address = "127.0.0.1"
 disable-packet-filter = true
 
 # these will be duplicated and these fields will be incremented
-# - datadir = ~/.lighthouse/local-testnet/node_[1-9]
+# - datadir = ./tests/tmp/node_[1-9]
 # - port = 9[1-9]00
 # - http-port = 5[1-9]52
 [beacon.default]
@@ -52,7 +52,7 @@ disable-packet-filter = true
 target-peers = 3
 
 # these will be duplicated and these fields will be incremented
-# - datadir = ~/.lighthouse/local-testnet/node_[1-9]
+# - datadir = ./tests/tmp/node_[1-9]
 # - beacon-nodes = http://localhost:5[1-9]52
 [validator.default]
 debug-level = "info"
