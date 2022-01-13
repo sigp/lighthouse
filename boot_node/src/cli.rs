@@ -21,7 +21,7 @@ pub fn cli_app<'a>(file_args: Option<&'a HashMap<&'a str, &'a str>>) -> App<'a> 
                 does not auto-update based on PONG responses in discovery.")
                 .required(true)
                 .takes_value(true)
-                .conflicts_with("network-dir")
+                .conflicts_with(NETWORK_DIR_FLAG)
         )
         .arg(
             Arg::new(PORT_FLAG)
@@ -53,7 +53,7 @@ pub fn cli_app<'a>(file_args: Option<&'a HashMap<&'a str, &'a str>>) -> App<'a> 
                 .value_name("PORT")
                 .help("The UDP port of the boot node's ENR. This is the port that external peers will dial to reach this boot node. Set this only if the external port differs from the listening port.")
                 .takes_value(true)
-                .conflicts_with("network-dir")
+                .conflicts_with(NETWORK_DIR_FLAG)
         )
         .arg(
             Arg::new(ENABLE_ENR_AUTO_UPDATE_FLAG)
@@ -69,8 +69,8 @@ pub fn cli_app<'a>(file_args: Option<&'a HashMap<&'a str, &'a str>>) -> App<'a> 
         )
         .arg(
             Arg::new(NETWORK_DIR_FLAG)
-            .value_name(NETWORK_DIR_FLAG)
-                .long("network-dir")
+                .value_name("NETWORK_DIR")
+                .long(NETWORK_DIR_FLAG)
                 .help("The directory which contains the enr and it's assoicated private key")
                 .takes_value(true)
         )

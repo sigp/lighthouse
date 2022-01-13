@@ -140,7 +140,7 @@ pub fn cli_app<'a>(file_args: Option<&'a HashMap<&'a str, &'a str>>) -> App<'a> 
                 does not auto-update based on PONG responses in discovery. \
                 Set this only if you are sure other nodes can connect to your local node on this address. \
                 Discovery will automatically find your external address,if possible.")
-                .requires("enr-udp-port")
+                .requires(ENR_UDP_PORT_FLAG)
                 .takes_value(true),
         )
         .arg(
@@ -223,8 +223,8 @@ pub fn cli_app<'a>(file_args: Option<&'a HashMap<&'a str, &'a str>>) -> App<'a> 
                 .help("Serves the RESTful HTTP API server over TLS. This feature is currently \
                     experimental.")
                 .takes_value(false)
-                .requires("http-tls-cert")
-                .requires("http-tls-key")
+                .requires(HTTP_TLS_CERT_FLAG)
+                .requires(HTTP_TLS_KEY_FLAG)
         )
         .arg(
             Arg::new(HTTP_TLS_CERT_FLAG)
@@ -324,7 +324,7 @@ pub fn cli_app<'a>(file_args: Option<&'a HashMap<&'a str, &'a str>>) -> App<'a> 
         .arg(
             Arg::new(DUMMY_ETH1_FLAG)
                 .long(DUMMY_ETH1_FLAG)
-                .conflicts_with("eth1")
+                .conflicts_with(ETH1_FLAG)
                 .help("If present, uses an eth1 backend that generates static dummy data.\
                       Identical to the method used at the 2019 Canada interop.")
         )
@@ -339,7 +339,7 @@ pub fn cli_app<'a>(file_args: Option<&'a HashMap<&'a str, &'a str>>) -> App<'a> 
             Arg::new(ETH1_ENDPOINTS_FLAG)
                 .long(ETH1_ENDPOINTS_FLAG)
                 .value_name("HTTP-ENDPOINTS")
-                .conflicts_with("eth1-endpoint")
+                .conflicts_with(ETH1_ENDPOINT_FLAG)
                 .help("One or more comma-delimited server endpoints for web3 connection. \
                        If multiple endpoints are given the endpoints are used as fallback in the \
                        given order. Also enables the --eth1 flag. \
@@ -400,14 +400,14 @@ pub fn cli_app<'a>(file_args: Option<&'a HashMap<&'a str, &'a str>>) -> App<'a> 
                 .takes_value(true)
         )
         .arg(
-            Arg::new("fee-recipient")
-                .long("fee-recipient")
+            Arg::new(FEE_RECIPIENT_FLAG)
+                .long(FEE_RECIPIENT_FLAG)
                 .value_name("FEE-RECIPIENT")
                 .help("Once the merge has happened, this address will receive transaction fees \
                        collected from any blocks produced by this node. Defaults to a junk \
                        address whilst the merge is in development stages. THE DEFAULT VALUE \
                        WILL BE REMOVED BEFORE THE MERGE ENTERS PRODUCTION")
-                .requires("merge")
+                .requires(MERGE_FLAG)
                 .takes_value(true)
         )
 
@@ -478,7 +478,7 @@ pub fn cli_app<'a>(file_args: Option<&'a HashMap<&'a str, &'a str>>) -> App<'a> 
                 )
                 .value_name("PATH")
                 .takes_value(true)
-                .requires("slasher")
+                .requires(SLASHER_FLAG)
         )
         .arg(
             Arg::new(SLASHER_UPDATE_PERIOD_FLAG)
@@ -487,7 +487,7 @@ pub fn cli_app<'a>(file_args: Option<&'a HashMap<&'a str, &'a str>>) -> App<'a> 
                     "Configure how often the slasher runs batch processing."
                 )
                 .value_name("SECONDS")
-                .requires("slasher")
+                .requires(SLASHER_FLAG)
                 .takes_value(true)
         )
         .arg(
@@ -499,7 +499,7 @@ pub fn cli_app<'a>(file_args: Option<&'a HashMap<&'a str, &'a str>>) -> App<'a> 
                      slot duration."
                 )
                 .value_name("SECONDS")
-                .requires("slasher")
+                .requires(SLASHER_FLAG)
                 .takes_value(true)
         )
         .arg(
@@ -510,7 +510,7 @@ pub fn cli_app<'a>(file_args: Option<&'a HashMap<&'a str, &'a str>>) -> App<'a> 
                      initialization."
                 )
                 .value_name("EPOCHS")
-                .requires("slasher")
+                .requires(SLASHER_FLAG)
                 .takes_value(true)
         )
         .arg(
@@ -520,7 +520,7 @@ pub fn cli_app<'a>(file_args: Option<&'a HashMap<&'a str, &'a str>>) -> App<'a> 
                     "Maximum size of the MDBX database used by the slasher."
                 )
                 .value_name("GIGABYTES")
-                .requires("slasher")
+                .requires(SLASHER_FLAG)
                 .takes_value(true)
         )
         .arg(
@@ -528,7 +528,7 @@ pub fn cli_app<'a>(file_args: Option<&'a HashMap<&'a str, &'a str>>) -> App<'a> 
                 .long(SLASHER_ATT_CACHE_SIZE_FLAG)
                 .help("Set the maximum number of attestation roots for the slasher to cache")
                 .value_name("COUNT")
-                .requires("slasher")
+                .requires(SLASHER_FLAG)
                 .takes_value(true)
         )
         .arg(
@@ -538,7 +538,7 @@ pub fn cli_app<'a>(file_args: Option<&'a HashMap<&'a str, &'a str>>) -> App<'a> 
                     "Number of epochs per validator per chunk stored on disk."
                 )
                 .value_name("EPOCHS")
-                .requires("slasher")
+                .requires(SLASHER_FLAG)
                 .takes_value(true)
         )
         .arg(
@@ -548,7 +548,7 @@ pub fn cli_app<'a>(file_args: Option<&'a HashMap<&'a str, &'a str>>) -> App<'a> 
                     "Number of validators per chunk stored on disk."
                 )
                 .value_name("NUM_VALIDATORS")
-                .requires("slasher")
+                .requires(SLASHER_FLAG)
                 .takes_value(true)
         )
         .arg(
@@ -556,7 +556,7 @@ pub fn cli_app<'a>(file_args: Option<&'a HashMap<&'a str, &'a str>>) -> App<'a> 
                 .long(SLASHER_BROADCAST_FLAG)
                 .help("Broadcast slashings found by the slasher to the rest of the network \
                        [disabled by default].")
-                .requires("slasher")
+                .requires(SLASHER_FLAG)
         )
         .arg(
             Arg::new(WSS_CHECKPOINT_FLAG)
@@ -577,7 +577,7 @@ pub fn cli_app<'a>(file_args: Option<&'a HashMap<&'a str, &'a str>>) -> App<'a> 
                        --checkpoint-block. Using --checkpoint-sync-url instead is recommended.")
                 .value_name("STATE_SSZ")
                 .takes_value(true)
-                .requires("checkpoint-block")
+                .requires(CHECKPOINT_BLOCK_FLAG)
         )
         .arg(
             Arg::new(CHECKPOINT_BLOCK_FLAG)
@@ -586,7 +586,7 @@ pub fn cli_app<'a>(file_args: Option<&'a HashMap<&'a str, &'a str>>) -> App<'a> 
                        --checkpoint-state. Using --checkpoint-sync-url instead is recommended.")
                 .value_name("BLOCK_SSZ")
                 .takes_value(true)
-                .requires("checkpoint-state")
+                .requires(CHECKPOINT_STATE_FLAG)
         )
         .arg(
             Arg::new(CHECKPOINT_SYNC_URL_FLAG)
@@ -594,7 +594,7 @@ pub fn cli_app<'a>(file_args: Option<&'a HashMap<&'a str, &'a str>>) -> App<'a> 
                 .help("Set the remote beacon node HTTP endpoint to use for checkpoint sync.")
                 .value_name("BEACON_NODE")
                 .takes_value(true)
-                .conflicts_with("checkpoint-state")
+                .conflicts_with(CHECKPOINT_STATE_FLAG)
         )
         .arg(
             Arg::new(RECONSTRUCT_HISTORIC_STATE_FLAG)
