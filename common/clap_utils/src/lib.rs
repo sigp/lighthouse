@@ -209,7 +209,7 @@ pub fn toml_value_to_string(value: TomlValue) -> Result<String, String> {
             .map(toml_value_to_string)
             .collect::<Result<Vec<_>, _>>()?
             .join(","),
-        TomlValue::Table(_) => return Err("Unable to parse YAML table".to_string()),
+        TomlValue::Table(_) => return Err("Unable to parse TOML table".to_string()),
     };
     Ok(string_value)
 }
@@ -225,7 +225,7 @@ fn yaml_value_to_string(value: YamlValue) -> Result<String, String> {
             .map(yaml_value_to_string)
             .collect::<Result<Vec<_>, _>>()?
             .join(","),
-        YamlValue::Mapping(_) => return Err("Unable to parse TOML table".to_string()),
+        YamlValue::Mapping(_) => return Err("Unable to parse YAML table".to_string()),
     };
     Ok(string_value)
 }

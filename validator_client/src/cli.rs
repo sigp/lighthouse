@@ -16,7 +16,7 @@ pub fn cli_app<'a>(file_args: Option<&'a HashMap<&'a str, &'a str>>) -> App<'a> 
                 .value_name("NETWORK_ADDRESS")
                 .help("Deprecated. Use --beacon-nodes.")
                 .takes_value(true)
-                .conflicts_with("beacon-nodes"),
+                .conflicts_with(BEACON_NODES_FLAG),
         )
         .arg(
             Arg::new(BEACON_NODES_FLAG)
@@ -34,7 +34,7 @@ pub fn cli_app<'a>(file_args: Option<&'a HashMap<&'a str, &'a str>>) -> App<'a> 
                 .value_name("NETWORK_ADDRESS")
                 .help("Deprecated. Use --beacon-nodes.")
                 .takes_value(true)
-                .conflicts_with_all(&["beacon-node", "beacon-nodes"]),
+                .conflicts_with_all(&[BEACON_NODE_FLAG, BEACON_NODES_FLAG]),
         )
         .arg(
             Arg::new(VALIDATORS_DIR_FLAG)
@@ -46,7 +46,7 @@ pub fn cli_app<'a>(file_args: Option<&'a HashMap<&'a str, &'a str>>) -> App<'a> 
                     and the validator_definitions.yml"
                 )
                 .takes_value(true)
-                .conflicts_with("datadir")
+                .conflicts_with(DATADIR_FLAG)
         )
         .arg(
             Arg::new(SECRETS_DIR_FLAG)
@@ -59,7 +59,7 @@ pub fn cli_app<'a>(file_args: Option<&'a HashMap<&'a str, &'a str>>) -> App<'a> 
                     key. Defaults to ~/.lighthouse/{network}/secrets.",
                 )
                 .takes_value(true)
-                .conflicts_with("datadir")
+                .conflicts_with(DATADIR_FLAG)
         )
         .arg(
             Arg::new(DELETE_LOCKFILES_FLAG)
@@ -126,7 +126,7 @@ pub fn cli_app<'a>(file_args: Option<&'a HashMap<&'a str, &'a str>>) -> App<'a> 
                 .help("Specify a graffiti file to load validator graffitis from.")
                 .value_name("GRAFFITI-FILE")
                 .takes_value(true)
-                .conflicts_with("graffiti")
+                .conflicts_with(GRAFFITI_FLAG)
         )
         /* REST API related arguments */
         .arg(
@@ -152,14 +152,14 @@ pub fn cli_app<'a>(file_args: Option<&'a HashMap<&'a str, &'a str>>) -> App<'a> 
                         `--unencrypted-http-transport` flag to ensure the user is aware of the \
                         risks involved. For access via the Internet, users should apply \
                         transport-layer security like a HTTPS reverse-proxy or SSH tunnelling.")
-                .requires("unencrypted-http-transport"),
+                .requires(UNENCRYPTED_HTTP_TRANSPORT_FLAG),
          )
          .arg(
              Arg::new(UNENCRYPTED_HTTP_TRANSPORT_FLAG)
                  .long(UNENCRYPTED_HTTP_TRANSPORT_FLAG)
                  .help("This is a safety flag to ensure that the user is aware that the http \
                         transport is unencrypted and using a custom HTTP address is unsafe.")
-                 .requires("http-address"),
+                 .requires(HTTP_ADDRESS_FLAG),
          )
         .arg(
             Arg::new(HTTP_PORT_FLAG)

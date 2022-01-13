@@ -333,7 +333,7 @@ fn new_app<'a>(
                 .value_name("network")
                 .help("Name of the Eth2 chain Lighthouse will sync and follow.")
                 .possible_values(HARDCODED_NET_NAMES)
-                .conflicts_with("testnet-dir")
+                .conflicts_with(TESTNET_DIR_FLAG)
                 .takes_value(true)
                 .global(true)
 
@@ -387,7 +387,7 @@ fn new_app<'a>(
                        the broad Ethereum community has elected to override the terminal PoW block. \
                        Incorrect use of this flag will cause your node to experience a consensus
                        failure. Be extremely careful with this flag.")
-                .requires("terminal-block-hash-epoch-override")
+                .requires(TERMINAL_BLOCK_HASH_EPOCH_OVERRIDE_FLAG)
                 .takes_value(true)
                 .global(true)
         )
@@ -400,7 +400,7 @@ fn new_app<'a>(
                        that the broad Ethereum community has elected to override the terminal PoW block. \
                        Incorrect use of this flag will cause your node to experience a consensus
                        failure. Be extremely careful with this flag.")
-                .requires("terminal-block-hash-override")
+                .requires(TERMINAL_BLOCK_HASH_OVERRIDE_FLAG)
                 .takes_value(true)
                 .global(true),
         ).subcommand(beacon_node::cli_app(file_args))
