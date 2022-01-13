@@ -617,10 +617,6 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
             info.set_enr(enr);
         }
 
-        if let Err(e) = info.set_dialing_peer() {
-            error!(self.log, "{}", e; "peer_id" => %peer_id);
-        }
-
         // If the peer was banned, remove the banned peer and addresses.
         if info.is_banned() {
             self.banned_peers_count
@@ -629,7 +625,11 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
 
         // If the peer was disconnected, reduce the disconnected peer count.
         if info.is_disconnected() {
-            self.disconnected_peers = self.disconnected_peers().count().saturating_sub(1);
+            self.disconnected_peers = self.disconnected_peers.saturating_sub(1);
+        }
+
+        if let Err(e) = info.set_dialing_peer() {
+            error!(self.log, "{}", e; "peer_id" => %peer_id);
         }
     }
 
@@ -899,8 +899,7 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
                         // Increment the disconnected count and reduce the banned count
                         self.banned_peers_count
                             .remove_banned_peer(info.seen_ip_addresses());
-                        self.disconnected_peers =
-                            self.disconnected_peers().count().saturating_add(1);
+                        self.disconnected_peers = self.disconnected_peers.saturating_add(1);
                     }
                 }
             }
