@@ -1,4 +1,5 @@
 use clap::ArgMatches;
+use clap_utils::lcli_flags::{BASE_DIR_FLAG, COUNT_FLAG, NODE_COUNT_FLAG};
 use std::fs;
 use std::path::PathBuf;
 use validator_dir::Builder as ValidatorBuilder;
@@ -36,9 +37,9 @@ pub fn generate_validator_dirs(
 }
 
 pub fn run(matches: &ArgMatches) -> Result<(), String> {
-    let validator_count: usize = clap_utils::parse_required(matches, "count")?;
-    let base_dir: PathBuf = clap_utils::parse_required(matches, "base-dir")?;
-    let node_count: Option<usize> = clap_utils::parse_optional(matches, "node-count")?;
+    let validator_count: usize = clap_utils::parse_required(matches, COUNT_FLAG)?;
+    let base_dir: PathBuf = clap_utils::parse_required(matches, BASE_DIR_FLAG)?;
+    let node_count: Option<usize> = clap_utils::parse_optional(matches, NODE_COUNT_FLAG)?;
     if let Some(node_count) = node_count {
         let validators_per_node = validator_count / node_count;
         let validator_range = (0..validator_count).collect::<Vec<_>>();

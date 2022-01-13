@@ -1,4 +1,7 @@
 use clap::ArgMatches;
+use clap_utils::lcli_flags::{
+    BASE_FEE_PER_GAS_FLAG, EXECUTION_BLOCK_HASH_FLAG, FILE_FLAG, GAS_LIMIT_FLAG, GENESIS_TIME_FLAG,
+};
 use clap_utils::{parse_optional, parse_required};
 use ssz::Encode;
 use std::fs::File;
@@ -7,16 +10,16 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use types::{EthSpec, ExecutionPayloadHeader};
 
 pub fn run<T: EthSpec>(matches: &ArgMatches) -> Result<(), String> {
-    let eth1_block_hash = parse_required(matches, "execution-block-hash")?;
-    let genesis_time = parse_optional(matches, "genesis-time")?.unwrap_or(
+    let eth1_block_hash = parse_required(matches, EXECUTION_BLOCK_HASH_FLAG)?;
+    let genesis_time = parse_optional(matches, GENESIS_TIME_FLAG)?.unwrap_or(
         SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .map_err(|e| format!("Unable to get time: {:?}", e))?
             .as_secs(),
     );
-    let base_fee_per_gas = parse_required(matches, "base-fee-per-gas")?;
-    let gas_limit = parse_required(matches, "gas-limit")?;
-    let file_name = matches.value_of("file").ok_or("No file supplied")?;
+    let base_fee_per_gas = parse_required(matches, BASE_FEE_PER_GAS_FLAG)?;
+    let gas_limit = parse_required(matches, GAS_LIMIT_FLAG)?;
+    let file_name = matches.value_of(FILE_FLAG).ok_or("No file supplied")?;
 
     let execution_payload_header: ExecutionPayloadHeader<T> = ExecutionPayloadHeader {
         gas_limit,

@@ -1,4 +1,7 @@
 use clap::ArgMatches;
+use clap_utils::lcli_flags::{
+    GENESIS_FORK_VERSION_FLAG, IP_FLAG, OUTPUT_DIR_FLAG, TCP_PORT_FLAG, UDP_PORT_FLAG,
+};
 use lighthouse_network::{
     discovery::{build_enr, CombinedKey, CombinedKeyExt, Keypair, ENR_FILENAME},
     Enr, NetworkConfig, NETWORK_KEY_FILENAME,
@@ -11,12 +14,12 @@ use std::path::PathBuf;
 use types::{ChainSpec, EnrForkId, Epoch, EthSpec, Hash256};
 
 pub fn run<T: EthSpec>(matches: &ArgMatches) -> Result<(), String> {
-    let ip: IpAddr = clap_utils::parse_required(matches, "ip")?;
-    let udp_port: u16 = clap_utils::parse_required(matches, "udp-port")?;
-    let tcp_port: u16 = clap_utils::parse_required(matches, "tcp-port")?;
-    let output_dir: PathBuf = clap_utils::parse_required(matches, "output-dir")?;
+    let ip: IpAddr = clap_utils::parse_required(matches, IP_FLAG)?;
+    let udp_port: u16 = clap_utils::parse_required(matches, UDP_PORT_FLAG)?;
+    let tcp_port: u16 = clap_utils::parse_required(matches, TCP_PORT_FLAG)?;
+    let output_dir: PathBuf = clap_utils::parse_required(matches, OUTPUT_DIR_FLAG)?;
     let genesis_fork_version: [u8; 4] =
-        clap_utils::parse_ssz_required(matches, "genesis-fork-version")?;
+        clap_utils::parse_ssz_required(matches, GENESIS_FORK_VERSION_FLAG)?;
 
     let _ = generate_enr::<T>(ip, udp_port, tcp_port, output_dir, genesis_fork_version)?;
 

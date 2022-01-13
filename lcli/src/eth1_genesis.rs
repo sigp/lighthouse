@@ -1,4 +1,6 @@
 use clap::ArgMatches;
+use clap_utils::flags::ETH1_ENDPOINT_FLAG;
+use clap_utils::lcli_flags::ETH1_ENDPOINTS_FLAG;
 use environment::Environment;
 use eth2_network_config::Eth2NetworkConfig;
 use genesis::{Eth1Config, Eth1GenesisService};
@@ -18,14 +20,14 @@ pub fn run<T: EthSpec>(
     matches: &ArgMatches,
 ) -> Result<(), String> {
     let endpoints = matches
-        .value_of("eth1-endpoint")
+        .value_of(ETH1_ENDPOINT_FLAG)
         .map(|e| {
             warn!("The --eth1-endpoint flag is deprecated. Please use --eth1-endpoints instead");
             vec![String::from(e)]
         })
         .or_else(|| {
             matches
-                .value_of("eth1-endpoints")
+                .value_of(ETH1_ENDPOINTS_FLAG)
                 .map(|s| s.split(',').map(String::from).collect())
         });
 

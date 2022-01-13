@@ -1,5 +1,6 @@
 use account_utils::{eth2_keystore::keypair_from_secret, mnemonic_from_phrase};
 use clap::ArgMatches;
+use clap_utils::lcli_flags::{MNEMONIC_FLAG, SSZ_STATE_FLAG};
 use eth2_network_config::Eth2NetworkConfig;
 use eth2_wallet::bip39::Seed;
 use eth2_wallet::{recover_validator_secret_from_mnemonic, KeyType};
@@ -13,13 +14,13 @@ use types::{BeaconState, DepositData, EthSpec, Hash256, SignatureBytes, DEPOSIT_
 
 pub fn run<T: EthSpec>(testnet_dir: PathBuf, matches: &ArgMatches) -> Result<(), String> {
     let path = matches
-        .value_of("ssz-state")
+        .value_of(SSZ_STATE_FLAG)
         .ok_or("ssz-state not specified")?
         .parse::<PathBuf>()
         .map_err(|e| format!("Unable to parse ssz-state: {}", e))?;
 
     let mnemonic_phrase = matches
-        .value_of("mnemonic")
+        .value_of(MNEMONIC_FLAG)
         .ok_or("mnemonic not specified")?;
 
     let eth2_network_config = Eth2NetworkConfig::load(testnet_dir)?;

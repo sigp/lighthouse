@@ -11,7 +11,7 @@ use std::{fs, io, thread, time};
 pub type Config = Option<HashMap<String, TomlValue>>;
 
 #[derive(Debug, Deserialize, Serialize)]
-pub struct Lcli {
+pub struct LcliConfig {
     #[serde(rename = "deploy-deposit-contract")]
     deploy_deposit_contract: Config,
     #[serde(rename = "new-testnet")]
@@ -22,7 +22,7 @@ pub struct Lcli {
 pub struct IntegrationTestConfig {
     global: Config,
     ganache: Config,
-    lcli: Lcli,
+    lcli: LcliConfig,
     boot_node: Config,
     beacon: HashMap<String, Config>,
     validator: HashMap<String, Config>,

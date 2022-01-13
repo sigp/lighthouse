@@ -1,4 +1,5 @@
 use clap::ArgMatches;
+use clap_utils::lcli_flags::{GENESIS_FORK_VERSION_FLAG, GENESIS_TIME_FLAG, VALIDATOR_COUNT_FLAG};
 use clap_utils::parse_ssz_optional;
 use eth2_network_config::Eth2NetworkConfig;
 use genesis::{interop_genesis_state, DEFAULT_ETH1_BLOCK_HASH};
@@ -9,12 +10,12 @@ use types::{test_utils::generate_deterministic_keypairs, EthSpec, Hash256};
 
 pub fn run<T: EthSpec>(testnet_dir: PathBuf, matches: &ArgMatches) -> Result<(), String> {
     let validator_count = matches
-        .value_of("validator-count")
+        .value_of(VALIDATOR_COUNT_FLAG)
         .ok_or("validator-count not specified")?
         .parse::<usize>()
         .map_err(|e| format!("Unable to parse validator-count: {}", e))?;
 
-    let genesis_time = if let Some(genesis_time) = matches.value_of("genesis-time") {
+    let genesis_time = if let Some(genesis_time) = matches.value_of(GENESIS_TIME_FLAG) {
         genesis_time
             .parse::<u64>()
             .map_err(|e| format!("Unable to parse genesis-time: {}", e))?
@@ -29,7 +30,7 @@ pub fn run<T: EthSpec>(testnet_dir: PathBuf, matches: &ArgMatches) -> Result<(),
 
     let mut spec = eth2_network_config.chain_spec::<T>()?;
 
-    if let Some(v) = parse_ssz_optional(matches, "genesis-fork-version")? {
+    if let Some(v) = parse_ssz_optional(matches, GENESIS_FORK_VERSION_FLAG)? {
         spec.genesis_fork_version = v;
     }
 

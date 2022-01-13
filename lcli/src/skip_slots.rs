@@ -1,5 +1,6 @@
 use crate::transition_blocks::load_from_ssz_with;
 use clap::ArgMatches;
+use clap_utils::lcli_flags::{OUTPUT_FLAG, PRE_STATE_FLAG, SLOTS_FLAG};
 use eth2_network_config::Eth2NetworkConfig;
 use ssz::Encode;
 use state_processing::per_slot_processing;
@@ -10,19 +11,19 @@ use types::{BeaconState, EthSpec};
 
 pub fn run<T: EthSpec>(testnet_dir: PathBuf, matches: &ArgMatches) -> Result<(), String> {
     let pre_state_path = matches
-        .value_of("pre-state")
+        .value_of(PRE_STATE_FLAG)
         .ok_or("No pre-state file supplied")?
         .parse::<PathBuf>()
         .map_err(|e| format!("Failed to parse pre-state path: {}", e))?;
 
     let slots = matches
-        .value_of("slots")
+        .value_of(SLOTS_FLAG)
         .ok_or("No slots supplied")?
         .parse::<usize>()
         .map_err(|e| format!("Failed to parse slots: {}", e))?;
 
     let output_path = matches
-        .value_of("output")
+        .value_of(OUTPUT_FLAG)
         .ok_or("No output file supplied")?
         .parse::<PathBuf>()
         .map_err(|e| format!("Failed to parse output path: {}", e))?;

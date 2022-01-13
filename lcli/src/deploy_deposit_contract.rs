@@ -2,12 +2,13 @@ use clap::ArgMatches;
 use environment::Environment;
 use types::EthSpec;
 
+use clap_utils::lcli_flags::{CONFIRMATIONS_FLAG, ETH1_HTTP_FLAG, VALIDATOR_COUNT_FLAG};
 use web3::{transports::Http, Web3};
 
 pub fn run<T: EthSpec>(env: Environment<T>, matches: &ArgMatches) -> Result<(), String> {
-    let eth1_http: String = clap_utils::parse_required(matches, "eth1-http")?;
-    let confirmations: usize = clap_utils::parse_required(matches, "confirmations")?;
-    let validator_count: Option<usize> = clap_utils::parse_optional(matches, "validator-count")?;
+    let eth1_http: String = clap_utils::parse_required(matches, ETH1_HTTP_FLAG)?;
+    let confirmations: usize = clap_utils::parse_required(matches, CONFIRMATIONS_FLAG)?;
+    let validator_count: Option<usize> = clap_utils::parse_optional(matches, VALIDATOR_COUNT_FLAG)?;
 
     let transport =
         Http::new(&eth1_http).map_err(|e| format!("Unable to connect to eth1 HTTP: {:?}", e))?;

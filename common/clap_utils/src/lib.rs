@@ -16,6 +16,8 @@ pub use default_config::DefaultConfigApp;
 mod default_config;
 #[macro_use]
 pub mod flags;
+#[macro_use]
+pub mod lcli_flags;
 
 pub const BAD_TESTNET_DIR_MESSAGE: &str = "The hard-coded testnet directory was invalid. \
                                         This happens when Lighthouse is migrating between spec versions \

@@ -1,4 +1,5 @@
 use clap::ArgMatches;
+use clap_utils::lcli_flags::{SSZ_FILE_FLAG, TYPE_FLAG};
 use clap_utils::parse_required;
 use serde::Serialize;
 use ssz::Decode;
@@ -25,8 +26,8 @@ impl FromStr for OutputFormat {
 }
 
 pub fn run_parse_ssz<T: EthSpec>(matches: &ArgMatches) -> Result<(), String> {
-    let type_str = matches.value_of("type").ok_or("No type supplied")?;
-    let filename = matches.value_of("ssz-file").ok_or("No file supplied")?;
+    let type_str = matches.value_of(TYPE_FLAG).ok_or("No type supplied")?;
+    let filename = matches.value_of(SSZ_FILE_FLAG).ok_or("No file supplied")?;
     let format = parse_required(matches, "format")?;
 
     let mut bytes = vec![];
