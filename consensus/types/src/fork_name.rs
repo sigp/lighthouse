@@ -25,17 +25,17 @@ impl ForkName {
         match self {
             ForkName::Base => {
                 spec.altair_fork_epoch = None;
-                spec.merge_fork_epoch = None;
+                spec.bellatrix_fork_epoch = None;
                 spec
             }
             ForkName::Altair => {
                 spec.altair_fork_epoch = Some(Epoch::new(0));
-                spec.merge_fork_epoch = None;
+                spec.bellatrix_fork_epoch = None;
                 spec
             }
             ForkName::Merge => {
                 spec.altair_fork_epoch = Some(Epoch::new(0));
-                spec.merge_fork_epoch = Some(Epoch::new(0));
+                spec.bellatrix_fork_epoch = Some(Epoch::new(0));
                 spec
             }
         }

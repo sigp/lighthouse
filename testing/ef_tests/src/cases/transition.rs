@@ -40,7 +40,7 @@ impl<E: EthSpec> LoadCase for TransitionTest<E> {
             }
             ForkName::Merge => {
                 spec.altair_fork_epoch = Some(Epoch::new(0));
-                spec.merge_fork_epoch = Some(metadata.fork_epoch);
+                spec.bellatrix_fork_epoch = Some(metadata.fork_epoch);
             }
         }
 
