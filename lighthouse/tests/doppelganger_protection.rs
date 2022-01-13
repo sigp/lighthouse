@@ -1,11 +1,7 @@
 use clap_utils::flags::{
     BEACON_NODES_FLAG, DATADIR_FLAG, HTTP_PORT_FLAG, NETWORK_DIR_FLAG, PORT_FLAG,
 };
-use clap_utils::lcli_flags::{
-    BOOT_DIR_FLAG, DEPLOY_DEPOSIT_CONTRACT_CMD, GENESIS_DELAY_FLAG, GENESIS_TIME_FLAG,
-    MIN_GENESIS_ACTIVE_VALIDATOR_COUNT_FLAG, NEW_TESTNET_CMD, SPEC_FLAG, TESTNET_DIR_FLAG,
-    VALIDATOR_COUNT_FLAG,
-};
+use clap_utils::lcli_flags::{BASE_DIR_FLAG, BOOT_DIR_FLAG, COUNT_FLAG, DEPLOY_DEPOSIT_CONTRACT_CMD, GENESIS_DELAY_FLAG, GENESIS_TIME_FLAG, INSECURE_VALIDATORS_CMD, MIN_GENESIS_ACTIVE_VALIDATOR_COUNT_FLAG, NEW_TESTNET_CMD, NODE_COUNT_FLAG, SPEC_FLAG, TESTNET_DIR_FLAG, VALIDATOR_COUNT_FLAG};
 use clap_utils::{to_string_map, toml_value_to_string, TomlValue};
 use lcli::new_app;
 use serde::{Deserialize, Serialize};
@@ -253,13 +249,13 @@ impl IntegrationTestConfig {
 
         let app = lcli::new_app(None)
             .try_get_matches_from(vec![
-                "lcli",
-                "insecure-validators",
-                "--base-dir",
+                LCLI_CMD,
+                INSECURE_VALIDATORS_CMD,
+                BASE_DIR_FLAG,
                 self.datadir.as_ref().unwrap(),
-                "--count",
+                COUNT_FLAG,
                 &format!("{}", self.validator.len()),
-                "--node-count",
+                NODE_COUNT_FLAG,
                 &format!("{}", self.beacon.len()),
             ])
             .map_err(|e| format!("{}", e))?;
