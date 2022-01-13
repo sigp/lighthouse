@@ -96,6 +96,7 @@ pub enum NetworkMessage<T: EthSpec> {
         peer_id: PeerId,
         action: PeerAction,
         source: ReportSource,
+        msg: &'static str,
     },
     /// Disconnect an ban a peer, providing a reason.
     GoodbyePeer {
@@ -445,7 +446,7 @@ fn spawn_service<T: BeaconChainTypes>(
                                 );
                                 service.libp2p.swarm.behaviour_mut().publish(messages);
                         }
-                        NetworkMessage::ReportPeer { peer_id, action, source } => service.libp2p.report_peer(&peer_id, action, source),
+                        NetworkMessage::ReportPeer { peer_id, action, source, msg } => service.libp2p.report_peer(&peer_id, action, source, msg),
                         NetworkMessage::GoodbyePeer { peer_id, reason, source } => service.libp2p.goodbye_peer(&peer_id, reason, source),
                         NetworkMessage::AttestationSubscribe { subscriptions } => {
                             if let Err(e) = service

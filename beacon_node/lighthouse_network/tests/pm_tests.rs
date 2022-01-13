@@ -167,7 +167,8 @@ async fn banned_peers_consistency() {
                                 &peer_id,
                                 PeerAction::Fatal,
                                 ReportSource::Processor,
-                                None
+                                None,
+                                ""
                             );
                     },
                     _ => {}

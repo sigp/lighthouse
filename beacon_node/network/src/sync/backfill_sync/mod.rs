@@ -682,7 +682,7 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
 
                         if let Some(peer_action) = peer_action {
                             for peer in self.participating_peers.drain() {
-                                network.report_peer(peer, *peer_action);
+                                network.report_peer(peer, *peer_action, "backfill_batch_failed");
                             }
                         }
                         self.fail_sync(BackFillError::BatchProcessingFailed(batch_id))
@@ -804,7 +804,11 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
                                     "batch_epoch" => id, "score_adjustment" => %action,
                                     "original_peer" => %attempt.peer_id, "new_peer" => %processed_attempt.peer_id
                                 );
-                                network.report_peer(attempt.peer_id, action);
+                                network.report_peer(
+                                    attempt.peer_id,
+                                    action,
+                                    "backfill_reprocessed_original_peer",
+                                );
                             } else {
                                 // The same peer corrected it's previous mistake. There was an error, so we
                                 // negative score the original peer.
@@ -813,7 +817,11 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
                                     "batch_epoch" => id, "score_adjustment" => %action,
                                     "original_peer" => %attempt.peer_id, "new_peer" => %processed_attempt.peer_id
                                 );
-                                network.report_peer(attempt.peer_id, action);
+                                network.report_peer(
+                                    attempt.peer_id,
+                                    action,
+                                    "backfill_reprocessed_same_peer",
+                                );
                             }
                         }
                     }

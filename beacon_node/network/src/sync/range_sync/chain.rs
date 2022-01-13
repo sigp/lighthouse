@@ -533,7 +533,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
 
                     if let Some(peer_action) = peer_action {
                         for (peer, _) in self.peers.drain() {
-                            network.report_peer(peer, *peer_action);
+                            network.report_peer(peer, *peer_action, "batch_failed");
                         }
                     }
                     Err(RemoveChain::ChainFailed(batch_id))
@@ -624,7 +624,11 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                                     "batch_epoch" => id, "score_adjustment" => %action,
                                     "original_peer" => %attempt.peer_id, "new_peer" => %processed_attempt.peer_id
                                 );
-                                network.report_peer(attempt.peer_id, action);
+                                network.report_peer(
+                                    attempt.peer_id,
+                                    action,
+                                    "batch_reprocessed_original_peer",
+                                );
                             } else {
                                 // The same peer corrected it's previous mistake. There was an error, so we
                                 // negative score the original peer.
@@ -633,7 +637,11 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                                     "batch_epoch" => id, "score_adjustment" => %action,
                                     "original_peer" => %attempt.peer_id, "new_peer" => %processed_attempt.peer_id
                                 );
-                                network.report_peer(attempt.peer_id, action);
+                                network.report_peer(
+                                    attempt.peer_id,
+                                    action,
+                                    "batch_reprocessed_same_peer",
+                                );
                             }
                         }
                     }
