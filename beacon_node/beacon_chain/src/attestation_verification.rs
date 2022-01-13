@@ -37,6 +37,7 @@ use crate::{
     BeaconChain, BeaconChainError, BeaconChainTypes,
 };
 use bls::verify_signature_sets;
+use itertools::process_results;
 use proto_array::Block as ProtoBlock;
 use slog::debug;
 use slot_clock::SlotClock;
@@ -141,6 +142,14 @@ pub enum Error {
     /// The attestation points to a block we have not yet imported. It's unclear if the attestation
     /// is valid or not.
     UnknownHeadBlock { beacon_block_root: Hash256 },
+    /// The `attestation.data.beacon_block_root` block is from before the finalized checkpoint.
+    ///
+    /// ## Peer scoring
+    ///
+    /// The attestation is not descended from the finalized checkpoint, which is a REJECT according
+    /// to the spec. We downscore lightly because this could also happen if we are processing
+    /// attestations extremely slowly.
+    HeadBlockFinalized { beacon_block_root: Hash256 },
     /// The `attestation.data.slot` is not from the same epoch as `data.target.epoch`.
     ///
     /// ## Peer scoring
@@ -991,9 +1000,31 @@ fn verify_head_block_is_known<T: BeaconChainTypes>(
 
         Ok(block)
     } else {
-        Err(Error::UnknownHeadBlock {
-            beacon_block_root: attestation.data.beacon_block_root,
-        })
+        // Block is pre-finalization from the canonical chain (subset of case (2)).
+        // We read from the head's in-memory list of block roots as this is likely faster
+        // than trying to read from disk. The chance that the block is lurking in fork choice
+        // pre-finalization is low, as fork choice is pruned immediately after being updated.
+        let is_finalized_block = chain.with_head(|head| {
+            process_results(
+                head.beacon_state.rev_iter_block_roots(&chain.spec),
+                |iter| {
+                    iter.skip_while(|(slot, _)| *slot > attestation.data.slot)
+                        .any(|(_, block_root)| block_root == attestation.data.beacon_block_root)
+                },
+            )
+            .map_err(BeaconChainError::BeaconStateError)
+        })?;
+        if is_finalized_block {
+            Err(Error::HeadBlockFinalized {
+                beacon_block_root: attestation.data.beacon_block_root,
+            })
+        } else {
+            // The block is an obscure one: start a single block look-up. If it fails then the peer
+            // will be penalised harshly for sending us junk and wasting our time.
+            Err(Error::UnknownHeadBlock {
+                beacon_block_root: attestation.data.beacon_block_root,
+            })
+        }
     }
 }
 
