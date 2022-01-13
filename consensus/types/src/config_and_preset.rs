@@ -1,5 +1,6 @@
 use crate::{AltairPreset, BasePreset, ChainSpec, Config, EthSpec};
 use serde_derive::{Deserialize, Serialize};
+use serde_json::Value;
 use std::collections::HashMap;
 
 /// Fusion of a runtime-config with the compile-time preset values.
@@ -17,7 +18,7 @@ pub struct ConfigAndPreset {
 
     /// The `extra_fields` map allows us to gracefully decode fields intended for future hard forks.
     #[serde(flatten)]
-    pub extra_fields: HashMap<String, String>,
+    pub extra_fields: HashMap<String, Value>,
 }
 
 impl ConfigAndPreset {
@@ -79,7 +80,7 @@ impl ConfigAndPreset {
             ),
         ];
         for (key, value) in fields {
-            self.extra_fields.insert(key.to_uppercase(), value);
+            self.extra_fields.insert(key.to_uppercase(), value.into());
         }
     }
 }
