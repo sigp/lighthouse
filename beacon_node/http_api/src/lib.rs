@@ -627,7 +627,6 @@ pub fn serve<T: BeaconChainTypes>(
         .and(warp::path::end())
         .and_then(
             |state_id: StateId, chain: Arc<BeaconChain<T>>, validator_id: ValidatorId| {
-                println!("Ran single validator endpoints");
                 blocking_json_task(move || {
                     state_id
                         .map_state(&chain, |state| {
