@@ -155,7 +155,13 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
             }
         }
 
-        self.report_peer(peer_id, PeerAction::Fatal, source, Some(reason));
+        self.report_peer(
+            peer_id,
+            PeerAction::Fatal,
+            source,
+            Some(reason),
+            "goodbye_peer",
+        );
     }
 
     /// Reports a peer for some action.
@@ -167,12 +173,13 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
         action: PeerAction,
         source: ReportSource,
         reason: Option<GoodbyeReason>,
+        msg: &'static str,
     ) {
         let action = self
             .network_globals
             .peers
             .write()
-            .report_peer(peer_id, action, source);
+            .report_peer(peer_id, action, source, msg);
         self.handle_score_action(peer_id, action, reason);
     }
 
@@ -511,7 +518,13 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
             RPCError::Disconnected => return, // No penalty for a graceful disconnection
         };
 
-        self.report_peer(peer_id, peer_action, ReportSource::RPC, None);
+        self.report_peer(
+            peer_id,
+            peer_action,
+            ReportSource::RPC,
+            None,
+            "handle_rpc_error",
+        );
     }
 
     /// A ping request has been received.

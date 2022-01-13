@@ -273,7 +273,7 @@ impl<T: BeaconChainTypes> VerifiedSyncContribution<T> {
         let subcommittee_index = contribution.subcommittee_index as usize;
 
         // Ensure sync committee contribution is within the MAXIMUM_GOSSIP_CLOCK_DISPARITY allowance.
-        verify_propagation_slot_range(chain, contribution)?;
+        verify_propagation_slot_range(&chain.slot_clock, contribution)?;
 
         // Validate subcommittee index.
         if contribution.subcommittee_index >= SYNC_COMMITTEE_SUBNET_COUNT {
@@ -428,7 +428,7 @@ impl VerifiedSyncCommitteeMessage {
         // MAXIMUM_GOSSIP_CLOCK_DISPARITY allowance).
         //
         // We do not queue future sync committee messages for later processing.
-        verify_propagation_slot_range(chain, &sync_message)?;
+        verify_propagation_slot_range(&chain.slot_clock, &sync_message)?;
 
         // Ensure the `subnet_id` is valid for the given validator.
         let pubkey = chain
@@ -516,14 +516,13 @@ impl VerifiedSyncCommitteeMessage {
 /// to the current slot of the `chain`.
 ///
 /// Accounts for `MAXIMUM_GOSSIP_CLOCK_DISPARITY`.
-pub fn verify_propagation_slot_range<T: BeaconChainTypes, U: SlotData>(
-    chain: &BeaconChain<T>,
+pub fn verify_propagation_slot_range<S: SlotClock, U: SlotData>(
+    slot_clock: &S,
     sync_contribution: &U,
 ) -> Result<(), Error> {
     let message_slot = sync_contribution.get_slot();
 
-    let latest_permissible_slot = chain
-        .slot_clock
+    let latest_permissible_slot = slot_clock
         .now_with_future_tolerance(MAXIMUM_GOSSIP_CLOCK_DISPARITY)
         .ok_or(BeaconChainError::UnableToReadSlot)?;
     if message_slot > latest_permissible_slot {
@@ -533,8 +532,7 @@ pub fn verify_propagation_slot_range<T: BeaconChainTypes, U: SlotData>(
         });
     }
 
-    let earliest_permissible_slot = chain
-        .slot_clock
+    let earliest_permissible_slot = slot_clock
         .now_with_past_tolerance(MAXIMUM_GOSSIP_CLOCK_DISPARITY)
         .ok_or(BeaconChainError::UnableToReadSlot)?;
 
