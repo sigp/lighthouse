@@ -5,7 +5,7 @@ use lazy_static::lazy_static;
 generate_flag_constants!(
     LCLI_FLAGS,
     (SPEC_FLAG, "spec"),
-    (TESTNET_DIR_FLAG, "testnet_dir"),
+    (TESTNET_DIR_FLAG, "testnet-dir"),
     (PRE_STATE_FLAG, "pre-state"),
     (SLOTS_FLAG, "slots"),
     (OUTPUT_FLAG, "output"),

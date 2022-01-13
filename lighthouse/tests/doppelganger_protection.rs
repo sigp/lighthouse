@@ -1,3 +1,11 @@
+use clap_utils::flags::{
+    BEACON_NODES_FLAG, DATADIR_FLAG, HTTP_PORT_FLAG, NETWORK_DIR_FLAG, PORT_FLAG,
+};
+use clap_utils::lcli_flags::{
+    BOOT_DIR_FLAG, DEPLOY_DEPOSIT_CONTRACT_CMD, GENESIS_DELAY_FLAG, GENESIS_TIME_FLAG,
+    MIN_GENESIS_ACTIVE_VALIDATOR_COUNT_FLAG, NEW_TESTNET_CMD, SPEC_FLAG, TESTNET_DIR_FLAG,
+    VALIDATOR_COUNT_FLAG,
+};
 use clap_utils::{to_string_map, toml_value_to_string, TomlValue};
 use lcli::new_app;
 use serde::{Deserialize, Serialize};
@@ -7,6 +15,13 @@ use std::process::{Child, Command, ExitStatus};
 use std::str::FromStr;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use std::{fs, io, thread, time};
+
+const GANACHE_CMD: &str = "ganache-cli";
+const LCLI_CMD: &str = "lcli";
+const BEACON_CMD: &str = "beacon";
+const VALIDATOR_CMD: &str = "validator";
+const BOOT_NODE_CMD: &str = "boot_node";
+const DEFAULT_CONFIG_PATH: &str = "./tests/doppelganger_config/default.toml";
 
 pub type Config = Option<HashMap<String, TomlValue>>;
 
@@ -26,21 +41,118 @@ pub struct IntegrationTestConfig {
     boot_node: Config,
     beacon: HashMap<String, Config>,
     validator: HashMap<String, Config>,
-}
-
-pub struct Testnet {
-    ganache: SimProcess,
-    bootnode: SimProcess,
-    beacon_nodes: Vec<SimProcess>,
-    validator_clients: Vec<SimProcess>,
+    datadir: Option<String>,
 }
 
 impl IntegrationTestConfig {
     pub fn new() -> Result<Self, String> {
-        parse_file_config_maps("./tests/doppelganger_config/default.toml")
+        parse_file_config_maps(DEFAULT_CONFIG_PATH).and_then(|s| s.process_global_config())
+    }
+
+    fn process_global_config(mut self) -> Result<Self, String> {
+        if let Some(config) = self.global.take() {
+            let node_count = toml_value_to_string(
+                config
+                    .get("beacon-count")
+                    .ok_or("beacon-count required")?
+                    .clone(),
+            )?
+            .parse::<usize>()
+            .map_err(|e| format!("{}", e))?;
+            for (k, v) in config {
+                match k.as_str() {
+                    "validator-count" => {
+                        if let Some(config) = self.lcli.new_testnet.as_mut() {
+                            config.insert(VALIDATOR_COUNT_FLAG.to_string(), v.clone());
+                            config.insert(
+                                MIN_GENESIS_ACTIVE_VALIDATOR_COUNT_FLAG.to_string(),
+                                v.clone(),
+                            );
+                        }
+                        if let Some(config) = self.lcli.deploy_deposit_contract.as_mut() {
+                            config.insert(VALIDATOR_COUNT_FLAG.to_string(), v);
+                        }
+                        let len = self.validator.len();
+                        if let Some(config) = self.validator.get_mut("default") {
+                            let mut i = 0;
+                            let config_clone = config.clone();
+                            while i < node_count - len {
+                                i = i + 1;
+                                self.validator
+                                    .insert(format!("default-{}", i), config_clone.clone());
+                            }
+                        } else {
+                            if self.validator.len() != node_count {
+                                return Err("defaults need to be defined if all nodes are not explicitly defined".to_string());
+                            }
+                        }
+                    }
+                    "beacon-count" => {
+                        let len = self.beacon.len();
+                        if let Some(config) = self.beacon.get_mut("default") {
+                            let mut i = 0;
+                            let config_clone = config.clone();
+                            while i < node_count - len {
+                                i = i + 1;
+                                self.beacon
+                                    .insert(format!("default-{}", i), config_clone.clone());
+                            }
+                        } else {
+                            if self.beacon.len() != node_count {
+                                return Err("defaults need to be defined if all nodes are not explicitly defined".to_string());
+                            }
+                        }
+                    }
+                    "spec" => {
+                        if let Some(config) = self.lcli.new_testnet.as_mut() {
+                            config.insert(SPEC_FLAG.to_string(), v.clone());
+                        }
+                    }
+                    "datadir" => {
+                        let (testnet_dir, bootnode_dir) = match v {
+                            TomlValue::String(ref s) => (
+                                TomlValue::String(format!("{}/testnet", s)),
+                                TomlValue::String(format!("{}/bootnode", s)),
+                            ),
+                            _ => return Err("invalid datadir".to_string()),
+                        };
+                        if let Some(config) = self.lcli.new_testnet.as_mut() {
+                            config.insert(TESTNET_DIR_FLAG.to_string(), testnet_dir.clone());
+                            config.insert(BOOT_DIR_FLAG.to_string(), bootnode_dir.clone());
+                        }
+                        if let Some(config) = self.boot_node.as_mut() {
+                            config.insert(TESTNET_DIR_FLAG.to_string(), testnet_dir.clone());
+                            config.insert(NETWORK_DIR_FLAG.to_string(), bootnode_dir.clone());
+                        }
+                        for (_, config_opt) in self.beacon.iter_mut() {
+                            if let Some(config) = config_opt.as_mut() {
+                                config.insert(TESTNET_DIR_FLAG.to_string(), testnet_dir.clone());
+                            }
+                        }
+                        for (_, config_opt) in self.validator.iter_mut() {
+                            if let Some(config) = config_opt.as_mut() {
+                                config.insert(TESTNET_DIR_FLAG.to_string(), testnet_dir.clone());
+                            }
+                        }
+                        // can't insert data dir into all beacon and validator nodes here, because they need to increment, so config has to be duplicated first
+                        self.datadir = Some(toml_value_to_string(v)?);
+                    }
+                    other => return Err(format!("invalid global config: {}", other)),
+                }
+            }
+        }
+        Ok(self)
     }
 
     pub fn start_testnet(&mut self) -> Result<Testnet, String> {
+        // cleanup previous testnet files
+        if let Some(dir) = self.datadir.as_ref() {
+            let path = PathBuf::from(dir);
+            if path.exists() {
+                fs::remove_dir_all(dir).map_err(|e| format!("failed to remove datadir: {}", e))?;
+            }
+        }
+
         let ganache = self.start_ganache()?;
         self.setup_lcli()?;
         let bootnode = self.spawn_bootnode()?;
@@ -52,6 +164,7 @@ impl IntegrationTestConfig {
             bootnode,
             beacon_nodes,
             validator_clients,
+            datadir: self.datadir.clone().unwrap(),
         })
     }
 
@@ -63,7 +176,7 @@ impl IntegrationTestConfig {
             toml_value_to_string,
         )?;
 
-        let mut process = SimProcess::new("ganache-cli", config).spawn_no_wait();
+        let mut process = SimProcess::new(GANACHE_CMD, config).spawn_no_wait();
 
         // Need to give ganache time to start up
         thread::sleep(time::Duration::from_secs(5));
@@ -90,8 +203,8 @@ impl IntegrationTestConfig {
                 }
             })
             .collect();
-        deploy_config.insert(0, "deploy-deposit-contract".to_string());
-        deploy_config.insert(0, "lcli".to_string());
+        deploy_config.insert(0, DEPLOY_DEPOSIT_CONTRACT_CMD.to_string());
+        deploy_config.insert(0, LCLI_CMD.to_string());
 
         let app = lcli::new_app(None)
             .try_get_matches_from(deploy_config)
@@ -112,7 +225,7 @@ impl IntegrationTestConfig {
             .flat_map(|(k, v)| {
                 if v == "true" {
                     vec![format!("--{}", k)].into_iter()
-                } else if k == "genesis-delay" {
+                } else if k == GENESIS_DELAY_FLAG {
                     let genesis_time = SystemTime::now()
                         .duration_since(UNIX_EPOCH)
                         .expect("invalid genesis delay")
@@ -121,7 +234,7 @@ impl IntegrationTestConfig {
                     vec![
                         format!("--{}", k),
                         v,
-                        format!("--genesis-time"),
+                        format!("--{}", GENESIS_TIME_FLAG),
                         genesis_time,
                     ]
                     .into_iter()
@@ -130,11 +243,25 @@ impl IntegrationTestConfig {
                 }
             })
             .collect();
-        testnet_config.insert(0, "new-testnet".to_string());
-        testnet_config.insert(0, "lcli".to_string());
+        testnet_config.insert(0, NEW_TESTNET_CMD.to_string());
+        testnet_config.insert(0, LCLI_CMD.to_string());
 
         let app = lcli::new_app(None)
             .try_get_matches_from(testnet_config)
+            .map_err(|e| format!("{}", e))?;
+        lcli::run(&app)?;
+
+        let app = lcli::new_app(None)
+            .try_get_matches_from(vec![
+                "lcli",
+                "insecure-validators",
+                "--base-dir",
+                self.datadir.as_ref().unwrap(),
+                "--count",
+                &format!("{}", self.validator.len()),
+                "--node-count",
+                &format!("{}", self.beacon.len()),
+            ])
             .map_err(|e| format!("{}", e))?;
         lcli::run(&app)?;
 
@@ -149,7 +276,7 @@ impl IntegrationTestConfig {
             toml_value_to_string,
         )?;
 
-        let mut process = SimProcess::new_lighthouse_process("boot_node", config).spawn_no_wait();
+        let mut process = SimProcess::new_lighthouse_process(BOOT_NODE_CMD, config).spawn_no_wait();
 
         // Need to give boot node time to start up
         thread::sleep(time::Duration::from_secs(5));
@@ -160,14 +287,36 @@ impl IntegrationTestConfig {
     fn spawn_beacon_nodes(&mut self) -> Result<Vec<SimProcess>, String> {
         let mut processes = vec![];
 
-        for (name, config) in self.beacon.iter_mut() {
-            let config = to_string_map(
+        for (i, (name, config)) in self.beacon.iter_mut().enumerate() {
+            let index = i + 1;
+
+            let mut config = to_string_map(
                 config
                     .take()
                     .ok_or(format!("unable to parse {} config", name))?,
                 toml_value_to_string,
             )?;
-            let process = SimProcess::new_lighthouse_process("bn", config).spawn_no_wait();
+            if name.starts_with("default") {
+                config.insert(
+                    DATADIR_FLAG.to_string(),
+                    format!("{}/node_{}", self.datadir.as_ref().unwrap(), index),
+                );
+                config.insert(PORT_FLAG.to_string(), format!("9{}00", index));
+                config.insert(HTTP_PORT_FLAG.to_string(), format!("5{}52", index));
+            } else {
+                config.entry(DATADIR_FLAG.to_string()).or_insert(format!(
+                    "{}/node_{}",
+                    self.datadir.as_ref().unwrap(),
+                    index
+                ));
+                config
+                    .entry(PORT_FLAG.to_string())
+                    .or_insert(format!("9{}00", index));
+                config
+                    .entry(HTTP_PORT_FLAG.to_string())
+                    .or_insert(format!("5{}52", index));
+            }
+            let process = SimProcess::new_lighthouse_process(BEACON_CMD, config).spawn_no_wait();
             processes.push(process);
         }
 
@@ -177,20 +326,51 @@ impl IntegrationTestConfig {
     fn spawn_validator_clients(&mut self) -> Result<Vec<SimProcess>, String> {
         let mut processes = vec![];
 
-        for (name, config) in self.validator.iter_mut() {
-            let config = to_string_map(
+        for (i, (name, config)) in self.validator.iter_mut().enumerate() {
+            let index = i + 1;
+            let mut config = to_string_map(
                 config
                     .take()
                     .ok_or(format!("unable to parse {} config", name))?,
                 toml_value_to_string,
             )?;
-            let process = SimProcess::new_lighthouse_process("vc", config).spawn_no_wait();
+            // if name starts with default, always insert incremental config, otherwise only insert it if it doesn't exist
+            if name.starts_with("default") {
+                config.insert(
+                    DATADIR_FLAG.to_string(),
+                    format!("{}/node_{}", self.datadir.as_ref().unwrap(), index),
+                );
+                config.insert(
+                    BEACON_NODES_FLAG.to_string(),
+                    format!("http://localhost:5{}52", index),
+                );
+            } else {
+                config.entry(DATADIR_FLAG.to_string()).or_insert(format!(
+                    "{}/node_{}",
+                    self.datadir.as_ref().unwrap(),
+                    index
+                ));
+                config
+                    .entry(BEACON_NODES_FLAG.to_string())
+                    .or_insert(format!("localhost:5{}52", index));
+            }
+            let process = SimProcess::new_lighthouse_process(VALIDATOR_CMD, config).spawn_no_wait();
             processes.push(process);
         }
 
         Ok(processes)
     }
 }
+
+pub struct Testnet {
+    ganache: SimProcess,
+    bootnode: SimProcess,
+    beacon_nodes: Vec<SimProcess>,
+    validator_clients: Vec<SimProcess>,
+    datadir: String,
+}
+
+impl Testnet {}
 
 fn parse_file_config_maps(file_name: &str) -> Result<IntegrationTestConfig, String> {
     if file_name.ends_with(".toml") {
@@ -241,8 +421,12 @@ impl SimProcess {
         let mut cmd = Command::new(path);
         cmd.arg(base_cmd_name);
         for (k, v) in config.into_iter() {
-            cmd.arg(format!("--{}", k));
-            cmd.arg(v);
+            if v == "true" {
+                cmd.arg(format!("--{}", k));
+            } else {
+                cmd.arg(format!("--{}", k));
+                cmd.arg(v);
+            }
         }
         SimProcess {
             cmd: Some(cmd),
@@ -322,14 +506,8 @@ impl SimProcess {
 
 #[test]
 fn test_1() {
-    let mut test = IntegrationTestConfig::new().unwrap();
+    let mut test = IntegrationTestConfig::new().expect("should parse testnet config");
+    let testnet = test.start_testnet().expect("should start testnet");
 
-    match test.start_testnet() {
-        Ok(testnet) => {
-            dbg!("successfull setup")
-        }
-        Err(e) => {
-            dbg!(e.as_str())
-        }
-    };
+    thread::sleep(Duration::from_secs(20));
 }

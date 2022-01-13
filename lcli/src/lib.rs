@@ -727,7 +727,7 @@ fn run_with_env<T: EthSpec>(
                 .map_err(|e| format!("Failed to run replace-state-pubkeys command: {}", e))
         }
         Some((NEW_TESTNET_CMD, matches)) => new_testnet::run::<T>(testnet_dir, matches)
-            .map_err(|e| format!("Failed to run new_testnet command: {}", e)),
+            .map_err(|e| format!("Failed to run new-testnet command: {}", e)),
         Some((CHECK_DEPOSIT_DATA_CMD, matches)) => check_deposit_data::run::<T>(matches)
             .map_err(|e| format!("Failed to run check-deposit-data command: {}", e)),
         Some((GENERATE_BOOTNODE_ENR_CMD, matches)) => generate_bootnode_enr::run::<T>(matches)

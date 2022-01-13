@@ -135,7 +135,7 @@ pub fn run<T: EthSpec>(testnet_dir_path: PathBuf, matches: &ArgMatches) -> Resul
         let url = SensitiveUrl::parse(addr.as_str()).unwrap();
         let host_addr = url
             .full
-            .domain()
+            .host()
             .unwrap()
             .to_string()
             .parse::<IpAddr>()
