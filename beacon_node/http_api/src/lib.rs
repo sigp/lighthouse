@@ -2554,7 +2554,7 @@ pub fn serve<T: BeaconChainTypes>(
                     let mut receivers = Vec::with_capacity(topics.topics.len());
 
                     if let Some(event_handler) = chain.event_handler.as_ref() {
-                        for topic in topics.topics.clone() {
+                        for topic in topics.topics {
                             let receiver = match topic {
                                 api_types::EventTopic::Head => event_handler.subscribe_head(),
                                 api_types::EventTopic::Block => event_handler.subscribe_block(),
