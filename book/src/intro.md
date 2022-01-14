@@ -20,7 +20,7 @@ You may read this book from start to finish, or jump to some of these topics:
 - Follow the [Installation Guide](./installation.md) to install Lighthouse.
 - Learn about [becoming a mainnet validator](./mainnet-validator.md).
 - Get hacking with the [Development Environment Guide](./setup.md).
-- Utilize the whole stack by starting a [local testnet](./local-testnets.md).
+- Utilize the whole stack by starting a [local testnet](./setup.md#local-testnets).
 - Query the [RESTful HTTP API](./api.md) using `curl`.
 
 
