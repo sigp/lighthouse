@@ -8,6 +8,7 @@ use eth2::lighthouse_vc::{
 // use eth2_keystore::Keystore;
 use itertools::Itertools;
 use rand::{rngs::SmallRng, Rng, SeedableRng};
+use slashing_protection::interchange::{Interchange, InterchangeMetadata};
 use std::collections::HashMap;
 use std::path::Path;
 
@@ -487,6 +488,42 @@ fn import_keystores_wrong_password() {
             (0..num_keystores).map(|_| ImportKeystoreStatus::Duplicate),
         );
     });
+}
+
+#[test]
+fn import_invalid_slashing_protection() {
+    run_test(|tester| async move {
+        let password = random_password_string();
+        let keystores = (0..3)
+            .map(|_| new_keystore(password.clone()))
+            .collect::<Vec<_>>();
+
+        // Invalid slashing protection data with mismatched version and mismatched GVR.
+        let slashing_protection = Interchange {
+            metadata: InterchangeMetadata {
+                interchange_format_version: 0,
+                genesis_validators_root: Hash256::zero(),
+            },
+            data: vec![],
+        };
+
+        let import_res = tester
+            .client
+            .post_keystores(&ImportKeystoresRequest {
+                keystores: keystores.clone(),
+                passwords: vec![password.clone(); keystores.len()],
+                slashing_protection: Some(InterchangeJsonStr(slashing_protection)),
+            })
+            .await
+            .unwrap();
+
+        // All keystores should be imported.
+        check_import_response(&import_res, all_import_error(keystores.len()));
+
+        // Check that GET lists none of the failed keystores.
+        let get_res = tester.client.get_keystores().await.unwrap();
+        check_get_response(&get_res, &[]);
+    })
 }
 
 fn all_indices(count: usize) -> Vec<usize> {

@@ -75,34 +75,32 @@ pub fn import<T: SlotClock + 'static, E: EthSpec>(
     );
 
     // Import slashing protection data before keystores, so that new keystores don't start signing
-    // without it.
-    if let Some(InterchangeJsonStr(slashing_protection)) = request.slashing_protection {
-        // Warn for missing slashing protection.
-        for KeystoreJsonStr(ref keystore) in &request.keystores {
-            if let Some(public_key) = keystore.public_key() {
-                let pubkey_bytes = public_key.compress();
-                if !slashing_protection
-                    .data
-                    .iter()
-                    .any(|data| data.pubkey == pubkey_bytes)
-                {
-                    warn!(
-                        log,
-                        "Slashing protection data not provided";
-                        "public_key" => ?public_key,
-                    );
+    // without it. Do not return early on failure, propagate the failure to each key.
+    let slashing_protection_status =
+        if let Some(InterchangeJsonStr(slashing_protection)) = request.slashing_protection {
+            // Warn for missing slashing protection.
+            for KeystoreJsonStr(ref keystore) in &request.keystores {
+                if let Some(public_key) = keystore.public_key() {
+                    let pubkey_bytes = public_key.compress();
+                    if !slashing_protection
+                        .data
+                        .iter()
+                        .any(|data| data.pubkey == pubkey_bytes)
+                    {
+                        warn!(
+                            log,
+                            "Slashing protection data not provided";
+                            "public_key" => ?public_key,
+                        );
+                    }
                 }
             }
-        }
 
-        validator_store
-            .import_slashing_protection(slashing_protection)
-            .map_err(|e| {
-                custom_bad_request(format!("error importing slashing protection: {:?}", e))
-            })?
-    } else {
-        warn!(log, "No slashing protection data provided with keystores");
-    }
+            validator_store.import_slashing_protection(slashing_protection)
+        } else {
+            warn!(log, "No slashing protection data provided with keystores");
+            Ok(())
+        };
 
     // Import each keystore. Some keystores may fail to be imported, so we record a status for each.
     let mut statuses = Vec::with_capacity(request.keystores.len());
@@ -114,7 +112,15 @@ pub fn import<T: SlotClock + 'static, E: EthSpec>(
     {
         let pubkey_str = keystore.pubkey().to_string();
 
-        let status = if let Some(runtime) = runtime.upgrade() {
+        let status = if let Err(e) = &slashing_protection_status {
+            // Slashing protection import failed, do not attempt to import the key. Record an
+            // error status.
+            Status::error(
+                ImportKeystoreStatus::Error,
+                format!("slashing protection import failed: {:?}", e),
+            )
+        } else if let Some(runtime) = runtime.upgrade() {
+            // Import the keystore.
             match import_single_keystore(
                 keystore,
                 password,
