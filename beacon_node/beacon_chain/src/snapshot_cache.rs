@@ -1,4 +1,5 @@
 use crate::BeaconSnapshot;
+use itertools::process_results;
 use std::cmp;
 use std::time::Duration;
 use types::{
@@ -176,7 +177,12 @@ impl<T: EthSpec> SnapshotCache<T> {
 
     /// Insert a snapshot, potentially removing an existing snapshot if `self` is at capacity (see
     /// struct-level documentation for more info).
-    pub fn insert(&mut self, snapshot: BeaconSnapshot<T>, pre_state: Option<BeaconState<T>>) {
+    pub fn insert(
+        &mut self,
+        snapshot: BeaconSnapshot<T>,
+        pre_state: Option<BeaconState<T>>,
+        spec: &ChainSpec,
+    ) {
         let parent_root = snapshot.beacon_block.message().parent_root();
         let item = CacheItem {
             beacon_block: snapshot.beacon_block,
@@ -191,14 +197,17 @@ impl<T: EthSpec> SnapshotCache<T> {
         // cache small by removing any states that already have more than one descendant.
         //
         // Remove the grandparent first to free up room in the cache.
-        if let Some(parent) = self
-            .snapshots
-            .iter()
-            .find(|snapshot| snapshot.beacon_block_root == parent_root)
-        {
-            let grandparent_root = parent.beacon_block.message().parent_root();
-            self.snapshots
-                .retain(|snapshot| snapshot.beacon_block_root != grandparent_root);
+        let grandparent_result =
+            process_results(item.beacon_state.rev_iter_block_roots(spec), |iter| {
+                iter.map(|(_slot, root)| root)
+                    .find(|root| *root != parent_root)
+            });
+        if let Ok(Some(grandparent_root)) = grandparent_result {
+            let head_block_root = self.head_block_root;
+            self.snapshots.retain(|snapshot| {
+                let root = snapshot.beacon_block_root;
+                root == head_block_root || root != grandparent_root
+            });
         }
 
         if self.snapshots.len() < self.max_len {
@@ -411,7 +420,7 @@ mod test {
             *snapshot.beacon_state.slot_mut() =
                 Slot::from(i * MainnetEthSpec::slots_per_epoch() + 1);
 
-            cache.insert(snapshot, None);
+            cache.insert(snapshot, None, &spec);
 
             assert_eq!(
                 cache.snapshots.len(),
@@ -429,7 +438,7 @@ mod test {
         // 2        2
         // 3        3
         assert_eq!(cache.snapshots.len(), CACHE_SIZE);
-        cache.insert(get_snapshot(42), None);
+        cache.insert(get_snapshot(42), None, &spec);
         assert_eq!(cache.snapshots.len(), CACHE_SIZE);
 
         assert!(
@@ -489,7 +498,7 @@ mod test {
 
         // Over-fill the cache so it needs to eject some old values on insert.
         for i in 0..CACHE_SIZE as u64 {
-            cache.insert(get_snapshot(u64::max_value() - i), None);
+            cache.insert(get_snapshot(u64::max_value() - i), None, &spec);
         }
 
         // Ensure that the new head value was not removed from the cache.

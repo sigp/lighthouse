@@ -2796,6 +2796,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         beacon_block_root: block_root,
                     },
                     None,
+                    &self.spec,
                 )
             })
             .unwrap_or_else(|e| {
