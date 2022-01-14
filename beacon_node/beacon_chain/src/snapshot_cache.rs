@@ -1,4 +1,4 @@
-use crate::{metrics, BeaconSnapshot};
+use crate::BeaconSnapshot;
 use std::cmp;
 use std::time::Duration;
 use types::{
