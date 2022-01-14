@@ -23,6 +23,7 @@ pub struct SingleKeystoreResponse {
 }
 
 #[derive(Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct ImportKeystoresRequest {
     pub keystores: Vec<KeystoreJsonStr>,
     pub passwords: Vec<ZeroizeString>,
@@ -81,6 +82,7 @@ pub enum ImportKeystoreStatus {
 }
 
 #[derive(Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct DeleteKeystoresRequest {
     pub pubkeys: Vec<PublicKeyBytes>,
 }
