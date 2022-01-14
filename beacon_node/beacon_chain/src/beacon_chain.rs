@@ -3740,6 +3740,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .try_write_for(BLOCK_PROCESSING_CACHE_LOCK_TIMEOUT)
             .map(|mut snapshot_cache| {
                 snapshot_cache.prune(new_finalized_checkpoint.epoch);
+                debug!(
+                    self.log,
+                    "Snapshot cache pruned";
+                    "new_len" => snapshot_cache.len(),
+                    "remaining_roots" => ?snapshot_cache.beacon_block_roots(),
+                );
             })
             .unwrap_or_else(|| {
                 error!(

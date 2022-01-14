@@ -164,6 +164,11 @@ impl<T: EthSpec> SnapshotCache<T> {
         }
     }
 
+    /// The block roots of all snapshots contained in `self`.
+    pub fn beacon_block_roots(&self) -> Vec<Hash256> {
+        self.snapshots.iter().map(|s| s.beacon_block_root).collect()
+    }
+
     /// The number of snapshots contained in `self`.
     pub fn len(&self) -> usize {
         self.snapshots.len()
