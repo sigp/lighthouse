@@ -1,4 +1,5 @@
 use crate::{test_utils::TestRandom, *};
+use derivative::Derivative;
 use serde_derive::{Deserialize, Serialize};
 use ssz::Encode;
 use ssz_derive::{Decode, Encode};
@@ -9,8 +10,9 @@ pub type Transaction<T> = VariableList<u8, T>;
 
 #[cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary))]
 #[derive(
-    Default, Debug, Clone, PartialEq, Serialize, Deserialize, Encode, Decode, TreeHash, TestRandom,
+    Default, Debug, Clone, Serialize, Deserialize, Encode, Decode, TreeHash, TestRandom, Derivative,
 )]
+#[derivative(PartialEq, Hash(bound = "T: EthSpec"))]
 #[serde(bound = "T: EthSpec")]
 pub struct ExecutionPayload<T: EthSpec> {
     pub parent_hash: Hash256,

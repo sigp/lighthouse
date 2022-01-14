@@ -5,6 +5,7 @@ use crate::beacon_block_body::{
 use crate::test_utils::TestRandom;
 use crate::*;
 use bls::Signature;
+use derivative::Derivative;
 use serde_derive::{Deserialize, Serialize};
 use ssz::{Decode, DecodeError};
 use ssz_derive::{Decode, Encode};
@@ -19,15 +20,16 @@ use tree_hash_derive::TreeHash;
     variant_attributes(
         derive(
             Debug,
-            PartialEq,
             Clone,
             Serialize,
             Deserialize,
             Encode,
             Decode,
             TreeHash,
-            TestRandom
+            TestRandom,
+            Derivative,
         ),
+        derivative(PartialEq, Hash(bound = "T: EthSpec")),
         serde(bound = "T: EthSpec", deny_unknown_fields),
         cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary)),
     ),
@@ -36,7 +38,8 @@ use tree_hash_derive::TreeHash;
         tree_hash(enum_behaviour = "transparent")
     )
 )]
-#[derive(Debug, PartialEq, Clone, Serialize, Deserialize, Encode, TreeHash)]
+#[derive(Debug, Clone, Serialize, Deserialize, Encode, TreeHash, Derivative)]
+#[derivative(PartialEq, Hash(bound = "T: EthSpec"))]
 #[serde(untagged)]
 #[serde(bound = "T: EthSpec")]
 #[cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary))]

@@ -9,6 +9,7 @@ use serde::ser::{Serialize, Serializer};
 use ssz::{Decode, Encode};
 use std::convert::TryInto;
 use std::fmt;
+use std::hash::{Hash, Hasher};
 use std::marker::PhantomData;
 use tree_hash::TreeHash;
 
@@ -81,6 +82,12 @@ impl<Pub, Sig> GenericSignatureBytes<Pub, Sig> {
 impl<Pub, Sig> PartialEq for GenericSignatureBytes<Pub, Sig> {
     fn eq(&self, other: &Self) -> bool {
         self.bytes[..] == other.bytes[..]
+    }
+}
+
+impl<Pub, Sig> Hash for GenericSignatureBytes<Pub, Sig> {
+    fn hash<H: Hasher>(&self, hasher: &mut H) {
+        self.bytes.hash(hasher);
     }
 }
 
