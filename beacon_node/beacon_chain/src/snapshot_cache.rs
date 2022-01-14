@@ -197,7 +197,22 @@ impl<T: EthSpec> SnapshotCache<T> {
             }
         }
 
-        self.on_valid_block(beacon_block_root);
+        self.prune_grandparent(beacon_block_root);
+    }
+
+    /// This method will remove the grandparent of the given `block_root` from the cache, if it's
+    /// present. Assuming it's unlikely to see re-orgs deeper than one block, this method helps the
+    /// cache to remove any states that already have more than one descendant.
+    fn prune_grandparent(&mut self, block_root: Hash256) {
+        if let Some(parent) = self
+            .snapshots
+            .iter()
+            .find(|snapshot| snapshot.beacon_block_root == block_root)
+        {
+            let grandparent_root = parent.beacon_block.message().parent_root();
+            self.snapshots
+                .retain(|snapshot| snapshot.beacon_block_root != grandparent_root);
+        }
     }
 
     /// If available, returns a `CacheItem` that should be used for importing/processing a block.
@@ -308,25 +323,6 @@ impl<T: EthSpec> SnapshotCache<T> {
             .map(|snapshot| {
                 snapshot.pre_state = Some(state);
             })
-    }
-
-    /// This method should be called *after* an invalid block has been imported to the
-    /// `BeaconChain`.
-    ///
-    /// This method will remove the grandparent of the given `block_root` from the cache, if it's
-    /// present. This allows us to shrink the size of the cache once any snapshots has more than 1
-    /// descendant. Assuming it's unlikely to see re-orgs deeper than one block, this method helps
-    /// the cache to remove any states that already have more than one descendant.
-    fn on_valid_block(&mut self, block_root: Hash256) {
-        if let Some(parent) = self
-            .snapshots
-            .iter()
-            .find(|snapshot| snapshot.beacon_block_root == block_root)
-        {
-            let grandparent_root = parent.beacon_block.message().parent_root();
-            self.snapshots
-                .retain(|snapshot| snapshot.beacon_block_root != grandparent_root);
-        }
     }
 
     /// Removes all snapshots from the queue that are less than or equal to the finalized epoch.
