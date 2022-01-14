@@ -763,6 +763,7 @@ where
             block_times_cache: <_>::default(),
             validator_pubkey_cache: TimeoutRwLock::new(validator_pubkey_cache),
             attester_cache: <_>::default(),
+            early_attester_cache: <_>::default(),
             disabled_forks: self.disabled_forks,
             shutdown_sender: self
                 .shutdown_sender

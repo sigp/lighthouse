@@ -490,7 +490,10 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
         peer_id: &PeerId,
         action: PeerAction,
         source: ReportSource,
+        msg: &'static str,
     ) -> ScoreUpdateResult {
+        metrics::inc_counter_vec(&metrics::REPORT_PEER_MSGS, &[msg]);
+
         match self.peers.get_mut(peer_id) {
             Some(info) => {
                 let previous_state = info.score_state();
@@ -502,7 +505,13 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
                 let result =
                     Self::handle_score_transition(previous_state, peer_id, info, &self.log);
                 if previous_state == info.score_state() {
-                    debug!(self.log, "Peer score adjusted"; "peer_id" => %peer_id, "score" => %info.score());
+                    debug!(
+                        self.log,
+                        "Peer score adjusted";
+                        "msg" => %msg,
+                        "peer_id" => %peer_id,
+                        "score" => %info.score()
+                    );
                 }
                 match result {
                     ScoreTransitionResult::Banned => {
@@ -522,13 +531,23 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
                     }
                     ScoreTransitionResult::NoAction => ScoreUpdateResult::NoAction,
                     ScoreTransitionResult::Unbanned => {
-                        error!(self.log, "Report peer action lead to an unbanning"; "peer_id" => %peer_id);
+                        error!(
+                            self.log,
+                            "Report peer action lead to an unbanning";
+                            "msg" => %msg,
+                            "peer_id" => %peer_id
+                        );
                         ScoreUpdateResult::NoAction
                     }
                 }
             }
             None => {
-                debug!(self.log, "Reporting a peer that doesn't exist"; "peer_id" =>%peer_id);
+                debug!(
+                    self.log,
+                    "Reporting a peer that doesn't exist";
+                    "msg" => %msg,
+                    "peer_id" =>%peer_id
+                );
                 ScoreUpdateResult::NoAction
             }
         }
@@ -1357,7 +1376,7 @@ mod tests {
         assert_eq!(pdb.banned_peers_count.banned_peers(), 0);
 
         for p in pdb.connected_peer_ids().cloned().collect::<Vec<_>>() {
-            let _ = pdb.report_peer(&p, PeerAction::Fatal, ReportSource::PeerManager);
+            let _ = pdb.report_peer(&p, PeerAction::Fatal, ReportSource::PeerManager, "");
             pdb.inject_disconnect(&p);
         }
 
@@ -1426,9 +1445,19 @@ mod tests {
         pdb.inject_disconnect(&random_peer);
         assert_eq!(pdb.disconnected_peers, pdb.disconnected_peers().count());
 
-        let _ = pdb.report_peer(&random_peer, PeerAction::Fatal, ReportSource::PeerManager);
+        let _ = pdb.report_peer(
+            &random_peer,
+            PeerAction::Fatal,
+            ReportSource::PeerManager,
+            "",
+        );
         pdb.inject_disconnect(&random_peer);
-        let _ = pdb.report_peer(&random_peer, PeerAction::Fatal, ReportSource::PeerManager);
+        let _ = pdb.report_peer(
+            &random_peer,
+            PeerAction::Fatal,
+            ReportSource::PeerManager,
+            "",
+        );
         assert_eq!(pdb.disconnected_peers, pdb.disconnected_peers().count());
         pdb.inject_disconnect(&random_peer);
         assert_eq!(pdb.disconnected_peers, pdb.disconnected_peers().count());
@@ -1481,7 +1510,12 @@ mod tests {
             pdb.disconnected_peers, pdb.banned_peers_count.banned_peers
         );
         // Disconnect and ban peer 2
-        let _ = pdb.report_peer(&random_peer2, PeerAction::Fatal, ReportSource::PeerManager);
+        let _ = pdb.report_peer(
+            &random_peer2,
+            PeerAction::Fatal,
+            ReportSource::PeerManager,
+            "",
+        );
         // Should be 1 disconnected peer and one peer in the process of being disconnected
         println!(
             "3:{},{}",
@@ -1495,7 +1529,12 @@ mod tests {
             pdb.disconnected_peers, pdb.banned_peers_count.banned_peers
         );
         // Now that the peer is disconnected, register the ban.
-        let _ = pdb.report_peer(&random_peer2, PeerAction::Fatal, ReportSource::PeerManager);
+        let _ = pdb.report_peer(
+            &random_peer2,
+            PeerAction::Fatal,
+            ReportSource::PeerManager,
+            "",
+        );
         // There should be 1 disconnected peer and one banned peer.
         println!(
             "5:{},{}",
@@ -1509,7 +1548,12 @@ mod tests {
             pdb.banned_peers().count()
         );
         // Now ban peer 1.
-        let _ = pdb.report_peer(&random_peer1, PeerAction::Fatal, ReportSource::PeerManager);
+        let _ = pdb.report_peer(
+            &random_peer1,
+            PeerAction::Fatal,
+            ReportSource::PeerManager,
+            "",
+        );
         // There should be no disconnected peers and 2 banned peers
         println!(
             "6:{},{}",
@@ -1523,7 +1567,12 @@ mod tests {
             pdb.disconnected_peers, pdb.banned_peers_count.banned_peers
         );
         // Same thing here.
-        let _ = pdb.report_peer(&random_peer1, PeerAction::Fatal, ReportSource::PeerManager);
+        let _ = pdb.report_peer(
+            &random_peer1,
+            PeerAction::Fatal,
+            ReportSource::PeerManager,
+            "",
+        );
         println!(
             "8:{},{}",
             pdb.disconnected_peers, pdb.banned_peers_count.banned_peers
@@ -1559,7 +1608,12 @@ mod tests {
         );
 
         // Ban peer 3
-        let _ = pdb.report_peer(&random_peer3, PeerAction::Fatal, ReportSource::PeerManager);
+        let _ = pdb.report_peer(
+            &random_peer3,
+            PeerAction::Fatal,
+            ReportSource::PeerManager,
+            "",
+        );
         pdb.inject_disconnect(&random_peer3);
 
         // This should add a new banned peer, there should be 0 disconnected and 2 banned
@@ -1576,7 +1630,12 @@ mod tests {
         );
 
         // Ban peer 3
-        let _ = pdb.report_peer(&random_peer3, PeerAction::Fatal, ReportSource::PeerManager);
+        let _ = pdb.report_peer(
+            &random_peer3,
+            PeerAction::Fatal,
+            ReportSource::PeerManager,
+            "",
+        );
         pdb.inject_disconnect(&random_peer3);
 
         // Should still have 2 banned peers
@@ -1606,7 +1665,12 @@ mod tests {
         );
 
         // Ban peer 3
-        let _ = pdb.report_peer(&random_peer3, PeerAction::Fatal, ReportSource::PeerManager);
+        let _ = pdb.report_peer(
+            &random_peer3,
+            PeerAction::Fatal,
+            ReportSource::PeerManager,
+            "",
+        );
         pdb.inject_disconnect(&random_peer3);
 
         // Should have 1 disconnect (peer 2) and one banned (peer 3)
@@ -1657,7 +1721,12 @@ mod tests {
         );
 
         // Ban peer 0
-        let _ = pdb.report_peer(&random_peer, PeerAction::Fatal, ReportSource::PeerManager);
+        let _ = pdb.report_peer(
+            &random_peer,
+            PeerAction::Fatal,
+            ReportSource::PeerManager,
+            "",
+        );
         pdb.inject_disconnect(&random_peer);
 
         // Should have 1 disconnect ( peer 2) and two banned (peer0, peer 3)
@@ -1709,7 +1778,7 @@ mod tests {
         let p5 = connect_peer_with_ips(&mut pdb, vec![ip5]);
 
         for p in &peers[..BANNED_PEERS_PER_IP_THRESHOLD + 1] {
-            let _ = pdb.report_peer(p, PeerAction::Fatal, ReportSource::PeerManager);
+            let _ = pdb.report_peer(p, PeerAction::Fatal, ReportSource::PeerManager, "");
             pdb.inject_disconnect(p);
         }
 
@@ -1725,6 +1794,7 @@ mod tests {
             &peers[BANNED_PEERS_PER_IP_THRESHOLD + 1],
             PeerAction::Fatal,
             ReportSource::PeerManager,
+            "",
         );
         pdb.inject_disconnect(&peers[BANNED_PEERS_PER_IP_THRESHOLD + 1]);
 
@@ -1777,7 +1847,7 @@ mod tests {
 
         // ban all peers
         for p in &peers {
-            let _ = pdb.report_peer(p, PeerAction::Fatal, ReportSource::PeerManager);
+            let _ = pdb.report_peer(p, PeerAction::Fatal, ReportSource::PeerManager, "");
             pdb.inject_disconnect(p);
         }
 
@@ -1806,7 +1876,7 @@ mod tests {
         socker_addr.push(Protocol::Tcp(8080));
         for p in &peers {
             pdb.connect_ingoing(p, socker_addr.clone(), None);
-            let _ = pdb.report_peer(p, PeerAction::Fatal, ReportSource::PeerManager);
+            let _ = pdb.report_peer(p, PeerAction::Fatal, ReportSource::PeerManager, "");
             pdb.inject_disconnect(p);
         }
 
@@ -1823,7 +1893,7 @@ mod tests {
 
         // reban every peer except one
         for p in &peers[1..] {
-            let _ = pdb.report_peer(p, PeerAction::Fatal, ReportSource::PeerManager);
+            let _ = pdb.report_peer(p, PeerAction::Fatal, ReportSource::PeerManager, "");
             pdb.inject_disconnect(p);
         }
 
@@ -1832,7 +1902,7 @@ mod tests {
         assert!(!pdb.ban_status(&p2).is_banned());
 
         // reban last peer
-        let _ = pdb.report_peer(&peers[0], PeerAction::Fatal, ReportSource::PeerManager);
+        let _ = pdb.report_peer(&peers[0], PeerAction::Fatal, ReportSource::PeerManager, "");
         pdb.inject_disconnect(&peers[0]);
 
         //Ip's are banned again

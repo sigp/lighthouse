@@ -129,7 +129,7 @@ impl<T: BeaconChainTypes> Worker<T> {
     ) {
         let mut send_block_count = 0;
         for root in request.block_roots.iter() {
-            if let Ok(Some(block)) = self.chain.store.get_block(root) {
+            if let Ok(Some(block)) = self.chain.get_block_checking_early_attester_cache(root) {
                 self.send_response(
                     peer_id,
                     Response::BlocksByRoot(Some(Box::new(block))),

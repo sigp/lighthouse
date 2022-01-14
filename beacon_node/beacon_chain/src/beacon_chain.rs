@@ -12,6 +12,7 @@ use crate::block_verification::{
     IntoFullyVerifiedBlock,
 };
 use crate::chain_config::ChainConfig;
+use crate::early_attester_cache::EarlyAttesterCache;
 use crate::errors::{BeaconChainError as Error, BlockProductionError};
 use crate::eth1_chain::{Eth1Chain, Eth1ChainBackend};
 use crate::events::ServerSentEventHandler;
@@ -106,6 +107,9 @@ pub const BEACON_CHAIN_DB_KEY: Hash256 = Hash256::zero();
 pub const OP_POOL_DB_KEY: Hash256 = Hash256::zero();
 pub const ETH1_CACHE_DB_KEY: Hash256 = Hash256::zero();
 pub const FORK_CHOICE_DB_KEY: Hash256 = Hash256::zero();
+
+/// Defines how old a block can be before it's no longer a candidate for the early attester cache.
+const EARLY_ATTESTER_CACHE_HISTORIC_SLOTS: u64 = 4;
 
 /// Defines the behaviour when a block/block-root for a skipped slot is requested.
 pub enum WhenSlotSkipped {
@@ -328,6 +332,8 @@ pub struct BeaconChain<T: BeaconChainTypes> {
     pub(crate) validator_pubkey_cache: TimeoutRwLock<ValidatorPubkeyCache<T>>,
     /// A cache used when producing attestations.
     pub(crate) attester_cache: Arc<AttesterCache>,
+    /// A cache used when producing attestations whilst the head block is still being imported.
+    pub early_attester_cache: EarlyAttesterCache<T::EthSpec>,
     /// A cache used to keep track of various block timings.
     pub block_times_cache: Arc<RwLock<BlockTimesCache>>,
     /// A list of any hard-coded forks that have been disabled.
@@ -928,6 +934,28 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
     /// Returns the block at the given root, if any.
     ///
+    /// Will also check the early attester cache for the block. Because of this, there's no
+    /// guarantee that a block returned from this function has a `BeaconState` available in
+    /// `self.store`. The expected use for this function is *only* for returning blocks requested
+    /// from P2P peers.
+    ///
+    /// ## Errors
+    ///
+    /// May return a database error.
+    pub fn get_block_checking_early_attester_cache(
+        &self,
+        block_root: &Hash256,
+    ) -> Result<Option<SignedBeaconBlock<T::EthSpec>>, Error> {
+        let block_opt = self
+            .store
+            .get_block(block_root)?
+            .or_else(|| self.early_attester_cache.get_block(*block_root));
+
+        Ok(block_opt)
+    }
+
+    /// Returns the block at the given root, if any.
+    ///
     /// ## Errors
     ///
     /// May return a database error.
@@ -1421,6 +1449,29 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         request_index: CommitteeIndex,
     ) -> Result<Attestation<T::EthSpec>, Error> {
         let _total_timer = metrics::start_timer(&metrics::ATTESTATION_PRODUCTION_SECONDS);
+
+        // The early attester cache will return `Some(attestation)` in the scenario where there is a
+        // block being imported that will become the head block, but that block has not yet been
+        // inserted into the database and set as `self.canonical_head`.
+        //
+        // In effect, the early attester cache prevents slow database IO from causing missed
+        // head/target votes.
+        match self
+            .early_attester_cache
+            .try_attest(request_slot, request_index, &self.spec)
+        {
+            // The cache matched this request, return the value.
+            Ok(Some(attestation)) => return Ok(attestation),
+            // The cache did not match this request, proceed with the rest of this function.
+            Ok(None) => (),
+            // The cache returned an error. Log the error and proceed with the rest of this
+            // function.
+            Err(e) => warn!(
+                self.log,
+                "Early attester cache failed";
+                "error" => ?e
+            ),
+        }
 
         let slots_per_epoch = T::EthSpec::slots_per_epoch();
         let request_epoch = request_slot.epoch(slots_per_epoch);
@@ -2602,6 +2653,42 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             }
         }
 
+        // If the block is recent enough, check to see if it becomes the head block. If so, apply it
+        // to the early attester cache. This will allow attestations to the block without waiting
+        // for the block and state to be inserted to the database.
+        //
+        // Only performing this check on recent blocks avoids slowing down sync with lots of calls
+        // to fork choice `get_head`.
+        if block.slot() + EARLY_ATTESTER_CACHE_HISTORIC_SLOTS >= current_slot {
+            let new_head_root = fork_choice
+                .get_head(current_slot, &self.spec)
+                .map_err(BeaconChainError::from)?;
+
+            if new_head_root == block_root {
+                if let Some(proto_block) = fork_choice.get_block(&block_root) {
+                    if let Err(e) = self.early_attester_cache.add_head_block(
+                        block_root,
+                        signed_block.clone(),
+                        proto_block,
+                        &state,
+                        &self.spec,
+                    ) {
+                        warn!(
+                            self.log,
+                            "Early attester cache insert failed";
+                            "error" => ?e
+                        );
+                    }
+                } else {
+                    warn!(
+                        self.log,
+                        "Early attester block missing";
+                        "block_root" => ?block_root
+                    );
+                }
+            }
+        }
+
         // Register sync aggregate with validator monitor
         if let Ok(sync_aggregate) = block.body().sync_aggregate() {
             // `SyncCommittee` for the sync_aggregate should correspond to the duty slot
@@ -3247,6 +3334,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let is_merge_transition_complete = is_merge_transition_complete(&new_head.beacon_state);
 
         drop(lag_timer);
+
+        // Clear the early attester cache in case it conflicts with `self.canonical_head`.
+        self.early_attester_cache.clear();
 
         // Update the snapshot that stores the head of the chain at the time it received the
         // block.

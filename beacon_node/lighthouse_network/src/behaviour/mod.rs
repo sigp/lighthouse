@@ -887,6 +887,7 @@ impl<TSpec: EthSpec> NetworkBehaviourEventProcess<GossipsubEvent> for Behaviour<
                     PeerAction::LowToleranceError,
                     ReportSource::Gossipsub,
                     Some(GoodbyeReason::Unknown),
+                    "does_not_support_gossipsub",
                 );
             }
         }
