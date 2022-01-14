@@ -1701,6 +1701,7 @@ name = "eth2_ssz_types"
 version = "0.2.2"
 dependencies = [
  "arbitrary",
+ "derivative",
  "eth2_serde_utils",
  "eth2_ssz",
  "serde",
