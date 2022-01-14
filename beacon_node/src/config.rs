@@ -714,7 +714,7 @@ pub fn set_network_config(
                         None
                     }
                 }) {
-                    addr.push_str(&format!(":{}", enr_udp_port.to_string()));
+                    addr.push_str(&format!(":{}", enr_udp_port));
                 } else {
                     return Err(
                         "enr-udp-port must be set for node to be discoverable with dns address"
