@@ -13,6 +13,10 @@ pub struct BlsAggregateSigs {
 impl BlsCase for BlsAggregateSigs {}
 
 impl Case for BlsAggregateSigs {
+    fn is_enabled_for_fork(fork_name: ForkName) -> bool {
+        fork_name == ForkName::Base
+    }
+
     fn result(&self, _case_index: usize, _fork_name: ForkName) -> Result<(), Error> {
         let mut aggregate_signature = AggregateSignature::infinity();
 

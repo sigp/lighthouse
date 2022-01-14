@@ -7,13 +7,12 @@ edition = "2018"
 [dependencies]
 beacon_chain = { path = "../../beacon_node/beacon_chain" }
 directory = { path = "../../common/directory" }
-eth2_libp2p = { path = "../../beacon_node/eth2_libp2p" }
+lighthouse_network = { path = "../../beacon_node/lighthouse_network" }
 network = { path = "../../beacon_node/network" }
 slasher = { path = ".." }
 slog = "2.5.2"
 slot_clock = { path = "../../common/slot_clock" }
 state_processing = { path = "../../consensus/state_processing" }
 task_executor = { path = "../../common/task_executor" }
-tokio = { version = "1.10.0", features = ["full"] }
-tokio-stream = "0.1.3"
+tokio = { version = "1.14.0", features = ["full"] }
 types = { path = "../../consensus/types" }

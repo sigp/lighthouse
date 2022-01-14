@@ -373,6 +373,7 @@ impl Eth1GenesisService {
             eth1_block.hash,
             eth1_block.timestamp,
             genesis_deposits(deposit_logs, spec)?,
+            None,
             spec,
         )
         .map_err(|e| format!("Unable to initialize genesis state: {:?}", e))?;

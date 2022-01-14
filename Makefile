@@ -2,6 +2,7 @@
 
 EF_TESTS = "testing/ef_tests"
 BEACON_CHAIN_CRATE = "beacon_node/beacon_chain"
+OP_POOL_CRATE = "beacon_node/operation_pool"
 STATE_TRANSITION_VECTORS = "testing/state_transition_vectors"
 GIT_TAG := $(shell git describe --tags --candidates 1)
 BIN_DIR = "bin"
@@ -12,6 +13,10 @@ AARCH64_TAG = "aarch64-unknown-linux-gnu"
 BUILD_PATH_AARCH64 = "target/$(AARCH64_TAG)/release"
 
 PINNED_NIGHTLY ?= nightly
+
+# List of all hard forks. This list is used to set env variables for several tests so that
+# they run for different forks.
+FORKS=phase0 altair
 
 # Builds the Lighthouse binary in release (optimized).
 #
@@ -105,13 +110,21 @@ run-ef-tests:
 	cargo test --release --manifest-path=$(EF_TESTS)/Cargo.toml --features "ef_tests"
 	cargo test --release --manifest-path=$(EF_TESTS)/Cargo.toml --features "ef_tests,fake_crypto"
 	cargo test --release --manifest-path=$(EF_TESTS)/Cargo.toml --features "ef_tests,milagro"
-	./$(EF_TESTS)/check_all_files_accessed.py $(EF_TESTS)/.accessed_file_log.txt $(EF_TESTS)/eth2.0-spec-tests
+	./$(EF_TESTS)/check_all_files_accessed.py $(EF_TESTS)/.accessed_file_log.txt $(EF_TESTS)/consensus-spec-tests
 
-# Run the tests in the `beacon_chain` crate.
-test-beacon-chain: test-beacon-chain-base test-beacon-chain-altair
+# Run the tests in the `beacon_chain` crate for all known forks.
+test-beacon-chain: $(patsubst %,test-beacon-chain-%,$(FORKS))
 
 test-beacon-chain-%:
 	env FORK_NAME=$* cargo test --release --features fork_from_env --manifest-path=$(BEACON_CHAIN_CRATE)/Cargo.toml
+
+# Run the tests in the `operation_pool` crate for all known forks.
+test-op-pool: $(patsubst %,test-op-pool-%,$(FORKS))
+
+test-op-pool-%:
+	env FORK_NAME=$* cargo test --release \
+		--features 'beacon_chain/fork_from_env'\
+		--manifest-path=$(OP_POOL_CRATE)/Cargo.toml
 
 # Runs only the tests/state_transition_vectors tests.
 run-state-transition-tests:
@@ -131,6 +144,7 @@ test-full: cargo-fmt test-release test-debug test-ef
 # Clippy lints are opt-in per-crate for now. By default, everything is allowed except for performance and correctness lints.
 lint:
 	cargo clippy --workspace --tests -- \
+        -D clippy::fn_to_numeric_cast_any \
         -D warnings \
         -A clippy::from-over-into \
         -A clippy::upper-case-acronyms \
@@ -144,14 +158,19 @@ lint:
 make-ef-tests:
 	make -C $(EF_TESTS)
 
-# Verifies that state_processing feature arbitrary-fuzz will compile
+# Verifies that crates compile with fuzzing features enabled
 arbitrary-fuzz:
-	cargo check --manifest-path=consensus/state_processing/Cargo.toml --features arbitrary-fuzz
+	cargo check -p state_processing --features arbitrary-fuzz
+	cargo check -p slashing_protection --features arbitrary-fuzz
 
 # Runs cargo audit (Audit Cargo.lock files for crates with security vulnerabilities reported to the RustSec Advisory Database)
 audit:
 	cargo install --force cargo-audit
-	cargo audit
+	cargo audit --ignore RUSTSEC-2020-0071 --ignore RUSTSEC-2020-0159
+
+# Runs `cargo vendor` to make sure dependencies can be vendored for packaging, reproducibility and archival purpose.
+vendor:
+	cargo vendor
 
 # Runs `cargo udeps` to check for unused dependencies
 udeps:

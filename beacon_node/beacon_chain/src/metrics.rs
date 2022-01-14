@@ -18,6 +18,14 @@ lazy_static! {
         "beacon_block_processing_successes_total",
         "Count of blocks processed without error"
     );
+    pub static ref BLOCK_PROCESSING_SNAPSHOT_CACHE_MISSES: Result<IntCounter> = try_create_int_counter(
+        "beacon_block_processing_snapshot_cache_misses",
+        "Count of snapshot cache misses"
+    );
+    pub static ref BLOCK_PROCESSING_SNAPSHOT_CACHE_CLONES: Result<IntCounter> = try_create_int_counter(
+        "beacon_block_processing_snapshot_cache_clones",
+        "Count of snapshot cache clones"
+    );
     pub static ref BLOCK_PROCESSING_TIMES: Result<Histogram> =
         try_create_histogram("beacon_block_processing_seconds", "Full runtime of block processing");
     pub static ref BLOCK_PROCESSING_BLOCK_ROOT: Result<Histogram> = try_create_histogram(
@@ -105,6 +113,11 @@ lazy_static! {
     pub static ref OPERATIONS_PER_BLOCK_ATTESTATION: Result<Histogram> = try_create_histogram(
         "beacon_operations_per_block_attestation_total",
         "Number of attestations in a block"
+    );
+
+    pub static ref BLOCK_SIZE: Result<Histogram> = try_create_histogram(
+        "beacon_block_total_size",
+        "Size of a signed beacon block"
     );
 
     /*
@@ -200,12 +213,40 @@ lazy_static! {
     );
 
     /*
+     * Batch Attestation Processing
+     */
+    pub static ref ATTESTATION_PROCESSING_BATCH_AGG_SIGNATURE_SETUP_TIMES: Result<Histogram> = try_create_histogram(
+        "beacon_attestation_processing_batch_agg_signature_setup_times",
+        "Time spent on setting up for the signature verification of batch aggregate processing"
+    );
+    pub static ref ATTESTATION_PROCESSING_BATCH_AGG_SIGNATURE_TIMES: Result<Histogram> = try_create_histogram(
+        "beacon_attestation_processing_batch_agg_signature_times",
+        "Time spent on the signature verification of batch aggregate attestation processing"
+    );
+    pub static ref ATTESTATION_PROCESSING_BATCH_UNAGG_SIGNATURE_SETUP_TIMES: Result<Histogram> = try_create_histogram(
+        "beacon_attestation_processing_batch_unagg_signature_setup_times",
+        "Time spent on setting up for the signature verification of batch unaggregate processing"
+    );
+    pub static ref ATTESTATION_PROCESSING_BATCH_UNAGG_SIGNATURE_TIMES: Result<Histogram> = try_create_histogram(
+        "beacon_attestation_processing_batch_unagg_signature_times",
+        "Time spent on the signature verification of batch unaggregate attestation processing"
+    );
+
+    /*
      * Shuffling cache
      */
     pub static ref SHUFFLING_CACHE_HITS: Result<IntCounter> =
         try_create_int_counter("beacon_shuffling_cache_hits_total", "Count of times shuffling cache fulfils request");
     pub static ref SHUFFLING_CACHE_MISSES: Result<IntCounter> =
         try_create_int_counter("beacon_shuffling_cache_misses_total", "Count of times shuffling cache fulfils request");
+
+    /*
+     * Early attester cache
+     */
+    pub static ref BEACON_EARLY_ATTESTER_CACHE_HITS: Result<IntCounter> = try_create_int_counter(
+        "beacon_early_attester_cache_hits",
+        "Count of times the early attester cache returns an attestation"
+    );
 
     /*
      * Attestation Production
@@ -247,6 +288,10 @@ lazy_static! {
     );
     pub static ref FORK_CHOICE_REORG_COUNT: Result<IntCounter> = try_create_int_counter(
         "beacon_fork_choice_reorg_total",
+        "Count of occasions fork choice has switched to a different chain"
+    );
+    pub static ref FORK_CHOICE_REORG_COUNT_INTEROP: Result<IntCounter> = try_create_int_counter(
+        "beacon_reorgs_total",
         "Count of occasions fork choice has switched to a different chain"
     );
     pub static ref FORK_CHOICE_TIMES: Result<Histogram> =
@@ -295,6 +340,8 @@ lazy_static! {
         try_create_histogram("beacon_update_head_seconds", "Time taken to update the canonical head");
     pub static ref HEAD_STATE_SLOT: Result<IntGauge> =
         try_create_int_gauge("beacon_head_state_slot", "Slot of the block at the head of the chain");
+    pub static ref HEAD_STATE_SLOT_INTEROP: Result<IntGauge> =
+        try_create_int_gauge("beacon_head_slot", "Slot of the block at the head of the chain");
     pub static ref HEAD_STATE_ROOT: Result<IntGauge> =
         try_create_int_gauge("beacon_head_state_root", "Root of the block at the head of the chain");
     pub static ref HEAD_STATE_LATEST_BLOCK_SLOT: Result<IntGauge> =
@@ -303,18 +350,26 @@ lazy_static! {
         try_create_int_gauge("beacon_head_state_current_justified_root", "Current justified root at the head of the chain");
     pub static ref HEAD_STATE_CURRENT_JUSTIFIED_EPOCH: Result<IntGauge> =
         try_create_int_gauge("beacon_head_state_current_justified_epoch", "Current justified epoch at the head of the chain");
+    pub static ref HEAD_STATE_CURRENT_JUSTIFIED_EPOCH_INTEROP: Result<IntGauge> =
+        try_create_int_gauge("beacon_current_justified_epoch", "Current justified epoch at the head of the chain");
     pub static ref HEAD_STATE_PREVIOUS_JUSTIFIED_ROOT: Result<IntGauge> =
         try_create_int_gauge("beacon_head_state_previous_justified_root", "Previous justified root at the head of the chain");
     pub static ref HEAD_STATE_PREVIOUS_JUSTIFIED_EPOCH: Result<IntGauge> =
         try_create_int_gauge("beacon_head_state_previous_justified_epoch", "Previous justified epoch at the head of the chain");
+    pub static ref HEAD_STATE_PREVIOUS_JUSTIFIED_EPOCH_INTEROP: Result<IntGauge> =
+        try_create_int_gauge("beacon_previous_justified_epoch", "Previous justified epoch at the head of the chain");
     pub static ref HEAD_STATE_FINALIZED_ROOT: Result<IntGauge> =
         try_create_int_gauge("beacon_head_state_finalized_root", "Finalized root at the head of the chain");
     pub static ref HEAD_STATE_FINALIZED_EPOCH: Result<IntGauge> =
         try_create_int_gauge("beacon_head_state_finalized_epoch", "Finalized epoch at the head of the chain");
+    pub static ref HEAD_STATE_FINALIZED_EPOCH_INTEROP: Result<IntGauge> =
+        try_create_int_gauge("beacon_finalized_epoch", "Finalized epoch at the head of the chain");
     pub static ref HEAD_STATE_TOTAL_VALIDATORS: Result<IntGauge> =
         try_create_int_gauge("beacon_head_state_total_validators_total", "Count of validators at the head of the chain");
     pub static ref HEAD_STATE_ACTIVE_VALIDATORS: Result<IntGauge> =
         try_create_int_gauge("beacon_head_state_active_validators_total", "Count of active validators at the head of the chain");
+    pub static ref HEAD_STATE_ACTIVE_VALIDATORS_INTEROP: Result<IntGauge> =
+        try_create_int_gauge("beacon_current_active_validators", "Count of active validators at the head of the chain");
     pub static ref HEAD_STATE_VALIDATOR_BALANCES: Result<IntGauge> =
         try_create_int_gauge("beacon_head_state_validator_balances_total", "Sum of all validator balances at the head of the chain");
     pub static ref HEAD_STATE_SLASHED_VALIDATORS: Result<IntGauge> =
@@ -323,12 +378,18 @@ lazy_static! {
         try_create_int_gauge("beacon_head_state_withdrawn_validators_total", "Sum of all validator balances at the head of the chain");
     pub static ref HEAD_STATE_ETH1_DEPOSIT_INDEX: Result<IntGauge> =
         try_create_int_gauge("beacon_head_state_eth1_deposit_index", "Eth1 deposit index at the head of the chain");
+    pub static ref HEAD_STATE_ETH1_DEPOSITS_INTEROP: Result<IntGauge> =
+        try_create_int_gauge("beacon_processed_deposits_total", "Total Eth1 deposits at the head of the chain");
 
     /*
      * Operation Pool
      */
     pub static ref OP_POOL_NUM_ATTESTATIONS: Result<IntGauge> =
         try_create_int_gauge("beacon_op_pool_attestations_total", "Count of attestations in the op pool");
+    pub static ref OP_POOL_NUM_ATTESTATION_DATA: Result<IntGauge> =
+        try_create_int_gauge("beacon_op_pool_attestation_data_total", "Count of attestation data in the op pool");
+    pub static ref OP_POOL_MAX_AGGREGATES_PER_DATA: Result<IntGauge> =
+        try_create_int_gauge("beacon_op_pool_max_aggregates_per_data", "Max aggregates per AttestationData");
     pub static ref OP_POOL_NUM_ATTESTER_SLASHINGS: Result<IntGauge> =
         try_create_int_gauge("beacon_op_pool_attester_slashings_total", "Count of attester slashings in the op pool");
     pub static ref OP_POOL_NUM_PROPOSER_SLASHINGS: Result<IntGauge> =
@@ -628,8 +689,8 @@ lazy_static! {
         "Number of sync contributions seen",
         &["src", "validator"]
     );
-    pub static ref VALIDATOR_MONITOR_SYNC_COONTRIBUTIONS_DELAY_SECONDS: Result<HistogramVec> = try_create_histogram_vec(
-        "validator_monitor_sync_contribtions_delay_seconds",
+    pub static ref VALIDATOR_MONITOR_SYNC_CONTRIBUTIONS_DELAY_SECONDS: Result<HistogramVec> = try_create_histogram_vec(
+        "validator_monitor_sync_contributions_delay_seconds",
         "The delay between when the aggregator should send the sync contribution and when it was received.",
         &["src", "validator"]
     );
@@ -702,17 +763,25 @@ lazy_static! {
     /*
      * Block Delay Metrics
      */
-    pub static ref BEACON_BLOCK_IMPORTED_SLOT_START_DELAY_TIME: Result<Histogram> = try_create_histogram(
-        "beacon_block_imported_slot_start_delay_time",
-        "Duration between the start of the blocks slot and the current time when it was imported.",
+    pub static ref BEACON_BLOCK_OBSERVED_SLOT_START_DELAY_TIME: Result<Histogram> = try_create_histogram(
+        "beacon_block_observed_slot_start_delay_time",
+        "Duration between the start of the block's slot and the time the block was observed.",
+    );
+    pub static ref BEACON_BLOCK_IMPORTED_OBSERVED_DELAY_TIME: Result<Histogram> = try_create_histogram(
+        "beacon_block_imported_observed_delay_time",
+        "Duration between the time the block was observed and the time when it was imported.",
+    );
+    pub static ref BEACON_BLOCK_HEAD_IMPORTED_DELAY_TIME: Result<Histogram> = try_create_histogram(
+        "beacon_block_head_imported_delay_time",
+        "Duration between the time the block was imported and the time when it was set as head.",
     );
     pub static ref BEACON_BLOCK_HEAD_SLOT_START_DELAY_TIME: Result<Histogram> = try_create_histogram(
         "beacon_block_head_slot_start_delay_time",
-        "Duration between the start of the blocks slot and the current time when it was as head.",
+        "Duration between the start of the block's slot and the time when it was set as head.",
     );
     pub static ref BEACON_BLOCK_HEAD_SLOT_START_DELAY_EXCEEDED_TOTAL: Result<IntCounter> = try_create_int_counter(
         "beacon_block_head_slot_start_delay_exceeded_total",
-        "Triggered when the duration between the start of the blocks slot and the current time \
+        "Triggered when the duration between the start of the block's slot and the current time \
         will result in failed attestations.",
     );
 
@@ -811,6 +880,22 @@ lazy_static! {
         "beacon_sync_committee_message_processing_signature_seconds",
         "Time spent on the signature verification of sync message processing"
     );
+
+    /*
+     * Checkpoint sync & backfill
+     */
+    pub static ref BACKFILL_SIGNATURE_SETUP_TIMES: Result<Histogram> = try_create_histogram(
+        "beacon_backfill_signature_setup_seconds",
+        "Time spent constructing the signature set during backfill sync"
+    );
+    pub static ref BACKFILL_SIGNATURE_VERIFY_TIMES: Result<Histogram> = try_create_histogram(
+        "beacon_backfill_signature_verify_seconds",
+        "Time spent verifying the signature set during backfill sync"
+    );
+    pub static ref BACKFILL_SIGNATURE_TOTAL_TIMES: Result<Histogram> = try_create_histogram(
+        "beacon_backfill_signature_total_seconds",
+        "Time spent verifying the signature set during backfill sync, including setup"
+    );
 }
 
 /// Scrape the `beacon_chain` for metrics that are not constantly updated (e.g., the present slot,
@@ -826,9 +911,19 @@ pub fn scrape_for_metrics<T: BeaconChainTypes>(beacon_chain: &BeaconChain<T>) {
         scrape_sync_committee_observation(slot, beacon_chain);
     }
 
+    let attestation_stats = beacon_chain.op_pool.attestation_stats();
+
     set_gauge_by_usize(
         &OP_POOL_NUM_ATTESTATIONS,
-        beacon_chain.op_pool.num_attestations(),
+        attestation_stats.num_attestations,
+    );
+    set_gauge_by_usize(
+        &OP_POOL_NUM_ATTESTATION_DATA,
+        attestation_stats.num_attestation_data,
+    );
+    set_gauge_by_usize(
+        &OP_POOL_MAX_AGGREGATES_PER_DATA,
+        attestation_stats.max_aggregates_per_data,
     );
     set_gauge_by_usize(
         &OP_POOL_NUM_ATTESTER_SLASHINGS,
@@ -856,6 +951,7 @@ pub fn scrape_for_metrics<T: BeaconChainTypes>(beacon_chain: &BeaconChain<T>) {
 /// Scrape the given `state` assuming it's the head state, updating the `DEFAULT_REGISTRY`.
 fn scrape_head_state<T: EthSpec>(state: &BeaconState<T>, state_root: Hash256) {
     set_gauge_by_slot(&HEAD_STATE_SLOT, state.slot());
+    set_gauge_by_slot(&HEAD_STATE_SLOT_INTEROP, state.slot());
     set_gauge_by_hash(&HEAD_STATE_ROOT, state_root);
     set_gauge_by_slot(
         &HEAD_STATE_LATEST_BLOCK_SLOT,
@@ -869,12 +965,20 @@ fn scrape_head_state<T: EthSpec>(state: &BeaconState<T>, state_root: Hash256) {
         &HEAD_STATE_CURRENT_JUSTIFIED_EPOCH,
         state.current_justified_checkpoint().epoch,
     );
+    set_gauge_by_epoch(
+        &HEAD_STATE_CURRENT_JUSTIFIED_EPOCH_INTEROP,
+        state.current_justified_checkpoint().epoch,
+    );
     set_gauge_by_hash(
         &HEAD_STATE_PREVIOUS_JUSTIFIED_ROOT,
         state.previous_justified_checkpoint().root,
     );
     set_gauge_by_epoch(
         &HEAD_STATE_PREVIOUS_JUSTIFIED_EPOCH,
+        state.previous_justified_checkpoint().epoch,
+    );
+    set_gauge_by_epoch(
+        &HEAD_STATE_PREVIOUS_JUSTIFIED_EPOCH_INTEROP,
         state.previous_justified_checkpoint().epoch,
     );
     set_gauge_by_hash(
@@ -885,12 +989,20 @@ fn scrape_head_state<T: EthSpec>(state: &BeaconState<T>, state_root: Hash256) {
         &HEAD_STATE_FINALIZED_EPOCH,
         state.finalized_checkpoint().epoch,
     );
+    set_gauge_by_epoch(
+        &HEAD_STATE_FINALIZED_EPOCH_INTEROP,
+        state.finalized_checkpoint().epoch,
+    );
     set_gauge_by_usize(&HEAD_STATE_TOTAL_VALIDATORS, state.validators().len());
     set_gauge_by_u64(
         &HEAD_STATE_VALIDATOR_BALANCES,
         state.balances().iter().sum(),
     );
     set_gauge_by_u64(&HEAD_STATE_ETH1_DEPOSIT_INDEX, state.eth1_deposit_index());
+    set_gauge_by_u64(
+        &HEAD_STATE_ETH1_DEPOSITS_INTEROP,
+        state.eth1_data().deposit_count,
+    );
     set_gauge_by_usize(&HEAD_STATE_TOTAL_VALIDATORS, state.validators().len());
     set_gauge_by_u64(
         &HEAD_STATE_VALIDATOR_BALANCES,
@@ -916,6 +1028,7 @@ fn scrape_head_state<T: EthSpec>(state: &BeaconState<T>, state_root: Hash256) {
     }
 
     set_gauge_by_usize(&HEAD_STATE_ACTIVE_VALIDATORS, num_active);
+    set_gauge_by_usize(&HEAD_STATE_ACTIVE_VALIDATORS_INTEROP, num_active);
     set_gauge_by_usize(&HEAD_STATE_SLASHED_VALIDATORS, num_slashed);
     set_gauge_by_usize(&HEAD_STATE_WITHDRAWN_VALIDATORS, num_withdrawn);
 }

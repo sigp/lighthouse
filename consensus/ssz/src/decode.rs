@@ -48,6 +48,8 @@ pub enum DecodeError {
     ZeroLengthItem,
     /// The given bytes were invalid for some application-level reason.
     BytesInvalid(String),
+    /// The given union selector is out of bounds.
+    UnionSelectorInvalid(u8),
 }
 
 /// Performs checks on the `offset` based upon the other parameters provided.
@@ -172,9 +174,18 @@ impl<'a> SszDecoderBuilder<'a> {
 
     /// Declares that some type `T` is the next item in `bytes`.
     pub fn register_type<T: Decode>(&mut self) -> Result<(), DecodeError> {
-        if T::is_ssz_fixed_len() {
+        self.register_type_parameterized(T::is_ssz_fixed_len(), T::ssz_fixed_len())
+    }
+
+    /// Declares that a type with the given parameters is the next item in `bytes`.
+    pub fn register_type_parameterized(
+        &mut self,
+        is_ssz_fixed_len: bool,
+        ssz_fixed_len: usize,
+    ) -> Result<(), DecodeError> {
+        if is_ssz_fixed_len {
             let start = self.items_index;
-            self.items_index += T::ssz_fixed_len();
+            self.items_index += ssz_fixed_len;
 
             let slice = self.bytes.get(start..self.items_index).ok_or_else(|| {
                 DecodeError::InvalidByteLength {
@@ -300,7 +311,7 @@ impl<'a> SszDecoder<'a> {
     ///
     /// Panics when attempting to decode more items than actually exist.
     pub fn decode_next<T: Decode>(&mut self) -> Result<T, DecodeError> {
-        T::from_ssz_bytes(self.items.remove(0))
+        self.decode_next_with(|slice| T::from_ssz_bytes(slice))
     }
 
     /// Decodes the next item using the provided function.
@@ -312,15 +323,30 @@ impl<'a> SszDecoder<'a> {
     }
 }
 
-/// Reads a `BYTES_PER_LENGTH_OFFSET`-byte union index from `bytes`, where `bytes.len() >=
-/// BYTES_PER_LENGTH_OFFSET`.
-pub fn read_union_index(bytes: &[u8]) -> Result<usize, DecodeError> {
-    read_offset(bytes)
+/// Takes `bytes`, assuming it is the encoding for a SSZ union, and returns the union-selector and
+/// the body (trailing bytes).
+///
+/// ## Errors
+///
+/// Returns an error if:
+///
+/// - `bytes` is empty.
+/// - the union selector is not a valid value (i.e., larger than the maximum number of variants.
+pub fn split_union_bytes(bytes: &[u8]) -> Result<(UnionSelector, &[u8]), DecodeError> {
+    let selector = bytes
+        .first()
+        .copied()
+        .ok_or(DecodeError::OutOfBoundsByte { i: 0 })
+        .and_then(UnionSelector::new)?;
+    let body = bytes
+        .get(1..)
+        .ok_or(DecodeError::OutOfBoundsByte { i: 1 })?;
+    Ok((selector, body))
 }
 
 /// Reads a `BYTES_PER_LENGTH_OFFSET`-byte length from `bytes`, where `bytes.len() >=
 /// BYTES_PER_LENGTH_OFFSET`.
-fn read_offset(bytes: &[u8]) -> Result<usize, DecodeError> {
+pub fn read_offset(bytes: &[u8]) -> Result<usize, DecodeError> {
     decode_offset(bytes.get(0..BYTES_PER_LENGTH_OFFSET).ok_or_else(|| {
         DecodeError::InvalidLengthPrefix {
             len: bytes.len(),

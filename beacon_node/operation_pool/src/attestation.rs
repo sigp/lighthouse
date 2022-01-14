@@ -12,9 +12,9 @@ use types::{
 #[derive(Debug, Clone)]
 pub struct AttMaxCover<'a, T: EthSpec> {
     /// Underlying attestation.
-    att: &'a Attestation<T>,
+    pub att: &'a Attestation<T>,
     /// Mapping of validator indices and their rewards.
-    fresh_validators_rewards: HashMap<u64, u64>,
+    pub fresh_validators_rewards: HashMap<u64, u64>,
 }
 
 impl<'a, T: EthSpec> AttMaxCover<'a, T> {

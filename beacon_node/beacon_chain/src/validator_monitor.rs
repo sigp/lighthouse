@@ -137,9 +137,12 @@ impl EpochSummary {
         self.sync_signature_contribution_inclusions += 1;
     }
 
-    pub fn register_attestation_block_inclusion(&mut self, delay: Slot) {
+    pub fn register_attestation_block_inclusion(&mut self, inclusion_distance: Slot) {
         self.attestation_block_inclusions += 1;
-        Self::update_if_lt(&mut self.attestation_min_block_inclusion_distance, delay);
+        Self::update_if_lt(
+            &mut self.attestation_min_block_inclusion_distance,
+            inclusion_distance,
+        );
     }
 
     pub fn register_sync_signature_block_inclusions(&mut self) {
@@ -187,6 +190,22 @@ impl MonitoredValidator {
             self.index = Some(validator_index);
             self.id = validator_index.to_string();
         }
+    }
+
+    /// Returns minimum inclusion distance for the given epoch as recorded by the validator monitor.
+    ///
+    /// Note: this value may be different from the one obtained from epoch summary
+    /// as the value recorded by the validator monitor ignores skip slots.
+    fn min_inclusion_distance(&self, epoch: &Epoch) -> Option<u64> {
+        let summaries = self.summaries.read();
+        summaries
+            .get(epoch)
+            .map(|summary| {
+                summary
+                    .attestation_min_block_inclusion_distance
+                    .map(Into::into)
+            })
+            .flatten()
     }
 
     /// Maps `func` across the `self.summaries`.
@@ -370,13 +389,19 @@ impl<T: EthSpec> ValidatorMonitor<T> {
         summary: &EpochProcessingSummary<T>,
         spec: &ChainSpec,
     ) -> Result<(), EpochProcessingError> {
+        let mut attestation_success = Vec::new();
+        let mut attestation_miss = Vec::new();
+        let mut head_miss = Vec::new();
+        let mut target_miss = Vec::new();
+        let mut suboptimal_inclusion = Vec::new();
+
+        // We subtract two from the state of the epoch that generated these summaries.
+        //
+        // - One to account for it being the previous epoch.
+        // - One to account for the state advancing an epoch whilst generating the validator
+        //     statuses.
+        let prev_epoch = epoch - 2;
         for (pubkey, monitored_validator) in self.validators.iter() {
-            // We subtract two from the state of the epoch that generated these summaries.
-            //
-            // - One to account for it being the previous epoch.
-            // - One to account for the state advancing an epoch whilst generating the validator
-            //     statuses.
-            let prev_epoch = epoch - 2;
             if let Some(i) = monitored_validator.index {
                 let i = i as usize;
                 let id = &monitored_validator.id;
@@ -414,7 +439,8 @@ impl<T: EthSpec> ValidatorMonitor<T> {
                         &metrics::VALIDATOR_MONITOR_PREV_EPOCH_ON_CHAIN_ATTESTER_HIT,
                         &[id],
                     );
-                    info!(
+                    attestation_success.push(id);
+                    debug!(
                         self.log,
                         "Previous epoch attestation success";
                         "matched_source" => previous_epoch_matched_source,
@@ -428,7 +454,8 @@ impl<T: EthSpec> ValidatorMonitor<T> {
                         &metrics::VALIDATOR_MONITOR_PREV_EPOCH_ON_CHAIN_ATTESTER_MISS,
                         &[id],
                     );
-                    error!(
+                    attestation_miss.push(id);
+                    debug!(
                         self.log,
                         "Previous epoch attestation missing";
                         "epoch" => prev_epoch,
@@ -447,7 +474,8 @@ impl<T: EthSpec> ValidatorMonitor<T> {
                         &metrics::VALIDATOR_MONITOR_PREV_EPOCH_ON_CHAIN_HEAD_ATTESTER_MISS,
                         &[id],
                     );
-                    warn!(
+                    head_miss.push(id);
+                    debug!(
                         self.log,
                         "Attestation failed to match head";
                         "epoch" => prev_epoch,
@@ -466,7 +494,8 @@ impl<T: EthSpec> ValidatorMonitor<T> {
                         &metrics::VALIDATOR_MONITOR_PREV_EPOCH_ON_CHAIN_TARGET_ATTESTER_MISS,
                         &[id],
                     );
-                    warn!(
+                    target_miss.push(id);
+                    debug!(
                         self.log,
                         "Attestation failed to match target";
                         "epoch" => prev_epoch,
@@ -474,15 +503,23 @@ impl<T: EthSpec> ValidatorMonitor<T> {
                     );
                 }
 
-                // For pre-Altair, state the inclusion distance. This information is not retained in
-                // the Altair state.
-                if let Some(inclusion_info) = summary.previous_epoch_inclusion_info(i) {
-                    if inclusion_info.delay > spec.min_attestation_inclusion_delay {
-                        warn!(
+                // Get the minimum value among the validator monitor observed inclusion distance
+                // and the epoch summary inclusion distance.
+                // The inclusion data is not retained in the epoch summary post Altair.
+                let min_inclusion_distance = min_opt(
+                    monitored_validator.min_inclusion_distance(&prev_epoch),
+                    summary
+                        .previous_epoch_inclusion_info(i)
+                        .map(|info| info.delay),
+                );
+                if let Some(inclusion_delay) = min_inclusion_distance {
+                    if inclusion_delay > spec.min_attestation_inclusion_delay {
+                        suboptimal_inclusion.push(id);
+                        debug!(
                             self.log,
-                            "Sub-optimal inclusion delay";
+                            "Potential sub-optimal inclusion delay";
                             "optimal" => spec.min_attestation_inclusion_delay,
-                            "delay" => inclusion_info.delay,
+                            "delay" => inclusion_delay,
                             "epoch" => prev_epoch,
                             "validator" => id,
                         );
@@ -491,7 +528,7 @@ impl<T: EthSpec> ValidatorMonitor<T> {
                     metrics::set_int_gauge(
                         &metrics::VALIDATOR_MONITOR_PREV_EPOCH_ON_CHAIN_INCLUSION_DISTANCE,
                         &[id],
-                        inclusion_info.delay as i64,
+                        inclusion_delay as i64,
                     );
                 }
 
@@ -534,6 +571,52 @@ impl<T: EthSpec> ValidatorMonitor<T> {
                     }
                 }
             }
+        }
+
+        // Aggregate logging for attestation success/failures over an epoch
+        // for all validators managed by the validator monitor.
+        if !attestation_success.is_empty() {
+            info!(
+                self.log,
+                "Previous epoch attestation(s) success";
+                "epoch" => prev_epoch,
+                "validators" => ?attestation_success,
+            );
+        }
+        if !attestation_miss.is_empty() {
+            error!(
+                self.log,
+                "Previous epoch attestation(s) missing";
+                "epoch" => prev_epoch,
+                "validators" => ?attestation_miss,
+            );
+        }
+
+        if !head_miss.is_empty() {
+            warn!(
+                self.log,
+                "Previous epoch attestation(s) failed to match head";
+                "epoch" => prev_epoch,
+                "validators" => ?head_miss,
+            );
+        }
+
+        if !target_miss.is_empty() {
+            warn!(
+                self.log,
+                "Previous epoch attestation(s) failed to match target";
+                "epoch" => prev_epoch,
+                "validators" => ?target_miss,
+            );
+        }
+
+        if !suboptimal_inclusion.is_empty() {
+            warn!(
+                self.log,
+                "Previous epoch attestation(s) had sub-optimal inclusion delay";
+                "epoch" => prev_epoch,
+                "validators" => ?suboptimal_inclusion,
+            );
         }
 
         Ok(())
@@ -828,14 +911,24 @@ impl<T: EthSpec> ValidatorMonitor<T> {
     }
 
     /// Register that the `indexed_attestation` was included in a *valid* `BeaconBlock`.
+    /// `parent_slot` is the slot corresponding to the parent of the beacon block in which
+    /// the attestation was included.
+    /// We use the parent slot instead of block slot to ignore skip slots when calculating inclusion distance.
+    ///
+    /// Note: Blocks that get orphaned will skew the inclusion distance calculation.
     pub fn register_attestation_in_block(
         &self,
         indexed_attestation: &IndexedAttestation<T>,
-        block: BeaconBlockRef<'_, T>,
+        parent_slot: Slot,
         spec: &ChainSpec,
     ) {
         let data = &indexed_attestation.data;
-        let delay = (block.slot() - data.slot) - spec.min_attestation_inclusion_delay;
+        // Best effort inclusion distance which ignores skip slots between the parent
+        // and the current block. Skipped slots between the attestation slot and the parent
+        // slot are still counted for simplicity's sake.
+        let inclusion_distance = parent_slot.saturating_sub(data.slot) + 1;
+
+        let delay = inclusion_distance - spec.min_attestation_inclusion_delay;
         let epoch = data.slot.epoch(T::slots_per_epoch());
 
         indexed_attestation.attesting_indices.iter().for_each(|i| {
@@ -864,7 +957,7 @@ impl<T: EthSpec> ValidatorMonitor<T> {
                 );
 
                 validator.with_epoch_summary(epoch, |summary| {
-                    summary.register_attestation_block_inclusion(delay)
+                    summary.register_attestation_block_inclusion(inclusion_distance)
                 });
             }
         })
@@ -1008,7 +1101,7 @@ impl<T: EthSpec> ValidatorMonitor<T> {
                 &[src, id],
             );
             metrics::observe_timer_vec(
-                &metrics::VALIDATOR_MONITOR_SYNC_COONTRIBUTIONS_DELAY_SECONDS,
+                &metrics::VALIDATOR_MONITOR_SYNC_CONTRIBUTIONS_DELAY_SECONDS,
                 &[src, id],
                 delay,
             );
@@ -1431,4 +1524,15 @@ fn get_message_delay_ms<S: SlotClock>(
         .and_then(|slot_start| seen_timestamp.checked_sub(slot_start))
         .and_then(|gross_delay| gross_delay.checked_sub(message_production_delay))
         .unwrap_or_else(|| Duration::from_secs(0))
+}
+
+/// Returns minimum value from the two options if both are `Some` or the
+/// value contained if only one of them is Some. Returns `None` if both options are `None`
+fn min_opt<T: Ord>(a: Option<T>, b: Option<T>) -> Option<T> {
+    match (a, b) {
+        (Some(x), Some(y)) => Some(std::cmp::min(x, y)),
+        (Some(x), None) => Some(x),
+        (None, Some(y)) => Some(y),
+        _ => None,
+    }
 }

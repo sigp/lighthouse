@@ -1,8 +1,16 @@
-use crate::{error::Error, Block};
+use crate::error::InvalidBestNodeInfo;
+use crate::{error::Error, Block, ExecutionStatus};
 use serde_derive::{Deserialize, Serialize};
+use ssz::four_byte_option_impl;
+use ssz::Encode;
 use ssz_derive::{Decode, Encode};
 use std::collections::HashMap;
-use types::{AttestationShufflingId, Epoch, Hash256, Slot};
+use types::{AttestationShufflingId, ChainSpec, Checkpoint, Epoch, EthSpec, Hash256, Slot};
+
+// Define a "legacy" implementation of `Option<usize>` which uses four bytes for encoding the union
+// selector.
+four_byte_option_impl!(four_byte_option_usize, usize);
+four_byte_option_impl!(four_byte_option_checkpoint, Checkpoint);
 
 #[derive(Clone, PartialEq, Debug, Encode, Decode, Serialize, Deserialize)]
 pub struct ProtoNode {
@@ -21,12 +29,35 @@ pub struct ProtoNode {
     pub current_epoch_shuffling_id: AttestationShufflingId,
     pub next_epoch_shuffling_id: AttestationShufflingId,
     pub root: Hash256,
+    #[ssz(with = "four_byte_option_usize")]
     pub parent: Option<usize>,
-    pub justified_epoch: Epoch,
-    pub finalized_epoch: Epoch,
-    weight: u64,
-    best_child: Option<usize>,
-    best_descendant: Option<usize>,
+    #[ssz(with = "four_byte_option_checkpoint")]
+    pub justified_checkpoint: Option<Checkpoint>,
+    #[ssz(with = "four_byte_option_checkpoint")]
+    pub finalized_checkpoint: Option<Checkpoint>,
+    pub weight: u64,
+    #[ssz(with = "four_byte_option_usize")]
+    pub best_child: Option<usize>,
+    #[ssz(with = "four_byte_option_usize")]
+    pub best_descendant: Option<usize>,
+    /// Indicates if an execution node has marked this block as valid. Also contains the execution
+    /// block hash.
+    pub execution_status: ExecutionStatus,
+}
+
+#[derive(PartialEq, Debug, Encode, Decode, Serialize, Deserialize, Copy, Clone)]
+pub struct ProposerBoost {
+    pub root: Hash256,
+    pub score: u64,
+}
+
+impl Default for ProposerBoost {
+    fn default() -> Self {
+        Self {
+            root: Hash256::zero(),
+            score: 0,
+        }
+    }
 }
 
 #[derive(PartialEq, Debug, Serialize, Deserialize, Clone)]
@@ -34,10 +65,11 @@ pub struct ProtoArray {
     /// Do not attempt to prune the tree unless it has at least this many nodes. Small prunes
     /// simply waste time.
     pub prune_threshold: usize,
-    pub justified_epoch: Epoch,
-    pub finalized_epoch: Epoch,
+    pub justified_checkpoint: Checkpoint,
+    pub finalized_checkpoint: Checkpoint,
     pub nodes: Vec<ProtoNode>,
     pub indices: HashMap<Hash256, usize>,
+    pub previous_proposer_boost: ProposerBoost,
 }
 
 impl ProtoArray {
@@ -54,11 +86,14 @@ impl ProtoArray {
     /// - Compare the current node with the parents best-child, updating it if the current node
     /// should become the best child.
     /// - If required, update the parents best-descendant with the current node or its best-descendant.
-    pub fn apply_score_changes(
+    pub fn apply_score_changes<E: EthSpec>(
         &mut self,
         mut deltas: Vec<i64>,
-        justified_epoch: Epoch,
-        finalized_epoch: Epoch,
+        justified_checkpoint: Checkpoint,
+        finalized_checkpoint: Checkpoint,
+        new_balances: &[u64],
+        proposer_boost_root: Hash256,
+        spec: &ChainSpec,
     ) -> Result<(), Error> {
         if deltas.len() != self.indices.len() {
             return Err(Error::InvalidDeltaLen {
@@ -67,10 +102,15 @@ impl ProtoArray {
             });
         }
 
-        if justified_epoch != self.justified_epoch || finalized_epoch != self.finalized_epoch {
-            self.justified_epoch = justified_epoch;
-            self.finalized_epoch = finalized_epoch;
+        if justified_checkpoint != self.justified_checkpoint
+            || finalized_checkpoint != self.finalized_checkpoint
+        {
+            self.justified_checkpoint = justified_checkpoint;
+            self.finalized_checkpoint = finalized_checkpoint;
         }
+
+        // Default the proposer boost score to zero.
+        let mut proposer_score = 0;
 
         // Iterate backwards through all indices in `self.nodes`.
         for node_index in (0..self.nodes.len()).rev() {
@@ -86,10 +126,34 @@ impl ProtoArray {
                 continue;
             }
 
-            let node_delta = deltas
+            let mut node_delta = deltas
                 .get(node_index)
                 .copied()
                 .ok_or(Error::InvalidNodeDelta(node_index))?;
+
+            // If we find the node for which the proposer boost was previously applied, decrease
+            // the delta by the previous score amount.
+            if self.previous_proposer_boost.root != Hash256::zero()
+                && self.previous_proposer_boost.root == node.root
+            {
+                node_delta = node_delta
+                    .checked_sub(self.previous_proposer_boost.score as i64)
+                    .ok_or(Error::DeltaOverflow(node_index))?;
+            }
+            // If we find the node matching the current proposer boost root, increase
+            // the delta by the new score amount.
+            //
+            // https://github.com/ethereum/consensus-specs/blob/dev/specs/phase0/fork-choice.md#get_latest_attesting_balance
+            if let Some(proposer_score_boost) = spec.proposer_score_boost {
+                if proposer_boost_root != Hash256::zero() && proposer_boost_root == node.root {
+                    proposer_score =
+                        calculate_proposer_boost::<E>(new_balances, proposer_score_boost)
+                            .ok_or(Error::ProposerBoostOverflow(node_index))?;
+                    node_delta = node_delta
+                        .checked_add(proposer_score as i64)
+                        .ok_or(Error::DeltaOverflow(node_index))?;
+                }
+            }
 
             // Apply the delta to the node.
             if node_delta < 0 {
@@ -123,6 +187,12 @@ impl ProtoArray {
                 *parent_delta += node_delta;
             }
         }
+
+        // After applying all deltas, update the `previous_proposer_boost`.
+        self.previous_proposer_boost = ProposerBoost {
+            root: proposer_boost_root,
+            score: proposer_score,
+        };
 
         // A second time, iterate backwards through all indices in `self.nodes`.
         //
@@ -165,11 +235,12 @@ impl ProtoArray {
             parent: block
                 .parent_root
                 .and_then(|parent| self.indices.get(&parent).copied()),
-            justified_epoch: block.justified_epoch,
-            finalized_epoch: block.finalized_epoch,
+            justified_checkpoint: Some(block.justified_checkpoint),
+            finalized_checkpoint: Some(block.finalized_checkpoint),
             weight: 0,
             best_child: None,
             best_descendant: None,
+            execution_status: block.execution_status,
         };
 
         self.indices.insert(node.root, node_index);
@@ -177,9 +248,56 @@ impl ProtoArray {
 
         if let Some(parent_index) = node.parent {
             self.maybe_update_best_child_and_descendant(parent_index, node_index)?;
+
+            if matches!(block.execution_status, ExecutionStatus::Valid(_)) {
+                self.propagate_execution_payload_verification(parent_index)?;
+            }
         }
 
         Ok(())
+    }
+
+    pub fn propagate_execution_payload_verification(
+        &mut self,
+        verified_node_index: usize,
+    ) -> Result<(), Error> {
+        let mut index = verified_node_index;
+        loop {
+            let node = self
+                .nodes
+                .get_mut(index)
+                .ok_or(Error::InvalidNodeIndex(index))?;
+            let parent_index = match node.execution_status {
+                // We have reached a node that we already know is valid. No need to iterate further
+                // since we assume an ancestors have already been set to valid.
+                ExecutionStatus::Valid(_) => return Ok(()),
+                // We have reached an irrelevant node, this node is prior to a terminal execution
+                // block. There's no need to iterate further, it's impossible for this block to have
+                // any relevant ancestors.
+                ExecutionStatus::Irrelevant(_) => return Ok(()),
+                // The block has an unknown status, set it to valid since any ancestor of a valid
+                // payload can be considered valid.
+                ExecutionStatus::Unknown(payload_block_hash) => {
+                    node.execution_status = ExecutionStatus::Valid(payload_block_hash);
+                    if let Some(parent_index) = node.parent {
+                        parent_index
+                    } else {
+                        // We have reached the root block, iteration complete.
+                        return Ok(());
+                    }
+                }
+                // An ancestor of the valid payload was invalid. This is a serious error which
+                // indicates a consensus failure in the execution node. This is unrecoverable.
+                ExecutionStatus::Invalid(ancestor_payload_block_hash) => {
+                    return Err(Error::InvalidAncestorOfValidPayload {
+                        ancestor_block_root: node.root,
+                        ancestor_payload_block_hash,
+                    })
+                }
+            };
+
+            index = parent_index;
+        }
     }
 
     /// Follows the best-descendant links to find the best-block (i.e., head-block).
@@ -211,14 +329,14 @@ impl ProtoArray {
 
         // Perform a sanity check that the node is indeed valid to be the head.
         if !self.node_is_viable_for_head(best_node) {
-            return Err(Error::InvalidBestNode {
+            return Err(Error::InvalidBestNode(Box::new(InvalidBestNodeInfo {
                 start_root: *justified_root,
-                justified_epoch: self.justified_epoch,
-                finalized_epoch: self.finalized_epoch,
+                justified_checkpoint: self.justified_checkpoint,
+                finalized_checkpoint: self.finalized_checkpoint,
                 head_root: justified_node.root,
-                head_justified_epoch: justified_node.justified_epoch,
-                head_finalized_epoch: justified_node.finalized_epoch,
-            });
+                head_justified_checkpoint: justified_node.justified_checkpoint,
+                head_finalized_checkpoint: justified_node.finalized_checkpoint,
+            })));
         }
 
         Ok(best_node.root)
@@ -419,9 +537,16 @@ impl ProtoArray {
     /// Any node that has a different finalized or justified epoch should not be viable for the
     /// head.
     fn node_is_viable_for_head(&self, node: &ProtoNode) -> bool {
-        (node.justified_epoch == self.justified_epoch || self.justified_epoch == Epoch::new(0))
-            && (node.finalized_epoch == self.finalized_epoch
-                || self.finalized_epoch == Epoch::new(0))
+        if let (Some(node_justified_checkpoint), Some(node_finalized_checkpoint)) =
+            (node.justified_checkpoint, node.finalized_checkpoint)
+        {
+            (node_justified_checkpoint == self.justified_checkpoint
+                || self.justified_checkpoint.epoch == Epoch::new(0))
+                && (node_finalized_checkpoint == self.finalized_checkpoint
+                    || self.finalized_checkpoint.epoch == Epoch::new(0))
+        } else {
+            false
+        }
     }
 
     /// Return a reverse iterator over the nodes which comprise the chain ending at `block_root`.
@@ -443,6 +568,38 @@ impl ProtoArray {
         self.iter_nodes(block_root)
             .map(|node| (node.root, node.slot))
     }
+}
+
+/// A helper method to calculate the proposer boost based on the given `validator_balances`.
+/// This does *not* do any verification about whether a boost should or should not be applied.
+/// The `validator_balances` array used here is assumed to be structured like the one stored in
+/// the `BalancesCache`, where *effective* balances are stored and inactive balances are defaulted
+/// to zero.
+///
+/// Returns `None` if there is an overflow or underflow when calculating the score.
+///
+/// https://github.com/ethereum/consensus-specs/blob/dev/specs/phase0/fork-choice.md#get_latest_attesting_balance
+fn calculate_proposer_boost<E: EthSpec>(
+    validator_balances: &[u64],
+    proposer_score_boost: u64,
+) -> Option<u64> {
+    let mut total_balance: u64 = 0;
+    let mut num_validators: u64 = 0;
+    for &balance in validator_balances {
+        // We need to filter zero balances here to get an accurate active validator count.
+        // This is because we default inactive validator balances to zero when creating
+        // this balances array.
+        if balance != 0 {
+            total_balance = total_balance.checked_add(balance)?;
+            num_validators = num_validators.checked_add(1)?;
+        }
+    }
+    let average_balance = total_balance.checked_div(num_validators)?;
+    let committee_size = num_validators.checked_div(E::slots_per_epoch())?;
+    let committee_weight = committee_size.checked_mul(average_balance)?;
+    committee_weight
+        .checked_mul(proposer_score_boost)?
+        .checked_div(100)
 }
 
 /// Reverse iterator over one path through a `ProtoArray`.

@@ -4,6 +4,7 @@ extern crate lazy_static;
 use lighthouse_metrics::{
     inc_counter, try_create_int_counter, IntCounter, Result as MetricsResult,
 };
+use slog::Logger;
 use slog_term::Decorator;
 use std::io::{Result, Write};
 
@@ -79,10 +80,8 @@ impl<'a> AlignedRecordDecorator<'a> {
             message_width,
         }
     }
-}
 
-impl<'a> Write for AlignedRecordDecorator<'a> {
-    fn write(&mut self, buf: &[u8]) -> Result<usize> {
+    fn filtered_write(&mut self, buf: &[u8]) -> Result<usize> {
         if self.ignore_comma {
             //don't write comma
             self.ignore_comma = false;
@@ -94,6 +93,21 @@ impl<'a> Write for AlignedRecordDecorator<'a> {
             })
         } else {
             self.wrapped.write(buf)
+        }
+    }
+}
+
+impl<'a> Write for AlignedRecordDecorator<'a> {
+    fn write(&mut self, buf: &[u8]) -> Result<usize> {
+        if buf.iter().any(u8::is_ascii_control) {
+            let filtered = buf
+                .iter()
+                .cloned()
+                .map(|c| if !is_ascii_control(&c) { c } else { b'_' })
+                .collect::<Vec<u8>>();
+            self.filtered_write(&filtered)
+        } else {
+            self.filtered_write(buf)
         }
     }
 
@@ -155,5 +169,43 @@ impl<'a> slog_term::RecordDecorator for AlignedRecordDecorator<'a> {
 
     fn start_separator(&mut self) -> Result<()> {
         self.wrapped.start_separator()
+    }
+}
+
+/// Function to filter out ascii control codes.
+///
+/// This helps to keep log formatting consistent.
+/// Whitespace and padding control codes are excluded.
+fn is_ascii_control(character: &u8) -> bool {
+    matches!(
+        character,
+        b'\x00'..=b'\x08' |
+        b'\x0b'..=b'\x0c' |
+        b'\x0e'..=b'\x1f' |
+        b'\x7f' |
+        b'\x81'..=b'\x9f'
+    )
+}
+
+/// Return a logger suitable for test usage.
+///
+/// By default no logs will be printed, but they can be enabled via
+/// the `test_logger` feature.  This feature can be enabled for any
+/// dependent crate by passing `--features logging/test_logger`, e.g.
+/// ```bash
+/// cargo test -p beacon_chain --features logging/test_logger
+/// ```
+pub fn test_logger() -> Logger {
+    use sloggers::Build;
+
+    if cfg!(feature = "test_logger") {
+        sloggers::terminal::TerminalLoggerBuilder::new()
+            .level(sloggers::types::Severity::Debug)
+            .build()
+            .expect("Should build test_logger")
+    } else {
+        sloggers::null::NullLoggerBuilder
+            .build()
+            .expect("Should build null_logger")
     }
 }

@@ -1,6 +1,6 @@
 use super::*;
 use core::num::NonZeroUsize;
-use ethereum_types::{H256, U128, U256};
+use ethereum_types::{H160, H256, U128, U256};
 use smallvec::SmallVec;
 use std::sync::Arc;
 
@@ -202,36 +202,6 @@ impl_encode_for_tuples! {
     }
 }
 
-/// The SSZ "union" type.
-impl<T: Encode> Encode for Option<T> {
-    fn is_ssz_fixed_len() -> bool {
-        false
-    }
-
-    fn ssz_bytes_len(&self) -> usize {
-        if let Some(some) = self {
-            let len = if <T as Encode>::is_ssz_fixed_len() {
-                <T as Encode>::ssz_fixed_len()
-            } else {
-                some.ssz_bytes_len()
-            };
-            len + BYTES_PER_LENGTH_OFFSET
-        } else {
-            BYTES_PER_LENGTH_OFFSET
-        }
-    }
-
-    fn ssz_append(&self, buf: &mut Vec<u8>) {
-        match self {
-            None => buf.extend_from_slice(&encode_union_index(0)),
-            Some(t) => {
-                buf.extend_from_slice(&encode_union_index(1));
-                t.ssz_append(buf);
-            }
-        }
-    }
-}
-
 impl<T: Encode> Encode for Arc<T> {
     fn is_ssz_fixed_len() -> bool {
         T::is_ssz_fixed_len()
@@ -332,6 +302,24 @@ impl Encode for NonZeroUsize {
 
     fn ssz_append(&self, buf: &mut Vec<u8>) {
         self.get().ssz_append(buf)
+    }
+}
+
+impl Encode for H160 {
+    fn is_ssz_fixed_len() -> bool {
+        true
+    }
+
+    fn ssz_fixed_len() -> usize {
+        20
+    }
+
+    fn ssz_bytes_len(&self) -> usize {
+        20
+    }
+
+    fn ssz_append(&self, buf: &mut Vec<u8>) {
+        buf.extend_from_slice(self.as_bytes());
     }
 }
 
@@ -454,25 +442,6 @@ mod tests {
             vec.as_ssz_bytes(),
             vec![8, 0, 0, 0, 11, 0, 0, 0, 0, 1, 2, 11, 22, 33]
         );
-    }
-
-    #[test]
-    fn ssz_encode_option_u16() {
-        assert_eq!(Some(65535_u16).as_ssz_bytes(), vec![1, 0, 0, 0, 255, 255]);
-
-        let none: Option<u16> = None;
-        assert_eq!(none.as_ssz_bytes(), vec![0, 0, 0, 0]);
-    }
-
-    #[test]
-    fn ssz_encode_option_vec_u16() {
-        assert_eq!(
-            Some(vec![0_u16, 1]).as_ssz_bytes(),
-            vec![1, 0, 0, 0, 0, 0, 1, 0]
-        );
-
-        let none: Option<Vec<u16>> = None;
-        assert_eq!(none.as_ssz_bytes(), vec![0, 0, 0, 0]);
     }
 
     #[test]

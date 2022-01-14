@@ -1,8 +1,5 @@
 #![cfg(not(debug_assertions))]
 
-#[macro_use]
-extern crate lazy_static;
-
 use beacon_chain::{
     attestation_verification::Error as AttnError,
     test_utils::{
@@ -11,11 +8,11 @@ use beacon_chain::{
     },
     StateSkipConfig, WhenSlotSkipped,
 };
+use lazy_static::lazy_static;
 use operation_pool::PersistedOperationPool;
 use state_processing::{
     per_slot_processing, per_slot_processing::Error as SlotProcessingError, EpochProcessingError,
 };
-use store::config::StoreConfig;
 use types::{BeaconStateError, EthSpec, Hash256, Keypair, MinimalEthSpec, RelativeEpoch, Slot};
 
 // Should ideally be divisible by 3.
@@ -27,12 +24,11 @@ lazy_static! {
 }
 
 fn get_harness(validator_count: usize) -> BeaconChainHarness<EphemeralHarnessType<MinimalEthSpec>> {
-    let harness = BeaconChainHarness::new_with_store_config(
-        MinimalEthSpec,
-        None,
-        KEYPAIRS[0..validator_count].to_vec(),
-        StoreConfig::default(),
-    );
+    let harness = BeaconChainHarness::builder(MinimalEthSpec)
+        .default_spec()
+        .keypairs(KEYPAIRS[0..validator_count].to_vec())
+        .fresh_ephemeral_store()
+        .build();
 
     harness.advance_slot();
 
@@ -529,7 +525,7 @@ fn attestations_with_increasing_slots() {
     for (attestation, subnet_id) in attestations.into_iter().flatten() {
         let res = harness
             .chain
-            .verify_unaggregated_attestation_for_gossip(attestation.clone(), Some(subnet_id));
+            .verify_unaggregated_attestation_for_gossip(&attestation, Some(subnet_id));
 
         let current_slot = harness.chain.slot().expect("should get slot");
         let expected_attestation_slot = attestation.data.slot;
@@ -538,7 +534,7 @@ fn attestations_with_increasing_slots() {
 
         if expected_attestation_slot < expected_earliest_permissible_slot {
             assert!(matches!(
-                res.err().unwrap().0,
+                res.err().unwrap(),
                 AttnError::PastSlot {
                     attestation_slot,
                     earliest_permissible_slot,

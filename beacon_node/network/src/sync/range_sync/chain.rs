@@ -3,8 +3,8 @@ use crate::beacon_processor::ProcessId;
 use crate::beacon_processor::WorkEvent as BeaconWorkEvent;
 use crate::sync::{network_context::SyncNetworkContext, BatchProcessResult, RequestId};
 use beacon_chain::BeaconChainTypes;
-use eth2_libp2p::{PeerAction, PeerId};
 use fnv::FnvHashMap;
+use lighthouse_network::{PeerAction, PeerId};
 use rand::seq::SliceRandom;
 use slog::{crit, debug, o, warn};
 use std::collections::{btree_map::Entry, BTreeMap, HashSet};
@@ -181,7 +181,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
             // fail the batches
             for id in batch_ids {
                 if let Some(batch) = self.batches.get_mut(&id) {
-                    if batch.download_failed()? {
+                    if batch.download_failed(true)? {
                         return Err(RemoveChain::ChainFailed(id));
                     }
                     self.retry_batch_download(network, id)?;
@@ -273,7 +273,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
         }
     }
 
-    /// Sends to process the batch with the given id.
+    /// Processes the batch with the given id.
     /// The batch must exist and be ready for processing
     fn process_batch(
         &mut self,
@@ -313,7 +313,14 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
             // blocks to continue, and the chain is expecting a processing result that won't
             // arrive.  To mitigate this, (fake) fail this processing so that the batch is
             // re-downloaded.
-            self.on_batch_process_result(network, batch_id, &BatchProcessResult::Failed(false))
+            self.on_batch_process_result(
+                network,
+                batch_id,
+                &BatchProcessResult::Failed {
+                    imported_blocks: false,
+                    peer_action: None,
+                },
+            )
         } else {
             Ok(KeepChain)
         }
@@ -488,7 +495,10 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                     self.process_completed_batches(network)
                 }
             }
-            BatchProcessResult::Failed(imported_blocks) => {
+            BatchProcessResult::Failed {
+                imported_blocks,
+                peer_action,
+            } => {
                 let batch = self.batches.get_mut(&batch_id).ok_or_else(|| {
                     RemoveChain::WrongChainState(format!(
                         "Batch not found for current processing target {}",
@@ -511,12 +521,20 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                     // report all peers.
                     // There are some edge cases with forks that could land us in this situation.
                     // This should be unlikely, so we tolerate these errors, but not often.
-                    let action = PeerAction::LowToleranceError;
-                    warn!(self.log, "Batch failed to download. Dropping chain scoring peers";
-                        "score_adjustment" => %action,
-                        "batch_epoch"=> batch_id);
-                    for (peer, _) in self.peers.drain() {
-                        network.report_peer(peer, action);
+                    warn!(
+                        self.log,
+                        "Batch failed to download. Dropping chain scoring peers";
+                        "score_adjustment" => %peer_action
+                            .as_ref()
+                            .map(ToString::to_string)
+                            .unwrap_or_else(|| "None".into()),
+                        "batch_epoch"=> batch_id
+                    );
+
+                    if let Some(peer_action) = peer_action {
+                        for (peer, _) in self.peers.drain() {
+                            network.report_peer(peer, *peer_action, "batch_failed");
+                        }
                     }
                     Err(RemoveChain::ChainFailed(batch_id))
                 } else {
@@ -606,7 +624,11 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                                     "batch_epoch" => id, "score_adjustment" => %action,
                                     "original_peer" => %attempt.peer_id, "new_peer" => %processed_attempt.peer_id
                                 );
-                                network.report_peer(attempt.peer_id, action);
+                                network.report_peer(
+                                    attempt.peer_id,
+                                    action,
+                                    "batch_reprocessed_original_peer",
+                                );
                             } else {
                                 // The same peer corrected it's previous mistake. There was an error, so we
                                 // negative score the original peer.
@@ -615,7 +637,11 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                                     "batch_epoch" => id, "score_adjustment" => %action,
                                     "original_peer" => %attempt.peer_id, "new_peer" => %processed_attempt.peer_id
                                 );
-                                network.report_peer(attempt.peer_id, action);
+                                network.report_peer(
+                                    attempt.peer_id,
+                                    action,
+                                    "batch_reprocessed_same_peer",
+                                );
                             }
                         }
                     }
@@ -794,7 +820,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
             if let Some(active_requests) = self.peers.get_mut(peer_id) {
                 active_requests.remove(&batch_id);
             }
-            if batch.download_failed()? {
+            if batch.download_failed(true)? {
                 return Err(RemoveChain::ChainFailed(batch_id));
             }
             self.retry_batch_download(network, batch_id)
@@ -837,7 +863,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
         }
     }
 
-    /// Requests the batch asigned to the given id from a given peer.
+    /// Requests the batch assigned to the given id from a given peer.
     pub fn send_batch(
         &mut self,
         network: &mut SyncNetworkContext<T::EthSpec>,
@@ -883,7 +909,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                     self.peers
                         .get_mut(&peer)
                         .map(|request| request.remove(&batch_id));
-                    if batch.download_failed()? {
+                    if batch.download_failed(true)? {
                         return Err(RemoveChain::ChainFailed(batch_id));
                     } else {
                         return self.retry_batch_download(network, batch_id);
@@ -990,7 +1016,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
         // this batch could have been included already being an optimistic batch
         match self.batches.entry(batch_id) {
             Entry::Occupied(_) => {
-                // this batch doesn't need downlading, let this same function decide the next batch
+                // this batch doesn't need downloading, let this same function decide the next batch
                 self.to_be_downloaded += EPOCHS_PER_BATCH;
                 self.include_next_batch()
             }

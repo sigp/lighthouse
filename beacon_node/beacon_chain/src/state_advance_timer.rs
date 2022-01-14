@@ -41,9 +41,17 @@ const MAX_ADVANCE_DISTANCE: u64 = 4;
 enum Error {
     BeaconChain(BeaconChainError),
     HeadMissingFromSnapshotCache(Hash256),
-    MaxDistanceExceeded { current_slot: Slot, head_slot: Slot },
-    StateAlreadyAdvanced { block_root: Hash256 },
-    BadStateSlot { state_slot: Slot, block_slot: Slot },
+    MaxDistanceExceeded {
+        current_slot: Slot,
+        head_slot: Slot,
+    },
+    StateAlreadyAdvanced {
+        block_root: Hash256,
+    },
+    BadStateSlot {
+        _state_slot: Slot,
+        _block_slot: Slot,
+    },
 }
 
 impl From<BeaconChainError> for Error {
@@ -224,8 +232,8 @@ fn advance_head<T: BeaconChainTypes>(
         // Advancing more than one slot without storing the intermediate state would corrupt the
         // database. Future works might store temporary, intermediate states inside this function.
         return Err(Error::BadStateSlot {
-            block_slot: head_slot,
-            state_slot: state.slot(),
+            _block_slot: head_slot,
+            _state_slot: state.slot(),
         });
     };
 

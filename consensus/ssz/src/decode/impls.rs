@@ -1,6 +1,6 @@
 use super::*;
 use core::num::NonZeroUsize;
-use ethereum_types::{H256, U128, U256};
+use ethereum_types::{H160, H256, U128, U256};
 use smallvec::SmallVec;
 use std::sync::Arc;
 
@@ -242,36 +242,6 @@ impl Decode for NonZeroUsize {
     }
 }
 
-/// The SSZ union type.
-impl<T: Decode> Decode for Option<T> {
-    fn is_ssz_fixed_len() -> bool {
-        false
-    }
-
-    fn from_ssz_bytes(bytes: &[u8]) -> Result<Self, DecodeError> {
-        if bytes.len() < BYTES_PER_LENGTH_OFFSET {
-            return Err(DecodeError::InvalidByteLength {
-                len: bytes.len(),
-                expected: BYTES_PER_LENGTH_OFFSET,
-            });
-        }
-
-        let (index_bytes, value_bytes) = bytes.split_at(BYTES_PER_LENGTH_OFFSET);
-
-        let index = read_union_index(index_bytes)?;
-        if index == 0 {
-            Ok(None)
-        } else if index == 1 {
-            Ok(Some(T::from_ssz_bytes(value_bytes)?))
-        } else {
-            Err(DecodeError::BytesInvalid(format!(
-                "{} is not a valid union index for Option<T>",
-                index
-            )))
-        }
-    }
-}
-
 impl<T: Decode> Decode for Arc<T> {
     fn is_ssz_fixed_len() -> bool {
         T::is_ssz_fixed_len()
@@ -283,6 +253,27 @@ impl<T: Decode> Decode for Arc<T> {
 
     fn from_ssz_bytes(bytes: &[u8]) -> Result<Self, DecodeError> {
         T::from_ssz_bytes(bytes).map(Arc::new)
+    }
+}
+
+impl Decode for H160 {
+    fn is_ssz_fixed_len() -> bool {
+        true
+    }
+
+    fn ssz_fixed_len() -> usize {
+        20
+    }
+
+    fn from_ssz_bytes(bytes: &[u8]) -> Result<Self, DecodeError> {
+        let len = bytes.len();
+        let expected = <Self as Decode>::ssz_fixed_len();
+
+        if len != expected {
+            Err(DecodeError::InvalidByteLength { len, expected })
+        } else {
+            Ok(Self::from_slice(bytes))
+        }
     }
 }
 

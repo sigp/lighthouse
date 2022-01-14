@@ -1,8 +1,9 @@
+use logging::test_logger;
 use rand::prelude::*;
 use rand::{rngs::StdRng, thread_rng, Rng, SeedableRng};
 use slasher::{
     test_utils::{
-        block, indexed_att, logger, slashed_validators_from_attestations,
+        block, indexed_att, slashed_validators_from_attestations,
         slashed_validators_from_slashings, E,
     },
     Config, Slasher,
@@ -40,14 +41,14 @@ fn random_test(seed: u64, test_config: TestConfig) {
 
     let tempdir = tempdir().unwrap();
 
-    let mut config = Config::new(tempdir.path().into()).for_testing();
+    let mut config = Config::new(tempdir.path().into());
     config.validator_chunk_size = 1 << rng.gen_range(1, 4);
 
     let chunk_size_exponent = rng.gen_range(1, 4);
     config.chunk_size = 1 << chunk_size_exponent;
     config.history_length = 1 << rng.gen_range(chunk_size_exponent, chunk_size_exponent + 3);
 
-    let slasher = Slasher::<E>::open(config.clone(), logger()).unwrap();
+    let slasher = Slasher::<E>::open(config.clone(), test_logger()).unwrap();
 
     let validators = (0..num_validators as u64).collect::<Vec<u64>>();
 

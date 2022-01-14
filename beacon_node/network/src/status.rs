@@ -1,6 +1,6 @@
 use beacon_chain::{BeaconChain, BeaconChainError, BeaconChainTypes};
 
-use eth2_libp2p::rpc::StatusMessage;
+use lighthouse_network::rpc::StatusMessage;
 /// Trait to produce a `StatusMessage` representing the state of the given `beacon_chain`.
 ///
 /// NOTE: The purpose of this is simply to obtain a `StatusMessage` from the `BeaconChain` without

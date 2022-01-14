@@ -6,7 +6,8 @@ use slashing_protection::{
 };
 use std::fs::File;
 use std::path::PathBuf;
-use types::{BeaconState, Epoch, EthSpec, Slot};
+use std::str::FromStr;
+use types::{BeaconState, Epoch, EthSpec, PublicKeyBytes, Slot};
 
 pub const CMD: &str = "slashing-protection";
 pub const IMPORT_CMD: &str = "import";
@@ -16,6 +17,7 @@ pub const IMPORT_FILE_ARG: &str = "IMPORT-FILE";
 pub const EXPORT_FILE_ARG: &str = "EXPORT-FILE";
 
 pub const MINIFY_FLAG: &str = "minify";
+pub const PUBKEYS_FLAG: &str = "pubkeys";
 
 pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
     App::new(CMD)
@@ -33,11 +35,10 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                     Arg::with_name(MINIFY_FLAG)
                         .long(MINIFY_FLAG)
                         .takes_value(true)
-                        .default_value("true")
                         .possible_values(&["false", "true"])
                         .help(
-                            "Minify the input file before processing. This is *much* faster, \
-                             but will not detect slashable data in the input.",
+                            "Deprecated: Lighthouse no longer requires minification on import \
+                             because it always minifies",
                         ),
                 ),
         )
@@ -49,6 +50,16 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                         .takes_value(true)
                         .value_name("FILE")
                         .help("The filename to export the interchange file to"),
+                )
+                .arg(
+                    Arg::with_name(PUBKEYS_FLAG)
+                        .long(PUBKEYS_FLAG)
+                        .takes_value(true)
+                        .value_name("PUBKEYS")
+                        .help(
+                            "List of public keys to export history for. Keys should be 0x-prefixed, \
+                             comma-separated. All known keys will be exported if omitted",
+                        ),
                 )
                 .arg(
                     Arg::with_name(MINIFY_FLAG)
@@ -71,11 +82,11 @@ pub fn cli_run<T: EthSpec>(
 ) -> Result<(), String> {
     let slashing_protection_db_path = validator_base_dir.join(SLASHING_PROTECTION_FILENAME);
 
-    let testnet_config = env
-        .testnet
+    let eth2_network_config = env
+        .eth2_network_config
         .ok_or("Unable to get testnet configuration from the environment")?;
 
-    let genesis_validators_root = testnet_config
+    let genesis_validators_root = eth2_network_config
         .beacon_state::<T>()
         .map(|state: BeaconState<T>| state.genesis_validators_root())
         .map_err(|e| {
@@ -88,7 +99,7 @@ pub fn cli_run<T: EthSpec>(
     match matches.subcommand() {
         (IMPORT_CMD, Some(matches)) => {
             let import_filename: PathBuf = clap_utils::parse_required(matches, IMPORT_FILE_ARG)?;
-            let minify: bool = clap_utils::parse_required(matches, MINIFY_FLAG)?;
+            let minify: Option<bool> = clap_utils::parse_optional(matches, MINIFY_FLAG)?;
             let import_file = File::open(&import_filename).map_err(|e| {
                 format!(
                     "Unable to open import file at {}: {:?}",
@@ -102,12 +113,17 @@ pub fn cli_run<T: EthSpec>(
                 .map_err(|e| format!("Error parsing file for import: {:?}", e))?;
             eprintln!(" [done].");
 
-            if minify {
-                eprint!("Minifying input file for faster loading");
-                interchange = interchange
-                    .minify()
-                    .map_err(|e| format!("Minification failed: {:?}", e))?;
-                eprintln!(" [done].");
+            if let Some(minify) = minify {
+                eprintln!(
+                    "WARNING: --minify flag is deprecated and will be removed in a future release"
+                );
+                if minify {
+                    eprint!("Minifying input file for faster loading");
+                    interchange = interchange
+                        .minify()
+                        .map_err(|e| format!("Minification failed: {:?}", e))?;
+                    eprintln!(" [done].");
+                }
             }
 
             let slashing_protection_database =
@@ -120,14 +136,16 @@ pub fn cli_run<T: EthSpec>(
                 })?;
 
             let display_slot = |slot: Option<Slot>| {
-                slot.map_or("none".to_string(), |slot| format!("{}", slot.as_u64()))
+                slot.map_or("none".to_string(), |slot| format!("slot {}", slot.as_u64()))
             };
             let display_epoch = |epoch: Option<Epoch>| {
-                epoch.map_or("?".to_string(), |epoch| format!("{}", epoch.as_u64()))
+                epoch.map_or("?".to_string(), |epoch| format!("epoch {}", epoch.as_u64()))
             };
             let display_attestation = |source, target| match (source, target) {
                 (None, None) => "none".to_string(),
-                (source, target) => format!("{}=>{}", display_epoch(source), display_epoch(target)),
+                (source, target) => {
+                    format!("{} => {}", display_epoch(source), display_epoch(target))
+                }
             };
 
             match slashing_protection_database
@@ -140,18 +158,11 @@ pub fn cli_run<T: EthSpec>(
                             InterchangeImportOutcome::Success { pubkey, summary } => {
                                 eprintln!("- {:?}", pubkey);
                                 eprintln!(
-                                    "    - min block: {}",
-                                    display_slot(summary.min_block_slot)
+                                    "    - latest block: {}",
+                                    display_slot(summary.max_block_slot)
                                 );
                                 eprintln!(
-                                    "    - min attestation: {}",
-                                    display_attestation(
-                                        summary.min_attestation_source,
-                                        summary.min_attestation_target
-                                    )
-                                );
-                                eprintln!(
-                                    "    - max attestation: {}",
+                                    "    - latest attestation: {}",
                                     display_attestation(
                                         summary.max_attestation_source,
                                         summary.max_attestation_target
@@ -168,18 +179,20 @@ pub fn cli_run<T: EthSpec>(
                     }
                 }
                 Err(InterchangeError::AtomicBatchAborted(outcomes)) => {
-                    eprintln!("ERROR, slashable data in input:");
+                    eprintln!("ERROR: import aborted due to one or more errors");
                     for outcome in &outcomes {
                         if let InterchangeImportOutcome::Failure { pubkey, error } = outcome {
                             eprintln!("- {:?}", pubkey);
                             eprintln!("    - error: {:?}", error);
                         }
                     }
-                    return Err(
-                        "ERROR: import aborted due to slashable data, see above.\n\
-                         Please see https://lighthouse-book.sigmaprime.io/slashing-protection.html#slashable-data-in-import\n\
-                         IT IS NOT SAFE TO START VALIDATING".to_string()
-                    );
+                    return Err("ERROR: import aborted due to errors, see above.\n\
+                                No data has been imported and the slashing protection \
+                                database is in the same state it was in before the import.\n\
+                                Due to the failed import it is NOT SAFE to start validating\n\
+                                with any newly imported validator keys, as your database lacks\n\
+                                slashing protection data for them."
+                        .to_string());
                 }
                 Err(e) => {
                     return Err(format!(
@@ -192,7 +205,7 @@ pub fn cli_run<T: EthSpec>(
 
             eprintln!("Import completed successfully.");
             eprintln!(
-                "Please double-check that the minimum and maximum blocks and attestations above \
+                "Please double-check that the latest blocks and attestations above \
                  match your expectations."
             );
 
@@ -201,6 +214,19 @@ pub fn cli_run<T: EthSpec>(
         (EXPORT_CMD, Some(matches)) => {
             let export_filename: PathBuf = clap_utils::parse_required(matches, EXPORT_FILE_ARG)?;
             let minify: bool = clap_utils::parse_required(matches, MINIFY_FLAG)?;
+
+            let selected_pubkeys = if let Some(pubkeys) =
+                clap_utils::parse_optional::<String>(matches, PUBKEYS_FLAG)?
+            {
+                let pubkeys = pubkeys
+                    .split(',')
+                    .map(PublicKeyBytes::from_str)
+                    .collect::<Result<Vec<_>, _>>()
+                    .map_err(|e| format!("Invalid --{} value: {:?}", PUBKEYS_FLAG, e))?;
+                Some(pubkeys)
+            } else {
+                None
+            };
 
             if !slashing_protection_db_path.exists() {
                 return Err(format!(
@@ -219,7 +245,7 @@ pub fn cli_run<T: EthSpec>(
                 })?;
 
             let mut interchange = slashing_protection_database
-                .export_interchange_info(genesis_validators_root)
+                .export_interchange_info(genesis_validators_root, selected_pubkeys.as_deref())
                 .map_err(|e| format!("Error during export: {:?}", e))?;
 
             if minify {

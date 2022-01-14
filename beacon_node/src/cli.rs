@@ -54,7 +54,8 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
         .arg(
             Arg::with_name("shutdown-after-sync")
                 .long("shutdown-after-sync")
-                .help("Shutdown beacon node as soon as sync is completed")
+                .help("Shutdown beacon node as soon as sync is completed. Backfill sync will \
+                       not be performed before shutdown.")
                 .takes_value(false),
         )
         .arg(
@@ -224,6 +225,36 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .help("Disable serving of legacy data on the /config/spec endpoint. May be \
                        disabled by default in a future release.")
         )
+        .arg(
+            Arg::with_name("http-enable-tls")
+                .long("http-enable-tls")
+                .help("Serves the RESTful HTTP API server over TLS. This feature is currently \
+                    experimental.")
+                .takes_value(false)
+                .requires("http-tls-cert")
+                .requires("http-tls-key")
+        )
+        .arg(
+            Arg::with_name("http-tls-cert")
+                .long("http-tls-cert")
+                .help("The path of the certificate to be used when serving the HTTP API server \
+                    over TLS.")
+                .takes_value(true)
+        )
+        .arg(
+            Arg::with_name("http-tls-key")
+                .long("http-tls-key")
+                .help("The path of the private key to be used when serving the HTTP API server \
+                    over TLS. Must not be password-protected.")
+                .takes_value(true)
+        )
+        .arg(
+            Arg::with_name("http-allow-sync-stalled")
+                .long("http-allow-sync-stalled")
+                .help("Forces the HTTP to indicate that the node is synced when sync is actually \
+                    stalled. This is useful for very small testnets. TESTING ONLY. DO NOT USE ON \
+                    MAINNET.")
+        )
         /* Prometheus metrics HTTP server related arguments */
         .arg(
             Arg::with_name("metrics")
@@ -355,6 +386,38 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .help("Specifies how many blocks the database should cache in memory [default: 5]")
                 .takes_value(true)
         )
+        /*
+         * Execution Layer Integration
+         */
+        .arg(
+            Arg::with_name("merge")
+                .long("merge")
+                .help("Enable the features necessary to run merge testnets. This feature \
+                       is unstable and is for developers only.")
+                .takes_value(false),
+        )
+        .arg(
+            Arg::with_name("execution-endpoints")
+                .long("execution-endpoints")
+                .value_name("EXECUTION-ENDPOINTS")
+                .help("One or more comma-delimited server endpoints for HTTP JSON-RPC connection. \
+                       If multiple endpoints are given the endpoints are used as fallback in the \
+                       given order. Also enables the --merge flag. \
+                       If this flag is omitted and the --eth1-endpoints is supplied, those values \
+                       will be used. Defaults to http://127.0.0.1:8545.")
+                .takes_value(true)
+        )
+        .arg(
+            Arg::with_name("fee-recipient")
+                .long("fee-recipient")
+                .value_name("FEE-RECIPIENT")
+                .help("Once the merge has happened, this address will receive transaction fees \
+                       collected from any blocks produced by this node. Defaults to a junk \
+                       address whilst the merge is in development stages. THE DEFAULT VALUE \
+                       WILL BE REMOVED BEFORE THE MERGE ENTERS PRODUCTION")
+                .requires("merge")
+                .takes_value(true)
+        )
 
         /*
          * Database purging and compaction.
@@ -436,6 +499,18 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .takes_value(true)
         )
         .arg(
+            Arg::with_name("slasher-slot-offset")
+                .long("slasher-slot-offset")
+                .help(
+                    "Set the delay from the start of the slot at which the slasher should ingest \
+                     attestations. Only effective if the slasher-update-period is a multiple of the \
+                     slot duration."
+                )
+                .value_name("SECONDS")
+                .requires("slasher")
+                .takes_value(true)
+        )
+        .arg(
             Arg::with_name("slasher-history-length")
                 .long("slasher-history-length")
                 .help(
@@ -450,9 +525,17 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
             Arg::with_name("slasher-max-db-size")
                 .long("slasher-max-db-size")
                 .help(
-                    "Maximum size of the LMDB database used by the slasher."
+                    "Maximum size of the MDBX database used by the slasher."
                 )
                 .value_name("GIGABYTES")
+                .requires("slasher")
+                .takes_value(true)
+        )
+        .arg(
+            Arg::with_name("slasher-att-cache-size")
+                .long("slasher-att-cache-size")
+                .help("Set the maximum number of attestation roots for the slasher to cache")
+                .value_name("COUNT")
                 .requires("slasher")
                 .takes_value(true)
         )
@@ -487,11 +570,45 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
             Arg::with_name("wss-checkpoint")
                 .long("wss-checkpoint")
                 .help(
-                    "Used to input a Weak Subjectivity State Checkpoint in `block_root:epoch_number` format,\
-                     where block_root is an '0x' prefixed 32-byte hex string and epoch_number is an integer."
+                    "Specify a weak subjectivity checkpoint in `block_root:epoch` format to verify \
+                     the node's sync against. The block root should be 0x-prefixed. Note that this \
+                     flag is for verification only, to perform a checkpoint sync from a recent \
+                     state use --checkpoint-sync-url."
                 )
                 .value_name("WSS_CHECKPOINT")
                 .takes_value(true)
+        )
+        .arg(
+            Arg::with_name("checkpoint-state")
+                .long("checkpoint-state")
+                .help("Set a checkpoint state to start syncing from. Must be aligned and match \
+                       --checkpoint-block. Using --checkpoint-sync-url instead is recommended.")
+                .value_name("STATE_SSZ")
+                .takes_value(true)
+                .requires("checkpoint-block")
+        )
+        .arg(
+            Arg::with_name("checkpoint-block")
+                .long("checkpoint-block")
+                .help("Set a checkpoint block to start syncing from. Must be aligned and match \
+                       --checkpoint-state. Using --checkpoint-sync-url instead is recommended.")
+                .value_name("BLOCK_SSZ")
+                .takes_value(true)
+                .requires("checkpoint-state")
+        )
+        .arg(
+            Arg::with_name("checkpoint-sync-url")
+                .long("checkpoint-sync-url")
+                .help("Set the remote beacon node HTTP endpoint to use for checkpoint sync.")
+                .value_name("BEACON_NODE")
+                .takes_value(true)
+                .conflicts_with("checkpoint-state")
+        )
+        .arg(
+            Arg::with_name("reconstruct-historic-states")
+                .long("reconstruct-historic-states")
+                .help("After a checkpoint sync, reconstruct historic states in the database.")
+                .takes_value(false)
         )
         .arg(
             Arg::with_name("validator-monitor-auto")
@@ -517,5 +634,13 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                     contained within a file at the given path.")
                 .value_name("PATH")
                 .takes_value(true)
+        )
+        .arg(
+            Arg::with_name("disable-lock-timeouts")
+                .long("disable-lock-timeouts")
+                .help("Disable the timeouts applied to some internal locks by default. This can \
+                       lead to less spurious failures on slow hardware but is considered \
+                       experimental as it may obscure performance issues.")
+                .takes_value(false)
         )
 }

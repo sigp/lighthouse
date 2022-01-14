@@ -1,9 +1,10 @@
 use clap::ArgMatches;
-use clap_utils::{flags::DISABLE_MALLOC_TUNING_FLAG, BAD_TESTNET_DIR_MESSAGE};
+use clap_utils::flags::DISABLE_MALLOC_TUNING_FLAG;
 use client::{ClientConfig, ClientGenesis};
 use directory::{DEFAULT_BEACON_NODE_DIR, DEFAULT_NETWORK_DIR, DEFAULT_ROOT_DIR};
-use eth2_libp2p::{multiaddr::Protocol, Enr, Multiaddr, NetworkConfig, PeerIdSerialized};
-use eth2_network_config::{Eth2NetworkConfig, DEFAULT_HARDCODED_NETWORK};
+use environment::RuntimeContext;
+use http_api::TlsConfig;
+use lighthouse_network::{multiaddr::Protocol, Enr, Multiaddr, NetworkConfig, PeerIdSerialized};
 use sensitive_url::SensitiveUrl;
 use slog::{info, warn, Logger};
 use std::cmp;
@@ -13,7 +14,12 @@ use std::net::{IpAddr, Ipv4Addr, ToSocketAddrs};
 use std::net::{TcpListener, UdpSocket};
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
-use types::{ChainSpec, Checkpoint, Epoch, EthSpec, Hash256, PublicKeyBytes, GRAFFITI_BYTES_LEN};
+use types::{Address, Checkpoint, Epoch, EthSpec, Hash256, PublicKeyBytes, GRAFFITI_BYTES_LEN};
+
+// TODO(merge): remove this default value. It's just there to make life easy during
+// early testnets.
+const DEFAULT_SUGGESTED_FEE_RECIPIENT: [u8; 20] =
+    [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1];
 
 /// Gets the fully-initialized global client.
 ///
@@ -24,9 +30,11 @@ use types::{ChainSpec, Checkpoint, Epoch, EthSpec, Hash256, PublicKeyBytes, GRAF
 /// response of some remote server.
 pub fn get_config<E: EthSpec>(
     cli_args: &ArgMatches,
-    spec: &ChainSpec,
-    log: Logger,
+    context: &RuntimeContext<E>,
 ) -> Result<ClientConfig, String> {
+    let spec = &context.eth2_config.spec;
+    let log = context.log();
+
     let mut client_config = ClientConfig {
         data_dir: get_data_dir(cli_args),
         ..Default::default()
@@ -35,16 +43,18 @@ pub fn get_config<E: EthSpec>(
     // If necessary, remove any existing database and configuration
     if client_config.data_dir.exists() && cli_args.is_present("purge-db") {
         // Remove the chain_db.
-        fs::remove_dir_all(client_config.get_db_path().ok_or("Failed to get db_path")?)
-            .map_err(|err| format!("Failed to remove chain_db: {}", err))?;
+        let chain_db = client_config.get_db_path();
+        if chain_db.exists() {
+            fs::remove_dir_all(chain_db)
+                .map_err(|err| format!("Failed to remove chain_db: {}", err))?;
+        }
 
         // Remove the freezer db.
-        fs::remove_dir_all(
-            client_config
-                .get_freezer_db_path()
-                .ok_or("Failed to get freezer db path")?,
-        )
-        .map_err(|err| format!("Failed to remove chain_db: {}", err))?;
+        let freezer_db = client_config.get_freezer_db_path();
+        if freezer_db.exists() {
+            fs::remove_dir_all(freezer_db)
+                .map_err(|err| format!("Failed to remove freezer_db: {}", err))?;
+        }
     }
 
     // Create `datadir` and any non-existing parent directories.
@@ -64,7 +74,7 @@ pub fn get_config<E: EthSpec>(
         &mut client_config.network,
         cli_args,
         &client_config.data_dir,
-        &log,
+        log,
         false,
     )?;
 
@@ -109,6 +119,25 @@ pub fn get_config<E: EthSpec>(
 
     if cli_args.is_present("http-disable-legacy-spec") {
         client_config.http_api.serve_legacy_spec = false;
+    }
+
+    if cli_args.is_present("http-enable-tls") {
+        client_config.http_api.tls_config = Some(TlsConfig {
+            cert: cli_args
+                .value_of("http-tls-cert")
+                .ok_or("--http-tls-cert was not provided.")?
+                .parse::<PathBuf>()
+                .map_err(|_| "http-tls-cert is not a valid path name.")?,
+            key: cli_args
+                .value_of("http-tls-key")
+                .ok_or("--http-tls-key was not provided.")?
+                .parse::<PathBuf>()
+                .map_err(|_| "http-tls-key is not a valid path name.")?,
+        });
+    }
+
+    if cli_args.is_present("http-allow-sync-stalled") {
+        client_config.http_api.allow_sync_stalled = true;
     }
 
     /*
@@ -197,7 +226,7 @@ pub fn get_config<E: EthSpec>(
         client_config.sync_eth1_chain = true;
         client_config.eth1.endpoints = endpoints
             .split(',')
-            .map(|s| SensitiveUrl::parse(s))
+            .map(SensitiveUrl::parse)
             .collect::<Result<_, _>>()
             .map_err(|e| format!("eth1-endpoints contains an invalid URL {:?}", e))?;
     }
@@ -211,6 +240,25 @@ pub fn get_config<E: EthSpec>(
     if cli_args.is_present("eth1-purge-cache") {
         client_config.eth1.purge_cache = true;
     }
+
+    if let Some(endpoints) = cli_args.value_of("execution-endpoints") {
+        client_config.sync_eth1_chain = true;
+        client_config.execution_endpoints = endpoints
+            .split(',')
+            .map(SensitiveUrl::parse)
+            .collect::<Result<_, _>>()
+            .map(Some)
+            .map_err(|e| format!("execution-endpoints contains an invalid URL {:?}", e))?;
+    } else if cli_args.is_present("merge") {
+        client_config.execution_endpoints = Some(client_config.eth1.endpoints.clone());
+    }
+
+    client_config.suggested_fee_recipient = Some(
+        clap_utils::parse_optional(cli_args, "fee-recipient")?
+            // TODO(merge): remove this default value. It's just there to make life easy during
+            // early testnets.
+            .unwrap_or_else(|| Address::from(DEFAULT_SUGGESTED_FEE_RECIPIENT)),
+    );
 
     if let Some(freezer_dir) = cli_args.value_of("freezer-dir") {
         client_config.freezer_db_path = Some(PathBuf::from(freezer_dir));
@@ -264,7 +312,10 @@ pub fn get_config<E: EthSpec>(
     /*
      * Load the eth2 network dir to obtain some additional config values.
      */
-    let eth2_network_config = get_eth2_network_config(cli_args)?;
+    let eth2_network_config = context
+        .eth2_network_config
+        .as_ref()
+        .ok_or("Context is missing eth2 network config")?;
 
     client_config.eth1.deposit_contract_address = format!("{:?}", spec.deposit_contract_address);
     client_config.eth1.deposit_contract_deploy_block =
@@ -287,20 +338,70 @@ pub fn get_config<E: EthSpec>(
 
     // Only append network config bootnodes if discovery is not disabled
     if !client_config.network.disable_discovery {
-        if let Some(mut boot_nodes) = eth2_network_config.boot_enr {
-            client_config.network.boot_nodes_enr.append(&mut boot_nodes)
+        if let Some(boot_nodes) = &eth2_network_config.boot_enr {
+            client_config
+                .network
+                .boot_nodes_enr
+                .extend_from_slice(boot_nodes)
         }
     }
 
-    if let Some(genesis_state_bytes) = eth2_network_config.genesis_state_bytes {
-        // Note: re-serializing the genesis state is not so efficient, however it avoids adding
-        // trait bounds to the `ClientGenesis` enum. This would have significant flow-on
-        // effects.
-        client_config.genesis = ClientGenesis::SszBytes {
-            genesis_state_bytes,
-        };
+    client_config.genesis = if let Some(genesis_state_bytes) =
+        eth2_network_config.genesis_state_bytes.clone()
+    {
+        // Set up weak subjectivity sync, or start from the hardcoded genesis state.
+        if let (Some(initial_state_path), Some(initial_block_path)) = (
+            cli_args.value_of("checkpoint-state"),
+            cli_args.value_of("checkpoint-block"),
+        ) {
+            let read = |path: &str| {
+                use std::fs::File;
+                use std::io::Read;
+                File::open(Path::new(path))
+                    .and_then(|mut f| {
+                        let mut buffer = vec![];
+                        f.read_to_end(&mut buffer)?;
+                        Ok(buffer)
+                    })
+                    .map_err(|e| format!("Unable to open {}: {:?}", path, e))
+            };
+
+            let anchor_state_bytes = read(initial_state_path)?;
+            let anchor_block_bytes = read(initial_block_path)?;
+
+            ClientGenesis::WeakSubjSszBytes {
+                genesis_state_bytes,
+                anchor_state_bytes,
+                anchor_block_bytes,
+            }
+        } else if let Some(remote_bn_url) = cli_args.value_of("checkpoint-sync-url") {
+            let url = SensitiveUrl::parse(remote_bn_url)
+                .map_err(|e| format!("Invalid checkpoint sync URL: {:?}", e))?;
+
+            ClientGenesis::CheckpointSyncUrl {
+                genesis_state_bytes,
+                url,
+            }
+        } else {
+            // Note: re-serializing the genesis state is not so efficient, however it avoids adding
+            // trait bounds to the `ClientGenesis` enum. This would have significant flow-on
+            // effects.
+            ClientGenesis::SszBytes {
+                genesis_state_bytes,
+            }
+        }
     } else {
-        client_config.genesis = ClientGenesis::DepositContract;
+        if cli_args.is_present("checkpoint-state") || cli_args.is_present("checkpoint-sync-url") {
+            return Err(
+                "Checkpoint sync is not available for this network as no genesis state is known"
+                    .to_string(),
+            );
+        }
+        ClientGenesis::DepositContract
+    };
+
+    if cli_args.is_present("reconstruct-historic-states") {
+        client_config.chain.reconstruct_historic_states = true;
     }
 
     let raw_graffiti = if let Some(graffiti) = cli_args.value_of("graffiti") {
@@ -367,6 +468,9 @@ pub fn get_config<E: EthSpec>(
         };
     }
 
+    client_config.chain.max_network_size =
+        lighthouse_network::gossip_max_size(spec.merge_fork_epoch.is_some());
+
     if cli_args.is_present("slasher") {
         let slasher_dir = if let Some(slasher_dir) = cli_args.value_of("slasher-dir") {
             PathBuf::from(slasher_dir)
@@ -381,6 +485,19 @@ pub fn get_config<E: EthSpec>(
             slasher_config.update_period = update_period;
         }
 
+        if let Some(slot_offset) =
+            clap_utils::parse_optional::<f64>(cli_args, "slasher-slot-offset")?
+        {
+            if slot_offset.is_finite() {
+                slasher_config.slot_offset = slot_offset;
+            } else {
+                return Err(format!(
+                    "invalid float for slasher-slot-offset: {}",
+                    slot_offset
+                ));
+            }
+        }
+
         if let Some(history_length) =
             clap_utils::parse_optional(cli_args, "slasher-history-length")?
         {
@@ -391,6 +508,12 @@ pub fn get_config<E: EthSpec>(
             clap_utils::parse_optional::<usize>(cli_args, "slasher-max-db-size")?
         {
             slasher_config.max_db_size_mbs = max_db_size_gbs * 1024;
+        }
+
+        if let Some(attestation_cache_size) =
+            clap_utils::parse_optional(cli_args, "slasher-att-cache-size")?
+        {
+            slasher_config.attestation_root_cache_size = attestation_cache_size;
         }
 
         if let Some(chunk_size) = clap_utils::parse_optional(cli_args, "slasher-chunk-size")? {
@@ -439,6 +562,10 @@ pub fn get_config<E: EthSpec>(
         client_config
             .validator_monitor_pubkeys
             .extend_from_slice(&pubkeys);
+    }
+
+    if cli_args.is_present("disable-lock-timeouts") {
+        client_config.chain.enable_lock_timeouts = false;
     }
 
     Ok(client_config)
@@ -594,7 +721,7 @@ pub fn set_network_config(
                         None
                     }
                 }) {
-                    addr.push_str(&format!(":{}", enr_udp_port.to_string()));
+                    addr.push_str(&format!(":{}", enr_udp_port));
                 } else {
                     return Err(
                         "enr-udp-port must be set for node to be discoverable with dns address"
@@ -641,6 +768,10 @@ pub fn set_network_config(
         config.private = true;
     }
 
+    if cli_args.is_present("metrics") {
+        config.metrics_enabled = true;
+    }
+
     Ok(())
 }
 
@@ -662,20 +793,6 @@ pub fn get_data_dir(cli_args: &ArgMatches) -> PathBuf {
             })
         })
         .unwrap_or_else(|| PathBuf::from("."))
-}
-
-/// Try to parse the eth2 network config from the `network`, `testnet-dir` flags in that order.
-/// Returns the default hardcoded testnet if neither flags are set.
-pub fn get_eth2_network_config(cli_args: &ArgMatches) -> Result<Eth2NetworkConfig, String> {
-    let optional_network_config = if cli_args.is_present("network") {
-        clap_utils::parse_hardcoded_network(cli_args, "network")?
-    } else if cli_args.is_present("testnet-dir") {
-        clap_utils::parse_testnet_dir(cli_args, "testnet-dir")?
-    } else {
-        // if neither is present, assume the default network
-        Eth2NetworkConfig::constant(DEFAULT_HARDCODED_NETWORK)?
-    };
-    optional_network_config.ok_or_else(|| BAD_TESTNET_DIR_MESSAGE.to_string())
 }
 
 /// A bit of hack to find an unused port.

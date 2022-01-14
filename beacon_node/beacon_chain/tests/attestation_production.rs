@@ -1,11 +1,8 @@
 #![cfg(not(debug_assertions))]
 
-#[macro_use]
-extern crate lazy_static;
-
 use beacon_chain::test_utils::{AttestationStrategy, BeaconChainHarness, BlockStrategy};
 use beacon_chain::{StateSkipConfig, WhenSlotSkipped};
-use store::config::StoreConfig;
+use lazy_static::lazy_static;
 use tree_hash::TreeHash;
 use types::{AggregateSignature, EthSpec, Keypair, MainnetEthSpec, RelativeEpoch, Slot};
 
@@ -25,12 +22,11 @@ fn produces_attestations() {
     let num_blocks_produced = MainnetEthSpec::slots_per_epoch() * 4;
     let additional_slots_tested = MainnetEthSpec::slots_per_epoch() * 3;
 
-    let harness = BeaconChainHarness::new_with_store_config(
-        MainnetEthSpec,
-        None,
-        KEYPAIRS[..].to_vec(),
-        StoreConfig::default(),
-    );
+    let harness = BeaconChainHarness::builder(MainnetEthSpec)
+        .default_spec()
+        .keypairs(KEYPAIRS[..].to_vec())
+        .fresh_ephemeral_store()
+        .build();
 
     let chain = &harness.chain;
 
@@ -126,6 +122,24 @@ fn produces_attestations() {
             );
             assert_eq!(data.target.epoch, state.current_epoch(), "bad target epoch");
             assert_eq!(data.target.root, target_root, "bad target root");
+
+            let early_attestation = {
+                let proto_block = chain.fork_choice.read().get_block(&block_root).unwrap();
+                chain
+                    .early_attester_cache
+                    .add_head_block(block_root, block.clone(), proto_block, &state, &chain.spec)
+                    .unwrap();
+                chain
+                    .early_attester_cache
+                    .try_attest(slot, index, &chain.spec)
+                    .unwrap()
+                    .unwrap()
+            };
+
+            assert_eq!(
+                attestation, early_attestation,
+                "early attester cache inconsistent"
+            );
         }
     }
 }

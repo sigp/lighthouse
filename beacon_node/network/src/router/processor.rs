@@ -4,8 +4,10 @@ use crate::beacon_processor::{
 use crate::service::NetworkMessage;
 use crate::sync::SyncMessage;
 use beacon_chain::{BeaconChain, BeaconChainError, BeaconChainTypes};
-use eth2_libp2p::rpc::*;
-use eth2_libp2p::{MessageId, NetworkGlobals, PeerId, PeerRequestId, Request, Response};
+use lighthouse_network::rpc::*;
+use lighthouse_network::{
+    Client, MessageId, NetworkGlobals, PeerId, PeerRequestId, Request, Response,
+};
 use slog::{debug, error, o, trace, warn};
 use std::cmp;
 use std::sync::Arc;
@@ -63,6 +65,7 @@ impl<T: BeaconChainTypes> Processor<T> {
             executor,
             max_workers: cmp::max(1, num_cpus::get()),
             current_workers: 0,
+            importing_blocks: Default::default(),
             log: log.clone(),
         }
         .spawn_manager(beacon_processor_receive, None);
@@ -211,6 +214,7 @@ impl<T: BeaconChainTypes> Processor<T> {
                 peer_id,
                 request_id: id,
                 beacon_block,
+                seen_timestamp: timestamp_now(),
             });
         } else {
             debug!(
@@ -229,11 +233,13 @@ impl<T: BeaconChainTypes> Processor<T> {
         &mut self,
         message_id: MessageId,
         peer_id: PeerId,
+        peer_client: Client,
         block: Box<SignedBeaconBlock<T::EthSpec>>,
     ) {
         self.send_beacon_processor_work(BeaconWorkEvent::gossip_beacon_block(
             message_id,
             peer_id,
+            peer_client,
             block,
             timestamp_now(),
         ))
@@ -418,7 +424,7 @@ impl<T: EthSpec> HandlerNetworkContext<T> {
         error: RPCResponseErrorCode,
         reason: String,
     ) {
-        self.inform_network(NetworkMessage::SendError {
+        self.inform_network(NetworkMessage::SendErrorResponse {
             peer_id,
             error,
             id,

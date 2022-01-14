@@ -2,8 +2,10 @@
 extern crate log;
 mod change_genesis_time;
 mod check_deposit_data;
+mod create_payload_header;
 mod deploy_deposit_contract;
 mod eth1_genesis;
+mod etl;
 mod generate_bootnode_enr;
 mod insecure_validators;
 mod interop_genesis;
@@ -15,8 +17,7 @@ mod transition_blocks;
 
 use clap::{App, Arg, ArgMatches, SubCommand};
 use clap_utils::parse_path_with_default_in_home_dir;
-use environment::EnvironmentBuilder;
-use log::LevelFilter;
+use environment::{EnvironmentBuilder, LoggerConfig};
 use parse_ssz::run_parse_ssz;
 use std::path::PathBuf;
 use std::process;
@@ -25,10 +26,7 @@ use transition_blocks::run_transition_blocks;
 use types::{EthSpec, EthSpecId};
 
 fn main() {
-    simple_logger::SimpleLogger::new()
-        .with_level(LevelFilter::Info)
-        .init()
-        .expect("Logger should be initialised");
+    env_logger::init();
 
     let matches = App::new("Lighthouse CLI Tool")
         .version(lighthouse_version::VERSION)
@@ -111,6 +109,17 @@ fn main() {
             SubCommand::with_name("pretty-ssz")
                 .about("Parses SSZ-encoded data from a file")
                 .arg(
+                    Arg::with_name("format")
+                        .short("f")
+                        .long("format")
+                        .value_name("FORMAT")
+                        .takes_value(true)
+                        .required(true)
+                        .default_value("json")
+                        .possible_values(&["json", "yaml"])
+                        .help("Output format to use")
+                )
+                .arg(
                     Arg::with_name("type")
                         .value_name("TYPE")
                         .takes_value(true)
@@ -123,7 +132,7 @@ fn main() {
                         .takes_value(true)
                         .required(true)
                         .help("Path to SSZ bytes"),
-                ),
+                )
         )
         .subcommand(
             SubCommand::with_name("deploy-deposit-contract")
@@ -264,6 +273,57 @@ fn main() {
                 ),
         )
         .subcommand(
+            SubCommand::with_name("create-payload-header")
+                .about("Generates an SSZ file containing bytes for an `ExecutionPayloadHeader`. \
+                Useful as input for `lcli new-testnet --execution-payload-header FILE`. ")
+                .arg(
+                    Arg::with_name("execution-block-hash")
+                        .long("execution-block-hash")
+                        .value_name("BLOCK_HASH")
+                        .takes_value(true)
+                        .help("The block hash used when generating an execution payload. This \
+                            value is used for `execution_payload_header.block_hash` as well as \
+                            `execution_payload_header.random`")
+                        .required(true)
+                        .default_value(
+                            "0x0000000000000000000000000000000000000000000000000000000000000000",
+                        ),
+                )
+                .arg(
+                    Arg::with_name("genesis-time")
+                        .long("genesis-time")
+                        .value_name("INTEGER")
+                        .takes_value(true)
+                        .help("The genesis time when generating an execution payload.")
+                )
+                .arg(
+                    Arg::with_name("base-fee-per-gas")
+                        .long("base-fee-per-gas")
+                        .value_name("INTEGER")
+                        .takes_value(true)
+                        .help("The base fee per gas field in the execution payload generated.")
+                        .required(true)
+                        .default_value("1000000000"),
+                )
+                .arg(
+                    Arg::with_name("gas-limit")
+                        .long("gas-limit")
+                        .value_name("INTEGER")
+                        .takes_value(true)
+                        .help("The gas limit field in the execution payload generated.")
+                        .required(true)
+                        .default_value("30000000"),
+                )
+                .arg(
+                    Arg::with_name("file")
+                        .long("file")
+                        .value_name("FILE")
+                        .takes_value(true)
+                        .required(true)
+                        .help("Output file"),
+                )
+        )
+        .subcommand(
             SubCommand::with_name("new-testnet")
                 .about(
                     "Produce a new testnet directory. If any of the optional flags are not
@@ -275,6 +335,14 @@ fn main() {
                         .short("f")
                         .takes_value(false)
                         .help("Overwrites any previous testnet configurations"),
+                )
+                .arg(
+                    Arg::with_name("interop-genesis-state")
+                        .long("interop-genesis-state")
+                        .takes_value(false)
+                        .help(
+                            "If present, a interop-style genesis.ssz file will be generated.",
+                        ),
                 )
                 .arg(
                     Arg::with_name("min-genesis-time")
@@ -394,6 +462,45 @@ fn main() {
                             "The epoch at which to enable the Altair hard fork",
                         ),
                 )
+                .arg(
+                    Arg::with_name("merge-fork-epoch")
+                        .long("merge-fork-epoch")
+                        .value_name("EPOCH")
+                        .takes_value(true)
+                        .help(
+                            "The epoch at which to enable the Merge hard fork",
+                        ),
+                )
+                .arg(
+                    Arg::with_name("eth1-block-hash")
+                        .long("eth1-block-hash")
+                        .value_name("BLOCK_HASH")
+                        .takes_value(true)
+                        .help("The eth1 block hash used when generating a genesis state."),
+                )
+                .arg(
+                    Arg::with_name("execution-payload-header")
+                        .long("execution-payload-header")
+                        .value_name("FILE")
+                        .takes_value(true)
+                        .required(false)
+                        .help("Path to file containing `ExecutionPayloadHeader` SSZ bytes to be \
+                            used in the genesis state."),
+                )
+                .arg(
+                    Arg::with_name("validator-count")
+                        .long("validator-count")
+                        .value_name("INTEGER")
+                        .takes_value(true)
+                        .help("The number of validators when generating a genesis state."),
+                )
+                .arg(
+                    Arg::with_name("genesis-time")
+                        .long("genesis-time")
+                        .value_name("INTEGER")
+                        .takes_value(true)
+                        .help("The genesis time when generating a genesis state."),
+                )
         )
         .subcommand(
             SubCommand::with_name("check-deposit-data")
@@ -492,6 +599,63 @@ fn main() {
                         .help("The number of nodes to divide the validator keys to"),
                 )
         )
+        .subcommand(
+            SubCommand::with_name("etl-block-efficiency")
+                .about(
+                    "Performs ETL analysis of block efficiency. Requires a Beacon Node API to \
+                    extract data from.",
+                )
+                .arg(
+                    Arg::with_name("endpoint")
+                        .long("endpoint")
+                        .short("e")
+                        .takes_value(true)
+                        .default_value("http://localhost:5052")
+                        .help(
+                            "The endpoint of the Beacon Node API."
+                        ),
+                )
+                .arg(
+                    Arg::with_name("output")
+                        .long("output")
+                        .short("o")
+                        .takes_value(true)
+                        .help("The path of the output data in CSV file.")
+                        .required(true),
+                )
+                .arg(
+                    Arg::with_name("start-epoch")
+                        .long("start-epoch")
+                        .takes_value(true)
+                        .help(
+                            "The first epoch in the range of epochs to be evaluated. Use with \
+                            --end-epoch.",
+                        )
+                        .required(true),
+                )
+                .arg(
+                    Arg::with_name("end-epoch")
+                        .long("end-epoch")
+                        .takes_value(true)
+                        .help(
+                            "The last epoch in the range of epochs to be evaluated. Use with \
+                            --start-epoch.",
+                        )
+                        .required(true),
+                )
+                .arg(
+                    Arg::with_name("offline-window")
+                        .long("offline-window")
+                        .takes_value(true)
+                        .default_value("3")
+                        .help(
+                            "If a validator does not submit an attestion within this many epochs, \
+                            they are deemed offline. For example, for a offline window of 3, if a \
+                            validator does not attest in epochs 4, 5 or 6, it is deemed offline \
+                            during epoch 6. A value of 0 will skip these checks."
+                        )
+                )
+        )
         .get_matches();
 
     let result = matches
@@ -519,8 +683,16 @@ fn run<T: EthSpec>(
     let env = env_builder
         .multi_threaded_tokio_runtime()
         .map_err(|e| format!("should start tokio runtime: {:?}", e))?
-        .async_logger("trace", None)
-        .map_err(|e| format!("should start null logger: {:?}", e))?
+        .initialize_logger(LoggerConfig {
+            path: None,
+            debug_level: "trace",
+            logfile_debug_level: "trace",
+            log_format: None,
+            max_log_size: 0,
+            max_log_number: 0,
+            compression: false,
+        })
+        .map_err(|e| format!("should start logger: {:?}", e))?
         .build()
         .map_err(|e| format!("should build env: {:?}", e))?;
 
@@ -550,6 +722,8 @@ fn run<T: EthSpec>(
             change_genesis_time::run::<T>(testnet_dir, matches)
                 .map_err(|e| format!("Failed to run change-genesis-time command: {}", e))
         }
+        ("create-payload-header", Some(matches)) => create_payload_header::run::<T>(matches)
+            .map_err(|e| format!("Failed to run create-payload-header command: {}", e)),
         ("replace-state-pubkeys", Some(matches)) => {
             replace_state_pubkeys::run::<T>(testnet_dir, matches)
                 .map_err(|e| format!("Failed to run replace-state-pubkeys command: {}", e))
@@ -562,6 +736,10 @@ fn run<T: EthSpec>(
             .map_err(|e| format!("Failed to run generate-bootnode-enr command: {}", e)),
         ("insecure-validators", Some(matches)) => insecure_validators::run(matches)
             .map_err(|e| format!("Failed to run insecure-validators command: {}", e)),
+        ("etl-block-efficiency", Some(matches)) => env
+            .runtime()
+            .block_on(etl::block_efficiency::run::<T>(matches))
+            .map_err(|e| format!("Failed to run etl-block_efficiency: {}", e)),
         (other, _) => Err(format!("Unknown subcommand {}. See --help.", other)),
     }
 }

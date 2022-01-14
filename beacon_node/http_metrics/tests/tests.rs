@@ -25,6 +25,7 @@ async fn returns_200_ok() {
             chain: None,
             db_path: None,
             freezer_db_path: None,
+            gossipsub_registry: None,
             log,
         });
 

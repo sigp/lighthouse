@@ -7,7 +7,6 @@ edition = "2018"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-eth2_keystore = { path = "../../crypto/eth2_keystore" }
 eth2_wallet = { path = "../../crypto/eth2_wallet" }
 lockfile = { path = "../lockfile" }
 

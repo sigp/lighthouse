@@ -1,5 +1,6 @@
+use logging::test_logger;
 use slasher::{
-    test_utils::{block as test_block, logger, E},
+    test_utils::{block as test_block, E},
     Config, Slasher,
 };
 use tempfile::tempdir;
@@ -8,8 +9,8 @@ use types::{Epoch, EthSpec};
 #[test]
 fn empty_pruning() {
     let tempdir = tempdir().unwrap();
-    let config = Config::new(tempdir.path().into()).for_testing();
-    let slasher = Slasher::<E>::open(config, logger()).unwrap();
+    let config = Config::new(tempdir.path().into());
+    let slasher = Slasher::<E>::open(config, test_logger()).unwrap();
     slasher.prune_database(Epoch::new(0)).unwrap();
 }
 
@@ -18,11 +19,11 @@ fn block_pruning() {
     let slots_per_epoch = E::slots_per_epoch();
 
     let tempdir = tempdir().unwrap();
-    let mut config = Config::new(tempdir.path().into()).for_testing();
+    let mut config = Config::new(tempdir.path().into());
     config.chunk_size = 2;
     config.history_length = 2;
 
-    let slasher = Slasher::<E>::open(config.clone(), logger()).unwrap();
+    let slasher = Slasher::<E>::open(config.clone(), test_logger()).unwrap();
     let current_epoch = Epoch::from(2 * config.history_length);
 
     // Pruning the empty database should be safe.

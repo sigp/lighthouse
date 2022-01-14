@@ -2,13 +2,11 @@
 
 #![cfg(not(debug_assertions))]
 
-#[macro_use]
-extern crate lazy_static;
-
 use beacon_chain::observed_operations::ObservationOutcome;
 use beacon_chain::test_utils::{
     test_spec, AttestationStrategy, BeaconChainHarness, BlockStrategy, DiskHarnessType,
 };
+use lazy_static::lazy_static;
 use sloggers::{null::NullLoggerBuilder, Build};
 use std::sync::Arc;
 use store::{LevelDB, StoreConfig};
@@ -38,12 +36,11 @@ fn get_store(db_path: &TempDir) -> Arc<HotColdDB> {
 }
 
 fn get_harness(store: Arc<HotColdDB>, validator_count: usize) -> TestHarness {
-    let harness = BeaconChainHarness::new_with_disk_store(
-        MinimalEthSpec,
-        None,
-        store,
-        KEYPAIRS[0..validator_count].to_vec(),
-    );
+    let harness = BeaconChainHarness::builder(MinimalEthSpec)
+        .default_spec()
+        .keypairs(KEYPAIRS[0..validator_count].to_vec())
+        .fresh_disk_store(store)
+        .build();
     harness.advance_slot();
     harness
 }

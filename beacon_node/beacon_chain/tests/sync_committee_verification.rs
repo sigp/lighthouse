@@ -1,11 +1,9 @@
 #![cfg(not(debug_assertions))]
 
-#[macro_use]
-extern crate lazy_static;
-
 use beacon_chain::sync_committee_verification::Error as SyncCommitteeError;
 use beacon_chain::test_utils::{BeaconChainHarness, EphemeralHarnessType, RelativeSyncCommittee};
 use int_to_bytes::int_to_bytes32;
+use lazy_static::lazy_static;
 use safe_arith::SafeArith;
 use store::{SignedContributionAndProof, SyncCommitteeMessage};
 use tree_hash::TreeHash;
@@ -28,11 +26,11 @@ lazy_static! {
 fn get_harness(validator_count: usize) -> BeaconChainHarness<EphemeralHarnessType<E>> {
     let mut spec = E::default_spec();
     spec.altair_fork_epoch = Some(Epoch::new(0));
-    let harness = BeaconChainHarness::new(
-        MainnetEthSpec,
-        Some(spec),
-        KEYPAIRS[0..validator_count].to_vec(),
-    );
+    let harness = BeaconChainHarness::builder(MainnetEthSpec)
+        .spec(spec)
+        .keypairs(KEYPAIRS[0..validator_count].to_vec())
+        .fresh_ephemeral_store()
+        .build();
 
     harness.advance_slot();
 

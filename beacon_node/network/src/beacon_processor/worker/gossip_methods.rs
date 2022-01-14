@@ -1,22 +1,25 @@
 use crate::{metrics, service::NetworkMessage, sync::SyncMessage};
 
+use beacon_chain::store::Error;
 use beacon_chain::{
-    attestation_verification::{Error as AttnError, SignatureVerifiedAttestation},
+    attestation_verification::{self, Error as AttnError, VerifiedAttestation},
     observed_operations::ObservationOutcome,
-    sync_committee_verification::Error as SyncCommitteeError,
+    sync_committee_verification::{self, Error as SyncCommitteeError},
     validator_monitor::get_block_delay_ms,
-    BeaconChainError, BeaconChainTypes, BlockError, ForkChoiceError, GossipVerifiedBlock,
+    BeaconChainError, BeaconChainTypes, BlockError, ExecutionPayloadError, ForkChoiceError,
+    GossipVerifiedBlock,
 };
-use eth2_libp2p::{MessageAcceptance, MessageId, PeerAction, PeerId, ReportSource};
-use slog::{debug, error, info, trace, warn};
+use lighthouse_network::{Client, MessageAcceptance, MessageId, PeerAction, PeerId, ReportSource};
+use slog::{crit, debug, error, info, trace, warn};
 use slot_clock::SlotClock;
 use ssz::Encode;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use store::hot_cold_store::HotColdDBError;
 use tokio::sync::mpsc;
 use types::{
-    Attestation, AttesterSlashing, EthSpec, Hash256, ProposerSlashing, SignedAggregateAndProof,
-    SignedBeaconBlock, SignedContributionAndProof, SignedVoluntaryExit, SubnetId,
-    SyncCommitteeMessage, SyncSubnetId,
+    Attestation, AttesterSlashing, EthSpec, Hash256, IndexedAttestation, ProposerSlashing,
+    SignedAggregateAndProof, SignedBeaconBlock, SignedContributionAndProof, SignedVoluntaryExit,
+    Slot, SubnetId, SyncCommitteeMessage, SyncSubnetId,
 };
 
 use super::{
@@ -25,6 +28,61 @@ use super::{
     },
     Worker,
 };
+use crate::beacon_processor::DuplicateCache;
+
+/// An attestation that has been validated by the `BeaconChain`.
+///
+/// Since this struct implements `beacon_chain::VerifiedAttestation`, it would be a logic error to
+/// construct this from components which have not passed `BeaconChain` validation.
+struct VerifiedUnaggregate<T: BeaconChainTypes> {
+    attestation: Box<Attestation<T::EthSpec>>,
+    indexed_attestation: IndexedAttestation<T::EthSpec>,
+}
+
+/// This implementation allows `Self` to be imported to fork choice and other functions on the
+/// `BeaconChain`.
+impl<'a, T: BeaconChainTypes> VerifiedAttestation<T> for VerifiedUnaggregate<T> {
+    fn attestation(&self) -> &Attestation<T::EthSpec> {
+        &self.attestation
+    }
+
+    fn indexed_attestation(&self) -> &IndexedAttestation<T::EthSpec> {
+        &self.indexed_attestation
+    }
+}
+
+/// An attestation that failed validation by the `BeaconChain`.
+struct RejectedUnaggregate<T: EthSpec> {
+    attestation: Box<Attestation<T>>,
+    error: AttnError,
+}
+
+/// An aggregate that has been validated by the `BeaconChain`.
+///
+/// Since this struct implements `beacon_chain::VerifiedAttestation`, it would be a logic error to
+/// construct this from components which have not passed `BeaconChain` validation.
+struct VerifiedAggregate<T: BeaconChainTypes> {
+    signed_aggregate: Box<SignedAggregateAndProof<T::EthSpec>>,
+    indexed_attestation: IndexedAttestation<T::EthSpec>,
+}
+
+/// This implementation allows `Self` to be imported to fork choice and other functions on the
+/// `BeaconChain`.
+impl<'a, T: BeaconChainTypes> VerifiedAttestation<T> for VerifiedAggregate<T> {
+    fn attestation(&self) -> &Attestation<T::EthSpec> {
+        &self.signed_aggregate.message.aggregate
+    }
+
+    fn indexed_attestation(&self) -> &IndexedAttestation<T::EthSpec> {
+        &self.indexed_attestation
+    }
+}
+
+/// An attestation that failed validation by the `BeaconChain`.
+struct RejectedAggregate<T: EthSpec> {
+    signed_aggregate: Box<SignedAggregateAndProof<T>>,
+    error: AttnError,
+}
 
 /// Data for an aggregated or unaggregated attestation that failed verification.
 enum FailedAtt<T: EthSpec> {
@@ -41,13 +99,8 @@ enum FailedAtt<T: EthSpec> {
 }
 
 impl<T: EthSpec> FailedAtt<T> {
-    pub fn root(&self) -> &Hash256 {
-        match self {
-            FailedAtt::Unaggregate { attestation, .. } => &attestation.data.beacon_block_root,
-            FailedAtt::Aggregate { attestation, .. } => {
-                &attestation.message.aggregate.data.beacon_block_root
-            }
-        }
+    pub fn beacon_block_root(&self) -> &Hash256 {
+        &self.attestation().data.beacon_block_root
     }
 
     pub fn kind(&self) -> &'static str {
@@ -56,17 +109,83 @@ impl<T: EthSpec> FailedAtt<T> {
             FailedAtt::Aggregate { .. } => "aggregated",
         }
     }
+
+    pub fn attestation(&self) -> &Attestation<T> {
+        match self {
+            FailedAtt::Unaggregate { attestation, .. } => attestation,
+            FailedAtt::Aggregate { attestation, .. } => &attestation.message.aggregate,
+        }
+    }
+}
+
+/// Items required to verify a batch of unaggregated gossip attestations.
+#[derive(Debug)]
+pub struct GossipAttestationPackage<E: EthSpec> {
+    message_id: MessageId,
+    peer_id: PeerId,
+    attestation: Box<Attestation<E>>,
+    subnet_id: SubnetId,
+    should_import: bool,
+    seen_timestamp: Duration,
+}
+
+impl<E: EthSpec> GossipAttestationPackage<E> {
+    pub fn new(
+        message_id: MessageId,
+        peer_id: PeerId,
+        attestation: Box<Attestation<E>>,
+        subnet_id: SubnetId,
+        should_import: bool,
+        seen_timestamp: Duration,
+    ) -> Self {
+        Self {
+            message_id,
+            peer_id,
+            attestation,
+            subnet_id,
+            should_import,
+            seen_timestamp,
+        }
+    }
+}
+
+/// Items required to verify a batch of aggregated gossip attestations.
+#[derive(Debug)]
+pub struct GossipAggregatePackage<E: EthSpec> {
+    message_id: MessageId,
+    peer_id: PeerId,
+    aggregate: Box<SignedAggregateAndProof<E>>,
+    beacon_block_root: Hash256,
+    seen_timestamp: Duration,
+}
+
+impl<E: EthSpec> GossipAggregatePackage<E> {
+    pub fn new(
+        message_id: MessageId,
+        peer_id: PeerId,
+        aggregate: Box<SignedAggregateAndProof<E>>,
+        seen_timestamp: Duration,
+    ) -> Self {
+        Self {
+            message_id,
+            peer_id,
+            beacon_block_root: aggregate.message.aggregate.data.beacon_block_root,
+            aggregate,
+            seen_timestamp,
+        }
+    }
 }
 
 impl<T: BeaconChainTypes> Worker<T> {
     /* Auxiliary functions */
 
     /// Penalizes a peer for misbehaviour.
-    fn gossip_penalize_peer(&self, peer_id: PeerId, action: PeerAction) {
+    fn gossip_penalize_peer(&self, peer_id: PeerId, action: PeerAction, msg: &'static str) {
         self.send_network_message(NetworkMessage::ReportPeer {
             peer_id,
             action,
             source: ReportSource::Gossipsub,
+            msg,
         })
     }
 
@@ -76,7 +195,7 @@ impl<T: BeaconChainTypes> Worker<T> {
     /// Creates a log if there is an internal error.
     /// Propagates the result of the validation for the given message to the network. If the result
     /// is valid the message gets forwarded to other peers.
-    fn propagate_validation_result(
+    pub(crate) fn propagate_validation_result(
         &self,
         message_id: MessageId,
         propagation_source: PeerId,
@@ -103,88 +222,201 @@ impl<T: BeaconChainTypes> Worker<T> {
         self,
         message_id: MessageId,
         peer_id: PeerId,
-        attestation: Attestation<T::EthSpec>,
+        attestation: Box<Attestation<T::EthSpec>>,
         subnet_id: SubnetId,
         should_import: bool,
         reprocess_tx: Option<mpsc::Sender<ReprocessQueueMessage<T>>>,
         seen_timestamp: Duration,
     ) {
-        let beacon_block_root = attestation.data.beacon_block_root;
-
-        let attestation = match self
+        let result = match self
             .chain
-            .verify_unaggregated_attestation_for_gossip(attestation, Some(subnet_id))
+            .verify_unaggregated_attestation_for_gossip(&attestation, Some(subnet_id))
         {
-            Ok(attestation) => attestation,
-            Err((e, attestation)) => {
-                self.handle_attestation_verification_failure(
-                    peer_id,
-                    message_id,
-                    FailedAtt::Unaggregate {
-                        attestation: Box::new(attestation),
-                        subnet_id,
-                        should_import,
-                        seen_timestamp,
-                    },
-                    reprocess_tx,
-                    e,
+            Ok(verified_attestation) => Ok(VerifiedUnaggregate {
+                indexed_attestation: verified_attestation.into_indexed_attestation(),
+                attestation,
+            }),
+            Err(error) => Err(RejectedUnaggregate { attestation, error }),
+        };
+
+        self.process_gossip_attestation_result(
+            result,
+            message_id,
+            peer_id,
+            subnet_id,
+            reprocess_tx,
+            should_import,
+            seen_timestamp,
+        );
+    }
+
+    pub fn process_gossip_attestation_batch(
+        self,
+        packages: Vec<GossipAttestationPackage<T::EthSpec>>,
+        reprocess_tx: Option<mpsc::Sender<ReprocessQueueMessage<T>>>,
+    ) {
+        let attestations_and_subnets = packages
+            .iter()
+            .map(|package| (package.attestation.as_ref(), Some(package.subnet_id)));
+
+        let results = match self
+            .chain
+            .batch_verify_unaggregated_attestations_for_gossip(attestations_and_subnets)
+        {
+            Ok(results) => results,
+            Err(e) => {
+                error!(
+                    self.log,
+                    "Batch unagg. attn verification failed";
+                    "error" => ?e
                 );
                 return;
             }
         };
 
-        // Register the attestation with any monitored validators.
-        self.chain
-            .validator_monitor
-            .read()
-            .register_gossip_unaggregated_attestation(
-                seen_timestamp,
-                attestation.indexed_attestation(),
-                &self.chain.slot_clock,
-            );
-
-        // Indicate to the `Network` service that this message is valid and can be
-        // propagated on the gossip network.
-        self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Accept);
-
-        if !should_import {
-            return;
+        // Sanity check.
+        if results.len() != packages.len() {
+            // The log is `crit` since in this scenario we might be penalizing/rewarding the wrong
+            // peer.
+            crit!(
+                self.log,
+                "Batch attestation result mismatch";
+                "results" => results.len(),
+                "packages" => packages.len(),
+            )
         }
 
-        metrics::inc_counter(&metrics::BEACON_PROCESSOR_UNAGGREGATED_ATTESTATION_VERIFIED_TOTAL);
+        // Map the results into a new `Vec` so that `results` no longer holds a reference to
+        // `packages`.
+        #[allow(clippy::needless_collect)] // The clippy suggestion fails the borrow checker.
+        let results = results
+            .into_iter()
+            .map(|result| result.map(|verified| verified.into_indexed_attestation()))
+            .collect::<Vec<_>>();
 
-        if let Err(e) = self.chain.apply_attestation_to_fork_choice(&attestation) {
-            match e {
-                BeaconChainError::ForkChoiceError(ForkChoiceError::InvalidAttestation(e)) => {
+        for (result, package) in results.into_iter().zip(packages.into_iter()) {
+            let result = match result {
+                Ok(indexed_attestation) => Ok(VerifiedUnaggregate {
+                    indexed_attestation,
+                    attestation: package.attestation,
+                }),
+                Err(error) => Err(RejectedUnaggregate {
+                    attestation: package.attestation,
+                    error,
+                }),
+            };
+
+            self.process_gossip_attestation_result(
+                result,
+                package.message_id,
+                package.peer_id,
+                package.subnet_id,
+                reprocess_tx.clone(),
+                package.should_import,
+                package.seen_timestamp,
+            );
+        }
+    }
+
+    // Clippy warning is is ignored since the arguments are all of a different type (i.e., they
+    // cant' be mixed-up) and creating a struct would result in more complexity.
+    #[allow(clippy::too_many_arguments)]
+    fn process_gossip_attestation_result(
+        &self,
+        result: Result<VerifiedUnaggregate<T>, RejectedUnaggregate<T::EthSpec>>,
+        message_id: MessageId,
+        peer_id: PeerId,
+        subnet_id: SubnetId,
+        reprocess_tx: Option<mpsc::Sender<ReprocessQueueMessage<T>>>,
+        should_import: bool,
+        seen_timestamp: Duration,
+    ) {
+        match result {
+            Ok(verified_attestation) => {
+                let indexed_attestation = &verified_attestation.indexed_attestation;
+                let beacon_block_root = indexed_attestation.data.beacon_block_root;
+
+                // Register the attestation with any monitored validators.
+                self.chain
+                    .validator_monitor
+                    .read()
+                    .register_gossip_unaggregated_attestation(
+                        seen_timestamp,
+                        indexed_attestation,
+                        &self.chain.slot_clock,
+                    );
+
+                // Indicate to the `Network` service that this message is valid and can be
+                // propagated on the gossip network.
+                self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Accept);
+
+                if !should_import {
+                    return;
+                }
+
+                metrics::inc_counter(
+                    &metrics::BEACON_PROCESSOR_UNAGGREGATED_ATTESTATION_VERIFIED_TOTAL,
+                );
+
+                if let Err(e) = self
+                    .chain
+                    .apply_attestation_to_fork_choice(&verified_attestation)
+                {
+                    match e {
+                        BeaconChainError::ForkChoiceError(ForkChoiceError::InvalidAttestation(
+                            e,
+                        )) => {
+                            debug!(
+                                self.log,
+                                "Attestation invalid for fork choice";
+                                "reason" => ?e,
+                                "peer" => %peer_id,
+                                "beacon_block_root" => ?beacon_block_root
+                            )
+                        }
+                        e => error!(
+                            self.log,
+                            "Error applying attestation to fork choice";
+                            "reason" => ?e,
+                            "peer" => %peer_id,
+                            "beacon_block_root" => ?beacon_block_root
+                        ),
+                    }
+                }
+
+                if let Err(e) = self
+                    .chain
+                    .add_to_naive_aggregation_pool(&verified_attestation)
+                {
                     debug!(
                         self.log,
-                        "Attestation invalid for fork choice";
+                        "Attestation invalid for agg pool";
                         "reason" => ?e,
                         "peer" => %peer_id,
                         "beacon_block_root" => ?beacon_block_root
                     )
                 }
-                e => error!(
-                    self.log,
-                    "Error applying attestation to fork choice";
-                    "reason" => ?e,
-                    "peer" => %peer_id,
-                    "beacon_block_root" => ?beacon_block_root
-                ),
+
+                metrics::inc_counter(
+                    &metrics::BEACON_PROCESSOR_UNAGGREGATED_ATTESTATION_IMPORTED_TOTAL,
+                );
+            }
+            Err(RejectedUnaggregate { attestation, error }) => {
+                self.handle_attestation_verification_failure(
+                    peer_id,
+                    message_id,
+                    FailedAtt::Unaggregate {
+                        attestation,
+                        subnet_id,
+                        should_import,
+                        seen_timestamp,
+                    },
+                    reprocess_tx,
+                    error,
+                    seen_timestamp,
+                );
             }
         }
-
-        if let Err(e) = self.chain.add_to_naive_aggregation_pool(attestation) {
-            debug!(
-                self.log,
-                "Attestation invalid for agg pool";
-                "reason" => ?e,
-                "peer" => %peer_id,
-                "beacon_block_root" => ?beacon_block_root
-            )
-        }
-
-        metrics::inc_counter(&metrics::BEACON_PROCESSOR_UNAGGREGATED_ATTESTATION_IMPORTED_TOTAL);
     }
 
     /// Process the aggregated attestation received from the gossip network and:
@@ -198,82 +430,192 @@ impl<T: BeaconChainTypes> Worker<T> {
         self,
         message_id: MessageId,
         peer_id: PeerId,
-        aggregate: SignedAggregateAndProof<T::EthSpec>,
+        aggregate: Box<SignedAggregateAndProof<T::EthSpec>>,
         reprocess_tx: Option<mpsc::Sender<ReprocessQueueMessage<T>>>,
         seen_timestamp: Duration,
     ) {
         let beacon_block_root = aggregate.message.aggregate.data.beacon_block_root;
 
-        let aggregate = match self
+        let result = match self
             .chain
-            .verify_aggregated_attestation_for_gossip(aggregate)
+            .verify_aggregated_attestation_for_gossip(&aggregate)
         {
-            Ok(aggregate) => aggregate,
-            Err((e, attestation)) => {
-                // Report the failure to gossipsub
-                self.handle_attestation_verification_failure(
-                    peer_id,
-                    message_id,
-                    FailedAtt::Aggregate {
-                        attestation: Box::new(attestation),
-                        seen_timestamp,
-                    },
-                    reprocess_tx,
-                    e,
+            Ok(verified_aggregate) => Ok(VerifiedAggregate {
+                indexed_attestation: verified_aggregate.into_indexed_attestation(),
+                signed_aggregate: aggregate,
+            }),
+            Err(error) => Err(RejectedAggregate {
+                signed_aggregate: aggregate,
+                error,
+            }),
+        };
+
+        self.process_gossip_aggregate_result(
+            result,
+            beacon_block_root,
+            message_id,
+            peer_id,
+            reprocess_tx,
+            seen_timestamp,
+        );
+    }
+
+    pub fn process_gossip_aggregate_batch(
+        self,
+        packages: Vec<GossipAggregatePackage<T::EthSpec>>,
+        reprocess_tx: Option<mpsc::Sender<ReprocessQueueMessage<T>>>,
+    ) {
+        let aggregates = packages.iter().map(|package| package.aggregate.as_ref());
+
+        let results = match self
+            .chain
+            .batch_verify_aggregated_attestations_for_gossip(aggregates)
+        {
+            Ok(results) => results,
+            Err(e) => {
+                error!(
+                    self.log,
+                    "Batch agg. attn verification failed";
+                    "error" => ?e
                 );
                 return;
             }
         };
 
-        // Indicate to the `Network` service that this message is valid and can be
-        // propagated on the gossip network.
-        self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Accept);
+        // Sanity check.
+        if results.len() != packages.len() {
+            // The log is `crit` since in this scenario we might be penalizing/rewarding the wrong
+            // peer.
+            crit!(
+                self.log,
+                "Batch agg. attestation result mismatch";
+                "results" => results.len(),
+                "packages" => packages.len(),
+            )
+        }
 
-        // Register the attestation with any monitored validators.
-        self.chain
-            .validator_monitor
-            .read()
-            .register_gossip_aggregated_attestation(
-                seen_timestamp,
-                aggregate.aggregate(),
-                aggregate.indexed_attestation(),
-                &self.chain.slot_clock,
+        // Map the results into a new `Vec` so that `results` no longer holds a reference to
+        // `packages`.
+        #[allow(clippy::needless_collect)] // The clippy suggestion fails the borrow checker.
+        let results = results
+            .into_iter()
+            .map(|result| result.map(|verified| verified.into_indexed_attestation()))
+            .collect::<Vec<_>>();
+
+        for (result, package) in results.into_iter().zip(packages.into_iter()) {
+            let result = match result {
+                Ok(indexed_attestation) => Ok(VerifiedAggregate {
+                    indexed_attestation,
+                    signed_aggregate: package.aggregate,
+                }),
+                Err(error) => Err(RejectedAggregate {
+                    signed_aggregate: package.aggregate,
+                    error,
+                }),
+            };
+
+            self.process_gossip_aggregate_result(
+                result,
+                package.beacon_block_root,
+                package.message_id,
+                package.peer_id,
+                reprocess_tx.clone(),
+                package.seen_timestamp,
             );
+        }
+    }
 
-        metrics::inc_counter(&metrics::BEACON_PROCESSOR_AGGREGATED_ATTESTATION_VERIFIED_TOTAL);
+    fn process_gossip_aggregate_result(
+        &self,
+        result: Result<VerifiedAggregate<T>, RejectedAggregate<T::EthSpec>>,
+        beacon_block_root: Hash256,
+        message_id: MessageId,
+        peer_id: PeerId,
+        reprocess_tx: Option<mpsc::Sender<ReprocessQueueMessage<T>>>,
+        seen_timestamp: Duration,
+    ) {
+        match result {
+            Ok(verified_aggregate) => {
+                let aggregate = &verified_aggregate.signed_aggregate;
+                let indexed_attestation = &verified_aggregate.indexed_attestation;
 
-        if let Err(e) = self.chain.apply_attestation_to_fork_choice(&aggregate) {
-            match e {
-                BeaconChainError::ForkChoiceError(ForkChoiceError::InvalidAttestation(e)) => {
+                // Indicate to the `Network` service that this message is valid and can be
+                // propagated on the gossip network.
+                self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Accept);
+
+                // Register the attestation with any monitored validators.
+                self.chain
+                    .validator_monitor
+                    .read()
+                    .register_gossip_aggregated_attestation(
+                        seen_timestamp,
+                        aggregate,
+                        indexed_attestation,
+                        &self.chain.slot_clock,
+                    );
+
+                metrics::inc_counter(
+                    &metrics::BEACON_PROCESSOR_AGGREGATED_ATTESTATION_VERIFIED_TOTAL,
+                );
+
+                if let Err(e) = self
+                    .chain
+                    .apply_attestation_to_fork_choice(&verified_aggregate)
+                {
+                    match e {
+                        BeaconChainError::ForkChoiceError(ForkChoiceError::InvalidAttestation(
+                            e,
+                        )) => {
+                            debug!(
+                                self.log,
+                                "Aggregate invalid for fork choice";
+                                "reason" => ?e,
+                                "peer" => %peer_id,
+                                "beacon_block_root" => ?beacon_block_root
+                            )
+                        }
+                        e => error!(
+                            self.log,
+                            "Error applying aggregate to fork choice";
+                            "reason" => ?e,
+                            "peer" => %peer_id,
+                            "beacon_block_root" => ?beacon_block_root
+                        ),
+                    }
+                }
+
+                if let Err(e) = self.chain.add_to_block_inclusion_pool(&verified_aggregate) {
                     debug!(
                         self.log,
-                        "Aggregate invalid for fork choice";
+                        "Attestation invalid for op pool";
                         "reason" => ?e,
                         "peer" => %peer_id,
                         "beacon_block_root" => ?beacon_block_root
                     )
                 }
-                e => error!(
-                    self.log,
-                    "Error applying aggregate to fork choice";
-                    "reason" => ?e,
-                    "peer" => %peer_id,
-                    "beacon_block_root" => ?beacon_block_root
-                ),
+
+                metrics::inc_counter(
+                    &metrics::BEACON_PROCESSOR_AGGREGATED_ATTESTATION_IMPORTED_TOTAL,
+                );
+            }
+            Err(RejectedAggregate {
+                signed_aggregate,
+                error,
+            }) => {
+                // Report the failure to gossipsub
+                self.handle_attestation_verification_failure(
+                    peer_id,
+                    message_id,
+                    FailedAtt::Aggregate {
+                        attestation: signed_aggregate,
+                        seen_timestamp,
+                    },
+                    reprocess_tx,
+                    error,
+                    seen_timestamp,
+                );
             }
         }
-
-        if let Err(e) = self.chain.add_to_block_inclusion_pool(aggregate) {
-            debug!(
-                self.log,
-                "Attestation invalid for op pool";
-                "reason" => ?e,
-                "peer" => %peer_id,
-                "beacon_block_root" => ?beacon_block_root
-            )
-        }
-
-        metrics::inc_counter(&metrics::BEACON_PROCESSOR_AGGREGATED_ATTESTATION_IMPORTED_TOTAL);
     }
 
     /// Process the beacon block received from the gossip network and:
@@ -283,20 +625,73 @@ impl<T: BeaconChainTypes> Worker<T> {
     ///   be downloaded.
     ///
     /// Raises a log if there are errors.
+    #[allow(clippy::too_many_arguments)]
     pub fn process_gossip_block(
         self,
         message_id: MessageId,
         peer_id: PeerId,
+        peer_client: Client,
+        block: SignedBeaconBlock<T::EthSpec>,
+        reprocess_tx: mpsc::Sender<ReprocessQueueMessage<T>>,
+        duplicate_cache: DuplicateCache,
+        seen_duration: Duration,
+    ) {
+        if let Some(gossip_verified_block) = self.process_gossip_unverified_block(
+            message_id,
+            peer_id,
+            peer_client,
+            block,
+            reprocess_tx.clone(),
+            seen_duration,
+        ) {
+            let block_root = gossip_verified_block.block_root;
+            if let Some(handle) = duplicate_cache.check_and_insert(block_root) {
+                self.process_gossip_verified_block(
+                    peer_id,
+                    gossip_verified_block,
+                    reprocess_tx,
+                    seen_duration,
+                );
+                // Drop the handle to remove the entry from the cache
+                drop(handle);
+            } else {
+                debug!(
+                    self.log,
+                    "RPC block is being imported";
+                    "block_root" => %block_root,
+                );
+            }
+        }
+    }
+
+    /// Process the beacon block received from the gossip network and
+    /// if it passes gossip propagation criteria, tell the network thread to forward it.
+    ///
+    /// Returns the `GossipVerifiedBlock` if verification passes and raises a log if there are errors.
+    pub fn process_gossip_unverified_block(
+        &self,
+        message_id: MessageId,
+        peer_id: PeerId,
+        peer_client: Client,
         block: SignedBeaconBlock<T::EthSpec>,
         reprocess_tx: mpsc::Sender<ReprocessQueueMessage<T>>,
         seen_duration: Duration,
-    ) {
+    ) -> Option<GossipVerifiedBlock<T>> {
         let block_delay =
             get_block_delay_ms(seen_duration, block.message(), &self.chain.slot_clock);
         // Log metrics to track delay from other nodes on the network.
         metrics::observe_duration(
             &metrics::BEACON_BLOCK_GOSSIP_SLOT_START_DELAY_TIME,
             block_delay,
+        );
+
+        // Write the time the block was observed into delay cache.
+        self.chain.block_times_cache.write().set_time_observed(
+            block.canonical_root(),
+            block.slot(),
+            seen_duration,
+            Some(peer_id.to_string()),
+            Some(peer_client.to_string()),
         );
 
         let verified_block = match self.chain.verify_block_for_gossip(block) {
@@ -317,7 +712,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                     self.log,
                     "New block received";
                     "slot" => verified_block.block.slot(),
-                    "hash" => ?verified_block.block_root
+                    "root" => ?verified_block.block_root
                 );
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Accept);
 
@@ -342,20 +737,36 @@ impl<T: BeaconChainTypes> Worker<T> {
                     "root" => ?block.canonical_root()
                 );
                 self.send_sync_message(SyncMessage::UnknownBlock(peer_id, block));
-                return;
+                return None;
+            }
+            Err(e @ BlockError::BeaconChainError(_)) => {
+                debug!(
+                    self.log,
+                    "Gossip block beacon chain error";
+                    "error" => ?e,
+                );
+                self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
+                return None;
             }
             Err(e @ BlockError::FutureSlot { .. })
             | Err(e @ BlockError::WouldRevertFinalizedSlot { .. })
             | Err(e @ BlockError::BlockIsAlreadyKnown)
             | Err(e @ BlockError::RepeatProposal { .. })
-            | Err(e @ BlockError::NotFinalizedDescendant { .. })
-            | Err(e @ BlockError::BeaconChainError(_)) => {
+            | Err(e @ BlockError::NotFinalizedDescendant { .. }) => {
                 debug!(self.log, "Could not verify block for gossip, ignoring the block";
                             "error" => %e);
                 // Prevent recurring behaviour by penalizing the peer slightly.
-                self.gossip_penalize_peer(peer_id, PeerAction::HighToleranceError);
+                self.gossip_penalize_peer(peer_id, PeerAction::HighToleranceError, "gossip_block_high");
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
-                return;
+                return None;
+            }
+            // TODO(merge): reconsider peer scoring for this event.
+            Err(e @BlockError::ExecutionPayloadError(ExecutionPayloadError::RequestFailed(_)))
+            | Err(e @BlockError::ExecutionPayloadError(ExecutionPayloadError::NoExecutionConnection)) => {
+                debug!(self.log, "Could not verify block for gossip, ignoring the block";
+                            "error" => %e);
+                self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
+                return None;
             }
             Err(e @ BlockError::StateRootMismatch { .. })
             | Err(e @ BlockError::IncorrectBlockProposer { .. })
@@ -370,12 +781,16 @@ impl<T: BeaconChainTypes> Worker<T> {
             | Err(e @ BlockError::TooManySkippedSlots { .. })
             | Err(e @ BlockError::WeakSubjectivityConflict)
             | Err(e @ BlockError::InconsistentFork(_))
+            // TODO(merge): reconsider peer scoring for this event.
+            | Err(e @ BlockError::ExecutionPayloadError(_))
+            // TODO(merge): reconsider peer scoring for this event.
+            | Err(e @ BlockError::ParentExecutionPayloadInvalid { .. })
             | Err(e @ BlockError::GenesisBlock) => {
                 warn!(self.log, "Could not verify block for gossip, rejecting the block";
                             "error" => %e);
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Reject);
-                self.gossip_penalize_peer(peer_id, PeerAction::LowToleranceError);
-                return;
+                self.gossip_penalize_peer(peer_id, PeerAction::LowToleranceError, "gossip_block_low");
+                return None;
             }
         };
 
@@ -428,7 +843,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                 if reprocess_tx
                     .try_send(ReprocessQueueMessage::EarlyBlock(QueuedBlock {
                         peer_id,
-                        block: verified_block,
+                        block: Box::new(verified_block),
                         seen_timestamp: seen_duration,
                     }))
                     .is_err()
@@ -441,13 +856,9 @@ impl<T: BeaconChainTypes> Worker<T> {
                         "location" => "block gossip"
                     )
                 }
+                None
             }
-            Ok(_) => self.process_gossip_verified_block(
-                peer_id,
-                verified_block,
-                reprocess_tx,
-                seen_duration,
-            ),
+            Ok(_) => Some(verified_block),
             Err(e) => {
                 error!(
                     self.log,
@@ -456,7 +867,8 @@ impl<T: BeaconChainTypes> Worker<T> {
                     "block_slot" => %block_slot,
                     "block_root" => ?block_root,
                     "location" => "block gossip"
-                )
+                );
+                None
             }
         }
     }
@@ -528,7 +940,11 @@ impl<T: BeaconChainTypes> Worker<T> {
                     "block root" => ?block.canonical_root(),
                     "block slot" => block.slot()
                 );
-                self.gossip_penalize_peer(peer_id, PeerAction::MidToleranceError);
+                self.gossip_penalize_peer(
+                    peer_id,
+                    PeerAction::MidToleranceError,
+                    "bad_gossip_block_ssz",
+                );
                 trace!(
                     self.log,
                     "Invalid gossip beacon block ssz";
@@ -570,7 +986,11 @@ impl<T: BeaconChainTypes> Worker<T> {
                 // the fault on the peer.
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
                 // We still penalize a peer slightly to prevent overuse of invalids.
-                self.gossip_penalize_peer(peer_id, PeerAction::HighToleranceError);
+                self.gossip_penalize_peer(
+                    peer_id,
+                    PeerAction::HighToleranceError,
+                    "invalid_gossip_exit",
+                );
                 return;
             }
         };
@@ -629,7 +1049,11 @@ impl<T: BeaconChainTypes> Worker<T> {
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
 
                 // Penalize peer slightly for invalids.
-                self.gossip_penalize_peer(peer_id, PeerAction::HighToleranceError);
+                self.gossip_penalize_peer(
+                    peer_id,
+                    PeerAction::HighToleranceError,
+                    "invalid_gossip_proposer_slashing",
+                );
                 return;
             }
         };
@@ -680,7 +1104,11 @@ impl<T: BeaconChainTypes> Worker<T> {
                 );
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
                 // Penalize peer slightly for invalids.
-                self.gossip_penalize_peer(peer_id, PeerAction::HighToleranceError);
+                self.gossip_penalize_peer(
+                    peer_id,
+                    PeerAction::HighToleranceError,
+                    "invalid_gossip_attester_slashing",
+                );
                 return;
             }
         };
@@ -718,6 +1146,7 @@ impl<T: BeaconChainTypes> Worker<T> {
         subnet_id: SyncSubnetId,
         seen_timestamp: Duration,
     ) {
+        let message_slot = sync_signature.slot;
         let sync_signature = match self
             .chain
             .verify_sync_committee_message_for_gossip(sync_signature, subnet_id)
@@ -729,6 +1158,8 @@ impl<T: BeaconChainTypes> Worker<T> {
                     message_id,
                     "sync_signature",
                     e,
+                    message_slot,
+                    seen_timestamp,
                 );
                 return;
             }
@@ -778,6 +1209,7 @@ impl<T: BeaconChainTypes> Worker<T> {
         sync_contribution: SignedContributionAndProof<T::EthSpec>,
         seen_timestamp: Duration,
     ) {
+        let contribution_slot = sync_contribution.message.contribution.slot;
         let sync_contribution = match self
             .chain
             .verify_sync_contribution_for_gossip(sync_contribution)
@@ -790,6 +1222,8 @@ impl<T: BeaconChainTypes> Worker<T> {
                     message_id,
                     "sync_contribution",
                     e,
+                    contribution_slot,
+                    seen_timestamp,
                 );
                 return;
             }
@@ -833,15 +1267,13 @@ impl<T: BeaconChainTypes> Worker<T> {
         failed_att: FailedAtt<T::EthSpec>,
         reprocess_tx: Option<mpsc::Sender<ReprocessQueueMessage<T>>>,
         error: AttnError,
+        seen_timestamp: Duration,
     ) {
-        let beacon_block_root = failed_att.root();
+        let beacon_block_root = failed_att.beacon_block_root();
         let attestation_type = failed_att.kind();
         metrics::register_attestation_error(&error);
         match &error {
-            AttnError::FutureEpoch { .. }
-            | AttnError::PastEpoch { .. }
-            | AttnError::FutureSlot { .. }
-            | AttnError::PastSlot { .. } => {
+            AttnError::FutureSlot { .. } => {
                 /*
                  * These errors can be triggered by a mismatch between our slot and the peer.
                  *
@@ -858,9 +1290,35 @@ impl<T: BeaconChainTypes> Worker<T> {
 
                 // Peers that are slow or not to spec can spam us with these messages draining our
                 // bandwidth. We therefore penalize these peers when they do this.
-                self.gossip_penalize_peer(peer_id, PeerAction::LowToleranceError);
+                self.gossip_penalize_peer(
+                    peer_id,
+                    PeerAction::LowToleranceError,
+                    "attn_future_slot",
+                );
 
                 // Do not propagate these messages.
+                self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
+            }
+            AttnError::PastSlot { .. } => {
+                // Produce a slot clock frozen at the time we received the message from the
+                // network.
+                let seen_clock = &self.chain.slot_clock.freeze_at(seen_timestamp);
+                let hindsight_verification =
+                    attestation_verification::verify_propagation_slot_range(
+                        seen_clock,
+                        failed_att.attestation(),
+                    );
+
+                // Only penalize the peer if it would have been invalid at the moment we received
+                // it.
+                if hindsight_verification.is_err() {
+                    self.gossip_penalize_peer(
+                        peer_id,
+                        PeerAction::LowToleranceError,
+                        "attn_past_slot",
+                    );
+                }
+
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
             }
             AttnError::InvalidSelectionProof { .. } | AttnError::InvalidSignature => {
@@ -870,7 +1328,11 @@ impl<T: BeaconChainTypes> Worker<T> {
                  * The peer has published an invalid consensus message.
                  */
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Reject);
-                self.gossip_penalize_peer(peer_id, PeerAction::LowToleranceError);
+                self.gossip_penalize_peer(
+                    peer_id,
+                    PeerAction::LowToleranceError,
+                    "attn_selection_proof",
+                );
             }
             AttnError::EmptyAggregationBitfield => {
                 /*
@@ -880,7 +1342,11 @@ impl<T: BeaconChainTypes> Worker<T> {
                  *
                  */
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Reject);
-                self.gossip_penalize_peer(peer_id, PeerAction::LowToleranceError);
+                self.gossip_penalize_peer(
+                    peer_id,
+                    PeerAction::LowToleranceError,
+                    "attn_empty_agg_bitfield",
+                );
             }
             AttnError::AggregatorPubkeyUnknown(_) => {
                 /*
@@ -897,7 +1363,11 @@ impl<T: BeaconChainTypes> Worker<T> {
                  * The peer has published an invalid consensus message.
                  */
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Reject);
-                self.gossip_penalize_peer(peer_id, PeerAction::LowToleranceError);
+                self.gossip_penalize_peer(
+                    peer_id,
+                    PeerAction::LowToleranceError,
+                    "attn_agg_pubkey",
+                );
             }
             AttnError::AggregatorNotInCommittee { .. } => {
                 /*
@@ -914,7 +1384,11 @@ impl<T: BeaconChainTypes> Worker<T> {
                  * The peer has published an invalid consensus message.
                  */
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Reject);
-                self.gossip_penalize_peer(peer_id, PeerAction::LowToleranceError);
+                self.gossip_penalize_peer(
+                    peer_id,
+                    PeerAction::LowToleranceError,
+                    "attn_agg_not_in_committee",
+                );
             }
             AttnError::AttestationAlreadyKnown { .. } => {
                 /*
@@ -990,7 +1464,11 @@ impl<T: BeaconChainTypes> Worker<T> {
                     "type" => ?attestation_type,
                 );
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Reject);
-                self.gossip_penalize_peer(peer_id, PeerAction::LowToleranceError);
+                self.gossip_penalize_peer(
+                    peer_id,
+                    PeerAction::LowToleranceError,
+                    "attn_val_index_too_high",
+                );
             }
             AttnError::UnknownHeadBlock { beacon_block_root } => {
                 trace!(
@@ -1054,8 +1532,9 @@ impl<T: BeaconChainTypes> Worker<T> {
                     }
                 } else {
                     // We shouldn't make any further attempts to process this attestation.
-                    // Downscore the peer.
-                    self.gossip_penalize_peer(peer_id, PeerAction::LowToleranceError);
+                    //
+                    // Don't downscore the peer since it's not clear if we requested this head
+                    // block from them or not.
                     self.propagate_validation_result(
                         message_id,
                         peer_id,
@@ -1083,7 +1562,11 @@ impl<T: BeaconChainTypes> Worker<T> {
                  * The peer has published an invalid consensus message.
                  */
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Reject);
-                self.gossip_penalize_peer(peer_id, PeerAction::LowToleranceError);
+                self.gossip_penalize_peer(
+                    peer_id,
+                    PeerAction::LowToleranceError,
+                    "attn_unknown_target",
+                );
             }
             AttnError::BadTargetEpoch => {
                 /*
@@ -1093,7 +1576,11 @@ impl<T: BeaconChainTypes> Worker<T> {
                  * The peer has published an invalid consensus message.
                  */
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Reject);
-                self.gossip_penalize_peer(peer_id, PeerAction::LowToleranceError);
+                self.gossip_penalize_peer(
+                    peer_id,
+                    PeerAction::LowToleranceError,
+                    "attn_bad_target",
+                );
             }
             AttnError::NoCommitteeForSlotAndIndex { .. } => {
                 /*
@@ -1102,7 +1589,11 @@ impl<T: BeaconChainTypes> Worker<T> {
                  * The peer has published an invalid consensus message.
                  */
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Reject);
-                self.gossip_penalize_peer(peer_id, PeerAction::LowToleranceError);
+                self.gossip_penalize_peer(
+                    peer_id,
+                    PeerAction::LowToleranceError,
+                    "attn_no_committee",
+                );
             }
             AttnError::NotExactlyOneAggregationBitSet(_) => {
                 /*
@@ -1111,7 +1602,11 @@ impl<T: BeaconChainTypes> Worker<T> {
                  * The peer has published an invalid consensus message.
                  */
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Reject);
-                self.gossip_penalize_peer(peer_id, PeerAction::LowToleranceError);
+                self.gossip_penalize_peer(
+                    peer_id,
+                    PeerAction::LowToleranceError,
+                    "attn_too_many_agg_bits",
+                );
             }
             AttnError::AttestsToFutureBlock { .. } => {
                 /*
@@ -1120,7 +1615,11 @@ impl<T: BeaconChainTypes> Worker<T> {
                  * The peer has published an invalid consensus message.
                  */
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Reject);
-                self.gossip_penalize_peer(peer_id, PeerAction::LowToleranceError);
+                self.gossip_penalize_peer(
+                    peer_id,
+                    PeerAction::LowToleranceError,
+                    "attn_future_block",
+                );
             }
             AttnError::InvalidSubnetId { received, expected } => {
                 /*
@@ -1133,7 +1632,11 @@ impl<T: BeaconChainTypes> Worker<T> {
                     "received" => ?received,
                 );
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Reject);
-                self.gossip_penalize_peer(peer_id, PeerAction::LowToleranceError);
+                self.gossip_penalize_peer(
+                    peer_id,
+                    PeerAction::LowToleranceError,
+                    "attn_invalid_subnet_id",
+                );
             }
             AttnError::Invalid(_) => {
                 /*
@@ -1142,7 +1645,11 @@ impl<T: BeaconChainTypes> Worker<T> {
                  * The peer has published an invalid consensus message.
                  */
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Reject);
-                self.gossip_penalize_peer(peer_id, PeerAction::LowToleranceError);
+                self.gossip_penalize_peer(
+                    peer_id,
+                    PeerAction::LowToleranceError,
+                    "attn_invalid_state_processing",
+                );
             }
             AttnError::InvalidTargetEpoch { .. } => {
                 /*
@@ -1151,7 +1658,11 @@ impl<T: BeaconChainTypes> Worker<T> {
                  * The peer has published an invalid consensus message.
                  */
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Reject);
-                self.gossip_penalize_peer(peer_id, PeerAction::LowToleranceError);
+                self.gossip_penalize_peer(
+                    peer_id,
+                    PeerAction::LowToleranceError,
+                    "attn_invalid_target_epoch",
+                );
             }
             AttnError::InvalidTargetRoot { .. } => {
                 /*
@@ -1160,7 +1671,11 @@ impl<T: BeaconChainTypes> Worker<T> {
                  * The peer has published an invalid consensus message.
                  */
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Reject);
-                self.gossip_penalize_peer(peer_id, PeerAction::LowToleranceError);
+                self.gossip_penalize_peer(
+                    peer_id,
+                    PeerAction::LowToleranceError,
+                    "attn_invalid_target_root",
+                );
             }
             AttnError::TooManySkippedSlots {
                 head_block_slot,
@@ -1180,7 +1695,17 @@ impl<T: BeaconChainTypes> Worker<T> {
                 // In this case we wish to penalize gossipsub peers that do this to avoid future
                 // attestations that have too many skip slots.
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Reject);
-                self.gossip_penalize_peer(peer_id, PeerAction::MidToleranceError);
+                self.gossip_penalize_peer(
+                    peer_id,
+                    PeerAction::MidToleranceError,
+                    "attn_too_many_skipped_slots",
+                );
+            }
+            AttnError::BeaconChainError(BeaconChainError::DBError(Error::HotColdDBError(
+                HotColdDBError::AttestationStateIsFinalized { .. },
+            ))) => {
+                debug!(self.log, "Attestation for finalized state"; "peer_id" => % peer_id);
+                self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
             }
             AttnError::BeaconChainError(e) => {
                 /*
@@ -1197,8 +1722,6 @@ impl<T: BeaconChainTypes> Worker<T> {
                     "error" => ?e,
                 );
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
-                // Penalize the peer slightly
-                self.gossip_penalize_peer(peer_id, PeerAction::HighToleranceError);
             }
         }
 
@@ -1220,13 +1743,15 @@ impl<T: BeaconChainTypes> Worker<T> {
         message_id: MessageId,
         message_type: &str,
         error: SyncCommitteeError,
+        sync_committee_message_slot: Slot,
+        seen_timestamp: Duration,
     ) {
         metrics::register_sync_committee_error(&error);
 
         match &error {
-            SyncCommitteeError::FutureSlot { .. } | SyncCommitteeError::PastSlot { .. } => {
+            SyncCommitteeError::FutureSlot { .. } => {
                 /*
-                 * These errors can be triggered by a mismatch between our slot and the peer.
+                 * This error can be triggered by a mismatch between our slot and the peer.
                  *
                  *
                  * The peer has published an invalid consensus message, _only_ if we trust our own clock.
@@ -1240,9 +1765,61 @@ impl<T: BeaconChainTypes> Worker<T> {
 
                 // Unlike attestations, we have a zero slot buffer in case of sync committee messages,
                 // so we don't penalize heavily.
-                self.gossip_penalize_peer(peer_id, PeerAction::HighToleranceError);
+                self.gossip_penalize_peer(
+                    peer_id,
+                    PeerAction::HighToleranceError,
+                    "sync_future_slot",
+                );
 
                 // Do not propagate these messages.
+                self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
+            }
+            SyncCommitteeError::PastSlot { .. } => {
+                /*
+                 * This error can be triggered by a mismatch between our slot and the peer.
+                 *
+                 *
+                 * The peer has published an invalid consensus message, _only_ if we trust our own clock.
+                 */
+                trace!(
+                    self.log,
+                    "Sync committee message is not within the last MAXIMUM_GOSSIP_CLOCK_DISPARITY slots";
+                    "peer_id" => %peer_id,
+                    "type" => ?message_type,
+                );
+
+                // Compute the slot when we received the message.
+                let received_slot = self
+                    .chain
+                    .slot_clock
+                    .slot_of(seen_timestamp)
+                    .unwrap_or_else(|| self.chain.slot_clock.genesis_slot());
+
+                // The message is "excessively" late if it was more than one slot late.
+                let excessively_late = received_slot > sync_committee_message_slot + 1;
+
+                // This closure will lazily produce a slot clock frozen at the time we received the
+                // message from the network and return a bool indicating if the message was invalid
+                // at the time of receipt too.
+                let invalid_in_hindsight = || {
+                    let seen_clock = &self.chain.slot_clock.freeze_at(seen_timestamp);
+                    let hindsight_verification =
+                        sync_committee_verification::verify_propagation_slot_range(
+                            seen_clock,
+                            &sync_committee_message_slot,
+                        );
+                    hindsight_verification.is_err()
+                };
+
+                // Penalize the peer if the message was more than one slot late
+                if excessively_late && invalid_in_hindsight() {
+                    self.gossip_penalize_peer(
+                        peer_id,
+                        PeerAction::HighToleranceError,
+                        "sync_past_slot",
+                    );
+                }
+
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
             }
             SyncCommitteeError::EmptyAggregationBitfield => {
@@ -1253,7 +1830,11 @@ impl<T: BeaconChainTypes> Worker<T> {
                  *
                  */
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Reject);
-                self.gossip_penalize_peer(peer_id, PeerAction::LowToleranceError);
+                self.gossip_penalize_peer(
+                    peer_id,
+                    PeerAction::LowToleranceError,
+                    "sync_empty_agg_bitfield",
+                );
             }
             SyncCommitteeError::InvalidSelectionProof { .. }
             | SyncCommitteeError::InvalidSignature => {
@@ -1263,7 +1844,11 @@ impl<T: BeaconChainTypes> Worker<T> {
                  * The peer has published an invalid consensus message.
                  */
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Reject);
-                self.gossip_penalize_peer(peer_id, PeerAction::LowToleranceError);
+                self.gossip_penalize_peer(
+                    peer_id,
+                    PeerAction::LowToleranceError,
+                    "sync_invalid_proof_or_sig",
+                );
             }
             SyncCommitteeError::AggregatorNotInCommittee { .. }
             | SyncCommitteeError::AggregatorPubkeyUnknown(_) => {
@@ -1274,7 +1859,11 @@ impl<T: BeaconChainTypes> Worker<T> {
                 * The peer has published an invalid consensus message.
                 */
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Reject);
-                self.gossip_penalize_peer(peer_id, PeerAction::LowToleranceError);
+                self.gossip_penalize_peer(
+                    peer_id,
+                    PeerAction::LowToleranceError,
+                    "sync_bad_aggregator",
+                );
             }
             SyncCommitteeError::SyncContributionAlreadyKnown(_)
             | SyncCommitteeError::AggregatorAlreadyKnown(_) => {
@@ -1307,7 +1896,11 @@ impl<T: BeaconChainTypes> Worker<T> {
                     "type" => ?message_type,
                 );
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Reject);
-                self.gossip_penalize_peer(peer_id, PeerAction::LowToleranceError);
+                self.gossip_penalize_peer(
+                    peer_id,
+                    PeerAction::LowToleranceError,
+                    "sync_unknown_validator",
+                );
             }
             SyncCommitteeError::UnknownValidatorPubkey(_) => {
                 debug!(
@@ -1317,7 +1910,11 @@ impl<T: BeaconChainTypes> Worker<T> {
                     "type" => ?message_type,
                 );
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Reject);
-                self.gossip_penalize_peer(peer_id, PeerAction::LowToleranceError);
+                self.gossip_penalize_peer(
+                    peer_id,
+                    PeerAction::LowToleranceError,
+                    "sync_unknown_validator_pubkey",
+                );
             }
             SyncCommitteeError::InvalidSubnetId { received, expected } => {
                 /*
@@ -1330,7 +1927,11 @@ impl<T: BeaconChainTypes> Worker<T> {
                     "received" => ?received,
                 );
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Reject);
-                self.gossip_penalize_peer(peer_id, PeerAction::LowToleranceError);
+                self.gossip_penalize_peer(
+                    peer_id,
+                    PeerAction::LowToleranceError,
+                    "sync_invalid_subnet_id",
+                );
             }
             SyncCommitteeError::Invalid(_) => {
                 /*
@@ -1339,7 +1940,11 @@ impl<T: BeaconChainTypes> Worker<T> {
                  * The peer has published an invalid consensus message.
                  */
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Reject);
-                self.gossip_penalize_peer(peer_id, PeerAction::LowToleranceError);
+                self.gossip_penalize_peer(
+                    peer_id,
+                    PeerAction::LowToleranceError,
+                    "sync_invalid_state_processing",
+                );
             }
             SyncCommitteeError::PriorSyncCommitteeMessageKnown { .. } => {
                 /*
@@ -1355,7 +1960,11 @@ impl<T: BeaconChainTypes> Worker<T> {
                 );
                 // We still penalize the peer slightly. We don't want this to be a recurring
                 // behaviour.
-                self.gossip_penalize_peer(peer_id, PeerAction::HighToleranceError);
+                self.gossip_penalize_peer(
+                    peer_id,
+                    PeerAction::HighToleranceError,
+                    "sync_prior_known",
+                );
 
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
 
@@ -1376,8 +1985,6 @@ impl<T: BeaconChainTypes> Worker<T> {
                     "error" => ?e,
                 );
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
-                // Penalize the peer slightly
-                self.gossip_penalize_peer(peer_id, PeerAction::HighToleranceError);
             }
             SyncCommitteeError::BeaconStateError(e) => {
                 /*
@@ -1395,7 +2002,11 @@ impl<T: BeaconChainTypes> Worker<T> {
                 );
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
                 // Penalize the peer slightly
-                self.gossip_penalize_peer(peer_id, PeerAction::HighToleranceError);
+                self.gossip_penalize_peer(
+                    peer_id,
+                    PeerAction::HighToleranceError,
+                    "sync_beacon_state_error",
+                );
             }
             SyncCommitteeError::ContributionError(e) => {
                 error!(
@@ -1406,7 +2017,11 @@ impl<T: BeaconChainTypes> Worker<T> {
                 );
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
                 // Penalize the peer slightly
-                self.gossip_penalize_peer(peer_id, PeerAction::HighToleranceError);
+                self.gossip_penalize_peer(
+                    peer_id,
+                    PeerAction::HighToleranceError,
+                    "sync_contribution_error",
+                );
             }
             SyncCommitteeError::SyncCommitteeError(e) => {
                 error!(
@@ -1417,7 +2032,11 @@ impl<T: BeaconChainTypes> Worker<T> {
                 );
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
                 // Penalize the peer slightly
-                self.gossip_penalize_peer(peer_id, PeerAction::HighToleranceError);
+                self.gossip_penalize_peer(
+                    peer_id,
+                    PeerAction::HighToleranceError,
+                    "sync_committee_error",
+                );
             }
             SyncCommitteeError::ArithError(e) => {
                 /*
@@ -1430,7 +2049,11 @@ impl<T: BeaconChainTypes> Worker<T> {
                     "error" => ?e,
                 );
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
-                self.gossip_penalize_peer(peer_id, PeerAction::LowToleranceError);
+                self.gossip_penalize_peer(
+                    peer_id,
+                    PeerAction::LowToleranceError,
+                    "sync_arith_error",
+                );
             }
             SyncCommitteeError::InvalidSubcommittee { .. } => {
                 /*
@@ -1438,7 +2061,11 @@ impl<T: BeaconChainTypes> Worker<T> {
                 an invalid message.
                 */
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Reject);
-                self.gossip_penalize_peer(peer_id, PeerAction::LowToleranceError);
+                self.gossip_penalize_peer(
+                    peer_id,
+                    PeerAction::LowToleranceError,
+                    "sync_invalid_subcommittee",
+                );
             }
         }
         debug!(

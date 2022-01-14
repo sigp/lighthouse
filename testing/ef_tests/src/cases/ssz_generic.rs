@@ -15,7 +15,8 @@ use types::{BitList, BitVector, FixedVector, ForkName, VariableList};
 #[derive(Debug, Clone, Deserialize)]
 struct Metadata {
     root: String,
-    signing_root: Option<String>,
+    #[serde(rename(deserialize = "signing_root"))]
+    _signing_root: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -139,7 +140,6 @@ impl Case for SszGeneric {
                 let mut limit = parts[1];
 
                 // Test format is inconsistent, pretend the limit is 32 (arbitrary)
-                // https://github.com/ethereum/eth2.0-spec-tests
                 if limit == "no" {
                     limit = "32";
                 }

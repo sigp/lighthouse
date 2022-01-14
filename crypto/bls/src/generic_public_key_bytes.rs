@@ -177,6 +177,6 @@ impl<Pub> fmt::Debug for GenericPublicKeyBytes<Pub> {
 }
 
 #[cfg(feature = "arbitrary")]
-impl<Pub: 'static> arbitrary::Arbitrary for GenericPublicKeyBytes<Pub> {
+impl<Pub: 'static> arbitrary::Arbitrary<'_> for GenericPublicKeyBytes<Pub> {
     impl_arbitrary!(PUBLIC_KEY_BYTES_LEN);
 }

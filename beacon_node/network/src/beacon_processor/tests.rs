@@ -9,7 +9,7 @@ use beacon_chain::test_utils::{
 };
 use beacon_chain::{BeaconChain, MAXIMUM_GOSSIP_CLOCK_DISPARITY};
 use environment::{null_logger, Environment, EnvironmentBuilder};
-use eth2_libp2p::{
+use lighthouse_network::{
     discv5::enr::{CombinedKey, EnrBuilder},
     rpc::methods::{MetaData, MetaDataV2},
     types::{EnrAttestationBitfield, EnrSyncCommitteeBitfield},
@@ -23,8 +23,8 @@ use std::time::Duration;
 use tokio::runtime::Runtime;
 use tokio::sync::mpsc;
 use types::{
-    test_utils::generate_deterministic_keypairs, Attestation, AttesterSlashing, EthSpec,
-    MainnetEthSpec, ProposerSlashing, SignedBeaconBlock, SignedVoluntaryExit, SubnetId,
+    Attestation, AttesterSlashing, EthSpec, MainnetEthSpec, ProposerSlashing, SignedBeaconBlock,
+    SignedVoluntaryExit, SubnetId,
 };
 
 type E = MainnetEthSpec;
@@ -75,11 +75,11 @@ impl TestRig {
         let mut spec = E::default_spec();
         spec.shard_committee_period = 2;
 
-        let harness = BeaconChainHarness::new(
-            MainnetEthSpec,
-            Some(spec),
-            generate_deterministic_keypairs(VALIDATOR_COUNT),
-        );
+        let harness = BeaconChainHarness::builder(MainnetEthSpec)
+            .spec(spec)
+            .deterministic_keypairs(VALIDATOR_COUNT)
+            .fresh_ephemeral_store()
+            .build();
 
         harness.advance_slot();
 
@@ -201,6 +201,7 @@ impl TestRig {
             executor,
             max_workers: cmp::max(1, num_cpus::get()),
             current_workers: 0,
+            importing_blocks: Default::default(),
             log: log.clone(),
         }
         .spawn_manager(beacon_processor_rx, Some(work_journal_tx));
@@ -231,6 +232,7 @@ impl TestRig {
             .try_send(WorkEvent::gossip_beacon_block(
                 junk_message_id(),
                 junk_peer_id(),
+                Client::default(),
                 Box::new(self.next_block.clone()),
                 Duration::from_secs(0),
             ))
