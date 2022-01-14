@@ -626,6 +626,13 @@ pub fn set_network_config(
         config.discovery_port = port;
     }
 
+    if let Some(value) = cli_args.value_of("network-load") {
+        let network_load = value
+            .parse::<u8>()
+            .map_err(|_| format!("Invalid integer: {}", value))?;
+        config.network_load = network_load;
+    }
+
     if let Some(boot_enr_str) = cli_args.value_of("boot-nodes") {
         let mut enrs: Vec<Enr> = vec![];
         let mut multiaddrs: Vec<Multiaddr> = vec![];
