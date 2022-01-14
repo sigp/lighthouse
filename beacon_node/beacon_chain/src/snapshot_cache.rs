@@ -1,4 +1,4 @@
-use crate::BeaconSnapshot;
+use crate::{metrics, BeaconSnapshot};
 use std::cmp;
 use std::time::Duration;
 use types::{
@@ -167,9 +167,10 @@ impl<T: EthSpec> SnapshotCache<T> {
     /// Insert a snapshot, potentially removing an existing snapshot if `self` is at capacity (see
     /// struct-level documentation for more info).
     pub fn insert(&mut self, snapshot: BeaconSnapshot<T>, pre_state: Option<BeaconState<T>>) {
+        let beacon_block_root = snapshot.beacon_block_root;
         let item = CacheItem {
             beacon_block: snapshot.beacon_block,
-            beacon_block_root: snapshot.beacon_block_root,
+            beacon_block_root,
             beacon_state: snapshot.beacon_state,
             pre_state,
         };
@@ -195,6 +196,8 @@ impl<T: EthSpec> SnapshotCache<T> {
                 self.snapshots[i] = item;
             }
         }
+
+        self.on_valid_block(beacon_block_root);
     }
 
     /// If available, returns a `CacheItem` that should be used for importing/processing a block.
@@ -305,6 +308,25 @@ impl<T: EthSpec> SnapshotCache<T> {
             .map(|snapshot| {
                 snapshot.pre_state = Some(state);
             })
+    }
+
+    /// This method should be called *after* an invalid block has been imported to the
+    /// `BeaconChain`.
+    ///
+    /// This method will remove the grandparent of the given `block_root` from the cache, if it's
+    /// present. This allows us to shrink the size of the cache once any snapshots has more than 1
+    /// descendant. Assuming it's unlikely to see re-orgs deeper than one block, this method helps
+    /// the cache to remove any states that already have more than one descendant.
+    fn on_valid_block(&mut self, block_root: Hash256) {
+        if let Some(parent) = self
+            .snapshots
+            .iter()
+            .find(|snapshot| snapshot.beacon_block_root == block_root)
+        {
+            let grandparent_root = parent.beacon_block.message().parent_root();
+            self.snapshots
+                .retain(|snapshot| snapshot.beacon_block_root != grandparent_root);
+        }
     }
 
     /// Removes all snapshots from the queue that are less than or equal to the finalized epoch.
