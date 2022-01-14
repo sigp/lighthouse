@@ -167,10 +167,10 @@ impl<T: EthSpec> SnapshotCache<T> {
     /// Insert a snapshot, potentially removing an existing snapshot if `self` is at capacity (see
     /// struct-level documentation for more info).
     pub fn insert(&mut self, snapshot: BeaconSnapshot<T>, pre_state: Option<BeaconState<T>>) {
-        let beacon_block_root = snapshot.beacon_block_root;
+        let parent_root = snapshot.beacon_block.message().parent_root();
         let item = CacheItem {
             beacon_block: snapshot.beacon_block,
-            beacon_block_root,
+            beacon_block_root: snapshot.beacon_block_root,
             beacon_state: snapshot.beacon_state,
             pre_state,
         };
@@ -197,17 +197,14 @@ impl<T: EthSpec> SnapshotCache<T> {
             }
         }
 
-        self.prune_grandparent(beacon_block_root);
-    }
-
-    /// This method will remove the grandparent of the given `block_root` from the cache, if it's
-    /// present. Assuming it's unlikely to see re-orgs deeper than one block, this method helps the
-    /// cache to remove any states that already have more than one descendant.
-    fn prune_grandparent(&mut self, block_root: Hash256) {
+        // Remove the grandparent of the block that was just inserted.
+        //
+        // Assuming it's unlikely to see re-orgs deeper than one block, this method helps keep the
+        // cache small by removing any states that already have more than one descendant
         if let Some(parent) = self
             .snapshots
             .iter()
-            .find(|snapshot| snapshot.beacon_block_root == block_root)
+            .find(|snapshot| snapshot.beacon_block_root == parent_root)
         {
             let grandparent_root = parent.beacon_block.message().parent_root();
             self.snapshots
