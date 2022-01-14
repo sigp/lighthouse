@@ -200,7 +200,8 @@ impl<T: EthSpec> SnapshotCache<T> {
         let grandparent_result =
             process_results(item.beacon_state.rev_iter_block_roots(spec), |iter| {
                 iter.map(|(_slot, root)| root)
-                    .find(|root| *root != parent_root)
+                    .skip_while(|root| *root == item.beacon_block_root || *root == parent_root)
+                    .next()
             });
         if let Ok(Some(grandparent_root)) = grandparent_result {
             let head_block_root = self.head_block_root;
