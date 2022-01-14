@@ -180,6 +180,22 @@ impl<T: EthSpec> SnapshotCache<T> {
             pre_state,
         };
 
+        // Remove the grandparent of the block that was just inserted.
+        //
+        // Assuming it's unlikely to see re-orgs deeper than one block, this method helps keep the
+        // cache small by removing any states that already have more than one descendant.
+        //
+        // Remove the grandparent first to free up room in the cache.
+        if let Some(parent) = self
+            .snapshots
+            .iter()
+            .find(|snapshot| snapshot.beacon_block_root == parent_root)
+        {
+            let grandparent_root = parent.beacon_block.message().parent_root();
+            self.snapshots
+                .retain(|snapshot| snapshot.beacon_block_root != grandparent_root);
+        }
+
         if self.snapshots.len() < self.max_len {
             self.snapshots.push(item);
         } else {
@@ -200,20 +216,6 @@ impl<T: EthSpec> SnapshotCache<T> {
             if let Some(i) = insert_at {
                 self.snapshots[i] = item;
             }
-        }
-
-        // Remove the grandparent of the block that was just inserted.
-        //
-        // Assuming it's unlikely to see re-orgs deeper than one block, this method helps keep the
-        // cache small by removing any states that already have more than one descendant
-        if let Some(parent) = self
-            .snapshots
-            .iter()
-            .find(|snapshot| snapshot.beacon_block_root == parent_root)
-        {
-            let grandparent_root = parent.beacon_block.message().parent_root();
-            self.snapshots
-                .retain(|snapshot| snapshot.beacon_block_root != grandparent_root);
         }
     }
 
