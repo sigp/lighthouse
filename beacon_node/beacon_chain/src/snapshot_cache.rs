@@ -164,6 +164,11 @@ impl<T: EthSpec> SnapshotCache<T> {
         }
     }
 
+    /// The number of snapshots contained in `self`.
+    pub fn len(&self) -> usize {
+        self.snapshots.len()
+    }
+
     /// Insert a snapshot, potentially removing an existing snapshot if `self` is at capacity (see
     /// struct-level documentation for more info).
     pub fn insert(&mut self, snapshot: BeaconSnapshot<T>, pre_state: Option<BeaconState<T>>) {
