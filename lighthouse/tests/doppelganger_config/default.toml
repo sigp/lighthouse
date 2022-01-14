@@ -1,11 +1,13 @@
 [global]
+spec = "mainnet"
 # one VC per BN and validators will always be split evenly across all nodes
-validator-count = 80
+validator-count = 60
 # default beacon nodes will be created for any less than this explicitly defined
 beacon-count = 4
-spec = "mainnet"
 # path is relative to the crate directory
 datadir = "./tests/tmp"
+# the number of validator nodes running duplicate keys
+doppelganger-count = 1
 
 [ganache]
 defaultBalanceEther = 1000000000
@@ -35,14 +37,20 @@ interop-genesis-state = true
 boot-address = "http://127.0.0.1:7000"
 eth1-block-hash = "0x9e28ea52dbe51886e20ff879ee1fa2ef1f984ed2b78c81e45e7c43db389935d6"
 
+# This is requried to run the command, left empty because all flags are populated via global config
+[lcli.insecure-validators]
+
 [boot_node]
 port = 7000
+debug-level = "debug"
 listen-address = "127.0.0.1"
 disable-packet-filter = true
 
-# these will be duplicated and these fields will be incremented
+# These configurations will be duplicated according to the beacon-count and the following fields will be incremented:
 # - datadir = ./tests/tmp/node_[1-9]
 # - port = 9[1-9]00
+# - enr-udp-port = 9[1-9]00
+# - enr-tcp-port = 9[1-9]00
 # - http-port = 5[1-9]52
 [beacon.default]
 debug-level = "info"
@@ -50,10 +58,17 @@ subscribe-all-subnets = true
 staking = true
 disable-packet-filter = true
 target-peers = 3
+enr-address = "127.0.0.1"
 
-# these will be duplicated and these fields will be incremented
+# These configurations will be duplicated according to the beacon-count and the following fields will be incremented:
 # - datadir = ./tests/tmp/node_[1-9]
 # - beacon-nodes = http://localhost:5[1-9]52
 [validator.default]
 debug-level = "info"
 init-slashing-protection = true
+
+#[validator.doppelganger]
+#debug-level = "info"
+#init-slashing-protection = true
+#beacon-nodes = "http://localhost:5152"
+#enable-doppelganger-protection = true

@@ -52,6 +52,7 @@ lcli = { path = "../lcli" }
 serde = "1.0.116"
 serde_derive = "1.0.116"
 toml = "0.5.8"
+fs_extra = "1.2.0"
 
 [[test]]
 name = "lighthouse_tests"
