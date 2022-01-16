@@ -2,7 +2,7 @@
 name: local testnet
 
 on:
-  push:
+  pull_request:
 
 jobs:
   run-local-testnet:
