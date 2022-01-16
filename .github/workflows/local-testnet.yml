@@ -1,0 +1,26 @@
+# Test that local testnet starts successfully.
+name: local testnet
+
+on:
+  push:
+
+jobs:
+  run-local-testnet:
+    strategy:
+      matrix:
+        os:
+          - ubuntu-18.04
+          - macos-latest
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v1
+
+      - name: Install ganache
+        run: npm install ganache-cli@latest --global
+
+      - name: Install lighthouse
+        run: make && make install-lcli
+
+      - name: Run local testnet
+        run: ./start_local_testnet.sh
+        working-directory: scripts/local_testnet
