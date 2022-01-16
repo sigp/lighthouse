@@ -69,7 +69,7 @@ execute_command() {
     EX_NAME=$2
     shift
     shift
-    CMD="$EX_NAME $@ &>> $LOG_DIR/$LOG_NAME"
+    CMD="$EX_NAME $@ >> $LOG_DIR/$LOG_NAME 2>&1"
     echo "executing: $CMD"
     echo "$CMD" > "$LOG_DIR/$LOG_NAME"
     eval "$CMD &"
