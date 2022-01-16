@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # Start all processes necessary to create a local testnet
 
+set -Eeuo pipefail
+
 source ./vars.env
 
 # VC_COUNT is defaulted in vars.env
@@ -49,7 +51,7 @@ for (( bn=1; bn<=$BN_COUNT; bn++ )); do
 done
 for (( vc=1; vc<=$VC_COUNT; vc++ )); do
     touch $LOG_DIR/validator_node_$vc.log
-done 
+done
 
 # Sleep with a message
 sleeping() {
