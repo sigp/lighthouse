@@ -104,8 +104,13 @@ mod test {
         let mut yamlconfig = ConfigAndPreset::from_chain_spec::<MainnetEthSpec>(&mainnet_spec);
         let (k1, v1) = ("SAMPLE_HARDFORK_KEY1", "123456789");
         let (k2, v2) = ("SAMPLE_HARDFORK_KEY2", "987654321");
+        let (k3, v3) = ("SAMPLE_HARDFORK_KEY3", 32);
+        let (k4, v4) = ("SAMPLE_HARDFORK_KEY4", Value::Null);
         yamlconfig.extra_fields.insert(k1.into(), v1.into());
         yamlconfig.extra_fields.insert(k2.into(), v2.into());
+        yamlconfig.extra_fields.insert(k3.into(), v3.into());
+        yamlconfig.extra_fields.insert(k4.into(), v4);
+
         serde_yaml::to_writer(writer, &yamlconfig).expect("failed to write or serialize");
 
         let reader = OpenOptions::new()
