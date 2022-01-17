@@ -1,5 +1,6 @@
 use crate::test_utils::TestRandom;
 use crate::*;
+use derivative::Derivative;
 use serde_derive::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
 use ssz_types::VariableList;
@@ -11,24 +12,28 @@ use tree_hash_derive::TreeHash;
 ///
 /// This *superstruct* abstracts over the hard-fork.
 #[superstruct(
-    variants(Base, Altair),
+    variants(Base, Altair, Merge),
     variant_attributes(
         derive(
             Debug,
-            PartialEq,
             Clone,
             Serialize,
             Deserialize,
             Encode,
             Decode,
             TreeHash,
-            TestRandom
+            TestRandom,
+            Derivative,
         ),
+        derivative(PartialEq, Hash(bound = "T: EthSpec")),
         serde(bound = "T: EthSpec", deny_unknown_fields),
         cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary))
-    )
+    ),
+    cast_error(ty = "Error", expr = "Error::IncorrectStateVariant"),
+    partial_getter_error(ty = "Error", expr = "Error::IncorrectStateVariant")
 )]
-#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Derivative)]
+#[derivative(PartialEq, Hash(bound = "T: EthSpec"))]
 #[serde(untagged)]
 #[serde(bound = "T: EthSpec")]
 #[cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary))]
@@ -41,16 +46,19 @@ pub struct BeaconBlockBody<T: EthSpec> {
     pub attestations: VariableList<Attestation<T>, T::MaxAttestations>,
     pub deposits: VariableList<Deposit, T::MaxDeposits>,
     pub voluntary_exits: VariableList<SignedVoluntaryExit, T::MaxVoluntaryExits>,
-    #[superstruct(only(Altair))]
+    #[superstruct(only(Altair, Merge))]
     pub sync_aggregate: SyncAggregate<T>,
+    #[superstruct(only(Merge))]
+    pub execution_payload: ExecutionPayload<T>,
 }
 
 impl<'a, T: EthSpec> BeaconBlockBodyRef<'a, T> {
-    /// Access the sync aggregate from the block's body, if one exists.
-    pub fn sync_aggregate(self) -> Option<&'a SyncAggregate<T>> {
+    /// Get the fork_name of this object
+    pub fn fork_name(self) -> ForkName {
         match self {
-            BeaconBlockBodyRef::Base(_) => None,
-            BeaconBlockBodyRef::Altair(inner) => Some(&inner.sync_aggregate),
+            BeaconBlockBodyRef::Base { .. } => ForkName::Base,
+            BeaconBlockBodyRef::Altair { .. } => ForkName::Altair,
+            BeaconBlockBodyRef::Merge { .. } => ForkName::Merge,
         }
     }
 }

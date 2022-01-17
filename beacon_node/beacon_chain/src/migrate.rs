@@ -360,13 +360,11 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
                 new_finalized_slot,
                 (new_finalized_block_hash, new_finalized_state_hash),
             )))
-            .chain(
-                RootsIterator::new(store.clone(), new_finalized_state).map(|res| {
-                    res.map(|(block_root, state_root, slot)| {
-                        (slot, (block_root.into(), state_root.into()))
-                    })
-                }),
-            )
+            .chain(RootsIterator::new(&store, new_finalized_state).map(|res| {
+                res.map(|(block_root, state_root, slot)| {
+                    (slot, (block_root.into(), state_root.into()))
+                })
+            }))
             .take_while(|res| {
                 res.as_ref()
                     .map_or(true, |(slot, _)| *slot >= old_finalized_slot)
@@ -416,7 +414,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
 
             // Iterate backwards from this head, staging blocks and states for deletion.
             let iter = std::iter::once(Ok((head_hash, head_state_root, head_slot)))
-                .chain(RootsIterator::from_block(store.clone(), head_hash)?);
+                .chain(RootsIterator::from_block(&store, head_hash)?);
 
             for maybe_tuple in iter {
                 let (block_root, state_root, slot) = maybe_tuple?;

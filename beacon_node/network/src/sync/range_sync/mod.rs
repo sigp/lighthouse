@@ -2,6 +2,7 @@
 //! peers.
 
 mod batch;
+mod block_storage;
 mod chain;
 mod chain_collection;
 mod range;

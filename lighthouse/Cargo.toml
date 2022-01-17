@@ -1,6 +1,6 @@
 [package]
 name = "lighthouse"
-version = "2.0.1"
+version = "2.1.0-rc.1"
 authors = ["Sigma Prime <contact@sigmaprime.io>"]
 edition = "2018"
 autotests = false
@@ -20,7 +20,7 @@ spec-minimal = []
 [dependencies]
 beacon_node = { "path" = "../beacon_node" }
 slog = { version = "2.5.2", features = ["max_level_trace"] }
-sloggers = "2.0.2"
+sloggers = { version = "2.1.1", features = ["json"] }
 types = { "path" = "../consensus/types" }
 bls = { path = "../crypto/bls" }
 eth2_hashing = "0.2.0"
@@ -37,15 +37,17 @@ lighthouse_version = { path = "../common/lighthouse_version" }
 account_utils = { path = "../common/account_utils" }
 lighthouse_metrics = { path = "../common/lighthouse_metrics" }
 lazy_static = "1.4.0"
+serde = { version = "1.0.116", features = ["derive"] }
 serde_json = "1.0.59"
 task_executor = { path = "../common/task_executor" }
 malloc_utils = { path = "../common/malloc_utils" }
+directory = { path = "../common/directory" }
 
 [dev-dependencies]
 tempfile = "3.1.0"
 validator_dir = { path = "../common/validator_dir" }
 slashing_protection = { path = "../validator_client/slashing_protection" }
-eth2_libp2p = { path = "../beacon_node/eth2_libp2p" }
+lighthouse_network = { path = "../beacon_node/lighthouse_network" }
 
 [[test]]
 name = "lighthouse_tests"

@@ -4,7 +4,7 @@ mod tests {
     use crate::persisted_dht::load_dht;
     use crate::{NetworkConfig, NetworkService};
     use beacon_chain::test_utils::BeaconChainHarness;
-    use eth2_libp2p::Enr;
+    use lighthouse_network::Enr;
     use slog::{o, Drain, Level, Logger};
     use sloggers::{null::NullLoggerBuilder, Build};
     use std::str::FromStr;
@@ -67,9 +67,10 @@ mod tests {
             // Create a new network service which implicitly gets dropped at the
             // end of the block.
 
-            let _network_service = NetworkService::start(beacon_chain.clone(), &config, executor)
-                .await
-                .unwrap();
+            let _network_service =
+                NetworkService::start(beacon_chain.clone(), &config, executor, None)
+                    .await
+                    .unwrap();
             drop(signal);
         });
 

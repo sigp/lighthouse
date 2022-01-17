@@ -14,8 +14,8 @@ use types::*;
 ///
 /// Utilises lazy-loading from separate storage for its vector fields.
 #[superstruct(
-    variants(Base, Altair),
-    variant_attributes(derive(Debug, PartialEq, Clone, Encode, Decode),)
+    variants(Base, Altair, Merge),
+    variant_attributes(derive(Debug, PartialEq, Clone, Encode, Decode))
 )]
 #[derive(Debug, PartialEq, Clone, Encode)]
 #[ssz(enum_behaviour = "transparent")]
@@ -66,9 +66,9 @@ where
     pub current_epoch_attestations: VariableList<PendingAttestation<T>, T::MaxPendingAttestations>,
 
     // Participation (Altair and later)
-    #[superstruct(only(Altair))]
+    #[superstruct(only(Altair, Merge))]
     pub previous_epoch_participation: VariableList<ParticipationFlags, T::ValidatorRegistryLimit>,
-    #[superstruct(only(Altair))]
+    #[superstruct(only(Altair, Merge))]
     pub current_epoch_participation: VariableList<ParticipationFlags, T::ValidatorRegistryLimit>,
 
     // Finality
@@ -78,14 +78,18 @@ where
     pub finalized_checkpoint: Checkpoint,
 
     // Inactivity
-    #[superstruct(only(Altair))]
+    #[superstruct(only(Altair, Merge))]
     pub inactivity_scores: VariableList<u64, T::ValidatorRegistryLimit>,
 
     // Light-client sync committees
-    #[superstruct(only(Altair))]
+    #[superstruct(only(Altair, Merge))]
     pub current_sync_committee: Arc<SyncCommittee<T>>,
-    #[superstruct(only(Altair))]
+    #[superstruct(only(Altair, Merge))]
     pub next_sync_committee: Arc<SyncCommittee<T>>,
+
+    // Execution
+    #[superstruct(only(Merge))]
+    pub latest_execution_payload_header: ExecutionPayloadHeader<T>,
 }
 
 /// Implement the conversion function from BeaconState -> PartialBeaconState.
@@ -160,6 +164,20 @@ impl<T: EthSpec> PartialBeaconState<T> {
                     inactivity_scores
                 ]
             ),
+            BeaconState::Merge(s) => impl_from_state_forgetful!(
+                s,
+                outer,
+                Merge,
+                PartialBeaconStateMerge,
+                [
+                    previous_epoch_participation,
+                    current_epoch_participation,
+                    current_sync_committee,
+                    next_sync_committee,
+                    inactivity_scores,
+                    latest_execution_payload_header
+                ]
+            ),
         }
     }
 
@@ -176,16 +194,13 @@ impl<T: EthSpec> PartialBeaconState<T> {
         )?;
 
         let slot = Slot::from_ssz_bytes(slot_bytes)?;
-        let epoch = slot.epoch(T::slots_per_epoch());
+        let fork_at_slot = spec.fork_name_at_slot::<T>(slot);
 
-        if spec
-            .altair_fork_epoch
-            .map_or(true, |altair_epoch| epoch < altair_epoch)
-        {
-            PartialBeaconStateBase::from_ssz_bytes(bytes).map(Self::Base)
-        } else {
-            PartialBeaconStateAltair::from_ssz_bytes(bytes).map(Self::Altair)
-        }
+        Ok(map_fork_name!(
+            fork_at_slot,
+            Self,
+            <_>::from_ssz_bytes(bytes)?
+        ))
     }
 
     /// Prepare the partial state for storage in the KV database.
@@ -335,6 +350,19 @@ impl<E: EthSpec> TryInto<BeaconState<E>> for PartialBeaconState<E> {
                     current_sync_committee,
                     next_sync_committee,
                     inactivity_scores
+                ]
+            ),
+            PartialBeaconState::Merge(inner) => impl_try_into_beacon_state!(
+                inner,
+                Merge,
+                BeaconStateMerge,
+                [
+                    previous_epoch_participation,
+                    current_epoch_participation,
+                    current_sync_committee,
+                    next_sync_committee,
+                    inactivity_scores,
+                    latest_execution_payload_header
                 ]
             ),
         };

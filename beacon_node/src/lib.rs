@@ -8,11 +8,12 @@ pub use beacon_chain;
 use beacon_chain::store::LevelDB;
 use beacon_chain::{
     builder::Witness, eth1_chain::CachingEth1Backend, slot_clock::SystemTimeSlotClock,
+    TimeoutRwLock,
 };
 use clap::ArgMatches;
 pub use cli::cli_app;
 pub use client::{Client, ClientBuilder, ClientConfig, ClientGenesis};
-pub use config::{get_config, get_data_dir, get_eth2_network_config, set_network_config};
+pub use config::{get_config, get_data_dir, set_network_config};
 use environment::RuntimeContext;
 pub use eth2_config::Eth2Config;
 use slasher::Slasher;
@@ -45,8 +46,7 @@ impl<E: EthSpec> ProductionBeaconNode<E> {
         context: RuntimeContext<E>,
         matches: ArgMatches<'static>,
     ) -> Result<Self, String> {
-        let client_config =
-            get_config::<E>(&matches, &context.eth2_config().spec, context.log().clone())?;
+        let client_config = get_config::<E>(&matches, &context)?;
         Self::new(context, client_config).await
     }
 
@@ -66,11 +66,31 @@ impl<E: EthSpec> ProductionBeaconNode<E> {
         let freezer_db_path = client_config.create_freezer_db_path()?;
         let executor = context.executor.clone();
 
+        if let Some(legacy_dir) = client_config.get_existing_legacy_data_dir() {
+            warn!(
+                log,
+                "Legacy datadir location";
+                "msg" => "this occurs when using relative paths for a datadir location",
+                "location" => ?legacy_dir,
+            )
+        }
+
+        if !client_config.chain.enable_lock_timeouts {
+            info!(log, "Disabling lock timeouts globally");
+            TimeoutRwLock::disable_timeouts()
+        }
+
         let builder = ClientBuilder::new(context.eth_spec_instance.clone())
             .runtime_context(context)
             .chain_spec(spec)
             .http_api_config(client_config.http_api.clone())
-            .disk_store(&datadir, &db_path, &freezer_db_path, store_config)?;
+            .disk_store(
+                &datadir,
+                &db_path,
+                &freezer_db_path,
+                store_config,
+                log.clone(),
+            )?;
 
         let builder = if let Some(slasher_config) = client_config.slasher.clone() {
             let slasher = Arc::new(
@@ -158,7 +178,7 @@ impl<E: EthSpec> DerefMut for ProductionBeaconNode<E> {
 #[derive(Clone)]
 struct Discv5Executor(task_executor::TaskExecutor);
 
-impl eth2_libp2p::discv5::Executor for Discv5Executor {
+impl lighthouse_network::discv5::Executor for Discv5Executor {
     fn spawn(&self, future: std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send>>) {
         self.0.spawn(future, "discv5")
     }

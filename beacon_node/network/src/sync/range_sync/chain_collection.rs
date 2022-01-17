@@ -3,15 +3,16 @@
 //! Each chain type is stored in it's own map. A variety of helper functions are given along with
 //! this struct to simplify the logic of the other layers of sync.
 
+use super::block_storage::BlockStorage;
 use super::chain::{ChainId, ProcessingResult, RemoveChain, SyncingChain};
 use super::sync_type::RangeSyncType;
 use crate::beacon_processor::WorkEvent as BeaconWorkEvent;
 use crate::metrics;
 use crate::sync::network_context::SyncNetworkContext;
-use beacon_chain::{BeaconChain, BeaconChainTypes};
-use eth2_libp2p::PeerId;
-use eth2_libp2p::SyncInfo;
+use beacon_chain::BeaconChainTypes;
 use fnv::FnvHashMap;
+use lighthouse_network::PeerId;
+use lighthouse_network::SyncInfo;
 use slog::{crit, debug, error};
 use smallvec::SmallVec;
 use std::collections::hash_map::Entry;
@@ -39,9 +40,9 @@ pub enum RangeSyncState {
 }
 
 /// A collection of finalized and head chains currently being processed.
-pub struct ChainCollection<T: BeaconChainTypes> {
+pub struct ChainCollection<T: BeaconChainTypes, C> {
     /// The beacon chain for processing.
-    beacon_chain: Arc<BeaconChain<T>>,
+    beacon_chain: Arc<C>,
     /// The set of finalized chains being synced.
     finalized_chains: FnvHashMap<ChainId, SyncingChain<T>>,
     /// The set of head chains being synced.
@@ -52,8 +53,8 @@ pub struct ChainCollection<T: BeaconChainTypes> {
     log: slog::Logger,
 }
 
-impl<T: BeaconChainTypes> ChainCollection<T> {
-    pub fn new(beacon_chain: Arc<BeaconChain<T>>, log: slog::Logger) -> Self {
+impl<T: BeaconChainTypes, C: BlockStorage> ChainCollection<T, C> {
+    pub fn new(beacon_chain: Arc<C>, log: slog::Logger) -> Self {
         ChainCollection {
             beacon_chain,
             finalized_chains: FnvHashMap::default(),
@@ -72,7 +73,7 @@ impl<T: BeaconChainTypes> ChainCollection<T> {
             RangeSyncState::Finalized(ref syncing_id) => {
                 if syncing_id == id {
                     // the finalized chain that was syncing was removed
-                    debug_assert!(was_syncing);
+                    debug_assert!(was_syncing && sync_type == RangeSyncType::Finalized);
                     let syncing_head_ids: SmallVec<[u64; PARALLEL_HEAD_CHAINS]> = self
                         .head_chains
                         .iter()
@@ -85,7 +86,8 @@ impl<T: BeaconChainTypes> ChainCollection<T> {
                         RangeSyncState::Head(syncing_head_ids)
                     };
                 } else {
-                    debug_assert!(!was_syncing);
+                    // we removed a head chain, or an stoped finalized chain
+                    debug_assert!(!was_syncing || sync_type != RangeSyncType::Finalized);
                 }
             }
             RangeSyncState::Head(ref mut syncing_head_ids) => {
@@ -405,6 +407,7 @@ impl<T: BeaconChainTypes> ChainCollection<T> {
         local_info: &SyncInfo,
         awaiting_head_peers: &mut HashMap<PeerId, SyncInfo>,
     ) {
+        debug!(self.log, "Purging chains");
         let local_finalized_slot = local_info
             .finalized_epoch
             .start_slot(T::EthSpec::slots_per_epoch());
@@ -413,8 +416,10 @@ impl<T: BeaconChainTypes> ChainCollection<T> {
         let log_ref = &self.log;
 
         let is_outdated = |target_slot: &Slot, target_root: &Hash256| {
-            target_slot <= &local_finalized_slot
-                || beacon_chain.fork_choice.read().contains_block(target_root)
+            let is =
+                target_slot <= &local_finalized_slot || beacon_chain.is_block_known(target_root);
+            debug!(log_ref, "Chain is outdated {}", is);
+            is
         };
 
         // Retain only head peers that remain relevant
@@ -424,31 +429,35 @@ impl<T: BeaconChainTypes> ChainCollection<T> {
 
         // Remove chains that are out-dated
         let mut removed_chains = Vec::new();
-        self.finalized_chains.retain(|id, chain| {
+        removed_chains.extend(self.finalized_chains.iter().filter_map(|(id, chain)| {
             if is_outdated(&chain.target_head_slot, &chain.target_head_root)
                 || chain.available_peers() == 0
             {
                 debug!(log_ref, "Purging out of finalized chain"; &chain);
-                removed_chains.push((*id, chain.is_syncing(), RangeSyncType::Finalized));
-                false
+                Some((*id, chain.is_syncing(), RangeSyncType::Finalized))
             } else {
-                true
+                None
             }
-        });
-        self.head_chains.retain(|id, chain| {
+        }));
+
+        removed_chains.extend(self.head_chains.iter().filter_map(|(id, chain)| {
             if is_outdated(&chain.target_head_slot, &chain.target_head_root)
                 || chain.available_peers() == 0
             {
                 debug!(log_ref, "Purging out of date head chain"; &chain);
-                removed_chains.push((*id, chain.is_syncing(), RangeSyncType::Head));
-                false
+                Some((*id, chain.is_syncing(), RangeSyncType::Head))
             } else {
-                true
+                None
             }
-        });
+        }));
 
         // update the state of the collection
         for (id, was_syncing, sync_type) in removed_chains {
+            // remove each chain, updating the state for each removal.
+            match sync_type {
+                RangeSyncType::Finalized => self.finalized_chains.remove(&id),
+                RangeSyncType::Head => self.head_chains.remove(&id),
+            };
             self.on_chain_removed(&id, was_syncing, sync_type);
         }
     }
@@ -480,7 +489,7 @@ impl<T: BeaconChainTypes> ChainCollection<T> {
                 debug_assert_eq!(chain.target_head_slot, target_head_slot);
                 if let Err(remove_reason) = chain.add_peer(network, peer) {
                     if remove_reason.is_critical() {
-                        error!(self.log, "Chain removed after adding peer"; "chain" => id, "reason" => ?remove_reason);
+                        crit!(self.log, "Chain removed after adding peer"; "chain" => id, "reason" => ?remove_reason);
                     } else {
                         error!(self.log, "Chain removed after adding peer"; "chain" => id, "reason" => ?remove_reason);
                     }

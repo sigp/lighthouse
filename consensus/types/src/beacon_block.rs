@@ -1,9 +1,11 @@
 use crate::beacon_block_body::{
-    BeaconBlockBodyAltair, BeaconBlockBodyBase, BeaconBlockBodyRef, BeaconBlockBodyRefMut,
+    BeaconBlockBodyAltair, BeaconBlockBodyBase, BeaconBlockBodyMerge, BeaconBlockBodyRef,
+    BeaconBlockBodyRefMut,
 };
 use crate::test_utils::TestRandom;
 use crate::*;
 use bls::Signature;
+use derivative::Derivative;
 use serde_derive::{Deserialize, Serialize};
 use ssz::{Decode, DecodeError};
 use ssz_derive::{Decode, Encode};
@@ -14,19 +16,20 @@ use tree_hash_derive::TreeHash;
 
 /// A block of the `BeaconChain`.
 #[superstruct(
-    variants(Base, Altair),
+    variants(Base, Altair, Merge),
     variant_attributes(
         derive(
             Debug,
-            PartialEq,
             Clone,
             Serialize,
             Deserialize,
             Encode,
             Decode,
             TreeHash,
-            TestRandom
+            TestRandom,
+            Derivative,
         ),
+        derivative(PartialEq, Hash(bound = "T: EthSpec")),
         serde(bound = "T: EthSpec", deny_unknown_fields),
         cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary)),
     ),
@@ -35,7 +38,8 @@ use tree_hash_derive::TreeHash;
         tree_hash(enum_behaviour = "transparent")
     )
 )]
-#[derive(Debug, PartialEq, Clone, Serialize, Deserialize, Encode, TreeHash)]
+#[derive(Debug, Clone, Serialize, Deserialize, Encode, TreeHash, Derivative)]
+#[derivative(PartialEq, Hash(bound = "T: EthSpec"))]
 #[serde(untagged)]
 #[serde(bound = "T: EthSpec")]
 #[cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary))]
@@ -55,6 +59,8 @@ pub struct BeaconBlock<T: EthSpec> {
     pub body: BeaconBlockBodyBase<T>,
     #[superstruct(only(Altair), partial_getter(rename = "body_altair"))]
     pub body: BeaconBlockBodyAltair<T>,
+    #[superstruct(only(Merge), partial_getter(rename = "body_merge"))]
+    pub body: BeaconBlockBodyMerge<T>,
 }
 
 impl<T: EthSpec> SignedRoot for BeaconBlock<T> {}
@@ -63,7 +69,9 @@ impl<'a, T: EthSpec> SignedRoot for BeaconBlockRef<'a, T> {}
 impl<T: EthSpec> BeaconBlock<T> {
     /// Returns an empty block to be used during genesis.
     pub fn empty(spec: &ChainSpec) -> Self {
-        if spec.altair_fork_epoch == Some(T::genesis_epoch()) {
+        if spec.merge_fork_epoch == Some(T::genesis_epoch()) {
+            Self::Merge(BeaconBlockMerge::empty(spec))
+        } else if spec.altair_fork_epoch == Some(T::genesis_epoch()) {
             Self::Altair(BeaconBlockAltair::empty(spec))
         } else {
             Self::Base(BeaconBlockBase::empty(spec))
@@ -81,16 +89,13 @@ impl<T: EthSpec> BeaconBlock<T> {
             })?;
 
         let slot = Slot::from_ssz_bytes(slot_bytes)?;
-        let epoch = slot.epoch(T::slots_per_epoch());
+        let fork_at_slot = spec.fork_name_at_slot::<T>(slot);
 
-        if spec
-            .altair_fork_epoch
-            .map_or(true, |altair_epoch| epoch < altair_epoch)
-        {
-            BeaconBlockBase::from_ssz_bytes(bytes).map(Self::Base)
-        } else {
-            BeaconBlockAltair::from_ssz_bytes(bytes).map(Self::Altair)
-        }
+        Ok(map_fork_name!(
+            fork_at_slot,
+            Self,
+            <_>::from_ssz_bytes(bytes)?
+        ))
     }
 
     /// Try decoding each beacon block variant in sequence.
@@ -99,9 +104,13 @@ impl<T: EthSpec> BeaconBlock<T> {
     /// Usually it's better to prefer `from_ssz_bytes` which will decode the correct variant based
     /// on the fork slot.
     pub fn any_from_ssz_bytes(bytes: &[u8]) -> Result<Self, ssz::DecodeError> {
-        BeaconBlockAltair::from_ssz_bytes(bytes)
-            .map(BeaconBlock::Altair)
-            .or_else(|_| BeaconBlockBase::from_ssz_bytes(bytes).map(BeaconBlock::Base))
+        BeaconBlockMerge::from_ssz_bytes(bytes)
+            .map(BeaconBlock::Merge)
+            .or_else(|_| {
+                BeaconBlockAltair::from_ssz_bytes(bytes)
+                    .map(BeaconBlock::Altair)
+                    .or_else(|_| BeaconBlockBase::from_ssz_bytes(bytes).map(BeaconBlock::Base))
+            })
     }
 
     /// Convenience accessor for the `body` as a `BeaconBlockBodyRef`.
@@ -174,6 +183,7 @@ impl<'a, T: EthSpec> BeaconBlockRef<'a, T> {
         let object_fork = match self {
             BeaconBlockRef::Base { .. } => ForkName::Base,
             BeaconBlockRef::Altair { .. } => ForkName::Altair,
+            BeaconBlockRef::Merge { .. } => ForkName::Merge,
         };
 
         if fork_at_slot == object_fork {
@@ -191,6 +201,7 @@ impl<'a, T: EthSpec> BeaconBlockRef<'a, T> {
         match self {
             BeaconBlockRef::Base(block) => BeaconBlockBodyRef::Base(&block.body),
             BeaconBlockRef::Altair(block) => BeaconBlockBodyRef::Altair(&block.body),
+            BeaconBlockRef::Merge(block) => BeaconBlockBodyRef::Merge(&block.body),
         }
     }
 
@@ -199,6 +210,7 @@ impl<'a, T: EthSpec> BeaconBlockRef<'a, T> {
         match self {
             BeaconBlockRef::Base(block) => block.body.tree_hash_root(),
             BeaconBlockRef::Altair(block) => block.body.tree_hash_root(),
+            BeaconBlockRef::Merge(block) => block.body.tree_hash_root(),
         }
     }
 
@@ -225,6 +237,12 @@ impl<'a, T: EthSpec> BeaconBlockRef<'a, T> {
             ..self.block_header()
         }
     }
+
+    /// Extracts a reference to an execution payload from a block, returning an error if the block
+    /// is pre-merge.
+    pub fn execution_payload(&self) -> Result<&ExecutionPayload<T>, Error> {
+        self.body().execution_payload()
+    }
 }
 
 impl<'a, T: EthSpec> BeaconBlockRefMut<'a, T> {
@@ -233,6 +251,7 @@ impl<'a, T: EthSpec> BeaconBlockRefMut<'a, T> {
         match self {
             BeaconBlockRefMut::Base(block) => BeaconBlockBodyRefMut::Base(&mut block.body),
             BeaconBlockRefMut::Altair(block) => BeaconBlockBodyRefMut::Altair(&mut block.body),
+            BeaconBlockRefMut::Merge(block) => BeaconBlockBodyRefMut::Merge(&mut block.body),
         }
     }
 }
@@ -409,6 +428,61 @@ impl<T: EthSpec> BeaconBlockAltair<T> {
                     deposit_count: 0,
                 },
                 graffiti: Graffiti::default(),
+            },
+        }
+    }
+}
+
+impl<T: EthSpec> BeaconBlockMerge<T> {
+    /// Returns an empty Merge block to be used during genesis.
+    pub fn empty(spec: &ChainSpec) -> Self {
+        BeaconBlockMerge {
+            slot: spec.genesis_slot,
+            proposer_index: 0,
+            parent_root: Hash256::zero(),
+            state_root: Hash256::zero(),
+            body: BeaconBlockBodyMerge {
+                randao_reveal: Signature::empty(),
+                eth1_data: Eth1Data {
+                    deposit_root: Hash256::zero(),
+                    block_hash: Hash256::zero(),
+                    deposit_count: 0,
+                },
+                graffiti: Graffiti::default(),
+                proposer_slashings: VariableList::empty(),
+                attester_slashings: VariableList::empty(),
+                attestations: VariableList::empty(),
+                deposits: VariableList::empty(),
+                voluntary_exits: VariableList::empty(),
+                sync_aggregate: SyncAggregate::empty(),
+                execution_payload: ExecutionPayload::empty(),
+            },
+        }
+    }
+
+    /// Return an Merge block where the block has maximum size.
+    pub fn full(spec: &ChainSpec) -> Self {
+        let altair_block = BeaconBlockAltair::full(spec);
+        BeaconBlockMerge {
+            slot: spec.genesis_slot,
+            proposer_index: 0,
+            parent_root: Hash256::zero(),
+            state_root: Hash256::zero(),
+            body: BeaconBlockBodyMerge {
+                proposer_slashings: altair_block.body.proposer_slashings,
+                attester_slashings: altair_block.body.attester_slashings,
+                attestations: altair_block.body.attestations,
+                deposits: altair_block.body.deposits,
+                voluntary_exits: altair_block.body.voluntary_exits,
+                sync_aggregate: altair_block.body.sync_aggregate,
+                randao_reveal: Signature::empty(),
+                eth1_data: Eth1Data {
+                    deposit_root: Hash256::zero(),
+                    block_hash: Hash256::zero(),
+                    deposit_count: 0,
+                },
+                graffiti: Graffiti::default(),
+                execution_payload: ExecutionPayload::default(),
             },
         }
     }

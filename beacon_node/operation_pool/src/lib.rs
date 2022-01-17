@@ -57,6 +57,15 @@ pub enum OpPoolError {
     IncorrectOpPoolVariant,
 }
 
+pub struct AttestationStats {
+    /// Total number of attestations for all committeees/indices/votes.
+    pub num_attestations: usize,
+    /// Number of unique `AttestationData` attested to.
+    pub num_attestation_data: usize,
+    /// Maximum number of aggregates for a single `AttestationData`.
+    pub max_aggregates_per_data: usize,
+}
+
 impl From<SyncAggregateError> for OpPoolError {
     fn from(e: SyncAggregateError) -> Self {
         OpPoolError::SyncAggregateError(e)
@@ -207,6 +216,23 @@ impl<T: EthSpec> OperationPool<T> {
         self.attestations.read().values().map(Vec::len).sum()
     }
 
+    pub fn attestation_stats(&self) -> AttestationStats {
+        let mut num_attestations = 0;
+        let mut num_attestation_data = 0;
+        let mut max_aggregates_per_data = 0;
+
+        for aggregates in self.attestations.read().values() {
+            num_attestations += aggregates.len();
+            num_attestation_data += 1;
+            max_aggregates_per_data = std::cmp::max(max_aggregates_per_data, aggregates.len());
+        }
+        AttestationStats {
+            num_attestations,
+            num_attestation_data,
+            max_aggregates_per_data,
+        }
+    }
+
     /// Return all valid attestations for the given epoch, for use in max cover.
     fn get_valid_attestations_for_epoch<'a>(
         &'a self,
@@ -265,22 +291,29 @@ impl<T: EthSpec> OperationPool<T> {
 
         // Split attestations for the previous & current epochs, so that we
         // can optimise them individually in parallel.
-        let prev_epoch_att = self.get_valid_attestations_for_epoch(
-            prev_epoch,
-            &*all_attestations,
-            state,
-            total_active_balance,
-            prev_epoch_validity_filter,
-            spec,
-        );
-        let curr_epoch_att = self.get_valid_attestations_for_epoch(
-            current_epoch,
-            &*all_attestations,
-            state,
-            total_active_balance,
-            curr_epoch_validity_filter,
-            spec,
-        );
+        let mut num_prev_valid = 0_i64;
+        let mut num_curr_valid = 0_i64;
+
+        let prev_epoch_att = self
+            .get_valid_attestations_for_epoch(
+                prev_epoch,
+                &*all_attestations,
+                state,
+                total_active_balance,
+                prev_epoch_validity_filter,
+                spec,
+            )
+            .inspect(|_| num_prev_valid += 1);
+        let curr_epoch_att = self
+            .get_valid_attestations_for_epoch(
+                current_epoch,
+                &*all_attestations,
+                state,
+                total_active_balance,
+                curr_epoch_validity_filter,
+                spec,
+            )
+            .inspect(|_| num_curr_valid += 1);
 
         let prev_epoch_limit = if let BeaconState::Base(base_state) = state {
             std::cmp::min(
@@ -299,14 +332,21 @@ impl<T: EthSpec> OperationPool<T> {
                 if prev_epoch == current_epoch {
                     vec![]
                 } else {
-                    maximum_cover(prev_epoch_att, prev_epoch_limit)
+                    maximum_cover(prev_epoch_att, prev_epoch_limit, "prev_epoch_attestations")
                 }
             },
             move || {
                 let _timer = metrics::start_timer(&metrics::ATTESTATION_CURR_EPOCH_PACKING_TIME);
-                maximum_cover(curr_epoch_att, T::MaxAttestations::to_usize())
+                maximum_cover(
+                    curr_epoch_att,
+                    T::MaxAttestations::to_usize(),
+                    "curr_epoch_attestations",
+                )
             },
         );
+
+        metrics::set_gauge(&metrics::NUM_PREV_EPOCH_ATTESTATIONS, num_prev_valid);
+        metrics::set_gauge(&metrics::NUM_CURR_EPOCH_ATTESTATIONS, num_curr_valid);
 
         Ok(max_cover::merge_solutions(
             curr_cover,
@@ -394,6 +434,7 @@ impl<T: EthSpec> OperationPool<T> {
         let attester_slashings = maximum_cover(
             relevant_attester_slashings,
             T::MaxAttesterSlashings::to_usize(),
+            "attester_slashings",
         )
         .into_iter()
         .map(|cover| {

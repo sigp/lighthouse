@@ -47,7 +47,6 @@ pub fn process_epoch<T: EthSpec>(
     process_slashings(
         state,
         participation_cache.current_epoch_total_active_balance(),
-        spec.proportional_slashing_multiplier_altair,
         spec,
     )?;
 

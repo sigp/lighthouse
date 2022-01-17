@@ -20,7 +20,7 @@ use state_processing::{
     },
     signature_sets::Error as SignatureSetError,
     state_advance::Error as StateAdvanceError,
-    BlockProcessingError, SlotProcessingError,
+    BlockProcessingError, BlockReplayError, SlotProcessingError,
 };
 use std::time::Duration;
 use task_executor::ShutdownReason;
@@ -40,6 +40,7 @@ macro_rules! easy_from_to {
 pub enum BeaconChainError {
     InsufficientValidators,
     UnableToReadSlot,
+    UnableToComputeTimeAtSlot,
     RevertedFinalizedEpoch {
         previous_epoch: Epoch,
         new_epoch: Epoch,
@@ -85,6 +86,7 @@ pub enum BeaconChainError {
     ValidatorPubkeyCacheIncomplete(usize),
     SignatureSetError(SignatureSetError),
     BlockSignatureVerifierError(state_processing::block_signature_verifier::Error),
+    BlockReplayError(BlockReplayError),
     DuplicateValidatorPublicKey,
     ValidatorPubkeyCacheFileError(String),
     ValidatorIndexUnknown(usize),
@@ -133,6 +135,11 @@ pub enum BeaconChainError {
         new_slot: Slot,
     },
     AltairForkDisabled,
+    ExecutionLayerMissing,
+    ExecutionForkChoiceUpdateFailed(execution_layer::Error),
+    HeadMissingFromForkChoice(Hash256),
+    FinalizedBlockMissingFromForkChoice(Hash256),
+    InvalidFinalizedPayloadShutdownError(TrySendError<ShutdownReason>),
 }
 
 easy_from_to!(SlotProcessingError, BeaconChainError);
@@ -154,6 +161,7 @@ easy_from_to!(ArithError, BeaconChainError);
 easy_from_to!(ForkChoiceStoreError, BeaconChainError);
 easy_from_to!(HistoricalBlockError, BeaconChainError);
 easy_from_to!(StateAdvanceError, BeaconChainError);
+easy_from_to!(BlockReplayError, BeaconChainError);
 
 #[derive(Debug)]
 pub enum BlockProductionError {
@@ -174,6 +182,13 @@ pub enum BlockProductionError {
         produce_at_slot: Slot,
         state_slot: Slot,
     },
+    ExecutionLayerMissing,
+    BlockingFailed(execution_layer::Error),
+    TerminalPoWBlockLookupFailed(execution_layer::Error),
+    GetPayloadFailed(execution_layer::Error),
+    FailedToReadFinalizedBlock(store::Error),
+    MissingFinalizedBlock(Hash256),
+    BlockTooLarge(usize),
 }
 
 easy_from_to!(BlockProcessingError, BlockProductionError);

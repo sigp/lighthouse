@@ -4,7 +4,11 @@ use crate::{BeaconChain, BeaconChainError, BeaconChainTypes};
 use lazy_static::lazy_static;
 pub use lighthouse_metrics::*;
 use slot_clock::SlotClock;
+use std::time::Duration;
 use types::{BeaconState, Epoch, EthSpec, Hash256, Slot};
+
+/// The maximum time to wait for the snapshot cache lock during a metrics scrape.
+const SNAPSHOT_CACHE_TIMEOUT: Duration = Duration::from_millis(100);
 
 lazy_static! {
     /*
@@ -17,6 +21,18 @@ lazy_static! {
     pub static ref BLOCK_PROCESSING_SUCCESSES: Result<IntCounter> = try_create_int_counter(
         "beacon_block_processing_successes_total",
         "Count of blocks processed without error"
+    );
+    pub static ref BLOCK_PROCESSING_SNAPSHOT_CACHE_SIZE: Result<IntGauge> = try_create_int_gauge(
+        "beacon_block_processing_snapshot_cache_size",
+        "Count snapshots in the snapshot cache"
+    );
+    pub static ref BLOCK_PROCESSING_SNAPSHOT_CACHE_MISSES: Result<IntCounter> = try_create_int_counter(
+        "beacon_block_processing_snapshot_cache_misses",
+        "Count of snapshot cache misses"
+    );
+    pub static ref BLOCK_PROCESSING_SNAPSHOT_CACHE_CLONES: Result<IntCounter> = try_create_int_counter(
+        "beacon_block_processing_snapshot_cache_clones",
+        "Count of snapshot cache clones"
     );
     pub static ref BLOCK_PROCESSING_TIMES: Result<Histogram> =
         try_create_histogram("beacon_block_processing_seconds", "Full runtime of block processing");
@@ -105,6 +121,11 @@ lazy_static! {
     pub static ref OPERATIONS_PER_BLOCK_ATTESTATION: Result<Histogram> = try_create_histogram(
         "beacon_operations_per_block_attestation_total",
         "Number of attestations in a block"
+    );
+
+    pub static ref BLOCK_SIZE: Result<Histogram> = try_create_histogram(
+        "beacon_block_total_size",
+        "Size of a signed beacon block"
     );
 
     /*
@@ -226,6 +247,14 @@ lazy_static! {
         try_create_int_counter("beacon_shuffling_cache_hits_total", "Count of times shuffling cache fulfils request");
     pub static ref SHUFFLING_CACHE_MISSES: Result<IntCounter> =
         try_create_int_counter("beacon_shuffling_cache_misses_total", "Count of times shuffling cache fulfils request");
+
+    /*
+     * Early attester cache
+     */
+    pub static ref BEACON_EARLY_ATTESTER_CACHE_HITS: Result<IntCounter> = try_create_int_counter(
+        "beacon_early_attester_cache_hits",
+        "Count of times the early attester cache returns an attestation"
+    );
 
     /*
      * Attestation Production
@@ -365,6 +394,10 @@ lazy_static! {
      */
     pub static ref OP_POOL_NUM_ATTESTATIONS: Result<IntGauge> =
         try_create_int_gauge("beacon_op_pool_attestations_total", "Count of attestations in the op pool");
+    pub static ref OP_POOL_NUM_ATTESTATION_DATA: Result<IntGauge> =
+        try_create_int_gauge("beacon_op_pool_attestation_data_total", "Count of attestation data in the op pool");
+    pub static ref OP_POOL_MAX_AGGREGATES_PER_DATA: Result<IntGauge> =
+        try_create_int_gauge("beacon_op_pool_max_aggregates_per_data", "Max aggregates per AttestationData");
     pub static ref OP_POOL_NUM_ATTESTER_SLASHINGS: Result<IntGauge> =
         try_create_int_gauge("beacon_op_pool_attester_slashings_total", "Count of attester slashings in the op pool");
     pub static ref OP_POOL_NUM_PROPOSER_SLASHINGS: Result<IntGauge> =
@@ -886,9 +919,29 @@ pub fn scrape_for_metrics<T: BeaconChainTypes>(beacon_chain: &BeaconChain<T>) {
         scrape_sync_committee_observation(slot, beacon_chain);
     }
 
+    let attestation_stats = beacon_chain.op_pool.attestation_stats();
+
+    if let Some(snapshot_cache) = beacon_chain
+        .snapshot_cache
+        .try_write_for(SNAPSHOT_CACHE_TIMEOUT)
+    {
+        set_gauge(
+            &BLOCK_PROCESSING_SNAPSHOT_CACHE_SIZE,
+            snapshot_cache.len() as i64,
+        )
+    }
+
     set_gauge_by_usize(
         &OP_POOL_NUM_ATTESTATIONS,
-        beacon_chain.op_pool.num_attestations(),
+        attestation_stats.num_attestations,
+    );
+    set_gauge_by_usize(
+        &OP_POOL_NUM_ATTESTATION_DATA,
+        attestation_stats.num_attestation_data,
+    );
+    set_gauge_by_usize(
+        &OP_POOL_MAX_AGGREGATES_PER_DATA,
+        attestation_stats.max_aggregates_per_data,
     );
     set_gauge_by_usize(
         &OP_POOL_NUM_ATTESTER_SLASHINGS,

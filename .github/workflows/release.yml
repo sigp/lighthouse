@@ -131,6 +131,19 @@ jobs:
                   override: true
 
             # ==============================
+            # Windows dependencies
+            # ==============================
+
+            - uses: KyleMayes/install-llvm-action@v1
+              if: startsWith(matrix.arch, 'x86_64-windows')
+              with:
+                version: "13.0"
+                directory: ${{ runner.temp }}/llvm
+            - name: Set LIBCLANG_PATH
+              if: startsWith(matrix.arch, 'x86_64-windows')
+              run: echo "LIBCLANG_PATH=$((gcm clang).source -replace "clang.exe")" >> $env:GITHUB_ENV
+
+            # ==============================
             #       Builds
             # ==============================
 

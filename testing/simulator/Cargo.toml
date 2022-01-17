@@ -12,7 +12,7 @@ eth1 = {path = "../../beacon_node/eth1"}
 types = { path = "../../consensus/types" }
 parking_lot = "0.11.0"
 futures = "0.3.7"
-tokio = "1.10.0"
+tokio = "1.14.0"
 eth1_test_rig = { path = "../eth1_test_rig" }
 env_logger = "0.9.0"
 clap = "2.33.3"

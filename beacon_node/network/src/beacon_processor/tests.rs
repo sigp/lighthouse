@@ -9,7 +9,7 @@ use beacon_chain::test_utils::{
 };
 use beacon_chain::{BeaconChain, MAXIMUM_GOSSIP_CLOCK_DISPARITY};
 use environment::{null_logger, Environment, EnvironmentBuilder};
-use eth2_libp2p::{
+use lighthouse_network::{
     discv5::enr::{CombinedKey, EnrBuilder},
     rpc::methods::{MetaData, MetaDataV2},
     types::{EnrAttestationBitfield, EnrSyncCommitteeBitfield},
@@ -201,6 +201,7 @@ impl TestRig {
             executor,
             max_workers: cmp::max(1, num_cpus::get()),
             current_workers: 0,
+            importing_blocks: Default::default(),
             log: log.clone(),
         }
         .spawn_manager(beacon_processor_rx, Some(work_journal_tx));

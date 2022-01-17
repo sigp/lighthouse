@@ -7,6 +7,7 @@ use serde::de::{Deserialize, Deserializer};
 use serde::ser::{Serialize, Serializer};
 use ssz::{Decode, Encode};
 use std::fmt;
+use std::hash::{Hash, Hasher};
 use std::marker::PhantomData;
 use tree_hash::TreeHash;
 
@@ -143,6 +144,13 @@ impl<PublicKey, T: TSignature<PublicKey>> Decode for GenericSignature<PublicKey,
 
 impl<PublicKey, T: TSignature<PublicKey>> TreeHash for GenericSignature<PublicKey, T> {
     impl_tree_hash!(SIGNATURE_BYTES_LEN);
+}
+
+/// Hashes the `self.serialize()` bytes.
+impl<PublicKey, T: TSignature<PublicKey>> Hash for GenericSignature<PublicKey, T> {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.serialize().hash(state);
+    }
 }
 
 impl<PublicKey, T: TSignature<PublicKey>> fmt::Display for GenericSignature<PublicKey, T> {

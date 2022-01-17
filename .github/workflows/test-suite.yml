@@ -12,7 +12,7 @@ env:
   # Deny warnings in CI
   RUSTFLAGS: "-D warnings"
   # The Nightly version used for cargo-udeps, might need updating from time to time.
-  PINNED_NIGHTLY: nightly-2021-06-09
+  PINNED_NIGHTLY: nightly-2021-12-01
 jobs:
   target-branch-check:
     name: target-branch-check
@@ -54,6 +54,12 @@ jobs:
       run: npm install -g ganache-cli
     - name: Install make
       run: choco install -y make
+    - uses: KyleMayes/install-llvm-action@v1
+      with:
+        version: "13.0"
+        directory: ${{ runner.temp }}/llvm
+    - name: Set LIBCLANG_PATH
+      run: echo "LIBCLANG_PATH=$((gcm clang).source -replace "clang.exe")" >> $env:GITHUB_ENV
     - name: Run tests in release
       run: make test-release
   beacon-chain-tests:
@@ -228,6 +234,14 @@ jobs:
       run: rustup update stable
     - name: Run cargo audit to identify known security vulnerabilities reported to the RustSec Advisory Database
       run:  make audit
+  cargo-vendor:
+    name: cargo-vendor
+    runs-on: ubuntu-latest
+    needs: cargo-fmt
+    steps:
+    - uses: actions/checkout@v1
+    - name: Run cargo vendor to make sure dependencies can be vendored for packaging, reproducibility and archival purpose
+      run:  CARGO_HOME=$(readlink -f $HOME) make vendor
   cargo-udeps:
     name: cargo-udeps
     runs-on: ubuntu-latest

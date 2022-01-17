@@ -144,6 +144,7 @@ test-full: cargo-fmt test-release test-debug test-ef
 # Clippy lints are opt-in per-crate for now. By default, everything is allowed except for performance and correctness lints.
 lint:
 	cargo clippy --workspace --tests -- \
+        -D clippy::fn_to_numeric_cast_any \
         -D warnings \
         -A clippy::from-over-into \
         -A clippy::upper-case-acronyms \
@@ -157,14 +158,19 @@ lint:
 make-ef-tests:
 	make -C $(EF_TESTS)
 
-# Verifies that state_processing feature arbitrary-fuzz will compile
+# Verifies that crates compile with fuzzing features enabled
 arbitrary-fuzz:
-	cargo check --manifest-path=consensus/state_processing/Cargo.toml --features arbitrary-fuzz
+	cargo check -p state_processing --features arbitrary-fuzz
+	cargo check -p slashing_protection --features arbitrary-fuzz
 
 # Runs cargo audit (Audit Cargo.lock files for crates with security vulnerabilities reported to the RustSec Advisory Database)
 audit:
 	cargo install --force cargo-audit
-	cargo audit --ignore RUSTSEC-2020-0071
+	cargo audit --ignore RUSTSEC-2020-0071 --ignore RUSTSEC-2020-0159
+
+# Runs `cargo vendor` to make sure dependencies can be vendored for packaging, reproducibility and archival purpose.
+vendor:
+	cargo vendor
 
 # Runs `cargo udeps` to check for unused dependencies
 udeps:

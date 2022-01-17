@@ -42,11 +42,11 @@ use crate::beacon_processor::{ProcessId, WorkEvent as BeaconWorkEvent};
 use crate::service::NetworkMessage;
 use crate::status::ToStatusMessage;
 use beacon_chain::{BeaconChain, BeaconChainTypes, BlockError};
-use eth2_libp2p::rpc::{methods::MAX_REQUEST_BLOCKS, BlocksByRootRequest, GoodbyeReason};
-use eth2_libp2p::types::{NetworkGlobals, SyncState};
-use eth2_libp2p::SyncInfo;
-use eth2_libp2p::{PeerAction, PeerId};
 use fnv::FnvHashMap;
+use lighthouse_network::rpc::{methods::MAX_REQUEST_BLOCKS, BlocksByRootRequest, GoodbyeReason};
+use lighthouse_network::types::{NetworkGlobals, SyncState};
+use lighthouse_network::SyncInfo;
+use lighthouse_network::{PeerAction, PeerId};
 use lru_cache::LRUCache;
 use slog::{crit, debug, error, info, trace, warn, Logger};
 use smallvec::SmallVec;
@@ -137,7 +137,10 @@ pub enum BatchProcessResult {
     /// The batch was completed successfully. It carries whether the sent batch contained blocks.
     Success(bool),
     /// The batch processing failed. It carries whether the processing imported any block.
-    Failed(bool),
+    Failed {
+        imported_blocks: bool,
+        peer_action: Option<PeerAction>,
+    },
 }
 
 /// Maintains a sequential list of parents to lookup and the lookup's current state.
@@ -366,8 +369,11 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                     } else {
                         crit!(self.log, "Parent chain has no blocks");
                     }
-                    self.network
-                        .report_peer(peer_id, PeerAction::MidToleranceError);
+                    self.network.report_peer(
+                        peer_id,
+                        PeerAction::MidToleranceError,
+                        "bbroot_failed_chains",
+                    );
                     return;
                 }
                 // add the block to response
@@ -385,8 +391,11 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                     // tolerate this behaviour.
                     if !single_block_request.block_returned {
                         warn!(self.log, "Peer didn't respond with a block it referenced"; "referenced_block_hash" => %single_block_request.hash, "peer_id" =>  %peer_id);
-                        self.network
-                            .report_peer(peer_id, PeerAction::MidToleranceError);
+                        self.network.report_peer(
+                            peer_id,
+                            PeerAction::MidToleranceError,
+                            "bbroot_no_block",
+                        );
                     }
                     return;
                 }
@@ -509,8 +518,11 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                 warn!(self.log, "Single block lookup failed"; "outcome" => ?outcome);
                 // This could be a range of errors. But we couldn't process the block.
                 // For now we consider this a mid tolerance error.
-                self.network
-                    .report_peer(peer_id, PeerAction::MidToleranceError);
+                self.network.report_peer(
+                    peer_id,
+                    PeerAction::MidToleranceError,
+                    "single_block_lookup_failed",
+                );
             }
         }
     }
@@ -833,8 +845,11 @@ impl<T: BeaconChainTypes> SyncManager<T> {
             self.request_parent(parent_request);
             // We do not tolerate these kinds of errors. We will accept a few but these are signs
             // of a faulty peer.
-            self.network
-                .report_peer(peer, PeerAction::LowToleranceError);
+            self.network.report_peer(
+                peer,
+                PeerAction::LowToleranceError,
+                "parent_request_bad_hash",
+            );
         } else {
             // The last block in the queue is the only one that has not attempted to be processed yet.
             //
@@ -904,6 +919,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                     self.network.report_peer(
                         parent_request.last_submitted_peer,
                         PeerAction::MidToleranceError,
+                        "parent_request_err",
                     );
                 }
             }
@@ -942,6 +958,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
             self.network.report_peer(
                 parent_request.last_submitted_peer,
                 PeerAction::LowToleranceError,
+                "request_parent_import_failed",
             );
             return; // drop the request
         }
@@ -1109,8 +1126,11 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                         // A peer sent an object (block or attestation) that referenced a parent.
                         // The processing of this chain failed.
                         self.failed_chains.insert(chain_head);
-                        self.network
-                            .report_peer(peer_id, PeerAction::MidToleranceError);
+                        self.network.report_peer(
+                            peer_id,
+                            PeerAction::MidToleranceError,
+                            "parent_lookup_failed",
+                        );
                     }
                 }
             }

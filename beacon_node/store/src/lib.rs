@@ -30,7 +30,7 @@ pub mod iter;
 
 pub use self::chunk_writer::ChunkWriter;
 pub use self::config::StoreConfig;
-pub use self::hot_cold_store::{BlockReplay, HotColdDB, HotStateSummary, Split};
+pub use self::hot_cold_store::{HotColdDB, HotStateSummary, Split};
 pub use self::leveldb_store::LevelDB;
 pub use self::memory_store::MemoryStore;
 pub use self::partial_beacon_state::PartialBeaconState;

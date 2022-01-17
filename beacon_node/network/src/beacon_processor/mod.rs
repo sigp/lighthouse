@@ -39,21 +39,22 @@
 //! task.
 
 use crate::{metrics, service::NetworkMessage, sync::SyncMessage};
+use beacon_chain::parking_lot::Mutex;
 use beacon_chain::{BeaconChain, BeaconChainTypes, BlockError, GossipVerifiedBlock};
-use eth2_libp2p::{
+use futures::stream::{Stream, StreamExt};
+use futures::task::Poll;
+use lighthouse_network::{
     rpc::{BlocksByRangeRequest, BlocksByRootRequest, StatusMessage},
     Client, MessageId, NetworkGlobals, PeerId, PeerRequestId,
 };
-use futures::stream::{Stream, StreamExt};
-use futures::task::Poll;
 use slog::{crit, debug, error, trace, warn, Logger};
-use std::cmp;
 use std::collections::VecDeque;
 use std::fmt;
 use std::pin::Pin;
 use std::sync::{Arc, Weak};
 use std::task::Context;
 use std::time::{Duration, Instant};
+use std::{cmp, collections::HashSet};
 use task_executor::TaskExecutor;
 use tokio::sync::{mpsc, oneshot};
 use types::{
@@ -62,7 +63,7 @@ use types::{
     SyncCommitteeMessage, SyncSubnetId,
 };
 use work_reprocessing_queue::{
-    spawn_reprocess_scheduler, QueuedAggregate, QueuedBlock, QueuedUnaggregate, ReadyWork,
+    spawn_reprocess_scheduler, QueuedAggregate, QueuedUnaggregate, ReadyWork,
 };
 
 use worker::{Toolbox, Worker};
@@ -71,6 +72,7 @@ mod tests;
 mod work_reprocessing_queue;
 mod worker;
 
+use crate::beacon_processor::work_reprocessing_queue::QueuedBlock;
 pub use worker::{GossipAggregatePackage, GossipAttestationPackage, ProcessId};
 
 /// The maximum size of the channel for work events to the `BeaconProcessor`.
@@ -281,6 +283,55 @@ impl<T> LifoQueue<T> {
     /// Returns the current length of the queue.
     pub fn len(&self) -> usize {
         self.queue.len()
+    }
+}
+
+/// A handle that sends a message on the provided channel to a receiver when it gets dropped.
+///
+/// The receiver task is responsible for removing the provided `entry` from the `DuplicateCache`
+/// and perform any other necessary cleanup.
+pub struct DuplicateCacheHandle {
+    entry: Hash256,
+    cache: DuplicateCache,
+}
+
+impl Drop for DuplicateCacheHandle {
+    fn drop(&mut self) {
+        self.cache.remove(&self.entry);
+    }
+}
+
+/// A simple  cache for detecting duplicate block roots across multiple threads.
+#[derive(Clone, Default)]
+pub struct DuplicateCache {
+    inner: Arc<Mutex<HashSet<Hash256>>>,
+}
+
+impl DuplicateCache {
+    /// Checks if the given block_root exists and inserts it into the cache if
+    /// it doesn't exist.
+    ///
+    /// Returns a `Some(DuplicateCacheHandle)` if the block_root was successfully
+    /// inserted and `None` if the block root already existed in the cache.
+    ///
+    /// The handle removes the entry from the cache when it is dropped. This ensures that any unclean
+    /// shutdowns in the worker tasks does not leave inconsistent state in the cache.
+    pub fn check_and_insert(&self, block_root: Hash256) -> Option<DuplicateCacheHandle> {
+        let mut inner = self.inner.lock();
+        if inner.insert(block_root) {
+            Some(DuplicateCacheHandle {
+                entry: block_root,
+                cache: self.clone(),
+            })
+        } else {
+            None
+        }
+    }
+
+    /// Remove the given block_root from the cache.
+    pub fn remove(&self, block_root: &Hash256) {
+        let mut inner = self.inner.lock();
+        inner.remove(block_root);
     }
 }
 
@@ -524,7 +575,7 @@ impl<T: BeaconChainTypes> std::convert::From<ReadyWork<T>> for WorkEvent<T> {
                 drop_during_sync: false,
                 work: Work::DelayedImportBlock {
                     peer_id,
-                    block: Box::new(block),
+                    block,
                     seen_timestamp,
                 },
             },
@@ -787,6 +838,7 @@ pub struct BeaconProcessor<T: BeaconChainTypes> {
     pub executor: TaskExecutor,
     pub max_workers: usize,
     pub current_workers: usize,
+    pub importing_blocks: DuplicateCache,
     pub log: Logger,
 }
 
@@ -1302,6 +1354,8 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
             log: self.log.clone(),
         };
 
+        let duplicate_cache = self.importing_blocks.clone();
+
         trace!(
             self.log,
             "Spawning beacon processor worker";
@@ -1373,7 +1427,8 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                         peer_id,
                         peer_client,
                         *block,
-                        work_reprocessing_tx,
+                        work_reprocessing_tx.clone(),
+                        duplicate_cache,
                         seen_timestamp,
                     ),
                     /*
@@ -1455,7 +1510,12 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                      * Verification for beacon blocks received during syncing via RPC.
                      */
                     Work::RpcBlock { block, result_tx } => {
-                        worker.process_rpc_block(*block, result_tx, work_reprocessing_tx)
+                        worker.process_rpc_block(
+                            *block,
+                            result_tx,
+                            work_reprocessing_tx.clone(),
+                            duplicate_cache,
+                        );
                     }
                     /*
                      * Verification for a chain segment (multiple blocks).

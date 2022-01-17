@@ -1,0 +1,26 @@
+FROM rust:1.56.1-bullseye AS builder
+RUN apt-get update && apt-get -y upgrade && apt-get install -y cmake libclang-dev
+COPY . lighthouse
+
+# build lighthouse directly with a cargo build command, bypassing the makefile
+RUN cd lighthouse && LD_LIBRARY_PATH=/lighthouse/testing/antithesis/libvoidstar/ RUSTFLAGS="-Cpasses=sancov -Cllvm-args=-sanitizer-coverage-level=3 -Cllvm-args=-sanitizer-coverage-trace-pc-guard -Ccodegen-units=1 -Cdebuginfo=2 -L/lighthouse/testing/antithesis/libvoidstar/ -lvoidstar" cargo build --release --manifest-path lighthouse/Cargo.toml --target x86_64-unknown-linux-gnu --features modern --verbose --bin lighthouse
+
+# build lcli binary directly with cargo install command, bypassing the makefile
+RUN cargo install --path /lighthouse/lcli --force --locked
+
+FROM ubuntu:latest
+RUN apt-get update && apt-get -y upgrade && apt-get install -y --no-install-recommends \
+  libssl-dev \
+  ca-certificates \
+  && apt-get clean \
+  && rm -rf /var/lib/apt/lists/*
+
+# create and move the libvoidstar file
+RUN mkdir libvoidstar
+COPY --from=builder /lighthouse/testing/antithesis/libvoidstar/libvoidstar.so /usr/lib/libvoidstar.so
+
+# set the env variable to avoid having to always set it
+ENV LD_LIBRARY_PATH=/usr/lib
+# move the lighthouse binary and lcli binary
+COPY --from=builder /lighthouse/target/x86_64-unknown-linux-gnu/release/lighthouse /usr/local/bin/lighthouse
+COPY --from=builder  /lighthouse/target/release/lcli /usr/local/bin/lcli

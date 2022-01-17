@@ -3,10 +3,10 @@ use crate::service::NetworkMessage;
 use crate::status::ToStatusMessage;
 use crate::sync::SyncMessage;
 use beacon_chain::{BeaconChainError, BeaconChainTypes, HistoricalBlockError, WhenSlotSkipped};
-use eth2_libp2p::rpc::StatusMessage;
-use eth2_libp2p::rpc::*;
-use eth2_libp2p::{PeerId, PeerRequestId, ReportSource, Response, SyncInfo};
 use itertools::process_results;
+use lighthouse_network::rpc::StatusMessage;
+use lighthouse_network::rpc::*;
+use lighthouse_network::{PeerId, PeerRequestId, ReportSource, Response, SyncInfo};
 use slog::{debug, error, warn};
 use slot_clock::SlotClock;
 use types::{Epoch, EthSpec, Hash256, Slot};
@@ -129,7 +129,7 @@ impl<T: BeaconChainTypes> Worker<T> {
     ) {
         let mut send_block_count = 0;
         for root in request.block_roots.iter() {
-            if let Ok(Some(block)) = self.chain.store.get_block(root) {
+            if let Ok(Some(block)) = self.chain.get_block_checking_early_attester_cache(root) {
                 self.send_response(
                     peer_id,
                     Response::BlocksByRoot(Some(Box::new(block))),
@@ -255,7 +255,7 @@ impl<T: BeaconChainTypes> Worker<T> {
             .unwrap_or_else(|_| self.chain.slot_clock.genesis_slot());
 
         if blocks_sent < (req.count as usize) {
-            debug!(self.log, "BlocksByRange Response sent";
+            debug!(self.log, "BlocksByRange Response processed";
                 "peer" => %peer_id,
                 "msg" => "Failed to return all requested blocks",
                 "start_slot" => req.start_slot,
@@ -263,7 +263,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                 "requested" => req.count,
                 "returned" => blocks_sent);
         } else {
-            debug!(self.log, "BlocksByRange Response sent";
+            debug!(self.log, "BlocksByRange Response processed";
                 "peer" => %peer_id,
                 "start_slot" => req.start_slot,
                 "current_slot" => current_slot,

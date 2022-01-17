@@ -6,6 +6,7 @@ use std::fmt;
 /// Encode `data` as a 0x-prefixed hex string.
 pub fn encode<T: AsRef<[u8]>>(data: T) -> String {
     let hex = hex::encode(data);
+
     let mut s = "0x".to_string();
     s.push_str(hex.as_str());
     s
@@ -33,12 +34,7 @@ impl<'de> Visitor<'de> for PrefixedHexVisitor {
     where
         E: de::Error,
     {
-        if let Some(stripped) = value.strip_prefix("0x") {
-            Ok(hex::decode(stripped)
-                .map_err(|e| de::Error::custom(format!("invalid hex ({:?})", e)))?)
-        } else {
-            Err(de::Error::custom("missing 0x prefix"))
-        }
+        decode(value).map_err(de::Error::custom)
     }
 }
 

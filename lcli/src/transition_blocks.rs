@@ -1,7 +1,9 @@
 use clap::ArgMatches;
 use eth2_network_config::Eth2NetworkConfig;
 use ssz::Encode;
-use state_processing::{per_block_processing, per_slot_processing, BlockSignatureStrategy};
+use state_processing::{
+    per_block_processing, per_slot_processing, BlockSignatureStrategy, VerifyBlockRoot,
+};
 use std::fs::File;
 use std::io::prelude::*;
 use std::path::{Path, PathBuf};
@@ -77,6 +79,7 @@ fn do_transition<T: EthSpec>(
         &block,
         None,
         BlockSignatureStrategy::VerifyIndividual,
+        VerifyBlockRoot::True,
         spec,
     )
     .map_err(|e| format!("State transition failed: {:?}", e))?;

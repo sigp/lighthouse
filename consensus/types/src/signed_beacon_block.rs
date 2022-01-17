@@ -1,5 +1,6 @@
 use crate::*;
 use bls::Signature;
+use derivative::Derivative;
 use serde_derive::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
 use std::fmt;
@@ -37,23 +38,25 @@ impl From<SignedBeaconBlockHash> for Hash256 {
 
 /// A `BeaconBlock` and a signature from its proposer.
 #[superstruct(
-    variants(Base, Altair),
+    variants(Base, Altair, Merge),
     variant_attributes(
         derive(
             Debug,
-            PartialEq,
             Clone,
             Serialize,
             Deserialize,
             Encode,
             Decode,
-            TreeHash
+            TreeHash,
+            Derivative,
         ),
+        derivative(PartialEq, Hash(bound = "E: EthSpec")),
         cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary)),
         serde(bound = "E: EthSpec")
     )
 )]
-#[derive(Debug, PartialEq, Clone, Serialize, Deserialize, Encode, TreeHash)]
+#[derive(Debug, Clone, Serialize, Deserialize, Encode, TreeHash, Derivative)]
+#[derivative(PartialEq, Hash(bound = "E: EthSpec"))]
 #[serde(untagged)]
 #[serde(bound = "E: EthSpec")]
 #[cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary))]
@@ -64,6 +67,8 @@ pub struct SignedBeaconBlock<E: EthSpec> {
     pub message: BeaconBlockBase<E>,
     #[superstruct(only(Altair), partial_getter(rename = "message_altair"))]
     pub message: BeaconBlockAltair<E>,
+    #[superstruct(only(Merge), partial_getter(rename = "message_merge"))]
+    pub message: BeaconBlockMerge<E>,
     pub signature: Signature,
 }
 
@@ -116,6 +121,9 @@ impl<E: EthSpec> SignedBeaconBlock<E> {
             BeaconBlock::Altair(message) => {
                 SignedBeaconBlock::Altair(SignedBeaconBlockAltair { message, signature })
             }
+            BeaconBlock::Merge(message) => {
+                SignedBeaconBlock::Merge(SignedBeaconBlockMerge { message, signature })
+            }
         }
     }
 
@@ -129,6 +137,7 @@ impl<E: EthSpec> SignedBeaconBlock<E> {
             SignedBeaconBlock::Altair(block) => {
                 (BeaconBlock::Altair(block.message), block.signature)
             }
+            SignedBeaconBlock::Merge(block) => (BeaconBlock::Merge(block.message), block.signature),
         }
     }
 
@@ -137,6 +146,7 @@ impl<E: EthSpec> SignedBeaconBlock<E> {
         match self {
             SignedBeaconBlock::Base(inner) => BeaconBlockRef::Base(&inner.message),
             SignedBeaconBlock::Altair(inner) => BeaconBlockRef::Altair(&inner.message),
+            SignedBeaconBlock::Merge(inner) => BeaconBlockRef::Merge(&inner.message),
         }
     }
 
@@ -145,6 +155,7 @@ impl<E: EthSpec> SignedBeaconBlock<E> {
         match self {
             SignedBeaconBlock::Base(inner) => BeaconBlockRefMut::Base(&mut inner.message),
             SignedBeaconBlock::Altair(inner) => BeaconBlockRefMut::Altair(&mut inner.message),
+            SignedBeaconBlock::Merge(inner) => BeaconBlockRefMut::Merge(&mut inner.message),
         }
     }
 

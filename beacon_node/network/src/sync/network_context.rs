@@ -6,10 +6,11 @@ use super::range_sync::{BatchId, ChainId};
 use super::RequestId as SyncRequestId;
 use crate::service::NetworkMessage;
 use crate::status::ToStatusMessage;
-use beacon_chain::{BeaconChain, BeaconChainTypes};
-use eth2_libp2p::rpc::{BlocksByRangeRequest, BlocksByRootRequest, GoodbyeReason, RequestId};
-use eth2_libp2p::{Client, NetworkGlobals, PeerAction, PeerId, ReportSource, Request};
 use fnv::FnvHashMap;
+use lighthouse_network::rpc::{
+    BlocksByRangeRequest, BlocksByRootRequest, GoodbyeReason, RequestId,
+};
+use lighthouse_network::{Client, NetworkGlobals, PeerAction, PeerId, ReportSource, Request};
 use slog::{debug, trace, warn};
 use std::sync::Arc;
 use tokio::sync::mpsc;
@@ -59,12 +60,12 @@ impl<T: EthSpec> SyncNetworkContext<T> {
             .unwrap_or_default()
     }
 
-    pub fn status_peers<U: BeaconChainTypes>(
+    pub fn status_peers<C: ToStatusMessage>(
         &mut self,
-        chain: Arc<BeaconChain<U>>,
+        chain: &C,
         peers: impl Iterator<Item = PeerId>,
     ) {
-        if let Ok(status_message) = &chain.status_message() {
+        if let Ok(status_message) = chain.status_message() {
             for peer_id in peers {
                 debug!(
                     self.log,
@@ -169,13 +170,14 @@ impl<T: EthSpec> SyncNetworkContext<T> {
     }
 
     /// Reports to the scoring algorithm the behaviour of a peer.
-    pub fn report_peer(&mut self, peer_id: PeerId, action: PeerAction) {
+    pub fn report_peer(&mut self, peer_id: PeerId, action: PeerAction, msg: &'static str) {
         debug!(self.log, "Sync reporting peer"; "peer_id" => %peer_id, "action" => %action);
         self.network_send
             .send(NetworkMessage::ReportPeer {
                 peer_id,
                 action,
                 source: ReportSource::SyncService,
+                msg,
             })
             .unwrap_or_else(|e| {
                 warn!(self.log, "Could not report peer, channel failed"; "error"=> %e);

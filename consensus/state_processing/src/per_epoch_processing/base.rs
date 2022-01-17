@@ -43,7 +43,6 @@ pub fn process_epoch<T: EthSpec>(
     process_slashings(
         state,
         validator_statuses.total_balances.current_epoch(),
-        spec.proportional_slashing_multiplier,
         spec,
     )?;
 

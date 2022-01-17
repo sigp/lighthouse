@@ -6,8 +6,8 @@ use eth1::{DEFAULT_CHAIN_ID, DEFAULT_NETWORK_ID};
 use eth1_test_rig::GanacheEth1Instance;
 use futures::prelude::*;
 use node_test_rig::{
-    environment::EnvironmentBuilder, testing_client_config, testing_validator_config,
-    ClientGenesis, ValidatorFiles,
+    environment::{EnvironmentBuilder, LoggerConfig},
+    testing_client_config, testing_validator_config, ClientGenesis, ValidatorFiles,
 };
 use rayon::prelude::*;
 use sensitive_url::SensitiveUrl;
@@ -53,7 +53,15 @@ pub fn run_eth1_sim(matches: &ArgMatches) -> Result<(), String> {
     let log_format = None;
 
     let mut env = EnvironmentBuilder::minimal()
-        .async_logger(log_level, log_format)?
+        .initialize_logger(LoggerConfig {
+            path: None,
+            debug_level: log_level,
+            logfile_debug_level: "debug",
+            log_format,
+            max_log_size: 0,
+            max_log_number: 0,
+            compression: false,
+        })?
         .multi_threaded_tokio_runtime()?
         .build()?;
 
@@ -70,7 +78,7 @@ pub fn run_eth1_sim(matches: &ArgMatches) -> Result<(), String> {
     spec.genesis_delay = eth1_block_time.as_secs() * spec.eth1_follow_distance * 2;
     spec.min_genesis_time = 0;
     spec.min_genesis_active_validator_count = total_validator_count as u64;
-    spec.seconds_per_eth1_block = 1;
+    spec.seconds_per_eth1_block = eth1_block_time.as_secs();
     spec.altair_fork_epoch = Some(Epoch::new(FORK_EPOCH));
 
     let slot_duration = Duration::from_secs(spec.seconds_per_slot);
@@ -124,8 +132,10 @@ pub fn run_eth1_sim(matches: &ArgMatches) -> Result<(), String> {
         beacon_config.eth1.node_far_behind_seconds = 20;
         beacon_config.dummy_eth1_backend = false;
         beacon_config.sync_eth1_chain = true;
+        beacon_config.eth1.auto_update_interval_millis = eth1_block_time.as_millis() as u64;
         beacon_config.eth1.network_id = Eth1Id::from(network_id);
         beacon_config.eth1.chain_id = Eth1Id::from(chain_id);
+        beacon_config.network.target_peers = node_count - 1;
 
         beacon_config.network.enr_address = Some(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)));
 
