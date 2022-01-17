@@ -2,6 +2,9 @@
 name: local testnet
 
 on:
+  push:
+    branches:
+      - unstable
   pull_request:
 
 jobs:
