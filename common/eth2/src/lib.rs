@@ -1127,6 +1127,7 @@ impl BeaconNodeHttpClient {
         slot: Slot,
         randao_reveal: &SignatureBytes,
         graffiti: Option<&Graffiti>,
+        fee_recipient: Option<&Address>,
     ) -> Result<ForkVersionedResponse<BeaconBlock<T>>, Error> {
         let mut path = self.eth_path(V2)?;
 
@@ -1142,6 +1143,11 @@ impl BeaconNodeHttpClient {
         if let Some(graffiti) = graffiti {
             path.query_pairs_mut()
                 .append_pair("graffiti", &graffiti.to_string());
+        }
+
+        if let Some(fee_recipient) = fee_recipient {
+            path.query_pairs_mut()
+                .append_pair("fee_recipient", &fee_recipient.to_string());
         }
 
         self.get(path).await

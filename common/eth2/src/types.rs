@@ -575,6 +575,7 @@ pub struct ProposerData {
 pub struct ValidatorBlocksQuery {
     pub randao_reveal: SignatureBytes,
     pub graffiti: Option<Graffiti>,
+    pub fee_recipient: Option<Address>,
 }
 
 #[derive(Clone, Serialize, Deserialize)]

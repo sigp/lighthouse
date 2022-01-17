@@ -587,7 +587,7 @@ where
 
         let (block, state) = self
             .chain
-            .produce_block_on_state(state, None, slot, randao_reveal, Some(graffiti))
+            .produce_block_on_state(state, None, slot, randao_reveal, Some(graffiti), None)
             .unwrap();
 
         let signed_block = block.sign(
@@ -641,7 +641,7 @@ where
 
         let (block, state) = self
             .chain
-            .produce_block_on_state(state, None, slot, randao_reveal, Some(graffiti))
+            .produce_block_on_state(state, None, slot, randao_reveal, Some(graffiti), None)
             .unwrap();
 
         let signed_block = block.sign(

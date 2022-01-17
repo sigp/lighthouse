@@ -129,7 +129,7 @@ impl<T: EthSpec> MockExecutionLayer<T> {
 
         let payload = self
             .el
-            .get_payload::<T>(parent_hash, timestamp, random, finalized_block_hash)
+            .get_payload::<T>(parent_hash, timestamp, random, finalized_block_hash, None)
             .await
             .unwrap();
         let block_hash = payload.block_hash;

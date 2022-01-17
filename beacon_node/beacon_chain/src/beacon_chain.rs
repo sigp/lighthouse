@@ -2869,6 +2869,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         randao_reveal: Signature,
         slot: Slot,
         validator_graffiti: Option<Graffiti>,
+        validator_fee_recipient: Option<Address>,
     ) -> Result<BeaconBlockAndState<T::EthSpec>, BlockProductionError> {
         metrics::inc_counter(&metrics::BLOCK_PRODUCTION_REQUESTS);
         let _complete_timer = metrics::start_timer(&metrics::BLOCK_PRODUCTION_TIMES);
@@ -2926,6 +2927,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             slot,
             randao_reveal,
             validator_graffiti,
+            validator_fee_recipient,
         )
     }
 
@@ -2948,6 +2950,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         produce_at_slot: Slot,
         randao_reveal: Signature,
         validator_graffiti: Option<Graffiti>,
+        validator_fee_recipient: Option<Address>,
     ) -> Result<BeaconBlockAndState<T::EthSpec>, BlockProductionError> {
         let eth1_chain = self
             .eth1_chain
@@ -3096,7 +3099,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             }
             BeaconState::Merge(_) => {
                 let sync_aggregate = get_sync_aggregate()?;
-                let execution_payload = get_execution_payload(self, &state)?;
+                let execution_payload = get_execution_payload(self, &state, validator_fee_recipient)?;
                 BeaconBlock::Merge(BeaconBlockMerge {
                     slot,
                     proposer_index,
