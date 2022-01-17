@@ -666,9 +666,11 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
             // connection state for an unknown peer.
             if !matches!(
                 new_state,
-                NewConnectionState::Connected { .. }
-                    | NewConnectionState::Disconnecting { .. }
-                    | NewConnectionState::Dialing { .. }
+                NewConnectionState::Connected { .. }          // We have established a new connection (peer may not have been seen before)
+                    | NewConnectionState::Disconnecting { .. }// We are disconnecting from a peer that may not have been registered before
+                    | NewConnectionState::Dialing { .. }      // We are dialing a potentially new peer
+                    | NewConnectionState::Disconnected { .. } // Dialing a peer that responds by a different ID can be immediately
+                                                              // disconnected without having being stored in the db before
             ) {
                 warn!(log_ref, "Updating state of unknown peer";
                     "peer_id" => %peer_id, "new_state" => ?new_state);
