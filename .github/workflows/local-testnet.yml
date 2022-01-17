@@ -21,6 +21,10 @@ jobs:
       - name: Install lighthouse
         run: make && make install-lcli
 
-      - name: Run local testnet
+      - name: Start local testnet
         run: ./start_local_testnet.sh
+        working-directory: scripts/local_testnet
+
+      - name: Stop local testnet
+        run: ./stop_local_testnet.sh
         working-directory: scripts/local_testnet
