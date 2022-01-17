@@ -224,7 +224,10 @@ fn graffiti_file_with_pk_flag() {
 #[test]
 fn fee_recipient_flag() {
     CommandLineTest::new()
-        .flag("fee-recipient", Some("0x00000000219ab540356cbb839cbe05303d7705fa"))
+        .flag(
+            "fee-recipient",
+            Some("0x00000000219ab540356cbb839cbe05303d7705fa"),
+        )
         .run()
         .with_config(|config| {
             assert_eq!(
@@ -236,7 +239,8 @@ fn fee_recipient_flag() {
 #[test]
 fn fee_recipient_file_flag() {
     let dir = TempDir::new().expect("Unable to create temporary directory");
-    let mut file = File::create(dir.path().join("fee_recipient.txt")).expect("Unable to create file");
+    let mut file =
+        File::create(dir.path().join("fee_recipient.txt")).expect("Unable to create file");
     let new_key = Keypair::random();
     let pubkeybytes = PublicKeyBytes::from(new_key.pk);
     let contents = "default:0x00000000219ab540356cbb839cbe05303d7705fa";
@@ -257,17 +261,21 @@ fn fee_recipient_file_flag() {
                     .unwrap()
                     .load_fee_recipient(&pubkeybytes)
                     .unwrap(),
-                    Some(Address::from_str("0x00000000219ab540356cbb839cbe05303d7705fa").unwrap())
+                Some(Address::from_str("0x00000000219ab540356cbb839cbe05303d7705fa").unwrap())
             )
         });
 }
 #[test]
 fn fee_recipient_file_with_pk_flag() {
     let dir = TempDir::new().expect("Unable to create temporary directory");
-    let mut file = File::create(dir.path().join("fee_recipient.txt")).expect("Unable to create file");
+    let mut file =
+        File::create(dir.path().join("fee_recipient.txt")).expect("Unable to create file");
     let new_key = Keypair::random();
     let pubkeybytes = PublicKeyBytes::from(new_key.pk);
-    let contents = format!("{}:0x00000000219ab540356cbb839cbe05303d7705fa", pubkeybytes.to_string());
+    let contents = format!(
+        "{}:0x00000000219ab540356cbb839cbe05303d7705fa",
+        pubkeybytes.to_string()
+    );
     file.write_all(contents.as_bytes())
         .expect("Unable to write to file");
     CommandLineTest::new()

@@ -50,7 +50,11 @@ impl FeeRecipientFile {
         public_key: &PublicKeyBytes,
     ) -> Result<Option<Address>, Error> {
         self.read_fee_recipient_file()?;
-        Ok(self.fee_recipients.get(public_key).copied().or(self.default))
+        Ok(self
+            .fee_recipients
+            .get(public_key)
+            .copied()
+            .or(self.default))
     }
 
     /// Reads from a fee-recipient file with the specified format and populates the default value

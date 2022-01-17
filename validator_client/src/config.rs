@@ -1,5 +1,5 @@
-use crate::graffiti_file::GraffitiFile;
 use crate::fee_recipient_file::FeeRecipientFile;
+use crate::graffiti_file::GraffitiFile;
 use crate::{http_api, http_metrics};
 use clap::ArgMatches;
 use clap_utils::{parse_optional, parse_required};

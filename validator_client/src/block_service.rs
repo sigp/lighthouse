@@ -1,7 +1,7 @@
 use crate::{
     beacon_node_fallback::{BeaconNodeFallback, RequireSynced},
-    graffiti_file::GraffitiFile,
     fee_recipient_file::FeeRecipientFile,
+    graffiti_file::GraffitiFile,
 };
 use crate::{http_metrics::metrics, validator_store::ValidatorStore};
 use environment::RuntimeContext;
@@ -275,7 +275,7 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
             })
             .or_else(|| self.validator_store.graffiti(&validator_pubkey))
             .or(self.graffiti);
-        
+
         let fee_recipient = self
             .fee_recipient_file
             .clone()
@@ -300,7 +300,12 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
                     &[metrics::BEACON_BLOCK_HTTP_GET],
                 );
                 let block = beacon_node
-                    .get_validator_blocks(slot, randao_reveal_ref, graffiti.as_ref(), fee_recipient.as_ref())
+                    .get_validator_blocks(
+                        slot,
+                        randao_reveal_ref,
+                        graffiti.as_ref(),
+                        fee_recipient.as_ref(),
+                    )
                     .await
                     .map_err(|e| format!("Error from beacon node when producing block: {:?}", e))?
                     .data;
