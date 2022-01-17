@@ -37,7 +37,6 @@ use crate::{
     BeaconChain, BeaconChainError, BeaconChainTypes,
 };
 use bls::verify_signature_sets;
-use itertools::process_results;
 use proto_array::Block as ProtoBlock;
 use slog::debug;
 use slot_clock::SlotClock;
@@ -999,32 +998,20 @@ fn verify_head_block_is_known<T: BeaconChainTypes>(
         }
 
         Ok(block)
+    } else if chain.is_pre_finalization_block(attestation.data.beacon_block_root)? {
+        Err(Error::HeadBlockFinalized {
+            beacon_block_root: attestation.data.beacon_block_root,
+        })
     } else {
-        // Block is pre-finalization from the canonical chain (subset of case (2)).
-        // We read from the head's in-memory list of block roots as this is likely faster
-        // than trying to read from disk. The chance that the block is lurking in fork choice
-        // pre-finalization is low, as fork choice is pruned immediately after being updated.
-        let is_finalized_block = chain.with_head(|head| {
-            process_results(
-                head.beacon_state.rev_iter_block_roots(&chain.spec),
-                |iter| {
-                    iter.skip_while(|(slot, _)| *slot > attestation.data.slot)
-                        .any(|(_, block_root)| block_root == attestation.data.beacon_block_root)
-                },
-            )
-            .map_err(BeaconChainError::BeaconStateError)
-        })?;
-        if is_finalized_block {
-            Err(Error::HeadBlockFinalized {
-                beacon_block_root: attestation.data.beacon_block_root,
-            })
-        } else {
-            // The block is an obscure one: start a single block look-up. If it fails then the peer
-            // will be penalised harshly for sending us junk and wasting our time.
-            Err(Error::UnknownHeadBlock {
-                beacon_block_root: attestation.data.beacon_block_root,
-            })
-        }
+        // The block is either:
+        //
+        // 1) A pre-finalization block that has been pruned. We'll do one network lookup
+        //    for it and when it fails we will penalise all involved peers.
+        // 2) A post-finalization block that we don't know about yet. We'll queue
+        //    the attestation until the block becomes available (or we time out).
+        Err(Error::UnknownHeadBlock {
+            beacon_block_root: attestation.data.beacon_block_root,
+        })
     }
 }
 

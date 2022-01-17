@@ -1718,7 +1718,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                 self.gossip_penalize_peer(
                     peer_id,
                     PeerAction::HighToleranceError,
-                    "attn_too_many_skipped_slots",
+                    "attn_to_finalized_block",
                 );
             }
             AttnError::BeaconChainError(BeaconChainError::DBError(Error::HotColdDBError(
