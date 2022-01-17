@@ -5267,7 +5267,8 @@ dependencies = [
 [[package]]
 name = "serde_array_query"
 version = "0.1.0"
-source = "git+https://github.com/sigp/serde_array_query?rev=67c3eaff7dc42d256509adad2e40a70e973248ec#67c3eaff7dc42d256509adad2e40a70e973248ec"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d89c6e82b1005b33d5b2bbc47096800e5ad6b67ef5636f9c13ad29a6935734a7"
 dependencies = [
  "serde",
  "serde_urlencoded",
