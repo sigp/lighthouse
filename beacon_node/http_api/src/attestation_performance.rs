@@ -76,8 +76,8 @@ pub fn get_attestation_performance<T: BeaconChainTypes>(
     // Either use the global validator set, or the specified index.
     let index_range = if target.to_lowercase() == "global" {
         chain
-          .with_head(|head| Ok((0..head.beacon_state.validators().len() as u64).collect()))
-          .map_err(beacon_chain_error)?
+            .with_head(|head| Ok((0..head.beacon_state.validators().len() as u64).collect()))
+            .map_err(beacon_chain_error)?
     } else {
         vec![target.parse::<u64>().map_err(|_| {
             custom_bad_request(format!(
@@ -92,7 +92,7 @@ pub fn get_attestation_performance<T: BeaconChainTypes>(
         .forwards_iter_block_roots_until(start_slot, end_slot)
         .map_err(beacon_chain_error)?
         .map(|res| res.map(|(root, _)| root))
-        .collect::<Result<Vec<Hash256>,_ >>()
+        .collect::<Result<Vec<Hash256>, _>>()
         .map_err(beacon_chain_error)?;
     block_roots.dedup();
 
