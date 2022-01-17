@@ -1873,7 +1873,7 @@ pub fn serve<T: BeaconChainTypes>(
                             randao_reveal,
                             slot,
                             query.graffiti.map(Into::into),
-                            query.fee_recipient.map(Into::into),
+                            query.fee_recipient,
                         )
                         .map_err(warp_utils::reject::block_production_error)?;
                     let fork_name = block

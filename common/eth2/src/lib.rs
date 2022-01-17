@@ -1147,7 +1147,7 @@ impl BeaconNodeHttpClient {
 
         if let Some(fee_recipient) = fee_recipient {
             path.query_pairs_mut()
-                .append_pair("fee_recipient", &fee_recipient.to_string());
+                .append_pair("fee_recipient", &format!("{:?}", fee_recipient));
         }
 
         self.get(path).await
