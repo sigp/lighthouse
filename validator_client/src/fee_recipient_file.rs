@@ -91,8 +91,7 @@ fn read_line(line: &str) -> Result<(Option<PublicKeyBytes>, Address), Error> {
         let (key, value) = line.split_at(i);
         // Note: `value.len() >=1` so `value[1..]` is safe
         let fee_recipient = Address::from_str(value[1..].trim())
-            .map_err(|e| Error::InvalidFeeRecipient(e.to_string()))?
-            .into();
+            .map_err(|e| Error::InvalidFeeRecipient(e.to_string()))?;
         if key == "default" {
             Ok((None, fee_recipient))
         } else {
@@ -153,18 +152,18 @@ mod tests {
 
         assert_eq!(
             gf.load_fee_recipient(&pk1).unwrap().unwrap(),
-            Address::from_str(CUSTOM_FEE_RECIPIENT1).unwrap().into()
+            Address::from_str(CUSTOM_FEE_RECIPIENT1).unwrap()
         );
         assert_eq!(
             gf.load_fee_recipient(&pk2).unwrap().unwrap(),
-            Address::from_str(CUSTOM_FEE_RECIPIENT2).unwrap().into()
+            Address::from_str(CUSTOM_FEE_RECIPIENT2).unwrap()
         );
 
         // Random pk should return the default fee-recipient
         let random_pk = Keypair::random().pk.compress();
         assert_eq!(
             gf.load_fee_recipient(&random_pk).unwrap().unwrap(),
-            Address::from_str(DEFAULT_FEE_RECIPIENT).unwrap().into()
+            Address::from_str(DEFAULT_FEE_RECIPIENT).unwrap()
         );
     }
 }
