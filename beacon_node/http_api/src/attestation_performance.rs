@@ -7,7 +7,7 @@ use state_processing::{
     per_epoch_processing::EpochProcessingSummary, BlockReplayError, BlockReplayer,
 };
 use std::sync::Arc;
-use types::{BeaconState, BeaconStateError, EthSpec, Hash256, SignedBeaconBlock, Slot};
+use types::{BeaconState, BeaconStateError, EthSpec, Hash256, SignedBeaconBlock};
 use warp_utils::reject::{beacon_chain_error, custom_bad_request, custom_server_error};
 
 const MAX_REQUEST_RANGE_EPOCHS: usize = 100;
@@ -58,7 +58,6 @@ pub fn get_attestation_performance<T: BeaconChainTypes>(
 
     // Check query is valid
     if start_epoch > end_epoch {
-        // || start_epoch == 0 {
         return Err(custom_bad_request(format!(
             "invalid start and end epochs: {}, {}",
             query.start_epoch, query.end_epoch
@@ -74,13 +73,11 @@ pub fn get_attestation_performance<T: BeaconChainTypes>(
         )));
     }
 
-    let head_state = chain.head_beacon_state().map_err(beacon_chain_error)?;
-
-    let validator_indices = (0..=head_state.validators().len() as u64).collect();
-
     // Either use the global validator set, or the specified index.
     let index_range = if target.to_lowercase() == "global" {
-        validator_indices
+        chain
+          .with_head(|head| Ok((0..head.beacon_state.validators().len() as u64).collect()))
+          .map_err(beacon_chain_error)?
     } else {
         vec![target.parse::<u64>().map_err(|_| {
             custom_bad_request(format!(
@@ -94,14 +91,12 @@ pub fn get_attestation_performance<T: BeaconChainTypes>(
     let mut block_roots: Vec<Hash256> = chain
         .forwards_iter_block_roots_until(start_slot, end_slot)
         .map_err(beacon_chain_error)?
-        .collect::<Result<Vec<(Hash256, Slot)>, _>>()
-        .map_err(beacon_chain_error)?
-        .iter()
-        .map(|(root, _)| *root)
-        .collect();
+        .map(|res| res.map(|(root, _)| root))
+        .collect::<Result<Vec<Hash256>,_ >>()
+        .map_err(beacon_chain_error)?;
     block_roots.dedup();
 
-    // Load first block so we can get it's parent.
+    // Load first block so we can get its parent.
     let first_block_root = block_roots
         .first()
         .ok_or_else(|| custom_server_error("No blocks roots could be loaded".to_string()))?;
