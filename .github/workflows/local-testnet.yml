@@ -41,6 +41,10 @@ jobs:
         run: ./start_local_testnet.sh
         working-directory: scripts/local_testnet
 
+      - name: Print logs
+        run: ./print_logs.sh
+        working-directory: scripts/local_testnet
+
       - name: Stop local testnet
         run: ./stop_local_testnet.sh
         working-directory: scripts/local_testnet
