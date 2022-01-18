@@ -10,6 +10,7 @@ use lru::LruCache;
 use sensitive_url::SensitiveUrl;
 use slog::{crit, debug, error, info, Logger};
 use slot_clock::SlotClock;
+use std::collections::HashMap;
 use std::future::Future;
 use std::sync::Arc;
 use std::time::Duration;
@@ -18,7 +19,7 @@ use tokio::{
     sync::{Mutex, MutexGuard},
     time::{sleep, sleep_until, Instant},
 };
-use types::{ ChainSpec, ProposerPreparationData };
+use types::{ChainSpec, ProposerPreparationData};
 
 pub use engine_api::{http::HttpJsonRpc, ExecutePayloadResponseStatus};
 
@@ -49,6 +50,7 @@ impl From<ApiError> for Error {
 struct Inner {
     engines: Engines<HttpJsonRpc>,
     suggested_fee_recipient: Option<Address>,
+    proposer_preparation_data: Mutex<HashMap<u64, ProposerPreparationData>>,
     execution_blocks: Mutex<LruCache<Hash256, ExecutionBlock>>,
     executor: TaskExecutor,
     log: Logger,
@@ -96,6 +98,7 @@ impl ExecutionLayer {
                 log: log.clone(),
             },
             suggested_fee_recipient,
+            proposer_preparation_data: Mutex::new(HashMap::new()),
             execution_blocks: Mutex::new(LruCache::new(EXECUTION_BLOCKS_LRU_CACHE_SIZE)),
             executor,
             log,
@@ -125,6 +128,13 @@ impl ExecutionLayer {
     /// Note: this function returns a mutex guard, be careful to avoid deadlocks.
     async fn execution_blocks(&self) -> MutexGuard<'_, LruCache<Hash256, ExecutionBlock>> {
         self.inner.execution_blocks.lock().await
+    }
+
+    /// Note: this function returns a mutex guard, be careful to avoid deadlocks.
+    async fn proposer_preparation_data(
+        &self,
+    ) -> MutexGuard<'_, HashMap<u64, ProposerPreparationData>> {
+        self.inner.proposer_preparation_data.lock().await
     }
 
     fn log(&self) -> &Logger {
@@ -240,15 +250,36 @@ impl ExecutionLayer {
     }
 
     /// Updates the proposer preparation data provided by validators
-    pub fn update_proposer_preparation(&self, preparation_data: Vec<ProposerPreparationData>) -> Result<(), Error> {
+    pub fn update_proposer_preparation(
+        &self,
+        preparation_data: Vec<ProposerPreparationData>,
+    ) -> Result<(), Error> {
+        self.block_on_generic(|_| async {
+            self.update_proposer_preparation_async(preparation_data.clone())
+                .await
+        })
+        .unwrap()
+    }
+
+    /// Updates the proposer preparation data provided by validators
+    async fn update_proposer_preparation_async(
+        &self,
+        preparation_data: Vec<ProposerPreparationData>,
+    ) -> Result<(), Error> {
         info!(
             self.log(),
             "Received proposer preperation data";
             "count" => preparation_data.len(),
         );
+
+        let mut proposer_preparation_data = self.proposer_preparation_data().await;
+        let mut preparation_entries = preparation_data.clone();
+        while let Some(preparation_entry) = preparation_entries.pop() {
+            proposer_preparation_data.insert(preparation_entry.validator_index, preparation_entry);
+        }
+
         Ok(())
     }
-
 
     /// Maps to the `engine_getPayload` JSON-RPC call.
     ///
@@ -265,8 +296,19 @@ impl ExecutionLayer {
         timestamp: u64,
         random: Hash256,
         finalized_block_hash: Hash256,
+        proposer_index: Option<u64>,
     ) -> Result<ExecutionPayload<T>, Error> {
-        let suggested_fee_recipient = self.suggested_fee_recipient()?;
+        let suggested_fee_recipient = (if proposer_index.is_some() {
+            self.proposer_preparation_data()
+                .await
+                .get(&proposer_index.unwrap())
+                .map(|preparation_data| preparation_data.fee_recipient)
+        } else {
+            None
+        })
+        .or_else(|| self.suggested_fee_recipient().ok())
+        .unwrap();
+
         debug!(
             self.log(),
             "Issuing engine_getPayload";

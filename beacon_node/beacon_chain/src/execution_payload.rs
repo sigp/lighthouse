@@ -273,6 +273,7 @@ pub async fn prepare_execution_payload<T: BeaconChainTypes>(
     let timestamp = compute_timestamp_at_slot(state, spec).map_err(BeaconStateError::from)?;
     let random = *state.get_randao_mix(state.current_epoch())?;
     let finalized_root = state.finalized_checkpoint().root;
+    let proposer_index = state.get_beacon_proposer_index(state.slot(), spec)? as u64;
 
     // The finalized block hash is not included in the specification, however we provide this
     // parameter so that the execution layer can produce a payload id if one is not already known
@@ -300,6 +301,7 @@ pub async fn prepare_execution_payload<T: BeaconChainTypes>(
             timestamp,
             random,
             finalized_block_hash.unwrap_or_else(Hash256::zero),
+            Some(proposer_index),
         )
         .await
         .map_err(BlockProductionError::GetPayloadFailed)?;

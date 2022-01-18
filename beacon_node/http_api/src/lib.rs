@@ -43,9 +43,9 @@ use tokio::sync::mpsc::UnboundedSender;
 use tokio_stream::{wrappers::BroadcastStream, StreamExt};
 use types::{
     Attestation, AttesterSlashing, BeaconStateError, CommitteeCache, ConfigAndPreset, Epoch,
-    EthSpec, ForkName, ProposerPreparationData, ProposerSlashing, RelativeEpoch, SignedAggregateAndProof,
-    SignedBeaconBlock, SignedContributionAndProof, SignedVoluntaryExit, Slot, SyncCommitteeMessage,
-    SyncContributionData,
+    EthSpec, ForkName, ProposerPreparationData, ProposerSlashing, RelativeEpoch,
+    SignedAggregateAndProof, SignedBeaconBlock, SignedContributionAndProof, SignedVoluntaryExit,
+    Slot, SyncCommitteeMessage, SyncContributionData,
 };
 use version::{
     add_consensus_version_header, fork_versioned_response, inconsistent_fork_rejection,
@@ -2174,7 +2174,8 @@ pub fn serve<T: BeaconChainTypes>(
                 })
             },
         );
-    
+
+    // POST validator/prepare_beacon_proposer
     let post_validator_prepare_beacon_proposer = eth1_v1
         .and(warp::path("validator"))
         .and(warp::path("prepare_beacon_proposer"))
@@ -2183,22 +2184,23 @@ pub fn serve<T: BeaconChainTypes>(
         .and(chain_filter.clone())
         .and(warp::body::json())
         .and_then(
-            |chain: Arc<BeaconChain<T>>,
-             preparation_data: Vec<ProposerPreparationData>| {
+            |chain: Arc<BeaconChain<T>>, preparation_data: Vec<ProposerPreparationData>| {
                 blocking_json_task(move || {
                     let execution_layer = chain
                         .execution_layer
                         .as_ref()
                         .ok_or(BeaconChainError::ExecutionLayerMissing)
                         .map_err(warp_utils::reject::beacon_chain_error)?;
-                    
+
                     execution_layer
                         .update_proposer_preparation(preparation_data)
-                        .map_err(|_| {
-                            warp_utils::reject::custom_not_found(
-                                "error processing proposer preparation data".to_string(),
+                        .map_err(|_e| {
+                            warp_utils::reject::custom_bad_request(
+                                "error processing proposer preparations".to_string(),
                             )
-                        })
+                        })?;
+
+                    Ok(())
                 })
             },
         );

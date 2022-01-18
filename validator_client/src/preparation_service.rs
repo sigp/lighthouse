@@ -176,7 +176,6 @@ impl<T: SlotClock + 'static, E: EthSpec> PreparationService<T, E> {
             .filter_map(|pubkey| {
                 let validator_index = self.validator_store.validator_index(&pubkey);
                 if let Some(validator_index) = validator_index {
-
                     let fee_recipient = self
                         .fee_recipient_file
                         .clone()
