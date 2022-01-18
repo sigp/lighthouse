@@ -2,11 +2,13 @@ use crate::{BeaconChain, BeaconChainError, BeaconChainTypes};
 use itertools::process_results;
 use lru::LruCache;
 use parking_lot::Mutex;
-use slog::warn;
+use slog::debug;
+use std::time::Duration;
 use types::Hash256;
 
 const BLOCK_ROOT_CACHE_LIMIT: usize = 512;
 const LOOKUP_LIMIT: usize = 8;
+const METRICS_TIMEOUT: Duration = Duration::from_millis(100);
 
 #[derive(Default)]
 pub struct PreFinalizationBlockCache {
@@ -64,7 +66,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         // 3. Check the network with a single block lookup.
         if cache.in_progress_lookups.len() == LOOKUP_LIMIT {
-            warn!(
+            debug!(
                 self.log,
                 "Pre-finalization lookup cache is full";
             );
@@ -86,5 +88,14 @@ impl PreFinalizationBlockCache {
         // Future requests will find this block in fork choice, so no need to cache it in the
         // ongoing lookup cache any longer.
         self.cache.lock().in_progress_lookups.pop(&block_root);
+    }
+
+    pub fn contains(&self, block_root: Hash256) -> bool {
+        self.cache.lock().block_roots.contains(&block_root)
+    }
+
+    pub fn metrics(&self) -> Option<(usize, usize)> {
+        let cache = self.cache.try_lock_for(METRICS_TIMEOUT)?;
+        Some((cache.block_roots.len(), cache.in_progress_lookups.len()))
     }
 }

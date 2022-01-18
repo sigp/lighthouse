@@ -5,7 +5,7 @@ use beacon_chain::{
     test_utils::{
         test_spec, AttestationStrategy, BeaconChainHarness, BlockStrategy, EphemeralHarnessType,
     },
-    BeaconChain, BeaconChainTypes, WhenSlotSkipped,
+    BeaconChain, BeaconChainError, BeaconChainTypes, WhenSlotSkipped,
 };
 use int_to_bytes::int_to_bytes32;
 use lazy_static::lazy_static;
@@ -989,6 +989,81 @@ fn attestation_that_skips_epochs() {
         .chain
         .verify_unaggregated_attestation_for_gossip(&attestation, Some(subnet_id))
         .expect("should gossip verify attestation that skips slots");
+}
+
+#[test]
+fn attestation_to_finalized_block() {
+    let harness = get_harness(VALIDATOR_COUNT);
+
+    // Extend the chain out a few epochs so we have some chain depth to play with.
+    harness.extend_chain(
+        MainnetEthSpec::slots_per_epoch() as usize * 4 + 1,
+        BlockStrategy::OnCanonicalHead,
+        AttestationStrategy::AllValidators,
+    );
+
+    let finalized_checkpoint = harness
+        .chain
+        .with_head(|head| Ok::<_, BeaconChainError>(head.beacon_state.finalized_checkpoint()))
+        .unwrap();
+    assert!(finalized_checkpoint.epoch > 0);
+
+    let current_slot = harness.get_current_slot();
+
+    let earlier_slot = finalized_checkpoint
+        .epoch
+        .start_slot(MainnetEthSpec::slots_per_epoch())
+        - 1;
+    let earlier_block = harness
+        .chain
+        .block_at_slot(earlier_slot, WhenSlotSkipped::Prev)
+        .expect("should not error getting block at slot")
+        .expect("should find block at slot");
+    let earlier_block_root = earlier_block.canonical_root();
+    assert_ne!(earlier_block_root, finalized_checkpoint.root);
+
+    let mut state = harness
+        .chain
+        .get_state(&earlier_block.state_root(), Some(earlier_slot))
+        .expect("should not error getting state")
+        .expect("should find state");
+
+    while state.slot() < current_slot {
+        per_slot_processing(&mut state, None, &harness.spec).expect("should process slot");
+    }
+
+    let state_root = state.update_tree_hash_cache().unwrap();
+
+    let (attestation, subnet_id) = harness
+        .get_unaggregated_attestations(
+            &AttestationStrategy::AllValidators,
+            &state,
+            state_root,
+            earlier_block_root,
+            current_slot,
+        )
+        .first()
+        .expect("should have at least one committee")
+        .first()
+        .cloned()
+        .expect("should have at least one attestation in committee");
+    assert_eq!(attestation.data.beacon_block_root, earlier_block_root);
+
+    // Attestation should be rejected for attesting to a pre-finalization block.
+    let res = harness
+        .chain
+        .verify_unaggregated_attestation_for_gossip(&attestation, Some(subnet_id));
+    assert!(
+        matches!(res, Err(AttnError:: HeadBlockFinalized { beacon_block_root })
+                      if beacon_block_root == earlier_block_root
+        )
+    );
+
+    // Pre-finalization block cache should contain the block root.
+    assert!(harness
+        .chain
+        .pre_finalization_block_cache
+        .contains(earlier_block_root));
 }
 
 #[test]
