@@ -18,7 +18,7 @@ use tokio::{
     sync::{Mutex, MutexGuard},
     time::{sleep, sleep_until, Instant},
 };
-use types::ChainSpec;
+use types::{ ChainSpec, ProposerPreparationData };
 
 pub use engine_api::{http::HttpJsonRpc, ExecutePayloadResponseStatus};
 
@@ -238,6 +238,17 @@ impl ExecutionLayer {
     pub async fn is_synced(&self) -> bool {
         self.engines().any_synced().await
     }
+
+    /// Updates the proposer preparation data provided by validators
+    pub fn update_proposer_preparation(&self, preparation_data: Vec<ProposerPreparationData>) -> Result<(), Error> {
+        info!(
+            self.log(),
+            "Received proposer preperation data";
+            "count" => preparation_data.len(),
+        );
+        Ok(())
+    }
+
 
     /// Maps to the `engine_getPayload` JSON-RPC call.
     ///

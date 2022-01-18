@@ -43,8 +43,8 @@ use tokio::sync::mpsc::UnboundedSender;
 use tokio_stream::{wrappers::BroadcastStream, StreamExt};
 use types::{
     Attestation, AttesterSlashing, BeaconStateError, CommitteeCache, ConfigAndPreset, Epoch,
-    EthSpec, ForkName, ProposerSlashing, RelativeEpoch, SignedAggregateAndProof, SignedBeaconBlock,
-    SignedContributionAndProof, SignedVoluntaryExit, Slot, SyncCommitteeMessage,
+    EthSpec, ForkName, ProposerPreparationData, ProposerSlashing, RelativeEpoch, SignedAggregateAndProof,
+    SignedBeaconBlock, SignedContributionAndProof, SignedVoluntaryExit, Slot, SyncCommitteeMessage,
     SyncContributionData,
 };
 use version::{
@@ -2174,6 +2174,34 @@ pub fn serve<T: BeaconChainTypes>(
                 })
             },
         );
+    
+    let post_validator_prepare_beacon_proposer = eth1_v1
+        .and(warp::path("validator"))
+        .and(warp::path("prepare_beacon_proposer"))
+        .and(warp::path::end())
+        .and(not_while_syncing_filter.clone())
+        .and(chain_filter.clone())
+        .and(warp::body::json())
+        .and_then(
+            |chain: Arc<BeaconChain<T>>,
+             preparation_data: Vec<ProposerPreparationData>| {
+                blocking_json_task(move || {
+                    let execution_layer = chain
+                        .execution_layer
+                        .as_ref()
+                        .ok_or(BeaconChainError::ExecutionLayerMissing)
+                        .map_err(warp_utils::reject::beacon_chain_error)?;
+                    
+                    execution_layer
+                        .update_proposer_preparation(preparation_data)
+                        .map_err(|_| {
+                            warp_utils::reject::custom_not_found(
+                                "error processing proposer preparation data".to_string(),
+                            )
+                        })
+                })
+            },
+        );
 
     // POST validator/sync_committee_subscriptions
     let post_validator_sync_committee_subscriptions = eth1_v1
@@ -2666,6 +2694,7 @@ pub fn serve<T: BeaconChainTypes>(
                 .or(post_validator_contribution_and_proofs.boxed())
                 .or(post_validator_beacon_committee_subscriptions.boxed())
                 .or(post_validator_sync_committee_subscriptions.boxed())
+                .or(post_validator_prepare_beacon_proposer.boxed())
                 .or(post_lighthouse_liveness.boxed())
                 .or(post_lighthouse_database_reconstruct.boxed())
                 .or(post_lighthouse_database_historical_blocks.boxed()),
