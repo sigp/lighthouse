@@ -10,6 +10,7 @@ mod graffiti_file;
 mod http_metrics;
 mod key_cache;
 mod notifier;
+mod preparation_service;
 mod signing_method;
 mod sync_committee_service;
 
@@ -39,6 +40,7 @@ use eth2::{reqwest::ClientBuilder, BeaconNodeHttpClient, StatusCode, Timeouts};
 use http_api::ApiSecret;
 use notifier::spawn_notifier;
 use parking_lot::RwLock;
+use preparation_service::{PreparationService, PreparationServiceBuilder};
 use reqwest::Certificate;
 use slog::{error, info, warn, Logger};
 use slot_clock::SlotClock;
@@ -83,6 +85,7 @@ pub struct ProductionValidatorClient<T: EthSpec> {
     attestation_service: AttestationService<SystemTimeSlotClock, T>,
     sync_committee_service: SyncCommitteeService<SystemTimeSlotClock, T>,
     doppelganger_service: Option<Arc<DoppelgangerService>>,
+    preparation_service: PreparationService<SystemTimeSlotClock, T>,
     validator_store: Arc<ValidatorStore<SystemTimeSlotClock, T>>,
     http_api_listen_addr: Option<SocketAddr>,
     config: Config,
@@ -397,8 +400,6 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
             .runtime_context(context.service_context("block".into()))
             .graffiti(config.graffiti)
             .graffiti_file(config.graffiti_file.clone())
-            .fee_recipient(config.fee_recipient)
-            .fee_recipient_file(config.fee_recipient_file.clone())
             .build()?;
 
         let attestation_service = AttestationServiceBuilder::new()
@@ -407,6 +408,15 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
             .validator_store(validator_store.clone())
             .beacon_nodes(beacon_nodes.clone())
             .runtime_context(context.service_context("attestation".into()))
+            .build()?;
+
+        let preparation_service = PreparationServiceBuilder::new()
+            .slot_clock(slot_clock.clone())
+            .validator_store(validator_store.clone())
+            .beacon_nodes(beacon_nodes.clone())
+            .runtime_context(context.service_context("preparation".into()))
+            .fee_recipient(config.fee_recipient)
+            .fee_recipient_file(config.fee_recipient_file.clone())
             .build()?;
 
         let sync_committee_service = SyncCommitteeService::new(
@@ -430,6 +440,7 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
             attestation_service,
             sync_committee_service,
             doppelganger_service,
+            preparation_service,
             validator_store,
             config,
             http_api_listen_addr: None,
@@ -460,6 +471,11 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
             .clone()
             .start_update_service(&self.context.eth2_config.spec)
             .map_err(|e| format!("Unable to start sync committee service: {}", e))?;
+
+        self.preparation_service
+            .clone()
+            .start_update_service(&self.context.eth2_config.spec)
+            .map_err(|e| format!("Unable to start preparation service: {}", e))?;
 
         if let Some(doppelganger_service) = self.doppelganger_service.clone() {
             DoppelgangerService::start_update_service(

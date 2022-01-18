@@ -881,6 +881,23 @@ impl BeaconNodeHttpClient {
         Ok(())
     }
 
+    /// `POST validator/prepare_beacon_proposer`
+    pub async fn post_validator_prepare_beacon_proposer(
+        &self,
+        preparation_data: &[ProposerPreparationData],
+    ) -> Result<(), Error> {
+        let mut path = self.eth_path(V1)?;
+
+        path.path_segments_mut()
+            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
+            .push("validator")
+            .push("prepare_beacon_proposer");
+
+        self.post(path, &preparation_data).await?;
+
+        Ok(())
+    }
+
     /// `GET config/fork_schedule`
     pub async fn get_config_fork_schedule(&self) -> Result<GenericResponse<Vec<Fork>>, Error> {
         let mut path = self.eth_path(V1)?;
@@ -1127,7 +1144,6 @@ impl BeaconNodeHttpClient {
         slot: Slot,
         randao_reveal: &SignatureBytes,
         graffiti: Option<&Graffiti>,
-        fee_recipient: Option<&Address>,
     ) -> Result<ForkVersionedResponse<BeaconBlock<T>>, Error> {
         let mut path = self.eth_path(V2)?;
 
@@ -1143,11 +1159,6 @@ impl BeaconNodeHttpClient {
         if let Some(graffiti) = graffiti {
             path.query_pairs_mut()
                 .append_pair("graffiti", &graffiti.to_string());
-        }
-
-        if let Some(fee_recipient) = fee_recipient {
-            path.query_pairs_mut()
-                .append_pair("fee_recipient", &format!("{:?}", fee_recipient));
         }
 
         self.get(path).await

@@ -1869,12 +1869,7 @@ pub fn serve<T: BeaconChainTypes>(
                     })?;
 
                     let (block, _) = chain
-                        .produce_block(
-                            randao_reveal,
-                            slot,
-                            query.graffiti.map(Into::into),
-                            query.fee_recipient,
-                        )
+                        .produce_block(randao_reveal, slot, query.graffiti.map(Into::into))
                         .map_err(warp_utils::reject::block_production_error)?;
                     let fork_name = block
                         .to_ref()

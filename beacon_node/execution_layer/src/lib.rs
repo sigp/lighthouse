@@ -254,14 +254,8 @@ impl ExecutionLayer {
         timestamp: u64,
         random: Hash256,
         finalized_block_hash: Hash256,
-        validator_fee_recipient: Option<Address>,
     ) -> Result<ExecutionPayload<T>, Error> {
-        // Override the beacon node's suggested fee-recipient with fee-recipient from the validator, if present.
-        let suggested_fee_recipient = match validator_fee_recipient {
-            Some(fee_recipient) => fee_recipient,
-            None => self.suggested_fee_recipient()?,
-        };
-
+        let suggested_fee_recipient = self.suggested_fee_recipient()?;
         debug!(
             self.log(),
             "Issuing engine_getPayload";

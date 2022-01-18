@@ -1,6 +1,5 @@
 use crate::{
     beacon_node_fallback::{BeaconNodeFallback, RequireSynced},
-    fee_recipient_file::FeeRecipientFile,
     graffiti_file::GraffitiFile,
 };
 use crate::{http_metrics::metrics, validator_store::ValidatorStore};
@@ -11,7 +10,7 @@ use slot_clock::SlotClock;
 use std::ops::Deref;
 use std::sync::Arc;
 use tokio::sync::mpsc;
-use types::{Address, EthSpec, PublicKeyBytes, Slot};
+use types::{EthSpec, PublicKeyBytes, Slot};
 
 /// Builds a `BlockService`.
 pub struct BlockServiceBuilder<T, E: EthSpec> {
@@ -21,8 +20,6 @@ pub struct BlockServiceBuilder<T, E: EthSpec> {
     context: Option<RuntimeContext<E>>,
     graffiti: Option<Graffiti>,
     graffiti_file: Option<GraffitiFile>,
-    fee_recipient: Option<Address>,
-    fee_recipient_file: Option<FeeRecipientFile>,
 }
 
 impl<T: SlotClock + 'static, E: EthSpec> BlockServiceBuilder<T, E> {
@@ -34,8 +31,6 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockServiceBuilder<T, E> {
             context: None,
             graffiti: None,
             graffiti_file: None,
-            fee_recipient: None,
-            fee_recipient_file: None,
         }
     }
 
@@ -69,16 +64,6 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockServiceBuilder<T, E> {
         self
     }
 
-    pub fn fee_recipient(mut self, fee_recipient: Option<Address>) -> Self {
-        self.fee_recipient = fee_recipient;
-        self
-    }
-
-    pub fn fee_recipient_file(mut self, fee_recipient_file: Option<FeeRecipientFile>) -> Self {
-        self.fee_recipient_file = fee_recipient_file;
-        self
-    }
-
     pub fn build(self) -> Result<BlockService<T, E>, String> {
         Ok(BlockService {
             inner: Arc::new(Inner {
@@ -96,8 +81,6 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockServiceBuilder<T, E> {
                     .ok_or("Cannot build BlockService without runtime_context")?,
                 graffiti: self.graffiti,
                 graffiti_file: self.graffiti_file,
-                fee_recipient: self.fee_recipient,
-                fee_recipient_file: self.fee_recipient_file,
             }),
         })
     }
@@ -111,8 +94,6 @@ pub struct Inner<T, E: EthSpec> {
     context: RuntimeContext<E>,
     graffiti: Option<Graffiti>,
     graffiti_file: Option<GraffitiFile>,
-    fee_recipient: Option<Address>,
-    fee_recipient_file: Option<FeeRecipientFile>,
 }
 
 /// Attempts to produce attestations for any block producer(s) at the start of the epoch.
@@ -276,18 +257,6 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
             .or_else(|| self.validator_store.graffiti(&validator_pubkey))
             .or(self.graffiti);
 
-        let fee_recipient = self
-            .fee_recipient_file
-            .clone()
-            .and_then(|mut g| match g.load_fee_recipient(&validator_pubkey) {
-                Ok(g) => g,
-                Err(e) => {
-                    warn!(log, "Failed to read fee-recipient file"; "error" => ?e);
-                    None
-                }
-            })
-            .or(self.fee_recipient);
-
         let randao_reveal_ref = &randao_reveal;
         let self_ref = &self;
         let proposer_index = self.validator_store.validator_index(&validator_pubkey);
@@ -300,12 +269,7 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
                     &[metrics::BEACON_BLOCK_HTTP_GET],
                 );
                 let block = beacon_node
-                    .get_validator_blocks(
-                        slot,
-                        randao_reveal_ref,
-                        graffiti.as_ref(),
-                        fee_recipient.as_ref(),
-                    )
+                    .get_validator_blocks(slot, randao_reveal_ref, graffiti.as_ref())
                     .await
                     .map_err(|e| format!("Error from beacon node when producing block: {:?}", e))?
                     .data;
