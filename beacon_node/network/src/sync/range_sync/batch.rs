@@ -19,6 +19,8 @@ pub trait BatchConfig {
     fn max_batch_download_attempts() -> u8;
     /// The max batch processing attempts.
     fn max_batch_processing_attempts() -> u8;
+    /// Hashing function of a batch's attempt.
+    fn batch_attempt_hash<T: EthSpec>(blocks: &[SignedBeaconBlock<T>]) -> u64;
 }
 
 pub struct RangeSyncBatchConfig {}
@@ -29,6 +31,11 @@ impl BatchConfig for RangeSyncBatchConfig {
     }
     fn max_batch_processing_attempts() -> u8 {
         MAX_BATCH_PROCESSING_ATTEMPTS
+    }
+    fn batch_attempt_hash<T: EthSpec>(blocks: &[SignedBeaconBlock<T>]) -> u64 {
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        blocks.hash(&mut hasher);
+        hasher.finish()
     }
 }
 
@@ -300,7 +307,7 @@ impl<T: EthSpec, B: BatchConfig> BatchInfo<T, B> {
     pub fn start_processing(&mut self) -> Result<Vec<SignedBeaconBlock<T>>, WrongState> {
         match self.state.poison() {
             BatchState::AwaitingProcessing(peer, blocks) => {
-                self.state = BatchState::Processing(Attempt::new(peer, &blocks));
+                self.state = BatchState::Processing(Attempt::new::<B, T>(peer, &blocks));
                 Ok(blocks)
             }
             BatchState::Poisoned => unreachable!("Poisoned batch"),
@@ -386,11 +393,8 @@ pub struct Attempt {
 }
 
 impl Attempt {
-    #[allow(clippy::ptr_arg)]
-    fn new<T: EthSpec>(peer_id: PeerId, blocks: &Vec<SignedBeaconBlock<T>>) -> Self {
-        let mut hasher = std::collections::hash_map::DefaultHasher::new();
-        blocks.hash(&mut hasher);
-        let hash = hasher.finish();
+    fn new<B: BatchConfig, T: EthSpec>(peer_id: PeerId, blocks: &[SignedBeaconBlock<T>]) -> Self {
+        let hash = B::batch_attempt_hash(blocks);
         Attempt { peer_id, hash }
     }
 }
