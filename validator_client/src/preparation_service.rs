@@ -141,7 +141,16 @@ impl<T: SlotClock + 'static, E: EthSpec> PreparationService<T, E> {
                     self.slot_clock.duration_to_next_epoch(E::slots_per_epoch())
                 {
                     sleep(duration_to_next_epoch).await;
-                    self.prepare_proposers_and_publish().await.unwrap();
+                    self.prepare_proposers_and_publish()
+                        .await
+                        .map_err(|e| {
+                            error!(
+                                log,
+                                "Error during proposer preparation";
+                                "error" => format!("{:?}", e),
+                            )
+                        })
+                        .unwrap_or(());
                 } else {
                     error!(log, "Failed to read slot clock");
                     // If we can't read the slot clock, just wait another slot.
@@ -157,29 +166,45 @@ impl<T: SlotClock + 'static, E: EthSpec> PreparationService<T, E> {
 
     /// Prepare proposer preparations and send to beacon node
     async fn prepare_proposers_and_publish(&self) -> Result<(), String> {
+        let preparation_data = self.collect_preparation_data().unwrap();
+        if !preparation_data.is_empty() {
+            self.publish_preparation_data(preparation_data).await?;
+        }
+
+        Ok(())
+    }
+
+    fn collect_preparation_data(&self) -> Result<Vec<ProposerPreparationData>, String> {
         let log = self.context.log();
+
+        let fee_recipient_file = self
+            .fee_recipient_file
+            .clone()
+            .map(|mut fee_recipient_file| {
+                fee_recipient_file
+                    .read_fee_recipient_file()
+                    .map_err(|e| {
+                        error!(
+                            log,
+                            "{}", format!("Error loading fee-recipient file: {:?}", e);
+                        );
+                    })
+                    .unwrap_or(());
+                fee_recipient_file
+            });
 
         let all_pubkeys: Vec<_> = self
             .validator_store
             .voting_pubkeys(DoppelgangerStatus::ignored);
-
-        if self.fee_recipient_file.is_some() {
-            self.fee_recipient_file
-                .clone()
-                .unwrap()
-                .read_fee_recipient_file()
-                .unwrap();
-        }
 
         let preparation_data: Vec<_> = all_pubkeys
             .into_iter()
             .filter_map(|pubkey| {
                 let validator_index = self.validator_store.validator_index(&pubkey);
                 if let Some(validator_index) = validator_index {
-                    let fee_recipient = self
-                        .fee_recipient_file
-                        .clone()
-                        .and_then(|mut g| match g.get_fee_recipient(&pubkey) {
+                    let fee_recipient = fee_recipient_file
+                        .as_ref()
+                        .and_then(|g| match g.get_fee_recipient(&pubkey) {
                             Ok(g) => g,
                             Err(_e) => None,
                         })
@@ -195,33 +220,38 @@ impl<T: SlotClock + 'static, E: EthSpec> PreparationService<T, E> {
             })
             .collect();
 
-        let proposal_preparation = preparation_data.as_slice();
+        Ok(preparation_data)
+    }
 
+    async fn publish_preparation_data(
+        &self,
+        preparation_data: Vec<ProposerPreparationData>,
+    ) -> Result<(), String> {
+        let log = self.context.log();
+
+        // Post the proposer preparations to the BN.
         let preparation_data_len = preparation_data.len();
-        if preparation_data_len > 0 {
-            // Post the proposer preparations to the BN.
-            match self
-                .beacon_nodes
-                .first_success(RequireSynced::Yes, |beacon_node| async move {
-                    beacon_node
-                        .post_validator_prepare_beacon_proposer(proposal_preparation)
-                        .await
-                })
-                .await
-            {
-                Ok(()) => info!(
-                    log,
-                    "Successfully published proposer preparation";
-                    "count" => preparation_data_len,
-                ),
-                Err(e) => error!(
-                    log,
-                    "Unable to publish proposer preparation";
-                    "error" => %e,
-                ),
-            }
+        let preparation_entries = preparation_data.as_slice();
+        match self
+            .beacon_nodes
+            .first_success(RequireSynced::Yes, |beacon_node| async move {
+                beacon_node
+                    .post_validator_prepare_beacon_proposer(preparation_entries)
+                    .await
+            })
+            .await
+        {
+            Ok(()) => info!(
+                log,
+                "Successfully published proposer preparation";
+                "count" => preparation_data_len,
+            ),
+            Err(e) => error!(
+                log,
+                "Unable to publish proposer preparation";
+                "error" => %e,
+            ),
         }
-
         Ok(())
     }
 }

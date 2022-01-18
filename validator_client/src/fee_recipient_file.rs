@@ -44,10 +44,7 @@ impl FeeRecipientFile {
     /// default fee-recipient.
     ///
     /// Returns an error if loading from the fee-recipient file fails.
-    pub fn get_fee_recipient(
-        &mut self,
-        public_key: &PublicKeyBytes,
-    ) -> Result<Option<Address>, Error> {
+    pub fn get_fee_recipient(&self, public_key: &PublicKeyBytes) -> Result<Option<Address>, Error> {
         Ok(self
             .fee_recipients
             .get(public_key)
@@ -81,6 +78,9 @@ impl FeeRecipientFile {
         let reader = BufReader::new(file);
 
         let lines = reader.lines();
+
+        self.default = None;
+        self.fee_recipients.clear();
 
         for line in lines {
             let line = line.map_err(|e| Error::InvalidLine(e.to_string()))?;

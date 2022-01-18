@@ -268,7 +268,7 @@ impl ExecutionLayer {
     ) -> Result<(), Error> {
         info!(
             self.log(),
-            "Received proposer preperation data";
+            "Received proposer preparation data";
             "count" => preparation_data.len(),
         );
 
