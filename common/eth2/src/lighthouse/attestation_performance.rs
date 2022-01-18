@@ -8,6 +8,7 @@ pub struct AttestationPerformanceStatistics {
     pub head: bool,
     pub target: bool,
     pub source: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub delay: Option<u64>,
 }
 
