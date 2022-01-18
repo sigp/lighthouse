@@ -10,6 +10,10 @@ const BLOCK_ROOT_CACHE_LIMIT: usize = 512;
 const LOOKUP_LIMIT: usize = 8;
 const METRICS_TIMEOUT: Duration = Duration::from_millis(100);
 
+/// Cache for rejecting attestations to blocks from before finalization.
+///
+/// It stores a collection of block roots that are pre-finalization and therefore not known to fork
+/// choice in `verify_head_block_is_known` during attestation processing.
 #[derive(Default)]
 pub struct PreFinalizationBlockCache {
     cache: Mutex<Cache>,
@@ -32,6 +36,10 @@ impl Default for Cache {
 }
 
 impl<T: BeaconChainTypes> BeaconChain<T> {
+    /// Check whether the block with `block_root` is known to be pre-finalization.
+    ///
+    /// Return `true` if the attestation to this block should be rejected outright,
+    /// return `false` if more information is needed from a single-block-lookup.
     pub fn is_pre_finalization_block(&self, block_root: Hash256) -> Result<bool, BeaconChainError> {
         let mut cache = self.pre_finalization_block_cache.cache.lock();
 
@@ -41,6 +49,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         }
 
         // Avoid repeating the disk lookup for blocks that are already subject to a network lookup.
+        // Sync will take care of de-duplicating the single block lookups.
         if cache.in_progress_lookups.contains(&block_root) {
             return Ok(false);
         }
@@ -65,13 +74,19 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         }
 
         // 3. Check the network with a single block lookup.
+        cache.in_progress_lookups.put(block_root, ());
         if cache.in_progress_lookups.len() == LOOKUP_LIMIT {
+            // NOTE: we expect this to occur sometimes if a lot of blocks that we look up fail to be
+            // imported for reasons other than being pre-finalization. The cache will eventually
+            // self-repair in this case by replacing old entries with new ones until all the failed
+            // blocks have been flushed out. Solving this issue isn't as simple as hooking the
+            // beacon processor's functions that handle failed blocks because we need the block root
+            // and it has been erased from the `BlockError` by that point.
             debug!(
                 self.log,
                 "Pre-finalization lookup cache is full";
             );
         }
-        cache.in_progress_lookups.put(block_root, ());
         Ok(false)
     }
 

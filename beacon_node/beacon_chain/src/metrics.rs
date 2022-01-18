@@ -916,7 +916,7 @@ lazy_static! {
     pub static ref PRE_FINALIZATION_BLOCK_LOOKUP_COUNT: Result<IntGauge> =
         try_create_int_gauge(
             "beacon_pre_finalization_block_lookup_count",
-            "Number of blocks roots subject to network lookups"
+            "Number of block roots subject to single block lookups"
         );
 }
 
