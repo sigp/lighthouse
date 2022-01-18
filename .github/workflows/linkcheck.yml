@@ -1,6 +1,9 @@
 name: linkcheck
 
 on:
+  push:
+    branches:
+      - unstable
   pull_request:
     paths:
       - 'book/**'
