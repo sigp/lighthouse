@@ -91,7 +91,7 @@ execute_command_add_PID() {
 
 # Delay to let ganache-cli to get started
 execute_command_add_PID ganache_test_node.log ./ganache_test_node.sh
-sleeping 2
+sleeping 10
 
 # Delay to get data setup
 execute_command setup.log ./setup.sh
