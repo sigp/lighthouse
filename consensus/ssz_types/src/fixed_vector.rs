@@ -1,5 +1,6 @@
 use crate::tree_hash::vec_tree_hash_root;
 use crate::Error;
+use derivative::Derivative;
 use serde_derive::{Deserialize, Serialize};
 use std::marker::PhantomData;
 use std::ops::{Deref, DerefMut, Index, IndexMut};
@@ -44,7 +45,8 @@ pub use typenum;
 /// let long: FixedVector<_, typenum::U5> = FixedVector::from(base);
 /// assert_eq!(&long[..], &[1, 2, 3, 4, 0]);
 /// ```
-#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Derivative)]
+#[derivative(PartialEq, Hash(bound = "T: std::hash::Hash"))]
 #[serde(transparent)]
 pub struct FixedVector<T, N> {
     vec: Vec<T>,

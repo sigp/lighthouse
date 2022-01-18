@@ -98,7 +98,7 @@ curl -X GET "http://localhost:5052/lighthouse/validator_inclusion/0/global" -H  
 Returns a per-validator summary of how that validator performed during the
 current epoch.
 
-The [Global Votes](#consensusglobal_votes) endpoint is the summation of all of these
+The [Global Votes](#global) endpoint is the summation of all of these
 individual values, please see it for definitions of terms like "current_epoch",
 "previous_epoch" and "target_attester".
 

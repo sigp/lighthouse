@@ -22,7 +22,7 @@ terminal and an Internet connection are necessary.
 
 ### 2. Install Packages
 
-Install the [Ubuntu Dependencies](installation.md#dependencies-ubuntu).
+Install the [Ubuntu Dependencies](installation-source.md#ubuntu).
 (I.e., run the `sudo apt install ...` command at that link).
 
 > Tips:

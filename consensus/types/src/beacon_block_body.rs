@@ -1,6 +1,7 @@
 use crate::execution_payload::ExecTransactions;
 use crate::test_utils::TestRandom;
 use crate::*;
+use derivative::Derivative;
 use serde_derive::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
 use ssz_types::VariableList;
@@ -17,22 +18,24 @@ use tree_hash_derive::TreeHash;
     variant_attributes(
         derive(
             Debug,
-            PartialEq,
             Clone,
             Serialize,
             Deserialize,
             Encode,
             Decode,
             TreeHash,
-            TestRandom
+            TestRandom,
+            Derivative,
         ),
+        derivative(PartialEq, Hash(bound = "T: EthSpec, Txns: Transactions<T>")),
         serde(bound = "T: EthSpec, Txns: Transactions<T>", deny_unknown_fields),
         cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary))
     ),
     cast_error(ty = "Error", expr = "Error::IncorrectStateVariant"),
     partial_getter_error(ty = "Error", expr = "Error::IncorrectStateVariant")
 )]
-#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Derivative)]
+#[derivative(PartialEq, Hash(bound = "T: EthSpec"))]
 #[serde(untagged)]
 #[serde(bound = "T: EthSpec, Txns: Transactions<T>")]
 #[cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary))]
@@ -56,25 +59,7 @@ pub struct BeaconBlockBody<T: EthSpec, Txns: Transactions<T> = ExecTransactions<
     pub _phantom: PhantomData<Txns>,
 }
 
-impl<'a, T: EthSpec, Txns: Transactions<T>> BeaconBlockBodyRef<'a, T, Txns> {
-    /// Access the sync aggregate from the block's body, if one exists.
-    pub fn sync_aggregate(self) -> Option<&'a SyncAggregate<T>> {
-        match self {
-            BeaconBlockBodyRef::Base(_) => None,
-            BeaconBlockBodyRef::Altair(inner) => Some(&inner.sync_aggregate),
-            BeaconBlockBodyRef::Merge(inner) => Some(&inner.sync_aggregate),
-        }
-    }
-
-    /// Access the execution payload from the block's body, if one exists.
-    pub fn execution_payload(self) -> Option<&'a ExecutionPayload<T, Txns>> {
-        match self {
-            BeaconBlockBodyRef::Base(_) => None,
-            BeaconBlockBodyRef::Altair(_) => None,
-            BeaconBlockBodyRef::Merge(inner) => Some(&inner.execution_payload),
-        }
-    }
-
+impl<'a, T: EthSpec> BeaconBlockBodyRef<'a, T> {
     /// Get the fork_name of this object
     pub fn fork_name(self) -> ForkName {
         match self {

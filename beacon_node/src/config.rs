@@ -517,6 +517,12 @@ pub fn get_config<E: EthSpec>(
             slasher_config.max_db_size_mbs = max_db_size_gbs * 1024;
         }
 
+        if let Some(attestation_cache_size) =
+            clap_utils::parse_optional(cli_args, "slasher-att-cache-size")?
+        {
+            slasher_config.attestation_root_cache_size = attestation_cache_size;
+        }
+
         if let Some(chunk_size) = clap_utils::parse_optional(cli_args, "slasher-chunk-size")? {
             slasher_config.chunk_size = chunk_size;
         }
@@ -627,6 +633,13 @@ pub fn set_network_config(
         config.discovery_port = port;
     }
 
+    if let Some(value) = cli_args.value_of("network-load") {
+        let network_load = value
+            .parse::<u8>()
+            .map_err(|_| format!("Invalid integer: {}", value))?;
+        config.network_load = network_load;
+    }
+
     if let Some(boot_enr_str) = cli_args.value_of("boot-nodes") {
         let mut enrs: Vec<Enr> = vec![];
         let mut multiaddrs: Vec<Multiaddr> = vec![];
@@ -715,7 +728,7 @@ pub fn set_network_config(
                         None
                     }
                 }) {
-                    addr.push_str(&format!(":{}", enr_udp_port.to_string()));
+                    addr.push_str(&format!(":{}", enr_udp_port));
                 } else {
                     return Err(
                         "enr-udp-port must be set for node to be discoverable with dns address"

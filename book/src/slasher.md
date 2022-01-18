@@ -12,7 +12,6 @@ of the immaturity of the slasher UX and the extra resources required.
 * Quad-core CPU
 * 16 GB RAM
 * 256 GB solid state storage (in addition to space for the beacon node DB)
-* ⚠️ **If you are running natively on Windows**: LMDB will pre-allocate the entire 256 GB for the slasher database
 
 ## How to Run
 
@@ -66,24 +65,29 @@ changed after initialization.
 * Argument: maximum size of the database in gigabytes
 * Default: 256 GB
 
-The slasher uses LMDB as its backing store, and LMDB will consume up to the maximum amount of disk
-space allocated to it. By default the limit is set to accomodate the default history length and
-around 150K validators but you can set it lower if running with a reduced history length. The space
-required scales approximately linearly in validator count and history length, i.e. if you halve
-either you can halve the space required.
+The slasher uses MDBX as its backing store, which places a hard limit on the size of the database
+file. You can use the `--slasher-max-db-size` flag to set this limit. It can be adjusted after
+initialization if the limit is reached.
 
-If you want a better estimate you can use this formula:
+By default the limit is set to accomodate the default history length and around 300K validators but
+you can set it lower if running with a reduced history length. The space required scales
+approximately linearly in validator count and history length, i.e. if you halve either you can halve
+the space required.
+
+If you want an estimate of the database size you can use this formula:
 
 ```
-360 * V * N + (16 * V * N)/(C * K) + 15000 * N
+4.56 GB * (N / 256) * (V / 250000)
 ```
 
-where
+where `V` is the validator count and `N` is the history length.
 
-* `V` is the validator count
-* `N` is the history length
-* `C` is the chunk size
-* `K` is the validator chunk size
+You should set the maximum size higher than the estimate to allow room for growth in the validator
+count.
+
+> NOTE: In Lighthouse v2.1.0 the slasher database was switched from LMDB to MDBX. Unlike LMDB, MDBX
+> does garbage collection of free pages and is capable of shrinking the database file and preventing
+> it from growing indefinitely.
 
 ### Update Period
 
@@ -137,6 +141,19 @@ Adjusting these parameter should only be done in conjunction with reading in det
 about [how the slasher works][design-notes], and/or reading the source code.
 
 [design-notes]: https://hackmd.io/@sproul/min-max-slasher
+
+### Attestation Root Cache Size
+
+* Flag: `--slasher-att-cache-size COUNT`
+* Argument: number of attestations
+* Default: 100,000
+
+The number of attestation data roots to cache in memory. The cache is an LRU cache used to map
+indexed attestation IDs to the tree hash roots of their attestation data. The cache prevents reading
+whole indexed attestations from disk to determine whether they are slashable.
+
+Each value is very small (38 bytes) so the entire cache should fit in around 4 MB of RAM. Decreasing
+the cache size is not recommended, and the size is set so as to be large enough for future growth.
 
 ### Short-Range Example
 

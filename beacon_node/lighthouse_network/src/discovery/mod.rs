@@ -7,7 +7,8 @@ pub(crate) mod enr;
 pub mod enr_ext;
 
 // Allow external use of the lighthouse ENR builder
-use crate::{config, metrics};
+use crate::behaviour::TARGET_SUBNET_PEERS;
+use crate::metrics;
 use crate::{error, Enr, NetworkConfig, NetworkGlobals, Subnet, SubnetDiscovery};
 use discv5::{enr::NodeId, Discv5, Discv5Event};
 pub use enr::{
@@ -47,8 +48,6 @@ pub use subnet_predicate::subnet_predicate;
 
 /// Local ENR storage filename.
 pub const ENR_FILENAME: &str = "enr.dat";
-/// Target number of peers we'd like to have connected to a given long-lived subnet.
-pub const TARGET_SUBNET_PEERS: usize = config::MESH_N_LOW;
 /// Target number of peers to search for given a grouped subnet query.
 const TARGET_PEERS_FOR_GROUPED_QUERY: usize = 6;
 /// Number of times to attempt a discovery request.
@@ -692,7 +691,7 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
                     return false;
                 }
 
-                let target_peers = TARGET_SUBNET_PEERS - peers_on_subnet;
+                let target_peers = TARGET_SUBNET_PEERS.saturating_sub(peers_on_subnet);
                 trace!(self.log, "Discovery query started for subnet";
                     "subnet_query" => ?subnet_query,
                     "connected_peers_on_subnet" => peers_on_subnet,
@@ -1039,6 +1038,7 @@ impl<TSpec: EthSpec> NetworkBehaviour for Discovery<TSpec> {
                         Discv5Event::SocketUpdated(socket) => {
                             info!(self.log, "Address updated"; "ip" => %socket.ip(), "udp_port" => %socket.port());
                             metrics::inc_counter(&metrics::ADDRESS_UPDATE_COUNT);
+                            metrics::check_nat();
                             // Discv5 will have updated our local ENR. We save the updated version
                             // to disk.
                             let enr = self.discv5.local_enr();
@@ -1096,7 +1096,7 @@ mod tests {
             ..Default::default()
         };
         let enr_key: CombinedKey = CombinedKey::from_libp2p(&keypair).unwrap();
-        let enr: Enr = build_enr::<E>(&enr_key, &config, EnrForkId::default()).unwrap();
+        let enr: Enr = build_enr::<E>(&enr_key, &config, &EnrForkId::default()).unwrap();
         let log = build_log(slog::Level::Debug, false);
         let globals = NetworkGlobals::new(
             enr,

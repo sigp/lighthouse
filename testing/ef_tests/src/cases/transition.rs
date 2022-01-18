@@ -4,6 +4,7 @@ use crate::decode::{ssz_decode_file_with, ssz_decode_state, yaml_decode_file};
 use serde_derive::Deserialize;
 use state_processing::{
     per_block_processing, state_advance::complete_state_advance, BlockSignatureStrategy,
+    VerifyBlockRoot,
 };
 use std::str::FromStr;
 use types::{BeaconState, Epoch, ForkName, SignedBeaconBlock};
@@ -97,6 +98,7 @@ impl<E: EthSpec> Case for TransitionTest<E> {
                     block,
                     None,
                     BlockSignatureStrategy::VerifyBulk,
+                    VerifyBlockRoot::True,
                     spec,
                 )
                 .map_err(|e| format!("Block processing failed: {:?}", e))?;

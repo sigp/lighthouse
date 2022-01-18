@@ -2,6 +2,7 @@ use crate::chunked_vector::ChunkError;
 use crate::config::StoreConfigError;
 use crate::hot_cold_store::HotColdDBError;
 use ssz::DecodeError;
+use state_processing::BlockReplayError;
 use types::{BeaconStateError, Hash256, Slot};
 
 pub type Result<T> = std::result::Result<T, Error>;
@@ -39,6 +40,7 @@ pub enum Error {
         expected: Hash256,
         computed: Hash256,
     },
+    BlockReplayError(BlockReplayError),
 }
 
 pub trait HandleUnavailable<T> {
@@ -88,6 +90,12 @@ impl From<DBError> for Error {
 impl From<StoreConfigError> for Error {
     fn from(e: StoreConfigError) -> Error {
         Error::ConfigError(e)
+    }
+}
+
+impl From<BlockReplayError> for Error {
+    fn from(e: BlockReplayError) -> Error {
+        Error::BlockReplayError(e)
     }
 }
 

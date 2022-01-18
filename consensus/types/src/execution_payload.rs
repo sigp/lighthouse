@@ -3,6 +3,7 @@ use eth2_serde_utils::hex;
 use serde::de::DeserializeOwned;
 use serde::ser::SerializeSeq;
 use serde::{de, Serialize as Ser, Serializer};
+use derivative::Derivative;
 use serde_derive::{Deserialize, Serialize};
 use ssz::{Decode, DecodeError, Encode};
 use ssz_derive::{Decode, Encode};
@@ -190,9 +191,10 @@ impl<T: EthSpec> Transactions<T> for BlindedTransactions {
 
 #[cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary))]
 #[derive(
-    Default, Debug, Clone, PartialEq, Serialize, Deserialize, Encode, Decode, TreeHash, TestRandom,
+    Default, Debug, Clone, Serialize, Deserialize, Encode, Decode, TreeHash, TestRandom, Derivative,
 )]
-#[serde(bound = "Txns: Transactions<T>", deny_unknown_fields)]
+#[derivative(PartialEq, Hash(bound = "T: EthSpec, Txns: Transactions<T>"))]
+#[serde(bound = "T: EthSpec, Txns: Transactions<T>")]
 pub struct ExecutionPayload<T: EthSpec, Txns: Transactions<T> = ExecTransactions<T>> {
     pub parent_hash: Hash256,
     pub fee_recipient: Address,

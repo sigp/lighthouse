@@ -111,8 +111,11 @@ impl<TSpec: EthSpec> NetworkBehaviour for PeerManager<TSpec> {
         endpoint: &ConnectedPoint,
         _failed_addresses: Option<&Vec<Multiaddr>>,
     ) {
-        // Log the connection
         debug!(self.log, "Connection established"; "peer_id" => %peer_id, "connection" => ?endpoint.to_endpoint());
+        // Check NAT if metrics are enabled
+        if self.network_globals.local_enr.read().udp().is_some() {
+            metrics::check_nat();
+        }
 
         // Check to make sure the peer is not supposed to be banned
         match self.ban_status(peer_id) {
@@ -150,10 +153,8 @@ impl<TSpec: EthSpec> NetworkBehaviour for PeerManager<TSpec> {
             return;
         }
 
-        // Register the newly connected peer (regardless if we are about to disconnect them).
         // NOTE: We don't register peers that we are disconnecting immediately. The network service
         // does not need to know about these peers.
-        // let enr
         match endpoint {
             ConnectedPoint::Listener { send_back_addr, .. } => {
                 self.inject_connect_ingoing(peer_id, send_back_addr.clone(), None);
@@ -167,12 +168,9 @@ impl<TSpec: EthSpec> NetworkBehaviour for PeerManager<TSpec> {
             }
         }
 
-        let connected_peers = self.network_globals.connected_peers() as i64;
-
         // increment prometheus metrics
+        self.update_connected_peer_metrics();
         metrics::inc_counter(&metrics::PEER_CONNECT_EVENT_COUNT);
-        metrics::set_gauge(&metrics::PEERS_CONNECTED, connected_peers);
-        metrics::set_gauge(&metrics::PEERS_CONNECTED_INTEROP, connected_peers);
     }
 
     fn inject_disconnected(&mut self, peer_id: &PeerId) {
@@ -190,21 +188,6 @@ impl<TSpec: EthSpec> NetworkBehaviour for PeerManager<TSpec> {
             self.events
                 .push(PeerManagerEvent::PeerDisconnected(*peer_id));
             debug!(self.log, "Peer disconnected"; "peer_id" => %peer_id);
-
-            // Decrement the PEERS_PER_CLIENT metric
-            if let Some(kind) = self
-                .network_globals
-                .peers
-                .read()
-                .peer_info(peer_id)
-                .map(|info| info.client().kind.clone())
-            {
-                if let Some(v) =
-                    metrics::get_int_gauge(&metrics::PEERS_PER_CLIENT, &[&kind.to_string()])
-                {
-                    v.dec()
-                };
-            }
         }
 
         // NOTE: It may be the case that a rejected node, due to too many peers is disconnected
@@ -212,12 +195,9 @@ impl<TSpec: EthSpec> NetworkBehaviour for PeerManager<TSpec> {
         // reference so that peer manager can track this peer.
         self.inject_disconnect(peer_id);
 
-        let connected_peers = self.network_globals.connected_peers() as i64;
-
         // Update the prometheus metrics
+        self.update_connected_peer_metrics();
         metrics::inc_counter(&metrics::PEER_DISCONNECT_EVENT_COUNT);
-        metrics::set_gauge(&metrics::PEERS_CONNECTED, connected_peers);
-        metrics::set_gauge(&metrics::PEERS_CONNECTED_INTEROP, connected_peers);
     }
 
     fn inject_address_change(

@@ -67,7 +67,7 @@ pub fn execute_payload<T: BeaconChainTypes>(
             }
             ExecutePayloadResponseStatus::Syncing => Ok(PayloadVerificationStatus::NotVerified),
         },
-        Err(_) => Ok(PayloadVerificationStatus::NotVerified),
+        Err(_) => Err(ExecutionPayloadError::RejectedByExecutionEngine.into()),
     }
 }
 
@@ -148,7 +148,7 @@ pub fn validate_execution_payload_for_gossip<T: BeaconChainTypes>(
     chain: &BeaconChain<T>,
 ) -> Result<(), BlockError<T::EthSpec>> {
     // Only apply this validation if this is a merge beacon block.
-    if let Some(execution_payload) = block.body().execution_payload() {
+    if let Ok(execution_payload) = block.body().execution_payload() {
         // This logic should match `is_execution_enabled`. We use only the execution block hash of
         // the parent here in order to avoid loading the parent state during gossip verification.
 
@@ -294,6 +294,7 @@ pub async fn prepare_execution_payload<
                 .message()
                 .body()
                 .execution_payload()
+                .ok()
                 .map(|ep| ep.block_hash)
         };
 
