@@ -2,11 +2,8 @@ use crate::{
     test_utils::TestRandom, BeaconBlockHeader, ChainSpec, Domain, EthSpec, Fork, Hash256,
     PublicKey, Signature, SignedRoot,
 };
-use derivative::Derivative;
 use serde_derive::{Deserialize, Serialize};
-use ssz::Encode;
 use ssz_derive::{Decode, Encode};
-use std::hash::{Hash, Hasher};
 use test_random_derive::TestRandom;
 use tree_hash_derive::TreeHash;
 
@@ -15,24 +12,11 @@ use tree_hash_derive::TreeHash;
 /// Spec v0.12.1
 #[cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary))]
 #[derive(
-    Derivative, Debug, Clone, Serialize, Deserialize, Encode, Decode, TreeHash, TestRandom,
+    Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, Encode, Decode, TreeHash, TestRandom,
 )]
-#[derivative(PartialEq, Eq)]
 pub struct SignedBeaconBlockHeader {
     pub message: BeaconBlockHeader,
     pub signature: Signature,
-}
-
-/// Implementation of non-crypto-secure `Hash`, for use with `HashMap` and `HashSet`.
-///
-/// Guarantees `header1 == header2 -> hash(header1) == hash(header2)`.
-///
-/// Used in the slasher.
-impl Hash for SignedBeaconBlockHeader {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        self.message.hash(state);
-        self.signature.as_ssz_bytes().hash(state);
-    }
 }
 
 impl SignedBeaconBlockHeader {

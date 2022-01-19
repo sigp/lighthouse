@@ -144,6 +144,7 @@ test-full: cargo-fmt test-release test-debug test-ef
 # Clippy lints are opt-in per-crate for now. By default, everything is allowed except for performance and correctness lints.
 lint:
 	cargo clippy --workspace --tests -- \
+        -D clippy::fn_to_numeric_cast_any \
         -D warnings \
         -A clippy::from-over-into \
         -A clippy::upper-case-acronyms \

@@ -3,7 +3,7 @@ use crate::case_result::compare_beacon_state_results_without_caches;
 use crate::cases::common::previous_fork;
 use crate::decode::{ssz_decode_state, yaml_decode_file};
 use serde_derive::Deserialize;
-use state_processing::upgrade::upgrade_to_altair;
+use state_processing::upgrade::{upgrade_to_altair, upgrade_to_bellatrix};
 use types::{BeaconState, ForkName};
 
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -49,10 +49,7 @@ impl<E: EthSpec> Case for ForkTest<E> {
     fn is_enabled_for_fork(fork_name: ForkName) -> bool {
         // Upgrades exist targeting all forks except phase0/base.
         // Fork tests also need BLS.
-        // FIXME(merge): enable merge tests once available
-        cfg!(not(feature = "fake_crypto"))
-            && fork_name != ForkName::Base
-            && fork_name != ForkName::Merge
+        cfg!(not(feature = "fake_crypto")) && fork_name != ForkName::Base
     }
 
     fn result(&self, _case_index: usize, fork_name: ForkName) -> Result<(), Error> {
@@ -61,8 +58,9 @@ impl<E: EthSpec> Case for ForkTest<E> {
         let spec = &E::default_spec();
 
         let mut result = match fork_name {
+            ForkName::Base => panic!("phase0 not supported"),
             ForkName::Altair => upgrade_to_altair(&mut result_state, spec).map(|_| result_state),
-            _ => panic!("unknown fork: {:?}", fork_name),
+            ForkName::Merge => upgrade_to_bellatrix(&mut result_state, spec).map(|_| result_state),
         };
 
         compare_beacon_state_results_without_caches(&mut result, &mut expected)

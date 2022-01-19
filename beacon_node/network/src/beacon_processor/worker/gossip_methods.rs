@@ -1532,12 +1532,9 @@ impl<T: BeaconChainTypes> Worker<T> {
                     }
                 } else {
                     // We shouldn't make any further attempts to process this attestation.
-                    // Downscore the peer.
-                    self.gossip_penalize_peer(
-                        peer_id,
-                        PeerAction::LowToleranceError,
-                        "attn_unknown_head",
-                    );
+                    //
+                    // Don't downscore the peer since it's not clear if we requested this head
+                    // block from them or not.
                     self.propagate_validation_result(
                         message_id,
                         peer_id,

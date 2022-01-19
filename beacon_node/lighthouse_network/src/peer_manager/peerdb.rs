@@ -609,28 +609,8 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
 
     /// A peer is being dialed.
     // VISIBILITY: Only the peer manager can adjust the connection state
-    // TODO: Remove the internal logic in favour of using the update_connection_state() function.
-    // This will be compatible once the ENR parameter is removed in the imminent behaviour tests PR.
     pub(super) fn dialing_peer(&mut self, peer_id: &PeerId, enr: Option<Enr>) {
-        let info = self.peers.entry(*peer_id).or_default();
-        if let Some(enr) = enr {
-            info.set_enr(enr);
-        }
-
-        if let Err(e) = info.set_dialing_peer() {
-            error!(self.log, "{}", e; "peer_id" => %peer_id);
-        }
-
-        // If the peer was banned, remove the banned peer and addresses.
-        if info.is_banned() {
-            self.banned_peers_count
-                .remove_banned_peer(info.seen_ip_addresses());
-        }
-
-        // If the peer was disconnected, reduce the disconnected peer count.
-        if info.is_disconnected() {
-            self.disconnected_peers = self.disconnected_peers().count().saturating_sub(1);
-        }
+        self.update_connection_state(peer_id, NewConnectionState::Dialing { enr });
     }
 
     /// Sets a peer as connected with an ingoing connection.
@@ -686,7 +666,9 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
             // connection state for an unknown peer.
             if !matches!(
                 new_state,
-                NewConnectionState::Connected { .. } | NewConnectionState::Disconnecting { .. }
+                NewConnectionState::Connected { .. }
+                    | NewConnectionState::Disconnecting { .. }
+                    | NewConnectionState::Dialing { .. }
             ) {
                 warn!(log_ref, "Updating state of unknown peer";
                     "peer_id" => %peer_id, "new_state" => ?new_state);
@@ -708,7 +690,11 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
 
         // Handle all the possible state changes
         match (info.connection_status().clone(), new_state) {
-            /* Handle the transition to a connected state */
+            /* CONNECTED
+             *
+             *
+             * Handles the transition to a connected state
+             */
             (
                 current_state,
                 NewConnectionState::Connected {
@@ -765,7 +751,47 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
                 }
             }
 
-            /* Handle the transition to the disconnected state */
+            /* DIALING
+             *
+             *
+             * Handles the transition to a dialing state
+             */
+            (old_state, NewConnectionState::Dialing { enr }) => {
+                match old_state {
+                    PeerConnectionStatus::Banned { .. } => {
+                        warn!(self.log, "Dialing a banned peer"; "peer_id" => %peer_id);
+                        self.banned_peers_count
+                            .remove_banned_peer(info.seen_ip_addresses());
+                    }
+                    PeerConnectionStatus::Disconnected { .. } => {
+                        self.disconnected_peers = self.disconnected_peers.saturating_sub(1);
+                    }
+                    PeerConnectionStatus::Connected { .. } => {
+                        warn!(self.log, "Dialing an already connected peer"; "peer_id" => %peer_id)
+                    }
+                    PeerConnectionStatus::Dialing { .. } => {
+                        warn!(self.log, "Dialing an already dialing peer"; "peer_id" => %peer_id)
+                    }
+                    PeerConnectionStatus::Disconnecting { .. } => {
+                        warn!(self.log, "Dialing a disconnecting peer"; "peer_id" => %peer_id)
+                    }
+                    PeerConnectionStatus::Unknown => {} // default behaviour
+                }
+                // Update the ENR if one is known.
+                if let Some(enr) = enr {
+                    info.set_enr(enr);
+                }
+
+                if let Err(e) = info.set_dialing_peer() {
+                    error!(self.log, "{}", e; "peer_id" => %peer_id);
+                }
+            }
+
+            /* DISCONNECTED
+             *
+             *
+             * Handle the transition to the disconnected state
+             */
             (old_state, NewConnectionState::Disconnected) => {
                 // Remove all subnets for disconnected peers.
                 info.clear_subnets();
@@ -799,7 +825,11 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
                 }
             }
 
-            /* Handle the transition to the disconnecting state */
+            /* DISCONNECTING
+             *
+             *
+             * Handles the transition to a disconnecting state
+             */
             (PeerConnectionStatus::Banned { .. }, NewConnectionState::Disconnecting { to_ban }) => {
                 error!(self.log, "Disconnecting from a banned peer"; "peer_id" => %peer_id);
                 info.set_connection_status(PeerConnectionStatus::Disconnecting { to_ban });
@@ -821,7 +851,11 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
                 info.set_connection_status(PeerConnectionStatus::Disconnecting { to_ban });
             }
 
-            /* Handle transitioning to the banned state */
+            /* BANNED
+             *
+             *
+             * Handles the transition to a banned state
+             */
             (PeerConnectionStatus::Disconnected { .. }, NewConnectionState::Banned) => {
                 // It is possible to ban a peer that is currently disconnected. This can occur when
                 // there are many events that score it poorly and are processed after it has disconnected.
@@ -879,7 +913,11 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
                 return Some(BanOperation::ReadyToBan(banned_ips));
             }
 
-            /* Handle the connection state of unbanning a peer */
+            /* UNBANNED
+             *
+             *
+             * Handles the transition to an unbanned state
+             */
             (old_state, NewConnectionState::Unbanned) => {
                 if matches!(info.score_state(), ScoreState::Banned) {
                     error!(self.log, "Unbanning a banned peer"; "peer_id" => %peer_id);
@@ -899,8 +937,7 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
                         // Increment the disconnected count and reduce the banned count
                         self.banned_peers_count
                             .remove_banned_peer(info.seen_ip_addresses());
-                        self.disconnected_peers =
-                            self.disconnected_peers().count().saturating_add(1);
+                        self.disconnected_peers = self.disconnected_peers.saturating_add(1);
                     }
                 }
             }
@@ -1058,6 +1095,11 @@ enum NewConnectionState {
     Disconnecting {
         /// Whether the peer should be banned after the disconnect occurs.
         to_ban: bool,
+    },
+    /// We are dialing this peer.
+    Dialing {
+        /// An optional known ENR for the peer we are dialing.
+        enr: Option<Enr>,
     },
     /// The peer has been disconnected from our local node.
     Disconnected,
