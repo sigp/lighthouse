@@ -119,12 +119,6 @@ impl ExecutionLayer {
         &self.inner.executor
     }
 
-    fn suggested_fee_recipient(&self) -> Result<Address, Error> {
-        self.inner
-            .suggested_fee_recipient
-            .ok_or(Error::FeeRecipientUnspecified)
-    }
-
     /// Note: this function returns a mutex guard, be careful to avoid deadlocks.
     async fn execution_blocks(&self) -> MutexGuard<'_, LruCache<Hash256, ExecutionBlock>> {
         self.inner.execution_blocks.lock().await
@@ -250,21 +244,20 @@ impl ExecutionLayer {
     }
 
     /// Updates the proposer preparation data provided by validators
-    pub fn update_proposer_preparation(
+    pub fn update_proposer_preparation_blocking(
         &self,
-        preparation_data: Vec<ProposerPreparationData>,
+        preparation_data: &[ProposerPreparationData],
     ) -> Result<(), Error> {
-        self.block_on_generic(|_| async {
-            self.update_proposer_preparation_async(preparation_data.clone())
-                .await
+        self.block_on_generic(|_| async move {
+            self.update_proposer_preparation(preparation_data).await
         })
         .unwrap()
     }
 
     /// Updates the proposer preparation data provided by validators
-    async fn update_proposer_preparation_async(
+    async fn update_proposer_preparation(
         &self,
-        preparation_data: Vec<ProposerPreparationData>,
+        preparation_data: &[ProposerPreparationData],
     ) -> Result<(), Error> {
         info!(
             self.log(),
@@ -273,12 +266,32 @@ impl ExecutionLayer {
         );
 
         let mut proposer_preparation_data = self.proposer_preparation_data().await;
-        let mut preparation_entries = preparation_data.clone();
-        while let Some(preparation_entry) = preparation_entries.pop() {
-            proposer_preparation_data.insert(preparation_entry.validator_index, preparation_entry);
+        for preparation_entry in preparation_data {
+            proposer_preparation_data
+                .insert(preparation_entry.validator_index, preparation_entry.clone());
         }
 
         Ok(())
+    }
+
+    /// Returns the fee-recipient address that should be used to build a block
+    async fn get_suggested_fee_recipient(
+        &self,
+        proposer_index: Option<u64>,
+    ) -> Result<Address, Error> {
+        let mut fee_recipient: Option<Address> = None;
+
+        if let Some(proposer_index) = proposer_index {
+            fee_recipient = self
+                .proposer_preparation_data()
+                .await
+                .get(&proposer_index)
+                .map(|preparation_data| preparation_data.fee_recipient);
+        }
+
+        Ok(fee_recipient
+            .or(self.inner.suggested_fee_recipient)
+            .ok_or(Error::FeeRecipientUnspecified)?)
     }
 
     /// Maps to the `engine_getPayload` JSON-RPC call.
@@ -298,16 +311,7 @@ impl ExecutionLayer {
         finalized_block_hash: Hash256,
         proposer_index: Option<u64>,
     ) -> Result<ExecutionPayload<T>, Error> {
-        let suggested_fee_recipient = (if proposer_index.is_some() {
-            self.proposer_preparation_data()
-                .await
-                .get(&proposer_index.unwrap())
-                .map(|preparation_data| preparation_data.fee_recipient)
-        } else {
-            None
-        })
-        .or_else(|| self.suggested_fee_recipient().ok())
-        .unwrap();
+        let suggested_fee_recipient = self.get_suggested_fee_recipient(proposer_index).await?;
 
         debug!(
             self.log(),

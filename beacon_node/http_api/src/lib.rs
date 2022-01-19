@@ -2193,7 +2193,7 @@ pub fn serve<T: BeaconChainTypes>(
                         .map_err(warp_utils::reject::beacon_chain_error)?;
 
                     execution_layer
-                        .update_proposer_preparation(preparation_data)
+                        .update_proposer_preparation_blocking(&preparation_data)
                         .map_err(|_e| {
                             warp_utils::reject::custom_bad_request(
                                 "error processing proposer preparations".to_string(),
