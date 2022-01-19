@@ -23,13 +23,13 @@ pub trait BatchConfig {
     ///
     /// When a batch fails processing, it is possible that the batch is wrong (faulty or incomplete) or
     /// that a previous one is wrong. For this reason we need to re-downloaded and re-process the
-    /// unvalidated batches and the current one. Consider this escenario:
+    /// unvalidated batches and the current one. Consider this scenario:
     /// ```
     /// BatchA BatchB BatchC BatchD
     /// -----X Empty  Empty  Y-----
     /// ```
     ///
-    /// BatchA declares that it referes X, but BatchD declares that it's first block is Y. There is no
+    /// BatchA declares that it refers X, but BatchD declares that it's first block is Y. There is no
     /// way to know if BatchD is faulty/incomplete or if batches B and/or C are missing blocks. It is
     /// also possible that BatchA belongs to a different chain to the rest starting in some block
     /// midway in the batch's range. For this reason, the four batches would need to be re-downloaded
@@ -43,7 +43,7 @@ pub trait BatchConfig {
     /// storing the full set of blocks.
     ///
     /// Note that simpler hashing functions considered in the past (hash of first block, hash of last
-    /// block, number of received blocks) are not good enought to differentiate attempts. For this
+    /// block, number of received blocks) are not good enough to differentiate attempts. For this
     /// reason, we hash the complete set of blocks both in RangeSync and BackFillSync.
     fn batch_attempt_hash<T: EthSpec>(blocks: &[SignedBeaconBlock<T>]) -> u64;
 }
