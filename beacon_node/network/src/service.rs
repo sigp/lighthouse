@@ -23,7 +23,6 @@ use lighthouse_network::{
     BehaviourEvent, MessageId, NetworkGlobals, PeerId,
 };
 use slog::{crit, debug, error, info, o, trace, warn};
-use std::task::Poll;
 use std::{net::SocketAddr, pin::Pin, sync::Arc, time::Duration};
 use store::HotColdDB;
 use task_executor::ShutdownReason;
@@ -333,68 +332,61 @@ impl<T: BeaconChainTypes> NetworkService<T> {
         let mut shutdown_sender = executor.shutdown_sender();
 
         // spawn on the current executor
-        executor.spawn(async move {
-        loop {
-            // check the futures in this order:
-            // - network
-            // - services and network channel in random order
-            // - metrics
-            let maybe_ev = self.libp2p.next_event();
-            if let Poll::Ready(x) = futures::future::poll_fn(|cx|Box::pin(maybe_ev).poll(cx)).await{}
-
-
-            tokio::select!{
-                event = self.libp2p.next_event() => self.on_libp2p_event(event, &mut shutdown_sender).await,
-
-                _ = self.gossipsub_parameter_update.tick() => self.update_gossipsub_parameters(),
-
-                // handle a message sent to the network
-                Some(msg) = self.network_recv.recv() => self.on_network_msg(msg, &mut shutdown_sender).await,
-
-                // process any attestation service events
-                Some(msg) = self.attestation_service.next() => self.on_attestation_service_msg(msg),
-
-                // process any sync committee service events
-                Some(msg) = self.sync_committee_service.next() => self.on_sync_commitee_service_message(msg),
-
-                Some(_) = &mut self.next_fork_update => {
-                    self.update_next_fork()
-                }
-                Some(_) = &mut self.next_unsubscribe => {
-                    let new_enr_fork_id = self.beacon_chain.enr_fork_id();
-                    self.libp2p.swarm.behaviour_mut().unsubscribe_from_fork_topics_except(new_enr_fork_id.fork_digest);
-                    info!(self.log, "Unsubscribed from old fork topics");
-                    self.next_unsubscribe = Box::pin(None.into());
-                }
-                Some(_) = &mut self.next_fork_subscriptions => {
-                    if let Some((fork_name, _)) = self.beacon_chain.duration_to_next_fork() {
-                        let fork_version = self.beacon_chain.spec.fork_version_for_name(fork_name);
-                        let fork_digest = ChainSpec::compute_fork_digest(fork_version, self.beacon_chain.genesis_validators_root);
-                        info!(self.log, "Subscribing to new fork topics");
-                        self.libp2p.swarm.behaviour_mut().subscribe_new_fork_topics(fork_digest);
-                        self.next_fork_subscriptions = Box::pin(None.into());
+        let service_fut = async move {
+            loop {
+                tokio::select! {
+                    _ = self.metrics_update.tick(), if self.metrics_enabled => {
+                        // update various network metrics
+                        metrics::update_gossip_metrics::<T::EthSpec>(
+                            self.libp2p.swarm.behaviour().gs(),
+                            &self.network_globals,
+                            );
+                        // update sync metrics
+                        metrics::update_sync_metrics(&self.network_globals);
                     }
-                    else {
-                        error!(self.log, "Fork subscription scheduled but no fork scheduled");
+
+                    _ = self.gossipsub_parameter_update.tick() => self.update_gossipsub_parameters(),
+
+                    // handle a message sent to the network
+                    Some(msg) = self.network_recv.recv() => self.on_network_msg(msg, &mut shutdown_sender).await,
+
+                    // process any attestation service events
+                    Some(msg) = self.attestation_service.next() => self.on_attestation_service_msg(msg),
+
+                    // process any sync committee service events
+                    Some(msg) = self.sync_committee_service.next() => self.on_sync_commitee_service_message(msg),
+
+                    event = self.libp2p.next_event() => self.on_libp2p_event(event, &mut shutdown_sender).await,
+
+                    Some(_) = &mut self.next_fork_update => self.update_next_fork(),
+
+                    Some(_) = &mut self.next_unsubscribe => {
+                        let new_enr_fork_id = self.beacon_chain.enr_fork_id();
+                        self.libp2p.swarm.behaviour_mut().unsubscribe_from_fork_topics_except(new_enr_fork_id.fork_digest);
+                        info!(self.log, "Unsubscribed from old fork topics");
+                        self.next_unsubscribe = Box::pin(None.into());
+                    }
+
+                    Some(_) = &mut self.next_fork_subscriptions => {
+                        if let Some((fork_name, _)) = self.beacon_chain.duration_to_next_fork() {
+                            let fork_version = self.beacon_chain.spec.fork_version_for_name(fork_name);
+                            let fork_digest = ChainSpec::compute_fork_digest(fork_version, self.beacon_chain.genesis_validators_root);
+                            info!(self.log, "Subscribing to new fork topics");
+                            self.libp2p.swarm.behaviour_mut().subscribe_new_fork_topics(fork_digest);
+                            self.next_fork_subscriptions = Box::pin(None.into());
+                        }
+                        else {
+                            error!(self.log, "Fork subscription scheduled but no fork scheduled");
+                        }
                     }
                 }
-
-                _ = self.metrics_update.tick(), if self.metrics_enabled => {
-                    // update various network metrics
-                    metrics::update_gossip_metrics::<T::EthSpec>(
-                        self.libp2p.swarm.behaviour().gs(),
-                        &self.network_globals,
-                    );
-                    // update sync metrics
-                    metrics::update_sync_metrics(&self.network_globals);
-
-                }
+                metrics::update_bandwidth_metrics(self.libp2p.bandwidth.clone());
             }
-            metrics::update_bandwidth_metrics(self.libp2p.bandwidth.clone());
-        }
-    }, "network");
+        };
+        executor.spawn(service_fut, "network");
     }
 
+    /// Handle an event received from the network.
     async fn on_libp2p_event(
         &mut self,
         ev: Libp2pEvent<T::EthSpec>,
@@ -499,6 +491,7 @@ impl<T: BeaconChainTypes> NetworkService<T> {
         }
     }
 
+    /// Handle a message sent to the network service.
     async fn on_network_msg(
         &mut self,
         msg: NetworkMessage<T::EthSpec>,
