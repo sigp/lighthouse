@@ -19,7 +19,32 @@ pub trait BatchConfig {
     fn max_batch_download_attempts() -> u8;
     /// The max batch processing attempts.
     fn max_batch_processing_attempts() -> u8;
-    /// Hashing function of a batch's attempt.
+    /// Hashing function of a batch's attempt. Used for scoring purposes.
+    ///
+    /// When a batch fails processing, it is possible that the batch is wrong (faulty or incomplete) or
+    /// that a previous one is wrong. For this reason we need to re-downloaded and re-process the
+    /// unvalidated batches and the current one. Consider this escenario:
+    /// ```
+    /// BatchA BatchB BatchC BatchD
+    /// -----X Empty  Empty  Y-----
+    /// ```
+    ///
+    /// BatchA declares that it referes X, but BatchD declares that it's first block is Y. There is no
+    /// way to know if BatchD is faulty/incomplete or if batches B and/or C are missing blocks. It is
+    /// also possible that BatchA belongs to a different chain to the rest starting in some block
+    /// midway in the batch's range. For this reason, the four batches would need to be re-downloaded
+    /// and re-processed.
+    ///
+    /// If batchD was actually good, it will still register two processing attempts for the same set of
+    /// blocks. In this case, we don't want to penalize the peer that provided the first version, since
+    /// it's equal to the successfully processed one.
+    ///
+    /// The function `batch_attempt_hash` provides a way to compare two batch attempts without
+    /// storing the full set of blocks.
+    ///
+    /// Note that simpler hashing functions considered in the past (hash of first block, hash of last
+    /// block, number of received blocks) are not good enought to differentiate attempts. For this
+    /// reason, we hash the complete set of blocks both in RangeSync and BackFillSync.
     fn batch_attempt_hash<T: EthSpec>(blocks: &[SignedBeaconBlock<T>]) -> u64;
 }
 
