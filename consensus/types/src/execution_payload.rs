@@ -100,94 +100,21 @@ pub enum BlockType {
     Blinded,
 }
 
-//FIXME(sean) Is it ok this is DeserializeOwned? Don't need a trait lifetime if it's owned
 pub trait Transactions<T>:
     Encode + Decode + TestRandom + TreeHash + Default + PartialEq + Ser + DeserializeOwned + Hash
 {
     fn block_type() -> BlockType;
-    fn serialize_execution<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error>;
-    fn visit_seq_execution<'a, A: serde::de::SeqAccess<'a>>(seq: A) -> Result<Self, A::Error>;
-    fn visit_string_execution<E>(v: String) -> Result<Self, E>
-    where
-        E: de::Error;
 }
 
 impl<T: EthSpec> Transactions<T> for ExecTransactions<T> {
     fn block_type() -> BlockType {
         BlockType::Full
     }
-
-    fn visit_seq_execution<'a, A>(mut seq: A) -> Result<Self, A::Error>
-    where
-        A: serde::de::SeqAccess<'a>,
-    {
-        let mut outer: ExecTransactions<T> = ExecTransactions::default();
-
-        while let Some(val) = seq.next_element::<String>()? {
-            let inner_vec = hex::decode(&val).map_err(de::Error::custom)?;
-            let transaction: Transaction<T::MaxBytesPerTransaction> = VariableList::new(inner_vec)
-                .map_err(|e| serde::de::Error::custom(format!("transaction too large: {:?}", e)))?;
-            outer
-                .0
-                .push(transaction)
-                .map_err(|e| serde::de::Error::custom(format!("too many transactions: {:?}", e)))?;
-        }
-
-        Ok(outer)
-    }
-
-    fn serialize_execution<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        let mut seq = serializer.serialize_seq(Some(self.0.len()))?;
-        for transaction in self.0.iter() {
-            // It's important to match on the inner values of the transaction. Serializing the
-            // entire `Transaction` will result in appending the SSZ union prefix byte. The
-            // execution node does not want that.
-            let hex = hex::encode(&transaction[..]);
-            seq.serialize_element(&hex)?;
-        }
-        seq.end()
-    }
-    fn visit_string_execution<E>(v: String) -> Result<Self, E>
-    where
-        E: de::Error,
-    {
-        Err(serde::de::Error::custom(format!(
-            "cannot deserialize {} as executable transactions",
-            v
-        )))
-    }
 }
 
 impl<T: EthSpec> Transactions<T> for BlindedTransactions {
     fn block_type() -> BlockType {
         BlockType::Blinded
-    }
-
-    fn serialize_execution<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        serializer.serialize_bytes(self.as_bytes())
-    }
-
-    fn visit_seq_execution<'a, A>(mut seq: A) -> Result<Self, A::Error>
-    where
-        A: serde::de::SeqAccess<'a>,
-    {
-        let val = seq
-            .next_element::<String>()?
-            .ok_or_else(|| de::Error::custom("empty transactions root field"))?;
-        let inner_vec = hex::decode(&val).map_err(de::Error::custom)?;
-        Ok(Hash256::from_slice(&inner_vec))
-    }
-    fn visit_string_execution<E>(v: String) -> Result<Self, E>
-    where
-        E: de::Error,
-    {
-        Hash256::from_str(&v).map_err(de::Error::custom)
     }
 }
 

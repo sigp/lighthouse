@@ -77,7 +77,6 @@ pub struct JsonExecutionPayloadHeaderV1<T: EthSpec, Txns: Transactions<T>> {
     pub extra_data: VariableList<u8, T::MaxExtraDataBytes>,
     pub base_fee_per_gas: Uint256,
     pub block_hash: Hash256,
-    #[serde(with = "serde_transactions")]
     pub transactions_root: Txns,
 }
 
@@ -144,7 +143,6 @@ pub struct JsonExecutionPayloadV1<T: EthSpec, Txns: Transactions<T>> {
     pub extra_data: VariableList<u8, T::MaxExtraDataBytes>,
     pub base_fee_per_gas: Uint256,
     pub block_hash: Hash256,
-    #[serde(with = "serde_transactions")]
     pub transactions: Txns,
 }
 
@@ -526,65 +524,3 @@ pub mod serde_logs_bloom {
     }
 }
 
-/// Serializes the `transactions` field of an `ExecutionPayload`.
-pub mod serde_transactions {
-    use super::*;
-    use serde::{de, Deserializer, Serializer};
-    use std::marker::PhantomData;
-    use types::execution_payload::BlockType;
-    use types::Transactions;
-
-    // type Value<M, N> = VariableList<Transaction<M>, N>;
-    type Value<Txns> = Txns;
-
-    #[derive(Default)]
-    pub struct TxnVisitor<E, Txns> {
-        _phantom_e: PhantomData<E>,
-        _phantom_txn: PhantomData<Txns>,
-    }
-
-    impl<'a, E: EthSpec, Txns: Transactions<E>> serde::de::Visitor<'a> for TxnVisitor<E, Txns> {
-        type Value = Value<Txns>;
-
-        fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
-            match Txns::block_type() {
-                BlockType::Full => write!(formatter, "a list of 0x-prefixed byte lists"),
-                BlockType::Blinded => write!(formatter, "32 bytes hex-encoded"),
-            }
-        }
-
-        fn visit_seq<A>(self, seq: A) -> Result<Self::Value, A::Error>
-        where
-            A: serde::de::SeqAccess<'a>,
-        {
-            Self::Value::visit_seq_execution(seq)
-        }
-
-        fn visit_string<Err>(self, v: String) -> Result<Self::Value, Err>
-        where
-            Err: de::Error,
-        {
-            Self::Value::visit_string_execution(v)
-        }
-    }
-
-    pub fn serialize<S, E: EthSpec, Txns: Transactions<E>>(
-        value: &Value<Txns>,
-        serializer: S,
-    ) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        value.serialize_execution(serializer)
-    }
-
-    pub fn deserialize<'de, D, E: EthSpec, Txns: Transactions<E>>(
-        deserializer: D,
-    ) -> Result<Value<Txns>, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        let visitor: TxnVisitor<E, Txns> = <_>::default();
-        deserializer.deserialize_any(visitor)
-    }
-}
