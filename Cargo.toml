@@ -94,4 +94,3 @@ eth2_ssz_types = { path = "consensus/ssz_types" }
 tree_hash = { path = "consensus/tree_hash" }
 tree_hash_derive = { path = "consensus/tree_hash_derive" }
 eth2_serde_utils = { path = "consensus/serde_utils" }
-superstruct = { git = "https://github.com/realbigsean/superstruct", rev="247b6eaebf03444740bd5261d0e916c49127e8de" }

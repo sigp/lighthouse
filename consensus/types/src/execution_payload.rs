@@ -1,13 +1,14 @@
 use crate::{test_utils::TestRandom, *};
+use derivative::Derivative;
 use eth2_serde_utils::hex;
 use serde::de::DeserializeOwned;
 use serde::ser::SerializeSeq;
 use serde::{de, Serialize as Ser, Serializer};
-use derivative::Derivative;
 use serde_derive::{Deserialize, Serialize};
 use ssz::{Decode, DecodeError, Encode};
 use ssz_derive::{Decode, Encode};
 use std::fmt::Debug;
+use std::hash::Hash;
 use std::str::FromStr;
 use test_random_derive::TestRandom;
 use tree_hash::TreeHash;
@@ -16,7 +17,8 @@ use tree_hash_derive::TreeHash;
 pub type Transaction<T> = VariableList<u8, T>;
 pub type BlindedTransactions = Hash256;
 
-#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Default, Debug, Clone, Serialize, Deserialize, Derivative)]
+#[derivative(PartialEq, Hash(bound = "T: EthSpec"))]
 #[serde(transparent)]
 pub struct ExecTransactions<T: EthSpec>(
     #[serde(with = "ssz_types::serde_utils::list_of_hex_var_list")]
@@ -100,7 +102,7 @@ pub enum BlockType {
 
 //FIXME(sean) Is it ok this is DeserializeOwned? Don't need a trait lifetime if it's owned
 pub trait Transactions<T>:
-    Encode + Decode + TestRandom + TreeHash + Default + PartialEq + Ser + DeserializeOwned
+    Encode + Decode + TestRandom + TreeHash + Default + PartialEq + Ser + DeserializeOwned + Hash
 {
     fn block_type() -> BlockType;
     fn serialize_execution<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error>;

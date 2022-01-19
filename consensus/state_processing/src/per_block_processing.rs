@@ -129,7 +129,12 @@ pub fn per_block_processing<T: EthSpec, Txns: Transactions<T>>(
         BlockSignatureStrategy::VerifyRandao => VerifySignatures::False,
     };
 
-    let proposer_index = process_block_header(state, block.temporary_block_header(), verify_block_root, spec)?;
+    let proposer_index = process_block_header(
+        state,
+        block.temporary_block_header(),
+        verify_block_root,
+        spec,
+    )?;
 
     if verify_signatures.is_true() {
         verify_block_signature(state, signed_block, block_root, spec)?;
@@ -202,10 +207,10 @@ pub fn process_block_header<T: EthSpec>(
     if verify_block_root == VerifyBlockRoot::True {
         let expected_previous_block_root = state.latest_block_header().tree_hash_root();
         verify!(
-            block.parent_root() == expected_previous_block_root,
+            block.parent_root == expected_previous_block_root,
             HeaderInvalid::ParentBlockRootMismatch {
                 state: expected_previous_block_root,
-                block: block.parent_root(),
+                block: block.parent_root,
             }
         );
     }
