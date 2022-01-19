@@ -1,4 +1,4 @@
-use crate::upgrade::{upgrade_to_altair, upgrade_to_merge};
+use crate::upgrade::{upgrade_to_altair, upgrade_to_bellatrix};
 use crate::{per_epoch_processing::EpochProcessingSummary, *};
 use safe_arith::{ArithError, SafeArith};
 use types::*;
@@ -52,8 +52,8 @@ pub fn per_slot_processing<T: EthSpec>(
             upgrade_to_altair(state, spec)?;
         }
         // If the Merge fork epoch is reached, perform an irregular state upgrade.
-        if spec.merge_fork_epoch == Some(state.current_epoch()) {
-            upgrade_to_merge(state, spec)?;
+        if spec.bellatrix_fork_epoch == Some(state.current_epoch()) {
+            upgrade_to_bellatrix(state, spec)?;
         }
     }
 
