@@ -638,7 +638,7 @@ pub fn set_network_config(
         config.discovery_port = port;
     }
 
-    if let Some(value) = cli_args.value_of("network-load") {
+    if let Some(value) = cli_args.value_of(NETWORK_LOAD_FLAG) {
         let network_load = value
             .parse::<u8>()
             .map_err(|_| format!("Invalid integer: {}", value))?;

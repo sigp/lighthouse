@@ -172,6 +172,7 @@ generate_flag_constants!(
     (PORT_FLAG, "port"),
     (LISTEN_ADDRESS_FLAG, "listen-address"),
     (BOOT_NODES_FLAG, "boot-nodes"),
+    (NETWORK_LOAD_FLAG, "network-load"),
     (ENR_UDP_PORT_FLAG, "enr-udp-port"),
     (DISABLE_PACKET_FILTER_FLAG, "disable-packet-filter"),
     (NETWORK_DIR_FLAG, "network-dir")
