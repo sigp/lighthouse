@@ -56,10 +56,19 @@ pub fn get_attestation_performance<T: BeaconChainTypes>(
     let end_epoch = query.end_epoch + 2;
     let end_slot = end_epoch.end_slot(T::EthSpec::slots_per_epoch());
 
-    // Check query is valid
+    // Ensure end_epoch is smaller than the current epoch - 1.
+    let current_epoch = chain.epoch().map_err(beacon_chain_error)?;
+    if query.end_epoch >= current_epoch - 1 {
+        return Err(custom_bad_request(format!(
+            "end_epoch must be less than the current epoch - 1. current: {}, end: {}",
+            current_epoch, query.end_epoch
+        )));
+    }
+
+    // Check query is valid.
     if start_epoch > end_epoch {
         return Err(custom_bad_request(format!(
-            "invalid start and end epochs: {}, {}",
+            "start_epoch must not be larger than end_epoch. start: {}, end: {}",
             query.start_epoch, query.end_epoch
         )));
     }
@@ -81,7 +90,7 @@ pub fn get_attestation_performance<T: BeaconChainTypes>(
     } else {
         vec![target.parse::<u64>().map_err(|_| {
             custom_bad_request(format!(
-                "invalid validator index: {:?}",
+                "Invalid validator index: {:?}",
                 target.to_lowercase()
             ))
         })?]
@@ -97,9 +106,11 @@ pub fn get_attestation_performance<T: BeaconChainTypes>(
     block_roots.dedup();
 
     // Load first block so we can get its parent.
-    let first_block_root = block_roots
-        .first()
-        .ok_or_else(|| custom_server_error("No blocks roots could be loaded".to_string()))?;
+    let first_block_root = block_roots.first().ok_or_else(|| {
+        custom_server_error(
+            "No blocks roots could be loaded. Ensure the beacon node is synced.".to_string(),
+        )
+    })?;
     let first_block = chain
         .get_block(first_block_root)
         .and_then(|maybe_block| {
