@@ -30,18 +30,11 @@ excluded_paths = [
     # LightClientUpdate
     "tests/.*/.*/ssz_static/LightClientUpdate",
     # LightClientSnapshot
-    "tests/minimal/altair/ssz_static/LightClientSnapshot",
-    "tests/mainnet/altair/ssz_static/LightClientSnapshot",
-    "tests/minimal/merge/ssz_static/LightClientSnapshot",
-    "tests/mainnet/merge/ssz_static/LightClientSnapshot",
+    "tests/.*/.*/ssz_static/LightClientSnapshot",
     # Merkle-proof tests for light clients
-    "tests/mainnet/altair/merkle/single_proof",
-    "tests/minimal/altair/merkle/single_proof",
-    "tests/mainnet/merge/merkle/single_proof",
-    "tests/minimal/merge/merkle/single_proof",
-    # FIXME(merge): Merge transition tests are  now available but not yet passing
-    "tests/mainnet/merge/transition/",
-    "tests/minimal/merge/transition/",
+    "tests/.*/.*/merkle/single_proof",
+    # One of the EF researchers likes to pack the tarballs on a Mac
+    ".*\.DS_Store.*"
 ]
 
 def normalize_path(path):
