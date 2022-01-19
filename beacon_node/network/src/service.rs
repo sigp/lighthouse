@@ -828,7 +828,7 @@ impl<T: BeaconChainTypes> NetworkService<T> {
             self.libp2p
                 .swarm
                 .behaviour_mut()
-                .update_fork_version(new_enr_fork_id.clone());
+                .update_fork_version(new_enr_fork_id);
             // Reinitialize the next_fork_update
             self.next_fork_update = Box::pin(next_fork_delay(&self.beacon_chain).into());
 
