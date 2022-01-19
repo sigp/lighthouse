@@ -469,7 +469,7 @@ pub fn get_config<E: EthSpec>(
     }
 
     client_config.chain.max_network_size =
-        lighthouse_network::gossip_max_size(spec.merge_fork_epoch.is_some());
+        lighthouse_network::gossip_max_size(spec.bellatrix_fork_epoch.is_some());
 
     if cli_args.is_present("slasher") {
         let slasher_dir = if let Some(slasher_dir) = cli_args.value_of("slasher-dir") {
