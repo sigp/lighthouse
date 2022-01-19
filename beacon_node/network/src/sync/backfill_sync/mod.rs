@@ -802,7 +802,7 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
                     for attempt in batch.attempts() {
                         // The validated batch has been re-processed
                         if attempt.hash != processed_attempt.hash {
-                            // The re-downloaded version had a different number of blocks
+                            // The re-downloaded version was different.
                             if processed_attempt.peer_id != attempt.peer_id {
                                 // A different peer sent the correct batch, the previous peer did not
                                 // We negatively score the original peer.
