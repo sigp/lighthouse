@@ -239,7 +239,6 @@ impl<E: EthSpec> Operation<E> for ExecutionPayload<E> {
         spec: &ChainSpec,
         extra: &Operations<E, Self>,
     ) -> Result<(), BlockProcessingError> {
-        // FIXME(merge): we may want to plumb the validity bool into state processing
         let valid = extra
             .execution_metadata
             .as_ref()

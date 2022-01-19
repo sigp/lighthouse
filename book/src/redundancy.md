@@ -86,7 +86,7 @@ now processing, validating, aggregating and forwarding *all* attestations,
 whereas previously it was likely only doing a fraction of this work. Without
 these flags, subscription to attestation subnets and aggregation of
 attestations is only performed for validators which [explicitly request
-subscriptions](subscribe-api).
+subscriptions][subscribe-api].
 
 There are 64 subnets and each validator will result in a subscription to *at
 least* one subnet. So, using the two aforementioned flags will result in

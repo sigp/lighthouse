@@ -1,6 +1,6 @@
 //! Implementation of Lighthouse's peer management system.
 
-use crate::discovery::TARGET_SUBNET_PEERS;
+use crate::behaviour::TARGET_SUBNET_PEERS;
 use crate::rpc::{GoodbyeReason, MetaData, Protocol, RPCError, RPCResponseErrorCode};
 use crate::{error, metrics, Gossipsub};
 use crate::{NetworkGlobals, PeerId};

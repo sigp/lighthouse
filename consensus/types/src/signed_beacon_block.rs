@@ -1,5 +1,6 @@
 use crate::*;
 use bls::Signature;
+use derivative::Derivative;
 use serde_derive::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
 use std::fmt;
@@ -41,19 +42,21 @@ impl From<SignedBeaconBlockHash> for Hash256 {
     variant_attributes(
         derive(
             Debug,
-            PartialEq,
             Clone,
             Serialize,
             Deserialize,
             Encode,
             Decode,
-            TreeHash
+            TreeHash,
+            Derivative,
         ),
+        derivative(PartialEq, Hash(bound = "E: EthSpec")),
         cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary)),
         serde(bound = "E: EthSpec")
     )
 )]
-#[derive(Debug, PartialEq, Clone, Serialize, Deserialize, Encode, TreeHash)]
+#[derive(Debug, Clone, Serialize, Deserialize, Encode, TreeHash, Derivative)]
+#[derivative(PartialEq, Hash(bound = "E: EthSpec"))]
 #[serde(untagged)]
 #[serde(bound = "E: EthSpec")]
 #[cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary))]

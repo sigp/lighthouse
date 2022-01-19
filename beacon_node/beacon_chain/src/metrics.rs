@@ -4,7 +4,11 @@ use crate::{BeaconChain, BeaconChainError, BeaconChainTypes};
 use lazy_static::lazy_static;
 pub use lighthouse_metrics::*;
 use slot_clock::SlotClock;
+use std::time::Duration;
 use types::{BeaconState, Epoch, EthSpec, Hash256, Slot};
+
+/// The maximum time to wait for the snapshot cache lock during a metrics scrape.
+const SNAPSHOT_CACHE_TIMEOUT: Duration = Duration::from_millis(100);
 
 lazy_static! {
     /*
@@ -17,6 +21,10 @@ lazy_static! {
     pub static ref BLOCK_PROCESSING_SUCCESSES: Result<IntCounter> = try_create_int_counter(
         "beacon_block_processing_successes_total",
         "Count of blocks processed without error"
+    );
+    pub static ref BLOCK_PROCESSING_SNAPSHOT_CACHE_SIZE: Result<IntGauge> = try_create_int_gauge(
+        "beacon_block_processing_snapshot_cache_size",
+        "Count snapshots in the snapshot cache"
     );
     pub static ref BLOCK_PROCESSING_SNAPSHOT_CACHE_MISSES: Result<IntCounter> = try_create_int_counter(
         "beacon_block_processing_snapshot_cache_misses",
@@ -912,6 +920,16 @@ pub fn scrape_for_metrics<T: BeaconChainTypes>(beacon_chain: &BeaconChain<T>) {
     }
 
     let attestation_stats = beacon_chain.op_pool.attestation_stats();
+
+    if let Some(snapshot_cache) = beacon_chain
+        .snapshot_cache
+        .try_write_for(SNAPSHOT_CACHE_TIMEOUT)
+    {
+        set_gauge(
+            &BLOCK_PROCESSING_SNAPSHOT_CACHE_SIZE,
+            snapshot_cache.len() as i64,
+        )
+    }
 
     set_gauge_by_usize(
         &OP_POOL_NUM_ATTESTATIONS,

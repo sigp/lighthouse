@@ -125,7 +125,7 @@ pub use crate::indexed_attestation::IndexedAttestation;
 pub use crate::participation_flags::ParticipationFlags;
 pub use crate::participation_list::ParticipationList;
 pub use crate::pending_attestation::PendingAttestation;
-pub use crate::preset::{AltairPreset, BasePreset};
+pub use crate::preset::{AltairPreset, BasePreset, BellatrixPreset};
 pub use crate::proposer_slashing::ProposerSlashing;
 pub use crate::relative_epoch::{Error as RelativeEpochError, RelativeEpoch};
 pub use crate::selection_proof::SelectionProof;
