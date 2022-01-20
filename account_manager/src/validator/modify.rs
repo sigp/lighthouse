@@ -63,7 +63,7 @@ pub fn cli_run(matches: &ArgMatches, validator_dir: PathBuf) -> Result<(), Strin
                 CMD, unknown
             ))
         }
-        None => return Err(format!("{} does not have a subcommand. See --help", CMD)),
+        None => return Err(format!("{} requires a command. See --help", CMD)),
     };
     let mut defs = ValidatorDefinitions::open(&validator_dir).map_err(|e| {
         format!(
