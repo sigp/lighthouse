@@ -213,16 +213,17 @@ fn new_app<'a>(
                 )
                 .global(true)
                 .takes_value(true),
-        ).arg(
-        Arg::new(SPEC_FLAG)
-            .short('s')
-            .long(SPEC_FLAG)
-            .value_name("DEPRECATED")
-            .help("This flag is deprecated, it will be disallowed in a future release. This \
-                    value is now derived from the --network or --testnet-dir flags.")
-            .takes_value(true)
-            .global(true)
-    )
+        )
+        .arg(
+            Arg::new(SPEC_FLAG)
+                .short('s')
+                .long(SPEC_FLAG)
+                .value_name("DEPRECATED")
+                .help("This flag is deprecated, it will be disallowed in a future release. This \
+                        value is now derived from the --network or --testnet-dir flags.")
+                .takes_value(true)
+                .global(true)
+        )
         .arg(
             Arg::new(ENV_LOG_FLAG)
                 .short('l')
