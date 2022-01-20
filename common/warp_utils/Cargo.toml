@@ -18,3 +18,4 @@ tokio = { version = "1.14.0", features = ["sync"] }
 headers = "0.3.2"
 lighthouse_metrics = { path = "../lighthouse_metrics" }
 lazy_static = "1.4.0"
+serde_array_query = "0.1.0"

@@ -5267,6 +5267,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "serde_array_query"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d89c6e82b1005b33d5b2bbc47096800e5ad6b67ef5636f9c13ad29a6935734a7"
+dependencies = [
+ "serde",
+ "serde_urlencoded",
+]
+
+[[package]]
 name = "serde_cbor"
 version = "0.11.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6823,6 +6833,7 @@ dependencies = [
  "lighthouse_metrics",
  "safe_arith",
  "serde",
+ "serde_array_query",
  "state_processing",
  "tokio",
  "types",
