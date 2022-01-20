@@ -404,7 +404,8 @@ fn new_app<'a>(
                 .requires(TERMINAL_BLOCK_HASH_OVERRIDE_FLAG)
                 .takes_value(true)
                 .global(true),
-        ).subcommand(beacon_node::cli_app(file_args))
+        )
+        .subcommand(beacon_node::cli_app(file_args))
         .subcommand(boot_node::cli_app(file_args))
         .subcommand(validator_client::cli_app(file_args))
         .subcommand(account_manager::cli_app())
