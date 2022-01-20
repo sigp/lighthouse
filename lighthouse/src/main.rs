@@ -55,7 +55,7 @@ fn main() {
     let cli_matches = match get_cli_matches() {
         Ok(matches) => matches,
         Err(e) => {
-            eprintln!("Unable validate lighthouse config: {}", e);
+            eprintln!("Unable to validate lighthouse config: {}", e);
             exit(1);
         }
     };
