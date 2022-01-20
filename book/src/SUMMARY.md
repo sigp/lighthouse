@@ -40,6 +40,7 @@
     * [Running a Slasher](./slasher.md)
     * [Redundancy](./redundancy.md)
     * [Pre-Releases](./advanced-pre-releases.md)
+    * [File Config](./file-config.md)
 * [Contributing](./contributing.md)
 	* [Development Environment](./setup.md)
 * [FAQs](./faq.md)
