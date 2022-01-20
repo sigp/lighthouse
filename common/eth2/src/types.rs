@@ -591,6 +591,13 @@ pub struct ValidatorBalancesQuery {
 #[serde(transparent)]
 pub struct ValidatorIndexData(#[serde(with = "eth2_serde_utils::quoted_u64_vec")] pub Vec<u64>);
 
+/// Borrowed variant of `ValidatorIndexData`, for serializing/sending.
+#[derive(Clone, Copy, Serialize)]
+#[serde(transparent)]
+pub struct ValidatorIndexDataRef<'a>(
+    #[serde(serialize_with = "eth2_serde_utils::quoted_u64_vec::serialize")] pub &'a [u64],
+);
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct AttesterData {
     pub pubkey: PublicKeyBytes,
