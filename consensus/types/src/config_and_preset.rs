@@ -14,9 +14,9 @@ pub struct ConfigAndPreset {
     pub base_preset: BasePreset,
     #[serde(flatten)]
     pub altair_preset: AltairPreset,
-    #[serde(flatten)]
-    pub bellatrix_preset: BellatrixPreset,
-
+    // TODO(merge): re-enable
+    // #[serde(flatten)]
+    // pub bellatrix_preset: BellatrixPreset,
     /// The `extra_fields` map allows us to gracefully decode fields intended for future hard forks.
     #[serde(flatten)]
     pub extra_fields: HashMap<String, String>,
@@ -27,14 +27,14 @@ impl ConfigAndPreset {
         let config = Config::from_chain_spec::<T>(spec);
         let base_preset = BasePreset::from_chain_spec::<T>(spec);
         let altair_preset = AltairPreset::from_chain_spec::<T>(spec);
-        let bellatrix_preset = BellatrixPreset::from_chain_spec::<T>(spec);
+        // TODO(merge): re-enable
+        let _bellatrix_preset = BellatrixPreset::from_chain_spec::<T>(spec);
         let extra_fields = HashMap::new();
 
         Self {
             config,
             base_preset,
             altair_preset,
-            bellatrix_preset,
             extra_fields,
         }
     }
