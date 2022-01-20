@@ -631,8 +631,12 @@ pub struct Config {
     #[serde(deserialize_with = "deserialize_fork_epoch")]
     pub altair_fork_epoch: Option<MaybeQuoted<Epoch>>,
 
+    // TODO(merge): remove this default
+    #[serde(default = "default_bellatrix_fork_version")]
     #[serde(with = "eth2_serde_utils::bytes_4_hex")]
     bellatrix_fork_version: [u8; 4],
+    // TODO(merge): remove this default
+    #[serde(default = "default_bellatrix_fork_epoch")]
     #[serde(serialize_with = "serialize_fork_epoch")]
     #[serde(deserialize_with = "deserialize_fork_epoch")]
     pub bellatrix_fork_epoch: Option<MaybeQuoted<Epoch>>,
@@ -667,6 +671,15 @@ pub struct Config {
     #[serde(with = "eth2_serde_utils::quoted_u64")]
     deposit_network_id: u64,
     deposit_contract_address: Address,
+}
+
+fn default_bellatrix_fork_version() -> [u8; 4] {
+    // This value shouldn't be used.
+    [0xff, 0xff, 0xff, 0xff]
+}
+
+fn default_bellatrix_fork_epoch() -> Option<MaybeQuoted<Epoch>> {
+    None
 }
 
 impl Default for Config {

@@ -331,7 +331,7 @@ dependencies = [
 
 [[package]]
 name = "beacon_node"
-version = "2.1.0-rc.1"
+version = "2.1.0"
 dependencies = [
  "beacon_chain",
  "clap 3.0.4",
@@ -497,7 +497,7 @@ dependencies = [
 
 [[package]]
 name = "boot_node"
-version = "2.1.0-rc.1"
+version = "2.1.0"
 dependencies = [
  "beacon_node",
  "clap 3.0.4",
@@ -2839,7 +2839,7 @@ checksum = "830d08ce1d1d941e6b30645f1a0eb5643013d835ce3779a5fc208261dbe10f55"
 
 [[package]]
 name = "lcli"
-version = "2.1.0-rc.1"
+version = "2.1.0"
 dependencies = [
  "account_utils",
  "bls",
@@ -3364,7 +3364,7 @@ dependencies = [
 
 [[package]]
 name = "lighthouse"
-version = "2.1.0-rc.1"
+version = "2.1.0"
 dependencies = [
  "account_manager",
  "account_utils",
@@ -5290,6 +5290,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "serde_array_query"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d89c6e82b1005b33d5b2bbc47096800e5ad6b67ef5636f9c13ad29a6935734a7"
+dependencies = [
+ "serde",
+ "serde_urlencoded",
+]
+
+[[package]]
 name = "serde_cbor"
 version = "0.11.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6508,6 +6518,7 @@ dependencies = [
  "safe_arith",
  "serde",
  "serde_derive",
+ "serde_json",
  "serde_yaml",
  "slog",
  "state_processing",
@@ -6840,6 +6851,7 @@ dependencies = [
  "lighthouse_metrics",
  "safe_arith",
  "serde",
+ "serde_array_query",
  "state_processing",
  "tokio",
  "types",
