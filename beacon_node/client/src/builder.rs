@@ -135,7 +135,6 @@ where
         let chain_spec = self.chain_spec.clone();
         let runtime_context = self.runtime_context.clone();
         let eth_spec_instance = self.eth_spec_instance.clone();
-        let disabled_forks = config.disabled_forks.clone();
         let chain_config = config.chain.clone();
         let graffiti = config.graffiti;
 
@@ -169,7 +168,6 @@ where
             .store(store)
             .custom_spec(spec.clone())
             .chain_config(chain_config)
-            .disabled_forks(disabled_forks)
             .graffiti(graffiti)
             .event_handler(event_handler)
             .execution_layer(execution_layer)
