@@ -216,7 +216,7 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
             .context
             .eth2_config
             .spec
-            .merge_fork_epoch
+            .bellatrix_fork_epoch
             .unwrap()
             .start_slot(E::slots_per_epoch());
         let now = self.slot_clock.now().unwrap();
