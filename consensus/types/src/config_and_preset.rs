@@ -1,5 +1,6 @@
 use crate::{AltairPreset, BasePreset, BellatrixPreset, ChainSpec, Config, EthSpec};
 use serde_derive::{Deserialize, Serialize};
+use serde_json::Value;
 use std::collections::HashMap;
 
 /// Fusion of a runtime-config with the compile-time preset values.
@@ -19,7 +20,7 @@ pub struct ConfigAndPreset {
     // pub bellatrix_preset: BellatrixPreset,
     /// The `extra_fields` map allows us to gracefully decode fields intended for future hard forks.
     #[serde(flatten)]
-    pub extra_fields: HashMap<String, String>,
+    pub extra_fields: HashMap<String, Value>,
 }
 
 impl ConfigAndPreset {
@@ -83,7 +84,7 @@ impl ConfigAndPreset {
             ),
         ];
         for (key, value) in fields {
-            self.extra_fields.insert(key.to_uppercase(), value);
+            self.extra_fields.insert(key.to_uppercase(), value.into());
         }
     }
 }
@@ -107,8 +108,13 @@ mod test {
         let mut yamlconfig = ConfigAndPreset::from_chain_spec::<MainnetEthSpec>(&mainnet_spec);
         let (k1, v1) = ("SAMPLE_HARDFORK_KEY1", "123456789");
         let (k2, v2) = ("SAMPLE_HARDFORK_KEY2", "987654321");
+        let (k3, v3) = ("SAMPLE_HARDFORK_KEY3", 32);
+        let (k4, v4) = ("SAMPLE_HARDFORK_KEY4", Value::Null);
         yamlconfig.extra_fields.insert(k1.into(), v1.into());
         yamlconfig.extra_fields.insert(k2.into(), v2.into());
+        yamlconfig.extra_fields.insert(k3.into(), v3.into());
+        yamlconfig.extra_fields.insert(k4.into(), v4);
+
         serde_yaml::to_writer(writer, &yamlconfig).expect("failed to write or serialize");
 
         let reader = OpenOptions::new()

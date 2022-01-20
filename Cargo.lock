@@ -6495,6 +6495,7 @@ dependencies = [
  "safe_arith",
  "serde",
  "serde_derive",
+ "serde_json",
  "serde_yaml",
  "slog",
  "state_processing",
