@@ -25,7 +25,7 @@ environment = { path = "../../lighthouse/environment" }
 account_utils = { path = "../../common/account_utils" }
 serde = "1.0.116"
 serde_derive = "1.0.116"
-serde_yaml = "0.8.13"
+serde_yaml = "0.8.21"
 eth2_network_config = { path = "../../common/eth2_network_config" }
 
 [build-dependencies]
