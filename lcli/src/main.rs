@@ -38,7 +38,7 @@ fn main() {
                 .value_name("STRING")
                 .takes_value(true)
                 .required(true)
-                .possible_values(&["minimal", "mainnet"])
+                .possible_values(&["minimal", "mainnet", "gnosis"])
                 .default_value("mainnet")
                 .global(true),
         )
