@@ -1,5 +1,6 @@
 .PHONY: tests
 
+
 EF_TESTS = "testing/ef_tests"
 BEACON_CHAIN_CRATE = "beacon_node/beacon_chain"
 OP_POOL_CRATE = "beacon_node/operation_pool"
