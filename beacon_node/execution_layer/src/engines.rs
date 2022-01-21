@@ -73,7 +73,6 @@ impl<T> Engine<T> {
         }
     }
 
-
     pub fn new_payload_builder(id: String, api: T) -> Self {
         Self {
             id,
