@@ -614,7 +614,7 @@ impl ChainSpec {
             max_committees_per_slot: 64,
             target_committee_size: 128,
             min_per_epoch_churn_limit: 4,
-            churn_limit_quotient: 65_536,
+            churn_limit_quotient: 4_096,
             shuffle_round_count: 90,
             min_genesis_active_validator_count: 4_096,
             min_genesis_time: 1638968400, // Dec 8, 2020
