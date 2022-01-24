@@ -41,13 +41,17 @@ const HEARTBEAT_INTERVAL: u64 = 30;
 /// `PeerManager::target_peers`. For clarity, if `PeerManager::target_peers` is 50 and
 /// PEER_EXCESS_FACTOR = 0.1 we allow 10% more nodes, i.e 55.
 pub const PEER_EXCESS_FACTOR: f32 = 0.1;
-/// A fraction of `PeerManager::target_peers` that need to be outbound-only connections.
-pub const MIN_OUTBOUND_ONLY_FACTOR: f32 = 0.3;
+/// A fraction of `PeerManager::target_peers` that we want to be outbound-only connections.
+pub const TARGET_OUTBOUND_ONLY_FACTOR: f32 = 0.3;
+/// A fraction of `PeerManager::target_peers` that if we get below, we start a discovery query to
+/// reach our target. MIN_OUTBOUND_ONLY_FACTOR must be < TARGET_OUTBOUND_ONLY_FACTOR.
+const MIN_OUTBOUND_ONLY_FACTOR: f32 = 0.2;
 /// The fraction of extra peers beyond the PEER_EXCESS_FACTOR that we allow us to dial for when
 /// requiring subnet peers. More specifically, if our target peer limit is 50, and our excess peer
 /// limit is 55, and we are at 55 peers, the following parameter provisions a few more slots of
 /// dialing priority peers we need for validator duties.
-pub const PRIORITY_PEER_EXCESS: f32 = 0.1;
+pub const PRIORITY_PEER_EXCESS: f32 = 0.2
+
 
 /// The main struct that handles peer's reputation and connection status.
 pub struct PeerManager<TSpec: EthSpec> {
@@ -293,16 +297,25 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
         // Queue another discovery if we need to
         let peer_count = self.network_globals.connected_or_dialing_peers();
         let outbound_only_peer_count = self.network_globals.connected_outbound_only_peers();
-        let min_outbound_only_target =
-            (self.target_peers as f32 * MIN_OUTBOUND_ONLY_FACTOR).ceil() as usize;
 
         if self.discovery_enabled
-            && (peer_count < self.target_peers.saturating_sub(to_dial_peers.len())
-                || outbound_only_peer_count < min_outbound_only_target)
         {
-            // We need more peers, re-queue a discovery lookup.
-            debug!(self.log, "Starting a new peer discovery query"; "connected_peers" => peer_count, "target_peers" => self.target_peers);
-            self.events.push(PeerManagerEvent::DiscoverPeers);
+           let wanted_peers =  if peer_count < self.target_peers.saturating_sub(to_dial_peers.len()) {
+               // We need more peers in general.
+               // The maximum discovery query is for 16 peers, but we can search for less if
+               // needed.
+               min(self.target_peers.saturating_sub(to_dial_peers.len()) - peer_count, 16)
+           } else if outbound_only_peer_count < self.min_outbound_only_peers() && peer_count < self.max_outbound_dialing_peers {
+                min(self.max_outbound_dialing_peers.saturating_sub(to_dial_peers.len()) - peer_count, 16)
+           } else {
+               0
+           }
+
+           if wanted_peers != 0 {
+                // We need more peers, re-queue a discovery lookup.
+                debug!(self.log, "Starting a new peer discovery query"; "connected" => peer_count, "target" => self.target_peers, "outbound" => outbound_only_peer_count; "wanted" => wanted_peers);
+                self.events.push(PeerManagerEvent::DiscoverPeers(wanted_peers));
+           }
         }
 
         to_dial_peers
@@ -339,6 +352,18 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
     /// PEER_EXCESS_FACTOR + PRIORITY_PEER_EXCESS)
     fn max_priority_peers(&self) -> usize {
         (self.target_peers as f32 * (1.0 + PEER_EXCESS_FACTOR + PRIORITY_PEER_EXCESS)).ceil()
+            as usize
+    }
+
+    /// The minimum number of outbound peers that we reach before we start another discovery query.
+    fn min_outbound_only_peers(&self) -> usize {
+        (self.target_peers as f32 * MIN_OUTBOUND_ONLY_FACTOR).ceil() as usize
+    }
+
+    /// The maximum number of peers that are connected or dialing before we refuse to do another
+    /// discovery search for more outbound peers. We can use up to half the priority peer excess allocation.
+    fn max_outbound_dialing_peers(&self) -> usize {
+        (self.target_peers as f32 * (1.0 + PEER_EXCESS_FACTOR + PRIORITY_PEER_EXCESS/2)).ceil()
             as usize
     }
 
