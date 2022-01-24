@@ -3383,23 +3383,20 @@ dependencies = [
  "environment",
  "eth2_hashing 0.2.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "eth2_network_config",
- "fs_extra",
  "futures",
  "lazy_static",
- "lcli",
  "lighthouse_metrics",
  "lighthouse_network",
  "lighthouse_version",
+ "local_testnet",
  "malloc_utils",
  "serde",
- "serde_derive",
  "serde_json",
  "slashing_protection",
  "slog",
  "sloggers",
  "task_executor",
  "tempfile",
- "toml",
  "types",
  "validator_client",
  "validator_dir",
@@ -3473,6 +3470,21 @@ name = "linked-hash-map"
 version = "0.5.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7fb9b38af92608140b86b693604b9ffcc5824240a484d1ecd4795bacb2fe88f3"
+
+[[package]]
+name = "local_testnet"
+version = "0.1.0"
+dependencies = [
+ "clap_utils",
+ "eth2",
+ "fs_extra",
+ "lcli",
+ "sensitive_url",
+ "serde",
+ "serde_derive",
+ "slot_clock",
+ "toml",
+]
 
 [[package]]
 name = "lock_api"

@@ -27,7 +27,7 @@ use warp::{
     Filter,
 };
 
-pub use api_secret::ApiSecret;
+pub use api_secret::{ApiSecret, PK_FILENAME};
 
 #[derive(Debug)]
 pub enum Error {
