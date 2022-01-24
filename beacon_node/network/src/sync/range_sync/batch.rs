@@ -21,9 +21,10 @@ pub trait BatchConfig {
     fn max_batch_processing_attempts() -> u8;
     /// Hashing function of a batch's attempt. Used for scoring purposes.
     ///
-    /// When a batch fails processing, it is possible that the batch is wrong (faulty or incomplete) or
-    /// that a previous one is wrong. For this reason we need to re-download and re-process the
-    /// unvalidated batches and the current one. Consider this scenario:
+    /// When a batch fails processing, it is possible that the batch is wrong (faulty or
+    /// incomplete) or that a previous one is wrong. For this reason we need to re-download and
+    /// re-process the batches awaiting validation and the current one. Consider this scenario:
+    ///
     /// ```ignore
     /// BatchA BatchB BatchC BatchD
     /// -----X Empty  Empty  Y-----
