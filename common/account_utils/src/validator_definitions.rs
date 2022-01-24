@@ -13,7 +13,7 @@ use std::collections::HashSet;
 use std::fs::{self, OpenOptions};
 use std::io;
 use std::path::{Path, PathBuf};
-use types::{graffiti::GraffitiString, PublicKey};
+use types::{graffiti::GraffitiString, Address, PublicKey};
 use validator_dir::VOTING_KEYSTORE_FILE;
 
 /// The file name for the serialized `ValidatorDefinitions` struct.
@@ -90,6 +90,9 @@ pub struct ValidatorDefinition {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub graffiti: Option<GraffitiString>,
     #[serde(default)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub suggested_fee_recipient: Option<Address>,
+    #[serde(default)]
     pub description: String,
     #[serde(flatten)]
     pub signing_definition: SigningDefinition,
@@ -106,6 +109,7 @@ impl ValidatorDefinition {
         voting_keystore_path: P,
         voting_keystore_password: Option<ZeroizeString>,
         graffiti: Option<GraffitiString>,
+        suggested_fee_recipient: Option<Address>,
     ) -> Result<Self, Error> {
         let voting_keystore_path = voting_keystore_path.as_ref().into();
         let keystore =
@@ -117,6 +121,7 @@ impl ValidatorDefinition {
             voting_public_key,
             description: keystore.description().unwrap_or("").to_string(),
             graffiti,
+            suggested_fee_recipient,
             signing_definition: SigningDefinition::LocalKeystore {
                 voting_keystore_path,
                 voting_keystore_password_path: None,
@@ -262,6 +267,7 @@ impl ValidatorDefinitions {
                     voting_public_key,
                     description: keystore.description().unwrap_or("").to_string(),
                     graffiti: None,
+                    suggested_fee_recipient: None,
                     signing_definition: SigningDefinition::LocalKeystore {
                         voting_keystore_path,
                         voting_keystore_password_path,
