@@ -50,7 +50,7 @@ const MIN_OUTBOUND_ONLY_FACTOR: f32 = 0.2;
 /// requiring subnet peers. More specifically, if our target peer limit is 50, and our excess peer
 /// limit is 55, and we are at 55 peers, the following parameter provisions a few more slots of
 /// dialing priority peers we need for validator duties.
-pub const PRIORITY_PEER_EXCESS: f32 = 0.2
+pub const PRIORITY_PEER_EXCESS: f32 = 0.2;
 
 
 /// The main struct that handles peer's reputation and connection status.
@@ -295,28 +295,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
         }
 
         // Queue another discovery if we need to
-        let peer_count = self.network_globals.connected_or_dialing_peers();
-        let outbound_only_peer_count = self.network_globals.connected_outbound_only_peers();
-
-        if self.discovery_enabled
-        {
-           let wanted_peers =  if peer_count < self.target_peers.saturating_sub(to_dial_peers.len()) {
-               // We need more peers in general.
-               // The maximum discovery query is for 16 peers, but we can search for less if
-               // needed.
-               min(self.target_peers.saturating_sub(to_dial_peers.len()) - peer_count, 16)
-           } else if outbound_only_peer_count < self.min_outbound_only_peers() && peer_count < self.max_outbound_dialing_peers {
-                min(self.max_outbound_dialing_peers.saturating_sub(to_dial_peers.len()) - peer_count, 16)
-           } else {
-               0
-           }
-
-           if wanted_peers != 0 {
-                // We need more peers, re-queue a discovery lookup.
-                debug!(self.log, "Starting a new peer discovery query"; "connected" => peer_count, "target" => self.target_peers, "outbound" => outbound_only_peer_count; "wanted" => wanted_peers);
-                self.events.push(PeerManagerEvent::DiscoverPeers(wanted_peers));
-           }
-        }
+        self.maintain_peer_count(to_dial_peers.len());
 
         to_dial_peers
     }
@@ -388,11 +367,12 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
     /// Reports whether the peer limit is reached in which case we stop allowing new incoming
     /// connections.
     pub fn peer_limit_reached(&self, count_dialing: bool) -> bool {
-        let max_peers = self.max_peers();
         if count_dialing {
-            self.network_globals.connected_or_dialing_peers() >= max_peers
+            // This is an incoming connection so limit by the standard max peers
+            self.network_globals.connected_or_dialing_peers() >= self.max_peers()
         } else {
-            self.network_globals.connected_peers() >= max_peers
+            // We dialed this peer, allow up to max_outbound_dialing_peers
+            self.network_globals.connected_peers() >= self.max_outbound_dialing_peers()
         }
     }
 
@@ -844,6 +824,109 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
         }
     }
 
+
+    /// This function checks the status of our current peers and optionally requests a discovery
+    /// query if we need to find more peers to maintain the current number of peers
+    fn maintain_peer_count(&mut self, dialing_peers: usize) {
+
+        // Check if we need to do a discovery lookup
+        if self.discovery_enabled
+        {
+            let peer_count = self.network_globals.connected_or_dialing_peers();
+            let outbound_only_peer_count = self.network_globals.connected_outbound_only_peers();
+           let wanted_peers =  if peer_count < self.target_peers.saturating_sub(dialing_peers) {
+               // We need more peers in general.
+               // The maximum discovery query is for 16 peers, but we can search for less if
+               // needed.
+               std::cmp::min(self.target_peers.saturating_sub(dialing_peers) - peer_count, 16)
+           } else if outbound_only_peer_count < self.min_outbound_only_peers() && peer_count < self.max_outbound_dialing_peers() {
+                std::cmp::min(self.max_outbound_dialing_peers().saturating_sub(dialing_peers) - peer_count, 16)
+           } else {
+               0
+           };
+
+           if wanted_peers != 0 {
+                // We need more peers, re-queue a discovery lookup.
+                debug!(self.log, "Starting a new peer discovery query"; "connected" => peer_count, "target" => self.target_peers, "outbound" => outbound_only_peer_count, "wanted" => wanted_peers);
+                self.events.push(PeerManagerEvent::DiscoverPeers(wanted_peers));
+           }
+        }
+    }
+
+
+    /// Remove excess peers back down to our target values. 
+    /// This prioritises peers with a good score and uniform distribution of peers across
+    /// subnets.
+    fn prune_excess_peers(&mut self) {
+        // Keep a list of peers we are disconnecting
+        let mut disconnecting_peers = Vec::new();
+        let connected_peer_count = self.network_globals.connected_peers();
+        let min_outbound_only_target =
+            (self.target_peers as f32 * MIN_OUTBOUND_ONLY_FACTOR).ceil() as usize;
+
+        if connected_peer_count > self.target_peers {
+            // Remove excess peers with the priorities:
+            // 1. Keep any peer we need for a subnet activity
+            // 2. Remove worst scoring peers first
+            // 3. Remove peers that are not subscribed to a subnet
+            // 4. Remove peers that we have many on any particular subnet
+            // 5. Randomly remove peers if all the above are satisfied
+            // 
+            // In each of the above order, we avoid removing more than the minimum 
+            outbound_only_peer_count = self.network_globals.connected_outbound_only_peers();
+            let mut n_outbound_removed = 0;
+
+            // 1. and 2. Look through peers that have a negative score
+            for (peer_id, info) in self
+                .network_globals
+                .peers
+                .read()
+                .worst_connected_peers()
+                .iter()
+                .filter(|(_, info)| !info.has_future_duty() && info.score() < 0 )
+            {
+                if disconnecting_peers.len() == connected_peer_count - self.target_peers {
+                    // We have found all the peers we need to drop, end.
+                    break;
+                }
+                // Only remove up to the minimum outbound peer count.
+                if info.is_outbound_only() {
+                    if self.min_outbound_only_peers() < outbound_only_peer_count - n_outbound_removed {
+                        n_outbound_removed += 1;
+                    } else {
+                        continue;
+                    }
+                }
+                disconnecting_peers.push(**peer_id);
+            }
+
+
+        connected.shuffle(&mut rand::thread_rng());
+
+            // 3. Remove peers not subscribed to a subnet
+            if disconnecting_peers.len() < connected_peer_count - self.target_peers {
+
+            let mut connected = self
+            .peers
+            .iter()
+            .filter(|(_, info)| info.is_connected())
+            .collect::<Vec<_>>();
+                for (peer_id, info) in self.network_globals.peers.read().iter().filter(|(_, info)| !info.has_future_duty()
+
+
+
+
+
+        }
+
+        for peer_id in disconnecting_peers {
+            self.disconnect_peer(peer_id, GoodbyeReason::TooManyPeers);
+        }
+    }
+
+
+
+
     /// The Peer manager's heartbeat maintains the peer count and maintains peer reputations.
     ///
     /// It will request discovery queries if the peer count has not reached the desired number of
@@ -853,17 +936,9 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
     fn heartbeat(&mut self) {
         let peer_count = self.network_globals.connected_or_dialing_peers();
         let mut outbound_only_peer_count = self.network_globals.connected_outbound_only_peers();
-        let min_outbound_only_target =
-            (self.target_peers as f32 * MIN_OUTBOUND_ONLY_FACTOR).ceil() as usize;
 
-        if self.discovery_enabled
-            && (peer_count < self.target_peers
-                || outbound_only_peer_count < min_outbound_only_target)
-        {
-            // If we need more peers, queue a discovery lookup.
-            debug!(self.log, "Starting a new peer discovery query"; "connected_peers" => peer_count, "target_peers" => self.target_peers);
-            self.events.push(PeerManagerEvent::DiscoverPeers);
-        }
+        // Optionally run a discovery query if we need more peers.
+        self.maintain_peer_count(0);
 
         // Updates peer's scores and unban any peers if required.
         let actions = self.network_globals.peers.write().update_scores();
@@ -877,40 +952,9 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
         // Maintain minimum count for sync committee peers.
         self.maintain_sync_committee_peers();
 
-        // Keep a list of peers we are disconnecting
-        let mut disconnecting_peers = Vec::new();
-
-        let connected_peer_count = self.network_globals.connected_peers();
-        if connected_peer_count > self.target_peers {
-            // Remove excess peers with the worst scores, but keep subnet peers.
-            // Must also ensure that the outbound-only peer count does not go below the minimum threshold.
-            outbound_only_peer_count = self.network_globals.connected_outbound_only_peers();
-            let mut n_outbound_removed = 0;
-            for (peer_id, info) in self
-                .network_globals
-                .peers
-                .read()
-                .worst_connected_peers()
-                .iter()
-                .filter(|(_, info)| !info.has_future_duty())
-            {
-                if disconnecting_peers.len() == connected_peer_count - self.target_peers {
-                    break;
-                }
-                if info.is_outbound_only() {
-                    if min_outbound_only_target < outbound_only_peer_count - n_outbound_removed {
-                        n_outbound_removed += 1;
-                    } else {
-                        continue;
-                    }
-                }
-                disconnecting_peers.push(**peer_id);
-            }
-        }
-
-        for peer_id in disconnecting_peers {
-            self.disconnect_peer(peer_id, GoodbyeReason::TooManyPeers);
-        }
+        // Prune any excess peers back to our target in such a way that incentives good scores and
+        // a uniform distribution of subnets.
+        self.prune_excess_peers();
     }
 
     // Update metrics related to peer scoring.
