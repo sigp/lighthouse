@@ -224,7 +224,7 @@ impl Drop for GanacheInstance {
                 .output()
                 .expect("failed to execute taskkill");
         } else {
-            let _ = self.child.kill();
+            let _ = self.child.kill().expect("unable to kill process");
         }
     }
 }

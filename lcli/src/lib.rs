@@ -7,7 +7,6 @@ use clap::{App, Arg, ArgMatches};
 use clap_utils::lcli_flags::*;
 use clap_utils::{parse_path_with_default_in_home_dir, parse_required};
 use environment::{EnvironmentBuilder, LoggerConfig};
-use std::collections::HashMap;
 use std::path::PathBuf;
 use types::{EthSpec, EthSpecId};
 
@@ -26,7 +25,7 @@ pub mod replace_state_pubkeys;
 pub mod skip_slots;
 pub mod transition_blocks;
 
-pub fn new_app<'a>(default_config: Option<&'a HashMap<&'a str, &'a str>>) -> App<'a> {
+pub fn new_app<'a>() -> App<'a> {
     App::new("Lighthouse CLI Tool")
         .version(lighthouse_version::VERSION)
         .about("Performs various testing-related tasks, including defining testnets.")
@@ -668,9 +667,9 @@ pub fn new_app<'a>(default_config: Option<&'a HashMap<&'a str, &'a str>>) -> App
         )
 }
 pub fn run(matches: &ArgMatches) -> Result<(), String> {
-    parse_required::<EthSpecId>(&matches, SPEC_FLAG).and_then(|eth_spec_id| match eth_spec_id {
-        EthSpecId::Minimal => run_with_env(EnvironmentBuilder::minimal(), &matches),
-        EthSpecId::Mainnet => run_with_env(EnvironmentBuilder::mainnet(), &matches),
+    parse_required::<EthSpecId>(matches, SPEC_FLAG).and_then(|eth_spec_id| match eth_spec_id {
+        EthSpecId::Minimal => run_with_env(EnvironmentBuilder::minimal(), matches),
+        EthSpecId::Mainnet => run_with_env(EnvironmentBuilder::mainnet(), matches),
     })
 }
 

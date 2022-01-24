@@ -233,7 +233,7 @@ mod test {
             if request_json != expected_json {
                 panic!(
                     "json mismatch!\n\nobserved: {}\n\nexpected: {}\n\n",
-                    request_json.to_string(),
+                    request_json,
                     expected_json.to_string()
                 )
             }

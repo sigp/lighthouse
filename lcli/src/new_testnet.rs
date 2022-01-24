@@ -9,7 +9,7 @@ use ssz::Decode;
 use ssz::Encode;
 use std::fs::File;
 use std::io::Read;
-use std::net::{IpAddr, Ipv4Addr};
+use std::net::IpAddr;
 use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
 use types::{
@@ -129,8 +129,8 @@ pub fn run<T: EthSpec>(testnet_dir_path: PathBuf, matches: &ArgMatches) -> Resul
     let mut boot_enrs = vec![];
 
     if let (Some(addr), Some(dir)) = (
-        parse_optional::<String>(&matches, BOOT_ADDRESS_FLAG)?,
-        parse_optional::<String>(&matches, BOOT_DIR_FLAG)?,
+        parse_optional::<String>(matches, BOOT_ADDRESS_FLAG)?,
+        parse_optional::<String>(matches, BOOT_DIR_FLAG)?,
     ) {
         let url = SensitiveUrl::parse(addr.as_str()).unwrap();
         let host_addr = url

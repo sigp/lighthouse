@@ -14,7 +14,7 @@ use sensitive_url::SensitiveUrl;
 use serde_derive::{Deserialize, Serialize};
 use slot_clock::{SlotClock, SystemTimeSlotClock};
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use std::{fs, thread, time};
 
@@ -103,13 +103,10 @@ impl IntegrationTestConfig {
                 self.validator
                     .insert(format!("default-{}", i), config_clone.clone());
             }
-        } else {
-            if self.validator.len() != node_count {
-                return Err(
-                    "defaults need to be defined if all nodes are not explicitly defined"
-                        .to_string(),
-                );
-            }
+        } else if self.validator.len() != node_count {
+            return Err(
+                "defaults need to be defined if all nodes are not explicitly defined".to_string(),
+            );
         }
 
         let len = self.beacon.len();
@@ -121,13 +118,10 @@ impl IntegrationTestConfig {
                 self.beacon
                     .insert(format!("default-{}", i), config_clone.clone());
             }
-        } else {
-            if self.beacon.len() != node_count {
-                return Err(
-                    "defaults need to be defined if all nodes are not explicitly defined"
-                        .to_string(),
-                );
-            }
+        } else if self.beacon.len() != node_count {
+            return Err(
+                "defaults need to be defined if all nodes are not explicitly defined".to_string(),
+            );
         }
 
         if let Some(config) = self.lcli.new_testnet.as_mut() {
@@ -174,7 +168,7 @@ impl IntegrationTestConfig {
     pub fn start_testnet(&mut self) -> Result<Testnet, String> {
         // cleanup previous testnet files
         if let Some(dir) = self.global.datadir.as_str() {
-            let path = PathBuf::from(dir);
+            let path = dir.parse::<Path>()?;
             if path.exists() {
                 fs::remove_dir_all(dir).map_err(|e| format!("failed to remove datadir: {}", e))?;
             }
@@ -224,7 +218,7 @@ impl IntegrationTestConfig {
             .deploy_deposit_contract
             .take()
             .ok_or("unable to parse deploy contract config")?;
-        self.run_lcli_for_config(LCLI_CMD, DEPLOY_DEPOSIT_CONTRACT_CMD, deposit_config);
+        self.run_lcli_for_config(LCLI_CMD, DEPLOY_DEPOSIT_CONTRACT_CMD, deposit_config)?;
 
         let mut testnet_config = self
             .lcli
@@ -263,7 +257,7 @@ impl IntegrationTestConfig {
             TomlValue::Integer(genesis_duration.as_secs() as i64),
         );
 
-        self.run_lcli_for_config(LCLI_CMD, NEW_TESTNET_CMD, testnet_config);
+        self.run_lcli_for_config(LCLI_CMD, NEW_TESTNET_CMD, testnet_config)?;
 
         let insecure_val_config = self
             .lcli
@@ -284,7 +278,7 @@ impl IntegrationTestConfig {
             .as_str()
             .unwrap()
             .to_string();
-        self.run_lcli_for_config(LCLI_CMD, INSECURE_VALIDATORS_CMD, insecure_val_config);
+        self.run_lcli_for_config(LCLI_CMD, INSECURE_VALIDATORS_CMD, insecure_val_config)?;
 
         let doppelganger_count = self
             .global
@@ -330,7 +324,7 @@ impl IntegrationTestConfig {
         config_vec.insert(0, subcommand.to_string());
         config_vec.insert(0, command.to_string());
 
-        let app = lcli::new_app(None)
+        let app = lcli::new_app()
             .try_get_matches_from(config_vec)
             .map_err(|e| format!("{}", e))?;
         lcli::run(&app)
@@ -486,7 +480,7 @@ impl IntegrationTestConfig {
 }
 
 pub(crate) fn spawn_validator(
-    lighthouse_bin: &PathBuf,
+    lighthouse_bin: &Path,
     config: HashMap<String, String>,
 ) -> Result<TestnetValidatorClient, String> {
     let process =
@@ -500,7 +494,7 @@ pub(crate) fn spawn_validator(
         config.get(DATADIR_FLAG).as_ref(),
         config.get(BEACON_NODES_FLAG).as_ref(),
     ) {
-        let token_path = PathBuf::from(format!("{}{}", datadir, "/validators/api-token.txt"));
+        let token_path = format!("{}{}", datadir, "/validators/api-token.txt").parse::<Path>()?;
         let secret = fs::read_to_string(token_path).expect("should read API token from file");
         let http_client = ValidatorClientHttpClient::new(
             SensitiveUrl::parse(url).expect("should create HTTP client"),

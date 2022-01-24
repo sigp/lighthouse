@@ -38,7 +38,7 @@ impl Testnet {
         self
     }
 
-    pub fn add_validator(mut self) -> Self {
+    pub fn add_validator(self) -> Self {
         self.add_validator_with_config(|_| {})
     }
 

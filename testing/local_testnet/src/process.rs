@@ -1,5 +1,5 @@
 use crate::config::Config;
-use std::path::PathBuf;
+use std::path::Path;
 use std::process::{Child, Command, ExitStatus};
 
 #[derive(Debug)]
@@ -11,7 +11,7 @@ pub struct SimProcess {
 impl Drop for SimProcess {
     fn drop(&mut self) {
         if let Some(child) = self.process.as_mut() {
-            child.kill();
+            child.kill().expect("unable to kill process");
         };
     }
 }
@@ -19,7 +19,7 @@ impl Drop for SimProcess {
 impl SimProcess {
     pub fn new(base_cmd_name: &str, config: Config) -> SimProcess {
         let mut cmd = Command::new(base_cmd_name);
-        for (k, v) in config.into_iter() {
+        for (k, v) in config.iter() {
             cmd.arg(format!("--{}", k));
             cmd.arg(v);
         }
@@ -30,13 +30,13 @@ impl SimProcess {
     }
 
     pub fn new_lighthouse_process(
-        lighthouse_bin: &PathBuf,
+        lighthouse_bin: &Path,
         base_cmd_name: &str,
         config: &Config,
     ) -> SimProcess {
         let mut cmd = Command::new(lighthouse_bin);
         cmd.arg(base_cmd_name);
-        for (k, v) in config.into_iter() {
+        for (k, v) in config.iter() {
             if v == "true" {
                 cmd.arg(format!("--{}", k));
             } else {
