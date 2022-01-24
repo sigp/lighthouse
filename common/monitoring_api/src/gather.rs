@@ -67,11 +67,7 @@ const BEACON_PROCESS_METRICS: &[JsonMetric] = &[
         "disk_beaconchain_bytes_total",
         JsonType::Integer,
     ),
-    JsonMetric::new(
-        "libp2p_peer_connected_peers_total",
-        "network_peers_connected",
-        JsonType::Integer,
-    ),
+    JsonMetric::new("libp2p_peers", "network_peers_connected", JsonType::Integer),
     JsonMetric::new(
         "libp2p_outbound_bytes",
         "network_libp2p_bytes_total_transmit",
