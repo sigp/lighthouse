@@ -53,7 +53,7 @@ use types::{
 pub mod gossipsub_scoring_parameters;
 
 /// The number of peers we target per subnet for discovery queries.
-pub const TARGET_SUBNET_PEERS: usize = 2;
+pub const TARGET_SUBNET_PEERS: usize = 6;
 
 const MAX_IDENTIFY_ADDRESSES: usize = 10;
 
