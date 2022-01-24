@@ -22,7 +22,7 @@ pub trait BatchConfig {
     /// Hashing function of a batch's attempt. Used for scoring purposes.
     ///
     /// When a batch fails processing, it is possible that the batch is wrong (faulty or incomplete) or
-    /// that a previous one is wrong. For this reason we need to re-downloaded and re-process the
+    /// that a previous one is wrong. For this reason we need to re-download and re-process the
     /// unvalidated batches and the current one. Consider this scenario:
     /// ```ignore
     /// BatchA BatchB BatchC BatchD
