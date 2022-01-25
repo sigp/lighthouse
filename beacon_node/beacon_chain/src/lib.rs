@@ -9,9 +9,11 @@ mod block_times_cache;
 mod block_verification;
 pub mod builder;
 pub mod chain_config;
+mod early_attester_cache;
 mod errors;
 pub mod eth1_chain;
 pub mod events;
+mod execution_payload;
 pub mod fork_revert;
 mod head_tracker;
 pub mod historical_blocks;
@@ -36,7 +38,8 @@ mod validator_pubkey_cache;
 
 pub use self::beacon_chain::{
     AttestationProcessingOutcome, BeaconChain, BeaconChainTypes, BeaconStore, ChainSegmentResult,
-    ForkChoiceError, HeadInfo, StateSkipConfig, WhenSlotSkipped, MAXIMUM_GOSSIP_CLOCK_DISPARITY,
+    ForkChoiceError, HeadInfo, HeadSafetyStatus, StateSkipConfig, WhenSlotSkipped,
+    MAXIMUM_GOSSIP_CLOCK_DISPARITY,
 };
 pub use self::beacon_snapshot::BeaconSnapshot;
 pub use self::chain_config::ChainConfig;
@@ -44,7 +47,7 @@ pub use self::errors::{BeaconChainError, BlockProductionError};
 pub use self::historical_blocks::HistoricalBlockError;
 pub use attestation_verification::Error as AttestationError;
 pub use beacon_fork_choice_store::{BeaconForkChoiceStore, Error as ForkChoiceStoreError};
-pub use block_verification::{BlockError, GossipVerifiedBlock};
+pub use block_verification::{BlockError, ExecutionPayloadError, GossipVerifiedBlock};
 pub use eth1_chain::{Eth1Chain, Eth1ChainBackend};
 pub use events::ServerSentEventHandler;
 pub use metrics::scrape_for_metrics;

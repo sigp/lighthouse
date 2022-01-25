@@ -15,6 +15,7 @@ use crate::{
     Eth1ChainBackend, ServerSentEventHandler,
 };
 use eth1::Config as Eth1Config;
+use execution_layer::ExecutionLayer;
 use fork_choice::ForkChoice;
 use futures::channel::mpsc::Sender;
 use operation_pool::{OperationPool, PersistedOperationPool};
@@ -75,6 +76,7 @@ pub struct BeaconChainBuilder<T: BeaconChainTypes> {
     >,
     op_pool: Option<OperationPool<T::EthSpec>>,
     eth1_chain: Option<Eth1Chain<T::Eth1Chain, T::EthSpec>>,
+    execution_layer: Option<ExecutionLayer>,
     event_handler: Option<ServerSentEventHandler<T::EthSpec>>,
     slot_clock: Option<T::SlotClock>,
     shutdown_sender: Option<Sender<ShutdownReason>>,
@@ -82,7 +84,6 @@ pub struct BeaconChainBuilder<T: BeaconChainTypes> {
     validator_pubkey_cache: Option<ValidatorPubkeyCache<T>>,
     spec: ChainSpec,
     chain_config: ChainConfig,
-    disabled_forks: Vec<String>,
     log: Option<Logger>,
     graffiti: Graffiti,
     slasher: Option<Arc<Slasher<T::EthSpec>>>,
@@ -115,11 +116,11 @@ where
             fork_choice: None,
             op_pool: None,
             eth1_chain: None,
+            execution_layer: None,
             event_handler: None,
             slot_clock: None,
             shutdown_sender: None,
             head_tracker: None,
-            disabled_forks: Vec::new(),
             validator_pubkey_cache: None,
             spec: TEthSpec::default_spec(),
             chain_config: ChainConfig::default(),
@@ -181,13 +182,6 @@ where
         self.log = Some(log);
         self
     }
-
-    /// Sets a list of hard-coded forks that will not be activated.
-    pub fn disabled_forks(mut self, disabled_forks: Vec<String>) -> Self {
-        self.disabled_forks = disabled_forks;
-        self
-    }
-
     /// Attempt to load an existing eth1 cache from the builder's `Store`.
     pub fn get_persisted_eth1_backend(&self) -> Result<Option<SszEth1>, String> {
         let store = self
@@ -476,6 +470,12 @@ where
         self
     }
 
+    /// Sets the `BeaconChain` execution layer.
+    pub fn execution_layer(mut self, execution_layer: Option<ExecutionLayer>) -> Self {
+        self.execution_layer = execution_layer;
+        self
+    }
+
     /// Sets the `BeaconChain` event handler backend.
     ///
     /// For example, provide `ServerSentEventHandler` as a `handler`.
@@ -582,7 +582,7 @@ where
         };
 
         let initial_head_block_root = fork_choice
-            .get_head(current_slot)
+            .get_head(current_slot, &self.spec)
             .map_err(|e| format!("Unable to get fork choice head: {:?}", e))?;
 
         // Try to decode the head block according to the current fork, if that fails, try
@@ -737,6 +737,7 @@ where
             observed_proposer_slashings: <_>::default(),
             observed_attester_slashings: <_>::default(),
             eth1_chain: self.eth1_chain,
+            execution_layer: self.execution_layer,
             genesis_validators_root: canonical_head.beacon_state.genesis_validators_root(),
             canonical_head: TimeoutRwLock::new(canonical_head.clone()),
             genesis_block_root,
@@ -753,7 +754,7 @@ where
             block_times_cache: <_>::default(),
             validator_pubkey_cache: TimeoutRwLock::new(validator_pubkey_cache),
             attester_cache: <_>::default(),
-            disabled_forks: self.disabled_forks,
+            early_attester_cache: <_>::default(),
             shutdown_sender: self
                 .shutdown_sender
                 .ok_or("Cannot build without a shutdown sender.")?,
@@ -909,7 +910,9 @@ fn descriptive_db_error(item: &str, error: &StoreError) -> String {
 mod test {
     use super::*;
     use eth2_hashing::hash;
-    use genesis::{generate_deterministic_keypairs, interop_genesis_state};
+    use genesis::{
+        generate_deterministic_keypairs, interop_genesis_state, DEFAULT_ETH1_BLOCK_HASH,
+    };
     use sloggers::{null::NullLoggerBuilder, Build};
     use ssz::Encode;
     use std::time::Duration;
@@ -941,6 +944,8 @@ mod test {
         let genesis_state = interop_genesis_state(
             &generate_deterministic_keypairs(validator_count),
             genesis_time,
+            Hash256::from_slice(DEFAULT_ETH1_BLOCK_HASH),
+            None,
             &spec,
         )
         .expect("should create interop genesis state");
@@ -1006,8 +1011,14 @@ mod test {
 
         let keypairs = generate_deterministic_keypairs(validator_count);
 
-        let state = interop_genesis_state::<TestEthSpec>(&keypairs, genesis_time, spec)
-            .expect("should build state");
+        let state = interop_genesis_state::<TestEthSpec>(
+            &keypairs,
+            genesis_time,
+            Hash256::from_slice(DEFAULT_ETH1_BLOCK_HASH),
+            None,
+            spec,
+        )
+        .expect("should build state");
 
         assert_eq!(
             state.eth1_data().block_hash,

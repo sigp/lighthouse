@@ -11,7 +11,7 @@ use std::process::Command;
 use std::str::FromStr;
 use std::string::ToString;
 use tempfile::TempDir;
-use types::{Checkpoint, Epoch, Hash256};
+use types::{Address, Checkpoint, Epoch, Hash256};
 
 const DEFAULT_ETH1_ENDPOINT: &str = "http://localhost:8545/";
 
@@ -204,6 +204,24 @@ fn eth1_purge_cache_flag() {
         .flag("eth1-purge-cache", None)
         .run_with_zero_port()
         .with_config(|config| assert!(config.eth1.purge_cache));
+}
+
+// Tests for Merge flags.
+#[test]
+fn merge_fee_recipient_flag() {
+    CommandLineTest::new()
+        .flag("merge", None)
+        .flag(
+            "fee-recipient",
+            Some("0x00000000219ab540356cbb839cbe05303d7705fa"),
+        )
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert_eq!(
+                config.suggested_fee_recipient,
+                Some(Address::from_str("0x00000000219ab540356cbb839cbe05303d7705fa").unwrap())
+            )
+        });
 }
 
 // Tests for Network flags.
@@ -670,7 +688,6 @@ fn no_reconstruct_historic_states_flag() {
 fn slasher_flag() {
     CommandLineTest::new()
         .flag("slasher", None)
-        .flag("slasher-max-db-size", Some("16"))
         .run_with_zero_port()
         .with_config_and_dir(|config, dir| {
             if let Some(slasher_config) = &config.slasher {
@@ -689,7 +706,6 @@ fn slasher_dir_flag() {
     CommandLineTest::new()
         .flag("slasher", None)
         .flag("slasher-dir", dir.path().as_os_str().to_str())
-        .flag("slasher-max-db-size", Some("16"))
         .run_with_zero_port()
         .with_config(|config| {
             if let Some(slasher_config) = &config.slasher {
@@ -703,7 +719,6 @@ fn slasher_dir_flag() {
 fn slasher_update_period_flag() {
     CommandLineTest::new()
         .flag("slasher", None)
-        .flag("slasher-max-db-size", Some("16"))
         .flag("slasher-update-period", Some("100"))
         .run_with_zero_port()
         .with_config(|config| {
@@ -715,21 +730,21 @@ fn slasher_update_period_flag() {
         });
 }
 #[test]
-fn slasher_slot_offset() {
-    // TODO: check that the offset is actually stored, once the config is un-hacked
-    // See: https://github.com/sigp/lighthouse/pull/2767#discussion_r741610402
+fn slasher_slot_offset_flag() {
     CommandLineTest::new()
         .flag("slasher", None)
-        .flag("slasher-max-db-size", Some("16"))
         .flag("slasher-slot-offset", Some("11.25"))
-        .run();
+        .run()
+        .with_config(|config| {
+            let slasher_config = config.slasher.as_ref().unwrap();
+            assert_eq!(slasher_config.slot_offset, 11.25);
+        });
 }
 #[test]
 #[should_panic]
-fn slasher_slot_offset_nan() {
+fn slasher_slot_offset_nan_flag() {
     CommandLineTest::new()
         .flag("slasher", None)
-        .flag("slasher-max-db-size", Some("16"))
         .flag("slasher-slot-offset", Some("NaN"))
         .run();
 }
@@ -737,7 +752,6 @@ fn slasher_slot_offset_nan() {
 fn slasher_history_length_flag() {
     CommandLineTest::new()
         .flag("slasher", None)
-        .flag("slasher-max-db-size", Some("16"))
         .flag("slasher-history-length", Some("2048"))
         .run_with_zero_port()
         .with_config(|config| {
@@ -763,11 +777,24 @@ fn slasher_max_db_size_flag() {
         });
 }
 #[test]
+fn slasher_attestation_cache_size_flag() {
+    CommandLineTest::new()
+        .flag("slasher", None)
+        .flag("slasher-att-cache-size", Some("10000"))
+        .run()
+        .with_config(|config| {
+            let slasher_config = config
+                .slasher
+                .as_ref()
+                .expect("Unable to parse Slasher config");
+            assert_eq!(slasher_config.attestation_root_cache_size, 10000);
+        });
+}
+#[test]
 fn slasher_chunk_size_flag() {
     CommandLineTest::new()
         .flag("slasher", None)
         .flag("slasher-chunk-size", Some("32"))
-        .flag("slasher-max-db-size", Some("16"))
         .run_with_zero_port()
         .with_config(|config| {
             let slasher_config = config
@@ -781,7 +808,6 @@ fn slasher_chunk_size_flag() {
 fn slasher_validator_chunk_size_flag() {
     CommandLineTest::new()
         .flag("slasher", None)
-        .flag("slasher-max-db-size", Some("16"))
         .flag("slasher-validator-chunk-size", Some("512"))
         .run_with_zero_port()
         .with_config(|config| {
@@ -797,7 +823,6 @@ fn slasher_broadcast_flag() {
     CommandLineTest::new()
         .flag("slasher", None)
         .flag("slasher-broadcast", None)
-        .flag("slasher-max-db-size", Some("16"))
         .run_with_zero_port()
         .with_config(|config| {
             let slasher_config = config

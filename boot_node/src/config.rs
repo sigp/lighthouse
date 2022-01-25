@@ -1,5 +1,6 @@
-use beacon_node::{get_data_dir, get_eth2_network_config, set_network_config};
+use beacon_node::{get_data_dir, set_network_config};
 use clap::ArgMatches;
+use eth2_network_config::Eth2NetworkConfig;
 use lighthouse_network::discv5::{enr::CombinedKey, Discv5Config, Enr};
 use lighthouse_network::{
     discovery::{create_enr_builder_from_config, load_enr_from_disk, use_or_load_enr},
@@ -7,7 +8,6 @@ use lighthouse_network::{
 };
 use serde_derive::{Deserialize, Serialize};
 use ssz::Encode;
-use std::convert::TryFrom;
 use std::net::SocketAddr;
 use std::{marker::PhantomData, path::PathBuf};
 use types::EthSpec;
@@ -23,14 +23,12 @@ pub struct BootNodeConfig<T: EthSpec> {
     phantom: PhantomData<T>,
 }
 
-impl<T: EthSpec> TryFrom<&ArgMatches<'_>> for BootNodeConfig<T> {
-    type Error = String;
-
-    fn try_from(matches: &ArgMatches<'_>) -> Result<Self, Self::Error> {
+impl<T: EthSpec> BootNodeConfig<T> {
+    pub fn new(
+        matches: &ArgMatches<'_>,
+        eth2_network_config: &Eth2NetworkConfig,
+    ) -> Result<Self, String> {
         let data_dir = get_data_dir(matches);
-
-        // Try and grab network config from input CLI params
-        let eth2_network_config = get_eth2_network_config(matches)?;
 
         // Try and obtain bootnodes
 
@@ -134,13 +132,15 @@ impl<T: EthSpec> TryFrom<&ArgMatches<'_>> for BootNodeConfig<T> {
 
 /// The set of configuration parameters that can safely be (de)serialized.
 ///
-/// Its fields are a subset of the fields of `BootNodeConfig`.
+/// Its fields are a subset of the fields of `BootNodeConfig`, some of them are copied from `Discv5Config`.
 #[derive(Serialize, Deserialize)]
 pub struct BootNodeConfigSerialization {
     pub listen_socket: SocketAddr,
     // TODO: Generalise to multiaddr
     pub boot_nodes: Vec<Enr>,
     pub local_enr: Enr,
+    pub disable_packet_filter: bool,
+    pub enable_enr_auto_update: bool,
 }
 
 impl BootNodeConfigSerialization {
@@ -152,7 +152,7 @@ impl BootNodeConfigSerialization {
             boot_nodes,
             local_enr,
             local_key: _,
-            discv5_config: _,
+            discv5_config,
             phantom: _,
         } = config;
 
@@ -160,6 +160,8 @@ impl BootNodeConfigSerialization {
             listen_socket: *listen_socket,
             boot_nodes: boot_nodes.clone(),
             local_enr: local_enr.clone(),
+            disable_packet_filter: !discv5_config.enable_packet_filter,
+            enable_enr_auto_update: discv5_config.enr_update,
         }
     }
 }

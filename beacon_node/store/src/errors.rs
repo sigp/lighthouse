@@ -2,6 +2,7 @@ use crate::chunked_vector::ChunkError;
 use crate::config::StoreConfigError;
 use crate::hot_cold_store::HotColdDBError;
 use ssz::DecodeError;
+use state_processing::BlockReplayError;
 use types::{BeaconStateError, Hash256, Slot};
 
 #[cfg(feature = "milhouse")]
@@ -42,6 +43,7 @@ pub enum Error {
         expected: Hash256,
         computed: Hash256,
     },
+    BlockReplayError(BlockReplayError),
     #[cfg(feature = "milhouse")]
     MilhouseError(milhouse::Error),
 }
@@ -100,6 +102,12 @@ impl From<StoreConfigError> for Error {
 impl From<milhouse::Error> for Error {
     fn from(e: milhouse::Error) -> Self {
         Self::MilhouseError(e)
+    }
+}
+
+impl From<BlockReplayError> for Error {
+    fn from(e: BlockReplayError) -> Error {
+        Error::BlockReplayError(e)
     }
 }
 

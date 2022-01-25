@@ -33,7 +33,9 @@ pub use iter::BlockRootsIter;
 pub use milhouse::{interface::Interface, List as VList, List};
 
 #[cfg(not(feature = "milhouse"))]
-pub use {ssz_types::FixedVector, tree_hash_cache::BeaconTreeHashCache, VariableList as VList};
+pub use {
+    ssz_types::FixedVector, ssz_types::VariableList as VList, tree_hash_cache::BeaconTreeHashCache,
+};
 
 #[macro_use]
 mod committee_cache;
@@ -47,6 +49,8 @@ mod tree_hash_cache;
 
 #[cfg(feature = "milhouse")]
 pub type ListMut<'a, T, N> = Interface<'a, T, List<T, N>>;
+#[cfg(not(feature = "milhouse"))]
+pub type ListMut<'a, T, N> = &'a mut VList<T, N>;
 
 #[cfg(feature = "milhouse")]
 pub type ValidatorsMut<'a, N> = ListMut<'a, Validator, N>;
@@ -193,7 +197,7 @@ impl From<BeaconStateHash> for Hash256 {
 
 /// The state of the `BeaconChain` at some slot.
 #[superstruct(
-    variants(Base, Altair),
+    variants(Base, Altair, Merge),
     variant_attributes(
         derive(
             Derivative,
@@ -278,9 +282,9 @@ where
     pub current_epoch_attestations: VList<PendingAttestation<T>, T::MaxPendingAttestations>,
 
     // Participation (Altair and later)
-    #[superstruct(only(Altair))]
+    #[superstruct(only(Altair, Merge))]
     pub previous_epoch_participation: VariableList<ParticipationFlags, T::ValidatorRegistryLimit>,
-    #[superstruct(only(Altair))]
+    #[superstruct(only(Altair, Merge))]
     pub current_epoch_participation: VariableList<ParticipationFlags, T::ValidatorRegistryLimit>,
 
     // Finality
@@ -295,14 +299,18 @@ where
 
     // Inactivity
     #[serde(with = "ssz_types::serde_utils::quoted_u64_var_list")]
-    #[superstruct(only(Altair))]
+    #[superstruct(only(Altair, Merge))]
     pub inactivity_scores: VariableList<u64, T::ValidatorRegistryLimit>,
 
     // Light-client sync committees
-    #[superstruct(only(Altair))]
+    #[superstruct(only(Altair, Merge))]
     pub current_sync_committee: Arc<SyncCommittee<T>>,
-    #[superstruct(only(Altair))]
+    #[superstruct(only(Altair, Merge))]
     pub next_sync_committee: Arc<SyncCommittee<T>>,
+
+    // Execution
+    #[superstruct(only(Merge))]
+    pub latest_execution_payload_header: ExecutionPayloadHeader<T>,
 
     // Caching (not in the spec)
     #[serde(skip_serializing, skip_deserializing)]
@@ -414,6 +422,7 @@ impl<T: EthSpec> BeaconState<T> {
         let object_fork = match self {
             BeaconState::Base { .. } => ForkName::Base,
             BeaconState::Altair { .. } => ForkName::Altair,
+            BeaconState::Merge { .. } => ForkName::Merge,
         };
 
         if fork_at_slot == object_fork {
@@ -1155,6 +1164,7 @@ impl<T: EthSpec> BeaconState<T> {
         match self {
             BeaconState::Base(state) => (&mut state.validators, &mut state.balances),
             BeaconState::Altair(state) => (&mut state.validators, &mut state.balances),
+            BeaconState::Merge(state) => (&mut state.validators, &mut state.balances),
         }
 
         #[cfg(feature = "milhouse")]
@@ -1351,11 +1361,13 @@ impl<T: EthSpec> BeaconState<T> {
             match self {
                 BeaconState::Base(_) => Err(BeaconStateError::IncorrectStateVariant),
                 BeaconState::Altair(state) => Ok(&mut state.current_epoch_participation),
+                BeaconState::Merge(state) => Ok(&mut state.current_epoch_participation),
             }
         } else if epoch == self.previous_epoch() {
             match self {
                 BeaconState::Base(_) => Err(BeaconStateError::IncorrectStateVariant),
                 BeaconState::Altair(state) => Ok(&mut state.previous_epoch_participation),
+                BeaconState::Merge(state) => Ok(&mut state.previous_epoch_participation),
             }
         } else {
             Err(BeaconStateError::EpochOutOfBounds)
@@ -1651,6 +1663,7 @@ impl<T: EthSpec> BeaconState<T> {
         let mut res = match self {
             BeaconState::Base(inner) => BeaconState::Base(inner.clone()),
             BeaconState::Altair(inner) => BeaconState::Altair(inner.clone()),
+            BeaconState::Merge(inner) => BeaconState::Merge(inner.clone()),
         };
         if config.committee_caches {
             *res.committee_caches_mut() = self.committee_caches().clone();
@@ -1762,7 +1775,8 @@ impl<T: EthSpec> CompareFields for BeaconState<T> {
         match (self, other) {
             (BeaconState::Base(x), BeaconState::Base(y)) => x.compare_fields(y),
             (BeaconState::Altair(x), BeaconState::Altair(y)) => x.compare_fields(y),
-            _ => panic!("compare_fields: mismatched state variants"),
+            (BeaconState::Merge(x), BeaconState::Merge(y)) => x.compare_fields(y),
+            _ => panic!("compare_fields: mismatched state variants",),
         }
     }
 }

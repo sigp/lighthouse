@@ -1,6 +1,6 @@
 //! Implementation of Lighthouse's peer management system.
 
-use crate::discovery::TARGET_SUBNET_PEERS;
+use crate::behaviour::TARGET_SUBNET_PEERS;
 use crate::rpc::{GoodbyeReason, MetaData, Protocol, RPCError, RPCResponseErrorCode};
 use crate::{error, metrics, Gossipsub};
 use crate::{NetworkGlobals, PeerId};
@@ -8,13 +8,14 @@ use crate::{Subnet, SubnetDiscovery};
 use discv5::Enr;
 use hashset_delay::HashSetDelay;
 use libp2p::identify::IdentifyInfo;
-use peerdb::{BanOperation, BanResult, ScoreUpdateResult};
+use peerdb::{client::ClientKind, BanOperation, BanResult, ScoreUpdateResult};
 use slog::{debug, error, warn};
 use smallvec::SmallVec;
 use std::{
     sync::Arc,
     time::{Duration, Instant},
 };
+use strum::IntoEnumIterator;
 use types::{EthSpec, SyncSubnetId};
 
 pub use libp2p::core::{identity::Keypair, Multiaddr};
@@ -46,7 +47,7 @@ pub const MIN_OUTBOUND_ONLY_FACTOR: f32 = 0.3;
 /// requiring subnet peers. More specifically, if our target peer limit is 50, and our excess peer
 /// limit is 55, and we are at 55 peers, the following parameter provisions a few more slots of
 /// dialing priority peers we need for validator duties.
-pub const PRIORITY_PEER_EXCESS: f32 = 0.05;
+pub const PRIORITY_PEER_EXCESS: f32 = 0.1;
 
 /// The main struct that handles peer's reputation and connection status.
 pub struct PeerManager<TSpec: EthSpec> {
@@ -71,6 +72,8 @@ pub struct PeerManager<TSpec: EthSpec> {
     heartbeat: tokio::time::Interval,
     /// Keeps track of whether the discovery service is enabled or not.
     discovery_enabled: bool,
+    /// Keeps track if the current instance is reporting metrics or not.
+    metrics_enabled: bool,
     /// The logger associated with the `PeerManager`.
     log: slog::Logger,
 }
@@ -111,6 +114,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
     ) -> error::Result<Self> {
         let config::Config {
             discovery_enabled,
+            metrics_enabled,
             target_peer_count,
             status_interval,
             ping_interval_inbound,
@@ -130,6 +134,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
             sync_committee_subnets: Default::default(),
             heartbeat,
             discovery_enabled,
+            metrics_enabled,
             log: log.clone(),
         })
     }
@@ -143,14 +148,20 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
     /// This will send a goodbye and disconnect the peer if it is connected or dialing.
     pub fn goodbye_peer(&mut self, peer_id: &PeerId, reason: GoodbyeReason, source: ReportSource) {
         // Update the sync status if required
-        if let Some(info) = self.network_globals.peers_mut().peer_info_mut(peer_id) {
+        if let Some(info) = self.network_globals.peers.write().peer_info_mut(peer_id) {
             debug!(self.log, "Sending goodbye to peer"; "peer_id" => %peer_id, "reason" => %reason, "score" => %info.score());
             if matches!(reason, GoodbyeReason::IrrelevantNetwork) {
                 info.update_sync_status(SyncStatus::IrrelevantPeer);
             }
         }
 
-        self.report_peer(peer_id, PeerAction::Fatal, source, Some(reason));
+        self.report_peer(
+            peer_id,
+            PeerAction::Fatal,
+            source,
+            Some(reason),
+            "goodbye_peer",
+        );
     }
 
     /// Reports a peer for some action.
@@ -162,11 +173,13 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
         action: PeerAction,
         source: ReportSource,
         reason: Option<GoodbyeReason>,
+        msg: &'static str,
     ) {
         let action = self
             .network_globals
-            .peers_mut()
-            .report_peer(peer_id, action, source);
+            .peers
+            .write()
+            .report_peer(peer_id, action, source, msg);
         self.handle_score_action(peer_id, action, reason);
     }
 
@@ -263,13 +276,14 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
             if (min_ttl.is_some()
                 && connected_or_dialing + to_dial_peers.len() < self.max_priority_peers()
                 || connected_or_dialing + to_dial_peers.len() < self.max_peers())
-                && self.network_globals.peers().should_dial(&peer_id)
+                && self.network_globals.peers.read().should_dial(&peer_id)
             {
                 // This should be updated with the peer dialing. In fact created once the peer is
                 // dialed
                 if let Some(min_ttl) = min_ttl {
                     self.network_globals
-                        .peers_mut()
+                        .peers
+                        .write()
                         .update_min_ttl(&peer_id, min_ttl);
                 }
                 to_dial_peers.push(peer_id);
@@ -339,22 +353,27 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
     ///
     /// This is used to determine if we should accept incoming connections.
     pub fn ban_status(&self, peer_id: &PeerId) -> BanResult {
-        self.network_globals.peers().ban_status(peer_id)
+        self.network_globals.peers.read().ban_status(peer_id)
     }
 
     pub fn is_connected(&self, peer_id: &PeerId) -> bool {
-        self.network_globals.peers().is_connected(peer_id)
+        self.network_globals.peers.read().is_connected(peer_id)
     }
 
     /// Reports whether the peer limit is reached in which case we stop allowing new incoming
     /// connections.
-    pub fn peer_limit_reached(&self) -> bool {
-        self.network_globals.connected_or_dialing_peers() >= self.max_peers()
+    pub fn peer_limit_reached(&self, count_dialing: bool) -> bool {
+        let max_peers = self.max_peers();
+        if count_dialing {
+            self.network_globals.connected_or_dialing_peers() >= max_peers
+        } else {
+            self.network_globals.connected_peers() >= max_peers
+        }
     }
 
     /// Updates `PeerInfo` with `identify` information.
     pub fn identify(&mut self, peer_id: &PeerId, info: &IdentifyInfo) {
-        if let Some(peer_info) = self.network_globals.peers_mut().peer_info_mut(peer_id) {
+        if let Some(peer_info) = self.network_globals.peers.write().peer_info_mut(peer_id) {
             let previous_kind = peer_info.client().kind.clone();
             let previous_listening_addresses =
                 peer_info.set_listening_addresses(info.listen_addrs.clone());
@@ -371,19 +390,21 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
                     "protocols" => ?info.protocols
                 );
 
-                // update the peer client kind metric
-                if let Some(v) = metrics::get_int_gauge(
-                    &metrics::PEERS_PER_CLIENT,
-                    &[&peer_info.client().kind.to_string()],
+                // update the peer client kind metric if the peer is connected
+                if matches!(
+                    peer_info.connection_status(),
+                    PeerConnectionStatus::Connected { .. }
+                        | PeerConnectionStatus::Disconnecting { .. }
                 ) {
-                    v.inc()
-                };
-                if let Some(v) = metrics::get_int_gauge(
-                    &metrics::PEERS_PER_CLIENT,
-                    &[&previous_kind.to_string()],
-                ) {
-                    v.dec()
-                };
+                    metrics::inc_gauge_vec(
+                        &metrics::PEERS_PER_CLIENT,
+                        &[&peer_info.client().kind.to_string()],
+                    );
+                    metrics::dec_gauge_vec(
+                        &metrics::PEERS_PER_CLIENT,
+                        &[&previous_kind.to_string()],
+                    );
+                }
             }
         } else {
             error!(self.log, "Received an Identify response from an unknown peer"; "peer_id" => peer_id.to_string());
@@ -401,7 +422,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
         direction: ConnectionDirection,
     ) {
         let client = self.network_globals.client(peer_id);
-        let score = self.network_globals.peers().score(peer_id);
+        let score = self.network_globals.peers.read().score(peer_id);
         debug!(self.log, "RPC Error"; "protocol" => %protocol, "err" => %err, "client" => %client,
             "peer_id" => %peer_id, "score" => %score, "direction" => ?direction);
         metrics::inc_counter_vec(
@@ -497,13 +518,19 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
             RPCError::Disconnected => return, // No penalty for a graceful disconnection
         };
 
-        self.report_peer(peer_id, peer_action, ReportSource::RPC, None);
+        self.report_peer(
+            peer_id,
+            peer_action,
+            ReportSource::RPC,
+            None,
+            "handle_rpc_error",
+        );
     }
 
     /// A ping request has been received.
     // NOTE: The behaviour responds with a PONG automatically
     pub fn ping_request(&mut self, peer_id: &PeerId, seq: u64) {
-        if let Some(peer_info) = self.network_globals.peers().peer_info(peer_id) {
+        if let Some(peer_info) = self.network_globals.peers.read().peer_info(peer_id) {
             // received a ping
             // reset the to-ping timer for this peer
             debug!(self.log, "Received a ping request"; "peer_id" => %peer_id, "seq_no" => seq);
@@ -540,7 +567,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
 
     /// A PONG has been returned from a peer.
     pub fn pong_response(&mut self, peer_id: &PeerId, seq: u64) {
-        if let Some(peer_info) = self.network_globals.peers().peer_info(peer_id) {
+        if let Some(peer_info) = self.network_globals.peers.read().peer_info(peer_id) {
             // received a pong
 
             // if the sequence number is unknown send update the meta data of the peer.
@@ -563,7 +590,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
 
     /// Received a metadata response from a peer.
     pub fn meta_data_response(&mut self, peer_id: &PeerId, meta_data: MetaData<TSpec>) {
-        if let Some(peer_info) = self.network_globals.peers_mut().peer_info_mut(peer_id) {
+        if let Some(peer_info) = self.network_globals.peers.write().peer_info_mut(peer_id) {
             if let Some(known_meta_data) = &peer_info.meta_data() {
                 if *known_meta_data.seq_number() < *meta_data.seq_number() {
                     debug!(self.log, "Updating peer's metadata";
@@ -590,11 +617,52 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
     pub(crate) fn update_gossipsub_scores(&mut self, gossipsub: &Gossipsub) {
         let actions = self
             .network_globals
-            .peers_mut()
+            .peers
+            .write()
             .update_gossipsub_scores(self.target_peers, gossipsub);
 
         for (peer_id, score_action) in actions {
             self.handle_score_action(&peer_id, score_action, None);
+        }
+    }
+
+    // This function updates metrics for all connected peers.
+    fn update_connected_peer_metrics(&self) {
+        // Do nothing if we don't have metrics enabled.
+        if !self.metrics_enabled {
+            return;
+        }
+
+        let mut connected_peer_count = 0;
+        let mut inbound_connected_peers = 0;
+        let mut outbound_connected_peers = 0;
+        let mut clients_per_peer = HashMap::new();
+
+        for (_peer, peer_info) in self.network_globals.peers.read().connected_peers() {
+            connected_peer_count += 1;
+            if let PeerConnectionStatus::Connected { n_in, .. } = peer_info.connection_status() {
+                if *n_in > 0 {
+                    inbound_connected_peers += 1;
+                } else {
+                    outbound_connected_peers += 1;
+                }
+            }
+            *clients_per_peer
+                .entry(peer_info.client().kind.to_string())
+                .or_default() += 1;
+        }
+
+        metrics::set_gauge(&metrics::PEERS_CONNECTED, connected_peer_count);
+        metrics::set_gauge(&metrics::NETWORK_INBOUND_PEERS, inbound_connected_peers);
+        metrics::set_gauge(&metrics::NETWORK_OUTBOUND_PEERS, outbound_connected_peers);
+
+        for client_kind in ClientKind::iter() {
+            let value = clients_per_peer.get(&client_kind.to_string()).unwrap_or(&0);
+            metrics::set_gauge_vec(
+                &metrics::PEERS_PER_CLIENT,
+                &[&client_kind.to_string()],
+                *value as i64,
+            );
         }
     }
 
@@ -630,7 +698,11 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
     ///
     /// This is also called when dialing a peer fails.
     fn inject_disconnect(&mut self, peer_id: &PeerId) {
-        let ban_operation = self.network_globals.peers_mut().inject_disconnect(peer_id);
+        let (ban_operation, purged_peers) = self
+            .network_globals
+            .peers
+            .write()
+            .inject_disconnect(peer_id);
 
         if let Some(ban_operation) = ban_operation {
             // The peer was awaiting a ban, continue to ban the peer.
@@ -641,6 +713,11 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
         self.inbound_ping_peers.remove(peer_id);
         self.outbound_ping_peers.remove(peer_id);
         self.status_peers.remove(peer_id);
+        self.events.extend(
+            purged_peers
+                .into_iter()
+                .map(|(peer_id, unbanned_ips)| PeerManagerEvent::UnBanned(peer_id, unbanned_ips)),
+        );
     }
 
     /// Registers a peer as connected. The `ingoing` parameter determines if the peer is being
@@ -656,7 +733,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
         enr: Option<Enr>,
     ) -> bool {
         {
-            let mut peerdb = self.network_globals.peers_mut();
+            let mut peerdb = self.network_globals.peers.write();
             if !matches!(peerdb.ban_status(peer_id), BanResult::NotBanned) {
                 // don't connect if the peer is banned
                 error!(self.log, "Connection has been allowed to a banned peer"; "peer_id" => %peer_id);
@@ -688,21 +765,6 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
         // increment prometheus metrics
         metrics::inc_counter(&metrics::PEER_CONNECT_EVENT_COUNT);
         metrics::set_gauge(&metrics::PEERS_CONNECTED, connected_peers);
-        metrics::set_gauge(&metrics::PEERS_CONNECTED_INTEROP, connected_peers);
-
-        // Increment the PEERS_PER_CLIENT metric
-        if let Some(kind) = self
-            .network_globals
-            .peers()
-            .peer_info(peer_id)
-            .map(|peer_info| peer_info.client().kind.clone())
-        {
-            if let Some(v) =
-                metrics::get_int_gauge(&metrics::PEERS_PER_CLIENT, &[&kind.to_string()])
-            {
-                v.inc()
-            };
-        }
 
         true
     }
@@ -712,7 +774,8 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
         self.events
             .push(PeerManagerEvent::DisconnectPeer(peer_id, reason));
         self.network_globals
-            .peers_mut()
+            .peers
+            .write()
             .notify_disconnecting(&peer_id, false);
     }
 
@@ -728,7 +791,8 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
             .filter_map(|(k, v)| {
                 if self
                     .network_globals
-                    .peers()
+                    .peers
+                    .read()
                     .good_peers_on_subnet(Subnet::SyncCommittee(*k))
                     .count()
                     < TARGET_SUBNET_PEERS
@@ -777,10 +841,13 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
         }
 
         // Updates peer's scores and unban any peers if required.
-        let actions = self.network_globals.peers_mut().update_scores();
+        let actions = self.network_globals.peers.write().update_scores();
         for (peer_id, action) in actions {
             self.handle_score_action(&peer_id, action, None);
         }
+
+        // Update peer score metrics;
+        self.update_peer_score_metrics();
 
         // Maintain minimum count for sync committee peers.
         self.maintain_sync_committee_peers();
@@ -796,7 +863,8 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
             let mut n_outbound_removed = 0;
             for (peer_id, info) in self
                 .network_globals
-                .peers()
+                .peers
+                .read()
                 .worst_connected_peers()
                 .iter()
                 .filter(|(_, info)| !info.has_future_duty())
@@ -819,6 +887,75 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
             self.disconnect_peer(peer_id, GoodbyeReason::TooManyPeers);
         }
     }
+
+    // Update metrics related to peer scoring.
+    fn update_peer_score_metrics(&self) {
+        if !self.metrics_enabled {
+            return;
+        }
+        // reset the gauges
+        let _ = metrics::PEER_SCORE_DISTRIBUTION
+            .as_ref()
+            .map(|gauge| gauge.reset());
+        let _ = metrics::PEER_SCORE_PER_CLIENT
+            .as_ref()
+            .map(|gauge| gauge.reset());
+
+        let mut avg_score_per_client: HashMap<String, (f64, usize)> = HashMap::with_capacity(5);
+        {
+            let peers_db_read_lock = self.network_globals.peers.read();
+            let connected_peers = peers_db_read_lock.best_peers_by_status(PeerInfo::is_connected);
+            let total_peers = connected_peers.len();
+            for (id, (_peer, peer_info)) in connected_peers.into_iter().enumerate() {
+                // First quartile
+                if id == 0 {
+                    metrics::set_gauge_vec(
+                        &metrics::PEER_SCORE_DISTRIBUTION,
+                        &["1st"],
+                        peer_info.score().score() as i64,
+                    );
+                } else if id == (total_peers * 3 / 4).saturating_sub(1) {
+                    metrics::set_gauge_vec(
+                        &metrics::PEER_SCORE_DISTRIBUTION,
+                        &["3/4"],
+                        peer_info.score().score() as i64,
+                    );
+                } else if id == (total_peers / 2).saturating_sub(1) {
+                    metrics::set_gauge_vec(
+                        &metrics::PEER_SCORE_DISTRIBUTION,
+                        &["1/2"],
+                        peer_info.score().score() as i64,
+                    );
+                } else if id == (total_peers / 4).saturating_sub(1) {
+                    metrics::set_gauge_vec(
+                        &metrics::PEER_SCORE_DISTRIBUTION,
+                        &["1/4"],
+                        peer_info.score().score() as i64,
+                    );
+                } else if id == total_peers.saturating_sub(1) {
+                    metrics::set_gauge_vec(
+                        &metrics::PEER_SCORE_DISTRIBUTION,
+                        &["last"],
+                        peer_info.score().score() as i64,
+                    );
+                }
+
+                let mut score_peers: &mut (f64, usize) = avg_score_per_client
+                    .entry(peer_info.client().kind.to_string())
+                    .or_default();
+                score_peers.0 += peer_info.score().score();
+                score_peers.1 += 1;
+            }
+        } // read lock ended
+
+        for (client, (score, peers)) in avg_score_per_client {
+            metrics::set_float_gauge_vec(
+                &metrics::PEER_SCORE_PER_CLIENT,
+                &[&client.to_string()],
+                score / (peers as f64),
+            );
+        }
+    }
 }
 
 enum ConnectingType {
@@ -839,9 +976,6 @@ enum ConnectingType {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::discovery::enr_ext::CombinedKeyExt;
-    use crate::rpc::methods::{MetaData, MetaDataV2};
-    use discv5::enr::CombinedKey;
     use slog::{o, Drain};
     use types::MinimalEthSpec as E;
 
@@ -864,23 +998,7 @@ mod tests {
             ..Default::default()
         };
         let log = build_log(slog::Level::Debug, false);
-        let globals = {
-            let keypair = libp2p::identity::Keypair::generate_secp256k1();
-            let enr_key: CombinedKey = CombinedKey::from_libp2p(&keypair).unwrap();
-            let enr = discv5::enr::EnrBuilder::new("v4").build(&enr_key).unwrap();
-            NetworkGlobals::new(
-                enr,
-                9000,
-                9000,
-                MetaData::V2(MetaDataV2 {
-                    seq_number: 0,
-                    attnets: Default::default(),
-                    syncnets: Default::default(),
-                }),
-                vec![],
-                &log,
-            )
-        };
+        let globals = NetworkGlobals::new_test_globals(&log);
         PeerManager::new(config, Arc::new(globals), &log)
             .await
             .unwrap()
@@ -915,14 +1033,16 @@ mod tests {
         // Set the outbound-only peers to have the lowest score.
         peer_manager
             .network_globals
-            .peers_mut()
+            .peers
+            .write()
             .peer_info_mut(&outbound_only_peer1)
             .unwrap()
             .add_to_score(-1.0);
 
         peer_manager
             .network_globals
-            .peers_mut()
+            .peers
+            .write()
             .peer_info_mut(&outbound_only_peer2)
             .unwrap()
             .add_to_score(-2.0);
@@ -938,11 +1058,13 @@ mod tests {
         assert_eq!(peer_manager.network_globals.connected_or_dialing_peers(), 3);
         assert!(peer_manager
             .network_globals
-            .peers()
+            .peers
+            .read()
             .is_connected(&outbound_only_peer1));
         assert!(!peer_manager
             .network_globals
-            .peers()
+            .peers
+            .read()
             .is_connected(&outbound_only_peer2));
 
         peer_manager.heartbeat();
@@ -971,7 +1093,8 @@ mod tests {
         );
         peer_manager
             .network_globals
-            .peers_mut()
+            .peers
+            .write()
             .peer_info_mut(&(outbound_only_peer))
             .unwrap()
             .add_to_score(-1.0);
@@ -1011,25 +1134,29 @@ mod tests {
         );
         peer_manager
             .network_globals
-            .peers_mut()
+            .peers
+            .write()
             .peer_info_mut(&(inbound_only_peer1))
             .unwrap()
             .add_to_score(-19.8);
         peer_manager
             .network_globals
-            .peers_mut()
+            .peers
+            .write()
             .peer_info_mut(&(outbound_only_peer1))
             .unwrap()
             .add_to_score(-19.8);
         peer_manager
             .network_globals
-            .peers_mut()
+            .peers
+            .write()
             .peer_info_mut(&(inbound_only_peer1))
             .unwrap()
             .set_gossipsub_score(-85.0);
         peer_manager
             .network_globals
-            .peers_mut()
+            .peers
+            .write()
             .peer_info_mut(&(outbound_only_peer1))
             .unwrap()
             .set_gossipsub_score(-85.0);
@@ -1067,13 +1194,15 @@ mod tests {
         );
         peer_manager
             .network_globals
-            .peers_mut()
+            .peers
+            .write()
             .peer_info_mut(&(inbound_only_peer1))
             .unwrap()
             .add_to_score(-19.9);
         peer_manager
             .network_globals
-            .peers_mut()
+            .peers
+            .write()
             .peer_info_mut(&(inbound_only_peer1))
             .unwrap()
             .set_gossipsub_score(-85.0);

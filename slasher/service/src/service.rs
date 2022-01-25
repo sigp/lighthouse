@@ -128,7 +128,7 @@ impl<T: BeaconChainTypes> SlasherService<T> {
                         log,
                         "Error during scheduled slasher processing";
                         "epoch" => current_epoch,
-                        "error" => format!("{:?}", e)
+                        "error" => ?e,
                     );
                     None
                 }
@@ -136,13 +136,13 @@ impl<T: BeaconChainTypes> SlasherService<T> {
             drop(batch_timer);
 
             // Prune the database, even in the case where batch processing failed.
-            // If the LMDB database is full then pruning could help to free it up.
+            // If the database is full then pruning could help to free it up.
             if let Err(e) = slasher.prune_database(current_epoch) {
                 error!(
                     log,
                     "Error during slasher database pruning";
                     "epoch" => current_epoch,
-                    "error" => format!("{:?}", e),
+                    "error" => ?e,
                 );
                 continue;
             };

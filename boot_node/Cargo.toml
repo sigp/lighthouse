@@ -1,6 +1,6 @@
 [package]
 name = "boot_node"
-version = "2.0.1"
+version = "2.1.0"
 authors = ["Sigma Prime <contact@sigmaprime.io>"]
 edition = "2018"
 
@@ -10,7 +10,7 @@ clap = "2.33.3"
 clap_utils = { path = "../common/clap_utils" }
 lighthouse_network = { path = "../beacon_node/lighthouse_network" }
 types = { path = "../consensus/types" }
-eth2_ssz = "0.4.0"
+eth2_ssz = "0.4.1"
 slog = "2.5.2"
 tokio = "1.14.0"
 log = "0.4.11"
@@ -23,3 +23,4 @@ hex = "0.4.2"
 serde = "1.0.116"
 serde_derive = "1.0.116"
 serde_json = "1.0.66"
+eth2_network_config = { path = "../common/eth2_network_config" }

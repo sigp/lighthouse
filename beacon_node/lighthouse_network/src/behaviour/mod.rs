@@ -2,26 +2,25 @@ use crate::behaviour::gossipsub_scoring_parameters::{
     lighthouse_gossip_thresholds, PeerScoreSettings,
 };
 use crate::config::gossipsub_config;
-use crate::discovery::{subnet_predicate, Discovery, DiscoveryEvent, TARGET_SUBNET_PEERS};
+use crate::discovery::{subnet_predicate, Discovery, DiscoveryEvent};
 use crate::peer_manager::{
     config::Config as PeerManagerCfg, peerdb::score::PeerAction, peerdb::score::ReportSource,
     ConnectionDirection, PeerManager, PeerManagerEvent,
 };
 use crate::rpc::*;
-use crate::service::METADATA_FILENAME;
+use crate::service::{Context as ServiceContext, METADATA_FILENAME};
 use crate::types::{
     subnet_from_topic_hash, GossipEncoding, GossipKind, GossipTopic, SnappyTransform, Subnet,
     SubnetDiscovery,
 };
 use crate::Eth2Enr;
-use crate::{
-    error, metrics, Enr, NetworkConfig, NetworkGlobals, PubsubMessage, SyncStatus, TopicHash,
-};
+use crate::{error, metrics, Enr, NetworkGlobals, PubsubMessage, TopicHash};
 use libp2p::{
     core::{
         connection::ConnectionId, identity::Keypair, multiaddr::Protocol as MProtocol, Multiaddr,
     },
     gossipsub::{
+        metrics::Config as GossipsubMetricsConfig,
         subscription_filter::{MaxCountSubscriptionFilter, WhitelistSubscriptionFilter},
         Gossipsub as BaseGossipsub, GossipsubEvent, IdentTopic as Topic, MessageAcceptance,
         MessageAuthenticity, MessageId,
@@ -34,7 +33,7 @@ use libp2p::{
     },
     NetworkBehaviour, PeerId,
 };
-use slog::{crit, debug, error, o, trace, warn};
+use slog::{crit, debug, o, trace, warn};
 use ssz::Encode;
 use std::collections::HashSet;
 use std::fs::File;
@@ -47,11 +46,14 @@ use std::{
     task::{Context, Poll},
 };
 use types::{
-    consts::altair::SYNC_COMMITTEE_SUBNET_COUNT, ChainSpec, EnrForkId, EthSpec, ForkContext,
+    consts::altair::SYNC_COMMITTEE_SUBNET_COUNT, EnrForkId, EthSpec, ForkContext,
     SignedBeaconBlock, Slot, SubnetId, SyncSubnetId,
 };
 
 pub mod gossipsub_scoring_parameters;
+
+/// The number of peers we target per subnet for discovery queries.
+pub const TARGET_SUBNET_PEERS: usize = 6;
 
 const MAX_IDENTIFY_ADDRESSES: usize = 10;
 
@@ -184,13 +186,13 @@ pub struct Behaviour<TSpec: EthSpec> {
 impl<TSpec: EthSpec> Behaviour<TSpec> {
     pub async fn new(
         local_key: &Keypair,
-        mut config: NetworkConfig,
+        ctx: ServiceContext<'_>,
         network_globals: Arc<NetworkGlobals<TSpec>>,
         log: &slog::Logger,
-        fork_context: Arc<ForkContext>,
-        chain_spec: &ChainSpec,
     ) -> error::Result<Self> {
         let behaviour_log = log.new(o!());
+
+        let mut config = ctx.config.clone();
 
         // Set up the Identify Behaviour
         let identify_config = if config.private {
@@ -217,25 +219,29 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
             .eth2()
             .expect("Local ENR must have a fork id");
 
-        let possible_fork_digests = fork_context.all_fork_digests();
+        let possible_fork_digests = ctx.fork_context.all_fork_digests();
         let filter = MaxCountSubscriptionFilter {
             filter: Self::create_whitelist_filter(
                 possible_fork_digests,
-                chain_spec.attestation_subnet_count,
+                ctx.chain_spec.attestation_subnet_count,
                 SYNC_COMMITTEE_SUBNET_COUNT,
             ),
             max_subscribed_topics: 200,
             max_subscriptions_per_request: 150, // 148 in theory = (64 attestation + 4 sync committee + 6 core topics) * 2
         };
 
-        config.gs_config = gossipsub_config(fork_context.clone());
+        config.gs_config = gossipsub_config(config.network_load, ctx.fork_context.clone());
 
-        // Build and configure the Gossipsub behaviour
+        // If metrics are enabled for gossipsub build the configuration
+        let gossipsub_metrics = ctx
+            .gossipsub_registry
+            .map(|registry| (registry, GossipsubMetricsConfig::default()));
+
         let snappy_transform = SnappyTransform::new(config.gs_config.max_transmit_size());
         let mut gossipsub = Gossipsub::new_with_subscription_filter_and_transform(
             MessageAuthenticity::Anonymous,
             config.gs_config.clone(),
-            None, // No metrics for the time being
+            gossipsub_metrics,
             filter,
             snappy_transform,
         )
@@ -248,7 +254,7 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
 
         let thresholds = lighthouse_gossip_thresholds();
 
-        let score_settings = PeerScoreSettings::new(chain_spec, &config.gs_config);
+        let score_settings = PeerScoreSettings::new(ctx.chain_spec, &config.gs_config);
 
         // Prepare scoring parameters
         let params = score_settings.get_peer_score_params(
@@ -269,6 +275,7 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
 
         let peer_manager_cfg = PeerManagerCfg {
             discovery_enabled: !config.disable_discovery,
+            metrics_enabled: config.metrics_enabled,
             target_peer_count: config.target_peers,
             ..Default::default()
         };
@@ -276,7 +283,7 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
         Ok(Behaviour {
             // Sub-behaviours
             gossipsub,
-            eth2_rpc: RPC::new(fork_context.clone(), log.clone()),
+            eth2_rpc: RPC::new(ctx.fork_context.clone(), log.clone()),
             discovery,
             identify: Identify::new(identify_config),
             // Auxiliary fields
@@ -289,7 +296,7 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
             network_dir: config.network_dir.clone(),
             log: behaviour_log,
             score_settings,
-            fork_context,
+            fork_context: ctx.fork_context,
             update_gossipsub_scores,
         })
     }
@@ -395,14 +402,15 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
             .remove(&topic);
 
         // unsubscribe from the topic
-        let topic: Topic = topic.into();
+        let libp2p_topic: Topic = topic.clone().into();
 
-        match self.gossipsub.unsubscribe(&topic) {
+        match self.gossipsub.unsubscribe(&libp2p_topic) {
             Err(_) => {
-                warn!(self.log, "Failed to unsubscribe from topic"; "topic" => %topic);
+                warn!(self.log, "Failed to unsubscribe from topic"; "topic" => %libp2p_topic);
                 false
             }
             Ok(v) => {
+                // Inform the network
                 debug!(self.log, "Unsubscribed to topic"; "topic" => %topic);
                 v
             }
@@ -457,7 +465,8 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
         } {
             if let Some(client) = self
                 .network_globals
-                .peers()
+                .peers
+                .read()
                 .peer_info(propagation_source)
                 .map(|info| info.client().kind.as_ref())
             {
@@ -569,25 +578,6 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
         self.discovery.add_enr(enr);
     }
 
-    pub fn update_peers_sync_status(&mut self, peer_id: &PeerId, sync_status: SyncStatus) {
-        let status_repr = sync_status.as_str();
-        match self
-            .network_globals
-            .peers_mut()
-            .update_sync_status(peer_id, sync_status)
-        {
-            Some(true) => {
-                trace!(self.log, "Peer sync status updated"; "peer_id" => %peer_id, "sync_status" => status_repr);
-            }
-            Some(false) => {
-                // Sync status is the same for known peer
-            }
-            None => {
-                error!(self.log, "Sync status update notification for unknown peer"; "peer_id" => %peer_id, "sync_status" => status_repr);
-            }
-        }
-    }
-
     /// Updates a subnet value to the ENR attnets/syncnets bitfield.
     ///
     /// The `value` is `true` if a subnet is being added and false otherwise.
@@ -613,7 +603,8 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
                 // Extend min_ttl of connected peers on required subnets
                 if let Some(min_ttl) = s.min_ttl {
                     self.network_globals
-                        .peers_mut()
+                        .peers
+                        .write()
                         .extend_peers_on_subnet(&s.subnet, min_ttl);
                     if let Subnet::SyncCommittee(sync_subnet) = s.subnet {
                         self.peer_manager_mut()
@@ -623,7 +614,8 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
                 // Already have target number of peers, no need for subnet discovery
                 let peers_on_subnet = self
                     .network_globals
-                    .peers()
+                    .peers
+                    .read()
                     .good_peers_on_subnet(s.subnet)
                     .count();
                 if peers_on_subnet >= TARGET_SUBNET_PEERS {
@@ -750,6 +742,18 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
 
     /// Convenience function to propagate a request.
     fn propagate_request(&mut self, id: PeerRequestId, peer_id: PeerId, request: Request) {
+        // Increment metrics
+        match &request {
+            Request::Status(_) => {
+                metrics::inc_counter_vec(&metrics::TOTAL_RPC_REQUESTS, &["status"])
+            }
+            Request::BlocksByRange { .. } => {
+                metrics::inc_counter_vec(&metrics::TOTAL_RPC_REQUESTS, &["blocks_by_range"])
+            }
+            Request::BlocksByRoot { .. } => {
+                metrics::inc_counter_vec(&metrics::TOTAL_RPC_REQUESTS, &["blocks_by_root"])
+            }
+        }
         self.add_event(BehaviourEvent::RequestReceived {
             peer_id,
             id,
@@ -773,7 +777,7 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
             .discovery
             .cached_enrs()
             .filter_map(|(peer_id, enr)| {
-                let peers = self.network_globals.peers();
+                let peers = self.network_globals.peers.read();
                 if predicate(enr) && peers.should_dial(peer_id) {
                     Some(*peer_id)
                 } else {
@@ -866,14 +870,16 @@ impl<TSpec: EthSpec> NetworkBehaviourEventProcess<GossipsubEvent> for Behaviour<
             GossipsubEvent::Subscribed { peer_id, topic } => {
                 if let Some(subnet_id) = subnet_from_topic_hash(&topic) {
                     self.network_globals
-                        .peers_mut()
+                        .peers
+                        .write()
                         .add_subscription(&peer_id, subnet_id);
                 }
             }
             GossipsubEvent::Unsubscribed { peer_id, topic } => {
                 if let Some(subnet_id) = subnet_from_topic_hash(&topic) {
                     self.network_globals
-                        .peers_mut()
+                        .peers
+                        .write()
                         .remove_subscription(&peer_id, &subnet_id);
                 }
             }
@@ -884,6 +890,7 @@ impl<TSpec: EthSpec> NetworkBehaviourEventProcess<GossipsubEvent> for Behaviour<
                     PeerAction::LowToleranceError,
                     ReportSource::Gossipsub,
                     Some(GoodbyeReason::Unknown),
+                    "does_not_support_gossipsub",
                 );
             }
         }

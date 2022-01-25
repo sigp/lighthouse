@@ -7,7 +7,8 @@ pub(crate) mod enr;
 pub mod enr_ext;
 
 // Allow external use of the lighthouse ENR builder
-use crate::{config, metrics};
+use crate::behaviour::TARGET_SUBNET_PEERS;
+use crate::metrics;
 use crate::{error, Enr, NetworkConfig, NetworkGlobals, Subnet, SubnetDiscovery};
 use discv5::{enr::NodeId, Discv5, Discv5Event};
 pub use enr::{
@@ -47,8 +48,6 @@ pub use subnet_predicate::subnet_predicate;
 
 /// Local ENR storage filename.
 pub const ENR_FILENAME: &str = "enr.dat";
-/// Target number of peers we'd like to have connected to a given long-lived subnet.
-pub const TARGET_SUBNET_PEERS: usize = config::MESH_N_LOW;
 /// Target number of peers to search for given a grouped subnet query.
 const TARGET_PEERS_FOR_GROUPED_QUERY: usize = 6;
 /// Number of times to attempt a discovery request.
@@ -563,7 +562,6 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
     pub fn unban_peer(&mut self, peer_id: &PeerId, ip_addresses: Vec<IpAddr>) {
         // first try and convert the peer_id to a node_id.
         if let Ok(node_id) = peer_id_to_node_id(peer_id) {
-            // If we could convert this peer id, remove it from the DHT and ban it from discovery.
             self.discv5.ban_node_remove(&node_id);
         }
 
@@ -679,7 +677,8 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
                 // Determine if we have sufficient peers, which may make this discovery unnecessary.
                 let peers_on_subnet = self
                     .network_globals
-                    .peers()
+                    .peers
+                    .read()
                     .good_peers_on_subnet(subnet_query.subnet)
                     .count();
 
@@ -692,7 +691,7 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
                     return false;
                 }
 
-                let target_peers = TARGET_SUBNET_PEERS - peers_on_subnet;
+                let target_peers = TARGET_SUBNET_PEERS.saturating_sub(peers_on_subnet);
                 trace!(self.log, "Discovery query started for subnet";
                     "subnet_query" => ?subnet_query,
                     "connected_peers_on_subnet" => peers_on_subnet,
@@ -958,12 +957,24 @@ impl<TSpec: EthSpec> NetworkBehaviour for Discovery<TSpec> {
         &mut self,
         peer_id: Option<PeerId>,
         _handler: Self::ProtocolsHandler,
-        _error: &DialError,
+        error: &DialError,
     ) {
         if let Some(peer_id) = peer_id {
-            // set peer as disconnected in discovery DHT
-            debug!(self.log, "Marking peer disconnected in DHT"; "peer_id" => %peer_id);
-            self.disconnect_peer(&peer_id);
+            match error {
+                DialError::Banned
+                | DialError::LocalPeerId
+                | DialError::InvalidPeerId
+                | DialError::ConnectionIo(_)
+                | DialError::NoAddresses
+                | DialError::Transport(_) => {
+                    // set peer as disconnected in discovery DHT
+                    debug!(self.log, "Marking peer disconnected in DHT"; "peer_id" => %peer_id);
+                    self.disconnect_peer(&peer_id);
+                }
+                DialError::ConnectionLimit(_)
+                | DialError::DialPeerConditionFalse(_)
+                | DialError::Aborted => {}
+            }
         }
     }
 
@@ -1027,6 +1038,7 @@ impl<TSpec: EthSpec> NetworkBehaviour for Discovery<TSpec> {
                         Discv5Event::SocketUpdated(socket) => {
                             info!(self.log, "Address updated"; "ip" => %socket.ip(), "udp_port" => %socket.port());
                             metrics::inc_counter(&metrics::ADDRESS_UPDATE_COUNT);
+                            metrics::check_nat();
                             // Discv5 will have updated our local ENR. We save the updated version
                             // to disk.
                             let enr = self.discv5.local_enr();
@@ -1084,7 +1096,7 @@ mod tests {
             ..Default::default()
         };
         let enr_key: CombinedKey = CombinedKey::from_libp2p(&keypair).unwrap();
-        let enr: Enr = build_enr::<E>(&enr_key, &config, EnrForkId::default()).unwrap();
+        let enr: Enr = build_enr::<E>(&enr_key, &config, &EnrForkId::default()).unwrap();
         let log = build_log(slog::Level::Debug, false);
         let globals = NetworkGlobals::new(
             enr,

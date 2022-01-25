@@ -5,7 +5,7 @@ use super::methods::{
     GoodbyeReason, RPCCodedResponse, RPCResponseErrorCode, RequestId, ResponseTermination,
 };
 use super::outbound::OutboundRequestContainer;
-use super::protocol::{InboundRequest, Protocol, RPCError, RPCProtocol};
+use super::protocol::{max_rpc_size, InboundRequest, Protocol, RPCError, RPCProtocol};
 use super::{RPCReceived, RPCSend};
 use crate::rpc::outbound::{OutboundFramed, OutboundRequest};
 use crate::rpc::protocol::InboundFramed;
@@ -951,6 +951,7 @@ where
                     OutboundRequestContainer {
                         req: req.clone(),
                         fork_context: self.fork_context.clone(),
+                        max_rpc_size: max_rpc_size(&self.fork_context),
                     },
                     (),
                 )

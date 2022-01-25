@@ -57,6 +57,19 @@ pub enum BlockProcessingError {
     ArithError(ArithError),
     InconsistentBlockFork(InconsistentFork),
     InconsistentStateFork(InconsistentFork),
+    ExecutionHashChainIncontiguous {
+        expected: Hash256,
+        found: Hash256,
+    },
+    ExecutionRandaoMismatch {
+        expected: Hash256,
+        found: Hash256,
+    },
+    ExecutionInvalidTimestamp {
+        expected: u64,
+        found: u64,
+    },
+    ExecutionInvalid,
     #[cfg(feature = "milhouse")]
     MilhouseError(milhouse::Error),
 }

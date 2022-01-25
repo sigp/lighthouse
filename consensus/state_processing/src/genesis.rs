@@ -2,7 +2,7 @@ use super::per_block_processing::{
     errors::BlockProcessingError, process_operations::process_deposit,
 };
 use crate::common::DepositDataTree;
-use crate::upgrade::upgrade_to_altair;
+use crate::upgrade::{upgrade_to_altair, upgrade_to_bellatrix};
 use safe_arith::{ArithError, SafeArith};
 use tree_hash::TreeHash;
 use types::DEPOSIT_TREE_DEPTH;
@@ -13,6 +13,7 @@ pub fn initialize_beacon_state_from_eth1<T: EthSpec>(
     eth1_block_hash: Hash256,
     eth1_timestamp: u64,
     deposits: Vec<Deposit>,
+    execution_payload_header: Option<ExecutionPayloadHeader<T>>,
     spec: &ChainSpec,
 ) -> Result<BeaconState<T>, BlockProcessingError> {
     let genesis_time = eth2_genesis_time(eth1_timestamp, spec)?;
@@ -46,10 +47,29 @@ pub fn initialize_beacon_state_from_eth1<T: EthSpec>(
     // use of `BeaconBlock::empty` in `BeaconState::new` is sufficient to correctly initialise
     // the `latest_block_header` as per:
     // https://github.com/ethereum/eth2.0-specs/pull/2323
-    if spec.fork_name_at_epoch(state.current_epoch()) == ForkName::Altair {
+    if spec
+        .altair_fork_epoch
+        .map_or(false, |fork_epoch| fork_epoch == T::genesis_epoch())
+    {
         upgrade_to_altair(&mut state, spec)?;
 
         state.fork_mut().previous_version = spec.altair_fork_version;
+    }
+
+    // Similarly, perform an upgrade to the merge if configured from genesis.
+    if spec
+        .bellatrix_fork_epoch
+        .map_or(false, |fork_epoch| fork_epoch == T::genesis_epoch())
+    {
+        upgrade_to_bellatrix(&mut state, spec)?;
+
+        // Remove intermediate Altair fork from `state.fork`.
+        state.fork_mut().previous_version = spec.bellatrix_fork_version;
+
+        // Override latest execution payload header.
+        // See https://github.com/ethereum/consensus-specs/blob/v1.1.0/specs/merge/beacon-chain.md#testing
+        *state.latest_execution_payload_header_mut()? =
+            execution_payload_header.unwrap_or_default();
     }
 
     // Now that we have our validators, initialize the caches (including the committees)

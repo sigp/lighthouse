@@ -10,9 +10,7 @@ use fnv::FnvHashMap;
 use lighthouse_network::rpc::{
     BlocksByRangeRequest, BlocksByRootRequest, GoodbyeReason, RequestId,
 };
-use lighthouse_network::{
-    Client, NetworkGlobals, PeerAction, PeerId, ReportSource, Request, SyncStatus,
-};
+use lighthouse_network::{Client, NetworkGlobals, PeerAction, PeerId, ReportSource, Request};
 use slog::{debug, trace, warn};
 use std::sync::Arc;
 use tokio::sync::mpsc;
@@ -54,15 +52,20 @@ impl<T: EthSpec> SyncNetworkContext<T> {
 
     /// Returns the Client type of the peer if known
     pub fn client_type(&self, peer_id: &PeerId) -> Client {
-        self.network_globals.client(peer_id)
+        self.network_globals
+            .peers
+            .read()
+            .peer_info(peer_id)
+            .map(|info| info.client().clone())
+            .unwrap_or_default()
     }
 
     pub fn status_peers<C: ToStatusMessage>(
         &mut self,
-        chain: C,
+        chain: &C,
         peers: impl Iterator<Item = PeerId>,
     ) {
-        if let Ok(status_message) = &chain.status_message() {
+        if let Ok(status_message) = chain.status_message() {
             for peer_id in peers {
                 debug!(
                     self.log,
@@ -167,13 +170,14 @@ impl<T: EthSpec> SyncNetworkContext<T> {
     }
 
     /// Reports to the scoring algorithm the behaviour of a peer.
-    pub fn report_peer(&mut self, peer_id: PeerId, action: PeerAction) {
+    pub fn report_peer(&mut self, peer_id: PeerId, action: PeerAction, msg: &'static str) {
         debug!(self.log, "Sync reporting peer"; "peer_id" => %peer_id, "action" => %action);
         self.network_send
             .send(NetworkMessage::ReportPeer {
                 peer_id,
                 action,
                 source: ReportSource::SyncService,
+                msg,
             })
             .unwrap_or_else(|e| {
                 warn!(self.log, "Could not report peer, channel failed"; "error"=> %e);
@@ -205,17 +209,10 @@ impl<T: EthSpec> SyncNetworkContext<T> {
             });
     }
 
-    pub fn update_peer_sync_status(&self, peer_id: PeerId, new_status: SyncStatus) {
-        let _ = self.send_network_msg(NetworkMessage::UpdatePeerSyncStatus {
-            peer_id,
-            sync_status: new_status,
-        });
-    }
-
     /// Sends an arbitrary network message.
-    fn send_network_msg(&self, msg: NetworkMessage<T>) -> Result<(), &'static str> {
-        self.network_send.send(msg).map_err(|msg| {
-            warn!(self.log, "Could not send message to the network service"; "msg" => ?msg.0);
+    fn send_network_msg(&mut self, msg: NetworkMessage<T>) -> Result<(), &'static str> {
+        self.network_send.send(msg).map_err(|_| {
+            debug!(self.log, "Could not send message to the network service");
             "Network channel send Failed"
         })
     }

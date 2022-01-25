@@ -20,7 +20,7 @@ use beacon_chain::{
     observed_operations::ObservationOutcome,
     validator_monitor::{get_block_delay_ms, timestamp_now},
     AttestationError as AttnError, BeaconChain, BeaconChainError, BeaconChainTypes,
-    WhenSlotSkipped,
+    HeadSafetyStatus, WhenSlotSkipped,
 };
 use block_id::BlockId;
 use eth2::types::{self as api_types, EndpointVersion, ValidatorId};
@@ -55,7 +55,10 @@ use warp::http::StatusCode;
 use warp::sse::Event;
 use warp::Reply;
 use warp::{http::Response, Filter};
-use warp_utils::task::{blocking_json_task, blocking_task};
+use warp_utils::{
+    query::multi_key_query,
+    task::{blocking_json_task, blocking_task},
+};
 
 const API_PREFIX: &str = "eth";
 
@@ -97,6 +100,7 @@ pub struct Config {
     pub allow_origin: Option<String>,
     pub serve_legacy_spec: bool,
     pub tls_config: Option<TlsConfig>,
+    pub allow_sync_stalled: bool,
 }
 
 impl Default for Config {
@@ -108,6 +112,7 @@ impl Default for Config {
             allow_origin: None,
             serve_legacy_spec: true,
             tls_config: None,
+            allow_sync_stalled: false,
         }
     }
 }
@@ -237,6 +242,7 @@ pub fn serve<T: BeaconChainTypes>(
     shutdown: impl Future<Output = ()> + Send + Sync + 'static,
 ) -> Result<HttpServer, Error> {
     let config = ctx.config.clone();
+    let allow_sync_stalled = config.allow_sync_stalled;
     let log = ctx.log.clone();
 
     // Configure CORS.
@@ -337,44 +343,78 @@ pub fn serve<T: BeaconChainTypes>(
             }
         });
 
-    // Create a `warp` filter that rejects request whilst the node is syncing.
-    let not_while_syncing_filter = warp::any()
-        .and(network_globals.clone())
-        .and(chain_filter.clone())
-        .and_then(
-            |network_globals: Arc<NetworkGlobals<T::EthSpec>>, chain: Arc<BeaconChain<T>>| async move {
-                match *network_globals.sync_state.read() {
-                    SyncState::SyncingFinalized { .. } => {
-                        let head_slot = chain.best_slot().map_err(warp_utils::reject::beacon_chain_error)?;
+    // Create a `warp` filter that rejects requests whilst the node is syncing.
+    let not_while_syncing_filter =
+        warp::any()
+            .and(network_globals.clone())
+            .and(chain_filter.clone())
+            .and_then(
+                move |network_globals: Arc<NetworkGlobals<T::EthSpec>>,
+                      chain: Arc<BeaconChain<T>>| async move {
+                    match *network_globals.sync_state.read() {
+                        SyncState::SyncingFinalized { .. } => {
+                            let head_slot = chain
+                                .best_slot()
+                                .map_err(warp_utils::reject::beacon_chain_error)?;
 
-                        let current_slot = chain
-                            .slot_clock
-                            .now_or_genesis()
-                            .ok_or_else(|| {
-                                warp_utils::reject::custom_server_error(
-                                    "unable to read slot clock".to_string(),
-                                )
-                            })?;
+                            let current_slot =
+                                chain.slot_clock.now_or_genesis().ok_or_else(|| {
+                                    warp_utils::reject::custom_server_error(
+                                        "unable to read slot clock".to_string(),
+                                    )
+                                })?;
 
-                        let tolerance = SYNC_TOLERANCE_EPOCHS * T::EthSpec::slots_per_epoch();
+                            let tolerance = SYNC_TOLERANCE_EPOCHS * T::EthSpec::slots_per_epoch();
 
-                        if head_slot + tolerance >= current_slot {
-                            Ok(())
-                        } else {
-                            Err(warp_utils::reject::not_synced(format!(
-                                "head slot is {}, current slot is {}",
-                                head_slot, current_slot
-                            )))
+                            if head_slot + tolerance >= current_slot {
+                                Ok(())
+                            } else {
+                                Err(warp_utils::reject::not_synced(format!(
+                                    "head slot is {}, current slot is {}",
+                                    head_slot, current_slot
+                                )))
+                            }
                         }
+                        SyncState::SyncingHead { .. }
+                        | SyncState::SyncTransition
+                        | SyncState::BackFillSyncing { .. } => Ok(()),
+                        SyncState::Synced => Ok(()),
+                        SyncState::Stalled if allow_sync_stalled => Ok(()),
+                        SyncState::Stalled => Err(warp_utils::reject::not_synced(
+                            "sync is stalled".to_string(),
+                        )),
                     }
-                    SyncState::SyncingHead { .. } | SyncState::SyncTransition | SyncState::BackFillSyncing { .. }  => Ok(()),
-                    SyncState::Synced => Ok(()),
-                    SyncState::Stalled => Err(warp_utils::reject::not_synced(
-                        "sync is stalled".to_string(),
-                    )),
+                },
+            )
+            .untuple_one();
+
+    // Create a `warp` filter that rejects requests unless the head has been verified by the
+    // execution layer.
+    let only_with_safe_head = warp::any()
+        .and(chain_filter.clone())
+        .and_then(move |chain: Arc<BeaconChain<T>>| async move {
+            let status = chain.head_safety_status().map_err(|e| {
+                warp_utils::reject::custom_server_error(format!(
+                    "failed to read head safety status: {:?}",
+                    e
+                ))
+            })?;
+            match status {
+                HeadSafetyStatus::Safe(_) => Ok(()),
+                HeadSafetyStatus::Unsafe(hash) => {
+                    Err(warp_utils::reject::custom_server_error(format!(
+                        "optimistic head hash {:?} has not been verified by the execution layer",
+                        hash
+                    )))
                 }
-            },
-        )
+                HeadSafetyStatus::Invalid(hash) => {
+                    Err(warp_utils::reject::custom_server_error(format!(
+                        "the head block has an invalid payload {:?}, this may be unrecoverable",
+                        hash
+                    )))
+                }
+            }
+        })
         .untuple_one();
 
     // Create a `warp` filter that provides access to the logger.
@@ -468,12 +508,13 @@ pub fn serve<T: BeaconChainTypes>(
         .clone()
         .and(warp::path("validator_balances"))
         .and(warp::path::end())
-        .and(warp::query::<api_types::ValidatorBalancesQuery>())
+        .and(multi_key_query::<api_types::ValidatorBalancesQuery>())
         .and_then(
             |state_id: StateId,
              chain: Arc<BeaconChain<T>>,
-             query: api_types::ValidatorBalancesQuery| {
+             query_res: Result<api_types::ValidatorBalancesQuery, warp::Rejection>| {
                 blocking_json_task(move || {
+                    let query = query_res?;
                     state_id
                         .map_state(&chain, |state| {
                             Ok(state
@@ -484,7 +525,7 @@ pub fn serve<T: BeaconChainTypes>(
                                 // filter by validator id(s) if provided
                                 .filter(|(index, (validator, _))| {
                                     query.id.as_ref().map_or(true, |ids| {
-                                        ids.0.iter().any(|id| match id {
+                                        ids.iter().any(|id| match id {
                                             ValidatorId::PublicKey(pubkey) => {
                                                 &validator.pubkey == pubkey
                                             }
@@ -511,11 +552,14 @@ pub fn serve<T: BeaconChainTypes>(
     let get_beacon_state_validators = beacon_states_path
         .clone()
         .and(warp::path("validators"))
-        .and(warp::query::<api_types::ValidatorsQuery>())
         .and(warp::path::end())
+        .and(multi_key_query::<api_types::ValidatorsQuery>())
         .and_then(
-            |state_id: StateId, chain: Arc<BeaconChain<T>>, query: api_types::ValidatorsQuery| {
+            |state_id: StateId,
+             chain: Arc<BeaconChain<T>>,
+             query_res: Result<api_types::ValidatorsQuery, warp::Rejection>| {
                 blocking_json_task(move || {
+                    let query = query_res?;
                     state_id
                         .map_state(&chain, |state| {
                             let epoch = state.current_epoch();
@@ -529,7 +573,7 @@ pub fn serve<T: BeaconChainTypes>(
                                 // filter by validator id(s) if provided
                                 .filter(|(index, (validator, _))| {
                                     query.id.as_ref().map_or(true, |ids| {
-                                        ids.0.iter().any(|id| match id {
+                                        ids.iter().any(|id| match id {
                                             ValidatorId::PublicKey(pubkey) => {
                                                 &validator.pubkey == pubkey
                                             }
@@ -549,8 +593,8 @@ pub fn serve<T: BeaconChainTypes>(
 
                                     let status_matches =
                                         query.status.as_ref().map_or(true, |statuses| {
-                                            statuses.0.contains(&status)
-                                                || statuses.0.contains(&status.superstatus())
+                                            statuses.contains(&status)
+                                                || statuses.contains(&status.superstatus())
                                         });
 
                                     if status_matches {
@@ -1646,7 +1690,7 @@ pub fn serve<T: BeaconChainTypes>(
                         warp_utils::reject::custom_bad_request("invalid peer id.".to_string())
                     })?;
 
-                    if let Some(peer_info) = network_globals.peers().peer_info(&peer_id) {
+                    if let Some(peer_info) = network_globals.peers.read().peer_info(&peer_id) {
                         let address = if let Some(socket_addr) = peer_info.seen_addresses().next() {
                             let mut addr = lighthouse_network::Multiaddr::from(socket_addr.ip());
                             addr.push(lighthouse_network::multiaddr::Protocol::Tcp(
@@ -1684,14 +1728,17 @@ pub fn serve<T: BeaconChainTypes>(
         .and(warp::path("node"))
         .and(warp::path("peers"))
         .and(warp::path::end())
-        .and(warp::query::<api_types::PeersQuery>())
+        .and(multi_key_query::<api_types::PeersQuery>())
         .and(network_globals.clone())
         .and_then(
-            |query: api_types::PeersQuery, network_globals: Arc<NetworkGlobals<T::EthSpec>>| {
+            |query_res: Result<api_types::PeersQuery, warp::Rejection>,
+             network_globals: Arc<NetworkGlobals<T::EthSpec>>| {
                 blocking_json_task(move || {
+                    let query = query_res?;
                     let mut peers: Vec<api_types::PeerData> = Vec::new();
                     network_globals
-                        .peers()
+                        .peers
+                        .read()
                         .peers()
                         .for_each(|(peer_id, peer_info)| {
                             let address =
@@ -1717,11 +1764,11 @@ pub fn serve<T: BeaconChainTypes>(
                                 );
 
                                 let state_matches = query.state.as_ref().map_or(true, |states| {
-                                    states.0.iter().any(|state_param| *state_param == state)
+                                    states.iter().any(|state_param| *state_param == state)
                                 });
                                 let direction_matches =
                                     query.direction.as_ref().map_or(true, |directions| {
-                                        directions.0.iter().any(|dir_param| *dir_param == direction)
+                                        directions.iter().any(|dir_param| *dir_param == direction)
                                     });
 
                                 if state_matches && direction_matches {
@@ -1758,17 +1805,21 @@ pub fn serve<T: BeaconChainTypes>(
                 let mut disconnected: u64 = 0;
                 let mut disconnecting: u64 = 0;
 
-                network_globals.peers().peers().for_each(|(_, peer_info)| {
-                    let state = api_types::PeerState::from_peer_connection_status(
-                        peer_info.connection_status(),
-                    );
-                    match state {
-                        api_types::PeerState::Connected => connected += 1,
-                        api_types::PeerState::Connecting => connecting += 1,
-                        api_types::PeerState::Disconnected => disconnected += 1,
-                        api_types::PeerState::Disconnecting => disconnecting += 1,
-                    }
-                });
+                network_globals
+                    .peers
+                    .read()
+                    .peers()
+                    .for_each(|(_, peer_info)| {
+                        let state = api_types::PeerState::from_peer_connection_status(
+                            peer_info.connection_status(),
+                        );
+                        match state {
+                            api_types::PeerState::Connected => connected += 1,
+                            api_types::PeerState::Connecting => connecting += 1,
+                            api_types::PeerState::Disconnected => disconnected += 1,
+                            api_types::PeerState::Disconnecting => disconnecting += 1,
+                        }
+                    });
 
                 Ok(api_types::GenericResponse::from(api_types::PeerCount {
                     connected,
@@ -1845,6 +1896,7 @@ pub fn serve<T: BeaconChainTypes>(
         .and(warp::path::end())
         .and(warp::query::<api_types::ValidatorAttestationDataQuery>())
         .and(not_while_syncing_filter.clone())
+        .and(only_with_safe_head.clone())
         .and(chain_filter.clone())
         .and_then(
             |query: api_types::ValidatorAttestationDataQuery, chain: Arc<BeaconChain<T>>| {
@@ -1877,6 +1929,7 @@ pub fn serve<T: BeaconChainTypes>(
         .and(warp::path::end())
         .and(warp::query::<api_types::ValidatorAggregateAttestationQuery>())
         .and(not_while_syncing_filter.clone())
+        .and(only_with_safe_head.clone())
         .and(chain_filter.clone())
         .and_then(
             |query: api_types::ValidatorAggregateAttestationQuery, chain: Arc<BeaconChain<T>>| {
@@ -1947,6 +2000,7 @@ pub fn serve<T: BeaconChainTypes>(
         .and(warp::path::end())
         .and(warp::query::<SyncContributionData>())
         .and(not_while_syncing_filter.clone())
+        .and(only_with_safe_head)
         .and(chain_filter.clone())
         .and_then(
             |sync_committee_data: SyncContributionData, chain: Arc<BeaconChain<T>>| {
@@ -2230,6 +2284,22 @@ pub fn serve<T: BeaconChainTypes>(
             })
         });
 
+    // GET lighthouse/nat
+    let get_lighthouse_nat = warp::path("lighthouse")
+        .and(warp::path("nat"))
+        .and(warp::path::end())
+        .and_then(|| {
+            blocking_json_task(move || {
+                Ok(api_types::GenericResponse::from(
+                    lighthouse_network::metrics::NAT_OPEN
+                        .as_ref()
+                        .map(|v| v.get())
+                        .unwrap_or(0)
+                        != 0,
+                ))
+            })
+        });
+
     // GET lighthouse/peers
     let get_lighthouse_peers = warp::path("lighthouse")
         .and(warp::path("peers"))
@@ -2238,7 +2308,8 @@ pub fn serve<T: BeaconChainTypes>(
         .and_then(|network_globals: Arc<NetworkGlobals<T::EthSpec>>| {
             blocking_json_task(move || {
                 Ok(network_globals
-                    .peers()
+                    .peers
+                    .read()
                     .peers()
                     .map(|(peer_id, peer_info)| eth2::lighthouse::Peer {
                         peer_id: peer_id.to_string(),
@@ -2257,7 +2328,8 @@ pub fn serve<T: BeaconChainTypes>(
         .and_then(|network_globals: Arc<NetworkGlobals<T::EthSpec>>| {
             blocking_json_task(move || {
                 Ok(network_globals
-                    .peers()
+                    .peers
+                    .read()
                     .connected_peers()
                     .map(|(peer_id, peer_info)| eth2::lighthouse::Peer {
                         peer_id: peer_id.to_string(),
@@ -2471,16 +2543,18 @@ pub fn serve<T: BeaconChainTypes>(
     let get_events = eth1_v1
         .and(warp::path("events"))
         .and(warp::path::end())
-        .and(warp::query::<api_types::EventQuery>())
+        .and(multi_key_query::<api_types::EventQuery>())
         .and(chain_filter)
         .and_then(
-            |topics: api_types::EventQuery, chain: Arc<BeaconChain<T>>| {
+            |topics_res: Result<api_types::EventQuery, warp::Rejection>,
+             chain: Arc<BeaconChain<T>>| {
                 blocking_task(move || {
+                    let topics = topics_res?;
                     // for each topic subscribed spawn a new subscription
-                    let mut receivers = Vec::with_capacity(topics.topics.0.len());
+                    let mut receivers = Vec::with_capacity(topics.topics.len());
 
                     if let Some(event_handler) = chain.event_handler.as_ref() {
-                        for topic in topics.topics.0.clone() {
+                        for topic in topics.topics {
                             let receiver = match topic {
                                 api_types::EventTopic::Head => event_handler.subscribe_head(),
                                 api_types::EventTopic::Block => event_handler.subscribe_block(),
@@ -2543,8 +2617,8 @@ pub fn serve<T: BeaconChainTypes>(
                 .or(get_beacon_state_fork.boxed())
                 .or(get_beacon_state_finality_checkpoints.boxed())
                 .or(get_beacon_state_validator_balances.boxed())
-                .or(get_beacon_state_validators.boxed())
                 .or(get_beacon_state_validators_id.boxed())
+                .or(get_beacon_state_validators.boxed())
                 .or(get_beacon_state_committees.boxed())
                 .or(get_beacon_state_sync_committees.boxed())
                 .or(get_beacon_headers.boxed())
@@ -2575,6 +2649,7 @@ pub fn serve<T: BeaconChainTypes>(
                 .or(get_validator_sync_committee_contribution.boxed())
                 .or(get_lighthouse_health.boxed())
                 .or(get_lighthouse_syncing.boxed())
+                .or(get_lighthouse_nat.boxed())
                 .or(get_lighthouse_peers.boxed())
                 .or(get_lighthouse_peers_connected.boxed())
                 .or(get_lighthouse_proto_array.boxed())

@@ -71,6 +71,12 @@ fn operations_sync_aggregate() {
 }
 
 #[test]
+fn operations_execution_payload() {
+    OperationsHandler::<MinimalEthSpec, ExecutionPayload<_>>::default().run();
+    OperationsHandler::<MainnetEthSpec, ExecutionPayload<_>>::default().run();
+}
+
+#[test]
 fn sanity_blocks() {
     SanityBlocksHandler::<MinimalEthSpec>::default().run();
     SanityBlocksHandler::<MainnetEthSpec>::default().run();
@@ -228,55 +234,74 @@ mod ssz_static {
             .run();
         SszStaticHandler::<BeaconBlockBodyAltair<MainnetEthSpec>, MainnetEthSpec>::altair_only()
             .run();
+        SszStaticHandler::<BeaconBlockBodyMerge<MinimalEthSpec>, MinimalEthSpec>::merge_only()
+            .run();
+        SszStaticHandler::<BeaconBlockBodyMerge<MainnetEthSpec>, MainnetEthSpec>::merge_only()
+            .run();
     }
 
-    // Altair-only
+    // Altair and later
     #[test]
     fn contribution_and_proof() {
-        SszStaticHandler::<ContributionAndProof<MinimalEthSpec>, MinimalEthSpec>::altair_only()
-            .run();
-        SszStaticHandler::<ContributionAndProof<MainnetEthSpec>, MainnetEthSpec>::altair_only()
-            .run();
+        SszStaticHandler::<ContributionAndProof<MinimalEthSpec>, MinimalEthSpec>::altair_and_later(
+        )
+        .run();
+        SszStaticHandler::<ContributionAndProof<MainnetEthSpec>, MainnetEthSpec>::altair_and_later(
+        )
+        .run();
     }
 
     #[test]
     fn signed_contribution_and_proof() {
-        SszStaticHandler::<SignedContributionAndProof<MinimalEthSpec>, MinimalEthSpec>::altair_only().run();
-        SszStaticHandler::<SignedContributionAndProof<MainnetEthSpec>, MainnetEthSpec>::altair_only().run();
+        SszStaticHandler::<SignedContributionAndProof<MinimalEthSpec>, MinimalEthSpec>::altair_and_later().run();
+        SszStaticHandler::<SignedContributionAndProof<MainnetEthSpec>, MainnetEthSpec>::altair_and_later().run();
     }
 
     #[test]
     fn sync_aggregate() {
-        SszStaticHandler::<SyncAggregate<MinimalEthSpec>, MinimalEthSpec>::altair_only().run();
-        SszStaticHandler::<SyncAggregate<MainnetEthSpec>, MainnetEthSpec>::altair_only().run();
+        SszStaticHandler::<SyncAggregate<MinimalEthSpec>, MinimalEthSpec>::altair_and_later().run();
+        SszStaticHandler::<SyncAggregate<MainnetEthSpec>, MainnetEthSpec>::altair_and_later().run();
     }
 
     #[test]
     fn sync_committee() {
-        SszStaticHandler::<SyncCommittee<MinimalEthSpec>, MinimalEthSpec>::altair_only().run();
-        SszStaticHandler::<SyncCommittee<MainnetEthSpec>, MainnetEthSpec>::altair_only().run();
+        SszStaticHandler::<SyncCommittee<MinimalEthSpec>, MinimalEthSpec>::altair_and_later().run();
+        SszStaticHandler::<SyncCommittee<MainnetEthSpec>, MainnetEthSpec>::altair_and_later().run();
     }
 
     #[test]
     fn sync_committee_contribution() {
-        SszStaticHandler::<SyncCommitteeContribution<MinimalEthSpec>, MinimalEthSpec>::altair_only(
-        )
-        .run();
-        SszStaticHandler::<SyncCommitteeContribution<MainnetEthSpec>, MainnetEthSpec>::altair_only(
-        )
-        .run();
+        SszStaticHandler::<SyncCommitteeContribution<MinimalEthSpec>, MinimalEthSpec>::altair_and_later().run();
+        SszStaticHandler::<SyncCommitteeContribution<MainnetEthSpec>, MainnetEthSpec>::altair_and_later().run();
     }
 
     #[test]
     fn sync_committee_message() {
-        SszStaticHandler::<SyncCommitteeMessage, MinimalEthSpec>::altair_only().run();
-        SszStaticHandler::<SyncCommitteeMessage, MainnetEthSpec>::altair_only().run();
+        SszStaticHandler::<SyncCommitteeMessage, MinimalEthSpec>::altair_and_later().run();
+        SszStaticHandler::<SyncCommitteeMessage, MainnetEthSpec>::altair_and_later().run();
     }
 
     #[test]
     fn sync_aggregator_selection_data() {
-        SszStaticHandler::<SyncAggregatorSelectionData, MinimalEthSpec>::altair_only().run();
-        SszStaticHandler::<SyncAggregatorSelectionData, MainnetEthSpec>::altair_only().run();
+        SszStaticHandler::<SyncAggregatorSelectionData, MinimalEthSpec>::altair_and_later().run();
+        SszStaticHandler::<SyncAggregatorSelectionData, MainnetEthSpec>::altair_and_later().run();
+    }
+
+    // Merge and later
+    #[test]
+    fn execution_payload() {
+        SszStaticHandler::<ExecutionPayload<MinimalEthSpec>, MinimalEthSpec>::merge_and_later()
+            .run();
+        SszStaticHandler::<ExecutionPayload<MainnetEthSpec>, MainnetEthSpec>::merge_and_later()
+            .run();
+    }
+
+    #[test]
+    fn execution_payload_header() {
+        SszStaticHandler::<ExecutionPayloadHeader<MinimalEthSpec>, MinimalEthSpec>::merge_and_later()
+            .run();
+        SszStaticHandler::<ExecutionPayloadHeader<MainnetEthSpec>, MainnetEthSpec>::merge_and_later()
+            .run();
     }
 }
 
@@ -388,14 +413,26 @@ fn finality() {
 
 #[test]
 fn fork_choice_get_head() {
-    ForkChoiceGetHeadHandler::<MinimalEthSpec>::default().run();
-    ForkChoiceGetHeadHandler::<MainnetEthSpec>::default().run();
+    ForkChoiceHandler::<MinimalEthSpec>::new("get_head").run();
+    ForkChoiceHandler::<MainnetEthSpec>::new("get_head").run();
 }
 
 #[test]
 fn fork_choice_on_block() {
-    ForkChoiceOnBlockHandler::<MinimalEthSpec>::default().run();
-    ForkChoiceOnBlockHandler::<MainnetEthSpec>::default().run();
+    ForkChoiceHandler::<MinimalEthSpec>::new("on_block").run();
+    ForkChoiceHandler::<MainnetEthSpec>::new("on_block").run();
+}
+
+#[test]
+fn fork_choice_on_merge_block() {
+    ForkChoiceHandler::<MinimalEthSpec>::new("on_merge_block").run();
+    ForkChoiceHandler::<MainnetEthSpec>::new("on_merge_block").run();
+}
+
+#[test]
+fn fork_choice_ex_ante() {
+    ForkChoiceHandler::<MinimalEthSpec>::new("ex_ante").run();
+    ForkChoiceHandler::<MainnetEthSpec>::new("ex_ante").run();
 }
 
 #[test]

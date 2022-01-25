@@ -22,7 +22,7 @@ use std::env;
 use std::fs::{self, File};
 use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
-use std::process::{Command, Output, Stdio};
+use std::process::{Child, Command, Output, Stdio};
 use std::str::from_utf8;
 use tempfile::{tempdir, TempDir};
 use types::{Keypair, PublicKey};
@@ -522,6 +522,128 @@ fn validator_import_launchpad() {
 
     expected_def.enabled = true;
 
+    assert!(
+        defs.as_slice() == &[expected_def.clone()],
+        "validator defs file should be accurate"
+    );
+}
+
+#[test]
+fn validator_import_launchpad_no_password_then_add_password() {
+    const PASSWORD: &str = "cats";
+    const KEYSTORE_NAME: &str = "keystore-m_12381_3600_0_0_0-1595406747.json";
+    const NOT_KEYSTORE_NAME: &str = "keystore-m_12381_3600_0_0-1595406747.json";
+
+    let src_dir = tempdir().unwrap();
+    let dst_dir = tempdir().unwrap();
+
+    let keypair = Keypair::random();
+    let keystore = KeystoreBuilder::new(&keypair, PASSWORD.as_bytes(), "".into())
+        .unwrap()
+        .build()
+        .unwrap();
+
+    let dst_keystore_dir = dst_dir.path().join(format!("0x{}", keystore.pubkey()));
+
+    // Create a keystore in the src dir.
+    File::create(src_dir.path().join(KEYSTORE_NAME))
+        .map(|mut file| keystore.to_json_writer(&mut file).unwrap())
+        .unwrap();
+
+    // Create a not-keystore file in the src dir.
+    File::create(src_dir.path().join(NOT_KEYSTORE_NAME)).unwrap();
+
+    let validator_import_key_cmd = || {
+        validator_cmd()
+            .arg(format!("--{}", VALIDATOR_DIR_FLAG))
+            .arg(dst_dir.path().as_os_str())
+            .arg(IMPORT_CMD)
+            .arg(format!("--{}", STDIN_INPUTS_FLAG)) // Using tty does not work well with tests.
+            .arg(format!("--{}", import::DIR_FLAG))
+            .arg(src_dir.path().as_os_str())
+            .stderr(Stdio::piped())
+            .stdin(Stdio::piped())
+            .spawn()
+            .unwrap()
+    };
+
+    let wait_for_password_prompt = |child: &mut Child| {
+        let mut stderr = child.stderr.as_mut().map(BufReader::new).unwrap().lines();
+
+        loop {
+            if stderr.next().unwrap().unwrap() == import::PASSWORD_PROMPT {
+                break;
+            }
+        }
+    };
+
+    let mut child = validator_import_key_cmd();
+    wait_for_password_prompt(&mut child);
+    let stdin = child.stdin.as_mut().unwrap();
+    stdin.write("\n".as_bytes()).unwrap();
+    child.wait().unwrap();
+
+    assert!(
+        src_dir.path().join(KEYSTORE_NAME).exists(),
+        "keystore should not be removed from src dir"
+    );
+    assert!(
+        src_dir.path().join(NOT_KEYSTORE_NAME).exists(),
+        "not-keystore should not be removed from src dir."
+    );
+
+    let voting_keystore_path = dst_keystore_dir.join(KEYSTORE_NAME);
+
+    assert!(
+        voting_keystore_path.exists(),
+        "keystore should be present in dst dir"
+    );
+    assert!(
+        !dst_dir.path().join(NOT_KEYSTORE_NAME).exists(),
+        "not-keystore should not be present in dst dir"
+    );
+
+    // Validator should be registered with slashing protection.
+    check_slashing_protection(&dst_dir, std::iter::once(keystore.public_key().unwrap()));
+
+    let defs = ValidatorDefinitions::open(&dst_dir).unwrap();
+
+    let expected_def = ValidatorDefinition {
+        enabled: true,
+        description: "".into(),
+        graffiti: None,
+        voting_public_key: keystore.public_key().unwrap(),
+        signing_definition: SigningDefinition::LocalKeystore {
+            voting_keystore_path,
+            voting_keystore_password_path: None,
+            voting_keystore_password: None,
+        },
+    };
+
+    assert!(
+        defs.as_slice() == &[expected_def.clone()],
+        "validator defs file should be accurate"
+    );
+
+    let mut child = validator_import_key_cmd();
+    wait_for_password_prompt(&mut child);
+    let stdin = child.stdin.as_mut().unwrap();
+    stdin.write(format!("{}\n", PASSWORD).as_bytes()).unwrap();
+    child.wait().unwrap();
+
+    let expected_def = ValidatorDefinition {
+        enabled: true,
+        description: "".into(),
+        graffiti: None,
+        voting_public_key: keystore.public_key().unwrap(),
+        signing_definition: SigningDefinition::LocalKeystore {
+            voting_keystore_path: dst_keystore_dir.join(KEYSTORE_NAME),
+            voting_keystore_password_path: None,
+            voting_keystore_password: Some(ZeroizeString::from(PASSWORD.to_string())),
+        },
+    };
+
+    let defs = ValidatorDefinitions::open(&dst_dir).unwrap();
     assert!(
         defs.as_slice() == &[expected_def.clone()],
         "validator defs file should be accurate"

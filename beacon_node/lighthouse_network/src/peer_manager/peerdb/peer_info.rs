@@ -19,8 +19,6 @@ use PeerConnectionStatus::*;
 #[derive(Clone, Debug, Serialize)]
 #[serde(bound = "T: EthSpec")]
 pub struct PeerInfo<T: EthSpec> {
-    /// The connection status of the peer
-    _status: PeerStatus,
     /// The peers reputation
     score: Score,
     /// Client managing this peer
@@ -57,7 +55,6 @@ pub struct PeerInfo<T: EthSpec> {
 impl<TSpec: EthSpec> Default for PeerInfo<TSpec> {
     fn default() -> PeerInfo<TSpec> {
         PeerInfo {
-            _status: Default::default(),
             score: Score::default(),
             client: Client::default(),
             connection_status: Default::default(),
@@ -236,6 +233,7 @@ impl<T: EthSpec> PeerInfo<T> {
     /* Mutable Functions */
 
     /// Updates the sync status. Returns true if the status was changed.
+    // VISIBILITY: Both the peer manager the network sync is able to update the sync state of a peer
     pub fn update_sync_status(&mut self, sync_status: SyncStatus) -> bool {
         self.sync_status.update(sync_status)
     }
@@ -320,7 +318,7 @@ impl<T: EthSpec> PeerInfo<T> {
 
     /// Modifies the status to Dialing
     /// Returns an error if the current state is unexpected.
-    pub(super) fn dialing_peer(&mut self) -> Result<(), &'static str> {
+    pub(super) fn set_dialing_peer(&mut self) -> Result<(), &'static str> {
         match &mut self.connection_status {
             Connected { .. } => return Err("Dialing connected peer"),
             Dialing { .. } => return Err("Dialing an already dialing peer"),
@@ -383,21 +381,6 @@ impl<T: EthSpec> PeerInfo<T> {
     #[cfg(test)]
     pub fn set_gossipsub_score(&mut self, score: f64) {
         self.score.set_gossipsub_score(score);
-    }
-}
-
-#[derive(Clone, Debug, Serialize)]
-/// The current health status of the peer.
-pub enum PeerStatus {
-    /// The peer is healthy.
-    Healthy,
-    /// The peer is clogged. It has not been responding to requests on time.
-    _Clogged,
-}
-
-impl Default for PeerStatus {
-    fn default() -> Self {
-        PeerStatus::Healthy
     }
 }
 

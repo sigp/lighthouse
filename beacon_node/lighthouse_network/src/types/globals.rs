@@ -1,6 +1,6 @@
 //! A collection of variables that are accessible outside of the network thread itself.
 use crate::peer_manager::peerdb::PeerDB;
-use crate::rpc::MetaData;
+use crate::rpc::{MetaData, MetaDataV2};
 use crate::types::{BackFillState, SyncState};
 use crate::Client;
 use crate::EnrExt;
@@ -22,7 +22,7 @@ pub struct NetworkGlobals<TSpec: EthSpec> {
     /// The UDP port that the discovery service is listening on
     pub listen_port_udp: AtomicU16,
     /// The collection of known peers.
-    peers: RwLock<PeerDB<TSpec>>,
+    pub peers: RwLock<PeerDB<TSpec>>,
     // The local meta data of our node.
     pub local_metadata: RwLock<MetaData<TSpec>>,
     /// The current gossipsub topic subscriptions.
@@ -121,18 +121,31 @@ impl<TSpec: EthSpec> NetworkGlobals<TSpec> {
             .unwrap_or_default()
     }
 
-    pub fn peers(&self) -> impl std::ops::Deref<Target = PeerDB<TSpec>> + '_ {
-        self.peers.read()
-    }
-
-    pub(crate) fn peers_mut(&self) -> impl std::ops::DerefMut<Target = PeerDB<TSpec>> + '_ {
-        self.peers.write()
-    }
-
     /// Updates the syncing state of the node.
     ///
     /// The old state is returned
     pub fn set_sync_state(&self, new_state: SyncState) -> SyncState {
         std::mem::replace(&mut *self.sync_state.write(), new_state)
+    }
+
+    /// TESTING ONLY. Build a dummy NetworkGlobals instance.
+    pub fn new_test_globals(log: &slog::Logger) -> NetworkGlobals<TSpec> {
+        use crate::CombinedKeyExt;
+        let keypair = libp2p::identity::Keypair::generate_secp256k1();
+        let enr_key: discv5::enr::CombinedKey =
+            discv5::enr::CombinedKey::from_libp2p(&keypair).unwrap();
+        let enr = discv5::enr::EnrBuilder::new("v4").build(&enr_key).unwrap();
+        NetworkGlobals::new(
+            enr,
+            9000,
+            9000,
+            MetaData::V2(MetaDataV2 {
+                seq_number: 0,
+                attnets: Default::default(),
+                syncnets: Default::default(),
+            }),
+            vec![],
+            log,
+        )
     }
 }

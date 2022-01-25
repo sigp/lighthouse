@@ -4,7 +4,7 @@ use sensitive_url::SensitiveUrl;
 use serde_derive::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
-use types::{Graffiti, PublicKeyBytes};
+use types::{Address, Graffiti, PublicKeyBytes};
 
 /// Default directory name for the freezer database under the top-level data dir.
 const DEFAULT_FREEZER_DB_DIR: &str = "freezer_db";
@@ -58,8 +58,6 @@ pub struct Config {
     /// This is the method used for the 2019 client interop in Canada.
     pub dummy_eth1_backend: bool,
     pub sync_eth1_chain: bool,
-    /// A list of hard-coded forks that will be disabled.
-    pub disabled_forks: Vec<String>,
     /// Graffiti to be inserted everytime we create a block.
     pub graffiti: Graffiti,
     /// When true, automatically monitor validators using the HTTP API.
@@ -74,6 +72,8 @@ pub struct Config {
     pub network: network::NetworkConfig,
     pub chain: beacon_chain::ChainConfig,
     pub eth1: eth1::Config,
+    pub execution_endpoints: Option<Vec<SensitiveUrl>>,
+    pub suggested_fee_recipient: Option<Address>,
     pub http_api: http_api::Config,
     pub http_metrics: http_metrics::Config,
     pub monitoring_api: Option<monitoring_api::Config>,
@@ -94,7 +94,8 @@ impl Default for Config {
             dummy_eth1_backend: false,
             sync_eth1_chain: false,
             eth1: <_>::default(),
-            disabled_forks: Vec::new(),
+            execution_endpoints: None,
+            suggested_fee_recipient: None,
             graffiti: Graffiti::default(),
             http_api: <_>::default(),
             http_metrics: <_>::default(),
@@ -108,58 +109,83 @@ impl Default for Config {
 
 impl Config {
     /// Get the database path without initialising it.
-    pub fn get_db_path(&self) -> Option<PathBuf> {
-        self.get_data_dir()
-            .map(|data_dir| data_dir.join(&self.db_name))
+    pub fn get_db_path(&self) -> PathBuf {
+        self.get_data_dir().join(&self.db_name)
     }
 
     /// Get the database path, creating it if necessary.
     pub fn create_db_path(&self) -> Result<PathBuf, String> {
-        let db_path = self
-            .get_db_path()
-            .ok_or("Unable to locate user home directory")?;
-        ensure_dir_exists(db_path)
+        ensure_dir_exists(self.get_db_path())
     }
 
     /// Fetch default path to use for the freezer database.
-    fn default_freezer_db_path(&self) -> Option<PathBuf> {
-        self.get_data_dir()
-            .map(|data_dir| data_dir.join(DEFAULT_FREEZER_DB_DIR))
+    fn default_freezer_db_path(&self) -> PathBuf {
+        self.get_data_dir().join(DEFAULT_FREEZER_DB_DIR)
     }
 
     /// Returns the path to which the client may initialize the on-disk freezer database.
     ///
     /// Will attempt to use the user-supplied path from e.g. the CLI, or will default
     /// to a directory in the data_dir if no path is provided.
-    pub fn get_freezer_db_path(&self) -> Option<PathBuf> {
+    pub fn get_freezer_db_path(&self) -> PathBuf {
         self.freezer_db_path
             .clone()
-            .or_else(|| self.default_freezer_db_path())
+            .unwrap_or_else(|| self.default_freezer_db_path())
     }
 
     /// Get the freezer DB path, creating it if necessary.
     pub fn create_freezer_db_path(&self) -> Result<PathBuf, String> {
-        let freezer_db_path = self
-            .get_freezer_db_path()
-            .ok_or("Unable to locate user home directory")?;
-        ensure_dir_exists(freezer_db_path)
+        ensure_dir_exists(self.get_freezer_db_path())
+    }
+
+    /// Returns the "modern" path to the data_dir.
+    ///
+    /// See `Self::get_data_dir` documentation for more info.
+    fn get_modern_data_dir(&self) -> PathBuf {
+        self.data_dir.clone()
+    }
+
+    /// Returns the "legacy" path to the data_dir.
+    ///
+    /// See `Self::get_data_dir` documentation for more info.
+    pub fn get_existing_legacy_data_dir(&self) -> Option<PathBuf> {
+        dirs::home_dir()
+            .map(|home_dir| home_dir.join(&self.data_dir))
+            // Return `None` if the directory does not exists.
+            .filter(|dir| dir.exists())
+            // Return `None` if the legacy directory is identical to the modern.
+            .filter(|dir| *dir != self.get_modern_data_dir())
     }
 
     /// Returns the core path for the client.
     ///
     /// Will not create any directories.
-    pub fn get_data_dir(&self) -> Option<PathBuf> {
-        dirs::home_dir().map(|home_dir| home_dir.join(&self.data_dir))
+    ///
+    /// ## Legacy Info
+    ///
+    /// Legacy versions of Lighthouse did not properly handle relative paths for `--datadir`.
+    ///
+    /// For backwards compatibility, we still compute the legacy path and check if it exists.  If
+    /// it does exist, we use that directory rather than the modern path.
+    ///
+    /// For more information, see:
+    ///
+    /// https://github.com/sigp/lighthouse/pull/2843
+    fn get_data_dir(&self) -> PathBuf {
+        let existing_legacy_dir = self.get_existing_legacy_data_dir();
+
+        if let Some(legacy_dir) = existing_legacy_dir {
+            legacy_dir
+        } else {
+            self.get_modern_data_dir()
+        }
     }
 
     /// Returns the core path for the client.
     ///
     /// Creates the directory if it does not exist.
     pub fn create_data_dir(&self) -> Result<PathBuf, String> {
-        let path = self
-            .get_data_dir()
-            .ok_or("Unable to locate user home directory")?;
-        ensure_dir_exists(path)
+        ensure_dir_exists(self.get_data_dir())
     }
 }
 

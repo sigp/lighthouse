@@ -2,7 +2,7 @@ use std::marker::PhantomData;
 
 use super::methods::*;
 use super::protocol::Protocol;
-use super::protocol::{ProtocolId, MAX_RPC_SIZE};
+use super::protocol::ProtocolId;
 use super::RPCError;
 use crate::rpc::protocol::Encoding;
 use crate::rpc::protocol::Version;
@@ -29,6 +29,7 @@ use types::{EthSpec, ForkContext};
 pub struct OutboundRequestContainer<TSpec: EthSpec> {
     pub req: OutboundRequest<TSpec>,
     pub fork_context: Arc<ForkContext>,
+    pub max_rpc_size: usize,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -150,7 +151,7 @@ where
             Encoding::SSZSnappy => {
                 let ssz_snappy_codec = BaseOutboundCodec::new(SSZSnappyOutboundCodec::new(
                     protocol,
-                    MAX_RPC_SIZE,
+                    self.max_rpc_size,
                     self.fork_context.clone(),
                 ));
                 OutboundCodec::SSZSnappy(ssz_snappy_codec)

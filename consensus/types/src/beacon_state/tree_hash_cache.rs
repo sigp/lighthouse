@@ -341,16 +341,26 @@ impl<T: EthSpec> BeaconTreeHashCacheInner<T> {
         )?;
         hasher.write(state.finalized_checkpoint().tree_hash_root().as_bytes())?;
 
-        // Inactivity & light-client sync committees
-        if let BeaconState::Altair(ref state) = state {
+        // Inactivity & light-client sync committees (Altair and later).
+        if let Ok(inactivity_scores) = state.inactivity_scores() {
             hasher.write(
                 self.inactivity_scores
-                    .recalculate_tree_hash_root(&state.inactivity_scores)?
+                    .recalculate_tree_hash_root(inactivity_scores)?
                     .as_bytes(),
             )?;
+        }
 
-            hasher.write(state.current_sync_committee.tree_hash_root().as_bytes())?;
-            hasher.write(state.next_sync_committee.tree_hash_root().as_bytes())?;
+        if let Ok(current_sync_committee) = state.current_sync_committee() {
+            hasher.write(current_sync_committee.tree_hash_root().as_bytes())?;
+        }
+
+        if let Ok(next_sync_committee) = state.next_sync_committee() {
+            hasher.write(next_sync_committee.tree_hash_root().as_bytes())?;
+        }
+
+        // Execution payload (merge and later).
+        if let Ok(payload_header) = state.latest_execution_payload_header() {
+            hasher.write(payload_header.tree_hash_root().as_bytes())?;
         }
 
         let root = hasher.finish()?;
