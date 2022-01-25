@@ -219,6 +219,7 @@ impl<T: SlotClock + 'static, E: EthSpec> PreparationService<T, E> {
                                 Ok(f) => f,
                                 Err(_e) => None,
                             })
+                            // If there's nothing in the file, try the process-level default value.
                             .or(self.fee_recipient)
                     };
 
