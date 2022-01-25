@@ -2,28 +2,39 @@ use crate::config::Config;
 use std::path::Path;
 use std::process::{Child, Command, ExitStatus};
 
+#[derive(thiserror::Error, Debug)]
+pub enum ProcessError {
+    #[error("command cannot be called twice")]
+    DuplicateCall,
+    #[error("process should be running")]
+    ProcessNotRunning,
+    #[error("process failed to start process")]
+    IO(#[from] std::io::Error),
+}
+
 #[derive(Debug)]
-pub struct SimProcess {
+pub struct TestnetProcess {
     cmd: Option<Command>,
     process: Option<Child>,
 }
 
-impl Drop for SimProcess {
+impl Drop for TestnetProcess {
     fn drop(&mut self) {
         if let Some(child) = self.process.as_mut() {
-            child.kill().expect("unable to kill process");
+            // Can't panic here or the process won't get killed, so just ignore the error.
+            let _ = child.kill();
         };
     }
 }
 
-impl SimProcess {
-    pub fn new(base_cmd_name: &str, config: Config) -> SimProcess {
+impl TestnetProcess {
+    pub fn new(base_cmd_name: &str, config: Config) -> TestnetProcess {
         let mut cmd = Command::new(base_cmd_name);
         for (k, v) in config.iter() {
             cmd.arg(format!("--{}", k));
             cmd.arg(v);
         }
-        SimProcess {
+        TestnetProcess {
             cmd: Some(cmd),
             process: None,
         }
@@ -33,7 +44,7 @@ impl SimProcess {
         lighthouse_bin: &Path,
         base_cmd_name: &str,
         config: &Config,
-    ) -> SimProcess {
+    ) -> TestnetProcess {
         let mut cmd = Command::new(lighthouse_bin);
         cmd.arg(base_cmd_name);
         for (k, v) in config.iter() {
@@ -44,46 +55,44 @@ impl SimProcess {
                 cmd.arg(v);
             }
         }
-        SimProcess {
+        TestnetProcess {
             cmd: Some(cmd),
             process: None,
         }
     }
 
-    pub fn spawn_no_wait(mut self) -> Self {
+    pub fn spawn_no_wait(mut self) -> Result<Self, ProcessError> {
         self.process = Some(
             self.cmd
                 .take()
-                .expect("command cannot be called twice")
-                .spawn()
-                .expect("should start process"),
+                .ok_or(ProcessError::DuplicateCall)?
+                .spawn()?,
         );
-        self
+        Ok(self)
     }
 
-    pub fn spawn_and_wait(&mut self) -> ExitStatus {
-        self.cmd
+    pub fn spawn_and_wait(&mut self) -> Result<ExitStatus, ProcessError> {
+        Ok(self
+            .cmd
             .take()
-            .expect("command cannot be called twice")
-            .spawn()
-            .expect("should start process")
-            .wait()
-            .expect("spawned process should be running")
+            .ok_or(ProcessError::DuplicateCall)?
+            .spawn()?
+            .wait()?)
     }
 
-    pub fn wait(&mut self) -> ExitStatus {
-        self.process
+    pub fn wait(&mut self) -> Result<ExitStatus, ProcessError> {
+        Ok(self
+            .process
             .as_mut()
-            .expect("simulator process should be running")
-            .wait()
-            .expect("child process should be running")
+            .ok_or(ProcessError::ProcessNotRunning)?
+            .wait()?)
     }
 
-    pub fn kill_process(&mut self) {
-        self.process
+    pub fn kill_process(&mut self) -> Result<(), ProcessError> {
+        Ok(self
+            .process
             .as_mut()
-            .expect("simulator process should be running")
-            .kill()
-            .expect("child process should be running")
+            .ok_or(ProcessError::ProcessNotRunning)?
+            .kill()?)
     }
 }

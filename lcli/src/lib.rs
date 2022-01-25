@@ -3,13 +3,13 @@ extern crate log;
 
 use crate::parse_ssz::run_parse_ssz;
 use crate::transition_blocks::run_transition_blocks;
+pub use clap::Error as ClapError;
 use clap::{App, Arg, ArgMatches};
 use clap_utils::lcli_flags::*;
 use clap_utils::{parse_path_with_default_in_home_dir, parse_required};
 use environment::{EnvironmentBuilder, LoggerConfig};
 use std::path::PathBuf;
 use types::{EthSpec, EthSpecId};
-pub use clap::Error as ClapError;
 
 pub mod change_genesis_time;
 pub mod check_deposit_data;
