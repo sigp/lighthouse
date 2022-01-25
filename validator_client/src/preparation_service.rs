@@ -138,23 +138,24 @@ impl<T: SlotClock + 'static, E: EthSpec> PreparationService<T, E> {
 
         let interval_fut = async move {
             loop {
+                // Poll the endpoint immediately to ensure fee recipients are received.
+                self.prepare_proposers_and_publish(&spec)
+                    .await
+                    .map_err(|e| {
+                        error!(
+                            log,
+                            "Error during proposer preparation";
+                            "error" => format!("{:?}", e),
+                        )
+                    })
+                    .unwrap_or(());
+
                 if let Some(duration_to_next_slot) = self.slot_clock.duration_to_next_slot() {
                     sleep(duration_to_next_slot).await;
-                    self.prepare_proposers_and_publish(&spec)
-                        .await
-                        .map_err(|e| {
-                            error!(
-                                log,
-                                "Error during proposer preparation";
-                                "error" => format!("{:?}", e),
-                            )
-                        })
-                        .unwrap_or(());
                 } else {
                     error!(log, "Failed to read slot clock");
                     // If we can't read the slot clock, just wait another slot.
                     sleep(slot_duration).await;
-                    continue;
                 }
             }
         };
