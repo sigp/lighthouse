@@ -268,6 +268,6 @@ pub fn cli_run<T: EthSpec>(
         }
         Some(("", _)) => Err("No subcommand provided, see --help for options".to_string()),
         Some((command, _)) => Err(format!("No such subcommand `{}`", command)),
-        None => return Err(format!("{} does not have a subcommand. See --help", CMD)),
+        None => return Err(format!("{} requires a subcommand. See --help", CMD)),
     }
 }

@@ -455,12 +455,12 @@ pub fn new_app<'a>() -> App<'a> {
                         ),
                 )
                 .arg(
-                    Arg::new(MERGE_FORK_EPOCH_FLAG)
-                        .long(MERGE_FORK_EPOCH_FLAG)
+                    Arg::new(BELLATRIX_FORK_EPOCH_FLAG)
+                        .long(BELLATRIX_FORK_EPOCH_FLAG)
                         .value_name("EPOCH")
                         .takes_value(true)
                         .help(
-                            "The epoch at which to enable the Merge hard fork",
+                            "The epoch at which to enable the Bellatrix hard fork",
                         ),
                 )
                 .arg(
@@ -738,6 +738,6 @@ fn run_with_env<T: EthSpec>(
             .block_on(etl::block_efficiency::run::<T>(matches))
             .map_err(|e| format!("Failed to run etl-block_efficiency: {}", e)),
         Some((other, _)) => Err(format!("Unknown subcommand {}. See --help.", other)),
-        None => Err("No subcommand. See --help".to_string()),
+        None => Err("Please provide a subcommand. See --help".to_string()),
     }
 }

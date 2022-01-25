@@ -55,7 +55,7 @@ fn main() {
     let cli_matches = match get_cli_matches() {
         Ok(matches) => matches,
         Err(e) => {
-            eprintln!("Unable validate lighthouse config: {}", e);
+            eprintln!("Unable to validate lighthouse config: {}", e);
             exit(1);
         }
     };
@@ -213,16 +213,17 @@ fn new_app<'a>(
                 )
                 .global(true)
                 .takes_value(true),
-        ).arg(
-        Arg::new(SPEC_FLAG)
-            .short('s')
-            .long(SPEC_FLAG)
-            .value_name("DEPRECATED")
-            .help("This flag is deprecated, it will be disallowed in a future release. This \
-                    value is now derived from the --network or --testnet-dir flags.")
-            .takes_value(true)
-            .global(true)
-    )
+        )
+        .arg(
+            Arg::new(SPEC_FLAG)
+                .short('s')
+                .long(SPEC_FLAG)
+                .value_name("DEPRECATED")
+                .help("This flag is deprecated, it will be disallowed in a future release. This \
+                        value is now derived from the --network or --testnet-dir flags.")
+                .takes_value(true)
+                .global(true)
+        )
         .arg(
             Arg::new(ENV_LOG_FLAG)
                 .short('l')
@@ -403,7 +404,8 @@ fn new_app<'a>(
                 .requires(TERMINAL_BLOCK_HASH_OVERRIDE_FLAG)
                 .takes_value(true)
                 .global(true),
-        ).subcommand(beacon_node::cli_app(file_args))
+        )
+        .subcommand(beacon_node::cli_app(file_args))
         .subcommand(boot_node::cli_app(file_args))
         .subcommand(validator_client::cli_app(file_args))
         .subcommand(account_manager::cli_app())

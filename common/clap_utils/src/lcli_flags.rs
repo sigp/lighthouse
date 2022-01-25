@@ -1,6 +1,3 @@
-use crate::generate_flag_constants;
-use lazy_static::lazy_static;
-
 // lcli flags
 generate_flag_constants!(
     LCLI_FLAGS,
@@ -51,7 +48,7 @@ generate_flag_constants!(
         "deposit-contract-deploy-block"
     ),
     (ALTAIR_FORK_EPOCH_FLAG, "altair-fork-epoch"),
-    (MERGE_FORK_EPOCH_FLAG, "merge-fork-epoch"),
+    (BELLATRIX_FORK_EPOCH_FLAG, "bellatrix-fork-epoch"),
     (ETH1_BLOCK_HASH_FLAG, "eth1-block-hash"),
     (EXECUTION_PAYLOAD_HEADER_FLAG, "execution-payload-header"),
     (BOOT_ADDRESS_FLAG, "boot-address"),

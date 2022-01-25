@@ -17,7 +17,7 @@ $ lighthouse --debug-level debug beacon_node --port 8000 --http --http-port 6052
 ```
 Would be equivalent to this YAML config:
 ```bash
-$ lighthouse --config-file ./beacon-config.yaml
+$ lighthouse beacon_node --config-file ./beacon-config.yaml
 ```
 ```yaml
 debug-level: "debug"
@@ -28,7 +28,7 @@ eth1-endpoints: ["http://localhost:8545", "http://localhost:9545"]
 ```
 And this TOML config:
 ```bash
-$ lighthouse --config-file ./beacon-config.toml
+$ lighthouse beacon_node --config-file ./beacon-config.toml
 ```
 ```toml
 debug-level = "debug"

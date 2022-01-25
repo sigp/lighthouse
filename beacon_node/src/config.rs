@@ -393,10 +393,10 @@ pub fn get_config<E: EthSpec>(
             if cli_args.is_present(CHECKPOINT_STATE_FLAG)
                 || cli_args.is_present(CHECKPOINT_SYNC_URL_FLAG)
             {
-                return Err(
+                let e =
                 "Checkpoint sync is not available for this network as no genesis state is known"
-                    .to_string(),
-            );
+                    .to_string();
+                return Err(e);
             }
             ClientGenesis::DepositContract
         };

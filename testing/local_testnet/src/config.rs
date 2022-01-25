@@ -99,7 +99,7 @@ impl IntegrationTestConfig {
             let mut i = 0;
             let config_clone = config.clone();
             while i < node_count - len {
-                i +=1;
+                i += 1;
                 self.validator
                     .insert(format!("default-{}", i), config_clone.clone());
             }
@@ -291,7 +291,10 @@ impl IntegrationTestConfig {
             let old = format!("{}/node_1", base_dir);
             let new = format!("{}/node_{}", base_dir, i);
             fs::create_dir(new.as_str()).unwrap();
-            let copy_options = CopyOptions { content_only: true, ..Default::default()} ;
+            let copy_options = CopyOptions {
+                content_only: true,
+                ..Default::default()
+            };
             fs_extra::dir::copy(old.as_str(), new.as_str(), &copy_options)
                 .map_err(|e| format!("Old location: {}, new location: {}, {}", old, new, e))?;
         }
@@ -383,16 +386,16 @@ impl IntegrationTestConfig {
                 let discovery_port = format!("9{}00", index);
                 config
                     .entry(PORT_FLAG.to_string())
-                    .or_insert_with(||discovery_port.clone());
+                    .or_insert_with(|| discovery_port.clone());
                 config
                     .entry(ENR_UDP_PORT_FLAG.to_string())
-                    .or_insert_with(||discovery_port.clone());
+                    .or_insert_with(|| discovery_port.clone());
                 config
                     .entry(ENR_TCP_PORT_FLAG.to_string())
                     .or_insert(discovery_port);
                 config
                     .entry(HTTP_PORT_FLAG.to_string())
-                    .or_insert_with(||format!("5{}52", index));
+                    .or_insert_with(|| format!("5{}52", index));
             }
             let process = SimProcess::new_lighthouse_process(
                 self.lighthouse_bin_location

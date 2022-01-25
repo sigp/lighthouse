@@ -44,6 +44,6 @@ pub fn cli_run(matches: &ArgMatches) -> Result<(), String> {
             "{} does not have a {} command. See --help",
             CMD, unknown
         )),
-        None => return Err(format!("{} does not have a subcommand. See --help", CMD)),
+        None => return Err(format!("{} requires a command. See --help", CMD)),
     }
 }
