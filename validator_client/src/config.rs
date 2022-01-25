@@ -211,7 +211,11 @@ impl Config {
                 .read_fee_recipient_file()
                 .map_err(|e| format!("Error reading suggested-fee-recipient file: {:?}", e))?;
             config.fee_recipient_file = Some(fee_recipient_file);
-            info!(log, "Successfully loaded fee_recipient file"; "path" => fee_recipient_file_path);
+            info!(
+                log,
+                "Successfully loaded suggested-fee-recipient file";
+                "path" => fee_recipient_file_path
+            );
         }
 
         if let Some(input_fee_recipient) =
