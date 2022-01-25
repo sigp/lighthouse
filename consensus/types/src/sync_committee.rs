@@ -1,6 +1,6 @@
 use crate::test_utils::TestRandom;
 use crate::typenum::Unsigned;
-use crate::{EthSpec, FixedVector, SyncSubnetId};
+use crate::{EthSpec, SyncSubnetId};
 use bls::PublicKeyBytes;
 use safe_arith::{ArithError, SafeArith};
 use serde_derive::{Deserialize, Serialize};
@@ -8,6 +8,9 @@ use ssz_derive::{Decode, Encode};
 use std::collections::HashMap;
 use test_random_derive::TestRandom;
 use tree_hash_derive::TreeHash;
+
+// Use flat `FixedVector` regardless of whether or not tree states are used.
+use ssz_types::FixedVector;
 
 #[derive(Debug, PartialEq)]
 pub enum Error {

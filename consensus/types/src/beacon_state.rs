@@ -30,7 +30,7 @@ pub use eth_spec::*;
 pub use iter::BlockRootsIter;
 
 #[cfg(feature = "milhouse")]
-pub use milhouse::{interface::Interface, List as VList, List};
+pub use milhouse::{interface::Interface, List as VList, List, Vector as FixedVector};
 
 #[cfg(not(feature = "milhouse"))]
 pub use {
@@ -48,19 +48,26 @@ mod tests;
 mod tree_hash_cache;
 
 #[cfg(feature = "milhouse")]
-pub type ListMut<'a, T, N> = Interface<'a, T, List<T, N>>;
-#[cfg(not(feature = "milhouse"))]
-pub type ListMut<'a, T, N> = &'a mut VList<T, N>;
+mod type_aliases {
+    use super::*;
 
-#[cfg(feature = "milhouse")]
-pub type ValidatorsMut<'a, N> = ListMut<'a, Validator, N>;
-#[cfg(not(feature = "milhouse"))]
-pub type ValidatorsMut<'a, N> = &'a mut VList<Validator, N>;
+    pub type ListMut<'a, T, N> = Interface<'a, T, List<T, N>>;
+    pub type VectMut<'a, T, N> = Interface<'a, T, FixedVector<T, N>>;
+    pub type ValidatorsMut<'a, N> = ListMut<'a, Validator, N>;
+    pub type BalancesMut<'a, N> = ListMut<'a, u64, N>;
+}
 
-#[cfg(feature = "milhouse")]
-pub type BalancesMut<'a, N> = ListMut<'a, u64, N>;
 #[cfg(not(feature = "milhouse"))]
-pub type BalancesMut<'a, N> = ListMut<'a, u64, N>;
+mod type_aliases {
+    use super::*;
+
+    pub type ListMut<'a, T, N> = &'a mut VList<T, N>;
+    pub type VectMut<'a, T, N> = &'a mut FixedVector<T, N>;
+    pub type ValidatorsMut<'a, N> = &'a mut VList<Validator, N>;
+    pub type BalancesMut<'a, N> = ListMut<'a, u64, N>;
+}
+
+pub use type_aliases::*;
 
 pub const CACHED_EPOCHS: usize = 3;
 const MAX_RANDOM_BYTE: u64 = (1 << 8) - 1;
@@ -241,9 +248,11 @@ where
 
     // History
     pub latest_block_header: BeaconBlockHeader,
-    #[compare_fields(as_slice)]
+    #[superstruct(getter(rename = "block_roots_raw"))]
+    #[test_random(default)]
     pub block_roots: FixedVector<Hash256, T::SlotsPerHistoricalRoot>,
-    #[compare_fields(as_slice)]
+    #[superstruct(getter(rename = "state_roots_raw"))]
+    #[test_random(default)]
     pub state_roots: FixedVector<Hash256, T::SlotsPerHistoricalRoot>,
     #[test_random(default)]
     pub historical_roots: VList<Hash256, T::HistoricalRootsLimit>,
@@ -267,10 +276,15 @@ where
     pub balances: VList<u64, T::ValidatorRegistryLimit>,
 
     // Randomness
+    #[superstruct(getter(rename = "randao_mixes_raw"))]
+    #[test_random(default)]
     pub randao_mixes: FixedVector<Hash256, T::EpochsPerHistoricalVector>,
 
     // Slashings
-    #[serde(with = "ssz_types::serde_utils::quoted_u64_fixed_vec")]
+    #[superstruct(getter(rename = "slashings_raw"))]
+    #[test_random(default)]
+    // FIXME(sproul): serde quoting
+    // #[serde(with = "ssz_types::serde_utils::quoted_u64_fixed_vec")]
     pub slashings: FixedVector<u64, T::EpochsPerSlashingsVector>,
 
     // Attestations (genesis fork only)
@@ -879,7 +893,7 @@ impl<T: EthSpec> BeaconState<T> {
         let aggregate_pubkey = AggregatePublicKey::aggregate(&decompressed_pubkeys)?;
 
         Ok(SyncCommittee {
-            pubkeys: FixedVector::new(pubkeys)?,
+            pubkeys: ssz_types::FixedVector::new(pubkeys)?,
             aggregate_pubkey: aggregate_pubkey.to_public_key().compress(),
         })
     }
@@ -974,7 +988,7 @@ impl<T: EthSpec> BeaconState<T> {
 
     /// Fill `randao_mixes` with
     pub fn fill_randao_mixes_with(&mut self, index_root: Hash256) {
-        *self.randao_mixes_mut() = FixedVector::from_elem(index_root);
+        *self.randao_mixes_raw_mut() = FixedVector::from_elem(index_root);
     }
 
     /// Safely obtains the index for `randao_mixes`
@@ -1100,7 +1114,7 @@ impl<T: EthSpec> BeaconState<T> {
     }
 
     /// Get a reference to the entire `slashings` vector.
-    pub fn get_all_slashings(&self) -> &[u64] {
+    pub fn get_all_slashings(&self) -> &FixedVector<u64, T::EpochsPerSlashingsVector> {
         self.slashings()
     }
 
@@ -1171,6 +1185,67 @@ impl<T: EthSpec> BeaconState<T> {
         match self {
             BeaconState::Base(state) => (state.validators.as_mut(), state.balances.as_mut()),
             BeaconState::Altair(state) => (state.validators.as_mut(), state.balances.as_mut()),
+            BeaconState::Merge(state) => (state.validators.as_mut(), state.balances.as_mut()),
+        }
+    }
+
+    pub fn block_roots(&self) -> &FixedVector<Hash256, T::SlotsPerHistoricalRoot> {
+        self.block_roots_raw()
+    }
+
+    pub fn block_roots_mut(&mut self) -> VectMut<Hash256, T::SlotsPerHistoricalRoot> {
+        #[cfg(not(feature = "milhouse"))]
+        {
+            self.block_roots_raw_mut()
+        }
+        #[cfg(feature = "milhouse")]
+        {
+            self.block_roots_raw_mut().as_mut()
+        }
+    }
+
+    pub fn state_roots(&self) -> &FixedVector<Hash256, T::SlotsPerHistoricalRoot> {
+        self.state_roots_raw()
+    }
+
+    pub fn state_roots_mut(&mut self) -> VectMut<Hash256, T::SlotsPerHistoricalRoot> {
+        #[cfg(not(feature = "milhouse"))]
+        {
+            self.state_roots_raw_mut()
+        }
+        #[cfg(feature = "milhouse")]
+        {
+            self.state_roots_raw_mut().as_mut()
+        }
+    }
+
+    pub fn randao_mixes(&self) -> &FixedVector<Hash256, T::EpochsPerHistoricalVector> {
+        self.randao_mixes_raw()
+    }
+
+    pub fn randao_mixes_mut(&mut self) -> VectMut<Hash256, T::EpochsPerHistoricalVector> {
+        #[cfg(not(feature = "milhouse"))]
+        {
+            self.randao_mixes_raw_mut()
+        }
+        #[cfg(feature = "milhouse")]
+        {
+            self.randao_mixes_raw_mut().as_mut()
+        }
+    }
+
+    pub fn slashings(&self) -> &FixedVector<u64, T::EpochsPerSlashingsVector> {
+        self.slashings_raw()
+    }
+
+    pub fn slashings_mut(&mut self) -> VectMut<u64, T::EpochsPerSlashingsVector> {
+        #[cfg(not(feature = "milhouse"))]
+        {
+            self.slashings_raw_mut()
+        }
+        #[cfg(feature = "milhouse")]
+        {
+            self.slashings_raw_mut().as_mut()
         }
     }
 

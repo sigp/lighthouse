@@ -408,7 +408,7 @@ where
             .find_head::<E>(
                 *store.justified_checkpoint(),
                 *store.finalized_checkpoint(),
-                store.justified_balances(),
+                &justified_balances,
                 store.proposer_boost_root(),
                 spec,
             )

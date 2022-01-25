@@ -166,8 +166,11 @@ pub use bls::{
     AggregatePublicKey, AggregateSignature, Keypair, PublicKey, PublicKeyBytes, SecretKey,
     Signature, SignatureBytes,
 };
-pub use ssz_types::{typenum, typenum::Unsigned, BitList, BitVector, FixedVector, VariableList};
+pub use ssz_types::{typenum, typenum::Unsigned, BitList, BitVector, VariableList};
 pub use superstruct::superstruct;
 
 #[cfg(feature = "milhouse")]
-pub use milhouse;
+pub use milhouse::{self, Vector as FixedVector};
+
+#[cfg(not(feature = "milhouse"))]
+pub use ssz_types::FixedVector;
