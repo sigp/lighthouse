@@ -31,7 +31,7 @@ use rayon::prelude::*;
 use sensitive_url::SensitiveUrl;
 use slog::Logger;
 use slot_clock::TestingSlotClock;
-use state_processing::{state_advance::complete_state_advance, StateRootStrategy};
+use state_processing::state_advance::complete_state_advance;
 use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
 use std::str::FromStr;
@@ -525,10 +525,7 @@ where
     }
 
     pub fn get_hot_state(&self, state_hash: BeaconStateHash) -> Option<BeaconState<E>> {
-        self.chain
-            .store
-            .load_hot_state(&state_hash.into(), StateRootStrategy::Accurate)
-            .unwrap()
+        self.chain.store.load_hot_state(&state_hash.into()).unwrap()
     }
 
     pub fn get_cold_state(&self, state_hash: BeaconStateHash) -> Option<BeaconState<E>> {

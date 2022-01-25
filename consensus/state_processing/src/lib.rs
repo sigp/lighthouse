@@ -26,7 +26,7 @@ pub mod state_advance;
 pub mod upgrade;
 pub mod verify_operation;
 
-pub use block_replayer::{BlockReplayError, BlockReplayer, StateRootStrategy};
+pub use block_replayer::{BlockReplayError, BlockReplayer};
 pub use genesis::{
     eth2_genesis_time, initialize_beacon_state_from_eth1, is_valid_genesis_state,
     process_activations,

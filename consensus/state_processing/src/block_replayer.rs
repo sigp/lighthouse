@@ -26,7 +26,6 @@ pub struct BlockReplayer<
 > {
     state: BeaconState<Spec>,
     spec: &'a ChainSpec,
-    state_root_strategy: StateRootStrategy,
     block_sig_strategy: BlockSignatureStrategy,
     verify_block_root: Option<VerifyBlockRoot>,
     pre_block_hook: Option<PreBlockHook<'a, Spec, Error>>,
@@ -57,16 +56,6 @@ impl From<BlockProcessingError> for BlockReplayError {
     }
 }
 
-/// Defines how state roots should be computed during block replay.
-#[derive(PartialEq)]
-pub enum StateRootStrategy {
-    /// Perform all transitions faithfully to the specification.
-    Accurate,
-    /// Don't compute state roots, eventually computing an invalid beacon state that can only be
-    /// used for obtaining shuffling.
-    Inconsistent,
-}
-
 impl<'a, E, Error, StateRootIter> BlockReplayer<'a, E, Error, StateRootIter>
 where
     E: EthSpec,
@@ -84,7 +73,6 @@ where
         Self {
             state,
             spec,
-            state_root_strategy: StateRootStrategy::Accurate,
             block_sig_strategy: BlockSignatureStrategy::VerifyBulk,
             verify_block_root: Some(VerifyBlockRoot::True),
             pre_block_hook: None,
@@ -95,15 +83,6 @@ where
             state_root_miss: false,
             _phantom: PhantomData,
         }
-    }
-
-    /// Set the replayer's state root strategy different from the default.
-    pub fn state_root_strategy(mut self, state_root_strategy: StateRootStrategy) -> Self {
-        if state_root_strategy == StateRootStrategy::Inconsistent {
-            self.verify_block_root = None;
-        }
-        self.state_root_strategy = state_root_strategy;
-        self
     }
 
     /// Set the replayer's block signature verification strategy.
@@ -178,11 +157,6 @@ where
         blocks: &[SignedBeaconBlock<E>],
         i: usize,
     ) -> Result<Option<Hash256>, Error> {
-        // If we don't care about state roots then return immediately.
-        if self.state_root_strategy == StateRootStrategy::Inconsistent {
-            return Ok(Some(Hash256::zero()));
-        }
-
         // If a state root iterator is configured, use it to find the root.
         if let Some(ref mut state_root_iter) = self.state_root_iter {
             let opt_root = state_root_iter
@@ -246,7 +220,7 @@ where
                 // If no explicit policy is set, verify only the first 1 or 2 block roots if using
                 // accurate state roots. Inaccurate state roots require block root verification to
                 // be off.
-                if i <= 1 && self.state_root_strategy == StateRootStrategy::Accurate {
+                if i <= 1 {
                     VerifyBlockRoot::True
                 } else {
                     VerifyBlockRoot::False
