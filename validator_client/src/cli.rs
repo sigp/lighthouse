@@ -127,22 +127,20 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .takes_value(true)
                 .conflicts_with("graffiti")
         )
-        // This overwrites the fee-recipient configured in the beacon node.
         .arg(
-            Arg::with_name("fee-recipient")
-                .long("fee-recipient")
+            Arg::with_name("suggested-fee-recipient")
+                .long("suggested-fee-recipient")
                 .help("Specify the address, that will receive transaction fees collected from any \
                         blocks produced by this validator client.")
                 .value_name("FEE-RECIPIENT")
                 .takes_value(true)
         )
         .arg(
-            Arg::with_name("fee-recipient-file")
-                .long("fee-recipient-file")
+            Arg::with_name("suggested-fee-recipient-file")
+                .long("suggested-fee-recipient-file")
                 .help("Specify a fee-recipient file to load validator fee-recipients from.")
                 .value_name("FEE-RECIPIENT-FILE")
                 .takes_value(true)
-                .conflicts_with("fee-recipient")
         )
         /* REST API related arguments */
         .arg(

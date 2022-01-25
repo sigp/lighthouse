@@ -220,12 +220,12 @@ fn graffiti_file_with_pk_flag() {
         });
 }
 
-// Tests for fee-recipient flags.
+// Tests for suggested-fee-recipient flags.
 #[test]
 fn fee_recipient_flag() {
     CommandLineTest::new()
         .flag(
-            "fee-recipient",
+            "suggested-fee-recipient",
             Some("0x00000000219ab540356cbb839cbe05303d7705fa"),
         )
         .run()
@@ -248,7 +248,7 @@ fn fee_recipient_file_flag() {
         .expect("Unable to write to file");
     CommandLineTest::new()
         .flag(
-            "fee-recipient-file",
+            "suggested-fee-recipient-file",
             dir.path().join("fee_recipient.txt").as_os_str().to_str(),
         )
         .run()
@@ -280,7 +280,7 @@ fn fee_recipient_file_with_pk_flag() {
         .expect("Unable to write to file");
     CommandLineTest::new()
         .flag(
-            "fee-recipient-file",
+            "suggested-fee-recipient-file",
             dir.path().join("fee_recipient.txt").as_os_str().to_str(),
         )
         .run()

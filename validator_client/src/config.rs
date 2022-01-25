@@ -45,7 +45,7 @@ pub struct Config {
     /// fee_recipient address, that will receive transaction fees collected from any blocks
     /// produced by this node.
     pub fee_recipient: Option<Address>,
-    /// Fee recipient file to load per validator fee-recipients.
+    /// Fee recipient file to load per validator suggested-fee-recipients.
     pub fee_recipient_file: Option<FeeRecipientFile>,
     /// Configuration for the HTTP REST API.
     pub http_api: http_api::Config,
@@ -205,16 +205,18 @@ impl Config {
             }
         }
 
-        if let Some(fee_recipient_file_path) = cli_args.value_of("fee-recipient-file") {
+        if let Some(fee_recipient_file_path) = cli_args.value_of("suggested-fee-recipient-file") {
             let mut fee_recipient_file = FeeRecipientFile::new(fee_recipient_file_path.into());
             fee_recipient_file
                 .read_fee_recipient_file()
-                .map_err(|e| format!("Error reading fee-recipient file: {:?}", e))?;
+                .map_err(|e| format!("Error reading suggested-fee-recipient file: {:?}", e))?;
             config.fee_recipient_file = Some(fee_recipient_file);
             info!(log, "Successfully loaded fee_recipient file"; "path" => fee_recipient_file_path);
         }
 
-        if let Some(input_fee_recipient) = parse_optional::<Address>(cli_args, "fee-recipient")? {
+        if let Some(input_fee_recipient) =
+            parse_optional::<Address>(cli_args, "suggested-fee-recipient")?
+        {
             config.fee_recipient = Some(input_fee_recipient);
         }
 
