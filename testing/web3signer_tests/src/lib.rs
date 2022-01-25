@@ -336,6 +336,7 @@ mod tests {
                     enabled: true,
                     voting_public_key: validator_pubkey.clone(),
                     graffiti: None,
+                    suggested_fee_recipient: None,
                     description: String::default(),
                     signing_definition: SigningDefinition::LocalKeystore {
                         voting_keystore_path: signer_rig.keystore_path.clone(),
@@ -351,6 +352,7 @@ mod tests {
                     enabled: true,
                     voting_public_key: validator_pubkey.clone(),
                     graffiti: None,
+                    suggested_fee_recipient: None,
                     description: String::default(),
                     signing_definition: SigningDefinition::Web3Signer {
                         url: signer_rig.url.to_string(),
