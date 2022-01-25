@@ -1,6 +1,8 @@
 # Suggested Fee Recipient
 
-## Understanding the fee recipient
+*Note: these documents are not relevant until the Bellatrix (Merge) upgrade has occurred.*
+
+## Fee recipient trust assumptions
 
 During post-merge block production, the Beacon Node (BN) will provide a `suggested_fee_recipient` to
 the execution node. This is a 20-byte Ethereum address which the EL might choose to set as the
@@ -15,13 +17,13 @@ has a choice regarding the fee recipient it passes to the execution node, creati
 noteworthy trust assumption.
 
 To be sure *you* control your fee recipient value, run your own BN and execution node (don't use
-centralized services).
+third-party services).
 
 The Lighthouse VC provides three methods for setting the `suggested_fee_recipient` (also known
-simply as the "fee recipient") to be passed to the execution layer during block production. This
-value is only relevant to nodes running validators.
+simply as the "fee recipient") to be passed to the execution layer during block production. The
+Lighthouse BN also provides a method for defining this value, should the VC not transmit a value.
 
-Assuming trustworthy nodes, the priority for the three methods is:
+Assuming trustworthy nodes, the priority for the four methods is:
 
 1. `validator_definitions.yml`
 1. `--suggested-fee-recipient-file`
@@ -29,7 +31,8 @@ Assuming trustworthy nodes, the priority for the three methods is:
 1. `--suggested-fee-recipient` provided to the BN.
 
 Users may configure the fee recipient via `validator_definitions.yml` or via the
-`--suggested-fee-recipient-file` flag. The value in `validator_definitions.yml` will always take precedence.
+`--suggested-fee-recipient-file` flag. The value in `validator_definitions.yml` will always take
+precedence.
 
 ### 1. Setting the fee recipient in the `validator_definitions.yml`
 
