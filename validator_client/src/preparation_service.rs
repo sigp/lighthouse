@@ -220,10 +220,22 @@ impl<T: SlotClock + 'static, E: EthSpec> PreparationService<T, E> {
                             .or(self.fee_recipient)
                     };
 
-                    fee_recipient.map(|fee_recipient| ProposerPreparationData {
-                        validator_index,
-                        fee_recipient,
-                    })
+                    if let Some(fee_recipient) = fee_recipient {
+                        Some(ProposerPreparationData {
+                            validator_index,
+                            fee_recipient,
+                        })
+                    } else {
+                        if spec.bellatrix_fork_epoch.is_some() {
+                            error!(
+                                log,
+                                "Validator is missing fee recipient";
+                                "msg" => "update validator_definitions.yml",
+                                "pubkey" => ?pubkey
+                            );
+                        }
+                        None
+                    }
                 } else {
                     None
                 }
