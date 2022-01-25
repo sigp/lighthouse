@@ -202,13 +202,23 @@ impl<T: SlotClock + 'static, E: EthSpec> PreparationService<T, E> {
             .filter_map(|pubkey| {
                 let validator_index = self.validator_store.validator_index(&pubkey);
                 if let Some(validator_index) = validator_index {
-                    let fee_recipient = fee_recipient_file
-                        .as_ref()
-                        .and_then(|g| match g.get_fee_recipient(&pubkey) {
-                            Ok(g) => g,
-                            Err(_e) => None,
-                        })
-                        .or(self.fee_recipient);
+                    let fee_recipient = if let Some(from_validator_defs) =
+                        self.validator_store.suggested_fee_recipient(&pubkey)
+                    {
+                        // If there is a `suggested_fee_recipient` in the validator definitions yaml
+                        // file, use that value.
+                        Some(from_validator_defs)
+                    } else {
+                        // If there's nothing in the validator defs file, check the fee recipient
+                        // file.
+                        fee_recipient_file
+                            .as_ref()
+                            .and_then(|f| match f.get_fee_recipient(&pubkey) {
+                                Ok(f) => f,
+                                Err(_e) => None,
+                            })
+                            .or(self.fee_recipient)
+                    };
 
                     fee_recipient.map(|fee_recipient| ProposerPreparationData {
                         validator_index,

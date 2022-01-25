@@ -351,6 +351,12 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
         self.validators.read().graffiti(validator_pubkey)
     }
 
+    pub fn suggested_fee_recipient(&self, validator_pubkey: &PublicKeyBytes) -> Option<Address> {
+        self.validators
+            .read()
+            .suggested_fee_recipient(validator_pubkey)
+    }
+
     pub async fn sign_block(
         &self,
         validator_pubkey: PublicKeyBytes,
