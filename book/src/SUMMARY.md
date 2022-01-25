@@ -21,6 +21,7 @@
     * [Voluntary Exits](./voluntary-exit.md)
     * [Validator Monitoring](./validator-monitoring.md)
     * [Doppelganger Protection](./validator-doppelganger.md)
+    * [Suggested Fee Recipient](./suggested-fee-recipient.md)
 * [APIs](./api.md)
 	* [Beacon Node API](./api-bn.md)
 		* [/lighthouse](./api-lighthouse.md)

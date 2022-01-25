@@ -134,28 +134,28 @@ impl<T: SlotClock + 'static, E: EthSpec> PreparationService<T, E> {
         );
 
         let executor = self.context.executor.clone();
+        let spec = spec.clone();
 
         let interval_fut = async move {
             loop {
-                if let Some(duration_to_next_epoch) =
-                    self.slot_clock.duration_to_next_epoch(E::slots_per_epoch())
-                {
-                    sleep(duration_to_next_epoch).await;
-                    self.prepare_proposers_and_publish()
-                        .await
-                        .map_err(|e| {
-                            error!(
-                                log,
-                                "Error during proposer preparation";
-                                "error" => format!("{:?}", e),
-                            )
-                        })
-                        .unwrap_or(());
+                // Poll the endpoint immediately to ensure fee recipients are received.
+                self.prepare_proposers_and_publish(&spec)
+                    .await
+                    .map_err(|e| {
+                        error!(
+                            log,
+                            "Error during proposer preparation";
+                            "error" => format!("{:?}", e),
+                        )
+                    })
+                    .unwrap_or(());
+
+                if let Some(duration_to_next_slot) = self.slot_clock.duration_to_next_slot() {
+                    sleep(duration_to_next_slot).await;
                 } else {
                     error!(log, "Failed to read slot clock");
                     // If we can't read the slot clock, just wait another slot.
                     sleep(slot_duration).await;
-                    continue;
                 }
             }
         };
@@ -165,8 +165,8 @@ impl<T: SlotClock + 'static, E: EthSpec> PreparationService<T, E> {
     }
 
     /// Prepare proposer preparations and send to beacon node
-    async fn prepare_proposers_and_publish(&self) -> Result<(), String> {
-        let preparation_data = self.collect_preparation_data().unwrap();
+    async fn prepare_proposers_and_publish(&self, spec: &ChainSpec) -> Result<(), String> {
+        let preparation_data = self.collect_preparation_data(spec).unwrap();
         if !preparation_data.is_empty() {
             self.publish_preparation_data(preparation_data).await?;
         }
@@ -174,7 +174,10 @@ impl<T: SlotClock + 'static, E: EthSpec> PreparationService<T, E> {
         Ok(())
     }
 
-    fn collect_preparation_data(&self) -> Result<Vec<ProposerPreparationData>, String> {
+    fn collect_preparation_data(
+        &self,
+        spec: &ChainSpec,
+    ) -> Result<Vec<ProposerPreparationData>, String> {
         let log = self.context.log();
 
         let fee_recipient_file = self
@@ -202,18 +205,41 @@ impl<T: SlotClock + 'static, E: EthSpec> PreparationService<T, E> {
             .filter_map(|pubkey| {
                 let validator_index = self.validator_store.validator_index(&pubkey);
                 if let Some(validator_index) = validator_index {
-                    let fee_recipient = fee_recipient_file
-                        .as_ref()
-                        .and_then(|g| match g.get_fee_recipient(&pubkey) {
-                            Ok(g) => g,
-                            Err(_e) => None,
-                        })
-                        .or(self.fee_recipient);
+                    let fee_recipient = if let Some(from_validator_defs) =
+                        self.validator_store.suggested_fee_recipient(&pubkey)
+                    {
+                        // If there is a `suggested_fee_recipient` in the validator definitions yaml
+                        // file, use that value.
+                        Some(from_validator_defs)
+                    } else {
+                        // If there's nothing in the validator defs file, check the fee recipient
+                        // file.
+                        fee_recipient_file
+                            .as_ref()
+                            .and_then(|f| match f.get_fee_recipient(&pubkey) {
+                                Ok(f) => f,
+                                Err(_e) => None,
+                            })
+                            // If there's nothing in the file, try the process-level default value.
+                            .or(self.fee_recipient)
+                    };
 
-                    fee_recipient.map(|fee_recipient| ProposerPreparationData {
-                        validator_index,
-                        fee_recipient,
-                    })
+                    if let Some(fee_recipient) = fee_recipient {
+                        Some(ProposerPreparationData {
+                            validator_index,
+                            fee_recipient,
+                        })
+                    } else {
+                        if spec.bellatrix_fork_epoch.is_some() {
+                            error!(
+                                log,
+                                "Validator is missing fee recipient";
+                                "msg" => "update validator_definitions.yml",
+                                "pubkey" => ?pubkey
+                            );
+                        }
+                        None
+                    }
                 } else {
                     None
                 }
