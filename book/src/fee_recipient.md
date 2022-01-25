@@ -10,10 +10,10 @@ Users may configure the fee recipient via `validator_definitions.yml` or via the
 ### 1. Setting the fee recipient in the `validator_definitions.yml`
 
 Users can set the fee recipient in `validator_definitions.yml` with the `suggested_fee_recipient`
-key. This option is recommended for static configurations where each validator has a fixed fee
-recipient.
+key. This option is recommended for most users, where each validator has a fixed fee recipient.
 
-Below is an example of the validator_definitions.yml with validator specific graffitis:
+Below is an example of the validator_definitions.yml with `suggested_fee_recipient` values:
+
 ```
 ---
 - enabled: true

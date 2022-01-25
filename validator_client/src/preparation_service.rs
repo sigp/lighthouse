@@ -134,14 +134,13 @@ impl<T: SlotClock + 'static, E: EthSpec> PreparationService<T, E> {
         );
 
         let executor = self.context.executor.clone();
+        let spec = spec.clone();
 
         let interval_fut = async move {
             loop {
-                if let Some(duration_to_next_epoch) =
-                    self.slot_clock.duration_to_next_epoch(E::slots_per_epoch())
-                {
-                    sleep(duration_to_next_epoch).await;
-                    self.prepare_proposers_and_publish()
+                if let Some(duration_to_next_slot) = self.slot_clock.duration_to_next_slot() {
+                    sleep(duration_to_next_slot).await;
+                    self.prepare_proposers_and_publish(&spec)
                         .await
                         .map_err(|e| {
                             error!(
@@ -165,8 +164,8 @@ impl<T: SlotClock + 'static, E: EthSpec> PreparationService<T, E> {
     }
 
     /// Prepare proposer preparations and send to beacon node
-    async fn prepare_proposers_and_publish(&self) -> Result<(), String> {
-        let preparation_data = self.collect_preparation_data().unwrap();
+    async fn prepare_proposers_and_publish(&self, spec: &ChainSpec) -> Result<(), String> {
+        let preparation_data = self.collect_preparation_data(spec).unwrap();
         if !preparation_data.is_empty() {
             self.publish_preparation_data(preparation_data).await?;
         }
@@ -174,7 +173,10 @@ impl<T: SlotClock + 'static, E: EthSpec> PreparationService<T, E> {
         Ok(())
     }
 
-    fn collect_preparation_data(&self) -> Result<Vec<ProposerPreparationData>, String> {
+    fn collect_preparation_data(
+        &self,
+        spec: &ChainSpec,
+    ) -> Result<Vec<ProposerPreparationData>, String> {
         let log = self.context.log();
 
         let fee_recipient_file = self
