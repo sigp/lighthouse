@@ -113,6 +113,14 @@ impl PartialEq for Signature {
     }
 }
 
+impl Eq for Signature {}
+
+impl std::hash::Hash for Signature {
+    fn hash<H: std::hash::Hasher>(&self, hasher: &mut H) {
+        self.0.hash(hasher);
+    }
+}
+
 #[derive(Clone)]
 pub struct AggregateSignature([u8; SIGNATURE_BYTES_LEN]);
 

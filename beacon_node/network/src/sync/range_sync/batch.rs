@@ -1,7 +1,6 @@
 use crate::sync::RequestId;
 use lighthouse_network::rpc::methods::BlocksByRangeRequest;
 use lighthouse_network::PeerId;
-use ssz::Encode;
 use std::collections::HashSet;
 use std::hash::{Hash, Hasher};
 use std::ops::Sub;
@@ -390,7 +389,7 @@ impl Attempt {
     #[allow(clippy::ptr_arg)]
     fn new<T: EthSpec>(peer_id: PeerId, blocks: &Vec<SignedBeaconBlock<T>>) -> Self {
         let mut hasher = std::collections::hash_map::DefaultHasher::new();
-        blocks.as_ssz_bytes().hash(&mut hasher);
+        blocks.hash(&mut hasher);
         let hash = hasher.finish();
         Attempt { peer_id, hash }
     }

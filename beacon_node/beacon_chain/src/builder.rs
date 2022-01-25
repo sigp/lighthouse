@@ -84,7 +84,6 @@ pub struct BeaconChainBuilder<T: BeaconChainTypes> {
     validator_pubkey_cache: Option<ValidatorPubkeyCache<T>>,
     spec: ChainSpec,
     chain_config: ChainConfig,
-    disabled_forks: Vec<String>,
     log: Option<Logger>,
     graffiti: Graffiti,
     slasher: Option<Arc<Slasher<T::EthSpec>>>,
@@ -122,7 +121,6 @@ where
             slot_clock: None,
             shutdown_sender: None,
             head_tracker: None,
-            disabled_forks: Vec::new(),
             validator_pubkey_cache: None,
             spec: TEthSpec::default_spec(),
             chain_config: ChainConfig::default(),
@@ -184,13 +182,6 @@ where
         self.log = Some(log);
         self
     }
-
-    /// Sets a list of hard-coded forks that will not be activated.
-    pub fn disabled_forks(mut self, disabled_forks: Vec<String>) -> Self {
-        self.disabled_forks = disabled_forks;
-        self
-    }
-
     /// Attempt to load an existing eth1 cache from the builder's `Store`.
     pub fn get_persisted_eth1_backend(&self) -> Result<Option<SszEth1>, String> {
         let store = self
@@ -764,7 +755,6 @@ where
             validator_pubkey_cache: TimeoutRwLock::new(validator_pubkey_cache),
             attester_cache: <_>::default(),
             early_attester_cache: <_>::default(),
-            disabled_forks: self.disabled_forks,
             shutdown_sender: self
                 .shutdown_sender
                 .ok_or("Cannot build without a shutdown sender.")?,

@@ -1,6 +1,7 @@
 use crate::tree_hash::bitfield_bytes_tree_hash_root;
 use crate::Error;
 use core::marker::PhantomData;
+use derivative::Derivative;
 use eth2_serde_utils::hex::{encode as hex_encode, PrefixedHexVisitor};
 use serde::de::{Deserialize, Deserializer};
 use serde::ser::{Serialize, Serializer};
@@ -87,7 +88,8 @@ pub type BitVector<N> = Bitfield<Fixed<N>>;
 /// The internal representation of the bitfield is the same as that required by SSZ. The lowest
 /// byte (by `Vec` index) stores the lowest bit-indices and the right-most bit stores the lowest
 /// bit-index. E.g., `vec![0b0000_0001, 0b0000_0010]` has bits `0, 9` set.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, Derivative)]
+#[derivative(PartialEq, Hash(bound = ""))]
 pub struct Bitfield<T> {
     bytes: Vec<u8>,
     len: usize,

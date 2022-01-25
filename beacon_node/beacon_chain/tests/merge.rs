@@ -30,11 +30,11 @@ fn verify_execution_payload_chain<T: EthSpec>(chain: &[ExecutionPayload<T>]) {
 #[should_panic]
 fn merge_with_terminal_block_hash_override() {
     let altair_fork_epoch = Epoch::new(0);
-    let merge_fork_epoch = Epoch::new(0);
+    let bellatrix_fork_epoch = Epoch::new(0);
 
     let mut spec = E::default_spec();
     spec.altair_fork_epoch = Some(altair_fork_epoch);
-    spec.merge_fork_epoch = Some(merge_fork_epoch);
+    spec.bellatrix_fork_epoch = Some(bellatrix_fork_epoch);
 
     let genesis_pow_block_hash = generate_pow_block(
         spec.terminal_total_difficulty,
@@ -95,12 +95,12 @@ fn merge_with_terminal_block_hash_override() {
 fn base_altair_merge_with_terminal_block_after_fork() {
     let altair_fork_epoch = Epoch::new(4);
     let altair_fork_slot = altair_fork_epoch.start_slot(E::slots_per_epoch());
-    let merge_fork_epoch = Epoch::new(8);
-    let merge_fork_slot = merge_fork_epoch.start_slot(E::slots_per_epoch());
+    let bellatrix_fork_epoch = Epoch::new(8);
+    let merge_fork_slot = bellatrix_fork_epoch.start_slot(E::slots_per_epoch());
 
     let mut spec = E::default_spec();
     spec.altair_fork_epoch = Some(altair_fork_epoch);
-    spec.merge_fork_epoch = Some(merge_fork_epoch);
+    spec.bellatrix_fork_epoch = Some(bellatrix_fork_epoch);
 
     let mut execution_payloads = vec![];
 

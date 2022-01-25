@@ -132,12 +132,12 @@ pub struct ChainSpec {
     /*
      * Merge hard fork params
      */
-    pub inactivity_penalty_quotient_merge: u64,
-    pub min_slashing_penalty_quotient_merge: u64,
-    pub proportional_slashing_multiplier_merge: u64,
-    pub merge_fork_version: [u8; 4],
+    pub inactivity_penalty_quotient_bellatrix: u64,
+    pub min_slashing_penalty_quotient_bellatrix: u64,
+    pub proportional_slashing_multiplier_bellatrix: u64,
+    pub bellatrix_fork_version: [u8; 4],
     /// The Merge fork epoch is optional, with `None` representing "Merge never happens".
-    pub merge_fork_epoch: Option<Epoch>,
+    pub bellatrix_fork_epoch: Option<Epoch>,
     pub terminal_total_difficulty: Uint256,
     pub terminal_block_hash: Hash256,
     pub terminal_block_hash_activation_epoch: Epoch,
@@ -217,7 +217,7 @@ impl ChainSpec {
 
     /// Returns the name of the fork which is active at `epoch`.
     pub fn fork_name_at_epoch(&self, epoch: Epoch) -> ForkName {
-        match self.merge_fork_epoch {
+        match self.bellatrix_fork_epoch {
             Some(fork_epoch) if epoch >= fork_epoch => ForkName::Merge,
             _ => match self.altair_fork_epoch {
                 Some(fork_epoch) if epoch >= fork_epoch => ForkName::Altair,
@@ -231,7 +231,7 @@ impl ChainSpec {
         match fork_name {
             ForkName::Base => self.genesis_fork_version,
             ForkName::Altair => self.altair_fork_version,
-            ForkName::Merge => self.merge_fork_version,
+            ForkName::Merge => self.bellatrix_fork_version,
         }
     }
 
@@ -240,7 +240,7 @@ impl ChainSpec {
         match fork_name {
             ForkName::Base => Some(Epoch::new(0)),
             ForkName::Altair => self.altair_fork_epoch,
-            ForkName::Merge => self.merge_fork_epoch,
+            ForkName::Merge => self.bellatrix_fork_epoch,
         }
     }
 
@@ -249,7 +249,7 @@ impl ChainSpec {
         match state {
             BeaconState::Base(_) => self.inactivity_penalty_quotient,
             BeaconState::Altair(_) => self.inactivity_penalty_quotient_altair,
-            BeaconState::Merge(_) => self.inactivity_penalty_quotient_merge,
+            BeaconState::Merge(_) => self.inactivity_penalty_quotient_bellatrix,
         }
     }
 
@@ -261,7 +261,7 @@ impl ChainSpec {
         match state {
             BeaconState::Base(_) => self.proportional_slashing_multiplier,
             BeaconState::Altair(_) => self.proportional_slashing_multiplier_altair,
-            BeaconState::Merge(_) => self.proportional_slashing_multiplier_merge,
+            BeaconState::Merge(_) => self.proportional_slashing_multiplier_bellatrix,
         }
     }
 
@@ -273,7 +273,7 @@ impl ChainSpec {
         match state {
             BeaconState::Base(_) => self.min_slashing_penalty_quotient,
             BeaconState::Altair(_) => self.min_slashing_penalty_quotient_altair,
-            BeaconState::Merge(_) => self.min_slashing_penalty_quotient_merge,
+            BeaconState::Merge(_) => self.min_slashing_penalty_quotient_bellatrix,
         }
     }
 
@@ -526,13 +526,13 @@ impl ChainSpec {
             /*
              * Merge hard fork params
              */
-            inactivity_penalty_quotient_merge: u64::checked_pow(2, 24)
+            inactivity_penalty_quotient_bellatrix: u64::checked_pow(2, 24)
                 .expect("pow does not overflow"),
-            min_slashing_penalty_quotient_merge: u64::checked_pow(2, 5)
+            min_slashing_penalty_quotient_bellatrix: u64::checked_pow(2, 5)
                 .expect("pow does not overflow"),
-            proportional_slashing_multiplier_merge: 3,
-            merge_fork_version: [0x02, 0x00, 0x00, 0x00],
-            merge_fork_epoch: None,
+            proportional_slashing_multiplier_bellatrix: 3,
+            bellatrix_fork_version: [0x02, 0x00, 0x00, 0x00],
+            bellatrix_fork_epoch: None,
             terminal_total_difficulty: Uint256::MAX
                 .checked_sub(Uint256::from(2u64.pow(10)))
                 .expect("subtraction does not overflow")
@@ -583,8 +583,8 @@ impl ChainSpec {
             altair_fork_version: [0x01, 0x00, 0x00, 0x01],
             altair_fork_epoch: None,
             // Merge
-            merge_fork_version: [0x02, 0x00, 0x00, 0x01],
-            merge_fork_epoch: None,
+            bellatrix_fork_version: [0x02, 0x00, 0x00, 0x01],
+            bellatrix_fork_epoch: None,
             // Other
             network_id: 2, // lighthouse testnet network id
             deposit_chain_id: 5,
@@ -611,9 +611,15 @@ pub struct Config {
     #[serde(default)]
     pub preset_base: String,
 
+    // TODO(merge): remove this default
+    #[serde(default = "default_terminal_total_difficulty")]
     #[serde(with = "eth2_serde_utils::quoted_u256")]
     pub terminal_total_difficulty: Uint256,
+    // TODO(merge): remove this default
+    #[serde(default = "default_terminal_block_hash")]
     pub terminal_block_hash: Hash256,
+    // TODO(merge): remove this default
+    #[serde(default = "default_terminal_block_hash_activation_epoch")]
     pub terminal_block_hash_activation_epoch: Epoch,
 
     #[serde(with = "eth2_serde_utils::quoted_u64")]
@@ -631,11 +637,15 @@ pub struct Config {
     #[serde(deserialize_with = "deserialize_fork_epoch")]
     pub altair_fork_epoch: Option<MaybeQuoted<Epoch>>,
 
+    // TODO(merge): remove this default
+    #[serde(default = "default_bellatrix_fork_version")]
     #[serde(with = "eth2_serde_utils::bytes_4_hex")]
-    merge_fork_version: [u8; 4],
+    bellatrix_fork_version: [u8; 4],
+    // TODO(merge): remove this default
+    #[serde(default = "default_bellatrix_fork_epoch")]
     #[serde(serialize_with = "serialize_fork_epoch")]
     #[serde(deserialize_with = "deserialize_fork_epoch")]
-    pub merge_fork_epoch: Option<MaybeQuoted<Epoch>>,
+    pub bellatrix_fork_epoch: Option<MaybeQuoted<Epoch>>,
 
     #[serde(with = "eth2_serde_utils::quoted_u64")]
     seconds_per_slot: u64,
@@ -667,6 +677,29 @@ pub struct Config {
     #[serde(with = "eth2_serde_utils::quoted_u64")]
     deposit_network_id: u64,
     deposit_contract_address: Address,
+}
+
+fn default_bellatrix_fork_version() -> [u8; 4] {
+    // This value shouldn't be used.
+    [0xff, 0xff, 0xff, 0xff]
+}
+
+fn default_bellatrix_fork_epoch() -> Option<MaybeQuoted<Epoch>> {
+    None
+}
+
+fn default_terminal_total_difficulty() -> Uint256 {
+    "115792089237316195423570985008687907853269984665640564039457584007913129638912"
+        .parse()
+        .unwrap()
+}
+
+fn default_terminal_block_hash() -> Hash256 {
+    Hash256::zero()
+}
+
+fn default_terminal_block_hash_activation_epoch() -> Epoch {
+    Epoch::new(u64::MAX)
 }
 
 impl Default for Config {
@@ -734,9 +767,9 @@ impl Config {
             altair_fork_epoch: spec
                 .altair_fork_epoch
                 .map(|epoch| MaybeQuoted { value: epoch }),
-            merge_fork_version: spec.merge_fork_version,
-            merge_fork_epoch: spec
-                .merge_fork_epoch
+            bellatrix_fork_version: spec.bellatrix_fork_version,
+            bellatrix_fork_epoch: spec
+                .bellatrix_fork_epoch
                 .map(|epoch| MaybeQuoted { value: epoch }),
 
             seconds_per_slot: spec.seconds_per_slot,
@@ -779,8 +812,8 @@ impl Config {
             genesis_delay,
             altair_fork_version,
             altair_fork_epoch,
-            merge_fork_epoch,
-            merge_fork_version,
+            bellatrix_fork_epoch,
+            bellatrix_fork_version,
             seconds_per_slot,
             seconds_per_eth1_block,
             min_validator_withdrawability_delay,
@@ -808,8 +841,8 @@ impl Config {
             genesis_delay,
             altair_fork_version,
             altair_fork_epoch: altair_fork_epoch.map(|q| q.value),
-            merge_fork_epoch: merge_fork_epoch.map(|q| q.value),
-            merge_fork_version,
+            bellatrix_fork_epoch: bellatrix_fork_epoch.map(|q| q.value),
+            bellatrix_fork_version,
             seconds_per_slot,
             seconds_per_eth1_block,
             min_validator_withdrawability_delay,
