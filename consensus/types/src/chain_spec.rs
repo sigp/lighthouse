@@ -688,11 +688,16 @@ fn default_bellatrix_fork_epoch() -> Option<MaybeQuoted<Epoch>> {
     None
 }
 
-fn default_terminal_total_difficulty() -> Uint256 {
-    Uint256::from_dec_str(
-        "115792089237316195423570985008687907853269984665640564039457584007913129638912",
-    )
-    .unwrap()
+/// Placeholder value: 2^256-2^10 (115792089237316195423570985008687907853269984665640564039457584007913129638912).
+///
+/// Taken from https://github.com/ethereum/consensus-specs/blob/d5e4828aecafaf1c57ef67a5f23c4ae7b08c5137/configs/mainnet.yaml#L15-L16
+const fn default_terminal_total_difficulty() -> Uint256 {
+    ethereum_types::U256([
+        18446744073709550592,
+        18446744073709551615,
+        18446744073709551615,
+        18446744073709551615,
+    ])
 }
 
 fn default_terminal_block_hash() -> Hash256 {
@@ -1096,6 +1101,16 @@ mod yaml_tests {
         assert_eq!(
             chain_spec.bellatrix_fork_version,
             default_bellatrix_fork_version()
+        );
+    }
+
+    #[test]
+    fn test_total_terminal_difficulty() {
+        assert_eq!(
+            Ok(default_terminal_total_difficulty()),
+            Uint256::from_dec_str(
+                "115792089237316195423570985008687907853269984665640564039457584007913129638912"
+            )
         );
     }
 }
