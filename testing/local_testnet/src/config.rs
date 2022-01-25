@@ -1,20 +1,22 @@
 use crate::process::{ProcessError, TestnetProcess};
-use crate::testnet::{Testnet, TestnetValidatorClient};
+use crate::testnet::{Testnet, TestnetBeaconNode, TestnetValidatorClient};
 use crate::{BEACON_CMD, BOOT_NODE_CMD, DEFAULT_CONFIG_PATH, GANACHE_CMD, LCLI_CMD, VALIDATOR_CMD};
 use clap_utils::flags::{
     BEACON_NODES_FLAG, DATADIR_FLAG, ENABLE_DOPPELGANGER_PROTECTION_FLAG, ENR_TCP_PORT_FLAG,
-    ENR_UDP_PORT_FLAG, HTTP_PORT_FLAG, NETWORK_DIR_FLAG, PORT_FLAG,
+    ENR_UDP_PORT_FLAG, HTTP_ADDRESS_FLAG, HTTP_PORT_FLAG, NETWORK_DIR_FLAG, PORT_FLAG,
 };
 use clap_utils::lcli_flags::*;
 use clap_utils::{to_string_map, toml_value_to_string, TomlValue};
 use eth2::lighthouse_vc::http_client::ValidatorClientHttpClient;
 use eth2::types::Slot;
+use eth2::{BeaconNodeHttpClient, Timeouts};
 use fs_extra::dir::CopyOptions;
 use sensitive_url::{SensitiveError, SensitiveUrl};
 use serde_derive::{Deserialize, Serialize};
 use slot_clock::{SlotClock, SystemTimeSlotClock};
 use std::collections::HashMap;
 use std::convert::Infallible;
+use std::fmt::format;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use std::{fs, thread, time};
@@ -401,7 +403,7 @@ impl IntegrationTestConfig {
         Ok(process)
     }
 
-    fn spawn_beacon_nodes(&mut self) -> Result<Vec<TestnetProcess>, ConfigError> {
+    fn spawn_beacon_nodes(&mut self) -> Result<Vec<TestnetBeaconNode>, ConfigError> {
         let datadir = self
             .global
             .datadir
@@ -448,15 +450,13 @@ impl IntegrationTestConfig {
                     .entry(HTTP_PORT_FLAG.to_string())
                     .or_insert_with(|| format!("5{}52", index));
             }
-            let process = TestnetProcess::new_lighthouse_process(
+
+            processes.push(spawn_beacon_node(
                 self.lighthouse_bin_location
                     .as_ref()
                     .ok_or(ConfigError::MissingLighthouseBinary)?,
-                BEACON_CMD,
-                &config,
-            )
-            .spawn_no_wait()?;
-            processes.push(process);
+                config,
+            )?);
         }
 
         Ok(processes)
@@ -534,6 +534,32 @@ impl IntegrationTestConfig {
 
         Ok((validator_clients, delayed_start_configs))
     }
+}
+
+pub(crate) fn spawn_beacon_node(
+    lighthouse_bin: &Path,
+    config: HashMap<String, String>,
+) -> Result<TestnetBeaconNode, ConfigError> {
+    let process = TestnetProcess::new_lighthouse_process(lighthouse_bin, BEACON_CMD, &config)
+        .spawn_no_wait()?;
+
+    let default_address = "http://localhost".to_string();
+    let http_address = config.get(HTTP_ADDRESS_FLAG).unwrap_or(&default_address);
+    let http_port = config
+        .get(HTTP_PORT_FLAG)
+        .ok_or(ConfigError::MissingFields(vec![HTTP_PORT_FLAG]))?;
+    let url = format!("{}:{}", http_address, http_port);
+
+    let http_client = BeaconNodeHttpClient::new(
+        SensitiveUrl::parse(url.as_str()).map_err(ConfigError::UrlParse)?,
+        Timeouts::set_all(Duration::from_secs(5)),
+    );
+
+    Ok(TestnetBeaconNode {
+        process,
+        config,
+        http_client,
+    })
 }
 
 pub(crate) fn spawn_validator(

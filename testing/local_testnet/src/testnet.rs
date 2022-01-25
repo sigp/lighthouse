@@ -2,7 +2,9 @@ use crate::config::*;
 use crate::process::TestnetProcess;
 use eth2::lighthouse_vc::http_client::ValidatorClientHttpClient;
 use eth2::types::{Epoch, EthSpec, EthSpecId, MainnetEthSpec, MinimalEthSpec};
+use eth2::BeaconNodeHttpClient;
 use slot_clock::{SlotClock, SystemTimeSlotClock};
+use std::future::Future;
 use std::path::PathBuf;
 use std::str::FromStr;
 use std::thread;
@@ -22,7 +24,7 @@ pub enum TestnetError {
 pub struct Testnet {
     pub ganache: TestnetProcess,
     pub bootnode: TestnetProcess,
-    pub beacon_nodes: Vec<TestnetProcess>,
+    pub beacon_nodes: Vec<TestnetBeaconNode>,
     pub validator_clients: Vec<TestnetValidatorClient>,
     pub delayed_start_configs: Vec<Config>,
     pub slot_clock: SystemTimeSlotClock,
@@ -34,6 +36,12 @@ pub struct TestnetValidatorClient {
     pub process: TestnetProcess,
     pub config: Config,
     pub http_client: ValidatorClientHttpClient,
+}
+
+pub struct TestnetBeaconNode {
+    pub process: TestnetProcess,
+    pub config: Config,
+    pub http_client: BeaconNodeHttpClient,
 }
 
 impl Testnet {
@@ -74,5 +82,38 @@ impl Testnet {
             config,
         )?);
         Ok(self)
+    }
+
+    pub async fn check_all_active(self) -> Self {
+        self.check_beacon_nodes(|node| async move {
+            assert!(node.get_lighthouse_health().await.is_ok());
+        })
+        .await
+        .check_validator_clients(|node| async move {
+            assert!(node.get_lighthouse_health().await.is_ok());
+        })
+        .await
+    }
+
+    pub async fn check_beacon_nodes<F, T>(self, f: F) -> Self
+    where
+        F: Fn(BeaconNodeHttpClient) -> T,
+        T: Future<Output = ()>,
+    {
+        for node in self.beacon_nodes.iter() {
+            f(node.http_client.clone()).await;
+        }
+        self
+    }
+
+    pub async fn check_validator_clients<F, T>(self, f: F) -> Self
+    where
+        F: Fn(ValidatorClientHttpClient) -> T,
+        T: Future<Output = ()>,
+    {
+        for node in self.validator_clients.iter() {
+            f(node.http_client.clone()).await;
+        }
+        self
     }
 }
