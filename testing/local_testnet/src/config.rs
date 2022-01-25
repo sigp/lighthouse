@@ -10,13 +10,57 @@ use clap_utils::{to_string_map, toml_value_to_string, TomlValue};
 use eth2::lighthouse_vc::http_client::ValidatorClientHttpClient;
 use eth2::types::Slot;
 use fs_extra::dir::CopyOptions;
-use sensitive_url::SensitiveUrl;
+use sensitive_url::{SensitiveError, SensitiveUrl};
 use serde_derive::{Deserialize, Serialize};
 use slot_clock::{SlotClock, SystemTimeSlotClock};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use std::{fs, thread, time};
+use std::convert::Infallible;
+use crate::config::TestnetConfigError::{MissingLighthouseBinary, UrlParse};
+
+#[derive(thiserror::Error, Debug)]
+pub enum TestnetConfigError {
+    #[error("unable to parse config")]
+    FileParse(#[from] Infallible),
+    #[error("defaults need to be defined if all nodes are not explicitly defined")]
+    UndefinedBeacons,
+    #[error("defaults need to be defined if all nodes are not explicitly defined")]
+    UndefinedValidators,
+    #[error("config file must have extension `.toml`")]
+    InvalidExtension,
+    #[error("unable to deserialize TOML")]
+    TomlDeserialize(#[from] toml::de::Error),
+    #[error("unable to read TOML file")]
+    IO(#[from] std::io::Error),
+    #[error("Old location: {old_location}, new location: {new_location}, {error}")]
+    FileCopy {
+        old_location: String,
+        new_location: String,
+        error: fs_extra::error::Error,
+    },
+    #[error("lighthouse bin location required")]
+    MissingLighthouseBinary,
+    #[error("invalid genesis delay")]
+    InvalidGenesisDelay,
+    #[error("failed to remove datadir {0}")]
+    Cleanup(std::io::Error),
+    #[error("{0}")]
+    TomlTransform(String),
+    #[error("{0}")]
+    Lcli(String),
+    #[error("unable to match arguments")]
+    Clap(#[from] lcli::ClapError),
+    #[error("expected config {0}")]
+    ConfigNotFound(&'static str ),
+    #[error("missing config fields {0:?}")]
+    MissingFields(Vec<&'static str>),
+    #[error("unable to create HTTP client: {0:?}")]
+    ValidatorHTTPClient(eth2::Error),
+    #[error("cannot parse URL: {0:?}")]
+    UrlParse(SensitiveError),
+}
 
 pub type TomlConfig = Option<HashMap<String, TomlValue>>;
 pub type Config = HashMap<String, String>;
@@ -51,21 +95,20 @@ pub struct IntegrationTestConfig {
 }
 
 impl IntegrationTestConfig {
-    pub fn new(lighthouse_bin: &str) -> Result<Self, String> {
-        crate::parse_file_config_maps(DEFAULT_CONFIG_PATH)?
-            .set_bin_location(lighthouse_bin)
+    pub fn new(lighthouse_bin: &str) -> Result<Self, TestnetConfigError> {
+        parse_file_config_maps(DEFAULT_CONFIG_PATH)?
+            .set_bin_location(lighthouse_bin)?
             .process_global_config()
     }
 
-    fn set_bin_location(mut self, lighthouse_bin: &str) -> Self {
+    fn set_bin_location(mut self, lighthouse_bin: &str) -> Result<Self, TestnetConfigError> {
         let path = lighthouse_bin
-            .parse::<PathBuf>()
-            .expect("valid lighthouse binary location required");
+            .parse::<PathBuf>()?;
         self.lighthouse_bin_location = Some(path);
-        self
+        Ok(self)
     }
 
-    fn process_global_config(mut self) -> Result<Self, String> {
+    fn process_global_config(mut self) -> Result<Self, TestnetConfigError> {
         let node_count = self
             .global
             .beacon_count
@@ -104,9 +147,7 @@ impl IntegrationTestConfig {
                     .insert(format!("default-{}", i), config_clone.clone());
             }
         } else if self.validator.len() != node_count {
-            return Err(
-                "defaults need to be defined if all nodes are not explicitly defined".to_string(),
-            );
+            return Err(TestnetConfigError::UndefinedValidators);
         }
 
         let len = self.beacon.len();
@@ -119,9 +160,7 @@ impl IntegrationTestConfig {
                     .insert(format!("default-{}", i), config_clone.clone());
             }
         } else if self.beacon.len() != node_count {
-            return Err(
-                "defaults need to be defined if all nodes are not explicitly defined".to_string(),
-            );
+            return Err(TestnetConfigError::UndefinedBeacons);
         }
 
         if let Some(config) = self.lcli.new_testnet.as_mut() {
@@ -165,12 +204,12 @@ impl IntegrationTestConfig {
         Ok(self)
     }
 
-    pub fn start_testnet(&mut self) -> Result<Testnet, String> {
+    pub fn start_testnet(&mut self) -> Result<Testnet, TestnetConfigError> {
         // cleanup previous testnet files
         if let Some(dir) = self.global.datadir.as_str() {
             let path = PathBuf::from(dir);
             if path.exists() {
-                fs::remove_dir_all(dir).map_err(|e| format!("failed to remove datadir: {}", e))?;
+                fs::remove_dir_all(dir).map_err(TestnetConfigError::Cleanup)?;
             }
         }
 
@@ -191,18 +230,17 @@ impl IntegrationTestConfig {
             global_config: self.global.clone(),
             lighthouse_bin_location: self
                 .lighthouse_bin_location
-                .take()
-                .expect("lighthouse bin location required"),
+                .take().ok_or(TestnetConfigError::MissingLighthouseBinary)?,
         })
     }
 
-    fn start_ganache(&mut self) -> Result<SimProcess, String> {
+    fn start_ganache(&mut self) -> Result<SimProcess, TestnetConfigError> {
         let config = to_string_map(
             self.ganache
                 .take()
-                .ok_or("unable to parse ganache config")?,
+                .ok_or(TestnetConfigError::ConfigNotFound(GANACHE_CMD))?,
             toml_value_to_string,
-        )?;
+        ).map_err(TestnetConfigError::TomlTransform)?;
 
         let process = SimProcess::new(GANACHE_CMD, config).spawn_no_wait();
 
@@ -212,19 +250,19 @@ impl IntegrationTestConfig {
         Ok(process)
     }
 
-    fn setup_lcli(&mut self) -> Result<SystemTimeSlotClock, String> {
+    fn setup_lcli(&mut self) -> Result<SystemTimeSlotClock, TestnetConfigError> {
         let deposit_config = self
             .lcli
             .deploy_deposit_contract
             .take()
-            .ok_or("unable to parse deploy contract config")?;
+            .ok_or(TestnetConfigError::ConfigNotFound(DEPLOY_DEPOSIT_CONTRACT_CMD))?;
         self.run_lcli_for_config(LCLI_CMD, DEPLOY_DEPOSIT_CONTRACT_CMD, deposit_config)?;
 
         let mut testnet_config = self
             .lcli
             .new_testnet
             .take()
-            .ok_or("unable to parse new testnet config")?;
+            .ok_or(TestnetConfigError::ConfigNotFound(NEW_TESTNET_CMD))?;
 
         // Setup genesis time
         let (genesis_duration, slot_duration) =
@@ -240,17 +278,14 @@ impl IntegrationTestConfig {
             ) {
                 let genesis_time = SystemTime::now()
                     .duration_since(UNIX_EPOCH)
-                    .expect("invalid genesis delay")
+                    .expect("should calculate time since UNIX epoch")
                     .checked_add(Duration::from_secs(genesis_delay as u64))
-                    .ok_or("invalid genesis delay")?;
+                    .ok_or(TestnetConfigError::InvalidGenesisDelay)?;
 
                 let slot_duration = Duration::from_secs(seconds_per_slot as u64);
                 (genesis_time, slot_duration)
             } else {
-                return Err(format!(
-                    "{} and {} must be configured",
-                    GENESIS_DELAY_FLAG, SECONDS_PER_SLOT_FLAG
-                ));
+                return Err(TestnetConfigError::MissingFields(vec![GENESIS_DELAY_FLAG, SECONDS_PER_SLOT_FLAG]));
             };
         testnet_config.insert(
             GENESIS_TIME_FLAG.to_string(),
@@ -263,7 +298,7 @@ impl IntegrationTestConfig {
             .lcli
             .insecure_validators
             .take()
-            .ok_or("unable to parse insecure validator config")?;
+            .ok_or(TestnetConfigError::ConfigNotFound(INSECURE_VALIDATORS_CMD))?;
 
         let node_count = insecure_val_config
             .get(NODE_COUNT_FLAG)
@@ -296,7 +331,11 @@ impl IntegrationTestConfig {
                 ..Default::default()
             };
             fs_extra::dir::copy(old.as_str(), new.as_str(), &copy_options)
-                .map_err(|e| format!("Old location: {}, new location: {}, {}", old, new, e))?;
+                .map_err(|e|TestnetConfigError::FileCopy{
+                    old_location: old,
+                    new_location: new,
+                    error: e,
+                })?;
         }
 
         let slot_clock = SystemTimeSlotClock::new(Slot::new(0), genesis_duration, slot_duration);
@@ -309,8 +348,8 @@ impl IntegrationTestConfig {
         command: &str,
         subcommand: &str,
         config: HashMap<String, TomlValue>,
-    ) -> Result<(), String> {
-        let config = to_string_map(config, toml_value_to_string)?;
+    ) -> Result<(), TestnetConfigError> {
+        let config = to_string_map(config, toml_value_to_string).map_err(TestnetConfigError::TomlTransform)?;
 
         let mut config_vec: Vec<_> = config
             .into_iter()
@@ -327,23 +366,22 @@ impl IntegrationTestConfig {
         config_vec.insert(0, command.to_string());
 
         let app = lcli::new_app()
-            .try_get_matches_from(config_vec)
-            .map_err(|e| format!("{}", e))?;
-        lcli::run(&app)
+            .try_get_matches_from(config_vec)?;
+        lcli::run(&app).map_err(TestnetConfigError::Lcli)
     }
 
-    fn spawn_bootnode(&mut self) -> Result<SimProcess, String> {
+    fn spawn_bootnode(&mut self) -> Result<SimProcess, TestnetConfigError> {
         let config = to_string_map(
             self.boot_node
                 .take()
-                .ok_or("unable to parse boot node config")?,
+                .ok_or(TestnetConfigError::ConfigNotFound(BOOT_NODE_CMD))?,
             toml_value_to_string,
-        )?;
+        ).map_err(TestnetConfigError::TomlTransform)?;
 
         let process = SimProcess::new_lighthouse_process(
             self.lighthouse_bin_location
                 .as_ref()
-                .expect("lighthouse bin location required"),
+                .ok_or(TestnetConfigError::MissingLighthouseBinary)?,
             BOOT_NODE_CMD,
             &config,
         )
@@ -355,7 +393,7 @@ impl IntegrationTestConfig {
         Ok(process)
     }
 
-    fn spawn_beacon_nodes(&mut self) -> Result<Vec<SimProcess>, String> {
+    fn spawn_beacon_nodes(&mut self) -> Result<Vec<SimProcess>, TestnetConfigError> {
         let mut processes = vec![];
 
         for (i, (name, config)) in self.beacon.iter_mut().enumerate() {
@@ -364,9 +402,9 @@ impl IntegrationTestConfig {
             let mut config = to_string_map(
                 config
                     .take()
-                    .ok_or(format!("unable to parse {} config", name))?,
+                    .ok_or(TestnetConfigError::ConfigNotFound(BEACON_CMD))?,
                 toml_value_to_string,
-            )?;
+            ).map_err(TestnetConfigError::TomlTransform)?;
             if name.starts_with("default") {
                 config.insert(
                     DATADIR_FLAG.to_string(),
@@ -400,7 +438,7 @@ impl IntegrationTestConfig {
             let process = SimProcess::new_lighthouse_process(
                 self.lighthouse_bin_location
                     .as_ref()
-                    .expect("lighthouse bin location required"),
+                    .ok_or(TestnetConfigError::MissingLighthouseBinary)?,
                 BEACON_CMD,
                 &config,
             )
@@ -413,7 +451,7 @@ impl IntegrationTestConfig {
 
     fn spawn_validator_clients(
         &mut self,
-    ) -> Result<(Vec<TestnetValidatorClient>, Vec<Config>), String> {
+    ) -> Result<(Vec<TestnetValidatorClient>, Vec<Config>), TestnetConfigError> {
         let mut validator_clients = vec![];
         let mut delayed_start_configs = vec![];
 
@@ -426,9 +464,9 @@ impl IntegrationTestConfig {
             let mut config = to_string_map(
                 config
                     .take()
-                    .ok_or(format!("unable to parse {} config", name))?,
+                    .ok_or(TestnetConfigError::ConfigNotFound(VALIDATOR_CMD))?,
                 toml_value_to_string,
-            )?;
+            ).map_err(TestnetConfigError::TomlTransform)?;
             // if name starts with default, always insert incremental config, otherwise only insert it if it doesn't exist
             if name.starts_with("default") {
                 config.insert(
@@ -471,7 +509,7 @@ impl IntegrationTestConfig {
                 validator_clients.push(spawn_validator(
                     self.lighthouse_bin_location
                         .as_ref()
-                        .expect("lighthouse bin location required"),
+                        .ok_or(TestnetConfigError::MissingLighthouseBinary)?,
                     config,
                 )?);
             }
@@ -484,7 +522,7 @@ impl IntegrationTestConfig {
 pub(crate) fn spawn_validator(
     lighthouse_bin: &Path,
     config: HashMap<String, String>,
-) -> Result<TestnetValidatorClient, String> {
+) -> Result<TestnetValidatorClient, TestnetConfigError> {
     let process =
         SimProcess::new_lighthouse_process(lighthouse_bin, VALIDATOR_CMD, &config).spawn_no_wait();
 
@@ -497,12 +535,11 @@ pub(crate) fn spawn_validator(
         config.get(BEACON_NODES_FLAG).as_ref(),
     ) {
         let token_path = PathBuf::from(format!("{}/validators/api-token.txt", datadir));
-        let secret = fs::read_to_string(token_path).expect("should read API token from file");
+        let secret = fs::read_to_string(token_path)?;
         let http_client = ValidatorClientHttpClient::new(
-            SensitiveUrl::parse(url).expect("should create HTTP client"),
+            SensitiveUrl::parse(url).map_err(TestnetConfigError::UrlParse)?,
             secret,
-        )
-        .expect("should create HTTP client");
+        ).map_err(TestnetConfigError::ValidatorHTTPClient)?;
 
         let vc = TestnetValidatorClient {
             process,
@@ -511,6 +548,15 @@ pub(crate) fn spawn_validator(
         };
         Ok(vc)
     } else {
-        Err("invalid config".to_string())
+        Err(TestnetConfigError::MissingFields(vec![DATADIR_FLAG, BEACON_NODES_FLAG]))
+    }
+}
+
+fn parse_file_config_maps(file_name: &str) -> Result<IntegrationTestConfig, TestnetConfigError> {
+    if file_name.ends_with(".toml") {
+        let toml = fs::read_to_string(file_name).map_err(TestnetConfigError::IO)?;
+        toml::from_str(toml.as_str()).map_err(TestnetConfigError::TomlDeserialize)
+    } else {
+        Err(TestnetConfigError::InvalidExtension)
     }
 }

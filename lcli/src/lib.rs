@@ -9,6 +9,7 @@ use clap_utils::{parse_path_with_default_in_home_dir, parse_required};
 use environment::{EnvironmentBuilder, LoggerConfig};
 use std::path::PathBuf;
 use types::{EthSpec, EthSpecId};
+pub use clap::Error as ClapError;
 
 pub mod change_genesis_time;
 pub mod check_deposit_data;

@@ -3484,6 +3484,7 @@ dependencies = [
  "serde",
  "serde_derive",
  "slot_clock",
+ "thiserror",
  "toml",
 ]
 
