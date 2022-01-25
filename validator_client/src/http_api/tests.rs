@@ -263,6 +263,7 @@ impl ApiTester {
                 enable: !s.disabled.contains(&i),
                 description: format!("boi #{}", i),
                 graffiti: None,
+                suggested_fee_recipient: None,
                 deposit_gwei: E::default_spec().max_effective_balance,
             })
             .collect::<Vec<_>>();
@@ -393,6 +394,7 @@ impl ApiTester {
                     .into(),
                 keystore,
                 graffiti: None,
+                suggested_fee_recipient: None,
             };
 
             self.client
@@ -410,6 +412,7 @@ impl ApiTester {
                 .into(),
             keystore,
             graffiti: None,
+            suggested_fee_recipient: None,
         };
 
         let response = self
@@ -445,6 +448,7 @@ impl ApiTester {
                     enable: s.enabled,
                     description: format!("{}", i),
                     graffiti: None,
+                    suggested_fee_recipient: None,
                     voting_public_key: kp.pk,
                     url: format!("http://signer_{}.com/", i),
                     root_certificate_path: None,
@@ -570,6 +574,7 @@ fn routes_with_invalid_auth() {
                         enable: <_>::default(),
                         description: <_>::default(),
                         graffiti: <_>::default(),
+                        suggested_fee_recipient: <_>::default(),
                         deposit_gwei: <_>::default(),
                     }])
                     .await
@@ -598,6 +603,7 @@ fn routes_with_invalid_auth() {
                         enable: <_>::default(),
                         keystore,
                         graffiti: <_>::default(),
+                        suggested_fee_recipient: <_>::default(),
                     })
                     .await
             })
