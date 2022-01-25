@@ -38,6 +38,9 @@ impl Default for Cache {
 impl<T: BeaconChainTypes> BeaconChain<T> {
     /// Check whether the block with `block_root` is known to be pre-finalization.
     ///
+    /// The provided `block_root` is assumed to be unknown to fork choice. I.e., it
+    /// is not known to be a descendant of the finalized block.
+    ///
     /// Return `true` if the attestation to this block should be rejected outright,
     /// return `false` if more information is needed from a single-block-lookup.
     pub fn is_pre_finalization_block(&self, block_root: Hash256) -> Result<bool, BeaconChainError> {
