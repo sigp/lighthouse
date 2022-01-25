@@ -259,12 +259,6 @@ impl ExecutionLayer {
         &self,
         preparation_data: &[ProposerPreparationData],
     ) -> Result<(), Error> {
-        info!(
-            self.log(),
-            "Received proposer preparation data";
-            "count" => preparation_data.len(),
-        );
-
         let mut proposer_preparation_data = self.proposer_preparation_data().await;
         for preparation_entry in preparation_data {
             proposer_preparation_data

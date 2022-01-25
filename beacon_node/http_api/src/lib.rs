@@ -2182,15 +2182,27 @@ pub fn serve<T: BeaconChainTypes>(
         .and(warp::path::end())
         .and(not_while_syncing_filter.clone())
         .and(chain_filter.clone())
+        .and(warp::addr::remote())
+        .and(log_filter.clone())
         .and(warp::body::json())
         .and_then(
-            |chain: Arc<BeaconChain<T>>, preparation_data: Vec<ProposerPreparationData>| {
+            |chain: Arc<BeaconChain<T>>,
+             client_addr: Option<SocketAddr>,
+             log: Logger,
+             preparation_data: Vec<ProposerPreparationData>| {
                 blocking_json_task(move || {
                     let execution_layer = chain
                         .execution_layer
                         .as_ref()
                         .ok_or(BeaconChainError::ExecutionLayerMissing)
                         .map_err(warp_utils::reject::beacon_chain_error)?;
+
+                    info!(
+                        log,
+                        "Received proposer preparation data";
+                        "count" => preparation_data.len(),
+                        "client" => format!("{:?}", client_addr.unwrap()),
+                    );
 
                     execution_layer
                         .update_proposer_preparation_blocking(&preparation_data)
