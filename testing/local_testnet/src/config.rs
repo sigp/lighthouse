@@ -99,7 +99,7 @@ impl IntegrationTestConfig {
             let mut i = 0;
             let config_clone = config.clone();
             while i < node_count - len {
-                i = i + 1;
+                i +=1;
                 self.validator
                     .insert(format!("default-{}", i), config_clone.clone());
             }
@@ -114,7 +114,7 @@ impl IntegrationTestConfig {
             let mut i = 0;
             let config_clone = config.clone();
             while i < node_count - len {
-                i = i + 1;
+                i += 1;
                 self.beacon
                     .insert(format!("default-{}", i), config_clone.clone());
             }
@@ -149,7 +149,7 @@ impl IntegrationTestConfig {
 
         if let Some(config) = self.boot_node.as_mut() {
             config.insert(TESTNET_DIR_FLAG.to_string(), testnet_dir.clone());
-            config.insert(NETWORK_DIR_FLAG.to_string(), bootnode_dir.clone());
+            config.insert(NETWORK_DIR_FLAG.to_string(), bootnode_dir);
         }
         for (_, config_opt) in self.beacon.iter_mut() {
             if let Some(config) = config_opt.as_mut() {
@@ -168,7 +168,7 @@ impl IntegrationTestConfig {
     pub fn start_testnet(&mut self) -> Result<Testnet, String> {
         // cleanup previous testnet files
         if let Some(dir) = self.global.datadir.as_str() {
-            let path = dir.parse::<Path>()?;
+            let path = PathBuf::from(dir);
             if path.exists() {
                 fs::remove_dir_all(dir).map_err(|e| format!("failed to remove datadir: {}", e))?;
             }
@@ -204,7 +204,7 @@ impl IntegrationTestConfig {
             toml_value_to_string,
         )?;
 
-        let mut process = SimProcess::new(GANACHE_CMD, config).spawn_no_wait();
+        let process = SimProcess::new(GANACHE_CMD, config).spawn_no_wait();
 
         // Need to give ganache time to start up
         thread::sleep(time::Duration::from_secs(5));
@@ -291,8 +291,7 @@ impl IntegrationTestConfig {
             let old = format!("{}/node_1", base_dir);
             let new = format!("{}/node_{}", base_dir, i);
             fs::create_dir(new.as_str()).unwrap();
-            let mut copy_options = CopyOptions::default();
-            copy_options.content_only = true;
+            let copy_options = CopyOptions { content_only: true, ..Default::default()} ;
             fs_extra::dir::copy(old.as_str(), new.as_str(), &copy_options)
                 .map_err(|e| format!("Old location: {}, new location: {}, {}", old, new, e))?;
         }
@@ -338,7 +337,7 @@ impl IntegrationTestConfig {
             toml_value_to_string,
         )?;
 
-        let mut process = SimProcess::new_lighthouse_process(
+        let process = SimProcess::new_lighthouse_process(
             self.lighthouse_bin_location
                 .as_ref()
                 .expect("lighthouse bin location required"),
@@ -384,16 +383,16 @@ impl IntegrationTestConfig {
                 let discovery_port = format!("9{}00", index);
                 config
                     .entry(PORT_FLAG.to_string())
-                    .or_insert(discovery_port.clone());
+                    .or_insert_with(||discovery_port.clone());
                 config
                     .entry(ENR_UDP_PORT_FLAG.to_string())
-                    .or_insert(discovery_port.clone());
+                    .or_insert_with(||discovery_port.clone());
                 config
                     .entry(ENR_TCP_PORT_FLAG.to_string())
                     .or_insert(discovery_port);
                 config
                     .entry(HTTP_PORT_FLAG.to_string())
-                    .or_insert(format!("5{}52", index));
+                    .or_insert_with(||format!("5{}52", index));
             }
             let process = SimProcess::new_lighthouse_process(
                 self.lighthouse_bin_location
@@ -494,7 +493,7 @@ pub(crate) fn spawn_validator(
         config.get(DATADIR_FLAG).as_ref(),
         config.get(BEACON_NODES_FLAG).as_ref(),
     ) {
-        let token_path = format!("{}{}", datadir, "/validators/api-token.txt").parse::<Path>()?;
+        let token_path = PathBuf::from(format!("{}/validators/api-token.txt", datadir));
         let secret = fs::read_to_string(token_path).expect("should read API token from file");
         let http_client = ValidatorClientHttpClient::new(
             SensitiveUrl::parse(url).expect("should create HTTP client"),

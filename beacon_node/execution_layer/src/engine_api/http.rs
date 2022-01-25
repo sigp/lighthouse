@@ -234,7 +234,7 @@ mod test {
                 panic!(
                     "json mismatch!\n\nobserved: {}\n\nexpected: {}\n\n",
                     request_json,
-                    expected_json.to_string()
+                    expected_json
                 )
             }
             self
