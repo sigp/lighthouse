@@ -67,6 +67,9 @@ Usage:
 The file should contain key value pairs corresponding to validator public keys and their associated
 fee recipient. The file can optionally contain a `default` key for the default case.
 
+The following example sets the default and the values for the validators with pubkeys `0x87a5` and
+`0xa556`:
+
 ```
 default: 0x6cc8dcbca744a6e4ffedb98e1d0df903b10abd21
 0x87a580d31d7bc69069b55f5a01995a610dd391a26dc9e36e81057a17211983a79266800ab8531f21f1083d7d84085007: 0x6cc8dcbca744a6e4ffedb98e1d0df903b10abd21
