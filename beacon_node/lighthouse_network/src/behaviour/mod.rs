@@ -15,6 +15,7 @@ use crate::types::{
 };
 use crate::Eth2Enr;
 use crate::{error, metrics, Enr, NetworkGlobals, PubsubMessage, TopicHash};
+use libp2p::gossipsub::error::PublishError;
 use libp2p::{
     core::{
         connection::ConnectionId, identity::Keypair, multiaddr::Protocol as MProtocol, Multiaddr,
@@ -50,6 +51,9 @@ use types::{
     SignedBeaconBlock, Slot, SubnetId, SyncSubnetId,
 };
 
+use self::gossip_cache::GossipCache;
+
+mod gossip_cache;
 pub mod gossipsub_scoring_parameters;
 
 /// The number of peers we target per subnet for discovery queries.
@@ -177,6 +181,8 @@ pub struct Behaviour<TSpec: EthSpec> {
     /// The interval for updating gossipsub scores
     #[behaviour(ignore)]
     update_gossipsub_scores: tokio::time::Interval,
+    #[behaviour(ignore)]
+    gossip_cache: GossipCache,
     /// Logger for behaviour actions.
     #[behaviour(ignore)]
     log: slog::Logger,
@@ -297,6 +303,7 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
             log: behaviour_log,
             score_settings,
             fork_context: ctx.fork_context,
+            gossip_cache: GossipCache::new::<TSpec>(ctx.chain_spec),
             update_gossipsub_scores,
         })
     }
@@ -422,9 +429,11 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
         for message in messages {
             for topic in message.topics(GossipEncoding::default(), self.enr_fork_id.fork_digest) {
                 let message_data = message.encode(GossipEncoding::default());
-                if let Err(e) = self.gossipsub.publish(topic.clone().into(), message_data) {
-                    slog::warn!(self.log, "Could not publish message";
-                                        "error" => ?e);
+                if let Err(e) = self
+                    .gossipsub
+                    .publish(topic.clone().into(), message_data.clone())
+                {
+                    slog::warn!(self.log, "Could not publish message"; "error" => ?e);
 
                     // add to metrics
                     match topic.kind() {
@@ -444,6 +453,11 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
                                 v.inc()
                             };
                         }
+                    }
+
+                    if let PublishError::InsufficientPeers = e {
+                        let topic = Topic::from(topic);
+                        self.gossip_cache.insert(topic.hash(), message_data);
                     }
                 }
             }
@@ -873,6 +887,25 @@ impl<TSpec: EthSpec> NetworkBehaviourEventProcess<GossipsubEvent> for Behaviour<
                         .peers
                         .write()
                         .add_subscription(&peer_id, subnet_id);
+                }
+
+                // Try to send the cached messages for this topic
+                if let Some(msgs) = self.gossip_cache.retrieve(&topic) {
+                    if let Ok(topic) = GossipTopic::decode(topic.as_str()) {
+                        for data in msgs {
+                            if self.gossipsub.publish(topic.clone().into(), data).is_ok() {
+                                let topic: &str = topic.kind().as_ref();
+                                warn!(self.log, "Gossip message published on retry"; "topic" => topic);
+
+                                if let Some(v) = metrics::get_int_counter(
+                                    &metrics::GOSSIP_LATE_PUBLISH_PER_MAIN_TOPIC,
+                                    &[topic],
+                                ) {
+                                    v.inc()
+                                };
+                            }
+                        }
+                    }
                 }
             }
             GossipsubEvent::Unsubscribed { peer_id, topic } => {
