@@ -181,19 +181,19 @@ jobs:
 
             - name: Build Lighthouse for x86_64-apple-darwin portable
               if:   matrix.arch == 'x86_64-apple-darwin-portable'
-              run:  cargo install --path lighthouse --force --locked --features portable
+              run:  cargo install --path lighthouse --force --locked --features portable,gnosis
 
             - name: Build Lighthouse for x86_64-apple-darwin modern
               if:   matrix.arch == 'x86_64-apple-darwin'
-              run:  cargo install --path lighthouse --force --locked --features modern
+              run:  cargo install --path lighthouse --force --locked --features modern,gnosis
 
             - name: Build Lighthouse for Windows portable
               if:   matrix.arch == 'x86_64-windows-portable'
-              run:  cargo install --path lighthouse --force --locked --features portable
+              run:  cargo install --path lighthouse --force --locked --features portable,gnosis
 
             - name: Build Lighthouse for Windows modern
               if:   matrix.arch == 'x86_64-windows'
-              run:  cargo install --path lighthouse --force --locked --features modern
+              run:  cargo install --path lighthouse --force --locked --features modern,gnosis
 
             - name: Configure GPG and create artifacts
               if: startsWith(matrix.arch, 'x86_64-windows') != true
