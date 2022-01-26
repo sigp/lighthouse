@@ -2474,6 +2474,7 @@ dependencies = [
  "lighthouse_network",
  "lighthouse_version",
  "network",
+ "safe_arith",
  "sensitive_url",
  "serde",
  "slog",
