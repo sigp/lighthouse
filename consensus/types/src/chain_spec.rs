@@ -611,9 +611,15 @@ pub struct Config {
     #[serde(default)]
     pub preset_base: String,
 
+    // TODO(merge): remove this default
+    #[serde(default = "default_terminal_total_difficulty")]
     #[serde(with = "eth2_serde_utils::quoted_u256")]
     pub terminal_total_difficulty: Uint256,
+    // TODO(merge): remove this default
+    #[serde(default = "default_terminal_block_hash")]
     pub terminal_block_hash: Hash256,
+    // TODO(merge): remove this default
+    #[serde(default = "default_terminal_block_hash_activation_epoch")]
     pub terminal_block_hash_activation_epoch: Epoch,
 
     #[serde(with = "eth2_serde_utils::quoted_u64")]
@@ -631,8 +637,12 @@ pub struct Config {
     #[serde(deserialize_with = "deserialize_fork_epoch")]
     pub altair_fork_epoch: Option<MaybeQuoted<Epoch>>,
 
+    // TODO(merge): remove this default
+    #[serde(default = "default_bellatrix_fork_version")]
     #[serde(with = "eth2_serde_utils::bytes_4_hex")]
     bellatrix_fork_version: [u8; 4],
+    // TODO(merge): remove this default
+    #[serde(default = "default_bellatrix_fork_epoch")]
     #[serde(serialize_with = "serialize_fork_epoch")]
     #[serde(deserialize_with = "deserialize_fork_epoch")]
     pub bellatrix_fork_epoch: Option<MaybeQuoted<Epoch>>,
@@ -667,6 +677,29 @@ pub struct Config {
     #[serde(with = "eth2_serde_utils::quoted_u64")]
     deposit_network_id: u64,
     deposit_contract_address: Address,
+}
+
+fn default_bellatrix_fork_version() -> [u8; 4] {
+    // This value shouldn't be used.
+    [0xff, 0xff, 0xff, 0xff]
+}
+
+fn default_bellatrix_fork_epoch() -> Option<MaybeQuoted<Epoch>> {
+    None
+}
+
+fn default_terminal_total_difficulty() -> Uint256 {
+    "115792089237316195423570985008687907853269984665640564039457584007913129638912"
+        .parse()
+        .unwrap()
+}
+
+fn default_terminal_block_hash() -> Hash256 {
+    Hash256::zero()
+}
+
+fn default_terminal_block_hash_activation_epoch() -> Epoch {
+    Epoch::new(u64::MAX)
 }
 
 impl Default for Config {

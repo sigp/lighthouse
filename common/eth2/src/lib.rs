@@ -1256,8 +1256,12 @@ impl BeaconNodeHttpClient {
             .push("attester")
             .push(&epoch.to_string());
 
-        self.post_with_timeout_and_response(path, &indices, self.timeouts.attester_duties)
-            .await
+        self.post_with_timeout_and_response(
+            path,
+            &ValidatorIndexDataRef(indices),
+            self.timeouts.attester_duties,
+        )
+        .await
     }
 
     /// `POST validator/aggregate_and_proofs`
@@ -1356,8 +1360,12 @@ impl BeaconNodeHttpClient {
             .push("sync")
             .push(&epoch.to_string());
 
-        self.post_with_timeout_and_response(path, &indices, self.timeouts.sync_duties)
-            .await
+        self.post_with_timeout_and_response(
+            path,
+            &ValidatorIndexDataRef(indices),
+            self.timeouts.sync_duties,
+        )
+        .await
     }
 }
 
