@@ -15,6 +15,7 @@ use crate::types::{
 };
 use crate::Eth2Enr;
 use crate::{error, metrics, Enr, NetworkGlobals, PubsubMessage, TopicHash};
+use futures::stream::StreamExt;
 use libp2p::gossipsub::error::PublishError;
 use libp2p::{
     core::{
@@ -1157,6 +1158,9 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
         while self.update_gossipsub_scores.poll_tick(cx).is_ready() {
             self.peer_manager.update_gossipsub_scores(&self.gossipsub);
         }
+
+        // poll the gossipsub cache to clear expired messages
+        while self.gossip_cache.poll_next_unpin(cx).is_ready() {}
 
         Poll::Pending
     }
