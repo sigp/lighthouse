@@ -2542,7 +2542,9 @@ pub fn serve<T: BeaconChainTypes>(
             },
         );
 
+    // GET lighthouse/analysis/block_rewards
     let get_lighthouse_block_rewards = warp::path("lighthouse")
+        .and(warp::path("analysis"))
         .and(warp::path("block_rewards"))
         .and(warp::query::<eth2::lighthouse::BlockRewardsQuery>())
         .and(warp::path::end())
