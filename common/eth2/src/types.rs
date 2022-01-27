@@ -10,6 +10,9 @@ use std::str::{from_utf8, FromStr};
 use std::time::Duration;
 pub use types::*;
 
+#[cfg(feature = "lighthouse")]
+use crate::lighthouse::BlockReward;
+
 /// An API error serializable to JSON.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(untagged)]
@@ -428,10 +431,13 @@ pub struct AttestationPoolQuery {
     pub committee_index: Option<u64>,
 }
 
-#[derive(Deserialize)]
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ValidatorsQuery {
-    pub id: Option<QueryVec<ValidatorId>>,
-    pub status: Option<QueryVec<ValidatorStatus>>,
+    #[serde(default, deserialize_with = "option_query_vec")]
+    pub id: Option<Vec<ValidatorId>>,
+    #[serde(default, deserialize_with = "option_query_vec")]
+    pub status: Option<Vec<ValidatorStatus>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -520,32 +526,80 @@ pub struct SyncingData {
 
 #[derive(Clone, PartialEq, Debug, Deserialize)]
 #[serde(try_from = "String", bound = "T: FromStr")]
-pub struct QueryVec<T: FromStr>(pub Vec<T>);
+pub struct QueryVec<T: FromStr> {
+    values: Vec<T>,
+}
+
+fn query_vec<'de, D, T>(deserializer: D) -> Result<Vec<T>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+    T: FromStr,
+{
+    let vec: Vec<QueryVec<T>> = Deserialize::deserialize(deserializer)?;
+    Ok(Vec::from(QueryVec::from(vec)))
+}
+
+fn option_query_vec<'de, D, T>(deserializer: D) -> Result<Option<Vec<T>>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+    T: FromStr,
+{
+    let vec: Vec<QueryVec<T>> = Deserialize::deserialize(deserializer)?;
+    if vec.is_empty() {
+        return Ok(None);
+    }
+
+    Ok(Some(Vec::from(QueryVec::from(vec))))
+}
+
+impl<T: FromStr> From<Vec<QueryVec<T>>> for QueryVec<T> {
+    fn from(vecs: Vec<QueryVec<T>>) -> Self {
+        Self {
+            values: vecs.into_iter().flat_map(|qv| qv.values).collect(),
+        }
+    }
+}
 
 impl<T: FromStr> TryFrom<String> for QueryVec<T> {
     type Error = String;
 
     fn try_from(string: String) -> Result<Self, Self::Error> {
         if string.is_empty() {
-            return Ok(Self(vec![]));
+            return Ok(Self { values: vec![] });
         }
 
-        string
-            .split(',')
-            .map(|s| s.parse().map_err(|_| "unable to parse".to_string()))
-            .collect::<Result<Vec<T>, String>>()
-            .map(Self)
+        Ok(Self {
+            values: string
+                .split(',')
+                .map(|s| s.parse().map_err(|_| "unable to parse query".to_string()))
+                .collect::<Result<Vec<T>, String>>()?,
+        })
+    }
+}
+
+impl<T: FromStr> From<QueryVec<T>> for Vec<T> {
+    fn from(vec: QueryVec<T>) -> Vec<T> {
+        vec.values
     }
 }
 
 #[derive(Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ValidatorBalancesQuery {
-    pub id: Option<QueryVec<ValidatorId>>,
+    #[serde(default, deserialize_with = "option_query_vec")]
+    pub id: Option<Vec<ValidatorId>>,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(transparent)]
 pub struct ValidatorIndexData(#[serde(with = "eth2_serde_utils::quoted_u64_vec")] pub Vec<u64>);
+
+/// Borrowed variant of `ValidatorIndexData`, for serializing/sending.
+#[derive(Clone, Copy, Serialize)]
+#[serde(transparent)]
+pub struct ValidatorIndexDataRef<'a>(
+    #[serde(serialize_with = "eth2_serde_utils::quoted_u64_vec::serialize")] pub &'a [u64],
+);
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct AttesterData {
@@ -602,9 +656,12 @@ pub struct BeaconCommitteeSubscription {
 }
 
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct PeersQuery {
-    pub state: Option<QueryVec<PeerState>>,
-    pub direction: Option<QueryVec<PeerDirection>>,
+    #[serde(default, deserialize_with = "option_query_vec")]
+    pub state: Option<Vec<PeerState>>,
+    #[serde(default, deserialize_with = "option_query_vec")]
+    pub direction: Option<Vec<PeerDirection>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -785,6 +842,8 @@ pub enum EventKind<T: EthSpec> {
     ChainReorg(SseChainReorg),
     ContributionAndProof(Box<SignedContributionAndProof<T>>),
     LateHead(SseLateHead),
+    #[cfg(feature = "lighthouse")]
+    BlockReward(BlockReward),
 }
 
 impl<T: EthSpec> EventKind<T> {
@@ -798,6 +857,8 @@ impl<T: EthSpec> EventKind<T> {
             EventKind::ChainReorg(_) => "chain_reorg",
             EventKind::ContributionAndProof(_) => "contribution_and_proof",
             EventKind::LateHead(_) => "late_head",
+            #[cfg(feature = "lighthouse")]
+            EventKind::BlockReward(_) => "block_reward",
         }
     }
 
@@ -850,6 +911,10 @@ impl<T: EthSpec> EventKind<T> {
                     ServerError::InvalidServerSentEvent(format!("Contribution and Proof: {:?}", e))
                 })?,
             ))),
+            #[cfg(feature = "lighthouse")]
+            "block_reward" => Ok(EventKind::BlockReward(serde_json::from_str(data).map_err(
+                |e| ServerError::InvalidServerSentEvent(format!("Block Reward: {:?}", e)),
+            )?)),
             _ => Err(ServerError::InvalidServerSentEvent(
                 "Could not parse event tag".to_string(),
             )),
@@ -858,8 +923,10 @@ impl<T: EthSpec> EventKind<T> {
 }
 
 #[derive(Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct EventQuery {
-    pub topics: QueryVec<EventTopic>,
+    #[serde(deserialize_with = "query_vec")]
+    pub topics: Vec<EventTopic>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Deserialize)]
@@ -873,6 +940,8 @@ pub enum EventTopic {
     ChainReorg,
     ContributionAndProof,
     LateHead,
+    #[cfg(feature = "lighthouse")]
+    BlockReward,
 }
 
 impl FromStr for EventTopic {
@@ -888,6 +957,8 @@ impl FromStr for EventTopic {
             "chain_reorg" => Ok(EventTopic::ChainReorg),
             "contribution_and_proof" => Ok(EventTopic::ContributionAndProof),
             "late_head" => Ok(EventTopic::LateHead),
+            #[cfg(feature = "lighthouse")]
+            "block_reward" => Ok(EventTopic::BlockReward),
             _ => Err("event topic cannot be parsed.".to_string()),
         }
     }
@@ -904,6 +975,8 @@ impl fmt::Display for EventTopic {
             EventTopic::ChainReorg => write!(f, "chain_reorg"),
             EventTopic::ContributionAndProof => write!(f, "contribution_and_proof"),
             EventTopic::LateHead => write!(f, "late_head"),
+            #[cfg(feature = "lighthouse")]
+            EventTopic::BlockReward => write!(f, "block_reward"),
         }
     }
 }
@@ -961,7 +1034,9 @@ mod tests {
     fn query_vec() {
         assert_eq!(
             QueryVec::try_from("0,1,2".to_string()).unwrap(),
-            QueryVec(vec![0_u64, 1, 2])
+            QueryVec {
+                values: vec![0_u64, 1, 2]
+            }
         );
     }
 }

@@ -1,5 +1,7 @@
 //! This module contains endpoints that are non-standard and only available on Lighthouse servers.
 
+mod block_rewards;
+
 use crate::{
     ok_or_error,
     types::{BeaconState, ChainSpec, Epoch, EthSpec, GenericResponse, ValidatorId},
@@ -12,6 +14,7 @@ use ssz::four_byte_option_impl;
 use ssz_derive::{Decode, Encode};
 use store::{AnchorInfo, Split};
 
+pub use block_rewards::{AttestationRewards, BlockReward, BlockRewardMeta, BlockRewardsQuery};
 pub use lighthouse_network::{types::SyncState, PeerInfo};
 
 // Define "legacy" implementations of `Option<T>` which use four bytes for encoding the union

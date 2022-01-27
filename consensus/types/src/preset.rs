@@ -150,6 +150,40 @@ impl AltairPreset {
     }
 }
 
+#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "UPPERCASE")]
+pub struct BellatrixPreset {
+    #[serde(with = "eth2_serde_utils::quoted_u64")]
+    pub inactivity_penalty_quotient_bellatrix: u64,
+    #[serde(with = "eth2_serde_utils::quoted_u64")]
+    pub min_slashing_penalty_quotient_bellatrix: u64,
+    #[serde(with = "eth2_serde_utils::quoted_u64")]
+    pub proportional_slashing_multiplier_bellatrix: u64,
+    #[serde(with = "eth2_serde_utils::quoted_u64")]
+    pub max_bytes_per_transaction: u64,
+    #[serde(with = "eth2_serde_utils::quoted_u64")]
+    pub max_transactions_per_payload: u64,
+    #[serde(with = "eth2_serde_utils::quoted_u64")]
+    pub bytes_per_logs_bloom: u64,
+    #[serde(with = "eth2_serde_utils::quoted_u64")]
+    pub max_extra_data_bytes: u64,
+}
+
+impl BellatrixPreset {
+    pub fn from_chain_spec<T: EthSpec>(spec: &ChainSpec) -> Self {
+        Self {
+            inactivity_penalty_quotient_bellatrix: spec.inactivity_penalty_quotient_bellatrix,
+            min_slashing_penalty_quotient_bellatrix: spec.min_slashing_penalty_quotient_bellatrix,
+            proportional_slashing_multiplier_bellatrix: spec
+                .proportional_slashing_multiplier_bellatrix,
+            max_bytes_per_transaction: T::max_bytes_per_transaction() as u64,
+            max_transactions_per_payload: T::max_transactions_per_payload() as u64,
+            bytes_per_logs_bloom: T::bytes_per_logs_bloom() as u64,
+            max_extra_data_bytes: T::max_extra_data_bytes() as u64,
+        }
+    }
+}
+
 #[cfg(test)]
 mod test {
     use super::*;
@@ -182,6 +216,9 @@ mod test {
 
         let altair: AltairPreset = preset_from_file(&preset_name, "altair.yaml");
         assert_eq!(altair, AltairPreset::from_chain_spec::<E>(&spec));
+
+        let bellatrix: BellatrixPreset = preset_from_file(&preset_name, "bellatrix.yaml");
+        assert_eq!(bellatrix, BellatrixPreset::from_chain_spec::<E>(&spec));
     }
 
     #[test]

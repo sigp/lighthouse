@@ -69,7 +69,7 @@ impl<'a, T: EthSpec> SignedRoot for BeaconBlockRef<'a, T> {}
 impl<T: EthSpec> BeaconBlock<T> {
     /// Returns an empty block to be used during genesis.
     pub fn empty(spec: &ChainSpec) -> Self {
-        if spec.merge_fork_epoch == Some(T::genesis_epoch()) {
+        if spec.bellatrix_fork_epoch == Some(T::genesis_epoch()) {
             Self::Merge(BeaconBlockMerge::empty(spec))
         } else if spec.altair_fork_epoch == Some(T::genesis_epoch()) {
             Self::Altair(BeaconBlockAltair::empty(spec))

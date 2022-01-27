@@ -7,6 +7,7 @@
 
 mod attester_duties;
 mod block_id;
+mod block_rewards;
 mod database;
 mod metrics;
 mod proposer_duties;
@@ -55,7 +56,10 @@ use warp::http::StatusCode;
 use warp::sse::Event;
 use warp::Reply;
 use warp::{http::Response, Filter};
-use warp_utils::task::{blocking_json_task, blocking_task};
+use warp_utils::{
+    query::multi_key_query,
+    task::{blocking_json_task, blocking_task},
+};
 
 const API_PREFIX: &str = "eth";
 
@@ -505,12 +509,13 @@ pub fn serve<T: BeaconChainTypes>(
         .clone()
         .and(warp::path("validator_balances"))
         .and(warp::path::end())
-        .and(warp::query::<api_types::ValidatorBalancesQuery>())
+        .and(multi_key_query::<api_types::ValidatorBalancesQuery>())
         .and_then(
             |state_id: StateId,
              chain: Arc<BeaconChain<T>>,
-             query: api_types::ValidatorBalancesQuery| {
+             query_res: Result<api_types::ValidatorBalancesQuery, warp::Rejection>| {
                 blocking_json_task(move || {
+                    let query = query_res?;
                     state_id
                         .map_state(&chain, |state| {
                             Ok(state
@@ -521,7 +526,7 @@ pub fn serve<T: BeaconChainTypes>(
                                 // filter by validator id(s) if provided
                                 .filter(|(index, (validator, _))| {
                                     query.id.as_ref().map_or(true, |ids| {
-                                        ids.0.iter().any(|id| match id {
+                                        ids.iter().any(|id| match id {
                                             ValidatorId::PublicKey(pubkey) => {
                                                 &validator.pubkey == pubkey
                                             }
@@ -548,11 +553,14 @@ pub fn serve<T: BeaconChainTypes>(
     let get_beacon_state_validators = beacon_states_path
         .clone()
         .and(warp::path("validators"))
-        .and(warp::query::<api_types::ValidatorsQuery>())
         .and(warp::path::end())
+        .and(multi_key_query::<api_types::ValidatorsQuery>())
         .and_then(
-            |state_id: StateId, chain: Arc<BeaconChain<T>>, query: api_types::ValidatorsQuery| {
+            |state_id: StateId,
+             chain: Arc<BeaconChain<T>>,
+             query_res: Result<api_types::ValidatorsQuery, warp::Rejection>| {
                 blocking_json_task(move || {
+                    let query = query_res?;
                     state_id
                         .map_state(&chain, |state| {
                             let epoch = state.current_epoch();
@@ -566,7 +574,7 @@ pub fn serve<T: BeaconChainTypes>(
                                 // filter by validator id(s) if provided
                                 .filter(|(index, (validator, _))| {
                                     query.id.as_ref().map_or(true, |ids| {
-                                        ids.0.iter().any(|id| match id {
+                                        ids.iter().any(|id| match id {
                                             ValidatorId::PublicKey(pubkey) => {
                                                 &validator.pubkey == pubkey
                                             }
@@ -586,8 +594,8 @@ pub fn serve<T: BeaconChainTypes>(
 
                                     let status_matches =
                                         query.status.as_ref().map_or(true, |statuses| {
-                                            statuses.0.contains(&status)
-                                                || statuses.0.contains(&status.superstatus())
+                                            statuses.contains(&status)
+                                                || statuses.contains(&status.superstatus())
                                         });
 
                                     if status_matches {
@@ -1721,11 +1729,13 @@ pub fn serve<T: BeaconChainTypes>(
         .and(warp::path("node"))
         .and(warp::path("peers"))
         .and(warp::path::end())
-        .and(warp::query::<api_types::PeersQuery>())
+        .and(multi_key_query::<api_types::PeersQuery>())
         .and(network_globals.clone())
         .and_then(
-            |query: api_types::PeersQuery, network_globals: Arc<NetworkGlobals<T::EthSpec>>| {
+            |query_res: Result<api_types::PeersQuery, warp::Rejection>,
+             network_globals: Arc<NetworkGlobals<T::EthSpec>>| {
                 blocking_json_task(move || {
+                    let query = query_res?;
                     let mut peers: Vec<api_types::PeerData> = Vec::new();
                     network_globals
                         .peers
@@ -1755,11 +1765,11 @@ pub fn serve<T: BeaconChainTypes>(
                                 );
 
                                 let state_matches = query.state.as_ref().map_or(true, |states| {
-                                    states.0.iter().any(|state_param| *state_param == state)
+                                    states.iter().any(|state_param| *state_param == state)
                                 });
                                 let direction_matches =
                                     query.direction.as_ref().map_or(true, |directions| {
-                                        directions.0.iter().any(|dir_param| *dir_param == direction)
+                                        directions.iter().any(|dir_param| *dir_param == direction)
                                     });
 
                                 if state_matches && direction_matches {
@@ -2531,19 +2541,31 @@ pub fn serve<T: BeaconChainTypes>(
             },
         );
 
+    let get_lighthouse_block_rewards = warp::path("lighthouse")
+        .and(warp::path("block_rewards"))
+        .and(warp::query::<eth2::lighthouse::BlockRewardsQuery>())
+        .and(warp::path::end())
+        .and(chain_filter.clone())
+        .and(log_filter.clone())
+        .and_then(|query, chain, log| {
+            blocking_json_task(move || block_rewards::get_block_rewards(query, chain, log))
+        });
+
     let get_events = eth1_v1
         .and(warp::path("events"))
         .and(warp::path::end())
-        .and(warp::query::<api_types::EventQuery>())
+        .and(multi_key_query::<api_types::EventQuery>())
         .and(chain_filter)
         .and_then(
-            |topics: api_types::EventQuery, chain: Arc<BeaconChain<T>>| {
+            |topics_res: Result<api_types::EventQuery, warp::Rejection>,
+             chain: Arc<BeaconChain<T>>| {
                 blocking_task(move || {
+                    let topics = topics_res?;
                     // for each topic subscribed spawn a new subscription
-                    let mut receivers = Vec::with_capacity(topics.topics.0.len());
+                    let mut receivers = Vec::with_capacity(topics.topics.len());
 
                     if let Some(event_handler) = chain.event_handler.as_ref() {
-                        for topic in topics.topics.0.clone() {
+                        for topic in topics.topics {
                             let receiver = match topic {
                                 api_types::EventTopic::Head => event_handler.subscribe_head(),
                                 api_types::EventTopic::Block => event_handler.subscribe_block(),
@@ -2564,6 +2586,9 @@ pub fn serve<T: BeaconChainTypes>(
                                 }
                                 api_types::EventTopic::LateHead => {
                                     event_handler.subscribe_late_head()
+                                }
+                                api_types::EventTopic::BlockReward => {
+                                    event_handler.subscribe_block_reward()
                                 }
                             };
 
@@ -2606,8 +2631,8 @@ pub fn serve<T: BeaconChainTypes>(
                 .or(get_beacon_state_fork.boxed())
                 .or(get_beacon_state_finality_checkpoints.boxed())
                 .or(get_beacon_state_validator_balances.boxed())
-                .or(get_beacon_state_validators.boxed())
                 .or(get_beacon_state_validators_id.boxed())
+                .or(get_beacon_state_validators.boxed())
                 .or(get_beacon_state_committees.boxed())
                 .or(get_beacon_state_sync_committees.boxed())
                 .or(get_beacon_headers.boxed())
@@ -2650,6 +2675,7 @@ pub fn serve<T: BeaconChainTypes>(
                 .or(get_lighthouse_beacon_states_ssz.boxed())
                 .or(get_lighthouse_staking.boxed())
                 .or(get_lighthouse_database_info.boxed())
+                .or(get_lighthouse_block_rewards.boxed())
                 .or(get_events.boxed()),
         )
         .or(warp::post().and(

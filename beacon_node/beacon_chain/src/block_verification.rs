@@ -53,6 +53,7 @@ use crate::{
     },
     metrics, BeaconChain, BeaconChainError, BeaconChainTypes,
 };
+use eth2::types::EventKind;
 use fork_choice::{ForkChoice, ForkChoiceStore, PayloadVerificationStatus};
 use parking_lot::RwLockReadGuard;
 use proto_array::Block as ProtoBlock;
@@ -1164,6 +1165,18 @@ impl<'a, T: BeaconChainTypes> FullyVerifiedBlock<'a, T> {
         state.build_committee_cache(RelativeEpoch::Current, &chain.spec)?;
 
         metrics::stop_timer(committee_timer);
+
+        /*
+         * If we have block reward listeners, compute the block reward and push it to the
+         * event handler.
+         */
+        if let Some(ref event_handler) = chain.event_handler {
+            if event_handler.has_block_reward_subscribers() {
+                let block_reward =
+                    chain.compute_block_reward(block.message(), block_root, &state)?;
+                event_handler.register(EventKind::BlockReward(block_reward));
+            }
+        }
 
         /*
          * Perform `per_block_processing` on the block and state, returning early if the block is
