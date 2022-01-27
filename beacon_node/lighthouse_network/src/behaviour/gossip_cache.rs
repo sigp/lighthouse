@@ -26,6 +26,7 @@ impl GossipCache {
             expire_timeout: Duration::from_secs(spec.seconds_per_slot * T::slots_per_epoch() / 2),
         }
     }
+
     // Insert a message to be sent later.
     pub fn insert(&mut self, topic: TopicHash, data: Vec<u8>) {
         match self
@@ -83,5 +84,24 @@ impl futures::stream::Stream for GossipCache {
             Poll::Ready(None) => Poll::Ready(None),
             Poll::Pending => Poll::Pending,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use futures::stream::StreamExt;
+
+    #[tokio::test]
+    async fn test_stream() {
+        let mut cache = GossipCache {
+            expirations: DelayQueue::default(),
+            topic_msgs: HashMap::default(),
+            expire_timeout: Duration::from_millis(300),
+        };
+        let test_topic = TopicHash::from_raw("test");
+        cache.insert(test_topic, vec![]);
+        tokio::time::sleep(Duration::from_millis(300)).await;
+        while cache.next().await.is_some() {}
     }
 }
