@@ -1,5 +1,6 @@
 //! This module contains endpoints that are non-standard and only available on Lighthouse servers.
 
+mod attestation_performance;
 mod block_rewards;
 
 use crate::{
@@ -14,6 +15,9 @@ use ssz::four_byte_option_impl;
 use ssz_derive::{Decode, Encode};
 use store::{AnchorInfo, Split};
 
+pub use attestation_performance::{
+    AttestationPerformance, AttestationPerformanceQuery, AttestationPerformanceStatistics,
+};
 pub use block_rewards::{AttestationRewards, BlockReward, BlockRewardMeta, BlockRewardsQuery};
 pub use lighthouse_network::{types::SyncState, PeerInfo};
 
