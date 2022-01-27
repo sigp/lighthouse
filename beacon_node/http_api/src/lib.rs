@@ -2550,6 +2550,7 @@ pub fn serve<T: BeaconChainTypes>(
         .and(log_filter.clone())
         .and_then(|query, chain, log| {
             blocking_json_task(move || block_rewards::get_block_rewards(query, chain, log))
+        });
 
     // GET lighthouse/analysis/attestation_performance/{index}
     let get_lighthouse_attestation_performance = warp::path("lighthouse")
@@ -2563,7 +2564,6 @@ pub fn serve<T: BeaconChainTypes>(
             blocking_json_task(move || {
                 attestation_performance::get_attestation_performance(target, query, chain)
             })
-
         });
 
     let get_events = eth1_v1
