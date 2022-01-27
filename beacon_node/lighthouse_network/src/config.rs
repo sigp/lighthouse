@@ -219,6 +219,7 @@ pub struct NetworkLoad {
     pub mesh_n_high: usize,
     pub gossip_lazy: usize,
     pub history_gossip: usize,
+    pub heartbeat_interval: Duration,
 }
 
 impl From<u8> for NetworkLoad {
@@ -231,7 +232,8 @@ impl From<u8> for NetworkLoad {
                 mesh_n: 3,
                 mesh_n_high: 4,
                 gossip_lazy: 3,
-                history_gossip: 12,
+                history_gossip: 3,
+                heartbeat_interval: Duration::from_millis(1200),
             },
             2 => NetworkLoad {
                 name: "Low",
@@ -240,7 +242,8 @@ impl From<u8> for NetworkLoad {
                 mesh_n: 4,
                 mesh_n_high: 8,
                 gossip_lazy: 3,
-                history_gossip: 12,
+                history_gossip: 3,
+                heartbeat_interval: Duration::from_millis(1000),
             },
             3 => NetworkLoad {
                 name: "Average",
@@ -249,7 +252,8 @@ impl From<u8> for NetworkLoad {
                 mesh_n: 5,
                 mesh_n_high: 10,
                 gossip_lazy: 3,
-                history_gossip: 12,
+                history_gossip: 3,
+                heartbeat_interval: Duration::from_millis(700),
             },
             4 => NetworkLoad {
                 name: "Average",
@@ -258,7 +262,8 @@ impl From<u8> for NetworkLoad {
                 mesh_n: 8,
                 mesh_n_high: 12,
                 gossip_lazy: 3,
-                history_gossip: 12,
+                history_gossip: 3,
+                heartbeat_interval: Duration::from_millis(700),
             },
             // 5 and above
             _ => NetworkLoad {
@@ -268,7 +273,8 @@ impl From<u8> for NetworkLoad {
                 mesh_n: 10,
                 mesh_n_high: 15,
                 gossip_lazy: 5,
-                history_gossip: 12,
+                history_gossip: 6,
+                heartbeat_interval: Duration::from_millis(500),
             },
         }
     }
@@ -322,7 +328,7 @@ pub fn gossipsub_config(network_load: u8, fork_context: Arc<ForkContext>) -> Gos
 
     GossipsubConfigBuilder::default()
         .max_transmit_size(gossip_max_size(is_merge_enabled))
-        .heartbeat_interval(Duration::from_millis(700))
+        .heartbeat_interval(load.heartbeat_interval)
         .mesh_n(load.mesh_n)
         .mesh_n_low(load.mesh_n_low)
         .mesh_outbound_min(load.outbound_min)
