@@ -752,6 +752,7 @@ where
             shuffling_cache: TimeoutRwLock::new(ShufflingCache::new()),
             beacon_proposer_cache: <_>::default(),
             block_times_cache: <_>::default(),
+            pre_finalization_block_cache: <_>::default(),
             validator_pubkey_cache: TimeoutRwLock::new(validator_pubkey_cache),
             attester_cache: <_>::default(),
             early_attester_cache: <_>::default(),

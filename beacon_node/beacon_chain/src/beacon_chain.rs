@@ -34,6 +34,7 @@ use crate::observed_block_producers::ObservedBlockProducers;
 use crate::observed_operations::{ObservationOutcome, ObservedOperations};
 use crate::persisted_beacon_chain::{PersistedBeaconChain, DUMMY_CANONICAL_HEAD_BLOCK_ROOT};
 use crate::persisted_fork_choice::PersistedForkChoice;
+use crate::pre_finalization_cache::PreFinalizationBlockCache;
 use crate::shuffling_cache::{BlockShufflingIds, ShufflingCache};
 use crate::snapshot_cache::SnapshotCache;
 use crate::sync_committee_verification::{
@@ -336,6 +337,8 @@ pub struct BeaconChain<T: BeaconChainTypes> {
     pub early_attester_cache: EarlyAttesterCache<T::EthSpec>,
     /// A cache used to keep track of various block timings.
     pub block_times_cache: Arc<RwLock<BlockTimesCache>>,
+    /// A cache used to track pre-finalization block roots for quick rejection.
+    pub pre_finalization_block_cache: PreFinalizationBlockCache,
     /// Sender given to tasks, so that if they encounter a state in which execution cannot
     /// continue they can request that everything shuts down.
     pub shutdown_sender: Sender<ShutdownReason>,
@@ -2854,6 +2857,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     .unwrap_or_else(|| Duration::from_secs(0)),
             );
         }
+
+        // Inform the unknown block cache, in case it was waiting on this block.
+        self.pre_finalization_block_cache
+            .block_processed(block_root);
 
         Ok(block_root)
     }

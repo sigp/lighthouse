@@ -618,7 +618,7 @@ impl<T: BeaconChainTypes> GossipVerifiedBlock<T> {
         check_block_against_anchor_slot(block.message(), chain)?;
 
         // Do not gossip a block from a finalized slot.
-        check_block_against_finalized_slot(block.message(), chain)?;
+        check_block_against_finalized_slot(block.message(), block_root, chain)?;
 
         // Check if the block is already known. We know it is post-finalization, so it is
         // sufficient to check the fork choice.
@@ -1292,6 +1292,7 @@ fn check_block_against_anchor_slot<T: BeaconChainTypes>(
 /// verifying that condition.
 fn check_block_against_finalized_slot<T: BeaconChainTypes>(
     block: BeaconBlockRef<'_, T::EthSpec>,
+    block_root: Hash256,
     chain: &BeaconChain<T>,
 ) -> Result<(), BlockError<T::EthSpec>> {
     let finalized_slot = chain
@@ -1301,6 +1302,7 @@ fn check_block_against_finalized_slot<T: BeaconChainTypes>(
         .start_slot(T::EthSpec::slots_per_epoch());
 
     if block.slot() <= finalized_slot {
+        chain.pre_finalization_block_rejected(block_root);
         Err(BlockError::WouldRevertFinalizedSlot {
             block_slot: block.slot(),
             finalized_slot,
@@ -1373,10 +1375,10 @@ pub fn check_block_relevancy<T: BeaconChainTypes>(
         return Err(BlockError::BlockSlotLimitReached);
     }
 
-    // Do not process a block from a finalized slot.
-    check_block_against_finalized_slot(block, chain)?;
-
     let block_root = block_root.unwrap_or_else(|| get_block_root(signed_block));
+
+    // Do not process a block from a finalized slot.
+    check_block_against_finalized_slot(block, block_root, chain)?;
 
     // Check if the block is already known. We know it is post-finalization, so it is
     // sufficient to check the fork choice.
