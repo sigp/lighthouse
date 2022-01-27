@@ -234,6 +234,11 @@ impl MonitoredValidator {
             }
         }
     }
+
+    /// Ensure epoch summary is added to the summaries map
+    fn touch_epoch_summary(&self, epoch: Epoch) {
+        self.with_epoch_summary(epoch, |_| {});
+    }
 }
 
 /// Holds a collection of `MonitoredValidator` and is notified about a variety of events on the P2P
@@ -309,6 +314,7 @@ impl<T: EthSpec> ValidatorMonitor<T> {
         // Update metrics for individual validators.
         for monitored_validator in self.validators.values() {
             if let Some(i) = monitored_validator.index {
+                monitored_validator.touch_epoch_summary(current_epoch);
                 let i = i as usize;
                 let id = &monitored_validator.id;
 
@@ -1344,131 +1350,131 @@ impl<T: EthSpec> ValidatorMonitor<T> {
             for (_, validator) in self.validators.iter() {
                 let id = &validator.id;
                 let summaries = validator.summaries.read();
-                let default_summary = EpochSummary::default();
-                let summary = summaries.get(&previous_epoch).unwrap_or(&default_summary);
 
-                /*
-                 * Attestations
-                 */
-                metrics::set_gauge_vec(
-                    &metrics::VALIDATOR_MONITOR_PREV_EPOCH_ATTESTATIONS_TOTAL,
-                    &[id],
-                    summary.attestations as i64,
-                );
-                if let Some(delay) = summary.attestation_min_delay {
-                    metrics::observe_timer_vec(
-                        &metrics::VALIDATOR_MONITOR_PREV_EPOCH_ATTESTATIONS_MIN_DELAY_SECONDS,
-                        &[id],
-                        delay,
-                    );
-                }
-                metrics::set_gauge_vec(
-                    &metrics::VALIDATOR_MONITOR_PREV_EPOCH_ATTESTATION_AGGREGATE_INCLUSIONS,
-                    &[id],
-                    summary.attestation_aggregate_inclusions as i64,
-                );
-                metrics::set_gauge_vec(
-                    &metrics::VALIDATOR_MONITOR_PREV_EPOCH_ATTESTATION_BLOCK_INCLUSIONS,
-                    &[id],
-                    summary.attestation_block_inclusions as i64,
-                );
-                if let Some(distance) = summary.attestation_min_block_inclusion_distance {
+                if let Some(summary) = summaries.get(&previous_epoch) {
+                    /*
+                     * Attestations
+                     */
                     metrics::set_gauge_vec(
-                        &metrics::VALIDATOR_MONITOR_PREV_EPOCH_ATTESTATION_BLOCK_MIN_INCLUSION_DISTANCE,
+                        &metrics::VALIDATOR_MONITOR_PREV_EPOCH_ATTESTATIONS_TOTAL,
                         &[id],
-                        distance.as_u64() as i64,
+                        summary.attestations as i64,
                     );
-                }
-                /*
-                 * Sync committee messages
-                 */
-                metrics::set_gauge_vec(
-                    &metrics::VALIDATOR_MONITOR_PREV_EPOCH_SYNC_COMMITTEE_MESSAGES_TOTAL,
-                    &[id],
-                    summary.sync_committee_messages as i64,
-                );
-                if let Some(delay) = summary.sync_committee_message_min_delay {
-                    metrics::observe_timer_vec(
-                        &metrics::VALIDATOR_MONITOR_PREV_EPOCH_SYNC_COMMITTEE_MESSAGES_MIN_DELAY_SECONDS,
+                    if let Some(delay) = summary.attestation_min_delay {
+                        metrics::observe_timer_vec(
+                            &metrics::VALIDATOR_MONITOR_PREV_EPOCH_ATTESTATIONS_MIN_DELAY_SECONDS,
+                            &[id],
+                            delay,
+                        );
+                    }
+                    metrics::set_gauge_vec(
+                        &metrics::VALIDATOR_MONITOR_PREV_EPOCH_ATTESTATION_AGGREGATE_INCLUSIONS,
                         &[id],
-                        delay,
+                        summary.attestation_aggregate_inclusions as i64,
                     );
-                }
-                metrics::set_gauge_vec(
-                    &metrics::VALIDATOR_MONITOR_PREV_EPOCH_SYNC_CONTRIBUTION_INCLUSIONS,
-                    &[id],
-                    summary.sync_signature_contribution_inclusions as i64,
-                );
-                metrics::set_gauge_vec(
-                    &metrics::VALIDATOR_MONITOR_PREV_EPOCH_SYNC_SIGNATURE_BLOCK_INCLUSIONS,
-                    &[id],
-                    summary.sync_signature_block_inclusions as i64,
-                );
+                    metrics::set_gauge_vec(
+                        &metrics::VALIDATOR_MONITOR_PREV_EPOCH_ATTESTATION_BLOCK_INCLUSIONS,
+                        &[id],
+                        summary.attestation_block_inclusions as i64,
+                    );
+                    if let Some(distance) = summary.attestation_min_block_inclusion_distance {
+                        metrics::set_gauge_vec(
+                            &metrics::VALIDATOR_MONITOR_PREV_EPOCH_ATTESTATION_BLOCK_MIN_INCLUSION_DISTANCE,
+                            &[id],
+                            distance.as_u64() as i64,
+                        );
+                    }
+                    /*
+                     * Sync committee messages
+                     */
+                    metrics::set_gauge_vec(
+                        &metrics::VALIDATOR_MONITOR_PREV_EPOCH_SYNC_COMMITTEE_MESSAGES_TOTAL,
+                        &[id],
+                        summary.sync_committee_messages as i64,
+                    );
+                    if let Some(delay) = summary.sync_committee_message_min_delay {
+                        metrics::observe_timer_vec(
+                            &metrics::VALIDATOR_MONITOR_PREV_EPOCH_SYNC_COMMITTEE_MESSAGES_MIN_DELAY_SECONDS,
+                            &[id],
+                            delay,
+                        );
+                    }
+                    metrics::set_gauge_vec(
+                        &metrics::VALIDATOR_MONITOR_PREV_EPOCH_SYNC_CONTRIBUTION_INCLUSIONS,
+                        &[id],
+                        summary.sync_signature_contribution_inclusions as i64,
+                    );
+                    metrics::set_gauge_vec(
+                        &metrics::VALIDATOR_MONITOR_PREV_EPOCH_SYNC_SIGNATURE_BLOCK_INCLUSIONS,
+                        &[id],
+                        summary.sync_signature_block_inclusions as i64,
+                    );
 
-                /*
-                 * Sync contributions
-                 */
-                metrics::set_gauge_vec(
-                    &metrics::VALIDATOR_MONITOR_PREV_EPOCH_SYNC_CONTRIBUTIONS_TOTAL,
-                    &[id],
-                    summary.sync_contributions as i64,
-                );
-                if let Some(delay) = summary.sync_contribution_min_delay {
-                    metrics::observe_timer_vec(
-                        &metrics::VALIDATOR_MONITOR_PREV_EPOCH_SYNC_CONTRIBUTION_MIN_DELAY_SECONDS,
+                    /*
+                     * Sync contributions
+                     */
+                    metrics::set_gauge_vec(
+                        &metrics::VALIDATOR_MONITOR_PREV_EPOCH_SYNC_CONTRIBUTIONS_TOTAL,
                         &[id],
-                        delay,
+                        summary.sync_contributions as i64,
                     );
-                }
+                    if let Some(delay) = summary.sync_contribution_min_delay {
+                        metrics::observe_timer_vec(
+                            &metrics::VALIDATOR_MONITOR_PREV_EPOCH_SYNC_CONTRIBUTION_MIN_DELAY_SECONDS,
+                            &[id],
+                            delay,
+                        );
+                    }
 
-                /*
-                 * Blocks
-                 */
-                metrics::set_gauge_vec(
-                    &metrics::VALIDATOR_MONITOR_PREV_EPOCH_BEACON_BLOCKS_TOTAL,
-                    &[id],
-                    summary.blocks as i64,
-                );
-                if let Some(delay) = summary.block_min_delay {
-                    metrics::observe_timer_vec(
-                        &metrics::VALIDATOR_MONITOR_PREV_EPOCH_BEACON_BLOCKS_MIN_DELAY_SECONDS,
+                    /*
+                     * Blocks
+                     */
+                    metrics::set_gauge_vec(
+                        &metrics::VALIDATOR_MONITOR_PREV_EPOCH_BEACON_BLOCKS_TOTAL,
                         &[id],
-                        delay,
+                        summary.blocks as i64,
+                    );
+                    if let Some(delay) = summary.block_min_delay {
+                        metrics::observe_timer_vec(
+                            &metrics::VALIDATOR_MONITOR_PREV_EPOCH_BEACON_BLOCKS_MIN_DELAY_SECONDS,
+                            &[id],
+                            delay,
+                        );
+                    }
+                    /*
+                     * Aggregates
+                     */
+                    metrics::set_gauge_vec(
+                        &metrics::VALIDATOR_MONITOR_PREV_EPOCH_AGGREGATES_TOTAL,
+                        &[id],
+                        summary.aggregates as i64,
+                    );
+                    if let Some(delay) = summary.aggregate_min_delay {
+                        metrics::observe_timer_vec(
+                            &metrics::VALIDATOR_MONITOR_PREV_EPOCH_AGGREGATES_MIN_DELAY_SECONDS,
+                            &[id],
+                            delay,
+                        );
+                    }
+                    /*
+                     * Other
+                     */
+                    metrics::set_gauge_vec(
+                        &metrics::VALIDATOR_MONITOR_PREV_EPOCH_EXITS_TOTAL,
+                        &[id],
+                        summary.exits as i64,
+                    );
+                    metrics::set_gauge_vec(
+                        &metrics::VALIDATOR_MONITOR_PREV_EPOCH_PROPOSER_SLASHINGS_TOTAL,
+                        &[id],
+                        summary.proposer_slashings as i64,
+                    );
+                    metrics::set_gauge_vec(
+                        &metrics::VALIDATOR_MONITOR_PREV_EPOCH_ATTESTER_SLASHINGS_TOTAL,
+                        &[id],
+                        summary.attester_slashings as i64,
                     );
                 }
-                /*
-                 * Aggregates
-                 */
-                metrics::set_gauge_vec(
-                    &metrics::VALIDATOR_MONITOR_PREV_EPOCH_AGGREGATES_TOTAL,
-                    &[id],
-                    summary.aggregates as i64,
-                );
-                if let Some(delay) = summary.aggregate_min_delay {
-                    metrics::observe_timer_vec(
-                        &metrics::VALIDATOR_MONITOR_PREV_EPOCH_AGGREGATES_MIN_DELAY_SECONDS,
-                        &[id],
-                        delay,
-                    );
-                }
-                /*
-                 * Other
-                 */
-                metrics::set_gauge_vec(
-                    &metrics::VALIDATOR_MONITOR_PREV_EPOCH_EXITS_TOTAL,
-                    &[id],
-                    summary.exits as i64,
-                );
-                metrics::set_gauge_vec(
-                    &metrics::VALIDATOR_MONITOR_PREV_EPOCH_PROPOSER_SLASHINGS_TOTAL,
-                    &[id],
-                    summary.proposer_slashings as i64,
-                );
-                metrics::set_gauge_vec(
-                    &metrics::VALIDATOR_MONITOR_PREV_EPOCH_ATTESTER_SLASHINGS_TOTAL,
-                    &[id],
-                    summary.attester_slashings as i64,
-                );
             }
         }
     }
