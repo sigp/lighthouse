@@ -1,8 +1,8 @@
-FROM rust:1.56.1-bullseye AS builder
+FROM rust:1.58.1-bullseye AS builder
 RUN apt-get update && apt-get -y upgrade && apt-get install -y cmake libclang-dev
 COPY . lighthouse
-ARG PORTABLE
-ENV PORTABLE $PORTABLE
+ARG FEATURES
+ENV FEATURES $FEATURES
 RUN cd lighthouse && make
 
 FROM ubuntu:latest

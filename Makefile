@@ -1,8 +1,6 @@
 .PHONY: tests
 
 EF_TESTS = "testing/ef_tests"
-BEACON_CHAIN_CRATE = "beacon_node/beacon_chain"
-OP_POOL_CRATE = "beacon_node/operation_pool"
 STATE_TRANSITION_VECTORS = "testing/state_transition_vectors"
 GIT_TAG := $(shell git describe --tags --candidates 1)
 BIN_DIR = "bin"
@@ -22,19 +20,11 @@ FORKS=phase0 altair
 #
 # Binaries will most likely be found in `./target/release`
 install:
-ifeq ($(PORTABLE), true)
-	cargo install --path lighthouse --force --locked --features portable
-else
-	cargo install --path lighthouse --force --locked
-endif
+	cargo install --path lighthouse --force --locked --features "$(FEATURES)"
 
 # Builds the lcli binary in release (optimized).
 install-lcli:
-ifeq ($(PORTABLE), true)
-	cargo install --path lcli --force --locked --features portable
-else
-	cargo install --path lcli --force --locked
-endif
+	cargo install --path lcli --force --locked --features "$(FEATURES)"
 
 # The following commands use `cross` to build a cross-compile.
 #
@@ -50,13 +40,13 @@ endif
 # optimized CPU functions that may not be available on some systems. This
 # results in a more portable binary with ~20% slower BLS verification.
 build-x86_64:
-	cross build --release --manifest-path lighthouse/Cargo.toml --target x86_64-unknown-linux-gnu --features modern,gnosis
+	cross build --release --bin lighthouse --target x86_64-unknown-linux-gnu --features modern,gnosis
 build-x86_64-portable:
-	cross build --release --manifest-path lighthouse/Cargo.toml --target x86_64-unknown-linux-gnu --features portable,gnosis
+	cross build --release --bin lighthouse --target x86_64-unknown-linux-gnu --features portable,gnosis
 build-aarch64:
-	cross build --release --manifest-path lighthouse/Cargo.toml --target aarch64-unknown-linux-gnu --features gnosis
+	cross build --release --bin lighthouse --target aarch64-unknown-linux-gnu --features gnosis
 build-aarch64-portable:
-	cross build --release --manifest-path lighthouse/Cargo.toml --target aarch64-unknown-linux-gnu --features portable,gnosis
+	cross build --release --bin lighthouse --target aarch64-unknown-linux-gnu --features portable,gnosis
 
 # Create a `.tar.gz` containing a binary for a specific target.
 define tarball_release_binary
@@ -102,21 +92,21 @@ check-benches:
 
 # Typechecks consensus code *without* allowing deprecated legacy arithmetic or metrics.
 check-consensus:
-	cargo check --manifest-path=consensus/state_processing/Cargo.toml --no-default-features
+	cargo check -p state_processing --no-default-features
 
 # Runs only the ef-test vectors.
 run-ef-tests:
 	rm -rf $(EF_TESTS)/.accessed_file_log.txt
-	cargo test --release --manifest-path=$(EF_TESTS)/Cargo.toml --features "ef_tests"
-	cargo test --release --manifest-path=$(EF_TESTS)/Cargo.toml --features "ef_tests,fake_crypto"
-	cargo test --release --manifest-path=$(EF_TESTS)/Cargo.toml --features "ef_tests,milagro"
+	cargo test --release -p ef_tests --features "ef_tests"
+	cargo test --release -p ef_tests --features "ef_tests,fake_crypto"
+	cargo test --release -p ef_tests --features "ef_tests,milagro"
 	./$(EF_TESTS)/check_all_files_accessed.py $(EF_TESTS)/.accessed_file_log.txt $(EF_TESTS)/consensus-spec-tests
 
 # Run the tests in the `beacon_chain` crate for all known forks.
 test-beacon-chain: $(patsubst %,test-beacon-chain-%,$(FORKS))
 
 test-beacon-chain-%:
-	env FORK_NAME=$* cargo test --release --features fork_from_env --manifest-path=$(BEACON_CHAIN_CRATE)/Cargo.toml
+	env FORK_NAME=$* cargo test --release --features fork_from_env -p beacon_chain
 
 # Run the tests in the `operation_pool` crate for all known forks.
 test-op-pool: $(patsubst %,test-op-pool-%,$(FORKS))
@@ -124,7 +114,7 @@ test-op-pool: $(patsubst %,test-op-pool-%,$(FORKS))
 test-op-pool-%:
 	env FORK_NAME=$* cargo test --release \
 		--features 'beacon_chain/fork_from_env'\
-		--manifest-path=$(OP_POOL_CRATE)/Cargo.toml
+		-p operation_pool
 
 # Runs only the tests/state_transition_vectors tests.
 run-state-transition-tests:
@@ -144,11 +134,11 @@ test-full: cargo-fmt test-release test-debug test-ef
 # Clippy lints are opt-in per-crate for now. By default, everything is allowed except for performance and correctness lints.
 lint:
 	cargo clippy --workspace --tests -- \
-        -D clippy::fn_to_numeric_cast_any \
-        -D warnings \
-        -A clippy::from-over-into \
-        -A clippy::upper-case-acronyms \
-        -A clippy::vec-init-then-push
+		-D clippy::fn_to_numeric_cast_any \
+		-D warnings \
+		-A clippy::from-over-into \
+		-A clippy::upper-case-acronyms \
+		-A clippy::vec-init-then-push
 
 # Runs the makefile in the `ef_tests` repo.
 #
