@@ -16,7 +16,7 @@ modern = ["bls/supranational-force-adx"]
 milagro = ["bls/milagro"]
 # Support minimal spec (used for testing only).
 spec-minimal = []
-# Support gnosis spec and gnosis beacon chain.
+# Support Gnosis spec and Gnosis Beacon Chain.
 gnosis = []
 
 [dependencies]
