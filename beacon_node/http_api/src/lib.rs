@@ -5,6 +5,7 @@
 //! There are also some additional, non-standard endpoints behind the `/lighthouse/` path which are
 //! used for development.
 
+mod attestation_performance;
 mod attester_duties;
 mod block_id;
 mod block_rewards;
@@ -2541,7 +2542,9 @@ pub fn serve<T: BeaconChainTypes>(
             },
         );
 
+    // GET lighthouse/analysis/block_rewards
     let get_lighthouse_block_rewards = warp::path("lighthouse")
+        .and(warp::path("analysis"))
         .and(warp::path("block_rewards"))
         .and(warp::query::<eth2::lighthouse::BlockRewardsQuery>())
         .and(warp::path::end())
@@ -2549,6 +2552,20 @@ pub fn serve<T: BeaconChainTypes>(
         .and(log_filter.clone())
         .and_then(|query, chain, log| {
             blocking_json_task(move || block_rewards::get_block_rewards(query, chain, log))
+        });
+
+    // GET lighthouse/analysis/attestation_performance/{index}
+    let get_lighthouse_attestation_performance = warp::path("lighthouse")
+        .and(warp::path("analysis"))
+        .and(warp::path("attestation_performance"))
+        .and(warp::path::param::<String>())
+        .and(warp::query::<eth2::lighthouse::AttestationPerformanceQuery>())
+        .and(warp::path::end())
+        .and(chain_filter.clone())
+        .and_then(|target, query, chain: Arc<BeaconChain<T>>| {
+            blocking_json_task(move || {
+                attestation_performance::get_attestation_performance(target, query, chain)
+            })
         });
 
     let get_events = eth1_v1
@@ -2676,6 +2693,7 @@ pub fn serve<T: BeaconChainTypes>(
                 .or(get_lighthouse_staking.boxed())
                 .or(get_lighthouse_database_info.boxed())
                 .or(get_lighthouse_block_rewards.boxed())
+                .or(get_lighthouse_attestation_performance.boxed())
                 .or(get_events.boxed()),
         )
         .or(warp::post().and(
