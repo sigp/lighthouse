@@ -226,7 +226,7 @@ mod tests {
     use super::*;
     use ssz::Encode;
     use tempfile::Builder as TempBuilder;
-    use types::{Config, Eth1Data, Hash256, MainnetEthSpec};
+    use types::{Config, Eth1Data, GnosisEthSpec, Hash256, MainnetEthSpec, GNOSIS};
 
     type E = MainnetEthSpec;
 
@@ -263,7 +263,11 @@ mod tests {
                 .unwrap_or_else(|_| panic!("{:?}", net.name));
 
             // Ensure we can parse the YAML config to a chain spec.
-            config.chain_spec::<MainnetEthSpec>().unwrap();
+            if net.name == GNOSIS {
+                config.chain_spec::<GnosisEthSpec>().unwrap();
+            } else {
+                config.chain_spec::<MainnetEthSpec>().unwrap();
+            }
 
             assert_eq!(
                 config.genesis_state_bytes.is_some(),
