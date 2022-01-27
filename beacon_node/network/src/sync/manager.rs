@@ -131,7 +131,7 @@ pub enum SyncRequestType {
     RangeSync(Epoch, ChainId),
 }
 
-/// The result of processing a multiple blocks (a chain segment).
+/// The result of processing multiple blocks (a chain segment).
 #[derive(Debug)]
 pub enum BatchProcessResult {
     /// The batch was completed successfully. It carries whether the sent batch contained blocks.

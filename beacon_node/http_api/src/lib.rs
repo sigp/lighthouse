@@ -7,6 +7,7 @@
 
 mod attester_duties;
 mod block_id;
+mod block_rewards;
 mod database;
 mod metrics;
 mod proposer_duties;
@@ -2540,6 +2541,16 @@ pub fn serve<T: BeaconChainTypes>(
             },
         );
 
+    let get_lighthouse_block_rewards = warp::path("lighthouse")
+        .and(warp::path("block_rewards"))
+        .and(warp::query::<eth2::lighthouse::BlockRewardsQuery>())
+        .and(warp::path::end())
+        .and(chain_filter.clone())
+        .and(log_filter.clone())
+        .and_then(|query, chain, log| {
+            blocking_json_task(move || block_rewards::get_block_rewards(query, chain, log))
+        });
+
     let get_events = eth1_v1
         .and(warp::path("events"))
         .and(warp::path::end())
@@ -2575,6 +2586,9 @@ pub fn serve<T: BeaconChainTypes>(
                                 }
                                 api_types::EventTopic::LateHead => {
                                     event_handler.subscribe_late_head()
+                                }
+                                api_types::EventTopic::BlockReward => {
+                                    event_handler.subscribe_block_reward()
                                 }
                             };
 
@@ -2661,6 +2675,7 @@ pub fn serve<T: BeaconChainTypes>(
                 .or(get_lighthouse_beacon_states_ssz.boxed())
                 .or(get_lighthouse_staking.boxed())
                 .or(get_lighthouse_database_info.boxed())
+                .or(get_lighthouse_block_rewards.boxed())
                 .or(get_events.boxed()),
         )
         .or(warp::post().and(
