@@ -1160,7 +1160,11 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
         }
 
         // poll the gossipsub cache to clear expired messages
-        while self.gossip_cache.poll_next_unpin(cx).is_ready() {}
+        while let Poll::Ready(Some(result)) = self.gossip_cache.poll_next_unpin(cx) {
+            if let Err(e) = result {
+                warn!(self.log, "Gossip cache error"; "error" => e)
+            }
+        }
 
         Poll::Pending
     }

@@ -57,7 +57,7 @@ impl GossipCache {
 }
 
 impl futures::stream::Stream for GossipCache {
-    type Item = (); // We don't care to retrieve the expired data.
+    type Item = Result<(), String>; // We don't care to retrieve the expired data.
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         match self.expirations.poll_expired(cx) {
@@ -78,9 +78,9 @@ impl futures::stream::Stream for GossipCache {
                         panic!("Topic for registered message is not present.")
                     }
                 }
-                Poll::Ready(Some(()))
+                Poll::Ready(Some(Ok(())))
             }
-            Poll::Ready(Some(Err(_))) => Poll::Pending,
+            Poll::Ready(Some(Err(x))) => Poll::Ready(Some(Err(x.to_string()))),
             Poll::Ready(None) => Poll::Ready(None),
             Poll::Pending => Poll::Pending,
         }
