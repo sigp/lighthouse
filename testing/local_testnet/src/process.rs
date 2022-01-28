@@ -47,6 +47,8 @@ impl TestnetProcess {
     ) -> TestnetProcess {
         let mut cmd = Command::new(lighthouse_bin);
         cmd.arg(base_cmd_name);
+        dbg!(&base_cmd_name);
+        dbg!(&config);
         for (k, v) in config.iter() {
             if v == "true" {
                 cmd.arg(format!("--{}", k));

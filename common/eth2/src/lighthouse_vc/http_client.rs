@@ -122,6 +122,7 @@ impl ValidatorClientHttpClient {
         let mut headers = HeaderMap::new();
 
         if self.send_authorization_header {
+            dbg!("Sending header");
             let header_value = HeaderValue::from_str(&format!("Basic {}", self.secret.as_str()))
                 .map_err(|e| {
                     Error::InvalidSecret(format!("secret is invalid as a header value: {}", e))

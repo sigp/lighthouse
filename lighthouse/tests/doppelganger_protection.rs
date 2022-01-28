@@ -1,11 +1,20 @@
 use local_testnet::config::IntegrationTestConfig;
+use std::thread;
 use types::Epoch;
 
 #[tokio::test]
 async fn doppelganger_test() {
-    let mut test = IntegrationTestConfig::new(std::env!("CARGO_BIN_EXE_lighthouse"))
+    let testnet = thread::spawn(|| {
+        let mut test = IntegrationTestConfig::new(
+            std::env!("CARGO_BIN_EXE_lighthouse"),
+            "./tests/default.toml",
+        )
         .expect("should parse testnet config");
-    let testnet = test.start_testnet().expect("should start testnet");
+        let testnet = test.start_testnet().expect("should start testnet");
+        testnet
+    })
+    .join()
+    .unwrap();
 
     testnet
         .check_all_active()

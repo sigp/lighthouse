@@ -1,6 +1,8 @@
 use crate::process::{ProcessError, TestnetProcess};
 use crate::testnet::{Testnet, TestnetBeaconNode, TestnetValidatorClient};
-use crate::{BEACON_CMD, BOOT_NODE_CMD, DEFAULT_CONFIG_PATH, GANACHE_CMD, LCLI_CMD, VALIDATOR_CMD};
+use crate::{
+    BEACON_CMD, BOOT_NODE_CMD, DEFAULT_CONFIG, DEFAULT_KEY, GANACHE_CMD, LCLI_CMD, VALIDATOR_CMD,
+};
 use clap_utils::flags::{
     BEACON_NODES_FLAG, DATADIR_FLAG, ENABLE_DOPPELGANGER_PROTECTION_FLAG, ENR_TCP_PORT_FLAG,
     ENR_UDP_PORT_FLAG, HTTP_ADDRESS_FLAG, HTTP_PORT_FLAG, NETWORK_DIR_FLAG, PORT_FLAG,
@@ -71,10 +73,10 @@ pub type Config = HashMap<String, String>;
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "kebab-case")]
 pub struct GlobalTomlConfig {
-    pub spec: TomlValue,
+    pub spec: Option<TomlValue>,
     pub validator_count: Option<TomlValue>,
     pub beacon_count: Option<TomlValue>,
-    pub datadir: TomlValue,
+    pub datadir: Option<TomlValue>,
     pub doppelganger_count: Option<TomlValue>,
 }
 
@@ -98,8 +100,85 @@ pub struct IntegrationTestConfig {
 }
 
 impl IntegrationTestConfig {
-    pub fn new(lighthouse_bin: &str) -> Result<Self, ConfigError> {
-        parse_file_config_maps(DEFAULT_CONFIG_PATH)?
+    fn merge(mut self, default: IntegrationTestConfig) -> Self {
+        // Merge TOML configs
+        self.beacon.get_mut(DEFAULT_KEY).map(|this| {
+            merge(
+                this,
+                default
+                    .beacon
+                    .get(DEFAULT_KEY)
+                    .expect("default beacon config required"),
+            )
+        });
+        self.validator.get_mut(DEFAULT_KEY).map(|this| {
+            merge(
+                this,
+                default
+                    .validator
+                    .get(DEFAULT_KEY)
+                    .expect("default beacon config required"),
+            )
+        });
+        merge(&mut self.ganache, &default.ganache);
+        merge(&mut self.boot_node, &default.boot_node);
+        Self {
+            global: self.global.merge(default.global),
+            ganache: self.ganache,
+            lcli: self.lcli.merge(default.lcli),
+            boot_node: self.boot_node,
+            beacon: self.beacon,
+            validator: self.validator,
+            lighthouse_bin_location: self
+                .lighthouse_bin_location
+                .or(default.lighthouse_bin_location),
+        }
+    }
+}
+
+impl GlobalTomlConfig {
+    fn merge(self, default: GlobalTomlConfig) -> Self {
+        Self {
+            spec: self.spec.or(default.spec),
+            validator_count: self.validator_count.or(default.validator_count),
+            beacon_count: self.beacon_count.or(default.beacon_count),
+            datadir: self.datadir.or(default.datadir),
+            doppelganger_count: self.doppelganger_count.or(default.doppelganger_count),
+        }
+    }
+}
+impl LcliConfig {
+    fn merge(mut self, default: LcliConfig) -> Self {
+        merge(
+            &mut self.deploy_deposit_contract,
+            &default.deploy_deposit_contract,
+        );
+        merge(&mut self.new_testnet, &default.new_testnet);
+        merge(&mut self.insecure_validators, &default.insecure_validators);
+        Self {
+            deploy_deposit_contract: self.deploy_deposit_contract,
+            new_testnet: self.new_testnet,
+            insecure_validators: self.insecure_validators,
+        }
+    }
+}
+
+fn merge(this: &mut TomlConfig, that: &TomlConfig) {
+    if let Some(config) = this {
+        for (k, v) in that.as_ref().expect("default config must exist") {
+            config.entry(k.clone()).or_insert(v.clone());
+        }
+    } else {
+        *this = that.clone();
+    }
+}
+
+impl IntegrationTestConfig {
+    pub fn new(lighthouse_bin: &str, config_path: &str) -> Result<Self, ConfigError> {
+        let default_config: IntegrationTestConfig =
+            toml::from_str(DEFAULT_CONFIG).map_err(ConfigError::TomlDeserialize)?;
+        let config = parse_file_config_maps(config_path)?.merge(default_config);
+        config
             .set_bin_location(lighthouse_bin)?
             .process_global_config()
     }
@@ -110,6 +189,16 @@ impl IntegrationTestConfig {
         Ok(self)
     }
 
+    fn get_datadir(&self) -> Result<&str, ConfigError> {
+        self.global
+            .datadir
+            .as_ref()
+            .map(TomlValue::as_str)
+            .flatten()
+            .ok_or(ConfigError::MissingFields(vec![DATADIR_FLAG]))
+    }
+
+    /// This method ensures the global config is consistent across subcommands.
     fn process_global_config(mut self) -> Result<Self, ConfigError> {
         let node_count = self
             .global
@@ -131,11 +220,7 @@ impl IntegrationTestConfig {
             .flatten()
             .unwrap_or(0) as usize;
 
-        let datadir = self
-            .global
-            .datadir
-            .as_str()
-            .ok_or(ConfigError::MissingFields(vec![DATADIR_FLAG]))?;
+        let datadir = self.get_datadir()?;
 
         let (testnet_dir, bootnode_dir) = (
             TomlValue::String(format!("{}/testnet", datadir)),
@@ -174,7 +259,14 @@ impl IntegrationTestConfig {
                 MIN_GENESIS_ACTIVE_VALIDATOR_COUNT_FLAG.to_string(),
                 validator_count.clone(),
             );
-            config.insert(SPEC_FLAG.to_string(), self.global.spec.clone());
+            config.insert(
+                SPEC_FLAG.to_string(),
+                self.global
+                    .spec
+                    .as_ref()
+                    .ok_or(ConfigError::MissingFields(vec![SPEC_FLAG]))?
+                    .clone(),
+            );
             config.insert(TESTNET_DIR_FLAG.to_string(), testnet_dir.clone());
             config.insert(BOOT_DIR_FLAG.to_string(), bootnode_dir.clone());
         }
@@ -188,7 +280,14 @@ impl IntegrationTestConfig {
                 NODE_COUNT_FLAG.to_string(),
                 TomlValue::Integer((len - doppelganger_count) as i64),
             );
-            config.insert(BASE_DIR_FLAG.to_string(), self.global.datadir.clone());
+            config.insert(
+                BASE_DIR_FLAG.to_string(),
+                self.global
+                    .datadir
+                    .as_ref()
+                    .ok_or(ConfigError::MissingFields(vec![DATADIR_FLAG]))?
+                    .clone(),
+            );
         }
 
         if let Some(config) = self.boot_node.as_mut() {
@@ -211,11 +310,16 @@ impl IntegrationTestConfig {
 
     pub fn start_testnet(&mut self) -> Result<Testnet, ConfigError> {
         // cleanup previous testnet files
-        if let Some(dir) = self.global.datadir.as_str() {
-            let path = PathBuf::from(dir);
-            if path.exists() {
-                fs::remove_dir_all(dir).map_err(ConfigError::Cleanup)?;
-            }
+        let dir = self
+            .global
+            .datadir
+            .as_ref()
+            .map(TomlValue::as_str)
+            .flatten()
+            .ok_or(ConfigError::MissingFields(vec![DATADIR_FLAG]))?;
+        let path = PathBuf::from(dir);
+        if path.exists() {
+            fs::remove_dir_all(dir).map_err(ConfigError::Cleanup)?;
         }
 
         let ganache = self.start_ganache()?;
@@ -404,11 +508,7 @@ impl IntegrationTestConfig {
     }
 
     fn spawn_beacon_nodes(&mut self) -> Result<Vec<TestnetBeaconNode>, ConfigError> {
-        let datadir = self
-            .global
-            .datadir
-            .as_str()
-            .ok_or(ConfigError::MissingFields(vec![DATADIR_FLAG]))?;
+        let datadir = self.get_datadir()?.to_string();
 
         let mut processes = vec![];
 
@@ -467,11 +567,7 @@ impl IntegrationTestConfig {
     ) -> Result<(Vec<TestnetValidatorClient>, Vec<Config>), ConfigError> {
         let mut validator_clients = vec![];
         let mut delayed_start_configs = vec![];
-        let datadir = self
-            .global
-            .datadir
-            .as_str()
-            .ok_or(ConfigError::MissingFields(vec![DATADIR_FLAG]))?;
+        let datadir = self.get_datadir()?.to_string();
 
         //TODO: allow config for delayed starting of non-doppelganger VC's
 
@@ -496,6 +592,7 @@ impl IntegrationTestConfig {
                     BEACON_NODES_FLAG.to_string(),
                     format!("http://localhost:5{}52", index),
                 );
+                config.insert(HTTP_PORT_FLAG.to_string(), format!("5{}62", index));
             } else {
                 config
                     .entry(DATADIR_FLAG.to_string())
@@ -503,6 +600,9 @@ impl IntegrationTestConfig {
                 config
                     .entry(BEACON_NODES_FLAG.to_string())
                     .or_insert(format!("localhost:5{}52", index));
+                config
+                    .entry(HTTP_PORT_FLAG.to_string())
+                    .or_insert(format!("5{}62", index));
             }
 
             let doppelganger_count = self
@@ -579,6 +679,7 @@ pub(crate) fn spawn_validator(
     ) {
         let token_path = PathBuf::from(format!("{}/validators/api-token.txt", datadir));
         let secret = fs::read_to_string(token_path)?;
+        dbg!(&secret);
         let http_client = ValidatorClientHttpClient::new(
             SensitiveUrl::parse(url).map_err(ConfigError::UrlParse)?,
             secret,

@@ -63,11 +63,9 @@ enr-address = "127.0.0.1"
 # These configurations will be duplicated according to the beacon-count and the following fields will be incremented:
 # - datadir = ./tests/tmp/node_[1-9]
 # - beacon-nodes = http://localhost:5[1-9]52
-# - http-port = 5[1-9]62
 [validator.default]
 debug-level = "info"
 init-slashing-protection = true
-http = true
 
 #[validator.doppelganger]
 #debug-level = "info"

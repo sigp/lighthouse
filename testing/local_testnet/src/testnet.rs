@@ -1,5 +1,7 @@
+use crate::config::ConfigError::TomlDeserialize;
 use crate::config::*;
 use crate::process::TestnetProcess;
+use clap_utils::TomlValue;
 use eth2::lighthouse_vc::http_client::ValidatorClientHttpClient;
 use eth2::types::{Epoch, EthSpec, EthSpecId, GnosisEthSpec, MainnetEthSpec, MinimalEthSpec};
 use eth2::BeaconNodeHttpClient;
@@ -49,7 +51,9 @@ impl Testnet {
         let spec = EthSpecId::from_str(
             self.global_config
                 .spec
-                .as_str()
+                .as_ref()
+                .map(TomlValue::as_str)
+                .flatten()
                 .ok_or(TestnetError::MissingSpec)?,
         )
         .map_err(TestnetError::InvalidSpec)?;
@@ -90,7 +94,8 @@ impl Testnet {
             assert!(node.get_lighthouse_health().await.is_ok());
         })
         .await
-        .check_validator_clients(|node| async move {
+        .check_validator_clients(|i, node| async move {
+            dbg!(node.get_lighthouse_health().await.unwrap().data);
             assert!(node.get_lighthouse_health().await.is_ok());
         })
         .await
@@ -109,11 +114,11 @@ impl Testnet {
 
     pub async fn check_validator_clients<F, T>(self, f: F) -> Self
     where
-        F: Fn(ValidatorClientHttpClient) -> T,
+        F: Fn(usize, ValidatorClientHttpClient) -> T,
         T: Future<Output = ()>,
     {
-        for node in self.validator_clients.iter() {
-            f(node.http_client.clone()).await;
+        for (i, node) in self.validator_clients.iter().enumerate() {
+            f(i, node.http_client.clone()).await;
         }
         self
     }
