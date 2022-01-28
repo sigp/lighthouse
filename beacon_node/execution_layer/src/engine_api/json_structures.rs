@@ -1,6 +1,7 @@
 use super::*;
 use serde::{Deserialize, Serialize};
-use types::{EthSpec, FixedVector, Transaction, Unsigned, VariableList};
+use ssz_types::FixedVector;
+use types::{EthSpec, Transaction, Unsigned, VariableList};
 
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]

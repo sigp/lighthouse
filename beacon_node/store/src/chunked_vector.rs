@@ -323,7 +323,7 @@ field!(
     |_| OncePerNSlots {
         n: T::SlotsPerHistoricalRoot::to_u64()
     },
-    |state: &BeaconState<_>, index, _| safe_modulo_index_tree(state.historical_roots(), index)
+    |state: &BeaconState<_>, index, _| safe_modulo_index(state.historical_roots(), index)
 );
 
 field!(
@@ -530,7 +530,7 @@ pub fn load_vector_from_db<F: FixedLengthField<E>, E: EthSpec, S: KeyValueStore<
         default,
     )?;
 
-    Ok(result.into())
+    Ok(FixedVector::new(result)?)
 }
 
 /// The historical roots are stored in vector chunks, despite not actually being a vector.
@@ -546,7 +546,7 @@ pub fn load_variable_list_from_db<F: VariableLengthField<E>, E: EthSpec, S: KeyV
 
     let chunks: Vec<Chunk<F::Value>> = range_query(store, F::column(), start_cindex, end_cindex)?;
 
-    let mut result = VList::empty();
+    let mut result = VList::empty()?;
 
     for (chunk_index, chunk) in chunks.into_iter().enumerate() {
         for (i, value) in chunk.values.into_iter().enumerate() {
@@ -562,6 +562,7 @@ pub fn load_variable_list_from_db<F: VariableLengthField<E>, E: EthSpec, S: KeyV
 }
 
 /// Index into a field of the state, avoiding out of bounds and division by 0.
+#[cfg(not(feature = "milhouse"))]
 fn safe_modulo_index<T: Copy>(values: &[T], index: u64) -> Result<T, ChunkError> {
     if values.is_empty() {
         Err(ChunkError::ZeroLengthVector)
@@ -570,11 +571,8 @@ fn safe_modulo_index<T: Copy>(values: &[T], index: u64) -> Result<T, ChunkError>
     }
 }
 
-#[cfg(not(feature = "milhouse"))]
-use safe_modulo_index as safe_modulo_index_tree;
-
 #[cfg(feature = "milhouse")]
-fn safe_modulo_index_tree<V: ImmList<T>, T: Copy>(values: &V, index: u64) -> Result<T, ChunkError> {
+fn safe_modulo_index<V: ImmList<T>, T: Copy>(values: &V, index: u64) -> Result<T, ChunkError> {
     if values.is_empty() {
         Err(ChunkError::ZeroLengthVector)
     } else {

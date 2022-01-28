@@ -265,7 +265,18 @@ impl<T: EthSpec> PartialBeaconState<T> {
             // Patch the value for the current slot into the index for the current epoch
             let current_epoch = self.slot().epoch(T::slots_per_epoch());
             let len = randao_mixes.len();
-            randao_mixes[current_epoch.as_usize() % len] = *self.latest_randao_value();
+
+            #[cfg(feature = "milhouse")]
+            {
+                use milhouse::interface::MutList;
+                randao_mixes
+                    .replace(current_epoch.as_usize() % len, *self.latest_randao_value())?;
+            }
+
+            #[cfg(not(feature = "milhouse"))]
+            {
+                randao_mixes[current_epoch.as_usize() % len] = *self.latest_randao_value();
+            }
 
             *self.randao_mixes_mut() = Some(randao_mixes)
         }

@@ -386,16 +386,16 @@ impl<T: EthSpec> BeaconState<T> {
             latest_block_header: BeaconBlock::<T>::empty(spec).temporary_block_header(),
             block_roots: FixedVector::from_elem(Hash256::zero()),
             state_roots: FixedVector::from_elem(Hash256::zero()),
-            historical_roots: VList::empty(),
+            historical_roots: VList::default(),
 
             // Eth1
             eth1_data,
-            eth1_data_votes: VList::empty(),
+            eth1_data_votes: VList::default(),
             eth1_deposit_index: 0,
 
             // Validator registry
-            validators: VList::empty(), // Set later.
-            balances: VList::empty(),   // Set later.
+            validators: VList::default(), // Set later.
+            balances: VList::default(),   // Set later.
 
             // Randomness
             randao_mixes: FixedVector::from_elem(Hash256::zero()),
@@ -404,8 +404,8 @@ impl<T: EthSpec> BeaconState<T> {
             slashings: FixedVector::from_elem(0),
 
             // Attestations
-            previous_epoch_attestations: VList::empty(),
-            current_epoch_attestations: VList::empty(),
+            previous_epoch_attestations: VList::default(),
+            current_epoch_attestations: VList::default(),
 
             // Finality
             justification_bits: BitVector::new(),
