@@ -3398,6 +3398,7 @@ dependencies = [
  "sloggers",
  "task_executor",
  "tempfile",
+ "tokio",
  "types",
  "validator_client",
  "validator_dir",

@@ -50,13 +50,13 @@ endif
 # optimized CPU functions that may not be available on some systems. This
 # results in a more portable binary with ~20% slower BLS verification.
 build-x86_64:
-	cross build --release --manifest-path lighthouse/Cargo.toml --target x86_64-unknown-linux-gnu --features modern
+	cross build --release --manifest-path lighthouse/Cargo.toml --target x86_64-unknown-linux-gnu --features modern,gnosis
 build-x86_64-portable:
-	cross build --release --manifest-path lighthouse/Cargo.toml --target x86_64-unknown-linux-gnu --features portable
+	cross build --release --manifest-path lighthouse/Cargo.toml --target x86_64-unknown-linux-gnu --features portable,gnosis
 build-aarch64:
-	cross build --release --manifest-path lighthouse/Cargo.toml --target aarch64-unknown-linux-gnu
+	cross build --release --manifest-path lighthouse/Cargo.toml --target aarch64-unknown-linux-gnu --features gnosis
 build-aarch64-portable:
-	cross build --release --manifest-path lighthouse/Cargo.toml --target aarch64-unknown-linux-gnu --features portable
+	cross build --release --manifest-path lighthouse/Cargo.toml --target aarch64-unknown-linux-gnu --features portable,gnosis
 
 # Create a `.tar.gz` containing a binary for a specific target.
 define tarball_release_binary

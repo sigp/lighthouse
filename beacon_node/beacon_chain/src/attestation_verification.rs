@@ -141,6 +141,14 @@ pub enum Error {
     /// The attestation points to a block we have not yet imported. It's unclear if the attestation
     /// is valid or not.
     UnknownHeadBlock { beacon_block_root: Hash256 },
+    /// The `attestation.data.beacon_block_root` block is from before the finalized checkpoint.
+    ///
+    /// ## Peer scoring
+    ///
+    /// The attestation is not descended from the finalized checkpoint, which is a REJECT according
+    /// to the spec. We downscore lightly because this could also happen if we are processing
+    /// attestations extremely slowly.
+    HeadBlockFinalized { beacon_block_root: Hash256 },
     /// The `attestation.data.slot` is not from the same epoch as `data.target.epoch`.
     ///
     /// ## Peer scoring
@@ -990,7 +998,17 @@ fn verify_head_block_is_known<T: BeaconChainTypes>(
         }
 
         Ok(block)
+    } else if chain.is_pre_finalization_block(attestation.data.beacon_block_root)? {
+        Err(Error::HeadBlockFinalized {
+            beacon_block_root: attestation.data.beacon_block_root,
+        })
     } else {
+        // The block is either:
+        //
+        // 1) A pre-finalization block that has been pruned. We'll do one network lookup
+        //    for it and when it fails we will penalise all involved peers.
+        // 2) A post-finalization block that we don't know about yet. We'll queue
+        //    the attestation until the block becomes available (or we time out).
         Err(Error::UnknownHeadBlock {
             beacon_block_root: attestation.data.beacon_block_root,
         })

@@ -1,7 +1,7 @@
 use crate::config::*;
 use crate::process::TestnetProcess;
 use eth2::lighthouse_vc::http_client::ValidatorClientHttpClient;
-use eth2::types::{Epoch, EthSpec, EthSpecId, MainnetEthSpec, MinimalEthSpec};
+use eth2::types::{Epoch, EthSpec, EthSpecId, GnosisEthSpec, MainnetEthSpec, MinimalEthSpec};
 use eth2::BeaconNodeHttpClient;
 use slot_clock::{SlotClock, SystemTimeSlotClock};
 use std::future::Future;
@@ -55,6 +55,7 @@ impl Testnet {
         .map_err(TestnetError::InvalidSpec)?;
         let slots_per_epoch = match spec {
             EthSpecId::Mainnet => MainnetEthSpec::slots_per_epoch(),
+            EthSpecId::Gnosis => GnosisEthSpec::slots_per_epoch(),
             EthSpecId::Minimal => MinimalEthSpec::slots_per_epoch(),
         };
 

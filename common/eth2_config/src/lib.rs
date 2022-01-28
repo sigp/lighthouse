@@ -53,6 +53,13 @@ impl Eth2Config {
             spec: ChainSpec::minimal(),
         }
     }
+
+    pub fn gnosis() -> Self {
+        Self {
+            eth_spec_id: EthSpecId::Gnosis,
+            spec: ChainSpec::gnosis(),
+        }
+    }
 }
 
 /// A directory that can be built by downloading files via HTTP.
@@ -229,5 +236,6 @@ macro_rules! define_hardcoded_nets {
 define_hardcoded_nets!(
     (mainnet, "mainnet", GENESIS_STATE_IS_KNOWN),
     (pyrmont, "pyrmont", GENESIS_STATE_IS_KNOWN),
-    (prater, "prater", GENESIS_STATE_IS_KNOWN)
+    (prater, "prater", GENESIS_STATE_IS_KNOWN),
+    (gnosis, "gnosis", GENESIS_STATE_IS_KNOWN)
 );

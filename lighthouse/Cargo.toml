@@ -16,6 +16,8 @@ modern = ["bls/supranational-force-adx"]
 milagro = ["bls/milagro"]
 # Support minimal spec (used for testing only).
 spec-minimal = []
+# Support Gnosis spec and Gnosis Beacon Chain.
+gnosis = []
 
 [dependencies]
 beacon_node = { "path" = "../beacon_node" }
