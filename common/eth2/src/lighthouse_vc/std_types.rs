@@ -74,7 +74,7 @@ impl<T> Status<T> {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
-#[serde(rename_all = "kebab-case")]
+#[serde(rename_all = "lowercase")]
 pub enum ImportKeystoreStatus {
     Imported,
     Duplicate,
