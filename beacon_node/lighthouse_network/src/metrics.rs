@@ -87,6 +87,18 @@ lazy_static! {
             "Messages published late to gossipsub per main topic.",
             &["topic_hash"]
         );
+    pub static ref GOSSIP_EXPIRED_LATE_PUBLISH_PER_MAIN_TOPIC: Result<IntCounterVec> =
+        try_create_int_counter_vec(
+            "gossipsub_expired_late_publish_per_main_topic",
+            "Messages that expired waiting to be published on retry to gossipsub per main topic.",
+            &["topic_hash"]
+        );
+    pub static ref GOSSIP_FAILED_LATE_PUBLISH_PER_MAIN_TOPIC: Result<IntCounterVec> =
+        try_create_int_counter_vec(
+            "gossipsub_failed_late_publish_per_main_topic",
+            "Messages that failed to be published on retry to gossipsub per main topic.",
+            &["topic_hash"]
+        );
     pub static ref PEER_SCORE_DISTRIBUTION: Result<IntGaugeVec> =
         try_create_int_gauge_vec(
             "peer_score_distribution",

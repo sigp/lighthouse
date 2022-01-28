@@ -7,7 +7,6 @@ use std::time::Duration;
 use crate::TopicHash;
 
 use tokio_util::time::delay_queue::{DelayQueue, Key};
-use types::{ChainSpec, EthSpec};
 
 pub struct GossipCache {
     /// Expire timeouts for each topic-msg pair.
@@ -19,11 +18,11 @@ pub struct GossipCache {
 }
 
 impl GossipCache {
-    pub fn new<T: EthSpec>(spec: &ChainSpec) -> Self {
+    pub fn new(expire_timeout: Duration) -> Self {
         GossipCache {
             expirations: DelayQueue::default(),
             topic_msgs: HashMap::default(),
-            expire_timeout: Duration::from_secs(spec.seconds_per_slot * T::slots_per_epoch() / 2),
+            expire_timeout,
         }
     }
 
@@ -57,7 +56,7 @@ impl GossipCache {
 }
 
 impl futures::stream::Stream for GossipCache {
-    type Item = Result<(), String>; // We don't care to retrieve the expired data.
+    type Item = Result<TopicHash, String>; // We don't care to retrieve the expired data.
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         match self.expirations.poll_expired(cx) {
@@ -78,7 +77,7 @@ impl futures::stream::Stream for GossipCache {
                         panic!("Topic for registered message is not present.")
                     }
                 }
-                Poll::Ready(Some(Ok(())))
+                Poll::Ready(Some(Ok(topic)))
             }
             Poll::Ready(Some(Err(x))) => Poll::Ready(Some(Err(x.to_string()))),
             Poll::Ready(None) => Poll::Ready(None),
@@ -103,5 +102,7 @@ mod tests {
         cache.insert(test_topic, vec![]);
         tokio::time::sleep(Duration::from_millis(300)).await;
         while cache.next().await.is_some() {}
+        assert!(cache.expirations.is_empty());
+        assert!(cache.topic_msgs.is_empty());
     }
 }

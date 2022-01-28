@@ -287,6 +287,11 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
             ..Default::default()
         };
 
+        // Half an epoch
+        let gossip_max_retry_delay = std::time::Duration::from_secs(
+            ctx.chain_spec.seconds_per_slot * TSpec::slots_per_epoch() / 2,
+        );
+
         Ok(Behaviour {
             // Sub-behaviours
             gossipsub,
@@ -304,7 +309,7 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
             log: behaviour_log,
             score_settings,
             fork_context: ctx.fork_context,
-            gossip_cache: GossipCache::new::<TSpec>(ctx.chain_spec),
+            gossip_cache: GossipCache::new(gossip_max_retry_delay),
             update_gossipsub_scores,
         })
     }
@@ -894,13 +899,20 @@ impl<TSpec: EthSpec> NetworkBehaviourEventProcess<GossipsubEvent> for Behaviour<
                 if let Some(msgs) = self.gossip_cache.retrieve(&topic) {
                     if let Ok(topic) = GossipTopic::decode(topic.as_str()) {
                         for data in msgs {
+                            let topic_str: &str = topic.kind().as_ref();
                             if self.gossipsub.publish(topic.clone().into(), data).is_ok() {
-                                let topic: &str = topic.kind().as_ref();
-                                warn!(self.log, "Gossip message published on retry"; "topic" => topic);
+                                warn!(self.log, "Gossip message published on retry"; "topic" => topic_str);
 
                                 if let Some(v) = metrics::get_int_counter(
                                     &metrics::GOSSIP_LATE_PUBLISH_PER_MAIN_TOPIC,
-                                    &[topic],
+                                    &[topic_str],
+                                ) {
+                                    v.inc()
+                                };
+                            } else {
+                                if let Some(v) = metrics::get_int_counter(
+                                    &metrics::GOSSIP_FAILED_LATE_PUBLISH_PER_MAIN_TOPIC,
+                                    &[topic_str],
                                 ) {
                                     v.inc()
                                 };
@@ -1161,8 +1173,18 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
 
         // poll the gossipsub cache to clear expired messages
         while let Poll::Ready(Some(result)) = self.gossip_cache.poll_next_unpin(cx) {
-            if let Err(e) = result {
-                warn!(self.log, "Gossip cache error"; "error" => e)
+            match result {
+                Err(e) => warn!(self.log, "Gossip cache error"; "error" => e),
+                Ok(expired_topic) => {
+                    if let Ok(expired_topic) = GossipTopic::decode(expired_topic.as_str()) {
+                        if let Some(v) = metrics::get_int_counter(
+                            &metrics::GOSSIP_FAILED_LATE_PUBLISH_PER_MAIN_TOPIC,
+                            &[expired_topic.kind().as_ref()],
+                        ) {
+                            v.inc()
+                        };
+                    }
+                }
             }
         }
 
