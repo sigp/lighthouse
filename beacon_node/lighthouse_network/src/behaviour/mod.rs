@@ -900,22 +900,25 @@ impl<TSpec: EthSpec> NetworkBehaviourEventProcess<GossipsubEvent> for Behaviour<
                     if let Ok(topic) = GossipTopic::decode(topic.as_str()) {
                         for data in msgs {
                             let topic_str: &str = topic.kind().as_ref();
-                            if self.gossipsub.publish(topic.clone().into(), data).is_ok() {
-                                warn!(self.log, "Gossip message published on retry"; "topic" => topic_str);
-
-                                if let Some(v) = metrics::get_int_counter(
-                                    &metrics::GOSSIP_LATE_PUBLISH_PER_MAIN_TOPIC,
-                                    &[topic_str],
-                                ) {
-                                    v.inc()
-                                };
-                            } else {
-                                if let Some(v) = metrics::get_int_counter(
-                                    &metrics::GOSSIP_FAILED_LATE_PUBLISH_PER_MAIN_TOPIC,
-                                    &[topic_str],
-                                ) {
-                                    v.inc()
-                                };
+                            match self.gossipsub.publish(topic.clone().into(), data) {
+                                Ok(_) => {
+                                    warn!(self.log, "Gossip message published on retry"; "topic" => topic_str);
+                                    if let Some(v) = metrics::get_int_counter(
+                                        &metrics::GOSSIP_LATE_PUBLISH_PER_MAIN_TOPIC,
+                                        &[topic_str],
+                                    ) {
+                                        v.inc()
+                                    };
+                                }
+                                Err(e) => {
+                                    warn!(self.log, "Gossip message publish failed on retry"; "topic" => topic_str, "error" => %e);
+                                    if let Some(v) = metrics::get_int_counter(
+                                        &metrics::GOSSIP_FAILED_LATE_PUBLISH_PER_MAIN_TOPIC,
+                                        &[topic_str],
+                                    ) {
+                                        v.inc()
+                                    };
+                                }
                             }
                         }
                     }
