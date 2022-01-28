@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # Start all processes necessary to create a local testnet
 
+set -Eeuo pipefail
+
 source ./vars.env
 
 # VC_COUNT is defaulted in vars.env
@@ -49,7 +51,7 @@ for (( bn=1; bn<=$BN_COUNT; bn++ )); do
 done
 for (( vc=1; vc<=$VC_COUNT; vc++ )); do
     touch $LOG_DIR/validator_node_$vc.log
-done 
+done
 
 # Sleep with a message
 sleeping() {
@@ -67,7 +69,7 @@ execute_command() {
     EX_NAME=$2
     shift
     shift
-    CMD="$EX_NAME $@ &>> $LOG_DIR/$LOG_NAME"
+    CMD="$EX_NAME $@ >> $LOG_DIR/$LOG_NAME 2>&1"
     echo "executing: $CMD"
     echo "$CMD" > "$LOG_DIR/$LOG_NAME"
     eval "$CMD &"
@@ -89,7 +91,7 @@ execute_command_add_PID() {
 
 # Delay to let ganache-cli to get started
 execute_command_add_PID ganache_test_node.log ./ganache_test_node.sh
-sleeping 2
+sleeping 10
 
 # Delay to get data setup
 execute_command setup.log ./setup.sh

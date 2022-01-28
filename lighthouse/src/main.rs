@@ -110,13 +110,15 @@ fn main() {
                 &cli_matches,
                 eth2_network_config,
             ),
+            #[cfg(feature = "gnosis")]
+            EthSpecId::Gnosis => run(EnvironmentBuilder::gnosis(), &matches, eth2_network_config),
             #[cfg(feature = "spec-minimal")]
             EthSpecId::Minimal => run(
                 EnvironmentBuilder::minimal(),
                 &cli_matches,
                 eth2_network_config,
             ),
-            #[cfg(not(feature = "spec-minimal"))]
+            #[cfg(not(all(feature = "spec-minimal", feature = "gnosis")))]
             other => {
                 eprintln!(
                     "Eth spec `{}` is not supported by this build of Lighthouse",
@@ -151,11 +153,12 @@ fn get_cli_matches() -> Result<ArgMatches, String> {
         "{}\n\
                  BLS library: {}\n\
                  SHA256 hardware acceleration: {}\n\
-                 Specs: mainnet (true), minimal ({})",
-        version,
+                 Specs: mainnet (true), minimal ({}), gnosis ({})",
+        VERSION.replace("Lighthouse/", ""),
         bls_library_name(),
         have_sha_extensions(),
         cfg!(feature = "spec-minimal"),
+        cfg!(feature = "gnosis"),
     );
 
     // Get a copy of all the command line args, because they will be consumed during the first call

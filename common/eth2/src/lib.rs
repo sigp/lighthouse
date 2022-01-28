@@ -9,6 +9,7 @@
 
 #[cfg(feature = "lighthouse")]
 pub mod lighthouse;
+#[cfg(feature = "lighthouse")]
 pub mod lighthouse_vc;
 pub mod mixin;
 pub mod types;
@@ -245,6 +246,7 @@ impl BeaconNodeHttpClient {
     }
 
     /// Perform a HTTP POST request, returning a JSON response.
+    #[cfg(feature = "lighthouse")]
     async fn post_with_response<T: Serialize, U: IntoUrl, R: DeserializeOwned>(
         &self,
         url: U,
@@ -1256,8 +1258,12 @@ impl BeaconNodeHttpClient {
             .push("attester")
             .push(&epoch.to_string());
 
-        self.post_with_timeout_and_response(path, &indices, self.timeouts.attester_duties)
-            .await
+        self.post_with_timeout_and_response(
+            path,
+            &ValidatorIndexDataRef(indices),
+            self.timeouts.attester_duties,
+        )
+        .await
     }
 
     /// `POST validator/aggregate_and_proofs`
@@ -1356,8 +1362,12 @@ impl BeaconNodeHttpClient {
             .push("sync")
             .push(&epoch.to_string());
 
-        self.post_with_timeout_and_response(path, &indices, self.timeouts.sync_duties)
-            .await
+        self.post_with_timeout_and_response(
+            path,
+            &ValidatorIndexDataRef(indices),
+            self.timeouts.sync_duties,
+        )
+        .await
     }
 }
 
