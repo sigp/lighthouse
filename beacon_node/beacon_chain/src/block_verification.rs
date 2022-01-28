@@ -55,9 +55,11 @@ use crate::{
 };
 use eth2::types::EventKind;
 use execution_layer::PayloadStatusV1Status;
-use fork_choice::{ForkChoice, ForkChoiceStore, PayloadVerificationStatus};
+use fork_choice::{
+    Error as ForkChoiceError, ForkChoice, ForkChoiceStore, PayloadVerificationStatus,
+};
 use parking_lot::RwLockReadGuard;
-use proto_array::Block as ProtoBlock;
+use proto_array::{Block as ProtoBlock, ExecutionStatus};
 use safe_arith::ArithError;
 use slog::{debug, error, Logger};
 use slot_clock::SlotClock;
@@ -315,6 +317,8 @@ pub enum ExecutionPayloadError {
     ///
     /// The peer is not necessarily invalid.
     PoWParentMissing(Hash256),
+    /// The execution node is syncing but we fail the conditions for optimistic sync
+    UnverifiedNonOptimisticCandidate,
 }
 
 impl From<execution_layer::Error> for ExecutionPayloadError {
@@ -1130,6 +1134,34 @@ impl<'a, T: BeaconChainTypes> FullyVerifiedBlock<'a, T> {
         // It is important that this function is called *after* `per_slot_processing`, since the
         // `randao` may change.
         let payload_verification_status = notify_new_payload(chain, &state, block.message())?;
+
+        if payload_verification_status == PayloadVerificationStatus::NotVerified {
+            // Check the optimistic sync conditions before going further
+            // https://github.com/sigp/consensus-specs/blob/opt-sync-2/sync/optimistic.md#when-to-optimistically-import-blocks
+            let current_slot = chain
+                .slot_clock
+                .now()
+                .ok_or(BeaconChainError::UnableToReadSlot)?;
+            // pass if current slot is at least SAFE_SLOTS_TO_IMPORT_OPTIMISTICALLY ahead of the block
+            if current_slot - block.slot() < chain.spec.safe_slots_to_import_optimistically {
+                // pass if the justified checkpoint has execution enabled
+                let justified_root = state.current_justified_checkpoint().root;
+                let justified_checkpoint_execution_status = chain
+                    .fork_choice
+                    .read()
+                    .get_block(&justified_root)
+                    .map(|block| block.execution_status)
+                    .ok_or(BeaconChainError::ForkChoiceError(
+                        ForkChoiceError::MissingProtoArrayBlock(justified_root),
+                    ))?;
+                if matches!(
+                    justified_checkpoint_execution_status,
+                    ExecutionStatus::Irrelevant(_)
+                ) {
+                    return Err(ExecutionPayloadError::UnverifiedNonOptimisticCandidate.into());
+                }
+            }
+        }
 
         // If the block is sufficiently recent, notify the validator monitor.
         if let Some(slot) = chain.slot_clock.now() {

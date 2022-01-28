@@ -137,13 +137,25 @@ pub fn validate_merge_block<T: BeaconChainTypes>(
         }
         .into()),
         None => {
-            debug!(
-                chain.log,
-                "Optimistically accepting terminal block";
-                "block_hash" => ?execution_payload.parent_hash,
-                "msg" => "the terminal block/parent was unavailable"
-            );
-            Ok(())
+            let current_slot = chain
+                .slot_clock
+                .now()
+                .ok_or(BeaconChainError::UnableToReadSlot)?;
+            // Check the optimistic sync conditions. Note that because this is the merge block,
+            // the justified checkpoint can't have execution enabled so we only need to check the
+            // current slot is at least SAFE_SLOTS_TO_IMPORT_OPTIMISTICALLY ahead of the block
+            // https://github.com/sigp/consensus-specs/blob/opt-sync-2/sync/optimistic.md#when-to-optimistically-import-blocks
+            if current_slot - block.slot() >= chain.spec.safe_slots_to_import_optimistically {
+                debug!(
+                    chain.log,
+                    "Optimistically accepting terminal block";
+                    "block_hash" => ?execution_payload.parent_hash,
+                    "msg" => "the terminal block/parent was unavailable"
+                );
+                Ok(())
+            } else {
+                Err(ExecutionPayloadError::UnverifiedNonOptimisticCandidate.into())
+            }
         }
     }
 }
