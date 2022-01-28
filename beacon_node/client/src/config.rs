@@ -58,8 +58,6 @@ pub struct Config {
     /// This is the method used for the 2019 client interop in Canada.
     pub dummy_eth1_backend: bool,
     pub sync_eth1_chain: bool,
-    /// A list of hard-coded forks that will be disabled.
-    pub disabled_forks: Vec<String>,
     /// Graffiti to be inserted everytime we create a block.
     pub graffiti: Graffiti,
     /// When true, automatically monitor validators using the HTTP API.
@@ -98,7 +96,6 @@ impl Default for Config {
             eth1: <_>::default(),
             execution_endpoints: None,
             suggested_fee_recipient: None,
-            disabled_forks: Vec::new(),
             graffiti: Graffiti::default(),
             http_api: <_>::default(),
             http_metrics: <_>::default(),

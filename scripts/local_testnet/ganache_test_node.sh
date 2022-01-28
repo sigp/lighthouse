@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 
+set -Eeuo pipefail
+
 source ./vars.env
 
 exec ganache-cli \

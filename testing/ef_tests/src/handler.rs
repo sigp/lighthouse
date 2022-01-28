@@ -2,7 +2,7 @@ use crate::cases::{self, Case, Cases, EpochTransition, LoadCase, Operation};
 use crate::type_name;
 use crate::type_name::TypeName;
 use derivative::Derivative;
-use std::fs;
+use std::fs::{self, DirEntry};
 use std::marker::PhantomData;
 use std::path::PathBuf;
 use types::{BeaconState, EthSpec, ForkName};
@@ -31,30 +31,27 @@ pub trait Handler {
     }
 
     fn run_for_fork(&self, fork_name: ForkName) {
-        let fork_name_str = match fork_name {
-            ForkName::Base => "phase0",
-            ForkName::Altair => "altair",
-            ForkName::Merge => "merge",
-        };
+        let fork_name_str = fork_name.to_string();
 
         let handler_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("consensus-spec-tests")
             .join("tests")
             .join(Self::config_name())
-            .join(fork_name_str)
+            .join(&fork_name_str)
             .join(Self::runner_name())
             .join(self.handler_name());
 
         // Iterate through test suites
+        let as_directory = |entry: Result<DirEntry, std::io::Error>| -> Option<DirEntry> {
+            entry
+                .ok()
+                .filter(|e| e.file_type().map(|ty| ty.is_dir()).unwrap_or(false))
+        };
         let test_cases = fs::read_dir(&handler_path)
             .expect("handler dir exists")
-            .flat_map(|entry| {
-                entry
-                    .ok()
-                    .filter(|e| e.file_type().map(|ty| ty.is_dir()).unwrap_or(false))
-            })
+            .filter_map(as_directory)
             .flat_map(|suite| fs::read_dir(suite.path()).expect("suite dir exists"))
-            .flat_map(Result::ok)
+            .filter_map(as_directory)
             .map(|test_case_dir| {
                 let path = test_case_dir.path();
                 let case = Self::Case::load_from_dir(&path, fork_name).expect("test should load");
@@ -439,37 +436,21 @@ impl<E: EthSpec + TypeName> Handler for FinalityHandler<E> {
     }
 }
 
-#[derive(Derivative)]
-#[derivative(Default(bound = ""))]
-pub struct ForkChoiceGetHeadHandler<E>(PhantomData<E>);
+pub struct ForkChoiceHandler<E> {
+    handler_name: String,
+    _phantom: PhantomData<E>,
+}
 
-impl<E: EthSpec + TypeName> Handler for ForkChoiceGetHeadHandler<E> {
-    type Case = cases::ForkChoiceTest<E>;
-
-    fn config_name() -> &'static str {
-        E::name()
-    }
-
-    fn runner_name() -> &'static str {
-        "fork_choice"
-    }
-
-    fn handler_name(&self) -> String {
-        "get_head".into()
-    }
-
-    fn is_enabled_for_fork(&self, _fork_name: ForkName) -> bool {
-        // These tests check block validity (which may include signatures) and there is no need to
-        // run them with fake crypto.
-        cfg!(not(feature = "fake_crypto"))
+impl<E: EthSpec> ForkChoiceHandler<E> {
+    pub fn new(handler_name: &str) -> Self {
+        Self {
+            handler_name: handler_name.into(),
+            _phantom: PhantomData,
+        }
     }
 }
 
-#[derive(Derivative)]
-#[derivative(Default(bound = ""))]
-pub struct ForkChoiceOnBlockHandler<E>(PhantomData<E>);
-
-impl<E: EthSpec + TypeName> Handler for ForkChoiceOnBlockHandler<E> {
+impl<E: EthSpec + TypeName> Handler for ForkChoiceHandler<E> {
     type Case = cases::ForkChoiceTest<E>;
 
     fn config_name() -> &'static str {
@@ -481,41 +462,20 @@ impl<E: EthSpec + TypeName> Handler for ForkChoiceOnBlockHandler<E> {
     }
 
     fn handler_name(&self) -> String {
-        "on_block".into()
-    }
-
-    fn is_enabled_for_fork(&self, _fork_name: ForkName) -> bool {
-        // These tests check block validity (which may include signatures) and there is no need to
-        // run them with fake crypto.
-        cfg!(not(feature = "fake_crypto"))
-    }
-}
-
-#[derive(Derivative)]
-#[derivative(Default(bound = ""))]
-pub struct ForkChoiceOnMergeBlockHandler<E>(PhantomData<E>);
-
-impl<E: EthSpec + TypeName> Handler for ForkChoiceOnMergeBlockHandler<E> {
-    type Case = cases::ForkChoiceTest<E>;
-
-    fn config_name() -> &'static str {
-        E::name()
-    }
-
-    fn runner_name() -> &'static str {
-        "fork_choice"
-    }
-
-    fn handler_name(&self) -> String {
-        "on_merge_block".into()
+        self.handler_name.clone()
     }
 
     fn is_enabled_for_fork(&self, fork_name: ForkName) -> bool {
+        // Merge block tests are only enabled for Bellatrix or later.
+        if self.handler_name == "on_merge_block"
+            && (fork_name == ForkName::Base || fork_name == ForkName::Altair)
+        {
+            return false;
+        }
+
         // These tests check block validity (which may include signatures) and there is no need to
         // run them with fake crypto.
         cfg!(not(feature = "fake_crypto"))
-            // These tests only exist for the merge.
-            && fork_name == ForkName::Merge
     }
 }
 

@@ -39,7 +39,8 @@ impl<E: EthSpec> LoadCase for TransitionTest<E> {
                 spec.altair_fork_epoch = Some(metadata.fork_epoch);
             }
             ForkName::Merge => {
-                spec.merge_fork_epoch = Some(metadata.fork_epoch);
+                spec.altair_fork_epoch = Some(Epoch::new(0));
+                spec.bellatrix_fork_epoch = Some(metadata.fork_epoch);
             }
         }
 
@@ -73,10 +74,7 @@ impl<E: EthSpec> Case for TransitionTest<E> {
     fn is_enabled_for_fork(fork_name: ForkName) -> bool {
         // Upgrades exist targeting all forks except phase0/base.
         // Transition tests also need BLS.
-        // FIXME(merge): Merge transition tests are  now available but not yet passing
-        cfg!(not(feature = "fake_crypto"))
-            && fork_name != ForkName::Base
-            && fork_name != ForkName::Merge
+        cfg!(not(feature = "fake_crypto")) && fork_name != ForkName::Base
     }
 
     fn result(&self, _case_index: usize, _fork_name: ForkName) -> Result<(), Error> {

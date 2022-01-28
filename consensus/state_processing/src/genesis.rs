@@ -2,7 +2,7 @@ use super::per_block_processing::{
     errors::BlockProcessingError, process_operations::process_deposit,
 };
 use crate::common::DepositDataTree;
-use crate::upgrade::{upgrade_to_altair, upgrade_to_merge};
+use crate::upgrade::{upgrade_to_altair, upgrade_to_bellatrix};
 use safe_arith::{ArithError, SafeArith};
 use tree_hash::TreeHash;
 use types::DEPOSIT_TREE_DEPTH;
@@ -58,13 +58,13 @@ pub fn initialize_beacon_state_from_eth1<T: EthSpec>(
 
     // Similarly, perform an upgrade to the merge if configured from genesis.
     if spec
-        .merge_fork_epoch
+        .bellatrix_fork_epoch
         .map_or(false, |fork_epoch| fork_epoch == T::genesis_epoch())
     {
-        upgrade_to_merge(&mut state, spec)?;
+        upgrade_to_bellatrix(&mut state, spec)?;
 
         // Remove intermediate Altair fork from `state.fork`.
-        state.fork_mut().previous_version = spec.merge_fork_version;
+        state.fork_mut().previous_version = spec.bellatrix_fork_version;
 
         // Override latest execution payload header.
         // See https://github.com/ethereum/consensus-specs/blob/v1.1.0/specs/merge/beacon-chain.md#testing

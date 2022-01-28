@@ -63,7 +63,7 @@ pub fn run<T: EthSpec>(testnet_dir_path: PathBuf, matches: &ArgMatches) -> Resul
     }
 
     if let Some(fork_epoch) = parse_optional(matches, "merge-fork-epoch")? {
-        spec.merge_fork_epoch = Some(fork_epoch);
+        spec.bellatrix_fork_epoch = Some(fork_epoch);
     }
 
     let genesis_state_bytes = if matches.is_present("interop-genesis-state") {

@@ -4,6 +4,8 @@
 # Starts a beacon node based upon a genesis state created by `./setup.sh`.
 #
 
+set -Eeuo pipefail
+
 source ./vars.env
 
 SUBSCRIBE_ALL_SUBNETS=

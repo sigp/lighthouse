@@ -469,7 +469,7 @@ pub fn get_config<E: EthSpec>(
     }
 
     client_config.chain.max_network_size =
-        lighthouse_network::gossip_max_size(spec.merge_fork_epoch.is_some());
+        lighthouse_network::gossip_max_size(spec.bellatrix_fork_epoch.is_some());
 
     if cli_args.is_present("slasher") {
         let slasher_dir = if let Some(slasher_dir) = cli_args.value_of("slasher-dir") {
@@ -624,6 +624,13 @@ pub fn set_network_config(
             .parse::<u16>()
             .map_err(|_| format!("Invalid port: {}", port_str))?;
         config.discovery_port = port;
+    }
+
+    if let Some(value) = cli_args.value_of("network-load") {
+        let network_load = value
+            .parse::<u8>()
+            .map_err(|_| format!("Invalid integer: {}", value))?;
+        config.network_load = network_load;
     }
 
     if let Some(boot_enr_str) = cli_args.value_of("boot-nodes") {

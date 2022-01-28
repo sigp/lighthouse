@@ -9,6 +9,7 @@ use serde::de::{Deserialize, Deserializer};
 use serde::ser::{Serialize, Serializer};
 use ssz::{Decode, Encode};
 use std::fmt;
+use std::hash::{Hash, Hasher};
 use std::marker::PhantomData;
 use tree_hash::TreeHash;
 
@@ -262,6 +263,18 @@ where
     AggSig: TAggregateSignature<Pub, AggPub, Sig>,
 {
     impl_tree_hash!(SIGNATURE_BYTES_LEN);
+}
+
+/// Hashes the `self.serialize()` bytes.
+#[allow(clippy::derive_hash_xor_eq)]
+impl<Pub, AggPub, Sig, AggSig> Hash for GenericAggregateSignature<Pub, AggPub, Sig, AggSig>
+where
+    Sig: TSignature<Pub>,
+    AggSig: TAggregateSignature<Pub, AggPub, Sig>,
+{
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.serialize().hash(state);
+    }
 }
 
 impl<Pub, AggPub, Sig, AggSig> fmt::Display for GenericAggregateSignature<Pub, AggPub, Sig, AggSig>
