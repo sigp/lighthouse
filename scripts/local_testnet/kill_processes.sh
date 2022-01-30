@@ -8,6 +8,9 @@ set -Eeuo pipefail
 if [ -f "$1" ]; then
   while read pid
     do
+      # handle the case of blank lines
+      [[ -n "$pid" ]] || continue
+
       echo killing $pid
       kill $pid
     done < $1
