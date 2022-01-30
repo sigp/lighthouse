@@ -1556,6 +1556,7 @@ dependencies = [
  "sensitive_url",
  "serde",
  "serde_json",
+ "slashing_protection",
  "store",
  "types",
 ]
@@ -4692,6 +4693,7 @@ dependencies = [
  "rand_chacha 0.2.2",
  "rand_core 0.5.1",
  "rand_hc 0.2.0",
+ "rand_pcg",
 ]
 
 [[package]]
@@ -4760,6 +4762,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d51e9f596de227fda2ea6c84607f5558e196eeaf43c986b724ba4fb8fdf497e7"
 dependencies = [
  "rand_core 0.6.3",
+]
+
+[[package]]
+name = "rand_pcg"
+version = "0.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "16abd0c1b639e9eb4d7c50c0b8100b0d0f849be2349829c740fe8e6eb4816429"
+dependencies = [
+ "rand_core 0.5.1",
 ]
 
 [[package]]
@@ -6677,6 +6688,7 @@ dependencies = [
  "lighthouse_metrics",
  "lighthouse_version",
  "lockfile",
+ "logging",
  "monitoring_api",
  "parking_lot",
  "rand 0.7.3",

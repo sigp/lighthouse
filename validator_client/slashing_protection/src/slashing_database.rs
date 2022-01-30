@@ -28,6 +28,9 @@ pub const CONNECTION_TIMEOUT: Duration = Duration::from_millis(100);
 /// Supported version of the interchange format.
 pub const SUPPORTED_INTERCHANGE_FORMAT_VERSION: u64 = 5;
 
+/// Column ID of the `validators.enabled` column.
+pub const VALIDATORS_ENABLED_CID: i64 = 2;
+
 #[derive(Debug, Clone)]
 pub struct SlashingDatabase {
     conn_pool: Pool,
@@ -55,7 +58,7 @@ impl SlashingDatabase {
 
         restrict_file_permissions(path).map_err(|_| NotSafe::PermissionsError)?;
         let conn_pool = Self::open_conn_pool(path)?;
-        let conn = conn_pool.get()?;
+        let mut conn = conn_pool.get()?;
 
         conn.execute(
             "CREATE TABLE validators (
@@ -88,13 +91,55 @@ impl SlashingDatabase {
             params![],
         )?;
 
+        // The tables created above are for the v0 schema. We immediately update them
+        // to the latest schema without dropping the connection.
+        let txn = conn.transaction()?;
+        Self::apply_schema_migrations(&txn)?;
+        txn.commit()?;
+
         Ok(Self { conn_pool })
     }
 
     /// Open an existing `SlashingDatabase` from disk.
+    ///
+    /// This will automatically check for and apply the latest schema migrations.
     pub fn open(path: &Path) -> Result<Self, NotSafe> {
         let conn_pool = Self::open_conn_pool(path)?;
-        Ok(Self { conn_pool })
+        let db = Self { conn_pool };
+        db.with_transaction(Self::apply_schema_migrations)?;
+        Ok(db)
+    }
+
+    fn apply_schema_migrations(txn: &Transaction) -> Result<(), NotSafe> {
+        // Add the `enabled` column to the `validators` table if it does not already exist.
+        let enabled_col_exists = txn
+            .query_row(
+                "SELECT cid, name FROM pragma_table_info('validators') WHERE name = 'enabled'",
+                params![],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .optional()?
+            .map(|(cid, name): (i64, String)| {
+                // Check that the enabled column is in the correct position with the right name.
+                // This is a defensive check that shouldn't do anything in practice unless the
+                // slashing DB has been manually edited.
+                if cid == VALIDATORS_ENABLED_CID && name == "enabled" {
+                    Ok(())
+                } else {
+                    Err(NotSafe::ConsistencyError)
+                }
+            })
+            .transpose()?
+            .is_some();
+
+        if !enabled_col_exists {
+            txn.execute(
+                "ALTER TABLE validators ADD COLUMN enabled BOOL NOT NULL DEFAULT TRUE",
+                params![],
+            )?;
+        }
+
+        Ok(())
     }
 
     /// Open a new connection pool with all of the necessary settings and tweaks.
@@ -166,12 +211,34 @@ impl SlashingDatabase {
         public_keys: impl Iterator<Item = &'a PublicKeyBytes>,
         txn: &Transaction,
     ) -> Result<(), NotSafe> {
-        let mut stmt = txn.prepare("INSERT INTO validators (public_key) VALUES (?1)")?;
+        let mut stmt =
+            txn.prepare("INSERT INTO validators (public_key, enabled) VALUES (?1, TRUE)")?;
         for pubkey in public_keys {
-            if self.get_validator_id_opt(txn, pubkey)?.is_none() {
-                stmt.execute([pubkey.as_hex_string()])?;
+            match self.get_validator_id_with_status(txn, pubkey)? {
+                None => {
+                    stmt.execute([pubkey.as_hex_string()])?;
+                }
+                Some((validator_id, false)) => {
+                    self.update_validator_status(txn, validator_id, true)?;
+                }
+                Some((_, true)) => {
+                    // Validator already registered and enabled.
+                }
             }
         }
+        Ok(())
+    }
+
+    pub fn update_validator_status(
+        &self,
+        txn: &Transaction,
+        validator_id: i64,
+        status: bool,
+    ) -> Result<(), NotSafe> {
+        txn.execute(
+            "UPDATE validators SET enabled = ? WHERE id = ?",
+            params![status, validator_id],
+        )?;
         Ok(())
     }
 
@@ -203,7 +270,7 @@ impl SlashingDatabase {
             .collect()
     }
 
-    /// Get the database-internal ID for a validator.
+    /// Get the database-internal ID for an enabled validator.
     ///
     /// This is NOT the same as a validator index, and depends on the ordering that validators
     /// are registered with the slashing protection database (and may vary between machines).
@@ -213,26 +280,43 @@ impl SlashingDatabase {
         self.get_validator_id_in_txn(&txn, public_key)
     }
 
-    fn get_validator_id_in_txn(
+    pub fn get_validator_id_in_txn(
         &self,
         txn: &Transaction,
         public_key: &PublicKeyBytes,
     ) -> Result<i64, NotSafe> {
-        self.get_validator_id_opt(txn, public_key)?
-            .ok_or_else(|| NotSafe::UnregisteredValidator(*public_key))
+        let (validator_id, enabled) = self
+            .get_validator_id_with_status(txn, public_key)?
+            .ok_or_else(|| NotSafe::UnregisteredValidator(*public_key))?;
+        if enabled {
+            Ok(validator_id)
+        } else {
+            Err(NotSafe::DisabledValidator(*public_key))
+        }
     }
 
-    /// Optional version of `get_validator_id`.
-    fn get_validator_id_opt(
+    /// Get validator ID regardless of whether or not it is enabled.
+    pub fn get_validator_id_ignoring_status(
         &self,
         txn: &Transaction,
         public_key: &PublicKeyBytes,
-    ) -> Result<Option<i64>, NotSafe> {
+    ) -> Result<i64, NotSafe> {
+        let (validator_id, _) = self
+            .get_validator_id_with_status(txn, public_key)?
+            .ok_or_else(|| NotSafe::UnregisteredValidator(*public_key))?;
+        Ok(validator_id)
+    }
+
+    pub fn get_validator_id_with_status(
+        &self,
+        txn: &Transaction,
+        public_key: &PublicKeyBytes,
+    ) -> Result<Option<(i64, bool)>, NotSafe> {
         Ok(txn
             .query_row(
-                "SELECT id FROM validators WHERE public_key = ?1",
+                "SELECT id, enabled FROM validators WHERE public_key = ?1",
                 params![&public_key.as_hex_string()],
-                |row| row.get(0),
+                |row| Ok((row.get(0)?, row.get(1)?)),
             )
             .optional()?)
     }
@@ -722,13 +806,21 @@ impl SlashingDatabase {
     ) -> Result<Interchange, InterchangeError> {
         let mut conn = self.conn_pool.get()?;
         let txn = &conn.transaction()?;
+        self.export_interchange_info_in_txn(genesis_validators_root, selected_pubkeys, txn)
+    }
 
+    pub fn export_interchange_info_in_txn(
+        &self,
+        genesis_validators_root: Hash256,
+        selected_pubkeys: Option<&[PublicKeyBytes]>,
+        txn: &Transaction,
+    ) -> Result<Interchange, InterchangeError> {
         // Determine the validator IDs and public keys to export data for.
         let to_export = if let Some(selected_pubkeys) = selected_pubkeys {
             selected_pubkeys
                 .iter()
                 .map(|pubkey| {
-                    let id = self.get_validator_id_in_txn(txn, pubkey)?;
+                    let id = self.get_validator_id_ignoring_status(txn, pubkey)?;
                     Ok((id, *pubkey))
                 })
                 .collect::<Result<_, InterchangeError>>()?
@@ -1089,7 +1181,6 @@ impl From<serde_json::Error> for InterchangeError {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_utils::pubkey;
     use tempfile::tempdir;
 
     #[test]
@@ -1106,8 +1197,7 @@ mod tests {
         let file = dir.path().join("db.sqlite");
         let _db1 = SlashingDatabase::create(&file).unwrap();
 
-        let db2 = SlashingDatabase::open(&file).unwrap();
-        db2.register_validator(pubkey(0)).unwrap_err();
+        SlashingDatabase::open(&file).unwrap_err();
     }
 
     // Attempting to create the same database twice should error.
@@ -1152,9 +1242,12 @@ mod tests {
     fn test_transaction_failure() {
         let dir = tempdir().unwrap();
         let file = dir.path().join("db.sqlite");
-        let _db1 = SlashingDatabase::create(&file).unwrap();
+        let db = SlashingDatabase::create(&file).unwrap();
 
-        let db2 = SlashingDatabase::open(&file).unwrap();
-        db2.test_transaction().unwrap_err();
+        db.with_transaction(|_| {
+            db.test_transaction().unwrap_err();
+            Ok::<(), NotSafe>(())
+        })
+        .unwrap();
     }
 }

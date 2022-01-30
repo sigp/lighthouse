@@ -6,6 +6,7 @@
 use crate::http_metrics::metrics;
 use eth2_keystore::Keystore;
 use lockfile::Lockfile;
+use parking_lot::Mutex;
 use reqwest::Client;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -75,7 +76,7 @@ pub enum SigningMethod {
     /// A validator that is defined by an EIP-2335 keystore on the local filesystem.
     LocalKeystore {
         voting_keystore_path: PathBuf,
-        voting_keystore_lockfile: Lockfile,
+        voting_keystore_lockfile: Mutex<Option<Lockfile>>,
         voting_keystore: Keystore,
         voting_keypair: Arc<Keypair>,
     },

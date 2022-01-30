@@ -25,6 +25,7 @@ eth2_ssz_derive = "0.3.0"
 futures-util = "0.3.8"
 futures = "0.3.8"
 store = { path = "../../beacon_node/store", optional = true }
+slashing_protection = { path = "../../validator_client/slashing_protection", optional = true }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 # TODO: update psutil once fix is merged: https://github.com/rust-psutil/rust-psutil/pull/93
@@ -35,4 +36,4 @@ procinfo = { version = "0.4.2", optional = true }
 
 [features]
 default = ["lighthouse"]
-lighthouse = ["proto_array", "psutil", "procinfo", "store"]
+lighthouse = ["proto_array", "psutil", "procinfo", "store", "slashing_protection"]

@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
 pub use crate::lighthouse::Health;
+pub use crate::lighthouse_vc::std_types::*;
 pub use crate::types::{GenericResponse, VersionData};
 pub use types::*;
 
