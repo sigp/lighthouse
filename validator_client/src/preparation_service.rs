@@ -174,10 +174,7 @@ impl<T: SlotClock + 'static, E: EthSpec> PreparationService<T, E> {
         Ok(())
     }
 
-    fn collect_preparation_data(
-        &self,
-        spec: &ChainSpec,
-    ) -> Vec<ProposerPreparationData> {
+    fn collect_preparation_data(&self, spec: &ChainSpec) -> Vec<ProposerPreparationData> {
         let log = self.context.log();
 
         let fee_recipient_file = self
