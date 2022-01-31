@@ -2201,7 +2201,9 @@ pub fn serve<T: BeaconChainTypes>(
                         log,
                         "Received proposer preparation data";
                         "count" => preparation_data.len(),
-                        "client" => format!("{:?}", client_addr.unwrap()),
+                        "client" => client_addr
+                            .map(|a| a.to_string())
+                            .unwrap_or_else(|| "unknown".to_string()),
                     );
 
                     execution_layer
