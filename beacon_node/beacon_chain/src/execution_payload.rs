@@ -301,7 +301,7 @@ pub async fn prepare_execution_payload<T: BeaconChainTypes>(
             timestamp,
             random,
             finalized_block_hash.unwrap_or_else(Hash256::zero),
-            Some(proposer_index),
+            proposer_index,
         )
         .await
         .map_err(BlockProductionError::GetPayloadFailed)?;

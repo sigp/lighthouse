@@ -31,6 +31,16 @@ pub mod test_utils;
 /// in an LRU cache to avoid redundant lookups. This is the size of that cache.
 const EXECUTION_BLOCKS_LRU_CACHE_SIZE: usize = 128;
 
+/// A fee recipient address for use during block production. Only used as a very last resort if
+/// there is no address provided by the user.
+///
+/// ## Note
+///
+/// This is *not* the zero-address, since Geth has been known to return errors for a coinbase of
+/// 0x00..00.
+const DEFAULT_SUGGESTED_FEE_RECIPIENT: [u8; 20] =
+    [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1];
+
 #[derive(Debug)]
 pub enum Error {
     NoEngines,
@@ -269,23 +279,28 @@ impl ExecutionLayer {
     }
 
     /// Returns the fee-recipient address that should be used to build a block
-    async fn get_suggested_fee_recipient(
-        &self,
-        proposer_index: Option<u64>,
-    ) -> Result<Address, Error> {
-        let mut fee_recipient: Option<Address> = None;
+    async fn get_suggested_fee_recipient(&self, proposer_index: u64) -> Address {
+        if let Some(preparation_data) = self.proposer_preparation_data().await.get(&proposer_index)
+        {
+            // The values provided via the API have first priority.
+            preparation_data.fee_recipient
+        } else if let Some(address) = self.inner.suggested_fee_recipient {
+            // If there has been no fee recipient provided via the API, but the BN has been provided
+            // with a global default address, use that.
+            address
+        } else {
+            // If there is no user-provided fee recipient, use a junk value and complain loudly.
+            crit!(
+                self.log(),
+                "Fee recipient unknown";
+                "msg" => "the suggested_fee_recipient was unknown during block production. \
+                a junk address was used, rewards were lost! \
+                check the --suggested-fee-recipient flag and VC configuration.",
+                "proposer_index" => ?proposer_index
+            );
 
-        if let Some(proposer_index) = proposer_index {
-            fee_recipient = self
-                .proposer_preparation_data()
-                .await
-                .get(&proposer_index)
-                .map(|preparation_data| preparation_data.fee_recipient);
+            Address::from_slice(&DEFAULT_SUGGESTED_FEE_RECIPIENT)
         }
-
-        Ok(fee_recipient
-            .or(self.inner.suggested_fee_recipient)
-            .ok_or(Error::FeeRecipientUnspecified)?)
     }
 
     /// Maps to the `engine_getPayload` JSON-RPC call.
@@ -303,9 +318,9 @@ impl ExecutionLayer {
         timestamp: u64,
         random: Hash256,
         finalized_block_hash: Hash256,
-        proposer_index: Option<u64>,
+        proposer_index: u64,
     ) -> Result<ExecutionPayload<T>, Error> {
-        let suggested_fee_recipient = self.get_suggested_fee_recipient(proposer_index).await?;
+        let suggested_fee_recipient = self.get_suggested_fee_recipient(proposer_index).await;
 
         debug!(
             self.log(),
