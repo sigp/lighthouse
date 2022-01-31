@@ -166,7 +166,7 @@ impl<T: SlotClock + 'static, E: EthSpec> PreparationService<T, E> {
 
     /// Prepare proposer preparations and send to beacon node
     async fn prepare_proposers_and_publish(&self, spec: &ChainSpec) -> Result<(), String> {
-        let preparation_data = self.collect_preparation_data(spec).unwrap();
+        let preparation_data = self.collect_preparation_data(spec);
         if !preparation_data.is_empty() {
             self.publish_preparation_data(preparation_data).await?;
         }
@@ -177,7 +177,7 @@ impl<T: SlotClock + 'static, E: EthSpec> PreparationService<T, E> {
     fn collect_preparation_data(
         &self,
         spec: &ChainSpec,
-    ) -> Result<Vec<ProposerPreparationData>, String> {
+    ) -> Vec<ProposerPreparationData> {
         let log = self.context.log();
 
         let fee_recipient_file = self
@@ -200,7 +200,7 @@ impl<T: SlotClock + 'static, E: EthSpec> PreparationService<T, E> {
             .validator_store
             .voting_pubkeys(DoppelgangerStatus::ignored);
 
-        let preparation_data: Vec<_> = all_pubkeys
+        all_pubkeys
             .into_iter()
             .filter_map(|pubkey| {
                 let validator_index = self.validator_store.validator_index(&pubkey);
@@ -244,9 +244,7 @@ impl<T: SlotClock + 'static, E: EthSpec> PreparationService<T, E> {
                     None
                 }
             })
-            .collect();
-
-        Ok(preparation_data)
+            .collect()
     }
 
     async fn publish_preparation_data(
