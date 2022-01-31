@@ -287,10 +287,15 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
             ..Default::default()
         };
 
+        let slot_duration = std::time::Duration::from_secs(ctx.chain_spec.seconds_per_slot);
         // Half an epoch
         let gossip_max_retry_delay = std::time::Duration::from_secs(
             ctx.chain_spec.seconds_per_slot * TSpec::slots_per_epoch() / 2,
         );
+        let gossip_cache = GossipCache::builder()
+            .default_timeout(gossip_max_retry_delay)
+            .beacon_block_timeout(slot_duration)
+            .build();
 
         Ok(Behaviour {
             // Sub-behaviours
@@ -309,7 +314,7 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
             log: behaviour_log,
             score_settings,
             fork_context: ctx.fork_context,
-            gossip_cache: GossipCache::new(gossip_max_retry_delay),
+            gossip_cache,
             update_gossipsub_scores,
         })
     }
@@ -462,8 +467,7 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
                     }
 
                     if let PublishError::InsufficientPeers = e {
-                        let topic = Topic::from(topic);
-                        self.gossip_cache.insert(topic.hash(), message_data);
+                        self.gossip_cache.insert(topic, message_data);
                     }
                 }
             }
@@ -888,16 +892,15 @@ impl<TSpec: EthSpec> NetworkBehaviourEventProcess<GossipsubEvent> for Behaviour<
                 }
             }
             GossipsubEvent::Subscribed { peer_id, topic } => {
-                if let Some(subnet_id) = subnet_from_topic_hash(&topic) {
-                    self.network_globals
-                        .peers
-                        .write()
-                        .add_subscription(&peer_id, subnet_id);
-                }
-
-                // Try to send the cached messages for this topic
-                if let Some(msgs) = self.gossip_cache.retrieve(&topic) {
-                    if let Ok(topic) = GossipTopic::decode(topic.as_str()) {
+                if let Ok(topic) = GossipTopic::decode(topic.as_str()) {
+                    if let Some(subnet_id) = topic.subnet_id() {
+                        self.network_globals
+                            .peers
+                            .write()
+                            .add_subscription(&peer_id, subnet_id);
+                    }
+                    // Try to send the cached messages for this topic
+                    if let Some(msgs) = self.gossip_cache.retrieve(&topic) {
                         for data in msgs {
                             let topic_str: &str = topic.kind().as_ref();
                             match self.gossipsub.publish(topic.clone().into(), data) {
@@ -1179,14 +1182,12 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
             match result {
                 Err(e) => warn!(self.log, "Gossip cache error"; "error" => e),
                 Ok(expired_topic) => {
-                    if let Ok(expired_topic) = GossipTopic::decode(expired_topic.as_str()) {
-                        if let Some(v) = metrics::get_int_counter(
-                            &metrics::GOSSIP_FAILED_LATE_PUBLISH_PER_MAIN_TOPIC,
-                            &[expired_topic.kind().as_ref()],
-                        ) {
-                            v.inc()
-                        };
-                    }
+                    if let Some(v) = metrics::get_int_counter(
+                        &metrics::GOSSIP_FAILED_LATE_PUBLISH_PER_MAIN_TOPIC,
+                        &[expired_topic.kind().as_ref()],
+                    ) {
+                        v.inc()
+                    };
                 }
             }
         }
