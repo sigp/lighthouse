@@ -1,6 +1,7 @@
 #![recursion_limit = "256"]
 
 mod metrics;
+pub mod cli;
 
 use beacon_node::ProductionBeaconNode;
 use clap::{App, Arg, ArgMatches};
@@ -38,9 +39,160 @@ fn main() {
         std::env::set_var("RUST_BACKTRACE", "1");
     }
 
+<<<<<<< Updated upstream
     // Parse the CLI parameters.
     let matches = App::new("Lighthouse")
         .version(VERSION.replace("Lighthouse/", "").as_str())
+=======
+    let lighthouse = Lighthouse::parse();
+
+    let cli_matches = match get_cli_matches() {
+        Ok(matches) => matches,
+        Err(e) => {
+            eprintln!("Unable to validate lighthouse config: {}", e);
+            exit(1);
+        }
+    };
+
+    // Configure the allocator early in the process, before it has the chance to use the default values for
+    // anything important.
+    //
+    // Only apply this optimization for the beacon node. It's the only process with a substantial
+    // memory footprint.
+    let is_beacon_node = cli_matches.subcommand_name() == Some("beacon_node");
+    if is_beacon_node && !cli_matches.is_present(DISABLE_MALLOC_TUNING_FLAG) {
+        if let Err(e) = configure_memory_allocator() {
+            eprintln!(
+                "Unable to configure the memory allocator: {} \n\
+                Try providing the --{} flag",
+                e, DISABLE_MALLOC_TUNING_FLAG
+            );
+            exit(1)
+        }
+    }
+
+    // Debugging output for libp2p and external crates.
+    if cli_matches.is_present(ENV_LOG_FLAG) {
+        Builder::from_env(Env::default()).init();
+    }
+
+    let result = get_eth2_network_config(&cli_matches).and_then(|eth2_network_config| {
+        let eth_spec_id = eth2_network_config.eth_spec_id()?;
+
+        // boot node subcommand circumvents the environment
+        if let Some(bootnode_matches) = cli_matches.subcommand_matches("boot_node") {
+            // The bootnode uses the main debug-level flag
+            let debug_info = cli_matches
+                .value_of(DEBUG_LEVEL_FLAG)
+                .unwrap_or_else(|| panic!("{} must be present", DEBUG_LEVEL_FLAG))
+                .into();
+
+            boot_node::run(
+                &cli_matches,
+                bootnode_matches,
+                eth_spec_id,
+                &eth2_network_config,
+                debug_info,
+            );
+
+            return Ok(());
+        }
+
+        match eth_spec_id {
+            EthSpecId::Mainnet => run(
+                EnvironmentBuilder::mainnet(),
+                &cli_matches,
+                eth2_network_config,
+            ),
+            #[cfg(feature = "gnosis")]
+            EthSpecId::Gnosis => run(EnvironmentBuilder::gnosis(), &matches, eth2_network_config),
+            #[cfg(feature = "spec-minimal")]
+            EthSpecId::Minimal => run(
+                EnvironmentBuilder::minimal(),
+                &cli_matches,
+                eth2_network_config,
+            ),
+            #[cfg(not(all(feature = "spec-minimal", feature = "gnosis")))]
+            other => {
+                eprintln!(
+                    "Eth spec `{}` is not supported by this build of Lighthouse",
+                    other
+                );
+                eprintln!("You must compile with a feature flag to enable this spec variant");
+                exit(1);
+            }
+        }
+    });
+
+    // `std::process::exit` does not run destructors so we drop manually.
+    drop(cli_matches);
+
+    // Return the appropriate error code.
+    match result {
+        Ok(()) => exit(0),
+        Err(e) => {
+            eprintln!("{}", e);
+            drop(e);
+            exit(1)
+        }
+    }
+}
+
+/// Get CLI args and return an `ArgMatches`. If the `--config-file` flag is provided, this will
+/// make sure each args falls back to the specified file for config. File config will only
+/// by used if the equivalent CLI args are not present.
+fn get_cli_matches() -> Result<ArgMatches, String> {
+    let version = VERSION.replace("Lighthouse/", "");
+    let long_version = format!(
+        "{}\n\
+                 BLS library: {}\n\
+                 SHA256 hardware acceleration: {}\n\
+                 Specs: mainnet (true), minimal ({}), gnosis ({})",
+        VERSION.replace("Lighthouse/", ""),
+        bls_library_name(),
+        have_sha_extensions(),
+        cfg!(feature = "spec-minimal"),
+        cfg!(feature = "gnosis"),
+    );
+
+    // Get a copy of all the command line args, because they will be consumed during the first call
+    // to `get_matches`, and we will require them for the second call (if the second call is necessary).
+    let mut args = vec![];
+    for arg in env::args_os() {
+        args.push(arg);
+    }
+
+    // This first `get_matches` is  used to get the `--config-file` flag if it's present. If it isn't
+    // present, this `ArgMatches` will be returned.
+    let mut cli_matches = new_app(version.as_str(), long_version.as_str(), None).get_matches();
+
+    let file_name_opt = cli_matches.value_of(CONFIG_FILE_FLAG);
+
+    if let Some(file_name) = file_name_opt {
+        let file_config = clap_utils::parse_file_config(file_name)?;
+
+        let mut file_args = HashMap::new();
+        for (key, value) in file_config.iter() {
+            file_args.insert(&**key, &**value);
+        }
+
+        cli_matches = new_app(version.as_str(), long_version.as_str(), Some(&file_args))
+            .get_matches_from(args)?;
+    };
+    Ok(cli_matches)
+}
+
+/// Instantiate a new `App<'a>`, using the given map of file args as fallback config.
+///
+/// Note: `App<'a>` here is actually the `clap_utils::DefaultConfigApp<'a>` wrapper around `cli::App<'a>`.
+fn new_app<'a>(
+    version: &'a str,
+    long_version: &'a str,
+    file_args: Option<&'a HashMap<&'a str, &'a str>>,
+) -> App<'a> {
+    App::new("Lighthouse", file_args)
+        .version(version)
+>>>>>>> Stashed changes
         .author("Sigma Prime <contact@sigmaprime.io>")
         .setting(clap::AppSettings::ColoredHelp)
         .about(
