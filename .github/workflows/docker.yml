@@ -137,14 +137,3 @@ jobs:
                       --tag ${LCLI_IMAGE_NAME}:${VERSION}${VERSION_SUFFIX} \
                       --file ./lcli/Dockerfile .
                   docker push ${LCLI_IMAGE_NAME}:${VERSION}${VERSION_SUFFIX}
-    # This job just tests the `Dockerfile` without publishing any images.
-    build-docker-from-source:
-        runs-on: ubuntu-18.04
-        steps:
-            - uses: actions/checkout@v2
-            - name: Build Docker image from source (no publish)
-              run: |
-                  docker build \
-                      --build-arg FEATURES=portable \
-                      -t lighthouse:local .
-                  docker run -t lighthouse:local lighthouse --version
