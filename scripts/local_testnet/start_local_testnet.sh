@@ -93,9 +93,9 @@ execute_command_add_PID() {
 execute_command_add_PID ganache_test_node.log ./ganache_test_node.sh
 sleeping 10
 
-# Delay to get data setup
-execute_command setup.log ./setup.sh
-sleeping 15
+# Setup data
+echo "executing: ./setup.sh >> $LOG_DIR/setup.log"
+./setup.sh >> $LOG_DIR/setup.log 2>&1
 
 # Delay to let boot_enr.yaml to be created
 execute_command_add_PID bootnode.log ./bootnode.sh
