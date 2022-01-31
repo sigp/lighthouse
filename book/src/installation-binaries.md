@@ -20,12 +20,12 @@ Additionally there is also a `-portable` suffix which indicates if the `portable
 - Without `portable`: uses modern CPU instructions to provide the fastest signature verification times (may cause `Illegal instruction` error on older CPUs)
 - With `portable`: approx. 20% slower, but should work on all modern 64-bit processors.
 
+For details, see [Portability](#portability).
+
 ## Usage
 
 Each binary is contained in a `.tar.gz` archive. For this example, lets assume the user needs
 a portable `x86_64` binary.
-
-> Whilst this example uses `v0.2.13` we recommend always using the latest release.
 
 ### Steps
 
@@ -40,6 +40,19 @@ a portable `x86_64` binary.
     - E.g., `cp lighthouse /usr/bin`
 
 > Windows users will need to execute the commands in Step 3 from PowerShell.
+
+## Portability
+
+Portable builds of Lighthouse are designed to run on the widest range of hardware possible, but
+sacrifice the ability to make use of modern CPU instructions.
+
+If you have a modern CPU then you should try running a non-portable build to get a 20-30% speed up.
+
+* For **x86_64**, any CPU supporting the [ADX](https://en.wikipedia.org/wiki/Intel_ADX) instruction set
+extension is compatible with the optimized build. This includes Intel Broadwell (2014)
+and newer, and AMD Ryzen (2017) and newer.
+* For **ARMv8**, most CPUs are compatible with the optimized build, including the Cortex-A72 used by
+the Raspberry Pi 4.
 
 ## Troubleshooting
 

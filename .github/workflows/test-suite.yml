@@ -123,7 +123,9 @@ jobs:
     - name: Get latest version of stable Rust
       run: rustup update stable
     - name: Build the root Dockerfile
-      run: docker build .
+      run: docker build --build-arg FEATURES=portable -t lighthouse:local .
+    - name: Test the built image
+      run: docker run -t lighthouse:local lighthouse --version
   eth1-simulator-ubuntu:
     name: eth1-simulator-ubuntu
     runs-on: ubuntu-latest
