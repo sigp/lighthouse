@@ -260,8 +260,7 @@ impl ExecutionLayer {
     ) -> Result<(), Error> {
         self.block_on_generic(|_| async move {
             self.update_proposer_preparation(preparation_data).await
-        })
-        .unwrap()
+        })?
     }
 
     /// Updates the proposer preparation data provided by validators
