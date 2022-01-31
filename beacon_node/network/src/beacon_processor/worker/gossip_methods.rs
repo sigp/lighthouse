@@ -2113,8 +2113,8 @@ impl<T: BeaconChainTypes> Worker<T> {
         }
     }
 
-    /// If a message is still valid with respect to the current time (i.e., timely), propagate it
-    /// on gossip. Otherwise, ignore it.
+    /// If an attestation (agg. or unagg.) is still valid with respect to the current time (i.e.,
+    /// timely), propagate it on gossip. Otherwise, ignore it.
     fn propagate_attestation_if_timely(
         &self,
         attestation: &Attestation<T::EthSpec>,
@@ -2130,8 +2130,8 @@ impl<T: BeaconChainTypes> Worker<T> {
         self.propagate_if_timely(is_timely, message_id, peer_id)
     }
 
-    /// If a message is still valid with respect to the current time (i.e., timely), propagate it
-    /// on gossip. Otherwise, ignore it.
+    /// If a sync committee signature or sync committee contribution is still valid with respect to
+    /// the current time (i.e., timely), propagate it on gossip. Otherwise, ignore it.
     fn propagate_sync_message_if_timely(
         &self,
         sync_message_slot: Slot,
