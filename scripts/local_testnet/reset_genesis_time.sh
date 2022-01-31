@@ -4,6 +4,8 @@
 # Resets the beacon state genesis time to now.
 #
 
+set -Eeuo pipefail
+
 source ./vars.env
 
 NOW=$(date +%s)

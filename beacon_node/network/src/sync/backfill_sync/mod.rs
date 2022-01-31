@@ -54,6 +54,13 @@ impl BatchConfig for BackFillBatchConfig {
     fn max_batch_processing_attempts() -> u8 {
         MAX_BATCH_PROCESSING_ATTEMPTS
     }
+    fn batch_attempt_hash<T: EthSpec>(blocks: &[SignedBeaconBlock<T>]) -> u64 {
+        use std::collections::hash_map::DefaultHasher;
+        use std::hash::{Hash, Hasher};
+        let mut hasher = DefaultHasher::new();
+        blocks.hash(&mut hasher);
+        hasher.finish()
+    }
 }
 
 /// Return type when attempting to start the backfill sync process.
@@ -119,7 +126,7 @@ pub struct BackFillSync<T: BeaconChainTypes> {
     /// Batches validated by this chain.
     validated_batches: u64,
 
-    /// We keep track of peer that are participating in the backfill sync. Unlike RangeSync,
+    /// We keep track of peers that are participating in the backfill sync. Unlike RangeSync,
     /// BackFillSync uses all synced peers to download the chain from. If BackFillSync fails, we don't
     /// want to penalize all our synced peers, so we use this variable to keep track of peers that
     /// have participated and only penalize these peers if backfill sync fails.
@@ -539,7 +546,7 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
                 "error" => %e, "batch" => self.processing_target);
             // This is unlikely to happen but it would stall syncing since the batch now has no
             // blocks to continue, and the chain is expecting a processing result that won't
-            // arrive.  To mitigate this, (fake) fail this processing so that the batch is
+            // arrive. To mitigate this, (fake) fail this processing so that the batch is
             // re-downloaded.
             self.on_batch_process_result(
                 network,
@@ -795,7 +802,7 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
                     for attempt in batch.attempts() {
                         // The validated batch has been re-processed
                         if attempt.hash != processed_attempt.hash {
-                            // The re-downloaded version was different
+                            // The re-downloaded version was different.
                             if processed_attempt.peer_id != attempt.peer_id {
                                 // A different peer sent the correct batch, the previous peer did not
                                 // We negatively score the original peer.

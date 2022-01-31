@@ -15,6 +15,7 @@ pub struct ServerSentEventHandler<T: EthSpec> {
     chain_reorg_tx: Sender<EventKind<T>>,
     contribution_tx: Sender<EventKind<T>>,
     late_head: Sender<EventKind<T>>,
+    block_reward_tx: Sender<EventKind<T>>,
     log: Logger,
 }
 
@@ -32,6 +33,7 @@ impl<T: EthSpec> ServerSentEventHandler<T> {
         let (chain_reorg_tx, _) = broadcast::channel(capacity);
         let (contribution_tx, _) = broadcast::channel(capacity);
         let (late_head, _) = broadcast::channel(capacity);
+        let (block_reward_tx, _) = broadcast::channel(capacity);
 
         Self {
             attestation_tx,
@@ -42,6 +44,7 @@ impl<T: EthSpec> ServerSentEventHandler<T> {
             chain_reorg_tx,
             contribution_tx,
             late_head,
+            block_reward_tx,
             log,
         }
     }
@@ -67,6 +70,8 @@ impl<T: EthSpec> ServerSentEventHandler<T> {
                 .map(|count| trace!(self.log, "Registering server-sent contribution and proof event"; "receiver_count" => count)),
             EventKind::LateHead(late_head) => self.late_head.send(EventKind::LateHead(late_head))
                 .map(|count| trace!(self.log, "Registering server-sent late head event"; "receiver_count" => count)),
+            EventKind::BlockReward(block_reward) => self.block_reward_tx.send(EventKind::BlockReward(block_reward))
+                .map(|count| trace!(self.log, "Registering server-sent contribution and proof event"; "receiver_count" => count)),
         };
         if let Err(SendError(event)) = result {
             trace!(self.log, "No receivers registered to listen for event"; "event" => ?event);
@@ -105,6 +110,10 @@ impl<T: EthSpec> ServerSentEventHandler<T> {
         self.late_head.subscribe()
     }
 
+    pub fn subscribe_block_reward(&self) -> Receiver<EventKind<T>> {
+        self.block_reward_tx.subscribe()
+    }
+
     pub fn has_attestation_subscribers(&self) -> bool {
         self.attestation_tx.receiver_count() > 0
     }
@@ -135,5 +144,9 @@ impl<T: EthSpec> ServerSentEventHandler<T> {
 
     pub fn has_late_head_subscribers(&self) -> bool {
         self.late_head.receiver_count() > 0
+    }
+
+    pub fn has_block_reward_subscribers(&self) -> bool {
+        self.block_reward_tx.receiver_count() > 0
     }
 }

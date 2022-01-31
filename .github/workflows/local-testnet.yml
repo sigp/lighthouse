@@ -1,0 +1,50 @@
+# Test that local testnet starts successfully.
+name: local testnet
+
+on:
+  push:
+    branches:
+      - unstable
+  pull_request:
+
+jobs:
+  run-local-testnet:
+    strategy:
+      matrix:
+        os:
+          - ubuntu-18.04
+          - macos-latest
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v1
+
+      - name: Install ganache
+        run: npm install ganache-cli@latest --global
+
+      # https://github.com/actions/cache/blob/main/examples.md#rust---cargo
+      - uses: actions/cache@v2
+        id: cache-cargo
+        with:
+          path: |
+              ~/.cargo/bin/
+              ~/.cargo/registry/index/
+              ~/.cargo/registry/cache/
+              ~/.cargo/git/db/
+              target/
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Install lighthouse
+        if: steps.cache-cargo.outputs.cache-hit != 'true'
+        run: make && make install-lcli
+
+      - name: Start local testnet
+        run: ./start_local_testnet.sh
+        working-directory: scripts/local_testnet
+
+      - name: Print logs
+        run: ./print_logs.sh
+        working-directory: scripts/local_testnet
+
+      - name: Stop local testnet
+        run: ./stop_local_testnet.sh
+        working-directory: scripts/local_testnet
