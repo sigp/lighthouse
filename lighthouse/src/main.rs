@@ -39,11 +39,6 @@ fn main() {
         std::env::set_var("RUST_BACKTRACE", "1");
     }
 
-<<<<<<< Updated upstream
-    // Parse the CLI parameters.
-    let matches = App::new("Lighthouse")
-        .version(VERSION.replace("Lighthouse/", "").as_str())
-=======
     let lighthouse = Lighthouse::parse();
 
     let cli_matches = match get_cli_matches() {
@@ -192,7 +187,6 @@ fn new_app<'a>(
 ) -> App<'a> {
     App::new("Lighthouse", file_args)
         .version(version)
->>>>>>> Stashed changes
         .author("Sigma Prime <contact@sigmaprime.io>")
         .setting(clap::AppSettings::ColoredHelp)
         .about(
