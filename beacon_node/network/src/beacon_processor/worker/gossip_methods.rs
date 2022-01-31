@@ -4,7 +4,7 @@ use beacon_chain::store::Error;
 use beacon_chain::{
     attestation_verification::{self, Error as AttnError, VerifiedAttestation},
     observed_operations::ObservationOutcome,
-    sync_committee_verification::{self, Error as SyncCommitteeError},
+    sync_committee_verification::Error as SyncCommitteeError,
     validator_monitor::get_block_delay_ms,
     BeaconChainError, BeaconChainTypes, BlockError, ExecutionPayloadError, ForkChoiceError,
     GossipVerifiedBlock,
@@ -1809,30 +1809,13 @@ impl<T: BeaconChainTypes> Worker<T> {
                 );
 
                 // Compute the slot when we received the message.
-                let received_slot = self
-                    .chain
-                    .slot_clock
+                let seen_clock = &self.chain.slot_clock.freeze_at(seen_timestamp);
+                let received_slot = seen_clock
                     .slot_of(seen_timestamp)
                     .unwrap_or_else(|| self.chain.slot_clock.genesis_slot());
 
-                // The message is "excessively" late if it was more than one slot late.
-                let excessively_late = received_slot > sync_committee_message_slot + 1;
-
-                // This closure will lazily produce a slot clock frozen at the time we received the
-                // message from the network and return a bool indicating if the message was invalid
-                // at the time of receipt too.
-                let invalid_in_hindsight = || {
-                    let seen_clock = &self.chain.slot_clock.freeze_at(seen_timestamp);
-                    let hindsight_verification =
-                        sync_committee_verification::verify_propagation_slot_range(
-                            seen_clock,
-                            &sync_committee_message_slot,
-                        );
-                    hindsight_verification.is_err()
-                };
-
                 // Penalize the peer if the message was more than one slot late
-                if excessively_late && invalid_in_hindsight() {
+                if received_slot > sync_committee_message_slot + 1 {
                     self.gossip_penalize_peer(
                         peer_id,
                         PeerAction::HighToleranceError,
