@@ -35,6 +35,7 @@ use std::process::exit;
 use task_executor::ShutdownReason;
 use types::{EthSpec, EthSpecId};
 use validator_client::ProductionValidatorClient;
+use crate::cli::Lighthouse;
 
 fn bls_library_name() -> &'static str {
     if cfg!(feature = "portable") {
@@ -54,7 +55,7 @@ fn main() {
         std::env::set_var("RUST_BACKTRACE", "1");
     }
 
-    let lighthouse = crate::cli::Lighthouse::parse();
+    let lighthouse : Lighthouse = crate::cli::Lighthouse::parse();
 
     let cli_matches = match get_cli_matches() {
         Ok(matches) => matches,

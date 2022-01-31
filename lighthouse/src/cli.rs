@@ -40,7 +40,7 @@ pub struct Lighthouse {
                    the config file, specify the same option in the command line.",
         global = true
     )]
-    config_file: Option<PathBuf>,
+    pub config_file: Option<PathBuf>,
     #[clap(
         long,
         short,
@@ -49,12 +49,12 @@ pub struct Lighthouse {
                        value is now derived from the --network or --testnet-dir flags.",
         global = true
     )]
-    spec: Option<String>,
+    pub spec: Option<String>,
     #[clap(
         short = 'l',
         help = "Enables environment logging giving access to sub-protocol logs such as discv5 and libp2p"
     )]
-    env_log: bool,
+    pub env_log: bool,
     #[clap(
         long,
         value_name = "FILE",
@@ -65,7 +65,7 @@ pub struct Lighthouse {
                 `--logfile-max-number` the oldest log file will be overwritten.",
         global = true
     )]
-    logfile: Option<PathBuf>,
+    pub logfile: Option<PathBuf>,
     #[clap(
         long,
         value_name = "LEVEL",
@@ -74,7 +74,7 @@ pub struct Lighthouse {
         default_value = "debug",
         global = true
     )]
-    logfile_debug_level: String,
+    pub logfile_debug_level: String,
     #[clap(
         long,
         value_name = "SIZE",
@@ -83,7 +83,7 @@ pub struct Lighthouse {
         default_value = "200",
         global = true
     )]
-    logfile_max_size: u64,
+    pub logfile_max_size: u64,
     #[clap(
         long,
         value_name = "COUNT",
@@ -92,14 +92,14 @@ pub struct Lighthouse {
         default_value = "5",
         global = true
     )]
-    logfile_max_number: usize,
+    pub logfile_max_number: usize,
     #[clap(
         long,
         help = "If present, compress old log files. This can help reduce the space needed \
                    to store old logs.",
         global = true
     )]
-    logfile_compress: bool,
+    pub logfile_compress: bool,
     #[clap(
         long,
         value_name = "FORMAT",
@@ -107,7 +107,7 @@ pub struct Lighthouse {
         possible_values = &["JSON"],
         global = true
     )]
-    log_format: Option<String>,
+    pub log_format: Option<String>,
     #[clap(
         long,
         value_name = "LEVEL",
@@ -116,7 +116,7 @@ pub struct Lighthouse {
         global = true,
         default_value = "info"
     )]
-    debug_level: String,
+    pub debug_level: String,
     #[clap(
         long,
         short,
@@ -126,7 +126,7 @@ pub struct Lighthouse {
                    Defaults to $HOME/.lighthouse/{network} where network is the value of the `network` flag \
                    Note: Users should specify separate custom datadirs for different networks."
     )]
-    datadir: Option<String>,
+    pub datadir: Option<String>,
     #[clap(
         long,
         short,
@@ -136,7 +136,7 @@ pub struct Lighthouse {
                      existing database.",
         global = true
     )]
-    testnet_dir: Option<String>,
+    pub testnet_dir: Option<String>,
     #[clap(
         long,
         value_name = "network",
@@ -145,14 +145,14 @@ pub struct Lighthouse {
         conflicts_with = "testnet_dir_flag",
         global = true
     )]
-    network: Option<String>,
+    pub network: Option<String>,
     #[clap(
         long,
         hide = true,
         help = "Dumps the config to a desired location. Used for testing only.",
         global = true
     )]
-    dump_config: Option<PathBuf>,
+    pub dump_config: Option<PathBuf>,
     #[clap(
         long,
         hide = true,
@@ -160,7 +160,7 @@ pub struct Lighthouse {
                 Used for testing only, DO NOT USE IN PRODUCTION.",
         global = true
     )]
-    immediate_shutdown: bool,
+    pub immediate_shutdown: bool,
     #[clap(
         long,
         help = "If present, do not configure the system allocator. Providing this flag will \
@@ -168,7 +168,7 @@ pub struct Lighthouse {
                 specific memory allocation issues.",
         global = true
     )]
-    disable_malloc_tuning: bool,
+    pub disable_malloc_tuning: bool,
     #[clap(
         long,
         value_name = "INTEGER",
@@ -180,7 +180,7 @@ pub struct Lighthouse {
                       failure. Be extremely careful with this flag.",
         global = true
     )]
-    terminal_total_difficulty_override: Option<String>,
+    pub terminal_total_difficulty_override: Option<String>,
     #[clap(
         long,
         value_name = "TERMINAL_BLOCK_HASH",
@@ -192,7 +192,7 @@ pub struct Lighthouse {
         requires = "terminal_block_hash_epoch_override",
         global = true
     )]
-    terminal_block_hash_override: Option<String>,
+    pub terminal_block_hash_override: Option<String>,
     #[clap(
         long,
         value_name = "EPOCH",
@@ -204,7 +204,7 @@ pub struct Lighthouse {
         requires = "terminal_block_hash_override",
         global = true
     )]
-    terminal_block_hash_epoch_override: Option<String>,
+    pub terminal_block_hash_epoch_override: Option<String>,
     #[clap(subcommand)]
     subcommand: LighthouseSubcommand,
 }
@@ -215,6 +215,7 @@ pub enum LighthouseSubcommand {
     BeaconNode(BeaconNode),
     ValidatorClient(ValidatorClient),
     BootNode(BootNode),
+    // AccountManager(AccountManager),
 }
 
 #[derive(Parser)]
@@ -232,64 +233,64 @@ pub struct BeaconNode {
         help = "Data directory for network keys. Defaults to network/ inside the beacon node \
                        dir."
     )]
-    network_dir: Option<String>,
+    pub network_dir: Option<String>,
     #[clap(
         long,
         value_name = "DIR",
         help = "Data directory for the freezer database."
     )]
-    freezer_dir: Option<String>,
+    pub freezer_dir: Option<String>,
     #[clap(
         long,
         help = "Subscribe to all subnets regardless of validator count. \
                        This will also advertise the beacon node as being long-lived subscribed to all subnets."
     )]
-    subscribe_all_subnets: bool,
+    pub subscribe_all_subnets: bool,
     #[clap(
         long,
         help = "Import and aggregate all attestations, regardless of validator subscriptions. \
                        This will only import attestations from already-subscribed subnets, use with \
                        --subscribe-all-subnets to ensure all attestations are received for import."
     )]
-    import_all_attestations: bool,
+    pub import_all_attestations: bool,
     #[clap(
         long,
         help = "Disables the discovery packet filter. Useful for testing in smaller networks"
     )]
-    disable_packet_filter: bool,
+    pub disable_packet_filter: bool,
     #[clap(
         long,
         help = "Shutdown beacon node as soon as sync is completed. Backfill sync will \
                        not be performed before shutdown."
     )]
-    shutdown_after_sync: bool,
+    pub shutdown_after_sync: bool,
     #[clap(
         long,
         short = 'z',
         help = "Sets all listening TCP/UDP ports to 0, allowing the OS to choose some \
                        arbitrary free ports."
     )]
-    zero_ports: bool,
+    pub zero_ports: bool,
     #[clap(
         long,
         value_name = "ADDRESS",
         help = "The address lighthouse will listen for UDP and TCP connections.",
         default_value = "0.0.0.0"
     )]
-    listen_address: String,
+    pub listen_address: String,
     #[clap(
         long,
         value_name = "PORT",
         help = "The TCP/UDP port to listen on. The UDP port can be modified by the --discovery-port flag.",
         default_value = "9000"
     )]
-    port: String,
+    pub port: String,
     #[clap(
         long,
         value_name = "PORT",
         help = "The UDP port that discovery will listen on. Defaults to `port`"
     )]
-    discovery_port: Option<String>,
+    pub discovery_port: Option<String>,
     #[clap(long, help = "The target number of peers.", default_value = "50")]
     target_peers: String,
     #[clap(
@@ -298,7 +299,7 @@ pub struct BeaconNode {
         value_name = "ENR/MULTIADDR LIST",
         help = "One or more comma-delimited base64-encoded ENR's to bootstrap the p2p network. Multiaddr is also supported."
     )]
-    boot_nodes: Option<String>,
+    pub boot_nodes: Option<String>,
     #[clap(
         long,
         value_name = "INTEGER",
@@ -306,30 +307,30 @@ pub struct BeaconNode {
         default_value = "3",
         hide = true
     )]
-    network_load: String,
+    pub network_load: String,
     #[clap(
         long,
         help = "Disables UPnP support. Setting this will prevent Lighthouse from attempting to automatically establish external port mappings."
     )]
-    disable_upnp: bool,
+    pub disable_upnp: bool,
     #[clap(
         long,
         help = "Prevents sending various client identification information."
     )]
-    private: bool,
+    pub private: bool,
     #[clap(
         long,
         value_name = "PORT",
         help = "The UDP port of the local ENR. Set this only if you are sure other nodes can connect to your local node on this port."
     )]
-    enr_udp_port: Option<String>,
+    pub enr_udp_port: Option<String>,
     #[clap(
         long,
         value_name = "PORT",
         help = "The TCP port of the local ENR. Set this only if you are sure other nodes can connect to your local node on this port.\
                     The --port flag is used if this is not set."
     )]
-    enr_tcp_port: Option<String>,
+    pub enr_tcp_port: Option<String>,
     #[clap(
         long,
         value_name = "ADDRESS",
@@ -340,58 +341,58 @@ pub struct BeaconNode {
                 Discovery will automatically find your external address,if possible.",
         requires = "enr_udp_port"
     )]
-    enr_address: Option<String>,
+    pub enr_address: Option<String>,
     #[clap(
         short = 'e',
         long,
         help = "Sets the local ENR IP address and port to match those set for lighthouse. \
                 Specifically, the IP address will be the value of --listen-address and the UDP port will be --discovery-port."
     )]
-    enr_match: Option<String>,
+    pub enr_match: Option<String>,
     #[clap(
         short = 'x',
         long,
         help = "Discovery automatically updates the nodes local ENR with an external IP address and port as seen by other peers on the network. \
                 This disables this feature, fixing the ENR's IP/PORT to those specified on boot."
     )]
-    disable_enr_auto_update: Option<String>,
+    pub disable_enr_auto_update: Option<String>,
     #[clap(
         long,
         value_name = "MULTIADDR",
         help = "One or more comma-delimited multiaddrs to manually connect to a libp2p peer \
                        without an ENR."
     )]
-    libp2p_addresses: Option<String>,
+    pub libp2p_addresses: Option<String>,
     #[clap(
         long,
         help = "Disables the discv5 discovery protocol. The node will not search for new peers or participate in the discovery protocol."
     )]
-    disable_discovery: bool,
+    pub disable_discovery: bool,
     #[clap(
         long,
         value_name = "TRUSTED_PEERS",
         help = "One or more comma-delimited trusted peer ids which always have the highest score according to the peer scoring system."
     )]
-    trusted_peers: Option<String>,
+    pub trusted_peers: Option<String>,
     #[clap(
         long,
         help = "Enable the RESTful HTTP API server. Disabled by default."
     )]
-    http: bool,
+    pub http: bool,
     #[clap(
         long,
         value_name = "ADDRESS",
         help = "Set the listen address for the RESTful HTTP API server.",
         default_value = "127.0.0.1"
     )]
-    http_address: String,
+    pub http_address: String,
     #[clap(
         long,
         value_name = "PORT",
         help = "Set the listen TCP port for the RESTful HTTP API server.",
         default_value = "5052"
     )]
-    http_port: String,
+    pub http_port: String,
     #[clap(
         long,
         value_name = "ORIGIN",
@@ -400,13 +401,13 @@ pub struct BeaconNode {
                     If no value is supplied, the CORS allowed origin is set to the listen \
                     address of this server (e.g., http://localhost:5052)."
     )]
-    http_allow_origin: Option<String>,
+    pub http_allow_origin: Option<String>,
     #[clap(
         long,
         help = "Disable serving of legacy data on the /config/spec endpoint. May be \
                        disabled by default in a future release."
     )]
-    http_disable_legacy_spec: Option<String>,
+    pub http_disable_legacy_spec: Option<String>,
     #[clap(
         long,
         help = "Serves the RESTful HTTP API server over TLS. This feature is currently \
@@ -414,45 +415,45 @@ pub struct BeaconNode {
         requires = "http_tls_cert",
         requires = "http_tls_key"
     )]
-    http_enable_tls: bool,
+    pub http_enable_tls: bool,
     #[clap(
         long,
         help = "The path of the certificate to be used when serving the HTTP API server \
                     over TLS."
     )]
-    http_tls_cert: Option<String>,
+    pub http_tls_cert: Option<String>,
     #[clap(
         long,
         help = "The path of the private key to be used when serving the HTTP API server \
                     over TLS. Must not be password-protected."
     )]
-    http_tls_key: Option<String>,
+    pub http_tls_key: Option<String>,
     #[clap(
         long,
         help = "Forces the HTTP to indicate that the node is synced when sync is actually \
                     stalled. This is useful for very small testnets. TESTING ONLY. DO NOT USE ON \
                     MAINNET."
     )]
-    http_allow_sync_stalled: Option<String>,
+    pub http_allow_sync_stalled: Option<String>,
     #[clap(
         long,
         help = "Enable the Prometheus metrics HTTP server. Disabled by default."
     )]
-    metrics: bool,
+    pub metrics: bool,
     #[clap(
         long,
         value_name = "ADDRESS",
         help = "Set the listen address for the Prometheus metrics HTTP server.",
         default_value = "127.0.0.1"
     )]
-    metrics_address: String,
+    pub metrics_address: String,
     #[clap(
         long,
         value_name = "PORT",
         help = "Set the listen TCP port for the Prometheus metrics HTTP server.",
         default_value = "5054"
     )]
-    metrics_port: String,
+    pub metrics_port: String,
     #[clap(
         long,
         value_name = "ORIGIN",
@@ -461,7 +462,7 @@ pub struct BeaconNode {
                     If no value is supplied, the CORS allowed origin is set to the listen \
                     address of this server (e.g., http://localhost:5054)."
     )]
-    metrics_allow_origin: Option<String>,
+    pub metrics_allow_origin: Option<String>,
     #[clap(
         long,
         value_name = "ADDRESS",
@@ -472,33 +473,33 @@ pub struct BeaconNode {
                 validators, IP address and other personal information. Always use a HTTPS connection \
                 and never provide an untrusted URL."
     )]
-    monitoring_endpoint: Option<String>,
+    pub monitoring_endpoint: Option<String>,
     #[clap(
         long,
         help = "Standard option for a staking beacon node. Equivalent to \
                 `lighthouse bn --http --eth1 `. This will enable the http server on localhost:5052 \
                 and try connecting to an eth1 node on localhost:8545"
     )]
-    staking: bool,
+    pub staking: bool,
     #[clap(
         long,
         help = "If present the node will connect to an eth1 node. This is required for \
                        block production, you must use this flag if you wish to serve a validator."
     )]
-    eth1: bool,
+    pub eth1: bool,
     #[clap(
         long,
         conflicts_with = "eth1",
         help = "If present, uses an eth1 backend that generates static dummy data.\
                       Identical to the method used at the 2019 Canada interop."
     )]
-    dummy_eth1: Option<String>,
+    pub dummy_eth1: Option<String>,
     #[clap(
         long,
         value_name = "HTTP-ENDPOINT",
         help = "Deprecated. Use --eth1-endpoints."
     )]
-    eth1_endpoint: Option<String>,
+    pub eth1_endpoint: Option<String>,
     #[clap(
         long,
         value_name = "HTTP-ENDPOINTS",
@@ -508,13 +509,13 @@ pub struct BeaconNode {
                        given order. Also enables the --eth1 flag. \
                        Defaults to http://127.0.0.1:8545."
     )]
-    eth1_endpoints: Option<String>,
+    pub eth1_endpoints: Option<String>,
     #[clap(
         long,
         value_name = "PURGE-CACHE",
         help = "Purges the eth1 block and deposit caches"
     )]
-    eth1_purge_cache: bool,
+    pub eth1_purge_cache: bool,
     #[clap(
         long,
         value_name = "BLOCKS",
@@ -522,7 +523,7 @@ pub struct BeaconNode {
                     This will reduce the size of responses from the Eth1 endpoint.",
         default_value = "1000"
     )]
-    eth1_blocks_per_log_query: String,
+    pub eth1_blocks_per_log_query: String,
     #[clap(
         long,
         value_name = "SLOT_COUNT",
@@ -530,19 +531,19 @@ pub struct BeaconNode {
                        Cannot be changed after initialization. \
                        [default: 2048 (mainnet) or 64 (minimal)]"
     )]
-    slots_per_restore_point: Option<String>,
+    pub slots_per_restore_point: Option<String>,
     #[clap(
         long,
         value_name = "SIZE",
         help = "Specifies how many blocks the database should cache in memory [default: 5]"
     )]
-    block_cache_size: Option<String>,
+    pub block_cache_size: Option<String>,
     #[clap(
         long,
         help = "Enable the features necessary to run merge testnets. This feature \
                        is unstable and is for developers only."
     )]
-    merge: bool,
+    pub merge: bool,
     #[clap(
         long,
         value_name = "EXECUTION-ENDPOINTS",
@@ -552,7 +553,7 @@ pub struct BeaconNode {
                        If this flag is omitted and the --eth1-endpoints is supplied, those values \
                        will be used. Defaults to http://127.0.0.1:8545."
     )]
-    execution_endpoints: Option<String>,
+    pub execution_endpoints: Option<String>,
     #[clap(
         long,
         value_name = "FEE-RECIPIENT",
@@ -562,31 +563,31 @@ pub struct BeaconNode {
                        WILL BE REMOVED BEFORE THE MERGE ENTERS PRODUCTION",
         requires = "merge"
     )]
-    fee_recipient: Option<String>,
+    pub fee_recipient: Option<String>,
     #[clap(
         long,
         help = "If present, the chain database will be deleted. Use with caution."
     )]
-    purge_db: Option<String>,
+    pub purge_db: Option<String>,
     #[clap(
         long,
         help = "If present, apply compaction to the database on start-up. Use with caution. \
                        It is generally not recommended unless auto-compaction is disabled."
     )]
-    compact_db: Option<String>,
+    pub compact_db: Option<String>,
     #[clap(
         long,
         help = "Enable or disable automatic compaction of the database on finalization.",
         default_value = "true"
     )]
-    auto_compact_db: String,
+    pub auto_compact_db: String,
     #[clap(
         long,
         help = "Specify your custom graffiti to be included in blocks. \
                     Defaults to the current version and commit, truncated to fit in 32 bytes. ",
         value_name = "GRAFFITI"
     )]
-    graffiti: Option<String>,
+    pub graffiti: Option<String>,
     #[clap(
         long,
         help = "Refuse to skip more than this many slots when processing a block or attestation. \
@@ -594,28 +595,28 @@ pub struct BeaconNode {
                     but could also cause unnecessary consensus failures, so is disabled by default.",
         value_name = "NUM_SLOTS"
     )]
-    max_skip_slots: Option<String>,
+    pub max_skip_slots: Option<String>,
     #[clap(
         long,
         help = "Run a slasher alongside the beacon node. It is currently only recommended for \
                      expert users because of the immaturity of the slasher UX and the extra \
                      resources required."
     )]
-    slasher: bool,
+    pub slasher: bool,
     #[clap(
         long,
         help = "Set the slasher's database directory.",
         value_name = "PATH",
         requires = "slasher"
     )]
-    slasher_dir: Option<String>,
+    pub slasher_dir: Option<String>,
     #[clap(
         long,
         help = "Configure how often the slasher runs batch processing.",
         value_name = "SECONDS",
         requires = "slasher"
     )]
-    slasher_update_period: Option<String>,
+    pub slasher_update_period: Option<String>,
     #[clap(
         long,
         help = "Set the delay from the start of the slot at which the slasher should ingest \
@@ -624,7 +625,7 @@ pub struct BeaconNode {
         value_name = "SECONDS",
         requires = "slasher"
     )]
-    slasher_slot_offset: Option<String>,
+    pub slasher_slot_offset: Option<String>,
     #[clap(
         long,
         help = "Configure how many epochs of history the slasher keeps. Immutable after \
@@ -632,42 +633,42 @@ pub struct BeaconNode {
         value_name = "EPOCHS",
         requires = "slasher"
     )]
-    slasher_history_length: Option<String>,
+    pub slasher_history_length: Option<String>,
     #[clap(
         long,
         help = "Maximum size of the MDBX database used by the slasher.",
         value_name = "GIGABYTES",
         requires = "slasher"
     )]
-    slasher_max_db_size: Option<String>,
+    pub slasher_max_db_size: Option<String>,
     #[clap(
         long,
         help = "Set the maximum number of attestation roots for the slasher to cache",
         value_name = "COUNT",
         requires = "slasher"
     )]
-    slasher_att_cache_size: Option<String>,
+    pub slasher_att_cache_size: Option<String>,
     #[clap(
         long,
         help = "Number of epochs per validator per chunk stored on disk.",
         value_name = "EPOCHS",
         requires = "slasher"
     )]
-    slasher_chunk_size: Option<String>,
+    pub slasher_chunk_size: Option<String>,
     #[clap(
         long,
         help = "Number of validators per chunk stored on disk.",
         value_name = "NUM_VALIDATORS",
         requires = "slasher"
     )]
-    slasher_validator_chunk_size: Option<String>,
+    pub slasher_validator_chunk_size: Option<String>,
     #[clap(
         long,
         help = "Broadcast slashings found by the slasher to the rest of the network \
                        [disabled by default].",
         requires = "slasher"
     )]
-    slasher_broadcast: Option<String>,
+    pub slasher_broadcast: Option<String>,
     #[clap(
         long,
         help = "Specify a weak subjectivity checkpoint in `block_root:epoch` format to verify \
@@ -676,7 +677,7 @@ pub struct BeaconNode {
                      state use --checkpoint-sync-url.",
         value_name = "WSS_CHECKPOINT"
     )]
-    wss_checkpoint: Option<String>,
+    pub wss_checkpoint: Option<String>,
     #[clap(
         long,
         help = "Set a checkpoint state to start syncing from. Must be aligned and match \
@@ -684,7 +685,7 @@ pub struct BeaconNode {
         value_name = "STATE_SSZ",
         requires = "checkpoint_block"
     )]
-    checkpoint_state: Option<String>,
+    pub checkpoint_state: Option<String>,
     #[clap(
         long,
         help = "Set a checkpoint block to start syncing from. Must be aligned and match \
@@ -692,19 +693,19 @@ pub struct BeaconNode {
         value_name = "BLOCK_SSZ",
         requires = "checkpoint_state"
     )]
-    checkpoint_block: Option<String>,
+    pub checkpoint_block: Option<String>,
     #[clap(
         long,
         help = "Set the remote beacon node HTTP endpoint to use for checkpoint sync.",
         value_name = "BEACON_NODE",
         conflicts_with = "checkpoint_state"
     )]
-    checkpoint_sync_url: Option<String>,
+    pub checkpoint_sync_url: Option<String>,
     #[clap(
         long,
         help = "After a checkpoint sync, reconstruct historic states in the database."
     )]
-    reconstruct_historic_state: bool,
+    pub reconstruct_historic_state: bool,
     #[clap(
         long,
         help = "Enables the automatic detection and monitoring of validators connected to the \
@@ -712,7 +713,7 @@ pub struct BeaconNode {
                     effect of providing additional logging and metrics for locally controlled \
                     validators."
     )]
-    validator_monitor_auto: Option<String>,
+    pub validator_monitor_auto: Option<String>,
     #[clap(
         long,
         help = "A comma-separated list of 0x-prefixed validator public keys. \
@@ -720,21 +721,21 @@ pub struct BeaconNode {
                         logging.",
         value_name = "PUBKEYS"
     )]
-    validator_monitor_pubkeys: Option<String>,
+    pub validator_monitor_pubkeys: Option<String>,
     #[clap(
         long,
         help = "As per --validator-monitor-pubkeys, but the comma-separated list is \
                     contained within a file at the given path.",
         value_name = "PATH"
     )]
-    validator_monitor_file: Option<String>,
+    pub validator_monitor_file: Option<String>,
     #[clap(
         long,
         help = "Disable the timeouts applied to some internal locks by default. This can \
                        lead to less spurious failures on slow hardware but is considered \
                        experimental as it may obscure performance issues."
     )]
-    disable_lock_timeouts: bool,
+    pub disable_lock_timeouts: bool,
 }
 
 #[derive(Parser)]
@@ -749,21 +750,21 @@ pub struct ValidatorClient {
         help = "Deprecated. Use --beacon-nodes.",
         conflicts_with = "beacon_nodes"
     )]
-    beacon_node: Option<String>,
+    pub beacon_node: Option<String>,
     #[clap(
         long,
         value_name = "NETWORK_ADDRESSES",
         help = "Comma-separated addresses to one or more beacon node HTTP APIs. \
                        Default is http://localhost:5052."
     )]
-    beacon_nodes: Option<String>,
+    pub beacon_nodes: Option<String>,
     #[clap(
         long,
         value_name = "NETWORK_ADDRESS",
         help = "Deprecated. Use --beacon-nodes.",
         conflicts_with_all = &["beacon_node", "beacon_nodes"],
     )]
-    server: Option<String>,
+    pub server: Option<String>,
     #[clap(
         long,
         value_name = "VALIDATORS_DIR",
@@ -772,7 +773,7 @@ pub struct ValidatorClient {
                     and the validator_definitions.yml",
         conflicts_with = "datadir"
     )]
-    validators_dir: Option<String>,
+    pub validators_dir: Option<String>,
     #[clap(
         long,
         value_name = "SECRETS_DIRECTORY",
@@ -782,12 +783,12 @@ pub struct ValidatorClient {
                     key. Defaults to ~/.lighthouse/{network}/secrets.",
         conflicts_with = "datadir"
     )]
-    secrets_dir: Option<String>,
+    pub secrets_dir: Option<String>,
     #[clap(
         long,
         help = "DEPRECATED. This flag does nothing and will be removed in a future release."
     )]
-    delete_lockfiles: Option<String>,
+    pub delete_lockfiles: Option<String>,
     #[clap(
         long,
         help = "If present, do not require the slashing protection database to exist before \
@@ -796,26 +797,26 @@ pub struct ValidatorClient {
                      will have been initialized when you imported your validator keys. If you \
                      misplace your database and then run with this flag you risk being slashed."
     )]
-    init_slashing_protection: Option<String>,
+    pub init_slashing_protection: Option<String>,
     #[clap(
         long,
         help = "If present, do not attempt to discover new validators in the validators-dir. Validators \
                 will need to be manually added to the validator_definitions.yml file."
     )]
-    disable_auto_discover: Option<String>,
+    pub disable_auto_discover: Option<String>,
     #[clap(
         long,
         help = "If present, the validator client will still poll for duties if the beacon
                       node is not synced."
     )]
-    allow_unsynced: Option<String>,
+    pub allow_unsynced: Option<String>,
     #[clap(
         long,
         help = "If present, the validator client will use longer timeouts for requests \
                         made to the beacon node. This flag is generally not recommended, \
                         longer timeouts can cause missed duties when fallbacks are used."
     )]
-    use_long_timeouts: Option<String>,
+    pub use_long_timeouts: Option<String>,
     #[clap(
         long,
         value_name = "CERTIFICATE-FILES",
@@ -824,25 +825,25 @@ pub struct ValidatorClient {
                         in addition to the OS trust store. Commas must only be used as a \
                         delimiter, and must not be part of the certificate path."
     )]
-    beacon_nodes_tls_certs: Option<String>,
+    pub beacon_nodes_tls_certs: Option<String>,
     #[clap(
         long,
         help = "Specify your custom graffiti to be included in blocks.",
         value_name = "GRAFFITI"
     )]
-    graffiti: Option<String>,
+    pub graffiti: Option<String>,
     #[clap(
         long,
         help = "Specify a graffiti file to load validator graffitis from.",
         value_name = "GRAFFITI-FILE",
         conflicts_with = "graffiti"
     )]
-    graffiti_file: Option<String>,
+    pub graffiti_file: Option<String>,
     #[clap(
         long,
         help = "Enable the RESTful HTTP API server. Disabled by default."
     )]
-    http: bool,
+    pub http: bool,
     #[clap(
         long,
         value_name = "ADDRESS",
@@ -854,21 +855,21 @@ pub struct ValidatorClient {
                         transport-layer security like a HTTPS reverse-proxy or SSH tunnelling.",
         requires = "unencrypted_http_transport"
     )]
-    http_address: Option<String>,
+    pub http_address: Option<String>,
     #[clap(
         long,
         help = "This is a safety flag to ensure that the user is aware that the http \
                         transport is unencrypted and using a custom HTTP address is unsafe.",
         requires = "http_address"
     )]
-    unencrypted_http_transport: Option<String>,
+    pub unencrypted_http_transport: Option<String>,
     #[clap(
         long,
         value_name = "PORT",
         help = "Set the listen TCP port for the RESTful HTTP API server.",
         default_value = "5062"
     )]
-    http_port: String,
+    pub http_port: String,
     #[clap(
         long,
         value_name = "ORIGIN",
@@ -877,26 +878,26 @@ pub struct ValidatorClient {
                     If no value is supplied, the CORS allowed origin is set to the listen \
                     address of this server (e.g., http://localhost:5062)."
     )]
-    http_allow_origin: Option<String>,
+    pub http_allow_origin: Option<String>,
     #[clap(
         long,
         help = "Enable the Prometheus metrics HTTP server. Disabled by default."
     )]
-    metrics: bool,
+    pub metrics: bool,
     #[clap(
         long,
         value_name = "ADDRESS",
         help = "Set the listen address for the Prometheus metrics HTTP server.",
         default_value = "127.0.0.1"
     )]
-    metrics_address: String,
+    pub metrics_address: String,
     #[clap(
         long,
         value_name = "PORT",
         help = "Set the listen TCP port for the Prometheus metrics HTTP server.",
         default_value = "5064"
     )]
-    metrics_port: String,
+    pub metrics_port: String,
     #[clap(
         long,
         value_name = "ORIGIN",
@@ -905,7 +906,7 @@ pub struct ValidatorClient {
                     If no value is supplied, the CORS allowed origin is set to the listen \
                     address of this server (e.g., http://localhost:5064)."
     )]
-    metrics_allow_origin: Option<String>,
+    pub metrics_allow_origin: Option<String>,
     #[clap(
         long,
         value_name = "ADDRESS",
@@ -916,7 +917,7 @@ pub struct ValidatorClient {
                 validators, IP address and other personal information. Always use a HTTPS connection \
                 and never provide an untrusted URL."
     )]
-    monitoring_endpoint: Option<String>,
+    pub monitoring_endpoint: Option<String>,
     #[clap(
         long,
         value_name = "ENABLE_DOPPELGANGER_PROTECTION",
@@ -930,7 +931,7 @@ pub struct ValidatorClient {
                     ENABLE this functionality, without this flag Lighthouse will begin attesting \
                     immediately."
     )]
-    enable_doppelganger_protection: bool,
+    pub enable_doppelganger_protection: bool,
 }
 
 #[derive(Parser)]
@@ -952,21 +953,21 @@ pub struct BootNode {
         required = true,
         conflicts_with = "network_dir"
     )]
-    enr_address: Option<String>,
+    pub enr_address: Option<String>,
     #[clap(
         long,
         value_name = "PORT",
         help = "The UDP port to listen on.",
         default_value = "9000"
     )]
-    port: String,
+    pub port: String,
     #[clap(
         long,
         value_name = "ADDRESS",
         help = "The address the bootnode will listen for UDP connections.",
         default_value = "0.0.0.0"
     )]
-    listen_address: String,
+    pub listen_address: String,
     #[clap(
         long,
         allow_hyphen_values = true,
@@ -974,7 +975,7 @@ pub struct BootNode {
         help = "One or more comma-delimited base64-encoded ENR's or multiaddr strings of peers to \
         initially add to the local routing table"
     )]
-    boot_nodes: Option<String>,
+    pub boot_nodes: Option<String>,
     #[clap(
         long,
         value_name = "PORT",
@@ -982,24 +983,90 @@ pub struct BootNode {
         to reach this boot node. Set this only if the external port differs from the listening port.",
         conflicts_with = "network_dir"
     )]
-    enr_udp_port: Option<String>,
+    pub enr_udp_port: Option<String>,
     #[clap(
         short = 'x',
         long,
         help = "Discovery can automatically update the node's local ENR with an external IP address \
         and port as seen by other peers on the network. , This enables this feature."
     )]
-    enable_enr_auto_update: Option<String>,
+    pub enable_enr_auto_update: Option<String>,
     #[clap(
         long,
         help = "Disables discv5 packet filter. Useful for testing in smaller networks"
     )]
-    disable_packet_filter: Option<String>,
+    pub disable_packet_filter: Option<String>,
     #[clap(
         value_name = "NETWORK_DIR",
         long,
         help = "The directory which contains the enr and it's assoicated private key"
     )]
-    network_dir: Option<String>,
+    pub network_dir: Option<String>,
 }
 
+// #[derive(Parser)]
+// #[clap(rename_all = "snake_case", visible_aliases = &["a", "am", "account"],
+// about = "Utilities for generating and managing Ethereum 2.0 accounts.")]
+// pub enum AccountManager {
+//     Wallet(Wallet),
+//     Validator(Validator),
+// }
+//
+// #[derive(Parser)]
+// #[clap(about = "Manage wallets, from which validator keys can be derived.")]
+// pub struct Wallet {
+//     #[clap(
+//         long,
+//         value_name = "WALLETS_DIRECTORY",
+//         help = "A path containing Eth2 EIP-2386 wallets. Defaults to ~/.lighthouse/{network}/wallets",
+//         takes_value = true,
+//         conflicts_with = "datadir"
+//     )]
+// pub     wallets_dir: Option<String>,
+//     subcommand: WalletSubcommand,
+// }
+//
+// #[derive(Parser)]
+// pub enum WalletSubcommand {
+//     Create(WalletCreate),
+//     List(WalletList),
+//     Recover(WalletRecover),
+// }
+//
+// #[derive(Parser)]
+// #[clap(about = "Creates a new HD (hierarchical-deterministic) EIP-2386 wallet.")]
+// pub struct WalletCreate {
+//     name: Option<String>,
+//     password: Option<String>,
+//     create_type: Option<String>,
+//     mnemonic: Option<String>,
+//     stdin_inputs: Option<String>,
+//     mnemonic_length: Option<String>,
+// }
+//
+// #[derive(Parser)]
+// #[clap(about = "Provides commands for managing Eth2 validators.")]
+// pub struct Validator {
+//     #[clap(
+//         long,
+//         value_name = "VALIDATOR_DIRECTORY",
+//         help = "The path to search for validator directories. \
+//                     Defaults to ~/.lighthouse/{network}/validators",
+//         takes_value = true,
+//         conflicts_with = "datadir"
+//     )]
+// pub     validator_dir: Option<String>,
+//     subcommand: ValidatorSubcommand,
+// }
+//
+// #[derive(Parser)]
+// #[clap(rename_all = "snake_case")]
+// pub enum ValidatorSubcommand {
+//     Create(ValCreate),
+//     Modify(Modify),
+//     Import(Import),
+//     List(ValList),
+//     Recover(ValRecover),
+//     SlashingProtection(SlashingProtection),
+//     Exit(Exit),
+// }
