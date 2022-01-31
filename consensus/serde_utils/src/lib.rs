@@ -3,6 +3,7 @@ mod quoted_int;
 pub mod fixed_bytes_hex;
 pub mod hex;
 pub mod hex_vec;
+pub mod json_str;
 pub mod list_of_bytes_lists;
 pub mod quoted_u64_vec;
 pub mod u32_hex;

@@ -1,8 +1,10 @@
 #![recursion_limit = "256"]
 
+pub mod cli;
 mod metrics;
 
 use beacon_node::ProductionBeaconNode;
+use clap::Parser;
 use clap::{Arg, ArgMatches};
 use clap_utils::flags::{
     LOGFILE_COMPRESS_FLAG, LOGFILE_DEBUG_LEVEL_FLAG, LOGFILE_MAX_NUMBER_FLAG,
@@ -51,6 +53,8 @@ fn main() {
     if std::env::var("RUST_BACKTRACE").is_err() {
         std::env::set_var("RUST_BACKTRACE", "1");
     }
+
+    let lighthouse = crate::cli::Lighthouse::parse();
 
     let cli_matches = match get_cli_matches() {
         Ok(matches) => matches,

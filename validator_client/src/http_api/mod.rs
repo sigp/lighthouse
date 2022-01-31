@@ -1,14 +1,18 @@
 mod api_secret;
 mod create_validator;
+mod keystores;
 mod tests;
 
 use crate::ValidatorStore;
 use account_utils::mnemonic_from_phrase;
 use create_validator::{create_validators_mnemonic, create_validators_web3signer};
-use eth2::lighthouse_vc::types::{self as api_types, PublicKey, PublicKeyBytes};
+use eth2::lighthouse_vc::{
+    std_types::AuthResponse,
+    types::{self as api_types, PublicKey, PublicKeyBytes},
+};
 use lighthouse_version::version_with_platform;
 use serde::{Deserialize, Serialize};
-use slog::{crit, info, Logger};
+use slog::{crit, info, warn, Logger};
 use slot_clock::SlotClock;
 use std::future::Future;
 use std::marker::PhantomData;
@@ -106,7 +110,7 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
     // Configure CORS.
     let cors_builder = {
         let builder = warp::cors()
-            .allow_methods(vec!["GET", "POST", "PATCH"])
+            .allow_methods(vec!["GET", "POST", "PATCH", "DELETE"])
             .allow_headers(vec!["Content-Type", "Authorization"]);
 
         warp_utils::cors::set_builder_origins(
@@ -125,7 +129,20 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
     }
 
     let authorization_header_filter = ctx.api_secret.authorization_header_filter();
-    let api_token_path = ctx.api_secret.api_token_path();
+    let mut api_token_path = ctx.api_secret.api_token_path();
+
+    // Attempt to convert the path to an absolute path, but don't error if it fails.
+    match api_token_path.canonicalize() {
+        Ok(abs_path) => api_token_path = abs_path,
+        Err(e) => {
+            warn!(
+                log,
+                "Error canonicalizing token path";
+                "error" => ?e,
+            );
+        }
+    };
+
     let signer = ctx.api_secret.signer();
     let signer = warp::any().map(move || signer.clone());
 
@@ -154,8 +171,14 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
             })
         });
 
+    let inner_ctx = ctx.clone();
+    let log_filter = warp::any().map(move || inner_ctx.log.clone());
+
     let inner_spec = Arc::new(ctx.spec.clone());
     let spec_filter = warp::any().map(move || inner_spec.clone());
+
+    let api_token_path_inner = api_token_path.clone();
+    let api_token_path_filter = warp::any().map(move || api_token_path_inner.clone());
 
     // GET lighthouse/version
     let get_node_version = warp::path("lighthouse")
@@ -348,7 +371,7 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
         .and(warp::path("keystore"))
         .and(warp::path::end())
         .and(warp::body::json())
-        .and(validator_dir_filter)
+        .and(validator_dir_filter.clone())
         .and(validator_store_filter.clone())
         .and(signer.clone())
         .and(runtime_filter.clone())
@@ -451,9 +474,9 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
         .and(warp::path::param::<PublicKey>())
         .and(warp::path::end())
         .and(warp::body::json())
-        .and(validator_store_filter)
-        .and(signer)
-        .and(runtime_filter)
+        .and(validator_store_filter.clone())
+        .and(signer.clone())
+        .and(runtime_filter.clone())
         .and_then(
             |validator_pubkey: PublicKey,
              body: api_types::ValidatorPatchRequest,
@@ -495,6 +518,60 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
             },
         );
 
+    // GET /lighthouse/auth
+    let get_auth = warp::path("lighthouse").and(warp::path("auth").and(warp::path::end()));
+    let get_auth = get_auth
+        .and(signer.clone())
+        .and(api_token_path_filter)
+        .and_then(|signer, token_path: PathBuf| {
+            blocking_signed_json_task(signer, move || {
+                Ok(AuthResponse {
+                    token_path: token_path.display().to_string(),
+                })
+            })
+        });
+
+    // Standard key-manager endpoints.
+    let eth_v1 = warp::path("eth").and(warp::path("v1"));
+    let std_keystores = eth_v1.and(warp::path("keystores")).and(warp::path::end());
+
+    // GET /eth/v1/keystores
+    let get_std_keystores = std_keystores
+        .and(signer.clone())
+        .and(validator_store_filter.clone())
+        .and_then(|signer, validator_store: Arc<ValidatorStore<T, E>>| {
+            blocking_signed_json_task(signer, move || Ok(keystores::list(validator_store)))
+        });
+
+    // POST /eth/v1/keystores
+    let post_std_keystores = std_keystores
+        .and(warp::body::json())
+        .and(signer.clone())
+        .and(validator_dir_filter)
+        .and(validator_store_filter.clone())
+        .and(runtime_filter.clone())
+        .and(log_filter.clone())
+        .and_then(
+            |request, signer, validator_dir, validator_store, runtime, log| {
+                blocking_signed_json_task(signer, move || {
+                    keystores::import(request, validator_dir, validator_store, runtime, log)
+                })
+            },
+        );
+
+    // DELETE /eth/v1/keystores
+    let delete_std_keystores = std_keystores
+        .and(warp::body::json())
+        .and(signer)
+        .and(validator_store_filter)
+        .and(runtime_filter)
+        .and(log_filter)
+        .and_then(|request, signer, validator_store, runtime, log| {
+            blocking_signed_json_task(signer, move || {
+                keystores::delete(request, validator_store, runtime, log)
+            })
+        });
+
     let routes = warp::any()
         .and(authorization_header_filter)
         // Note: it is critical that the `authorization_header_filter` is applied to all routes.
@@ -508,16 +585,21 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
                         .or(get_lighthouse_health)
                         .or(get_lighthouse_spec)
                         .or(get_lighthouse_validators)
-                        .or(get_lighthouse_validators_pubkey),
+                        .or(get_lighthouse_validators_pubkey)
+                        .or(get_std_keystores),
                 )
                 .or(warp::post().and(
                     post_validators
                         .or(post_validators_keystore)
                         .or(post_validators_mnemonic)
-                        .or(post_validators_web3signer),
+                        .or(post_validators_web3signer)
+                        .or(post_std_keystores),
                 ))
-                .or(warp::patch().and(patch_validators)),
+                .or(warp::patch().and(patch_validators))
+                .or(warp::delete().and(delete_std_keystores)),
         )
+        // The auth route is the only route that is allowed to be accessed without the API token.
+        .or(warp::get().and(get_auth))
         // Maps errors into HTTP responses.
         .recover(warp_utils::reject::handle_rejection)
         // Add a `Server` header.
@@ -550,7 +632,7 @@ pub async fn blocking_signed_json_task<S, F, T>(
 ) -> Result<impl warp::Reply, warp::Rejection>
 where
     S: Fn(&[u8]) -> String,
-    F: Fn() -> Result<T, warp::Rejection> + Send + 'static,
+    F: FnOnce() -> Result<T, warp::Rejection> + Send + 'static,
     T: Serialize + Send + 'static,
 {
     warp_utils::task::blocking_task(func)

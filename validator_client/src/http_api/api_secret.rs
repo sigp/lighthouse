@@ -162,25 +162,32 @@ impl ApiSecret {
     }
 
     /// Returns the path for the API token file
-    pub fn api_token_path(&self) -> &PathBuf {
-        &self.pk_path
+    pub fn api_token_path(&self) -> PathBuf {
+        self.pk_path.clone()
     }
 
-    /// Returns the value of the `Authorization` header which is used for verifying incoming HTTP
-    /// requests.
-    fn auth_header_value(&self) -> String {
-        format!("Basic {}", self.api_token())
+    /// Returns the values of the `Authorization` header which indicate a valid incoming HTTP
+    /// request.
+    ///
+    /// For backwards-compatibility we accept the token in a basic authentication style, but this is
+    /// technically invalid according to RFC 7617 because the token is not a base64-encoded username
+    /// and password. As such, bearer authentication should be preferred.
+    fn auth_header_values(&self) -> Vec<String> {
+        vec![
+            format!("Basic {}", self.api_token()),
+            format!("Bearer {}", self.api_token()),
+        ]
     }
 
     /// Returns a `warp` header which filters out request that have a missing or inaccurate
     /// `Authorization` header.
     pub fn authorization_header_filter(&self) -> warp::filters::BoxedFilter<()> {
-        let expected = self.auth_header_value();
+        let expected = self.auth_header_values();
         warp::any()
             .map(move || expected.clone())
             .and(warp::filters::header::header("Authorization"))
-            .and_then(move |expected: String, header: String| async move {
-                if header == expected {
+            .and_then(move |expected: Vec<String>, header: String| async move {
+                if expected.contains(&header) {
                     Ok(())
                 } else {
                     Err(warp_utils::reject::invalid_auth(header))

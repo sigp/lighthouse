@@ -843,10 +843,16 @@ fn default_bellatrix_fork_epoch() -> Option<MaybeQuoted<Epoch>> {
     None
 }
 
-fn default_terminal_total_difficulty() -> Uint256 {
-    "115792089237316195423570985008687907853269984665640564039457584007913129638912"
-        .parse()
-        .unwrap()
+/// Placeholder value: 2^256-2^10 (115792089237316195423570985008687907853269984665640564039457584007913129638912).
+///
+/// Taken from https://github.com/ethereum/consensus-specs/blob/d5e4828aecafaf1c57ef67a5f23c4ae7b08c5137/configs/mainnet.yaml#L15-L16
+const fn default_terminal_total_difficulty() -> Uint256 {
+    ethereum_types::U256([
+        18446744073709550592,
+        18446744073709551615,
+        18446744073709551615,
+        18446744073709551615,
+    ])
 }
 
 fn default_terminal_block_hash() -> Hash256 {
@@ -1193,5 +1199,74 @@ mod yaml_tests {
             .apply_to_chain_spec::<MinimalEthSpec>(&spec)
             .expect("should have applied spec");
         assert_eq!(new_spec, ChainSpec::minimal());
+    }
+
+    #[test]
+    fn test_defaults() {
+        // Spec yaml string. Fields that serialize/deserialize with a default value are commented out.
+        let spec = r#"
+        PRESET_BASE: 'mainnet'
+        #TERMINAL_TOTAL_DIFFICULTY: 115792089237316195423570985008687907853269984665640564039457584007913129638911
+        #TERMINAL_BLOCK_HASH: 0x0000000000000000000000000000000000000000000000000000000000000001
+        #TERMINAL_BLOCK_HASH_ACTIVATION_EPOCH: 18446744073709551614
+        MIN_GENESIS_ACTIVE_VALIDATOR_COUNT: 16384
+        MIN_GENESIS_TIME: 1606824000
+        GENESIS_FORK_VERSION: 0x00000000
+        GENESIS_DELAY: 604800
+        ALTAIR_FORK_VERSION: 0x01000000
+        ALTAIR_FORK_EPOCH: 74240
+        #BELLATRIX_FORK_VERSION: 0x02000000
+        #BELLATRIX_FORK_EPOCH: 18446744073709551614
+        SHARDING_FORK_VERSION: 0x03000000
+        SHARDING_FORK_EPOCH: 18446744073709551615
+        SECONDS_PER_SLOT: 12
+        SECONDS_PER_ETH1_BLOCK: 14
+        MIN_VALIDATOR_WITHDRAWABILITY_DELAY: 256
+        SHARD_COMMITTEE_PERIOD: 256
+        ETH1_FOLLOW_DISTANCE: 2048
+        INACTIVITY_SCORE_BIAS: 4
+        INACTIVITY_SCORE_RECOVERY_RATE: 16
+        EJECTION_BALANCE: 16000000000
+        MIN_PER_EPOCH_CHURN_LIMIT: 4
+        CHURN_LIMIT_QUOTIENT: 65536
+        PROPOSER_SCORE_BOOST: 70
+        DEPOSIT_CHAIN_ID: 1
+        DEPOSIT_NETWORK_ID: 1
+        DEPOSIT_CONTRACT_ADDRESS: 0x00000000219ab540356cBB839Cbe05303d7705Fa
+        "#;
+
+        let chain_spec: Config = serde_yaml::from_str(spec).unwrap();
+        assert_eq!(
+            chain_spec.terminal_total_difficulty,
+            default_terminal_total_difficulty()
+        );
+        assert_eq!(
+            chain_spec.terminal_block_hash,
+            default_terminal_block_hash()
+        );
+        assert_eq!(
+            chain_spec.terminal_block_hash_activation_epoch,
+            default_terminal_block_hash_activation_epoch()
+        );
+
+        assert_eq!(
+            chain_spec.bellatrix_fork_epoch,
+            default_bellatrix_fork_epoch()
+        );
+
+        assert_eq!(
+            chain_spec.bellatrix_fork_version,
+            default_bellatrix_fork_version()
+        );
+    }
+
+    #[test]
+    fn test_total_terminal_difficulty() {
+        assert_eq!(
+            Ok(default_terminal_total_difficulty()),
+            Uint256::from_dec_str(
+                "115792089237316195423570985008687907853269984665640564039457584007913129638912"
+            )
+        );
     }
 }

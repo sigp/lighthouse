@@ -10,6 +10,7 @@ path = "src/lib.rs"
 
 [dev-dependencies]
 tokio = { version = "1.14.0", features = ["time", "rt-multi-thread", "macros"] }
+logging = { path = "../common/logging" }
 
 [dependencies]
 tree_hash = "0.4.1"
@@ -48,7 +49,7 @@ hyper = "0.14.4"
 eth2_serde_utils = "0.1.1"
 libsecp256k1 = "0.6.0"
 ring = "0.16.19"
-rand = "0.7.3"
+rand = { version = "0.7.3", features = ["small_rng"] }
 lighthouse_metrics = { path = "../common/lighthouse_metrics" }
 lazy_static = "1.4.0"
 itertools = "0.10.0"

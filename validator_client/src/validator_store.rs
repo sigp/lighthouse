@@ -6,7 +6,9 @@ use crate::{
 };
 use account_utils::{validator_definitions::ValidatorDefinition, ZeroizeString};
 use parking_lot::{Mutex, RwLock};
-use slashing_protection::{NotSafe, Safe, SlashingDatabase};
+use slashing_protection::{
+    interchange::Interchange, InterchangeError, NotSafe, Safe, SlashingDatabase,
+};
 use slog::{crit, error, info, warn, Logger};
 use slot_clock::SlotClock;
 use std::iter::FromIterator;
@@ -183,7 +185,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
 
         self.validators
             .write()
-            .add_definition(validator_def.clone())
+            .add_definition_replace_disabled(validator_def.clone())
             .await
             .map_err(|e| format!("Unable to add definition: {:?}", e))?;
 
@@ -691,6 +693,48 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
         );
 
         Ok(SignedContributionAndProof { message, signature })
+    }
+
+    pub fn import_slashing_protection(
+        &self,
+        interchange: Interchange,
+    ) -> Result<(), InterchangeError> {
+        self.slashing_protection
+            .import_interchange_info(interchange, self.genesis_validators_root)?;
+        Ok(())
+    }
+
+    /// Export slashing protection data while also disabling the given keys in the database.
+    ///
+    /// If any key is unknown to the slashing protection database it will be silently omitted
+    /// from the result. It is the caller's responsibility to check whether all keys provided
+    /// had data returned for them.
+    pub fn export_slashing_protection_for_keys(
+        &self,
+        pubkeys: &[PublicKeyBytes],
+    ) -> Result<Interchange, InterchangeError> {
+        self.slashing_protection.with_transaction(|txn| {
+            let known_pubkeys = pubkeys
+                .iter()
+                .filter_map(|pubkey| {
+                    let validator_id = self
+                        .slashing_protection
+                        .get_validator_id_ignoring_status(txn, pubkey)
+                        .ok()?;
+
+                    Some(
+                        self.slashing_protection
+                            .update_validator_status(txn, validator_id, false)
+                            .map(|()| *pubkey),
+                    )
+                })
+                .collect::<Result<Vec<PublicKeyBytes>, _>>()?;
+            self.slashing_protection.export_interchange_info_in_txn(
+                self.genesis_validators_root,
+                Some(&known_pubkeys),
+                txn,
+            )
+        })
     }
 
     /// Prune the slashing protection database so that it remains performant.
