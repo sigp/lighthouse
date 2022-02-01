@@ -304,11 +304,11 @@ impl ExecutionLayer {
     /// Updates the proposer preparation data provided by validators
     pub fn update_proposer_preparation_blocking(
         &self,
-        current_epoch: Epoch,
+        update_epoch: Epoch,
         preparation_data: &[ProposerPreparationData],
     ) -> Result<(), Error> {
         self.block_on_generic(|_| async move {
-            self.update_proposer_preparation(current_epoch, preparation_data)
+            self.update_proposer_preparation(update_epoch, preparation_data)
                 .await
         })?
     }
@@ -316,7 +316,7 @@ impl ExecutionLayer {
     /// Updates the proposer preparation data provided by validators
     async fn update_proposer_preparation(
         &self,
-        current_epoch: Epoch,
+        update_epoch: Epoch,
         preparation_data: &[ProposerPreparationData],
     ) -> Result<(), Error> {
         let mut proposer_preparation_data = self.proposer_preparation_data().await;
@@ -324,7 +324,7 @@ impl ExecutionLayer {
             proposer_preparation_data.insert(
                 preparation_entry.validator_index,
                 ProposerPreparationDataEntry {
-                    update_epoch: current_epoch,
+                    update_epoch,
                     preparation_data: preparation_entry.clone(),
                 },
             );
