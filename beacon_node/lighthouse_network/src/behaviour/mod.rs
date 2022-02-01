@@ -916,7 +916,7 @@ impl<TSpec: EthSpec> NetworkBehaviourEventProcess<GossipsubEvent> for Behaviour<
                                 Err(e) => {
                                     warn!(self.log, "Gossip message publish failed on retry"; "topic" => topic_str, "error" => %e);
                                     if let Some(v) = metrics::get_int_counter(
-                                        &metrics::GOSSIP_FAILED_LATE_PUBLISH_PER_MAIN_TOPIC,
+                                        &metrics::GOSSIP_FAILED_LATE_PUBLISH_PER_TOPIC_KIND,
                                         &[topic_str],
                                     ) {
                                         v.inc()
@@ -1183,7 +1183,7 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
                 Err(e) => warn!(self.log, "Gossip cache error"; "error" => e),
                 Ok(expired_topic) => {
                     if let Some(v) = metrics::get_int_counter(
-                        &metrics::GOSSIP_FAILED_LATE_PUBLISH_PER_MAIN_TOPIC,
+                        &metrics::GOSSIP_EXPIRED_LATE_PUBLISH_PER_TOPIC_KIND,
                         &[expired_topic.kind().as_ref()],
                     ) {
                         v.inc()
