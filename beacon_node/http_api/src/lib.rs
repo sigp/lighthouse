@@ -2207,6 +2207,9 @@ pub fn serve<T: BeaconChainTypes>(
                         .as_ref()
                         .ok_or(BeaconChainError::ExecutionLayerMissing)
                         .map_err(warp_utils::reject::beacon_chain_error)?;
+                    let current_epoch = chain
+                        .epoch()
+                        .map_err(warp_utils::reject::beacon_chain_error)?;
 
                     info!(
                         log,
@@ -2218,7 +2221,7 @@ pub fn serve<T: BeaconChainTypes>(
                     );
 
                     execution_layer
-                        .update_proposer_preparation_blocking(&preparation_data)
+                        .update_proposer_preparation_blocking(current_epoch, &preparation_data)
                         .map_err(|_e| {
                             warp_utils::reject::custom_bad_request(
                                 "error processing proposer preparations".to_string(),

@@ -19,7 +19,7 @@ use tokio::{
     sync::{Mutex, MutexGuard},
     time::{sleep, sleep_until, Instant},
 };
-use types::{ChainSpec, ProposerPreparationData};
+use types::{ChainSpec, Epoch, ProposerPreparationData};
 
 pub use engine_api::{http::HttpJsonRpc, ExecutePayloadResponseStatus};
 
@@ -57,10 +57,16 @@ impl From<ApiError> for Error {
     }
 }
 
+#[derive(Clone)]
+pub struct ProposerPreparationDataEntry {
+    update_epoch: Epoch,
+    preparation_data: ProposerPreparationData,
+}
+
 struct Inner {
     engines: Engines<HttpJsonRpc>,
     suggested_fee_recipient: Option<Address>,
-    proposer_preparation_data: Mutex<HashMap<u64, ProposerPreparationData>>,
+    proposer_preparation_data: Mutex<HashMap<u64, ProposerPreparationDataEntry>>,
     execution_blocks: Mutex<LruCache<Hash256, ExecutionBlock>>,
     executor: TaskExecutor,
     log: Logger,
@@ -137,7 +143,7 @@ impl ExecutionLayer {
     /// Note: this function returns a mutex guard, be careful to avoid deadlocks.
     async fn proposer_preparation_data(
         &self,
-    ) -> MutexGuard<'_, HashMap<u64, ProposerPreparationData>> {
+    ) -> MutexGuard<'_, HashMap<u64, ProposerPreparationDataEntry>> {
         self.inner.proposer_preparation_data.lock().await
     }
 
@@ -248,6 +254,48 @@ impl ExecutionLayer {
         self.engines().upcheck_not_synced(Logging::Disabled).await;
     }
 
+    /// Spawns a routine which cleans the cached proposer preparations periodically.
+    pub fn spawn_clean_proposer_preparation_routine<S: SlotClock + 'static, T: EthSpec>(
+        &self,
+        slot_clock: S,
+    ) {
+        let preparation_cleaner = |el: ExecutionLayer| async move {
+            // Start the loop to periodically clean proposer preparation cache.
+            loop {
+                if let Some(duration_to_next_epoch) =
+                    slot_clock.duration_to_next_epoch(T::slots_per_epoch())
+                {
+                    // Wait for next epoch
+                    sleep(duration_to_next_epoch).await;
+
+                    match slot_clock
+                        .now()
+                        .map(|slot| slot.epoch(T::slots_per_epoch()))
+                    {
+                        Some(current_epoch) => el
+                            .clean_proposer_preparation(current_epoch)
+                            .await
+                            .map_err(|e| {
+                                error!(
+                                    el.log(),
+                                    "Failed to clean proposer preparation cache";
+                                    "error" => format!("{:?}", e)
+                                )
+                            })
+                            .unwrap_or(()),
+                        None => error!(el.log(), "Failed to get current epoch from slot clock"),
+                    }
+                } else {
+                    error!(el.log(), "Failed to read slot clock");
+                    // If we can't read the slot clock, just wait another slot and retry.
+                    sleep(slot_clock.slot_duration()).await;
+                }
+            }
+        };
+
+        self.spawn(preparation_cleaner, "exec_preparation_cleanup");
+    }
+
     /// Returns `true` if there is at least one synced and reachable engine.
     pub async fn is_synced(&self) -> bool {
         self.engines().any_synced().await
@@ -256,33 +304,55 @@ impl ExecutionLayer {
     /// Updates the proposer preparation data provided by validators
     pub fn update_proposer_preparation_blocking(
         &self,
+        current_epoch: Epoch,
         preparation_data: &[ProposerPreparationData],
     ) -> Result<(), Error> {
         self.block_on_generic(|_| async move {
-            self.update_proposer_preparation(preparation_data).await
+            self.update_proposer_preparation(current_epoch, preparation_data)
+                .await
         })?
     }
 
     /// Updates the proposer preparation data provided by validators
     async fn update_proposer_preparation(
         &self,
+        current_epoch: Epoch,
         preparation_data: &[ProposerPreparationData],
     ) -> Result<(), Error> {
         let mut proposer_preparation_data = self.proposer_preparation_data().await;
         for preparation_entry in preparation_data {
-            proposer_preparation_data
-                .insert(preparation_entry.validator_index, preparation_entry.clone());
+            proposer_preparation_data.insert(
+                preparation_entry.validator_index,
+                ProposerPreparationDataEntry {
+                    update_epoch: current_epoch,
+                    preparation_data: preparation_entry.clone(),
+                },
+            );
         }
+
+        Ok(())
+    }
+
+    /// Removes expired entries from cached proposer preparations
+    async fn clean_proposer_preparation(&self, current_epoch: Epoch) -> Result<(), Error> {
+        let mut proposer_preparation_data = self.proposer_preparation_data().await;
+
+        // Keep all entries that have been updated in the last 2 epochs
+        let retain_epoch = current_epoch.saturating_sub(Epoch::new(2));
+        proposer_preparation_data.retain(|_validator_index, preparation_entry| {
+            preparation_entry.update_epoch >= retain_epoch
+        });
 
         Ok(())
     }
 
     /// Returns the fee-recipient address that should be used to build a block
     async fn get_suggested_fee_recipient(&self, proposer_index: u64) -> Address {
-        if let Some(preparation_data) = self.proposer_preparation_data().await.get(&proposer_index)
+        if let Some(preparation_data_entry) =
+            self.proposer_preparation_data().await.get(&proposer_index)
         {
             // The values provided via the API have first priority.
-            preparation_data.fee_recipient
+            preparation_data_entry.preparation_data.fee_recipient
         } else if let Some(address) = self.inner.suggested_fee_recipient {
             // If there has been no fee recipient provided via the API, but the BN has been provided
             // with a global default address, use that.
