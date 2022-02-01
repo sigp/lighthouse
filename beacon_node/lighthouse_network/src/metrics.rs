@@ -85,19 +85,19 @@ lazy_static! {
         try_create_int_counter_vec(
             "gossipsub_late_publish_per_topic_kind",
             "Messages published late to gossipsub per topic kind.",
-            &["topic_hash"]
+            &["topic_kind"]
         );
     pub static ref GOSSIP_EXPIRED_LATE_PUBLISH_PER_TOPIC_KIND: Result<IntCounterVec> =
         try_create_int_counter_vec(
             "gossipsub_expired_late_publish_per_topic_kind",
             "Messages that expired waiting to be published on retry to gossipsub per topic kind.",
-            &["topic_hash"]
+            &["topic_kind"]
         );
     pub static ref GOSSIP_FAILED_LATE_PUBLISH_PER_TOPIC_KIND: Result<IntCounterVec> =
         try_create_int_counter_vec(
             "gossipsub_failed_late_publish_per_topic_kind",
             "Messages that failed to be published on retry to gossipsub per topic kind.",
-            &["topic_hash"]
+            &["topic_kind"]
         );
     pub static ref PEER_SCORE_DISTRIBUTION: Result<IntGaugeVec> =
         try_create_int_gauge_vec(
