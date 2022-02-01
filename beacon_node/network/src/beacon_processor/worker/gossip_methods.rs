@@ -350,9 +350,12 @@ impl<T: BeaconChainTypes> Worker<T> {
                         &self.chain.slot_clock,
                     );
 
-                // Indicate to the `Network` service that this message is valid and can be
-                // propagated on the gossip network.
-                self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Accept);
+                // If the attestation is still timely, propagate it.
+                self.propagate_attestation_if_timely(
+                    verified_attestation.attestation(),
+                    message_id,
+                    peer_id,
+                );
 
                 if !should_import {
                     return;
@@ -543,9 +546,12 @@ impl<T: BeaconChainTypes> Worker<T> {
                 let aggregate = &verified_aggregate.signed_aggregate;
                 let indexed_attestation = &verified_aggregate.indexed_attestation;
 
-                // Indicate to the `Network` service that this message is valid and can be
-                // propagated on the gossip network.
-                self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Accept);
+                // If the attestation is still timely, propagate it.
+                self.propagate_attestation_if_timely(
+                    verified_aggregate.attestation(),
+                    message_id,
+                    peer_id,
+                );
 
                 // Register the attestation with any monitored validators.
                 self.chain
@@ -1169,9 +1175,8 @@ impl<T: BeaconChainTypes> Worker<T> {
             }
         };
 
-        // Indicate to the `Network` service that this message is valid and can be
-        // propagated on the gossip network.
-        self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Accept);
+        // If the message is still timely, propagate it.
+        self.propagate_sync_message_if_timely(message_slot, message_id, peer_id);
 
         // Register the sync signature with any monitored validators.
         self.chain
@@ -1233,9 +1238,8 @@ impl<T: BeaconChainTypes> Worker<T> {
             }
         };
 
-        // Indicate to the `Network` service that this message is valid and can be
-        // propagated on the gossip network.
-        self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Accept);
+        // If the message is still timely, propagate it.
+        self.propagate_sync_message_if_timely(contribution_slot, message_id, peer_id);
 
         self.chain
             .validator_monitor
@@ -2099,5 +2103,51 @@ impl<T: BeaconChainTypes> Worker<T> {
             "peer_id" => %peer_id,
             "type" => ?message_type,
         );
+    }
+
+    /// Propagate (accept) if `is_timely == true`, otherwise ignore.
+    fn propagate_if_timely(&self, is_timely: bool, message_id: MessageId, peer_id: PeerId) {
+        if is_timely {
+            // The message is still relevant, propagate.
+            self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Accept);
+        } else {
+            // The message is not relevant, ignore. It might be that this message became irrelevant
+            // during the time it took to process it, or it was received invalid.
+            self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
+        }
+    }
+
+    /// If an attestation (agg. or unagg.) is still valid with respect to the current time (i.e.,
+    /// timely), propagate it on gossip. Otherwise, ignore it.
+    fn propagate_attestation_if_timely(
+        &self,
+        attestation: &Attestation<T::EthSpec>,
+        message_id: MessageId,
+        peer_id: PeerId,
+    ) {
+        let is_timely = attestation_verification::verify_propagation_slot_range(
+            &self.chain.slot_clock,
+            attestation,
+        )
+        .is_ok();
+
+        self.propagate_if_timely(is_timely, message_id, peer_id)
+    }
+
+    /// If a sync committee signature or sync committee contribution is still valid with respect to
+    /// the current time (i.e., timely), propagate it on gossip. Otherwise, ignore it.
+    fn propagate_sync_message_if_timely(
+        &self,
+        sync_message_slot: Slot,
+        message_id: MessageId,
+        peer_id: PeerId,
+    ) {
+        let is_timely = self
+            .chain
+            .slot_clock
+            .now()
+            .map_or(false, |current_slot| sync_message_slot == current_slot);
+
+        self.propagate_if_timely(is_timely, message_id, peer_id)
     }
 }
