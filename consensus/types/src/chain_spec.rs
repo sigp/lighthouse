@@ -750,6 +750,7 @@ impl ChainSpec {
                 .expect("addition does not overflow"),
             terminal_block_hash: Hash256::zero(),
             terminal_block_hash_activation_epoch: Epoch::new(u64::MAX),
+            safe_slots_to_import_optimistically: 128u64,
 
             /*
              * Network specific
@@ -1239,6 +1240,7 @@ mod yaml_tests {
         #TERMINAL_TOTAL_DIFFICULTY: 115792089237316195423570985008687907853269984665640564039457584007913129638911
         #TERMINAL_BLOCK_HASH: 0x0000000000000000000000000000000000000000000000000000000000000001
         #TERMINAL_BLOCK_HASH_ACTIVATION_EPOCH: 18446744073709551614
+        #SAFE_SLOTS_TO_IMPORT_OPTIMISTICALLY: 2
         MIN_GENESIS_ACTIVE_VALIDATOR_COUNT: 16384
         MIN_GENESIS_TIME: 1606824000
         GENESIS_FORK_VERSION: 0x00000000
@@ -1277,6 +1279,10 @@ mod yaml_tests {
         assert_eq!(
             chain_spec.terminal_block_hash_activation_epoch,
             default_terminal_block_hash_activation_epoch()
+        );
+        assert_eq!(
+            chain_spec.safe_slots_to_import_optimistically,
+            default_safe_slots_to_import_optimistically()
         );
 
         assert_eq!(

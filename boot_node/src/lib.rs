@@ -95,6 +95,15 @@ fn main<T: EthSpec>(
         serde_json::to_writer(&mut file, &config_sz)
             .map_err(|e| format!("Error serializing config: {:?}", e))?;
     }
+    if let Some(dump_path) = clap_utils::parse_optional::<PathBuf>(lh_matches, "dump-chain-config")?
+    {
+        let chain_config =
+            types::Config::from_chain_spec::<T>(&eth2_network_config.chain_spec::<T>()?);
+        let mut file = File::create(dump_path)
+            .map_err(|e| format!("Failed to create dumped chain config: {:?}", e))?;
+        serde_yaml::to_writer(&mut file, &chain_config)
+            .map_err(|e| format!("Error serializing chain config: {:?}", e))?;
+    }
 
     // Run the boot node
     if !lh_matches.is_present("immediate-shutdown") {

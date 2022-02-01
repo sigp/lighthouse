@@ -17,7 +17,7 @@ use std::fs::File;
 use std::path::PathBuf;
 use std::process::exit;
 use task_executor::ShutdownReason;
-use types::{EthSpec, EthSpecId};
+use types::{Config, EthSpec, EthSpecId};
 use validator_client::ProductionValidatorClient;
 
 fn bls_library_name() -> &'static str {
@@ -190,6 +190,14 @@ fn main() {
                 .long("dump-config")
                 .hidden(true)
                 .help("Dumps the config to a desired location. Used for testing only.")
+                .takes_value(true)
+                .global(true)
+        )
+        .arg(
+            Arg::with_name("dump-chain-config")
+                .long("dump-chain-config")
+                .hidden(true)
+                .help("Dumps the chain config to a desired location. Used for testing only.")
                 .takes_value(true)
                 .global(true)
         )
@@ -494,6 +502,15 @@ fn run<E: EthSpec>(
                 serde_json::to_writer(&mut file, &config)
                     .map_err(|e| format!("Error serializing config: {:?}", e))?;
             };
+            if let Some(dump_path) =
+                clap_utils::parse_optional::<PathBuf>(matches, "dump-chain-config")?
+            {
+                let chain_config = Config::from_chain_spec::<E>(&context.eth2_config.spec);
+                let mut file = File::create(dump_path)
+                    .map_err(|e| format!("Failed to create dumped chain config: {:?}", e))?;
+                serde_yaml::to_writer(&mut file, &chain_config)
+                    .map_err(|e| format!("Error serializing chain config: {:?}", e))?;
+            };
 
             executor.clone().spawn(
                 async move {
@@ -526,6 +543,15 @@ fn run<E: EthSpec>(
                     .map_err(|e| format!("Failed to create dumped config: {:?}", e))?;
                 serde_json::to_writer(&mut file, &config)
                     .map_err(|e| format!("Error serializing config: {:?}", e))?;
+            };
+            if let Some(dump_path) =
+                clap_utils::parse_optional::<PathBuf>(matches, "dump-chain-config")?
+            {
+                let chain_config = Config::from_chain_spec::<E>(&context.eth2_config.spec);
+                let mut file = File::create(dump_path)
+                    .map_err(|e| format!("Failed to create dumped chain config: {:?}", e))?;
+                serde_yaml::to_writer(&mut file, &chain_config)
+                    .map_err(|e| format!("Error serializing chain config: {:?}", e))?;
             };
             if !shutdown_flag {
                 executor.clone().spawn(
