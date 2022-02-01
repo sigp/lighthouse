@@ -1,6 +1,7 @@
 use super::client::Client;
 use super::score::{PeerAction, Score, ScoreState};
 use super::sync_status::SyncStatus;
+use crate::discovery::Eth2Enr;
 use crate::Multiaddr;
 use crate::{rpc::MetaData, types::Subnet};
 use discv5::Enr;
@@ -142,6 +143,31 @@ impl<T: EthSpec> PeerInfo<T> {
     /// Returns if the peer is subscribed to a given `Subnet` from the gossipsub subscriptions.
     pub fn on_subnet_gossipsub(&self, subnet: &Subnet) -> bool {
         self.subnets.contains(subnet)
+    }
+
+    /// Returns true if the peer is connected to a long-lived subnet.
+    pub fn has_long_lived_subnet(&self) -> bool {
+        // Check the meta_data
+        if let Some(meta_data) = self.meta_data {
+            if !meta_data.attnets().is_zero() && !self.subnets.is_empty() {
+                return true;
+            }
+            if let Ok(sync) = meta_data.syncnets() {
+                if !sync.is_zero() {
+                    return true;
+                }
+            }
+        }
+
+        // We may not have the metadata but may have an ENR. Lets check that
+        if let Some(enr) = self.enr {
+            if let Ok(attnets) = enr.attestation_bitfield::<T>() {
+                if !attnets.is_zero() && !self.subnets.is_empty() {
+                    return true;
+                }
+            }
+        }
+        return false;
     }
 
     /// Returns the seen addresses of the peer.

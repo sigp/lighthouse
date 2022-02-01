@@ -339,6 +339,11 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
         (self.target_peers as f32 * MIN_OUTBOUND_ONLY_FACTOR).ceil() as usize
     }
 
+    /// The minimum number of outbound peers that we reach before we start another discovery query.
+    fn target_outbound_peers(&self) -> usize {
+        (self.target_peers as f32 * TARGET_OUTBOUND_ONLY_FACTOR).ceil() as usize
+    }
+
     /// The maximum number of peers that are connected or dialing before we refuse to do another
     /// discovery search for more outbound peers. We can use up to half the priority peer excess allocation.
     fn max_outbound_dialing_peers(&self) -> usize {
@@ -857,47 +862,91 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
     /// Remove excess peers back down to our target values. 
     /// This prioritises peers with a good score and uniform distribution of peers across
     /// subnets.
+    ///
+    /// The logic for the peer pruning is as follows:
+    ///
+    /// Global rules:
+    /// Always maintain peers we need for a validator duty.
+    /// Do not prune outbound peers to exceed our outbound target. 
+    /// Do not prune more peers than our target peer count.
+    ///
+    /// Prune peers in the following order:
+    /// 1. Remove worst scoring peers
+    /// 2. Remove peers that are not subscribed to a subnet (they have less value)
+    /// 3. Remove peers that we have many on any particular subnet
+    /// 4. Randomly remove peers if all the above are satisfied
+    ///
     fn prune_excess_peers(&mut self) {
-        // Keep a list of peers we are disconnecting
-        let mut disconnecting_peers = Vec::new();
-        let connected_peer_count = self.network_globals.connected_peers();
-        let min_outbound_only_target =
-            (self.target_peers as f32 * MIN_OUTBOUND_ONLY_FACTOR).ceil() as usize;
+        // Keep a list of peers we are pruning.
+        let mut peers_to_prune = Vec::new();
 
+        // If we need to prune, start collecting peers based on the logic described above.
         if connected_peer_count > self.target_peers {
-            // Remove excess peers with the priorities:
-            // 1. Keep any peer we need for a subnet activity
-            // 2. Remove worst scoring peers first
-            // 3. Remove peers that are not subscribed to a subnet
-            // 4. Remove peers that we have many on any particular subnet
-            // 5. Randomly remove peers if all the above are satisfied
-            // 
-            // In each of the above order, we avoid removing more than the minimum 
-            outbound_only_peer_count = self.network_globals.connected_outbound_only_peers();
-            let mut n_outbound_removed = 0;
 
-            // 1. and 2. Look through peers that have a negative score
+            // The current number of connected peers.
+            let connected_peer_count = self.network_globals.connected_peers();
+            let connected_outbound_peer_count = self.network_globals.connected_outbound_only_peers();
+
+            /// Keep track of the number of outbound peers we are pruning.
+            let mut outbound_peers_pruned = 0;
+
+
+            let prune_peers = | filter | {
             for (peer_id, info) in self
                 .network_globals
                 .peers
                 .read()
                 .worst_connected_peers()
                 .iter()
-                .filter(|(_, info)| !info.has_future_duty() && info.score() < 0 )
+                .filter(|(_, info)| !info.has_future_duty() && filter )
             {
-                if disconnecting_peers.len() == connected_peer_count - self.target_peers {
+                if disconnecting_peers.len() <= connected_peer_count.saturating_sub(self.target_peers) {
                     // We have found all the peers we need to drop, end.
                     break;
                 }
-                // Only remove up to the minimum outbound peer count.
+                // Only remove up to the target outbound peer count.
                 if info.is_outbound_only() {
-                    if self.min_outbound_only_peers() < outbound_only_peer_count - n_outbound_removed {
-                        n_outbound_removed += 1;
+                    if self.target_outbound_only_peers() < connected_outbound_peer_count - outbound_peers_pruned {
+                        outbound_peers_pruned += 1;
                     } else {
                         continue;
                     }
                 }
                 disconnecting_peers.push(**peer_id);
+            }
+            };
+
+
+            // 1. Look through peers that have the worst score (ignoring non-penalized scored peers).
+            prune_peers(info.score() < 0 );
+
+            // 2. Attempt to remove peers that are not subscribed to a subnet, if we still need to
+            //    prune more.
+            if peers_to_prune.len() <= connected_peer_count.saturating_sub(self.target_peers) {
+                prune_peers(!info.has_long_lived_subnet());
+            }
+
+            // 3. Remove peers that we excess of on a given subnet
+            if peers_to_prune.len() <= connected_peer_count.saturating_sub(self.target_peers) {
+
+            }
+
+            if peers_to_prune.len() <= connected_peer_count.saturating_sub(self.target_peers) {
+                prune_peers(!info.has_long_lived_subnet());
+            }
+            prune_peers(
+
+
+                for (peer_id, info) in self.network_globals.peers.read().worst_connected_peers().iter().filter(|(_, info)| !info.hash_future_duty() && info.) {
+                if disconnecting_peers.len() >= connected_peer_count.saturating_sub(self.target_peers) {
+                    // We have found all the peers we need to drop, end.
+                    break;
+                }
+
+
+
+
+
             }
 
 
