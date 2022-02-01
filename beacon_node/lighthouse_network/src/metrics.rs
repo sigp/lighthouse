@@ -81,22 +81,22 @@ lazy_static! {
             "Gossipsub messages that we did not accept, per client",
             &["client", "validation_result"]
         );
-    pub static ref GOSSIP_LATE_PUBLISH_PER_MAIN_TOPIC: Result<IntCounterVec> =
+    pub static ref GOSSIP_LATE_PUBLISH_PER_TOPIC_KIND: Result<IntCounterVec> =
         try_create_int_counter_vec(
-            "gossipsub_late_publish_per_main_topic",
-            "Messages published late to gossipsub per main topic.",
+            "gossipsub_late_publish_per_topic_kind",
+            "Messages published late to gossipsub per topic kind.",
             &["topic_hash"]
         );
-    pub static ref GOSSIP_EXPIRED_LATE_PUBLISH_PER_MAIN_TOPIC: Result<IntCounterVec> =
+    pub static ref GOSSIP_EXPIRED_LATE_PUBLISH_PER_TOPIC_KIND: Result<IntCounterVec> =
         try_create_int_counter_vec(
-            "gossipsub_expired_late_publish_per_main_topic",
-            "Messages that expired waiting to be published on retry to gossipsub per main topic.",
+            "gossipsub_expired_late_publish_per_topic_kind",
+            "Messages that expired waiting to be published on retry to gossipsub per topic kind.",
             &["topic_hash"]
         );
-    pub static ref GOSSIP_FAILED_LATE_PUBLISH_PER_MAIN_TOPIC: Result<IntCounterVec> =
+    pub static ref GOSSIP_FAILED_LATE_PUBLISH_PER_TOPIC_KIND: Result<IntCounterVec> =
         try_create_int_counter_vec(
-            "gossipsub_failed_late_publish_per_main_topic",
-            "Messages that failed to be published on retry to gossipsub per main topic.",
+            "gossipsub_failed_late_publish_per_topic_kind",
+            "Messages that failed to be published on retry to gossipsub per topic kind.",
             &["topic_hash"]
         );
     pub static ref PEER_SCORE_DISTRIBUTION: Result<IntGaugeVec> =

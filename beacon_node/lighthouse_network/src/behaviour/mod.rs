@@ -907,7 +907,7 @@ impl<TSpec: EthSpec> NetworkBehaviourEventProcess<GossipsubEvent> for Behaviour<
                                 Ok(_) => {
                                     warn!(self.log, "Gossip message published on retry"; "topic" => topic_str);
                                     if let Some(v) = metrics::get_int_counter(
-                                        &metrics::GOSSIP_LATE_PUBLISH_PER_MAIN_TOPIC,
+                                        &metrics::GOSSIP_LATE_PUBLISH_PER_TOPIC_KIND,
                                         &[topic_str],
                                     ) {
                                         v.inc()
