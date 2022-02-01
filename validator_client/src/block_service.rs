@@ -253,12 +253,18 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
                         let mut result = service.clone()
                             .publish_block::<BlindedTransactions>(slot, validator_pubkey)
                             .await;
-                        if let Err(BlockError::Recoverable(e)) = result  {
-                            error!(log, "Error whilst producing a blinded block, falling back"; "error" => ?e);
-                            result = service
-                                .publish_block::<ExecTransactions<E>>(slot, validator_pubkey)
-                                .await;
-                        }
+                        match result.as_ref() {
+                            Err(BlockError::Recoverable(e)) => {
+                                error!(log, "Error whilst producing a blinded block, attempting to publish full block"; "error" => ?e);
+                                result = service
+                                    .publish_block::<ExecTransactions<E>>(slot, validator_pubkey)
+                                    .await;
+                            },
+                            Err(BlockError::Irrecoverable(e))  => {
+                                error!(log, "Error whilst producing a blinded block, cannot fallback because block was signed"; "error" => ?e);
+                            },
+                            _ => {},
+                        };
                         result
                     } else {
                         service
