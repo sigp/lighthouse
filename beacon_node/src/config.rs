@@ -253,11 +253,13 @@ pub fn get_config<E: EthSpec>(
         client_config.execution_endpoints = Some(client_config.eth1.endpoints.clone());
     }
 
-    if let Some(url) = cli_args.value_of("payload-builder") {
-        client_config.payload_builder = Some(
-            SensitiveUrl::parse(url)
-                .map_err(|e| format!("payload-builder contains an invalid URL {:?}", e))?,
-        );
+    if let Some(endpoints) = cli_args.value_of("payload-builders") {
+        client_config.payload_builders = endpoints
+            .split(',')
+            .map(SensitiveUrl::parse)
+            .collect::<Result<_, _>>()
+            .map(Some)
+            .map_err(|e| format!("payload-builders contains an invalid URL {:?}", e))?;
     }
 
     client_config.suggested_fee_recipient = Some(

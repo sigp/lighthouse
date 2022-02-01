@@ -344,7 +344,7 @@ where
             .unwrap();
         let execution_layer = ExecutionLayer::from_urls(
             urls,
-            None,
+            vec![],
             Some(Address::repeat_byte(42)),
             el_runtime.task_executor.clone(),
             el_runtime.log.clone(),

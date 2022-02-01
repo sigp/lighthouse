@@ -1,3 +1,4 @@
+use crate::beacon_node_fallback::{AllErrored, Error as FallbackError};
 use crate::{
     beacon_node_fallback::{BeaconNodeFallback, RequireSynced},
     graffiti_file::GraffitiFile,
@@ -10,7 +11,30 @@ use slot_clock::SlotClock;
 use std::ops::Deref;
 use std::sync::Arc;
 use tokio::sync::mpsc;
-use types::{BlindedTransactions, BlockType, EthSpec, ExecTransactions, PublicKeyBytes, Slot};
+use types::{
+    BlindedTransactions, BlockType, Epoch, EthSpec, ExecTransactions, PublicKeyBytes, Slot,
+};
+
+#[derive(Debug)]
+pub enum BlockError {
+    Recoverable(String),
+    Irrecoverable(String),
+}
+
+impl From<AllErrored<BlockError>> for BlockError {
+    fn from(e: AllErrored<BlockError>) -> Self {
+        if e.0.iter().any(|(_, error)| {
+            matches!(
+                error,
+                FallbackError::RequestFailed(BlockError::Irrecoverable(_))
+            )
+        }) {
+            BlockError::Irrecoverable(e.to_string())
+        } else {
+            BlockError::Recoverable(e.to_string())
+        }
+    }
+}
 
 /// Builds a `BlockService`.
 pub struct BlockServiceBuilder<T, E: EthSpec> {
@@ -217,7 +241,7 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
             .eth2_config
             .spec
             .bellatrix_fork_epoch
-            .unwrap()
+            .unwrap_or(Epoch::max_value())
             .start_slot(E::slots_per_epoch());
         let now = self.slot_clock.now().unwrap();
         for validator_pubkey in proposers {
@@ -226,9 +250,16 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
             self.inner.context.executor.spawn(
                 async move {
                     let publish_result = if private_tx_proposals && now > merge_slot {
-                        service
+                        let mut result = service.clone()
                             .publish_block::<BlindedTransactions>(slot, validator_pubkey)
-                            .await
+                            .await;
+                        if let Err(BlockError::Recoverable(e)) = result  {
+                            error!(log, "Error whilst producing a blinded block, falling back"; "error" => ?e);
+                            result = service
+                                .publish_block::<ExecTransactions<E>>(slot, validator_pubkey)
+                                .await;
+                        }
+                        result
                     } else {
                         service
                             .publish_block::<ExecTransactions<E>>(slot, validator_pubkey)
@@ -238,7 +269,7 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
                         crit!(
                             log,
                             "Error whilst producing block";
-                            "message" => e
+                            "message" => ?e
                         );
                     }
                 },
@@ -254,21 +285,25 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
         self,
         slot: Slot,
         validator_pubkey: PublicKeyBytes,
-    ) -> Result<(), String> {
+    ) -> Result<(), BlockError> {
         let log = self.context.log();
         let _timer =
             metrics::start_timer_vec(&metrics::BLOCK_SERVICE_TIMES, &[metrics::BEACON_BLOCK]);
 
-        let current_slot = self
-            .slot_clock
-            .now()
-            .ok_or("Unable to determine current slot from clock")?;
+        let current_slot = self.slot_clock.now().ok_or(BlockError::Recoverable(
+            "Unable to determine current slot from clock".to_string(),
+        ))?;
 
         let randao_reveal = self
             .validator_store
             .randao_reveal(validator_pubkey, slot.epoch(E::slots_per_epoch()))
             .await
-            .map_err(|e| format!("Unable to produce randao reveal signature: {:?}", e))?
+            .map_err(|e| {
+                BlockError::Recoverable(format!(
+                    "Unable to produce randao reveal signature: {:?}",
+                    e
+                ))
+            })?
             .into();
 
         let graffiti = self
@@ -305,7 +340,10 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
                             )
                             .await
                             .map_err(|e| {
-                                format!("Error from beacon node when producing block: {:?}", e)
+                                BlockError::Recoverable(format!(
+                                    "Error from beacon node when producing block: {:?}",
+                                    e
+                                ))
                             })?
                             .data
                     }
@@ -318,7 +356,10 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
                             )
                             .await
                             .map_err(|e| {
-                                format!("Error from beacon node when producing block: {:?}", e)
+                                BlockError::Recoverable(format!(
+                                    "Error from beacon node when producing block: {:?}",
+                                    e
+                                ))
                             })?
                             .data
                     }
@@ -326,17 +367,19 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
                 drop(get_timer);
 
                 if proposer_index != Some(block.proposer_index()) {
-                    return Err(
+                    return Err(BlockError::Recoverable(
                         "Proposer index does not match block proposer. Beacon chain re-orged"
                             .to_string(),
-                    );
+                    ));
                 }
 
                 let signed_block = self_ref
                     .validator_store
                     .sign_block::<Txns>(*validator_pubkey_ref, block, current_slot)
                     .await
-                    .map_err(|e| format!("Unable to sign block: {:?}", e))?;
+                    .map_err(|e| {
+                        BlockError::Recoverable(format!("Unable to sign block: {:?}", e))
+                    })?;
 
                 let _post_timer = metrics::start_timer_vec(
                     &metrics::BLOCK_SERVICE_TIMES,
@@ -348,20 +391,25 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
                         .post_beacon_blocks(&signed_block)
                         .await
                         .map_err(|e| {
-                            format!("Error from beacon node when publishing block: {:?}", e)
+                            BlockError::Irrecoverable(format!(
+                                "Error from beacon node when publishing block: {:?}",
+                                e
+                            ))
                         })?,
                     BlockType::Blinded => beacon_node
                         .post_beacon_blocks_private(&signed_block)
                         .await
                         .map_err(|e| {
-                            format!("Error from beacon node when publishing block: {:?}", e)
+                            BlockError::Irrecoverable(format!(
+                                "Error from beacon node when publishing block: {:?}",
+                                e
+                            ))
                         })?,
                 }
 
-                Ok::<_, String>(signed_block)
+                Ok::<_, BlockError>(signed_block)
             })
-            .await
-            .map_err(|e| e.to_string())?;
+            .await?;
 
         info!(
             log,

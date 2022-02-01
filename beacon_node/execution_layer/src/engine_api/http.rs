@@ -194,8 +194,70 @@ impl EngineApi for HttpJsonRpc {
     }
 }
 
+pub struct BuilderHttpJsonRpc(HttpJsonRpc);
+
+impl BuilderHttpJsonRpc {
+    pub fn new(url: SensitiveUrl) -> Result<Self, Error> {
+        HttpJsonRpc::new(url).map(Self)
+    }
+
+    pub async fn rpc_request<T: DeserializeOwned>(
+        &self,
+        method: &str,
+        params: serde_json::Value,
+        timeout: Duration,
+    ) -> Result<T, Error> {
+        self.0.rpc_request(method, params, timeout).await
+    }
+}
+
 #[async_trait]
-impl BuilderApi for HttpJsonRpc {
+impl EngineApi for BuilderHttpJsonRpc {
+    async fn upcheck(&self) -> Result<(), Error> {
+        self.0.upcheck().await
+    }
+
+    async fn get_block_by_number<'a>(
+        &self,
+        query: BlockByNumberQuery<'a>,
+    ) -> Result<Option<ExecutionBlock>, Error> {
+        self.0.get_block_by_number(query).await
+    }
+
+    async fn get_block_by_hash<'a>(
+        &self,
+        block_hash: Hash256,
+    ) -> Result<Option<ExecutionBlock>, Error> {
+        self.0.get_block_by_hash(block_hash).await
+    }
+
+    async fn execute_payload_v1<T: EthSpec>(
+        &self,
+        execution_payload: ExecutionPayload<T>,
+    ) -> Result<ExecutePayloadResponse, Error> {
+        self.0.execute_payload_v1(execution_payload).await
+    }
+
+    async fn get_payload_v1<T: EthSpec, Txns: Transactions<T>>(
+        &self,
+        payload_id: PayloadId,
+    ) -> Result<ExecutionPayload<T, Txns>, Error> {
+        self.0.get_payload_v1(payload_id).await
+    }
+
+    async fn forkchoice_updated_v1(
+        &self,
+        forkchoice_state: ForkChoiceState,
+        payload_attributes: Option<PayloadAttributes>,
+    ) -> Result<ForkchoiceUpdatedResponse, Error> {
+        self.0
+            .forkchoice_updated_v1(forkchoice_state, payload_attributes)
+            .await
+    }
+}
+
+#[async_trait]
+impl BuilderApi for BuilderHttpJsonRpc {
     async fn get_payload_header_v1<T: EthSpec, Txns: Transactions<T>>(
         &self,
         payload_id: PayloadId,

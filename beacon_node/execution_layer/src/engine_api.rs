@@ -73,7 +73,7 @@ pub trait EngineApi {
 }
 
 #[async_trait]
-pub trait BuilderApi {
+pub trait BuilderApi: EngineApi {
     async fn get_payload_header_v1<T: EthSpec, Txns: Transactions<T>>(
         &self,
         payload_id: PayloadId,

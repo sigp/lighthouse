@@ -2342,7 +2342,6 @@ pub fn serve<T: BeaconChainTypes>(
                         ))
                     })?;
 
-                    //TODO: update this to a header
                     let (block, _) = chain
                         .produce_block::<BlindedTransactions>(
                             randao_reveal,

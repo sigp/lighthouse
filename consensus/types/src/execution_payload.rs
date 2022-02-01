@@ -9,7 +9,6 @@ use ssz::{Decode, DecodeError, Encode};
 use ssz_derive::{Decode, Encode};
 use std::fmt::Debug;
 use std::hash::Hash;
-use std::str::FromStr;
 use test_random_derive::TestRandom;
 use tree_hash::TreeHash;
 use tree_hash_derive::TreeHash;

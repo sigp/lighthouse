@@ -523,4 +523,3 @@ pub mod serde_logs_bloom {
             .map_err(|e| serde::de::Error::custom(format!("invalid logs bloom: {:?}", e)))
     }
 }
-

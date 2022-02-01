@@ -108,7 +108,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
             Arg::with_name("network-load")
                 .long("network-load")
                 .value_name("INTEGER")
-                .help("Lighthouse's network can be tuned for bandwidth/performance. Setting this to a high value, will increase the bandwidth lighthouse uses, increasing the likelihood of redundant information in exchange for faster communication. This can increase profit of validators marginally by receiving messages faster on the network. Lower values decrease bandwidth usage, but makes communication slower which can lead to validator performance reduction. Values are in the range [1,5].") 
+                .help("Lighthouse's network can be tuned for bandwidth/performance. Setting this to a high value, will increase the bandwidth lighthouse uses, increasing the likelihood of redundant information in exchange for faster communication. This can increase profit of validators marginally by receiving messages faster on the network. Lower values decrease bandwidth usage, but makes communication slower which can lead to validator performance reduction. Values are in the range [1,5].")
                 .default_value("3")
                 .set(clap::ArgSettings::Hidden)
                 .takes_value(true),
@@ -420,8 +420,8 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .takes_value(true)
         )
         .arg(
-            Arg::with_name("payload-builder")
-                .long("payload-builder")
+            Arg::with_name("payload-builders")
+                .long("payload-builders")
                 .help("The URL of a service compatible with the MEV-boost API.")
                 .requires("merge")
                 .takes_value(true)

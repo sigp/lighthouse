@@ -88,7 +88,7 @@ impl<T: EthSpec> MockExecutionLayer<T> {
 
         let el = ExecutionLayer::from_urls(
             vec![url],
-            None,
+            vec![],
             Some(Address::repeat_byte(42)),
             el_runtime.task_executor.clone(),
             el_runtime.log.clone(),
