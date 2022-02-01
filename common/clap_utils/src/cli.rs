@@ -1,7 +1,11 @@
-use clap::{ArgEnum, Args, Parser, Subcommand};
+pub use clap::{Parser, IntoApp};
+use clap::{ArgEnum, Args, Subcommand};
 use lazy_static::lazy_static;
 use lighthouse_version::VERSION;
 use std::path::PathBuf;
+use eth2_hashing::have_sha_extensions;
+use eth2_network_config::HARDCODED_NET_NAMES;
+use serde::{Serialize, Deserialize};
 
 // These have to live at least as long as the `Lighthouse` app.
 lazy_static! {
@@ -19,11 +23,19 @@ lazy_static! {
     );
 }
 
-use crate::bls_library_name;
-use crate::have_sha_extensions;
-use crate::HARDCODED_NET_NAMES;
+fn bls_library_name() -> &'static str {
+    if cfg!(feature = "portable") {
+        "blst-portable"
+    } else if cfg!(feature = "modern") {
+        "blst-modern"
+    } else if cfg!(feature = "milagro") {
+        "milagro"
+    } else {
+        "blst"
+    }
+}
 
-#[derive(Parser)]
+#[derive(Parser, Clone, Deserialize, Serialize, Debug)]
 #[clap(
     name = "Lighthouse",
     version = SHORT_VERSION.as_str(),
@@ -209,7 +221,7 @@ pub struct Lighthouse {
     subcommand: LighthouseSubcommand,
 }
 
-#[derive(Parser)]
+#[derive(Parser, Clone, Deserialize, Serialize, Debug)]
 #[clap(rename_all = "snake_case")]
 pub enum LighthouseSubcommand {
     BeaconNode(BeaconNode),
@@ -218,7 +230,7 @@ pub enum LighthouseSubcommand {
     // AccountManager(AccountManager),
 }
 
-#[derive(Parser)]
+#[derive(Parser, Clone, Deserialize, Serialize, Debug)]
 #[clap(name = "beacon_node",
     visible_aliases = &["b", "bn", "beacon"],
     author = "Sigma Prime <contact@sigmaprime.io>",
@@ -738,7 +750,7 @@ pub struct BeaconNode {
     pub disable_lock_timeouts: bool,
 }
 
-#[derive(Parser)]
+#[derive(Parser, Clone, Deserialize, Serialize, Debug)]
 #[clap(name = "validator_client",
         visible_aliases = &["v", "vc", "validator"],
         about = "When connected to a beacon node, performs the duties of a staked \
@@ -934,7 +946,7 @@ pub struct ValidatorClient {
     pub enable_doppelganger_protection: bool,
 }
 
-#[derive(Parser)]
+#[derive(Parser, Clone, Deserialize, Serialize, Debug)]
 #[clap(
     name = "boot_node",
     about = "Start a special Lighthouse process that only serves as a discv5 boot-node. This \
@@ -1004,7 +1016,7 @@ pub struct BootNode {
     pub network_dir: Option<String>,
 }
 
-// #[derive(Parser)]
+// #[derive(Parser, Clone, Deserialize, Serialize, Debug)]
 // #[clap(rename_all = "snake_case", visible_aliases = &["a", "am", "account"],
 // about = "Utilities for generating and managing Ethereum 2.0 accounts.")]
 // pub enum AccountManager {
@@ -1012,7 +1024,7 @@ pub struct BootNode {
 //     Validator(Validator),
 // }
 //
-// #[derive(Parser)]
+// #[derive(Parser, Clone, Deserialize, Serialize, Debug)]
 // #[clap(about = "Manage wallets, from which validator keys can be derived.")]
 // pub struct Wallet {
 //     #[clap(
@@ -1026,14 +1038,14 @@ pub struct BootNode {
 //     subcommand: WalletSubcommand,
 // }
 //
-// #[derive(Parser)]
+// #[derive(Parser, Clone, Deserialize, Serialize, Debug)]
 // pub enum WalletSubcommand {
 //     Create(WalletCreate),
 //     List(WalletList),
 //     Recover(WalletRecover),
 // }
 //
-// #[derive(Parser)]
+// #[derive(Parser, Clone, Deserialize, Serialize, Debug)]
 // #[clap(about = "Creates a new HD (hierarchical-deterministic) EIP-2386 wallet.")]
 // pub struct WalletCreate {
 //     name: Option<String>,
@@ -1044,7 +1056,7 @@ pub struct BootNode {
 //     mnemonic_length: Option<String>,
 // }
 //
-// #[derive(Parser)]
+// #[derive(Parser, Clone, Deserialize, Serialize, Debug)]
 // #[clap(about = "Provides commands for managing Eth2 validators.")]
 // pub struct Validator {
 //     #[clap(
@@ -1059,7 +1071,7 @@ pub struct BootNode {
 //     subcommand: ValidatorSubcommand,
 // }
 //
-// #[derive(Parser)]
+// #[derive(Parser, Clone, Deserialize, Serialize, Debug)]
 // #[clap(rename_all = "snake_case")]
 // pub enum ValidatorSubcommand {
 //     Create(ValCreate),

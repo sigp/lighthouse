@@ -16,3 +16,7 @@ eth2_ssz = "0.4.1"
 serde_yaml = "0.8.21"
 toml = "0.5.6"
 lazy_static = "1.4.0"
+eth2_hashing = "0.2.0"
+lighthouse_version = { path = "../lighthouse_version" }
+serde_derive = "1.0.136"
+serde = "1.0.136"

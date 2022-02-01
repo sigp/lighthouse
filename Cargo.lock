@@ -755,11 +755,15 @@ version = "0.1.0"
 dependencies = [
  "clap 3.0.13",
  "dirs",
+ "eth2_hashing 0.2.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "eth2_network_config",
  "eth2_ssz",
  "ethereum-types 0.12.1",
  "hex",
  "lazy_static",
+ "lighthouse_version",
+ "serde",
+ "serde_derive",
  "serde_yaml",
  "toml",
 ]

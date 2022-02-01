@@ -73,11 +73,11 @@ pub type Config = HashMap<String, String>;
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "kebab-case")]
 pub struct GlobalTomlConfig {
-    pub spec: Option<TomlValue>,
-    pub validator_count: Option<TomlValue>,
-    pub beacon_count: Option<TomlValue>,
-    pub datadir: Option<TomlValue>,
-    pub doppelganger_count: Option<TomlValue>,
+    pub spec: Option<String>,
+    pub validator_count: Option<usize>,
+    pub beacon_count: Option<usize>,
+    pub datadir: Option<PathBuf>,
+    pub doppelganger_count: Option<usize>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -189,12 +189,9 @@ impl IntegrationTestConfig {
         Ok(self)
     }
 
-    fn get_datadir(&self) -> Result<&str, ConfigError> {
+    fn get_datadir(&self) -> Result<PathBuf, ConfigError> {
         self.global
             .datadir
-            .as_ref()
-            .map(TomlValue::as_str)
-            .flatten()
             .ok_or(ConfigError::MissingFields(vec![DATADIR_FLAG]))
     }
 
@@ -202,29 +199,19 @@ impl IntegrationTestConfig {
     fn process_global_config(mut self) -> Result<Self, ConfigError> {
         let node_count = self
             .global
-            .beacon_count
-            .as_ref()
-            .map(TomlValue::as_integer)
-            .flatten()
-            .unwrap_or(0) as usize;
+            .beacon_count.unwrap_or(0);
         let validator_count = self
             .global
-            .validator_count
-            .clone()
-            .unwrap_or(TomlValue::Integer(0));
+            .validator_count.unwrap_or(0);
         let doppelganger_count = self
             .global
             .doppelganger_count
-            .as_ref()
-            .map(TomlValue::as_integer)
-            .flatten()
-            .unwrap_or(0) as usize;
+            .unwrap_or(0);
 
         let datadir = self.get_datadir()?;
 
         let (testnet_dir, bootnode_dir) = (
-            TomlValue::String(format!("{}/testnet", datadir)),
-            TomlValue::String(format!("{}/bootnode", datadir)),
+            datadir.join("testnet"), datadir.join("bootnode")
         );
 
         let len = self.validator.len();
@@ -263,7 +250,6 @@ impl IntegrationTestConfig {
                 SPEC_FLAG.to_string(),
                 self.global
                     .spec
-                    .as_ref()
                     .ok_or(ConfigError::MissingFields(vec![SPEC_FLAG]))?
                     .clone(),
             );
@@ -313,12 +299,8 @@ impl IntegrationTestConfig {
         let dir = self
             .global
             .datadir
-            .as_ref()
-            .map(TomlValue::as_str)
-            .flatten()
             .ok_or(ConfigError::MissingFields(vec![DATADIR_FLAG]))?;
-        let path = PathBuf::from(dir);
-        if path.exists() {
+        if dir.exists() {
             fs::remove_dir_all(dir).map_err(ConfigError::Cleanup)?;
         }
 
@@ -508,7 +490,7 @@ impl IntegrationTestConfig {
     }
 
     fn spawn_beacon_nodes(&mut self) -> Result<Vec<TestnetBeaconNode>, ConfigError> {
-        let datadir = self.get_datadir()?.to_string();
+        let datadir = self.get_datadir()?;
 
         let mut processes = vec![];
 
