@@ -9,6 +9,10 @@ use crate::GossipTopic;
 
 use tokio_util::time::delay_queue::{DelayQueue, Key};
 
+/// Store of gossip messages that we failed to publish and will try again later. By default, all
+/// messages are ignored. This behaviour can be changed using `GossipCacheBuilder::default_timeout`
+/// to apply the same delay to every kind. Individual timeouts for specific kinds can be set and
+/// will overwrite the default_timeout if present.
 pub struct GossipCache {
     /// Expire timeouts for each topic-msg pair.
     expirations: DelayQueue<(GossipTopic, Vec<u8>)>,
@@ -137,6 +141,8 @@ impl GossipCacheBuilder {
 }
 
 impl GossipCache {
+    /// Get a builder of a `GossipCache`. Topic kinds for which no timeout is defined will be
+    /// ignored if added in `insert`.
     pub fn builder() -> GossipCacheBuilder {
         GossipCacheBuilder::default()
     }
