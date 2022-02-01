@@ -30,6 +30,10 @@ use super::{
 };
 use crate::beacon_processor::DuplicateCache;
 
+/// Set to `true` to introduce stricter penalties for peers who send some types of late consensus
+/// messages.
+const STRICT_LATE_MESSAGE_PENALTIES: bool = false;
+
 /// An attestation that has been validated by the `BeaconChain`.
 ///
 /// Since this struct implements `beacon_chain::VerifiedAttestation`, it would be a logic error to
@@ -1311,7 +1315,7 @@ impl<T: BeaconChainTypes> Worker<T> {
 
                 // Only penalize the peer if it would have been invalid at the moment we received
                 // it.
-                if hindsight_verification.is_err() {
+                if STRICT_LATE_MESSAGE_PENALTIES && hindsight_verification.is_err() {
                     self.gossip_penalize_peer(
                         peer_id,
                         PeerAction::LowToleranceError,
@@ -1832,7 +1836,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                 };
 
                 // Penalize the peer if the message was more than one slot late
-                if excessively_late && invalid_in_hindsight() {
+                if STRICT_LATE_MESSAGE_PENALTIES && excessively_late && invalid_in_hindsight() {
                     self.gossip_penalize_peer(
                         peer_id,
                         PeerAction::HighToleranceError,
