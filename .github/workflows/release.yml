@@ -231,6 +231,21 @@ jobs:
                   ## Summary
 
                   Add a summary.
+                  
+                  ## Update Priority
+
+                  This table provides priorities for which classes of users should update particular components.
+
+                  |User Class |Beacon Node  | Validator Client|
+                  --- | --- | ---
+                  |Staking Users| Medium Priority | Low Priority |
+                  |Non-Staking Users| Low Priority|---|
+                  
+                  ### User Classes and Priorities
+
+                  *Staking users* are those who use `lighthouse bn` and `lighthouse vc` to stake on the Beacon Chain. *Non-staking users* are those who run a `lighthouse bn` for non-staking purposes (e.g., data analysis or applications).
+
+                  *High priority* updates should be completed as soon as possible (e.g., hours or days). *Medium priority* updates should be completed at the next convenience (e.g., days or a week). *Low priority* updates should be completed in the next routine update cycle (e.g., two weeks).
 
                   ## All Changes
 
