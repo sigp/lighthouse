@@ -9,6 +9,7 @@
 
 #[cfg(feature = "lighthouse")]
 pub mod lighthouse;
+#[cfg(feature = "lighthouse")]
 pub mod lighthouse_vc;
 pub mod mixin;
 pub mod types;
@@ -27,6 +28,7 @@ use serde::{de::DeserializeOwned, Serialize};
 use std::convert::TryFrom;
 use std::fmt;
 use std::iter::Iterator;
+use std::path::PathBuf;
 use std::time::Duration;
 
 pub const V1: EndpointVersion = EndpointVersion(1);
@@ -58,6 +60,12 @@ pub enum Error {
     InvalidServerSentEvent(String),
     /// The server returned an invalid SSZ response.
     InvalidSsz(ssz::DecodeError),
+    /// An I/O error occurred while loading an API token from disk.
+    TokenReadError(PathBuf, std::io::Error),
+    /// The client has been configured without a server pubkey, but requires one for this request.
+    NoServerPubkey,
+    /// The client has been configured without an API token, but requires one for this request.
+    NoToken,
 }
 
 impl From<reqwest::Error> for Error {
@@ -81,6 +89,8 @@ impl Error {
             Error::InvalidJson(_) => None,
             Error::InvalidServerSentEvent(_) => None,
             Error::InvalidSsz(_) => None,
+            Error::TokenReadError(..) => None,
+            Error::NoServerPubkey | Error::NoToken => None,
         }
     }
 }
@@ -245,6 +255,7 @@ impl BeaconNodeHttpClient {
     }
 
     /// Perform a HTTP POST request, returning a JSON response.
+    #[cfg(feature = "lighthouse")]
     async fn post_with_response<T: Serialize, U: IntoUrl, R: DeserializeOwned>(
         &self,
         url: U,
@@ -1306,8 +1317,12 @@ impl BeaconNodeHttpClient {
             .push("attester")
             .push(&epoch.to_string());
 
-        self.post_with_timeout_and_response(path, &indices, self.timeouts.attester_duties)
-            .await
+        self.post_with_timeout_and_response(
+            path,
+            &ValidatorIndexDataRef(indices),
+            self.timeouts.attester_duties,
+        )
+        .await
     }
 
     /// `POST validator/aggregate_and_proofs`
@@ -1406,8 +1421,12 @@ impl BeaconNodeHttpClient {
             .push("sync")
             .push(&epoch.to_string());
 
-        self.post_with_timeout_and_response(path, &indices, self.timeouts.sync_duties)
-            .await
+        self.post_with_timeout_and_response(
+            path,
+            &ValidatorIndexDataRef(indices),
+            self.timeouts.sync_duties,
+        )
+        .await
     }
 }
 

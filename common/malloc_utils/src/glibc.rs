@@ -11,22 +11,20 @@ use std::env;
 use std::os::raw::c_int;
 use std::result::Result;
 
-/// The value to be provided to `malloc_mmap_threshold`.
+/// The optimal mmap threshold for Lighthouse seems to be around 128KB.
 ///
-/// Value chosen so that values of the validators tree hash cache will *not* be allocated via
-/// `mmap`.
-///
-/// The size of a single chunk is:
-///
-/// NODES_PER_VALIDATOR * VALIDATORS_PER_ARENA * 32 = 15 * 4096 * 32 = 1.875 MiB
-const OPTIMAL_MMAP_THRESHOLD: c_int = 2 * 1_024 * 1_024;
+/// By default GNU malloc will start with a threshold of 128KB and adjust it upwards, but we've
+/// found that the upwards adjustments tend to result in heap fragmentation. Explicitly setting the
+/// threshold to 128KB disables the dynamic adjustments and encourages `mmap` usage, which keeps the
+/// heap size under control.
+const OPTIMAL_MMAP_THRESHOLD: c_int = 128 * 1_024;
 
 /// Constants used to configure malloc internals.
 ///
 /// Source:
 ///
 /// https://github.com/lattera/glibc/blob/895ef79e04a953cac1493863bcae29ad85657ee1/malloc/malloc.h#L115-L123
-const M_MMAP_THRESHOLD: c_int = -4;
+const M_MMAP_THRESHOLD: c_int = -3;
 
 /// Environment variables used to configure malloc.
 ///
@@ -134,8 +132,8 @@ fn env_var_present(name: &str) -> bool {
 /// ## Resources
 ///
 /// - https://man7.org/linux/man-pages/man3/mallopt.3.html
-fn malloc_mmap_threshold(num_arenas: c_int) -> Result<(), c_int> {
-    into_result(mallopt(M_MMAP_THRESHOLD, num_arenas))
+fn malloc_mmap_threshold(threshold: c_int) -> Result<(), c_int> {
+    into_result(mallopt(M_MMAP_THRESHOLD, threshold))
 }
 
 fn mallopt(param: c_int, val: c_int) -> c_int {

@@ -1,0 +1,30 @@
+name: linkcheck
+
+on:
+  push:
+    branches:
+      - unstable
+  pull_request:
+    paths:
+      - 'book/**'
+
+jobs:
+  linkcheck:
+    name: Check broken links
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v2
+
+      - name: Create docker network
+        run: docker network create book
+
+      - name: Run mdbook server
+        run: docker run -v ${{ github.workspace }}/book:/book --network book --name book -p 3000:3000 -d peaceiris/mdbook:latest serve --hostname 0.0.0.0
+
+      - name: Print logs
+        run: docker logs book
+
+      - name: Run linkcheck
+        run: docker run  --network book tennox/linkcheck:latest book:3000

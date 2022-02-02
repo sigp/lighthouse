@@ -253,22 +253,19 @@ impl<E: EthSpec> CandidateBeaconNode<E> {
                 "our_genesis_fork" => ?spec.genesis_fork_version,
             );
             return Err(CandidateError::Incompatible);
-        } else if *spec != beacon_node_spec {
+        } else if beacon_node_spec.altair_fork_epoch != spec.altair_fork_epoch {
             warn!(
                 log,
-                "Beacon node config does not match exactly";
+                "Beacon node has mismatched Altair fork epoch";
                 "endpoint" => %self.beacon_node,
-                "advice" => "check that the BN is updated and configured for any upcoming forks",
+                "endpoint_altair_fork_epoch" => ?beacon_node_spec.altair_fork_epoch,
             );
-            debug!(
+        } else if beacon_node_spec.bellatrix_fork_epoch != spec.bellatrix_fork_epoch {
+            warn!(
                 log,
-                "Beacon node config";
-                "config" => ?beacon_node_spec,
-            );
-            debug!(
-                log,
-                "Our config";
-                "config" => ?spec,
+                "Beacon node has mismatched Bellatrix fork epoch";
+                "endpoint" => %self.beacon_node,
+                "endpoint_bellatrix_fork_epoch" => ?beacon_node_spec.bellatrix_fork_epoch,
             );
         }
 

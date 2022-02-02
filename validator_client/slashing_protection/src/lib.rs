@@ -30,6 +30,7 @@ pub const SLASHING_PROTECTION_FILENAME: &str = "slashing_protection.sqlite";
 #[derive(PartialEq, Debug)]
 pub enum NotSafe {
     UnregisteredValidator(PublicKeyBytes),
+    DisabledValidator(PublicKeyBytes),
     InvalidBlock(InvalidBlock),
     InvalidAttestation(InvalidAttestation),
     PermissionsError,
