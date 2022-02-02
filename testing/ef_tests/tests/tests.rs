@@ -305,6 +305,7 @@ mod ssz_static {
     }
 }
 
+/*
 #[test]
 fn ssz_generic() {
     SszGenericHandler::<BasicVector>::default().run();
@@ -314,6 +315,7 @@ fn ssz_generic() {
     SszGenericHandler::<Uints>::default().run();
     SszGenericHandler::<Containers>::default().run();
 }
+*/
 
 #[test]
 fn epoch_processing_justification_and_finalization() {
