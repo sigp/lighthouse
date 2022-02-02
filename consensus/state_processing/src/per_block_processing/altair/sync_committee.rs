@@ -42,19 +42,7 @@ pub fn process_sync_aggregate<T: EthSpec>(
     }
 
     // Compute participant and proposer rewards
-    let total_active_balance = state.get_total_active_balance()?;
-    let total_active_increments =
-        total_active_balance.safe_div(spec.effective_balance_increment)?;
-    let total_base_rewards = get_base_reward_per_increment(total_active_balance, spec)?
-        .safe_mul(total_active_increments)?;
-    let max_participant_rewards = total_base_rewards
-        .safe_mul(SYNC_REWARD_WEIGHT)?
-        .safe_div(WEIGHT_DENOMINATOR)?
-        .safe_div(T::slots_per_epoch())?;
-    let participant_reward = max_participant_rewards.safe_div(T::SyncCommitteeSize::to_u64())?;
-    let proposer_reward = participant_reward
-        .safe_mul(PROPOSER_WEIGHT)?
-        .safe_div(WEIGHT_DENOMINATOR.safe_sub(PROPOSER_WEIGHT)?)?;
+    let (participant_reward, proposer_reward) = compute_sync_aggregate_rewards(state, spec)?;
 
     // Apply participant and proposer rewards
     let committee_indices = state.get_sync_committee_indices(&current_sync_committee)?;
@@ -72,4 +60,27 @@ pub fn process_sync_aggregate<T: EthSpec>(
     }
 
     Ok(())
+}
+
+/// Compute the `(participant_reward, proposer_reward)` for a sync aggregate.
+///
+/// The `state` should be the pre-state from the same slot as the block containing the aggregate.
+pub fn compute_sync_aggregate_rewards<T: EthSpec>(
+    state: &BeaconState<T>,
+    spec: &ChainSpec,
+) -> Result<(u64, u64), BlockProcessingError> {
+    let total_active_balance = state.get_total_active_balance()?;
+    let total_active_increments =
+        total_active_balance.safe_div(spec.effective_balance_increment)?;
+    let total_base_rewards = get_base_reward_per_increment(total_active_balance, spec)?
+        .safe_mul(total_active_increments)?;
+    let max_participant_rewards = total_base_rewards
+        .safe_mul(SYNC_REWARD_WEIGHT)?
+        .safe_div(WEIGHT_DENOMINATOR)?
+        .safe_div(T::slots_per_epoch())?;
+    let participant_reward = max_participant_rewards.safe_div(T::SyncCommitteeSize::to_u64())?;
+    let proposer_reward = participant_reward
+        .safe_mul(PROPOSER_WEIGHT)?
+        .safe_div(WEIGHT_DENOMINATOR.safe_sub(PROPOSER_WEIGHT)?)?;
+    Ok((participant_reward, proposer_reward))
 }

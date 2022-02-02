@@ -5,6 +5,8 @@ on:
         branches:
             - unstable
             - stable
+        tags:
+            - v*
 
 env:
     DOCKER_PASSWORD: ${{ secrets.DOCKER_PASSWORD }}
@@ -13,20 +15,48 @@ env:
     LCLI_IMAGE_NAME: ${{ github.repository_owner }}/lcli
 
 jobs:
-    extract-branch-name:
+    # Extract the VERSION which is either `latest` or `vX.Y.Z`, and the VERSION_SUFFIX
+    # which is either empty or `-unstable`.
+    #
+    # It would be nice if the arch didn't get spliced into the version between `latest` and
+    # `unstable`, but for now we keep the two parts of the version separate for backwards
+    # compatibility.
+    extract-version:
         runs-on: ubuntu-18.04
         steps:
-            - name: Extract branch name
-              run: echo "::set-output name=BRANCH_NAME::$(echo ${GITHUB_REF#refs/heads/})"
-              id: extract_branch
+            - name: Extract version (if stable)
+              if: github.event.ref == 'refs/heads/stable'
+              run: |
+                    echo "VERSION=latest" >> $GITHUB_ENV
+                    echo "VERSION_SUFFIX=" >> $GITHUB_ENV
+            - name: Extract version (if unstable)
+              if: github.event.ref == 'refs/heads/unstable'
+              run: |
+                    echo "VERSION=latest" >> $GITHUB_ENV
+                    echo "VERSION_SUFFIX=-unstable" >> $GITHUB_ENV
+            - name: Extract version (if tagged release)
+              if: startsWith(github.event.ref, 'refs/tags')
+              run: |
+                    echo "VERSION=$(echo ${GITHUB_REF#refs/tags/})" >> $GITHUB_ENV
+                    echo "VERSION_SUFFIX=" >> $GITHUB_ENV
         outputs:
-            BRANCH_NAME: ${{ steps.extract_branch.outputs.BRANCH_NAME }}
-    build-docker-arm64:
+            VERSION: ${{ env.VERSION }}
+            VERSION_SUFFIX: ${{ env.VERSION_SUFFIX }}
+    build-docker-single-arch:
+        name: build-docker-${{ matrix.binary }}
         runs-on: ubuntu-18.04
-        needs: [extract-branch-name]
-        # We need to enable experimental docker features in order to use `docker buildx`
+        strategy:
+            matrix:
+                binary: [aarch64,
+                         aarch64-portable,
+                         x86_64,
+                         x86_64-portable]
+        needs: [extract-version]
         env:
+            # We need to enable experimental docker features in order to use `docker buildx`
             DOCKER_CLI_EXPERIMENTAL: enabled
+            VERSION: ${{ needs.extract-version.outputs.VERSION }}
+            VERSION_SUFFIX: ${{ needs.extract-version.outputs.VERSION_SUFFIX }}
         steps:
             - uses: actions/checkout@v2
             - name: Update Rust
@@ -34,85 +64,76 @@ jobs:
             - name: Dockerhub login
               run: |
                   echo "${DOCKER_PASSWORD}" | docker login --username ${DOCKER_USERNAME} --password-stdin
-            - name: Cross build lighthouse binary
-              run:  |
+            - name: Cross build Lighthouse binary
+              run: |
                   cargo install cross
-                  make build-aarch64-portable
-            - name: Move cross-built ARM binary into Docker scope
+                  make build-${{ matrix.binary }}
+            - name: Move cross-built binary into Docker scope (if ARM)
+              if: startsWith(matrix.binary, 'aarch64')
               run: |
                   mkdir ./bin;
                   mv ./target/aarch64-unknown-linux-gnu/release/lighthouse ./bin;
-            - name: Set Env
-              if: needs.extract-branch-name.outputs.BRANCH_NAME == 'unstable'
+            - name: Move cross-built binary into Docker scope (if x86_64)
+              if: startsWith(matrix.binary, 'x86_64')
               run: |
-                  echo "TAG_SUFFIX=-unstable" >> $GITHUB_ENV;
+                  mkdir ./bin;
+                  mv ./target/x86_64-unknown-linux-gnu/release/lighthouse ./bin;
+            - name: Map aarch64 to arm64 short arch
+              if: startsWith(matrix.binary, 'aarch64')
+              run: echo "SHORT_ARCH=arm64" >> $GITHUB_ENV
+            - name: Map x86_64 to amd64 short arch
+              if: startsWith(matrix.binary, 'x86_64')
+              run: echo "SHORT_ARCH=amd64" >> $GITHUB_ENV;
+            - name: Set modernity suffix
+              if: endsWith(matrix.binary, '-portable') != true
+              run: echo "MODERNITY_SUFFIX=-modern" >> $GITHUB_ENV;
             # Install dependencies for emulation. Have to create a new builder to pick up emulation support.
-            - name: Build ARM64 dockerfile (with push)
+            - name: Build Dockerfile and push
               run: |
-                  docker run --privileged --rm tonistiigi/binfmt --install arm64
+                  docker run --privileged --rm tonistiigi/binfmt --install ${SHORT_ARCH}
                   docker buildx create --use --name cross-builder
                   docker buildx build \
-                      --platform=linux/arm64 \
+                      --platform=linux/${SHORT_ARCH} \
                       --file ./Dockerfile.cross . \
-                      --tag ${IMAGE_NAME}:latest-arm64${TAG_SUFFIX} \
+                      --tag ${IMAGE_NAME}:${VERSION}-${SHORT_ARCH}${VERSION_SUFFIX}${MODERNITY_SUFFIX} \
                       --push
-    build-docker-amd64:
-        runs-on: ubuntu-18.04
-        needs: [extract-branch-name]
-        steps:
-            - uses: actions/checkout@v2
-            - name: Update Rust
-              run: rustup update stable
-            - name: Dockerhub login
-              run: |
-                  echo "${DOCKER_PASSWORD}" | docker login --username ${DOCKER_USERNAME} --password-stdin
-            - name: Set Env
-              if: needs.extract-branch-name.outputs.BRANCH_NAME == 'unstable'
-              run: |
-                  echo "TAG_SUFFIX=-unstable" >> $GITHUB_ENV;
-            - name: Build AMD64 dockerfile (with push)
-              run: |
-                  docker build \
-                      --build-arg PORTABLE=true \
-                      --tag ${IMAGE_NAME}:latest-amd64${TAG_SUFFIX} \
-                      --file ./Dockerfile .
-                  docker push ${IMAGE_NAME}:latest-amd64${TAG_SUFFIX}
     build-docker-multiarch:
+        name: build-docker-multiarch${{ matrix.modernity }}
         runs-on: ubuntu-18.04
-        needs: [build-docker-arm64, build-docker-amd64, extract-branch-name]
-        # We need to enable experimental docker features in order to use `docker manifest`
+        needs: [build-docker-single-arch, extract-version]
+        strategy:
+            matrix:
+                modernity: ["", "-modern"]
         env:
+            # We need to enable experimental docker features in order to use `docker manifest`
             DOCKER_CLI_EXPERIMENTAL: enabled
+            VERSION: ${{ needs.extract-version.outputs.VERSION }}
+            VERSION_SUFFIX: ${{ needs.extract-version.outputs.VERSION_SUFFIX }}
         steps:
             - name: Dockerhub login
               run: |
                   echo "${DOCKER_PASSWORD}" | docker login --username ${DOCKER_USERNAME} --password-stdin
-            - name: Set Env
-              if: needs.extract-branch-name.outputs.BRANCH_NAME == 'unstable'
-              run: |
-                  echo "TAG_SUFFIX=-unstable" >> $GITHUB_ENV;
             - name: Create and push multiarch manifest
               run: |
-                  docker manifest create ${IMAGE_NAME}:latest${TAG_SUFFIX} \
-                      --amend ${IMAGE_NAME}:latest-arm64${TAG_SUFFIX} \
-                      --amend ${IMAGE_NAME}:latest-amd64${TAG_SUFFIX};
-                  docker manifest push ${IMAGE_NAME}:latest${TAG_SUFFIX}
+                  docker manifest create ${IMAGE_NAME}:${VERSION}${VERSION_SUFFIX}${{ matrix.modernity }} \
+                      --amend ${IMAGE_NAME}:${VERSION}-arm64${VERSION_SUFFIX}${{ matrix.modernity }} \
+                      --amend ${IMAGE_NAME}:${VERSION}-amd64${VERSION_SUFFIX}${{ matrix.modernity }};
+                  docker manifest push ${IMAGE_NAME}:${VERSION}${VERSION_SUFFIX}${{ matrix.modernity }}
     build-docker-lcli:
         runs-on: ubuntu-18.04
-        needs: [extract-branch-name]
+        needs: [extract-version]
+        env:
+            VERSION: ${{ needs.extract-version.outputs.VERSION }}
+            VERSION_SUFFIX: ${{ needs.extract-version.outputs.VERSION_SUFFIX }}
         steps:
             - uses: actions/checkout@v2
             - name: Dockerhub login
               run: |
                   echo "${DOCKER_PASSWORD}" | docker login --username ${DOCKER_USERNAME} --password-stdin
-            - name: Set Env
-              if: needs.extract-branch-name.outputs.BRANCH_NAME == 'unstable'
-              run: |
-                  echo "TAG_SUFFIX=-unstable" >> $GITHUB_ENV;
             - name: Build lcli dockerfile (with push)
               run: |
                   docker build \
                       --build-arg PORTABLE=true \
-                      --tag ${LCLI_IMAGE_NAME}:latest${TAG_SUFFIX} \
+                      --tag ${LCLI_IMAGE_NAME}:${VERSION}${VERSION_SUFFIX} \
                       --file ./lcli/Dockerfile .
-                  docker push ${LCLI_IMAGE_NAME}:latest${TAG_SUFFIX}
+                  docker push ${LCLI_IMAGE_NAME}:${VERSION}${VERSION_SUFFIX}

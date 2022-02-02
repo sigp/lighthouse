@@ -4,15 +4,19 @@
 
 HTTP Path | Description |
 | --- | -- |
-[`GET /lighthouse/version`](#get-lighthouseversion) | Get the Lighthouse software version
-[`GET /lighthouse/health`](#get-lighthousehealth) | Get information about the host machine
-[`GET /lighthouse/spec`](#get-lighthousespec) | Get the Eth2 specification used by the validator
-[`GET /lighthouse/validators`](#get-lighthousevalidators) | List all validators
-[`GET /lighthouse/validators/:voting_pubkey`](#get-lighthousevalidatorsvoting_pubkey) | Get a specific validator
-[`PATCH /lighthouse/validators/:voting_pubkey`](#patch-lighthousevalidatorsvoting_pubkey) | Update a specific validator
+[`GET /lighthouse/version`](#get-lighthouseversion) | Get the Lighthouse software version.
+[`GET /lighthouse/health`](#get-lighthousehealth) | Get information about the host machine.
+[`GET /lighthouse/spec`](#get-lighthousespec) | Get the Eth2 specification used by the validator.
+[`GET /lighthouse/auth`](#get-lighthouseauth) | Get the location of the authorization token.
+[`GET /lighthouse/validators`](#get-lighthousevalidators) | List all validators.
+[`GET /lighthouse/validators/:voting_pubkey`](#get-lighthousevalidatorsvoting_pubkey) | Get a specific validator.
+[`PATCH /lighthouse/validators/:voting_pubkey`](#patch-lighthousevalidatorsvoting_pubkey) | Update a specific validator.
 [`POST /lighthouse/validators`](#post-lighthousevalidators) | Create a new validator and mnemonic.
 [`POST /lighthouse/validators/keystore`](#post-lighthousevalidatorskeystore) | Import a keystore.
 [`POST /lighthouse/validators/mnemonic`](#post-lighthousevalidatorsmnemonic) | Create a new validator from an existing mnemonic.
+[`POST /lighthouse/validators/web3signer`](#post-lighthousevalidatorsweb3signer) | Add web3signer validators.
+
+In addition to the above endpoints Lighthouse also supports all of the [standard keymanager APIs](https://ethereum.github.io/keymanager-APIs/).
 
 ## `GET /lighthouse/version`
 
@@ -150,6 +154,37 @@ Typical Responses | 200
         "SECONDS_PER_ETH1_BLOCK": "14",
         "DEPOSIT_CONTRACT_ADDRESS": "0x48b597f4b53c21b48ad95c7256b49d1779bd5890"
     }
+}
+```
+
+## `GET /lighthouse/auth`
+
+Fetch the filesystem path of the [authorization token](./api-vc-auth-header.md).
+Unlike the other endpoints this may be called _without_ providing an authorization token.
+
+This API is intended to be called from the same machine as the validator client, so that the token
+file may be read by a local user with access rights.
+
+### HTTP Specification
+
+| Property | Specification |
+| --- |--- |
+Path | `/lighthouse/auth`
+Method | GET
+Required Headers | -
+Typical Responses | 200
+
+### Example Path
+
+```
+localhost:5062/lighthouse/auth
+```
+
+### Example Response Body
+
+```json
+{
+    "token_path": "/home/karlm/.lighthouse/prater/validators/api-token.txt"
 }
 ```
 

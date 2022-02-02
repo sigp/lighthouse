@@ -3,6 +3,11 @@ name = "slashing_protection"
 version = "0.1.0"
 authors = ["Michael Sproul <michael@sigmaprime.io>", "pscott <scottpiriou@gmail.com>"]
 edition = "2018"
+autotests = false
+
+[[test]]
+name = "slashing_protection_tests"
+path = "tests/main.rs"
 
 [dependencies]
 tempfile = "3.1.0"

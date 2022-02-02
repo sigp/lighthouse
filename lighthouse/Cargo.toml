@@ -1,6 +1,6 @@
 [package]
 name = "lighthouse"
-version = "2.1.0"
+version = "2.1.2"
 authors = ["Sigma Prime <contact@sigmaprime.io>"]
 edition = "2018"
 autotests = false
@@ -16,6 +16,8 @@ modern = ["bls/supranational-force-adx"]
 milagro = ["bls/milagro"]
 # Support minimal spec (used for testing only).
 spec-minimal = []
+# Support Gnosis spec and Gnosis Beacon Chain.
+gnosis = []
 
 [dependencies]
 beacon_node = { "path" = "../beacon_node" }
