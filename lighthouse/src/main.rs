@@ -5,24 +5,25 @@ mod metrics;
 use beacon_node::ProductionBeaconNode;
 use clap::Parser;
 use clap::{Arg, ArgMatches};
+use clap_utils::cli::Lighthouse;
 use clap_utils::flags::{
     LOGFILE_COMPRESS_FLAG, LOGFILE_DEBUG_LEVEL_FLAG, LOGFILE_MAX_NUMBER_FLAG,
     LOGFILE_MAX_SIZE_FLAG, TERMINAL_BLOCK_HASH_EPOCH_OVERRIDE_FLAG,
     TERMINAL_BLOCK_HASH_OVERRIDE_FLAG, TERMINAL_TOTAL_DIFFICULTY_OVERRIDE_FLAG,
 };
 use clap_utils::{
-    DefaultConfigApp as App,
     flags::{
         CONFIG_FILE_FLAG, DATADIR_FLAG, DEBUG_LEVEL_FLAG, DISABLE_MALLOC_TUNING_FLAG,
-        DUMP_CONFIG_FLAG, ENV_LOG_FLAG, IMMEDIATE_SHUTDOWN_FLAG, LOG_FORMAT_FLAG, LOGFILE_FLAG,
+        DUMP_CONFIG_FLAG, ENV_LOG_FLAG, IMMEDIATE_SHUTDOWN_FLAG, LOGFILE_FLAG, LOG_FORMAT_FLAG,
         NETWORK_FLAG, SPEC_FLAG, TESTNET_DIR_FLAG,
-    }, get_eth2_network_config,
+    },
+    get_eth2_network_config, DefaultConfigApp as App,
 };
-use directory::{DEFAULT_BEACON_NODE_DIR, DEFAULT_VALIDATOR_DIR, parse_path_or_default};
+use directory::{parse_path_or_default, DEFAULT_BEACON_NODE_DIR, DEFAULT_VALIDATOR_DIR};
 use env_logger::{Builder, Env};
 use environment::{EnvironmentBuilder, LoggerConfig};
 use eth2_hashing::have_sha_extensions;
-use eth2_network_config::{DEFAULT_HARDCODED_NETWORK, Eth2NetworkConfig, HARDCODED_NET_NAMES};
+use eth2_network_config::{Eth2NetworkConfig, DEFAULT_HARDCODED_NETWORK, HARDCODED_NET_NAMES};
 use lighthouse_version::VERSION;
 use malloc_utils::configure_memory_allocator;
 use slog::{crit, info, warn};
@@ -34,7 +35,6 @@ use std::process::exit;
 use task_executor::ShutdownReason;
 use types::{EthSpec, EthSpecId};
 use validator_client::ProductionValidatorClient;
-use clap_utils::cli::Lighthouse;
 
 fn bls_library_name() -> &'static str {
     if cfg!(feature = "portable") {

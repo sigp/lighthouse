@@ -70,17 +70,18 @@ pub enum ConfigError {
 pub type TomlConfig = Option<HashMap<String, TomlValue>>;
 pub type Config = HashMap<String, String>;
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, Serialize, Clone)]
 #[serde(rename_all = "kebab-case")]
 pub struct GlobalTomlConfig {
-    pub spec: Option<String>,
-    pub validator_count: Option<usize>,
-    pub beacon_count: Option<usize>,
-    pub datadir: Option<PathBuf>,
-    pub doppelganger_count: Option<usize>,
+    pub spec: Option<TomlValue>,
+    pub validator_count: Option<TomlValue>,
+    pub beacon_count: Option<TomlValue>,
+    pub datadir: Option<TomlValue>,
+    pub doppelganger_count: Option<TomlValue>,
+    pub delayed_validator_count: Option<TomlValue>,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, Serialize, Clone)]
 #[serde(rename_all = "kebab-case")]
 pub struct LcliConfig {
     pub deploy_deposit_contract: TomlConfig,
@@ -88,7 +89,7 @@ pub struct LcliConfig {
     pub insecure_validators: TomlConfig,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct IntegrationTestConfig {
     pub global: GlobalTomlConfig,
     pub ganache: TomlConfig,
@@ -97,6 +98,31 @@ pub struct IntegrationTestConfig {
     pub beacon: HashMap<String, TomlConfig>,
     pub validator: HashMap<String, TomlConfig>,
     pub lighthouse_bin_location: Option<PathBuf>,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct OptionalIntegrationTestConfig {
+    pub global: Option<GlobalTomlConfig>,
+    pub ganache: Option<TomlConfig>,
+    pub lcli: Option<LcliConfig>,
+    pub boot_node: Option<TomlConfig>,
+    pub beacon: Option<HashMap<String, TomlConfig>>,
+    pub validator: Option<HashMap<String, TomlConfig>>,
+    pub lighthouse_bin_location: Option<PathBuf>,
+}
+
+impl OptionalIntegrationTestConfig {
+    fn into_required(mut self, default: IntegrationTestConfig) -> IntegrationTestConfig {
+        IntegrationTestConfig {
+            global: self.global.unwrap_or(default.global),
+            ganache: self.ganache.unwrap_or(default.ganache),
+            lcli: self.lcli.unwrap_or(default.lcli),
+            boot_node: self.boot_node.unwrap_or(default.boot_node),
+            beacon: self.beacon.unwrap_or(default.beacon),
+            validator: self.validator.unwrap_or(default.validator),
+            lighthouse_bin_location: self.lighthouse_bin_location,
+        }
+    }
 }
 
 impl IntegrationTestConfig {
@@ -144,6 +170,9 @@ impl GlobalTomlConfig {
             beacon_count: self.beacon_count.or(default.beacon_count),
             datadir: self.datadir.or(default.datadir),
             doppelganger_count: self.doppelganger_count.or(default.doppelganger_count),
+            delayed_validator_count: self
+                .delayed_validator_count
+                .or(default.delayed_validator_count),
         }
     }
 }
@@ -174,11 +203,21 @@ fn merge(this: &mut TomlConfig, that: &TomlConfig) {
 }
 
 impl IntegrationTestConfig {
-    pub fn new(lighthouse_bin: &str, config_path: &str) -> Result<Self, ConfigError> {
+    pub fn new(lighthouse_bin: &str) -> Result<Self, ConfigError> {
         let default_config: IntegrationTestConfig =
             toml::from_str(DEFAULT_CONFIG).map_err(ConfigError::TomlDeserialize)?;
-        let config = parse_file_config_maps(config_path)?.merge(default_config);
-        config
+        default_config
+            .set_bin_location(lighthouse_bin)?
+            .process_global_config()
+    }
+
+    pub fn new_with_config(lighthouse_bin: &str, config_path: &str) -> Result<Self, ConfigError> {
+        let default_config: IntegrationTestConfig =
+            toml::from_str(DEFAULT_CONFIG).map_err(ConfigError::TomlDeserialize)?;
+        let file_config =
+            parse_file_config_maps(config_path)?.into_required(default_config.clone());
+        let merged_config = file_config.merge(default_config);
+        merged_config
             .set_bin_location(lighthouse_bin)?
             .process_global_config()
     }
@@ -192,6 +231,10 @@ impl IntegrationTestConfig {
     fn get_datadir(&self) -> Result<PathBuf, ConfigError> {
         self.global
             .datadir
+            .as_ref()
+            .map(TomlValue::as_str)
+            .flatten()
+            .map(PathBuf::from)
             .ok_or(ConfigError::MissingFields(vec![DATADIR_FLAG]))
     }
 
@@ -199,19 +242,30 @@ impl IntegrationTestConfig {
     fn process_global_config(mut self) -> Result<Self, ConfigError> {
         let node_count = self
             .global
-            .beacon_count.unwrap_or(0);
+            .beacon_count
+            .as_ref()
+            .map(TomlValue::as_integer)
+            .flatten()
+            .unwrap_or(0) as usize;
         let validator_count = self
             .global
-            .validator_count.unwrap_or(0);
+            .validator_count
+            .as_ref()
+            .cloned()
+            .unwrap_or(TomlValue::Integer(0));
         let doppelganger_count = self
             .global
             .doppelganger_count
-            .unwrap_or(0);
+            .as_ref()
+            .map(TomlValue::as_integer)
+            .flatten()
+            .unwrap_or(0) as usize;
 
         let datadir = self.get_datadir()?;
 
         let (testnet_dir, bootnode_dir) = (
-            datadir.join("testnet"), datadir.join("bootnode")
+            TomlValue::String(datadir.join("testnet").to_str().unwrap().to_string()),
+            TomlValue::String(datadir.join("bootnode").to_str().unwrap().to_string()),
         );
 
         let len = self.validator.len();
@@ -250,8 +304,9 @@ impl IntegrationTestConfig {
                 SPEC_FLAG.to_string(),
                 self.global
                     .spec
-                    .ok_or(ConfigError::MissingFields(vec![SPEC_FLAG]))?
-                    .clone(),
+                    .as_ref()
+                    .cloned()
+                    .ok_or(ConfigError::MissingFields(vec![SPEC_FLAG]))?,
             );
             config.insert(TESTNET_DIR_FLAG.to_string(), testnet_dir.clone());
             config.insert(BOOT_DIR_FLAG.to_string(), bootnode_dir.clone());
@@ -296,10 +351,7 @@ impl IntegrationTestConfig {
 
     pub fn start_testnet(&mut self) -> Result<Testnet, ConfigError> {
         // cleanup previous testnet files
-        let dir = self
-            .global
-            .datadir
-            .ok_or(ConfigError::MissingFields(vec![DATADIR_FLAG]))?;
+        let dir = self.get_datadir()?;
         if dir.exists() {
             fs::remove_dir_all(dir).map_err(ConfigError::Cleanup)?;
         }
@@ -490,7 +542,7 @@ impl IntegrationTestConfig {
     }
 
     fn spawn_beacon_nodes(&mut self) -> Result<Vec<TestnetBeaconNode>, ConfigError> {
-        let datadir = self.get_datadir()?;
+        let datadir = self.get_datadir()?.to_str().unwrap().to_string();
 
         let mut processes = vec![];
 
@@ -549,7 +601,7 @@ impl IntegrationTestConfig {
     ) -> Result<(Vec<TestnetValidatorClient>, Vec<Config>), ConfigError> {
         let mut validator_clients = vec![];
         let mut delayed_start_configs = vec![];
-        let datadir = self.get_datadir()?.to_string();
+        let datadir = self.get_datadir()?.to_str().unwrap().to_string();
 
         //TODO: allow config for delayed starting of non-doppelganger VC's
 
@@ -594,6 +646,13 @@ impl IntegrationTestConfig {
                 .map(|v| v.as_integer())
                 .flatten()
                 .unwrap_or(0);
+            let delayed_start_count = self
+                .global
+                .delayed_validator_count
+                .as_ref()
+                .map(|v| v.as_integer())
+                .flatten()
+                .unwrap_or(0);
             if i >= len - doppelganger_count as usize {
                 config.insert(
                     ENABLE_DOPPELGANGER_PROTECTION_FLAG.to_string(),
@@ -603,6 +662,8 @@ impl IntegrationTestConfig {
                     BEACON_NODES_FLAG.to_string(),
                     "http://localhost:5152".to_string(),
                 );
+                delayed_start_configs.push(config);
+            } else if i >= len - delayed_start_count as usize {
                 delayed_start_configs.push(config);
             } else {
                 validator_clients.push(spawn_validator(
@@ -654,16 +715,20 @@ pub(crate) fn spawn_validator(
     // sleep to wait for API key creation.
     thread::sleep(Duration::from_secs(10));
 
+    let default_address = "http://localhost".to_string();
+    let http_address = config.get(HTTP_ADDRESS_FLAG).unwrap_or(&default_address);
+    let http_port = config
+        .get(HTTP_PORT_FLAG)
+        .ok_or(ConfigError::MissingFields(vec![HTTP_PORT_FLAG]))?;
+    let url = format!("{}:{}", http_address, http_port);
+
     // API secret required for the VC API.
-    if let (Some(datadir), Some(url)) = (
-        config.get(DATADIR_FLAG).as_ref(),
-        config.get(BEACON_NODES_FLAG).as_ref(),
-    ) {
+    if let Some(datadir) = config.get(DATADIR_FLAG).as_ref() {
         let token_path = PathBuf::from(format!("{}/validators/api-token.txt", datadir));
         let secret = fs::read_to_string(token_path)?;
-        dbg!(&secret);
+
         let http_client = ValidatorClientHttpClient::new(
-            SensitiveUrl::parse(url).map_err(ConfigError::UrlParse)?,
+            SensitiveUrl::parse(&url).map_err(ConfigError::UrlParse)?,
             secret,
         )
         .map_err(ConfigError::ValidatorHTTPClient)?;
@@ -682,7 +747,7 @@ pub(crate) fn spawn_validator(
     }
 }
 
-fn parse_file_config_maps(file_name: &str) -> Result<IntegrationTestConfig, ConfigError> {
+fn parse_file_config_maps(file_name: &str) -> Result<OptionalIntegrationTestConfig, ConfigError> {
     if file_name.ends_with(".toml") {
         let toml = fs::read_to_string(file_name).map_err(ConfigError::IO)?;
         toml::from_str(toml.as_str()).map_err(ConfigError::TomlDeserialize)

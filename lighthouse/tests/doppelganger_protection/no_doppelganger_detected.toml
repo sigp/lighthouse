@@ -1,0 +1,4 @@
+[global]
+validator-count = 60
+beacon-count = 4
+delayed-validator-count = 1

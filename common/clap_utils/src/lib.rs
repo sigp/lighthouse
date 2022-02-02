@@ -1,7 +1,7 @@
 //! A helper library for parsing values from `clap::ArgMatches`.
 
 use clap::ArgMatches;
-use eth2_network_config::{DEFAULT_HARDCODED_NETWORK, Eth2NetworkConfig};
+use eth2_network_config::{Eth2NetworkConfig, DEFAULT_HARDCODED_NETWORK};
 use ethereum_types::U256 as Uint256;
 pub use serde_yaml::Value as YamlValue;
 use ssz::Decode;
@@ -16,8 +16,8 @@ pub use default_config::DefaultConfigApp;
 mod default_config;
 #[macro_use]
 pub mod flags;
-pub mod lcli_flags;
 pub mod cli;
+pub mod lcli_flags;
 
 pub const BAD_TESTNET_DIR_MESSAGE: &str = "The hard-coded testnet directory was invalid. \
                                         This happens when Lighthouse is migrating between spec versions \

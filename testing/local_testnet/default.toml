@@ -1,13 +1,13 @@
 [global]
 spec = "mainnet"
 # one VC per BN and validators will always be split evenly across all nodes
-validator-count = 60
+validator-count = 80
 # default beacon nodes will be created for any less than this explicitly defined
 beacon-count = 4
 # path is relative to the crate directory
 datadir = "./tests/tmp"
 # the number of validator nodes running duplicate keys
-doppelganger-count = 1
+doppelganger-count = 0
 
 [ganache]
 defaultBalanceEther = 1000000000

@@ -9,6 +9,8 @@ use slot_clock::{SlotClock, SystemTimeSlotClock};
 use std::future::Future;
 use std::path::PathBuf;
 use std::str::FromStr;
+use std::sync::atomic::Ordering;
+use std::sync::Arc;
 use std::thread;
 
 #[derive(thiserror::Error, Debug)]
@@ -47,16 +49,18 @@ pub struct TestnetBeaconNode {
 }
 
 impl Testnet {
-    pub fn wait_epochs(self, epochs: Epoch) -> Result<Self, TestnetError> {
+    pub fn wait_epochs(self, epochs: Epoch) -> Self {
         let spec = EthSpecId::from_str(
             self.global_config
                 .spec
                 .as_ref()
                 .map(TomlValue::as_str)
                 .flatten()
-                .ok_or(TestnetError::MissingSpec)?,
+                .ok_or(TestnetError::MissingSpec)
+                .unwrap(),
         )
-        .map_err(TestnetError::InvalidSpec)?;
+        .map_err(TestnetError::InvalidSpec)
+        .unwrap();
         let slots_per_epoch = match spec {
             EthSpecId::Mainnet => MainnetEthSpec::slots_per_epoch(),
             EthSpecId::Gnosis => GnosisEthSpec::slots_per_epoch(),
@@ -66,27 +70,23 @@ impl Testnet {
         thread::sleep(
             self.slot_clock.slot_duration() * slots_per_epoch as u32 * epochs.as_u64() as u32,
         );
-        Ok(self)
+        self
     }
 
-    pub fn add_validator(self) -> Result<Self, TestnetError> {
+    pub fn add_validator(self) -> Self {
         self.add_validator_with_config(|_| {})
     }
 
-    pub fn add_validator_with_config<F: Fn(&mut Config)>(
-        mut self,
-        f: F,
-    ) -> Result<Self, TestnetError> {
+    pub fn add_validator_with_config<F: Fn(&mut Config)>(mut self, f: F) -> Self {
         let mut config = self
             .delayed_start_configs
             .pop()
-            .ok_or(TestnetError::NoDelayedStartValidators)?;
+            .ok_or(TestnetError::NoDelayedStartValidators)
+            .unwrap();
         f(&mut config);
-        self.validator_clients.push(crate::config::spawn_validator(
-            &self.lighthouse_bin_location,
-            config,
-        )?);
-        Ok(self)
+        self.validator_clients
+            .push(crate::config::spawn_validator(&self.lighthouse_bin_location, config).unwrap());
+        self
     }
 
     pub async fn check_all_active(self) -> Self {
@@ -95,10 +95,26 @@ impl Testnet {
         })
         .await
         .check_validator_clients(|i, node| async move {
-            dbg!(node.get_lighthouse_health().await.unwrap().data);
             assert!(node.get_lighthouse_health().await.is_ok());
         })
         .await
+    }
+
+    pub async fn assert_inactive_validators(self, num_inactive: usize) -> Self {
+        let mut inactive_count = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let testnet = self
+            .check_validator_clients_with(
+                |i, node, count| async move {
+                    let res = node.get_lighthouse_health().await;
+                    if res.is_err() {
+                        count.fetch_add(1, Ordering::Relaxed);
+                    }
+                },
+                inactive_count.clone(),
+            )
+            .await;
+        assert_eq!(inactive_count.load(Ordering::Relaxed), num_inactive);
+        testnet
     }
 
     pub async fn check_beacon_nodes<F, T>(self, f: F) -> Self
@@ -119,6 +135,18 @@ impl Testnet {
     {
         for (i, node) in self.validator_clients.iter().enumerate() {
             f(i, node.http_client.clone()).await;
+        }
+        self
+    }
+
+    pub async fn check_validator_clients_with<F, T, G>(self, f: F, extra_data: G) -> Self
+    where
+        F: Fn(usize, ValidatorClientHttpClient, G) -> T,
+        T: Future<Output = ()>,
+        G: Clone,
+    {
+        for (i, node) in self.validator_clients.iter().enumerate() {
+            f(i, node.http_client.clone(), extra_data.clone()).await;
         }
         self
     }

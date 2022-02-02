@@ -1,11 +1,11 @@
-pub use clap::{Parser, IntoApp};
 use clap::{ArgEnum, Args, Subcommand};
-use lazy_static::lazy_static;
-use lighthouse_version::VERSION;
-use std::path::PathBuf;
+pub use clap::{IntoApp, Parser};
 use eth2_hashing::have_sha_extensions;
 use eth2_network_config::HARDCODED_NET_NAMES;
-use serde::{Serialize, Deserialize};
+use lazy_static::lazy_static;
+use lighthouse_version::VERSION;
+use serde::{Deserialize, Serialize};
+use std::path::PathBuf;
 
 // These have to live at least as long as the `Lighthouse` app.
 lazy_static! {
