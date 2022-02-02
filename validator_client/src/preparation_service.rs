@@ -264,7 +264,7 @@ impl<T: SlotClock + 'static, E: EthSpec> PreparationService<T, E> {
         {
             Ok(()) => info!(
                 log,
-                "Successfully published proposer preparation";
+                "Published proposer preparation";
                 "count" => preparation_data_len,
             ),
             Err(e) => error!(
