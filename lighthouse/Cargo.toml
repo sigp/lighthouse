@@ -18,6 +18,8 @@ milagro = ["bls/milagro"]
 spec-minimal = []
 # Support Gnosis spec and Gnosis Beacon Chain.
 gnosis = []
+# Use `milhouse` tree states.
+tree-states = ["store/milhouse"]
 
 [dependencies]
 beacon_node = { "path" = "../beacon_node" }
@@ -44,6 +46,7 @@ serde_json = "1.0.59"
 task_executor = { path = "../common/task_executor" }
 malloc_utils = { path = "../common/malloc_utils" }
 directory = { path = "../common/directory" }
+store = { path = "../beacon_node/store" }
 
 [dev-dependencies]
 tempfile = "3.1.0"
