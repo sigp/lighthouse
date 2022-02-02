@@ -1,6 +1,6 @@
 use super::*;
 use serde::{Deserialize, Serialize};
-use types::{EthSpec, FixedVector, Transactions, Unsigned, VariableList};
+use types::{EthSpec, ExecTransactions, FixedVector, Transactions, Unsigned, VariableList};
 
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -123,7 +123,7 @@ impl<T: EthSpec, Txns: Transactions<T>> From<JsonExecutionPayloadHeaderV1<T, Txn
 
 #[derive(Debug, PartialEq, Default, Serialize, Deserialize)]
 #[serde(bound = "T: EthSpec", rename_all = "camelCase")]
-pub struct JsonExecutionPayloadV1<T: EthSpec, Txns: Transactions<T>> {
+pub struct JsonExecutionPayloadV1<T: EthSpec, Txns: Transactions<T> = ExecTransactions<T>> {
     pub parent_hash: Hash256,
     pub fee_recipient: Address,
     pub state_root: Hash256,

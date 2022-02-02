@@ -11,8 +11,8 @@ use std::time::Duration;
 use tokio::runtime::Runtime;
 use tokio::time::sleep;
 use types::{
-    BeaconBlock, BeaconBlockAltair, BeaconBlockBase, BeaconBlockMerge, Epoch, EthSpec, ForkContext,
-    Hash256, MinimalEthSpec, Signature, SignedBeaconBlock, Slot,
+    BeaconBlock, BeaconBlockAltair, BeaconBlockBase, BeaconBlockMerge, Epoch, EthSpec,
+    ExecTransactions, ForkContext, Hash256, MinimalEthSpec, Signature, SignedBeaconBlock, Slot,
 };
 
 mod common;
@@ -25,7 +25,7 @@ fn merge_block_small(fork_context: &ForkContext) -> BeaconBlock<E> {
     let tx = VariableList::from(vec![0; 1024]);
     let txs = VariableList::from(std::iter::repeat(tx).take(100).collect::<Vec<_>>());
 
-    block.body.execution_payload.transactions = txs;
+    block.body.execution_payload.transactions = ExecTransactions(txs);
 
     let block = BeaconBlock::Merge(block);
     assert!(block.ssz_bytes_len() <= max_rpc_size(fork_context));
@@ -40,7 +40,7 @@ fn merge_block_large(fork_context: &ForkContext) -> BeaconBlock<E> {
     let tx = VariableList::from(vec![0; 1024]);
     let txs = VariableList::from(std::iter::repeat(tx).take(100000).collect::<Vec<_>>());
 
-    block.body.execution_payload.transactions = txs;
+    block.body.execution_payload.transactions = ExecTransactions(txs);
 
     let block = BeaconBlock::Merge(block);
     assert!(block.ssz_bytes_len() > max_rpc_size(fork_context));

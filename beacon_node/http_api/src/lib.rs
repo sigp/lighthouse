@@ -1044,8 +1044,13 @@ pub fn serve<T: BeaconChainTypes>(
                 blocking_json_task(move || {
                     if let Some(el) = chain.execution_layer.as_ref() {
                         let block_clone = block.clone();
+
+                        //TODO(sean): we may not always receive the payload in this response because it
+                        // should be the relay's job to propogate the block. However, since this block is
+                        // already signed and sent this might be ok (so long as the relay validates
+                        // the block before revealing the payload).
                         let payload = el
-                            .block_on(|el| el.propose_blinded_beacon_block(block.clone()))
+                            .block_on(|el| el.propose_blinded_beacon_block(&block))
                             .map_err(|e| {
                                 warp_utils::reject::custom_server_error(format!(
                                     "proposal failed: {:?}",
@@ -1106,7 +1111,7 @@ pub fn serve<T: BeaconChainTypes>(
                             PubsubMessage::BeaconBlock(Box::new(new_block.clone())),
                         )?;
 
-                        match chain.process_block(new_block.clone()) {
+                        match chain.process_block(new_block) {
                             Ok(_) => {
                                 // Update the head since it's likely this block will become the new
                                 // head.

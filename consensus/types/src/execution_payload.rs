@@ -1,9 +1,7 @@
 use crate::{test_utils::TestRandom, *};
 use derivative::Derivative;
-use eth2_serde_utils::hex;
 use serde::de::DeserializeOwned;
-use serde::ser::SerializeSeq;
-use serde::{de, Serialize as Ser, Serializer};
+use serde::Serialize as Ser;
 use serde_derive::{Deserialize, Serialize};
 use ssz::{Decode, DecodeError, Encode};
 use ssz_derive::{Decode, Encode};

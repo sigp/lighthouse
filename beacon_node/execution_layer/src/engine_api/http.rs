@@ -10,8 +10,7 @@ use serde::de::DeserializeOwned;
 use serde_json::json;
 use std::time::Duration;
 use types::{
-    BlindedTransactions, EthSpec, ExecTransactions, SignedBeaconBlock, SignedBlindedBeaconBlock,
-    Transactions,
+    BlindedTransactions, EthSpec, SignedBeaconBlock, SignedBlindedBeaconBlock, Transactions,
 };
 
 pub use reqwest::Client;
@@ -283,7 +282,7 @@ impl BuilderApi for BuilderHttpJsonRpc {
 
         let params = json!([blinded_block]);
 
-        let response: JsonExecutionPayloadV1<T, ExecTransactions<T>> = self
+        let response: JsonExecutionPayloadV1<T> = self
             .rpc_request(
                 BUILDER_PROPOSE_BLINDED_BLOCK_V1,
                 params,
@@ -301,7 +300,7 @@ mod test {
     use std::future::Future;
     use std::str::FromStr;
     use std::sync::Arc;
-    use types::{ExecTransactions, MainnetEthSpec, Transaction, Unsigned, VariableList};
+    use types::{ExecTransactions, MainnetEthSpec, Unsigned, VariableList};
 
     struct Tester {
         server: MockServer<MainnetEthSpec>,
@@ -376,12 +375,9 @@ mod test {
     const LOGS_BLOOM_01: &str = "0x01010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101";
 
     fn encode_transactions<E: EthSpec>(
-        transactions: VariableList<
-            Transaction<E::MaxBytesPerTransaction>,
-            E::MaxTransactionsPerPayload,
-        >,
+        transactions: ExecTransactions<E>,
     ) -> Result<serde_json::Value, serde_json::Error> {
-        let ep: JsonExecutionPayloadV1<E> = JsonExecutionPayloadV1 {
+        let ep: JsonExecutionPayloadV1<E, ExecTransactions<E>> = JsonExecutionPayloadV1 {
             transactions,
             ..<_>::default()
         };
@@ -391,10 +387,7 @@ mod test {
 
     fn decode_transactions<E: EthSpec>(
         transactions: serde_json::Value,
-    ) -> Result<
-        VariableList<Transaction<E::MaxBytesPerTransaction>, E::MaxTransactionsPerPayload>,
-        serde_json::Error,
-    > {
+    ) -> Result<ExecTransactions<E>, serde_json::Error> {
         let mut json = json!({
             "parentHash": HASH_00,
             "feeRecipient": ADDRESS_01,
@@ -420,7 +413,7 @@ mod test {
 
     fn assert_transactions_serde<E: EthSpec>(
         name: &str,
-        as_obj: VariableList<Transaction<E::MaxBytesPerTransaction>, E::MaxTransactionsPerPayload>,
+        as_obj: ExecTransactions<E>,
         as_json: serde_json::Value,
     ) {
         assert_eq!(
@@ -438,9 +431,7 @@ mod test {
     }
 
     /// Example: if `spec == &[1, 1]`, then two one-byte transactions will be created.
-    fn generate_transactions<E: EthSpec>(
-        spec: &[usize],
-    ) -> VariableList<Transaction<E::MaxBytesPerTransaction>, E::MaxTransactionsPerPayload> {
+    fn generate_transactions<E: EthSpec>(spec: &[usize]) -> ExecTransactions<E> {
         let mut txs = VariableList::default();
 
         for &num_bytes in spec {
@@ -451,7 +442,7 @@ mod test {
             txs.push(tx).unwrap();
         }
 
-        txs
+        ExecTransactions(txs)
     }
 
     #[test]
@@ -582,7 +573,9 @@ mod test {
         Tester::new()
             .assert_request_equals(
                 |client| async move {
-                    let _ = client.get_payload_v1::<MainnetEthSpec>([42; 8]).await;
+                    let _ = client
+                        .get_payload_v1::<MainnetEthSpec, ExecTransactions<MainnetEthSpec>>([42; 8])
+                        .await;
                 },
                 json!({
                     "id": STATIC_ID,
@@ -768,7 +761,7 @@ mod test {
                 // engine_getPayloadV1 REQUEST validation
                 |client| async move {
                     let _ = client
-                        .get_payload_v1::<MainnetEthSpec>(str_to_payload_id("0xa247243752eb10b4"))
+                        .get_payload_v1::<MainnetEthSpec, ExecTransactions<MainnetEthSpec>>(str_to_payload_id("0xa247243752eb10b4"))
                         .await;
                 },
                 json!({
@@ -803,7 +796,7 @@ mod test {
                 })],
                 |client| async move {
                     let payload = client
-                        .get_payload_v1::<MainnetEthSpec>(str_to_payload_id("0xa247243752eb10b4"))
+                        .get_payload_v1::<MainnetEthSpec, ExecTransactions<MainnetEthSpec>>(str_to_payload_id("0xa247243752eb10b4"))
                         .await
                         .unwrap();
 

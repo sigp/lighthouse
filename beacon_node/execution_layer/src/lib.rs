@@ -768,21 +768,19 @@ impl ExecutionLayer {
 
     pub async fn propose_blinded_beacon_block<T: EthSpec>(
         &self,
-        block: SignedBeaconBlock<T, BlindedTransactions>,
+        block: &SignedBeaconBlock<T, BlindedTransactions>,
     ) -> Result<ExecutionPayload<T>, Error> {
         debug!(
             self.log(),
             "Issuing builder_proposeBlindedBlock";
             "root" => ?block.canonical_root(),
         );
-        for engine in &self.builders().engines {
-            return engine
-                .api
-                .propose_blinded_block_v1(block)
-                .await
-                .map_err(Error::ApiError);
-        }
-        Err(Error::NoPayloadBuilder)
+        self.builders()
+            .first_success(|engine| async move {
+                engine.api.propose_blinded_block_v1(block.clone()).await
+            })
+            .await
+            .map_err(Error::EngineErrors)
     }
 }
 
