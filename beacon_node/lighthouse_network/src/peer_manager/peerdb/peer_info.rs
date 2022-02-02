@@ -140,6 +140,11 @@ impl<T: EthSpec> PeerInfo<T> {
         self.enr.as_ref()
     }
 
+    /// An iterator over all the subnets this peer is subscribed to.
+    pub fn subnets(&self) -> Iterator<Item = &SubnetId> {
+        self.subnets.iter()
+    }
+
     /// Returns if the peer is subscribed to a given `Subnet` from the gossipsub subscriptions.
     pub fn on_subnet_gossipsub(&self, subnet: &Subnet) -> bool {
         self.subnets.contains(subnet)
