@@ -20,6 +20,7 @@ use std::process::exit;
 use task_executor::ShutdownReason;
 use types::{EthSpec, EthSpecId};
 use validator_client::ProductionValidatorClient;
+use crate::cli::Lighthouse;
 
 fn bls_library_name() -> &'static str {
     if cfg!(feature = "portable") {
@@ -39,232 +40,15 @@ fn main() {
         std::env::set_var("RUST_BACKTRACE", "1");
     }
 
-    // Parse the CLI parameters.
-    let matches = App::new("Lighthouse")
-        .version(VERSION.replace("Lighthouse/", "").as_str())
-        .author("Sigma Prime <contact@sigmaprime.io>")
-        .setting(clap::AppSettings::ColoredHelp)
-        .about(
-            "Ethereum 2.0 client by Sigma Prime. Provides a full-featured beacon \
-             node, a validator client and utilities for managing validator accounts.",
-        )
-        .long_version(
-            format!(
-                "{}\n\
-                 BLS library: {}\n\
-                 SHA256 hardware acceleration: {}\n\
-                 Specs: mainnet (true), minimal ({}), gnosis ({})",
-                 VERSION.replace("Lighthouse/", ""),
-                 bls_library_name(),
-                 have_sha_extensions(),
-                 cfg!(feature = "spec-minimal"),
-                 cfg!(feature = "gnosis"),
-            ).as_str()
-        )
-        .arg(
-            Arg::with_name("spec")
-                .short("s")
-                .long("spec")
-                .value_name("DEPRECATED")
-                .help("This flag is deprecated, it will be disallowed in a future release. This \
-                    value is now derived from the --network or --testnet-dir flags.")
-                .takes_value(true)
-                .global(true)
-        )
-        .arg(
-            Arg::with_name("env_log")
-                .short("l")
-                .help("Enables environment logging giving access to sub-protocol logs such as discv5 and libp2p",
-                )
-                .takes_value(false),
-        )
-        .arg(
-            Arg::with_name("logfile")
-                .long("logfile")
-                .value_name("FILE")
-                .help(
-                    "File path where the log file will be stored. Once it grows to the \
-                    value specified in `--logfile-max-size` a new log file is generated where \
-                    future logs are stored. \
-                    Once the number of log files exceeds the value specified in \
-                    `--logfile-max-number` the oldest log file will be overwritten.")
-                .takes_value(true)
-                .global(true),
-        )
-        .arg(
-            Arg::with_name("logfile-debug-level")
-                .long("logfile-debug-level")
-                .value_name("LEVEL")
-                .help("The verbosity level used when emitting logs to the log file.")
-                .takes_value(true)
-                .possible_values(&["info", "debug", "trace", "warn", "error", "crit"])
-                .default_value("debug")
-                .global(true),
-        )
-        .arg(
-            Arg::with_name("logfile-max-size")
-                .long("logfile-max-size")
-                .value_name("SIZE")
-                .help(
-                    "The maximum size (in MB) each log file can grow to before rotating. If set \
-                    to 0, background file logging is disabled.")
-                .takes_value(true)
-                .default_value("200")
-                .global(true),
-        )
-        .arg(
-            Arg::with_name("logfile-max-number")
-                .long("logfile-max-number")
-                .value_name("COUNT")
-                .help(
-                    "The maximum number of log files that will be stored. If set to 0, \
-                    background file logging is disabled.")
-                .takes_value(true)
-                .default_value("5")
-                .global(true),
-        )
-        .arg(
-            Arg::with_name("logfile-compress")
-                .long("logfile-compress")
-                .help(
-                    "If present, compress old log files. This can help reduce the space needed \
-                    to store old logs.")
-                .global(true),
-        )
-        .arg(
-            Arg::with_name("log-format")
-                .long("log-format")
-                .value_name("FORMAT")
-                .help("Specifies the log format used when emitting logs to the terminal.")
-                .possible_values(&["JSON"])
-                .takes_value(true)
-                .global(true),
-        )
-        .arg(
-            Arg::with_name("debug-level")
-                .long("debug-level")
-                .value_name("LEVEL")
-                .help("Specifies the verbosity level used when emitting logs to the terminal.")
-                .takes_value(true)
-                .possible_values(&["info", "debug", "trace", "warn", "error", "crit"])
-                .global(true)
-                .default_value("info"),
-        )
-        .arg(
-            Arg::with_name("datadir")
-                .long("datadir")
-                .short("d")
-                .value_name("DIR")
-                .global(true)
-                .help(
-                    "Used to specify a custom root data directory for lighthouse keys and databases. \
-                    Defaults to $HOME/.lighthouse/{network} where network is the value of the `network` flag \
-                    Note: Users should specify separate custom datadirs for different networks.")
-                .takes_value(true),
-        )
-        .arg(
-            Arg::with_name("testnet-dir")
-                .short("t")
-                .long("testnet-dir")
-                .value_name("DIR")
-                .help(
-                    "Path to directory containing eth2_testnet specs. Defaults to \
-                      a hard-coded Lighthouse testnet. Only effective if there is no \
-                      existing database.",
-                )
-                .takes_value(true)
-                .global(true),
-        )
-        .arg(
-            Arg::with_name("network")
-                .long("network")
-                .value_name("network")
-                .help("Name of the Eth2 chain Lighthouse will sync and follow.")
-                .possible_values(HARDCODED_NET_NAMES)
-                .conflicts_with("testnet-dir")
-                .takes_value(true)
-                .global(true)
-
-        )
-        .arg(
-            Arg::with_name("dump-config")
-                .long("dump-config")
-                .hidden(true)
-                .help("Dumps the config to a desired location. Used for testing only.")
-                .takes_value(true)
-                .global(true)
-        )
-        .arg(
-            Arg::with_name("immediate-shutdown")
-                .long("immediate-shutdown")
-                .hidden(true)
-                .help(
-                    "Shuts down immediately after the Beacon Node or Validator has successfully launched. \
-                    Used for testing only, DO NOT USE IN PRODUCTION.")
-                .global(true)
-        )
-        .arg(
-            Arg::with_name(DISABLE_MALLOC_TUNING_FLAG)
-                .long(DISABLE_MALLOC_TUNING_FLAG)
-                .help(
-                    "If present, do not configure the system allocator. Providing this flag will \
-                    generally increase memory usage, it should only be provided when debugging \
-                    specific memory allocation issues."
-                )
-                .global(true),
-        )
-        .arg(
-            Arg::with_name("terminal-total-difficulty-override")
-                .long("terminal-total-difficulty-override")
-                .value_name("INTEGER")
-                .help("Used to coordinate manual overrides to the TERMINAL_TOTAL_DIFFICULTY parameter. \
-                       Accepts a 256-bit decimal integer (not a hex value). \
-                       This flag should only be used if the user has a clear understanding that \
-                       the broad Ethereum community has elected to override the terminal difficulty. \
-                       Incorrect use of this flag will cause your node to experience a consensus
-                       failure. Be extremely careful with this flag.")
-                .takes_value(true)
-                .global(true)
-        )
-        .arg(
-            Arg::with_name("terminal-block-hash-override")
-                .long("terminal-block-hash-override")
-                .value_name("TERMINAL_BLOCK_HASH")
-                .help("Used to coordinate manual overrides to the TERMINAL_BLOCK_HASH parameter. \
-                       This flag should only be used if the user has a clear understanding that \
-                       the broad Ethereum community has elected to override the terminal PoW block. \
-                       Incorrect use of this flag will cause your node to experience a consensus
-                       failure. Be extremely careful with this flag.")
-                .requires("terminal-block-hash-epoch-override")
-                .takes_value(true)
-                .global(true)
-        )
-        .arg(
-            Arg::with_name("terminal-block-hash-epoch-override")
-                .long("terminal-block-hash-epoch-override")
-                .value_name("EPOCH")
-                .help("Used to coordinate manual overrides to the TERMINAL_BLOCK_HASH_ACTIVATION_EPOCH \
-                       parameter. This flag should only be used if the user has a clear understanding \
-                       that the broad Ethereum community has elected to override the terminal PoW block. \
-                       Incorrect use of this flag will cause your node to experience a consensus
-                       failure. Be extremely careful with this flag.")
-                .requires("terminal-block-hash-override")
-                .takes_value(true)
-                .global(true)
-        )
-        .subcommand(beacon_node::cli_app())
-        .subcommand(boot_node::cli_app())
-        .subcommand(validator_client::cli_app())
-        .subcommand(account_manager::cli_app())
-        .get_matches();
+    let lighthouse : Lighthouse = Lighthouse::parse();
 
     // Configure the allocator early in the process, before it has the chance to use the default values for
     // anything important.
     //
     // Only apply this optimization for the beacon node. It's the only process with a substantial
     // memory footprint.
-    let is_beacon_node = matches.subcommand_name() == Some("beacon_node");
-    if is_beacon_node && !matches.is_present(DISABLE_MALLOC_TUNING_FLAG) {
+    let is_beacon_node = lighthouse.is_beacon_node();
+    if is_beacon_node && !lighthouse.disable_malloc_tuning {
         if let Err(e) = configure_memory_allocator() {
             eprintln!(
                 "Unable to configure the memory allocator: {} \n\
@@ -276,7 +60,7 @@ fn main() {
     }
 
     // Debugging output for libp2p and external crates.
-    if matches.is_present("env_log") {
+    if lighthouse.env_log {
         Builder::from_env(Env::default()).init();
     }
 

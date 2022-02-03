@@ -218,7 +218,16 @@ pub struct Lighthouse {
     )]
     pub terminal_block_hash_epoch_override: Option<String>,
     #[clap(subcommand)]
-    subcommand: LighthouseSubcommand,
+    pub subcommand: LighthouseSubcommand,
+}
+
+impl Lighthouse {
+    pub fn is_beacon_node(&self) -> bool {
+        match self.subcommand.as_ref() {
+            LighthouseSubcommand::BeaconNode(_) => true,
+            _ => false,
+        }
+    }
 }
 
 #[derive(Parser, Clone, Deserialize, Serialize, Debug)]
