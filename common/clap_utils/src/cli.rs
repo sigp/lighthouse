@@ -227,7 +227,7 @@ pub enum LighthouseSubcommand {
     BeaconNode(BeaconNode),
     ValidatorClient(ValidatorClient),
     BootNode(BootNode),
-    // AccountManager(AccountManager),
+    AccountManager(AccountManager),
 }
 
 #[derive(Parser, Clone, Deserialize, Serialize, Debug)]
@@ -1016,69 +1016,472 @@ pub struct BootNode {
     pub network_dir: Option<String>,
 }
 
-// #[derive(Parser, Clone, Deserialize, Serialize, Debug)]
-// #[clap(rename_all = "snake_case", visible_aliases = &["a", "am", "account"],
-// about = "Utilities for generating and managing Ethereum 2.0 accounts.")]
-// pub enum AccountManager {
-//     Wallet(Wallet),
-//     Validator(Validator),
-// }
-//
-// #[derive(Parser, Clone, Deserialize, Serialize, Debug)]
-// #[clap(about = "Manage wallets, from which validator keys can be derived.")]
-// pub struct Wallet {
-//     #[clap(
-//         long,
-//         value_name = "WALLETS_DIRECTORY",
-//         help = "A path containing Eth2 EIP-2386 wallets. Defaults to ~/.lighthouse/{network}/wallets",
-//         takes_value = true,
-//         conflicts_with = "datadir"
-//     )]
-// pub     wallets_dir: Option<String>,
-//     subcommand: WalletSubcommand,
-// }
-//
-// #[derive(Parser, Clone, Deserialize, Serialize, Debug)]
-// pub enum WalletSubcommand {
-//     Create(WalletCreate),
-//     List(WalletList),
-//     Recover(WalletRecover),
-// }
-//
-// #[derive(Parser, Clone, Deserialize, Serialize, Debug)]
-// #[clap(about = "Creates a new HD (hierarchical-deterministic) EIP-2386 wallet.")]
-// pub struct WalletCreate {
-//     name: Option<String>,
-//     password: Option<String>,
-//     create_type: Option<String>,
-//     mnemonic: Option<String>,
-//     stdin_inputs: Option<String>,
-//     mnemonic_length: Option<String>,
-// }
-//
-// #[derive(Parser, Clone, Deserialize, Serialize, Debug)]
-// #[clap(about = "Provides commands for managing Eth2 validators.")]
-// pub struct Validator {
-//     #[clap(
-//         long,
-//         value_name = "VALIDATOR_DIRECTORY",
-//         help = "The path to search for validator directories. \
-//                     Defaults to ~/.lighthouse/{network}/validators",
-//         takes_value = true,
-//         conflicts_with = "datadir"
-//     )]
-// pub     validator_dir: Option<String>,
-//     subcommand: ValidatorSubcommand,
-// }
-//
-// #[derive(Parser, Clone, Deserialize, Serialize, Debug)]
-// #[clap(rename_all = "snake_case")]
-// pub enum ValidatorSubcommand {
-//     Create(ValCreate),
-//     Modify(Modify),
-//     Import(Import),
-//     List(ValList),
-//     Recover(ValRecover),
-//     SlashingProtection(SlashingProtection),
-//     Exit(Exit),
-// }
+#[derive(Parser, Clone, Deserialize, Serialize, Debug)]
+#[clap(rename_all = "snake_case", visible_aliases = &["a", "am", "account"],
+about = "Utilities for generating and managing Ethereum 2.0 accounts.")]
+pub enum AccountManager {
+    Wallet(Wallet),
+    Validator(Validator),
+}
+
+#[derive(Parser, Clone, Deserialize, Serialize, Debug)]
+#[clap(about = "Manage wallets, from which validator keys can be derived.")]
+pub struct Wallet {
+    #[clap(
+        long,
+        value_name = "WALLETS_DIRECTORY",
+        help = "A path containing Eth2 EIP-2386 wallets. Defaults to ~/.lighthouse/{network}/wallets",
+        takes_value = true,
+        conflicts_with = "datadir"
+    )]
+    pub wallets_dir: Option<String>,
+    subcommand: WalletSubcommand,
+}
+
+#[derive(Parser, Clone, Deserialize, Serialize, Debug)]
+pub enum WalletSubcommand {
+    Create(WalletCreate),
+    List(WalletList),
+    Recover(WalletRecover),
+}
+
+#[derive(Parser, Clone, Deserialize, Serialize, Debug)]
+#[clap(about = "Creates a new HD (hierarchical-deterministic) EIP-2386 wallet.")]
+pub struct WalletCreate {
+    #[clap(
+        long,
+        value_name = "WALLET_NAME",
+        help = "The wallet will be created with this name. It is not allowed to \
+                            create two wallets with the same name for the same --base-dir.",
+        takes_value = true
+    )]
+    name: Option<String>,
+    #[clap(
+        long,
+        value_name = "WALLET_PASSWORD_PATH",
+        help = "A path to a file containing the password which will unlock the wallet. \
+                    If the file does not exist, a random password will be generated and \
+                    saved at that path. To avoid confusion, if the file does not already \
+                    exist it must include a '.pass' suffix.",
+        takes_value = true
+    )]
+    password: Option<String>,
+    #[clap(
+    long,
+    value_name = "WALLET_TYPE",
+    help =
+    "The type of wallet to create. Only HD (hierarchical-deterministic) \
+                            wallets are supported presently..",
+
+    takes_value = true,
+    possible_values = &[HD_TYPE],
+    default_value = HD_TYPE,
+    rename = "type")]
+    create_type: Option<String>,
+    #[clap(
+        long,
+        value_name = "MNEMONIC_PATH",
+        help = "If present, the mnemonic will be saved to this file. DO NOT SHARE THE MNEMONIC.",
+        takes_value = true
+    )]
+    mnemonic: Option<String>,
+    #[clap(
+    takes_value = false,
+    hide = cfg!(windows),
+    long,
+    help = "If present, read all user inputs from stdin instead of tty.",)]
+    stdin_inputs: Option<String>,
+    #[clap(                long,
+    value_name = "MNEMONIC_LENGTH",
+    help = "The number of words to use for the mnemonic phrase.",
+    takes_value = true,
+    validator = |len| {
+    match len.parse::<usize>().ok().and_then(|words| MnemonicType::for_word_count(words).ok()) {
+    Some(_) => Ok(()),
+    None => Err(format!("Mnemonic length must be one of {}", MNEMONIC_TYPES.iter().map(|t| t.word_count().to_string()).collect::<Vec<_>>().join(", "))),
+    }
+    }
+    ,
+    default_value = "24",)]
+    mnemonic_length: Option<String>,
+}
+
+#[derive(Parser, Clone, Deserialize, Serialize, Debug)]
+#[clap(about = "Lists the names of all wallets.")]
+pub struct WalletList {}
+
+#[derive(Parser, Clone, Deserialize, Serialize, Debug)]
+#[clap(about = "Recovers an EIP-2386 wallet from a given a BIP-39 mnemonic phrase.")]
+pub struct WalletRecover {
+    #[clap(
+        long,
+        value_name = "WALLET_NAME",
+        help = "The wallet will be created with this name. It is not allowed to \
+                            create two wallets with the same name for the same --base-dir.",
+        takes_value = true
+    )]
+    name: Option<String>,
+    #[clap(
+        long,
+        value_name = "PASSWORD_FILE_PATH",
+        help = "This will be the new password for your recovered wallet. \
+                    A path to a file containing the password which will unlock the wallet. \
+                    If the file does not exist, a random password will be generated and \
+                    saved at that path. To avoid confusion, if the file does not already \
+                    exist it must include a '.pass' suffix.",
+        takes_value = true
+    )]
+    password: Option<String>,
+    #[clap(
+        long,
+        value_name = "MNEMONIC_PATH",
+        help = "If present, the mnemonic will be read in from this file.",
+        takes_value = true
+    )]
+    mnemonic: Option<String>,
+    #[clap(                long,
+    value_name = "WALLET_TYPE",
+    help =
+    "The type of wallet to create. Only HD (hierarchical-deterministic) \
+                            wallets are supported presently..",
+    takes_value = true,
+    possible_values = &[HD_TYPE],
+    default_value = HD_TYPE,
+    rename = "type")]
+    recover_type: Option<String>,
+    #[clap(                takes_value = false,
+    hide = cfg!(windows),
+    long,
+    help = "If present, read all user inputs from stdin instead of tty.",)]
+    stdin_inputs: Option<String>,
+}
+
+#[derive(Parser, Clone, Deserialize, Serialize, Debug)]
+#[clap(about = "Provides commands for managing Eth2 validators.")]
+pub struct Validator {
+    #[clap(
+        long,
+        value_name = "VALIDATOR_DIRECTORY",
+        help = "The path to search for validator directories. \
+                    Defaults to ~/.lighthouse/{network}/validators",
+        takes_value = true,
+        conflicts_with = "datadir"
+    )]
+    pub validator_dir: Option<String>,
+    subcommand: ValidatorSubcommand,
+}
+
+#[derive(Parser, Clone, Deserialize, Serialize, Debug)]
+#[clap(rename_all = "snake_case")]
+pub enum ValidatorSubcommand {
+    Create(ValidatorCreate),
+    Modify(ValidatorModify),
+    Import(ValidatorImport),
+    List(ValidatorList),
+    Recover(ValidatorRecover),
+    SlashingProtection(ValidatorSlashingProtection),
+    Exit(ValidatorExit),
+}
+
+#[derive(Parser, Clone, Deserialize, Serialize, Debug)]
+#[clap(
+    about = "Creates new validators from an existing EIP-2386 wallet using the EIP-2333 HD key \
+derivation scheme."
+)]
+pub struct ValidatorCreate {
+    #[clap(
+        long,
+        value_name = "WALLET_NAME",
+        help = "Use the wallet identified by this name",
+        takes_value = true
+    )]
+    pub wallet_name: Option<String>,
+    #[clap(
+        long,
+        value_name = "WALLET_PASSWORD_PATH",
+        help = "A path to a file containing the password which will unlock the wallet.",
+        takes_value = true
+    )]
+    pub wallet_password: Option<String>,
+    #[clap(                long,
+    value_name = WALLETS_DIR_FLAG,
+    help = "A path containing Eth2 EIP-2386 wallets. Defaults to ~/.lighthouse/{network}/wallets",
+    takes_value = true,
+    conflicts_with = "datadir",)]
+    pub wallets_dir: Option<String>,
+    #[clap(
+        long,
+        value_name = "SECRETS_DIR",
+        help = "The path where the validator keystore passwords will be stored. \
+                    Defaults to ~/.lighthouse/{network}/secrets",
+        conflicts_with = "datadir",
+        takes_value = true
+    )]
+    pub secrets_dir: Option<String>,
+    #[clap(
+        long,
+        value_name = "DEPOSIT_GWEI",
+        help = "The GWEI value of the deposit amount. Defaults to the minimum amount \
+                    required for an active validator (MAX_EFFECTIVE_BALANCE)",
+        takes_value = true
+    )]
+    pub deposit_gwei: Option<String>,
+    #[clap(
+        long,
+        help = "If present, the withdrawal keystore will be stored alongside the voting \
+                    keypair. It is generally recommended to *not* store the withdrawal key and \
+                    instead generate them from the wallet seed when required."
+    )]
+    pub store_withdraw: Option<String>,
+    #[clap(
+        long,
+        value_name = "VALIDATOR_COUNT",
+        help = "The number of validators to create, regardless of how many already exist",
+        conflicts_with = "at-most",
+        takes_value = true
+    )]
+    pub count: Option<String>,
+    #[clap(
+        long,
+        value_name = "AT_MOST_VALIDATORS",
+        help = "Observe the number of validators in --validator-dir, only creating enough to \
+                    reach the given count. Never deletes an existing validator.",
+        conflicts_with = "count",
+        takes_value = true
+    )]
+    pub at_most: Option<String>,
+    #[clap(
+    takes_value = false,
+    hide = cfg!(windows),
+    long,
+    help = "If present, read all user inputs from stdin instead of tty.",
+    )]
+    pub stdin_inputs: Option<String>,
+}
+
+#[derive(Parser, Clone, Deserialize, Serialize, Debug)]
+#[clap(about = "Modify validator status in validator_definitions.yml.")]
+#[clap(rename_all = "snake_case")]
+pub enum ValidatorModify {
+    Enable(Enable),
+    Disable(Disable),
+}
+
+#[derive(Parser, Clone, Deserialize, Serialize, Debug)]
+#[clap(about = "Enable validator(s) in validator_definitions.yml.")]
+pub struct Enable {
+    #[clap(long, value_name = "PUBKEY", help = "Validator pubkey to enable")]
+    pubkey: Option<String>,
+    #[clap(
+        long,
+        help = "Enable all validators in the validator directory",
+        conflicts_with = "pubkey"
+    )]
+    all: bool,
+}
+
+#[derive(Parser, Clone, Deserialize, Serialize, Debug)]
+#[clap(about = "Disable validator(s) in validator_definitions.yml.")]
+pub struct Disable {
+    #[clap(long, value_name = "PUBKEY", help = "Validator pubkey to disable")]
+    pubkey: Option<String>,
+    #[clap(
+        long,
+        help = "Disable all validators in the validator directory",
+        conflicts_with = "pubkey"
+    )]
+    all: bool,
+}
+
+#[derive(Parser, Clone, Deserialize, Serialize, Debug)]
+#[clap(
+    about = "Imports one or more EIP-2335 passwords into a Lighthouse VC directory, \
+            requesting passwords interactively. The directory flag provides a convenient \
+            method for importing a directory of keys generated by the eth2-deposit-cli \
+            Python utility."
+)]
+pub struct ValidatorImport {
+    #[clap(
+        long,
+        value_name = "KEYSTORE_PATH",
+        help = "Path to a single keystore to be imported.",
+        conflicts_with = "dir",
+        required_unless_present = "dir"
+    )]
+    keystore: Option<String>,
+    #[clap(
+        long,
+        value_name = "KEYSTORES_DIRECTORY",
+        help = "Path to a directory which contains zero or more keystores \
+                    for import. This directory and all sub-directories will be \
+                    searched and any file name which contains 'keystore' and \
+                    has the '.json' extension will be attempted to be imported.",
+        conflicts_with = "keystore",
+        required_unless_present = "keystore"
+    )]
+    dir: Option<String>,
+    #[clap(                takes_value = false,
+    hide = cfg!(windows),
+    long,
+    help = "If present, read all user inputs from stdin instead of tty.",)]
+    stdin_inputs: Option<String>,
+    #[clap(
+        long,
+        help = "If present, the same password will be used for all imported keystores."
+    )]
+    reuse_password: bool,
+    #[clap(
+        long,
+        value_name = "KEYSTORE_PASSWORD_PATH",
+        requires = "reuse_password",
+        help = "The path to the file containing the password which will unlock all \
+                    keystores being imported. This flag must be used with `--reuse-password`. \
+                    The password will be copied to the `validator_definitions.yml` file, so after \
+                    import we strongly recommend you delete the file at KEYSTORE_PASSWORD_PATH."
+    )]
+    password: Option<String>,
+}
+
+#[derive(Parser, Clone, Deserialize, Serialize, Debug)]
+#[clap(about = "Lists the public keys of all validators.")]
+pub struct ValidatorList {}
+
+#[derive(Parser, Clone, Deserialize, Serialize, Debug)]
+#[clap(
+    about = "Recovers validator private keys given a BIP-39 mnemonic phrase. \
+            If you did not specify a `--first-index` or count `--count`, by default this will \
+            only recover the keys associated with the validator at index 0 for an HD wallet \
+            in accordance with the EIP-2333 spec."
+)]
+pub struct ValidatorRecover {
+    #[clap(
+        long,
+        value_name = "FIRST_INDEX",
+        help = "The first of consecutive key indexes you wish to recover.",
+        required = false,
+        default_value = "0"
+    )]
+    first_index: Option<String>,
+    #[clap(
+        long,
+        value_name = "COUNT",
+        help = "The number of validator keys you wish to recover. Counted consecutively from the provided `--first_index`.",
+        required = false,
+        default_value = "1"
+    )]
+    count: Option<String>,
+    #[clap(
+        long,
+        value_name = "MNEMONIC_PATH",
+        help = "If present, the mnemonic will be read in from this file."
+    )]
+    mnemonic: Option<String>,
+    #[clap(
+        long,
+        value_name = "SECRETS_DIR",
+        help = "The path where the validator keystore passwords will be stored. \
+                    Defaults to ~/.lighthouse/{network}/secrets"
+    )]
+    secrets_dir: Option<String>,
+    #[clap(
+        long,
+        help = "If present, the withdrawal keystore will be stored alongside the voting \
+                    keypair. It is generally recommended to *not* store the withdrawal key and \
+                    instead generate them from the wallet seed when required."
+    )]
+    store_withdraw: Option<String>,
+    #[clap(                hide = cfg!(windows),
+    long,
+    help = "If present, read all user inputs from stdin instead of tty.",)]
+    stdin_inputs: Option<String>,
+}
+
+#[derive(Parser, Clone, Deserialize, Serialize, Debug)]
+#[clap(about = "Import or export slashing protection data to or from another client")]
+#[clap(rename_all = "snake_case")]
+pub enum ValidatorSlashingProtection {
+    Import(Import),
+    Export(Export),
+}
+
+#[derive(Parser, Clone, Deserialize, Serialize, Debug)]
+#[clap(about = "Import an interchange file")]
+pub struct Import {
+    #[clap(
+        takes_value = true,
+        value_name = "FILE",
+        help = "The slashing protection interchange file to import (.json)"
+    )]
+    import_file: Option<String>,
+    #[clap(                        long,
+    takes_value = true,
+    possible_values = &["false", "true"],
+    help =
+    "Deprecated: Lighthouse no longer requires minification on import \
+                             because it always minifies",)]
+    minify: Option<String>,
+}
+
+#[derive(Parser, Clone, Deserialize, Serialize, Debug)]
+#[clap(about = "Export an interchange file")]
+pub struct Export {
+    #[clap(
+        takes_value = true,
+        value_name = "FILE",
+        help = "The filename to export the interchange file to"
+    )]
+    export_file: Option<String>,
+    #[clap(
+        long,
+        takes_value = true,
+        value_name = "PUBKEYS",
+        help = "List of public keys to export history for. Keys should be 0x-prefixed, \
+                             comma-separated. All known keys will be exported if omitted"
+    )]
+    pubkeys: Option<String>,
+    #[clap(                        long,
+    takes_value = true,
+    default_value = "false",
+    possible_values = &["false", "true"],
+    help =
+    "Minify the output file. This will make it smaller and faster to \
+                             import, but not faster to generate.",)]
+    minify: Option<String>,
+}
+
+#[derive(Parser, Clone, Deserialize, Serialize, Debug)]
+#[clap(about = "Submits a VoluntaryExit to the beacon chain for a given validator keystore.")]
+pub struct ValidatorExit {
+    #[clap(
+        long,
+        value_name = "KEYSTORE_PATH",
+        help = "The path to the EIP-2335 voting keystore for the validator",
+        required = true
+    )]
+    keystore: Option<String>,
+    #[clap(
+        long,
+        value_name = "PASSWORD_FILE_PATH",
+        help = "The path to the password file which unlocks the validator voting keystore"
+    )]
+    password_file: Option<String>,
+    #[clap(                long,
+    value_name = "NETWORK_ADDRESS",
+    help = "Address to a beacon node HTTP API",
+    default_value = DEFAULT_BEACON_NODE,)]
+    beacon_server: Option<String>,
+    #[clap(
+        long,
+        help = "Exits after publishing the voluntary exit without waiting for confirmation that the exit was included in the beacon chain"
+    )]
+    no_wait: Option<String>,
+    #[clap(
+        long,
+        help = "Exits without prompting for confirmation that you understand the implications of a voluntary exit. This should be used with caution"
+    )]
+    no_confirmation: Option<String>,
+    #[clap(                hide = cfg!(windows),
+    long,
+    help = "If present, read all user inputs from stdin instead of tty.",)]
+    stdin_inputs: Option<String>,
+}
