@@ -827,11 +827,13 @@ impl<T: EthSpec> BeaconState<T> {
         &mut self,
         sync_committee: &SyncCommittee<T>,
     ) -> Result<Vec<usize>, Error> {
+        self.update_pubkey_cache()?;
         sync_committee
             .pubkeys
             .iter()
             .map(|pubkey| {
-                self.get_validator_index(pubkey)?
+                self.pubkey_cache()
+                    .get(pubkey)
                     .ok_or(Error::PubkeyCacheInconsistent)
             })
             .collect()
@@ -1650,13 +1652,11 @@ impl<T: EthSpec> BeaconState<T> {
     /// never re-add a pubkey.
     pub fn update_pubkey_cache(&mut self) -> Result<(), Error> {
         let mut pubkey_cache = mem::take(self.pubkey_cache_mut());
-        for (i, validator) in self
-            .validators()
-            .iter()
-            .enumerate()
-            .skip(pubkey_cache.len())
-        {
-            let success = pubkey_cache.insert(validator.pubkey, i);
+        let start_index = pubkey_cache.len();
+
+        for (i, validator) in self.validators().iter_from(start_index)?.enumerate() {
+            let index = start_index.safe_add(i)?;
+            let success = pubkey_cache.insert(validator.pubkey, index);
             if !success {
                 return Err(Error::PubkeyCacheInconsistent);
             }

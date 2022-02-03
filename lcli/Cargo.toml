@@ -8,6 +8,7 @@ edition = "2018"
 [features]
 portable = ["bls/supranational-portable"]
 fake_crypto = ['bls/fake_crypto']
+tree-states = ["store/milhouse"]
 
 [dependencies]
 bls = { path = "../crypto/bls" }
@@ -37,3 +38,4 @@ web3 = { version = "0.17.0", default-features = false, features = ["http-tls", "
 eth1_test_rig = { path = "../testing/eth1_test_rig" }
 sensitive_url = { path = "../common/sensitive_url" }
 eth2 = { path = "../common/eth2" }
+store = { path = "../beacon_node/store" }

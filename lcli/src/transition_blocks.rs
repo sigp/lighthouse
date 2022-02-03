@@ -43,7 +43,7 @@ pub fn run_transition_blocks<T: EthSpec>(
     let block: SignedBeaconBlock<T> =
         load_from_ssz_with(&block_path, spec, SignedBeaconBlock::from_ssz_bytes)?;
 
-    let post_state = do_transition(pre_state, block, spec)?;
+    let post_state = do_transition(pre_state.clone(), block, spec)?;
 
     let mut output_file =
         File::create(output_path).map_err(|e| format!("Unable to create output file: {:?}", e))?;
@@ -51,6 +51,9 @@ pub fn run_transition_blocks<T: EthSpec>(
     output_file
         .write_all(&post_state.as_ssz_bytes())
         .map_err(|e| format!("Unable to write to output file: {:?}", e))?;
+
+    drop(pre_state);
+    drop(post_state);
 
     Ok(())
 }
