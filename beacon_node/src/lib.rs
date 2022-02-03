@@ -11,7 +11,7 @@ use beacon_chain::{
     TimeoutRwLock,
 };
 use clap::ArgMatches;
-pub use cli::cli_app;
+pub use cli::BeaconNode;
 pub use client::{Client, ClientBuilder, ClientConfig, ClientGenesis};
 pub use config::{get_config, get_data_dir, set_network_config};
 use environment::RuntimeContext;

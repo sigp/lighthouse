@@ -8,7 +8,7 @@ use std::path::PathBuf;
 mod cli;
 pub mod config;
 mod server;
-pub use cli::cli_app;
+pub use cli::BootNode;
 use config::{BootNodeConfig, BootNodeConfigSerialization};
 use types::{EthSpec, EthSpecId};
 

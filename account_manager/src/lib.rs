@@ -4,7 +4,12 @@ pub mod wallet;
 
 use clap::App;
 use clap::ArgMatches;
+use clap::{ArgEnum, Args, Subcommand};
+pub use clap::{IntoApp, Parser};
 use environment::Environment;
+use lazy_static::lazy_static;
+use serde::{Deserialize, Serialize};
+use std::path::PathBuf;
 use types::EthSpec;
 
 pub const CMD: &str = "account_manager";
@@ -12,12 +17,12 @@ pub const SECRETS_DIR_FLAG: &str = "secrets-dir";
 pub const VALIDATOR_DIR_FLAG: &str = "validator-dir";
 pub const WALLETS_DIR_FLAG: &str = "wallets-dir";
 
-pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
-    App::new(CMD)
-        .visible_aliases(&["a", "am", "account", CMD])
-        .about("Utilities for generating and managing Ethereum 2.0 accounts.")
-        .subcommand(wallet::cli_app())
-        .subcommand(validator::cli_app())
+#[derive(Parser, Clone, Deserialize, Serialize, Debug)]
+#[clap(rename_all = "snake_case", visible_aliases = &["a", "am", "account"],
+about = "Utilities for generating and managing Ethereum 2.0 accounts.")]
+pub enum AccountManager {
+    Wallet(wallet::cli::Wallet),
+    Validator(validator::cli::Validator),
 }
 
 /// Run the account manager, returning an error if the operation did not succeed.

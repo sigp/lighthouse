@@ -1,3 +1,4 @@
+pub mod cli;
 pub mod create;
 pub mod exit;
 pub mod import;
@@ -14,29 +15,6 @@ use std::path::PathBuf;
 use types::EthSpec;
 
 pub const CMD: &str = "validator";
-
-pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
-    App::new(CMD)
-        .about("Provides commands for managing Eth2 validators.")
-        .arg(
-            Arg::with_name(VALIDATOR_DIR_FLAG)
-                .long(VALIDATOR_DIR_FLAG)
-                .value_name("VALIDATOR_DIRECTORY")
-                .help(
-                    "The path to search for validator directories. \
-                    Defaults to ~/.lighthouse/{network}/validators",
-                )
-                .takes_value(true)
-                .conflicts_with("datadir"),
-        )
-        .subcommand(create::cli_app())
-        .subcommand(modify::cli_app())
-        .subcommand(import::cli_app())
-        .subcommand(list::cli_app())
-        .subcommand(recover::cli_app())
-        .subcommand(slashing_protection::cli_app())
-        .subcommand(exit::cli_app())
-}
 
 pub fn cli_run<T: EthSpec>(matches: &ArgMatches, env: Environment<T>) -> Result<(), String> {
     let validator_base_dir = if matches.value_of("datadir").is_some() {

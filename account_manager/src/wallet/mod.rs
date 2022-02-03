@@ -1,3 +1,4 @@
+pub mod cli;
 pub mod create;
 pub mod list;
 pub mod recover;
@@ -8,22 +9,6 @@ use directory::{ensure_dir_exists, parse_path_or_default_with_flag, DEFAULT_WALL
 use std::path::PathBuf;
 
 pub const CMD: &str = "wallet";
-
-pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
-    App::new(CMD)
-        .about("Manage wallets, from which validator keys can be derived.")
-        .arg(
-            Arg::with_name(WALLETS_DIR_FLAG)
-                .long(WALLETS_DIR_FLAG)
-                .value_name("WALLETS_DIRECTORY")
-                .help("A path containing Eth2 EIP-2386 wallets. Defaults to ~/.lighthouse/{network}/wallets")
-                .takes_value(true)
-                .conflicts_with("datadir"),
-        )
-        .subcommand(create::cli_app())
-        .subcommand(list::cli_app())
-        .subcommand(recover::cli_app())
-}
 
 pub fn cli_run(matches: &ArgMatches) -> Result<(), String> {
     let wallet_base_dir = if matches.value_of("datadir").is_some() {

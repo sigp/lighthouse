@@ -1,5 +1,6 @@
 #![recursion_limit = "256"]
 
+mod cli;
 mod metrics;
 
 use beacon_node::ProductionBeaconNode;

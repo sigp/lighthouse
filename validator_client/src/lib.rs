@@ -17,7 +17,7 @@ pub mod http_api;
 pub mod initialized_validators;
 pub mod validator_store;
 
-pub use cli::cli_app;
+pub use cli::ValidatorClient;
 pub use config::Config;
 use initialized_validators::InitializedValidators;
 use lighthouse_metrics::set_gauge;

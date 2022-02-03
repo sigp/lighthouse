@@ -6,7 +6,7 @@ edition = "2018"
 
 [dependencies]
 beacon_node = { path = "../beacon_node" }
-clap = "2.33.3"
+clap = "3.0.14"
 clap_utils = { path = "../common/clap_utils" }
 lighthouse_network = { path = "../beacon_node/lighthouse_network" }
 types = { path = "../consensus/types" }
