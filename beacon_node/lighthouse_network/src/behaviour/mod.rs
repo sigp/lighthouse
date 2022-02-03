@@ -15,6 +15,8 @@ use crate::types::{
 };
 use crate::Eth2Enr;
 use crate::{error, metrics, Enr, NetworkGlobals, PubsubMessage, TopicHash};
+use futures::stream::StreamExt;
+use libp2p::gossipsub::error::PublishError;
 use libp2p::{
     core::{
         connection::ConnectionId, identity::Keypair, multiaddr::Protocol as MProtocol, Multiaddr,
@@ -50,6 +52,9 @@ use types::{
     SignedBeaconBlock, Slot, SubnetId, SyncSubnetId,
 };
 
+use self::gossip_cache::GossipCache;
+
+mod gossip_cache;
 pub mod gossipsub_scoring_parameters;
 
 /// The number of peers we target per subnet for discovery queries.
@@ -177,6 +182,8 @@ pub struct Behaviour<TSpec: EthSpec> {
     /// The interval for updating gossipsub scores
     #[behaviour(ignore)]
     update_gossipsub_scores: tokio::time::Interval,
+    #[behaviour(ignore)]
+    gossip_cache: GossipCache,
     /// Logger for behaviour actions.
     #[behaviour(ignore)]
     log: slog::Logger,
@@ -280,6 +287,16 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
             ..Default::default()
         };
 
+        let slot_duration = std::time::Duration::from_secs(ctx.chain_spec.seconds_per_slot);
+        // Half an epoch
+        let gossip_max_retry_delay = std::time::Duration::from_secs(
+            ctx.chain_spec.seconds_per_slot * TSpec::slots_per_epoch() / 2,
+        );
+        let gossip_cache = GossipCache::builder()
+            .default_timeout(gossip_max_retry_delay)
+            .beacon_block_timeout(slot_duration)
+            .build();
+
         Ok(Behaviour {
             // Sub-behaviours
             gossipsub,
@@ -297,6 +314,7 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
             log: behaviour_log,
             score_settings,
             fork_context: ctx.fork_context,
+            gossip_cache,
             update_gossipsub_scores,
         })
     }
@@ -422,9 +440,11 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
         for message in messages {
             for topic in message.topics(GossipEncoding::default(), self.enr_fork_id.fork_digest) {
                 let message_data = message.encode(GossipEncoding::default());
-                if let Err(e) = self.gossipsub.publish(topic.clone().into(), message_data) {
-                    slog::warn!(self.log, "Could not publish message";
-                                        "error" => ?e);
+                if let Err(e) = self
+                    .gossipsub
+                    .publish(topic.clone().into(), message_data.clone())
+                {
+                    slog::warn!(self.log, "Could not publish message"; "error" => ?e);
 
                     // add to metrics
                     match topic.kind() {
@@ -444,6 +464,10 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
                                 v.inc()
                             };
                         }
+                    }
+
+                    if let PublishError::InsufficientPeers = e {
+                        self.gossip_cache.insert(topic, message_data);
                     }
                 }
             }
@@ -868,11 +892,39 @@ impl<TSpec: EthSpec> NetworkBehaviourEventProcess<GossipsubEvent> for Behaviour<
                 }
             }
             GossipsubEvent::Subscribed { peer_id, topic } => {
-                if let Some(subnet_id) = subnet_from_topic_hash(&topic) {
-                    self.network_globals
-                        .peers
-                        .write()
-                        .add_subscription(&peer_id, subnet_id);
+                if let Ok(topic) = GossipTopic::decode(topic.as_str()) {
+                    if let Some(subnet_id) = topic.subnet_id() {
+                        self.network_globals
+                            .peers
+                            .write()
+                            .add_subscription(&peer_id, subnet_id);
+                    }
+                    // Try to send the cached messages for this topic
+                    if let Some(msgs) = self.gossip_cache.retrieve(&topic) {
+                        for data in msgs {
+                            let topic_str: &str = topic.kind().as_ref();
+                            match self.gossipsub.publish(topic.clone().into(), data) {
+                                Ok(_) => {
+                                    warn!(self.log, "Gossip message published on retry"; "topic" => topic_str);
+                                    if let Some(v) = metrics::get_int_counter(
+                                        &metrics::GOSSIP_LATE_PUBLISH_PER_TOPIC_KIND,
+                                        &[topic_str],
+                                    ) {
+                                        v.inc()
+                                    };
+                                }
+                                Err(e) => {
+                                    warn!(self.log, "Gossip message publish failed on retry"; "topic" => topic_str, "error" => %e);
+                                    if let Some(v) = metrics::get_int_counter(
+                                        &metrics::GOSSIP_FAILED_LATE_PUBLISH_PER_TOPIC_KIND,
+                                        &[topic_str],
+                                    ) {
+                                        v.inc()
+                                    };
+                                }
+                            }
+                        }
+                    }
                 }
             }
             GossipsubEvent::Unsubscribed { peer_id, topic } => {
@@ -1123,6 +1175,21 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
         // perform gossipsub score updates when necessary
         while self.update_gossipsub_scores.poll_tick(cx).is_ready() {
             self.peer_manager.update_gossipsub_scores(&self.gossipsub);
+        }
+
+        // poll the gossipsub cache to clear expired messages
+        while let Poll::Ready(Some(result)) = self.gossip_cache.poll_next_unpin(cx) {
+            match result {
+                Err(e) => warn!(self.log, "Gossip cache error"; "error" => e),
+                Ok(expired_topic) => {
+                    if let Some(v) = metrics::get_int_counter(
+                        &metrics::GOSSIP_EXPIRED_LATE_PUBLISH_PER_TOPIC_KIND,
+                        &[expired_topic.kind().as_ref()],
+                    ) {
+                        v.inc()
+                    };
+                }
+            }
         }
 
         Poll::Pending
