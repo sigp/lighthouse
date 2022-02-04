@@ -812,7 +812,11 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
         for peer_id in peers_to_dial {
             debug!(self.log, "Dialing cached ENR peer"; "peer_id" => %peer_id);
             // Remove the ENR from the cache to prevent continual re-dialing on disconnects
+
             self.discovery.remove_cached_enr(&peer_id);
+            // For any dial event, inform the peer manager
+            let enr = self.discovery_mut().enr_of_peer(&peer_id);
+            self.peer_manager.inject_dialing(&peer_id, enr);
             self.internal_events
                 .push_back(InternalBehaviourMessage::DialPeer(peer_id));
         }
@@ -1096,6 +1100,9 @@ impl<TSpec: EthSpec> NetworkBehaviourEventProcess<DiscoveryEvent> for Behaviour<
                 let to_dial_peers = self.peer_manager.peers_discovered(results);
                 for peer_id in to_dial_peers {
                     debug!(self.log, "Dialing discovered peer"; "peer_id" => %peer_id);
+                    // For any dial event, inform the peer manager
+                    let enr = self.discovery_mut().enr_of_peer(&peer_id);
+                    self.peer_manager.inject_dialing(&peer_id, enr);
                     self.internal_events
                         .push_back(InternalBehaviourMessage::DialPeer(peer_id));
                 }
@@ -1147,9 +1154,6 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
         if let Some(event) = self.internal_events.pop_front() {
             match event {
                 InternalBehaviourMessage::DialPeer(peer_id) => {
-                    // For any dial event, inform the peer manager
-                    let enr = self.discovery_mut().enr_of_peer(&peer_id);
-                    self.peer_manager.inject_dialing(&peer_id, enr);
                     // Submit the event
                     let handler = self.new_handler();
                     return Poll::Ready(NBAction::Dial {
