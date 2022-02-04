@@ -1,6 +1,8 @@
 #![cfg(test)]
 #![cfg(not(debug_assertions))]
 
+mod keystores;
+
 use crate::doppelganger_service::DoppelgangerService;
 use crate::{
     http_api::{ApiSecret, Config as HttpConfig, Context},
@@ -9,16 +11,16 @@ use crate::{
 };
 use account_utils::{
     eth2_wallet::WalletBuilder, mnemonic_from_phrase, random_mnemonic, random_password,
-    ZeroizeString,
+    random_password_string, ZeroizeString,
 };
 use deposit_contract::decode_eth1_tx_data;
-use environment::null_logger;
 use eth2::{
     lighthouse_vc::{http_client::ValidatorClientHttpClient, types::*},
     types::ErrorMessage as ApiErrorMessage,
     Error as ApiError,
 };
 use eth2_keystore::KeystoreBuilder;
+use logging::test_logger;
 use parking_lot::RwLock;
 use sensitive_url::SensitiveUrl;
 use slashing_protection::{SlashingDatabase, SLASHING_PROTECTION_FILENAME};
@@ -40,6 +42,7 @@ type E = MainnetEthSpec;
 struct ApiTester {
     client: ValidatorClientHttpClient,
     initialized_validators: Arc<RwLock<InitializedValidators>>,
+    validator_store: Arc<ValidatorStore<TestingSlotClock, E>>,
     url: SensitiveUrl,
     _server_shutdown: oneshot::Sender<()>,
     _validator_dir: TempDir,
@@ -58,7 +61,7 @@ fn build_runtime() -> Arc<Runtime> {
 
 impl ApiTester {
     pub async fn new(runtime: std::sync::Weak<Runtime>) -> Self {
-        let log = null_logger().unwrap();
+        let log = test_logger();
 
         let validator_dir = tempdir().unwrap();
         let secrets_dir = tempdir().unwrap();
@@ -92,7 +95,7 @@ impl ApiTester {
         let (shutdown_tx, _) = futures::channel::mpsc::channel(1);
         let executor = TaskExecutor::new(runtime.clone(), exit, log.clone(), shutdown_tx);
 
-        let validator_store = ValidatorStore::<_, E>::new(
+        let validator_store = Arc::new(ValidatorStore::<_, E>::new(
             initialized_validators,
             slashing_protection,
             Hash256::repeat_byte(42),
@@ -101,7 +104,7 @@ impl ApiTester {
             slot_clock,
             executor,
             log.clone(),
-        );
+        ));
 
         validator_store
             .register_all_in_doppelganger_protection_if_enabled()
@@ -113,7 +116,7 @@ impl ApiTester {
             runtime,
             api_secret,
             validator_dir: Some(validator_dir.path().into()),
-            validator_store: Some(Arc::new(validator_store)),
+            validator_store: Some(validator_store.clone()),
             spec: E::default_spec(),
             config: HttpConfig {
                 enabled: true,
@@ -144,11 +147,12 @@ impl ApiTester {
         let client = ValidatorClientHttpClient::new(url.clone(), api_pubkey).unwrap();
 
         Self {
-            initialized_validators,
-            _validator_dir: validator_dir,
             client,
+            initialized_validators,
+            validator_store,
             url,
             _server_shutdown: shutdown_tx,
+            _validator_dir: validator_dir,
             _runtime_shutdown: runtime_shutdown,
         }
     }
@@ -456,7 +460,7 @@ impl ApiTester {
         self.client
             .post_lighthouse_validators_web3signer(&request)
             .await
-            .unwrap_err();
+            .unwrap();
 
         assert_eq!(self.vals_total(), initial_vals + s.count);
         if s.enabled {
@@ -605,6 +609,34 @@ fn routes_with_invalid_auth() {
             .test_with_invalid_auth(|client| async move {
                 client
                     .patch_lighthouse_validators(&PublicKeyBytes::empty(), false)
+                    .await
+            })
+            .await
+            .test_with_invalid_auth(|client| async move { client.get_keystores().await })
+            .await
+            .test_with_invalid_auth(|client| async move {
+                let password = random_password_string();
+                let keypair = Keypair::random();
+                let keystore = KeystoreBuilder::new(&keypair, password.as_ref(), String::new())
+                    .unwrap()
+                    .build()
+                    .map(KeystoreJsonStr)
+                    .unwrap();
+                client
+                    .post_keystores(&ImportKeystoresRequest {
+                        keystores: vec![keystore],
+                        passwords: vec![password],
+                        slashing_protection: None,
+                    })
+                    .await
+            })
+            .await
+            .test_with_invalid_auth(|client| async move {
+                let keypair = Keypair::random();
+                client
+                    .delete_keystores(&DeleteKeystoresRequest {
+                        pubkeys: vec![keypair.pk.compress()],
+                    })
                     .await
             })
             .await

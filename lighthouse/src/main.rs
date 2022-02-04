@@ -52,11 +52,12 @@ fn main() {
                 "{}\n\
                  BLS library: {}\n\
                  SHA256 hardware acceleration: {}\n\
-                 Specs: mainnet (true), minimal ({})",
+                 Specs: mainnet (true), minimal ({}), gnosis ({})",
                  VERSION.replace("Lighthouse/", ""),
                  bls_library_name(),
                  have_sha_extensions(),
                  cfg!(feature = "spec-minimal"),
+                 cfg!(feature = "gnosis"),
             ).as_str()
         )
         .arg(
@@ -302,9 +303,11 @@ fn main() {
 
         match eth_spec_id {
             EthSpecId::Mainnet => run(EnvironmentBuilder::mainnet(), &matches, eth2_network_config),
+            #[cfg(feature = "gnosis")]
+            EthSpecId::Gnosis => run(EnvironmentBuilder::gnosis(), &matches, eth2_network_config),
             #[cfg(feature = "spec-minimal")]
             EthSpecId::Minimal => run(EnvironmentBuilder::minimal(), &matches, eth2_network_config),
-            #[cfg(not(feature = "spec-minimal"))]
+            #[cfg(not(all(feature = "spec-minimal", feature = "gnosis")))]
             other => {
                 eprintln!(
                     "Eth spec `{}` is not supported by this build of Lighthouse",

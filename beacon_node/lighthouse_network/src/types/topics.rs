@@ -159,6 +159,14 @@ impl GossipTopic {
 
         Err(format!("Unknown topic: {}", topic))
     }
+
+    pub fn subnet_id(&self) -> Option<Subnet> {
+        match self.kind() {
+            GossipKind::Attestation(subnet_id) => Some(Subnet::Attestation(*subnet_id)),
+            GossipKind::SyncCommitteeMessage(subnet_id) => Some(Subnet::SyncCommittee(*subnet_id)),
+            _ => None,
+        }
+    }
 }
 
 impl From<GossipTopic> for Topic {
@@ -237,12 +245,7 @@ impl From<Subnet> for GossipKind {
 
 /// Get subnet id from an attestation subnet topic hash.
 pub fn subnet_from_topic_hash(topic_hash: &TopicHash) -> Option<Subnet> {
-    let gossip_topic = GossipTopic::decode(topic_hash.as_str()).ok()?;
-    match gossip_topic.kind() {
-        GossipKind::Attestation(subnet_id) => Some(Subnet::Attestation(*subnet_id)),
-        GossipKind::SyncCommitteeMessage(subnet_id) => Some(Subnet::SyncCommittee(*subnet_id)),
-        _ => None,
-    }
+    GossipTopic::decode(topic_hash.as_str()).ok()?.subnet_id()
 }
 
 // Determines if a string is an attestation or sync committee topic.
