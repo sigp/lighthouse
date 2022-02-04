@@ -9,13 +9,13 @@ use discv5::Enr;
 use hashset_delay::HashSetDelay;
 use libp2p::identify::IdentifyInfo;
 use peerdb::{client::ClientKind, BanOperation, BanResult, ScoreUpdateResult};
+use rand::Rng;
 use slog::{debug, error, warn};
 use smallvec::SmallVec;
 use std::{
     sync::Arc,
     time::{Duration, Instant},
 };
-use rand::Rng;
 use strum::IntoEnumIterator;
 use types::{EthSpec, SyncSubnetId};
 
@@ -52,7 +52,6 @@ pub const MIN_OUTBOUND_ONLY_FACTOR: f32 = 0.2;
 /// limit is 55, and we are at 55 peers, the following parameter provisions a few more slots of
 /// dialing priority peers we need for validator duties.
 pub const PRIORITY_PEER_EXCESS: f32 = 0.2;
-
 
 /// The main struct that handles peer's reputation and connection status.
 pub struct PeerManager<TSpec: EthSpec> {
@@ -348,7 +347,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
     /// The maximum number of peers that are connected or dialing before we refuse to do another
     /// discovery search for more outbound peers. We can use up to half the priority peer excess allocation.
     fn max_outbound_dialing_peers(&self) -> usize {
-        (self.target_peers as f32 * (1.0 + PEER_EXCESS_FACTOR + PRIORITY_PEER_EXCESS/2.0)).ceil()
+        (self.target_peers as f32 * (1.0 + PEER_EXCESS_FACTOR + PRIORITY_PEER_EXCESS / 2.0)).ceil()
             as usize
     }
 
@@ -830,37 +829,44 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
         }
     }
 
-
     /// This function checks the status of our current peers and optionally requests a discovery
     /// query if we need to find more peers to maintain the current number of peers
     fn maintain_peer_count(&mut self, dialing_peers: usize) {
-
         // Check if we need to do a discovery lookup
-        if self.discovery_enabled
-        {
+        if self.discovery_enabled {
             let peer_count = self.network_globals.connected_or_dialing_peers();
             let outbound_only_peer_count = self.network_globals.connected_outbound_only_peers();
-           let wanted_peers =  if peer_count < self.target_peers.saturating_sub(dialing_peers) {
-               // We need more peers in general.
-               // The maximum discovery query is for 16 peers, but we can search for less if
-               // needed.
-               std::cmp::min(self.target_peers.saturating_sub(dialing_peers) - peer_count, 16)
-           } else if outbound_only_peer_count < self.min_outbound_only_peers() && peer_count < self.max_outbound_dialing_peers() {
-                std::cmp::min(self.max_outbound_dialing_peers().saturating_sub(dialing_peers) - peer_count, 16)
-           } else {
-               0
-           };
+            let wanted_peers = if peer_count < self.target_peers.saturating_sub(dialing_peers) {
+                // We need more peers in general.
+                // The maximum discovery query is for 16 peers, but we can search for less if
+                // needed.
+                std::cmp::min(
+                    self.target_peers.saturating_sub(dialing_peers) - peer_count,
+                    16,
+                )
+            } else if outbound_only_peer_count < self.min_outbound_only_peers()
+                && peer_count < self.max_outbound_dialing_peers()
+            {
+                std::cmp::min(
+                    self.max_outbound_dialing_peers()
+                        .saturating_sub(dialing_peers)
+                        - peer_count,
+                    16,
+                )
+            } else {
+                0
+            };
 
-           if wanted_peers != 0 {
+            if wanted_peers != 0 {
                 // We need more peers, re-queue a discovery lookup.
                 debug!(self.log, "Starting a new peer discovery query"; "connected" => peer_count, "target" => self.target_peers, "outbound" => outbound_only_peer_count, "wanted" => wanted_peers);
-                self.events.push(PeerManagerEvent::DiscoverPeers(wanted_peers));
-           }
+                self.events
+                    .push(PeerManagerEvent::DiscoverPeers(wanted_peers));
+            }
         }
     }
 
-
-    /// Remove excess peers back down to our target values. 
+    /// Remove excess peers back down to our target values.
     /// This prioritises peers with a good score and uniform distribution of peers across
     /// subnets.
     ///
@@ -868,7 +874,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
     ///
     /// Global rules:
     /// Always maintain peers we need for a validator duty.
-    /// Do not prune outbound peers to exceed our outbound target. 
+    /// Do not prune outbound peers to exceed our outbound target.
     /// Do not prune more peers than our target peer count.
     ///
     /// Prune peers in the following order:
@@ -878,7 +884,6 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
     /// 4. Randomly remove peers if all the above are satisfied
     ///
     fn prune_excess_peers(&mut self) {
-
         // The current number of connected peers.
         let connected_peer_count = self.network_globals.connected_peers();
         if connected_peer_count <= self.target_peers {
@@ -893,79 +898,90 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
         // Keep track of the number of outbound peers we are pruning.
         let mut outbound_peers_pruned = 0;
 
-
-            macro_rules! prune_peers {
-                ($filter: expr) => { 
-            
-            for (peer_id, info) in self
-                .network_globals
-                .peers
-                .read()
-                .worst_connected_peers()
-                .iter()
-                .filter(|(_, info)| !info.has_future_duty() && $filter(*info) )
-            {
-                if peers_to_prune.len() <= connected_peer_count.saturating_sub(self.target_peers) {
-                    // We have found all the peers we need to drop, end.
-                    break;
+        macro_rules! prune_peers {
+            ($filter: expr) => {
+                for (peer_id, info) in self
+                    .network_globals
+                    .peers
+                    .read()
+                    .worst_connected_peers()
+                    .iter()
+                    .filter(|(_, info)| !info.has_future_duty() && $filter(*info))
+                {
+                    if peers_to_prune.len()
+                        <= connected_peer_count.saturating_sub(self.target_peers)
+                    {
+                        // We have found all the peers we need to drop, end.
+                        break;
+                    }
+                    if peers_to_prune.contains(*peer_id) {
+                        continue;
+                    }
+                    // Only remove up to the target outbound peer count.
+                    if info.is_outbound_only() {
+                        if self.target_outbound_peers()
+                            < connected_outbound_peer_count - outbound_peers_pruned
+                        {
+                            outbound_peers_pruned += 1;
+                        } else {
+                            continue;
+                        }
+                    }
+                    peers_to_prune.insert(**peer_id);
                 }
-                if peers_to_prune.contains(*peer_id) {
+            };
+        }
+
+        // 1. Look through peers that have the worst score (ignoring non-penalized scored peers).
+        prune_peers!(|info: &PeerInfo<TSpec>| { info.score().score() < 0.0 });
+
+        // 2. Attempt to remove peers that are not subscribed to a subnet, if we still need to
+        //    prune more.
+        if peers_to_prune.len() <= connected_peer_count.saturating_sub(self.target_peers) {
+            prune_peers!(|info: &PeerInfo<TSpec>| { !info.has_long_lived_subnet() });
+        }
+
+        // 3. and 4. Remove peers that are too grouped on any given subnet. If all subnets are
+        //    uniformly distributed, remove random peers.
+        if peers_to_prune.len() <= connected_peer_count.saturating_sub(self.target_peers) {
+            // Of our connected peers, build a map from subnet_id -> Vec<(PeerId, PeerInfo)>
+            let mut subnet_to_peer: HashMap<Subnet, Vec<(PeerId, PeerInfo<TSpec>)>> =
+                HashMap::new();
+
+            for (peer_id, info) in self.network_globals.peers.read().connected_peers() {
+                // Ignore peers we are already pruning
+                if peers_to_prune.contains(peer_id) {
                     continue;
                 }
-                // Only remove up to the target outbound peer count.
-                if info.is_outbound_only() {
-                    if self.target_outbound_peers() < connected_outbound_peer_count - outbound_peers_pruned {
-                        outbound_peers_pruned += 1;
-                    } else {
-                        continue;
-                    }
+
+                for subnet in info.subnets() {
+                    subnet_to_peer
+                        .entry(*subnet)
+                        .or_insert_with(Vec::new)
+                        .push((*peer_id, info.clone()));
                 }
-                peers_to_prune.insert(**peer_id);
-            }
-            };
             }
 
-
-            // 1. Look through peers that have the worst score (ignoring non-penalized scored peers).
-            prune_peers!(|info: &PeerInfo<TSpec>| {info.score().score() < 0.0 });
-
-            // 2. Attempt to remove peers that are not subscribed to a subnet, if we still need to
-            //    prune more.
-            if peers_to_prune.len() <= connected_peer_count.saturating_sub(self.target_peers) {
-               prune_peers!(|info: &PeerInfo<TSpec>| {!info.has_long_lived_subnet()});
-            }
-
-            // 3. and 4. Remove peers that are too grouped on any given subnet. If all subnets are
-            //    uniformly distributed, remove random peers.
-            if peers_to_prune.len() <= connected_peer_count.saturating_sub(self.target_peers) {
-                // Of our connected peers, build a map from subnet_id -> Vec<(PeerId, PeerInfo)>
-                let mut subnet_to_peer: HashMap<Subnet, Vec<(PeerId, PeerInfo<TSpec>)>> = HashMap::new();
-
-                for (peer_id, info) in self.network_globals.peers.read().connected_peers() {
-                    // Ignore peers we are already pruning
-                    if peers_to_prune.contains(peer_id) {
-                        continue;
-                    }
-
-                    for subnet in info.subnets() {
-                        subnet_to_peer.entry(subnet.clone()).or_insert_with(Vec::new).push((*peer_id, info.clone()));
-                    }
-                }
-
-                // Add to the peers to prune mapping
-                while peers_to_prune.len() < connected_peer_count.saturating_sub(self.target_peers) {
-                    if let Some(subnet_most_peers) = subnet_to_peer.iter().max_by_key(|(_,peers)| peers.len()).map(|v| v.0.clone()) {
+            // Add to the peers to prune mapping
+            while peers_to_prune.len() < connected_peer_count.saturating_sub(self.target_peers) {
+                if let Some(subnet_most_peers) = subnet_to_peer
+                    .iter()
+                    .max_by_key(|(_, peers)| peers.len())
+                    .map(|v| *v.0)
+                {
                     // If the subnet is in the mapping
                     if let Some(peers_on_subnet) = subnet_to_peer.get_mut(&subnet_most_peers) {
                         // and the subnet still contains peers
                         if !peers_on_subnet.is_empty() {
-
                             // Select a random peer.
-                            let index = rand::thread_rng().gen_range(0usize,peers_on_subnet.len()-1);
+                            let index =
+                                rand::thread_rng().gen_range(0usize, peers_on_subnet.len() - 1);
                             let (candidate_peer, info) = peers_on_subnet.remove(index);
                             // Ensure we don't remove too many outbound peers
                             if info.is_outbound_only() {
-                                if self.target_outbound_peers() < connected_outbound_peer_count - outbound_peers_pruned {
+                                if self.target_outbound_peers()
+                                    < connected_outbound_peer_count - outbound_peers_pruned
+                                {
                                     outbound_peers_pruned += 1;
                                 } else {
                                     continue;
@@ -975,11 +991,11 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
                             continue;
                         }
                     }
-                    }
-                    // If there are no peers left to prune exit.
-                    break;
                 }
+                // If there are no peers left to prune exit.
+                break;
             }
+        }
 
         // Disconnect the pruned peers.
         for peer_id in peers_to_prune {
@@ -994,7 +1010,6 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
     ///
     /// NOTE: Discovery will only add a new query if one isn't already queued.
     fn heartbeat(&mut self) {
-
         // Optionally run a discovery query if we need more peers.
         self.maintain_peer_count(0);
 

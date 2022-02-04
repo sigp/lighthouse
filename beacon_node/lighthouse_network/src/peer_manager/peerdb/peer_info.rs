@@ -172,7 +172,7 @@ impl<T: EthSpec> PeerInfo<T> {
                 }
             }
         }
-        return false;
+        false
     }
 
     /// Returns the seen addresses of the peer.

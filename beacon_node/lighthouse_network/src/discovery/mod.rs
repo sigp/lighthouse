@@ -325,12 +325,10 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
             return;
         }
         // Immediately start a FindNode query
-        let target_peers = std::cmp::min(FIND_NODE_QUERY_CLOSEST_PEERS,target_peers);
+        let target_peers = std::cmp::min(FIND_NODE_QUERY_CLOSEST_PEERS, target_peers);
         debug!(self.log, "Starting a peer discovery request"; "target_peers" => target_peers );
         self.find_peer_active = true;
-        self.start_query(QueryType::FindPeers, target_peers, |_| {
-            true
-        });
+        self.start_query(QueryType::FindPeers, target_peers, |_| true);
     }
 
     /// Processes a request to search for more peers on a subnet.
