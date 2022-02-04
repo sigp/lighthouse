@@ -15,6 +15,7 @@ use std::{
     sync::Arc,
     time::{Duration, Instant},
 };
+use rand::Rng;
 use strum::IntoEnumIterator;
 use types::{EthSpec, SyncSubnetId};
 
@@ -45,7 +46,7 @@ pub const PEER_EXCESS_FACTOR: f32 = 0.1;
 pub const TARGET_OUTBOUND_ONLY_FACTOR: f32 = 0.3;
 /// A fraction of `PeerManager::target_peers` that if we get below, we start a discovery query to
 /// reach our target. MIN_OUTBOUND_ONLY_FACTOR must be < TARGET_OUTBOUND_ONLY_FACTOR.
-const MIN_OUTBOUND_ONLY_FACTOR: f32 = 0.2;
+pub const MIN_OUTBOUND_ONLY_FACTOR: f32 = 0.2;
 /// The fraction of extra peers beyond the PEER_EXCESS_FACTOR that we allow us to dial for when
 /// requiring subnet peers. More specifically, if our target peer limit is 50, and our excess peer
 /// limit is 55, and we are at 55 peers, the following parameter provisions a few more slots of
@@ -902,7 +903,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
                 .read()
                 .worst_connected_peers()
                 .iter()
-                .filter(|(_, info)| !info.has_future_duty() && $filter )
+                .filter(|(_, info)| !info.has_future_duty() && $filter(*info) )
             {
                 if peers_to_prune.len() <= connected_peer_count.saturating_sub(self.target_peers) {
                     // We have found all the peers we need to drop, end.
@@ -926,19 +927,19 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
 
 
             // 1. Look through peers that have the worst score (ignoring non-penalized scored peers).
-            prune_peers!(info.score() < 0 );
+            prune_peers!(|info: &PeerInfo<TSpec>| {info.score().score() < 0.0 });
 
             // 2. Attempt to remove peers that are not subscribed to a subnet, if we still need to
             //    prune more.
             if peers_to_prune.len() <= connected_peer_count.saturating_sub(self.target_peers) {
-               // prune_peers!(!info.has_long_lived_subnet());
+               prune_peers!(|info: &PeerInfo<TSpec>| {!info.has_long_lived_subnet()});
             }
 
             // 3. and 4. Remove peers that are too grouped on any given subnet. If all subnets are
             //    uniformly distributed, remove random peers.
             if peers_to_prune.len() <= connected_peer_count.saturating_sub(self.target_peers) {
-                // Of our connected peers, build a map from subnet_id -> HashSet<PeerId>
-                let mut subnet_to_peer = HashMap::new();
+                // Of our connected peers, build a map from subnet_id -> Vec<(PeerId, PeerInfo)>
+                let mut subnet_to_peer: HashMap<Subnet, Vec<(PeerId, PeerInfo<TSpec>)>> = HashMap::new();
 
                 for (peer_id, info) in self.network_globals.peers.read().connected_peers() {
                     // Ignore peers we are already pruning
@@ -946,31 +947,31 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
                         continue;
                     }
 
-                    for subnet_id in info.subnets() {
-                        subnet_to_peer.entry(subnet_id).or_insert_with(Vec::new()).push((*peer_id, info));
+                    for subnet in info.subnets() {
+                        subnet_to_peer.entry(subnet.clone()).or_insert_with(Vec::new).push((*peer_id, info.clone()));
                     }
                 }
 
                 // Add to the peers to prune mapping
                 while peers_to_prune.len() < connected_peer_count.saturating_sub(self.target_peers) {
-                    if let Some(subnet_most_peers) = subnet_to_peer.iter().max_by_key(|(s,p)| p.len()).map(|v| v.0.clone()) {
+                    if let Some(subnet_most_peers) = subnet_to_peer.iter().max_by_key(|(_,peers)| peers.len()).map(|v| v.0.clone()) {
                     // If the subnet is in the mapping
-                    if let Some((peers_on_subnet)) = hashmap.get_mut(&max_subnet) {
+                    if let Some(peers_on_subnet) = subnet_to_peer.get_mut(&subnet_most_peers) {
                         // and the subnet still contains peers
                         if !peers_on_subnet.is_empty() {
 
                             // Select a random peer.
-                            let index = rand::thread_rng().gen_range(0..peers_on_subnet.len());
+                            let index = rand::thread_rng().gen_range(0usize,peers_on_subnet.len()-1);
                             let (candidate_peer, info) = peers_on_subnet.remove(index);
                             // Ensure we don't remove too many outbound peers
                             if info.is_outbound_only() {
-                                if self.target_outbound_only_peers() < connected_outbound_peer_count - outbound_peers_pruned {
+                                if self.target_outbound_peers() < connected_outbound_peer_count - outbound_peers_pruned {
                                     outbound_peers_pruned += 1;
                                 } else {
                                     continue;
                                 }
                             }
-                            peers_to_prune.len().push(candidate_peer);
+                            peers_to_prune.insert(candidate_peer);
                             continue;
                         }
                     }
@@ -993,8 +994,6 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
     ///
     /// NOTE: Discovery will only add a new query if one isn't already queued.
     fn heartbeat(&mut self) {
-        let peer_count = self.network_globals.connected_or_dialing_peers();
-        let mut outbound_only_peer_count = self.network_globals.connected_outbound_only_peers();
 
         // Optionally run a discovery query if we need more peers.
         self.maintain_peer_count(0);

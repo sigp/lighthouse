@@ -141,7 +141,7 @@ impl<T: EthSpec> PeerInfo<T> {
     }
 
     /// An iterator over all the subnets this peer is subscribed to.
-    pub fn subnets(&self) -> Iterator<Item = &SubnetId> {
+    pub fn subnets(&self) -> impl Iterator<Item = &Subnet> {
         self.subnets.iter()
     }
 
@@ -153,7 +153,7 @@ impl<T: EthSpec> PeerInfo<T> {
     /// Returns true if the peer is connected to a long-lived subnet.
     pub fn has_long_lived_subnet(&self) -> bool {
         // Check the meta_data
-        if let Some(meta_data) = self.meta_data {
+        if let Some(meta_data) = self.meta_data.as_ref() {
             if !meta_data.attnets().is_zero() && !self.subnets.is_empty() {
                 return true;
             }
@@ -165,7 +165,7 @@ impl<T: EthSpec> PeerInfo<T> {
         }
 
         // We may not have the metadata but may have an ENR. Lets check that
-        if let Some(enr) = self.enr {
+        if let Some(enr) = self.enr.as_ref() {
             if let Ok(attnets) = enr.attestation_bitfield::<T>() {
                 if !attnets.is_zero() && !self.subnets.is_empty() {
                     return true;
