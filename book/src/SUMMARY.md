@@ -11,6 +11,7 @@
     * [Raspberry Pi 4](./pi.md)
     * [Cross-Compiling](./cross-compiling.md)
     * [Homebrew](./homebrew.md)
+    * [Update Priorities](./installation-priorities.md)
 * [Key Management](./key-management.md)
     * [Create a wallet](./wallet-create.md)
     * [Create a validator](./validator-create.md)
