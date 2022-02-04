@@ -1,8 +1,8 @@
 # Update Priorities
 
-When publishing releases, Lighthouse will include an "Update Priority" section (see [example](https://github.com/sigp/lighthouse/releases/tag/v2.1.2)).
+When publishing releases, Lighthouse will include an "Update Priority" section in the release notes. As an example, see the [release notes from v2.1.2](https://github.com/sigp/lighthouse/releases/tag/v2.1.2)).
 
-The table may appear like so:
+The "Update Priority" section will include a table which may appear like so:
 
 |User Class |Beacon Node  | Validator Client|
 --- | --- | ---
