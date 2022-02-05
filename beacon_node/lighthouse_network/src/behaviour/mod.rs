@@ -288,13 +288,18 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
         };
 
         let slot_duration = std::time::Duration::from_secs(ctx.chain_spec.seconds_per_slot);
-        // Half an epoch
-        let gossip_max_retry_delay = std::time::Duration::from_secs(
+        let half_epoch = std::time::Duration::from_secs(
             ctx.chain_spec.seconds_per_slot * TSpec::slots_per_epoch() / 2,
         );
         let gossip_cache = GossipCache::builder()
-            .default_timeout(gossip_max_retry_delay)
             .beacon_block_timeout(slot_duration)
+            .aggregates_timeout(half_epoch)
+            .attestation_timeout(half_epoch)
+            .voluntary_exit_timeout(half_epoch * 2)
+            .proposer_slashing_timeout(half_epoch * 2)
+            .attester_slashing_timeout(half_epoch * 2)
+            // .signed_contribution_and_proof_timeout(timeout) // Do not retry
+            // .sync_committee_message_timeout(timeout) // Do not retry
             .build();
 
         Ok(Behaviour {
