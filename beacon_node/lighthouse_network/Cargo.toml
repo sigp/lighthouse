@@ -41,11 +41,8 @@ superstruct = "0.4.0"
 open-metrics-client = "0.14.0"
 
 [dependencies.libp2p]
-# version = "0.42.0"
+version = "0.42.1"
 default-features = false
-git = "https://github.com/mxinden/rust-libp2p"
-# Prepare release of 0.42.0
-rev = "d5744380c2aa4c4ed7814ec456faaf8dd9152467"
 features = ["websocket", "identify", "mplex", "yamux", "noise", "gossipsub", "dns-tokio", "tcp-tokio", "plaintext", "secp256k1"]
 
 [dev-dependencies]
