@@ -904,6 +904,20 @@ lazy_static! {
         "beacon_backfill_signature_total_seconds",
         "Time spent verifying the signature set during backfill sync, including setup"
     );
+
+    /*
+     * Pre-finalization block cache.
+     */
+    pub static ref PRE_FINALIZATION_BLOCK_CACHE_SIZE: Result<IntGauge> =
+        try_create_int_gauge(
+            "beacon_pre_finalization_block_cache_size",
+            "Number of pre-finalization block roots cached for quick rejection"
+        );
+    pub static ref PRE_FINALIZATION_BLOCK_LOOKUP_COUNT: Result<IntGauge> =
+        try_create_int_gauge(
+            "beacon_pre_finalization_block_lookup_count",
+            "Number of block roots subject to single block lookups"
+        );
 }
 
 /// Scrape the `beacon_chain` for metrics that are not constantly updated (e.g., the present slot,
@@ -929,6 +943,11 @@ pub fn scrape_for_metrics<T: BeaconChainTypes>(beacon_chain: &BeaconChain<T>) {
             &BLOCK_PROCESSING_SNAPSHOT_CACHE_SIZE,
             snapshot_cache.len() as i64,
         )
+    }
+
+    if let Some((size, num_lookups)) = beacon_chain.pre_finalization_block_cache.metrics() {
+        set_gauge_by_usize(&PRE_FINALIZATION_BLOCK_CACHE_SIZE, size);
+        set_gauge_by_usize(&PRE_FINALIZATION_BLOCK_LOOKUP_COUNT, num_lookups);
     }
 
     set_gauge_by_usize(

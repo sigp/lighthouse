@@ -21,6 +21,7 @@ pub const KEYSTORE_FLAG: &str = "keystore";
 pub const PASSWORD_FILE_FLAG: &str = "password-file";
 pub const BEACON_SERVER_FLAG: &str = "beacon-node";
 pub const NO_WAIT: &str = "no-wait";
+pub const NO_CONFIRMATION: &str = "no-confirmation";
 pub const PASSWORD_PROMPT: &str = "Enter the keystore password";
 
 pub const DEFAULT_BEACON_NODE: &str = "http://localhost:5052/";
@@ -60,6 +61,11 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .help("Exits after publishing the voluntary exit without waiting for confirmation that the exit was included in the beacon chain")
         )
         .arg(
+            Arg::with_name(NO_CONFIRMATION)
+                .long(NO_CONFIRMATION)
+                .help("Exits without prompting for confirmation that you understand the implications of a voluntary exit. This should be used with caution")
+        )
+        .arg(
             Arg::with_name(STDIN_INPUTS_FLAG)
                 .takes_value(false)
                 .hidden(cfg!(windows))
@@ -75,6 +81,7 @@ pub fn cli_run<E: EthSpec>(matches: &ArgMatches, env: Environment<E>) -> Result<
 
     let stdin_inputs = cfg!(windows) || matches.is_present(STDIN_INPUTS_FLAG);
     let no_wait = matches.is_present(NO_WAIT);
+    let no_confirmation = matches.is_present(NO_CONFIRMATION);
 
     let spec = env.eth2_config().spec.clone();
     let server_url: String = clap_utils::parse_required(matches, BEACON_SERVER_FLAG)?;
@@ -97,12 +104,14 @@ pub fn cli_run<E: EthSpec>(matches: &ArgMatches, env: Environment<E>) -> Result<
         stdin_inputs,
         &eth2_network_config,
         no_wait,
+        no_confirmation,
     ))?;
 
     Ok(())
 }
 
 /// Gets the keypair and validator_index for every validator and calls `publish_voluntary_exit` on it.
+#[allow(clippy::too_many_arguments)]
 async fn publish_voluntary_exit<E: EthSpec>(
     keystore_path: &Path,
     password_file_path: Option<&PathBuf>,
@@ -111,6 +120,7 @@ async fn publish_voluntary_exit<E: EthSpec>(
     stdin_inputs: bool,
     eth2_network_config: &Eth2NetworkConfig,
     no_wait: bool,
+    no_confirmation: bool,
 ) -> Result<(), String> {
     let genesis_data = get_geneisis_data(client).await?;
     let testnet_genesis_root = eth2_network_config
@@ -149,15 +159,22 @@ async fn publish_voluntary_exit<E: EthSpec>(
         "Publishing a voluntary exit for validator: {} \n",
         keypair.pk
     );
-    eprintln!("WARNING: THIS IS AN IRREVERSIBLE OPERATION\n");
-    eprintln!("{}\n", PROMPT);
-    eprintln!(
-        "PLEASE VISIT {} TO MAKE SURE YOU UNDERSTAND THE IMPLICATIONS OF A VOLUNTARY EXIT.",
-        WEBSITE_URL
-    );
-    eprintln!("Enter the exit phrase from the above URL to confirm the voluntary exit: ");
+    if !no_confirmation {
+        eprintln!("WARNING: THIS IS AN IRREVERSIBLE OPERATION\n");
+        eprintln!("{}\n", PROMPT);
+        eprintln!(
+            "PLEASE VISIT {} TO MAKE SURE YOU UNDERSTAND THE IMPLICATIONS OF A VOLUNTARY EXIT.",
+            WEBSITE_URL
+        );
+        eprintln!("Enter the exit phrase from the above URL to confirm the voluntary exit: ");
+    }
 
-    let confirmation = account_utils::read_input_from_user(stdin_inputs)?;
+    let confirmation = if !no_confirmation {
+        account_utils::read_input_from_user(stdin_inputs)?
+    } else {
+        CONFIRMATION_PHRASE.to_string()
+    };
+
     if confirmation == CONFIRMATION_PHRASE {
         // Sign and publish the voluntary exit to network
         let signed_voluntary_exit = voluntary_exit.sign(

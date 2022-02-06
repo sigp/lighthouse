@@ -46,9 +46,6 @@ pub enum Error {
 }
 
 /// Defines how the validator client should attempt to sign messages for this validator.
-///
-/// Presently there is only a single variant, however we expect more variants to arise (e.g.,
-/// remote signing).
 #[derive(Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type")]
 pub enum SigningDefinition {
@@ -76,6 +73,12 @@ pub enum SigningDefinition {
         #[serde(skip_serializing_if = "Option::is_none")]
         request_timeout_ms: Option<u64>,
     },
+}
+
+impl SigningDefinition {
+    pub fn is_local_keystore(&self) -> bool {
+        matches!(self, SigningDefinition::LocalKeystore { .. })
+    }
 }
 
 /// A validator that may be initialized by this validator client.
@@ -291,6 +294,11 @@ impl ValidatorDefinitions {
             .map_err(Error::UnableToWriteFile)?;
 
         Ok(())
+    }
+
+    /// Retain only the definitions matching the given predicate.
+    pub fn retain(&mut self, f: impl FnMut(&ValidatorDefinition) -> bool) {
+        self.0.retain(f);
     }
 
     /// Adds a new `ValidatorDefinition` to `self`.
