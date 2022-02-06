@@ -313,7 +313,7 @@ pub async fn poll_sync_committee_duties<T: SlotClock + 'static, E: EthSpec>(
     };
 
     // no local validators don't need to poll sync committee
-    if local_indices.is_empty(){
+    if local_indices.is_empty() {
         return Ok(());
     }
 
