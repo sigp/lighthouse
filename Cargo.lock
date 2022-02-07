@@ -20,6 +20,8 @@ dependencies = [
  "filesystem",
  "safe_arith",
  "sensitive_url",
+ "serde",
+ "serde_derive",
  "slashing_protection",
  "slot_clock",
  "tempfile",
@@ -1769,6 +1771,8 @@ version = "0.1.0"
 dependencies = [
  "eth2_wallet",
  "lockfile",
+ "serde",
+ "serde_derive",
  "tempfile",
 ]
 

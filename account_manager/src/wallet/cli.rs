@@ -1,7 +1,6 @@
 use std::ffi::OsStr;
 use clap::{ArgEnum, Args, Subcommand};
 pub use clap::{IntoApp, Parser};
-use lazy_static::lazy_static;
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 use account_utils::{PlainText, random_password};
@@ -20,10 +19,10 @@ pub struct Wallet {
         long,
         value_name = "WALLETS_DIRECTORY",
         help = "A path containing Eth2 EIP-2386 wallets. Defaults to ~/.lighthouse/{network}/wallets",
-        takes_value = true,
         conflicts_with = "datadir"
     )]
     pub wallets_dir: Option<PathBuf>,
+    #[clap(subcommand)]
     pub subcommand: WalletSubcommand,
 }
 
@@ -42,7 +41,6 @@ pub struct Create {
         value_name = "WALLET_NAME",
         help = "The wallet will be created with this name. It is not allowed to \
                             create two wallets with the same name for the same --base-dir.",
-        takes_value = true
     )]
     pub name: Option<String>,
     #[clap(
@@ -52,7 +50,6 @@ pub struct Create {
                     If the file does not exist, a random password will be generated and \
                     saved at that path. To avoid confusion, if the file does not already \
                     exist it must include a '.pass' suffix.",
-        takes_value = true
     )]
     pub password: Option<PathBuf>,
     #[clap(
@@ -62,7 +59,6 @@ pub struct Create {
     "The type of wallet to create. Only HD (hierarchical-deterministic) \
                             wallets are supported presently..",
 
-    takes_value = true,
     possible_values = &[HD_TYPE],
     default_value = HD_TYPE,
     name = "type")]
@@ -71,11 +67,9 @@ pub struct Create {
         long,
         value_name = "MNEMONIC_PATH",
         help = "If present, the mnemonic will be saved to this file. DO NOT SHARE THE MNEMONIC.",
-        takes_value = true
     )]
     pub mnemonic: Option<PathBuf>,
     #[clap(
-    takes_value = false,
     hide = cfg!(windows),
     long,
     help = "If present, read all user inputs from stdin instead of tty.",)]

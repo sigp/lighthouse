@@ -158,7 +158,7 @@ pub fn cli_run<T: EthSpec>(
         }
         SlashingProtection::Export(export_config) => {
             let export_filename: PathBuf = export_config.export_file.clone();
-            let minify: bool = export_config.minify;
+            let minify: bool = export_config.minify.unwrap_or(false);
 
             let selected_pubkeys = if let Some(pubkeys) =
                 export_config.pubkeys.clone()

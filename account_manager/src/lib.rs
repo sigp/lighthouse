@@ -7,7 +7,6 @@ use clap::ArgMatches;
 use clap::{ArgEnum, Args, Subcommand};
 pub use clap::{IntoApp, Parser};
 use environment::Environment;
-use lazy_static::lazy_static;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use clap_utils::GlobalConfig;

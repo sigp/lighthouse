@@ -3,7 +3,6 @@ use bls::PublicKey;
 use clap::{App, Arg, ArgMatches};
 use std::{collections::HashSet, path::PathBuf};
 use crate::validator::cli::{Modifiable, Modify};
-use crate::validator::cli::ValidatorSubcommand::Modify;
 
 pub const CMD: &str = "modify";
 pub const ENABLE: &str = "enable";

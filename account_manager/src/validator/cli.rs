@@ -1,9 +1,10 @@
 use clap::{ArgEnum, Args, Subcommand};
 pub use clap::{IntoApp, Parser};
-use lazy_static::lazy_static;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use bls::PublicKey;
+use crate::validator::exit::DEFAULT_BEACON_NODE;
+use crate::WALLETS_DIR_FLAG;
 
 #[derive(Parser, Clone, Deserialize, Serialize, Debug)]
 #[clap(about = "Provides commands for managing Eth2 validators.")]
@@ -17,6 +18,7 @@ pub struct Validator {
         conflicts_with = "datadir"
     )]
     pub validator_dir: Option<PathBuf>,
+    #[clap(subcommand)]
     pub subcommand: ValidatorSubcommand,
 }
 
@@ -24,10 +26,12 @@ pub struct Validator {
 #[clap(rename_all = "snake_case")]
 pub enum ValidatorSubcommand {
     Create(Create),
+    #[clap(subcommand)]
     Modify(Modify),
     Import(Import),
     List(List),
     Recover(Recover),
+    #[clap(subcommand)]
     SlashingProtection(SlashingProtection),
     Exit(Exit),
 }
@@ -100,7 +104,7 @@ pub struct Create {
     pub stdin_inputs: bool,
 }
 
-#[derive(Parser, Clone, Deserialize, Serialize, Debug)]
+#[derive(Subcommand, Clone, Deserialize, Serialize, Debug)]
 #[clap(about = "Modify validator status in validator_definitions.yml.")]
 #[clap(rename_all = "snake_case")]
 pub enum Modify {
@@ -258,7 +262,7 @@ pub struct Recover {
     pub stdin_inputs: bool,
 }
 
-#[derive(Parser, Clone, Deserialize, Serialize, Debug)]
+#[derive(Subcommand, Clone, Deserialize, Serialize, Debug)]
 #[clap(about = "Import or export slashing protection data to or from another client")]
 #[clap(rename_all = "snake_case")]
 pub enum SlashingProtection {
@@ -299,12 +303,11 @@ pub struct SlashingProtectionExport {
     )]
     pub pubkeys: Option<String>,
     #[clap(                        long,
-    default_value = "false",
     possible_values = &["false", "true"],
     help =
     "Minify the output file. This will make it smaller and faster to \
                              import, but not faster to generate.",)]
-    pub minify: bool,
+    pub minify: Option<bool>,
 }
 
 #[derive(Parser, Clone, Deserialize, Serialize, Debug)]

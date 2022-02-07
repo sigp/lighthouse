@@ -60,7 +60,7 @@ pub fn cli_run<T: EthSpec>(
         return Err(format!(
             "No wallet directory at {:?}. Use the `lighthouse --network {} {} {} {}` command to create a wallet",
             wallet_base_dir,
-            global_config.network.unwrap_or("<NETWORK>".to_string()),
+            global_config.network.as_ref().unwrap_or(&"<NETWORK>".to_string()),
             crate::CMD,
             crate::wallet::CMD,
             crate::wallet::create::CMD

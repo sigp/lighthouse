@@ -10,7 +10,7 @@ use std::fs::{create_dir_all, read_dir, OpenOptions};
 use std::io;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
-
+use serde::{Serialize, Deserialize};
 #[derive(Debug)]
 pub enum Error {
     DirectoryDoesNotExist(PathBuf),
@@ -55,7 +55,7 @@ impl From<LockfileError> for Error {
 /// Defines the type of an EIP-2386 wallet.
 ///
 /// Presently only `Hd` wallets are supported.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum WalletType {
     /// Hierarchical-deterministic.
     Hd,
