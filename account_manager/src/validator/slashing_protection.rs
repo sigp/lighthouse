@@ -8,6 +8,7 @@ use std::fs::File;
 use std::path::PathBuf;
 use std::str::FromStr;
 use types::{BeaconState, Epoch, EthSpec, PublicKeyBytes, Slot};
+use crate::validator::cli::SlashingProtection;
 
 pub const CMD: &str = "slashing-protection";
 pub const IMPORT_CMD: &str = "import";
@@ -19,64 +20,8 @@ pub const EXPORT_FILE_ARG: &str = "EXPORT-FILE";
 pub const MINIFY_FLAG: &str = "minify";
 pub const PUBKEYS_FLAG: &str = "pubkeys";
 
-pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
-    App::new(CMD)
-        .about("Import or export slashing protection data to or from another client")
-        .subcommand(
-            App::new(IMPORT_CMD)
-                .about("Import an interchange file")
-                .arg(
-                    Arg::with_name(IMPORT_FILE_ARG)
-                        .takes_value(true)
-                        .value_name("FILE")
-                        .help("The slashing protection interchange file to import (.json)"),
-                )
-                .arg(
-                    Arg::with_name(MINIFY_FLAG)
-                        .long(MINIFY_FLAG)
-                        .takes_value(true)
-                        .possible_values(&["false", "true"])
-                        .help(
-                            "Deprecated: Lighthouse no longer requires minification on import \
-                             because it always minifies",
-                        ),
-                ),
-        )
-        .subcommand(
-            App::new(EXPORT_CMD)
-                .about("Export an interchange file")
-                .arg(
-                    Arg::with_name(EXPORT_FILE_ARG)
-                        .takes_value(true)
-                        .value_name("FILE")
-                        .help("The filename to export the interchange file to"),
-                )
-                .arg(
-                    Arg::with_name(PUBKEYS_FLAG)
-                        .long(PUBKEYS_FLAG)
-                        .takes_value(true)
-                        .value_name("PUBKEYS")
-                        .help(
-                            "List of public keys to export history for. Keys should be 0x-prefixed, \
-                             comma-separated. All known keys will be exported if omitted",
-                        ),
-                )
-                .arg(
-                    Arg::with_name(MINIFY_FLAG)
-                        .long(MINIFY_FLAG)
-                        .takes_value(true)
-                        .default_value("false")
-                        .possible_values(&["false", "true"])
-                        .help(
-                            "Minify the output file. This will make it smaller and faster to \
-                             import, but not faster to generate.",
-                        ),
-                ),
-        )
-}
-
 pub fn cli_run<T: EthSpec>(
-    matches: &ArgMatches<'_>,
+    config: &SlashingProtection,
     env: Environment<T>,
     validator_base_dir: PathBuf,
 ) -> Result<(), String> {
@@ -96,10 +41,10 @@ pub fn cli_run<T: EthSpec>(
             )
         })?;
 
-    match matches.subcommand() {
-        (IMPORT_CMD, Some(matches)) => {
-            let import_filename: PathBuf = clap_utils::parse_required(matches, IMPORT_FILE_ARG)?;
-            let minify: Option<bool> = clap_utils::parse_optional(matches, MINIFY_FLAG)?;
+    match config {
+        SlashingProtection::Import(import_config) => {
+            let import_filename: PathBuf = import_config.import_file.clone();
+            let minify: Option<bool> = import_config.minify;
             let import_file = File::open(&import_filename).map_err(|e| {
                 format!(
                     "Unable to open import file at {}: {:?}",
@@ -211,12 +156,12 @@ pub fn cli_run<T: EthSpec>(
 
             Ok(())
         }
-        (EXPORT_CMD, Some(matches)) => {
-            let export_filename: PathBuf = clap_utils::parse_required(matches, EXPORT_FILE_ARG)?;
-            let minify: bool = clap_utils::parse_required(matches, MINIFY_FLAG)?;
+        SlashingProtection::Export(export_config) => {
+            let export_filename: PathBuf = export_config.export_file.clone();
+            let minify: bool = export_config.minify;
 
             let selected_pubkeys = if let Some(pubkeys) =
-                clap_utils::parse_optional::<String>(matches, PUBKEYS_FLAG)?
+                export_config.pubkeys.clone()
             {
                 let pubkeys = pubkeys
                     .split(',')
@@ -266,7 +211,5 @@ pub fn cli_run<T: EthSpec>(
 
             Ok(())
         }
-        ("", _) => Err("No subcommand provided, see --help for options".to_string()),
-        (command, _) => Err(format!("No such subcommand `{}`", command)),
     }
 }

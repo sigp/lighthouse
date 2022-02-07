@@ -9,6 +9,7 @@ use std::ffi::OsString;
 use std::fs::{create_dir_all, read_dir, OpenOptions};
 use std::io;
 use std::path::{Path, PathBuf};
+use std::str::FromStr;
 
 #[derive(Debug)]
 pub enum Error {
@@ -54,9 +55,20 @@ impl From<LockfileError> for Error {
 /// Defines the type of an EIP-2386 wallet.
 ///
 /// Presently only `Hd` wallets are supported.
+#[derive(Debug, Clone)]
 pub enum WalletType {
     /// Hierarchical-deterministic.
     Hd,
+}
+
+impl FromStr for WalletType {
+    type Err = String;
+    fn from_str(s: &str) -> Result<Self, Self::Err>{
+        match s {
+            "hd" => Ok(WalletType::Hd),
+            _ => Err("Not supported".to_string())
+        }
+    }
 }
 
 /// Manages a directory containing EIP-2386 wallets.

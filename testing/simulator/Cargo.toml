@@ -15,6 +15,6 @@ futures = "0.3.7"
 tokio = "1.14.0"
 eth1_test_rig = { path = "../eth1_test_rig" }
 env_logger = "0.9.0"
-clap = "3.0.14"
+clap = { version = "3.0.14", features = ["derive"] }
 rayon = "1.4.1"
 sensitive_url  = { path = "../../common/sensitive_url" }

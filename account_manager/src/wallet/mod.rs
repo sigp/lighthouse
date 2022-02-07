@@ -7,27 +7,24 @@ use crate::WALLETS_DIR_FLAG;
 use clap::{App, Arg, ArgMatches};
 use directory::{ensure_dir_exists, parse_path_or_default_with_flag, DEFAULT_WALLET_DIR};
 use std::path::PathBuf;
+use clap_utils::GlobalConfig;
+use crate::wallet::cli::WalletSubcommand;
 
 pub const CMD: &str = "wallet";
 
-pub fn cli_run(matches: &ArgMatches) -> Result<(), String> {
-    let wallet_base_dir = if matches.value_of("datadir").is_some() {
-        let path: PathBuf = clap_utils::parse_required(matches, "datadir")?;
-        path.join(DEFAULT_WALLET_DIR)
+pub fn cli_run(wallet_config: &cli::Wallet, global_config: &GlobalConfig) -> Result<(), String> {
+    let wallet_base_dir = if let Some(wallet_dir) = global_config.datadir.as_ref() {
+        wallet_dir.join(DEFAULT_WALLET_DIR)
     } else {
-        parse_path_or_default_with_flag(matches, WALLETS_DIR_FLAG, DEFAULT_WALLET_DIR)?
+        parse_path_or_default_with_flag(wallet_config.wallets_dir.clone(), global_config, DEFAULT_WALLET_DIR)?
     };
     ensure_dir_exists(&wallet_base_dir)?;
 
     eprintln!("wallet-dir path: {:?}", wallet_base_dir);
 
-    match matches.subcommand() {
-        (create::CMD, Some(matches)) => create::cli_run(matches, wallet_base_dir),
-        (list::CMD, Some(_)) => list::cli_run(wallet_base_dir),
-        (recover::CMD, Some(matches)) => recover::cli_run(matches, wallet_base_dir),
-        (unknown, _) => Err(format!(
-            "{} does not have a {} command. See --help",
-            CMD, unknown
-        )),
+    match &wallet_config.subcommand {
+        WalletSubcommand::Create(create_config) =>  create::cli_run(&create_config, wallet_base_dir),
+        WalletSubcommand::List(_) =>  list::cli_run(wallet_base_dir),
+        WalletSubcommand::Recover(recover_config) =>  recover::cli_run(&recover_config, wallet_base_dir),
     }
 }

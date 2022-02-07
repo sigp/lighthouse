@@ -14,7 +14,7 @@ logging = { path = "../common/logging" }
 
 [dependencies]
 tree_hash = "0.4.1"
-clap = "3.0.14"
+clap = { version = "3.0.14", features = ["derive"] }
 slashing_protection = { path = "./slashing_protection" }
 slot_clock = { path = "../common/slot_clock" }
 types = { path = "../consensus/types" }

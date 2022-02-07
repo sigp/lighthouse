@@ -1,11 +1,14 @@
 use clap::{ArgEnum, Args, Subcommand};
 pub use clap::{IntoApp, Parser};
 use eth2_hashing::have_sha_extensions;
-use eth2_network_config::HARDCODED_NET_NAMES;
+use eth2_network_config::{DEFAULT_HARDCODED_NETWORK, Eth2NetworkConfig, HARDCODED_NET_NAMES};
 use lazy_static::lazy_static;
 use lighthouse_version::VERSION;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
+use bls::Hash256;
+use clap_utils::GlobalConfig;
+use types::{Epoch, Uint256};
 
 // These have to live at least as long as the `Lighthouse` app.
 lazy_static! {
@@ -138,7 +141,7 @@ pub struct Lighthouse {
                    Defaults to $HOME/.lighthouse/{network} where network is the value of the `network` flag \
                    Note: Users should specify separate custom datadirs for different networks."
     )]
-    pub datadir: Option<String>,
+    pub datadir: Option<PathBuf>,
     #[clap(
         long,
         short,
@@ -148,7 +151,7 @@ pub struct Lighthouse {
                      existing database.",
         global = true
     )]
-    pub testnet_dir: Option<String>,
+    pub testnet_dir: Option<PathBuf>,
     #[clap(
     long,
     value_name = "network",
@@ -192,7 +195,7 @@ pub struct Lighthouse {
                       failure. Be extremely careful with this flag.",
         global = true
     )]
-    pub terminal_total_difficulty_override: Option<String>,
+    pub terminal_total_difficulty_override: Option<Uint256>,
     #[clap(
         long,
         value_name = "TERMINAL_BLOCK_HASH",
@@ -204,7 +207,7 @@ pub struct Lighthouse {
         requires = "terminal_block_hash_epoch_override",
         global = true
     )]
-    pub terminal_block_hash_override: Option<String>,
+    pub terminal_block_hash_override: Option<Hash256>,
     #[clap(
         long,
         value_name = "EPOCH",
@@ -216,16 +219,85 @@ pub struct Lighthouse {
         requires = "terminal_block_hash_override",
         global = true
     )]
-    pub terminal_block_hash_epoch_override: Option<String>,
+    pub terminal_block_hash_epoch_override: Option<Epoch>,
     #[clap(subcommand)]
     pub subcommand: LighthouseSubcommand,
 }
 
+
+pub const BAD_TESTNET_DIR_MESSAGE: &str = "The hard-coded testnet directory was invalid. \
+                                        This happens when Lighthouse is migrating between spec versions \
+                                        or when there is no default public network to connect to. \
+                                        During these times you must specify a --testnet-dir.";
+
+
 impl Lighthouse {
+    /// Returns true if the provided command was to start a beacon node.
     pub fn is_beacon_node(&self) -> bool {
         match self.subcommand.as_ref() {
             LighthouseSubcommand::BeaconNode(_) => true,
             _ => false,
+        }
+    }
+
+    /// Try to parse the eth2 network config from the `network`, `testnet-dir` flags in that order.
+    /// Returns the default hardcoded testnet if neither flags are set.
+    pub fn get_eth2_network_config(&self) -> Result<Eth2NetworkConfig, String> {
+        let optional_network_config = if let Some(network) = self.network.as_ref() {
+            Eth2NetworkConfig::constant(network)?
+        } else if let Some(testnet_dir) = self.testnet_dir.as_ref() {
+            Eth2NetworkConfig::load(testnet_dir.clone())
+                .map_err(|e| format!("Unable to open testnet dir at {:?}: {}", path, e))
+                .map(Some)
+        } else {
+            // if neither is present, assume the default network
+            Eth2NetworkConfig::constant(DEFAULT_HARDCODED_NETWORK)?
+        };
+
+        let mut eth2_network_config =
+            optional_network_config.ok_or_else(|| BAD_TESTNET_DIR_MESSAGE.to_string())?;
+
+        if let Some(terminal_total_difficulty) = self.terminal_total_difficulty_override
+        {
+            //TODO: do we need to accept deserializing from commas?
+            eth2_network_config.config.terminal_total_difficulty = terminal_total_difficulty;
+        }
+
+        if let Some(hash) = self.terminal_block_hash_override {
+            eth2_network_config.config.terminal_block_hash = hash;
+        }
+
+        if let Some(epoch) = self.terminal_block_hash_epoch_override{
+            eth2_network_config
+                .config
+                .terminal_block_hash_activation_epoch = epoch;
+        }
+
+        Ok(eth2_network_config)
+    }
+}
+
+impl Into<GlobalConfig> for Lighthouse {
+    fn into(self) -> GlobalConfig {
+        GlobalConfig {
+            config_file: self.config_file,
+            spec: self.spec,
+            logfile: self.logfile,
+            logfile_debug_level: self.logfile_debug_level,
+            logfile_max_size: self.logfile_max_size,
+            logfile_max_number: self.logfile_max_number,
+            logfile_compress: self.logfile_compress,
+            log_format: self.log_format,
+            debug_level: self.debug_level,
+            datadir: self.datadir,
+            testnet_dir: self.testnet_dir,
+            network: self.network,
+            dump_config: self.dump_config,
+            immediate_shutdown: self.immediate_shutdown,
+            disable_malloc_tuning: self.disable_malloc_tuning,
+            terminal_total_difficulty_override: self.terminal_total_difficulty_override,
+            terminal_block_hash_override: self.terminal_block_hash_override,
+            terminal_block_hash_epoch_override: self.terminal_block_hash_epoch_override,
         }
     }
 }
@@ -238,3 +310,10 @@ pub enum LighthouseSubcommand {
     BootNode(boot_node::BootNode),
     AccountManager(account_manager::AccountManager),
 }
+
+// Marker trait
+pub trait SubcommandConfig {}
+impl SubcommandConfig for beacon_node::BeaconNode {}
+impl SubcommandConfig for beacon_node::ValidatorClient {}
+impl SubcommandConfig for beacon_node::BootNode {}
+impl SubcommandConfig for beacon_node::AccountManager {}

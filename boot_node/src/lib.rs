@@ -5,6 +5,8 @@ use slog::{o, Drain, Level, Logger};
 use eth2_network_config::Eth2NetworkConfig;
 use std::fs::File;
 use std::path::PathBuf;
+use clap_utils::GlobalConfig;
+
 mod cli;
 pub mod config;
 mod server;
@@ -16,13 +18,12 @@ const LOG_CHANNEL_SIZE: usize = 2048;
 
 /// Run the bootnode given the CLI configuration.
 pub fn run(
-    lh_matches: &ArgMatches<'_>,
-    bn_matches: &ArgMatches<'_>,
+    global_config: &GlobalConfig,
+    boot_node_config: &BootNode,
     eth_spec_id: EthSpecId,
     eth2_network_config: &Eth2NetworkConfig,
-    debug_level: String,
 ) {
-    let debug_level = match debug_level.as_str() {
+    let debug_level = match global_config.debug_level.as_str() {
         "trace" => log::Level::Trace,
         "debug" => log::Level::Debug,
         "info" => log::Level::Info,
@@ -58,13 +59,13 @@ pub fn run(
     // Run the main function emitting any errors
     if let Err(e) = match eth_spec_id {
         EthSpecId::Minimal => {
-            main::<types::MinimalEthSpec>(lh_matches, bn_matches, eth2_network_config, log)
+            main::<types::MinimalEthSpec>(boot_node_config, global_config, eth2_network_config, log)
         }
         EthSpecId::Mainnet => {
-            main::<types::MainnetEthSpec>(lh_matches, bn_matches, eth2_network_config, log)
+            main::<types::MainnetEthSpec>(boot_node_config, global_config, eth2_network_config, log)
         }
         EthSpecId::Gnosis => {
-            main::<types::GnosisEthSpec>(lh_matches, bn_matches, eth2_network_config, log)
+            main::<types::GnosisEthSpec>(boot_node_config, global_config, eth2_network_config, log)
         }
     } {
         slog::crit!(slog_scope::logger(), "{}", e);
@@ -72,8 +73,8 @@ pub fn run(
 }
 
 fn main<T: EthSpec>(
-    lh_matches: &ArgMatches<'_>,
-    bn_matches: &ArgMatches<'_>,
+    boot_node: &BootNode,
+    global_config: &GlobalConfig,
     eth2_network_config: &Eth2NetworkConfig,
     log: slog::Logger,
 ) -> Result<(), String> {
@@ -84,11 +85,10 @@ fn main<T: EthSpec>(
         .map_err(|e| format!("Failed to build runtime: {}", e))?;
 
     // parse the CLI args into a useable config
-    let config: BootNodeConfig<T> = BootNodeConfig::new(bn_matches, eth2_network_config)?;
+    let config: BootNodeConfig<T> = BootNodeConfig::new(boot_node, eth2_network_config)?;
 
     // Dump config if `dump-config` flag is set
-    let dump_config = clap_utils::parse_optional::<PathBuf>(lh_matches, "dump-config")?;
-    if let Some(dump_path) = dump_config {
+    if let Some(dump_path) =  global_config.dump_config.as_ref() {
         let config_sz = BootNodeConfigSerialization::from_config_ref(&config);
         let mut file = File::create(dump_path)
             .map_err(|e| format!("Failed to create dumped config: {:?}", e))?;
@@ -97,7 +97,7 @@ fn main<T: EthSpec>(
     }
 
     // Run the boot node
-    if !lh_matches.is_present("immediate-shutdown") {
+    if !global_config.immediate_shutdown {
         runtime.block_on(server::run(config, log));
     }
     Ok(())

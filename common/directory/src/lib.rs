@@ -2,6 +2,7 @@ use clap::ArgMatches;
 pub use eth2_network_config::DEFAULT_HARDCODED_NETWORK;
 use std::fs::{self, create_dir_all};
 use std::path::{Path, PathBuf};
+use clap_utils::GlobalConfig;
 
 /// Names for the default directories.
 pub const DEFAULT_ROOT_DIR: &str = ".lighthouse";
@@ -19,10 +20,10 @@ pub const CUSTOM_TESTNET_DIR: &str = "custom";
 /// Tries to get the name first from the "network" flag,
 /// if not present, then checks the "testnet-dir" flag and returns a custom name
 /// If neither flags are present, returns the default hardcoded network name.
-pub fn get_network_dir(matches: &ArgMatches) -> String {
-    if let Some(network_name) = matches.value_of("network") {
-        network_name.to_string()
-    } else if matches.value_of("testnet-dir").is_some() {
+pub fn get_network_dir(config: &GlobalConfig) -> String {
+    if let Some(network_name) = config.network.clone() {
+        network_name
+    } else if config.testnet_dir.is_some() {
         CUSTOM_TESTNET_DIR.to_string()
     } else {
         eth2_network_config::DEFAULT_HARDCODED_NETWORK.to_string()
@@ -43,13 +44,12 @@ pub fn ensure_dir_exists<P: AsRef<Path>>(path: P) -> Result<(), String> {
 /// If `arg` is in `matches`, parses the value as a path.
 ///
 /// Otherwise, attempts to find the default directory for the `testnet` from the `matches`.
-pub fn parse_path_or_default(matches: &ArgMatches, arg: &'static str) -> Result<PathBuf, String> {
+pub fn parse_path_or_default(config_path: Option<PathBuf>, global_config: &GlobalConfig) -> Result<PathBuf, String> {
     clap_utils::parse_path_with_default_in_home_dir(
-        matches,
-        arg,
+        config_path,
         PathBuf::new()
             .join(DEFAULT_ROOT_DIR)
-            .join(get_network_dir(matches)),
+            .join(get_network_dir(global_config)),
     )
 }
 
@@ -58,16 +58,15 @@ pub fn parse_path_or_default(matches: &ArgMatches, arg: &'static str) -> Result<
 /// Otherwise, attempts to find the default directory for the `testnet` from the `matches`
 /// and appends `flag` to it.
 pub fn parse_path_or_default_with_flag(
-    matches: &ArgMatches,
-    arg: &'static str,
+    config_path: Option<PathBuf>,
+     global_config: &GlobalConfig,
     flag: &str,
 ) -> Result<PathBuf, String> {
     clap_utils::parse_path_with_default_in_home_dir(
-        matches,
-        arg,
+        config_path,
         PathBuf::new()
             .join(DEFAULT_ROOT_DIR)
-            .join(get_network_dir(matches))
+            .join(get_network_dir(global_config))
             .join(flag),
     )
 }

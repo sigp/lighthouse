@@ -6,95 +6,45 @@ use ethereum_types::U256 as Uint256;
 use ssz::Decode;
 use std::path::PathBuf;
 use std::str::FromStr;
+use types::{Epoch, Hash256};
 
 pub mod flags;
 
-pub const BAD_TESTNET_DIR_MESSAGE: &str = "The hard-coded testnet directory was invalid. \
-                                        This happens when Lighthouse is migrating between spec versions \
-                                        or when there is no default public network to connect to. \
-                                        During these times you must specify a --testnet-dir.";
-
-/// Try to parse the eth2 network config from the `network`, `testnet-dir` flags in that order.
-/// Returns the default hardcoded testnet if neither flags are set.
-pub fn get_eth2_network_config(cli_args: &ArgMatches) -> Result<Eth2NetworkConfig, String> {
-    let optional_network_config = if cli_args.is_present("network") {
-        parse_hardcoded_network(cli_args, "network")?
-    } else if cli_args.is_present("testnet-dir") {
-        parse_testnet_dir(cli_args, "testnet-dir")?
-    } else {
-        // if neither is present, assume the default network
-        Eth2NetworkConfig::constant(DEFAULT_HARDCODED_NETWORK)?
-    };
-
-    let mut eth2_network_config =
-        optional_network_config.ok_or_else(|| BAD_TESTNET_DIR_MESSAGE.to_string())?;
-
-    if let Some(string) = parse_optional::<String>(cli_args, "terminal-total-difficulty-override")?
-    {
-        let stripped = string.replace(",", "");
-        let terminal_total_difficulty = Uint256::from_dec_str(&stripped).map_err(|e| {
-            format!(
-                "Could not parse --terminal-total-difficulty-override as decimal value: {:?}",
-                e
-            )
-        })?;
-
-        eth2_network_config.config.terminal_total_difficulty = terminal_total_difficulty;
-    }
-
-    if let Some(hash) = parse_optional(cli_args, "terminal-block-hash-override")? {
-        eth2_network_config.config.terminal_block_hash = hash;
-    }
-
-    if let Some(epoch) = parse_optional(cli_args, "terminal-block-hash-epoch-override")? {
-        eth2_network_config
-            .config
-            .terminal_block_hash_activation_epoch = epoch;
-    }
-
-    Ok(eth2_network_config)
-}
-
-/// Attempts to load the testnet dir at the path if `name` is in `matches`, returning an error if
-/// the path cannot be found or the testnet dir is invalid.
-pub fn parse_testnet_dir(
-    matches: &ArgMatches,
-    name: &'static str,
-) -> Result<Option<Eth2NetworkConfig>, String> {
-    let path = parse_required::<PathBuf>(matches, name)?;
-    Eth2NetworkConfig::load(path.clone())
-        .map_err(|e| format!("Unable to open testnet dir at {:?}: {}", path, e))
-        .map(Some)
-}
-
-/// Attempts to load a hardcoded network config if `name` is in `matches`, returning an error if
-/// the name is not a valid network name.
-pub fn parse_hardcoded_network(
-    matches: &ArgMatches,
-    name: &str,
-) -> Result<Option<Eth2NetworkConfig>, String> {
-    let network_name = parse_required::<String>(matches, name)?;
-    Eth2NetworkConfig::constant(network_name.as_str())
+pub struct GlobalConfig {
+    pub config_file: Option<PathBuf>,
+    pub spec: Option<String>,
+    pub logfile: Option<PathBuf>,
+    pub logfile_debug_level: String,
+    pub logfile_max_size: u64,
+    pub logfile_max_number: usize,
+    pub logfile_compress: bool,
+    pub log_format: Option<String>,
+    pub debug_level: String,
+    pub datadir: Option<PathBuf>,
+    pub testnet_dir: Option<PathBuf>,
+    pub network: Option<String>,
+    pub dump_config: Option<PathBuf>,
+    pub immediate_shutdown: bool,
+    pub disable_malloc_tuning: bool,
+    pub terminal_total_difficulty_override: Option<Uint256>,
+    pub terminal_block_hash_override: Option<Hash256>,
+    pub terminal_block_hash_epoch_override: Option<Epoch>,
 }
 
 /// If `name` is in `matches`, parses the value as a path. Otherwise, attempts to find the user's
 /// home directory and appends `default` to it.
 pub fn parse_path_with_default_in_home_dir(
-    matches: &ArgMatches,
-    name: &'static str,
+    config_path: Option<PathBuf>,
     default: PathBuf,
 ) -> Result<PathBuf, String> {
-    matches
-        .value_of(name)
-        .map(|dir| {
-            dir.parse::<PathBuf>()
-                .map_err(|e| format!("Unable to parse {}: {}", name, e))
-        })
-        .unwrap_or_else(|| {
+    if let Some(config_path) = config_path {
+        Ok(config_path)
+    }else {
             dirs::home_dir()
                 .map(|home| home.join(default))
-                .ok_or_else(|| format!("Unable to locate home directory. Try specifying {}", name))
-        })
+                //TODO: not sure how to make this error specific
+                .ok_or_else(|| "Unable to locate home directory".to_string())
+        }
 }
 
 /// Returns the value of `name` or an error if it is not in `matches` or does not parse

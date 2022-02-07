@@ -15,6 +15,7 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 use tokio::time::sleep;
 use types::{ChainSpec, Epoch, EthSpec, Fork, VoluntaryExit};
+use crate::validator::cli::Exit;
 
 pub const CMD: &str = "exit";
 pub const KEYSTORE_FLAG: &str = "keystore";
@@ -29,62 +30,16 @@ pub const CONFIRMATION_PHRASE: &str = "Exit my validator";
 pub const WEBSITE_URL: &str = "https://lighthouse-book.sigmaprime.io/voluntary-exit.html";
 pub const PROMPT: &str = "WARNING: WITHDRAWING STAKED ETH IS NOT CURRENTLY POSSIBLE";
 
-pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
-    App::new("exit")
-        .about("Submits a VoluntaryExit to the beacon chain for a given validator keystore.")
-        .arg(
-            Arg::with_name(KEYSTORE_FLAG)
-                .long(KEYSTORE_FLAG)
-                .value_name("KEYSTORE_PATH")
-                .help("The path to the EIP-2335 voting keystore for the validator")
-                .takes_value(true)
-                .required(true),
-        )
-        .arg(
-            Arg::with_name(PASSWORD_FILE_FLAG)
-                .long(PASSWORD_FILE_FLAG)
-                .value_name("PASSWORD_FILE_PATH")
-                .help("The path to the password file which unlocks the validator voting keystore")
-                .takes_value(true),
-        )
-        .arg(
-            Arg::with_name(BEACON_SERVER_FLAG)
-                .long(BEACON_SERVER_FLAG)
-                .value_name("NETWORK_ADDRESS")
-                .help("Address to a beacon node HTTP API")
-                .default_value(DEFAULT_BEACON_NODE)
-                .takes_value(true),
-        )
-        .arg(
-            Arg::with_name(NO_WAIT)
-                .long(NO_WAIT)
-                .help("Exits after publishing the voluntary exit without waiting for confirmation that the exit was included in the beacon chain")
-        )
-        .arg(
-            Arg::with_name(NO_CONFIRMATION)
-                .long(NO_CONFIRMATION)
-                .help("Exits without prompting for confirmation that you understand the implications of a voluntary exit. This should be used with caution")
-        )
-        .arg(
-            Arg::with_name(STDIN_INPUTS_FLAG)
-                .takes_value(false)
-                .hidden(cfg!(windows))
-                .long(STDIN_INPUTS_FLAG)
-                .help("If present, read all user inputs from stdin instead of tty."),
-        )
-}
+pub fn cli_run<E: EthSpec>(exit_config: &Exit, env: Environment<E>) -> Result<(), String> {
+    let keystore_path: PathBuf = exit_config.keystore.clone();
+    let password_file_path: Option<PathBuf> = exit_config.password_file.clone();
 
-pub fn cli_run<E: EthSpec>(matches: &ArgMatches, env: Environment<E>) -> Result<(), String> {
-    let keystore_path: PathBuf = clap_utils::parse_required(matches, KEYSTORE_FLAG)?;
-    let password_file_path: Option<PathBuf> =
-        clap_utils::parse_optional(matches, PASSWORD_FILE_FLAG)?;
-
-    let stdin_inputs = cfg!(windows) || matches.is_present(STDIN_INPUTS_FLAG);
-    let no_wait = matches.is_present(NO_WAIT);
-    let no_confirmation = matches.is_present(NO_CONFIRMATION);
+    let stdin_inputs = cfg!(windows) || exit_config.stdin_inputs;
+    let no_wait = exit_config.no_wait;
+    let no_confirmation = exit_config.no_confirmation;
 
     let spec = env.eth2_config().spec.clone();
-    let server_url: String = clap_utils::parse_required(matches, BEACON_SERVER_FLAG)?;
+    let server_url: String = exit_config.beacon_server.clone();
     let client = BeaconNodeHttpClient::new(
         SensitiveUrl::parse(&server_url)
             .map_err(|e| format!("Failed to parse beacon http server: {:?}", e))?,

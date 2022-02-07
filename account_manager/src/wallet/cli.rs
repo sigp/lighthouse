@@ -1,8 +1,17 @@
+use std::ffi::OsStr;
 use clap::{ArgEnum, Args, Subcommand};
 pub use clap::{IntoApp, Parser};
 use lazy_static::lazy_static;
 use serde::{Deserialize, Serialize};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+use account_utils::{PlainText, random_password};
+use eth2_wallet::bip39::Mnemonic;
+use eth2_wallet_manager::{LockedWallet, WalletManager, WalletType};
+use filesystem::create_with_600_perms;
+use crate::common::read_wallet_name_from_cli;
+use crate::wallet::create::{read_new_wallet_password_from_cli, TYPE_FLAG, validate_mnemonic_length};
+use crate::WALLETS_DIR_FLAG;
+use crate::wallet::create::HD_TYPE;
 
 #[derive(Parser, Clone, Deserialize, Serialize, Debug)]
 #[clap(about = "Manage wallets, from which validator keys can be derived.")]
@@ -14,8 +23,8 @@ pub struct Wallet {
         takes_value = true,
         conflicts_with = "datadir"
     )]
-    pub wallets_dir: Option<String>,
-    subcommand: WalletSubcommand,
+    pub wallets_dir: Option<PathBuf>,
+    pub subcommand: WalletSubcommand,
 }
 
 #[derive(Parser, Clone, Deserialize, Serialize, Debug)]
@@ -45,7 +54,7 @@ pub struct Create {
                     exist it must include a '.pass' suffix.",
         takes_value = true
     )]
-    pub password: Option<String>,
+    pub password: Option<PathBuf>,
     #[clap(
     long,
     value_name = "WALLET_TYPE",
@@ -56,34 +65,27 @@ pub struct Create {
     takes_value = true,
     possible_values = &[HD_TYPE],
     default_value = HD_TYPE,
-    rename = "type")]
-    pub create_type: Option<String>,
+    name = "type")]
+    pub create_type: WalletType,
     #[clap(
         long,
         value_name = "MNEMONIC_PATH",
         help = "If present, the mnemonic will be saved to this file. DO NOT SHARE THE MNEMONIC.",
         takes_value = true
     )]
-    pub mnemonic: Option<String>,
+    pub mnemonic: Option<PathBuf>,
     #[clap(
     takes_value = false,
     hide = cfg!(windows),
     long,
     help = "If present, read all user inputs from stdin instead of tty.",)]
-    pub stdin_inputs: Option<String>,
+    pub stdin_inputs: bool,
     #[clap(                long,
     value_name = "MNEMONIC_LENGTH",
     help = "The number of words to use for the mnemonic phrase.",
-    takes_value = true,
-    validator = |len| {
-    match len.parse::<usize>().ok().and_then(|words| MnemonicType::for_word_count(words).ok()) {
-    Some(_) => Ok(()),
-    None => Err(format!("Mnemonic length must be one of {}", MNEMONIC_TYPES.iter().map(|t| t.word_count().to_string()).collect::<Vec<_>>().join(", "))),
-    }
-    }
-    ,
-    default_value = "24",)]
-    pub mnemonic_length: Option<String>,
+    validator = validate_mnemonic_length,
+    default_value_t = 24)]
+    pub mnemonic_length: usize,
 }
 
 #[derive(Parser, Clone, Deserialize, Serialize, Debug)]
@@ -98,7 +100,6 @@ pub struct Recover {
         value_name = "WALLET_NAME",
         help = "The wallet will be created with this name. It is not allowed to \
                             create two wallets with the same name for the same --base-dir.",
-        takes_value = true
     )]
     pub name: Option<String>,
     #[clap(
@@ -109,29 +110,109 @@ pub struct Recover {
                     If the file does not exist, a random password will be generated and \
                     saved at that path. To avoid confusion, if the file does not already \
                     exist it must include a '.pass' suffix.",
-        takes_value = true
     )]
-    pub password: Option<String>,
+    pub password: Option<PathBuf>,
     #[clap(
         long,
         value_name = "MNEMONIC_PATH",
         help = "If present, the mnemonic will be read in from this file.",
-        takes_value = true
     )]
-    pub mnemonic: Option<String>,
+    pub mnemonic: Option<PathBuf>,
     #[clap(                long,
     value_name = "WALLET_TYPE",
     help =
     "The type of wallet to create. Only HD (hierarchical-deterministic) \
                             wallets are supported presently..",
-    takes_value = true,
     possible_values = &[HD_TYPE],
     default_value = HD_TYPE,
-    rename = "type")]
-    pub recover_type: Option<String>,
-    #[clap(                takes_value = false,
+    name = "type")]
+    pub recover_type: WalletType,
+    #[clap(
     hide = cfg!(windows),
     long,
     help = "If present, read all user inputs from stdin instead of tty.",)]
-    pub stdin_inputs: Option<String>,
+    pub stdin_inputs: bool,
+}
+
+pub trait NewWallet {
+    fn get_name(&self) -> Option<String>;
+    fn get_password(&self) -> Option<PathBuf>;
+    fn get_type(&self) -> WalletType;
+    fn is_stdin_inputs(&self) -> bool;
+    fn create_wallet_from_mnemonic(
+        &self,
+        wallet_base_dir: &Path,
+        mnemonic: &Mnemonic,
+    ) -> Result<LockedWallet, String> {
+        let name: Option<String> = self.get_name();
+        let wallet_password_path: Option<PathBuf> = self.get_password();
+        let wallet_type: WalletType = self.get_type();
+        let stdin_inputs = cfg!(windows) || self.is_stdin_inputs();
+
+        let mgr = WalletManager::open(&wallet_base_dir)
+            .map_err(|e| format!("Unable to open --{}: {:?}", WALLETS_DIR_FLAG, e))?;
+
+        let wallet_password: PlainText = match wallet_password_path {
+            Some(path) => {
+                // Create a random password if the file does not exist.
+                if !path.exists() {
+                    // To prevent users from accidentally supplying their password to the PASSWORD_FLAG and
+                    // create a file with that name, we require that the password has a .pass suffix.
+                    if path.extension() != Some(OsStr::new("pass")) {
+                        return Err(format!(
+                            "Only creates a password file if that file ends in .pass: {:?}",
+                            path
+                        ));
+                    }
+
+                    create_with_600_perms(&path, random_password().as_bytes())
+                        .map_err(|e| format!("Unable to write to {:?}: {:?}", path, e))?;
+                }
+                read_new_wallet_password_from_cli(Some(path), stdin_inputs)?
+            }
+            None => read_new_wallet_password_from_cli(None, stdin_inputs)?,
+        };
+
+        let wallet_name = read_wallet_name_from_cli(name, stdin_inputs)?;
+
+        let wallet = mgr
+            .create_wallet(
+                wallet_name,
+                wallet_type,
+                mnemonic,
+                wallet_password.as_bytes(),
+            )
+            .map_err(|e| format!("Unable to create wallet: {:?}", e))?;
+        Ok(wallet)
+    }
+}
+
+impl NewWallet for  Create {
+    fn get_name(&self) -> Option<String> {
+        self.name.clone()
+    }
+    fn get_password(&self) -> Option<PathBuf> {
+        self.password.clone()
+    }
+    fn get_type(&self) -> WalletType {
+        self.create_type.clone()
+    }
+    fn is_stdin_inputs(&self) -> bool {
+        self.stdin_inputs
+    }
+}
+
+impl NewWallet for  Recover {
+    fn get_name(&self) -> Option<String> {
+        self.name.clone()
+    }
+    fn get_password(&self) -> Option<PathBuf> {
+        self.password.clone()
+    }
+    fn get_type(&self) -> WalletType {
+        self.recover_type.clone()
+    }
+    fn is_stdin_inputs(&self) -> bool {
+        self.stdin_inputs
+    }
 }

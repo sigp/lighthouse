@@ -11,84 +11,24 @@ use directory::{parse_path_or_default_with_flag, DEFAULT_SECRET_DIR};
 use eth2_wallet::bip39::Seed;
 use eth2_wallet::{recover_validator_secret_from_mnemonic, KeyType, ValidatorKeystores};
 use std::path::PathBuf;
+use clap_utils::GlobalConfig;
 use validator_dir::Builder as ValidatorDirBuilder;
+use crate::validator::cli::Recover;
+
 pub const CMD: &str = "recover";
 pub const FIRST_INDEX_FLAG: &str = "first-index";
 pub const MNEMONIC_FLAG: &str = "mnemonic-path";
 
-pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
-    App::new(CMD)
-        .about(
-            "Recovers validator private keys given a BIP-39 mnemonic phrase. \
-            If you did not specify a `--first-index` or count `--count`, by default this will \
-            only recover the keys associated with the validator at index 0 for an HD wallet \
-            in accordance with the EIP-2333 spec.")
-        .arg(
-            Arg::with_name(FIRST_INDEX_FLAG)
-                .long(FIRST_INDEX_FLAG)
-                .value_name("FIRST_INDEX")
-                .help("The first of consecutive key indexes you wish to recover.")
-                .takes_value(true)
-                .required(false)
-                .default_value("0"),
-        )
-        .arg(
-            Arg::with_name(COUNT_FLAG)
-                .long(COUNT_FLAG)
-                .value_name("COUNT")
-                .help("The number of validator keys you wish to recover. Counted consecutively from the provided `--first_index`.")
-                .takes_value(true)
-                .required(false)
-                .default_value("1"),
-        )
-        .arg(
-            Arg::with_name(MNEMONIC_FLAG)
-                .long(MNEMONIC_FLAG)
-                .value_name("MNEMONIC_PATH")
-                .help(
-                    "If present, the mnemonic will be read in from this file.",
-                )
-                .takes_value(true)
-        )
-        .arg(
-            Arg::with_name(SECRETS_DIR_FLAG)
-                .long(SECRETS_DIR_FLAG)
-                .value_name("SECRETS_DIR")
-                .help(
-                    "The path where the validator keystore passwords will be stored. \
-                    Defaults to ~/.lighthouse/{network}/secrets",
-                )
-                .takes_value(true),
-        )
-        .arg(
-            Arg::with_name(STORE_WITHDRAW_FLAG)
-                .long(STORE_WITHDRAW_FLAG)
-                .help(
-                    "If present, the withdrawal keystore will be stored alongside the voting \
-                    keypair. It is generally recommended to *not* store the withdrawal key and \
-                    instead generate them from the wallet seed when required.",
-                ),
-        )
-        .arg(
-            Arg::with_name(STDIN_INPUTS_FLAG)
-                .takes_value(false)
-                .hidden(cfg!(windows))
-                .long(STDIN_INPUTS_FLAG)
-                .help("If present, read all user inputs from stdin instead of tty."),
-        )
-}
-
-pub fn cli_run(matches: &ArgMatches, validator_dir: PathBuf) -> Result<(), String> {
-    let secrets_dir = if matches.value_of("datadir").is_some() {
-        let path: PathBuf = clap_utils::parse_required(matches, "datadir")?;
-        path.join(DEFAULT_SECRET_DIR)
+pub fn cli_run(recover_config: &Recover, global_config: &GlobalConfig, validator_dir: PathBuf) -> Result<(), String> {
+    let secrets_dir = if let Some(datadir) = global_config.datadir.as_ref() {
+        datadir.join(DEFAULT_SECRET_DIR)
     } else {
-        parse_path_or_default_with_flag(matches, SECRETS_DIR_FLAG, DEFAULT_SECRET_DIR)?
+        parse_path_or_default_with_flag(recover_config.secrets_dir.clone(), global_config, DEFAULT_SECRET_DIR)?
     };
-    let first_index: u32 = clap_utils::parse_required(matches, FIRST_INDEX_FLAG)?;
-    let count: u32 = clap_utils::parse_required(matches, COUNT_FLAG)?;
-    let mnemonic_path: Option<PathBuf> = clap_utils::parse_optional(matches, MNEMONIC_FLAG)?;
-    let stdin_inputs = cfg!(windows) || matches.is_present(STDIN_INPUTS_FLAG);
+    let first_index: u32 = recover_config.first_index;
+    let count: u32 = recover_config.count;
+    let mnemonic_path: Option<PathBuf> = recover_config.mnemonic.clone();
+    let stdin_inputs = cfg!(windows) || recover_config.stdin_inputs;
 
     eprintln!("secrets-dir path: {:?}", secrets_dir);
 
@@ -132,7 +72,7 @@ pub fn cli_run(matches: &ArgMatches, validator_dir: PathBuf) -> Result<(), Strin
             .password_dir(secrets_dir.clone())
             .voting_keystore(keystores.voting, voting_password.as_bytes())
             .withdrawal_keystore(keystores.withdrawal, withdrawal_password.as_bytes())
-            .store_withdrawal_keystore(matches.is_present(STORE_WITHDRAW_FLAG))
+            .store_withdrawal_keystore(recover_config.store_withdraw)
             .build()
             .map_err(|e| format!("Unable to build validator directory: {:?}", e))?;
 

@@ -14,8 +14,10 @@ use slashing_protection::{SlashingDatabase, SLASHING_PROTECTION_FILENAME};
 use std::ffi::OsStr;
 use std::fs;
 use std::path::{Path, PathBuf};
+use clap_utils::GlobalConfig;
 use types::EthSpec;
 use validator_dir::Builder as ValidatorDirBuilder;
+use crate::validator::cli::Create;
 
 pub const CMD: &str = "create";
 pub const WALLET_NAME_FLAG: &str = "wallet-name";
@@ -26,126 +28,39 @@ pub const COUNT_FLAG: &str = "count";
 pub const AT_MOST_FLAG: &str = "at-most";
 pub const WALLET_PASSWORD_PROMPT: &str = "Enter your wallet's password:";
 
-pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
-    App::new(CMD)
-        .about(
-            "Creates new validators from an existing EIP-2386 wallet using the EIP-2333 HD key \
-            derivation scheme.",
-        )
-        .arg(
-            Arg::with_name(WALLET_NAME_FLAG)
-                .long(WALLET_NAME_FLAG)
-                .value_name("WALLET_NAME")
-                .help("Use the wallet identified by this name")
-                .takes_value(true),
-        )
-        .arg(
-            Arg::with_name(WALLET_PASSWORD_FLAG)
-                .long(WALLET_PASSWORD_FLAG)
-                .value_name("WALLET_PASSWORD_PATH")
-                .help("A path to a file containing the password which will unlock the wallet.")
-                .takes_value(true),
-        )
-        .arg(
-            Arg::with_name(WALLETS_DIR_FLAG)
-                .long(WALLETS_DIR_FLAG)
-                .value_name(WALLETS_DIR_FLAG)
-                .help("A path containing Eth2 EIP-2386 wallets. Defaults to ~/.lighthouse/{network}/wallets")
-                .takes_value(true)
-                .conflicts_with("datadir"),
-        )
-        .arg(
-            Arg::with_name(SECRETS_DIR_FLAG)
-                .long(SECRETS_DIR_FLAG)
-                .value_name("SECRETS_DIR")
-                .help(
-                    "The path where the validator keystore passwords will be stored. \
-                    Defaults to ~/.lighthouse/{network}/secrets",
-                )
-                .conflicts_with("datadir")
-                .takes_value(true),
-        )
-        .arg(
-            Arg::with_name(DEPOSIT_GWEI_FLAG)
-                .long(DEPOSIT_GWEI_FLAG)
-                .value_name("DEPOSIT_GWEI")
-                .help(
-                    "The GWEI value of the deposit amount. Defaults to the minimum amount \
-                    required for an active validator (MAX_EFFECTIVE_BALANCE)",
-                )
-                .takes_value(true),
-        )
-        .arg(
-            Arg::with_name(STORE_WITHDRAW_FLAG)
-                .long(STORE_WITHDRAW_FLAG)
-                .help(
-                    "If present, the withdrawal keystore will be stored alongside the voting \
-                    keypair. It is generally recommended to *not* store the withdrawal key and \
-                    instead generate them from the wallet seed when required.",
-                ),
-        )
-        .arg(
-            Arg::with_name(COUNT_FLAG)
-                .long(COUNT_FLAG)
-                .value_name("VALIDATOR_COUNT")
-                .help("The number of validators to create, regardless of how many already exist")
-                .conflicts_with("at-most")
-                .takes_value(true),
-        )
-        .arg(
-            Arg::with_name(AT_MOST_FLAG)
-                .long(AT_MOST_FLAG)
-                .value_name("AT_MOST_VALIDATORS")
-                .help(
-                    "Observe the number of validators in --validator-dir, only creating enough to \
-                    reach the given count. Never deletes an existing validator.",
-                )
-                .conflicts_with("count")
-                .takes_value(true),
-        )
-        .arg(
-            Arg::with_name(STDIN_INPUTS_FLAG)
-                .takes_value(false)
-                .hidden(cfg!(windows))
-                .long(STDIN_INPUTS_FLAG)
-                .help("If present, read all user inputs from stdin instead of tty."),
-        )
-}
-
 pub fn cli_run<T: EthSpec>(
-    matches: &ArgMatches,
+    create_config: &Create,
+    global_config: &GlobalConfig,
     mut env: Environment<T>,
     validator_dir: PathBuf,
 ) -> Result<(), String> {
     let spec = env.core_context().eth2_config.spec;
 
-    let name: Option<String> = clap_utils::parse_optional(matches, WALLET_NAME_FLAG)?;
-    let stdin_inputs = cfg!(windows) || matches.is_present(STDIN_INPUTS_FLAG);
+    let name: Option<String> = create_config.wallet_name.clone();
+    let stdin_inputs = cfg!(windows) || create_config.stdin_inputs;
 
-    let wallet_base_dir = if matches.value_of("datadir").is_some() {
-        let path: PathBuf = clap_utils::parse_required(matches, "datadir")?;
-        path.join(DEFAULT_WALLET_DIR)
+    let wallet_base_dir = if let Some(datadir) = global_config.datadir.as_ref() {
+        datadir.join(DEFAULT_WALLET_DIR)
     } else {
-        parse_path_or_default_with_flag(matches, WALLETS_DIR_FLAG, DEFAULT_WALLET_DIR)?
+        parse_path_or_default_with_flag(create_config.wallets_dir.clone(), global_config, DEFAULT_WALLET_DIR)?
     };
-    let secrets_dir = if matches.value_of("datadir").is_some() {
-        let path: PathBuf = clap_utils::parse_required(matches, "datadir")?;
-        path.join(DEFAULT_SECRET_DIR)
+    let secrets_dir = if let Some(datadir) = global_config.datadir.as_ref() {
+        datadir.join(DEFAULT_WALLET_DIR)
     } else {
-        parse_path_or_default_with_flag(matches, SECRETS_DIR_FLAG, DEFAULT_SECRET_DIR)?
+        parse_path_or_default_with_flag(create_config.secrets_dir.clone(), global_config, DEFAULT_SECRET_DIR)?
     };
 
-    let deposit_gwei = clap_utils::parse_optional(matches, DEPOSIT_GWEI_FLAG)?
+    let deposit_gwei = create_config.deposit_gwei
         .unwrap_or(spec.max_effective_balance);
-    let count: Option<usize> = clap_utils::parse_optional(matches, COUNT_FLAG)?;
-    let at_most: Option<usize> = clap_utils::parse_optional(matches, AT_MOST_FLAG)?;
+    let count: Option<usize> = create_config.count;
+    let at_most: Option<usize> = create_config.at_most;
 
     // The command will always fail if the wallet dir does not exist.
     if !wallet_base_dir.exists() {
         return Err(format!(
             "No wallet directory at {:?}. Use the `lighthouse --network {} {} {} {}` command to create a wallet",
             wallet_base_dir,
-            matches.value_of("network").unwrap_or("<NETWORK>"),
+            global_config.network.unwrap_or("<NETWORK>".to_string()),
             crate::CMD,
             crate::wallet::CMD,
             crate::wallet::create::CMD
@@ -181,8 +96,7 @@ pub fn cli_run<T: EthSpec>(
         return Ok(());
     }
 
-    let wallet_password_path: Option<PathBuf> =
-        clap_utils::parse_optional(matches, WALLET_PASSWORD_FLAG)?;
+    let wallet_password_path: Option<PathBuf> = create_config.wallet_password.clone();
 
     let wallet_name = read_wallet_name_from_cli(name, stdin_inputs)?;
     let wallet_password = read_wallet_password_from_cli(wallet_password_path, stdin_inputs)?;
@@ -246,7 +160,7 @@ pub fn cli_run<T: EthSpec>(
             .voting_keystore(keystores.voting, voting_password.as_bytes())
             .withdrawal_keystore(keystores.withdrawal, withdrawal_password.as_bytes())
             .create_eth1_tx_data(deposit_gwei, &spec)
-            .store_withdrawal_keystore(matches.is_present(STORE_WITHDRAW_FLAG))
+            .store_withdrawal_keystore(create_config.store_withdraw)
             .build()
             .map_err(|e| format!("Unable to build validator directory: {:?}", e))?;
 

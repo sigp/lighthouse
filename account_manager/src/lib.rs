@@ -10,6 +10,7 @@ use environment::Environment;
 use lazy_static::lazy_static;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
+use clap_utils::GlobalConfig;
 use types::EthSpec;
 
 pub const CMD: &str = "account_manager";
@@ -26,17 +27,10 @@ pub enum AccountManager {
 }
 
 /// Run the account manager, returning an error if the operation did not succeed.
-pub fn run<T: EthSpec>(matches: &ArgMatches<'_>, env: Environment<T>) -> Result<(), String> {
-    match matches.subcommand() {
-        (wallet::CMD, Some(matches)) => wallet::cli_run(matches)?,
-        (validator::CMD, Some(matches)) => validator::cli_run(matches, env)?,
-        (unknown, _) => {
-            return Err(format!(
-                "{} is not a valid {} command. See --help.",
-                unknown, CMD
-            ));
+pub fn run<T: EthSpec>(account_manager: &AccountManager, global_config: &GlobalConfig, env: Environment<T>) -> Result<(), String> {
+    match account_manager {
+        AccountManager::Wallet(wallet) => wallet::cli_run(wallet, global_config)?,
+        AccountManager::Validator(validator) => validator::cli_run(validator, global_config, env)?,
         }
-    }
-
     Ok(())
 }

@@ -14,6 +14,7 @@ use std::net::{IpAddr, Ipv4Addr, ToSocketAddrs};
 use std::net::{TcpListener, UdpSocket};
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
+use clap_utils::GlobalConfig;
 use types::{Address, Checkpoint, Epoch, EthSpec, Hash256, PublicKeyBytes, GRAFFITI_BYTES_LEN};
 
 // TODO(merge): remove this default value. It's just there to make life easy during
@@ -776,19 +777,18 @@ pub fn set_network_config(
 }
 
 /// Gets the datadir which should be used.
-pub fn get_data_dir(cli_args: &ArgMatches) -> PathBuf {
+pub fn get_data_dir(config: &GlobalConfig) -> PathBuf {
     // Read the `--datadir` flag.
     //
     // If it's not present, try and find the home directory (`~`) and push the default data
     // directory and the testnet name onto it.
 
-    cli_args
-        .value_of("datadir")
-        .map(|path| PathBuf::from(path).join(DEFAULT_BEACON_NODE_DIR))
+    config.datadir
+        .map(|path| path.join(DEFAULT_BEACON_NODE_DIR))
         .or_else(|| {
             dirs::home_dir().map(|home| {
                 home.join(DEFAULT_ROOT_DIR)
-                    .join(directory::get_network_dir(cli_args))
+                    .join(directory::get_network_dir(config))
                     .join(DEFAULT_BEACON_NODE_DIR)
             })
         })
