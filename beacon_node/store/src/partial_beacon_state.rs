@@ -79,7 +79,7 @@ where
 
     // Inactivity
     #[superstruct(only(Altair, Merge))]
-    pub inactivity_scores: VariableList<u64, T::ValidatorRegistryLimit>,
+    pub inactivity_scores: VList<u64, T::ValidatorRegistryLimit>,
 
     // Light-client sync committees
     #[superstruct(only(Altair, Merge))]
@@ -266,17 +266,9 @@ impl<T: EthSpec> PartialBeaconState<T> {
             let current_epoch = self.slot().epoch(T::slots_per_epoch());
             let len = randao_mixes.len();
 
-            #[cfg(feature = "milhouse")]
-            {
-                use milhouse::interface::MutList;
-                randao_mixes
-                    .replace(current_epoch.as_usize() % len, *self.latest_randao_value())?;
-            }
-
-            #[cfg(not(feature = "milhouse"))]
-            {
-                randao_mixes[current_epoch.as_usize() % len] = *self.latest_randao_value();
-            }
+            *randao_mixes
+                .get_mut(current_epoch.as_usize() % len)
+                .unwrap() = *self.latest_randao_value();
 
             *self.randao_mixes_mut() = Some(randao_mixes)
         }

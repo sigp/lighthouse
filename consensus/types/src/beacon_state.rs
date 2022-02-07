@@ -47,28 +47,6 @@ mod tests;
 #[cfg(not(feature = "milhouse"))]
 mod tree_hash_cache;
 
-#[cfg(feature = "milhouse")]
-mod type_aliases {
-    use super::*;
-
-    pub type ListMut<'a, T, N> = Interface<'a, T, List<T, N>>;
-    pub type VectMut<'a, T, N> = Interface<'a, T, FixedVector<T, N>>;
-    pub type ValidatorsMut<'a, N> = ListMut<'a, Validator, N>;
-    pub type BalancesMut<'a, N> = ListMut<'a, u64, N>;
-}
-
-#[cfg(not(feature = "milhouse"))]
-mod type_aliases {
-    use super::*;
-
-    pub type ListMut<'a, T, N> = &'a mut VList<T, N>;
-    pub type VectMut<'a, T, N> = &'a mut FixedVector<T, N>;
-    pub type ValidatorsMut<'a, N> = &'a mut VList<Validator, N>;
-    pub type BalancesMut<'a, N> = ListMut<'a, u64, N>;
-}
-
-pub use type_aliases::*;
-
 pub const CACHED_EPOCHS: usize = 3;
 const MAX_RANDOM_BYTE: u64 = (1 << 8) - 1;
 
@@ -248,10 +226,8 @@ where
 
     // History
     pub latest_block_header: BeaconBlockHeader,
-    #[superstruct(getter(rename = "block_roots_raw"))]
     #[test_random(default)]
     pub block_roots: FixedVector<Hash256, T::SlotsPerHistoricalRoot>,
-    #[superstruct(getter(rename = "state_roots_raw"))]
     #[test_random(default)]
     pub state_roots: FixedVector<Hash256, T::SlotsPerHistoricalRoot>,
     #[test_random(default)]
@@ -266,22 +242,18 @@ where
     pub eth1_deposit_index: u64,
 
     // Registry
-    #[superstruct(getter(rename = "validators_raw"))]
     #[test_random(default)]
     pub validators: VList<Validator, T::ValidatorRegistryLimit>,
     // FIXME(sproul): serde quoting
     // #[serde(with = "ssz_types::serde_utils::quoted_u64_var_list")]
-    #[superstruct(getter(rename = "balances_raw"))]
     #[test_random(default)]
     pub balances: VList<u64, T::ValidatorRegistryLimit>,
 
     // Randomness
-    #[superstruct(getter(rename = "randao_mixes_raw"))]
     #[test_random(default)]
     pub randao_mixes: FixedVector<Hash256, T::EpochsPerHistoricalVector>,
 
     // Slashings
-    #[superstruct(getter(rename = "slashings_raw"))]
     #[test_random(default)]
     // FIXME(sproul): serde quoting
     // #[serde(with = "ssz_types::serde_utils::quoted_u64_fixed_vec")]
@@ -312,9 +284,11 @@ where
     pub finalized_checkpoint: Checkpoint,
 
     // Inactivity
-    #[serde(with = "ssz_types::serde_utils::quoted_u64_var_list")]
+    // FIXME(sproul): quoting
+    // #[serde(with = "ssz_types::serde_utils::quoted_u64_var_list")]
     #[superstruct(only(Altair, Merge))]
-    pub inactivity_scores: VariableList<u64, T::ValidatorRegistryLimit>,
+    #[test_random(default)]
+    pub inactivity_scores: VList<u64, T::ValidatorRegistryLimit>,
 
     // Light-client sync committees
     #[superstruct(only(Altair, Merge))]
@@ -990,7 +964,7 @@ impl<T: EthSpec> BeaconState<T> {
 
     /// Fill `randao_mixes` with
     pub fn fill_randao_mixes_with(&mut self, index_root: Hash256) {
-        *self.randao_mixes_raw_mut() = FixedVector::from_elem(index_root);
+        *self.randao_mixes_mut() = FixedVector::from_elem(index_root);
     }
 
     /// Safely obtains the index for `randao_mixes`
@@ -1139,116 +1113,25 @@ impl<T: EthSpec> BeaconState<T> {
         Ok(())
     }
 
-    pub fn validators(&self) -> &VList<Validator, T::ValidatorRegistryLimit> {
-        self.validators_raw()
-    }
-
-    pub fn validators_mut(&mut self) -> ValidatorsMut<T::ValidatorRegistryLimit> {
-        #[cfg(not(feature = "milhouse"))]
-        {
-            self.validators_raw_mut()
-        }
-        #[cfg(feature = "milhouse")]
-        {
-            self.validators_raw_mut().as_mut()
-        }
-    }
-
-    pub fn balances(&self) -> &VList<u64, T::ValidatorRegistryLimit> {
-        self.balances_raw()
-    }
-
-    pub fn balances_mut(&mut self) -> BalancesMut<T::ValidatorRegistryLimit> {
-        #[cfg(not(feature = "milhouse"))]
-        {
-            self.balances_raw_mut()
-        }
-        #[cfg(feature = "milhouse")]
-        {
-            self.balances_raw_mut().as_mut()
-        }
-    }
-
     /// Convenience accessor for validators and balances simultaneously.
     pub fn validators_and_balances_mut(
         &mut self,
     ) -> (
-        ValidatorsMut<T::ValidatorRegistryLimit>,
-        BalancesMut<T::ValidatorRegistryLimit>,
+        &mut VList<Validator, T::ValidatorRegistryLimit>,
+        &mut VList<u64, T::ValidatorRegistryLimit>,
     ) {
-        #[cfg(not(feature = "milhouse"))]
         match self {
             BeaconState::Base(state) => (&mut state.validators, &mut state.balances),
             BeaconState::Altair(state) => (&mut state.validators, &mut state.balances),
             BeaconState::Merge(state) => (&mut state.validators, &mut state.balances),
         }
-
-        #[cfg(feature = "milhouse")]
-        match self {
-            BeaconState::Base(state) => (state.validators.as_mut(), state.balances.as_mut()),
-            BeaconState::Altair(state) => (state.validators.as_mut(), state.balances.as_mut()),
-            BeaconState::Merge(state) => (state.validators.as_mut(), state.balances.as_mut()),
-        }
     }
 
-    pub fn block_roots(&self) -> &FixedVector<Hash256, T::SlotsPerHistoricalRoot> {
-        self.block_roots_raw()
-    }
-
-    pub fn block_roots_mut(&mut self) -> VectMut<Hash256, T::SlotsPerHistoricalRoot> {
-        #[cfg(not(feature = "milhouse"))]
-        {
-            self.block_roots_raw_mut()
-        }
-        #[cfg(feature = "milhouse")]
-        {
-            self.block_roots_raw_mut().as_mut()
-        }
-    }
-
-    pub fn state_roots(&self) -> &FixedVector<Hash256, T::SlotsPerHistoricalRoot> {
-        self.state_roots_raw()
-    }
-
-    pub fn state_roots_mut(&mut self) -> VectMut<Hash256, T::SlotsPerHistoricalRoot> {
-        #[cfg(not(feature = "milhouse"))]
-        {
-            self.state_roots_raw_mut()
-        }
-        #[cfg(feature = "milhouse")]
-        {
-            self.state_roots_raw_mut().as_mut()
-        }
-    }
-
-    pub fn randao_mixes(&self) -> &FixedVector<Hash256, T::EpochsPerHistoricalVector> {
-        self.randao_mixes_raw()
-    }
-
-    pub fn randao_mixes_mut(&mut self) -> VectMut<Hash256, T::EpochsPerHistoricalVector> {
-        #[cfg(not(feature = "milhouse"))]
-        {
-            self.randao_mixes_raw_mut()
-        }
-        #[cfg(feature = "milhouse")]
-        {
-            self.randao_mixes_raw_mut().as_mut()
-        }
-    }
-
-    pub fn slashings(&self) -> &FixedVector<u64, T::EpochsPerSlashingsVector> {
-        self.slashings_raw()
-    }
-
-    pub fn slashings_mut(&mut self) -> VectMut<u64, T::EpochsPerSlashingsVector> {
-        #[cfg(not(feature = "milhouse"))]
-        {
-            self.slashings_raw_mut()
-        }
-        #[cfg(feature = "milhouse")]
-        {
-            self.slashings_raw_mut().as_mut()
-        }
+    /// Get a mutable reference to the balance of a single validator.
+    pub fn get_balance_mut(&mut self, validator_index: usize) -> Result<&mut u64, Error> {
+        self.balances_mut()
+            .get_mut(validator_index)
+            .ok_or(Error::BalancesOutOfBounds(validator_index))
     }
 
     /// Generate a seed for the given `epoch`.
@@ -1293,14 +1176,22 @@ impl<T: EthSpec> BeaconState<T> {
             .ok_or(Error::UnknownValidator(validator_index))
     }
 
-    /* FIXME(sproul): lens?
     /// Safe mutator for the `validators` list.
     pub fn get_validator_mut(&mut self, validator_index: usize) -> Result<&mut Validator, Error> {
         self.validators_mut()
             .get_mut(validator_index)
             .ok_or(Error::UnknownValidator(validator_index))
     }
-    */
+
+    /// Safe copy-on-write accessor for the `validators` list.
+    pub fn get_validator_cow(
+        &mut self,
+        validator_index: usize,
+    ) -> Result<milhouse::Cow<Validator>, Error> {
+        self.validators_mut()
+            .get_cow(validator_index)
+            .ok_or(Error::UnknownValidator(validator_index))
+    }
 
     /// Return the effective balance for a validator with the given `validator_index`.
     pub fn get_effective_balance(&self, validator_index: usize) -> Result<u64, Error> {
@@ -1387,6 +1278,28 @@ impl<T: EthSpec> BeaconState<T> {
         ))
     }
 
+    pub fn compute_total_active_balance(
+        &self,
+        epoch: Epoch,
+        spec: &ChainSpec,
+    ) -> Result<u64, Error> {
+        if epoch != self.current_epoch() && epoch != self.next_epoch()? {
+            return Err(Error::EpochOutOfBounds);
+        }
+
+        let mut total_active_balance = 0;
+
+        for validator in self.validators() {
+            if validator.is_active_at(epoch) {
+                total_active_balance.safe_add_assign(validator.effective_balance)?;
+            }
+        }
+        Ok(std::cmp::max(
+            total_active_balance,
+            spec.effective_balance_increment,
+        ))
+    }
+
     /// Implementation of `get_total_active_balance`, matching the spec.
     ///
     /// Requires the total active balance cache to be initialised, which is initialised whenever
@@ -1410,16 +1323,9 @@ impl<T: EthSpec> BeaconState<T> {
     }
 
     /// Build the total active balance cache.
-    ///
-    /// This function requires the current committee cache to be already built. It is called
-    /// automatically when `build_committee_cache` is called for the current epoch.
     fn build_total_active_balance_cache(&mut self, spec: &ChainSpec) -> Result<(), Error> {
-        // Order is irrelevant, so use the cached indices.
         let current_epoch = self.current_epoch();
-        let total_active_balance = self.get_total_balance(
-            self.get_cached_active_validator_indices(RelativeEpoch::Current)?,
-            spec,
-        )?;
+        let total_active_balance = self.compute_total_active_balance(current_epoch, spec)?;
         *self.total_active_balance_mut() = Some((current_epoch, total_active_balance));
         Ok(())
     }
@@ -1578,10 +1484,9 @@ impl<T: EthSpec> BeaconState<T> {
         // not yet been advanced.
         let new_current_epoch = self.next_epoch()?;
         if curr_cache.is_initialized_at(new_current_epoch) {
-            *self.total_active_balance_mut() = Some((
-                new_current_epoch,
-                self.get_total_balance(curr_cache.active_validator_indices(), spec)?,
-            ));
+            let total_active_balance =
+                self.compute_total_active_balance(new_current_epoch, spec)?;
+            *self.total_active_balance_mut() = Some((new_current_epoch, total_active_balance));
         }
         // If the cache is not initialized, then the previous cached value for the total balance is
         // wrong, so delete it.
@@ -1671,6 +1576,38 @@ impl<T: EthSpec> BeaconState<T> {
         *self.pubkey_cache_mut() = PubkeyCache::default()
     }
 
+    /// Check if the `BeaconState` has any pending mutations.
+    pub fn has_pending_mutations(&self) -> bool {
+        // FIXME(sproul): check this more thoroughly
+        self.block_roots().has_pending_updates()
+            || self.state_roots().has_pending_updates()
+            || self.historical_roots().has_pending_updates()
+            || self.eth1_data_votes().has_pending_updates()
+            || self.validators().has_pending_updates()
+            || self.balances().has_pending_updates()
+            || self.randao_mixes().has_pending_updates()
+            || self.slashings().has_pending_updates()
+            || self
+                .inactivity_scores()
+                .map_or(false, VList::has_pending_updates)
+    }
+
+    pub fn apply_pending_mutations(&mut self) -> Result<(), Error> {
+        self.block_roots_mut().apply_updates()?;
+        self.state_roots_mut().apply_updates()?;
+        self.historical_roots_mut().apply_updates()?;
+        self.eth1_data_votes_mut().apply_updates()?;
+        self.validators_mut().apply_updates()?;
+        self.balances_mut().apply_updates()?;
+        self.randao_mixes_mut().apply_updates()?;
+        self.slashings_mut().apply_updates()?;
+
+        if let Ok(inactivity_scores) = self.inactivity_scores_mut() {
+            inactivity_scores.apply_updates()?;
+        }
+        Ok(())
+    }
+
     /// Initialize but don't fill the tree hash cache, if it isn't already initialized.
     pub fn initialize_tree_hash_cache(&mut self) {
         #[cfg(not(feature = "milhouse"))]
@@ -1700,7 +1637,10 @@ impl<T: EthSpec> BeaconState<T> {
             }
         }
         #[cfg(feature = "milhouse")]
-        Ok(self.tree_hash_root())
+        {
+            self.apply_pending_mutations()?;
+            Ok(self.tree_hash_root())
+        }
     }
 
     /// Compute the tree hash root of the validators using the tree hash cache.
@@ -1724,7 +1664,10 @@ impl<T: EthSpec> BeaconState<T> {
             }
         }
         #[cfg(feature = "milhouse")]
-        Ok(self.validators().tree_hash_root())
+        {
+            self.validators_mut().apply_updates()?;
+            Ok(self.validators().tree_hash_root())
+        }
     }
 
     /// Completely drops the tree hash cache, replacing it with a new, empty cache.

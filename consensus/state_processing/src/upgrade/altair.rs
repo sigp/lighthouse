@@ -51,7 +51,7 @@ pub fn upgrade_to_altair<E: EthSpec>(
 
     let default_epoch_participation =
         VariableList::new(vec![ParticipationFlags::default(); pre.validators.len()])?;
-    let inactivity_scores = VariableList::new(vec![0; pre.validators.len()])?;
+    let inactivity_scores = VList::new(vec![0; pre.validators.len()])?;
 
     let temp_sync_committee = Arc::new(SyncCommittee::temporary()?);
 

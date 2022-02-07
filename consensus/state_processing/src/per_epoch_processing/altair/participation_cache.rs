@@ -19,6 +19,7 @@ use types::{
         TIMELY_TARGET_FLAG_INDEX,
     },
     BeaconState, BeaconStateError, ChainSpec, Epoch, EthSpec, ParticipationFlags, RelativeEpoch,
+    Validator,
 };
 
 #[derive(Debug, PartialEq)]
@@ -120,12 +121,10 @@ impl SingleEpochParticipationCache {
     fn process_active_validator<T: EthSpec>(
         &mut self,
         val_index: usize,
+        validator: &Validator,
         state: &BeaconState<T>,
         relative_epoch: RelativeEpoch,
     ) -> Result<(), BeaconStateError> {
-        let val_balance = state.get_effective_balance(val_index)?;
-        let validator = state.get_validator(val_index)?;
-
         // Sanity check to ensure the validator is active.
         let epoch = relative_epoch.into_epoch(state.current_epoch());
         if !validator.is_active_at(epoch) {
@@ -141,7 +140,8 @@ impl SingleEpochParticipationCache {
         .ok_or(BeaconStateError::ParticipationOutOfBounds(val_index))?;
 
         // All active validators increase the total active balance.
-        self.total_active_balance.safe_add_assign(val_balance)?;
+        self.total_active_balance
+            .safe_add_assign(validator.effective_balance)?;
 
         // Only unslashed validators may proceed.
         if validator.slashed {
@@ -156,7 +156,7 @@ impl SingleEpochParticipationCache {
         // are set for `val_index`.
         for (flag, balance) in self.total_flag_balances.iter_mut().enumerate() {
             if epoch_participation.has_flag(flag)? {
-                balance.safe_add_assign(val_balance)?;
+                balance.safe_add_assign(validator.effective_balance)?;
             }
         }
 
@@ -223,6 +223,7 @@ impl ParticipationCache {
             if val.is_active_at(current_epoch) {
                 current_epoch_participation.process_active_validator(
                     val_index,
+                    val,
                     state,
                     RelativeEpoch::Current,
                 )?;
@@ -231,6 +232,7 @@ impl ParticipationCache {
             if val.is_active_at(previous_epoch) {
                 previous_epoch_participation.process_active_validator(
                     val_index,
+                    val,
                     state,
                     RelativeEpoch::Previous,
                 )?;

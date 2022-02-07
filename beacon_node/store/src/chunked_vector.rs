@@ -21,9 +21,6 @@ use tree_hash::TreeHash;
 use typenum::Unsigned;
 use types::VList;
 
-#[cfg(feature = "milhouse")]
-use types::milhouse::ImmList;
-
 /// Description of how a `BeaconState` field is updated during state processing.
 ///
 /// When storing a state, this allows us to efficiently store only those entries
@@ -301,7 +298,7 @@ field!(
     T::SlotsPerHistoricalRoot,
     DBColumn::BeaconBlockRoots,
     |_| OncePerNSlots { n: 1 },
-    |state: &BeaconState<_>, index, _| safe_modulo_index(state.block_roots(), index)
+    |state: &BeaconState<_>, index, _| safe_modulo_index_vect(state.block_roots(), index)
 );
 
 field!(
@@ -311,7 +308,7 @@ field!(
     T::SlotsPerHistoricalRoot,
     DBColumn::BeaconStateRoots,
     |_| OncePerNSlots { n: 1 },
-    |state: &BeaconState<_>, index, _| safe_modulo_index(state.state_roots(), index)
+    |state: &BeaconState<_>, index, _| safe_modulo_index_vect(state.state_roots(), index)
 );
 
 field!(
@@ -323,7 +320,7 @@ field!(
     |_| OncePerNSlots {
         n: T::SlotsPerHistoricalRoot::to_u64()
     },
-    |state: &BeaconState<_>, index, _| safe_modulo_index(state.historical_roots(), index)
+    |state: &BeaconState<_>, index, _| safe_modulo_index_list(state.historical_roots(), index)
 );
 
 field!(
@@ -333,7 +330,7 @@ field!(
     T::EpochsPerHistoricalVector,
     DBColumn::BeaconRandaoMixes,
     |_| OncePerEpoch { lag: 1 },
-    |state: &BeaconState<_>, index, _| safe_modulo_index(state.randao_mixes(), index)
+    |state: &BeaconState<_>, index, _| safe_modulo_index_vect(state.randao_mixes(), index)
 );
 
 pub fn store_updated_vector<F: Field<E>, E: EthSpec, S: KeyValueStore<E>>(
@@ -572,7 +569,25 @@ fn safe_modulo_index<T: Copy>(values: &[T], index: u64) -> Result<T, ChunkError>
 }
 
 #[cfg(feature = "milhouse")]
-fn safe_modulo_index<V: ImmList<T>, T: Copy>(values: &V, index: u64) -> Result<T, ChunkError> {
+fn safe_modulo_index_list<T: TreeHash + Copy, N: Unsigned>(
+    values: &VList<T, N>,
+    index: u64,
+) -> Result<T, ChunkError> {
+    if values.is_empty() {
+        Err(ChunkError::ZeroLengthVector)
+    } else {
+        values
+            .get(index as usize % values.len())
+            .copied()
+            .ok_or(ChunkError::OutOfBounds)
+    }
+}
+
+#[cfg(feature = "milhouse")]
+fn safe_modulo_index_vect<T: TreeHash + Copy, N: Unsigned>(
+    values: &FixedVector<T, N>,
+    index: u64,
+) -> Result<T, ChunkError> {
     if values.is_empty() {
         Err(ChunkError::ZeroLengthVector)
     } else {

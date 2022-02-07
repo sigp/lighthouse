@@ -42,7 +42,7 @@ pub fn run<T: EthSpec>(testnet_dir: PathBuf, matches: &ArgMatches) -> Result<(),
 
     let mut deposit_tree = DepositDataTree::create(&[], 0, DEPOSIT_TREE_DEPTH);
     let mut deposit_root = Hash256::zero();
-    let mut validators = state.validators_mut();
+    let validators = state.validators_mut();
     for index in 0..validators.len() {
         let (secret, _) =
             recover_validator_secret_from_mnemonic(seed.as_bytes(), index as u32, KeyType::Voting)

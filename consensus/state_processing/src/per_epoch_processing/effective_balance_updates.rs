@@ -2,7 +2,7 @@ use super::errors::EpochProcessingError;
 use safe_arith::SafeArith;
 use types::beacon_state::BeaconState;
 use types::chain_spec::ChainSpec;
-use types::{BeaconStateError, EthSpec, GetValidatorMut};
+use types::{BeaconStateError, EthSpec};
 
 pub fn process_effective_balance_updates<T: EthSpec>(
     state: &mut BeaconState<T>,
@@ -13,9 +13,9 @@ pub fn process_effective_balance_updates<T: EthSpec>(
         .safe_div(spec.hysteresis_quotient)?;
     let downward_threshold = hysteresis_increment.safe_mul(spec.hysteresis_downward_multiplier)?;
     let upward_threshold = hysteresis_increment.safe_mul(spec.hysteresis_upward_multiplier)?;
-    let (mut validators, balances) = state.validators_and_balances_mut();
-    for index in 0..validators.len() {
-        let validator = validators.get_validator_mut(index)?;
+    let (validators, balances) = state.validators_and_balances_mut();
+    let mut validators_iter = validators.iter_cow();
+    while let Some((index, validator)) = validators_iter.next_cow() {
         let balance = balances
             .get(index)
             .copied()
@@ -24,7 +24,7 @@ pub fn process_effective_balance_updates<T: EthSpec>(
         if balance.safe_add(downward_threshold)? < validator.effective_balance
             || validator.effective_balance.safe_add(upward_threshold)? < balance
         {
-            validator.effective_balance = std::cmp::min(
+            validator.to_mut().effective_balance = std::cmp::min(
                 balance.safe_sub(balance.safe_rem(spec.effective_balance_increment)?)?,
                 spec.max_effective_balance,
             );

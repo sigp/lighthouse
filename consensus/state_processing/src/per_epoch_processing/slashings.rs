@@ -1,6 +1,6 @@
 use crate::per_epoch_processing::Error;
 use safe_arith::{SafeArith, SafeArithIter};
-use types::{BeaconState, ChainSpec, EthSpec, GetBalanceMut, GetValidatorMut, Unsigned};
+use types::{BeaconState, BeaconStateError, ChainSpec, EthSpec, Unsigned};
 
 /// Process slashings.
 pub fn process_slashings<T: EthSpec>(
@@ -16,9 +16,9 @@ pub fn process_slashings<T: EthSpec>(
         total_balance,
     );
 
-    let (validators, mut balances) = state.validators_and_balances_mut();
-    for index in 0..validators.len() {
-        let validator = validators.get_validator(index)?;
+    let (validators, balances) = state.validators_and_balances_mut();
+    let mut validators_iter = validators.iter_cow();
+    while let Some((index, validator)) = validators_iter.next_cow() {
         if validator.slashed
             && epoch.safe_add(T::EpochsPerSlashingsVector::to_u64().safe_div(2)?)?
                 == validator.withdrawable_epoch
@@ -33,7 +33,9 @@ pub fn process_slashings<T: EthSpec>(
                 .safe_mul(increment)?;
 
             // Equivalent to `decrease_balance(state, index, penalty)`, but avoids borrowing `state`.
-            let balance = balances.get_balance_mut(index)?;
+            let balance = balances
+                .get_mut(index)
+                .ok_or(BeaconStateError::BalancesOutOfBounds(index))?;
             *balance = balance.saturating_sub(penalty);
         }
     }

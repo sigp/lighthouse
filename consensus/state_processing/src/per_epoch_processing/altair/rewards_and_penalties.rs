@@ -69,6 +69,7 @@ pub fn get_flag_index_deltas<T: EthSpec>(
     let active_increments = total_active_balance.safe_div(spec.effective_balance_increment)?;
 
     for &index in participation_cache.eligible_validator_indices() {
+        // FIXME(sproul): compute base reward in participation cache
         let base_reward = get_base_reward(state, index, total_active_balance, spec)?;
         let mut delta = Delta::default();
 
