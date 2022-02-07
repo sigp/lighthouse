@@ -161,7 +161,7 @@ impl<TSpec: EthSpec> NetworkBehaviour for PeerManager<TSpec> {
                 self.events
                     .push(PeerManagerEvent::PeerConnectedIncoming(*peer_id));
             }
-            ConnectedPoint::Dialer { address } => {
+            ConnectedPoint::Dialer { address, .. } => {
                 self.inject_connect_outgoing(peer_id, address.clone(), None);
                 self.events
                     .push(PeerManagerEvent::PeerConnectedOutgoing(*peer_id));
