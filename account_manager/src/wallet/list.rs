@@ -1,5 +1,4 @@
 use crate::WALLETS_DIR_FLAG;
-use clap::App;
 use eth2_wallet_manager::WalletManager;
 use std::path::PathBuf;
 

@@ -1,10 +1,10 @@
 use crate::common::read_wallet_name_from_cli;
-use crate::wallet::create::STDIN_INPUTS_FLAG;
-use crate::{SECRETS_DIR_FLAG, WALLETS_DIR_FLAG};
+use crate::validator::cli::Create;
+use crate::WALLETS_DIR_FLAG;
 use account_utils::{
     random_password, read_password_from_user, strip_off_newlines, validator_definitions, PlainText,
 };
-use clap::{App, Arg, ArgMatches};
+use clap_utils::GlobalConfig;
 use directory::{
     ensure_dir_exists, parse_path_or_default_with_flag, DEFAULT_SECRET_DIR, DEFAULT_WALLET_DIR,
 };
@@ -14,10 +14,8 @@ use slashing_protection::{SlashingDatabase, SLASHING_PROTECTION_FILENAME};
 use std::ffi::OsStr;
 use std::fs;
 use std::path::{Path, PathBuf};
-use clap_utils::GlobalConfig;
 use types::EthSpec;
 use validator_dir::Builder as ValidatorDirBuilder;
-use crate::validator::cli::Create;
 
 pub const CMD: &str = "create";
 pub const WALLET_NAME_FLAG: &str = "wallet-name";
@@ -42,15 +40,24 @@ pub fn cli_run<T: EthSpec>(
     let wallet_base_dir = if let Some(datadir) = global_config.datadir.as_ref() {
         datadir.join(DEFAULT_WALLET_DIR)
     } else {
-        parse_path_or_default_with_flag(create_config.wallets_dir.clone(), global_config, DEFAULT_WALLET_DIR)?
+        parse_path_or_default_with_flag(
+            create_config.wallets_dir.clone(),
+            global_config,
+            DEFAULT_WALLET_DIR,
+        )?
     };
     let secrets_dir = if let Some(datadir) = global_config.datadir.as_ref() {
         datadir.join(DEFAULT_WALLET_DIR)
     } else {
-        parse_path_or_default_with_flag(create_config.secrets_dir.clone(), global_config, DEFAULT_SECRET_DIR)?
+        parse_path_or_default_with_flag(
+            create_config.secrets_dir.clone(),
+            global_config,
+            DEFAULT_SECRET_DIR,
+        )?
     };
 
-    let deposit_gwei = create_config.deposit_gwei
+    let deposit_gwei = create_config
+        .deposit_gwei
         .unwrap_or(spec.max_effective_balance);
     let count: Option<usize> = create_config.count;
     let at_most: Option<usize> = create_config.at_most;

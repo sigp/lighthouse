@@ -3,6 +3,7 @@
 mod cli;
 mod metrics;
 
+use crate::cli::{Lighthouse, LighthouseSubcommand};
 use beacon_node::ProductionBeaconNode;
 use clap::{App, Arg, ArgMatches};
 use clap_utils::{flags::DISABLE_MALLOC_TUNING_FLAG, get_eth2_network_config, GlobalConfig};
@@ -20,7 +21,6 @@ use std::process::exit;
 use task_executor::ShutdownReason;
 use types::{EthSpec, EthSpecId};
 use validator_client::ProductionValidatorClient;
-use crate::cli::{Lighthouse, LighthouseSubcommand};
 
 fn bls_library_name() -> &'static str {
     if cfg!(feature = "portable") {
@@ -40,7 +40,7 @@ fn main() {
         std::env::set_var("RUST_BACKTRACE", "1");
     }
 
-    let lighthouse : Lighthouse = Lighthouse::parse();
+    let lighthouse: Lighthouse = Lighthouse::parse();
 
     // Configure the allocator early in the process, before it has the chance to use the default values for
     // anything important.
@@ -63,44 +63,60 @@ fn main() {
         Builder::from_env(Env::default()).init();
     }
 
-    let result = lighthouse.get_eth2_network_config().and_then(|eth2_network_config| {
-        let eth_spec_id = eth2_network_config.eth_spec_id()?;
+    let result = lighthouse
+        .get_eth2_network_config()
+        .and_then(|eth2_network_config| {
+            let eth_spec_id = eth2_network_config.eth_spec_id()?;
 
-        let global_config = lighthouse.into();
+            let global_config = lighthouse.into();
 
-        match lighthouse.subcommand.as_ref() {
-            // Boot node subcommand circumvents the environment.
-            LighthouseSubcommand::BootNode( boot_node ) => {
+            match lighthouse.subcommand.as_ref() {
+                // Boot node subcommand circumvents the environment.
+                LighthouseSubcommand::BootNode(boot_node) => {
+                    boot_node::run(
+                        &global_config,
+                        &boot_node,
+                        eth_spec_id,
+                        &eth2_network_config,
+                    );
 
-                boot_node::run(
-                    &global_config,
-                    &boot_node,
-                    eth_spec_id,
-                    &eth2_network_config,
-                );
-
-                return Ok(());
-            },
-            _ => {
-                match eth_spec_id {
-                    EthSpecId::Mainnet => run(EnvironmentBuilder::mainnet(), &lighthouse, &global_config, eth2_network_config),
+                    return Ok(());
+                }
+                _ => match eth_spec_id {
+                    EthSpecId::Mainnet => run(
+                        EnvironmentBuilder::mainnet(),
+                        &lighthouse,
+                        &global_config,
+                        eth2_network_config,
+                    ),
                     #[cfg(feature = "gnosis")]
-                    EthSpecId::Gnosis => run(EnvironmentBuilder::gnosis(), &lighthouse,  &global_config, eth2_network_config),
+                    EthSpecId::Gnosis => run(
+                        EnvironmentBuilder::gnosis(),
+                        &lighthouse,
+                        &global_config,
+                        eth2_network_config,
+                    ),
                     #[cfg(feature = "spec-minimal")]
-                    EthSpecId::Minimal => run(EnvironmentBuilder::minimal(), &lighthouse,  &global_config, eth2_network_config),
+                    EthSpecId::Minimal => run(
+                        EnvironmentBuilder::minimal(),
+                        &lighthouse,
+                        &global_config,
+                        eth2_network_config,
+                    ),
                     #[cfg(not(all(feature = "spec-minimal", feature = "gnosis")))]
                     other => {
                         eprintln!(
                             "Eth spec `{}` is not supported by this build of Lighthouse",
                             other
                         );
-                        eprintln!("You must compile with a feature flag to enable this spec variant");
+                        eprintln!(
+                            "You must compile with a feature flag to enable this spec variant"
+                        );
                         exit(1);
                     }
-                }
+                },
             }
-        }
-    });
+        });
 
     // `std::process::exit` does not run destructors so we drop manually.
     drop(matches);
@@ -241,8 +257,7 @@ fn run<E: EthSpec>(
             let executor = context.executor.clone();
             let config = beacon_node::get_config::<E>(matches, &context)?;
             let shutdown_flag = lighthouse.immediate_shutdown;
-            if let Some(dump_path) = lighthouse.dump_config.as_ref()
-            {
+            if let Some(dump_path) = lighthouse.dump_config.as_ref() {
                 let mut file = File::create(dump_path)
                     .map_err(|e| format!("Failed to create dumped config: {:?}", e))?;
                 serde_json::to_writer(&mut file, &config)
@@ -274,8 +289,7 @@ fn run<E: EthSpec>(
             let config = validator_client::Config::from_cli(matches, context.log())
                 .map_err(|e| format!("Unable to initialize validator config: {}", e))?;
             let shutdown_flag = lighthouse.immediate_shutdown;
-            if let Some(dump_path) = lighthouse.dump_config.as_ref()
-            {
+            if let Some(dump_path) = lighthouse.dump_config.as_ref() {
                 let mut file = File::create(dump_path)
                     .map_err(|e| format!("Failed to create dumped config: {:?}", e))?;
                 serde_json::to_writer(&mut file, &config)

@@ -1,16 +1,15 @@
-use std::ffi::OsStr;
-use clap::{ArgEnum, Args, Subcommand};
+use crate::common::read_wallet_name_from_cli;
+use crate::wallet::create::HD_TYPE;
+use crate::wallet::create::{read_new_wallet_password_from_cli, validate_mnemonic_length};
+use crate::WALLETS_DIR_FLAG;
+use account_utils::{random_password, PlainText};
 pub use clap::{IntoApp, Parser};
-use serde::{Deserialize, Serialize};
-use std::path::{Path, PathBuf};
-use account_utils::{PlainText, random_password};
 use eth2_wallet::bip39::Mnemonic;
 use eth2_wallet_manager::{LockedWallet, WalletManager, WalletType};
 use filesystem::create_with_600_perms;
-use crate::common::read_wallet_name_from_cli;
-use crate::wallet::create::{read_new_wallet_password_from_cli, TYPE_FLAG, validate_mnemonic_length};
-use crate::WALLETS_DIR_FLAG;
-use crate::wallet::create::HD_TYPE;
+use serde::{Deserialize, Serialize};
+use std::ffi::OsStr;
+use std::path::{Path, PathBuf};
 
 #[derive(Parser, Clone, Deserialize, Serialize, Debug)]
 #[clap(about = "Manage wallets, from which validator keys can be derived.")]
@@ -40,7 +39,7 @@ pub struct Create {
         long,
         value_name = "WALLET_NAME",
         help = "The wallet will be created with this name. It is not allowed to \
-                            create two wallets with the same name for the same --base-dir.",
+                            create two wallets with the same name for the same --base-dir."
     )]
     pub name: Option<String>,
     #[clap(
@@ -49,7 +48,7 @@ pub struct Create {
         help = "A path to a file containing the password which will unlock the wallet. \
                     If the file does not exist, a random password will be generated and \
                     saved at that path. To avoid confusion, if the file does not already \
-                    exist it must include a '.pass' suffix.",
+                    exist it must include a '.pass' suffix."
     )]
     pub password: Option<PathBuf>,
     #[clap(
@@ -66,7 +65,7 @@ pub struct Create {
     #[clap(
         long,
         value_name = "MNEMONIC_PATH",
-        help = "If present, the mnemonic will be saved to this file. DO NOT SHARE THE MNEMONIC.",
+        help = "If present, the mnemonic will be saved to this file. DO NOT SHARE THE MNEMONIC."
     )]
     pub mnemonic: Option<PathBuf>,
     #[clap(
@@ -93,7 +92,7 @@ pub struct Recover {
         long,
         value_name = "WALLET_NAME",
         help = "The wallet will be created with this name. It is not allowed to \
-                            create two wallets with the same name for the same --base-dir.",
+                            create two wallets with the same name for the same --base-dir."
     )]
     pub name: Option<String>,
     #[clap(
@@ -103,13 +102,13 @@ pub struct Recover {
                     A path to a file containing the password which will unlock the wallet. \
                     If the file does not exist, a random password will be generated and \
                     saved at that path. To avoid confusion, if the file does not already \
-                    exist it must include a '.pass' suffix.",
+                    exist it must include a '.pass' suffix."
     )]
     pub password: Option<PathBuf>,
     #[clap(
         long,
         value_name = "MNEMONIC_PATH",
-        help = "If present, the mnemonic will be read in from this file.",
+        help = "If present, the mnemonic will be read in from this file."
     )]
     pub mnemonic: Option<PathBuf>,
     #[clap(                long,
@@ -181,7 +180,7 @@ pub trait NewWallet {
     }
 }
 
-impl NewWallet for  Create {
+impl NewWallet for Create {
     fn get_name(&self) -> Option<String> {
         self.name.clone()
     }
@@ -196,7 +195,7 @@ impl NewWallet for  Create {
     }
 }
 
-impl NewWallet for  Recover {
+impl NewWallet for Recover {
     fn get_name(&self) -> Option<String> {
         self.name.clone()
     }

@@ -2,10 +2,10 @@
 use clap::ArgMatches;
 use slog::{o, Drain, Level, Logger};
 
+use clap_utils::GlobalConfig;
 use eth2_network_config::Eth2NetworkConfig;
 use std::fs::File;
 use std::path::PathBuf;
-use clap_utils::GlobalConfig;
 
 mod cli;
 pub mod config;
@@ -88,7 +88,7 @@ fn main<T: EthSpec>(
     let config: BootNodeConfig<T> = BootNodeConfig::new(boot_node, eth2_network_config)?;
 
     // Dump config if `dump-config` flag is set
-    if let Some(dump_path) =  global_config.dump_config.as_ref() {
+    if let Some(dump_path) = global_config.dump_config.as_ref() {
         let config_sz = BootNodeConfigSerialization::from_config_ref(&config);
         let mut file = File::create(dump_path)
             .map_err(|e| format!("Failed to create dumped config: {:?}", e))?;

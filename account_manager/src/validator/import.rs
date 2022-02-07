@@ -1,4 +1,4 @@
-use crate::wallet::create::{PASSWORD_FLAG, STDIN_INPUTS_FLAG};
+use crate::validator::cli::Import;
 use account_utils::validator_definitions::SigningDefinition;
 use account_utils::{
     eth2_keystore::Keystore,
@@ -9,13 +9,11 @@ use account_utils::{
     },
     ZeroizeString,
 };
-use clap::{App, Arg, ArgMatches};
 use slashing_protection::{SlashingDatabase, SLASHING_PROTECTION_FILENAME};
 use std::fs;
 use std::path::PathBuf;
 use std::thread::sleep;
 use std::time::Duration;
-use crate::validator::cli::Import;
 
 pub const CMD: &str = "import";
 pub const KEYSTORE_FLAG: &str = "keystore";
@@ -30,7 +28,7 @@ pub fn cli_run(import_config: &Import, validator_dir: PathBuf) -> Result<(), Str
     let keystore: Option<PathBuf> = import_config.keystore.clone();
     let keystores_dir: Option<PathBuf> = import_config.dir.clone();
     let stdin_inputs = cfg!(windows) || import_config.stdin_inputs;
-    let reuse_password =import_config.reuse_password;
+    let reuse_password = import_config.reuse_password;
     let keystore_password_path: Option<PathBuf> = import_config.password.clone();
 
     let mut defs = ValidatorDefinitions::open_or_create(&validator_dir)

@@ -2,14 +2,10 @@ mod common;
 pub mod validator;
 pub mod wallet;
 
-use clap::App;
-use clap::ArgMatches;
-use clap::{ArgEnum, Args, Subcommand};
 pub use clap::{IntoApp, Parser};
+use clap_utils::GlobalConfig;
 use environment::Environment;
 use serde::{Deserialize, Serialize};
-use std::path::PathBuf;
-use clap_utils::GlobalConfig;
 use types::EthSpec;
 
 pub const CMD: &str = "account_manager";
@@ -26,10 +22,14 @@ pub enum AccountManager {
 }
 
 /// Run the account manager, returning an error if the operation did not succeed.
-pub fn run<T: EthSpec>(account_manager: &AccountManager, global_config: &GlobalConfig, env: Environment<T>) -> Result<(), String> {
+pub fn run<T: EthSpec>(
+    account_manager: &AccountManager,
+    global_config: &GlobalConfig,
+    env: Environment<T>,
+) -> Result<(), String> {
     match account_manager {
         AccountManager::Wallet(wallet) => wallet::cli_run(wallet, global_config)?,
         AccountManager::Validator(validator) => validator::cli_run(validator, global_config, env)?,
-        }
+    }
     Ok(())
 }

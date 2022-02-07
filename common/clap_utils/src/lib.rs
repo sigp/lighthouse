@@ -39,12 +39,12 @@ pub fn parse_path_with_default_in_home_dir(
 ) -> Result<PathBuf, String> {
     if let Some(config_path) = config_path {
         Ok(config_path)
-    }else {
-            dirs::home_dir()
-                .map(|home| home.join(default))
-                //TODO: not sure how to make this error specific
-                .ok_or_else(|| "Unable to locate home directory".to_string())
-        }
+    } else {
+        dirs::home_dir()
+            .map(|home| home.join(default))
+            //TODO: not sure how to make this error specific
+            .ok_or_else(|| "Unable to locate home directory".to_string())
+    }
 }
 
 /// Returns the value of `name` or an error if it is not in `matches` or does not parse

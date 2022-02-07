@@ -1,5 +1,6 @@
 use clap::ArgMatches;
 use clap_utils::flags::DISABLE_MALLOC_TUNING_FLAG;
+use clap_utils::GlobalConfig;
 use client::{ClientConfig, ClientGenesis};
 use directory::{DEFAULT_BEACON_NODE_DIR, DEFAULT_NETWORK_DIR, DEFAULT_ROOT_DIR};
 use environment::RuntimeContext;
@@ -14,7 +15,6 @@ use std::net::{IpAddr, Ipv4Addr, ToSocketAddrs};
 use std::net::{TcpListener, UdpSocket};
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
-use clap_utils::GlobalConfig;
 use types::{Address, Checkpoint, Epoch, EthSpec, Hash256, PublicKeyBytes, GRAFFITI_BYTES_LEN};
 
 // TODO(merge): remove this default value. It's just there to make life easy during
@@ -783,7 +783,8 @@ pub fn get_data_dir(config: &GlobalConfig) -> PathBuf {
     // If it's not present, try and find the home directory (`~`) and push the default data
     // directory and the testnet name onto it.
 
-    config.datadir
+    config
+        .datadir
         .map(|path| path.join(DEFAULT_BEACON_NODE_DIR))
         .or_else(|| {
             dirs::home_dir().map(|home| {

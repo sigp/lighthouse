@@ -1,10 +1,10 @@
-use clap::{ArgEnum, Args, Subcommand};
+use crate::validator::exit::DEFAULT_BEACON_NODE;
+use crate::WALLETS_DIR_FLAG;
+use bls::PublicKey;
+use clap::Subcommand;
 pub use clap::{IntoApp, Parser};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
-use bls::PublicKey;
-use crate::validator::exit::DEFAULT_BEACON_NODE;
-use crate::WALLETS_DIR_FLAG;
 
 #[derive(Parser, Clone, Deserialize, Serialize, Debug)]
 #[clap(about = "Provides commands for managing Eth2 validators.")]
@@ -45,13 +45,13 @@ pub struct Create {
     #[clap(
         long,
         value_name = "WALLET_NAME",
-        help = "Use the wallet identified by this name",
+        help = "Use the wallet identified by this name"
     )]
     pub wallet_name: Option<String>,
     #[clap(
         long,
         value_name = "WALLET_PASSWORD_PATH",
-        help = "A path to a file containing the password which will unlock the wallet.",
+        help = "A path to a file containing the password which will unlock the wallet."
     )]
     pub wallet_password: Option<PathBuf>,
     #[clap(                long,
@@ -64,14 +64,14 @@ pub struct Create {
         value_name = "SECRETS_DIR",
         help = "The path where the validator keystore passwords will be stored. \
                     Defaults to ~/.lighthouse/{network}/secrets",
-        conflicts_with = "datadir",
+        conflicts_with = "datadir"
     )]
     pub secrets_dir: Option<PathBuf>,
     #[clap(
         long,
         value_name = "DEPOSIT_GWEI",
         help = "The GWEI value of the deposit amount. Defaults to the minimum amount \
-                    required for an active validator (MAX_EFFECTIVE_BALANCE)",
+                    required for an active validator (MAX_EFFECTIVE_BALANCE)"
     )]
     pub deposit_gwei: Option<u64>,
     #[clap(
@@ -85,7 +85,7 @@ pub struct Create {
         long,
         value_name = "VALIDATOR_COUNT",
         help = "The number of validators to create, regardless of how many already exist",
-        conflicts_with = "at-most",
+        conflicts_with = "at-most"
     )]
     pub count: Option<usize>,
     #[clap(
@@ -93,7 +93,7 @@ pub struct Create {
         value_name = "AT_MOST_VALIDATORS",
         help = "Observe the number of validators in --validator-dir, only creating enough to \
                     reach the given count. Never deletes an existing validator.",
-        conflicts_with = "count",
+        conflicts_with = "count"
     )]
     pub at_most: Option<usize>,
     #[clap(
@@ -316,7 +316,7 @@ pub struct Exit {
     #[clap(
         long,
         value_name = "KEYSTORE_PATH",
-        help = "The path to the EIP-2335 voting keystore for the validator",
+        help = "The path to the EIP-2335 voting keystore for the validator"
     )]
     pub keystore: PathBuf,
     #[clap(

@@ -1,19 +1,14 @@
-use crate::common::read_wallet_name_from_cli;
-use crate::WALLETS_DIR_FLAG;
+use crate::wallet::cli::{Create, NewWallet};
 use account_utils::{
-    is_password_sufficiently_complex, random_password, read_password_from_user, strip_off_newlines,
+    is_password_sufficiently_complex, read_password_from_user, strip_off_newlines,
 };
-use clap::{App, Arg, ArgMatches};
 use eth2_wallet::{
     bip39::{Language, Mnemonic, MnemonicType},
     PlainText,
 };
-use eth2_wallet_manager::{LockedWallet, WalletManager, WalletType};
 use filesystem::create_with_600_perms;
-use std::ffi::OsStr;
 use std::fs;
-use std::path::{Path, PathBuf};
-use crate::wallet::cli::{Create, NewWallet};
+use std::path::PathBuf;
 
 pub const CMD: &str = "create";
 pub const HD_TYPE: &str = "hd";
@@ -75,11 +70,22 @@ pub fn cli_run(create: &Create, wallet_base_dir: PathBuf) -> Result<(), String> 
     Ok(())
 }
 
-pub fn validate_mnemonic_length(len: &str) -> Result<(), String>{
-match len.parse::<usize>().ok().and_then(|words| MnemonicType::for_word_count(words).ok()) {
-Some(_) => Ok(()),
-None => Err(format!("Mnemonic length must be one of {}", MNEMONIC_TYPES.iter().map(|t| t.word_count().to_string()).collect::<Vec<_>>().join(", "))),
-}
+pub fn validate_mnemonic_length(len: &str) -> Result<(), String> {
+    match len
+        .parse::<usize>()
+        .ok()
+        .and_then(|words| MnemonicType::for_word_count(words).ok())
+    {
+        Some(_) => Ok(()),
+        None => Err(format!(
+            "Mnemonic length must be one of {}",
+            MNEMONIC_TYPES
+                .iter()
+                .map(|t| t.word_count().to_string())
+                .collect::<Vec<_>>()
+                .join(", ")
+        )),
+    }
 }
 
 /// Used when a user is creating a new wallet. Read in a wallet password from a file if the password file

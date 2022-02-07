@@ -1,6 +1,5 @@
-use crate::wallet::create::STDIN_INPUTS_FLAG;
+use crate::validator::cli::Exit;
 use bls::{Keypair, PublicKey};
-use clap::{App, Arg, ArgMatches};
 use environment::Environment;
 use eth2::{
     types::{GenesisData, StateId, ValidatorData, ValidatorId, ValidatorStatus},
@@ -15,7 +14,6 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 use tokio::time::sleep;
 use types::{ChainSpec, Epoch, EthSpec, Fork, VoluntaryExit};
-use crate::validator::cli::Exit;
 
 pub const CMD: &str = "exit";
 pub const KEYSTORE_FLAG: &str = "keystore";

@@ -1,5 +1,4 @@
 use account_utils::validator_definitions::ValidatorDefinitions;
-use clap::App;
 use std::path::PathBuf;
 
 pub const CMD: &str = "list";

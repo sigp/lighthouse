@@ -1,9 +1,6 @@
 use crate::common::read_mnemonic_from_cli;
-use crate::wallet::create::{STDIN_INPUTS_FLAG};
-use crate::wallet::create::{HD_TYPE, NAME_FLAG, PASSWORD_FLAG, TYPE_FLAG};
-use clap::{App, Arg, ArgMatches};
-use std::path::PathBuf;
 use crate::wallet::cli::{NewWallet, Recover};
+use std::path::PathBuf;
 
 pub const CMD: &str = "recover";
 pub const MNEMONIC_FLAG: &str = "mnemonic-path";
@@ -18,7 +15,8 @@ pub fn cli_run(config: &Recover, wallet_base_dir: PathBuf) -> Result<(), String>
 
     let mnemonic = read_mnemonic_from_cli(mnemonic_path, stdin_inputs)?;
 
-    let wallet = config.create_wallet_from_mnemonic(wallet_base_dir.as_path(), &mnemonic)
+    let wallet = config
+        .create_wallet_from_mnemonic(wallet_base_dir.as_path(), &mnemonic)
         .map_err(|e| format!("Unable to create wallet: {:?}", e))?;
 
     println!("Your wallet has been successfully recovered.");

@@ -1,4 +1,4 @@
-use clap::{App, Arg, ArgMatches};
+use crate::validator::cli::SlashingProtection;
 use environment::Environment;
 use slashing_protection::{
     interchange::Interchange, InterchangeError, InterchangeImportOutcome, SlashingDatabase,
@@ -8,7 +8,6 @@ use std::fs::File;
 use std::path::PathBuf;
 use std::str::FromStr;
 use types::{BeaconState, Epoch, EthSpec, PublicKeyBytes, Slot};
-use crate::validator::cli::SlashingProtection;
 
 pub const CMD: &str = "slashing-protection";
 pub const IMPORT_CMD: &str = "import";
@@ -160,9 +159,7 @@ pub fn cli_run<T: EthSpec>(
             let export_filename: PathBuf = export_config.export_file.clone();
             let minify: bool = export_config.minify.unwrap_or(false);
 
-            let selected_pubkeys = if let Some(pubkeys) =
-                export_config.pubkeys.clone()
-            {
+            let selected_pubkeys = if let Some(pubkeys) = export_config.pubkeys.clone() {
                 let pubkeys = pubkeys
                     .split(',')
                     .map(PublicKeyBytes::from_str)

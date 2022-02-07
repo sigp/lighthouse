@@ -4,13 +4,13 @@ use crate::{
 };
 use eth2_wallet::{bip39::Mnemonic, Error as WalletError, Uuid, Wallet, WalletBuilder};
 use lockfile::LockfileError;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::ffi::OsString;
 use std::fs::{create_dir_all, read_dir, OpenOptions};
 use std::io;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
-use serde::{Serialize, Deserialize};
 #[derive(Debug)]
 pub enum Error {
     DirectoryDoesNotExist(PathBuf),
@@ -63,10 +63,10 @@ pub enum WalletType {
 
 impl FromStr for WalletType {
     type Err = String;
-    fn from_str(s: &str) -> Result<Self, Self::Err>{
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
             "hd" => Ok(WalletType::Hd),
-            _ => Err("Not supported".to_string())
+            _ => Err("Not supported".to_string()),
         }
     }
 }

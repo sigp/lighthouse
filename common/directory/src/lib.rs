@@ -1,8 +1,8 @@
 use clap::ArgMatches;
+use clap_utils::GlobalConfig;
 pub use eth2_network_config::DEFAULT_HARDCODED_NETWORK;
 use std::fs::{self, create_dir_all};
 use std::path::{Path, PathBuf};
-use clap_utils::GlobalConfig;
 
 /// Names for the default directories.
 pub const DEFAULT_ROOT_DIR: &str = ".lighthouse";
@@ -44,7 +44,10 @@ pub fn ensure_dir_exists<P: AsRef<Path>>(path: P) -> Result<(), String> {
 /// If `arg` is in `matches`, parses the value as a path.
 ///
 /// Otherwise, attempts to find the default directory for the `testnet` from the `matches`.
-pub fn parse_path_or_default(config_path: Option<PathBuf>, global_config: &GlobalConfig) -> Result<PathBuf, String> {
+pub fn parse_path_or_default(
+    config_path: Option<PathBuf>,
+    global_config: &GlobalConfig,
+) -> Result<PathBuf, String> {
     clap_utils::parse_path_with_default_in_home_dir(
         config_path,
         PathBuf::new()
@@ -59,7 +62,7 @@ pub fn parse_path_or_default(config_path: Option<PathBuf>, global_config: &Globa
 /// and appends `flag` to it.
 pub fn parse_path_or_default_with_flag(
     config_path: Option<PathBuf>,
-     global_config: &GlobalConfig,
+    global_config: &GlobalConfig,
     flag: &str,
 ) -> Result<PathBuf, String> {
     clap_utils::parse_path_with_default_in_home_dir(

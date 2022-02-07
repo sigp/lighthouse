@@ -1,13 +1,13 @@
+use bls::Hash256;
 use clap::{ArgEnum, Args, Subcommand};
 pub use clap::{IntoApp, Parser};
+use clap_utils::GlobalConfig;
 use eth2_hashing::have_sha_extensions;
-use eth2_network_config::{DEFAULT_HARDCODED_NETWORK, Eth2NetworkConfig, HARDCODED_NET_NAMES};
+use eth2_network_config::{Eth2NetworkConfig, DEFAULT_HARDCODED_NETWORK, HARDCODED_NET_NAMES};
 use lazy_static::lazy_static;
 use lighthouse_version::VERSION;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
-use bls::Hash256;
-use clap_utils::GlobalConfig;
 use types::{Epoch, Uint256};
 
 // These have to live at least as long as the `Lighthouse` app.
@@ -224,12 +224,10 @@ pub struct Lighthouse {
     pub subcommand: LighthouseSubcommand,
 }
 
-
 pub const BAD_TESTNET_DIR_MESSAGE: &str = "The hard-coded testnet directory was invalid. \
                                         This happens when Lighthouse is migrating between spec versions \
                                         or when there is no default public network to connect to. \
                                         During these times you must specify a --testnet-dir.";
-
 
 impl Lighthouse {
     /// Returns true if the provided command was to start a beacon node.
@@ -257,8 +255,7 @@ impl Lighthouse {
         let mut eth2_network_config =
             optional_network_config.ok_or_else(|| BAD_TESTNET_DIR_MESSAGE.to_string())?;
 
-        if let Some(terminal_total_difficulty) = self.terminal_total_difficulty_override
-        {
+        if let Some(terminal_total_difficulty) = self.terminal_total_difficulty_override {
             //TODO: do we need to accept deserializing from commas?
             eth2_network_config.config.terminal_total_difficulty = terminal_total_difficulty;
         }
@@ -267,7 +264,7 @@ impl Lighthouse {
             eth2_network_config.config.terminal_block_hash = hash;
         }
 
-        if let Some(epoch) = self.terminal_block_hash_epoch_override{
+        if let Some(epoch) = self.terminal_block_hash_epoch_override {
             eth2_network_config
                 .config
                 .terminal_block_hash_activation_epoch = epoch;

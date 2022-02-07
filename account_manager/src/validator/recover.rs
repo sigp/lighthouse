@@ -1,29 +1,32 @@
-use super::create::STORE_WITHDRAW_FLAG;
 use crate::common::read_mnemonic_from_cli;
-use crate::validator::create::COUNT_FLAG;
-use crate::wallet::create::STDIN_INPUTS_FLAG;
-use crate::SECRETS_DIR_FLAG;
+use crate::validator::cli::Recover;
 use account_utils::eth2_keystore::{keypair_from_secret, Keystore, KeystoreBuilder};
 use account_utils::random_password;
-use clap::{App, Arg, ArgMatches};
+use clap_utils::GlobalConfig;
 use directory::ensure_dir_exists;
 use directory::{parse_path_or_default_with_flag, DEFAULT_SECRET_DIR};
 use eth2_wallet::bip39::Seed;
 use eth2_wallet::{recover_validator_secret_from_mnemonic, KeyType, ValidatorKeystores};
 use std::path::PathBuf;
-use clap_utils::GlobalConfig;
 use validator_dir::Builder as ValidatorDirBuilder;
-use crate::validator::cli::Recover;
 
 pub const CMD: &str = "recover";
 pub const FIRST_INDEX_FLAG: &str = "first-index";
 pub const MNEMONIC_FLAG: &str = "mnemonic-path";
 
-pub fn cli_run(recover_config: &Recover, global_config: &GlobalConfig, validator_dir: PathBuf) -> Result<(), String> {
+pub fn cli_run(
+    recover_config: &Recover,
+    global_config: &GlobalConfig,
+    validator_dir: PathBuf,
+) -> Result<(), String> {
     let secrets_dir = if let Some(datadir) = global_config.datadir.as_ref() {
         datadir.join(DEFAULT_SECRET_DIR)
     } else {
-        parse_path_or_default_with_flag(recover_config.secrets_dir.clone(), global_config, DEFAULT_SECRET_DIR)?
+        parse_path_or_default_with_flag(
+            recover_config.secrets_dir.clone(),
+            global_config,
+            DEFAULT_SECRET_DIR,
+        )?
     };
     let first_index: u32 = recover_config.first_index;
     let count: u32 = recover_config.count;
