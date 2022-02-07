@@ -20,6 +20,7 @@ use slasher::Slasher;
 use slog::{info, warn};
 use std::ops::{Deref, DerefMut};
 use std::sync::Arc;
+use clap_utils::GlobalConfig;
 use types::EthSpec;
 
 /// A type-alias to the tighten the definition of a production-intended `Client`.
@@ -44,9 +45,10 @@ impl<E: EthSpec> ProductionBeaconNode<E> {
     /// configurations hosted remotely.
     pub async fn new_from_cli(
         context: RuntimeContext<E>,
-        matches: ArgMatches<'static>,
+        beacon_config: &BeaconNode,
+        global_config: &GlobalConfig,
     ) -> Result<Self, String> {
-        let client_config = get_config::<E>(&matches, &context)?;
+        let client_config = get_config::<E>(beacon_config, global_config, &context)?;
         Self::new(context, client_config).await
     }
 

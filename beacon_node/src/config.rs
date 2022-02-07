@@ -16,6 +16,7 @@ use std::net::{TcpListener, UdpSocket};
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use types::{Address, Checkpoint, Epoch, EthSpec, Hash256, PublicKeyBytes, GRAFFITI_BYTES_LEN};
+use crate::BeaconNode;
 
 // TODO(merge): remove this default value. It's just there to make life easy during
 // early testnets.
@@ -30,19 +31,20 @@ const DEFAULT_SUGGESTED_FEE_RECIPIENT: [u8; 20] =
 /// may be influenced by other external services like the contents of the file system or the
 /// response of some remote server.
 pub fn get_config<E: EthSpec>(
-    cli_args: &ArgMatches,
+    beacon_config: &BeaconNode,
+    global_config: &GlobalConfig,
     context: &RuntimeContext<E>,
 ) -> Result<ClientConfig, String> {
     let spec = &context.eth2_config.spec;
     let log = context.log();
 
     let mut client_config = ClientConfig {
-        data_dir: get_data_dir(cli_args),
+        data_dir: get_data_dir(global_config),
         ..Default::default()
     };
 
     // If necessary, remove any existing database and configuration
-    if client_config.data_dir.exists() && cli_args.is_present("purge-db") {
+    if client_config.data_dir.exists() && beacon_config.purge_db {
         // Remove the chain_db.
         let chain_db = client_config.get_db_path();
         if chain_db.exists() {
@@ -73,7 +75,7 @@ pub fn get_config<E: EthSpec>(
      */
     set_network_config(
         &mut client_config.network,
-        cli_args,
+        beacon_config,
         &client_config.data_dir,
         log,
         false,
@@ -84,7 +86,7 @@ pub fn get_config<E: EthSpec>(
      * Note: the config values set here can be overwritten by other more specific cli params
      */
 
-    if cli_args.is_present("staking") {
+    if beacon_config.staking {
         client_config.http_api.enabled = true;
         client_config.sync_eth1_chain = true;
     }
@@ -93,51 +95,34 @@ pub fn get_config<E: EthSpec>(
      * Http API server
      */
 
-    if cli_args.is_present("http") {
+    if beacon_config.http {
         client_config.http_api.enabled = true;
     }
 
-    if let Some(address) = cli_args.value_of("http-address") {
-        client_config.http_api.listen_addr = address
-            .parse::<Ipv4Addr>()
-            .map_err(|_| "http-address is not a valid IPv4 address.")?;
-    }
+        client_config.http_api.listen_addr = beacon_config.http_address;
 
-    if let Some(port) = cli_args.value_of("http-port") {
-        client_config.http_api.listen_port = port
-            .parse::<u16>()
-            .map_err(|_| "http-port is not a valid u16.")?;
-    }
+    client_config.http_api.listen_port = beacon_config.http_port;
 
-    if let Some(allow_origin) = cli_args.value_of("http-allow-origin") {
-        // Pre-validate the config value to give feedback to the user on node startup, instead of
-        // as late as when the first API response is produced.
-        hyper::header::HeaderValue::from_str(allow_origin)
+    if let Some(allow_origin) = beacon_config.http_allow_origin.as_ref() {
+        hyper::header::HeaderValue::from_str(allow_origin.as_str())
             .map_err(|_| "Invalid allow-origin value")?;
-
         client_config.http_api.allow_origin = Some(allow_origin.to_string());
     }
 
-    if cli_args.is_present("http-disable-legacy-spec") {
+    if beacon_config.http_disable_legacy_spec {
         client_config.http_api.serve_legacy_spec = false;
     }
 
-    if cli_args.is_present("http-enable-tls") {
+    if beacon_config.http_enable_tls {
         client_config.http_api.tls_config = Some(TlsConfig {
-            cert: cli_args
-                .value_of("http-tls-cert")
-                .ok_or("--http-tls-cert was not provided.")?
-                .parse::<PathBuf>()
-                .map_err(|_| "http-tls-cert is not a valid path name.")?,
-            key: cli_args
-                .value_of("http-tls-key")
-                .ok_or("--http-tls-key was not provided.")?
-                .parse::<PathBuf>()
-                .map_err(|_| "http-tls-key is not a valid path name.")?,
+            cert: beacon_config.http_tls_cert.clone()
+                .ok_or("--http-tls-cert was not provided.")?,
+            key: beacon_config.http_tls_key.clone()
+                .ok_or("--http-tls-key was not provided.")?,
         });
     }
 
-    if cli_args.is_present("http-allow-sync-stalled") {
+    if beacon_config.http_allow_sync_stalled {
         client_config.http_api.allow_sync_stalled = true;
     }
 
@@ -145,23 +130,15 @@ pub fn get_config<E: EthSpec>(
      * Prometheus metrics HTTP server
      */
 
-    if cli_args.is_present("metrics") {
+    if beacon_config.metrics {
         client_config.http_metrics.enabled = true;
     }
 
-    if let Some(address) = cli_args.value_of("metrics-address") {
-        client_config.http_metrics.listen_addr = address
-            .parse::<Ipv4Addr>()
-            .map_err(|_| "metrics-address is not a valid IPv4 address.")?;
-    }
+    client_config.http_metrics.listen_addr = beacon_config.metrics_address;
 
-    if let Some(port) = cli_args.value_of("metrics-port") {
-        client_config.http_metrics.listen_port = port
-            .parse::<u16>()
-            .map_err(|_| "metrics-port is not a valid u16.")?;
-    }
+    client_config.http_metrics.listen_port = beacon_config.metrics_port;
 
-    if let Some(allow_origin) = cli_args.value_of("metrics-allow-origin") {
+    if let Some(allow_origin) = beacon_config.metrics_allow_origin.as_ref() {
         // Pre-validate the config value to give feedback to the user on node startup, instead of
         // as late as when the first API response is produced.
         hyper::header::HeaderValue::from_str(allow_origin)
@@ -173,7 +150,7 @@ pub fn get_config<E: EthSpec>(
     /*
      * Explorer metrics
      */
-    if let Some(monitoring_endpoint) = cli_args.value_of("monitoring-endpoint") {
+    if let Some(monitoring_endpoint) = beacon_config.monitoring_endpoint.as_ref(){
         client_config.monitoring_api = Some(monitoring_api::Config {
             db_path: None,
             freezer_db_path: None,
@@ -183,7 +160,7 @@ pub fn get_config<E: EthSpec>(
 
     // Log a warning indicating an open HTTP server if it wasn't specified explicitly
     // (e.g. using the --staking flag).
-    if cli_args.is_present("staking") {
+    if beacon_config.staking {
         warn!(
             log,
             "Running HTTP server on port {}", client_config.http_api.listen_port
@@ -191,7 +168,7 @@ pub fn get_config<E: EthSpec>(
     }
 
     // Do not scrape for malloc metrics if we've disabled tuning malloc as it may cause panics.
-    if cli_args.is_present(DISABLE_MALLOC_TUNING_FLAG) {
+    if global_config.disable_malloc_tuning {
         client_config.http_metrics.allocator_metrics_enabled = false;
     }
 
@@ -202,19 +179,19 @@ pub fn get_config<E: EthSpec>(
     // When present, use an eth1 backend that generates deterministic junk.
     //
     // Useful for running testnets without the overhead of a deposit contract.
-    if cli_args.is_present("dummy-eth1") {
+    if beacon_config.dummy_eth1 {
         client_config.dummy_eth1_backend = true;
     }
 
     // When present, attempt to sync to an eth1 node.
     //
     // Required for block production.
-    if cli_args.is_present("eth1") {
+    if beacon_config.eth1 {
         client_config.sync_eth1_chain = true;
     }
 
     // Defines the URL to reach the eth1 node.
-    if let Some(endpoint) = cli_args.value_of("eth1-endpoint") {
+    if let Some(endpoint) = beacon_config.eth1_endpoint.as_ref() {
         warn!(
             log,
             "The --eth1-endpoint flag is deprecated";
@@ -223,7 +200,7 @@ pub fn get_config<E: EthSpec>(
         client_config.sync_eth1_chain = true;
         client_config.eth1.endpoints = vec![SensitiveUrl::parse(endpoint)
             .map_err(|e| format!("eth1-endpoint was an invalid URL: {:?}", e))?];
-    } else if let Some(endpoints) = cli_args.value_of("eth1-endpoints") {
+    } else if let Some(endpoints) = beacon_config.eth1_endpoints.as_ref() {
         client_config.sync_eth1_chain = true;
         client_config.eth1.endpoints = endpoints
             .split(',')
@@ -232,17 +209,13 @@ pub fn get_config<E: EthSpec>(
             .map_err(|e| format!("eth1-endpoints contains an invalid URL {:?}", e))?;
     }
 
-    if let Some(val) = cli_args.value_of("eth1-blocks-per-log-query") {
-        client_config.eth1.blocks_per_log_query = val
-            .parse()
-            .map_err(|_| "eth1-blocks-per-log-query is not a valid integer".to_string())?;
-    }
+    client_config.eth1.blocks_per_log_query = beacon_config.eth1_blocks_per_log_query;
 
-    if cli_args.is_present("eth1-purge-cache") {
+    if beacon_config.eth1_purge_cache {
         client_config.eth1.purge_cache = true;
     }
 
-    if let Some(endpoints) = cli_args.value_of("execution-endpoints") {
+    if let Some(endpoints) = beacon_config.execution_endpoints.as_ref() {
         client_config.sync_eth1_chain = true;
         client_config.execution_endpoints = endpoints
             .split(',')
@@ -250,25 +223,21 @@ pub fn get_config<E: EthSpec>(
             .collect::<Result<_, _>>()
             .map(Some)
             .map_err(|e| format!("execution-endpoints contains an invalid URL {:?}", e))?;
-    } else if cli_args.is_present("merge") {
+    } else if beacon_config.merge {
         client_config.execution_endpoints = Some(client_config.eth1.endpoints.clone());
     }
 
     client_config.suggested_fee_recipient = Some(
-        clap_utils::parse_optional(cli_args, "fee-recipient")?
+        beacon_config.fee_recipient
             // TODO(merge): remove this default value. It's just there to make life easy during
             // early testnets.
             .unwrap_or_else(|| Address::from(DEFAULT_SUGGESTED_FEE_RECIPIENT)),
     );
 
-    if let Some(freezer_dir) = cli_args.value_of("freezer-dir") {
-        client_config.freezer_db_path = Some(PathBuf::from(freezer_dir));
-    }
+        client_config.freezer_db_path = beacon_config.freezer_dir.clone();
 
-    if let Some(slots_per_restore_point) = cli_args.value_of("slots-per-restore-point") {
-        client_config.store.slots_per_restore_point = slots_per_restore_point
-            .parse()
-            .map_err(|_| "slots-per-restore-point is not a valid integer".to_string())?;
+    if let Some(slots_per_restore_point) = beacon_config.slots_per_restore_point {
+        client_config.store.slots_per_restore_point = slots_per_restore_point;
     } else {
         client_config.store.slots_per_restore_point = std::cmp::min(
             E::slots_per_historical_root() as u64,
@@ -276,18 +245,14 @@ pub fn get_config<E: EthSpec>(
         );
     }
 
-    if let Some(block_cache_size) = cli_args.value_of("block-cache-size") {
-        client_config.store.block_cache_size = block_cache_size
-            .parse()
-            .map_err(|_| "block-cache-size is not a valid integer".to_string())?;
+    if let Some(block_cache_size) = beacon_config.block_cache_size {
+        client_config.store.block_cache_size = block_cache_size;
     }
 
-    client_config.store.compact_on_init = cli_args.is_present("compact-db");
-    if let Some(compact_on_prune) = cli_args.value_of("auto-compact-db") {
-        client_config.store.compact_on_prune = compact_on_prune
+    client_config.store.compact_on_init = beacon_config.compact_db;
+        client_config.store.compact_on_prune = beacon_config.auto_compact_db
             .parse()
             .map_err(|_| "auto-compact-db takes a boolean".to_string())?;
-    }
 
     /*
      * Zero-ports
@@ -298,7 +263,7 @@ pub fn get_config<E: EthSpec>(
      * from lighthouse.
      * Discovery address is set to localhost by default.
      */
-    if cli_args.is_present("zero-ports") {
+    if beacon_config.zero_ports {
         if client_config.network.enr_address == Some(IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0))) {
             client_config.network.enr_address = None
         }
@@ -352,19 +317,19 @@ pub fn get_config<E: EthSpec>(
     {
         // Set up weak subjectivity sync, or start from the hardcoded genesis state.
         if let (Some(initial_state_path), Some(initial_block_path)) = (
-            cli_args.value_of("checkpoint-state"),
-            cli_args.value_of("checkpoint-block"),
+            beacon_config.checkpoint_state.as_ref(),
+            beacon_config.checkpoint_block.as_ref(),
         ) {
-            let read = |path: &str| {
+            let read = |path: &PathBuf| {
                 use std::fs::File;
                 use std::io::Read;
-                File::open(Path::new(path))
+                File::open(path)
                     .and_then(|mut f| {
                         let mut buffer = vec![];
                         f.read_to_end(&mut buffer)?;
                         Ok(buffer)
                     })
-                    .map_err(|e| format!("Unable to open {}: {:?}", path, e))
+                    .map_err(|e| format!("Unable to open {:?}: {:?}", path, e))
             };
 
             let anchor_state_bytes = read(initial_state_path)?;
@@ -375,7 +340,7 @@ pub fn get_config<E: EthSpec>(
                 anchor_state_bytes,
                 anchor_block_bytes,
             }
-        } else if let Some(remote_bn_url) = cli_args.value_of("checkpoint-sync-url") {
+        } else if let Some(remote_bn_url) = beacon_config.checkpoint_sync_url.as_ref() {
             let url = SensitiveUrl::parse(remote_bn_url)
                 .map_err(|e| format!("Invalid checkpoint sync URL: {:?}", e))?;
 
@@ -392,7 +357,7 @@ pub fn get_config<E: EthSpec>(
             }
         }
     } else {
-        if cli_args.is_present("checkpoint-state") || cli_args.is_present("checkpoint-sync-url") {
+        if beacon_config.checkpoint_state.is_some() || beacon_config.checkpoint_sync_url.is_some() {
             return Err(
                 "Checkpoint sync is not available for this network as no genesis state is known"
                     .to_string(),
@@ -401,11 +366,11 @@ pub fn get_config<E: EthSpec>(
         ClientGenesis::DepositContract
     };
 
-    if cli_args.is_present("reconstruct-historic-states") {
+    if beacon_config.reconstruct_historic_state {
         client_config.chain.reconstruct_historic_states = true;
     }
 
-    let raw_graffiti = if let Some(graffiti) = cli_args.value_of("graffiti") {
+    let raw_graffiti = if let Some(graffiti) = beacon_config.graffiti.as_ref() {
         if graffiti.len() > GRAFFITI_BYTES_LEN {
             return Err(format!(
                 "Your graffiti is too long! {} bytes maximum!",
@@ -414,7 +379,7 @@ pub fn get_config<E: EthSpec>(
         }
 
         graffiti.as_bytes()
-    } else if cli_args.is_present("private") {
+    } else if beacon_config.private {
         b""
     } else {
         lighthouse_version::VERSION.as_bytes()
@@ -424,7 +389,7 @@ pub fn get_config<E: EthSpec>(
     client_config.graffiti.0[..trimmed_graffiti_len]
         .copy_from_slice(&raw_graffiti[..trimmed_graffiti_len]);
 
-    if let Some(wss_checkpoint) = cli_args.value_of("wss-checkpoint") {
+    if let Some(wss_checkpoint) = beacon_config.wss_checkpoint.as_ref() {
         let mut split = wss_checkpoint.split(':');
         let root_str = split
             .next()
@@ -459,8 +424,8 @@ pub fn get_config<E: EthSpec>(
         client_config.chain.weak_subjectivity_checkpoint = Some(Checkpoint { epoch, root })
     }
 
-    if let Some(max_skip_slots) = cli_args.value_of("max-skip-slots") {
-        client_config.chain.import_max_skip_slots = match max_skip_slots {
+    if let Some(max_skip_slots) = beacon_config.max_skip_slots.as_ref() {
+        client_config.chain.import_max_skip_slots = match max_skip_slots.as_ref() {
             "none" => None,
             n => Some(
                 n.parse()
@@ -472,8 +437,8 @@ pub fn get_config<E: EthSpec>(
     client_config.chain.max_network_size =
         lighthouse_network::gossip_max_size(spec.bellatrix_fork_epoch.is_some());
 
-    if cli_args.is_present("slasher") {
-        let slasher_dir = if let Some(slasher_dir) = cli_args.value_of("slasher-dir") {
+    if beacon_config.slasher {
+        let slasher_dir = if let Some(slasher_dir) = beacon_config.slasher_dir.as_ref() {
             PathBuf::from(slasher_dir)
         } else {
             client_config.data_dir.join("slasher_db")
@@ -481,14 +446,12 @@ pub fn get_config<E: EthSpec>(
 
         let mut slasher_config = slasher::Config::new(slasher_dir);
 
-        if let Some(update_period) = clap_utils::parse_optional(cli_args, "slasher-update-period")?
+        if let Some(update_period) = beacon_config.slasher_update_period
         {
             slasher_config.update_period = update_period;
         }
 
-        if let Some(slot_offset) =
-            clap_utils::parse_optional::<f64>(cli_args, "slasher-slot-offset")?
-        {
+        if let Some(slot_offset) = beacon_config.slasher_slot_offset {
             if slot_offset.is_finite() {
                 slasher_config.slot_offset = slot_offset;
             } else {
@@ -500,43 +463,40 @@ pub fn get_config<E: EthSpec>(
         }
 
         if let Some(history_length) =
-            clap_utils::parse_optional(cli_args, "slasher-history-length")?
+            beacon_config.slasher_history_length
         {
             slasher_config.history_length = history_length;
         }
 
-        if let Some(max_db_size_gbs) =
-            clap_utils::parse_optional::<usize>(cli_args, "slasher-max-db-size")?
+        if let Some(max_db_size_gbs) = beacon_config.slasher_max_db_size
         {
             slasher_config.max_db_size_mbs = max_db_size_gbs * 1024;
         }
 
         if let Some(attestation_cache_size) =
-            clap_utils::parse_optional(cli_args, "slasher-att-cache-size")?
+            beacon_config.slasher_att_cache_size
         {
             slasher_config.attestation_root_cache_size = attestation_cache_size;
         }
 
-        if let Some(chunk_size) = clap_utils::parse_optional(cli_args, "slasher-chunk-size")? {
+        if let Some(chunk_size) = beacon_config.slasher_chunk_size {
             slasher_config.chunk_size = chunk_size;
         }
 
-        if let Some(validator_chunk_size) =
-            clap_utils::parse_optional(cli_args, "slasher-validator-chunk-size")?
-        {
+        if let Some(validator_chunk_size) = beacon_config.slasher_validator_chunk_size {
             slasher_config.validator_chunk_size = validator_chunk_size;
         }
 
-        slasher_config.broadcast = cli_args.is_present("slasher-broadcast");
+        slasher_config.broadcast = beacon_config.slasher_broadcast;
 
         client_config.slasher = Some(slasher_config);
     }
 
-    if cli_args.is_present("validator-monitor-auto") {
+    if beacon_config.validator_monitor_auto {
         client_config.validator_monitor_auto = true;
     }
 
-    if let Some(pubkeys) = cli_args.value_of("validator-monitor-pubkeys") {
+    if let Some(pubkeys) = beacon_config.validator_monitor_pubkeys.clone() {
         let pubkeys = pubkeys
             .split(',')
             .map(PublicKeyBytes::from_str)
@@ -547,7 +507,7 @@ pub fn get_config<E: EthSpec>(
             .extend_from_slice(&pubkeys);
     }
 
-    if let Some(path) = cli_args.value_of("validator-monitor-file") {
+    if let Some(path) = beacon_config.validator_monitor_file.as_ref() {
         let string = fs::read(path)
             .map_err(|e| format!("Unable to read --validator-monitor-file: {}", e))
             .and_then(|bytes| {
@@ -565,7 +525,7 @@ pub fn get_config<E: EthSpec>(
             .extend_from_slice(&pubkeys);
     }
 
-    if cli_args.is_present("disable-lock-timeouts") {
+    if beacon_config.disable_lock_timeouts {
         client_config.chain.enable_lock_timeouts = false;
     }
 
@@ -575,66 +535,44 @@ pub fn get_config<E: EthSpec>(
 /// Sets the network config from the command line arguments
 pub fn set_network_config(
     config: &mut NetworkConfig,
-    cli_args: &ArgMatches,
+    beacon_config: &BeaconNode,
     data_dir: &Path,
     log: &Logger,
     use_listening_port_as_enr_port_by_default: bool,
 ) -> Result<(), String> {
     // If a network dir has been specified, override the `datadir` definition.
-    if let Some(dir) = cli_args.value_of("network-dir") {
-        config.network_dir = PathBuf::from(dir);
+    if let Some(dir) = beacon_config.network_dir.clone() {
+        config.network_dir = dir;
     } else {
         config.network_dir = data_dir.join(DEFAULT_NETWORK_DIR);
     };
 
-    if cli_args.is_present("subscribe-all-subnets") {
+    if beacon_config.subscribe_all_subnets {
         config.subscribe_all_subnets = true;
     }
 
-    if cli_args.is_present("import-all-attestations") {
+    if beacon_config.import_all_attestations {
         config.import_all_attestations = true;
     }
 
-    if cli_args.is_present("shutdown-after-sync") {
+    if beacon_config.shutdown_after_sync {
         config.shutdown_after_sync = true;
     }
 
-    if let Some(listen_address_str) = cli_args.value_of("listen-address") {
-        let listen_address = listen_address_str
-            .parse()
-            .map_err(|_| format!("Invalid listen address: {:?}", listen_address_str))?;
-        config.listen_address = listen_address;
-    }
+    config.listen_address  = beacon_config.listen_address;
 
-    if let Some(target_peers_str) = cli_args.value_of("target-peers") {
-        config.target_peers = target_peers_str
-            .parse::<usize>()
-            .map_err(|_| format!("Invalid number of target peers: {}", target_peers_str))?;
-    }
+        config.target_peers = beacon_config.target_peers;
 
-    if let Some(port_str) = cli_args.value_of("port") {
-        let port = port_str
-            .parse::<u16>()
-            .map_err(|_| format!("Invalid port: {}", port_str))?;
-        config.libp2p_port = port;
+        config.libp2p_port = beacon_config.port;
+        config.discovery_port = beacon_config.port;
+
+    if let Some(port) = beacon_config.discovery_port {
         config.discovery_port = port;
     }
 
-    if let Some(port_str) = cli_args.value_of("discovery-port") {
-        let port = port_str
-            .parse::<u16>()
-            .map_err(|_| format!("Invalid port: {}", port_str))?;
-        config.discovery_port = port;
-    }
+        config.network_load = beacon_config.network_load;
 
-    if let Some(value) = cli_args.value_of("network-load") {
-        let network_load = value
-            .parse::<u8>()
-            .map_err(|_| format!("Invalid integer: {}", value))?;
-        config.network_load = network_load;
-    }
-
-    if let Some(boot_enr_str) = cli_args.value_of("boot-nodes") {
+    if let Some(boot_enr_str) = beacon_config.boot_nodes.clone() {
         let mut enrs: Vec<Enr> = vec![];
         let mut multiaddrs: Vec<Multiaddr> = vec![];
         for addr in boot_enr_str.split(',') {
@@ -659,7 +597,7 @@ pub fn set_network_config(
         config.boot_nodes_multiaddr = multiaddrs;
     }
 
-    if let Some(libp2p_addresses_str) = cli_args.value_of("libp2p-addresses") {
+    if let Some(libp2p_addresses_str) = beacon_config.libp2p_addresses.clone() {
         config.libp2p_nodes = libp2p_addresses_str
             .split(',')
             .map(|multiaddr| {
@@ -670,7 +608,7 @@ pub fn set_network_config(
             .collect::<Result<Vec<Multiaddr>, _>>()?;
     }
 
-    if let Some(trusted_peers_str) = cli_args.value_of("trusted-peers") {
+    if let Some(trusted_peers_str) = beacon_config.trusted_peers.clone() {
         config.trusted_peers = trusted_peers_str
             .split(',')
             .map(|peer_id| {
@@ -681,23 +619,10 @@ pub fn set_network_config(
             .collect::<Result<Vec<PeerIdSerialized>, _>>()?;
     }
 
-    if let Some(enr_udp_port_str) = cli_args.value_of("enr-udp-port") {
-        config.enr_udp_port = Some(
-            enr_udp_port_str
-                .parse::<u16>()
-                .map_err(|_| format!("Invalid discovery port: {}", enr_udp_port_str))?,
-        );
-    }
+    config.enr_udp_port = beacon_config.enr_udp_port;
+    config.enr_tcp_port = beacon_config.enr_tcp_port;
 
-    if let Some(enr_tcp_port_str) = cli_args.value_of("enr-tcp-port") {
-        config.enr_tcp_port = Some(
-            enr_tcp_port_str
-                .parse::<u16>()
-                .map_err(|_| format!("Invalid ENR TCP port: {}", enr_tcp_port_str))?,
-        );
-    }
-
-    if cli_args.is_present("enr-match") {
+    if beacon_config.enr_match {
         // set the enr address to localhost if the address is 0.0.0.0
         if config.listen_address == "0.0.0.0".parse::<IpAddr>().expect("valid ip addr") {
             config.enr_address = Some("127.0.0.1".parse::<IpAddr>().expect("valid ip addr"));
@@ -707,7 +632,7 @@ pub fn set_network_config(
         config.enr_udp_port = Some(config.discovery_port);
     }
 
-    if let Some(enr_address) = cli_args.value_of("enr-address") {
+    if let Some(enr_address) = beacon_config.enr_address.clone() {
         let resolved_addr = match enr_address.parse::<IpAddr>() {
             Ok(addr) => addr, // // Input is an IpAddr
             Err(_) => {
@@ -747,29 +672,29 @@ pub fn set_network_config(
         config.enr_address = Some(resolved_addr);
     }
 
-    if cli_args.is_present("disable-enr-auto-update") {
+    if beacon_config.disable_enr_auto_update {
         config.discv5_config.enr_update = false;
     }
 
-    if cli_args.is_present("disable-packet-filter") {
+    if beacon_config.disable_packet_filter {
         warn!(log, "Discv5 packet filter is disabled");
         config.discv5_config.enable_packet_filter = false;
     }
 
-    if cli_args.is_present("disable-discovery") {
+    if beacon_config.disable_discovery {
         config.disable_discovery = true;
         warn!(log, "Discovery is disabled. New peers will not be found");
     }
 
-    if cli_args.is_present("disable-upnp") {
+    if beacon_config.disable_upnp {
         config.upnp_enabled = false;
     }
 
-    if cli_args.is_present("private") {
+    if beacon_config.private {
         config.private = true;
     }
 
-    if cli_args.is_present("metrics") {
+    if beacon_config.metrics {
         config.metrics_enabled = true;
     }
 
@@ -784,7 +709,7 @@ pub fn get_data_dir(config: &GlobalConfig) -> PathBuf {
     // directory and the testnet name onto it.
 
     config
-        .datadir
+        .datadir.as_ref()
         .map(|path| path.join(DEFAULT_BEACON_NODE_DIR))
         .or_else(|| {
             dirs::home_dir().map(|home| {

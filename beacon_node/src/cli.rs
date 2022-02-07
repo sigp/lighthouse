@@ -1,8 +1,10 @@
+use std::net::Ipv4Addr;
 use clap::{ArgEnum, Args, Subcommand};
 pub use clap::{IntoApp, Parser};
-use lazy_static::lazy_static;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
+use hyper::header::HeaderValue;
+use types::Address;
 
 #[derive(Parser, Clone, Deserialize, Serialize, Debug)]
 #[clap(name = "beacon_node",
@@ -19,13 +21,13 @@ pub struct BeaconNode {
         help = "Data directory for network keys. Defaults to network/ inside the beacon node \
                        dir."
     )]
-    pub network_dir: Option<String>,
+    pub network_dir: Option<PathBuf>,
     #[clap(
         long,
         value_name = "DIR",
         help = "Data directory for the freezer database."
     )]
-    pub freezer_dir: Option<String>,
+    pub freezer_dir: Option<PathBuf>,
     #[clap(
         long,
         help = "Subscribe to all subnets regardless of validator count. \
@@ -63,22 +65,22 @@ pub struct BeaconNode {
         help = "The address lighthouse will listen for UDP and TCP connections.",
         default_value = "0.0.0.0"
     )]
-    pub listen_address: String,
+    pub listen_address: std::net::IpAddr,
     #[clap(
         long,
         value_name = "PORT",
         help = "The TCP/UDP port to listen on. The UDP port can be modified by the --discovery-port flag.",
         default_value = "9000"
     )]
-    pub port: String,
+    pub port: u16,
     #[clap(
         long,
         value_name = "PORT",
         help = "The UDP port that discovery will listen on. Defaults to `port`"
     )]
-    pub discovery_port: Option<String>,
+    pub discovery_port: Option<u16>,
     #[clap(long, help = "The target number of peers.", default_value = "50")]
-    target_peers: String,
+    pub target_peers: usize,
     #[clap(
         long,
         allow_hyphen_values = true,
@@ -93,7 +95,7 @@ pub struct BeaconNode {
         default_value = "3",
         hide = true
     )]
-    pub network_load: String,
+    pub network_load: u8,
     #[clap(
         long,
         help = "Disables UPnP support. Setting this will prevent Lighthouse from attempting to automatically establish external port mappings."
@@ -109,14 +111,14 @@ pub struct BeaconNode {
         value_name = "PORT",
         help = "The UDP port of the local ENR. Set this only if you are sure other nodes can connect to your local node on this port."
     )]
-    pub enr_udp_port: Option<String>,
+    pub enr_udp_port: Option<u16>,
     #[clap(
         long,
         value_name = "PORT",
         help = "The TCP port of the local ENR. Set this only if you are sure other nodes can connect to your local node on this port.\
                     The --port flag is used if this is not set."
     )]
-    pub enr_tcp_port: Option<String>,
+    pub enr_tcp_port: Option<u16>,
     #[clap(
         long,
         value_name = "ADDRESS",
@@ -134,14 +136,14 @@ pub struct BeaconNode {
         help = "Sets the local ENR IP address and port to match those set for lighthouse. \
                 Specifically, the IP address will be the value of --listen-address and the UDP port will be --discovery-port."
     )]
-    pub enr_match: Option<String>,
+    pub enr_match: bool,
     #[clap(
         short = 'x',
         long,
         help = "Discovery automatically updates the nodes local ENR with an external IP address and port as seen by other peers on the network. \
                 This disables this feature, fixing the ENR's IP/PORT to those specified on boot."
     )]
-    pub disable_enr_auto_update: Option<String>,
+    pub disable_enr_auto_update: bool,
     #[clap(
         long,
         value_name = "MULTIADDR",
@@ -171,14 +173,14 @@ pub struct BeaconNode {
         help = "Set the listen address for the RESTful HTTP API server.",
         default_value = "127.0.0.1"
     )]
-    pub http_address: String,
+    pub http_address: Ipv4Addr,
     #[clap(
         long,
         value_name = "PORT",
         help = "Set the listen TCP port for the RESTful HTTP API server.",
         default_value = "5052"
     )]
-    pub http_port: String,
+    pub http_port: u16,
     #[clap(
         long,
         value_name = "ORIGIN",
@@ -193,7 +195,7 @@ pub struct BeaconNode {
         help = "Disable serving of legacy data on the /config/spec endpoint. May be \
                        disabled by default in a future release."
     )]
-    pub http_disable_legacy_spec: Option<String>,
+    pub http_disable_legacy_spec: bool,
     #[clap(
         long,
         help = "Serves the RESTful HTTP API server over TLS. This feature is currently \
@@ -207,20 +209,20 @@ pub struct BeaconNode {
         help = "The path of the certificate to be used when serving the HTTP API server \
                     over TLS."
     )]
-    pub http_tls_cert: Option<String>,
+    pub http_tls_cert: Option<PathBuf>,
     #[clap(
         long,
         help = "The path of the private key to be used when serving the HTTP API server \
                     over TLS. Must not be password-protected."
     )]
-    pub http_tls_key: Option<String>,
+    pub http_tls_key: Option<PathBuf>,
     #[clap(
         long,
         help = "Forces the HTTP to indicate that the node is synced when sync is actually \
                     stalled. This is useful for very small testnets. TESTING ONLY. DO NOT USE ON \
                     MAINNET."
     )]
-    pub http_allow_sync_stalled: Option<String>,
+    pub http_allow_sync_stalled: bool,
     #[clap(
         long,
         help = "Enable the Prometheus metrics HTTP server. Disabled by default."
@@ -232,14 +234,14 @@ pub struct BeaconNode {
         help = "Set the listen address for the Prometheus metrics HTTP server.",
         default_value = "127.0.0.1"
     )]
-    pub metrics_address: String,
+    pub metrics_address: Ipv4Addr,
     #[clap(
         long,
         value_name = "PORT",
         help = "Set the listen TCP port for the Prometheus metrics HTTP server.",
         default_value = "5054"
     )]
-    pub metrics_port: String,
+    pub metrics_port: u16,
     #[clap(
         long,
         value_name = "ORIGIN",
@@ -279,7 +281,7 @@ pub struct BeaconNode {
         help = "If present, uses an eth1 backend that generates static dummy data.\
                       Identical to the method used at the 2019 Canada interop."
     )]
-    pub dummy_eth1: Option<String>,
+    pub dummy_eth1: bool,
     #[clap(
         long,
         value_name = "HTTP-ENDPOINT",
@@ -309,7 +311,7 @@ pub struct BeaconNode {
                     This will reduce the size of responses from the Eth1 endpoint.",
         default_value = "1000"
     )]
-    pub eth1_blocks_per_log_query: String,
+    pub eth1_blocks_per_log_query: usize,
     #[clap(
         long,
         value_name = "SLOT_COUNT",
@@ -317,13 +319,13 @@ pub struct BeaconNode {
                        Cannot be changed after initialization. \
                        [default: 2048 (mainnet) or 64 (minimal)]"
     )]
-    pub slots_per_restore_point: Option<String>,
+    pub slots_per_restore_point: Option<u64>,
     #[clap(
         long,
         value_name = "SIZE",
         help = "Specifies how many blocks the database should cache in memory [default: 5]"
     )]
-    pub block_cache_size: Option<String>,
+    pub block_cache_size: Option<usize>,
     #[clap(
         long,
         help = "Enable the features necessary to run merge testnets. This feature \
@@ -349,18 +351,18 @@ pub struct BeaconNode {
                        WILL BE REMOVED BEFORE THE MERGE ENTERS PRODUCTION",
         requires = "merge"
     )]
-    pub fee_recipient: Option<String>,
+    pub fee_recipient: Option<Address>,
     #[clap(
         long,
         help = "If present, the chain database will be deleted. Use with caution."
     )]
-    pub purge_db: Option<String>,
+    pub purge_db: bool,
     #[clap(
         long,
         help = "If present, apply compaction to the database on start-up. Use with caution. \
                        It is generally not recommended unless auto-compaction is disabled."
     )]
-    pub compact_db: Option<String>,
+    pub compact_db: bool,
     #[clap(
         long,
         help = "Enable or disable automatic compaction of the database on finalization.",
@@ -395,14 +397,14 @@ pub struct BeaconNode {
         value_name = "PATH",
         requires = "slasher"
     )]
-    pub slasher_dir: Option<String>,
+    pub slasher_dir: Option<PathBuf>,
     #[clap(
         long,
         help = "Configure how often the slasher runs batch processing.",
         value_name = "SECONDS",
         requires = "slasher"
     )]
-    pub slasher_update_period: Option<String>,
+    pub slasher_update_period: Option<u64>,
     #[clap(
         long,
         help = "Set the delay from the start of the slot at which the slasher should ingest \
@@ -411,7 +413,7 @@ pub struct BeaconNode {
         value_name = "SECONDS",
         requires = "slasher"
     )]
-    pub slasher_slot_offset: Option<String>,
+    pub slasher_slot_offset: Option<f64>,
     #[clap(
         long,
         help = "Configure how many epochs of history the slasher keeps. Immutable after \
@@ -419,42 +421,42 @@ pub struct BeaconNode {
         value_name = "EPOCHS",
         requires = "slasher"
     )]
-    pub slasher_history_length: Option<String>,
+    pub slasher_history_length: Option<usize>,
     #[clap(
         long,
         help = "Maximum size of the MDBX database used by the slasher.",
         value_name = "GIGABYTES",
         requires = "slasher"
     )]
-    pub slasher_max_db_size: Option<String>,
+    pub slasher_max_db_size: Option<usize>,
     #[clap(
         long,
         help = "Set the maximum number of attestation roots for the slasher to cache",
         value_name = "COUNT",
         requires = "slasher"
     )]
-    pub slasher_att_cache_size: Option<String>,
+    pub slasher_att_cache_size: Option<usize>,
     #[clap(
         long,
         help = "Number of epochs per validator per chunk stored on disk.",
         value_name = "EPOCHS",
         requires = "slasher"
     )]
-    pub slasher_chunk_size: Option<String>,
+    pub slasher_chunk_size: Option<usize>,
     #[clap(
         long,
         help = "Number of validators per chunk stored on disk.",
         value_name = "NUM_VALIDATORS",
         requires = "slasher"
     )]
-    pub slasher_validator_chunk_size: Option<String>,
+    pub slasher_validator_chunk_size: Option<usize>,
     #[clap(
         long,
         help = "Broadcast slashings found by the slasher to the rest of the network \
                        [disabled by default].",
         requires = "slasher"
     )]
-    pub slasher_broadcast: Option<String>,
+    pub slasher_broadcast: bool,
     #[clap(
         long,
         help = "Specify a weak subjectivity checkpoint in `block_root:epoch` format to verify \
@@ -471,7 +473,7 @@ pub struct BeaconNode {
         value_name = "STATE_SSZ",
         requires = "checkpoint_block"
     )]
-    pub checkpoint_state: Option<String>,
+    pub checkpoint_state: Option<PathBuf>,
     #[clap(
         long,
         help = "Set a checkpoint block to start syncing from. Must be aligned and match \
@@ -479,7 +481,7 @@ pub struct BeaconNode {
         value_name = "BLOCK_SSZ",
         requires = "checkpoint_state"
     )]
-    pub checkpoint_block: Option<String>,
+    pub checkpoint_block: Option<PathBuf>,
     #[clap(
         long,
         help = "Set the remote beacon node HTTP endpoint to use for checkpoint sync.",
@@ -499,7 +501,7 @@ pub struct BeaconNode {
                     effect of providing additional logging and metrics for locally controlled \
                     validators."
     )]
-    pub validator_monitor_auto: Option<String>,
+    pub validator_monitor_auto: bool,
     #[clap(
         long,
         help = "A comma-separated list of 0x-prefixed validator public keys. \
@@ -514,7 +516,7 @@ pub struct BeaconNode {
                     contained within a file at the given path.",
         value_name = "PATH"
     )]
-    pub validator_monitor_file: Option<String>,
+    pub validator_monitor_file: Option<PathBuf>,
     #[clap(
         long,
         help = "Disable the timeouts applied to some internal locks by default. This can \
