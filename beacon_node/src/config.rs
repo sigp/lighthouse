@@ -1,3 +1,4 @@
+use crate::BeaconNode;
 use clap::ArgMatches;
 use clap_utils::flags::DISABLE_MALLOC_TUNING_FLAG;
 use clap_utils::GlobalConfig;
@@ -16,7 +17,6 @@ use std::net::{TcpListener, UdpSocket};
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use types::{Address, Checkpoint, Epoch, EthSpec, Hash256, PublicKeyBytes, GRAFFITI_BYTES_LEN};
-use crate::BeaconNode;
 
 // TODO(merge): remove this default value. It's just there to make life easy during
 // early testnets.
@@ -99,7 +99,7 @@ pub fn get_config<E: EthSpec>(
         client_config.http_api.enabled = true;
     }
 
-        client_config.http_api.listen_addr = beacon_config.http_address;
+    client_config.http_api.listen_addr = beacon_config.http_address;
 
     client_config.http_api.listen_port = beacon_config.http_port;
 
@@ -115,9 +115,13 @@ pub fn get_config<E: EthSpec>(
 
     if beacon_config.http_enable_tls {
         client_config.http_api.tls_config = Some(TlsConfig {
-            cert: beacon_config.http_tls_cert.clone()
+            cert: beacon_config
+                .http_tls_cert
+                .clone()
                 .ok_or("--http-tls-cert was not provided.")?,
-            key: beacon_config.http_tls_key.clone()
+            key: beacon_config
+                .http_tls_key
+                .clone()
                 .ok_or("--http-tls-key was not provided.")?,
         });
     }
@@ -150,7 +154,7 @@ pub fn get_config<E: EthSpec>(
     /*
      * Explorer metrics
      */
-    if let Some(monitoring_endpoint) = beacon_config.monitoring_endpoint.as_ref(){
+    if let Some(monitoring_endpoint) = beacon_config.monitoring_endpoint.as_ref() {
         client_config.monitoring_api = Some(monitoring_api::Config {
             db_path: None,
             freezer_db_path: None,
@@ -228,13 +232,14 @@ pub fn get_config<E: EthSpec>(
     }
 
     client_config.suggested_fee_recipient = Some(
-        beacon_config.fee_recipient
+        beacon_config
+            .fee_recipient
             // TODO(merge): remove this default value. It's just there to make life easy during
             // early testnets.
             .unwrap_or_else(|| Address::from(DEFAULT_SUGGESTED_FEE_RECIPIENT)),
     );
 
-        client_config.freezer_db_path = beacon_config.freezer_dir.clone();
+    client_config.freezer_db_path = beacon_config.freezer_dir.clone();
 
     if let Some(slots_per_restore_point) = beacon_config.slots_per_restore_point {
         client_config.store.slots_per_restore_point = slots_per_restore_point;
@@ -250,9 +255,10 @@ pub fn get_config<E: EthSpec>(
     }
 
     client_config.store.compact_on_init = beacon_config.compact_db;
-        client_config.store.compact_on_prune = beacon_config.auto_compact_db
-            .parse()
-            .map_err(|_| "auto-compact-db takes a boolean".to_string())?;
+    client_config.store.compact_on_prune = beacon_config
+        .auto_compact_db
+        .parse()
+        .map_err(|_| "auto-compact-db takes a boolean".to_string())?;
 
     /*
      * Zero-ports
@@ -446,8 +452,7 @@ pub fn get_config<E: EthSpec>(
 
         let mut slasher_config = slasher::Config::new(slasher_dir);
 
-        if let Some(update_period) = beacon_config.slasher_update_period
-        {
+        if let Some(update_period) = beacon_config.slasher_update_period {
             slasher_config.update_period = update_period;
         }
 
@@ -462,20 +467,15 @@ pub fn get_config<E: EthSpec>(
             }
         }
 
-        if let Some(history_length) =
-            beacon_config.slasher_history_length
-        {
+        if let Some(history_length) = beacon_config.slasher_history_length {
             slasher_config.history_length = history_length;
         }
 
-        if let Some(max_db_size_gbs) = beacon_config.slasher_max_db_size
-        {
+        if let Some(max_db_size_gbs) = beacon_config.slasher_max_db_size {
             slasher_config.max_db_size_mbs = max_db_size_gbs * 1024;
         }
 
-        if let Some(attestation_cache_size) =
-            beacon_config.slasher_att_cache_size
-        {
+        if let Some(attestation_cache_size) = beacon_config.slasher_att_cache_size {
             slasher_config.attestation_root_cache_size = attestation_cache_size;
         }
 
@@ -559,18 +559,18 @@ pub fn set_network_config(
         config.shutdown_after_sync = true;
     }
 
-    config.listen_address  = beacon_config.listen_address;
+    config.listen_address = beacon_config.listen_address;
 
-        config.target_peers = beacon_config.target_peers;
+    config.target_peers = beacon_config.target_peers;
 
-        config.libp2p_port = beacon_config.port;
-        config.discovery_port = beacon_config.port;
+    config.libp2p_port = beacon_config.port;
+    config.discovery_port = beacon_config.port;
 
     if let Some(port) = beacon_config.discovery_port {
         config.discovery_port = port;
     }
 
-        config.network_load = beacon_config.network_load;
+    config.network_load = beacon_config.network_load;
 
     if let Some(boot_enr_str) = beacon_config.boot_nodes.clone() {
         let mut enrs: Vec<Enr> = vec![];
@@ -709,7 +709,8 @@ pub fn get_data_dir(config: &GlobalConfig) -> PathBuf {
     // directory and the testnet name onto it.
 
     config
-        .datadir.as_ref()
+        .datadir
+        .as_ref()
         .map(|path| path.join(DEFAULT_BEACON_NODE_DIR))
         .or_else(|| {
             dirs::home_dir().map(|home| {

@@ -11,6 +11,7 @@ use beacon_chain::{
     TimeoutRwLock,
 };
 use clap::ArgMatches;
+use clap_utils::GlobalConfig;
 pub use cli::BeaconNode;
 pub use client::{Client, ClientBuilder, ClientConfig, ClientGenesis};
 pub use config::{get_config, get_data_dir, set_network_config};
@@ -20,7 +21,6 @@ use slasher::Slasher;
 use slog::{info, warn};
 use std::ops::{Deref, DerefMut};
 use std::sync::Arc;
-use clap_utils::GlobalConfig;
 use types::EthSpec;
 
 /// A type-alias to the tighten the definition of a production-intended `Client`.

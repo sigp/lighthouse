@@ -255,7 +255,7 @@ fn run<E: EthSpec>(
             let context = environment.core_context();
             let log = context.log().clone();
             let executor = context.executor.clone();
-            let config = beacon_node::get_config::<E>(matches, global_config,&context)?;
+            let config = beacon_node::get_config::<E>(matches, global_config, &context)?;
             let shutdown_flag = lighthouse.immediate_shutdown;
             if let Some(dump_path) = lighthouse.dump_config.as_ref() {
                 let mut file = File::create(dump_path)
