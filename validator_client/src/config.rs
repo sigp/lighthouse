@@ -42,8 +42,7 @@ pub struct Config {
     pub graffiti: Option<Graffiti>,
     /// Graffiti file to load per validator graffitis.
     pub graffiti_file: Option<GraffitiFile>,
-    /// fee_recipient address, that will receive transaction fees collected from any blocks
-    /// produced by this node.
+    /// Fallback fallback address.
     pub fee_recipient: Option<Address>,
     /// Fee recipient file to load per validator suggested-fee-recipients.
     pub fee_recipient_file: Option<FeeRecipientFile>,

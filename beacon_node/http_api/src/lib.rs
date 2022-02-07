@@ -2211,7 +2211,7 @@ pub fn serve<T: BeaconChainTypes>(
                         .epoch()
                         .map_err(warp_utils::reject::beacon_chain_error)?;
 
-                    info!(
+                    debug!(
                         log,
                         "Received proposer preparation data";
                         "count" => preparation_data.len(),

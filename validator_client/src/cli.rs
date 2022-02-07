@@ -130,15 +130,16 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
         .arg(
             Arg::with_name("suggested-fee-recipient")
                 .long("suggested-fee-recipient")
-                .help("Specify the address, that will receive transaction fees collected from any \
-                        blocks produced by this validator client.")
+                .help("The fallback address provided to the BN if nothing suitable is found \
+                           in the validator definitions or fee recipient file.")
                 .value_name("FEE-RECIPIENT")
                 .takes_value(true)
         )
         .arg(
             Arg::with_name("suggested-fee-recipient-file")
                 .long("suggested-fee-recipient-file")
-                .help("Specify a fee-recipient file to load validator fee-recipients from.")
+                .help("The fallback address provided to the BN if nothing suitable is found \
+                           in the validator definitions.")
                 .value_name("FEE-RECIPIENT-FILE")
                 .takes_value(true)
         )
