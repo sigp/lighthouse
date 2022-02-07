@@ -204,14 +204,16 @@ pub fn validate_execution_payload_for_gossip<T: BeaconChainTypes>(
 pub fn get_execution_payload<T: BeaconChainTypes>(
     chain: &BeaconChain<T>,
     state: &BeaconState<T::EthSpec>,
+    proposer_index: u64,
 ) -> Result<ExecutionPayload<T::EthSpec>, BlockProductionError> {
-    Ok(prepare_execution_payload_blocking(chain, state)?.unwrap_or_default())
+    Ok(prepare_execution_payload_blocking(chain, state, proposer_index)?.unwrap_or_default())
 }
 
 /// Wraps the async `prepare_execution_payload` function as a blocking task.
 pub fn prepare_execution_payload_blocking<T: BeaconChainTypes>(
     chain: &BeaconChain<T>,
     state: &BeaconState<T::EthSpec>,
+    proposer_index: u64,
 ) -> Result<Option<ExecutionPayload<T::EthSpec>>, BlockProductionError> {
     let execution_layer = chain
         .execution_layer
@@ -219,7 +221,9 @@ pub fn prepare_execution_payload_blocking<T: BeaconChainTypes>(
         .ok_or(BlockProductionError::ExecutionLayerMissing)?;
 
     execution_layer
-        .block_on_generic(|_| async { prepare_execution_payload(chain, state).await })
+        .block_on_generic(|_| async {
+            prepare_execution_payload(chain, state, proposer_index).await
+        })
         .map_err(BlockProductionError::BlockingFailed)?
 }
 
@@ -240,6 +244,7 @@ pub fn prepare_execution_payload_blocking<T: BeaconChainTypes>(
 pub async fn prepare_execution_payload<T: BeaconChainTypes>(
     chain: &BeaconChain<T>,
     state: &BeaconState<T::EthSpec>,
+    proposer_index: u64,
 ) -> Result<Option<ExecutionPayload<T::EthSpec>>, BlockProductionError> {
     let spec = &chain.spec;
     let execution_layer = chain
@@ -273,7 +278,6 @@ pub async fn prepare_execution_payload<T: BeaconChainTypes>(
     let timestamp = compute_timestamp_at_slot(state, spec).map_err(BeaconStateError::from)?;
     let random = *state.get_randao_mix(state.current_epoch())?;
     let finalized_root = state.finalized_checkpoint().root;
-    let proposer_index = state.get_beacon_proposer_index(state.slot(), spec)? as u64;
 
     // The finalized block hash is not included in the specification, however we provide this
     // parameter so that the execution layer can produce a payload id if one is not already known
