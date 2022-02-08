@@ -23,7 +23,7 @@ pub struct Validator {
 }
 
 #[derive(Parser, Clone, Deserialize, Serialize, Debug)]
-#[clap(rename_all = "snake_case")]
+#[clap(rename_all = "kebab-case")]
 pub enum ValidatorSubcommand {
     Create(Create),
     #[clap(subcommand)]
@@ -269,7 +269,6 @@ pub struct Recover {
 
 #[derive(Subcommand, Clone, Deserialize, Serialize, Debug)]
 #[clap(about = "Import or export slashing protection data to or from another client")]
-#[clap(rename_all = "snake_case")]
 pub enum SlashingProtection {
     Import(SlashingProtectionImport),
     Export(SlashingProtectionExport),
