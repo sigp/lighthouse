@@ -984,7 +984,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
                             // Order the peers by the number of subnets they are long-lived
                             // subscribed too, shuffle equal peers.
                             peers_on_subnet.shuffle(&mut rand::thread_rng());
-                            peers_on_subnet.sort_by_key(|(_,info)| info.long_lived_subnet_count()); 
+                            peers_on_subnet.sort_by_key(|(_, info)| info.long_lived_subnet_count());
                             let (candidate_peer, info) = peers_on_subnet.remove(0);
                             // Ensure we don't remove too many outbound peers
                             if info.is_outbound_only() {
@@ -999,8 +999,10 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
                             peers_to_prune.insert(candidate_peer);
                             continue;
                         }
+                    } else {
+                        unreachable!();
                     }
-                }
+             }
                 // If there are no peers left to prune exit.
                 break;
             }
