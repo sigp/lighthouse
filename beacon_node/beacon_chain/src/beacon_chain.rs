@@ -3173,6 +3173,82 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         Ok((block, state))
     }
 
+    /// This method must be called whenever an execution engine indicates that a payload is
+    /// invalid.
+    ///
+    /// All beacon blocks between `latest_root` and `latest_valid_hash` will be
+    /// invalidated in fork choice. Conversely, the `last_valid_hash` and all ancestors will be
+    /// validated.
+    ///
+    /// ## Notes
+    ///
+    /// Use these rules to set `latest_root`:
+    ///
+    /// - When `forkchoiceUpdated` indicates an invalid block, set `latest_root` to be the
+    ///     block root that was the head of the chain when `forkchoiceUpdated` was called.
+    /// - When `executePayload` returns an invalid block *during* block import, set
+    ///     `latest_root` to be the parent of the beacon block containing the invalid
+    ///     payload (because the block containing the payload is not present in fork choice).
+    /// - When `executePayload` returns an invalid block *after* block import, set
+    ///     `latest_root` to be root of the beacon block containing the invalid payload.
+    pub fn process_invalid_execution_payload(
+        &self,
+        latest_root: Hash256,
+        latest_valid_hash: Hash256,
+    ) -> Result<(), Error> {
+        debug!(
+            self.log,
+            "Invalid execution payload in block";
+            "latest_valid_hash" => ?latest_valid_hash,
+            "latest_root" => ?latest_root,
+        );
+
+        // Allow fork choice to invalidate blocks.
+        let result = self
+            .fork_choice
+            .write()
+            .on_invalid_execution_payload(latest_root, latest_valid_hash);
+
+        if let Err(e) = &result {
+            crit!(
+                self.log,
+                "Failed to process invalid payload";
+                "error" => ?e,
+                "latest_valid_hash" => ?latest_valid_hash,
+                "latest_root" => ?latest_root,
+            );
+        }
+
+        // Run fork choice since it's possible that the payload invalidation might result in a new
+        // head.
+        self.fork_choice()?;
+
+        // Check to ensure the justified checkpoint does not have an invalid payload. If so, try
+        // to kill the client.
+        let head_info = self.head_info()?;
+        let justified_root = head_info.current_justified_checkpoint.root;
+        if let Some(proto_block) = self.fork_choice.read().get_block(&justified_root) {
+            if proto_block.execution_status.is_invalid() {
+                let mut shutdown_sender = self.shutdown_sender();
+                shutdown_sender
+                    .try_send(ShutdownReason::Failure(
+                        "Justified block has an invalid execution payload.",
+                    ))
+                    .map_err(BeaconChainError::InvalidFinalizedPayloadShutdownError)?;
+
+                // Return an error here to try and prevent progression by upstream functions.
+                return Err(Error::JustifiedHasInvalidPayload { justified_root });
+            }
+        } else {
+            crit!(
+                self.log,
+                "Justified block is not in fork choice";
+            );
+        }
+
+        result.map_err(Into::into)
+    }
+
     /// Execute the fork choice algorithm and enthrone the result as the canonical head.
     pub fn fork_choice(&self) -> Result<(), Error> {
         metrics::inc_counter(&metrics::FORK_CHOICE_REQUESTS);

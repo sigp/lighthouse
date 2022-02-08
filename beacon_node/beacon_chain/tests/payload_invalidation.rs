@@ -28,7 +28,7 @@ impl InvalidPayloadRig {
     fn new() -> Self {
         let mut spec = E::default_spec();
         spec.altair_fork_epoch = Some(Epoch::new(0));
-        spec.merge_fork_epoch = Some(Epoch::new(0));
+        spec.bellatrix_fork_epoch = Some(Epoch::new(0));
 
         let harness = BeaconChainHarness::builder(MainnetEthSpec)
             .spec(spec)

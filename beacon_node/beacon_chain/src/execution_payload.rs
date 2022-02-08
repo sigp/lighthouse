@@ -14,7 +14,7 @@ use crate::{
 use execution_layer::ExecutePayloadResponseStatus;
 use fork_choice::PayloadVerificationStatus;
 use proto_array::{Block as ProtoBlock, ExecutionStatus};
-use slog::{crit, debug, warn};
+use slog::debug;
 use slot_clock::SlotClock;
 use state_processing::per_block_processing::{
     compute_timestamp_at_slot, is_execution_enabled, is_merge_transition_complete,
@@ -61,29 +61,16 @@ pub fn execute_payload<T: BeaconChainTypes>(
         Ok(status) => match status {
             ExecutePayloadResponseStatus::Valid { .. } => Ok(PayloadVerificationStatus::Verified),
             ExecutePayloadResponseStatus::Invalid { latest_valid_hash } => {
-                let head_block_root = block.parent_root();
-                match chain
-                    .fork_choice
-                    .write()
-                    .on_invalid_execution_payload(head_block_root, latest_valid_hash)
-                {
-                    Ok(()) => warn!(
-                        chain.log,
-                        "Invalid execution payload in block";
-                        "latest_valid_hash" => ?latest_valid_hash,
-                        "root" => ?block_root,
-                    ),
-                    Err(e) => {
-                        crit!(
-                            chain.log,
-                            "Failed to process invalid payload";
-                            "latest_valid_hash" => ?latest_valid_hash,
-                            "root" => ?block_root,
-                        );
+                debug!(
+                    chain.log,
+                    "Invalid execution payload in block";
+                    "block_root" => ?block_root,
+                );
+                // This block has not yet been applied to fork choice, so the latest block that was
+                // imported to fork choice was the parent.
+                let latest_root = block.parent_root();
+                chain.process_invalid_execution_payload(latest_root, latest_valid_hash)?;
 
-                        return Err(BeaconChainError::from(e).into());
-                    }
-                }
                 Err(ExecutionPayloadError::RejectedByExecutionEngine.into())
             }
             ExecutePayloadResponseStatus::Syncing => Ok(PayloadVerificationStatus::NotVerified),
