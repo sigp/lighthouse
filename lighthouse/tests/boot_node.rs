@@ -1,7 +1,6 @@
 use boot_node::config::BootNodeConfigSerialization;
 
 use crate::exec::{CommandLineTestExec, CompletedTest};
-use clap::ArgMatches;
 use lighthouse_network::discovery::ENR_FILENAME;
 use lighthouse_network::Enr;
 use std::fs::File;
@@ -11,6 +10,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::str::FromStr;
 use tempfile::TempDir;
+use eth2_network_config::{Eth2NetworkConfig, DEFAULT_HARDCODED_NETWORK};
 
 const IP_ADDRESS: &str = "192.168.2.108";
 
@@ -92,10 +92,8 @@ fn listen_address_flag() {
 #[test]
 fn boot_nodes_flag() {
     // Get hardcoded boot-nodes to verify they end up in the config.
-    // Pass empty `ArgMatches` to `get_eth2_network_config` as we want to
-    // receive the default `Eth2NetworkConfig`.
-    let empty_args = ArgMatches::default();
-    let default_enr = get_eth2_network_config(&empty_args)
+    // Receive the default `Eth2NetworkConfig`.
+    let default_enr = Eth2NetworkConfig::constant(DEFAULT_HARDCODED_NETWORK).unwrap()
         .unwrap()
         .boot_enr
         .unwrap();
