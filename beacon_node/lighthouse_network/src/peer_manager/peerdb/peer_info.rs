@@ -163,21 +163,19 @@ impl<T: EthSpec> PeerInfo<T> {
                     }
                 }
             }
-        } else {
-            if let Some(enr) = self.enr.as_ref() {
-                if let Ok(attnets) = enr.attestation_bitfield::<T>() {
-                    for subnet in 0..=attnets.highest_set_bit().unwrap_or(0) {
-                        if attnets.get(subnet).expect("within bounds") {
-                            long_lived_subnets.push(Subnet::Attestation((subnet as u64).into()));
-                        }
+        } else if let Some(enr) = self.enr.as_ref() {
+            if let Ok(attnets) = enr.attestation_bitfield::<T>() {
+                for subnet in 0..=attnets.highest_set_bit().unwrap_or(0) {
+                    if attnets.get(subnet).expect("within bounds") {
+                        long_lived_subnets.push(Subnet::Attestation((subnet as u64).into()));
                     }
                 }
+            }
 
-                if let Ok(syncnets) = enr.sync_committee_bitfield::<T>() {
-                    for subnet in 0..=syncnets.highest_set_bit().unwrap_or(0) {
-                        if syncnets.get(subnet).expect("within bounds") {
-                            long_lived_subnets.push(Subnet::SyncCommittee((subnet as u64).into()));
-                        }
+            if let Ok(syncnets) = enr.sync_committee_bitfield::<T>() {
+                for subnet in 0..=syncnets.highest_set_bit().unwrap_or(0) {
+                    if syncnets.get(subnet).expect("within bounds") {
+                        long_lived_subnets.push(Subnet::SyncCommittee((subnet as u64).into()));
                     }
                 }
             }

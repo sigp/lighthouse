@@ -1388,34 +1388,64 @@ mod tests {
 
         // Have some of the peers be on a long-lived subnet
         let mut attnets = crate::types::EnrAttestationBitfield::<E>::new();
-        attnets.set(1,true).unwrap(); 
-        let metadata = crate::rpc::MetaDataV2 { 
+        attnets.set(1, true).unwrap();
+        let metadata = crate::rpc::MetaDataV2 {
             seq_number: 0,
-            attnets, 
+            attnets,
             syncnets: Default::default(),
         };
-        peer_manager.network_globals.peers.write().peer_info_mut(&peer0).unwrap().set_meta_data(MetaData::V2(metadata));
-        peer_manager.network_globals.peers.write().add_subscription(&peer0, Subnet::Attestation(1.into()));
+        peer_manager
+            .network_globals
+            .peers
+            .write()
+            .peer_info_mut(&peer0)
+            .unwrap()
+            .set_meta_data(MetaData::V2(metadata));
+        peer_manager
+            .network_globals
+            .peers
+            .write()
+            .add_subscription(&peer0, Subnet::Attestation(1.into()));
 
         let mut attnets = crate::types::EnrAttestationBitfield::<E>::new();
-        attnets.set(10,true).unwrap(); 
-        let metadata = crate::rpc::MetaDataV2 { 
+        attnets.set(10, true).unwrap();
+        let metadata = crate::rpc::MetaDataV2 {
             seq_number: 0,
-            attnets, 
+            attnets,
             syncnets: Default::default(),
         };
-        peer_manager.network_globals.peers.write().peer_info_mut(&peer2).unwrap().set_meta_data(MetaData::V2(metadata));
-        peer_manager.network_globals.peers.write().add_subscription(&peer2, Subnet::Attestation(10.into()));
+        peer_manager
+            .network_globals
+            .peers
+            .write()
+            .peer_info_mut(&peer2)
+            .unwrap()
+            .set_meta_data(MetaData::V2(metadata));
+        peer_manager
+            .network_globals
+            .peers
+            .write()
+            .add_subscription(&peer2, Subnet::Attestation(10.into()));
 
         let mut syncnets = crate::types::EnrSyncCommitteeBitfield::<E>::new();
-        syncnets.set(3,true).unwrap(); 
-        let metadata = crate::rpc::MetaDataV2 { 
+        syncnets.set(3, true).unwrap();
+        let metadata = crate::rpc::MetaDataV2 {
             seq_number: 0,
-            attnets: Default::default(), 
+            attnets: Default::default(),
             syncnets,
         };
-        peer_manager.network_globals.peers.write().peer_info_mut(&peer4).unwrap().set_meta_data(MetaData::V2(metadata));
-        peer_manager.network_globals.peers.write().add_subscription(&peer4, Subnet::SyncCommittee(3.into()));
+        peer_manager
+            .network_globals
+            .peers
+            .write()
+            .peer_info_mut(&peer4)
+            .unwrap()
+            .set_meta_data(MetaData::V2(metadata));
+        peer_manager
+            .network_globals
+            .peers
+            .write()
+            .add_subscription(&peer4, Subnet::SyncCommittee(3.into()));
 
         // Perform the heartbeat.
         peer_manager.heartbeat();
@@ -1424,10 +1454,21 @@ mod tests {
         assert_eq!(peer_manager.network_globals.connected_or_dialing_peers(), 3);
 
         // Check that we removed the peers that were not subscribed to any subnet
-        let mut peers_should_have_removed= std::collections::HashSet::new();
+        let mut peers_should_have_removed = std::collections::HashSet::new();
         peers_should_have_removed.insert(peer1);
         peers_should_have_removed.insert(peer3);
-        for (peer, _) in peer_manager.network_globals.peers.read().peers().filter(|(_, info)| matches!(info.connection_status(), PeerConnectionStatus::Disconnecting{ .. })) {
+        for (peer, _) in peer_manager
+            .network_globals
+            .peers
+            .read()
+            .peers()
+            .filter(|(_, info)| {
+                matches!(
+                    info.connection_status(),
+                    PeerConnectionStatus::Disconnecting { .. }
+                )
+            })
+        {
             println!("{}", peer);
             assert!(peers_should_have_removed.remove(peer));
         }
@@ -1449,7 +1490,7 @@ mod tests {
             // except for the last 5 peers which all go on their own subnets
             // So subnets 0-2 should have 4 peers subnet 3 should have 3 and 15-19 should have 1
             let subnet: u64 = {
-                if x < 15 { 
+                if x < 15 {
                     x % 4
                 } else {
                     x
@@ -1461,15 +1502,25 @@ mod tests {
 
             // Have some of the peers be on a long-lived subnet
             let mut attnets = crate::types::EnrAttestationBitfield::<E>::new();
-            attnets.set(subnet as usize,true).unwrap(); 
-            let metadata = crate::rpc::MetaDataV2 { 
+            attnets.set(subnet as usize, true).unwrap();
+            let metadata = crate::rpc::MetaDataV2 {
                 seq_number: 0,
-                attnets, 
+                attnets,
                 syncnets: Default::default(),
             };
-            peer_manager.network_globals.peers.write().peer_info_mut(&peer).unwrap().set_meta_data(MetaData::V2(metadata));
-            peer_manager.network_globals.peers.write().add_subscription(&peer, Subnet::Attestation(subnet.into()));
-            println!("{},{},{}",x, subnet, peer);
+            peer_manager
+                .network_globals
+                .peers
+                .write()
+                .peer_info_mut(&peer)
+                .unwrap()
+                .set_meta_data(MetaData::V2(metadata));
+            peer_manager
+                .network_globals
+                .peers
+                .write()
+                .add_subscription(&peer, Subnet::Attestation(subnet.into()));
+            println!("{},{},{}", x, subnet, peer);
             peers.push(peer);
         }
 
@@ -1478,42 +1529,51 @@ mod tests {
 
         // Tests that when we are over the target peer limit, after disconnecting an unhealthy peer,
         // the number of connected peers updates and we will not remove too many peers.
-        assert_eq!(peer_manager.network_globals.connected_or_dialing_peers(), target);
+        assert_eq!(
+            peer_manager.network_globals.connected_or_dialing_peers(),
+            target
+        );
 
         // Check that we removed the peers that were not subscribed to any subnet
         // Should remove peers from subnet 0-2 first. Removing 3 peers subnets 0-3 now have 3
         // peers.
-        // Should then remove 8 peers each from subnets 1-4. New total: 11 peers. 
+        // Should then remove 8 peers each from subnets 1-4. New total: 11 peers.
         // Therefore the remaining peer set should be each on their own subnet.
         // Lets check this:
-        
-        let connected_peers: std::collections::HashSet<_> = peer_manager.network_globals.peers.read().connected_or_dialing_peers().cloned().collect();
+
+        let connected_peers: std::collections::HashSet<_> = peer_manager
+            .network_globals
+            .peers
+            .read()
+            .connected_or_dialing_peers()
+            .cloned()
+            .collect();
 
         for peer in connected_peers.iter() {
             let position = peers.iter().position(|peer_id| peer_id == peer).unwrap();
-            println!("{},{}",position,peer);
+            println!("{},{}", position, peer);
         }
 
-        println!("");
+        println!();
 
         for peer in connected_peers.iter() {
             let position = peers.iter().position(|peer_id| peer_id == peer).unwrap();
-            println!("{},{}",position,peer);
+            println!("{},{}", position, peer);
 
             if position < 15 {
                 let y = position % 4;
                 for x in 0..4 {
-                    let alternative_index = y + 4*x;
+                    let alternative_index = y + 4 * x;
                     if alternative_index != position && alternative_index < 15 {
                         // Make sure a peer on the same subnet has been removed
-                        println!("Check against: {}, {}", alternative_index, &peers[alternative_index]); 
+                        println!(
+                            "Check against: {}, {}",
+                            alternative_index, &peers[alternative_index]
+                        );
                         assert!(!connected_peers.contains(&peers[alternative_index]));
                     }
                 }
             }
         }
-
-        }
-
-
+    }
 }
