@@ -167,7 +167,7 @@ pub fn cli_run<T: EthSpec>(
             .voting_keystore(keystores.voting, voting_password.as_bytes())
             .withdrawal_keystore(keystores.withdrawal, withdrawal_password.as_bytes())
             .create_eth1_tx_data(deposit_gwei, &spec)
-            .store_withdrawal_keystore(create_config.store_withdraw)
+            .store_withdrawal_keystore(create_config.store_withdrawal_keystore)
             .build()
             .map_err(|e| format!("Unable to build validator directory: {:?}", e))?;
 

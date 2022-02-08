@@ -66,12 +66,12 @@ impl<T: EthSpec> BootNodeConfig<T> {
         )?;
 
         // Set the enr-udp-port to the default listening port if it was not specified.
-        if boot_node_config.enr_udp_port.is_none() {
+        if boot_node_config.enr_port.is_none() {
             network_config.enr_udp_port = Some(network_config.discovery_port);
         }
 
         // By default this is enabled. If it is not set, revert to false.
-        if boot_node_config.enable_enr_auto_update {
+        if !boot_node_config.enable_enr_auto_update {
             network_config.discv5_config.enr_update = false;
         }
 

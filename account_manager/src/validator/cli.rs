@@ -82,7 +82,7 @@ pub struct Create {
                     keypair. It is generally recommended to *not* store the withdrawal key and \
                     instead generate them from the wallet seed when required."
     )]
-    pub store_withdraw: bool,
+    pub store_withdrawal_keystore: bool,
     #[clap(
         long,
         value_name = "VALIDATOR_COUNT",
@@ -175,8 +175,8 @@ pub struct Import {
         long,
         value_name = "KEYSTORE_PATH",
         help = "Path to a single keystore to be imported.",
-        conflicts_with = "dir",
-        required_unless_present = "dir"
+        conflicts_with = "directory",
+        required_unless_present = "directory"
     )]
     pub keystore: Option<PathBuf>,
     #[clap(
@@ -189,7 +189,7 @@ pub struct Import {
         conflicts_with = "keystore",
         required_unless_present = "keystore"
     )]
-    pub dir: Option<PathBuf>,
+    pub directory: Option<PathBuf>,
     #[clap(
         hide = cfg!(windows),
         long,
@@ -204,13 +204,13 @@ pub struct Import {
     #[clap(
         long,
         value_name = "KEYSTORE_PASSWORD_PATH",
-        requires = "reuse_password",
+        requires = "reuse-password",
         help = "The path to the file containing the password which will unlock all \
                     keystores being imported. This flag must be used with `--reuse-password`. \
                     The password will be copied to the `validator_definitions.yml` file, so after \
                     import we strongly recommend you delete the file at KEYSTORE_PASSWORD_PATH."
     )]
-    pub password: Option<PathBuf>,
+    pub password_file: Option<PathBuf>,
 }
 
 #[derive(Parser, Clone, Deserialize, Serialize, Debug)]
@@ -258,7 +258,7 @@ pub struct Recover {
                     keypair. It is generally recommended to *not* store the withdrawal key and \
                     instead generate them from the wallet seed when required."
     )]
-    pub store_withdraw: bool,
+    pub store_withdrawal_keystore: bool,
     #[clap(
         hide = cfg!(windows),
         long,

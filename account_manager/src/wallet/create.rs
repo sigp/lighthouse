@@ -41,7 +41,7 @@ pub fn cli_run(create_config: &Create, wallet_base_dir: PathBuf) -> Result<(), S
 
     let wallet = create_config.create_wallet_from_mnemonic(wallet_base_dir.as_path(), &mnemonic)?;
 
-    if let Some(path) = create_config.mnemonic.as_ref() {
+    if let Some(path) = create_config.mnemonic_output_path.as_ref() {
         create_with_600_perms(&path, mnemonic.phrase().as_bytes())
             .map_err(|e| format!("Unable to write mnemonic to {:?}: {:?}", path, e))?;
     }

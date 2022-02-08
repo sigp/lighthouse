@@ -50,7 +50,7 @@ pub struct Create {
                     saved at that path. To avoid confusion, if the file does not already \
                     exist it must include a '.pass' suffix."
     )]
-    pub password: Option<PathBuf>,
+    pub password_file: Option<PathBuf>,
     #[clap(
         long,
         value_name = "WALLET_TYPE",
@@ -67,7 +67,7 @@ pub struct Create {
         value_name = "MNEMONIC_PATH",
         help = "If present, the mnemonic will be saved to this file. DO NOT SHARE THE MNEMONIC."
     )]
-    pub mnemonic: Option<PathBuf>,
+    pub mnemonic_output_path: Option<PathBuf>,
     #[clap(
         hide = cfg!(windows),
         long,
@@ -107,7 +107,7 @@ pub struct Recover {
                     saved at that path. To avoid confusion, if the file does not already \
                     exist it must include a '.pass' suffix."
     )]
-    pub password: Option<PathBuf>,
+    pub password_file: Option<PathBuf>,
     #[clap(
         long,
         value_name = "MNEMONIC_PATH",
@@ -191,7 +191,7 @@ impl NewWallet for Create {
         self.name.clone()
     }
     fn get_password(&self) -> Option<PathBuf> {
-        self.password.clone()
+        self.password_file.clone()
     }
     fn get_type(&self) -> WalletType {
         self.create_type.clone()
@@ -206,7 +206,7 @@ impl NewWallet for Recover {
         self.name.clone()
     }
     fn get_password(&self) -> Option<PathBuf> {
-        self.password.clone()
+        self.password_file.clone()
     }
     fn get_type(&self) -> WalletType {
         self.recover_type.clone()

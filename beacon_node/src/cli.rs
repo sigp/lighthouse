@@ -90,7 +90,13 @@ pub struct BeaconNode {
     #[clap(
         long,
         value_name = "INTEGER",
-        help = "Lighthouse's network can be tuned for bandwidth/performance. Setting this to a high value, will increase the bandwidth lighthouse uses, increasing the likelihood of redundant information in exchange for faster communication. This can increase profit of validators marginally by receiving messages faster on the network. Lower values decrease bandwidth usage, but makes communication slower which can lead to validator performance reduction. Values are in the range [1,5].",
+        help = "Lighthouse's network can be tuned for bandwidth/performance. \
+                Setting this to a high value, will increase the bandwidth lighthouse uses, \
+                increasing the likelihood of redundant information in exchange for faster \
+                communication. This can increase profit of validators marginally by receiving \
+                messages faster on the network. Lower values decrease bandwidth usage, but makes \
+                communication slower which can lead to validator performance reduction. Values \
+                are in the range [1,5].",
         default_value = "3",
         hide = true
     )]
@@ -108,14 +114,16 @@ pub struct BeaconNode {
     #[clap(
         long,
         value_name = "PORT",
-        help = "The UDP port of the local ENR. Set this only if you are sure other nodes can connect to your local node on this port."
+        help = "The UDP port of the local ENR. Set this only if you are sure other nodes can \
+                connect to your local node on this port."
     )]
     pub enr_udp_port: Option<u16>,
     #[clap(
         long,
         value_name = "PORT",
-        help = "The TCP port of the local ENR. Set this only if you are sure other nodes can connect to your local node on this port.\
-                    The --port flag is used if this is not set."
+        help = "The TCP port of the local ENR. Set this only if you are sure other nodes \
+                can connect to your local node on this port.\
+                The --port flag is used if this is not set."
     )]
     pub enr_tcp_port: Option<u16>,
     #[clap(
@@ -126,20 +134,22 @@ pub struct BeaconNode {
                 does not auto-update based on PONG responses in discovery. \
                 Set this only if you are sure other nodes can connect to your local node on this address. \
                 Discovery will automatically find your external address,if possible.",
-        requires = "enr_udp_port"
+        requires = "enr-udp-port"
     )]
     pub enr_address: Option<String>,
     #[clap(
         short = 'e',
         long,
         help = "Sets the local ENR IP address and port to match those set for lighthouse. \
-                Specifically, the IP address will be the value of --listen-address and the UDP port will be --discovery-port."
+                Specifically, the IP address will be the value of --listen-address and the \
+                UDP port will be --discovery-port."
     )]
     pub enr_match: bool,
     #[clap(
         short = 'x',
         long,
-        help = "Discovery automatically updates the nodes local ENR with an external IP address and port as seen by other peers on the network. \
+        help = "Discovery automatically updates the nodes local ENR with an external IP address \
+                and port as seen by other peers on the network. \
                 This disables this feature, fixing the ENR's IP/PORT to those specified on boot."
     )]
     pub disable_enr_auto_update: bool,
@@ -147,18 +157,20 @@ pub struct BeaconNode {
         long,
         value_name = "MULTIADDR",
         help = "One or more comma-delimited multiaddrs to manually connect to a libp2p peer \
-                       without an ENR."
+                without an ENR."
     )]
     pub libp2p_addresses: Option<String>,
     #[clap(
         long,
-        help = "Disables the discv5 discovery protocol. The node will not search for new peers or participate in the discovery protocol."
+        help = "Disables the discv5 discovery protocol. The node will not search for new peers or \
+                participate in the discovery protocol."
     )]
     pub disable_discovery: bool,
     #[clap(
         long,
         value_name = "TRUSTED_PEERS",
-        help = "One or more comma-delimited trusted peer ids which always have the highest score according to the peer scoring system."
+        help = "One or more comma-delimited trusted peer ids which always have the highest \
+                score according to the peer scoring system."
     )]
     pub trusted_peers: Option<String>,
     #[clap(
@@ -199,8 +211,8 @@ pub struct BeaconNode {
         long,
         help = "Serves the RESTful HTTP API server over TLS. This feature is currently \
                     experimental.",
-        requires = "http_tls_cert",
-        requires = "http_tls_key"
+        requires = "http-tls-cert",
+        requires = "http-tls-key"
     )]
     pub http_enable_tls: bool,
     #[clap(
@@ -290,17 +302,14 @@ pub struct BeaconNode {
     #[clap(
         long,
         value_name = "HTTP-ENDPOINTS",
-        conflicts_with = "eth1_endpoint",
+        conflicts_with = "eth1-endpoint",
         help = "One or more comma-delimited server endpoints for web3 connection. \
                        If multiple endpoints are given the endpoints are used as fallback in the \
                        given order. Also enables the --eth1 flag. \
                        Defaults to http://127.0.0.1:8545."
     )]
     pub eth1_endpoints: Option<String>,
-    #[clap(
-        long,
-        help = "Purges the eth1 block and deposit caches"
-    )]
+    #[clap(long, help = "Purges the eth1 block and deposit caches")]
     pub eth1_purge_cache: bool,
     #[clap(
         long,
@@ -469,7 +478,7 @@ pub struct BeaconNode {
         help = "Set a checkpoint state to start syncing from. Must be aligned and match \
                        --checkpoint-block. Using --checkpoint-sync-url instead is recommended.",
         value_name = "STATE_SSZ",
-        requires = "checkpoint_block"
+        requires = "checkpoint-block"
     )]
     pub checkpoint_state: Option<PathBuf>,
     #[clap(
@@ -477,21 +486,21 @@ pub struct BeaconNode {
         help = "Set a checkpoint block to start syncing from. Must be aligned and match \
                        --checkpoint-state. Using --checkpoint-sync-url instead is recommended.",
         value_name = "BLOCK_SSZ",
-        requires = "checkpoint_state"
+        requires = "checkpoint-state"
     )]
     pub checkpoint_block: Option<PathBuf>,
     #[clap(
         long,
         help = "Set the remote beacon node HTTP endpoint to use for checkpoint sync.",
         value_name = "BEACON_NODE",
-        conflicts_with = "checkpoint_state"
+        conflicts_with = "checkpoint-state"
     )]
     pub checkpoint_sync_url: Option<String>,
     #[clap(
         long,
         help = "After a checkpoint sync, reconstruct historic states in the database."
     )]
-    pub reconstruct_historic_state: bool,
+    pub reconstruct_historic_states: bool,
     #[clap(
         long,
         help = "Enables the automatic detection and monitoring of validators connected to the \

@@ -14,7 +14,7 @@ pub struct ValidatorClient {
         long,
         value_name = "NETWORK_ADDRESS",
         help = "Deprecated. Use --beacon-nodes.",
-        conflicts_with = "beacon_nodes"
+        conflicts_with = "beacon-nodes"
     )]
     pub beacon_node: Option<String>,
     #[clap(
@@ -28,7 +28,7 @@ pub struct ValidatorClient {
         long,
         value_name = "NETWORK_ADDRESS",
         help = "Deprecated. Use --beacon-nodes.",
-        conflicts_with_all = &["beacon_node", "beacon_nodes"],
+        conflicts_with_all = &["beacon-node", "beacon-nodes"],
     )]
     pub server: Option<String>,
     #[clap(
@@ -119,14 +119,14 @@ pub struct ValidatorClient {
                         `--unencrypted-http-transport` flag to ensure the user is aware of the \
                         risks involved. For access via the Internet, users should apply \
                         transport-layer security like a HTTPS reverse-proxy or SSH tunnelling.",
-        requires = "unencrypted_http_transport"
+        requires = "unencrypted-http-transport"
     )]
     pub http_address: Option<Ipv4Addr>,
     #[clap(
         long,
         help = "This is a safety flag to ensure that the user is aware that the http \
                         transport is unencrypted and using a custom HTTP address is unsafe.",
-        requires = "http_address"
+        requires = "http-address"
     )]
     pub unencrypted_http_transport: bool,
     #[clap(

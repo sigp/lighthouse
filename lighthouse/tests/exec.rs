@@ -62,7 +62,7 @@ pub trait CommandLineTestExec {
 
         // Add args --datadir <tmp_dir> --dump-config <tmp_config_path> --immediate-shutdown
         let cmd = self.cmd_mut();
-        cmd.arg(format!("--{}", "--dump-config"))
+        cmd.arg(format!("--{}", "dump-config"))
             .arg(tmp_config_path.as_os_str())
             .arg("--immediate-shutdown");
 

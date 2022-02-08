@@ -75,7 +75,7 @@ pub fn cli_run(
             .password_dir(secrets_dir.clone())
             .voting_keystore(keystores.voting, voting_password.as_bytes())
             .withdrawal_keystore(keystores.withdrawal, withdrawal_password.as_bytes())
-            .store_withdrawal_keystore(recover_config.store_withdraw)
+            .store_withdrawal_keystore(recover_config.store_withdrawal_keystore)
             .build()
             .map_err(|e| format!("Unable to build validator directory: {:?}", e))?;
 

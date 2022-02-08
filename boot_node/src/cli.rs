@@ -20,7 +20,9 @@ pub struct BootNode {
         help = "The external IP address/ DNS address to broadcast to other peers on how to reach this node. \
             If a DNS address is provided, the enr-address is set to the IP address it resolves to and \
              does not auto-update based on PONG responses in discovery.",
-        conflicts_with = "network_dir"
+        index = 1,
+        required_unless_present = "network-dir",
+        conflicts_with = "network-dir"
     )]
     pub enr_address: Option<String>,
     #[clap(
@@ -50,9 +52,9 @@ pub struct BootNode {
         value_name = "PORT",
         help = "The UDP port of the boot node's ENR. This is the port that external peers will dial \
             to reach this boot node. Set this only if the external port differs from the listening port.",
-        conflicts_with = "network_dir"
+        conflicts_with = "network-dir"
     )]
-    pub enr_udp_port: Option<u16>,
+    pub enr_port: Option<u16>,
     #[clap(
         short = 'x',
         long,
@@ -68,7 +70,8 @@ pub struct BootNode {
     #[clap(
         value_name = "NETWORK_DIR",
         long,
-        help = "The directory which contains the enr and it's assoicated private key"
+        help = "The directory which contains the enr and it's assoicated private key",
+        conflicts_with_all = &["enr-address","enr-port"],
     )]
     pub network_dir: Option<PathBuf>,
 }
@@ -87,7 +90,7 @@ impl NetworkConfigurable for BootNode {
         self.boot_nodes.clone()
     }
     fn get_enr_udp_port(&self) -> Option<u16> {
-        self.enr_udp_port
+        self.enr_port
     }
     fn get_enr_address(&self) -> Option<String> {
         self.enr_address.clone()

@@ -373,7 +373,7 @@ pub fn get_config<E: EthSpec>(
         ClientGenesis::DepositContract
     };
 
-    if beacon_config.reconstruct_historic_state {
+    if beacon_config.reconstruct_historic_states {
         client_config.chain.reconstruct_historic_states = true;
     }
 

@@ -26,10 +26,10 @@ pub const KEYSTORE_REUSE_WARNING: &str = "DO NOT USE THE ORIGINAL KEYSTORES TO V
 
 pub fn cli_run(import_config: &Import, validator_dir: PathBuf) -> Result<(), String> {
     let keystore: Option<PathBuf> = import_config.keystore.clone();
-    let keystores_dir: Option<PathBuf> = import_config.dir.clone();
+    let keystores_dir: Option<PathBuf> = import_config.directory.clone();
     let stdin_inputs = cfg!(windows) || import_config.stdin_inputs;
     let reuse_password = import_config.reuse_password;
-    let keystore_password_path: Option<PathBuf> = import_config.password.clone();
+    let keystore_password_path: Option<PathBuf> = import_config.password_file.clone();
 
     let mut defs = ValidatorDefinitions::open_or_create(&validator_dir)
         .map_err(|e| format!("Unable to open {}: {:?}", CONFIG_FILENAME, e))?;

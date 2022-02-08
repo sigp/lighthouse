@@ -155,7 +155,7 @@ pub struct Lighthouse {
         value_name = "network",
         help = "Name of the Eth2 chain Lighthouse will sync and follow.",
         possible_values = HARDCODED_NET_NAMES,
-        conflicts_with = "testnet_dir_flag",
+        conflicts_with = "testnet-dir",
         global = true
     )]
     pub network: Option<String>,
@@ -203,7 +203,7 @@ pub struct Lighthouse {
                       the broad Ethereum community has elected to override the terminal PoW block. \
                       Incorrect use of this flag will cause your node to experience a consensus \
                       failure. Be extremely careful with this flag.",
-        requires = "terminal_block_hash_epoch_override",
+        requires = "terminal-block-hash-epoch-override",
         global = true
     )]
     pub terminal_block_hash_override: Option<Hash256>,
@@ -215,7 +215,7 @@ pub struct Lighthouse {
                       that the broad Ethereum community has elected to override the terminal PoW block. \
                       Incorrect use of this flag will cause your node to experience a consensus \
                       failure. Be extremely careful with this flag.",
-        requires = "terminal_block_hash_override",
+        requires = "terminal-block-hash-override",
         global = true
     )]
     pub terminal_block_hash_epoch_override: Option<Epoch>,
