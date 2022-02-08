@@ -1,6 +1,6 @@
-use std::net::Ipv4Addr;
 pub use clap::{IntoApp, Parser};
 use serde::{Deserialize, Serialize};
+use std::net::Ipv4Addr;
 use std::path::PathBuf;
 
 #[derive(Parser, Clone, Deserialize, Serialize, Debug)]

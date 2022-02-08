@@ -1,5 +1,6 @@
 use beacon_node::{get_data_dir, set_network_config_shared};
-use clap::ArgMatches;
+use crate::BootNode;
+use clap_utils::GlobalConfig;
 use eth2_network_config::Eth2NetworkConfig;
 use lighthouse_network::discv5::{enr::CombinedKey, Discv5Config, Enr};
 use lighthouse_network::{
@@ -10,9 +11,7 @@ use serde_derive::{Deserialize, Serialize};
 use ssz::Encode;
 use std::net::SocketAddr;
 use std::{marker::PhantomData, path::PathBuf};
-use clap_utils::GlobalConfig;
 use types::EthSpec;
-use crate::BootNode;
 
 /// A set of configuration parameters for the bootnode, established from CLI arguments.
 pub struct BootNodeConfig<T: EthSpec> {
@@ -58,7 +57,13 @@ impl<T: EthSpec> BootNodeConfig<T> {
 
         let logger = slog_scope::logger();
 
-        set_network_config_shared::<BootNode>(&mut network_config, boot_node_config, &data_dir, &logger, true)?;
+        set_network_config_shared::<BootNode>(
+            &mut network_config,
+            boot_node_config,
+            &data_dir,
+            &logger,
+            true,
+        )?;
 
         // Set the enr-udp-port to the default listening port if it was not specified.
         if boot_node_config.enr_udp_port.is_none() {
@@ -168,4 +173,3 @@ impl BootNodeConfigSerialization {
         }
     }
 }
-

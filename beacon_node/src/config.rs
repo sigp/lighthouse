@@ -1,3 +1,4 @@
+use crate::cli::NetworkConfigurable;
 use crate::BeaconNode;
 use clap::ArgMatches;
 use clap_utils::flags::DISABLE_MALLOC_TUNING_FLAG;
@@ -17,7 +18,6 @@ use std::net::{TcpListener, UdpSocket};
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use types::{Address, Checkpoint, Epoch, EthSpec, Hash256, PublicKeyBytes, GRAFFITI_BYTES_LEN};
-use crate::cli::NetworkConfigurable;
 
 // TODO(merge): remove this default value. It's just there to make life easy during
 // early testnets.
@@ -541,8 +541,13 @@ pub fn set_network_config(
     log: &Logger,
     use_listening_port_as_enr_port_by_default: bool,
 ) -> Result<(), String> {
-
-    set_network_config_shared::<BeaconNode>(config, beacon_config, data_dir, log, use_listening_port_as_enr_port_by_default)?;
+    set_network_config_shared::<BeaconNode>(
+        config,
+        beacon_config,
+        data_dir,
+        log,
+        use_listening_port_as_enr_port_by_default,
+    )?;
 
     if beacon_config.subscribe_all_subnets {
         config.subscribe_all_subnets = true;

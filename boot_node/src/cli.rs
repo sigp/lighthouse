@@ -1,9 +1,8 @@
 use std::net::IpAddr;
-use clap::{ArgEnum, Args, Subcommand};
+use beacon_node::cli::NetworkConfigurable;
 pub use clap::{IntoApp, Parser};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
-use beacon_node::cli::NetworkConfigurable;
 
 #[derive(Parser, Clone, Deserialize, Serialize, Debug)]
 #[clap(

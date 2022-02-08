@@ -4,6 +4,7 @@ mod block_service;
 mod check_synced;
 mod cli;
 mod config;
+mod doppelganger_service;
 mod duties_service;
 mod graffiti_file;
 mod http_metrics;
@@ -11,18 +12,11 @@ mod key_cache;
 mod notifier;
 mod signing_method;
 mod sync_committee_service;
-mod doppelganger_service;
 
 pub mod http_api;
 pub mod initialized_validators;
 pub mod validator_store;
 
-pub use cli::ValidatorClient;
-pub use config::Config;
-use initialized_validators::InitializedValidators;
-use lighthouse_metrics::set_gauge;
-use monitoring_api::{MonitoringHttpClient, ProcessType};
-pub use slashing_protection::{SlashingDatabase, SLASHING_PROTECTION_FILENAME};
 use crate::beacon_node_fallback::{
     start_fallback_updater_service, BeaconNodeFallback, CandidateBeaconNode, RequireSynced,
 };
@@ -31,13 +25,19 @@ use account_utils::validator_definitions::ValidatorDefinitions;
 use attestation_service::{AttestationService, AttestationServiceBuilder};
 use block_service::{BlockService, BlockServiceBuilder};
 use clap_utils::GlobalConfig;
+pub use cli::ValidatorClient;
+pub use config::Config;
 use duties_service::DutiesService;
 use environment::RuntimeContext;
 use eth2::{reqwest::ClientBuilder, BeaconNodeHttpClient, StatusCode, Timeouts};
 use http_api::ApiSecret;
+use initialized_validators::InitializedValidators;
+use lighthouse_metrics::set_gauge;
+use monitoring_api::{MonitoringHttpClient, ProcessType};
 use notifier::spawn_notifier;
 use parking_lot::RwLock;
 use reqwest::Certificate;
+pub use slashing_protection::{SlashingDatabase, SLASHING_PROTECTION_FILENAME};
 use slog::{error, info, warn, Logger};
 use slot_clock::SlotClock;
 use slot_clock::SystemTimeSlotClock;
