@@ -5,8 +5,8 @@ mod metrics;
 
 use crate::cli::{Lighthouse, LighthouseSubcommand};
 use beacon_node::ProductionBeaconNode;
-use clap::{App, Arg, ArgMatches};
-use clap_utils::{flags::DISABLE_MALLOC_TUNING_FLAG, get_eth2_network_config, GlobalConfig};
+use clap::{App, Arg, ArgMatches, Parser, IntoApp};
+use clap_utils::{flags::DISABLE_MALLOC_TUNING_FLAG, GlobalConfig};
 use directory::{parse_path_or_default, DEFAULT_BEACON_NODE_DIR, DEFAULT_VALIDATOR_DIR};
 use env_logger::{Builder, Env};
 use environment::{EnvironmentBuilder, LoggerConfig};
@@ -68,13 +68,13 @@ fn main() {
         .and_then(|eth2_network_config| {
             let eth_spec_id = eth2_network_config.eth_spec_id()?;
 
-            let global_config = lighthouse.into();
+            let global_config = lighthouse.get_global_config();
 
-            match lighthouse.subcommand.as_ref() {
+            match &lighthouse.subcommand {
                 // Boot node subcommand circumvents the environment.
                 LighthouseSubcommand::BootNode(boot_node) => {
                     boot_node::run(
-                        &boot_node,
+                        boot_node,
                         &global_config,
                         eth_spec_id,
                         &eth2_network_config,
@@ -146,7 +146,7 @@ fn run<E: EthSpec>(
     }
 
     let debug_level = lighthouse.debug_level.as_str();
-    let log_format = lighthouse.log_format.map(String::as_str);
+    let log_format = lighthouse.log_format.as_ref().map(String::as_str);
     let logfile_debug_level = lighthouse.logfile_debug_level.as_str();
     let logfile_max_size: u64 = lighthouse.logfile_max_size;
     let logfile_max_number: usize = lighthouse.logfile_max_number;
@@ -234,10 +234,10 @@ fn run<E: EthSpec>(
         (Some(_), Some(_)) => panic!("CLI prevents both --network and --testnet-dir"),
     };
 
-    if let LighthouseSubcommand::AccountManager(acc_manager) = lighthouse.subcommand.as_ref() {
+    if let LighthouseSubcommand::AccountManager(acc_manager) = &lighthouse.subcommand {
         eprintln!("Running account manager for {} network", network_name);
         // Pass the entire `environment` to the account manager so it can run blocking operations.
-        account_manager::run(&acc_manager, &global_config, environment)?;
+        account_manager::run(acc_manager, &global_config, environment)?;
 
         // Exit as soon as account manager returns control.
         return Ok(());

@@ -232,7 +232,7 @@ pub const BAD_TESTNET_DIR_MESSAGE: &str = "The hard-coded testnet directory was 
 impl Lighthouse {
     /// Returns true if the provided command was to start a beacon node.
     pub fn is_beacon_node(&self) -> bool {
-        match self.subcommand.as_ref() {
+        match &self.subcommand {
             LighthouseSubcommand::BeaconNode(_) => true,
             _ => false,
         }
@@ -245,8 +245,8 @@ impl Lighthouse {
             Eth2NetworkConfig::constant(network)?
         } else if let Some(testnet_dir) = self.testnet_dir.as_ref() {
             Eth2NetworkConfig::load(testnet_dir.clone())
-                .map_err(|e| format!("Unable to open testnet dir at {:?}: {}", path, e))
-                .map(Some)
+                .map_err(|e| format!("Unable to open testnet dir at {:?}: {}", testnet_dir, e))
+                .map(Some)?
         } else {
             // if neither is present, assume the default network
             Eth2NetworkConfig::constant(DEFAULT_HARDCODED_NETWORK)?
@@ -272,24 +272,22 @@ impl Lighthouse {
 
         Ok(eth2_network_config)
     }
-}
 
-impl Into<GlobalConfig> for Lighthouse {
-    fn into(self) -> GlobalConfig {
+    pub fn get_global_config(&self) -> GlobalConfig {
         GlobalConfig {
-            config_file: self.config_file,
-            spec: self.spec,
-            logfile: self.logfile,
-            logfile_debug_level: self.logfile_debug_level,
-            logfile_max_size: self.logfile_max_size,
-            logfile_max_number: self.logfile_max_number,
-            logfile_compress: self.logfile_compress,
-            log_format: self.log_format,
-            debug_level: self.debug_level,
-            datadir: self.datadir,
-            testnet_dir: self.testnet_dir,
-            network: self.network,
-            dump_config: self.dump_config,
+            config_file: self.config_file.clone(),
+            spec: self.spec.clone(),
+            logfile: self.logfile.clone(),
+            logfile_debug_level: self.logfile_debug_level.clone(),
+            logfile_max_size: self.logfile_max_size.clone(),
+            logfile_max_number: self.logfile_max_number.clone(),
+            logfile_compress: self.logfile_compress.clone(),
+            log_format: self.log_format.clone(),
+            debug_level: self.debug_level.clone(),
+            datadir: self.datadir.clone(),
+            testnet_dir: self.testnet_dir.clone(),
+            network: self.network.clone(),
+            dump_config: self.dump_config.clone(),
             immediate_shutdown: self.immediate_shutdown,
             disable_malloc_tuning: self.disable_malloc_tuning,
             terminal_total_difficulty_override: self.terminal_total_difficulty_override,
@@ -305,12 +303,7 @@ pub enum LighthouseSubcommand {
     BeaconNode(beacon_node::BeaconNode),
     ValidatorClient(validator_client::ValidatorClient),
     BootNode(boot_node::BootNode),
+    #[clap(subcommand)]
     AccountManager(account_manager::AccountManager),
 }
 
-// Marker trait
-pub trait SubcommandConfig {}
-impl SubcommandConfig for beacon_node::BeaconNode {}
-impl SubcommandConfig for beacon_node::ValidatorClient {}
-impl SubcommandConfig for beacon_node::BootNode {}
-impl SubcommandConfig for beacon_node::AccountManager {}

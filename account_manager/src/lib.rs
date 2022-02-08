@@ -2,7 +2,7 @@ mod common;
 pub mod validator;
 pub mod wallet;
 
-pub use clap::{IntoApp, Parser};
+pub use clap::{IntoApp, Parser, Subcommand};
 use clap_utils::GlobalConfig;
 use environment::Environment;
 use serde::{Deserialize, Serialize};
@@ -13,7 +13,7 @@ pub const SECRETS_DIR_FLAG: &str = "secrets-dir";
 pub const VALIDATOR_DIR_FLAG: &str = "validator-dir";
 pub const WALLETS_DIR_FLAG: &str = "wallets-dir";
 
-#[derive(Parser, Clone, Deserialize, Serialize, Debug)]
+#[derive(Subcommand, Clone, Deserialize, Serialize, Debug)]
 #[clap(rename_all = "snake_case", visible_aliases = &["a", "am", "account"],
 about = "Utilities for generating and managing Ethereum 2.0 accounts.")]
 pub enum AccountManager {
