@@ -286,8 +286,9 @@ fn run<E: EthSpec>(
             let context = environment.core_context();
             let log = context.log().clone();
             let executor = context.executor.clone();
-            let config = validator_client::Config::from_cli(validator_client, global_config, context.log())
-                .map_err(|e| format!("Unable to initialize validator config: {}", e))?;
+            let config =
+                validator_client::Config::from_cli(validator_client, global_config, context.log())
+                    .map_err(|e| format!("Unable to initialize validator config: {}", e))?;
             let shutdown_flag = lighthouse.immediate_shutdown;
             if let Some(dump_path) = lighthouse.dump_config.as_ref() {
                 let mut file = File::create(dump_path)

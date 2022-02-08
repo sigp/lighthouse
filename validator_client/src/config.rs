@@ -1,7 +1,6 @@
 use crate::graffiti_file::GraffitiFile;
 use crate::{http_api, http_metrics, ValidatorClient};
-use clap::ArgMatches;
-use clap_utils::{GlobalConfig, parse_optional, parse_required};
+use clap_utils::GlobalConfig;
 use directory::{
     get_network_dir, DEFAULT_HARDCODED_NETWORK, DEFAULT_ROOT_DIR, DEFAULT_SECRET_DIR,
     DEFAULT_VALIDATOR_DIR,
@@ -11,7 +10,6 @@ use sensitive_url::SensitiveUrl;
 use serde_derive::{Deserialize, Serialize};
 use slog::{info, warn, Logger};
 use std::fs;
-use std::net::Ipv4Addr;
 use std::path::PathBuf;
 use types::GRAFFITI_BYTES_LEN;
 
@@ -91,7 +89,11 @@ impl Default for Config {
 impl Config {
     /// Returns a `Default` implementation of `Self` with some parameters modified by the supplied
     /// `cli_args`.
-    pub fn from_cli(validator_config: &ValidatorClient, global_config: &GlobalConfig, log: &Logger) -> Result<Config, String> {
+    pub fn from_cli(
+        validator_config: &ValidatorClient,
+        global_config: &GlobalConfig,
+        log: &Logger,
+    ) -> Result<Config, String> {
         let mut config = Config::default();
 
         let default_root_dir = dirs::home_dir()
@@ -104,8 +106,13 @@ impl Config {
             secrets_dir = Some(base_dir.join(DEFAULT_SECRET_DIR));
         }
 
-        validator_dir = validator_config.validators_dir.clone();
-        secrets_dir = validator_config.secrets_dir.clone();
+        if let Some(validators_dir) = validator_config.validators_dir.clone() {
+            validator_dir = Some(validators_dir);
+        }
+
+        if let Some(config_secrets_dir) = validator_config.secrets_dir.clone() {
+            secrets_dir = Some(config_secrets_dir);
+        }
 
         config.validator_dir = validator_dir.unwrap_or_else(|| {
             default_root_dir
@@ -200,13 +207,13 @@ impl Config {
         /*
          * Http API server
          */
-            config.http_api.enabled = validator_config.http;
+        config.http_api.enabled = validator_config.http;
 
         if let Some(address) = validator_config.http_address.clone() {
             config.http_api.listen_addr = address;
         }
 
-            config.http_api.listen_port = validator_config.http_port;
+        config.http_api.listen_port = validator_config.http_port;
 
         if let Some(allow_origin) = validator_config.http_allow_origin.as_ref() {
             // Pre-validate the config value to give feedback to the user on node startup, instead of
@@ -220,7 +227,7 @@ impl Config {
         /*
          * Prometheus metrics HTTP server
          */
-            config.http_metrics.enabled = validator_config.metrics;
+        config.http_metrics.enabled = validator_config.metrics;
         config.http_metrics.listen_addr = validator_config.metrics_address.clone();
         config.http_metrics.listen_port = validator_config.metrics_port;
 
@@ -243,7 +250,7 @@ impl Config {
             });
         }
 
-            config.enable_doppelganger_protection = validator_config.enable_doppelganger_protection;
+        config.enable_doppelganger_protection = validator_config.enable_doppelganger_protection;
 
         Ok(config)
     }

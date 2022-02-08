@@ -1,7 +1,5 @@
 use std::net::Ipv4Addr;
-use clap::{ArgEnum, Args, Subcommand};
 pub use clap::{IntoApp, Parser};
-use lazy_static::lazy_static;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 

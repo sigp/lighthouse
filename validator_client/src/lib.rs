@@ -11,8 +11,8 @@ mod key_cache;
 mod notifier;
 mod signing_method;
 mod sync_committee_service;
-
 mod doppelganger_service;
+
 pub mod http_api;
 pub mod initialized_validators;
 pub mod validator_store;
@@ -23,7 +23,6 @@ use initialized_validators::InitializedValidators;
 use lighthouse_metrics::set_gauge;
 use monitoring_api::{MonitoringHttpClient, ProcessType};
 pub use slashing_protection::{SlashingDatabase, SLASHING_PROTECTION_FILENAME};
-
 use crate::beacon_node_fallback::{
     start_fallback_updater_service, BeaconNodeFallback, CandidateBeaconNode, RequireSynced,
 };
@@ -31,7 +30,7 @@ use crate::doppelganger_service::DoppelgangerService;
 use account_utils::validator_definitions::ValidatorDefinitions;
 use attestation_service::{AttestationService, AttestationServiceBuilder};
 use block_service::{BlockService, BlockServiceBuilder};
-use clap::ArgMatches;
+use clap_utils::GlobalConfig;
 use duties_service::DutiesService;
 use environment::RuntimeContext;
 use eth2::{reqwest::ClientBuilder, BeaconNodeHttpClient, StatusCode, Timeouts};
@@ -54,7 +53,6 @@ use tokio::{
     sync::mpsc,
     time::{sleep, Duration},
 };
-use clap_utils::GlobalConfig;
 use types::{EthSpec, Hash256};
 use validator_store::ValidatorStore;
 
