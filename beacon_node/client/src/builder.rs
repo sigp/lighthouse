@@ -700,6 +700,11 @@ where
 
                 // Spawn a routine that tracks the status of the execution engines.
                 execution_layer.spawn_watchdog_routine(beacon_chain.slot_clock.clone());
+
+                // Spawn a routine that removes expired proposer preparations.
+                execution_layer.spawn_clean_proposer_preparation_routine::<TSlotClock, TEthSpec>(
+                    beacon_chain.slot_clock.clone(),
+                );
             }
         }
 

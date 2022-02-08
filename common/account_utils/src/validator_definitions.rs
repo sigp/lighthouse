@@ -13,7 +13,7 @@ use std::collections::HashSet;
 use std::fs::{self, OpenOptions};
 use std::io;
 use std::path::{Path, PathBuf};
-use types::{graffiti::GraffitiString, PublicKey};
+use types::{graffiti::GraffitiString, Address, PublicKey};
 use validator_dir::VOTING_KEYSTORE_FILE;
 
 /// The file name for the serialized `ValidatorDefinitions` struct.
@@ -93,6 +93,9 @@ pub struct ValidatorDefinition {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub graffiti: Option<GraffitiString>,
     #[serde(default)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub suggested_fee_recipient: Option<Address>,
+    #[serde(default)]
     pub description: String,
     #[serde(flatten)]
     pub signing_definition: SigningDefinition,
@@ -109,6 +112,7 @@ impl ValidatorDefinition {
         voting_keystore_path: P,
         voting_keystore_password: Option<ZeroizeString>,
         graffiti: Option<GraffitiString>,
+        suggested_fee_recipient: Option<Address>,
     ) -> Result<Self, Error> {
         let voting_keystore_path = voting_keystore_path.as_ref().into();
         let keystore =
@@ -120,6 +124,7 @@ impl ValidatorDefinition {
             voting_public_key,
             description: keystore.description().unwrap_or("").to_string(),
             graffiti,
+            suggested_fee_recipient,
             signing_definition: SigningDefinition::LocalKeystore {
                 voting_keystore_path,
                 voting_keystore_password_path: None,
@@ -265,6 +270,7 @@ impl ValidatorDefinitions {
                     voting_public_key,
                     description: keystore.description().unwrap_or("").to_string(),
                     graffiti: None,
+                    suggested_fee_recipient: None,
                     signing_definition: SigningDefinition::LocalKeystore {
                         voting_keystore_path,
                         voting_keystore_password_path,
@@ -464,6 +470,47 @@ mod tests {
         assert_eq!(
             def.graffiti,
             Some(GraffitiString::from_str("mrfwashere").unwrap())
+        );
+    }
+
+    #[test]
+    fn suggested_fee_recipient_checks() {
+        let no_suggested_fee_recipient = r#"---
+        description: ""
+        enabled: true
+        type: local_keystore
+        voting_keystore_path: ""
+        voting_public_key: "0xaf3c7ddab7e293834710fca2d39d068f884455ede270e0d0293dc818e4f2f0f975355067e8437955cb29aec674e5c9e7"
+        "#;
+        let def: ValidatorDefinition = serde_yaml::from_str(no_suggested_fee_recipient).unwrap();
+        assert!(def.suggested_fee_recipient.is_none());
+
+        let invalid_suggested_fee_recipient = r#"---
+        description: ""
+        enabled: true
+        type: local_keystore
+        suggested_fee_recipient: "foopy"
+        voting_keystore_path: ""
+        voting_public_key: "0xaf3c7ddab7e293834710fca2d39d068f884455ede270e0d0293dc818e4f2f0f975355067e8437955cb29aec674e5c9e7"
+        "#;
+
+        let def: Result<ValidatorDefinition, _> =
+            serde_yaml::from_str(invalid_suggested_fee_recipient);
+        assert!(def.is_err());
+
+        let valid_suggested_fee_recipient = r#"---
+        description: ""
+        enabled: true
+        type: local_keystore
+        suggested_fee_recipient: "0xa2e334e71511686bcfe38bb3ee1ad8f6babcc03d"
+        voting_keystore_path: ""
+        voting_public_key: "0xaf3c7ddab7e293834710fca2d39d068f884455ede270e0d0293dc818e4f2f0f975355067e8437955cb29aec674e5c9e7"
+        "#;
+
+        let def: ValidatorDefinition = serde_yaml::from_str(valid_suggested_fee_recipient).unwrap();
+        assert_eq!(
+            def.suggested_fee_recipient,
+            Some(Address::from_str("0xa2e334e71511686bcfe38bb3ee1ad8f6babcc03d").unwrap())
         );
     }
 }
