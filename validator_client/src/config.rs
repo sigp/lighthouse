@@ -1,7 +1,7 @@
 use crate::graffiti_file::GraffitiFile;
-use crate::{http_api, http_metrics};
+use crate::{http_api, http_metrics, ValidatorClient};
 use clap::ArgMatches;
-use clap_utils::{parse_optional, parse_required};
+use clap_utils::{GlobalConfig, parse_optional, parse_required};
 use directory::{
     get_network_dir, DEFAULT_HARDCODED_NETWORK, DEFAULT_ROOT_DIR, DEFAULT_SECRET_DIR,
     DEFAULT_VALIDATOR_DIR,
@@ -91,7 +91,7 @@ impl Default for Config {
 impl Config {
     /// Returns a `Default` implementation of `Self` with some parameters modified by the supplied
     /// `cli_args`.
-    pub fn from_cli(cli_args: &ArgMatches, log: &Logger) -> Result<Config, String> {
+    pub fn from_cli(validator_config: &ValidatorClient, global_config: &GlobalConfig, log: &Logger) -> Result<Config, String> {
         let mut config = Config::default();
 
         let default_root_dir = dirs::home_dir()
@@ -99,27 +99,23 @@ impl Config {
             .unwrap_or_else(|| PathBuf::from("."));
 
         let (mut validator_dir, mut secrets_dir) = (None, None);
-        if cli_args.value_of("datadir").is_some() {
-            let base_dir: PathBuf = parse_required(cli_args, "datadir")?;
+        if let Some(base_dir) = global_config.datadir.as_ref() {
             validator_dir = Some(base_dir.join(DEFAULT_VALIDATOR_DIR));
             secrets_dir = Some(base_dir.join(DEFAULT_SECRET_DIR));
         }
-        if cli_args.value_of("validators-dir").is_some() {
-            validator_dir = Some(parse_required(cli_args, "validators-dir")?);
-        }
-        if cli_args.value_of("secrets-dir").is_some() {
-            secrets_dir = Some(parse_required(cli_args, "secrets-dir")?);
-        }
+
+        validator_dir = validator_config.validators_dir.clone();
+        secrets_dir = validator_config.secrets_dir.clone();
 
         config.validator_dir = validator_dir.unwrap_or_else(|| {
             default_root_dir
-                .join(get_network_dir(cli_args))
+                .join(get_network_dir(global_config))
                 .join(DEFAULT_VALIDATOR_DIR)
         });
 
         config.secrets_dir = secrets_dir.unwrap_or_else(|| {
             default_root_dir
-                .join(get_network_dir(cli_args))
+                .join(get_network_dir(global_config))
                 .join(DEFAULT_SECRET_DIR)
         });
 
@@ -128,7 +124,7 @@ impl Config {
                 .map_err(|e| format!("Failed to create {:?}: {:?}", config.validator_dir, e))?;
         }
 
-        if let Some(beacon_nodes) = parse_optional::<String>(cli_args, "beacon-nodes")? {
+        if let Some(beacon_nodes) = validator_config.beacon_nodes.as_ref() {
             config.beacon_nodes = beacon_nodes
                 .split(',')
                 .map(SensitiveUrl::parse)
@@ -136,7 +132,7 @@ impl Config {
                 .map_err(|e| format!("Unable to parse beacon node URL: {:?}", e))?;
         }
         // To be deprecated.
-        else if let Some(beacon_node) = parse_optional::<String>(cli_args, "beacon-node")? {
+        else if let Some(beacon_node) = validator_config.beacon_node.as_ref() {
             warn!(
                 log,
                 "The --beacon-node flag is deprecated";
@@ -146,7 +142,7 @@ impl Config {
                 .map_err(|e| format!("Unable to parse beacon node URL: {:?}", e))?];
         }
         // To be deprecated.
-        else if let Some(server) = parse_optional::<String>(cli_args, "server")? {
+        else if let Some(server) = validator_config.beacon_node.as_ref() {
             warn!(
                 log,
                 "The --server flag is deprecated";
@@ -156,7 +152,7 @@ impl Config {
                 .map_err(|e| format!("Unable to parse beacon node URL: {:?}", e))?];
         }
 
-        if cli_args.is_present("delete-lockfiles") {
+        if validator_config.delete_lockfiles {
             warn!(
                 log,
                 "The --delete-lockfiles flag is deprecated";
@@ -164,21 +160,21 @@ impl Config {
             );
         }
 
-        config.allow_unsynced_beacon_node = cli_args.is_present("allow-unsynced");
-        config.disable_auto_discover = cli_args.is_present("disable-auto-discover");
-        config.init_slashing_protection = cli_args.is_present("init-slashing-protection");
-        config.use_long_timeouts = cli_args.is_present("use-long-timeouts");
+        config.allow_unsynced_beacon_node = validator_config.allow_unsynced;
+        config.disable_auto_discover = validator_config.disable_auto_discover;
+        config.init_slashing_protection = validator_config.init_slashing_protection;
+        config.use_long_timeouts = validator_config.use_long_timeouts;
 
-        if let Some(graffiti_file_path) = cli_args.value_of("graffiti-file") {
+        if let Some(graffiti_file_path) = validator_config.graffiti_file.as_ref() {
             let mut graffiti_file = GraffitiFile::new(graffiti_file_path.into());
             graffiti_file
                 .read_graffiti_file()
                 .map_err(|e| format!("Error reading graffiti file: {:?}", e))?;
             config.graffiti_file = Some(graffiti_file);
-            info!(log, "Successfully loaded graffiti file"; "path" => graffiti_file_path);
+            info!(log, "Successfully loaded graffiti file"; "path" => ?graffiti_file_path);
         }
 
-        if let Some(input_graffiti) = cli_args.value_of("graffiti") {
+        if let Some(input_graffiti) = validator_config.graffiti.as_ref() {
             let graffiti_bytes = input_graffiti.as_bytes();
             if graffiti_bytes.len() > GRAFFITI_BYTES_LEN {
                 return Err(format!(
@@ -197,38 +193,22 @@ impl Config {
             }
         }
 
-        if let Some(tls_certs) = parse_optional::<String>(cli_args, "beacon-nodes-tls-certs")? {
+        if let Some(tls_certs) = validator_config.beacon_nodes_tls_certs.as_ref() {
             config.beacon_nodes_tls_certs = Some(tls_certs.split(',').map(PathBuf::from).collect());
         }
 
         /*
          * Http API server
          */
+            config.http_api.enabled = validator_config.http;
 
-        if cli_args.is_present("http") {
-            config.http_api.enabled = true;
+        if let Some(address) = validator_config.http_address.clone() {
+            config.http_api.listen_addr = address;
         }
 
-        if let Some(address) = cli_args.value_of("http-address") {
-            if cli_args.is_present("unencrypted-http-transport") {
-                config.http_api.listen_addr = address
-                    .parse::<Ipv4Addr>()
-                    .map_err(|_| "http-address is not a valid IPv4 address.")?;
-            } else {
-                return Err(
-                    "While using `--http-address`, you must also use `--unencrypted-http-transport`."
-                        .to_string(),
-                );
-            }
-        }
+            config.http_api.listen_port = validator_config.http_port;
 
-        if let Some(port) = cli_args.value_of("http-port") {
-            config.http_api.listen_port = port
-                .parse::<u16>()
-                .map_err(|_| "http-port is not a valid u16.")?;
-        }
-
-        if let Some(allow_origin) = cli_args.value_of("http-allow-origin") {
+        if let Some(allow_origin) = validator_config.http_allow_origin.as_ref() {
             // Pre-validate the config value to give feedback to the user on node startup, instead of
             // as late as when the first API response is produced.
             hyper::header::HeaderValue::from_str(allow_origin)
@@ -240,24 +220,11 @@ impl Config {
         /*
          * Prometheus metrics HTTP server
          */
+            config.http_metrics.enabled = validator_config.metrics;
+        config.http_metrics.listen_addr = validator_config.metrics_address.clone();
+        config.http_metrics.listen_port = validator_config.metrics_port;
 
-        if cli_args.is_present("metrics") {
-            config.http_metrics.enabled = true;
-        }
-
-        if let Some(address) = cli_args.value_of("metrics-address") {
-            config.http_metrics.listen_addr = address
-                .parse::<Ipv4Addr>()
-                .map_err(|_| "metrics-address is not a valid IPv4 address.")?;
-        }
-
-        if let Some(port) = cli_args.value_of("metrics-port") {
-            config.http_metrics.listen_port = port
-                .parse::<u16>()
-                .map_err(|_| "metrics-port is not a valid u16.")?;
-        }
-
-        if let Some(allow_origin) = cli_args.value_of("metrics-allow-origin") {
+        if let Some(allow_origin) = validator_config.metrics_allow_origin.as_ref() {
             // Pre-validate the config value to give feedback to the user on node startup, instead of
             // as late as when the first API response is produced.
             hyper::header::HeaderValue::from_str(allow_origin)
@@ -268,17 +235,15 @@ impl Config {
         /*
          * Explorer metrics
          */
-        if let Some(monitoring_endpoint) = cli_args.value_of("monitoring-endpoint") {
+        if let Some(monitoring_endpoint) = validator_config.monitoring_endpoint.clone() {
             config.monitoring_api = Some(monitoring_api::Config {
                 db_path: None,
                 freezer_db_path: None,
-                monitoring_endpoint: monitoring_endpoint.to_string(),
+                monitoring_endpoint,
             });
         }
 
-        if cli_args.is_present("enable-doppelganger-protection") {
-            config.enable_doppelganger_protection = true;
-        }
+            config.enable_doppelganger_protection = validator_config.enable_doppelganger_protection;
 
         Ok(config)
     }

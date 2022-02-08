@@ -119,7 +119,7 @@ fn main() {
         });
 
     // `std::process::exit` does not run destructors so we drop manually.
-    drop(matches);
+    drop(lighthouse);
 
     // Return the appropriate error code.
     match result {
@@ -255,7 +255,7 @@ fn run<E: EthSpec>(
             let context = environment.core_context();
             let log = context.log().clone();
             let executor = context.executor.clone();
-            let config = beacon_node::get_config::<E>(matches, global_config, &context)?;
+            let config = beacon_node::get_config::<E>(beacon_node, global_config, &context)?;
             let shutdown_flag = lighthouse.immediate_shutdown;
             if let Some(dump_path) = lighthouse.dump_config.as_ref() {
                 let mut file = File::create(dump_path)
@@ -286,7 +286,7 @@ fn run<E: EthSpec>(
             let context = environment.core_context();
             let log = context.log().clone();
             let executor = context.executor.clone();
-            let config = validator_client::Config::from_cli(matches, context.log())
+            let config = validator_client::Config::from_cli(validator_client, global_config, context.log())
                 .map_err(|e| format!("Unable to initialize validator config: {}", e))?;
             let shutdown_flag = lighthouse.immediate_shutdown;
             if let Some(dump_path) = lighthouse.dump_config.as_ref() {

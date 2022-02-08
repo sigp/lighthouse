@@ -1,3 +1,4 @@
+use std::net::Ipv4Addr;
 use clap::{ArgEnum, Args, Subcommand};
 pub use clap::{IntoApp, Parser};
 use lazy_static::lazy_static;
@@ -39,7 +40,7 @@ pub struct ValidatorClient {
                     and the validator_definitions.yml",
         conflicts_with = "datadir"
     )]
-    pub validators_dir: Option<String>,
+    pub validators_dir: Option<PathBuf>,
     #[clap(
         long,
         value_name = "SECRETS_DIRECTORY",
@@ -49,12 +50,12 @@ pub struct ValidatorClient {
                     key. Defaults to ~/.lighthouse/{network}/secrets.",
         conflicts_with = "datadir"
     )]
-    pub secrets_dir: Option<String>,
+    pub secrets_dir: Option<PathBuf>,
     #[clap(
         long,
         help = "DEPRECATED. This flag does nothing and will be removed in a future release."
     )]
-    pub delete_lockfiles: Option<String>,
+    pub delete_lockfiles: bool,
     #[clap(
         long,
         help = "If present, do not require the slashing protection database to exist before \
@@ -63,26 +64,26 @@ pub struct ValidatorClient {
                      will have been initialized when you imported your validator keys. If you \
                      misplace your database and then run with this flag you risk being slashed."
     )]
-    pub init_slashing_protection: Option<String>,
+    pub init_slashing_protection: bool,
     #[clap(
         long,
         help = "If present, do not attempt to discover new validators in the validators-dir. Validators \
                 will need to be manually added to the validator_definitions.yml file."
     )]
-    pub disable_auto_discover: Option<String>,
+    pub disable_auto_discover: bool,
     #[clap(
         long,
         help = "If present, the validator client will still poll for duties if the beacon
                       node is not synced."
     )]
-    pub allow_unsynced: Option<String>,
+    pub allow_unsynced: bool,
     #[clap(
         long,
         help = "If present, the validator client will use longer timeouts for requests \
                         made to the beacon node. This flag is generally not recommended, \
                         longer timeouts can cause missed duties when fallbacks are used."
     )]
-    pub use_long_timeouts: Option<String>,
+    pub use_long_timeouts: bool,
     #[clap(
         long,
         value_name = "CERTIFICATE-FILES",
@@ -104,7 +105,7 @@ pub struct ValidatorClient {
         value_name = "GRAFFITI-FILE",
         conflicts_with = "graffiti"
     )]
-    pub graffiti_file: Option<String>,
+    pub graffiti_file: Option<PathBuf>,
     #[clap(
         long,
         help = "Enable the RESTful HTTP API server. Disabled by default."
@@ -121,21 +122,21 @@ pub struct ValidatorClient {
                         transport-layer security like a HTTPS reverse-proxy or SSH tunnelling.",
         requires = "unencrypted_http_transport"
     )]
-    pub http_address: Option<String>,
+    pub http_address: Option<Ipv4Addr>,
     #[clap(
         long,
         help = "This is a safety flag to ensure that the user is aware that the http \
                         transport is unencrypted and using a custom HTTP address is unsafe.",
         requires = "http_address"
     )]
-    pub unencrypted_http_transport: Option<String>,
+    pub unencrypted_http_transport: bool,
     #[clap(
         long,
         value_name = "PORT",
         help = "Set the listen TCP port for the RESTful HTTP API server.",
         default_value = "5062"
     )]
-    pub http_port: String,
+    pub http_port: u16,
     #[clap(
         long,
         value_name = "ORIGIN",
@@ -156,14 +157,14 @@ pub struct ValidatorClient {
         help = "Set the listen address for the Prometheus metrics HTTP server.",
         default_value = "127.0.0.1"
     )]
-    pub metrics_address: String,
+    pub metrics_address: Ipv4Addr,
     #[clap(
         long,
         value_name = "PORT",
         help = "Set the listen TCP port for the Prometheus metrics HTTP server.",
         default_value = "5064"
     )]
-    pub metrics_port: String,
+    pub metrics_port: u16,
     #[clap(
         long,
         value_name = "ORIGIN",

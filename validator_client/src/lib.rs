@@ -54,6 +54,7 @@ use tokio::{
     sync::mpsc,
     time::{sleep, Duration},
 };
+use clap_utils::GlobalConfig;
 use types::{EthSpec, Hash256};
 use validator_store::ValidatorStore;
 
@@ -92,9 +93,10 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
     /// and attestation production.
     pub async fn new_from_cli(
         context: RuntimeContext<T>,
-        cli_args: &ArgMatches<'_>,
+        validator_config: &ValidatorClient,
+        global_config: &GlobalConfig,
     ) -> Result<Self, String> {
-        let config = Config::from_cli(cli_args, context.log())
+        let config = Config::from_cli(validator_config, global_config, context.log())
             .map_err(|e| format!("Unable to initialize config: {}", e))?;
         Self::new(context, config).await
     }
