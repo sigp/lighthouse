@@ -10,7 +10,6 @@ edition = "2018"
 clap = "2.33.3"
 hex = "0.4.2"
 dirs = "3.0.1"
-eth2_network_config = { path = "../eth2_network_config" }
 eth2_ssz = "0.4.1"
 ethereum-types = "0.12.1"
 types = { path = "../../consensus/types" }

@@ -1,7 +1,6 @@
 //! A helper library for parsing values from `clap::ArgMatches`.
 
 use clap::ArgMatches;
-use ethereum_types::U256 as Uint256;
 use ssz::Decode;
 use std::path::PathBuf;
 use std::str::FromStr;
@@ -25,7 +24,7 @@ pub struct GlobalConfig {
     pub dump_config: Option<PathBuf>,
     pub immediate_shutdown: bool,
     pub disable_malloc_tuning: bool,
-    pub terminal_total_difficulty_override: Option<Uint256>,
+    pub terminal_total_difficulty_override: Option<String>,
     pub terminal_block_hash_override: Option<Hash256>,
     pub terminal_block_hash_epoch_override: Option<Epoch>,
 }

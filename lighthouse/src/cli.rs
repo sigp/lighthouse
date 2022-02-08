@@ -193,7 +193,8 @@ pub struct Lighthouse {
                       failure. Be extremely careful with this flag.",
         global = true
     )]
-    pub terminal_total_difficulty_override: Option<Uint256>,
+    // Parse this as a string so we can accept numbers with commas.
+    pub terminal_total_difficulty_override: Option<String>,
     #[clap(
         long,
         value_name = "TERMINAL_BLOCK_HASH",
@@ -250,7 +251,14 @@ impl Lighthouse {
         let mut eth2_network_config =
             optional_network_config.ok_or_else(|| BAD_TESTNET_DIR_MESSAGE.to_string())?;
 
-        if let Some(terminal_total_difficulty) = self.terminal_total_difficulty_override {
+        if let Some(string) = self.terminal_total_difficulty_override.clone() {
+            let stripped = string.replace(",", "");
+            let terminal_total_difficulty = Uint256::from_dec_str(&stripped).map_err(|e| {
+                format!(
+                    "Could not parse --terminal-total-difficulty-override as decimal: {:?}",
+                    e
+                )
+            })?;
             eth2_network_config.config.terminal_total_difficulty = terminal_total_difficulty;
         }
 
@@ -284,7 +292,7 @@ impl Lighthouse {
             dump_config: self.dump_config.clone(),
             immediate_shutdown: self.immediate_shutdown,
             disable_malloc_tuning: self.disable_malloc_tuning,
-            terminal_total_difficulty_override: self.terminal_total_difficulty_override,
+            terminal_total_difficulty_override: self.terminal_total_difficulty_override.clone(),
             terminal_block_hash_override: self.terminal_block_hash_override,
             terminal_block_hash_epoch_override: self.terminal_block_hash_epoch_override,
         }
