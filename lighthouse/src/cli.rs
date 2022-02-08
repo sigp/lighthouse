@@ -231,10 +231,7 @@ pub const BAD_TESTNET_DIR_MESSAGE: &str = "The hard-coded testnet directory was 
 impl Lighthouse {
     /// Returns true if the provided command was to start a beacon node.
     pub fn is_beacon_node(&self) -> bool {
-        match &self.subcommand {
-            LighthouseSubcommand::BeaconNode(_) => true,
-            _ => false,
-        }
+        matches!(&self.subcommand, LighthouseSubcommand::BeaconNode(_))
     }
 
     /// Try to parse the eth2 network config from the `network`, `testnet-dir` flags in that order.
@@ -278,9 +275,9 @@ impl Lighthouse {
             spec: self.spec.clone(),
             logfile: self.logfile.clone(),
             logfile_debug_level: self.logfile_debug_level.clone(),
-            logfile_max_size: self.logfile_max_size.clone(),
-            logfile_max_number: self.logfile_max_number.clone(),
-            logfile_compress: self.logfile_compress.clone(),
+            logfile_max_size: self.logfile_max_size,
+            logfile_max_number: self.logfile_max_number,
+            logfile_compress: self.logfile_compress,
             log_format: self.log_format.clone(),
             debug_level: self.debug_level.clone(),
             datadir: self.datadir.clone(),
@@ -299,7 +296,7 @@ impl Lighthouse {
 #[derive(Parser, Clone, Deserialize, Serialize, Debug)]
 #[clap(rename_all = "snake_case")]
 pub enum LighthouseSubcommand {
-    BeaconNode(beacon_node::BeaconNode),
+    BeaconNode(Box<beacon_node::BeaconNode>),
     ValidatorClient(validator_client::ValidatorClient),
     BootNode(boot_node::BootNode),
     #[clap(subcommand)]

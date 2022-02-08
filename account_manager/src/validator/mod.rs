@@ -33,21 +33,21 @@ pub fn cli_run<T: EthSpec>(
 
     match &valdiator_config.subcommand {
         ValidatorSubcommand::Create(create_config) => {
-            create::cli_run::<T>(&create_config, global_config, env, validator_base_dir)
+            create::cli_run::<T>(create_config, global_config, env, validator_base_dir)
         }
         ValidatorSubcommand::Modify(modify_config) => {
-            modify::cli_run(&modify_config, validator_base_dir)
+            modify::cli_run(modify_config, validator_base_dir)
         }
         ValidatorSubcommand::Import(import_config) => {
-            import::cli_run(&import_config, validator_base_dir)
+            import::cli_run(import_config, validator_base_dir)
         }
         ValidatorSubcommand::List(_) => list::cli_run(validator_base_dir),
         ValidatorSubcommand::Recover(recover_config) => {
-            recover::cli_run(&recover_config, global_config, validator_base_dir)
+            recover::cli_run(recover_config, global_config, validator_base_dir)
         }
         ValidatorSubcommand::SlashingProtection(slashingprotection_config) => {
-            slashing_protection::cli_run(&slashingprotection_config, env, validator_base_dir)
+            slashing_protection::cli_run(slashingprotection_config, env, validator_base_dir)
         }
-        ValidatorSubcommand::Exit(exit_config) => exit::cli_run(&exit_config, env),
+        ValidatorSubcommand::Exit(exit_config) => exit::cli_run(exit_config, env),
     }
 }

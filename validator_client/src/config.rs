@@ -145,7 +145,7 @@ impl Config {
                 "The --beacon-node flag is deprecated";
                 "msg" => "please use --beacon-nodes instead"
             );
-            config.beacon_nodes = vec![SensitiveUrl::parse(&beacon_node)
+            config.beacon_nodes = vec![SensitiveUrl::parse(beacon_node)
                 .map_err(|e| format!("Unable to parse beacon node URL: {:?}", e))?];
         }
         // To be deprecated.
@@ -155,7 +155,7 @@ impl Config {
                 "The --server flag is deprecated";
                 "msg" => "please use --beacon-nodes instead"
             );
-            config.beacon_nodes = vec![SensitiveUrl::parse(&server)
+            config.beacon_nodes = vec![SensitiveUrl::parse(server)
                 .map_err(|e| format!("Unable to parse beacon node URL: {:?}", e))?];
         }
 
@@ -209,7 +209,7 @@ impl Config {
          */
         config.http_api.enabled = validator_config.http;
 
-        if let Some(address) = validator_config.http_address.clone() {
+        if let Some(address) = validator_config.http_address {
             config.http_api.listen_addr = address;
         }
 
@@ -228,7 +228,7 @@ impl Config {
          * Prometheus metrics HTTP server
          */
         config.http_metrics.enabled = validator_config.metrics;
-        config.http_metrics.listen_addr = validator_config.metrics_address.clone();
+        config.http_metrics.listen_addr = validator_config.metrics_address;
         config.http_metrics.listen_port = validator_config.metrics_port;
 
         if let Some(allow_origin) = validator_config.metrics_allow_origin.as_ref() {

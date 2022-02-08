@@ -16,7 +16,7 @@ mod skip_slots;
 mod transition_blocks;
 
 use clap::{App, Arg, ArgMatches, SubCommand};
-use clap_utils::{parse_optional};
+use clap_utils::parse_optional;
 use environment::{EnvironmentBuilder, LoggerConfig};
 use parse_ssz::run_parse_ssz;
 use std::path::PathBuf;
@@ -697,7 +697,8 @@ fn run<T: EthSpec>(
         .build()
         .map_err(|e| format!("should build env: {:?}", e))?;
 
-    let testnet_dir = if let Some(config_path) = parse_optional::<PathBuf>(matches, "testnet-dir")? {
+    let testnet_dir = if let Some(config_path) = parse_optional::<PathBuf>(matches, "testnet-dir")?
+    {
         config_path
     } else {
         dirs::home_dir()

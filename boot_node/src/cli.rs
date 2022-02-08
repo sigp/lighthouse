@@ -79,7 +79,7 @@ impl NetworkConfigurable for BootNode {
         self.network_dir.clone()
     }
     fn get_listen_address(&self) -> IpAddr {
-        self.listen_address.clone()
+        self.listen_address
     }
     fn get_port(&self) -> u16 {
         self.port

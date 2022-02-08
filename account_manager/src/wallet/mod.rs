@@ -24,10 +24,10 @@ pub fn cli_run(wallet_config: &cli::Wallet, global_config: &GlobalConfig) -> Res
     eprintln!("wallet-dir path: {:?}", wallet_base_dir);
 
     match &wallet_config.subcommand {
-        WalletSubcommand::Create(create_config) => create::cli_run(&create_config, wallet_base_dir),
+        WalletSubcommand::Create(create_config) => create::cli_run(create_config, wallet_base_dir),
         WalletSubcommand::List(_) => list::cli_run(wallet_base_dir),
         WalletSubcommand::Recover(recover_config) => {
-            recover::cli_run(&recover_config, wallet_base_dir)
+            recover::cli_run(recover_config, wallet_base_dir)
         }
     }
 }

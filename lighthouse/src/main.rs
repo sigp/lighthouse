@@ -61,7 +61,7 @@ fn main() {
                 LighthouseSubcommand::BootNode(boot_node) => {
                     boot_node::run(boot_node, &global_config, eth_spec_id, &eth2_network_config);
 
-                    return Ok(());
+                    Ok(())
                 }
                 _ => match eth_spec_id {
                     EthSpecId::Mainnet => run(
@@ -127,7 +127,7 @@ fn run<E: EthSpec>(
     }
 
     let debug_level = lighthouse.debug_level.as_str();
-    let log_format = lighthouse.log_format.as_ref().map(String::as_str);
+    let log_format = lighthouse.log_format.as_deref();
     let logfile_debug_level = lighthouse.logfile_debug_level.as_str();
     let logfile_max_size: u64 = lighthouse.logfile_max_size;
     let logfile_max_number: usize = lighthouse.logfile_max_number;
@@ -218,7 +218,7 @@ fn run<E: EthSpec>(
     if let LighthouseSubcommand::AccountManager(acc_manager) = &lighthouse.subcommand {
         eprintln!("Running account manager for {} network", network_name);
         // Pass the entire `environment` to the account manager so it can run blocking operations.
-        account_manager::run(acc_manager, &global_config, environment)?;
+        account_manager::run(acc_manager, global_config, environment)?;
 
         // Exit as soon as account manager returns control.
         return Ok(());

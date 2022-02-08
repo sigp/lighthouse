@@ -31,7 +31,7 @@ pub fn cli_run(modify_config: &Modify, validator_dir: PathBuf) -> Result<(), Str
     } else {
         let public_key = sub_matches
             .get_pubkey()
-            .ok_or("Pubkey flag must be provided.".to_string())?;
+            .ok_or_else(|| "Pubkey flag must be provided.".to_string())?;
         std::iter::once(public_key).collect::<HashSet<PublicKey>>()
     };
 
