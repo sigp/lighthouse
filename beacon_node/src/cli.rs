@@ -2,7 +2,7 @@ use clap::{ArgEnum, Args, Subcommand};
 pub use clap::{IntoApp, Parser};
 use hyper::header::HeaderValue;
 use serde::{Deserialize, Serialize};
-use std::net::Ipv4Addr;
+use std::net::{IpAddr, Ipv4Addr};
 use std::path::PathBuf;
 use types::Address;
 
@@ -525,4 +525,38 @@ pub struct BeaconNode {
                        experimental as it may obscure performance issues."
     )]
     pub disable_lock_timeouts: bool,
+}
+
+pub trait NetworkConfigurable {
+    fn get_network_dir(&self) -> Option<PathBuf>;
+    fn get_listen_address(&self) -> IpAddr;
+    fn get_port(&self) -> u16;
+    fn get_boot_nodes(&self) -> Option<String>;
+    fn get_enr_udp_port(&self) -> Option<u16>;
+    fn get_enr_address(&self) -> Option<String>;
+    fn is_disable_packet_filter(&self) -> bool;
+}
+
+impl NetworkConfigurable for BeaconNode {
+    fn get_network_dir(&self) -> Option<PathBuf> {
+        self.network_dir.clone()
+    }
+    fn get_listen_address(&self) -> IpAddr {
+        self.listen_address.clone()
+    }
+    fn get_port(&self) -> u16 {
+        self.port
+    }
+    fn get_boot_nodes(&self) -> Option<String> {
+        self.boot_nodes.clone()
+    }
+    fn get_enr_udp_port(&self) -> Option<u16> {
+        self.enr_udp_port
+    }
+    fn get_enr_address(&self) -> Option<String> {
+        self.enr_address.clone()
+    }
+    fn is_disable_packet_filter(&self) -> bool {
+        self.disable_packet_filter
+    }
 }

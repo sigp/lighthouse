@@ -1,7 +1,7 @@
 #[macro_use]
 extern crate clap;
 
-mod cli;
+pub mod cli;
 mod config;
 
 pub use beacon_chain;
@@ -14,7 +14,7 @@ use clap::ArgMatches;
 use clap_utils::GlobalConfig;
 pub use cli::BeaconNode;
 pub use client::{Client, ClientBuilder, ClientConfig, ClientGenesis};
-pub use config::{get_config, get_data_dir, set_network_config};
+pub use config::{get_config, get_data_dir, set_network_config_shared};
 use environment::RuntimeContext;
 pub use eth2_config::Eth2Config;
 use slasher::Slasher;

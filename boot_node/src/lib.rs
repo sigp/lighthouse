@@ -18,8 +18,8 @@ const LOG_CHANNEL_SIZE: usize = 2048;
 
 /// Run the bootnode given the CLI configuration.
 pub fn run(
-    global_config: &GlobalConfig,
     boot_node_config: &BootNode,
+    global_config: &GlobalConfig,
     eth_spec_id: EthSpecId,
     eth2_network_config: &Eth2NetworkConfig,
 ) {
@@ -85,7 +85,7 @@ fn main<T: EthSpec>(
         .map_err(|e| format!("Failed to build runtime: {}", e))?;
 
     // parse the CLI args into a useable config
-    let config: BootNodeConfig<T> = BootNodeConfig::new(boot_node, eth2_network_config)?;
+    let config: BootNodeConfig<T> = BootNodeConfig::new(boot_node, global_config, eth2_network_config)?;
 
     // Dump config if `dump-config` flag is set
     if let Some(dump_path) = global_config.dump_config.as_ref() {

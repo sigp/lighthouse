@@ -17,6 +17,7 @@ use std::net::{TcpListener, UdpSocket};
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use types::{Address, Checkpoint, Epoch, EthSpec, Hash256, PublicKeyBytes, GRAFFITI_BYTES_LEN};
+use crate::cli::NetworkConfigurable;
 
 // TODO(merge): remove this default value. It's just there to make life easy during
 // early testnets.
@@ -540,12 +541,8 @@ pub fn set_network_config(
     log: &Logger,
     use_listening_port_as_enr_port_by_default: bool,
 ) -> Result<(), String> {
-    // If a network dir has been specified, override the `datadir` definition.
-    if let Some(dir) = beacon_config.network_dir.clone() {
-        config.network_dir = dir;
-    } else {
-        config.network_dir = data_dir.join(DEFAULT_NETWORK_DIR);
-    };
+
+    set_network_config_shared::<BeaconNode>(config, beacon_config, data_dir, log, use_listening_port_as_enr_port_by_default)?;
 
     if beacon_config.subscribe_all_subnets {
         config.subscribe_all_subnets = true;
@@ -559,12 +556,7 @@ pub fn set_network_config(
         config.shutdown_after_sync = true;
     }
 
-    config.listen_address = beacon_config.listen_address;
-
     config.target_peers = beacon_config.target_peers;
-
-    config.libp2p_port = beacon_config.port;
-    config.discovery_port = beacon_config.port;
 
     if let Some(port) = beacon_config.discovery_port {
         config.discovery_port = port;
@@ -572,7 +564,84 @@ pub fn set_network_config(
 
     config.network_load = beacon_config.network_load;
 
-    if let Some(boot_enr_str) = beacon_config.boot_nodes.clone() {
+    if let Some(libp2p_addresses_str) = beacon_config.libp2p_addresses.clone() {
+        config.libp2p_nodes = libp2p_addresses_str
+            .split(',')
+            .map(|multiaddr| {
+                multiaddr
+                    .parse()
+                    .map_err(|_| format!("Invalid Multiaddr: {}", multiaddr))
+            })
+            .collect::<Result<Vec<Multiaddr>, _>>()?;
+    }
+
+    if let Some(trusted_peers_str) = beacon_config.trusted_peers.clone() {
+        config.trusted_peers = trusted_peers_str
+            .split(',')
+            .map(|peer_id| {
+                peer_id
+                    .parse()
+                    .map_err(|_| format!("Invalid trusted peer id: {}", peer_id))
+            })
+            .collect::<Result<Vec<PeerIdSerialized>, _>>()?;
+    }
+
+    config.enr_tcp_port = beacon_config.enr_tcp_port;
+
+    if beacon_config.enr_match {
+        // set the enr address to localhost if the address is 0.0.0.0
+        if config.listen_address == "0.0.0.0".parse::<IpAddr>().expect("valid ip addr") {
+            config.enr_address = Some("127.0.0.1".parse::<IpAddr>().expect("valid ip addr"));
+        } else {
+            config.enr_address = Some(config.listen_address);
+        }
+        config.enr_udp_port = Some(config.discovery_port);
+    }
+
+    if beacon_config.disable_enr_auto_update {
+        config.discv5_config.enr_update = false;
+    }
+
+    if beacon_config.disable_discovery {
+        config.disable_discovery = true;
+        warn!(log, "Discovery is disabled. New peers will not be found");
+    }
+
+    if beacon_config.disable_upnp {
+        config.upnp_enabled = false;
+    }
+
+    if beacon_config.private {
+        config.private = true;
+    }
+
+    if beacon_config.metrics {
+        config.metrics_enabled = true;
+    }
+
+    Ok(())
+}
+
+// Sets the network config from the command line arguments
+pub fn set_network_config_shared<T: NetworkConfigurable>(
+    config: &mut NetworkConfig,
+    cli_config: &T,
+    data_dir: &Path,
+    log: &Logger,
+    use_listening_port_as_enr_port_by_default: bool,
+) -> Result<(), String> {
+    // If a network dir has been specified, override the `datadir` definition.
+    if let Some(dir) = cli_config.get_network_dir() {
+        config.network_dir = dir;
+    } else {
+        config.network_dir = data_dir.join(DEFAULT_NETWORK_DIR);
+    };
+
+    config.listen_address = cli_config.get_listen_address();
+    config.libp2p_port = cli_config.get_port();
+    config.discovery_port = cli_config.get_port();
+
+    if let Some(boot_enr_str) = cli_config.get_boot_nodes() {
         let mut enrs: Vec<Enr> = vec![];
         let mut multiaddrs: Vec<Multiaddr> = vec![];
         for addr in boot_enr_str.split(',') {
@@ -597,42 +666,9 @@ pub fn set_network_config(
         config.boot_nodes_multiaddr = multiaddrs;
     }
 
-    if let Some(libp2p_addresses_str) = beacon_config.libp2p_addresses.clone() {
-        config.libp2p_nodes = libp2p_addresses_str
-            .split(',')
-            .map(|multiaddr| {
-                multiaddr
-                    .parse()
-                    .map_err(|_| format!("Invalid Multiaddr: {}", multiaddr))
-            })
-            .collect::<Result<Vec<Multiaddr>, _>>()?;
-    }
+    config.enr_udp_port = cli_config.get_enr_udp_port();
 
-    if let Some(trusted_peers_str) = beacon_config.trusted_peers.clone() {
-        config.trusted_peers = trusted_peers_str
-            .split(',')
-            .map(|peer_id| {
-                peer_id
-                    .parse()
-                    .map_err(|_| format!("Invalid trusted peer id: {}", peer_id))
-            })
-            .collect::<Result<Vec<PeerIdSerialized>, _>>()?;
-    }
-
-    config.enr_udp_port = beacon_config.enr_udp_port;
-    config.enr_tcp_port = beacon_config.enr_tcp_port;
-
-    if beacon_config.enr_match {
-        // set the enr address to localhost if the address is 0.0.0.0
-        if config.listen_address == "0.0.0.0".parse::<IpAddr>().expect("valid ip addr") {
-            config.enr_address = Some("127.0.0.1".parse::<IpAddr>().expect("valid ip addr"));
-        } else {
-            config.enr_address = Some(config.listen_address);
-        }
-        config.enr_udp_port = Some(config.discovery_port);
-    }
-
-    if let Some(enr_address) = beacon_config.enr_address.clone() {
+    if let Some(enr_address) = cli_config.get_enr_address() {
         let resolved_addr = match enr_address.parse::<IpAddr>() {
             Ok(addr) => addr, // // Input is an IpAddr
             Err(_) => {
@@ -672,30 +708,9 @@ pub fn set_network_config(
         config.enr_address = Some(resolved_addr);
     }
 
-    if beacon_config.disable_enr_auto_update {
-        config.discv5_config.enr_update = false;
-    }
-
-    if beacon_config.disable_packet_filter {
+    if cli_config.is_disable_packet_filter() {
         warn!(log, "Discv5 packet filter is disabled");
         config.discv5_config.enable_packet_filter = false;
-    }
-
-    if beacon_config.disable_discovery {
-        config.disable_discovery = true;
-        warn!(log, "Discovery is disabled. New peers will not be found");
-    }
-
-    if beacon_config.disable_upnp {
-        config.upnp_enabled = false;
-    }
-
-    if beacon_config.private {
-        config.private = true;
-    }
-
-    if beacon_config.metrics {
-        config.metrics_enabled = true;
     }
 
     Ok(())

@@ -1,4 +1,4 @@
-use beacon_node::{get_data_dir, set_network_config};
+use beacon_node::{get_data_dir, set_network_config_shared};
 use clap::ArgMatches;
 use eth2_network_config::Eth2NetworkConfig;
 use lighthouse_network::discv5::{enr::CombinedKey, Discv5Config, Enr};
@@ -10,7 +10,9 @@ use serde_derive::{Deserialize, Serialize};
 use ssz::Encode;
 use std::net::SocketAddr;
 use std::{marker::PhantomData, path::PathBuf};
+use clap_utils::GlobalConfig;
 use types::EthSpec;
+use crate::BootNode;
 
 /// A set of configuration parameters for the bootnode, established from CLI arguments.
 pub struct BootNodeConfig<T: EthSpec> {
@@ -25,10 +27,11 @@ pub struct BootNodeConfig<T: EthSpec> {
 
 impl<T: EthSpec> BootNodeConfig<T> {
     pub fn new(
-        matches: &ArgMatches<'_>,
+        boot_node_config: &BootNode,
+        global_config: &GlobalConfig,
         eth2_network_config: &Eth2NetworkConfig,
     ) -> Result<Self, String> {
-        let data_dir = get_data_dir(matches);
+        let data_dir = get_data_dir(global_config);
 
         // Try and obtain bootnodes
 
@@ -39,7 +42,7 @@ impl<T: EthSpec> BootNodeConfig<T> {
                 boot_nodes.extend_from_slice(enr);
             }
 
-            if let Some(nodes) = matches.value_of("boot-nodes") {
+            if let Some(nodes) = boot_node_config.boot_nodes.as_ref() {
                 boot_nodes.extend_from_slice(
                     &nodes
                         .split(',')
@@ -55,15 +58,15 @@ impl<T: EthSpec> BootNodeConfig<T> {
 
         let logger = slog_scope::logger();
 
-        set_network_config(&mut network_config, matches, &data_dir, &logger, true)?;
+        set_network_config_shared::<BootNode>(&mut network_config, boot_node_config, &data_dir, &logger, true)?;
 
         // Set the enr-udp-port to the default listening port if it was not specified.
-        if !matches.is_present("enr-udp-port") {
+        if boot_node_config.enr_udp_port.is_none() {
             network_config.enr_udp_port = Some(network_config.discovery_port);
         }
 
         // By default this is enabled. If it is not set, revert to false.
-        if !matches.is_present("enable-enr-auto-update") {
+        if boot_node_config.enable_enr_auto_update {
             network_config.discv5_config.enr_update = false;
         }
 
@@ -74,7 +77,7 @@ impl<T: EthSpec> BootNodeConfig<T> {
         let private_key = load_private_key(&network_config, &logger);
         let local_key = CombinedKey::from_libp2p(&private_key)?;
 
-        let local_enr = if let Some(dir) = matches.value_of("network-dir") {
+        let local_enr = if let Some(dir) = boot_node_config.network_dir.as_ref() {
             let network_dir: PathBuf = dir.into();
             load_enr_from_disk(&network_dir)?
         } else {
@@ -165,3 +168,4 @@ impl BootNodeConfigSerialization {
         }
     }
 }
+

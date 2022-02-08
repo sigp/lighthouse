@@ -74,8 +74,8 @@ fn main() {
                 // Boot node subcommand circumvents the environment.
                 LighthouseSubcommand::BootNode(boot_node) => {
                     boot_node::run(
-                        &global_config,
                         &boot_node,
+                        &global_config,
                         eth_spec_id,
                         &eth2_network_config,
                     );

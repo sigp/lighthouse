@@ -1,8 +1,9 @@
+use std::net::IpAddr;
 use clap::{ArgEnum, Args, Subcommand};
 pub use clap::{IntoApp, Parser};
-use lazy_static::lazy_static;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
+use beacon_node::cli::NetworkConfigurable;
 
 #[derive(Parser, Clone, Deserialize, Serialize, Debug)]
 #[clap(
@@ -30,14 +31,14 @@ pub struct BootNode {
         help = "The UDP port to listen on.",
         default_value = "9000"
     )]
-    pub port: String,
+    pub port: u16,
     #[clap(
         long,
         value_name = "ADDRESS",
         help = "The address the bootnode will listen for UDP connections.",
         default_value = "0.0.0.0"
     )]
-    pub listen_address: String,
+    pub listen_address: IpAddr,
     #[clap(
         long,
         allow_hyphen_values = true,
@@ -53,23 +54,47 @@ pub struct BootNode {
         to reach this boot node. Set this only if the external port differs from the listening port.",
         conflicts_with = "network_dir"
     )]
-    pub enr_udp_port: Option<String>,
+    pub enr_udp_port: Option<u16>,
     #[clap(
         short = 'x',
         long,
         help = "Discovery can automatically update the node's local ENR with an external IP address \
         and port as seen by other peers on the network. , This enables this feature."
     )]
-    pub enable_enr_auto_update: Option<String>,
+    pub enable_enr_auto_update: bool,
     #[clap(
         long,
         help = "Disables discv5 packet filter. Useful for testing in smaller networks"
     )]
-    pub disable_packet_filter: Option<String>,
+    pub disable_packet_filter: bool,
     #[clap(
         value_name = "NETWORK_DIR",
         long,
         help = "The directory which contains the enr and it's assoicated private key"
     )]
-    pub network_dir: Option<String>,
+    pub network_dir: Option<PathBuf>,
+}
+
+impl NetworkConfigurable for BootNode {
+    fn get_network_dir(&self) -> Option<PathBuf> {
+        self.network_dir.clone()
+    }
+    fn get_listen_address(&self) -> IpAddr {
+        self.listen_address.clone()
+    }
+    fn get_port(&self) -> u16 {
+        self.port
+    }
+    fn get_boot_nodes(&self) -> Option<String> {
+        self.boot_nodes.clone()
+    }
+    fn get_enr_udp_port(&self) -> Option<u16> {
+        self.enr_udp_port
+    }
+    fn get_enr_address(&self) -> Option<String> {
+        self.enr_address.clone()
+    }
+    fn is_disable_packet_filter(&self) -> bool {
+        self.disable_packet_filter
+    }
 }
