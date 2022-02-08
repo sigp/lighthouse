@@ -143,7 +143,7 @@ pub enum BeaconChainError {
     HeadMissingFromForkChoice(Hash256),
     FinalizedBlockMissingFromForkChoice(Hash256),
     InvalidFinalizedPayloadShutdownError(TrySendError<ShutdownReason>),
-    JustifiedHasInvalidPayload {
+    JustifiedPayloadInvalid {
         justified_root: Hash256,
     },
 }

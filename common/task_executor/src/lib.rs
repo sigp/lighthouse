@@ -7,7 +7,7 @@ use std::sync::Weak;
 use tokio::runtime::Runtime;
 
 /// Provides a reason when Lighthouse is shut down.
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Debug, PartialEq)]
 pub enum ShutdownReason {
     /// The node shut down successfully.
     Success(&'static str),

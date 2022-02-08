@@ -112,6 +112,10 @@ pub const FORK_CHOICE_DB_KEY: Hash256 = Hash256::zero();
 /// Defines how old a block can be before it's no longer a candidate for the early attester cache.
 const EARLY_ATTESTER_CACHE_HISTORIC_SLOTS: u64 = 4;
 
+/// Reported to the user when the justified block has an invalid execution payload.
+pub const INVALID_JUSTIFIED_PAYLOAD_SHUTDOWN_REASON: &str =
+    "Justified block has an invalid execution payload.";
+
 /// Defines the behaviour when a block/block-root for a skipped slot is requested.
 pub enum WhenSlotSkipped {
     /// If the slot is a skip slot, return `None`.
@@ -3203,13 +3207,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             "latest_root" => ?latest_root,
         );
 
-        // Allow fork choice to invalidate blocks.
-        let result = self
+        // Update fork choice.
+        if let Err(e) = self
             .fork_choice
             .write()
-            .on_invalid_execution_payload(latest_root, latest_valid_hash);
-
-        if let Err(e) = &result {
+            .on_invalid_execution_payload(latest_root, latest_valid_hash)
+        {
             crit!(
                 self.log,
                 "Failed to process invalid payload";
@@ -3221,7 +3224,16 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         // Run fork choice since it's possible that the payload invalidation might result in a new
         // head.
-        self.fork_choice()?;
+        //
+        // Don't return early though, since invalidating the justified checkpoint might cause an
+        // error here.
+        if let Err(e) = self.fork_choice() {
+            crit!(
+                self.log,
+                "Failed to run fork choice routine";
+                "error" => ?e,
+            );
+        }
 
         // Check to ensure the justified checkpoint does not have an invalid payload. If so, try
         // to kill the client.
@@ -3229,15 +3241,22 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let justified_root = head_info.current_justified_checkpoint.root;
         if let Some(proto_block) = self.fork_choice.read().get_block(&justified_root) {
             if proto_block.execution_status.is_invalid() {
+                crit!(
+                    self.log,
+                    "The justified checkpoint is invalid";
+                    "msg" => "ensure you are not connected to a malicious network. this error is not \
+                    recoverable, please reach out to the developers for assistance."
+                );
+
                 let mut shutdown_sender = self.shutdown_sender();
                 shutdown_sender
                     .try_send(ShutdownReason::Failure(
-                        "Justified block has an invalid execution payload.",
+                        INVALID_JUSTIFIED_PAYLOAD_SHUTDOWN_REASON,
                     ))
                     .map_err(BeaconChainError::InvalidFinalizedPayloadShutdownError)?;
 
                 // Return an error here to try and prevent progression by upstream functions.
-                return Err(Error::JustifiedHasInvalidPayload { justified_root });
+                return Err(Error::JustifiedPayloadInvalid { justified_root });
             }
         } else {
             crit!(
@@ -3246,7 +3265,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             );
         }
 
-        result.map_err(Into::into)
+        Ok(())
     }
 
     /// Execute the fork choice algorithm and enthrone the result as the canonical head.

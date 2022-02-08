@@ -2,15 +2,18 @@
 
 use beacon_chain::{
     test_utils::{BeaconChainHarness, EphemeralHarnessType},
-    BlockError, ExecutionPayloadError,
+    BeaconChainError, BlockError, ExecutionPayloadError, HeadInfo,
+    INVALID_JUSTIFIED_PAYLOAD_SHUTDOWN_REASON,
 };
+use proto_array::ExecutionStatus;
+use task_executor::ShutdownReason;
 use types::*;
 
 const VALIDATOR_COUNT: usize = 32;
 
 type E = MainnetEthSpec;
 
-#[derive(PartialEq)]
+#[derive(PartialEq, Clone)]
 enum Payload {
     Valid,
     Invalid { latest_valid_hash: Option<Hash256> },
@@ -19,6 +22,7 @@ enum Payload {
 
 struct InvalidPayloadRig {
     harness: BeaconChainHarness<EphemeralHarnessType<E>>,
+    enable_attestations: bool,
 }
 
 impl InvalidPayloadRig {
@@ -37,7 +41,15 @@ impl InvalidPayloadRig {
         // Move to slot 1.
         harness.advance_slot();
 
-        Self { harness }
+        Self {
+            harness,
+            enable_attestations: false,
+        }
+    }
+
+    fn enable_attestations(mut self) -> Self {
+        self.enable_attestations = true;
+        self
     }
 
     fn block_hash(&self, block_root: Hash256) -> Hash256 {
@@ -53,8 +65,22 @@ impl InvalidPayloadRig {
             .block_hash
     }
 
+    fn execution_status(&self, block_root: Hash256) -> ExecutionStatus {
+        self.harness
+            .chain
+            .fork_choice
+            .read()
+            .get_block(&block_root)
+            .unwrap()
+            .execution_status
+    }
+
     fn fork_choice(&self) {
         self.harness.chain.fork_choice().unwrap();
+    }
+
+    fn head_info(&self) -> HeadInfo {
+        self.harness.chain.head_info().unwrap()
     }
 
     fn move_to_terminal_block(&self) {
@@ -66,13 +92,36 @@ impl InvalidPayloadRig {
             .unwrap();
     }
 
+    fn move_to_first_justification(&mut self, is_valid: Payload) {
+        let slots_till_justification = E::slots_per_epoch() * 3;
+        for _ in 0..slots_till_justification {
+            self.import_block(is_valid.clone());
+        }
+
+        let justified_checkpoint = self.head_info().current_justified_checkpoint;
+        assert_eq!(justified_checkpoint.epoch, 2);
+    }
+
     fn import_block(&mut self, is_valid: Payload) -> Hash256 {
+        self.import_block_parametric(is_valid, |error| {
+            matches!(
+                error,
+                BlockError::ExecutionPayloadError(ExecutionPayloadError::RejectedByExecutionEngine)
+            )
+        })
+    }
+
+    fn import_block_parametric<F: Fn(&BlockError<E>) -> bool>(
+        &mut self,
+        is_valid: Payload,
+        evaluate_error: F,
+    ) -> Hash256 {
         let mock_execution_layer = self.harness.mock_execution_layer.as_ref().unwrap();
 
         let head = self.harness.chain.head().unwrap();
         let state = head.beacon_state;
         let slot = state.slot() + 1;
-        let (block, _post_state) = self.harness.make_block(state, slot);
+        let (block, post_state) = self.harness.make_block(state, slot);
         let block_root = block.canonical_root();
 
         match is_valid {
@@ -84,14 +133,18 @@ impl InvalidPayloadRig {
                 }
                 let root = self.harness.process_block(slot, block.clone()).unwrap();
 
-                let execution_status = self
-                    .harness
-                    .chain
-                    .fork_choice
-                    .read()
-                    .get_block(&root.into())
-                    .unwrap()
-                    .execution_status;
+                if self.enable_attestations {
+                    let all_validators: Vec<usize> = (0..VALIDATOR_COUNT).collect();
+                    self.harness.attest_block(
+                        &post_state,
+                        block.state_root(),
+                        block_root.into(),
+                        &block,
+                        &all_validators,
+                    );
+                }
+
+                let execution_status = self.execution_status(root.into());
 
                 match is_valid {
                     Payload::Syncing => assert!(execution_status.is_not_verified()),
@@ -114,9 +167,7 @@ impl InvalidPayloadRig {
                     .all_payloads_invalid(latest_valid_hash);
 
                 match self.harness.process_block(slot, block) {
-                    Err(BlockError::ExecutionPayloadError(
-                        ExecutionPayloadError::RejectedByExecutionEngine,
-                    )) => (),
+                    Err(error) if evaluate_error(&error) => (),
                     Err(other) => {
                         panic!("expected invalid payload, got {:?}", other)
                     }
@@ -144,7 +195,7 @@ impl InvalidPayloadRig {
 }
 
 #[test]
-fn payload_valid_invalid_syncing() {
+fn valid_invalid_syncing() {
     let mut rig = InvalidPayloadRig::new();
     rig.move_to_terminal_block();
 
@@ -154,6 +205,76 @@ fn payload_valid_invalid_syncing() {
     });
     rig.import_block(Payload::Syncing);
 }
+
+#[test]
+fn invalid_payload_invalidates_parent() {
+    let mut rig = InvalidPayloadRig::new();
+    rig.move_to_terminal_block();
+
+    let roots = vec![
+        rig.import_block(Payload::Syncing),
+        rig.import_block(Payload::Syncing),
+        rig.import_block(Payload::Syncing),
+    ];
+
+    let latest_valid_hash = rig.block_hash(roots[0]);
+
+    rig.import_block(Payload::Invalid {
+        latest_valid_hash: Some(latest_valid_hash),
+    });
+
+    assert!(rig.execution_status(roots[0]).is_valid());
+    assert!(rig.execution_status(roots[1]).is_invalid());
+    assert!(rig.execution_status(roots[2]).is_invalid());
+
+    assert_eq!(rig.head_info().block_root, roots[0]);
+}
+
+#[test]
+fn justified_checkpoint_becomes_invalid() {
+    let mut rig = InvalidPayloadRig::new().enable_attestations();
+    rig.move_to_terminal_block();
+    rig.move_to_first_justification(Payload::Syncing);
+
+    let justified_checkpoint = rig.head_info().current_justified_checkpoint;
+    let parent_root_of_justified = rig
+        .harness
+        .chain
+        .get_block(&justified_checkpoint.root)
+        .unwrap()
+        .unwrap()
+        .parent_root();
+
+    // No service should have triggered a shutdown, yet.
+    assert!(rig.harness.shutdown_reasons().is_empty());
+
+    // Import a block that will invalidate the justified checkpoint.
+    rig.import_block_parametric(
+        Payload::Invalid {
+            latest_valid_hash: Some(parent_root_of_justified),
+        },
+        |error| {
+            matches!(
+                error,
+                // The block import should fail since the beacon chain knows the justified payload
+                // is invalid.
+                BlockError::BeaconChainError(BeaconChainError::JustifiedPayloadInvalid { .. })
+            )
+        },
+    );
+
+    // The beacon chain should have triggered a shutdown.
+    assert_eq!(
+        rig.harness.shutdown_reasons(),
+        vec![ShutdownReason::Failure(
+            INVALID_JUSTIFIED_PAYLOAD_SHUTDOWN_REASON
+        )]
+    );
+}
+
+/*
+ * TODO: add a test where the latest_valid_hash is a pre-finalization hash.
+ */
 
 #[test]
 fn invalid_during_processing() {
