@@ -9,7 +9,6 @@ use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use types::{Epoch, Uint256};
 
-// These have to live at least as long as the `Lighthouse` app.
 lazy_static! {
     pub static ref SHORT_VERSION: String = VERSION.replace("Lighthouse/", "");
     pub static ref LONG_VERSION: String = format!(
@@ -39,11 +38,11 @@ fn bls_library_name() -> &'static str {
 
 #[derive(Parser, Clone, Deserialize, Serialize, Debug)]
 #[clap(
-name = "Lighthouse",
-version = SHORT_VERSION.as_str(),
-long_version = LONG_VERSION.as_str(),
-author = "Sigma Prime <contact@sigmaprime.io>",
-about = "Ethereum 2.0 client by Sigma Prime. Provides a full-featured beacon \
+    name = "Lighthouse",
+    version = SHORT_VERSION.as_str(),
+    long_version = LONG_VERSION.as_str(),
+    author = "Sigma Prime <contact@sigmaprime.io>",
+    about = "Ethereum 2.0 client by Sigma Prime. Provides a full-featured beacon \
                      node, a validator client and utilities for managing validator accounts."
 )]
 pub struct Lighthouse {
@@ -81,12 +80,12 @@ pub struct Lighthouse {
     )]
     pub logfile: Option<PathBuf>,
     #[clap(
-    long,
-    value_name = "LEVEL",
-    help = "The verbosity level used when emitting logs to the log file.",
-    possible_values = &["info","debug","trace","warn","error","crit"],
-    default_value = "debug",
-    global = true
+        long,
+        value_name = "LEVEL",
+        help = "The verbosity level used when emitting logs to the log file.",
+        possible_values = &["info","debug","trace","warn","error","crit"],
+        default_value = "debug",
+        global = true
     )]
     pub logfile_debug_level: String,
     #[clap(
@@ -115,20 +114,20 @@ pub struct Lighthouse {
     )]
     pub logfile_compress: bool,
     #[clap(
-    long,
-    value_name = "FORMAT",
-    help = "Specifies the log format used when emitting logs to the terminal.",
-    possible_values = &["JSON"],
-    global = true
+        long,
+        value_name = "FORMAT",
+        help = "Specifies the log format used when emitting logs to the terminal.",
+        possible_values = &["JSON"],
+        global = true
     )]
     pub log_format: Option<String>,
     #[clap(
-    long,
-    value_name = "LEVEL",
-    help = "Specifies the verbosity level used when emitting logs to the terminal.",
-    possible_values = &["info","debug","trace","warn","error","crit"],
-    global = true,
-    default_value = "info"
+        long,
+        value_name = "LEVEL",
+        help = "Specifies the verbosity level used when emitting logs to the terminal.",
+        possible_values = &["info","debug","trace","warn","error","crit"],
+        global = true,
+        default_value = "info"
     )]
     pub debug_level: String,
     #[clap(
@@ -152,12 +151,12 @@ pub struct Lighthouse {
     )]
     pub testnet_dir: Option<PathBuf>,
     #[clap(
-    long,
-    value_name = "network",
-    help = "Name of the Eth2 chain Lighthouse will sync and follow.",
-    possible_values = HARDCODED_NET_NAMES,
-    conflicts_with = "testnet_dir_flag",
-    global = true
+        long,
+        value_name = "network",
+        help = "Name of the Eth2 chain Lighthouse will sync and follow.",
+        possible_values = HARDCODED_NET_NAMES,
+        conflicts_with = "testnet_dir_flag",
+        global = true
     )]
     pub network: Option<String>,
     #[clap(
@@ -252,7 +251,6 @@ impl Lighthouse {
             optional_network_config.ok_or_else(|| BAD_TESTNET_DIR_MESSAGE.to_string())?;
 
         if let Some(terminal_total_difficulty) = self.terminal_total_difficulty_override {
-            //TODO: do we need to accept deserializing from commas?
             eth2_network_config.config.terminal_total_difficulty = terminal_total_difficulty;
         }
 

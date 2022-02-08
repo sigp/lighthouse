@@ -103,6 +103,8 @@ pub fn get_config<E: EthSpec>(
     client_config.http_api.listen_port = beacon_config.http_port;
 
     if let Some(allow_origin) = beacon_config.http_allow_origin.as_ref() {
+        // Pre-validate the config value to give feedback to the user on node startup, instead of
+        // as late as when the first API response is produced.
         hyper::header::HeaderValue::from_str(allow_origin.as_str())
             .map_err(|_| "Invalid allow-origin value")?;
         client_config.http_api.allow_origin = Some(allow_origin.to_string());
@@ -625,7 +627,8 @@ pub fn set_network_config(
     Ok(())
 }
 
-// Sets the network config from the command line arguments
+// This method sets the network config from the command line arguments for all fields that are
+// common to both the beacon node and boot node CLI config.
 pub fn set_network_config_shared<T: NetworkConfigurable>(
     config: &mut NetworkConfig,
     cli_config: &T,

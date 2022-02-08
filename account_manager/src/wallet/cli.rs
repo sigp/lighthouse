@@ -52,15 +52,15 @@ pub struct Create {
     )]
     pub password: Option<PathBuf>,
     #[clap(
-    long,
-    value_name = "WALLET_TYPE",
-    help =
-    "The type of wallet to create. Only HD (hierarchical-deterministic) \
-                            wallets are supported presently..",
-
-    possible_values = &[HD_TYPE],
-    default_value = HD_TYPE,
-    name = "type")]
+        long,
+        value_name = "WALLET_TYPE",
+        help =
+        "The type of wallet to create. Only HD (hierarchical-deterministic) \
+            wallets are supported presently..",
+        possible_values = &[HD_TYPE],
+        default_value = HD_TYPE,
+        name = "type",
+    )]
     pub create_type: WalletType,
     #[clap(
         long,
@@ -69,15 +69,18 @@ pub struct Create {
     )]
     pub mnemonic: Option<PathBuf>,
     #[clap(
-    hide = cfg!(windows),
-    long,
-    help = "If present, read all user inputs from stdin instead of tty.",)]
+        hide = cfg!(windows),
+        long,
+        help = "If present, read all user inputs from stdin instead of tty.",
+    )]
     pub stdin_inputs: bool,
-    #[clap(                long,
-    value_name = "MNEMONIC_LENGTH",
-    help = "The number of words to use for the mnemonic phrase.",
-    validator = validate_mnemonic_length,
-    default_value_t = 24)]
+    #[clap(
+        long,
+        value_name = "MNEMONIC_LENGTH",
+        help = "The number of words to use for the mnemonic phrase.",
+        validator = validate_mnemonic_length,
+        default_value_t = 24,
+    )]
     pub mnemonic_length: usize,
 }
 
@@ -111,19 +114,22 @@ pub struct Recover {
         help = "If present, the mnemonic will be read in from this file."
     )]
     pub mnemonic: Option<PathBuf>,
-    #[clap(                long,
-    value_name = "WALLET_TYPE",
-    help =
-    "The type of wallet to create. Only HD (hierarchical-deterministic) \
+    #[clap(
+        long,
+        value_name = "WALLET_TYPE",
+        help =
+        "The type of wallet to create. Only HD (hierarchical-deterministic) \
                             wallets are supported presently..",
-    possible_values = &[HD_TYPE],
-    default_value = HD_TYPE,
-    name = "type")]
+        possible_values = &[HD_TYPE],
+        default_value = HD_TYPE,
+        name = "type"
+    )]
     pub recover_type: WalletType,
     #[clap(
-    hide = cfg!(windows),
-    long,
-    help = "If present, read all user inputs from stdin instead of tty.",)]
+        hide = cfg!(windows),
+        long,
+        help = "If present, read all user inputs from stdin instead of tty.",
+    )]
     pub stdin_inputs: bool,
 }
 

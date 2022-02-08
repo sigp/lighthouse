@@ -43,7 +43,10 @@ pub fn cli_run<T: EthSpec>(
     match config {
         SlashingProtection::Import(import_config) => {
             let import_filename: PathBuf = import_config.import_file.clone();
-            let minify: Option<bool> = import_config.minify;
+            let minify = import_config
+                .minify
+                .parse::<bool>()
+                .map_err(|e| format!("Unable to parse minify flag: {}", e))?;
             let import_file = File::open(&import_filename).map_err(|e| {
                 format!(
                     "Unable to open import file at {}: {:?}",
@@ -56,18 +59,12 @@ pub fn cli_run<T: EthSpec>(
             let mut interchange = Interchange::from_json_reader(&import_file)
                 .map_err(|e| format!("Error parsing file for import: {:?}", e))?;
             eprintln!(" [done].");
-
-            if let Some(minify) = minify {
-                eprintln!(
-                    "WARNING: --minify flag is deprecated and will be removed in a future release"
-                );
-                if minify {
-                    eprint!("Minifying input file for faster loading");
-                    interchange = interchange
-                        .minify()
-                        .map_err(|e| format!("Minification failed: {:?}", e))?;
-                    eprintln!(" [done].");
-                }
+            if minify {
+                eprint!("Minifying input file for faster loading");
+                interchange = interchange
+                    .minify()
+                    .map_err(|e| format!("Minification failed: {:?}", e))?;
+                eprintln!(" [done].");
             }
 
             let slashing_protection_database =
@@ -157,7 +154,10 @@ pub fn cli_run<T: EthSpec>(
         }
         SlashingProtection::Export(export_config) => {
             let export_filename: PathBuf = export_config.export_file.clone();
-            let minify: bool = export_config.minify.unwrap_or(false);
+            let minify = export_config
+                .minify
+                .parse::<bool>()
+                .map_err(|e| format!("Unable to parse minify flag: {}", e))?;
 
             let selected_pubkeys = if let Some(pubkeys) = export_config.pubkeys.clone() {
                 let pubkeys = pubkeys

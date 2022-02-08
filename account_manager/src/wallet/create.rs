@@ -29,19 +29,19 @@ pub const NEW_WALLET_PASSWORD_PROMPT: &str =
     "Enter a password for your new wallet that is at least 12 characters long:";
 pub const RETYPE_PASSWORD_PROMPT: &str = "Please re-enter your wallet's new password:";
 
-pub fn cli_run(create: &Create, wallet_base_dir: PathBuf) -> Result<(), String> {
+pub fn cli_run(create_config: &Create, wallet_base_dir: PathBuf) -> Result<(), String> {
     // Create a new random mnemonic.
     //
     // The `tiny-bip39` crate uses `thread_rng()` for this entropy.
-    let mnemonic_length = create.mnemonic_length;
+    let mnemonic_length = create_config.mnemonic_length;
     let mnemonic = Mnemonic::new(
         MnemonicType::for_word_count(mnemonic_length).expect("Mnemonic length already validated"),
         Language::English,
     );
 
-    let wallet = create.create_wallet_from_mnemonic(wallet_base_dir.as_path(), &mnemonic)?;
+    let wallet = create_config.create_wallet_from_mnemonic(wallet_base_dir.as_path(), &mnemonic)?;
 
-    if let Some(path) = create.mnemonic.as_ref() {
+    if let Some(path) = create_config.mnemonic.as_ref() {
         create_with_600_perms(&path, mnemonic.phrase().as_bytes())
             .map_err(|e| format!("Unable to write mnemonic to {:?}: {:?}", path, e))?;
     }

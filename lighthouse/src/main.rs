@@ -26,14 +26,14 @@ fn main() {
         std::env::set_var("RUST_BACKTRACE", "1");
     }
 
-    let lighthouse: Lighthouse = Lighthouse::parse();
+    let lighthouse_config: Lighthouse = Lighthouse::parse();
 
     // Configure the allocator early in the process, before it has the chance to use the default values for
     // anything important.
     //
     // Only apply this optimization for the beacon node. It's the only process with a substantial
     // memory footprint.
-    if lighthouse.is_beacon_node() && !lighthouse.disable_malloc_tuning {
+    if lighthouse_config.is_beacon_node() && !lighthouse_config.disable_malloc_tuning {
         if let Err(e) = configure_memory_allocator() {
             eprintln!(
                 "Unable to configure the memory allocator: {} \n\
@@ -45,18 +45,18 @@ fn main() {
     }
 
     // Debugging output for libp2p and external crates.
-    if lighthouse.env_log {
+    if lighthouse_config.env_log {
         Builder::from_env(Env::default()).init();
     }
 
-    let result = lighthouse
+    let result = lighthouse_config
         .get_eth2_network_config()
         .and_then(|eth2_network_config| {
             let eth_spec_id = eth2_network_config.eth_spec_id()?;
 
-            let global_config = lighthouse.get_global_config();
+            let global_config = lighthouse_config.get_global_config();
 
-            match &lighthouse.subcommand {
+            match &lighthouse_config.subcommand {
                 // Boot node subcommand circumvents the environment.
                 LighthouseSubcommand::BootNode(boot_node) => {
                     boot_node::run(boot_node, &global_config, eth_spec_id, &eth2_network_config);
@@ -66,21 +66,21 @@ fn main() {
                 _ => match eth_spec_id {
                     EthSpecId::Mainnet => run(
                         EnvironmentBuilder::mainnet(),
-                        &lighthouse,
+                        &lighthouse_config,
                         &global_config,
                         eth2_network_config,
                     ),
                     #[cfg(feature = "gnosis")]
                     EthSpecId::Gnosis => run(
                         EnvironmentBuilder::gnosis(),
-                        &lighthouse,
+                        &lighthouse_config,
                         &global_config,
                         eth2_network_config,
                     ),
                     #[cfg(feature = "spec-minimal")]
                     EthSpecId::Minimal => run(
                         EnvironmentBuilder::minimal(),
-                        &lighthouse,
+                        &lighthouse_config,
                         &global_config,
                         eth2_network_config,
                     ),
@@ -100,7 +100,7 @@ fn main() {
         });
 
     // `std::process::exit` does not run destructors so we drop manually.
-    drop(lighthouse);
+    drop(lighthouse_config);
 
     // Return the appropriate error code.
     match result {

@@ -5,9 +5,10 @@ use std::path::PathBuf;
 
 #[derive(Parser, Clone, Deserialize, Serialize, Debug)]
 #[clap(name = "validator_client",
-visible_aliases = &["v", "vc", "validator"],
-about = "When connected to a beacon node, performs the duties of a staked \
-                validator (e.g., proposing blocks and attestations).",)]
+    visible_aliases = &["v", "vc", "validator"],
+    about = "When connected to a beacon node, performs the duties of a staked \
+                validator (e.g., proposing blocks and attestations)."
+,)]
 pub struct ValidatorClient {
     #[clap(
         long,
@@ -24,10 +25,10 @@ pub struct ValidatorClient {
     )]
     pub beacon_nodes: Option<String>,
     #[clap(
-    long,
-    value_name = "NETWORK_ADDRESS",
-    help = "Deprecated. Use --beacon-nodes.",
-    conflicts_with_all = &["beacon_node", "beacon_nodes"],
+        long,
+        value_name = "NETWORK_ADDRESS",
+        help = "Deprecated. Use --beacon-nodes.",
+        conflicts_with_all = &["beacon_node", "beacon_nodes"],
     )]
     pub server: Option<String>,
     #[clap(

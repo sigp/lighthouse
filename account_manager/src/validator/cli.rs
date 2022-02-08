@@ -54,10 +54,12 @@ pub struct Create {
         help = "A path to a file containing the password which will unlock the wallet."
     )]
     pub wallet_password: Option<PathBuf>,
-    #[clap(                long,
-    value_name = WALLETS_DIR_FLAG,
-    help = "A path containing Eth2 EIP-2386 wallets. Defaults to ~/.lighthouse/{network}/wallets",
-    conflicts_with = "datadir",)]
+    #[clap(
+        long,
+        value_name = WALLETS_DIR_FLAG,
+        help = "A path containing Eth2 EIP-2386 wallets. Defaults to ~/.lighthouse/{network}/wallets",
+        conflicts_with = "datadir",
+    )]
     pub wallets_dir: Option<PathBuf>,
     #[clap(
         long,
@@ -97,9 +99,9 @@ pub struct Create {
     )]
     pub at_most: Option<usize>,
     #[clap(
-    hide = cfg!(windows),
-    long,
-    help = "If present, read all user inputs from stdin instead of tty.",
+        hide = cfg!(windows),
+        long,
+        help = "If present, read all user inputs from stdin instead of tty.",
     )]
     pub stdin_inputs: bool,
 }
@@ -188,10 +190,11 @@ pub struct Import {
         required_unless_present = "keystore"
     )]
     pub dir: Option<PathBuf>,
-    #[clap(                takes_value = false,
-    hide = cfg!(windows),
-    long,
-    help = "If present, read all user inputs from stdin instead of tty.",)]
+    #[clap(
+        hide = cfg!(windows),
+        long,
+        help = "If present, read all user inputs from stdin instead of tty.",
+    )]
     pub stdin_inputs: bool,
     #[clap(
         long,
@@ -256,9 +259,11 @@ pub struct Recover {
                     instead generate them from the wallet seed when required."
     )]
     pub store_withdraw: bool,
-    #[clap(                hide = cfg!(windows),
-    long,
-    help = "If present, read all user inputs from stdin instead of tty.",)]
+    #[clap(
+        hide = cfg!(windows),
+        long,
+        help = "If present, read all user inputs from stdin instead of tty.",
+    )]
     pub stdin_inputs: bool,
 }
 
@@ -279,12 +284,14 @@ pub struct SlashingProtectionImport {
     )]
     pub import_file: PathBuf,
     #[clap(
-    long,
-    possible_values = &["false", "true"],
-    help =
-    "Deprecated: Lighthouse no longer requires minification on import \
-                             because it always minifies",)]
-    pub minify: Option<bool>,
+        long,
+        possible_values = &["false", "true"],
+        help =
+        "Deprecated: Lighthouse no longer requires minification on import \
+            because it always minifies",
+        default_value = "true",
+    )]
+    pub minify: String,
 }
 
 #[derive(Parser, Clone, Deserialize, Serialize, Debug)]
@@ -302,12 +309,14 @@ pub struct SlashingProtectionExport {
                              comma-separated. All known keys will be exported if omitted"
     )]
     pub pubkeys: Option<String>,
-    #[clap(                        long,
-    possible_values = &["false", "true"],
-    help =
-    "Minify the output file. This will make it smaller and faster to \
-                             import, but not faster to generate.",)]
-    pub minify: Option<bool>,
+    #[clap(
+        long,
+        possible_values = &["false", "true"],
+        help = "Minify the output file. This will make it smaller and faster to \
+                             import, but not faster to generate.",
+        default_value = "false"
+    )]
+    pub minify: String,
 }
 
 #[derive(Parser, Clone, Deserialize, Serialize, Debug)]
@@ -325,10 +334,12 @@ pub struct Exit {
         help = "The path to the password file which unlocks the validator voting keystore"
     )]
     pub password_file: Option<PathBuf>,
-    #[clap(                long,
-    value_name = "NETWORK_ADDRESS",
-    help = "Address to a beacon node HTTP API",
-    default_value = DEFAULT_BEACON_NODE,)]
+    #[clap(
+        long,
+        value_name = "NETWORK_ADDRESS",
+        help = "Address to a beacon node HTTP API",
+        default_value = DEFAULT_BEACON_NODE,
+    )]
     pub beacon_server: String,
     #[clap(
         long,
@@ -340,8 +351,10 @@ pub struct Exit {
         help = "Exits without prompting for confirmation that you understand the implications of a voluntary exit. This should be used with caution"
     )]
     pub no_confirmation: bool,
-    #[clap(                hide = cfg!(windows),
-    long,
-    help = "If present, read all user inputs from stdin instead of tty.",)]
+    #[clap(
+        hide = cfg!(windows),
+        long,
+        help = "If present, read all user inputs from stdin instead of tty.",
+    )]
     pub stdin_inputs: bool,
 }

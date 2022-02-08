@@ -41,7 +41,6 @@ pub fn parse_path_with_default_in_home_dir(
     } else {
         dirs::home_dir()
             .map(|home| home.join(default))
-            //TODO: not sure how to make this error specific
             .ok_or_else(|| "Unable to locate home directory".to_string())
     }
 }

@@ -18,9 +18,8 @@ pub struct BootNode {
         long,
         value_name = "IP-ADDRESS",
         help = "The external IP address/ DNS address to broadcast to other peers on how to reach this node. \
-    If a DNS address is provided, the enr-address is set to the IP address it resolves to and \
-     does not auto-update based on PONG responses in discovery.",
-        required = true,
+            If a DNS address is provided, the enr-address is set to the IP address it resolves to and \
+             does not auto-update based on PONG responses in discovery.",
         conflicts_with = "network_dir"
     )]
     pub enr_address: Option<String>,
@@ -43,14 +42,14 @@ pub struct BootNode {
         allow_hyphen_values = true,
         value_name = "ENR-LIST/Multiaddr",
         help = "One or more comma-delimited base64-encoded ENR's or multiaddr strings of peers to \
-        initially add to the local routing table"
+            initially add to the local routing table"
     )]
     pub boot_nodes: Option<String>,
     #[clap(
         long,
         value_name = "PORT",
         help = "The UDP port of the boot node's ENR. This is the port that external peers will dial \
-        to reach this boot node. Set this only if the external port differs from the listening port.",
+            to reach this boot node. Set this only if the external port differs from the listening port.",
         conflicts_with = "network_dir"
     )]
     pub enr_udp_port: Option<u16>,
@@ -58,7 +57,7 @@ pub struct BootNode {
         short = 'x',
         long,
         help = "Discovery can automatically update the node's local ENR with an external IP address \
-        and port as seen by other peers on the network. , This enables this feature."
+            and port as seen by other peers on the network. , This enables this feature."
     )]
     pub enable_enr_auto_update: bool,
     #[clap(

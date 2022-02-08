@@ -6,12 +6,12 @@ use types::Address;
 
 #[derive(Parser, Clone, Deserialize, Serialize, Debug)]
 #[clap(
-        name = "beacon_node",
-        visible_aliases = &["b", "bn", "beacon"],
-        author = "Sigma Prime <contact@sigmaprime.io>",
-        about = "The primary component which connects to the Ethereum 2.0 P2P network and \
-                downloads, verifies and stores blocks. Provides a HTTP API for querying \
-                the beacon chain and publishing messages to the network.",
+    name = "beacon_node",
+    visible_aliases = &["b", "bn", "beacon"],
+    author = "Sigma Prime <contact@sigmaprime.io>",
+    about = "The primary component which connects to the Ethereum 2.0 P2P network and \
+            downloads, verifies and stores blocks. Provides a HTTP API for querying \
+            the beacon chain and publishing messages to the network.",
 )]
 pub struct BeaconNode {
     #[clap(
