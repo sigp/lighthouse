@@ -963,10 +963,11 @@ impl<TSpec: EthSpec> NetworkBehaviour for Discovery<TSpec> {
             match error {
                 DialError::Banned
                 | DialError::LocalPeerId
-                | DialError::InvalidPeerId
+                | DialError::InvalidPeerId(_)
                 | DialError::ConnectionIo(_)
                 | DialError::NoAddresses
-                | DialError::Transport(_) => {
+                | DialError::Transport(_)
+                | DialError::WrongPeerId { .. } => {
                     // set peer as disconnected in discovery DHT
                     debug!(self.log, "Marking peer disconnected in DHT"; "peer_id" => %peer_id);
                     self.disconnect_peer(&peer_id);
