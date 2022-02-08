@@ -4,7 +4,7 @@ use crate::{
     validator_store::{DoppelgangerStatus, ValidatorStore},
 };
 use environment::RuntimeContext;
-use slog::{error, info};
+use slog::{debug, error, info};
 use slot_clock::SlotClock;
 use std::ops::Deref;
 use std::sync::Arc;
@@ -262,7 +262,7 @@ impl<T: SlotClock + 'static, E: EthSpec> PreparationService<T, E> {
             })
             .await
         {
-            Ok(()) => info!(
+            Ok(()) => debug!(
                 log,
                 "Published proposer preparation";
                 "count" => preparation_data_len,
