@@ -4,7 +4,6 @@ use beacon_chain::{
     test_utils::{BeaconChainHarness, EphemeralHarnessType},
     BlockError, ExecutionPayloadError,
 };
-use std::collections::HashSet;
 use types::*;
 
 const VALIDATOR_COUNT: usize = 32;
@@ -20,8 +19,6 @@ enum Payload {
 
 struct InvalidPayloadRig {
     harness: BeaconChainHarness<EphemeralHarnessType<E>>,
-    valid_blocks: HashSet<Hash256>,
-    invalid_blocks: HashSet<Hash256>,
 }
 
 impl InvalidPayloadRig {
@@ -40,11 +37,7 @@ impl InvalidPayloadRig {
         // Move to slot 1.
         harness.advance_slot();
 
-        Self {
-            harness,
-            valid_blocks: <_>::default(),
-            invalid_blocks: <_>::default(),
-        }
+        Self { harness }
     }
 
     fn block_hash(&self, block_root: Hash256) -> Hash256 {
@@ -89,9 +82,28 @@ impl InvalidPayloadRig {
                 } else {
                     mock_execution_layer.server.full_payload_verification();
                 }
-                self.harness.process_block(slot, block).unwrap();
-                self.valid_blocks.insert(block_root);
-                // TODO: check syncing blocks are optimistic.
+                let root = self.harness.process_block(slot, block.clone()).unwrap();
+
+                let execution_status = self
+                    .harness
+                    .chain
+                    .fork_choice
+                    .read()
+                    .get_block(&root.into())
+                    .unwrap()
+                    .execution_status;
+
+                match is_valid {
+                    Payload::Syncing => assert!(execution_status.is_not_verified()),
+                    Payload::Valid => assert!(execution_status.is_valid()),
+                    Payload::Invalid { .. } => unreachable!(),
+                }
+
+                assert_eq!(
+                    self.harness.chain.get_block(&block_root).unwrap().unwrap(),
+                    block,
+                    "block from db must match block imported"
+                );
             }
             Payload::Invalid { latest_valid_hash } => {
                 let latest_valid_hash = latest_valid_hash
@@ -110,12 +122,37 @@ impl InvalidPayloadRig {
                     }
                     Ok(_) => panic!("block with invalid payload was imported"),
                 };
-                self.invalid_blocks.insert(block_root);
+
+                assert!(
+                    self.harness
+                        .chain
+                        .fork_choice
+                        .read()
+                        .get_block(&block_root)
+                        .is_none(),
+                    "invalid block must not exist in fork choice"
+                );
+                assert!(
+                    self.harness.chain.get_block(&block_root).unwrap().is_none(),
+                    "invalid block cannot be accessed via get_block"
+                );
             }
         }
 
         block_root
     }
+}
+
+#[test]
+fn payload_valid_invalid_syncing() {
+    let mut rig = InvalidPayloadRig::new();
+    rig.move_to_terminal_block();
+
+    rig.import_block(Payload::Valid);
+    rig.import_block(Payload::Invalid {
+        latest_valid_hash: None,
+    });
+    rig.import_block(Payload::Syncing);
 }
 
 #[test]

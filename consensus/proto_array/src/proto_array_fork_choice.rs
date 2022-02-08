@@ -50,6 +50,14 @@ impl ExecutionStatus {
         }
     }
 
+    pub fn is_valid(&self) -> bool {
+        matches!(self, ExecutionStatus::Valid(_))
+    }
+
+    pub fn is_not_verified(&self) -> bool {
+        matches!(self, ExecutionStatus::Unknown(_))
+    }
+
     pub fn is_invalid(&self) -> bool {
         matches!(self, ExecutionStatus::Invalid(_))
     }
