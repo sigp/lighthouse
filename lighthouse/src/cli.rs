@@ -8,7 +8,6 @@ use lighthouse_version::VERSION;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use types::{Epoch, Uint256};
-use clap::AppSettings;
 
 lazy_static! {
     pub static ref SHORT_VERSION: String = VERSION.replace("Lighthouse/", "");
@@ -45,7 +44,6 @@ fn bls_library_name() -> &'static str {
     author = "Sigma Prime <contact@sigmaprime.io>",
     about = "Ethereum 2.0 client by Sigma Prime. Provides a full-featured beacon \
                      node, a validator client and utilities for managing validator accounts.",
-    settings = &[AppSettings::NextLineHelp]
 )]
 pub struct Lighthouse {
     #[clap(
@@ -191,7 +189,7 @@ pub struct Lighthouse {
                       Accepts a 256-bit decimal integer  = not a hex value,. \
                       This flag should only be used if the user has a clear understanding that \
                       the broad Ethereum community has elected to override the terminal difficulty. \
-                      Incorrect use of this flag will cause your node to experience a consensus
+                      Incorrect use of this flag will cause your node to experience a consensus \
                       failure. Be extremely careful with this flag.",
         global = true
     )]
@@ -203,7 +201,7 @@ pub struct Lighthouse {
         help = "Used to coordinate manual overrides to the TERMINAL_BLOCK_HASH parameter. \
                       This flag should only be used if the user has a clear understanding that \
                       the broad Ethereum community has elected to override the terminal PoW block. \
-                      Incorrect use of this flag will cause your node to experience a consensus
+                      Incorrect use of this flag will cause your node to experience a consensus \
                       failure. Be extremely careful with this flag.",
         requires = "terminal_block_hash_epoch_override",
         global = true
@@ -215,7 +213,7 @@ pub struct Lighthouse {
         help = "Used to coordinate manual overrides to the TERMINAL_BLOCK_HASH_ACTIVATION_EPOCH \
                       parameter. This flag should only be used if the user has a clear understanding \
                       that the broad Ethereum community has elected to override the terminal PoW block. \
-                      Incorrect use of this flag will cause your node to experience a consensus
+                      Incorrect use of this flag will cause your node to experience a consensus \
                       failure. Be extremely careful with this flag.",
         requires = "terminal_block_hash_override",
         global = true
