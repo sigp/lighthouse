@@ -299,7 +299,6 @@ pub struct BeaconNode {
     pub eth1_endpoints: Option<String>,
     #[clap(
         long,
-        value_name = "PURGE-CACHE",
         help = "Purges the eth1 block and deposit caches"
     )]
     pub eth1_purge_cache: bool,

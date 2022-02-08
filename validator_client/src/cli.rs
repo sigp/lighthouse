@@ -186,7 +186,6 @@ pub struct ValidatorClient {
     pub monitoring_endpoint: Option<String>,
     #[clap(
         long,
-        value_name = "ENABLE_DOPPELGANGER_PROTECTION",
         help = "If this flag is set, Lighthouse will delay startup for three epochs and \
                     monitor for messages on the network by any of the validators managed by this \
                     client. This will result in three (possibly four) epochs worth of missed \

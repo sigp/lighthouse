@@ -8,6 +8,7 @@ use lighthouse_version::VERSION;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use types::{Epoch, Uint256};
+use clap::AppSettings;
 
 lazy_static! {
     pub static ref SHORT_VERSION: String = VERSION.replace("Lighthouse/", "");
@@ -43,7 +44,8 @@ fn bls_library_name() -> &'static str {
     long_version = LONG_VERSION.as_str(),
     author = "Sigma Prime <contact@sigmaprime.io>",
     about = "Ethereum 2.0 client by Sigma Prime. Provides a full-featured beacon \
-                     node, a validator client and utilities for managing validator accounts."
+                     node, a validator client and utilities for managing validator accounts.",
+    settings = &[AppSettings::NextLineHelp]
 )]
 pub struct Lighthouse {
     #[clap(
