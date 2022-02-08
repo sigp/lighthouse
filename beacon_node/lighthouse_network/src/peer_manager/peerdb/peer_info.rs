@@ -145,6 +145,19 @@ impl<T: EthSpec> PeerInfo<T> {
         self.subnets.iter()
     }
 
+    /// Returns the number of long lived subnets a peer is subscribed to.
+    // NOTE: This currently excludes sync committee subnets
+    pub fn long_lived_subnet_count(&self) -> usize {
+        if let Some(meta_data) = self.meta_data.as_ref() {
+            return meta_data.attnets().num_set_bits();
+        } else if let Some(enr) = self.enr.as_ref() {
+            if let Ok(attnets) = enr.attestation_bitfield::<T>() {
+                return attnets.num_set_bits();
+            }
+        }
+        0
+    }
+
     /// Returns an iterator over the long-lived subnets if it has any.
     pub fn long_lived_subnets(&self) -> Vec<Subnet> {
         let mut long_lived_subnets = Vec::new();

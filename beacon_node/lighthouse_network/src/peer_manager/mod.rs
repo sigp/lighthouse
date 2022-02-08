@@ -9,7 +9,7 @@ use discv5::Enr;
 use hashset_delay::HashSetDelay;
 use libp2p::identify::IdentifyInfo;
 use peerdb::{client::ClientKind, BanOperation, BanResult, ScoreUpdateResult};
-use rand::Rng;
+use rand::seq::SliceRandom;
 use slog::{debug, error, warn};
 use smallvec::SmallVec;
 use std::{
@@ -876,6 +876,8 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
     /// Always maintain peers we need for a validator duty.
     /// Do not prune outbound peers to exceed our outbound target.
     /// Do not prune more peers than our target peer count.
+    /// If we have an option to remove a number of peers, remove ones that have the least
+    /// long-lived subnets.
     ///
     /// Prune peers in the following order:
     /// 1. Remove worst scoring peers
@@ -979,10 +981,11 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
                     if let Some(peers_on_subnet) = subnet_to_peer.get_mut(&subnet_most_peers) {
                         // and the subnet still contains peers
                         if !peers_on_subnet.is_empty() {
-                            // Select a random peer.
-                            let index =
-                                rand::thread_rng().gen_range(0usize, peers_on_subnet.len() - 1);
-                            let (candidate_peer, info) = peers_on_subnet.remove(index);
+                            // Order the peers by the number of subnets they are long-lived
+                            // subscribed too, shuffle equal peers.
+                            peers_on_subnet.shuffle(&mut rand::thread_rng());
+                            peers_on_subnet.sort_by_key(|(_,info)| info.long_lived_subnet_count()); 
+                            let (candidate_peer, info) = peers_on_subnet.remove(0);
                             // Ensure we don't remove too many outbound peers
                             if info.is_outbound_only() {
                                 if self.target_outbound_peers()
