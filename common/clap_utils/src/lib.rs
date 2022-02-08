@@ -1,7 +1,6 @@
 //! A helper library for parsing values from `clap::ArgMatches`.
 
 use clap::ArgMatches;
-use eth2_network_config::{Eth2NetworkConfig, DEFAULT_HARDCODED_NETWORK};
 use ethereum_types::U256 as Uint256;
 use ssz::Decode;
 use std::path::PathBuf;

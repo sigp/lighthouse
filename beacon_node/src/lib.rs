@@ -1,6 +1,3 @@
-#[macro_use]
-extern crate clap;
-
 pub mod cli;
 mod config;
 
@@ -10,7 +7,6 @@ use beacon_chain::{
     builder::Witness, eth1_chain::CachingEth1Backend, slot_clock::SystemTimeSlotClock,
     TimeoutRwLock,
 };
-use clap::ArgMatches;
 use clap_utils::GlobalConfig;
 pub use cli::BeaconNode;
 pub use client::{Client, ClientBuilder, ClientConfig, ClientGenesis};

@@ -20,18 +20,6 @@ use task_executor::ShutdownReason;
 use types::{EthSpec, EthSpecId};
 use validator_client::ProductionValidatorClient;
 
-fn bls_library_name() -> &'static str {
-    if cfg!(feature = "portable") {
-        "blst-portable"
-    } else if cfg!(feature = "modern") {
-        "blst-modern"
-    } else if cfg!(feature = "milagro") {
-        "milagro"
-    } else {
-        "blst"
-    }
-}
-
 fn main() {
     // Enable backtraces unless a RUST_BACKTRACE value has already been explicitly provided.
     if std::env::var("RUST_BACKTRACE").is_err() {

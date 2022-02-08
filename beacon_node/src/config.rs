@@ -1,7 +1,5 @@
 use crate::cli::NetworkConfigurable;
 use crate::BeaconNode;
-use clap::ArgMatches;
-use clap_utils::flags::DISABLE_MALLOC_TUNING_FLAG;
 use clap_utils::GlobalConfig;
 use client::{ClientConfig, ClientGenesis};
 use directory::{DEFAULT_BEACON_NODE_DIR, DEFAULT_NETWORK_DIR, DEFAULT_ROOT_DIR};

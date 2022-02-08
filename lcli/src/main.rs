@@ -16,7 +16,7 @@ mod skip_slots;
 mod transition_blocks;
 
 use clap::{App, Arg, ArgMatches, SubCommand};
-use clap_utils::{parse_optional, parse_path_with_default_in_home_dir};
+use clap_utils::{parse_optional};
 use environment::{EnvironmentBuilder, LoggerConfig};
 use parse_ssz::run_parse_ssz;
 use std::path::PathBuf;
