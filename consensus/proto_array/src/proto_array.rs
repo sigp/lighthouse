@@ -368,6 +368,9 @@ impl ProtoArray {
             if let Some(parent_index) = node.parent {
                 index = parent_index
             } else {
+                // The root of the block tree has been reached (aka the finalized block), without
+                // matching `latest_valid_ancestor_hash`. It's not possible or useful to go any
+                // further back: the finalized checkpoint is invalid so all is lost!
                 break;
             }
         }

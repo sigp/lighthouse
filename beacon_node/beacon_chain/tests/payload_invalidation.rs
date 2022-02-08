@@ -2,7 +2,7 @@
 
 use beacon_chain::{
     test_utils::{BeaconChainHarness, EphemeralHarnessType},
-    BeaconChainError, BlockError, ExecutionPayloadError, HeadInfo,
+    BeaconChainError, BlockError, ExecutionPayloadError, HeadInfo, WhenSlotSkipped,
     INVALID_JUSTIFIED_PAYLOAD_SHUTDOWN_REASON,
 };
 use proto_array::ExecutionStatus;
@@ -92,11 +92,15 @@ impl InvalidPayloadRig {
             .unwrap();
     }
 
-    fn move_to_first_justification(&mut self, is_valid: Payload) {
-        let slots_till_justification = E::slots_per_epoch() * 3;
-        for _ in 0..slots_till_justification {
+    fn build_blocks(&mut self, num_blocks: u64, is_valid: Payload) {
+        for _ in 0..num_blocks {
             self.import_block(is_valid.clone());
         }
+    }
+
+    fn move_to_first_justification(&mut self, is_valid: Payload) {
+        let slots_till_justification = E::slots_per_epoch() * 3;
+        self.build_blocks(slots_till_justification, is_valid);
 
         let justified_checkpoint = self.head_info().current_justified_checkpoint;
         assert_eq!(justified_checkpoint.epoch, 2);
@@ -272,9 +276,47 @@ fn justified_checkpoint_becomes_invalid() {
     );
 }
 
-/*
- * TODO: add a test where the latest_valid_hash is a pre-finalization hash.
- */
+#[test]
+fn ancient_latest_valid_hash() {
+    let mut rig = InvalidPayloadRig::new().enable_attestations();
+    rig.move_to_terminal_block();
+    rig.build_blocks(E::slots_per_epoch() * 4, Payload::Syncing);
+
+    assert_eq!(rig.head_info().finalized_checkpoint.epoch, 2);
+
+    let ancient_block_root = rig
+        .harness
+        .chain
+        .block_root_at_slot(Slot::new(1), WhenSlotSkipped::None)
+        .unwrap()
+        .unwrap();
+
+    // No service should have triggered a shutdown, yet.
+    assert!(rig.harness.shutdown_reasons().is_empty());
+
+    // Import a block that will invalidate the justified checkpoint.
+    rig.import_block_parametric(
+        Payload::Invalid {
+            latest_valid_hash: Some(ancient_block_root),
+        },
+        |error| {
+            matches!(
+                error,
+                // The block import should fail since the beacon chain knows the justified payload
+                // is invalid.
+                BlockError::BeaconChainError(BeaconChainError::JustifiedPayloadInvalid { .. })
+            )
+        },
+    );
+
+    // The beacon chain should have triggered a shutdown.
+    assert_eq!(
+        rig.harness.shutdown_reasons(),
+        vec![ShutdownReason::Failure(
+            INVALID_JUSTIFIED_PAYLOAD_SHUTDOWN_REASON
+        )]
+    );
+}
 
 #[test]
 fn invalid_during_processing() {
