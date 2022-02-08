@@ -145,6 +145,46 @@ impl<T: EthSpec> PeerInfo<T> {
         self.subnets.iter()
     }
 
+    /// Returns an iterator over the long-lived subnets if it has any.
+    pub fn long_lived_subnets(&self) -> Vec<Subnet> {
+        let mut long_lived_subnets = Vec::new();
+        // Check the meta_data
+        if let Some(meta_data) = self.meta_data.as_ref() {
+            for subnet in 0..=meta_data.attnets().highest_set_bit().unwrap_or(0) {
+                if meta_data.attnets().get(subnet).expect("within bounds") {
+                    long_lived_subnets.push(Subnet::Attestation((subnet as u64).into()));
+                }
+            }
+
+            if let Ok(syncnet) = meta_data.syncnets() {
+                for subnet in 0..=syncnet.highest_set_bit().unwrap_or(0) {
+                    if syncnet.get(subnet).expect("within bounds") {
+                        long_lived_subnets.push(Subnet::SyncCommittee((subnet as u64).into()));
+                    }
+                }
+            }
+        } else {
+            if let Some(enr) = self.enr.as_ref() {
+                if let Ok(attnets) = enr.attestation_bitfield::<T>() {
+                    for subnet in 0..=attnets.highest_set_bit().unwrap_or(0) {
+                        if attnets.get(subnet).expect("within bounds") {
+                            long_lived_subnets.push(Subnet::Attestation((subnet as u64).into()));
+                        }
+                    }
+                }
+
+                if let Ok(syncnets) = enr.sync_committee_bitfield::<T>() {
+                    for subnet in 0..=syncnets.highest_set_bit().unwrap_or(0) {
+                        if syncnets.get(subnet).expect("within bounds") {
+                            long_lived_subnets.push(Subnet::SyncCommittee((subnet as u64).into()));
+                        }
+                    }
+                }
+            }
+        }
+        long_lived_subnets
+    }
+
     /// Returns if the peer is subscribed to a given `Subnet` from the gossipsub subscriptions.
     pub fn on_subnet_gossipsub(&self, subnet: &Subnet) -> bool {
         self.subnets.contains(subnet)

@@ -909,7 +909,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
                     .filter(|(_, info)| !info.has_future_duty() && $filter(*info))
                 {
                     if peers_to_prune.len()
-                        <= connected_peer_count.saturating_sub(self.target_peers)
+                        >= connected_peer_count.saturating_sub(self.target_peers)
                     {
                         // We have found all the peers we need to drop, end.
                         break;
@@ -937,13 +937,13 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
 
         // 2. Attempt to remove peers that are not subscribed to a subnet, if we still need to
         //    prune more.
-        if peers_to_prune.len() <= connected_peer_count.saturating_sub(self.target_peers) {
+        if peers_to_prune.len() < connected_peer_count.saturating_sub(self.target_peers) {
             prune_peers!(|info: &PeerInfo<TSpec>| { !info.has_long_lived_subnet() });
         }
 
         // 3. and 4. Remove peers that are too grouped on any given subnet. If all subnets are
         //    uniformly distributed, remove random peers.
-        if peers_to_prune.len() <= connected_peer_count.saturating_sub(self.target_peers) {
+        if peers_to_prune.len() < connected_peer_count.saturating_sub(self.target_peers) {
             // Of our connected peers, build a map from subnet_id -> Vec<(PeerId, PeerInfo)>
             let mut subnet_to_peer: HashMap<Subnet, Vec<(PeerId, PeerInfo<TSpec>)>> =
                 HashMap::new();
@@ -954,11 +954,17 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
                     continue;
                 }
 
-                for subnet in info.subnets() {
-                    subnet_to_peer
-                        .entry(*subnet)
-                        .or_insert_with(Vec::new)
-                        .push((*peer_id, info.clone()));
+                // Count based on long-lived subnets not short-lived subnets
+                // NOTE: There are only 4 sync committees. These are likely to be denser than the
+                // subnets, so our priority here to make the subnet peer count uniform, ignoring
+                // the dense sync committees.
+                for subnet in info.long_lived_subnets() {
+                    if matches!(subnet, Subnet::Attestation(_)) {
+                        subnet_to_peer
+                            .entry(subnet)
+                            .or_insert_with(Vec::new)
+                            .push((*peer_id, info.clone()));
+                    }
                 }
             }
 
@@ -1119,7 +1125,7 @@ enum ConnectingType {
 mod tests {
     use super::*;
     use slog::{o, Drain};
-    use types::MinimalEthSpec as E;
+    use types::MainnetEthSpec as E;
 
     pub fn build_log(level: slog::Level, enabled: bool) -> slog::Logger {
         let decorator = slog_term::TermDecorator::new().build();
@@ -1354,4 +1360,160 @@ mod tests {
         // the number of connected peers updates and we will not remove too many peers.
         assert_eq!(peer_manager.network_globals.connected_or_dialing_peers(), 3);
     }
+
+    #[tokio::test]
+    /// We want to test that the peer manager removes peers that are not subscribed to a subnet as
+    /// a priority over all else.
+    async fn test_peer_manager_remove_non_subnet_peers_when_all_healthy() {
+        let mut peer_manager = build_peer_manager(3).await;
+
+        // Create 5 peers to connect to.
+        let peer0 = PeerId::random();
+        let peer1 = PeerId::random();
+        let peer2 = PeerId::random();
+        let peer3 = PeerId::random();
+        let peer4 = PeerId::random();
+
+        println!("{}", peer0);
+        println!("{}", peer1);
+        println!("{}", peer2);
+        println!("{}", peer3);
+        println!("{}", peer4);
+
+        peer_manager.inject_connect_ingoing(&peer0, "/ip4/0.0.0.0".parse().unwrap(), None);
+        peer_manager.inject_connect_ingoing(&peer1, "/ip4/0.0.0.0".parse().unwrap(), None);
+        peer_manager.inject_connect_ingoing(&peer2, "/ip4/0.0.0.0".parse().unwrap(), None);
+        peer_manager.inject_connect_ingoing(&peer3, "/ip4/0.0.0.0".parse().unwrap(), None);
+        peer_manager.inject_connect_ingoing(&peer4, "/ip4/0.0.0.0".parse().unwrap(), None);
+
+        // Have some of the peers be on a long-lived subnet
+        let mut attnets = crate::types::EnrAttestationBitfield::<E>::new();
+        attnets.set(1,true).unwrap(); 
+        let metadata = crate::rpc::MetaDataV2 { 
+            seq_number: 0,
+            attnets, 
+            syncnets: Default::default(),
+        };
+        peer_manager.network_globals.peers.write().peer_info_mut(&peer0).unwrap().set_meta_data(MetaData::V2(metadata));
+        peer_manager.network_globals.peers.write().add_subscription(&peer0, Subnet::Attestation(1.into()));
+
+        let mut attnets = crate::types::EnrAttestationBitfield::<E>::new();
+        attnets.set(10,true).unwrap(); 
+        let metadata = crate::rpc::MetaDataV2 { 
+            seq_number: 0,
+            attnets, 
+            syncnets: Default::default(),
+        };
+        peer_manager.network_globals.peers.write().peer_info_mut(&peer2).unwrap().set_meta_data(MetaData::V2(metadata));
+        peer_manager.network_globals.peers.write().add_subscription(&peer2, Subnet::Attestation(10.into()));
+
+        let mut syncnets = crate::types::EnrSyncCommitteeBitfield::<E>::new();
+        syncnets.set(3,true).unwrap(); 
+        let metadata = crate::rpc::MetaDataV2 { 
+            seq_number: 0,
+            attnets: Default::default(), 
+            syncnets,
+        };
+        peer_manager.network_globals.peers.write().peer_info_mut(&peer4).unwrap().set_meta_data(MetaData::V2(metadata));
+        peer_manager.network_globals.peers.write().add_subscription(&peer4, Subnet::SyncCommittee(3.into()));
+
+        // Perform the heartbeat.
+        peer_manager.heartbeat();
+        // Tests that when we are over the target peer limit, after disconnecting an unhealthy peer,
+        // the number of connected peers updates and we will not remove too many peers.
+        assert_eq!(peer_manager.network_globals.connected_or_dialing_peers(), 3);
+
+        // Check that we removed the peers that were not subscribed to any subnet
+        let mut peers_should_have_removed= std::collections::HashSet::new();
+        peers_should_have_removed.insert(peer1);
+        peers_should_have_removed.insert(peer3);
+        for (peer, _) in peer_manager.network_globals.peers.read().peers().filter(|(_, info)| matches!(info.connection_status(), PeerConnectionStatus::Disconnecting{ .. })) {
+            println!("{}", peer);
+            assert!(peers_should_have_removed.remove(peer));
+        }
+        // Ensure we removed all the peers
+        assert!(peers_should_have_removed.is_empty());
+    }
+
+    #[tokio::test]
+    /// Test the pruning logic to remove grouped subnet peers
+    async fn test_peer_manager_prune_grouped_subnet_peers() {
+        let target = 9;
+        let mut peer_manager = build_peer_manager(target).await;
+
+        // Create 5 peers to connect to.
+        let mut peers = Vec::new();
+        for x in 0..20 {
+            // Make 20 peers and group peers as:
+            // id mod % 4
+            // except for the last 5 peers which all go on their own subnets
+            // So subnets 0-2 should have 4 peers subnet 3 should have 3 and 15-19 should have 1
+            let subnet: u64 = {
+                if x < 15 { 
+                    x % 4
+                } else {
+                    x
+                }
+            };
+
+            let peer = PeerId::random();
+            peer_manager.inject_connect_ingoing(&peer, "/ip4/0.0.0.0".parse().unwrap(), None);
+
+            // Have some of the peers be on a long-lived subnet
+            let mut attnets = crate::types::EnrAttestationBitfield::<E>::new();
+            attnets.set(subnet as usize,true).unwrap(); 
+            let metadata = crate::rpc::MetaDataV2 { 
+                seq_number: 0,
+                attnets, 
+                syncnets: Default::default(),
+            };
+            peer_manager.network_globals.peers.write().peer_info_mut(&peer).unwrap().set_meta_data(MetaData::V2(metadata));
+            peer_manager.network_globals.peers.write().add_subscription(&peer, Subnet::Attestation(subnet.into()));
+            println!("{},{},{}",x, subnet, peer);
+            peers.push(peer);
+        }
+
+        // Perform the heartbeat.
+        peer_manager.heartbeat();
+
+        // Tests that when we are over the target peer limit, after disconnecting an unhealthy peer,
+        // the number of connected peers updates and we will not remove too many peers.
+        assert_eq!(peer_manager.network_globals.connected_or_dialing_peers(), target);
+
+        // Check that we removed the peers that were not subscribed to any subnet
+        // Should remove peers from subnet 0-2 first. Removing 3 peers subnets 0-3 now have 3
+        // peers.
+        // Should then remove 8 peers each from subnets 1-4. New total: 11 peers. 
+        // Therefore the remaining peer set should be each on their own subnet.
+        // Lets check this:
+        
+        let connected_peers: std::collections::HashSet<_> = peer_manager.network_globals.peers.read().connected_or_dialing_peers().cloned().collect();
+
+        for peer in connected_peers.iter() {
+            let position = peers.iter().position(|peer_id| peer_id == peer).unwrap();
+            println!("{},{}",position,peer);
+        }
+
+        println!("");
+
+        for peer in connected_peers.iter() {
+            let position = peers.iter().position(|peer_id| peer_id == peer).unwrap();
+            println!("{},{}",position,peer);
+
+            if position < 15 {
+                let y = position % 4;
+                for x in 0..4 {
+                    let alternative_index = y + 4*x;
+                    if alternative_index != position && alternative_index < 15 {
+                        // Make sure a peer on the same subnet has been removed
+                        println!("Check against: {}, {}", alternative_index, &peers[alternative_index]); 
+                        assert!(!connected_peers.contains(&peers[alternative_index]));
+                    }
+                }
+            }
+        }
+
+        }
+
+
 }
