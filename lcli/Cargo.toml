@@ -11,7 +11,7 @@ fake_crypto = ['bls/fake_crypto']
 
 [dependencies]
 bls = { path = "../crypto/bls" }
-clap = { version = "3.0.14", features = ["derive"] }
+clap = "2.33.3"
 log = "0.4.11"
 serde = "1.0.116"
 serde_yaml = "0.8.13"
@@ -37,3 +37,4 @@ web3 = { version = "0.17.0", default-features = false, features = ["http-tls", "
 eth1_test_rig = { path = "../testing/eth1_test_rig" }
 sensitive_url = { path = "../common/sensitive_url" }
 eth2 = { path = "../common/eth2" }
+dirs = "3.0.2"

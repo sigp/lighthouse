@@ -1,7 +1,7 @@
 //! Creates a simple DISCV5 server which can be used to bootstrap an Eth2 network.
-use slog::{o, Drain, Level, Logger};
 use clap_utils::GlobalConfig;
 use eth2_network_config::Eth2NetworkConfig;
+use slog::{o, Drain, Level, Logger};
 use std::fs::File;
 
 mod cli;

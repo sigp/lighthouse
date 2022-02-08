@@ -5,18 +5,16 @@ mod metrics;
 
 use crate::cli::{Lighthouse, LighthouseSubcommand};
 use beacon_node::ProductionBeaconNode;
-use clap::{App, Arg, ArgMatches, Parser, IntoApp};
+use clap::Parser;
 use clap_utils::{flags::DISABLE_MALLOC_TUNING_FLAG, GlobalConfig};
 use directory::{parse_path_or_default, DEFAULT_BEACON_NODE_DIR, DEFAULT_VALIDATOR_DIR};
 use env_logger::{Builder, Env};
 use environment::{EnvironmentBuilder, LoggerConfig};
-use eth2_hashing::have_sha_extensions;
-use eth2_network_config::{Eth2NetworkConfig, DEFAULT_HARDCODED_NETWORK, HARDCODED_NET_NAMES};
+use eth2_network_config::{Eth2NetworkConfig, DEFAULT_HARDCODED_NETWORK};
 use lighthouse_version::VERSION;
 use malloc_utils::configure_memory_allocator;
 use slog::{crit, info, warn};
 use std::fs::File;
-use std::path::PathBuf;
 use std::process::exit;
 use task_executor::ShutdownReason;
 use types::{EthSpec, EthSpecId};
@@ -73,12 +71,7 @@ fn main() {
             match &lighthouse.subcommand {
                 // Boot node subcommand circumvents the environment.
                 LighthouseSubcommand::BootNode(boot_node) => {
-                    boot_node::run(
-                        boot_node,
-                        &global_config,
-                        eth_spec_id,
-                        &eth2_network_config,
-                    );
+                    boot_node::run(boot_node, &global_config, eth_spec_id, &eth2_network_config);
 
                     return Ok(());
                 }

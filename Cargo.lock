@@ -716,9 +716,13 @@ version = "2.34.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a0610544180c38b88101fecf2dd634b174a62eef6946f84dfc6a7127512b381c"
 dependencies = [
+ "ansi_term",
+ "atty",
  "bitflags",
+ "strsim 0.8.0",
  "textwrap 0.11.0",
  "unicode-width",
+ "vec_map",
 ]
 
 [[package]]
@@ -733,7 +737,7 @@ dependencies = [
  "indexmap",
  "lazy_static",
  "os_str_bytes",
- "strsim",
+ "strsim 0.10.0",
  "termcolor",
  "textwrap 0.14.2",
 ]
@@ -755,7 +759,7 @@ dependencies = [
 name = "clap_utils"
 version = "0.1.0"
 dependencies = [
- "clap 3.0.14",
+ "clap 2.34.0",
  "dirs",
  "eth2_network_config",
  "eth2_ssz",
@@ -1098,7 +1102,7 @@ dependencies = [
  "ident_case",
  "proc-macro2",
  "quote",
- "strsim",
+ "strsim 0.10.0",
  "syn",
 ]
 
@@ -2874,10 +2878,11 @@ version = "2.1.2"
 dependencies = [
  "account_utils",
  "bls",
- "clap 3.0.14",
+ "clap 2.34.0",
  "clap_utils",
  "deposit_contract",
  "directory",
+ "dirs",
  "env_logger 0.9.0",
  "environment",
  "eth1_test_rig",
@@ -5503,7 +5508,7 @@ dependencies = [
 name = "simulator"
 version = "0.2.0"
 dependencies = [
- "clap 3.0.14",
+ "clap 2.34.0",
  "env_logger 0.9.0",
  "eth1",
  "eth1_test_rig",
@@ -5864,6 +5869,12 @@ dependencies = [
  "tempfile",
  "types",
 ]
+
+[[package]]
+name = "strsim"
+version = "0.8.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8ea5119cdb4c55b55d432abb513a0429384878c15dde60cc77b1c99de1a95a6a"
 
 [[package]]
 name = "strsim"
@@ -6798,6 +6809,12 @@ name = "vcpkg"
 version = "0.2.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "accd4ea62f7bb7a82fe23066fb0957d48ef677f6eeb8215f372f52e48bb32426"
+
+[[package]]
+name = "vec_map"
+version = "0.8.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f1bddf1187be692e79c5ffeab891132dfb0f236ed36a43c7ed39f1165ee20191"
 
 [[package]]
 name = "version_check"

@@ -1,5 +1,5 @@
-use beacon_node::{get_data_dir, set_network_config_shared};
 use crate::BootNode;
+use beacon_node::{get_data_dir, set_network_config_shared};
 use clap_utils::GlobalConfig;
 use eth2_network_config::Eth2NetworkConfig;
 use lighthouse_network::discv5::{enr::CombinedKey, Discv5Config, Enr};

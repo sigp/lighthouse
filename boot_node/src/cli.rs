@@ -1,7 +1,7 @@
-use std::net::IpAddr;
 use beacon_node::cli::NetworkConfigurable;
 pub use clap::{IntoApp, Parser};
 use serde::{Deserialize, Serialize};
+use std::net::IpAddr;
 use std::path::PathBuf;
 
 #[derive(Parser, Clone, Deserialize, Serialize, Debug)]

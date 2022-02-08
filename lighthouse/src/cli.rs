@@ -1,5 +1,4 @@
 use bls::Hash256;
-use clap::{ArgEnum, Args, Subcommand};
 pub use clap::{IntoApp, Parser};
 use clap_utils::GlobalConfig;
 use eth2_hashing::have_sha_extensions;
@@ -306,4 +305,3 @@ pub enum LighthouseSubcommand {
     #[clap(subcommand)]
     AccountManager(account_manager::AccountManager),
 }
-
