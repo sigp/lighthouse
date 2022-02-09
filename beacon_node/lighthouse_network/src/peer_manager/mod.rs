@@ -1002,7 +1002,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
                     } else {
                         unreachable!();
                     }
-             }
+                }
                 // If there are no peers left to prune exit.
                 break;
             }
@@ -1023,6 +1023,13 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
     fn heartbeat(&mut self) {
         // Optionally run a discovery query if we need more peers.
         self.maintain_peer_count(0);
+
+        // Cleans up the connection state of dialing peers.
+        // Libp2p dials peer-ids, but sometimes the response is from another peer-id or libp2p
+        // returns dial errors without a peer-id attached. This function reverts peers that have a
+        // dialing status long than DIAL_TIMEOUT seconds to a disconnected status. This is important because
+        // we count the number of dialing peers in our inbound connections.
+        self.network_globals.peers.write().cleanup_dialing_peers();
 
         // Updates peer's scores and unban any peers if required.
         let actions = self.network_globals.peers.write().update_scores();
