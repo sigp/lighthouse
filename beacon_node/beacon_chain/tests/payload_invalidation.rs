@@ -92,10 +92,10 @@ impl InvalidPayloadRig {
             .unwrap();
     }
 
-    fn build_blocks(&mut self, num_blocks: u64, is_valid: Payload) {
-        for _ in 0..num_blocks {
-            self.import_block(is_valid.clone());
-        }
+    fn build_blocks(&mut self, num_blocks: u64, is_valid: Payload) -> Vec<Hash256> {
+        (0..num_blocks)
+            .map(|_| self.import_block(is_valid.clone()))
+            .collect()
     }
 
     fn move_to_first_justification(&mut self, is_valid: Payload) {
@@ -113,6 +113,13 @@ impl InvalidPayloadRig {
                 BlockError::ExecutionPayloadError(ExecutionPayloadError::RejectedByExecutionEngine)
             )
         })
+    }
+
+    fn block_root_at_slot(&self, slot: Slot) -> Option<Hash256> {
+        self.harness
+            .chain
+            .block_root_at_slot(slot, WhenSlotSkipped::None)
+            .unwrap()
     }
 
     fn import_block_parametric<F: Fn(&BlockError<E>) -> bool>(
@@ -277,19 +284,14 @@ fn justified_checkpoint_becomes_invalid() {
 }
 
 #[test]
-fn ancient_latest_valid_hash() {
+fn pre_finalized_latest_valid_hash() {
     let mut rig = InvalidPayloadRig::new().enable_attestations();
     rig.move_to_terminal_block();
     rig.build_blocks(E::slots_per_epoch() * 4, Payload::Syncing);
 
     assert_eq!(rig.head_info().finalized_checkpoint.epoch, 2);
 
-    let ancient_block_root = rig
-        .harness
-        .chain
-        .block_root_at_slot(Slot::new(1), WhenSlotSkipped::None)
-        .unwrap()
-        .unwrap();
+    let pre_finalized_block_root = rig.block_root_at_slot(Slot::new(1)).unwrap();
 
     // No service should have triggered a shutdown, yet.
     assert!(rig.harness.shutdown_reasons().is_empty());
@@ -297,7 +299,7 @@ fn ancient_latest_valid_hash() {
     // Import a block that will invalidate the justified checkpoint.
     rig.import_block_parametric(
         Payload::Invalid {
-            latest_valid_hash: Some(ancient_block_root),
+            latest_valid_hash: Some(pre_finalized_block_root),
         },
         |error| {
             matches!(
@@ -316,6 +318,48 @@ fn ancient_latest_valid_hash() {
             INVALID_JUSTIFIED_PAYLOAD_SHUTDOWN_REASON
         )]
     );
+}
+
+/*
+ * TODO: test with a junk `latest_valid_hash`.
+ */
+
+#[test]
+fn latest_valid_hash_will_validate() {
+    const LATEST_VALID_SLOT: u64 = 3;
+
+    let mut rig = InvalidPayloadRig::new().enable_attestations();
+    rig.move_to_terminal_block();
+    let blocks = rig.build_blocks(4, Payload::Syncing);
+
+    let latest_valid_root = rig
+        .block_root_at_slot(Slot::new(LATEST_VALID_SLOT))
+        .unwrap();
+    let latest_valid_hash = rig.block_hash(latest_valid_root);
+
+    rig.import_block(Payload::Invalid {
+        latest_valid_hash: Some(latest_valid_hash),
+    });
+
+    assert_eq!(rig.head_info().slot, LATEST_VALID_SLOT);
+
+    for slot in 0..=4 {
+        let slot = Slot::new(slot);
+        let root = if slot > 0 {
+            // If not the genesis slot, check the blocks we just produced.
+            blocks[slot.as_usize() - 1]
+        } else {
+            // Genesis slot
+            rig.block_root_at_slot(slot).unwrap()
+        };
+        let execution_status = rig.execution_status(root);
+
+        if slot > LATEST_VALID_SLOT {
+            assert!(execution_status.is_invalid())
+        } else {
+            assert!(execution_status.is_valid())
+        }
+    }
 }
 
 #[test]

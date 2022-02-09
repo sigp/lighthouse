@@ -295,8 +295,6 @@ impl ProtoArray {
                 }
                 // An ancestor of the valid payload was invalid. This is a serious error which
                 // indicates a consensus failure in the execution node. This is unrecoverable.
-                //
-                // TODO(paul): relax this?
                 ExecutionStatus::Invalid(ancestor_payload_block_hash) => {
                     return Err(Error::InvalidAncestorOfValidPayload {
                         ancestor_block_root: node.root,
