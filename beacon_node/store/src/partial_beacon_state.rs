@@ -67,9 +67,9 @@ where
 
     // Participation (Altair and later)
     #[superstruct(only(Altair, Merge))]
-    pub previous_epoch_participation: VariableList<ParticipationFlags, T::ValidatorRegistryLimit>,
+    pub previous_epoch_participation: VList<ParticipationFlags, T::ValidatorRegistryLimit>,
     #[superstruct(only(Altair, Merge))]
-    pub current_epoch_participation: VariableList<ParticipationFlags, T::ValidatorRegistryLimit>,
+    pub current_epoch_participation: VList<ParticipationFlags, T::ValidatorRegistryLimit>,
 
     // Finality
     pub justification_bits: BitVector<T::JustificationBitsLength>,

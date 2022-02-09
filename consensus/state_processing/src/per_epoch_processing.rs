@@ -1,5 +1,6 @@
 #![deny(clippy::wildcard_imports)]
 
+use crate::metrics;
 pub use epoch_processing_summary::EpochProcessingSummary;
 use errors::EpochProcessingError as Error;
 pub use registry_updates::process_registry_updates;
@@ -28,6 +29,8 @@ pub fn process_epoch<T: EthSpec>(
     state: &mut BeaconState<T>,
     spec: &ChainSpec,
 ) -> Result<EpochProcessingSummary<T>, Error> {
+    let _timer = metrics::start_timer(&metrics::PROCESS_EPOCH_TIME);
+
     // Verify that the `BeaconState` instantiation matches the fork at `state.slot()`.
     state
         .fork_name(spec)

@@ -269,9 +269,11 @@ where
 
     // Participation (Altair and later)
     #[superstruct(only(Altair, Merge))]
-    pub previous_epoch_participation: VariableList<ParticipationFlags, T::ValidatorRegistryLimit>,
+    #[test_random(default)]
+    pub previous_epoch_participation: VList<ParticipationFlags, T::ValidatorRegistryLimit>,
     #[superstruct(only(Altair, Merge))]
-    pub current_epoch_participation: VariableList<ParticipationFlags, T::ValidatorRegistryLimit>,
+    #[test_random(default)]
+    pub current_epoch_participation: VList<ParticipationFlags, T::ValidatorRegistryLimit>,
 
     // Finality
     #[test_random(default)]
@@ -454,11 +456,15 @@ impl<T: EthSpec> BeaconState<T> {
         Hash256::from_slice(&self.tree_hash_root()[..])
     }
 
-    pub fn historical_batch(&self) -> HistoricalBatch<T> {
-        HistoricalBatch {
+    pub fn historical_batch(&mut self) -> Result<HistoricalBatch<T>, Error> {
+        // FIXME(sproul): work out how to clean this up (internal mutability?)
+        self.block_roots_mut().apply_updates()?;
+        self.state_roots_mut().apply_updates()?;
+
+        Ok(HistoricalBatch {
             block_roots: self.block_roots().clone(),
             state_roots: self.state_roots().clone(),
-        }
+        })
     }
 
     /// This method ensures the state's pubkey cache is fully up-to-date before checking if the validator
@@ -1339,7 +1345,7 @@ impl<T: EthSpec> BeaconState<T> {
     pub fn get_epoch_participation_mut(
         &mut self,
         epoch: Epoch,
-    ) -> Result<&mut VariableList<ParticipationFlags, T::ValidatorRegistryLimit>, Error> {
+    ) -> Result<&mut VList<ParticipationFlags, T::ValidatorRegistryLimit>, Error> {
         if epoch == self.current_epoch() {
             match self {
                 BeaconState::Base(_) => Err(BeaconStateError::IncorrectStateVariant),
@@ -1576,22 +1582,7 @@ impl<T: EthSpec> BeaconState<T> {
         *self.pubkey_cache_mut() = PubkeyCache::default()
     }
 
-    /// Check if the `BeaconState` has any pending mutations.
-    pub fn has_pending_mutations(&self) -> bool {
-        // FIXME(sproul): check this more thoroughly
-        self.block_roots().has_pending_updates()
-            || self.state_roots().has_pending_updates()
-            || self.historical_roots().has_pending_updates()
-            || self.eth1_data_votes().has_pending_updates()
-            || self.validators().has_pending_updates()
-            || self.balances().has_pending_updates()
-            || self.randao_mixes().has_pending_updates()
-            || self.slashings().has_pending_updates()
-            || self
-                .inactivity_scores()
-                .map_or(false, VList::has_pending_updates)
-    }
-
+    // FIXME(sproul): automate this somehow
     pub fn apply_pending_mutations(&mut self) -> Result<(), Error> {
         self.block_roots_mut().apply_updates()?;
         self.state_roots_mut().apply_updates()?;
@@ -1604,6 +1595,12 @@ impl<T: EthSpec> BeaconState<T> {
 
         if let Ok(inactivity_scores) = self.inactivity_scores_mut() {
             inactivity_scores.apply_updates()?;
+        }
+        if let Ok(previous_epoch_participation) = self.previous_epoch_participation_mut() {
+            previous_epoch_participation.apply_updates()?;
+        }
+        if let Ok(current_epoch_participation) = self.current_epoch_participation_mut() {
+            current_epoch_participation.apply_updates()?;
         }
         Ok(())
     }

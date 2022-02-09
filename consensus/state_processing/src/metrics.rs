@@ -23,4 +23,11 @@ lazy_static! {
         "beacon_participation_prev_epoch_active_gwei_total",
         "Total effective balance (gwei) of validators active in the previous epoch"
     );
+    /*
+     * Processing metrics
+     */
+    pub static ref PROCESS_EPOCH_TIME: Result<Histogram> = try_create_histogram(
+        "beacon_state_processing_process_epoch",
+        "Time required for process_epoch",
+    );
 }
