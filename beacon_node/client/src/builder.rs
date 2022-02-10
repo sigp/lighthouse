@@ -18,7 +18,7 @@ use eth2::{
 };
 use execution_layer::ExecutionLayer;
 use genesis::{interop_genesis_state, Eth1GenesisService, DEFAULT_ETH1_BLOCK_HASH};
-use lighthouse_network::{open_metrics_client::registry::Registry, NetworkGlobals};
+use lighthouse_network::{prometheus_client::registry::Registry, NetworkGlobals};
 use monitoring_api::{MonitoringHttpClient, ProcessType};
 use network::{NetworkConfig, NetworkMessage, NetworkService};
 use slasher::Slasher;
