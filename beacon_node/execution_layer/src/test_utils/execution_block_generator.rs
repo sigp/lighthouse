@@ -235,7 +235,7 @@ impl<T: EthSpec> ExecutionBlockGenerator<T> {
         self.payload_ids.remove(id)
     }
 
-    pub fn execute_payload(&mut self, payload: ExecutionPayload<T>) -> ExecutePayloadResponse {
+    pub fn notify_new_payload(&mut self, payload: ExecutionPayload<T>) -> ExecutePayloadResponse {
         let parent = if let Some(parent) = self.blocks.get(&payload.parent_hash) {
             parent
         } else {

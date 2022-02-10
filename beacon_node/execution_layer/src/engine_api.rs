@@ -55,7 +55,7 @@ pub trait EngineApi {
         block_hash: Hash256,
     ) -> Result<Option<ExecutionBlock>, Error>;
 
-    async fn execute_payload_v1<T: EthSpec>(
+    async fn notify_new_payload_v1<T: EthSpec>(
         &self,
         execution_payload: ExecutionPayload<T>,
     ) -> Result<ExecutePayloadResponse, Error>;
