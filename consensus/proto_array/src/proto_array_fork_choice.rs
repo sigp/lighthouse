@@ -332,15 +332,6 @@ impl ProtoArrayForkChoice {
     pub fn core_proto_array_mut(&mut self) -> &mut ProtoArray {
         &mut self.proto_array
     }
-
-    /// See `ProtoArray` documentation.
-    pub fn execution_block_hash_to_beacon_block_root<'a>(
-        &'a self,
-        block_hash: &Hash256,
-    ) -> Option<Hash256> {
-        self.proto_array
-            .execution_block_hash_to_beacon_block_root(block_hash)
-    }
 }
 
 /// Returns a list of `deltas`, where there is one delta for each of the indices in

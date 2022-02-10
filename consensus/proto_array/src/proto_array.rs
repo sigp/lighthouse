@@ -733,8 +733,8 @@ impl ProtoArray {
 
     /// Returns the first *beacon block root* which contains an execution payload with the given
     /// `block_hash`, if any.
-    pub fn execution_block_hash_to_beacon_block_root<'a>(
-        &'a self,
+    pub fn execution_block_hash_to_beacon_block_root(
+        &self,
         block_hash: &Hash256,
     ) -> Option<Hash256> {
         self.nodes

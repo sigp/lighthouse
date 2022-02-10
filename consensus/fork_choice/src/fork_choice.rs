@@ -886,15 +886,6 @@ where
         }
     }
 
-    /// See `ProtoArray` documentation.
-    pub fn execution_block_hash_to_beacon_block_root<'a>(
-        &'a self,
-        block_hash: &Hash256,
-    ) -> Option<Hash256> {
-        self.proto_array
-            .execution_block_hash_to_beacon_block_root(block_hash)
-    }
-
     /// Return `true` if `block_root` is equal to the finalized root, or a known descendant of it.
     pub fn is_descendant_of_finalized(&self, block_root: Hash256) -> bool {
         self.proto_array

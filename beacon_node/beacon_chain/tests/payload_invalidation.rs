@@ -369,11 +369,14 @@ fn latest_valid_hash_will_validate() {
 /// Check behaviour when the `latest_valid_hash` is a junk value.
 #[test]
 fn latest_valid_hash_is_junk() {
+    let num_blocks = E::slots_per_epoch() * 5;
+    let finalized_epoch = 3;
+
     let mut rig = InvalidPayloadRig::new().enable_attestations();
     rig.move_to_terminal_block();
-    rig.build_blocks(E::slots_per_epoch() * 4, Payload::Syncing);
+    let blocks = rig.build_blocks(num_blocks, Payload::Syncing);
 
-    assert_eq!(rig.head_info().finalized_checkpoint.epoch, 2);
+    assert_eq!(rig.head_info().finalized_checkpoint.epoch, finalized_epoch);
 
     // No service should have triggered a shutdown, yet.
     assert!(rig.harness.shutdown_reasons().is_empty());
@@ -383,13 +386,18 @@ fn latest_valid_hash_is_junk() {
         latest_valid_hash: Some(junk_hash),
     });
 
-    // The beacon chain should have triggered a shutdown.
-    assert_eq!(
-        rig.harness.shutdown_reasons(),
-        vec![ShutdownReason::Failure(
-            INVALID_JUSTIFIED_PAYLOAD_SHUTDOWN_REASON
-        )]
-    );
+    // The latest imported block should be the head.
+    assert_eq!(rig.head_info().block_root, *blocks.last().unwrap());
+
+    // The beacon chain should *not* have triggered a shutdown.
+    assert_eq!(rig.harness.shutdown_reasons(), vec![]);
+
+    // All blocks should still be unverified.
+    for i in E::slots_per_epoch() * finalized_epoch..num_blocks {
+        let slot = Slot::new(i);
+        let root = rig.block_root_at_slot(slot).unwrap();
+        assert!(rig.execution_status(root).is_not_verified());
+    }
 }
 
 #[test]
