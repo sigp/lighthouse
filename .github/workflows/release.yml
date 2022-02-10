@@ -232,6 +232,19 @@ jobs:
 
                   Add a summary.
 
+                  ## Update Priority
+
+                  This table provides priorities for which classes of users should update particular components.
+
+                  |User Class |Beacon Node  | Validator Client|
+                  --- | --- | ---
+                  |Staking Users| <TODO> | <TODO> |
+                  |Non-Staking Users| <TODO>|---|
+
+                  *See [Update
+                  Priorities](https://lighthouse-book.sigmaprime.io/installation-priorities.html)
+                  more information about this table.*
+
                   ## All Changes
 
                   ${{ steps.changelog.outputs.CHANGELOG }}

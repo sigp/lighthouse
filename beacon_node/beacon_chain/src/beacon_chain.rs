@@ -3101,7 +3101,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             }
             BeaconState::Merge(_) => {
                 let sync_aggregate = get_sync_aggregate()?;
-                let execution_payload = get_execution_payload(self, &state)?;
+                let execution_payload = get_execution_payload(self, &state, proposer_index)?;
                 BeaconBlock::Merge(BeaconBlockMerge {
                     slot,
                     proposer_index,
