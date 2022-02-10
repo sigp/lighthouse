@@ -366,7 +366,7 @@ pub fn process_execution_payload<T: EthSpec>(
         parent_hash: payload.parent_hash,
         fee_recipient: payload.fee_recipient,
         state_root: payload.state_root,
-        receipt_root: payload.receipt_root,
+        receipts_root: payload.receipts_root,
         logs_bloom: payload.logs_bloom.clone(),
         random: payload.random,
         block_number: payload.block_number,
