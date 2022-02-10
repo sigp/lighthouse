@@ -337,7 +337,7 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
             .filter_map(|(peer_id, info)| {
                 if let PeerConnectionStatus::Dialing { since } = info.connection_status() {
                     if (*since) + std::time::Duration::from_secs(DIAL_TIMEOUT)
-                        > std::time::Instant::now()
+                        < std::time::Instant::now()
                     {
                         return Some(*peer_id);
                     }
