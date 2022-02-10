@@ -212,11 +212,9 @@ jobs:
                   <Rick and Morty character>
 
                   ## Testing Checklist (DELETE ME)
-
-                  - [ ] Run on synced Pyrmont Sigma Prime nodes.
+                  
                   - [ ] Run on synced Prater Sigma Prime nodes.
                   - [ ] Run on synced Canary (mainnet) Sigma Prime nodes.
-                  - [ ] Resync a Pyrmont node.
                   - [ ] Resync a Prater node.
                   - [ ] Resync a mainnet node.
 
