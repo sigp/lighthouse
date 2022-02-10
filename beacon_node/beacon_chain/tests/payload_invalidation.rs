@@ -180,7 +180,7 @@ impl InvalidPayloadRig {
                 match self.harness.process_block(slot, block) {
                     Err(error) if evaluate_error(&error) => (),
                     Err(other) => {
-                        panic!("expected invalid payload, got {:?}", other)
+                        panic!("evaluate_error returned false with {:?}", other)
                     }
                     Ok(_) => panic!("block with invalid payload was imported"),
                 };
@@ -205,6 +205,7 @@ impl InvalidPayloadRig {
     }
 }
 
+/// Simple test of the different import types.
 #[test]
 fn valid_invalid_syncing() {
     let mut rig = InvalidPayloadRig::new();
@@ -217,6 +218,8 @@ fn valid_invalid_syncing() {
     rig.import_block(Payload::Syncing);
 }
 
+/// Ensure that an invalid payload can invalidate its parent too (give then right
+/// `latest_valid_hash`.
 #[test]
 fn invalid_payload_invalidates_parent() {
     let mut rig = InvalidPayloadRig::new();
@@ -241,6 +244,7 @@ fn invalid_payload_invalidates_parent() {
     assert_eq!(rig.head_info().block_root, roots[0]);
 }
 
+/// Ensure the client tries to exit when the justified checkpoint is invalidated.
 #[test]
 fn justified_checkpoint_becomes_invalid() {
     let mut rig = InvalidPayloadRig::new().enable_attestations();
@@ -255,6 +259,7 @@ fn justified_checkpoint_becomes_invalid() {
         .unwrap()
         .unwrap()
         .parent_root();
+    let parent_hash_of_justified = rig.block_hash(parent_root_of_justified);
 
     // No service should have triggered a shutdown, yet.
     assert!(rig.harness.shutdown_reasons().is_empty());
@@ -262,7 +267,7 @@ fn justified_checkpoint_becomes_invalid() {
     // Import a block that will invalidate the justified checkpoint.
     rig.import_block_parametric(
         Payload::Invalid {
-            latest_valid_hash: Some(parent_root_of_justified),
+            latest_valid_hash: Some(parent_hash_of_justified),
         },
         |error| {
             matches!(
@@ -283,13 +288,17 @@ fn justified_checkpoint_becomes_invalid() {
     );
 }
 
+/// Ensure that a `latest_valid_hash` for a pre-finality block only revert a single block.
 #[test]
 fn pre_finalized_latest_valid_hash() {
+    let num_blocks = E::slots_per_epoch() * 4;
+    let finalized_epoch = 2;
+
     let mut rig = InvalidPayloadRig::new().enable_attestations();
     rig.move_to_terminal_block();
-    rig.build_blocks(E::slots_per_epoch() * 4, Payload::Syncing);
+    let blocks = rig.build_blocks(num_blocks, Payload::Syncing);
 
-    assert_eq!(rig.head_info().finalized_checkpoint.epoch, 2);
+    assert_eq!(rig.head_info().finalized_checkpoint.epoch, finalized_epoch);
 
     let pre_finalized_block_root = rig.block_root_at_slot(Slot::new(1)).unwrap();
 
@@ -297,33 +306,28 @@ fn pre_finalized_latest_valid_hash() {
     assert!(rig.harness.shutdown_reasons().is_empty());
 
     // Import a block that will invalidate the justified checkpoint.
-    rig.import_block_parametric(
-        Payload::Invalid {
-            latest_valid_hash: Some(pre_finalized_block_root),
-        },
-        |error| {
-            matches!(
-                error,
-                // The block import should fail since the beacon chain knows the justified payload
-                // is invalid.
-                BlockError::BeaconChainError(BeaconChainError::JustifiedPayloadInvalid { .. })
-            )
-        },
-    );
+    rig.import_block(Payload::Invalid {
+        latest_valid_hash: Some(pre_finalized_block_root),
+    });
 
-    // The beacon chain should have triggered a shutdown.
-    assert_eq!(
-        rig.harness.shutdown_reasons(),
-        vec![ShutdownReason::Failure(
-            INVALID_JUSTIFIED_PAYLOAD_SHUTDOWN_REASON
-        )]
-    );
+    // The latest imported block should be the head.
+    assert_eq!(rig.head_info().block_root, *blocks.last().unwrap());
+
+    // The beacon chain should *not* have triggered a shutdown.
+    assert_eq!(rig.harness.shutdown_reasons(), vec![]);
+
+    // All blocks should still be unverified.
+    for i in E::slots_per_epoch() * finalized_epoch..num_blocks {
+        let slot = Slot::new(i);
+        let root = rig.block_root_at_slot(slot).unwrap();
+        assert!(rig.execution_status(root).is_not_verified());
+    }
 }
 
-/*
- * TODO: test with a junk `latest_valid_hash`.
- */
-
+/// Ensure that a `latest_valid_hash` will:
+///
+/// - Invalidate descendants of `latest_valid_root`.
+/// - Validate `latest_valid_root` and its ancestors.
 #[test]
 fn latest_valid_hash_will_validate() {
     const LATEST_VALID_SLOT: u64 = 3;
@@ -360,6 +364,32 @@ fn latest_valid_hash_will_validate() {
             assert!(execution_status.is_valid())
         }
     }
+}
+
+/// Check behaviour when the `latest_valid_hash` is a junk value.
+#[test]
+fn latest_valid_hash_is_junk() {
+    let mut rig = InvalidPayloadRig::new().enable_attestations();
+    rig.move_to_terminal_block();
+    rig.build_blocks(E::slots_per_epoch() * 4, Payload::Syncing);
+
+    assert_eq!(rig.head_info().finalized_checkpoint.epoch, 2);
+
+    // No service should have triggered a shutdown, yet.
+    assert!(rig.harness.shutdown_reasons().is_empty());
+
+    let junk_hash = Hash256::from_low_u64_be(42);
+    rig.import_block(Payload::Invalid {
+        latest_valid_hash: Some(junk_hash),
+    });
+
+    // The beacon chain should have triggered a shutdown.
+    assert_eq!(
+        rig.harness.shutdown_reasons(),
+        vec![ShutdownReason::Failure(
+            INVALID_JUSTIFIED_PAYLOAD_SHUTDOWN_REASON
+        )]
+    );
 }
 
 #[test]

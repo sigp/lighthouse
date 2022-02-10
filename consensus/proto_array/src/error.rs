@@ -37,6 +37,10 @@ pub enum Error {
     InvalidJustifiedCheckpointExecutionStatus {
         justified_root: Hash256,
     },
+    UnknownLatestValidAncestorHash {
+        block_root: Hash256,
+        latest_valid_ancestor_hash: Hash256,
+    },
 }
 
 #[derive(Clone, PartialEq, Debug)]

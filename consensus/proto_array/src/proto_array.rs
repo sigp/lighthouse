@@ -319,6 +319,16 @@ impl ProtoArray {
             .ok_or(Error::NodeUnknown(head_block_root))?;
         let first_potential_descendant = index + 1;
 
+        // Set to `true` if both conditions are satisfied:
+        //
+        // 1. The `head_block_root` is a descendant of `latest_valid_ancestor_hash`
+        // 2. The `latest_valid_ancestor_hash` is equal to or a descendant of the finalized block.
+        let latest_valid_ancestor_is_descendant = self
+            .execution_block_hash_to_beacon_block_root(&latest_valid_ancestor_hash)
+            .map_or(false, |ancestor_root| {
+                self.is_descendant(ancestor_root, head_block_root)
+            });
+
         // Collect all *ancestors* which were declared invalid since they reside between the
         // `invalid_root` and the `latest_valid_ancestor_root`.
         loop {
@@ -331,7 +341,19 @@ impl ProtoArray {
                 ExecutionStatus::Valid(hash)
                 | ExecutionStatus::Invalid(hash)
                 | ExecutionStatus::Unknown(hash) => {
-                    if hash == latest_valid_ancestor_hash {
+                    // If we're no longer processing the `head_block_root` and the last valid
+                    // ancestor is known, exit now with an error.
+                    //
+                    // In effect, this means that if an unknown hash (junk or pre-finalization) is
+                    // supplied, we only invalidate a single block and no ancestors. The alternative
+                    // is to invalidate *all* ancestors, which would likely involve shutting down
+                    // the client due to an invalid justified checkpoint.
+                    if !latest_valid_ancestor_is_descendant && node.root != head_block_root {
+                        return Err(Error::UnknownLatestValidAncestorHash {
+                            block_root: node.root,
+                            latest_valid_ancestor_hash,
+                        });
+                    } else if hash == latest_valid_ancestor_hash {
                         // It might be new knowledge that this block is valid, ensure that it and all
                         // ancestors are marked as valid.
                         self.propagate_execution_payload_validation(index)?;
@@ -688,6 +710,42 @@ impl ProtoArray {
     ) -> impl Iterator<Item = (Hash256, Slot)> + 'a {
         self.iter_nodes(block_root)
             .map(|node| (node.root, node.slot))
+    }
+
+    /// Returns `true` if the `descendant_root` has an ancestor with `ancestor_root`. Always
+    /// returns `false` if either input roots are unknown.
+    ///
+    /// ## Notes
+    ///
+    /// Still returns `true` if `ancestor_root` is known and `ancestor_root == descendant_root`.
+    pub fn is_descendant(&self, ancestor_root: Hash256, descendant_root: Hash256) -> bool {
+        self.indices
+            .get(&ancestor_root)
+            .and_then(|ancestor_index| self.nodes.get(*ancestor_index))
+            .and_then(|ancestor| {
+                self.iter_block_roots(&descendant_root)
+                    .take_while(|(_root, slot)| *slot >= ancestor.slot)
+                    .find(|(_root, slot)| *slot == ancestor.slot)
+                    .map(|(root, _slot)| root == ancestor_root)
+            })
+            .unwrap_or(false)
+    }
+
+    /// Returns the first *beacon block root* which contains an execution payload with the given
+    /// `block_hash`, if any.
+    pub fn execution_block_hash_to_beacon_block_root<'a>(
+        &'a self,
+        block_hash: &Hash256,
+    ) -> Option<Hash256> {
+        self.nodes
+            .iter()
+            .rev()
+            .find(|node| {
+                node.execution_status
+                    .block_hash()
+                    .map_or(false, |node_block_hash| node_block_hash == *block_hash)
+            })
+            .map(|node| node.root)
     }
 }
 

@@ -289,25 +289,10 @@ impl ProtoArrayForkChoice {
         }
     }
 
-    /// Returns `true` if the `descendant_root` has an ancestor with `ancestor_root`. Always
-    /// returns `false` if either input roots are unknown.
-    ///
-    /// ## Notes
-    ///
-    /// Still returns `true` if `ancestor_root` is known and `ancestor_root == descendant_root`.
+    /// See `ProtoArray` documentation.
     pub fn is_descendant(&self, ancestor_root: Hash256, descendant_root: Hash256) -> bool {
         self.proto_array
-            .indices
-            .get(&ancestor_root)
-            .and_then(|ancestor_index| self.proto_array.nodes.get(*ancestor_index))
-            .and_then(|ancestor| {
-                self.proto_array
-                    .iter_block_roots(&descendant_root)
-                    .take_while(|(_root, slot)| *slot >= ancestor.slot)
-                    .find(|(_root, slot)| *slot == ancestor.slot)
-                    .map(|(root, _slot)| root == ancestor_root)
-            })
-            .unwrap_or(false)
+            .is_descendant(ancestor_root, descendant_root)
     }
 
     pub fn latest_message(&self, validator_index: usize) -> Option<(Hash256, Epoch)> {
@@ -346,6 +331,15 @@ impl ProtoArrayForkChoice {
     /// Should only be used during database schema migrations.
     pub fn core_proto_array_mut(&mut self) -> &mut ProtoArray {
         &mut self.proto_array
+    }
+
+    /// See `ProtoArray` documentation.
+    pub fn execution_block_hash_to_beacon_block_root<'a>(
+        &'a self,
+        block_hash: &Hash256,
+    ) -> Option<Hash256> {
+        self.proto_array
+            .execution_block_hash_to_beacon_block_root(block_hash)
     }
 }
 

@@ -3239,6 +3239,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // to kill the client.
         let head_info = self.head_info()?;
         let justified_root = head_info.current_justified_checkpoint.root;
+        // De-alias 0x00..00 to the genesis block.
+        let justified_root = if justified_root == Hash256::zero() {
+            self.genesis_block_root
+        } else {
+            justified_root
+        };
+
         if let Some(proto_block) = self.fork_choice.read().get_block(&justified_root) {
             if proto_block.execution_status.is_invalid() {
                 crit!(
