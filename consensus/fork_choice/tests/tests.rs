@@ -122,17 +122,23 @@ impl ForkChoiceTest {
     }
 
     /// Assert there was a shutdown signal sent by the beacon chain.
-    pub fn assert_shutdown_signal_sent(mut self) -> Self {
-        self.harness.shutdown_receiver.close();
-        let msg = self.harness.shutdown_receiver.try_next().unwrap();
+    pub fn assert_shutdown_signal_sent(self) -> Self {
+        let mutex = self.harness.shutdown_receiver.clone();
+        let mut shutdown_receiver = mutex.lock();
+
+        shutdown_receiver.close();
+        let msg = shutdown_receiver.try_next().unwrap();
         assert!(msg.is_some());
         self
     }
 
     /// Assert no shutdown was signal sent by the beacon chain.
-    pub fn assert_shutdown_signal_not_sent(mut self) -> Self {
-        self.harness.shutdown_receiver.close();
-        let msg = self.harness.shutdown_receiver.try_next().unwrap();
+    pub fn assert_shutdown_signal_not_sent(self) -> Self {
+        let mutex = self.harness.shutdown_receiver.clone();
+        let mut shutdown_receiver = mutex.lock();
+
+        shutdown_receiver.close();
+        let msg = shutdown_receiver.try_next().unwrap();
         assert!(msg.is_none());
         self
     }
