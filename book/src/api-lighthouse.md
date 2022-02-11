@@ -409,7 +409,7 @@ The endpoint will return immediately. See the beacon node logs for an indication
 Manually provide `SignedBeaconBlock`s to backfill the database. This is intended
 for use by Lighthouse developers during testing only.
 
-### `/lighthouse/block_rewards`
+### `/lighthouse/analysis/block_rewards`
 
 Fetch information about the block rewards paid to proposers for a range of consecutive blocks.
 
@@ -421,7 +421,7 @@ Two query parameters are required:
 Example:
 
 ```bash
-curl "http://localhost:5052/lighthouse/block_rewards?start_slot=1&end_slot=32" | jq
+curl "http://localhost:5052/lighthouse/analysis/block_rewards?start_slot=1&end_slot=32" | jq
 ```
 
 ```json
@@ -439,7 +439,7 @@ curl "http://localhost:5052/lighthouse/block_rewards?start_slot=1&end_slot=32" |
 
 Caveats:
 
-* Presently only attestation rewards are computed.
+* Presently only attestation and sync committee rewards are computed.
 * The output format is verbose and subject to change. Please see [`BlockReward`][block_reward_src]
   in the source.
 * For maximum efficiency the `start_slot` should satisfy `start_slot % slots_per_restore_point == 1`.
@@ -447,4 +447,4 @@ Caveats:
   loading a state on a boundary is most efficient.
 
 [block_reward_src]:
-https://github.com/sigp/lighthouse/tree/unstable/common/eth2/src/lighthouse/block_reward.rs
+https://github.com/sigp/lighthouse/tree/unstable/common/eth2/src/lighthouse/block_rewards.rs
