@@ -408,7 +408,7 @@ pub async fn poll_sync_committee_duties_for_period<T: SlotClock + 'static, E: Et
         );
         return Ok(());
     }
-    
+
     debug!(
         log,
         "Fetching sync committee duties";
