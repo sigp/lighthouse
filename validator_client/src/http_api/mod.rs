@@ -409,6 +409,7 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
                     drop(validator_dir);
                     let voting_password = body.password.clone();
                     let graffiti = body.graffiti.clone();
+                    let suggested_fee_recipient = body.suggested_fee_recipient;
 
                     let validator_def = {
                         if let Some(runtime) = runtime.upgrade() {
@@ -418,6 +419,7 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
                                     voting_password,
                                     body.enable,
                                     graffiti,
+                                    suggested_fee_recipient,
                                 ))
                                 .map_err(|e| {
                                     warp_utils::reject::custom_server_error(format!(

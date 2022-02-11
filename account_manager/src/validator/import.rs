@@ -273,9 +273,15 @@ pub fn cli_run(matches: &ArgMatches, validator_dir: PathBuf) -> Result<(), Strin
         eprintln!("Successfully imported keystore.");
         num_imported_keystores += 1;
 
-        let validator_def =
-            ValidatorDefinition::new_keystore_with_password(&dest_keystore, password_opt, None)
-                .map_err(|e| format!("Unable to create new validator definition: {:?}", e))?;
+        let graffiti = None;
+        let suggested_fee_recipient = None;
+        let validator_def = ValidatorDefinition::new_keystore_with_password(
+            &dest_keystore,
+            password_opt,
+            graffiti,
+            suggested_fee_recipient,
+        )
+        .map_err(|e| format!("Unable to create new validator definition: {:?}", e))?;
 
         defs.push(validator_def);
 

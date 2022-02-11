@@ -892,6 +892,23 @@ impl BeaconNodeHttpClient {
         Ok(())
     }
 
+    /// `POST validator/prepare_beacon_proposer`
+    pub async fn post_validator_prepare_beacon_proposer(
+        &self,
+        preparation_data: &[ProposerPreparationData],
+    ) -> Result<(), Error> {
+        let mut path = self.eth_path(V1)?;
+
+        path.path_segments_mut()
+            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
+            .push("validator")
+            .push("prepare_beacon_proposer");
+
+        self.post(path, &preparation_data).await?;
+
+        Ok(())
+    }
+
     /// `GET config/fork_schedule`
     pub async fn get_config_fork_schedule(&self) -> Result<GenericResponse<Vec<Fork>>, Error> {
         let mut path = self.eth_path(V1)?;

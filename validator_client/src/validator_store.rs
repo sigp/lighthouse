@@ -17,7 +17,7 @@ use std::path::Path;
 use std::sync::Arc;
 use task_executor::TaskExecutor;
 use types::{
-    attestation::Error as AttestationError, graffiti::GraffitiString, AggregateAndProof,
+    attestation::Error as AttestationError, graffiti::GraffitiString, Address, AggregateAndProof,
     Attestation, BeaconBlock, ChainSpec, ContributionAndProof, Domain, Epoch, EthSpec, Fork,
     Graffiti, Hash256, Keypair, PublicKeyBytes, SelectionProof, Signature, SignedAggregateAndProof,
     SignedBeaconBlock, SignedContributionAndProof, Slot, SyncAggregatorSelectionData,
@@ -148,11 +148,13 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
         password: ZeroizeString,
         enable: bool,
         graffiti: Option<GraffitiString>,
+        suggested_fee_recipient: Option<Address>,
     ) -> Result<ValidatorDefinition, String> {
         let mut validator_def = ValidatorDefinition::new_keystore_with_password(
             voting_keystore_path,
             Some(password),
             graffiti.map(Into::into),
+            suggested_fee_recipient,
         )
         .map_err(|e| format!("failed to create validator definitions: {:?}", e))?;
 
@@ -349,6 +351,12 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
 
     pub fn graffiti(&self, validator_pubkey: &PublicKeyBytes) -> Option<Graffiti> {
         self.validators.read().graffiti(validator_pubkey)
+    }
+
+    pub fn suggested_fee_recipient(&self, validator_pubkey: &PublicKeyBytes) -> Option<Address> {
+        self.validators
+            .read()
+            .suggested_fee_recipient(validator_pubkey)
     }
 
     pub async fn sign_block(

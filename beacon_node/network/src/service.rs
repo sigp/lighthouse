@@ -11,7 +11,7 @@ use futures::channel::mpsc::Sender;
 use futures::future::OptionFuture;
 use futures::prelude::*;
 use lighthouse_network::{
-    open_metrics_client::registry::Registry, MessageAcceptance, Service as LibP2PService,
+    prometheus_client::registry::Registry, MessageAcceptance, Service as LibP2PService,
 };
 use lighthouse_network::{
     rpc::{GoodbyeReason, RPCResponseErrorCode, RequestId},

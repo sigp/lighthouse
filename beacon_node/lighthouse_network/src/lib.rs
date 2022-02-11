@@ -67,7 +67,7 @@ pub use crate::types::{
     SubnetDiscovery,
 };
 
-pub use open_metrics_client;
+pub use prometheus_client;
 
 pub use behaviour::{BehaviourEvent, Gossipsub, PeerRequestId, Request, Response};
 pub use config::Config as NetworkConfig;

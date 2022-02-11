@@ -46,7 +46,7 @@ When using Lighthouse, the `--network` flag selects a network. E.g.,
 
 - `lighthouse` (no flag): Mainnet.
 - `lighthouse --network mainnet`: Mainnet.
-- `lighthouse --network pyrmont`: Pyrmont (testnet).
+- `lighthouse --network prater`: Prater (testnet).
 
 Using the correct `--network` flag is very important; using the wrong flag can
 result in penalties, slashings or lost deposits. As a rule of thumb, always
