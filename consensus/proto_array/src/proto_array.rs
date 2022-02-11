@@ -317,14 +317,16 @@ impl ProtoArray {
             .indices
             .get(&head_block_root)
             .ok_or(Error::NodeUnknown(head_block_root))?;
-        let first_potential_descendant = index + 1;
+
+        // Try to map the ancestor payload *hash* to an ancestor beacon block *root*.
+        let latest_valid_ancestor_root =
+            self.execution_block_hash_to_beacon_block_root(&latest_valid_ancestor_hash);
 
         // Set to `true` if both conditions are satisfied:
         //
         // 1. The `head_block_root` is a descendant of `latest_valid_ancestor_hash`
         // 2. The `latest_valid_ancestor_hash` is equal to or a descendant of the finalized block.
-        let latest_valid_ancestor_is_descendant = self
-            .execution_block_hash_to_beacon_block_root(&latest_valid_ancestor_hash)
+        let latest_valid_ancestor_is_descendant = latest_valid_ancestor_root
             .map_or(false, |ancestor_root| {
                 self.is_descendant(ancestor_root, head_block_root)
             });
@@ -373,6 +375,7 @@ impl ProtoArray {
                     })
                 }
                 ExecutionStatus::Unknown(hash) => {
+                    dbg!(node.slot);
                     node.execution_status = ExecutionStatus::Invalid(*hash)
                 }
                 // The block is already invalid, but keep going backwards to ensure all ancestors
@@ -395,30 +398,38 @@ impl ProtoArray {
             }
         }
 
-        // Collect all *descendants* which declared invalid since they're the descendant of a block
-        // with an invalid execution payload.
-        for index in first_potential_descendant..self.nodes.len() {
-            let node = self
-                .nodes
-                .get_mut(index)
-                .ok_or(Error::InvalidNodeIndex(index))?;
+        if let Some(latest_valid_ancestor_root) = latest_valid_ancestor_root {
+            let latest_valid_ancestor_index = *self
+                .indices
+                .get(&latest_valid_ancestor_root)
+                .ok_or(Error::NodeUnknown(latest_valid_ancestor_root))?;
+            let first_potential_descendant = latest_valid_ancestor_index + 1;
 
-            if let Some(parent_index) = node.parent {
-                if invalidated_indices.contains(&parent_index) {
-                    match &node.execution_status {
-                        ExecutionStatus::Valid(hash) => {
-                            return Err(Error::ValidExecutionStatusBecameInvalid {
-                                block_root: node.root,
-                                payload_block_hash: *hash,
-                            })
+            // Collect all *descendants* which declared invalid since they're the descendant of a block
+            // with an invalid execution payload.
+            for index in first_potential_descendant..self.nodes.len() {
+                let node = self
+                    .nodes
+                    .get_mut(index)
+                    .ok_or(Error::InvalidNodeIndex(index))?;
+
+                if let Some(parent_index) = node.parent {
+                    if invalidated_indices.contains(&parent_index) {
+                        match &node.execution_status {
+                            ExecutionStatus::Valid(hash) => {
+                                return Err(Error::ValidExecutionStatusBecameInvalid {
+                                    block_root: node.root,
+                                    payload_block_hash: *hash,
+                                })
+                            }
+                            ExecutionStatus::Unknown(hash) | ExecutionStatus::Invalid(hash) => {
+                                node.execution_status = ExecutionStatus::Invalid(*hash)
+                            }
+                            ExecutionStatus::Irrelevant(_) => (),
                         }
-                        ExecutionStatus::Unknown(hash) | ExecutionStatus::Invalid(hash) => {
-                            node.execution_status = ExecutionStatus::Invalid(*hash)
-                        }
-                        ExecutionStatus::Irrelevant(_) => (),
+
+                        invalidated_indices.insert(index);
                     }
-
-                    invalidated_indices.insert(index);
                 }
             }
         }

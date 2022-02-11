@@ -2,8 +2,8 @@
 
 use beacon_chain::{
     test_utils::{BeaconChainHarness, EphemeralHarnessType},
-    BeaconChainError, BlockError, ExecutionPayloadError, HeadInfo, WhenSlotSkipped,
-    INVALID_JUSTIFIED_PAYLOAD_SHUTDOWN_REASON,
+    BeaconChainError, BlockError, ExecutionPayloadError, HeadInfo, StateSkipConfig,
+    WhenSlotSkipped, INVALID_JUSTIFIED_PAYLOAD_SHUTDOWN_REASON,
 };
 use proto_array::ExecutionStatus;
 use task_executor::ShutdownReason;
@@ -397,6 +397,76 @@ fn latest_valid_hash_is_junk() {
         let slot = Slot::new(i);
         let root = rig.block_root_at_slot(slot).unwrap();
         assert!(rig.execution_status(root).is_not_verified());
+    }
+}
+
+/// Check behaviour when the `latest_valid_hash` is a junk value.
+#[test]
+fn invalidates_all_descendants() {
+    let num_blocks = E::slots_per_epoch() * 4 + E::slots_per_epoch() / 2;
+    let finalized_epoch = 2;
+
+    let mut rig = InvalidPayloadRig::new().enable_attestations();
+    rig.move_to_terminal_block();
+    let blocks = rig.build_blocks(num_blocks, Payload::Syncing);
+
+    assert_eq!(rig.head_info().finalized_checkpoint.epoch, finalized_epoch);
+    assert_eq!(rig.head_info().block_root, *blocks.last().unwrap());
+
+    // Apply a block which conflicts with the canonical chain.
+    let fork_slot = Slot::new(4 * E::slots_per_epoch() + 1);
+    let fork_parent_slot = fork_slot - 1;
+    let fork_parent_state = rig
+        .harness
+        .chain
+        .state_at_slot(fork_parent_slot, StateSkipConfig::WithStateRoots)
+        .unwrap();
+    assert_eq!(fork_parent_state.slot(), fork_parent_slot);
+    let (fork_block, _fork_post_state) = rig.harness.make_block(fork_parent_state, fork_slot);
+    let fork_block_root = rig.harness.chain.process_block(fork_block).unwrap();
+    rig.fork_choice();
+
+    // The latest valid hash will be set to the grandparent of the fork block. This means that the
+    // parent of the fork block will become invalid.
+    let latest_valid_slot = fork_parent_slot - 1;
+    let latest_valid_root = rig
+        .harness
+        .chain
+        .block_root_at_slot(latest_valid_slot, WhenSlotSkipped::None)
+        .unwrap()
+        .unwrap();
+    assert!(blocks.contains(&latest_valid_root));
+    let latest_valid_hash = rig.block_hash(latest_valid_root);
+
+    // The new block should not become the head, the old head should remain.
+    assert_eq!(rig.head_info().block_root, *blocks.last().unwrap());
+
+    rig.import_block(Payload::Invalid {
+        latest_valid_hash: Some(latest_valid_hash),
+    });
+
+    // The block before the fork should become the head.
+    dbg!(latest_valid_slot);
+    dbg!(fork_slot);
+    dbg!(fork_block_root);
+    dbg!(rig.head_info());
+    assert_eq!(rig.head_info().block_root, latest_valid_root);
+
+    // The fork block should be invalidated, even though it's not an ancestor of the block that
+    // triggered the INVALID response from the EL.
+    assert!(rig.execution_status(fork_block_root).is_invalid());
+
+    for root in blocks {
+        let slot = rig.harness.chain.get_block(&root).unwrap().unwrap().slot();
+        let execution_status = rig.execution_status(root);
+
+        if slot < fork_slot {
+            // Blocks prior to the fork are valid.
+            assert!(execution_status.is_valid());
+        } else {
+            // Blocks after the fork are valid.
+            assert!(execution_status.is_valid());
+        }
     }
 }
 
