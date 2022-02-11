@@ -11,7 +11,7 @@ use crate::{
     BeaconChain, BeaconChainError, BeaconChainTypes, BlockError, BlockProductionError,
     ExecutionPayloadError,
 };
-use execution_layer::ExecutePayloadResponseStatus;
+use execution_layer::PayloadStatusV1Status;
 use fork_choice::PayloadVerificationStatus;
 use proto_array::{Block as ProtoBlock, ExecutionStatus};
 use slog::debug;
@@ -53,17 +53,18 @@ pub fn execute_payload<T: BeaconChainTypes>(
         .execution_layer
         .as_ref()
         .ok_or(ExecutionPayloadError::NoExecutionConnection)?;
-    let execute_payload_response = execution_layer
-        .block_on(|execution_layer| execution_layer.execute_payload(execution_payload));
+    let new_payload_response = execution_layer
+        .block_on(|execution_layer| execution_layer.notify_new_payload(execution_payload));
 
-    match execute_payload_response {
+    match new_payload_response {
         Ok((status, _latest_valid_hash)) => match status {
-            ExecutePayloadResponseStatus::Valid => Ok(PayloadVerificationStatus::Verified),
-            // TODO(merge): invalidate any invalid ancestors of this block in fork choice.
-            ExecutePayloadResponseStatus::Invalid => {
+            PayloadStatusV1Status::Valid => Ok(PayloadVerificationStatus::Verified),
+            PayloadStatusV1Status::Invalid => {
+                // TODO(merge): invalidate any invalid ancestors of this block in fork choice.
                 Err(ExecutionPayloadError::RejectedByExecutionEngine.into())
             }
-            ExecutePayloadResponseStatus::Syncing => Ok(PayloadVerificationStatus::NotVerified),
+            PayloadStatusV1Status::Syncing => Ok(PayloadVerificationStatus::NotVerified),
+            status => panic!("Unrecognized status from new_payload: {:?}", status),
         },
         Err(_) => Err(ExecutionPayloadError::RejectedByExecutionEngine.into()),
     }

@@ -52,7 +52,7 @@ use crate::{metrics, BeaconChainError};
 use eth2::types::{
     EventKind, SseBlock, SseChainReorg, SseFinalizedCheckpoint, SseHead, SseLateHead, SyncDuty,
 };
-use execution_layer::ExecutionLayer;
+use execution_layer::{ExecutionLayer, PayloadStatusV1Status};
 use fork_choice::{AttestationFromBlock, ForkChoice};
 use futures::channel::mpsc::Sender;
 use itertools::process_results;
@@ -3593,6 +3593,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         )
                         .await
                         {
+                            if let BeaconChainError::ExecutionForkChoiceUpdateInvalidHead(Some(
+                                ref _latest_valid_hashes,
+                            )) = e
+                            {
+                                // TODO(merge): invalidate any invalid ancestors of this block in fork choice.
+                            }
                             debug!(
                                 log,
                                 "Failed to update execution head";
@@ -3630,14 +3636,25 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .map(|ep| ep.block_hash)
             .unwrap_or_else(Hash256::zero);
 
-        execution_layer
+        let forkchoice_updated_response = execution_layer
             .notify_forkchoice_updated(
                 head_execution_block_hash,
                 finalized_execution_block_hash,
                 None,
             )
             .await
-            .map_err(Error::ExecutionForkChoiceUpdateFailed)
+            .map_err(Error::ExecutionForkChoiceUpdateFailed);
+
+        match forkchoice_updated_response {
+            Ok((status, latest_valid_hash)) => match status {
+                PayloadStatusV1Status::Valid | PayloadStatusV1Status::Syncing => Ok(()),
+                PayloadStatusV1Status::Invalid => Err(
+                    BeaconChainError::ExecutionForkChoiceUpdateInvalidHead(latest_valid_hash),
+                ),
+                status => panic!("Unrecognized status from forkchoice_updated: {:?}", status),
+            },
+            Err(e) => Err(e),
+        }
     }
 
     /// Returns the status of the current head block, regarding the validity of the execution

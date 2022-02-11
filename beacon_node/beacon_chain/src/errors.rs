@@ -137,6 +137,7 @@ pub enum BeaconChainError {
     AltairForkDisabled,
     ExecutionLayerMissing,
     ExecutionForkChoiceUpdateFailed(execution_layer::Error),
+    ExecutionForkChoiceUpdateInvalidHead(Option<Vec<Hash256>>),
     BlockRewardSlotError,
     BlockRewardAttestationError,
     BlockRewardSyncError,
