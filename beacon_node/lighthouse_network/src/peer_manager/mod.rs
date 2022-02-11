@@ -1588,4 +1588,104 @@ mod tests {
             }
         }
     }
+
+    #[tokio::test]
+    /// Test the pruning logic to prioritise peers with the most subnets
+    ///
+    /// Create 6 peers. 
+    /// Peer0: None
+    /// Peer1 : Subnet 1,2,3
+    /// Peer2 : Subnet 1,2
+    /// Peer3 : Subnet 3
+    /// Peer4 : Subnet 1
+    /// Peer5 : Subnet 2
+    ///
+    /// Prune 3 peers: Should be Peer0, Peer 4 and Peer 5 because (4 and 5) are both on the subnet with the
+    /// most peers and have the least subscribed long-lived subnets. And peer 0 because it has no
+    /// long-lived subnet.
+    async fn test_peer_manager_prune_subnet_peers_most_subscribed() {
+        let target = 3;
+        let mut peer_manager = build_peer_manager(target).await;
+
+        // Create 5 peers to connect to.
+        let mut peers = Vec::new();
+        for x in 0..6 {
+            let peer = PeerId::random();
+            peer_manager.inject_connect_ingoing(&peer, "/ip4/0.0.0.0".parse().unwrap(), None);
+
+            // Have some of the peers be on a long-lived subnet
+            let mut attnets = crate::types::EnrAttestationBitfield::<E>::new();
+
+            match x {
+                0 => { }
+                1 => {
+                attnets.set(1, true).unwrap();
+                attnets.set(2, true).unwrap();
+                attnets.set(3, true).unwrap();
+                }
+                2 =>  {
+                attnets.set(1, true).unwrap();
+                attnets.set(2, true).unwrap();
+                }
+                3 => {
+                    attnets.set(3, true).unwrap();
+                }
+                4 => {
+                    attnets.set(1, true).unwrap();
+                }
+                5 => {
+                    attnets.set(2, true).unwrap();
+                }
+                _ => unreachable!()
+            }
+
+            let metadata = crate::rpc::MetaDataV2 {
+                seq_number: 0,
+                attnets,
+                syncnets: Default::default(),
+            };
+            peer_manager
+                .network_globals
+                .peers
+                .write()
+                .peer_info_mut(&peer)
+                .unwrap()
+                .set_meta_data(MetaData::V2(metadata));
+            let long_lived_subnets = peer_manager.network_globals.peers.read().peer_info(&peer).unwrap().long_lived_subnets();
+            for subnet in long_lived_subnets {
+                println!("Subnet: {:?}", subnet);
+                peer_manager
+                    .network_globals
+                    .peers
+                    .write()
+                    .add_subscription(&peer, subnet);
+            }
+            println!("{},{}", x, peer);
+            peers.push(peer);
+        }
+
+        // Perform the heartbeat.
+        peer_manager.heartbeat();
+
+        // Tests that when we are over the target peer limit, after disconnecting an unhealthy peer,
+        // the number of connected peers updates and we will not remove too many peers.
+        assert_eq!(
+            peer_manager.network_globals.connected_or_dialing_peers(),
+            target
+        );
+
+        // Check that we removed peers 4 and 5
+        let connected_peers: std::collections::HashSet<_> = peer_manager
+            .network_globals
+            .peers
+            .read()
+            .connected_or_dialing_peers()
+            .cloned()
+            .collect();
+
+        assert!(!connected_peers.contains(&peers[0]));
+        assert!(!connected_peers.contains(&peers[4]));
+        assert!(!connected_peers.contains(&peers[5]));
+
+    }
 }
