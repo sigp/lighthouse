@@ -7,7 +7,7 @@ use compare_fields_derive::CompareFields;
 use derivative::Derivative;
 use eth2_hashing::hash;
 use int_to_bytes::{int_to_bytes4, int_to_bytes8};
-use pubkey_cache::PubkeyCache;
+pub use pubkey_cache::PubkeyCache;
 use safe_arith::{ArithError, SafeArith};
 use serde_derive::{Deserialize, Serialize};
 use ssz::{ssz_encode, Decode, DecodeError, Encode};
@@ -314,7 +314,7 @@ where
     #[tree_hash(skip_hashing)]
     #[test_random(default)]
     #[derivative(Clone(clone_with = "clone_default"))]
-    pub committee_caches: [CommitteeCache; CACHED_EPOCHS],
+    pub committee_caches: [Arc<CommitteeCache>; CACHED_EPOCHS],
     #[serde(skip_serializing, skip_deserializing)]
     #[ssz(skip_serializing, skip_deserializing)]
     #[tree_hash(skip_hashing)]
@@ -347,6 +347,7 @@ impl<T: EthSpec> BeaconState<T> {
     ///
     /// Not a complete genesis state, see `initialize_beacon_state_from_eth1`.
     pub fn new(genesis_time: u64, eth1_data: Eth1Data, spec: &ChainSpec) -> Self {
+        let default_committee_cache = Arc::new(CommitteeCache::default());
         BeaconState::Base(BeaconStateBase {
             // Versioning
             genesis_time,
@@ -392,9 +393,9 @@ impl<T: EthSpec> BeaconState<T> {
             // Caching (not in spec)
             total_active_balance: None,
             committee_caches: [
-                CommitteeCache::default(),
-                CommitteeCache::default(),
-                CommitteeCache::default(),
+                default_committee_cache.clone(),
+                default_committee_cache.clone(),
+                default_committee_cache,
             ],
             pubkey_cache: PubkeyCache::default(),
             exit_cache: ExitCache::default(),
@@ -1464,7 +1465,7 @@ impl<T: EthSpec> BeaconState<T> {
         &self,
         epoch: Epoch,
         spec: &ChainSpec,
-    ) -> Result<CommitteeCache, Error> {
+    ) -> Result<Arc<CommitteeCache>, Error> {
         CommitteeCache::initialized(self, epoch, spec)
     }
 
@@ -1502,7 +1503,7 @@ impl<T: EthSpec> BeaconState<T> {
         *self.committee_cache_at_index_mut(curr)? = curr_cache;
 
         let next = Self::committee_cache_index(RelativeEpoch::Next);
-        *self.committee_cache_at_index_mut(next)? = CommitteeCache::default();
+        *self.committee_cache_at_index_mut(next)? = Arc::new(CommitteeCache::default());
         Ok(())
     }
 
@@ -1527,11 +1528,15 @@ impl<T: EthSpec> BeaconState<T> {
     fn committee_cache_at_index(&self, index: usize) -> Result<&CommitteeCache, Error> {
         self.committee_caches()
             .get(index)
+            .map(Arc::as_ref)
             .ok_or(Error::CommitteeCachesOutOfBounds(index))
     }
 
     /// Get a mutable reference to the committee cache at a given index.
-    fn committee_cache_at_index_mut(&mut self, index: usize) -> Result<&mut CommitteeCache, Error> {
+    fn committee_cache_at_index_mut(
+        &mut self,
+        index: usize,
+    ) -> Result<&mut Arc<CommitteeCache>, Error> {
         self.committee_caches_mut()
             .get_mut(index)
             .ok_or(Error::CommitteeCachesOutOfBounds(index))
@@ -1553,7 +1558,7 @@ impl<T: EthSpec> BeaconState<T> {
     /// Drops the cache, leaving it in an uninitialized state.
     pub fn drop_committee_cache(&mut self, relative_epoch: RelativeEpoch) -> Result<(), Error> {
         *self.committee_cache_at_index_mut(Self::committee_cache_index(relative_epoch))? =
-            CommitteeCache::default();
+            Arc::new(CommitteeCache::default());
         Ok(())
     }
 

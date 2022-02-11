@@ -1,13 +1,12 @@
 use super::{BeaconStateError, ChainSpec, Epoch, Validator};
+use rpds::HashTrieMapSync as HashTrieMap;
 use safe_arith::SafeArith;
-use serde_derive::{Deserialize, Serialize};
-use std::collections::HashMap;
 
 /// Map from exit epoch to the number of validators with that exit epoch.
-#[derive(Debug, Default, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Default, Clone, PartialEq)]
 pub struct ExitCache {
     initialized: bool,
-    exit_epoch_counts: HashMap<Epoch, u64>,
+    exit_epoch_counts: HashTrieMap<Epoch, u64>,
 }
 
 impl ExitCache {
@@ -41,10 +40,12 @@ impl ExitCache {
     /// Record the exit epoch of a validator. Must be called only once per exiting validator.
     pub fn record_validator_exit(&mut self, exit_epoch: Epoch) -> Result<(), BeaconStateError> {
         self.check_initialized()?;
-        self.exit_epoch_counts
-            .entry(exit_epoch)
-            .or_insert(0)
-            .safe_add_assign(1)?;
+
+        if let Some(count) = self.exit_epoch_counts.get_mut(&exit_epoch) {
+            count.safe_add_assign(1)?;
+        } else {
+            self.exit_epoch_counts.insert_mut(exit_epoch, 1);
+        }
         Ok(())
     }
 

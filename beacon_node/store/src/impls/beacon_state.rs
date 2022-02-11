@@ -2,6 +2,7 @@ use crate::*;
 use ssz::{DecodeError, Encode};
 use ssz_derive::Encode;
 use std::convert::TryInto;
+use std::sync::Arc;
 use types::beacon_state::{CloneConfig, CommitteeCache, CACHED_EPOCHS};
 
 pub fn store_full_state<E: EthSpec>(
@@ -48,7 +49,7 @@ pub fn get_full_state<KV: KeyValueStore<E>, E: EthSpec>(
 #[derive(Encode)]
 pub struct StorageContainer<T: EthSpec> {
     state: BeaconState<T>,
-    committee_caches: Vec<CommitteeCache>,
+    committee_caches: Vec<Arc<CommitteeCache>>,
 }
 
 impl<T: EthSpec> StorageContainer<T> {
