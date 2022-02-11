@@ -1592,7 +1592,7 @@ mod tests {
     #[tokio::test]
     /// Test the pruning logic to prioritise peers with the most subnets
     ///
-    /// Create 6 peers. 
+    /// Create 6 peers.
     /// Peer0: None
     /// Peer1 : Subnet 1,2,3
     /// Peer2 : Subnet 1,2
@@ -1617,15 +1617,15 @@ mod tests {
             let mut attnets = crate::types::EnrAttestationBitfield::<E>::new();
 
             match x {
-                0 => { }
+                0 => {}
                 1 => {
-                attnets.set(1, true).unwrap();
-                attnets.set(2, true).unwrap();
-                attnets.set(3, true).unwrap();
+                    attnets.set(1, true).unwrap();
+                    attnets.set(2, true).unwrap();
+                    attnets.set(3, true).unwrap();
                 }
-                2 =>  {
-                attnets.set(1, true).unwrap();
-                attnets.set(2, true).unwrap();
+                2 => {
+                    attnets.set(1, true).unwrap();
+                    attnets.set(2, true).unwrap();
                 }
                 3 => {
                     attnets.set(3, true).unwrap();
@@ -1636,7 +1636,7 @@ mod tests {
                 5 => {
                     attnets.set(2, true).unwrap();
                 }
-                _ => unreachable!()
+                _ => unreachable!(),
             }
 
             let metadata = crate::rpc::MetaDataV2 {
@@ -1651,7 +1651,13 @@ mod tests {
                 .peer_info_mut(&peer)
                 .unwrap()
                 .set_meta_data(MetaData::V2(metadata));
-            let long_lived_subnets = peer_manager.network_globals.peers.read().peer_info(&peer).unwrap().long_lived_subnets();
+            let long_lived_subnets = peer_manager
+                .network_globals
+                .peers
+                .read()
+                .peer_info(&peer)
+                .unwrap()
+                .long_lived_subnets();
             for subnet in long_lived_subnets {
                 println!("Subnet: {:?}", subnet);
                 peer_manager
@@ -1686,6 +1692,5 @@ mod tests {
         assert!(!connected_peers.contains(&peers[0]));
         assert!(!connected_peers.contains(&peers[4]));
         assert!(!connected_peers.contains(&peers[5]));
-
     }
 }
