@@ -57,11 +57,14 @@ pub fn proposer_duties<T: BeaconChainTypes>(
     {
         let (proposers, dependent_root, _) = compute_proposer_duties(request_epoch, chain)?;
         convert_to_api_response(chain, request_epoch, dependent_root, proposers)
-    } else if request_epoch > current_epoch {
-        // Reject queries about the future as they're very expensive there's no look-ahead for
-        // proposer duties.
+    } else if request_epoch
+        > current_epoch
+            .safe_add(1)
+            .map_err(warp_utils::reject::arith_error)?
+    {
+        // Reject queries about the future epochs for which lookahead is not possible
         Err(warp_utils::reject::custom_bad_request(format!(
-            "request epoch {} is ahead of the current epoch {}",
+            "request epoch {} is ahead of the next epoch {}",
             request_epoch, current_epoch
         )))
     } else {
