@@ -405,6 +405,7 @@ fn latest_valid_hash_is_junk() {
 fn invalidates_all_descendants() {
     let num_blocks = E::slots_per_epoch() * 4 + E::slots_per_epoch() / 2;
     let finalized_epoch = 2;
+    let finalized_slot = E::slots_per_epoch() * 2;
 
     let mut rig = InvalidPayloadRig::new().enable_attestations();
     rig.move_to_terminal_block();
@@ -414,7 +415,7 @@ fn invalidates_all_descendants() {
     assert_eq!(rig.head_info().block_root, *blocks.last().unwrap());
 
     // Apply a block which conflicts with the canonical chain.
-    let fork_slot = Slot::new(4 * E::slots_per_epoch() + 1);
+    let fork_slot = Slot::new(4 * E::slots_per_epoch() + 3);
     let fork_parent_slot = fork_slot - 1;
     let fork_parent_state = rig
         .harness
@@ -454,14 +455,19 @@ fn invalidates_all_descendants() {
 
     for root in blocks {
         let slot = rig.harness.chain.get_block(&root).unwrap().unwrap().slot();
-        let execution_status = rig.execution_status(root);
 
-        if slot < fork_slot {
-            // Blocks prior to the fork are valid.
+        // Fork choice doesn't have info about pre-finalization, nothing to check here.
+        if slot < finalized_slot {
+            continue;
+        }
+
+        let execution_status = rig.execution_status(root);
+        if slot <= latest_valid_slot {
+            // Blocks prior to the latest valid hash are valid.
             assert!(execution_status.is_valid());
         } else {
-            // Blocks after the fork are valid.
-            assert!(execution_status.is_valid());
+            // Blocks after the latest valid hash are invalid.
+            assert!(execution_status.is_invalid());
         }
     }
 }

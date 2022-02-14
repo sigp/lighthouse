@@ -356,6 +356,15 @@ impl ProtoArray {
                             latest_valid_ancestor_hash,
                         });
                     } else if hash == latest_valid_ancestor_hash {
+                        // If the `best_child` or `best_descendant` of the latest valid hash was
+                        // invalidated, set those fields to `None`.
+                        node.best_child = node
+                            .best_child
+                            .filter(|best_child| invalidated_indices.contains(&best_child));
+                        node.best_descendant = node.best_descendant.filter(|best_descendant| {
+                            invalidated_indices.contains(&best_descendant)
+                        });
+
                         // It might be new knowledge that this block is valid, ensure that it and all
                         // ancestors are marked as valid.
                         self.propagate_execution_payload_validation(index)?;
@@ -375,7 +384,9 @@ impl ProtoArray {
                     })
                 }
                 ExecutionStatus::Unknown(hash) => {
-                    node.execution_status = ExecutionStatus::Invalid(*hash)
+                    node.execution_status = ExecutionStatus::Invalid(*hash);
+                    node.best_child = None;
+                    node.best_descendant = None;
                 }
                 // The block is already invalid, but keep going backwards to ensure all ancestors
                 // are updated.
