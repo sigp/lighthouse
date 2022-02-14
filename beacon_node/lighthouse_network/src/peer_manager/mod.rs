@@ -1044,8 +1044,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
                                 }
 
                                 // Check the sync committee
-                                println!("checking: {}", candidate_peer);
-                                if let Some(subnets) = peer_to_sync_committee.get(&candidate_peer) {
+                                if let Some(subnets) = peer_to_sync_committee.get(candidate_peer) {
                                     // The peer is subscribed to some long-lived sync-committees
                                     // Of all the subnets this peer is subscribed too, the minimum
                                     // peer count of all of them is min_subnet_count
@@ -1056,13 +1055,10 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
                                         })
                                         .min()
                                     {
-                                        println!("min_subnet: {}", min_subnet_count);
-
                                         // If the minimum count is our target or lower, we
                                         // shouldn't remove this peer, because it drops us lower
                                         // than our target
                                         if min_subnet_count <= MIN_SYNC_COMMITTEE_PEERS {
-                                            println!("skipping");
                                             // Do not drop this peer in this pruning interval
                                             continue;
                                         }
@@ -1080,7 +1076,6 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
                             // peers from the pruning logic and try another subnet.
                             if let Some(index) = removed_peer_index {
                                 let (candidate_peer, _) = peers_on_subnet.remove(index);
-                                println!("Pruning:{}", candidate_peer);
                                 // Remove pruned peers from other subnet counts
                                 for subnet_peers in subnet_to_peer.values_mut() {
                                     subnet_peers.retain(|(peer_id, _)| peer_id != &candidate_peer);
