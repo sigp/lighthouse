@@ -27,11 +27,11 @@ use types::*;
 ///
 /// ## Specification
 ///
-/// Equivalent to the `execute_payload` function in the merge Beacon Chain Changes, although it
+/// Equivalent to the `notify_new_payload` function in the merge Beacon Chain Changes, although it
 /// contains a few extra checks by running `partially_verify_execution_payload` first:
 ///
-/// https://github.com/ethereum/consensus-specs/blob/v1.1.5/specs/merge/beacon-chain.md#execute_payload
-pub fn execute_payload<T: BeaconChainTypes>(
+/// https://github.com/ethereum/consensus-specs/blob/v1.1.9/specs/bellatrix/beacon-chain.md#notify_new_payload
+pub fn notify_new_payload<T: BeaconChainTypes>(
     chain: &BeaconChain<T>,
     state: &BeaconState<T::EthSpec>,
     block: BeaconBlockRef<T::EthSpec>,
@@ -53,10 +53,10 @@ pub fn execute_payload<T: BeaconChainTypes>(
         .execution_layer
         .as_ref()
         .ok_or(ExecutionPayloadError::NoExecutionConnection)?;
-    let execute_payload_response = execution_layer
-        .block_on(|execution_layer| execution_layer.execute_payload(execution_payload));
+    let notify_new_payload_response = execution_layer
+        .block_on(|execution_layer| execution_layer.notify_new_payload(execution_payload));
 
-    match execute_payload_response {
+    match notify_new_payload_response {
         Ok((status, _latest_valid_hash)) => match status {
             ExecutePayloadResponseStatus::Valid => Ok(PayloadVerificationStatus::Verified),
             // TODO(merge): invalidate any invalid ancestors of this block in fork choice.

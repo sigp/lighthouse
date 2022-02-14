@@ -441,7 +441,7 @@ impl ExecutionLayer {
             .map_err(Error::EngineErrors)
     }
 
-    /// Maps to the `engine_executePayload` JSON-RPC call.
+    /// Maps to the `engine_newPayload` JSON-RPC call.
     ///
     /// ## Fallback Behaviour
     ///
@@ -453,7 +453,7 @@ impl ExecutionLayer {
     /// - Invalid, if any nodes return invalid.
     /// - Syncing, if any nodes return syncing.
     /// - An error, if all nodes return an error.
-    pub async fn execute_payload<T: EthSpec>(
+    pub async fn notify_new_payload<T: EthSpec>(
         &self,
         execution_payload: &ExecutionPayload<T>,
     ) -> Result<(ExecutePayloadResponseStatus, Option<Hash256>), Error> {
@@ -467,7 +467,7 @@ impl ExecutionLayer {
 
         let broadcast_results = self
             .engines()
-            .broadcast(|engine| engine.api.execute_payload_v1(execution_payload.clone()))
+            .broadcast(|engine| engine.api.notify_new_payload_v1(execution_payload.clone()))
             .await;
 
         let mut errors = vec![];
@@ -486,7 +486,7 @@ impl ExecutionLayer {
                             id: "unknown".to_string(),
                             error: engine_api::Error::BadResponse(
                                 format!(
-                                    "execute_payload: response.status = Valid but invalid latest_valid_hash. Expected({:?}) Found({:?})",
+                                    "notify_new_payload: response.status = Valid but invalid latest_valid_hash. Expected({:?}) Found({:?})",
                                     execution_payload.block_hash,
                                     latest_hash,
                                 )
@@ -503,7 +503,7 @@ impl ExecutionLayer {
                 Ok((None, status)) => errors.push(EngineError::Api {
                     id: "unknown".to_string(),
                     error: engine_api::Error::BadResponse(format!(
-                        "execute_payload: status {:?} returned with null latest_valid_hash",
+                        "notify_new_payload: status {:?} returned with null latest_valid_hash",
                         status
                     )),
                 }),
@@ -515,7 +515,7 @@ impl ExecutionLayer {
             crit!(
                 self.log(),
                 "Consensus failure between execution nodes";
-                "method" => "execute_payload"
+                "method" => "notify_new_payload"
             );
         }
 

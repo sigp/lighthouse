@@ -235,7 +235,7 @@ impl<T: EthSpec> ExecutionBlockGenerator<T> {
         self.payload_ids.remove(id)
     }
 
-    pub fn execute_payload(&mut self, payload: ExecutionPayload<T>) -> ExecutePayloadResponse {
+    pub fn notify_new_payload(&mut self, payload: ExecutionPayload<T>) -> ExecutePayloadResponse {
         let parent = if let Some(parent) = self.blocks.get(&payload.parent_hash) {
             parent
         } else {
@@ -325,7 +325,7 @@ impl<T: EthSpec> ExecutionBlockGenerator<T> {
                 let mut execution_payload = ExecutionPayload {
                     parent_hash: forkchoice_state.head_block_hash,
                     fee_recipient: attributes.suggested_fee_recipient,
-                    receipt_root: Hash256::repeat_byte(42),
+                    receipts_root: Hash256::repeat_byte(42),
                     state_root: Hash256::repeat_byte(43),
                     logs_bloom: vec![0; 256].into(),
                     random: attributes.random,

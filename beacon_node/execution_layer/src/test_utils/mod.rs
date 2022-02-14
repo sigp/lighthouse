@@ -62,7 +62,7 @@ impl<T: EthSpec> MockServer<T> {
             last_echo_request: last_echo_request.clone(),
             execution_block_generator: RwLock::new(execution_block_generator),
             preloaded_responses,
-            static_execute_payload_response: <_>::default(),
+            static_notify_new_payload_response: <_>::default(),
             _phantom: PhantomData,
         });
 
@@ -117,7 +117,8 @@ impl<T: EthSpec> MockServer<T> {
     }
 
     pub fn all_payloads_valid(&self) {
-        *self.ctx.static_execute_payload_response.lock() = Some(ExecutePayloadResponseStatus::Valid)
+        *self.ctx.static_notify_new_payload_response.lock() =
+            Some(ExecutePayloadResponseStatus::Valid)
     }
 
     pub fn insert_pow_block(
@@ -187,7 +188,7 @@ pub struct Context<T: EthSpec> {
     pub last_echo_request: Arc<RwLock<Option<Bytes>>>,
     pub execution_block_generator: RwLock<ExecutionBlockGenerator<T>>,
     pub preloaded_responses: Arc<Mutex<Vec<serde_json::Value>>>,
-    pub static_execute_payload_response: Arc<Mutex<Option<ExecutePayloadResponseStatus>>>,
+    pub static_notify_new_payload_response: Arc<Mutex<Option<ExecutePayloadResponseStatus>>>,
     pub _phantom: PhantomData<T>,
 }
 

@@ -57,7 +57,7 @@ pub async fn handle_rpc<T: EthSpec>(
         ENGINE_EXECUTE_PAYLOAD_V1 => {
             let request: JsonExecutionPayloadV1<T> = get_param(params, 0)?;
 
-            let response = if let Some(status) = *ctx.static_execute_payload_response.lock() {
+            let response = if let Some(status) = *ctx.static_notify_new_payload_response.lock() {
                 match status {
                     ExecutePayloadResponseStatus::Valid => ExecutePayloadResponse {
                         status,
@@ -74,7 +74,7 @@ pub async fn handle_rpc<T: EthSpec>(
             } else {
                 ctx.execution_block_generator
                     .write()
-                    .execute_payload(request.into())
+                    .notify_new_payload(request.into())
             };
 
             Ok(serde_json::to_value(JsonExecutePayloadV1Response::from(response)).unwrap())
