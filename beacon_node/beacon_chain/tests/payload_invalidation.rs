@@ -446,10 +446,6 @@ fn invalidates_all_descendants() {
     });
 
     // The block before the fork should become the head.
-    dbg!(latest_valid_slot);
-    dbg!(fork_slot);
-    dbg!(fork_block_root);
-    dbg!(rig.head_info());
     assert_eq!(rig.head_info().block_root, latest_valid_root);
 
     // The fork block should be invalidated, even though it's not an ancestor of the block that

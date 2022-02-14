@@ -375,7 +375,6 @@ impl ProtoArray {
                     })
                 }
                 ExecutionStatus::Unknown(hash) => {
-                    dbg!(node.slot);
                     node.execution_status = ExecutionStatus::Invalid(*hash)
                 }
                 // The block is already invalid, but keep going backwards to ensure all ancestors
