@@ -10,6 +10,19 @@ pub struct BeaconSnapshot<E: EthSpec> {
     pub beacon_state: BeaconState<E>,
 }
 
+/// This snapshot is to be used for verifying a child of `self.beacon_block`.
+#[derive(Debug)]
+pub struct PreProcessingSnapshot<T: EthSpec> {
+    /// This state is equivalent to the `self.beacon_block.state_root()` state that has been
+    /// advanced forward one slot using `per_slot_processing`. This state is "primed and ready" for
+    /// the application of another block.
+    pub pre_state: BeaconState<T>,
+    /// This value is only set to `Some` if the `pre_state` was *not* advanced forward.
+    pub beacon_state_root: Option<Hash256>,
+    pub beacon_block: SignedBeaconBlock<T>,
+    pub beacon_block_root: Hash256,
+}
+
 impl<E: EthSpec> BeaconSnapshot<E> {
     /// Create a new checkpoint.
     pub fn new(

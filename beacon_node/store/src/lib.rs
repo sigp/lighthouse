@@ -139,7 +139,6 @@ pub trait ItemStore<E: EthSpec>: KeyValueStore<E> + Sync + Send + Sized + 'stati
 pub enum StoreOp<'a, E: EthSpec> {
     PutBlock(Hash256, Box<SignedBeaconBlock<E>>),
     PutState(Hash256, &'a BeaconState<E>),
-    PutStateSummary(Hash256, HotStateSummary),
     PutStateTemporaryFlag(Hash256),
     DeleteStateTemporaryFlag(Hash256),
     DeleteBlock(Hash256),

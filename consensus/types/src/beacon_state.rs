@@ -1518,17 +1518,16 @@ impl<T: EthSpec> BeaconState<T> {
     /// Get the committee cache for some `slot`.
     ///
     /// Return an error if the cache for the slot's epoch is not initialized.
-    fn committee_cache_at_slot(&self, slot: Slot) -> Result<&CommitteeCache, Error> {
+    fn committee_cache_at_slot(&self, slot: Slot) -> Result<&Arc<CommitteeCache>, Error> {
         let epoch = slot.epoch(T::slots_per_epoch());
         let relative_epoch = RelativeEpoch::from_epoch(self.current_epoch(), epoch)?;
         self.committee_cache(relative_epoch)
     }
 
     /// Get the committee cache at a given index.
-    fn committee_cache_at_index(&self, index: usize) -> Result<&CommitteeCache, Error> {
+    fn committee_cache_at_index(&self, index: usize) -> Result<&Arc<CommitteeCache>, Error> {
         self.committee_caches()
             .get(index)
-            .map(Arc::as_ref)
             .ok_or(Error::CommitteeCachesOutOfBounds(index))
     }
 
@@ -1544,7 +1543,10 @@ impl<T: EthSpec> BeaconState<T> {
 
     /// Returns the cache for some `RelativeEpoch`. Returns an error if the cache has not been
     /// initialized.
-    pub fn committee_cache(&self, relative_epoch: RelativeEpoch) -> Result<&CommitteeCache, Error> {
+    pub fn committee_cache(
+        &self,
+        relative_epoch: RelativeEpoch,
+    ) -> Result<&Arc<CommitteeCache>, Error> {
         let i = Self::committee_cache_index(relative_epoch);
         let cache = self.committee_cache_at_index(i)?;
 

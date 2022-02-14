@@ -5,7 +5,6 @@ use crate::head_tracker::HeadTracker;
 use crate::migrate::{BackgroundMigrator, MigratorConfig};
 use crate::persisted_beacon_chain::PersistedBeaconChain;
 use crate::shuffling_cache::ShufflingCache;
-use crate::snapshot_cache::{SnapshotCache, DEFAULT_SNAPSHOT_CACHE_SIZE};
 use crate::timeout_rw_lock::TimeoutRwLock;
 use crate::validator_monitor::ValidatorMonitor;
 use crate::validator_pubkey_cache::ValidatorPubkeyCache;
@@ -29,8 +28,8 @@ use std::time::Duration;
 use store::{Error as StoreError, HotColdDB, ItemStore, KeyValueStoreOp};
 use task_executor::ShutdownReason;
 use types::{
-    BeaconBlock, BeaconState, ChainSpec, Checkpoint, EthSpec, Graffiti, Hash256, PublicKeyBytes,
-    Signature, SignedBeaconBlock, Slot,
+    BeaconBlock, BeaconState, ChainSpec, Checkpoint, Epoch, EthSpec, Graffiti, Hash256,
+    PublicKeyBytes, Signature, SignedBeaconBlock, Slot,
 };
 
 /// An empty struct used to "witness" all the `BeaconChainTypes` traits. It has no user-facing
@@ -304,6 +303,15 @@ where
         let beacon_block_root = beacon_block.canonical_root();
 
         store
+            .update_finalized_state(
+                beacon_state_root,
+                beacon_block_root,
+                Epoch::new(0),
+                beacon_state.clone(),
+            )
+            .map_err(|e| format!("Failed to set genesis state as finalized state: {:?}", e))?;
+
+        store
             .put_state(&beacon_state_root, &beacon_state)
             .map_err(|e| format!("Failed to store genesis state: {:?}", e))?;
         store
@@ -425,6 +433,14 @@ where
 
         // Write the state and block non-atomically, it doesn't matter if they're forgotten
         // about on a crash restart.
+        store
+            .update_finalized_state(
+                weak_subj_state_root,
+                weak_subj_block_root,
+                weak_subj_slot.epoch(TEthSpec::slots_per_epoch()),
+                weak_subj_state.clone(),
+            )
+            .map_err(|e| format!("Failed to set genesis state as finalized state: {:?}", e))?;
         store
             .put_state(&weak_subj_state_root, &weak_subj_state)
             .map_err(|e| format!("Failed to store weak subjectivity state: {:?}", e))?;
@@ -751,10 +767,6 @@ where
             fork_choice: RwLock::new(fork_choice),
             event_handler: self.event_handler,
             head_tracker,
-            snapshot_cache: TimeoutRwLock::new(SnapshotCache::new(
-                DEFAULT_SNAPSHOT_CACHE_SIZE,
-                canonical_head,
-            )),
             shuffling_cache: TimeoutRwLock::new(ShufflingCache::new()),
             beacon_proposer_cache: <_>::default(),
             block_times_cache: <_>::default(),

@@ -529,6 +529,7 @@ where
             .store
             .load_hot_state(&state_hash.into(), StateRootStrategy::Accurate)
             .unwrap()
+            .map(|(state, _)| state)
     }
 
     pub fn get_cold_state(&self, state_hash: BeaconStateHash) -> Option<BeaconState<E>> {

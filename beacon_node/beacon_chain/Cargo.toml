@@ -10,6 +10,7 @@ default = ["participation_metrics"]
 write_ssz_files = []  # Writes debugging .ssz files to /tmp during block processing.
 participation_metrics = []  # Exposes validator participation metrics to Prometheus.
 fork_from_env = [] # Initialise the harness chain spec from the FORK_NAME env variable
+tree-states = ["store/milhouse"]
 
 [dev-dependencies]
 maplit = "1.0.2"

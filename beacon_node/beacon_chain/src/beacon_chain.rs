@@ -36,7 +36,6 @@ use crate::persisted_beacon_chain::{PersistedBeaconChain, DUMMY_CANONICAL_HEAD_B
 use crate::persisted_fork_choice::PersistedForkChoice;
 use crate::pre_finalization_cache::PreFinalizationBlockCache;
 use crate::shuffling_cache::{BlockShufflingIds, ShufflingCache};
-use crate::snapshot_cache::SnapshotCache;
 use crate::sync_committee_verification::{
     Error as SyncCommitteeError, VerifiedSyncCommitteeMessage, VerifiedSyncContribution,
 };
@@ -92,9 +91,6 @@ pub type ForkChoiceError = fork_choice::Error<crate::ForkChoiceStoreError>;
 /// head.
 pub const HEAD_LOCK_TIMEOUT: Duration = Duration::from_secs(1);
 
-/// The time-out before failure during an operation to take a read/write RwLock on the block
-/// processing cache.
-pub const BLOCK_PROCESSING_CACHE_LOCK_TIMEOUT: Duration = Duration::from_secs(1);
 /// The time-out before failure during an operation to take a read/write RwLock on the
 /// attestation cache.
 pub const ATTESTATION_CACHE_LOCK_TIMEOUT: Duration = Duration::from_secs(1);
@@ -323,8 +319,6 @@ pub struct BeaconChain<T: BeaconChainTypes> {
     pub event_handler: Option<ServerSentEventHandler<T::EthSpec>>,
     /// Used to track the heads of the beacon chain.
     pub(crate) head_tracker: Arc<HeadTracker>,
-    /// A cache dedicated to block processing.
-    pub(crate) snapshot_cache: TimeoutRwLock<SnapshotCache<T::EthSpec>>,
     /// Caches the attester shuffling for a given epoch and shuffling key root.
     pub(crate) shuffling_cache: TimeoutRwLock<ShufflingCache>,
     /// Caches the beacon block proposer shuffling for a given epoch and shuffling key root.
@@ -2530,7 +2524,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // Do not import a block that doesn't descend from the finalized root.
         let signed_block =
             check_block_is_finalized_descendant::<T, _>(signed_block, &fork_choice, &self.store)?;
-        let (block, block_signature) = signed_block.clone().deconstruct();
+        let (block, _) = signed_block.clone().deconstruct();
 
         // compare the existing finalized checkpoint with the incoming block's finalized checkpoint
         let old_finalized_checkpoint = fork_choice.finalized_checkpoint();
@@ -2784,30 +2778,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         let parent_root = block.parent_root();
         let slot = block.slot();
-        let signed_block = SignedBeaconBlock::from_block(block, block_signature);
-
-        self.snapshot_cache
-            .try_write_for(BLOCK_PROCESSING_CACHE_LOCK_TIMEOUT)
-            .ok_or(Error::SnapshotCacheLockTimeout)
-            .map(|mut snapshot_cache| {
-                snapshot_cache.insert(
-                    BeaconSnapshot {
-                        beacon_state: state,
-                        beacon_block: signed_block,
-                        beacon_block_root: block_root,
-                    },
-                    None,
-                    &self.spec,
-                )
-            })
-            .unwrap_or_else(|e| {
-                error!(
-                    self.log,
-                    "Failed to insert snapshot";
-                    "error" => ?e,
-                    "task" => "process block"
-                );
-            });
 
         self.head_tracker
             .register_block(block_root, parent_root, slot);
@@ -2888,28 +2858,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .head_info()
             .map_err(BlockProductionError::UnableToGetHeadInfo)?;
         let (state, state_root_opt) = if head_info.slot < slot {
-            // Normal case: proposing a block atop the current head. Use the snapshot cache.
-            if let Some(pre_state) = self
-                .snapshot_cache
-                .try_read_for(BLOCK_PROCESSING_CACHE_LOCK_TIMEOUT)
-                .and_then(|snapshot_cache| {
-                    snapshot_cache.get_state_for_block_production(head_info.block_root)
-                })
-            {
-                (pre_state.pre_state, pre_state.state_root)
-            } else {
-                warn!(
-                    self.log,
-                    "Block production cache miss";
-                    "message" => "this block is more likely to be orphaned",
-                    "slot" => slot,
-                );
-                let state = self
-                    .state_at_slot(slot - 1, StateSkipConfig::WithStateRoots)
-                    .map_err(|_| BlockProductionError::UnableToProduceAtSlot(slot))?;
+            let state = self
+                .state_at_slot(slot - 1, StateSkipConfig::WithStateRoots)
+                .map_err(|_| BlockProductionError::UnableToProduceAtSlot(slot))?;
 
-                (state, None)
-            }
+            (state, None)
         } else {
             warn!(
                 self.log,
@@ -3206,40 +3159,23 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // At this point we know that the new head block is not the same as the previous one
         metrics::inc_counter(&metrics::FORK_CHOICE_CHANGED_HEAD);
 
-        // Try and obtain the snapshot for `beacon_block_root` from the snapshot cache, falling
-        // back to a database read if that fails.
-        let new_head = self
-            .snapshot_cache
-            .try_read_for(BLOCK_PROCESSING_CACHE_LOCK_TIMEOUT)
-            .and_then(|snapshot_cache| {
-                snapshot_cache.get_cloned(beacon_block_root, CloneConfig::committee_caches_only())
-            })
-            .map::<Result<_, Error>, _>(Ok)
-            .unwrap_or_else(|| {
-                let beacon_block = self
-                    .get_block(&beacon_block_root)?
-                    .ok_or(Error::MissingBeaconBlock(beacon_block_root))?;
+        let new_head = {
+            let beacon_block = self
+                .get_block(&beacon_block_root)?
+                .ok_or(Error::MissingBeaconBlock(beacon_block_root))?;
 
-                let beacon_state_root = beacon_block.state_root();
-                let beacon_state: BeaconState<T::EthSpec> = self
-                    .get_state(&beacon_state_root, Some(beacon_block.slot()))?
-                    .ok_or(Error::MissingBeaconState(beacon_state_root))?;
+            let beacon_state_root = beacon_block.state_root();
+            let mut beacon_state: BeaconState<T::EthSpec> = self
+                .get_state(&beacon_state_root, Some(beacon_block.slot()))?
+                .ok_or(Error::MissingBeaconState(beacon_state_root))?;
+            beacon_state.build_all_committee_caches(&self.spec)?;
 
-                Ok(BeaconSnapshot {
-                    beacon_block,
-                    beacon_block_root,
-                    beacon_state,
-                })
-            })
-            .and_then(|mut snapshot| {
-                // Regardless of where we got the state from, attempt to build the committee
-                // caches.
-                snapshot
-                    .beacon_state
-                    .build_all_committee_caches(&self.spec)
-                    .map_err(Into::into)
-                    .map(|()| snapshot)
-            })?;
+            BeaconSnapshot {
+                beacon_block,
+                beacon_block_root,
+                beacon_state,
+            }
+        };
 
         // Attempt to detect if the new head is not on the same chain as the previous block
         // (i.e., a re-org).
@@ -3427,20 +3363,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 );
             }
         }
-
-        self.snapshot_cache
-            .try_write_for(BLOCK_PROCESSING_CACHE_LOCK_TIMEOUT)
-            .map(|mut snapshot_cache| {
-                snapshot_cache.update_head(beacon_block_root);
-            })
-            .unwrap_or_else(|| {
-                error!(
-                    self.log,
-                    "Failed to obtain cache write lock";
-                    "lock" => "snapshot_cache",
-                    "task" => "update head"
-                );
-            });
 
         if is_epoch_transition || is_reorg {
             self.persist_head_and_fork_choice()?;
@@ -3741,26 +3663,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 .epoch
                 .start_slot(T::EthSpec::slots_per_epoch()),
         );
-
-        self.snapshot_cache
-            .try_write_for(BLOCK_PROCESSING_CACHE_LOCK_TIMEOUT)
-            .map(|mut snapshot_cache| {
-                snapshot_cache.prune(new_finalized_checkpoint.epoch);
-                debug!(
-                    self.log,
-                    "Snapshot cache pruned";
-                    "new_len" => snapshot_cache.len(),
-                    "remaining_roots" => ?snapshot_cache.beacon_block_roots(),
-                );
-            })
-            .unwrap_or_else(|| {
-                error!(
-                    self.log,
-                    "Failed to obtain cache write lock";
-                    "lock" => "snapshot_cache",
-                    "task" => "prune"
-                );
-            });
 
         self.op_pool.prune_all(head_state, self.epoch()?);
 

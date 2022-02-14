@@ -40,17 +40,14 @@
 //!            END
 //!
 //! ```
+use crate::beacon_snapshot::PreProcessingSnapshot;
 use crate::execution_payload::{
     execute_payload, validate_execution_payload_for_gossip, validate_merge_block,
 };
-use crate::snapshot_cache::PreProcessingSnapshot;
 use crate::validator_monitor::HISTORIC_EPOCHS as VALIDATOR_MONITOR_HISTORIC_EPOCHS;
 use crate::validator_pubkey_cache::ValidatorPubkeyCache;
 use crate::{
-    beacon_chain::{
-        BLOCK_PROCESSING_CACHE_LOCK_TIMEOUT, MAXIMUM_GOSSIP_CLOCK_DISPARITY,
-        VALIDATOR_PUBKEY_CACHE_LOCK_TIMEOUT,
-    },
+    beacon_chain::{MAXIMUM_GOSSIP_CLOCK_DISPARITY, VALIDATOR_PUBKEY_CACHE_LOCK_TIMEOUT},
     metrics, BeaconChain, BeaconChainError, BeaconChainTypes,
 };
 use eth2::types::EventKind;
@@ -72,7 +69,7 @@ use std::borrow::Cow;
 use std::fs;
 use std::io::Write;
 use std::time::Duration;
-use store::{Error as DBError, HotColdDB, HotStateSummary, KeyValueStore, StoreOp};
+use store::{Error as DBError, HotColdDB, KeyValueStore, StoreOp};
 use tree_hash::TreeHash;
 use types::{
     BeaconBlockRef, BeaconState, BeaconStateError, ChainSpec, CloneConfig, Epoch, EthSpec, Hash256,
@@ -1033,7 +1030,7 @@ impl<'a, T: BeaconChainTypes> FullyVerifiedBlock<'a, T> {
 
         // Perform a sanity check on the pre-state.
         let parent_slot = parent.beacon_block.slot();
-        if state.slot() < parent_slot || state.slot() > parent_slot + 1 {
+        if state.slot() < parent_slot {
             return Err(BeaconChainError::BadPreState {
                 parent_root: parent.beacon_block_root,
                 parent_slot,
@@ -1061,29 +1058,10 @@ impl<'a, T: BeaconChainTypes> FullyVerifiedBlock<'a, T> {
                 // Store the state immediately, marking it as temporary, and staging the deletion
                 // of its temporary status as part of the larger atomic operation.
                 let txn_lock = chain.store.hot_db.begin_rw_transaction();
-                let state_already_exists =
-                    chain.store.load_hot_state_summary(&state_root)?.is_some();
-
-                let state_batch = if state_already_exists {
-                    // If the state exists, it could be temporary or permanent, but in neither case
-                    // should we rewrite it or store a new temporary flag for it. We *will* stage
-                    // the temporary flag for deletion because it's OK to double-delete the flag,
-                    // and we don't mind if another thread gets there first.
-                    vec![]
-                } else {
-                    vec![
-                        if state.slot() % T::EthSpec::slots_per_epoch() == 0 {
-                            StoreOp::PutState(state_root, &state)
-                        } else {
-                            StoreOp::PutStateSummary(
-                                state_root,
-                                HotStateSummary::new(&state_root, &state)?,
-                            )
-                        },
-                        StoreOp::PutStateTemporaryFlag(state_root),
-                    ]
-                };
-                chain.store.do_atomically(state_batch)?;
+                chain.store.do_atomically(vec![
+                    StoreOp::PutState(state_root, &state),
+                    StoreOp::PutStateTemporaryFlag(state_root),
+                ])?;
                 drop(txn_lock);
 
                 confirmation_db_batch.push(StoreOp::DeleteStateTemporaryFlag(state_root));
@@ -1435,8 +1413,6 @@ fn load_parent<T: BeaconChainTypes>(
     ),
     BlockError<T::EthSpec>,
 > {
-    let spec = &chain.spec;
-
     // Reject any block if its parent is not known to fork choice.
     //
     // A block that is not in fork choice is either:
@@ -1455,44 +1431,9 @@ fn load_parent<T: BeaconChainTypes>(
         return Err(BlockError::ParentUnknown(Box::new(block)));
     }
 
-    let block_delay = chain
-        .block_times_cache
-        .read()
-        .get_block_delays(
-            block.canonical_root(),
-            chain
-                .slot_clock
-                .start_of(block.slot())
-                .unwrap_or_else(|| Duration::from_secs(0)),
-        )
-        .observed;
-
     let db_read_timer = metrics::start_timer(&metrics::BLOCK_PROCESSING_DB_READ);
 
-    let result = if let Some((snapshot, cloned)) = chain
-        .snapshot_cache
-        .try_write_for(BLOCK_PROCESSING_CACHE_LOCK_TIMEOUT)
-        .and_then(|mut snapshot_cache| {
-            snapshot_cache.get_state_for_block_processing(
-                block.parent_root(),
-                block.slot(),
-                block_delay,
-                spec,
-            )
-        }) {
-        if cloned {
-            metrics::inc_counter(&metrics::BLOCK_PROCESSING_SNAPSHOT_CACHE_CLONES);
-            debug!(
-                chain.log,
-                "Cloned snapshot for late block/skipped slot";
-                "slot" => %block.slot(),
-                "parent_slot" => %snapshot.beacon_block.slot(),
-                "parent_root" => ?block.parent_root(),
-                "block_delay" => ?block_delay,
-            );
-        }
-        Ok((snapshot, block))
-    } else {
+    let result = {
         // Load the blocks parent block from the database, returning invalid if that block is not
         // found.
         //
@@ -1515,28 +1456,25 @@ fn load_parent<T: BeaconChainTypes>(
         // Load the parent blocks state from the database, returning an error if it is not found.
         // It is an error because if we know the parent block we should also know the parent state.
         let parent_state_root = parent_block.state_root();
-        let parent_state = chain
-            .get_state(&parent_state_root, Some(parent_block.slot()))?
+        let (advanced_state_root, state) = chain
+            .store
+            .get_advanced_state(block.parent_root(), block.slot(), parent_state_root)?
             .ok_or_else(|| {
                 BeaconChainError::DBInconsistent(format!("Missing state {:?}", parent_state_root))
             })?;
 
-        metrics::inc_counter(&metrics::BLOCK_PROCESSING_SNAPSHOT_CACHE_MISSES);
-        debug!(
-            chain.log,
-            "Missed snapshot cache";
-            "slot" => block.slot(),
-            "parent_slot" => parent_block.slot(),
-            "parent_root" => ?block.parent_root(),
-            "block_delay" => ?block_delay,
-        );
+        let beacon_state_root = if parent_state_root == advanced_state_root {
+            Some(parent_state_root)
+        } else {
+            None
+        };
 
         Ok((
             PreProcessingSnapshot {
                 beacon_block: parent_block,
                 beacon_block_root: root,
-                pre_state: parent_state,
-                beacon_state_root: Some(parent_state_root),
+                pre_state: state,
+                beacon_state_root,
             },
             block,
         ))

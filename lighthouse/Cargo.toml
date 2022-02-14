@@ -19,7 +19,7 @@ spec-minimal = []
 # Support Gnosis spec and Gnosis Beacon Chain.
 gnosis = []
 # Use `milhouse` tree states.
-tree-states = ["store/milhouse"]
+tree-states = ["beacon_node/tree-states"]
 
 [dependencies]
 beacon_node = { "path" = "../beacon_node" }
