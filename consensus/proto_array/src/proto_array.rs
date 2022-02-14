@@ -360,9 +360,9 @@ impl ProtoArray {
                         // invalidated, set those fields to `None`.
                         node.best_child = node
                             .best_child
-                            .filter(|best_child| invalidated_indices.contains(&best_child));
+                            .filter(|best_child| invalidated_indices.contains(best_child));
                         node.best_descendant = node.best_descendant.filter(|best_descendant| {
-                            invalidated_indices.contains(&best_descendant)
+                            invalidated_indices.contains(best_descendant)
                         });
 
                         // It might be new knowledge that this block is valid, ensure that it and all
