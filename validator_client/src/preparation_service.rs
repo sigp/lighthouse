@@ -1,4 +1,4 @@
-use crate::beacon_node_fallback::{BeaconNodeFallback, RequireSynced};
+use crate::beacon_node_fallback::{BeaconNodeFallback, FallbackError, RequireSynced};
 use crate::{
     fee_recipient_file::FeeRecipientFile,
     validator_store::{DoppelgangerStatus, ValidatorStore},
@@ -168,7 +168,7 @@ impl<T: SlotClock + 'static, E: EthSpec> PreparationService<T, E> {
     async fn prepare_proposers_and_publish(&self, spec: &ChainSpec) -> Result<(), String> {
         let preparation_data = self.collect_preparation_data(spec);
         if !preparation_data.is_empty() {
-            self.publish_preparation_data(preparation_data).await?;
+            self.publish_preparation_data(preparation_data).await;
         }
 
         Ok(())
@@ -244,10 +244,7 @@ impl<T: SlotClock + 'static, E: EthSpec> PreparationService<T, E> {
             .collect()
     }
 
-    async fn publish_preparation_data(
-        &self,
-        preparation_data: Vec<ProposerPreparationData>,
-    ) -> Result<(), String> {
+    async fn publish_preparation_data(&self, preparation_data: Vec<ProposerPreparationData>) {
         let log = self.context.log();
 
         // Post the proposer preparations to the BN.
@@ -259,6 +256,7 @@ impl<T: SlotClock + 'static, E: EthSpec> PreparationService<T, E> {
                 beacon_node
                     .post_validator_prepare_beacon_proposer(preparation_entries)
                     .await
+                    .map_err(|e| FallbackError::eth2("Failed to prepare beacon proposer", e))
             })
             .await
         {
@@ -273,6 +271,5 @@ impl<T: SlotClock + 'static, E: EthSpec> PreparationService<T, E> {
                 "error" => %e,
             ),
         }
-        Ok(())
     }
 }

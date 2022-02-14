@@ -1,4 +1,4 @@
-use crate::beacon_node_fallback::{BeaconNodeFallback, RequireSynced};
+use crate::beacon_node_fallback::{BeaconNodeFallback, FallbackError, RequireSynced};
 use crate::{duties_service::DutiesService, validator_store::ValidatorStore};
 use environment::RuntimeContext;
 use eth2::types::BlockId;
@@ -173,7 +173,10 @@ impl<T: SlotClock + 'static, E: EthSpec> SyncCommitteeService<T, E> {
         let block_root = self
             .beacon_nodes
             .first_success(RequireSynced::Yes, |beacon_node| async move {
-                beacon_node.get_beacon_blocks_root(BlockId::Head).await
+                beacon_node
+                    .get_beacon_blocks_root(BlockId::Head)
+                    .await
+                    .map_err(|e| FallbackError::eth2("Failed to get head block", e))
             })
             .await
             .map_err(|e| e.to_string())?
@@ -261,6 +264,7 @@ impl<T: SlotClock + 'static, E: EthSpec> SyncCommitteeService<T, E> {
                 beacon_node
                     .post_beacon_pool_sync_committee_signatures(committee_signatures)
                     .await
+                    .map_err(|e| FallbackError::eth2("Failed to post sync committee signatures", e))
             })
             .await
             .map_err(|e| {
@@ -334,6 +338,9 @@ impl<T: SlotClock + 'static, E: EthSpec> SyncCommitteeService<T, E> {
                 beacon_node
                     .get_validator_sync_committee_contribution::<E>(&sync_contribution_data)
                     .await
+                    .map_err(|e| {
+                        FallbackError::eth2("Failed to get sync committee contribution", e)
+                    })
             })
             .await
             .map_err(|e| {
@@ -395,6 +402,7 @@ impl<T: SlotClock + 'static, E: EthSpec> SyncCommitteeService<T, E> {
                 beacon_node
                     .post_validator_contribution_and_proofs(signed_contributions)
                     .await
+                    .map_err(|e| FallbackError::eth2("Failed to post contribution and proofs", e))
             })
             .await
             .map_err(|e| {
@@ -524,6 +532,9 @@ impl<T: SlotClock + 'static, E: EthSpec> SyncCommitteeService<T, E> {
                 beacon_node
                     .post_validator_sync_committee_subscriptions(subscriptions_slice)
                     .await
+                    .map_err(|e| {
+                        FallbackError::eth2("Failed to post sync committee subscriptions", e)
+                    })
             })
             .await
         {

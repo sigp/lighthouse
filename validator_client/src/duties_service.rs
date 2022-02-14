@@ -8,7 +8,7 @@
 
 mod sync;
 
-use crate::beacon_node_fallback::{BeaconNodeFallback, RequireSynced};
+use crate::beacon_node_fallback::{BeaconNodeFallback, FallbackError, RequireSynced};
 use crate::{
     block_service::BlockServiceNotification,
     http_metrics::metrics,
@@ -393,6 +393,7 @@ async fn poll_validator_indices<T: SlotClock + 'static, E: EthSpec>(
                             &ValidatorId::PublicKey(pubkey),
                         )
                         .await
+                        .map_err(|e| FallbackError::eth2("Failed to get validator id", e))
                 })
                 .await;
 
@@ -567,6 +568,7 @@ async fn poll_beacon_attesters<T: SlotClock + 'static, E: EthSpec>(
                 beacon_node
                     .post_validator_beacon_committee_subscriptions(subscriptions_ref)
                     .await
+                    .map_err(|e| FallbackError::eth2("Failed to post committee subscriptions", e))
             })
             .await
         {
@@ -627,6 +629,7 @@ async fn poll_beacon_attesters_for_epoch<T: SlotClock + 'static, E: EthSpec>(
             beacon_node
                 .post_validator_duties_attester(epoch, local_indices)
                 .await
+                .map_err(|e| FallbackError::eth2("Failed to post validator duties", e))
         })
         .await
         .map_err(|e| Error::FailedToDownloadAttesters(e.to_string()))?;
@@ -786,6 +789,7 @@ async fn poll_beacon_proposers<T: SlotClock + 'static, E: EthSpec>(
                 beacon_node
                     .get_validator_duties_proposer(current_epoch)
                     .await
+                    .map_err(|e| FallbackError::eth2("Failed to get proposer duties", e))
             })
             .await;
 

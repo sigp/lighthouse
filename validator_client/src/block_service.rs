@@ -1,5 +1,5 @@
 use crate::{
-    beacon_node_fallback::{BeaconNodeFallback, RequireSynced},
+    beacon_node_fallback::{BeaconNodeFallback, FallbackError, RequireSynced},
     graffiti_file::GraffitiFile,
 };
 use crate::{http_metrics::metrics, validator_store::ValidatorStore};
@@ -271,22 +271,24 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
                 let block = beacon_node
                     .get_validator_blocks(slot, randao_reveal_ref, graffiti.as_ref())
                     .await
-                    .map_err(|e| format!("Error from beacon node when producing block: {:?}", e))?
+                    .map_err(|e| {
+                        FallbackError::eth2("Error from beacon node when producing block", e)
+                    })?
                     .data;
                 drop(get_timer);
 
                 if proposer_index != Some(block.proposer_index()) {
-                    return Err(
+                    return Err(FallbackError::custom(
                         "Proposer index does not match block proposer. Beacon chain re-orged"
                             .to_string(),
-                    );
+                    ));
                 }
 
                 let signed_block = self_ref
                     .validator_store
                     .sign_block(*validator_pubkey_ref, block, current_slot)
                     .await
-                    .map_err(|e| format!("Unable to sign block: {:?}", e))?;
+                    .map_err(|e| FallbackError::custom(format!("Unable to sign block: {:?}", e)))?;
 
                 let _post_timer = metrics::start_timer_vec(
                     &metrics::BLOCK_SERVICE_TIMES,
@@ -296,10 +298,10 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
                     .post_beacon_blocks(&signed_block)
                     .await
                     .map_err(|e| {
-                        format!("Error from beacon node when publishing block: {:?}", e)
+                        FallbackError::eth2("Error from beacon node when publishing block", e)
                     })?;
 
-                Ok::<_, String>(signed_block)
+                Ok::<_, FallbackError>(signed_block)
             })
             .await
             .map_err(|e| e.to_string())?;
