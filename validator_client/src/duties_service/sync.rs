@@ -1,5 +1,4 @@
 use crate::{
-    beacon_node_fallback::FallbackError,
     doppelganger_service::DoppelgangerStatus,
     duties_service::{DutiesService, Error},
 };
@@ -415,7 +414,6 @@ pub async fn poll_sync_committee_duties_for_period<T: SlotClock + 'static, E: Et
             beacon_node
                 .post_validator_duties_sync(period_start_epoch, local_indices)
                 .await
-                .map_err(|e| FallbackError::eth2("Failed get sync duties", e))
         })
         .await;
 

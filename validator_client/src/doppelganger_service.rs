@@ -29,7 +29,7 @@
 //!
 //! Doppelganger protection is a best-effort, last-line-of-defence mitigation. Do not rely upon it.
 
-use crate::beacon_node_fallback::{BeaconNodeFallback, FallbackError, RequireSynced};
+use crate::beacon_node_fallback::{BeaconNodeFallback, RequireSynced};
 use crate::validator_store::ValidatorStore;
 use environment::RuntimeContext;
 use eth2::types::LivenessResponseData;
@@ -180,12 +180,7 @@ async fn beacon_node_liveness<'a, T: 'static + SlotClock, E: EthSpec>(
                 beacon_node
                     .post_lighthouse_liveness(validator_indices, previous_epoch)
                     .await
-                    .map_err(|e| {
-                        FallbackError::eth2(
-                            "Failed to query for previous epoch validator liveness",
-                            e,
-                        )
-                    })
+                    .map_err(|e| format!("Failed query for validator liveness: {:?}", e))
                     .map(|result| result.data)
             })
             .await
@@ -208,9 +203,7 @@ async fn beacon_node_liveness<'a, T: 'static + SlotClock, E: EthSpec>(
             beacon_node
                 .post_lighthouse_liveness(validator_indices, current_epoch)
                 .await
-                .map_err(|e| {
-                    FallbackError::eth2("Failed to query for current epoch validator liveness", e)
-                })
+                .map_err(|e| format!("Failed query for validator liveness: {:?}", e))
                 .map(|result| result.data)
         })
         .await

@@ -1,4 +1,4 @@
-use crate::beacon_node_fallback::{BeaconNodeFallback, FallbackError, RequireSynced};
+use crate::beacon_node_fallback::{BeaconNodeFallback, RequireSynced};
 use crate::{
     duties_service::{DutiesService, DutyAndProof},
     http_metrics::metrics,
@@ -345,7 +345,7 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
                 beacon_node
                     .get_validator_attestation_data(slot, committee_index)
                     .await
-                    .map_err(|e| FallbackError::eth2("Failed to produce attestation data", e))
+                    .map_err(|e| format!("Failed to produce attestation data: {:?}", e))
                     .map(|result| result.data)
             })
             .await
@@ -421,7 +421,6 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
                 beacon_node
                     .post_beacon_pool_attestations(attestations)
                     .await
-                    .map_err(|e| FallbackError::eth2("Failed to publish attestations", e))
             })
             .await
         {
@@ -480,15 +479,8 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
                         attestation_data.tree_hash_root(),
                     )
                     .await
-                    .map_err(|e| {
-                        FallbackError::eth2("Failed to produce an aggregate attestation", e)
-                    })?
-                    .ok_or_else(|| {
-                        FallbackError::custom(format!(
-                            "No aggregate available for {:?}",
-                            attestation_data
-                        ))
-                    })
+                    .map_err(|e| format!("Failed to produce an aggregate attestation: {:?}", e))?
+                    .ok_or_else(|| format!("No aggregate available for {:?}", attestation_data))
                     .map(|result| result.data)
             })
             .await
@@ -549,7 +541,6 @@ impl<T: SlotClock + 'static, E: EthSpec> AttestationService<T, E> {
                     beacon_node
                         .post_validator_aggregate_and_proof(signed_aggregate_and_proofs_slice)
                         .await
-                        .map_err(|e| FallbackError::eth2("Failed to post aggregate and proof", e))
                 })
                 .await
             {

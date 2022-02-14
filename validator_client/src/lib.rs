@@ -27,8 +27,7 @@ use monitoring_api::{MonitoringHttpClient, ProcessType};
 pub use slashing_protection::{SlashingDatabase, SLASHING_PROTECTION_FILENAME};
 
 use crate::beacon_node_fallback::{
-    start_fallback_updater_service, BeaconNodeFallback, CandidateBeaconNode, FallbackError,
-    RequireSynced,
+    start_fallback_updater_service, BeaconNodeFallback, CandidateBeaconNode, RequireSynced,
 };
 use crate::doppelganger_service::DoppelgangerService;
 use account_utils::validator_definitions::ValidatorDefinitions;
@@ -559,9 +558,7 @@ async fn init_from_beacon_node<E: EthSpec>(
     let genesis = loop {
         match beacon_nodes
             .first_success(RequireSynced::No, |node| async move {
-                node.get_beacon_genesis()
-                    .await
-                    .map_err(|e| FallbackError::eth2("Failed to get beacon genesis", e))
+                node.get_beacon_genesis().await
             })
             .await
         {
@@ -650,10 +647,7 @@ async fn poll_whilst_waiting_for_genesis<E: EthSpec>(
     loop {
         match beacon_nodes
             .first_success(RequireSynced::No, |beacon_node| async move {
-                beacon_node
-                    .get_lighthouse_staking()
-                    .await
-                    .map_err(|e| FallbackError::eth2("Failed to query staking endpoint", e))
+                beacon_node.get_lighthouse_staking().await
             })
             .await
         {

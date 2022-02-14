@@ -5,7 +5,7 @@
 use crate::check_synced::check_synced;
 use crate::http_metrics::metrics::{inc_counter_vec, ENDPOINT_ERRORS, ENDPOINT_REQUESTS};
 use environment::RuntimeContext;
-use eth2::{reqwest::StatusCode, BeaconNodeHttpClient, Error as Eth2Error};
+use eth2::BeaconNodeHttpClient;
 use futures::future;
 use slog::{debug, error, info, warn, Logger};
 use slot_clock::SlotClock;
@@ -26,72 +26,6 @@ use types::{ChainSpec, EthSpec};
 /// an aggregate; this may result in a missed aggregation. If we set this time too late, we risk not
 /// having the correct nodes up and running prior to the start of the slot.
 const SLOT_LOOKAHEAD: Duration = Duration::from_secs(1);
-
-#[derive(Debug)]
-pub enum FallbackError {
-    Eth2 {
-        error: Eth2Error,
-        message: &'static str,
-    },
-    Custom(String),
-}
-
-impl FallbackError {
-    pub fn custom(error: String) -> Self {
-        FallbackError::Custom(error)
-    }
-
-    pub fn eth2(message: &'static str, error: Eth2Error) -> Self {
-        FallbackError::Eth2 { error, message }
-    }
-
-    pub fn status(&self) -> Option<StatusCode> {
-        match self {
-            FallbackError::Eth2 { error, .. } => error.status(),
-            FallbackError::Custom(_) => None,
-        }
-    }
-}
-
-/*
-#[derive(Debug)]
-pub enum FailureType {
-    ShortLived,
-    LongLived,
-}
-
-#[derive(Debug)]
-pub struct FallbackError<E: Debug> {
-    error: E,
-    message: &'static str,
-    failure_type: FailureType,
-}
-
-impl FallbackError<String> {
-    pub fn short_lived(error: String) -> Self {
-        Self {
-            error,
-            message: "",
-            failure_type: FailureType::ShortLived,
-        }
-    }
-}
-
-impl FallbackError<Eth2Error> {
-    pub fn eth2(message: &'static str, error: Eth2Error) -> Self {
-        let failure_type = match error {
-            Eth2Error::Reqwest(inner) if inner.is_timeout() => FailureType::LongLived,
-            other => FailureType::ShortLived,
-        };
-
-        Self {
-            error,
-            message,
-            failure_type,
-        }
-    }
-}
-*/
 
 /// Starts a service that will routinely try and update the status of the provided `beacon_nodes`.
 ///
@@ -456,14 +390,14 @@ impl<T: SlotClock, E: EthSpec> BeaconNodeFallback<T, E> {
     /// First this function will try all nodes with a suitable status. If no candidates are suitable
     /// or all the requests fail, it will try updating the status of all unsuitable nodes and
     /// re-running `func` again.
-    pub async fn first_success<'a, F, O, R>(
+    pub async fn first_success<'a, F, O, Err, R>(
         &'a self,
         require_synced: RequireSynced,
         func: F,
-    ) -> Result<O, AllErrored<FallbackError>>
+    ) -> Result<O, AllErrored<Err>>
     where
         F: Fn(&'a BeaconNodeHttpClient) -> R,
-        R: Future<Output = Result<O, FallbackError>>,
+        R: Future<Output = Result<O, Err>>,
     {
         let mut errors = vec![];
         let mut to_retry = vec![];
