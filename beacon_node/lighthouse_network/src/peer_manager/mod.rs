@@ -967,8 +967,11 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
                 HashMap::new();
             // These variables are used to track if a peer is in a long-lived sync-committee as we
             // may wish to retain this peer over others when pruning.
-            let mut sync_committee_peer_count: HashMap<SyncSubnetId, usize> = HashMap::new(); 
-            let mut peer_to_sync_committee: HashMap<PeerId, std::collections::HashSet<SyncSubnetId>> = HashMap::new();
+            let mut sync_committee_peer_count: HashMap<SyncSubnetId, u64> = HashMap::new();
+            let mut peer_to_sync_committee: HashMap<
+                PeerId,
+                std::collections::HashSet<SyncSubnetId>,
+            > = HashMap::new();
 
             for (peer_id, info) in self.network_globals.peers.read().connected_peers() {
                 // Ignore peers we are already pruning
@@ -982,17 +985,20 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
                 // the dense sync committees.
                 for subnet in info.long_lived_subnets() {
                     match subnet {
-                    Subnet::Attestation(_) => {
-                        subnet_to_peer
-                            .entry(subnet)
-                            .or_insert_with(Vec::new)
-                            .push((*peer_id, info.clone()));
-                    },
-                    Subnet::SyncCommittee(id) => {
-                        *sync_committee_peer_count.entry(id).or_default() += 1;
-                        peer_to_sync_committee.entry(*peer_id).or_default().insert(id);
+                        Subnet::Attestation(_) => {
+                            subnet_to_peer
+                                .entry(subnet)
+                                .or_insert_with(Vec::new)
+                                .push((*peer_id, info.clone()));
+                        }
+                        Subnet::SyncCommittee(id) => {
+                            *sync_committee_peer_count.entry(id).or_default() += 1;
+                            peer_to_sync_committee
+                                .entry(*peer_id)
+                                .or_default()
+                                .insert(id);
+                        }
                     }
-                }
                 }
             }
 
@@ -1016,7 +1022,11 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
                             // We ignore peers that would put us below our target outbound peers
                             // and we currently ignore peers that would put us below our
                             // sync-committee threshold, if we can avoid it.
-                                let (candidate_peer, info) = peers_on_subnet.remove(0);
+
+                            let mut removed_peer_index = None;
+                            for (index, (candidate_peer, info)) in
+                                peers_on_subnet.iter().enumerate()
+                            {
                                 // Ensure we don't remove too many outbound peers
                                 if info.is_outbound_only() {
                                     if self.target_outbound_peers()
@@ -1034,22 +1044,51 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
                                 }
 
                                 // Check the sync committee
+                                println!("checking: {}", candidate_peer);
                                 if let Some(subnets) = peer_to_sync_committee.get(&candidate_peer) {
                                     // The peer is subscribed to some long-lived sync-committees
                                     // Of all the subnets this peer is subscribed too, the minimum
                                     // peer count of all of them is min_subnet_count
-                                    if let Some(min_subnet_count) = subnets.iter().map(|v| **v).min() {
+                                    if let Some(min_subnet_count) = subnets
+                                        .iter()
+                                        .map(|v| {
+                                            *sync_committee_peer_count.get(v).unwrap_or(&100u64)
+                                        })
+                                        .min()
+                                    {
+                                        println!("min_subnet: {}", min_subnet_count);
+
                                         // If the minimum count is our target or lower, we
                                         // shouldn't remove this peer, because it drops us lower
                                         // than our target
                                         if min_subnet_count <= MIN_SYNC_COMMITTEE_PEERS {
+                                            println!("skipping");
                                             // Do not drop this peer in this pruning interval
                                             continue;
                                         }
                                     }
                                 }
 
-                            peers_to_prune.insert(candidate_peer);
+                                // This peer is suitable to be pruned
+                                removed_peer_index = Some(index);
+                                break;
+                            }
+
+                            // If we have successfully found a candidate peer to prune, prune it,
+                            // otherwise all peers on this subnet should not be removed due to our
+                            // outbound limit or min_subnet_count. In this case, we remove all
+                            // peers from the pruning logic and try another subnet.
+                            if let Some(index) = removed_peer_index {
+                                let (candidate_peer, _) = peers_on_subnet.remove(index);
+                                println!("Pruning:{}", candidate_peer);
+                                // Remove pruned peers from other subnet counts
+                                for subnet_peers in subnet_to_peer.values_mut() {
+                                    subnet_peers.retain(|(peer_id, _)| peer_id != &candidate_peer);
+                                }
+                                peers_to_prune.insert(candidate_peer);
+                            } else {
+                                peers_on_subnet.clear();
+                            }
                             continue;
                         }
                     } else {
@@ -1642,7 +1681,6 @@ mod tests {
         }
     }
 
-    #[tokio::test]
     /// Test the pruning logic to prioritise peers with the most subnets
     ///
     /// Create 6 peers.
@@ -1656,11 +1694,12 @@ mod tests {
     /// Prune 3 peers: Should be Peer0, Peer 4 and Peer 5 because (4 and 5) are both on the subnet with the
     /// most peers and have the least subscribed long-lived subnets. And peer 0 because it has no
     /// long-lived subnet.
+    #[tokio::test]
     async fn test_peer_manager_prune_subnet_peers_most_subscribed() {
         let target = 3;
         let mut peer_manager = build_peer_manager(target).await;
 
-        // Create 5 peers to connect to.
+        // Create 6 peers to connect to.
         let mut peers = Vec::new();
         for x in 0..6 {
             let peer = PeerId::random();
@@ -1745,5 +1784,114 @@ mod tests {
         assert!(!connected_peers.contains(&peers[0]));
         assert!(!connected_peers.contains(&peers[4]));
         assert!(!connected_peers.contains(&peers[5]));
+    }
+
+    /// Test the pruning logic to prioritise peers with the most subnets, but not at the expense of
+    /// removing our few sync-committee subnets.
+    ///
+    /// Create 6 peers.
+    /// Peer0: None
+    /// Peer1 : Subnet 1,2,3,
+    /// Peer2 : Subnet 1,2,
+    /// Peer3 : Subnet 3
+    /// Peer4 : Subnet 1,2,  Sync-committee-1
+    /// Peer5 : Subnet 1,2,  Sync-committee-2
+    ///
+    /// Prune 3 peers: Should be Peer0, Peer1 and Peer2 because (4 and 5 are on a sync-committee)
+    #[tokio::test]
+    async fn test_peer_manager_prune_subnet_peers_sync_committee() {
+        let target = 3;
+        let mut peer_manager = build_peer_manager(target).await;
+
+        // Create 6 peers to connect to.
+        let mut peers = Vec::new();
+        for x in 0..6 {
+            let peer = PeerId::random();
+            peer_manager.inject_connect_ingoing(&peer, "/ip4/0.0.0.0".parse().unwrap(), None);
+
+            // Have some of the peers be on a long-lived subnet
+            let mut attnets = crate::types::EnrAttestationBitfield::<E>::new();
+            let mut syncnets = crate::types::EnrSyncCommitteeBitfield::<E>::new();
+
+            match x {
+                0 => {}
+                1 => {
+                    attnets.set(1, true).unwrap();
+                    attnets.set(2, true).unwrap();
+                    attnets.set(3, true).unwrap();
+                }
+                2 => {
+                    attnets.set(1, true).unwrap();
+                    attnets.set(2, true).unwrap();
+                }
+                3 => {
+                    attnets.set(3, true).unwrap();
+                }
+                4 => {
+                    attnets.set(1, true).unwrap();
+                    attnets.set(2, true).unwrap();
+                    syncnets.set(1, true).unwrap();
+                }
+                5 => {
+                    attnets.set(1, true).unwrap();
+                    attnets.set(2, true).unwrap();
+                    syncnets.set(2, true).unwrap();
+                }
+                _ => unreachable!(),
+            }
+
+            let metadata = crate::rpc::MetaDataV2 {
+                seq_number: 0,
+                attnets,
+                syncnets,
+            };
+            peer_manager
+                .network_globals
+                .peers
+                .write()
+                .peer_info_mut(&peer)
+                .unwrap()
+                .set_meta_data(MetaData::V2(metadata));
+            let long_lived_subnets = peer_manager
+                .network_globals
+                .peers
+                .read()
+                .peer_info(&peer)
+                .unwrap()
+                .long_lived_subnets();
+            println!("{},{}", x, peer);
+            for subnet in long_lived_subnets {
+                println!("Subnet: {:?}", subnet);
+                peer_manager
+                    .network_globals
+                    .peers
+                    .write()
+                    .add_subscription(&peer, subnet);
+            }
+            peers.push(peer);
+        }
+
+        // Perform the heartbeat.
+        peer_manager.heartbeat();
+
+        // Tests that when we are over the target peer limit, after disconnecting an unhealthy peer,
+        // the number of connected peers updates and we will not remove too many peers.
+        assert_eq!(
+            peer_manager.network_globals.connected_or_dialing_peers(),
+            target
+        );
+
+        // Check that we removed peers 4 and 5
+        let connected_peers: std::collections::HashSet<_> = peer_manager
+            .network_globals
+            .peers
+            .read()
+            .connected_or_dialing_peers()
+            .cloned()
+            .collect();
+
+        assert!(!connected_peers.contains(&peers[0]));
+        assert!(!connected_peers.contains(&peers[1]));
+        assert!(!connected_peers.contains(&peers[2]));
     }
 }
