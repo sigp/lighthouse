@@ -38,6 +38,10 @@ mod network_behaviour;
 /// requests. This defines the interval in seconds.
 const HEARTBEAT_INTERVAL: u64 = 30;
 
+/// This is used in the pruning logic. We avoid pruning peers on sync-committees if doing so would
+/// lower our peer count below this number. Instead we favour a non-uniform distribution of subnet
+/// peers.
+pub const MIN_SYNC_COMMITTEE_PEERS: u64 = 2;
 /// A fraction of `PeerManager::target_peers` that we allow to connect to us in excess of
 /// `PeerManager::target_peers`. For clarity, if `PeerManager::target_peers` is 50 and
 /// PEER_EXCESS_FACTOR = 0.1 we allow 10% more nodes, i.e 55.
@@ -873,11 +877,23 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
     /// The logic for the peer pruning is as follows:
     ///
     /// Global rules:
-    /// Always maintain peers we need for a validator duty.
-    /// Do not prune outbound peers to exceed our outbound target.
-    /// Do not prune more peers than our target peer count.
-    /// If we have an option to remove a number of peers, remove ones that have the least
-    /// long-lived subnets.
+    /// - Always maintain peers we need for a validator duty.
+    /// - Do not prune outbound peers to exceed our outbound target.
+    /// - Do not prune more peers than our target peer count.
+    /// - If we have an option to remove a number of peers, remove ones that have the least
+    ///     long-lived subnets.
+    /// - When pruning peers based on subnet count. If multiple peers can be chosen, choose a peer
+    ///     that is not subscribed to a long-lived sync committee subnet.
+    /// - When pruning peers based on subnet count, do not prune a peer that would lower us below the
+    ///     MIN_SYNC_COMMITTEE_PEERS peer count. To keep it simple, we favour a minimum number of sync-committee-peers over
+    ///     uniformity subnet peers. NOTE: We could apply more sophisticated logic, but the code is
+    ///     simpler and easier to maintain if we take this approach. If we are pruning subnet peers
+    ///     below the MIN_SYNC_COMMITTEE_PEERS and maintaining the sync committee peers, this should be
+    ///     fine as subnet peers are more likely to be found than sync-committee-peers. Also, we're
+    ///     in a bit of trouble anyway if we have so few peers on subnets. The
+    ///     MIN_SYNC_COMMITTEE_PEERS
+    ///     number should be set low as an absolute lower bound to maintain peers on the sync
+    ///     committees.
     ///
     /// Prune peers in the following order:
     /// 1. Remove worst scoring peers
@@ -949,6 +965,10 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
             // Of our connected peers, build a map from subnet_id -> Vec<(PeerId, PeerInfo)>
             let mut subnet_to_peer: HashMap<Subnet, Vec<(PeerId, PeerInfo<TSpec>)>> =
                 HashMap::new();
+            // These variables are used to track if a peer is in a long-lived sync-committee as we
+            // may wish to retain this peer over others when pruning.
+            let mut sync_committee_peer_count: HashMap<SyncSubnetId, usize> = HashMap::new(); 
+            let mut peer_to_sync_committee: HashMap<PeerId, std::collections::HashSet<SyncSubnetId>> = HashMap::new();
 
             for (peer_id, info) in self.network_globals.peers.read().connected_peers() {
                 // Ignore peers we are already pruning
@@ -961,12 +981,18 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
                 // subnets, so our priority here to make the subnet peer count uniform, ignoring
                 // the dense sync committees.
                 for subnet in info.long_lived_subnets() {
-                    if matches!(subnet, Subnet::Attestation(_)) {
+                    match subnet {
+                    Subnet::Attestation(_) => {
                         subnet_to_peer
                             .entry(subnet)
                             .or_insert_with(Vec::new)
                             .push((*peer_id, info.clone()));
+                    },
+                    Subnet::SyncCommittee(id) => {
+                        *sync_committee_peer_count.entry(id).or_default() += 1;
+                        peer_to_sync_committee.entry(*peer_id).or_default().insert(id);
                     }
+                }
                 }
             }
 
@@ -985,17 +1011,44 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
                             // subscribed too, shuffle equal peers.
                             peers_on_subnet.shuffle(&mut rand::thread_rng());
                             peers_on_subnet.sort_by_key(|(_, info)| info.long_lived_subnet_count());
-                            let (candidate_peer, info) = peers_on_subnet.remove(0);
-                            // Ensure we don't remove too many outbound peers
-                            if info.is_outbound_only() {
-                                if self.target_outbound_peers()
-                                    < connected_outbound_peer_count - outbound_peers_pruned
-                                {
-                                    outbound_peers_pruned += 1;
-                                } else {
-                                    continue;
+
+                            // Try and find a candidate peer to remove from the subnet.
+                            // We ignore peers that would put us below our target outbound peers
+                            // and we currently ignore peers that would put us below our
+                            // sync-committee threshold, if we can avoid it.
+                                let (candidate_peer, info) = peers_on_subnet.remove(0);
+                                // Ensure we don't remove too many outbound peers
+                                if info.is_outbound_only() {
+                                    if self.target_outbound_peers()
+                                        < connected_outbound_peer_count - outbound_peers_pruned
+                                    {
+                                        outbound_peers_pruned += 1;
+                                    } else {
+                                        // Restart the main loop with the outbound peer removed from
+                                        // the list. This will lower the peers per subnet count and
+                                        // potentially a new subnet may be chosen to remove peers. This
+                                        // can occur recursively until we have no peers left to choose
+                                        // from.
+                                        continue;
+                                    }
                                 }
-                            }
+
+                                // Check the sync committee
+                                if let Some(subnets) = peer_to_sync_committee.get(&candidate_peer) {
+                                    // The peer is subscribed to some long-lived sync-committees
+                                    // Of all the subnets this peer is subscribed too, the minimum
+                                    // peer count of all of them is min_subnet_count
+                                    if let Some(min_subnet_count) = subnets.iter().map(|v| **v).min() {
+                                        // If the minimum count is our target or lower, we
+                                        // shouldn't remove this peer, because it drops us lower
+                                        // than our target
+                                        if min_subnet_count <= MIN_SYNC_COMMITTEE_PEERS {
+                                            // Do not drop this peer in this pruning interval
+                                            continue;
+                                        }
+                                    }
+                                }
+
                             peers_to_prune.insert(candidate_peer);
                             continue;
                         }
