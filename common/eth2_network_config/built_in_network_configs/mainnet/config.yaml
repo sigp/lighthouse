@@ -1,6 +1,7 @@
 # Mainnet config
 
 # Extends the mainnet preset
+CONFIG_NAME: 'mainnet'
 PRESET_BASE: 'mainnet'
 
 # Transition

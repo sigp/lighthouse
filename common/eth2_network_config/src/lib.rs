@@ -275,6 +275,7 @@ mod tests {
                 "{:?}",
                 net.name
             );
+            assert_eq!(config.config.config_name, Some(net.name.to_string()));
         }
     }
 
