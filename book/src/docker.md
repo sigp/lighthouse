@@ -110,7 +110,7 @@ You can run a Docker beacon node with the following command:
 $ docker run -p 9000:9000/tcp -p 9000:9000/udp -p 127.0.0.1:5052:5052 -v $HOME/.lighthouse:/root/.lighthouse sigp/lighthouse lighthouse --network mainnet beacon --http --http-address 0.0.0.0
 ```
 
-> To join the Pyrmont testnet, use `--network pyrmont` instead.
+> To join the Prater testnet, use `--network prater` instead.
 
 > The `-p` and `-v` and values are described below.
 

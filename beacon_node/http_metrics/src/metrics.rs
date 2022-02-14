@@ -1,7 +1,7 @@
 use crate::Context;
 use beacon_chain::BeaconChainTypes;
 use lighthouse_metrics::{Encoder, TextEncoder};
-use lighthouse_network::open_metrics_client::encoding::text::encode;
+use lighthouse_network::prometheus_client::encoding::text::encode;
 use malloc_utils::scrape_allocator_metrics;
 
 pub use lighthouse_metrics::*;

@@ -110,6 +110,7 @@ impl<TSpec: EthSpec> NetworkBehaviour for PeerManager<TSpec> {
         _connection_id: &ConnectionId,
         endpoint: &ConnectedPoint,
         _failed_addresses: Option<&Vec<Multiaddr>>,
+        _other_established: usize,
     ) {
         debug!(self.log, "Connection established"; "peer_id" => %peer_id, "connection" => ?endpoint.to_endpoint());
         // Check NAT if metrics are enabled
@@ -172,8 +173,18 @@ impl<TSpec: EthSpec> NetworkBehaviour for PeerManager<TSpec> {
         self.update_connected_peer_metrics();
         metrics::inc_counter(&metrics::PEER_CONNECT_EVENT_COUNT);
     }
+    fn inject_connection_closed(
+        &mut self,
+        peer_id: &PeerId,
+        _: &ConnectionId,
+        _: &ConnectedPoint,
+        _: DummyProtocolsHandler,
+        remaining_established: usize,
+    ) {
+        if remaining_established > 0 {
+            return;
+        }
 
-    fn inject_disconnected(&mut self, peer_id: &PeerId) {
         // There are no more connections
         if self
             .network_globals

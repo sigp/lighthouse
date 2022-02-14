@@ -567,16 +567,6 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn pyrmont_base_types() {
-        test_base_types("pyrmont", 4244).await
-    }
-
-    #[tokio::test]
-    async fn pyrmont_altair_types() {
-        test_altair_types("pyrmont", 4245).await
-    }
-
-    #[tokio::test]
     async fn prater_base_types() {
         test_base_types("prater", 4246).await
     }

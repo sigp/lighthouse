@@ -124,7 +124,7 @@ testnet configuration settings. Ensure that the network you wish to connect to
 is correct (the beacon node outputs the network it is connecting to in the
 initial boot-up log lines). On top of this, ensure that you are not using the
 same `datadir` as a previous network. I.e if you have been running the
-`pyrmont` testnet and are now trying to join a new testnet but using the same
+`prater` testnet and are now trying to join a new testnet but using the same
 `datadir` (the `datadir` is also printed out in the beacon node's logs on
 boot-up).
 
