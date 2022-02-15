@@ -8,6 +8,7 @@ pub use merkleize_padded::merkleize_padded;
 pub use merkleize_standard::merkleize_standard;
 
 use eth2_hashing::{hash_fixed, ZERO_HASHES, ZERO_HASHES_MAX_INDEX};
+use smallvec::SmallVec;
 
 pub const BYTES_PER_CHUNK: usize = 32;
 pub const HASHSIZE: usize = 32;
@@ -15,6 +16,7 @@ pub const MERKLE_HASH_CHUNK: usize = 2 * BYTES_PER_CHUNK;
 pub const MAX_UNION_SELECTOR: u8 = 127;
 
 pub type Hash256 = ethereum_types::H256;
+pub type PackedEncoding = SmallVec<[u8; BYTES_PER_CHUNK]>;
 
 /// Convenience method for `MerkleHasher` which also provides some fast-paths for small trees.
 ///
@@ -109,7 +111,7 @@ pub enum TreeHashType {
 pub trait TreeHash {
     fn tree_hash_type() -> TreeHashType;
 
-    fn tree_hash_packed_encoding(&self) -> Vec<u8>;
+    fn tree_hash_packed_encoding(&self) -> PackedEncoding;
 
     fn tree_hash_packing_factor() -> usize;
 
@@ -125,7 +127,7 @@ where
         T::tree_hash_type()
     }
 
-    fn tree_hash_packed_encoding(&self) -> Vec<u8> {
+    fn tree_hash_packed_encoding(&self) -> PackedEncoding {
         T::tree_hash_packed_encoding(*self)
     }
 
@@ -136,52 +138,6 @@ where
     fn tree_hash_root(&self) -> Hash256 {
         T::tree_hash_root(*self)
     }
-}
-
-#[macro_export]
-macro_rules! tree_hash_ssz_encoding_as_vector {
-    ($type: ident) => {
-        impl tree_hash::TreeHash for $type {
-            fn tree_hash_type() -> tree_hash::TreeHashType {
-                tree_hash::TreeHashType::Vector
-            }
-
-            fn tree_hash_packed_encoding(&self) -> Vec<u8> {
-                unreachable!("Vector should never be packed.")
-            }
-
-            fn tree_hash_packing_factor() -> usize {
-                unreachable!("Vector should never be packed.")
-            }
-
-            fn tree_hash_root(&self) -> Vec<u8> {
-                tree_hash::merkle_root(&ssz::ssz_encode(self))
-            }
-        }
-    };
-}
-
-#[macro_export]
-macro_rules! tree_hash_ssz_encoding_as_list {
-    ($type: ident) => {
-        impl tree_hash::TreeHash for $type {
-            fn tree_hash_type() -> tree_hash::TreeHashType {
-                tree_hash::TreeHashType::List
-            }
-
-            fn tree_hash_packed_encoding(&self) -> Vec<u8> {
-                unreachable!("List should never be packed.")
-            }
-
-            fn tree_hash_packing_factor() -> usize {
-                unreachable!("List should never be packed.")
-            }
-
-            fn tree_hash_root(&self) -> Vec<u8> {
-                ssz::ssz_encode(self).tree_hash_root()
-            }
-        }
-    };
 }
 
 #[cfg(test)]

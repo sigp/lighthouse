@@ -159,7 +159,7 @@ impl TreeHash for Graffiti {
         <[u8; GRAFFITI_BYTES_LEN]>::tree_hash_type()
     }
 
-    fn tree_hash_packed_encoding(&self) -> Vec<u8> {
+    fn tree_hash_packed_encoding(&self) -> tree_hash::PackedEncoding {
         self.0.tree_hash_packed_encoding()
     }
 

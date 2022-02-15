@@ -78,7 +78,7 @@ impl TreeHash for ParticipationFlags {
         u8::tree_hash_type()
     }
 
-    fn tree_hash_packed_encoding(&self) -> Vec<u8> {
+    fn tree_hash_packed_encoding(&self) -> tree_hash::PackedEncoding {
         self.bits.tree_hash_packed_encoding()
     }
 
