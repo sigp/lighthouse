@@ -57,16 +57,25 @@ pub fn execute_payload<T: BeaconChainTypes>(
         .block_on(|execution_layer| execution_layer.notify_new_payload(execution_payload));
 
     match new_payload_response {
-        Ok((status, _latest_valid_hash)) => match status {
+        Ok((status, latest_valid_hash)) => match status {
             PayloadStatusV1Status::Valid => Ok(PayloadVerificationStatus::Verified),
-            PayloadStatusV1Status::Invalid => {
-                // TODO(merge): invalidate any invalid ancestors of this block in fork choice.
-                Err(ExecutionPayloadError::RejectedByExecutionEngine.into())
+            PayloadStatusV1Status::Syncing | PayloadStatusV1Status::Accepted => {
+                Ok(PayloadVerificationStatus::NotVerified)
             }
-            PayloadStatusV1Status::Syncing => Ok(PayloadVerificationStatus::NotVerified),
-            status => panic!("Unrecognized status from new_payload: {:?}", status),
+            PayloadStatusV1Status::Invalid
+            | PayloadStatusV1Status::InvalidTerminalBlock
+            | PayloadStatusV1Status::InvalidBlockHash => {
+                // TODO(bellatrix): process the invalid payload.
+                //
+                // See: https://github.com/sigp/lighthouse/pull/2837
+                Err(ExecutionPayloadError::RejectedByExecutionEngine {
+                    status,
+                    latest_valid_hash,
+                }
+                .into())
+            }
         },
-        Err(_) => Err(ExecutionPayloadError::RejectedByExecutionEngine.into()),
+        Err(e) => Err(ExecutionPayloadError::RequestFailed(e).into()),
     }
 }
 
