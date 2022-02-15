@@ -1812,8 +1812,8 @@ dependencies = [
  "execution_layer",
  "exit-future",
  "futures",
- "json",
  "sensitive_url",
+ "serde_json",
  "task_executor",
  "tempfile",
  "tokio",
@@ -2738,12 +2738,6 @@ checksum = "a38fc24e30fd564ce974c02bf1d337caddff65be6cc4735a1f7eab22a7440f04"
 dependencies = [
  "wasm-bindgen",
 ]
-
-[[package]]
-name = "json"
-version = "0.12.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "078e285eafdfb6c4b434e0d31e8cfcb5115b651496faca5749b88fafd4f23bfd"
 
 [[package]]
 name = "jsonrpc-core"

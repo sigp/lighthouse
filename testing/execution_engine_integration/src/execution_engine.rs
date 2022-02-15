@@ -73,7 +73,7 @@ impl GenericExecutionEngine for Geth {
         let genesis_json_path = datadir.path().join("genesis.json");
         let mut file = File::create(&genesis_json_path).unwrap();
         let json = geth_genesis_json();
-        json.write(&mut file).unwrap();
+        serde_json::to_writer(&mut file, &json).unwrap();
 
         let output = Command::new(Self::binary_path())
             .arg("--datadir")

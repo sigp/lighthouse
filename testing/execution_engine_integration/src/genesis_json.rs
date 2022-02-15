@@ -1,10 +1,10 @@
-use json::JsonValue;
+use serde_json::{json, Value};
 
 /// Sourced from:
 ///
 /// https://notes.ethereum.org/rmVErCfCRPKGqGkUe89-Kg
-pub fn geth_genesis_json() -> JsonValue {
-    json::object! {
+pub fn geth_genesis_json() -> Value {
+    json!({
         "config": {
             "chainId":1,
             "homesteadBlock":0,
@@ -38,5 +38,5 @@ pub fn geth_genesis_json() -> JsonValue {
         "gasUsed":"0x0",
         "parentHash":"0x0000000000000000000000000000000000000000000000000000000000000000",
         "baseFeePerGas":"0x7"
-    }
+    })
 }
