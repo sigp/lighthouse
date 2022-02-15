@@ -6,11 +6,13 @@ use std::process::{Child, Command, Output};
 use std::{env, fs::File};
 use tempfile::TempDir;
 
+/// Defined for each EE type (e.g., Geth, Nethermind, etc).
 pub trait GenericExecutionEngine: Clone {
     fn init_datadir() -> TempDir;
     fn start_client(datadir: &TempDir, http_port: u16) -> Child;
 }
 
+/// Holds handle to a running EE process, plus some other metadata.
 pub struct ExecutionEngine<E> {
     #[allow(dead_code)]
     engine: E,
@@ -22,6 +24,7 @@ pub struct ExecutionEngine<E> {
 
 impl<E> Drop for ExecutionEngine<E> {
     fn drop(&mut self) {
+        // Ensure the EE process is killed on drop.
         self.child.kill().unwrap()
     }
 }
@@ -43,6 +46,10 @@ impl<E: GenericExecutionEngine> ExecutionEngine<E> {
         SensitiveUrl::parse(&format!("http://127.0.0.1:{}", self.http_port)).unwrap()
     }
 }
+
+/*
+ * Geth-specific Implementation
+ */
 
 #[derive(Clone)]
 pub struct Geth;

@@ -9,11 +9,17 @@ use types::{Address, ChainSpec, EthSpec, Hash256, MainnetEthSpec, Uint256};
 const EXECUTION_ENGINE_START_TIMEOUT: Duration = Duration::from_secs(10);
 
 struct ExecutionPair<E> {
+    /// The Lighthouse `ExecutionLayer` struct, connected to the `execution_engine` via HTTP.
     execution_layer: ExecutionLayer,
+    /// A handle to external EE process, once this is dropped the process will be killed.
     #[allow(dead_code)]
     execution_engine: ExecutionEngine<E>,
 }
 
+/// A rig that holds two EE processes for testing.
+///
+/// There are two EEs held here so that we can test out-of-order application of payloads, and other
+/// edge-cases.
 pub struct TestRig<E> {
     #[allow(dead_code)]
     runtime: Arc<tokio::runtime::Runtime>,
