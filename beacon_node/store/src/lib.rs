@@ -18,6 +18,7 @@ pub mod errors;
 mod forwards_iter;
 mod garbage_collection;
 pub mod hot_cold_store;
+mod hot_state_iter;
 mod impls;
 mod leveldb_store;
 mod memory_store;

@@ -5823,11 +5823,13 @@ dependencies = [
  "lighthouse_metrics",
  "lru",
  "parking_lot",
+ "safe_arith",
  "serde",
  "serde_derive",
  "slog",
  "sloggers",
  "state_processing",
+ "take-until",
  "tempfile",
  "tree_hash",
  "types",
@@ -5916,6 +5918,12 @@ dependencies = [
  "syn",
  "unicode-xid",
 ]
+
+[[package]]
+name = "take-until"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b4e17d8598067a8c134af59cd33c1c263470e089924a11ab61cf61690919fe3b"
 
 [[package]]
 name = "take_mut"
