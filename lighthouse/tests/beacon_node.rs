@@ -5,7 +5,6 @@ use lighthouse_network::PeerId;
 use std::fs::File;
 use std::io::Write;
 use std::net::{IpAddr, Ipv4Addr};
-use std::net::{TcpListener, UdpSocket};
 use std::path::PathBuf;
 use std::process::Command;
 use std::str::FromStr;

@@ -7,7 +7,7 @@ use lighthouse_network::discovery::ENR_FILENAME;
 use lighthouse_network::Enr;
 use std::fs::File;
 use std::io::Write;
-use std::net::{Ipv4Addr, UdpSocket};
+use std::net::Ipv4Addr;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::str::FromStr;
@@ -62,7 +62,7 @@ fn enr_address_arg() {
 
 #[test]
 fn port_flag() {
-    let port = unused_udp_port();
+    let port = unused_udp_port().unwrap();
     CommandLineTest::new()
         .flag("port", Some(port.to_string().as_str()))
         .run_with_ip()
@@ -122,7 +122,7 @@ fn boot_nodes_flag() {
 
 #[test]
 fn enr_port_flag() {
-    let port = unused_udp_port();
+    let port = unused_udp_port().unwrap();
     CommandLineTest::new()
         .flag("enr-port", Some(port.to_string().as_str()))
         .run_with_ip()
