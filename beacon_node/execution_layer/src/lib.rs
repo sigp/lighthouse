@@ -21,7 +21,7 @@ use tokio::{
 };
 use types::{ChainSpec, Epoch, ProposerPreparationData};
 
-pub use engine_api::{http::HttpJsonRpc, PayloadStatusV1Status};
+pub use engine_api::{http::HttpJsonRpc, PayloadAttributes, PayloadStatusV1Status};
 
 mod engine_api;
 mod engines;
@@ -250,7 +250,7 @@ impl ExecutionLayer {
     }
 
     /// Performs a single execution of the watchdog routine.
-    async fn watchdog_task(&self) {
+    pub async fn watchdog_task(&self) {
         // Disable logging since this runs frequently and may get annoying.
         self.engines().upcheck_not_synced(Logging::Disabled).await;
     }
