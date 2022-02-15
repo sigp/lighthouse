@@ -25,7 +25,7 @@ pub const BASE_CONFIG_FILE: &str = "config.yaml";
 
 // Creates definitions for:
 //
-// - Each of the `HardcodedNet` values (e.g., `MAINNET`, `PYRMONT`, etc).
+// - Each of the `HardcodedNet` values (e.g., `MAINNET`, `PRATER`, etc).
 // - `HARDCODED_NETS: &[HardcodedNet]`
 // - `HARDCODED_NET_NAMES: &[&'static str]`
 instantiate_hardcoded_nets!(eth2_config);

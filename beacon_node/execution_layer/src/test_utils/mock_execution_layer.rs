@@ -127,9 +127,16 @@ impl<T: EthSpec> MockExecutionLayer<T> {
             .await
             .unwrap();
 
+        let validator_index = 0;
         let payload = self
             .el
-            .get_payload::<T>(parent_hash, timestamp, random, finalized_block_hash)
+            .get_payload::<T>(
+                parent_hash,
+                timestamp,
+                random,
+                finalized_block_hash,
+                validator_index,
+            )
             .await
             .unwrap();
         let block_hash = payload.block_hash;

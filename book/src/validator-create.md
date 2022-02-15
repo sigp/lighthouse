@@ -50,8 +50,7 @@ OPTIONS:
             The GWEI value of the deposit amount. Defaults to the minimum amount required for an active validator
             (MAX_EFFECTIVE_BALANCE)
         --network <network>
-            Name of the Eth2 chain Lighthouse will sync and follow. [default: mainnet]  [possible values: medalla,
-            altona, spadina, pyrmont, mainnet, toledo]
+            Name of the Eth2 chain Lighthouse will sync and follow. [default: mainnet]  [possible values: prater, mainnet]
         --secrets-dir <SECRETS_DIR>
             The path where the validator keystore passwords will be stored. Defaults to ~/.lighthouse/{network}/secrets
 
@@ -75,7 +74,7 @@ The example assumes that the `wally` wallet was generated from the
 [wallet](./wallet-create.md) example.
 
 ```bash
-lighthouse --network pyrmont account validator create --wallet-name wally --wallet-password wally.pass --count 1
+lighthouse --network prater account validator create --wallet-name wally --wallet-password wally.pass --count 1
 ```
 
 This command will:
@@ -86,6 +85,6 @@ This command will:
     - An encrypted keystore containing the validators voting keypair.
 	- An `eth1_deposit_data.rlp` assuming the default deposit amount (`32 ETH`
 		for most testnets and mainnet) which can be submitted to the deposit
-		contract for the Pyrmont testnet. Other testnets can be set via the
+		contract for the Prater testnet. Other testnets can be set via the
 		`--network` CLI param.
 - Store a password to the validators voting keypair in `~/.lighthouse/{network}/secrets`.

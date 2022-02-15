@@ -927,24 +927,6 @@ impl<TSpec: EthSpec> NetworkBehaviour for Discovery<TSpec> {
         }
     }
 
-    fn inject_connected(&mut self, _peer_id: &PeerId) {}
-    fn inject_disconnected(&mut self, _peer_id: &PeerId) {}
-    fn inject_connection_established(
-        &mut self,
-        _peer_id: &PeerId,
-        _connection_id: &ConnectionId,
-        _endpoint: &ConnectedPoint,
-        _failed_addresses: Option<&Vec<Multiaddr>>,
-    ) {
-    }
-    fn inject_connection_closed(
-        &mut self,
-        _: &PeerId,
-        _: &ConnectionId,
-        _connected_point: &ConnectedPoint,
-        _handler: Self::ProtocolsHandler,
-    ) {
-    }
     fn inject_event(
         &mut self,
         _: PeerId,
@@ -963,10 +945,11 @@ impl<TSpec: EthSpec> NetworkBehaviour for Discovery<TSpec> {
             match error {
                 DialError::Banned
                 | DialError::LocalPeerId
-                | DialError::InvalidPeerId
+                | DialError::InvalidPeerId(_)
                 | DialError::ConnectionIo(_)
                 | DialError::NoAddresses
-                | DialError::Transport(_) => {
+                | DialError::Transport(_)
+                | DialError::WrongPeerId { .. } => {
                     // set peer as disconnected in discovery DHT
                     debug!(self.log, "Marking peer disconnected in DHT"; "peer_id" => %peer_id);
                     self.disconnect_peer(&peer_id);

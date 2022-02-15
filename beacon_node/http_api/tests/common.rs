@@ -120,7 +120,7 @@ pub async fn create_api_server<T: BeaconChainTypes>(
         send_back_addr: EXTERNAL_ADDR.parse().unwrap(),
     };
     let con_id = ConnectionId::new(1);
-    pm.inject_connection_established(&peer_id, &con_id, &connected_point, None);
+    pm.inject_connection_established(&peer_id, &con_id, &connected_point, None, 0);
     *network_globals.sync_state.write() = SyncState::Synced;
 
     let eth1_service = eth1::Service::new(eth1::Config::default(), log.clone(), chain.spec.clone());

@@ -212,11 +212,9 @@ jobs:
                   <Rick and Morty character>
 
                   ## Testing Checklist (DELETE ME)
-
-                  - [ ] Run on synced Pyrmont Sigma Prime nodes.
+                  
                   - [ ] Run on synced Prater Sigma Prime nodes.
                   - [ ] Run on synced Canary (mainnet) Sigma Prime nodes.
-                  - [ ] Resync a Pyrmont node.
                   - [ ] Resync a Prater node.
                   - [ ] Resync a mainnet node.
 
@@ -231,6 +229,19 @@ jobs:
                   ## Summary
 
                   Add a summary.
+
+                  ## Update Priority
+
+                  This table provides priorities for which classes of users should update particular components.
+
+                  |User Class |Beacon Node  | Validator Client|
+                  --- | --- | ---
+                  |Staking Users| <TODO> | <TODO> |
+                  |Non-Staking Users| <TODO>|---|
+
+                  *See [Update
+                  Priorities](https://lighthouse-book.sigmaprime.io/installation-priorities.html)
+                  more information about this table.*
 
                   ## All Changes
 

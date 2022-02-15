@@ -18,7 +18,7 @@ use eth2::{
 };
 use execution_layer::ExecutionLayer;
 use genesis::{interop_genesis_state, Eth1GenesisService, DEFAULT_ETH1_BLOCK_HASH};
-use lighthouse_network::{open_metrics_client::registry::Registry, NetworkGlobals};
+use lighthouse_network::{prometheus_client::registry::Registry, NetworkGlobals};
 use monitoring_api::{MonitoringHttpClient, ProcessType};
 use network::{NetworkConfig, NetworkMessage, NetworkService};
 use slasher::Slasher;
@@ -700,6 +700,11 @@ where
 
                 // Spawn a routine that tracks the status of the execution engines.
                 execution_layer.spawn_watchdog_routine(beacon_chain.slot_clock.clone());
+
+                // Spawn a routine that removes expired proposer preparations.
+                execution_layer.spawn_clean_proposer_preparation_routine::<TSlotClock, TEthSpec>(
+                    beacon_chain.slot_clock.clone(),
+                );
             }
         }
 

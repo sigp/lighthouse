@@ -14,12 +14,7 @@ use std::net::{IpAddr, Ipv4Addr, ToSocketAddrs};
 use std::net::{TcpListener, UdpSocket};
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
-use types::{Address, Checkpoint, Epoch, EthSpec, Hash256, PublicKeyBytes, GRAFFITI_BYTES_LEN};
-
-// TODO(merge): remove this default value. It's just there to make life easy during
-// early testnets.
-const DEFAULT_SUGGESTED_FEE_RECIPIENT: [u8; 20] =
-    [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1];
+use types::{Checkpoint, Epoch, EthSpec, Hash256, PublicKeyBytes, GRAFFITI_BYTES_LEN};
 
 /// Gets the fully-initialized global client.
 ///
@@ -253,12 +248,8 @@ pub fn get_config<E: EthSpec>(
         client_config.execution_endpoints = Some(client_config.eth1.endpoints.clone());
     }
 
-    client_config.suggested_fee_recipient = Some(
-        clap_utils::parse_optional(cli_args, "fee-recipient")?
-            // TODO(merge): remove this default value. It's just there to make life easy during
-            // early testnets.
-            .unwrap_or_else(|| Address::from(DEFAULT_SUGGESTED_FEE_RECIPIENT)),
-    );
+    client_config.suggested_fee_recipient =
+        clap_utils::parse_optional(cli_args, "suggested-fee-recipient")?;
 
     if let Some(freezer_dir) = cli_args.value_of("freezer-dir") {
         client_config.freezer_db_path = Some(PathBuf::from(freezer_dir));

@@ -212,7 +212,7 @@ fn merge_fee_recipient_flag() {
     CommandLineTest::new()
         .flag("merge", None)
         .flag(
-            "fee-recipient",
+            "suggested-fee-recipient",
             Some("0x00000000219ab540356cbb839cbe05303d7705fa"),
         )
         .run_with_zero_port()

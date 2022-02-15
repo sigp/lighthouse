@@ -139,6 +139,7 @@ pub async fn create_validators_mnemonic<P: AsRef<Path>, T: 'static + SlotClock, 
                 voting_password_string,
                 request.enable,
                 request.graffiti.clone(),
+                request.suggested_fee_recipient,
             )
             .await
             .map_err(|e| {
@@ -152,6 +153,7 @@ pub async fn create_validators_mnemonic<P: AsRef<Path>, T: 'static + SlotClock, 
             enabled: request.enable,
             description: request.description.clone(),
             graffiti: request.graffiti.clone(),
+            suggested_fee_recipient: request.suggested_fee_recipient,
             voting_pubkey,
             eth1_deposit_tx_data: eth2_serde_utils::hex::encode(&eth1_deposit_data.rlp),
             deposit_gwei: request.deposit_gwei,
@@ -170,6 +172,7 @@ pub async fn create_validators_web3signer<T: 'static + SlotClock, E: EthSpec>(
             enabled: request.enable,
             voting_public_key: request.voting_public_key.clone(),
             graffiti: request.graffiti.clone(),
+            suggested_fee_recipient: request.suggested_fee_recipient,
             description: request.description.clone(),
             signing_definition: SigningDefinition::Web3Signer {
                 url: request.url.clone(),
