@@ -1,6 +1,6 @@
 use std::env;
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 
 const GETH_BRANCH: &str = "merge-kiln";
@@ -17,7 +17,7 @@ fn main() {
     build_geth(&execution_clients_dir);
 }
 
-fn build_geth(execution_clients_dir: &PathBuf) {
+fn build_geth(execution_clients_dir: &Path) {
     let repo_dir = execution_clients_dir.join("go-ethereum");
 
     if !repo_dir.exists() {

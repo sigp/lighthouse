@@ -6,6 +6,11 @@ use std::process::{Child, Command, Output};
 use std::{env, fs::File};
 use tempfile::TempDir;
 
+pub trait GenericExecutionEngine: Clone {
+    fn init_datadir() -> TempDir;
+    fn start_client(datadir: &TempDir, http_port: u16) -> Child;
+}
+
 pub struct ExecutionEngine<E> {
     #[allow(dead_code)]
     engine: E,
@@ -39,6 +44,7 @@ impl<E: GenericExecutionEngine> ExecutionEngine<E> {
     }
 }
 
+#[derive(Clone)]
 pub struct Geth;
 
 impl Geth {
@@ -51,11 +57,6 @@ impl Geth {
             .join("bin")
             .join("geth")
     }
-}
-
-pub trait GenericExecutionEngine {
-    fn init_datadir() -> TempDir;
-    fn start_client(datadir: &TempDir, http_port: u16) -> Child;
 }
 
 impl GenericExecutionEngine for Geth {
@@ -81,6 +82,8 @@ impl GenericExecutionEngine for Geth {
     }
 
     fn start_client(datadir: &TempDir, http_port: u16) -> Child {
+        let network_port = unused_port("tcp").unwrap();
+
         Command::new(Self::binary_path())
             .arg("--datadir")
             .arg(datadir.path().to_str().unwrap())
@@ -89,6 +92,8 @@ impl GenericExecutionEngine for Geth {
             .arg("engine,eth")
             .arg("--http.port")
             .arg(http_port.to_string())
+            .arg("--port")
+            .arg(network_port.to_string())
             .spawn()
             .expect("failed to start beacon node")
     }
