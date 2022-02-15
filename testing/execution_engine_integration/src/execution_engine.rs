@@ -1,10 +1,10 @@
 use crate::{genesis_json::geth_genesis_json, SUPPRESS_LOGS};
 use sensitive_url::SensitiveUrl;
-use std::net::{TcpListener, UdpSocket};
 use std::path::PathBuf;
 use std::process::{Child, Command, Output, Stdio};
 use std::{env, fs::File};
 use tempfile::TempDir;
+use unused_port::unused_tcp_port;
 
 /// Defined for each EE type (e.g., Geth, Nethermind, etc).
 pub trait GenericExecutionEngine: Clone {
@@ -32,7 +32,7 @@ impl<E> Drop for ExecutionEngine<E> {
 impl<E: GenericExecutionEngine> ExecutionEngine<E> {
     pub fn new(engine: E) -> Self {
         let datadir = E::init_datadir();
-        let http_port = unused_port("tcp").unwrap();
+        let http_port = unused_tcp_port().unwrap();
         let child = E::start_client(&datadir, http_port);
         Self {
             engine,
@@ -89,7 +89,7 @@ impl GenericExecutionEngine for Geth {
     }
 
     fn start_client(datadir: &TempDir, http_port: u16) -> Child {
-        let network_port = unused_port("tcp").unwrap();
+        let network_port = unused_tcp_port().unwrap();
 
         Command::new(Self::binary_path())
             .arg("--datadir")
@@ -117,38 +117,6 @@ fn check_command_output(output: Output, failure_msg: &'static str) {
         dbg!(stderr);
         panic!("{}", failure_msg);
     }
-}
-
-/// A bit of hack to find an unused port.
-///
-/// Does not guarantee that the given port is unused after the function exits, just that it was
-/// unused before the function started (i.e., it does not reserve a port).
-pub fn unused_port(transport: &str) -> Result<u16, String> {
-    let local_addr = match transport {
-        "tcp" => {
-            let listener = TcpListener::bind("127.0.0.1:0").map_err(|e| {
-                format!("Failed to create TCP listener to find unused port: {:?}", e)
-            })?;
-            listener.local_addr().map_err(|e| {
-                format!(
-                    "Failed to read TCP listener local_addr to find unused port: {:?}",
-                    e
-                )
-            })?
-        }
-        "udp" => {
-            let socket = UdpSocket::bind("127.0.0.1:0")
-                .map_err(|e| format!("Failed to create UDP socket to find unused port: {:?}", e))?;
-            socket.local_addr().map_err(|e| {
-                format!(
-                    "Failed to read UDP socket local_addr to find unused port: {:?}",
-                    e
-                )
-            })?
-        }
-        _ => return Err("Invalid transport to find unused port".into()),
-    };
-    Ok(local_addr.port())
 }
 
 /// Builds the stdout/stderr handler for commands which might output to the terminal.

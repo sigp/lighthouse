@@ -361,6 +361,7 @@ dependencies = [
  "store",
  "task_executor",
  "types",
+ "unused_port",
 ]
 
 [[package]]
@@ -1499,6 +1500,7 @@ dependencies = [
  "serde_json",
  "tokio",
  "types",
+ "unused_port",
  "web3",
 ]
 
@@ -1818,6 +1820,7 @@ dependencies = [
  "tempfile",
  "tokio",
  "types",
+ "unused_port",
 ]
 
 [[package]]
@@ -3341,6 +3344,7 @@ dependencies = [
  "task_executor",
  "tempfile",
  "types",
+ "unused_port",
  "validator_client",
  "validator_dir",
 ]
@@ -3396,6 +3400,7 @@ dependencies = [
  "tokio-util",
  "types",
  "unsigned-varint 0.6.0",
+ "unused_port",
  "void",
 ]
 
@@ -6614,6 +6619,10 @@ name = "untrusted"
 version = "0.7.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a156c684c91ea7d62626509bce3cb4e1d9ed5c4d978f7b4352658f96a4c26b4a"
+
+[[package]]
+name = "unused_port"
+version = "0.1.0"
 
 [[package]]
 name = "url"

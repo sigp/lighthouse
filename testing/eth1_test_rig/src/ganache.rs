@@ -1,9 +1,9 @@
 use serde_json::json;
 use std::io::prelude::*;
 use std::io::BufReader;
-use std::net::TcpListener;
 use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant};
+use unused_port::unused_tcp_port;
 use web3::{transports::Http, Transport, Web3};
 
 /// How long we will wait for ganache to indicate that it is ready.
@@ -72,7 +72,7 @@ impl GanacheInstance {
     /// Start a new `ganache-cli` process, waiting until it indicates that it is ready to accept
     /// RPC connections.
     pub fn new(network_id: u64, chain_id: u64) -> Result<Self, String> {
-        let port = unused_port()?;
+        let port = unused_tcp_port()?;
         let binary = match cfg!(windows) {
             true => "ganache-cli.cmd",
             false => "ganache-cli",
@@ -108,7 +108,7 @@ impl GanacheInstance {
     }
 
     pub fn fork(&self) -> Result<Self, String> {
-        let port = unused_port()?;
+        let port = unused_tcp_port()?;
         let binary = match cfg!(windows) {
             true => "ganache-cli.cmd",
             false => "ganache-cli",
@@ -186,24 +186,6 @@ impl GanacheInstance {
 
 fn endpoint(port: u16) -> String {
     format!("http://localhost:{}", port)
-}
-
-/// A bit of hack to find an unused TCP port.
-///
-/// Does not guarantee that the given port is unused after the function exists, just that it was
-/// unused before the function started (i.e., it does not reserve a port).
-pub fn unused_port() -> Result<u16, String> {
-    let listener = TcpListener::bind("127.0.0.1:0")
-        .map_err(|e| format!("Failed to create TCP listener to find unused port: {:?}", e))?;
-
-    let local_addr = listener.local_addr().map_err(|e| {
-        format!(
-            "Failed to read TCP listener local_addr to find unused port: {:?}",
-            e
-        )
-    })?;
-
-    Ok(local_addr.port())
 }
 
 impl Drop for GanacheInstance {
