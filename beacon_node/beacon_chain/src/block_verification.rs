@@ -68,7 +68,6 @@ use state_processing::{
 use std::borrow::Cow;
 use std::fs;
 use std::io::Write;
-use std::time::Duration;
 use store::{Error as DBError, HotColdDB, KeyValueStore, StoreOp};
 use tree_hash::TreeHash;
 use types::{

@@ -25,7 +25,7 @@ use lru::LruCache;
 use parking_lot::{Mutex, RwLock};
 use safe_arith::SafeArith;
 use serde_derive::{Deserialize, Serialize};
-use slog::{debug, error, info, trace, Logger};
+use slog::{debug, error, info, trace, warn, Logger};
 use ssz::{Decode, Encode};
 use ssz_derive::{Decode, Encode};
 use state_processing::{BlockProcessingError, BlockReplayer, SlotProcessingError};
@@ -407,7 +407,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             return Ok(Some(cached));
         }
         Ok(self
-            .get_hot_state(&state_root, StateRootStrategy::Accurate)?
+            .get_hot_state(&state_root)?
             .map(|state| (state_root, state)))
     }
 
@@ -532,9 +532,6 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         }) = self.load_hot_state_summary(state_root)?
         {
             // NOTE: minor inefficiency here because we load an unnecessary hot state summary
-            //
-            // `StateRootStrategy` should be irrelevant here since we never replay blocks for an epoch
-            // boundary state in the hot DB.
             let state = self.get_hot_state(&epoch_boundary_state_root)?.ok_or(
                 HotColdDBError::MissingEpochBoundaryState(epoch_boundary_state_root),
             )?;
@@ -681,11 +678,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
     }
 
     /// Get a post-finalization state from the database or store.
-    pub fn get_hot_state(
-        &self,
-        state_root: &Hash256,
-        state_root_strategy: StateRootStrategy,
-    ) -> Result<Option<BeaconState<E>>, Error> {
+    pub fn get_hot_state(&self, state_root: &Hash256) -> Result<Option<BeaconState<E>>, Error> {
         if let Some(state) = self.state_cache.lock().get_by_state_root(*state_root) {
             return Ok(Some(state));
         }
@@ -695,7 +688,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             "state_root" => ?state_root,
         );
 
-        let state_from_disk = self.load_hot_state(state_root, state_root_strategy)?;
+        let state_from_disk = self.load_hot_state(state_root)?;
 
         if let Some((state, block_root)) = state_from_disk {
             self.state_cache
@@ -1371,7 +1364,7 @@ pub fn migrate_database<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>>(
 
         if slot % store.config.slots_per_restore_point == 0 {
             let state: BeaconState<E> = store
-                .get_hot_state(&state_root, StateRootStrategy::Accurate)?
+                .get_hot_state(&state_root)?
                 .ok_or(HotColdDBError::MissingStateToFreeze(state_root))?;
 
             store.store_cold_state(&state_root, &state, &mut cold_db_ops)?;

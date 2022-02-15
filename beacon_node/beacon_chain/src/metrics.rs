@@ -4,7 +4,6 @@ use crate::{BeaconChain, BeaconChainError, BeaconChainTypes};
 use lazy_static::lazy_static;
 pub use lighthouse_metrics::*;
 use slot_clock::SlotClock;
-use std::time::Duration;
 use types::{BeaconState, Epoch, EthSpec, Hash256, Slot};
 
 lazy_static! {
