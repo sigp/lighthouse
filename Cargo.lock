@@ -1805,6 +1805,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "execution_engine_integration"
+version = "0.1.0"
+dependencies = [
+ "environment",
+ "execution_layer",
+ "exit-future",
+ "futures",
+ "json",
+ "sensitive_url",
+ "task_executor",
+ "tempfile",
+ "tokio",
+ "types",
+]
+
+[[package]]
 name = "execution_layer"
 version = "0.1.0"
 dependencies = [
@@ -3537,22 +3553,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5aa361d4faea93603064a027415f07bd8e1d5c88c9fbf68bf56a285428fd79ce"
 dependencies = [
  "autocfg 1.1.0",
-]
-
-[[package]]
-name = "merge_sim"
-version = "0.1.0"
-dependencies = [
- "environment",
- "execution_layer",
- "exit-future",
- "futures",
- "json",
- "sensitive_url",
- "task_executor",
- "tempfile",
- "tokio",
- "types",
 ]
 
 [[package]]
