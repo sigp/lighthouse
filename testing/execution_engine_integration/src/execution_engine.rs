@@ -1,8 +1,8 @@
-use crate::genesis_json::geth_genesis_json;
+use crate::{genesis_json::geth_genesis_json, SUPPRESS_LOGS};
 use sensitive_url::SensitiveUrl;
 use std::net::{TcpListener, UdpSocket};
 use std::path::PathBuf;
-use std::process::{Child, Command, Output};
+use std::process::{Child, Command, Output, Stdio};
 use std::{env, fs::File};
 use tempfile::TempDir;
 
@@ -101,6 +101,8 @@ impl GenericExecutionEngine for Geth {
             .arg(http_port.to_string())
             .arg("--port")
             .arg(network_port.to_string())
+            .stdout(build_stdio())
+            .stderr(build_stdio())
             .spawn()
             .expect("failed to start beacon node")
     }
@@ -147,4 +149,13 @@ pub fn unused_port(transport: &str) -> Result<u16, String> {
         _ => return Err("Invalid transport to find unused port".into()),
     };
     Ok(local_addr.port())
+}
+
+/// Builds the stdout/stderr handler for commands which might output to the terminal.
+fn build_stdio() -> Stdio {
+    if SUPPRESS_LOGS {
+        Stdio::null()
+    } else {
+        Stdio::inherit()
+    }
 }

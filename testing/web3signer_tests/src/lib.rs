@@ -45,7 +45,7 @@ mod tests {
     /// assume it failed to start.
     const UPCHECK_TIMEOUT: Duration = Duration::from_secs(20);
 
-    /// Set to `true` to send the Web3Signer logs to the console during tests. Logs are useful when
+    /// Set to `false` to send the Web3Signer logs to the console during tests. Logs are useful when
     /// debugging.
     const SUPPRESS_WEB3SIGNER_LOGS: bool = true;
 
