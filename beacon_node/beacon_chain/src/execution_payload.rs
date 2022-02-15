@@ -27,11 +27,11 @@ use types::*;
 ///
 /// ## Specification
 ///
-/// Equivalent to the `execute_payload` function in the merge Beacon Chain Changes, although it
+/// Equivalent to the `notify_new_payload` function in the merge Beacon Chain Changes, although it
 /// contains a few extra checks by running `partially_verify_execution_payload` first:
 ///
-/// https://github.com/ethereum/consensus-specs/blob/v1.1.5/specs/merge/beacon-chain.md#execute_payload
-pub fn execute_payload<T: BeaconChainTypes>(
+/// https://github.com/ethereum/consensus-specs/blob/v1.1.9/specs/bellatrix/beacon-chain.md#notify_new_payload
+pub fn notify_new_payload<T: BeaconChainTypes>(
     chain: &BeaconChain<T>,
     state: &BeaconState<T::EthSpec>,
     block: BeaconBlockRef<T::EthSpec>,
