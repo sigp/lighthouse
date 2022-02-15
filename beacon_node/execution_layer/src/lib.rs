@@ -482,6 +482,12 @@ impl ExecutionLayer {
             match result {
                 Ok(response) => match (&response.latest_valid_hash, &response.status) {
                     (Some(latest_hash), &PayloadStatusV1Status::Valid) => {
+                        // According to a strict interpretation of the spec, the EE should never
+                        // respond with `VALID` *and* a `latest_valid_hash`.
+                        //
+                        // For the sake of being liberal with what we accept, we will accept a
+                        // `latest_valid_hash` *only if* it matches the submitted payload.
+                        // Otherwise, register an error.
                         if latest_hash == &execution_payload.block_hash {
                             valid += 1;
                         } else {
@@ -495,10 +501,6 @@ impl ExecutionLayer {
                                     )
                                 ),
                             });
-                            // I've commented out the lines below because this is a malformed response
-                            // I don't think we should treat it the same as an INVALID response
-                            // invalid += 1;
-                            // invalid_latest_valid_hash.insert(*latest_hash);
                         }
                     }
                     (Some(latest_hash), &PayloadStatusV1Status::Invalid) => {
@@ -607,6 +609,12 @@ impl ExecutionLayer {
                         if latest_hash == &head_block_hash {
                             valid += 1;
                         } else {
+                            // According to a strict interpretation of the spec, the EE should never
+                            // respond with `VALID` *and* a `latest_valid_hash`.
+                            //
+                            // For the sake of being liberal with what we accept, we will accept a
+                            // `latest_valid_hash` *only if* it matches the submitted payload.
+                            // Otherwise, register an error.
                             errors.push(EngineError::Api {
                                 id: "unknown".to_string(),
                                 error: engine_api::Error::BadResponse(
@@ -617,10 +625,6 @@ impl ExecutionLayer {
                                     )
                                 ),
                             });
-                            // I've commented out the lines below because this is a malformed response
-                            // I don't think we should treat it the same as an INVALID response
-                            // invalid += 1;
-                            // invalid_latest_valid_hash.insert(*latest_hash);
                         }
                     }
                     (Some(latest_hash), &PayloadStatusV1Status::Invalid) => {
