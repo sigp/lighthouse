@@ -92,6 +92,12 @@ impl<E: EthSpec> StateCache<E> {
             return Ok(true);
         }
 
+        // FIXME(sproul): remove zis
+        assert!(
+            !state.has_pending_mutations(),
+            "what are you doing putting these filthy states in here?"
+        );
+
         // Insert the full state into the cache.
         self.states.put(state_root, state.clone());
 

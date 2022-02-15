@@ -3,7 +3,6 @@ use crate::chunked_vector::{
 };
 use crate::config::{OnDiskStoreConfig, StoreConfig};
 use crate::forwards_iter::{HybridForwardsBlockRootsIterator, HybridForwardsStateRootsIterator};
-use crate::hot_state_iter::ForwardsHotStateRootIter;
 use crate::impls::beacon_state::{get_full_state, store_full_state};
 use crate::iter::{ParentRootBlockIterator, StateRootsIterator};
 use crate::leveldb_store::BytesKey;
@@ -88,6 +87,7 @@ pub enum HotColdDBError {
     MissingColdStateSummary(Hash256),
     MissingHotStateSummary(Hash256),
     MissingEpochBoundaryState(Hash256),
+    MissingPrevState(Hash256),
     MissingSplitState(Hash256, Slot),
     MissingAnchorInfo,
     HotStateSummaryError(BeaconStateError),
@@ -712,6 +712,16 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         let _timer = metrics::start_timer(&metrics::BEACON_HOT_STATE_READ_TIMES);
         metrics::inc_counter(&metrics::BEACON_STATE_HOT_GET_COUNT);
 
+        // If the state is the finalized state, load it from disk. This should only be necessary
+        // once during start-up, after which point the finalized state will be cached.
+        if *state_root == self.get_split_info().state_root {
+            let mut state = get_full_state(&self.hot_db, state_root, &self.spec)?
+                .ok_or(HotColdDBError::MissingEpochBoundaryState(*state_root))?;
+            state.apply_pending_mutations()?;
+            let latest_block_root = state.get_latest_block_root(*state_root);
+            return Ok(Some((state, latest_block_root)));
+        }
+
         // If the state is marked as temporary, do not return it. It will become visible
         // only once its transaction commits and deletes its temporary flag.
         if self.load_state_temporary_flag(state_root)?.is_some() {
@@ -721,32 +731,26 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         if let Some(HotStateSummary {
             slot,
             latest_block_root,
-            epoch_boundary_state_root,
             prev_state_root,
+            ..
         }) = self.load_hot_state_summary(state_root)?
         {
-            let boundary_state =
-                get_full_state(&self.hot_db, &epoch_boundary_state_root, &self.spec)?.ok_or(
-                    HotColdDBError::MissingEpochBoundaryState(epoch_boundary_state_root),
-                )?;
+            // Load prior state, potentially from the cache.
+            //
+            // This can backtrack as far as the finalized state in extreme cases, but will prime
+            // the cache with every intermediate state while doing so, meaning that this work should
+            // be repeated infrequently.
+            let prev_state = self
+                .get_hot_state(&prev_state_root)?
+                .ok_or(HotColdDBError::MissingPrevState(prev_state_root))?;
 
-            // Optimization to avoid even *thinking* about replaying blocks if we're already
-            // on an epoch boundary.
-            let state = if slot % E::slots_per_epoch() == 0 {
-                boundary_state
-            } else {
-                let blocks =
-                    self.load_blocks_to_replay(boundary_state.slot(), slot, latest_block_root)?;
+            let blocks = self.load_blocks_to_replay(slot, slot, latest_block_root)?;
 
-                let state_root_iter = ForwardsHotStateRootIter::new(
-                    self,
-                    boundary_state.slot(),
-                    slot,
-                    *state_root,
-                    prev_state_root,
-                )?;
-                self.replay_blocks(boundary_state, blocks, slot, state_root_iter)?
-            };
+            let state_roots = [(prev_state_root, slot - 1), (*state_root, slot)];
+            let state_root_iter = state_roots.into_iter().map(Ok);
+
+            let mut state = self.replay_blocks(prev_state, blocks, slot, state_root_iter)?;
+            state.apply_pending_mutations()?;
 
             Ok(Some((state, latest_block_root)))
         } else {

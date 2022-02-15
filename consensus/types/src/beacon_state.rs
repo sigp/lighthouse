@@ -1589,6 +1589,26 @@ impl<T: EthSpec> BeaconState<T> {
         *self.pubkey_cache_mut() = PubkeyCache::default()
     }
 
+    pub fn has_pending_mutations(&self) -> bool {
+        self.block_roots().has_pending_updates()
+            || self.state_roots().has_pending_updates()
+            || self.historical_roots().has_pending_updates()
+            || self.eth1_data_votes().has_pending_updates()
+            || self.validators().has_pending_updates()
+            || self.balances().has_pending_updates()
+            || self.randao_mixes().has_pending_updates()
+            || self.slashings().has_pending_updates()
+            || self
+                .inactivity_scores()
+                .map_or(false, VList::has_pending_updates)
+            || self
+                .previous_epoch_participation()
+                .map_or(false, VList::has_pending_updates)
+            || self
+                .current_epoch_participation()
+                .map_or(false, VList::has_pending_updates)
+    }
+
     // FIXME(sproul): automate this somehow
     pub fn apply_pending_mutations(&mut self) -> Result<(), Error> {
         self.block_roots_mut().apply_updates()?;
@@ -1600,6 +1620,7 @@ impl<T: EthSpec> BeaconState<T> {
         self.randao_mixes_mut().apply_updates()?;
         self.slashings_mut().apply_updates()?;
 
+        // FIXME(sproul): phase0 fields
         if let Ok(inactivity_scores) = self.inactivity_scores_mut() {
             inactivity_scores.apply_updates()?;
         }
