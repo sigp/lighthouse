@@ -605,6 +605,7 @@ impl ExecutionLayer {
         for result in broadcast_results {
             match result {
                 Ok(response) => match (&response.payload_status.latest_valid_hash, &response.payload_status.status) {
+                    (None, &PayloadStatusV1Status::Valid) => valid += 1,
                     (Some(latest_hash), &PayloadStatusV1Status::Valid) => {
                         if latest_hash == &head_block_hash {
                             valid += 1;
