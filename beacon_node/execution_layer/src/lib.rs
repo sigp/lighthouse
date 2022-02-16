@@ -7,10 +7,11 @@
 use engine_api::{Error as ApiError, *};
 use engines::{Engine, EngineError, Engines, ForkChoiceState, Logging};
 use lru::LruCache;
+use payload_status::{process_multiple_payload_statuses, PayloadStatus};
 use sensitive_url::SensitiveUrl;
-use slog::{crit, debug, error, info, warn, Logger};
+use slog::{crit, debug, error, info, Logger};
 use slot_clock::SlotClock;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::future::Future;
 use std::sync::Arc;
 use std::time::Duration;
@@ -25,6 +26,7 @@ pub use engine_api::{http::HttpJsonRpc, PayloadAttributes, PayloadStatusV1Status
 
 mod engine_api;
 mod engines;
+mod payload_status;
 pub mod test_utils;
 
 /// Each time the `ExecutionLayer` retrieves a block from an execution node, it stores that block
@@ -57,25 +59,6 @@ impl From<ApiError> for Error {
     fn from(e: ApiError) -> Self {
         Error::ApiError(e)
     }
-}
-
-/// Provides a simpler, easier to parse version of `PayloadStatusV1` for upstream users. It
-/// primarily ensures that the `latest_valid_hash` is always present when required.
-#[derive(Debug, Clone, PartialEq)]
-pub enum PayloadStatus {
-    Valid,
-    Invalid {
-        latest_valid_hash: Hash256,
-        validation_error: Option<String>,
-    },
-    Syncing,
-    Accepted,
-    InvalidBlockHash {
-        validation_error: Option<String>,
-    },
-    InvalidTerminalBlock {
-        validation_error: Option<String>,
-    },
 }
 
 #[derive(Clone)]
@@ -493,137 +476,11 @@ impl ExecutionLayer {
             .broadcast(|engine| engine.api.new_payload_v1(execution_payload.clone()))
             .await;
 
-        let mut errors = vec![];
-        let mut valid_statuses = vec![];
-        let mut invalid_statuses = vec![];
-        let mut other_statuses = vec![];
-
-        for result in broadcast_results {
-            match result {
-                Err(e) => errors.push(e),
-                Ok(response) => match &response.status {
-                    PayloadStatusV1Status::Valid => {
-                        if response
-                            .latest_valid_hash
-                            .map_or(false, |h| h == execution_payload.block_hash)
-                        {
-                            // The response is only valid if `latest_valid_hash` is not `null` and
-                            // equal to the provided `block_hash`.
-                            valid_statuses.push(PayloadStatus::Valid)
-                        } else {
-                            errors.push(EngineError::Api {
-                                id: "unknown".to_string(),
-                                error: engine_api::Error::BadResponse(
-                                    format!(
-                                        "new_payload: response.status = VALID but invalid latest_valid_hash. Expected({:?}) Found({:?})",
-                                        execution_payload.block_hash,
-                                        response.latest_valid_hash,
-                                    )
-                                ),
-                            });
-                        }
-                    }
-                    PayloadStatusV1Status::Invalid => {
-                        if let Some(latest_valid_hash) = response.latest_valid_hash {
-                            // The response is only valid if `latest_valid_hash` is not `null`.
-                            invalid_statuses.push(PayloadStatus::Invalid {
-                                latest_valid_hash,
-                                validation_error: response.validation_error.clone(),
-                            })
-                        } else {
-                            errors.push(EngineError::Api {
-                                id: "unknown".to_string(),
-                                error: engine_api::Error::BadResponse(
-                                        "new_payload: response.status = INVALID but null latest_valid_hash".to_string()
-                                ),
-                            });
-                        }
-                    }
-                    PayloadStatusV1Status::InvalidBlockHash => {
-                        // In the interests of being liberal with what we accept, only raise a
-                        // warning here.
-                        if response.latest_valid_hash.is_some() {
-                            warn!(
-                                self.log(),
-                                "Malformed response from execution engine";
-                                "msg" => "expected a null latest_valid_hash",
-                                "status" => ?response.status
-                            )
-                        }
-
-                        invalid_statuses.push(PayloadStatus::InvalidBlockHash {
-                            validation_error: response.validation_error.clone(),
-                        });
-                    }
-                    PayloadStatusV1Status::InvalidTerminalBlock => {
-                        // In the interests of being liberal with what we accept, only raise a
-                        // warning here.
-                        if response.latest_valid_hash.is_some() {
-                            warn!(
-                                self.log(),
-                                "Malformed response from execution engine";
-                                "msg" => "expected a null latest_valid_hash",
-                                "status" => ?response.status
-                            )
-                        }
-
-                        invalid_statuses.push(PayloadStatus::InvalidTerminalBlock {
-                            validation_error: response.validation_error.clone(),
-                        });
-                    }
-                    PayloadStatusV1Status::Syncing => {
-                        // In the interests of being liberal with what we accept, only raise a
-                        // warning here.
-                        if response.latest_valid_hash.is_some() {
-                            warn!(
-                                self.log(),
-                                "Malformed response from execution engine";
-                                "msg" => "expected a null latest_valid_hash",
-                                "status" => ?response.status
-                            )
-                        }
-
-                        other_statuses.push(PayloadStatus::Syncing)
-                    }
-                    PayloadStatusV1Status::Accepted => {
-                        // In the interests of being liberal with what we accept, only raise a
-                        // warning here.
-                        if response.latest_valid_hash.is_some() {
-                            warn!(
-                                self.log(),
-                                "Malformed response from execution engine";
-                                "msg" => "expected a null latest_valid_hash",
-                                "status" => ?response.status
-                            )
-                        }
-
-                        other_statuses.push(PayloadStatus::Accepted)
-                    }
-                },
-            }
-        }
-
-        if !valid_statuses.is_empty() && !invalid_statuses.is_empty() {
-            crit!(
-                self.log(),
-                "Consensus failure between execution nodes";
-                "invalid_statuses" => ?invalid_statuses,
-                "valid_statuses" => ?valid_statuses,
-                "method" => "new_payload",
-            );
-
-            // Choose to exit and ignore the valid response. This preferences correctness over
-            // liveness.
-            return Err(Error::ConsensusFailure);
-        }
-
-        valid_statuses
-            .first()
-            .or_else(|| invalid_statuses.first())
-            .or_else(|| other_statuses.first())
-            .cloned()
-            .map(Result::Ok)
-            .unwrap_or_else(|| Err(Error::EngineErrors(errors)))
+        process_multiple_payload_statuses(
+            execution_payload.block_hash,
+            broadcast_results.into_iter(),
+            self.log(),
+        )
     }
 
     /// Maps to the `engine_consensusValidated` JSON-RPC call.
@@ -644,7 +501,7 @@ impl ExecutionLayer {
         head_block_hash: Hash256,
         finalized_block_hash: Hash256,
         payload_attributes: Option<PayloadAttributes>,
-    ) -> Result<(PayloadStatusV1Status, Option<Vec<Hash256>>), Error> {
+    ) -> Result<PayloadStatus, Error> {
         debug!(
             self.log(),
             "Issuing engine_forkchoiceUpdated";
@@ -673,79 +530,15 @@ impl ExecutionLayer {
             })
             .await;
 
-        let mut errors = vec![];
-        let mut valid = 0;
-        let mut invalid = 0;
-        let mut syncing = 0;
-        let mut invalid_latest_valid_hash = HashSet::new();
-        for result in broadcast_results {
-            match result {
-                Ok(response) => match (&response.payload_status.latest_valid_hash, &response.payload_status.status) {
-                    (None, &PayloadStatusV1Status::Valid) => valid += 1,
-                    (Some(latest_hash), &PayloadStatusV1Status::Valid) => {
-                        if latest_hash == &head_block_hash {
-                            valid += 1;
-                        } else {
-                            // According to a strict interpretation of the spec, the EE should never
-                            // respond with `VALID` *and* a `latest_valid_hash`.
-                            //
-                            // For the sake of being liberal with what we accept, we will accept a
-                            // `latest_valid_hash` *only if* it matches the submitted payload.
-                            // Otherwise, register an error.
-                            errors.push(EngineError::Api {
-                                id: "unknown".to_string(),
-                                error: engine_api::Error::BadResponse(
-                                    format!(
-                                        "forkchoice_updated: payload_status = Valid but invalid latest_valid_hash. Expected({:?}) Found({:?})",
-                                        head_block_hash,
-                                        *latest_hash,
-                                    )
-                                ),
-                            });
-                        }
-                    }
-                    (Some(latest_hash), &PayloadStatusV1Status::Invalid) => {
-                        invalid += 1;
-                        invalid_latest_valid_hash.insert(*latest_hash);
-                    }
-                    (None, &PayloadStatusV1Status::InvalidTerminalBlock) => invalid += 1,
-                    (None, &PayloadStatusV1Status::Syncing) => syncing += 1,
-                    _ => {
-                        errors.push(EngineError::Api {
-                            id: "unknown".to_string(),
-                            error: engine_api::Error::BadResponse(format!(
-                                "forkchoice_updated: response does not conform to engine API spec: {:?}",
-                                response
-                            )),
-                        })
-                    }
-                }
-                Err(e) => errors.push(e),
-            }
-        }
+        // TODO: process payload_ids
 
-        if valid > 0 && invalid > 0 {
-            crit!(
-                self.log(),
-                "Consensus failure between execution nodes";
-                "method" => "forkchoice_updated"
-            );
-            // In this situation, better to have a failure of liveness than vote on a potentially invalid chain
-            return Err(Error::ConsensusFailure);
-        }
-
-        if valid > 0 {
-            Ok((PayloadStatusV1Status::Valid, Some(vec![head_block_hash])))
-        } else if invalid > 0 {
-            Ok((
-                PayloadStatusV1Status::Invalid,
-                Some(invalid_latest_valid_hash.into_iter().collect()),
-            ))
-        } else if syncing > 0 {
-            Ok((PayloadStatusV1Status::Syncing, None))
-        } else {
-            Err(Error::EngineErrors(errors))
-        }
+        process_multiple_payload_statuses(
+            head_block_hash,
+            broadcast_results
+                .into_iter()
+                .map(|result| result.map(|response| response.payload_status)),
+            self.log(),
+        )
     }
 
     /// Used during block production to determine if the merge has been triggered.
