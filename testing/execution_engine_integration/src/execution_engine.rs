@@ -25,7 +25,9 @@ pub struct ExecutionEngine<E> {
 impl<E> Drop for ExecutionEngine<E> {
     fn drop(&mut self) {
         // Ensure the EE process is killed on drop.
-        self.child.kill().unwrap()
+        if let Err(e) = self.child.kill() {
+            eprintln!("failed to kill child: {:?}", e)
+        }
     }
 }
 
