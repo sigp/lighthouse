@@ -3762,9 +3762,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 PayloadStatus::Invalid {
                     latest_valid_hash, ..
                 } => {
-                    // TODO(bellatrix): process the invalid payload.
-                    //
-                    // See: https://github.com/sigp/lighthouse/pull/2837
+                    // The execution engine has stated that all blocks between the
+                    // `head_execution_block_hash` and `latest_valid_hash` are invalid.
+                    self.process_invalid_execution_payload(
+                        head_execution_block_hash,
+                        latest_valid_hash,
+                    )?;
+
                     Err(BeaconChainError::ExecutionForkChoiceUpdateInvalid { status })
                 }
                 PayloadStatus::InvalidTerminalBlock { .. }
