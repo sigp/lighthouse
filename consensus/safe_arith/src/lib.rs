@@ -20,6 +20,7 @@ macro_rules! assign_method {
         #[doc = "Safe variant of `"]
         #[doc = $doc_op]
         #[doc = "`."]
+        #[inline]
         fn $name(&mut self, other: $rhs_ty) -> Result<()> {
             *self = self.$op(other)?;
             Ok(())
@@ -68,30 +69,37 @@ macro_rules! impl_safe_arith {
             const ZERO: Self = 0;
             const ONE: Self = 1;
 
+            #[inline]
             fn safe_add(&self, other: Self) -> Result<Self> {
                 self.checked_add(other).ok_or(ArithError::Overflow)
             }
 
+            #[inline]
             fn safe_sub(&self, other: Self) -> Result<Self> {
                 self.checked_sub(other).ok_or(ArithError::Overflow)
             }
 
+            #[inline]
             fn safe_mul(&self, other: Self) -> Result<Self> {
                 self.checked_mul(other).ok_or(ArithError::Overflow)
             }
 
+            #[inline]
             fn safe_div(&self, other: Self) -> Result<Self> {
                 self.checked_div(other).ok_or(ArithError::DivisionByZero)
             }
 
+            #[inline]
             fn safe_rem(&self, other: Self) -> Result<Self> {
                 self.checked_rem(other).ok_or(ArithError::DivisionByZero)
             }
 
+            #[inline]
             fn safe_shl(&self, other: u32) -> Result<Self> {
                 self.checked_shl(other).ok_or(ArithError::Overflow)
             }
 
+            #[inline]
             fn safe_shr(&self, other: u32) -> Result<Self> {
                 self.checked_shr(other).ok_or(ArithError::Overflow)
             }
