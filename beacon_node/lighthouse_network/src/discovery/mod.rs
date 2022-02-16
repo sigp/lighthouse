@@ -927,24 +927,6 @@ impl<TSpec: EthSpec> NetworkBehaviour for Discovery<TSpec> {
         }
     }
 
-    fn inject_connected(&mut self, _peer_id: &PeerId) {}
-    fn inject_disconnected(&mut self, _peer_id: &PeerId) {}
-    fn inject_connection_established(
-        &mut self,
-        _peer_id: &PeerId,
-        _connection_id: &ConnectionId,
-        _endpoint: &ConnectedPoint,
-        _failed_addresses: Option<&Vec<Multiaddr>>,
-    ) {
-    }
-    fn inject_connection_closed(
-        &mut self,
-        _: &PeerId,
-        _: &ConnectionId,
-        _connected_point: &ConnectedPoint,
-        _handler: Self::ProtocolsHandler,
-    ) {
-    }
     fn inject_event(
         &mut self,
         _: PeerId,
@@ -963,10 +945,11 @@ impl<TSpec: EthSpec> NetworkBehaviour for Discovery<TSpec> {
             match error {
                 DialError::Banned
                 | DialError::LocalPeerId
-                | DialError::InvalidPeerId
+                | DialError::InvalidPeerId(_)
                 | DialError::ConnectionIo(_)
                 | DialError::NoAddresses
-                | DialError::Transport(_) => {
+                | DialError::Transport(_)
+                | DialError::WrongPeerId { .. } => {
                     // set peer as disconnected in discovery DHT
                     debug!(self.log, "Marking peer disconnected in DHT"; "peer_id" => %peer_id);
                     self.disconnect_peer(&peer_id);
@@ -1066,16 +1049,10 @@ mod tests {
     use crate::rpc::methods::{MetaData, MetaDataV2};
     use enr::EnrBuilder;
     use slog::{o, Drain};
-    use std::net::UdpSocket;
     use types::{BitVector, MinimalEthSpec, SubnetId};
+    use unused_port::unused_udp_port;
 
     type E = MinimalEthSpec;
-
-    pub fn unused_port() -> u16 {
-        let socket = UdpSocket::bind("127.0.0.1:0").expect("should create udp socket");
-        let local_addr = socket.local_addr().expect("should read udp socket");
-        local_addr.port()
-    }
 
     pub fn build_log(level: slog::Level, enabled: bool) -> slog::Logger {
         let decorator = slog_term::TermDecorator::new().build();
@@ -1092,7 +1069,7 @@ mod tests {
     async fn build_discovery() -> Discovery<E> {
         let keypair = libp2p::identity::Keypair::generate_secp256k1();
         let config = NetworkConfig {
-            discovery_port: unused_port(),
+            discovery_port: unused_udp_port().unwrap(),
             ..Default::default()
         };
         let enr_key: CombinedKey = CombinedKey::from_libp2p(&keypair).unwrap();

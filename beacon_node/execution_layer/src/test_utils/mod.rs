@@ -1,6 +1,6 @@
 //! Provides a mock execution engine HTTP JSON-RPC API for use in testing.
 
-use crate::engine_api::http::JSONRPC_VERSION;
+use crate::engine_api::{http::JSONRPC_VERSION, PayloadStatusV1Status};
 use bytes::Bytes;
 use environment::null_logger;
 use execution_block_generator::{Block, PoWBlock};
@@ -68,7 +68,7 @@ impl<T: EthSpec> MockServer<T> {
             last_echo_request: last_echo_request.clone(),
             execution_block_generator: RwLock::new(execution_block_generator),
             preloaded_responses,
-            fixed_payload_response: Arc::new(Mutex::new(FixedPayloadResponse::None)),
+            static_new_payload_response: <_>::default(),
             _phantom: PhantomData,
         });
 
@@ -123,20 +123,7 @@ impl<T: EthSpec> MockServer<T> {
     }
 
     pub fn all_payloads_valid(&self) {
-        *self.ctx.fixed_payload_response.lock() = FixedPayloadResponse::Valid;
-    }
-
-    pub fn all_payloads_invalid(&self, latest_valid_hash: Hash256) {
-        *self.ctx.fixed_payload_response.lock() =
-            FixedPayloadResponse::Invalid { latest_valid_hash };
-    }
-
-    pub fn all_payloads_syncing(&self) {
-        *self.ctx.fixed_payload_response.lock() = FixedPayloadResponse::Syncing;
-    }
-
-    pub fn full_payload_verification(&self) {
-        *self.ctx.fixed_payload_response.lock() = FixedPayloadResponse::None;
+        *self.ctx.static_new_payload_response.lock() = Some(PayloadStatusV1Status::Valid)
     }
 
     pub fn insert_pow_block(
@@ -206,7 +193,7 @@ pub struct Context<T: EthSpec> {
     pub last_echo_request: Arc<RwLock<Option<Bytes>>>,
     pub execution_block_generator: RwLock<ExecutionBlockGenerator<T>>,
     pub preloaded_responses: Arc<Mutex<Vec<serde_json::Value>>>,
-    pub fixed_payload_response: Arc<Mutex<FixedPayloadResponse>>,
+    pub static_new_payload_response: Arc<Mutex<Option<PayloadStatusV1Status>>>,
     pub _phantom: PhantomData<T>,
 }
 

@@ -1,6 +1,8 @@
 //! Provides generic behaviour for multiple execution engines, specifically fallback behaviour.
 
-use crate::engine_api::{EngineApi, Error as EngineApiError, PayloadAttributes, PayloadId};
+use crate::engine_api::{
+    EngineApi, Error as EngineApiError, ForkchoiceUpdatedResponse, PayloadAttributes, PayloadId,
+};
 use futures::future::join_all;
 use lru::LruCache;
 use slog::{crit, debug, info, warn, Logger};
@@ -97,7 +99,7 @@ impl<T: EngineApi> Engine<T> {
         forkchoice_state: ForkChoiceState,
         payload_attributes: Option<PayloadAttributes>,
         log: &Logger,
-    ) -> Result<Option<PayloadId>, EngineApiError> {
+    ) -> Result<ForkchoiceUpdatedResponse, EngineApiError> {
         let response = self
             .api
             .forkchoice_updated_v1(forkchoice_state, payload_attributes)
@@ -117,7 +119,7 @@ impl<T: EngineApi> Engine<T> {
             }
         }
 
-        Ok(response.payload_id)
+        Ok(response)
     }
 }
 

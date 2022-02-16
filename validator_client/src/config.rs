@@ -1,3 +1,4 @@
+use crate::fee_recipient_file::FeeRecipientFile;
 use crate::graffiti_file::GraffitiFile;
 use crate::{http_api, http_metrics};
 use clap::ArgMatches;
@@ -13,7 +14,7 @@ use slog::{info, warn, Logger};
 use std::fs;
 use std::net::Ipv4Addr;
 use std::path::PathBuf;
-use types::GRAFFITI_BYTES_LEN;
+use types::{Address, GRAFFITI_BYTES_LEN};
 
 pub const DEFAULT_BEACON_NODE: &str = "http://localhost:5052/";
 
@@ -41,6 +42,10 @@ pub struct Config {
     pub graffiti: Option<Graffiti>,
     /// Graffiti file to load per validator graffitis.
     pub graffiti_file: Option<GraffitiFile>,
+    /// Fallback fallback address.
+    pub fee_recipient: Option<Address>,
+    /// Fee recipient file to load per validator suggested-fee-recipients.
+    pub fee_recipient_file: Option<FeeRecipientFile>,
     /// Configuration for the HTTP REST API.
     pub http_api: http_api::Config,
     /// Configuration for the HTTP REST API.
@@ -79,6 +84,8 @@ impl Default for Config {
             use_long_timeouts: false,
             graffiti: None,
             graffiti_file: None,
+            fee_recipient: None,
+            fee_recipient_file: None,
             http_api: <_>::default(),
             http_metrics: <_>::default(),
             monitoring_api: None,
@@ -195,6 +202,25 @@ impl Config {
 
                 config.graffiti = Some(graffiti.into());
             }
+        }
+
+        if let Some(fee_recipient_file_path) = cli_args.value_of("suggested-fee-recipient-file") {
+            let mut fee_recipient_file = FeeRecipientFile::new(fee_recipient_file_path.into());
+            fee_recipient_file
+                .read_fee_recipient_file()
+                .map_err(|e| format!("Error reading suggested-fee-recipient file: {:?}", e))?;
+            config.fee_recipient_file = Some(fee_recipient_file);
+            info!(
+                log,
+                "Successfully loaded suggested-fee-recipient file";
+                "path" => fee_recipient_file_path
+            );
+        }
+
+        if let Some(input_fee_recipient) =
+            parse_optional::<Address>(cli_args, "suggested-fee-recipient")?
+        {
+            config.fee_recipient = Some(input_fee_recipient);
         }
 
         if let Some(tls_certs) = parse_optional::<String>(cli_args, "beacon-nodes-tls-certs")? {

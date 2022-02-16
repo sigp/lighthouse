@@ -1,6 +1,5 @@
 use super::*;
 use serde::{Deserialize, Serialize};
-use std::convert::TryFrom;
 use types::{EthSpec, FixedVector, Transaction, Unsigned, VariableList};
 
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
@@ -90,7 +89,7 @@ impl<T: EthSpec> From<ExecutionPayload<T>> for JsonExecutionPayloadV1<T> {
             parent_hash,
             fee_recipient,
             state_root,
-            receipt_root,
+            receipts_root,
             logs_bloom,
             random,
             block_number,
@@ -107,7 +106,7 @@ impl<T: EthSpec> From<ExecutionPayload<T>> for JsonExecutionPayloadV1<T> {
             parent_hash,
             fee_recipient,
             state_root,
-            receipts_root: receipt_root,
+            receipts_root,
             logs_bloom,
             random,
             block_number,
@@ -146,7 +145,7 @@ impl<T: EthSpec> From<JsonExecutionPayloadV1<T>> for ExecutionPayload<T> {
             parent_hash,
             fee_recipient,
             state_root,
-            receipt_root: receipts_root,
+            receipts_root,
             logs_bloom,
             random,
             block_number,
@@ -248,94 +247,103 @@ impl From<JsonForkChoiceStateV1> for ForkChoiceState {
 
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
-pub enum JsonExecutePayloadV1ResponseStatus {
+pub enum JsonPayloadStatusV1Status {
     Valid,
     Invalid,
     Syncing,
+    Accepted,
+    InvalidBlockHash,
+    InvalidTerminalBlock,
 }
 
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct JsonExecutePayloadV1Response {
-    pub status: JsonExecutePayloadV1ResponseStatus,
+pub struct JsonPayloadStatusV1 {
+    pub status: JsonPayloadStatusV1Status,
     pub latest_valid_hash: Option<Hash256>,
     pub validation_error: Option<String>,
 }
 
-impl TryFrom<JsonExecutePayloadV1Response> for ExecutePayloadResponse {
-    type Error = &'static str;
+impl From<PayloadStatusV1Status> for JsonPayloadStatusV1Status {
+    fn from(e: PayloadStatusV1Status) -> Self {
+        match e {
+            PayloadStatusV1Status::Valid => JsonPayloadStatusV1Status::Valid,
+            PayloadStatusV1Status::Invalid => JsonPayloadStatusV1Status::Invalid,
+            PayloadStatusV1Status::Syncing => JsonPayloadStatusV1Status::Syncing,
+            PayloadStatusV1Status::Accepted => JsonPayloadStatusV1Status::Accepted,
+            PayloadStatusV1Status::InvalidBlockHash => JsonPayloadStatusV1Status::InvalidBlockHash,
+            PayloadStatusV1Status::InvalidTerminalBlock => {
+                JsonPayloadStatusV1Status::InvalidTerminalBlock
+            }
+        }
+    }
+}
+impl From<JsonPayloadStatusV1Status> for PayloadStatusV1Status {
+    fn from(j: JsonPayloadStatusV1Status) -> Self {
+        match j {
+            JsonPayloadStatusV1Status::Valid => PayloadStatusV1Status::Valid,
+            JsonPayloadStatusV1Status::Invalid => PayloadStatusV1Status::Invalid,
+            JsonPayloadStatusV1Status::Syncing => PayloadStatusV1Status::Syncing,
+            JsonPayloadStatusV1Status::Accepted => PayloadStatusV1Status::Accepted,
+            JsonPayloadStatusV1Status::InvalidBlockHash => PayloadStatusV1Status::InvalidBlockHash,
+            JsonPayloadStatusV1Status::InvalidTerminalBlock => {
+                PayloadStatusV1Status::InvalidTerminalBlock
+            }
+        }
+    }
+}
 
-    fn try_from(j: JsonExecutePayloadV1Response) -> Result<Self, Self::Error> {
+impl From<PayloadStatusV1> for JsonPayloadStatusV1 {
+    fn from(p: PayloadStatusV1) -> Self {
         // Use this verbose deconstruction pattern to ensure no field is left unused.
-        let JsonExecutePayloadV1Response {
+        let PayloadStatusV1 {
+            status,
+            latest_valid_hash,
+            validation_error,
+        } = p;
+
+        Self {
+            status: status.into(),
+            latest_valid_hash,
+            validation_error,
+        }
+    }
+}
+
+impl From<JsonPayloadStatusV1> for PayloadStatusV1 {
+    fn from(j: JsonPayloadStatusV1) -> Self {
+        // Use this verbose deconstruction pattern to ensure no field is left unused.
+        let JsonPayloadStatusV1 {
             status,
             latest_valid_hash,
             validation_error,
         } = j;
 
-        let status = match status {
-            JsonExecutePayloadV1ResponseStatus::Valid => latest_valid_hash
-                .map(|latest_valid_hash| ExecutePayloadResponseStatus::Valid { latest_valid_hash })
-                .ok_or("valid response  is missing latest_valid_hash")?,
-            JsonExecutePayloadV1ResponseStatus::Invalid => latest_valid_hash
-                .map(|latest_valid_hash| ExecutePayloadResponseStatus::Invalid {
-                    latest_valid_hash,
-                })
-                .ok_or("invalid response  is missing latest_valid_hash")?,
-            JsonExecutePayloadV1ResponseStatus::Syncing => ExecutePayloadResponseStatus::Syncing,
-        };
-
-        Ok(Self {
-            status,
+        Self {
+            status: status.into(),
+            latest_valid_hash,
             validation_error,
-        })
+        }
     }
 }
 
-#[derive(Debug, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
-pub enum JsonForkchoiceUpdatedV1ResponseStatus {
-    Success,
-    Syncing,
-}
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct JsonForkchoiceUpdatedV1Response {
-    pub status: JsonForkchoiceUpdatedV1ResponseStatus,
+    pub payload_status: JsonPayloadStatusV1,
     pub payload_id: Option<TransparentJsonPayloadId>,
 }
 
-impl From<JsonForkchoiceUpdatedV1ResponseStatus> for ForkchoiceUpdatedResponseStatus {
-    fn from(j: JsonForkchoiceUpdatedV1ResponseStatus) -> Self {
-        match j {
-            JsonForkchoiceUpdatedV1ResponseStatus::Success => {
-                ForkchoiceUpdatedResponseStatus::Success
-            }
-            JsonForkchoiceUpdatedV1ResponseStatus::Syncing => {
-                ForkchoiceUpdatedResponseStatus::Syncing
-            }
-        }
-    }
-}
-impl From<ForkchoiceUpdatedResponseStatus> for JsonForkchoiceUpdatedV1ResponseStatus {
-    fn from(f: ForkchoiceUpdatedResponseStatus) -> Self {
-        match f {
-            ForkchoiceUpdatedResponseStatus::Success => {
-                JsonForkchoiceUpdatedV1ResponseStatus::Success
-            }
-            ForkchoiceUpdatedResponseStatus::Syncing => {
-                JsonForkchoiceUpdatedV1ResponseStatus::Syncing
-            }
-        }
-    }
-}
 impl From<JsonForkchoiceUpdatedV1Response> for ForkchoiceUpdatedResponse {
     fn from(j: JsonForkchoiceUpdatedV1Response) -> Self {
         // Use this verbose deconstruction pattern to ensure no field is left unused.
-        let JsonForkchoiceUpdatedV1Response { status, payload_id } = j;
+        let JsonForkchoiceUpdatedV1Response {
+            payload_status: status,
+            payload_id,
+        } = j;
 
         Self {
-            status: status.into(),
+            payload_status: status.into(),
             payload_id: payload_id.map(Into::into),
         }
     }
@@ -343,10 +351,13 @@ impl From<JsonForkchoiceUpdatedV1Response> for ForkchoiceUpdatedResponse {
 impl From<ForkchoiceUpdatedResponse> for JsonForkchoiceUpdatedV1Response {
     fn from(f: ForkchoiceUpdatedResponse) -> Self {
         // Use this verbose deconstruction pattern to ensure no field is left unused.
-        let ForkchoiceUpdatedResponse { status, payload_id } = f;
+        let ForkchoiceUpdatedResponse {
+            payload_status: status,
+            payload_id,
+        } = f;
 
         Self {
-            status: status.into(),
+            payload_status: status.into(),
             payload_id: payload_id.map(Into::into),
         }
     }

@@ -1,6 +1,7 @@
 # Prater config
 
 # Extends the mainnet preset
+CONFIG_NAME: 'prater'
 PRESET_BASE: 'mainnet'
 
 # Transition
