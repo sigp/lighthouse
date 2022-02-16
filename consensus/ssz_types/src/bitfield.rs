@@ -138,12 +138,13 @@ impl<N: Unsigned + Clone> Bitfield<Variable<N>> {
     /// ## Example
     /// ```
     /// use ssz_types::{BitList, typenum};
+    /// use smallvec::SmallVec;
     ///
     /// type BitList8 = BitList<typenum::U8>;
     ///
     /// let b = BitList8::with_capacity(4).unwrap();
     ///
-    /// assert_eq!(b.into_bytes(), smallvec![0b0001_0000]);
+    /// assert_eq!(b.into_bytes(), SmallVec::from_buf([0b0001_0000]));
     /// ```
     pub fn into_bytes(self) -> SmallVec<[u8; SMALLVEC_LEN]> {
         let len = self.len();
@@ -260,10 +261,11 @@ impl<N: Unsigned + Clone> Bitfield<Fixed<N>> {
     /// ## Example
     /// ```
     /// use ssz_types::{BitVector, typenum};
+    /// use smallvec::SmallVec;
     ///
     /// type BitVector4 = BitVector<typenum::U4>;
     ///
-    /// assert_eq!(BitVector4::new().into_bytes(), smallvec![0b0000_0000]);
+    /// assert_eq!(BitVector4::new().into_bytes(), SmallVec::from_buf([0b0000_0000]));
     /// ```
     pub fn into_bytes(self) -> SmallVec<[u8; SMALLVEC_LEN]> {
         self.into_raw_bytes()
