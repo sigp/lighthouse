@@ -11,7 +11,7 @@ use crate::{
     BeaconChain, BeaconChainError, BeaconChainTypes, BlockError, BlockProductionError,
     ExecutionPayloadError,
 };
-use execution_layer::PayloadStatusV1Status;
+use execution_layer::PayloadStatus;
 use fork_choice::PayloadVerificationStatus;
 use proto_array::{Block as ProtoBlock, ExecutionStatus};
 use slog::debug;
@@ -58,24 +58,25 @@ pub fn notify_new_payload<T: BeaconChainTypes>(
         .block_on(|execution_layer| execution_layer.notify_new_payload(execution_payload));
 
     match new_payload_response {
-        Ok((status, latest_valid_hash)) => match status {
-            PayloadStatusV1Status::Valid => Ok(PayloadVerificationStatus::Verified),
-            PayloadStatusV1Status::Syncing | PayloadStatusV1Status::Accepted => {
+        Ok(status) => match status {
+            PayloadStatus::Valid => Ok(PayloadVerificationStatus::Verified),
+            PayloadStatus::Syncing | PayloadStatus::Accepted => {
                 Ok(PayloadVerificationStatus::NotVerified)
             }
-            PayloadStatusV1Status::Invalid
-            | PayloadStatusV1Status::InvalidTerminalBlock
-            | PayloadStatusV1Status::InvalidBlockHash => {
+            PayloadStatus::Invalid {
+                latest_valid_hash, ..
+            } => {
                 // This block has not yet been applied to fork choice, so the latest block that was
                 // imported to fork choice was the parent.
                 let latest_root = block.parent_root();
                 chain.process_invalid_execution_payload(latest_root, latest_valid_hash)?;
 
-                Err(ExecutionPayloadError::RejectedByExecutionEngine {
-                    status,
-                    latest_valid_hash,
-                }
-                .into())
+                Err(ExecutionPayloadError::RejectedByExecutionEngine { status }.into())
+            }
+            PayloadStatus::InvalidTerminalBlock { .. } | PayloadStatus::InvalidBlockHash { .. } => {
+                // There is no `latest_valid_hash` provided by the execution engine, so there's no
+                // scope for invalidating ancestors of this block. Just return an error.
+                Err(ExecutionPayloadError::RejectedByExecutionEngine { status }.into())
             }
         },
         Err(e) => Err(ExecutionPayloadError::RequestFailed(e).into()),

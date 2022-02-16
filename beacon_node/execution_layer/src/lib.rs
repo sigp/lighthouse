@@ -7,7 +7,7 @@
 use engine_api::{Error as ApiError, *};
 use engines::{Engine, EngineError, Engines, ForkChoiceState, Logging};
 use lru::LruCache;
-use payload_status::{process_multiple_payload_statuses, PayloadStatus};
+use payload_status::process_multiple_payload_statuses;
 use sensitive_url::SensitiveUrl;
 use slog::{crit, debug, error, info, Logger};
 use slot_clock::SlotClock;
@@ -23,6 +23,7 @@ use tokio::{
 use types::{ChainSpec, Epoch, ProposerPreparationData};
 
 pub use engine_api::{http::HttpJsonRpc, PayloadAttributes, PayloadStatusV1Status};
+pub use payload_status::PayloadStatus;
 
 mod engine_api;
 mod engines;

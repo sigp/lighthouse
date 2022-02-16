@@ -54,7 +54,7 @@ use crate::{
     metrics, BeaconChain, BeaconChainError, BeaconChainTypes,
 };
 use eth2::types::EventKind;
-use execution_layer::PayloadStatusV1Status;
+use execution_layer::PayloadStatus;
 use fork_choice::{ForkChoice, ForkChoiceStore, PayloadVerificationStatus};
 use parking_lot::RwLockReadGuard;
 use proto_array::Block as ProtoBlock;
@@ -270,10 +270,7 @@ pub enum ExecutionPayloadError {
     /// ## Peer scoring
     ///
     /// The block is invalid and the peer is faulty
-    RejectedByExecutionEngine {
-        status: PayloadStatusV1Status,
-        latest_valid_hash: Option<Vec<Hash256>>,
-    },
+    RejectedByExecutionEngine { status: PayloadStatus },
     /// The execution payload timestamp does not match the slot
     ///
     /// ## Peer scoring

@@ -52,7 +52,7 @@ use crate::{metrics, BeaconChainError};
 use eth2::types::{
     EventKind, SseBlock, SseChainReorg, SseFinalizedCheckpoint, SseHead, SseLateHead, SyncDuty,
 };
-use execution_layer::{ExecutionLayer, PayloadStatusV1Status};
+use execution_layer::{ExecutionLayer, PayloadStatus};
 use fork_choice::{AttestationFromBlock, ForkChoice};
 use futures::channel::mpsc::Sender;
 use itertools::process_results;
@@ -3744,12 +3744,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .map_err(Error::ExecutionForkChoiceUpdateFailed);
 
         match forkchoice_updated_response {
-            Ok((status, latest_valid_hash)) => match status {
-                PayloadStatusV1Status::Valid | PayloadStatusV1Status::Syncing => Ok(()),
+            Ok(status) => match status {
+                PayloadStatus::Valid | PayloadStatus::Syncing => Ok(()),
                 // The specification doesn't list `ACCEPTED` as a valid response to a fork choice
                 // update. This response *seems* innocent enough, so we won't return early with an
                 // error. However, we create a log to bring attention to the issue.
-                PayloadStatusV1Status::Accepted => {
+                PayloadStatus::Accepted => {
                     warn!(
                         log,
                         "Fork choice update received ACCEPTED";
@@ -3759,16 +3759,20 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     );
                     Ok(())
                 }
-                PayloadStatusV1Status::Invalid
-                | PayloadStatusV1Status::InvalidTerminalBlock
-                | PayloadStatusV1Status::InvalidBlockHash => {
+                PayloadStatus::Invalid {
+                    latest_valid_hash, ..
+                } => {
                     // TODO(bellatrix): process the invalid payload.
                     //
                     // See: https://github.com/sigp/lighthouse/pull/2837
-                    Err(BeaconChainError::ExecutionForkChoiceUpdateInvalid {
-                        status,
-                        latest_valid_hash,
-                    })
+                    Err(BeaconChainError::ExecutionForkChoiceUpdateInvalid { status })
+                }
+                PayloadStatus::InvalidTerminalBlock { .. }
+                | PayloadStatus::InvalidBlockHash { .. } => {
+                    // TODO(bellatrix): process the invalid payload.
+                    //
+                    // See: https://github.com/sigp/lighthouse/pull/2837
+                    Err(BeaconChainError::ExecutionForkChoiceUpdateInvalid { status })
                 }
             },
             Err(e) => Err(e),

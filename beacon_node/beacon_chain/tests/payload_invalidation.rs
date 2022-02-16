@@ -110,7 +110,9 @@ impl InvalidPayloadRig {
         self.import_block_parametric(is_valid, |error| {
             matches!(
                 error,
-                BlockError::ExecutionPayloadError(ExecutionPayloadError::RejectedByExecutionEngine)
+                BlockError::ExecutionPayloadError(
+                    ExecutionPayloadError::RejectedByExecutionEngine { .. }
+                )
             )
         })
     }
