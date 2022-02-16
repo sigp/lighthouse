@@ -605,17 +605,16 @@ impl ExecutionLayer {
         for result in broadcast_results {
             match result {
                 Ok(response) => match (&response.payload_status.latest_valid_hash, &response.payload_status.status) {
+                    // TODO(bellatrix) a strict interpretation of the v1.0.0.alpha.6 spec says that
+                    // `latest_valid_hash` *cannot* be `None`. However, we accept it to maintain
+                    // Geth compatibility for the short term. See:
+                    //
+                    // https://github.com/ethereum/go-ethereum/issues/24404
                     (None, &PayloadStatusV1Status::Valid) => valid += 1,
                     (Some(latest_hash), &PayloadStatusV1Status::Valid) => {
                         if latest_hash == &head_block_hash {
                             valid += 1;
                         } else {
-                            // According to a strict interpretation of the spec, the EE should never
-                            // respond with `VALID` *and* a `latest_valid_hash`.
-                            //
-                            // For the sake of being liberal with what we accept, we will accept a
-                            // `latest_valid_hash` *only if* it matches the submitted payload.
-                            // Otherwise, register an error.
                             errors.push(EngineError::Api {
                                 id: "unknown".to_string(),
                                 error: engine_api::Error::BadResponse(
