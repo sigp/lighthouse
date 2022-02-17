@@ -217,10 +217,7 @@ impl<E: GenericExecutionEngine> TestRig<E> {
             .notify_new_payload(&invalid_payload)
             .await
             .unwrap();
-        assert!(matches!(
-            status,
-            PayloadStatus::Invalid { latest_valid_hash, .. } if latest_valid_hash == valid_payload.block_hash
-        ));
+        assert!(matches!(status, PayloadStatus::InvalidBlockHash { .. }));
 
         /*
          * Execution Engine A:
@@ -291,7 +288,7 @@ impl<E: GenericExecutionEngine> TestRig<E> {
             .notify_new_payload(&second_payload)
             .await
             .unwrap();
-        assert_eq!(status, PayloadStatus::Syncing);
+        assert_eq!(status, PayloadStatus::Accepted);
 
         /*
          * Execution Engine B:
