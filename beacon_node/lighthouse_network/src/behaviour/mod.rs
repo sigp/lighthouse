@@ -1168,6 +1168,9 @@ where
     }
 }
 
+type BehaviourHandler<AppReqId, TSpec> =
+    <Behaviour<AppReqId, TSpec> as NetworkBehaviour>::ProtocolsHandler;
+
 impl<AppReqId, TSpec> Behaviour<AppReqId, TSpec>
 where
     TSpec: EthSpec,
@@ -1178,12 +1181,7 @@ where
         &mut self,
         cx: &mut Context,
         _: &mut impl PollParameters,
-    ) -> Poll<
-        NBAction<
-            BehaviourEvent<AppReqId, TSpec>,
-            <Behaviour<AppReqId, TSpec> as NetworkBehaviour>::ProtocolsHandler,
-        >,
-    > {
+    ) -> Poll<NBAction<BehaviourEvent<AppReqId, TSpec>, BehaviourHandler<AppReqId, TSpec>>> {
         if let Some(waker) = &self.waker {
             if waker.will_wake(cx.waker()) {
                 self.waker = Some(cx.waker().clone());
