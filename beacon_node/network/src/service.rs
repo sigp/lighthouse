@@ -43,28 +43,12 @@ const SUBSCRIBE_DELAY_SLOTS: u64 = 2;
 /// Delay after a fork where we unsubscribe from pre-fork topics.
 const UNSUBSCRIBE_DELAY_EPOCHS: u64 = 2;
 
+/// Application level requests sent to the network.
 #[derive(Debug, Clone, Copy)]
 pub enum RequestId {
     Sync(SyncId),
     Router,
 }
-
-// #[cfg(test)]
-// mod testss {
-//     use super::*;
-//
-//     enum X {
-//         A,
-//         B(usize)
-//     }
-//
-//     #[test]
-//     fn asdize() {
-//         println!("network request_id {}", std::mem::size_of::<RequestId>()); // 40 (5)
-//         println!("behaviour request_id {}", std::mem::size_of::<lighthouse_network::behaviour::RequestId<RequestId>>()); // 40 too (5)
-//         println!("previous request_id {}", std::mem::size_of::<X>()); // 16 (2)
-//     }
-// }
 
 /// Types of messages that the network service can receive.
 #[derive(Debug)]

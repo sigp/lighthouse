@@ -7,8 +7,8 @@
 
 mod processor;
 
-use crate::service::NetworkMessage;
-use crate::{error, service::RequestId};
+use crate::error;
+use crate::service::{NetworkMessage, RequestId};
 use beacon_chain::{BeaconChain, BeaconChainTypes};
 use futures::prelude::*;
 use lighthouse_network::{

@@ -5,7 +5,7 @@
 //! syncing.
 
 use futures::future::FutureExt;
-use handler::RPCHandler;
+use handler::{HandlerEvent, RPCHandler};
 use libp2p::core::connection::ConnectionId;
 use libp2p::swarm::{
     protocols_handler::ProtocolsHandler, NetworkBehaviour, NetworkBehaviourAction, NotifyHandler,
@@ -32,8 +32,6 @@ pub use methods::{
 pub(crate) use outbound::OutboundRequest;
 pub use protocol::{max_rpc_size, Protocol, RPCError};
 
-use self::handler::HandlerEvent;
-
 pub(crate) mod codec;
 mod handler;
 pub mod methods;
@@ -41,8 +39,8 @@ mod outbound;
 mod protocol;
 mod rate_limiter;
 
+/// Composite trait for a request id.
 pub trait ReqId: Send + 'static + std::fmt::Debug + Copy + Clone {}
-
 impl<T> ReqId for T where T: Send + 'static + std::fmt::Debug + Copy + Clone {}
 
 /// RPC events sent from Lighthouse.

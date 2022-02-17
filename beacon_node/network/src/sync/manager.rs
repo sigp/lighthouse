@@ -76,9 +76,6 @@ const PARENT_DEPTH_TOLERANCE: usize = SLOT_IMPORT_TOLERANCE * 2;
 pub type Id = u32;
 
 /// Id of rpc requests sent by sync to the network.
-///
-/// A single object, like a Chain in RangeSync, SingleBlockRequest, etc can do multiple requests do
-/// to retries or other reasons. Thus the additional identifier `Id` is needed.
 #[derive(Debug, Hash, PartialEq, Eq, Clone, Copy)]
 pub enum RequestId {
     /// Request searching for a block given a hash.
@@ -346,9 +343,10 @@ impl<T: BeaconChainTypes> SyncManager<T> {
             // we remove from the queue and process it. It will get re-added if required
             self.parent_queue.remove(pos)
         } else {
-            // TODO: What about parent requests on flight? Maybe it's ok? we only request/process
-            // one at a time.
-            return debug!(self.log, "Response for a parent lookup request that was not found"; "peer_id" => %peer_id);
+            if block.is_some() {
+                debug!(self.log, "Response for a parent lookup request that was not found"; "peer_id" => %peer_id);
+            }
+            return;
         };
 
         match block {
@@ -384,7 +382,6 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                 self.process_parent_request(parent_request).await;
             }
             None => {
-                // TODO: something doesn't seem right here. Check it
                 // An empty response has been returned to a parent request
                 // if an empty response is given, the peer didn't have the requested block, try again
                 parent_request.failed_attempts += 1;
