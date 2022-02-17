@@ -34,7 +34,6 @@ jobs:
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
 
       - name: Install lighthouse
-        if: steps.cache-cargo.outputs.cache-hit != 'true'
         run: make && make install-lcli
 
       - name: Start local testnet
