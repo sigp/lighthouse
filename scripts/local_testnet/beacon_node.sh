@@ -46,7 +46,7 @@ exec lighthouse \
 	$SUBSCRIBE_ALL_SUBNETS \
 	--datadir $data_dir \
 	--testnet-dir $TESTNET_DIR \
-	--enable-local-discovery \
+	--enable-private-discovery \
 	--staking \
 	--enr-address 127.0.0.1 \
 	--enr-udp-port $network_port \
