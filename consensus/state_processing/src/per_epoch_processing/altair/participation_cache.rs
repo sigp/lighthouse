@@ -25,6 +25,7 @@ use types::{
 #[derive(Debug, PartialEq)]
 pub enum Error {
     InvalidFlagIndex(usize),
+    MissingEffectiveBalance(usize),
 }
 
 /// A balance which will never be below the specified `minimum`.
@@ -122,6 +123,7 @@ impl SingleEpochParticipationCache {
         &mut self,
         val_index: usize,
         validator: &Validator,
+        epoch_participation: &ParticipationFlags,
         state: &BeaconState<T>,
         relative_epoch: RelativeEpoch,
     ) -> Result<(), BeaconStateError> {
@@ -130,14 +132,6 @@ impl SingleEpochParticipationCache {
         if !validator.is_active_at(epoch) {
             return Err(BeaconStateError::ValidatorIsInactive { val_index });
         }
-
-        let epoch_participation = match relative_epoch {
-            RelativeEpoch::Current => state.current_epoch_participation(),
-            RelativeEpoch::Previous => state.previous_epoch_participation(),
-            _ => Err(BeaconStateError::EpochOutOfBounds),
-        }?
-        .get(val_index)
-        .ok_or(BeaconStateError::ParticipationOutOfBounds(val_index))?;
 
         // All active validators increase the total active balance.
         self.total_active_balance
@@ -173,6 +167,8 @@ pub struct ParticipationCache {
     previous_epoch: Epoch,
     /// Caches information about active validators pertaining to `self.previous_epoch`.
     previous_epoch_participation: SingleEpochParticipationCache,
+    /// Caches validator effective balances from the start of `process_epoch`.
+    effective_balances: HashMap<usize, u64>,
     /// Caches the result of the `get_eligible_validator_indices` function.
     eligible_indices: Vec<usize>,
 }
@@ -203,6 +199,9 @@ impl ParticipationCache {
             SingleEpochParticipationCache::new(num_current_epoch_active_vals, spec);
         let mut previous_epoch_participation =
             SingleEpochParticipationCache::new(num_previous_epoch_active_vals, spec);
+
+        let mut effective_balances = HashMap::with_capacity(num_current_epoch_active_vals);
+
         // Contains the set of validators which are either:
         //
         // - Active in the previous epoch.
@@ -219,11 +218,18 @@ impl ParticipationCache {
         //
         // Care is taken to ensure that the ordering of `eligible_indices` is the same as the
         // `get_eligible_validator_indices` function in the spec.
-        for (val_index, val) in state.validators().iter().enumerate() {
+        let iter = state
+            .validators()
+            .iter()
+            .zip(state.current_epoch_participation()?)
+            .zip(state.previous_epoch_participation()?)
+            .enumerate();
+        for (val_index, ((val, curr_epoch_flags), prev_epoch_flags)) in iter {
             if val.is_active_at(current_epoch) {
                 current_epoch_participation.process_active_validator(
                     val_index,
                     val,
+                    curr_epoch_flags,
                     state,
                     RelativeEpoch::Current,
                 )?;
@@ -233,6 +239,7 @@ impl ParticipationCache {
                 previous_epoch_participation.process_active_validator(
                     val_index,
                     val,
+                    prev_epoch_flags,
                     state,
                     RelativeEpoch::Previous,
                 )?;
@@ -240,8 +247,9 @@ impl ParticipationCache {
 
             // Note: a validator might still be "eligible" whilst returning `false` to
             // `Validator::is_active_at`.
-            if state.is_eligible_validator(val_index)? {
-                eligible_indices.push(val_index)
+            if state.is_eligible_validator(val) {
+                eligible_indices.push(val_index);
+                effective_balances.insert(val_index, val.effective_balance);
             }
         }
 
@@ -250,6 +258,7 @@ impl ParticipationCache {
             current_epoch_participation,
             previous_epoch,
             previous_epoch_participation,
+            effective_balances,
             eligible_indices,
         })
     }
@@ -325,6 +334,13 @@ impl ParticipationCache {
         self.current_epoch_participation
             .unslashed_participating_indices
             .contains_key(&val_index)
+    }
+
+    pub fn get_effective_balance(&self, val_index: usize) -> Result<u64, Error> {
+        self.effective_balances
+            .get(&val_index)
+            .copied()
+            .ok_or(Error::MissingEffectiveBalance(val_index))
     }
 
     /*

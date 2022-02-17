@@ -93,7 +93,9 @@ pub fn get_attestation_deltas<T: EthSpec>(
         // `get_inclusion_delay_deltas`. It's safe to do so here because any validator that is in
         // the unslashed indices of the matching source attestations is active, and therefore
         // eligible.
-        if !state.is_eligible_validator(index)? {
+        // FIXME(sproul): this is inefficient
+        let full_validator = state.get_validator(index)?;
+        if !state.is_eligible_validator(full_validator) {
             continue;
         }
 

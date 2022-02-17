@@ -97,8 +97,9 @@ impl<'a, T: EthSpec> AttMaxCover<'a, T> {
                 let mut proposer_reward_numerator = 0;
                 let participation = participation_list.get(index)?;
 
+                let effective_balance = state.get_effective_balance(index).ok()?;
                 let base_reward =
-                    altair::get_base_reward(state, index, total_active_balance, spec).ok()?;
+                    altair::get_base_reward(effective_balance, total_active_balance, spec).ok()?;
 
                 for (flag_index, weight) in PARTICIPATION_FLAG_WEIGHTS.iter().enumerate() {
                     if att_participation_flags.contains(&flag_index)

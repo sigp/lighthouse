@@ -1462,6 +1462,15 @@ fn load_parent<T: BeaconChainTypes>(
                 BeaconChainError::DBInconsistent(format!("Missing state {:?}", parent_state_root))
             })?;
 
+        if block.slot() != state.slot() {
+            slog::warn!(
+                chain.log,
+                "Parent state is not advanced";
+                "block_slot" => block.slot(),
+                "state_slot" => state.slot(),
+            );
+        }
+
         let beacon_state_root = if parent_state_root == advanced_state_root {
             Some(parent_state_root)
         } else {

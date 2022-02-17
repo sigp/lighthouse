@@ -141,9 +141,11 @@ pub mod altair {
                 if participation_flag_indices.contains(&flag_index)
                     && !validator_participation.has_flag(flag_index)?
                 {
+                    // FIXME(sproul): add effective balance cache here?
                     validator_participation.add_flag(flag_index)?;
+                    let effective_balance = state.get_validator(index)?.effective_balance;
                     proposer_reward_numerator.safe_add_assign(
-                        get_base_reward(state, index, total_active_balance, spec)?
+                        get_base_reward(effective_balance, total_active_balance, spec)?
                             .safe_mul(weight)?,
                     )?;
                 }

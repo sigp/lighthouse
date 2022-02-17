@@ -717,7 +717,10 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         if *state_root == self.get_split_info().state_root {
             let mut state = get_full_state(&self.hot_db, state_root, &self.spec)?
                 .ok_or(HotColdDBError::MissingEpochBoundaryState(*state_root))?;
-            state.apply_pending_mutations()?;
+
+            // Do a tree hash here so that the cache is fully built.
+            state.update_tree_hash_cache()?;
+
             let latest_block_root = state.get_latest_block_root(*state_root);
             return Ok(Some((state, latest_block_root)));
         }
@@ -750,7 +753,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             let state_root_iter = state_roots.into_iter().map(Ok);
 
             let mut state = self.replay_blocks(prev_state, blocks, slot, state_root_iter)?;
-            state.apply_pending_mutations()?;
+            state.update_tree_hash_cache()?;
 
             Ok(Some((state, latest_block_root)))
         } else {

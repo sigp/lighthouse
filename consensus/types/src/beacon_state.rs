@@ -1729,12 +1729,10 @@ impl<T: EthSpec> BeaconState<T> {
         self.clone_with(CloneConfig::committee_caches_only())
     }
 
-    pub fn is_eligible_validator(&self, val_index: usize) -> Result<bool, Error> {
+    pub fn is_eligible_validator(&self, val: &Validator) -> bool {
         let previous_epoch = self.previous_epoch();
-        self.get_validator(val_index).map(|val| {
-            val.is_active_at(previous_epoch)
-                || (val.slashed && previous_epoch + Epoch::new(1) < val.withdrawable_epoch)
-        })
+        val.is_active_at(previous_epoch)
+            || (val.slashed && previous_epoch + Epoch::new(1) < val.withdrawable_epoch)
     }
 
     pub fn is_in_inactivity_leak(&self, spec: &ChainSpec) -> bool {

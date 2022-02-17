@@ -49,8 +49,8 @@ enum Error {
         block_root: Hash256,
     },
     BadStateSlot {
-        state_slot: Slot,
-        current_slot: Slot,
+        _state_slot: Slot,
+        _current_slot: Slot,
     },
 }
 
@@ -215,18 +215,18 @@ fn advance_head<T: BeaconChainTypes>(
         .get_advanced_state(head_block_root, current_slot, head_info.state_root)?
         .ok_or(Error::HeadMissingFromSnapshotCache(head_block_root))?;
 
-    if state.slot() == current_slot {
+    if state.slot() == current_slot + 1 {
         return Err(Error::StateAlreadyAdvanced {
             block_root: head_block_root,
         });
-    } else if state.slot() + 1 != current_slot {
+    } else if state.slot() != current_slot {
         // Protect against advancing a state more than a single slot.
         //
         // Advancing more than one slot without storing the intermediate state would corrupt the
         // database. Future works might store temporary, intermediate states inside this function.
         return Err(Error::BadStateSlot {
-            state_slot: state.slot(),
-            current_slot: current_slot,
+            _state_slot: state.slot(),
+            _current_slot: current_slot,
         });
     }
 
