@@ -39,7 +39,7 @@ pub enum Error {
     },
     UnknownLatestValidAncestorHash {
         block_root: Hash256,
-        latest_valid_ancestor_hash: Hash256,
+        latest_valid_ancestor_hash: Option<Hash256>,
     },
 }
 

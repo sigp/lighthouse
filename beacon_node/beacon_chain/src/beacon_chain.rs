@@ -3198,7 +3198,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     pub fn process_invalid_execution_payload(
         &self,
         latest_root: Hash256,
-        latest_valid_hash: Hash256,
+        latest_valid_hash: Option<Hash256>,
     ) -> Result<(), Error> {
         debug!(
             self.log,
@@ -3770,16 +3770,20 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     // `head_execution_block_hash` and `latest_valid_hash` are invalid.
                     self.process_invalid_execution_payload(
                         head_execution_block_hash,
-                        latest_valid_hash,
+                        Some(latest_valid_hash),
                     )?;
 
                     Err(BeaconChainError::ExecutionForkChoiceUpdateInvalid { status })
                 }
                 PayloadStatus::InvalidTerminalBlock { .. }
                 | PayloadStatus::InvalidBlockHash { .. } => {
-                    // TODO(bellatrix): process the invalid payload.
+                    // The execution engine has stated that the head block is invalid, however it
+                    // hasn't returned a latest valid ancestor.
                     //
-                    // See: https://github.com/sigp/lighthouse/pull/2837
+                    // Using a `None` latest valid ancestor will result in only the head block
+                    // being invalidated (no ancestors).
+                    self.process_invalid_execution_payload(head_execution_block_hash, None)?;
+
                     Err(BeaconChainError::ExecutionForkChoiceUpdateInvalid { status })
                 }
             },

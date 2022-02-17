@@ -69,13 +69,14 @@ pub fn notify_new_payload<T: BeaconChainTypes>(
                 // This block has not yet been applied to fork choice, so the latest block that was
                 // imported to fork choice was the parent.
                 let latest_root = block.parent_root();
-                chain.process_invalid_execution_payload(latest_root, latest_valid_hash)?;
+                chain.process_invalid_execution_payload(latest_root, Some(latest_valid_hash))?;
 
                 Err(ExecutionPayloadError::RejectedByExecutionEngine { status }.into())
             }
             PayloadStatus::InvalidTerminalBlock { .. } | PayloadStatus::InvalidBlockHash { .. } => {
-                // There is no `latest_valid_hash` provided by the execution engine, so there's no
-                // scope for invalidating ancestors of this block. Just return an error.
+                // Returning an error here should sufficient to invalidate the block. We have no
+                // information to indicate it's parent is invalid, so no need to run
+                // `BeaconChain::process_invalid_execution_payload`.
                 Err(ExecutionPayloadError::RejectedByExecutionEngine { status }.into())
             }
         },

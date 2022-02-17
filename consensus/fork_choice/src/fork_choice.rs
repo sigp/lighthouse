@@ -468,7 +468,7 @@ where
     pub fn on_invalid_execution_payload(
         &mut self,
         head_block_root: Hash256,
-        latest_valid_ancestor_root: Hash256,
+        latest_valid_ancestor_root: Option<Hash256>,
     ) -> Result<(), Error<T::Error>> {
         self.proto_array
             .process_execution_payload_invalidation(head_block_root, latest_valid_ancestor_root)

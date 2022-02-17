@@ -310,7 +310,7 @@ impl ProtoArray {
     pub fn propagate_execution_payload_invalidation(
         &mut self,
         head_block_root: Hash256,
-        latest_valid_ancestor_hash: Hash256,
+        latest_valid_ancestor_hash: Option<Hash256>,
     ) -> Result<(), Error> {
         let mut invalidated_indices: HashSet<usize> = <_>::default();
         let mut index = *self
@@ -319,8 +319,8 @@ impl ProtoArray {
             .ok_or(Error::NodeUnknown(head_block_root))?;
 
         // Try to map the ancestor payload *hash* to an ancestor beacon block *root*.
-        let latest_valid_ancestor_root =
-            self.execution_block_hash_to_beacon_block_root(&latest_valid_ancestor_hash);
+        let latest_valid_ancestor_root = latest_valid_ancestor_hash
+            .and_then(|hash| self.execution_block_hash_to_beacon_block_root(&hash));
 
         // Set to `true` if both conditions are satisfied:
         //
@@ -355,9 +355,14 @@ impl ProtoArray {
                             block_root: node.root,
                             latest_valid_ancestor_hash,
                         });
-                    } else if hash == latest_valid_ancestor_hash {
+                    } else if Some(hash) == latest_valid_ancestor_hash {
                         // If the `best_child` or `best_descendant` of the latest valid hash was
                         // invalidated, set those fields to `None`.
+                        //
+                        // In theory, an invalid `best_child` necessarily infers an invalid
+                        // `best_descendant`. However, we check each variable independently to
+                        // defend against errors which might result in an invalid block being set as
+                        // head.
                         node.best_child = node
                             .best_child
                             .filter(|best_child| invalidated_indices.contains(best_child));
@@ -385,6 +390,12 @@ impl ProtoArray {
                 }
                 ExecutionStatus::Unknown(hash) => {
                     node.execution_status = ExecutionStatus::Invalid(*hash);
+
+                    // It's impossible for an invalid block to lead to a "best" block, so set these
+                    // fields to `None`.
+                    //
+                    // Failing to set these values will result in `Self::node_leads_to_viable_head`
+                    // returning `false` for *valid* ancestors of invalid blocks.
                     node.best_child = None;
                     node.best_descendant = None;
                 }

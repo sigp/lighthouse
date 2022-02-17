@@ -165,7 +165,7 @@ impl ProtoArrayForkChoice {
     pub fn process_execution_payload_invalidation(
         &mut self,
         head_block_root: Hash256,
-        latest_valid_ancestor_root: Hash256,
+        latest_valid_ancestor_root: Option<Hash256>,
     ) -> Result<(), String> {
         self.proto_array
             .propagate_execution_payload_invalidation(head_block_root, latest_valid_ancestor_root)
