@@ -150,6 +150,7 @@ pub enum BeaconChainError {
     JustifiedPayloadInvalid {
         justified_root: Hash256,
     },
+    ForkchoiceUpdate(execution_layer::Error),
 }
 
 easy_from_to!(SlotProcessingError, BeaconChainError);

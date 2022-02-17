@@ -3677,52 +3677,53 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // If this is a post-merge block, update the execution layer.
         if let Some(new_head_execution_block_hash) = new_head_execution_block_hash_opt {
             if is_merge_transition_complete {
-                let execution_layer = self
-                    .execution_layer
-                    .clone()
-                    .ok_or(Error::ExecutionLayerMissing)?;
-                let store = self.store.clone();
-                let log = self.log.clone();
-
-                // Spawn the update task, without waiting for it to complete.
-                execution_layer.spawn(
-                    move |execution_layer| async move {
-                        if let Err(e) = Self::update_execution_engine_forkchoice(
-                            execution_layer,
-                            store,
-                            new_finalized_checkpoint.root,
-                            new_head_execution_block_hash,
-                            &log,
-                        )
-                        .await
-                        {
-                            crit!(
-                                log,
-                                "Failed to update execution head";
-                                "error" => ?e
-                            );
-                        }
-                    },
-                    "update_execution_engine_forkchoice",
-                )
+                if let Err(e) = self.update_execution_engine_forkchoice_blocking(
+                    new_finalized_checkpoint.root,
+                    new_head_execution_block_hash,
+                ) {
+                    crit!(
+                        self.log,
+                        "Failed to update execution head";
+                        "error" => ?e
+                    );
+                }
             }
         }
 
         Ok(())
     }
 
-    pub async fn update_execution_engine_forkchoice(
-        execution_layer: ExecutionLayer,
-        store: BeaconStore<T>,
+    pub fn update_execution_engine_forkchoice_blocking(
+        &self,
         finalized_beacon_block_root: Hash256,
         head_execution_block_hash: Hash256,
-        log: &Logger,
+    ) -> Result<(), Error> {
+        let execution_layer = self
+            .execution_layer
+            .as_ref()
+            .ok_or(Error::ExecutionLayerMissing)?;
+
+        execution_layer
+            .block_on_generic(|_| {
+                self.update_execution_engine_forkchoice_async(
+                    finalized_beacon_block_root,
+                    head_execution_block_hash,
+                )
+            })
+            .map_err(Error::ForkchoiceUpdate)?
+    }
+
+    pub async fn update_execution_engine_forkchoice_async(
+        &self,
+        finalized_beacon_block_root: Hash256,
+        head_execution_block_hash: Hash256,
     ) -> Result<(), Error> {
         // Loading the finalized block from the store is not ideal. Perhaps it would be better to
         // store it on fork-choice so we can do a lookup without hitting the database.
         //
         // See: https://github.com/sigp/lighthouse/pull/2627#issuecomment-927537245
-        let finalized_block = store
+        let finalized_block = self
+            .store
             .get_block(&finalized_beacon_block_root)?
             .ok_or(Error::MissingBeaconBlock(finalized_beacon_block_root))?;
 
@@ -3734,7 +3735,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .map(|ep| ep.block_hash)
             .unwrap_or_else(Hash256::zero);
 
-        let forkchoice_updated_response = execution_layer
+        let forkchoice_updated_response = self
+            .execution_layer
+            .as_ref()
+            .ok_or(Error::ExecutionLayerMissing)?
             .notify_forkchoice_updated(
                 head_execution_block_hash,
                 finalized_execution_block_hash,
@@ -3751,7 +3755,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 // error. However, we create a log to bring attention to the issue.
                 PayloadStatus::Accepted => {
                     warn!(
-                        log,
+                        self.log,
                         "Fork choice update received ACCEPTED";
                         "msg" => "execution engine provided an unexpected response to a fork \
                         choice update. although this is not a serious issue, please raise \
