@@ -1126,8 +1126,7 @@ impl<'a, T: BeaconChainTypes> FullyVerifiedBlock<'a, T> {
         //
         // It is important that this function is called *after* `per_slot_processing`, since the
         // `randao` may change.
-        let payload_verification_status =
-            notify_new_payload(chain, &state, block.message(), block_root)?;
+        let payload_verification_status = notify_new_payload(chain, &state, block.message())?;
 
         // If the block is sufficiently recent, notify the validator monitor.
         if let Some(slot) = chain.slot_clock.now() {

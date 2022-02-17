@@ -35,7 +35,6 @@ pub fn notify_new_payload<T: BeaconChainTypes>(
     chain: &BeaconChain<T>,
     state: &BeaconState<T::EthSpec>,
     block: BeaconBlockRef<T::EthSpec>,
-    block_root: Hash256,
 ) -> Result<PayloadVerificationStatus, BlockError<T::EthSpec>> {
     if !is_execution_enabled(state, block.body()) {
         return Ok(PayloadVerificationStatus::Irrelevant);
