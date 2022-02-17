@@ -140,7 +140,12 @@ impl InvalidPayloadRig {
         match is_valid {
             Payload::Valid | Payload::Syncing => {
                 if is_valid == Payload::Syncing {
-                    mock_execution_layer.server.all_payloads_syncing();
+                    // Importing a payload whilst returning `SYNCING` simulates an EE that obtains
+                    // the block via it's own means (e.g., devp2p).
+                    let should_import_payload = true;
+                    mock_execution_layer
+                        .server
+                        .all_payloads_syncing(should_import_payload);
                 } else {
                     mock_execution_layer.server.full_payload_verification();
                 }
