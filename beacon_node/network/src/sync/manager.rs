@@ -81,15 +81,11 @@ pub enum RequestId {
     /// Request searching for a block given a hash.
     SingleBlock { id: Id },
     /// Request searching for a block's parent. The id is the chain
-    ParentLookup { id: Id, chain: Hash256 },
+    ParentLookup { id: Id },
     /// Request was from the backfill sync algorithm.
-    BackFillSync { id: Id, epoch: Epoch },
+    BackFillSync { id: Id },
     /// The request was from a chain in the range sync algorithm.
-    RangeSync {
-        id: Id,
-        epoch: Epoch,
-        chain: ChainId,
-    },
+    RangeSync { id: Id },
 }
 
 #[derive(Debug)]
@@ -604,7 +600,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
             block_roots: VariableList::from(vec![block_hash]),
         };
 
-        if let Ok(request_id) = self.network.blocks_by_root_request(peer_id, request) {
+        if let Ok(request_id) = self.network.single_block_lookup_request(peer_id, request) {
             self.single_block_lookups
                 .insert(request_id, SingleBlockRequest::new(block_hash));
         }
@@ -617,7 +613,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
             RequestId::SingleBlock { id } => {
                 self.single_block_lookups.remove(&id);
             }
-            RequestId::ParentLookup { id, chain: _ } => {
+            RequestId::ParentLookup { id } => {
                 if let Some(pos) = self
                     .parent_queue
                     .iter()
@@ -630,19 +626,28 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                     self.request_parent(parent_request);
                 }
             }
-            RequestId::BackFillSync { id, epoch } => {
-                match self
-                    .backfill_sync
-                    .inject_error(&mut self.network, epoch, &peer_id, id)
-                {
-                    Ok(_) => {}
-                    Err(_) => self.update_sync_state(),
+            RequestId::BackFillSync { id } => {
+                if let Some(batch_id) = self.network.backfill_sync_response(id, true) {
+                    match self
+                        .backfill_sync
+                        .inject_error(&mut self.network, batch_id, &peer_id, id)
+                    {
+                        Ok(_) => {}
+                        Err(_) => self.update_sync_state(),
+                    }
                 }
             }
-            RequestId::RangeSync { id, epoch, chain } => {
-                self.range_sync
-                    .inject_error(&mut self.network, peer_id, epoch, chain, id);
-                self.update_sync_state()
+            RequestId::RangeSync { id } => {
+                if let Some((chain_id, batch_id)) = self.network.range_sync_response(id, true) {
+                    self.range_sync.inject_error(
+                        &mut self.network,
+                        peer_id,
+                        batch_id,
+                        chain_id,
+                        id,
+                    );
+                    self.update_sync_state()
+                }
             }
         }
     }
@@ -981,7 +986,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         // guaranteed to have this chain of blocks.
         let peer_id = parent_request.last_submitted_peer;
 
-        if let Ok(request_id) = self.network.blocks_by_root_request(peer_id, request) {
+        if let Ok(request_id) = self.network.parent_lookup_request(peer_id, request) {
             // if the request was successful add the queue back into self
             parent_request.pending = Some(request_id);
             self.parent_queue.push(parent_request);
@@ -1080,41 +1085,46 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                 self.single_block_lookup_response(id, peer_id, beacon_block, seen_timestamp)
                     .await;
             }
-            RequestId::ParentLookup { id, chain: _ } => {
+            RequestId::ParentLookup { id } => {
                 self.parent_lookup_response(peer_id, id, beacon_block, seen_timestamp)
                     .await
             }
-            RequestId::BackFillSync { id, epoch } => {
-                match self.backfill_sync.on_block_response(
-                    &mut self.network,
-                    epoch,
-                    &peer_id,
-                    id,
-                    beacon_block,
-                ) {
-                    Ok(ProcessResult::SyncCompleted) => self.update_sync_state(),
-                    Ok(ProcessResult::Successful) => {}
-                    Err(_error) => {
-                        // The backfill sync has failed, errors are reported
-                        // within.
-                        self.update_sync_state();
+            RequestId::BackFillSync { id } => {
+                if let Some(batch_id) = self
+                    .network
+                    .backfill_sync_response(id, beacon_block.is_none())
+                {
+                    match self.backfill_sync.on_block_response(
+                        &mut self.network,
+                        batch_id,
+                        &peer_id,
+                        id,
+                        beacon_block,
+                    ) {
+                        Ok(ProcessResult::SyncCompleted) => self.update_sync_state(),
+                        Ok(ProcessResult::Successful) => {}
+                        Err(_error) => {
+                            // The backfill sync has failed, errors are reported
+                            // within.
+                            self.update_sync_state();
+                        }
                     }
                 }
             }
-            RequestId::RangeSync {
-                id,
-                epoch: batch_id,
-                chain: chain_id,
-            } => {
-                self.range_sync.blocks_by_range_response(
-                    &mut self.network,
-                    peer_id,
-                    chain_id,
-                    batch_id,
-                    id,
-                    beacon_block,
-                );
-                self.update_sync_state();
+            RequestId::RangeSync { id } => {
+                if let Some((chain_id, batch_id)) =
+                    self.network.range_sync_response(id, beacon_block.is_none())
+                {
+                    self.range_sync.blocks_by_range_response(
+                        &mut self.network,
+                        peer_id,
+                        chain_id,
+                        batch_id,
+                        id,
+                        beacon_block,
+                    );
+                    self.update_sync_state();
+                }
             }
         }
     }

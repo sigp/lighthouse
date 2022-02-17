@@ -5,12 +5,13 @@ use super::manager::{Id, RequestId as SyncRequestId};
 use super::range_sync::{BatchId, ChainId};
 use crate::service::{NetworkMessage, RequestId};
 use crate::status::ToStatusMessage;
+use fnv::FnvHashMap;
 use lighthouse_network::rpc::{BlocksByRangeRequest, BlocksByRootRequest, GoodbyeReason};
 use lighthouse_network::{Client, NetworkGlobals, PeerAction, PeerId, ReportSource, Request};
 use slog::{debug, trace, warn};
 use std::sync::Arc;
 use tokio::sync::mpsc;
-use types::{EthSpec, Hash256};
+use types::EthSpec;
 
 /// Wraps a Network channel to employ various RPC related network functionality for the Sync manager. This includes management of a global RPC request Id.
 
@@ -22,7 +23,12 @@ pub struct SyncNetworkContext<T: EthSpec> {
     network_globals: Arc<NetworkGlobals<T>>,
 
     /// A sequential ID for all RPC requests.
-    identifier: Id,
+    request_id: Id,
+
+    /// BlocksByRange requests made by the range syncing algorithm.
+    range_requests: FnvHashMap<Id, (ChainId, BatchId)>,
+
+    backfill_requests: FnvHashMap<Id, BatchId>,
 
     /// Logger for the `SyncNetworkContext`.
     log: slog::Logger,
@@ -37,7 +43,9 @@ impl<T: EthSpec> SyncNetworkContext<T> {
         Self {
             network_send,
             network_globals,
-            identifier: 1,
+            request_id: 1,
+            range_requests: FnvHashMap::default(),
+            backfill_requests: FnvHashMap::default(),
             log,
         }
     }
@@ -70,10 +78,12 @@ impl<T: EthSpec> SyncNetworkContext<T> {
                     "head_slot" => %status_message.head_slot,
                 );
 
+                let request = Request::Status(status_message.clone());
+                let request_id = RequestId::Router;
                 let _ = self.send_network_msg(NetworkMessage::SendRequest {
                     peer_id,
-                    request: Request::Status(status_message.clone()),
-                    request_id: RequestId::Router, // router will send the response to the processor
+                    request,
+                    request_id,
                 });
             }
         }
@@ -94,20 +104,16 @@ impl<T: EthSpec> SyncNetworkContext<T> {
             "count" => request.count,
             "peer" => %peer_id,
         );
-
-        let identifier = self.next_id();
-        let request_id = SyncRequestId::RangeSync {
-            id: identifier,
-            epoch: batch_id,
-            chain: chain_id,
-        };
-
+        let request = Request::BlocksByRange(request);
+        let id = self.next_id();
+        let request_id = RequestId::Sync(SyncRequestId::RangeSync { id });
         self.send_network_msg(NetworkMessage::SendRequest {
             peer_id,
-            request_id: RequestId::Sync(request_id),
-            request: Request::BlocksByRange(request),
+            request,
+            request_id,
         })?;
-        Ok(identifier)
+        self.range_requests.insert(id, (chain_id, batch_id));
+        Ok(id)
     }
 
     /// A blocks by range request sent by the backfill sync algorithm
@@ -124,70 +130,86 @@ impl<T: EthSpec> SyncNetworkContext<T> {
             "count" => request.count,
             "peer" => %peer_id,
         );
-        let identifier = self.next_id();
-        let request_id = SyncRequestId::BackFillSync {
-            id: identifier,
-            epoch: batch_id,
-        };
-
+        let request = Request::BlocksByRange(request);
+        let id = self.next_id();
+        let request_id = RequestId::Sync(SyncRequestId::BackFillSync { id });
         self.send_network_msg(NetworkMessage::SendRequest {
             peer_id,
-            request_id: RequestId::Sync(request_id),
-            request: Request::BlocksByRange(request),
+            request,
+            request_id,
         })?;
-        Ok(identifier)
+        self.backfill_requests.insert(id, batch_id);
+        Ok(id)
     }
 
-    /// Sends a blocks by root request.
-    pub fn blocks_by_root_request(
+    /// Received a blocks by range response.
+    pub fn range_sync_response(
+        &mut self,
+        request_id: Id,
+        remove: bool,
+    ) -> Option<(ChainId, BatchId)> {
+        if remove {
+            self.range_requests.remove(&request_id)
+        } else {
+            self.range_requests.get(&request_id).cloned()
+        }
+    }
+
+    /// Received a blocks by range response.
+    pub fn backfill_sync_response(&mut self, request_id: Id, remove: bool) -> Option<BatchId> {
+        if remove {
+            self.backfill_requests.remove(&request_id)
+        } else {
+            self.backfill_requests.get(&request_id).cloned()
+        }
+    }
+
+    /// Sends a blocks by root request for a single block lookup.
+    pub fn single_block_lookup_request(
         &mut self,
         peer_id: PeerId,
         request: BlocksByRootRequest,
     ) -> Result<Id, &'static str> {
         trace!(
             self.log,
-            "Sending BlocksByRoot Request for single block lookup";
+            "Sending BlocksByRoot Request";
             "method" => "BlocksByRoot",
             "count" => request.block_roots.len(),
             "peer" => %peer_id
         );
-        let identifier = self.next_id();
-        let request_id = SyncRequestId::SingleBlock { id: identifier };
-
+        let request = Request::BlocksByRoot(request);
+        let id = self.next_id();
+        let request_id = RequestId::Sync(SyncRequestId::SingleBlock { id });
         self.send_network_msg(NetworkMessage::SendRequest {
             peer_id,
-            request_id: RequestId::Sync(request_id),
-            request: Request::BlocksByRoot(request),
+            request,
+            request_id,
         })?;
-        Ok(identifier)
+        Ok(id)
     }
 
-    /// Sends a blocks by root request for a parent lookup.
-    pub fn blocks_by_root_parent_request(
+    /// Sends a blocks by root request for a parent request.
+    pub fn parent_lookup_request(
         &mut self,
         peer_id: PeerId,
-        chain_id: Hash256,
         request: BlocksByRootRequest,
     ) -> Result<Id, &'static str> {
         trace!(
             self.log,
-            "Sending BlocksByRoot Request for single block lookup";
+            "Sending BlocksByRoot Request";
             "method" => "BlocksByRoot",
             "count" => request.block_roots.len(),
             "peer" => %peer_id
         );
-        let identifier = self.next_id();
-        let request_id = SyncRequestId::ParentLookup {
-            id: identifier,
-            chain: chain_id,
-        };
-
+        let request = Request::BlocksByRoot(request);
+        let id = self.next_id();
+        let request_id = RequestId::Sync(SyncRequestId::ParentLookup { id });
         self.send_network_msg(NetworkMessage::SendRequest {
             peer_id,
-            request_id: RequestId::Sync(request_id),
-            request: Request::BlocksByRoot(request),
+            request,
+            request_id,
         })?;
-        Ok(identifier)
+        Ok(id)
     }
 
     /// Terminates the connection with the peer and bans them.
@@ -236,8 +258,8 @@ impl<T: EthSpec> SyncNetworkContext<T> {
     }
 
     fn next_id(&mut self) -> Id {
-        let id = self.identifier;
-        self.identifier += 1;
+        let id = self.request_id;
+        self.request_id += 1;
         id
     }
 }
