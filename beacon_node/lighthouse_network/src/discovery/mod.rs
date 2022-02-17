@@ -1049,16 +1049,10 @@ mod tests {
     use crate::rpc::methods::{MetaData, MetaDataV2};
     use enr::EnrBuilder;
     use slog::{o, Drain};
-    use std::net::UdpSocket;
     use types::{BitVector, MinimalEthSpec, SubnetId};
+    use unused_port::unused_udp_port;
 
     type E = MinimalEthSpec;
-
-    pub fn unused_port() -> u16 {
-        let socket = UdpSocket::bind("127.0.0.1:0").expect("should create udp socket");
-        let local_addr = socket.local_addr().expect("should read udp socket");
-        local_addr.port()
-    }
 
     pub fn build_log(level: slog::Level, enabled: bool) -> slog::Logger {
         let decorator = slog_term::TermDecorator::new().build();
@@ -1075,7 +1069,7 @@ mod tests {
     async fn build_discovery() -> Discovery<E> {
         let keypair = libp2p::identity::Keypair::generate_secp256k1();
         let config = NetworkConfig {
-            discovery_port: unused_port(),
+            discovery_port: unused_udp_port().unwrap(),
             ..Default::default()
         };
         let enr_key: CombinedKey = CombinedKey::from_libp2p(&keypair).unwrap();

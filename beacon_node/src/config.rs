@@ -11,10 +11,10 @@ use std::cmp;
 use std::cmp::max;
 use std::fs;
 use std::net::{IpAddr, Ipv4Addr, ToSocketAddrs};
-use std::net::{TcpListener, UdpSocket};
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use types::{Checkpoint, Epoch, EthSpec, Hash256, PublicKeyBytes, GRAFFITI_BYTES_LEN};
+use unused_port::{unused_tcp_port, unused_udp_port};
 
 /// Gets the fully-initialized global client.
 ///
@@ -293,9 +293,9 @@ pub fn get_config<E: EthSpec>(
             client_config.network.enr_address = None
         }
         client_config.network.libp2p_port =
-            unused_port("tcp").map_err(|e| format!("Failed to get port for libp2p: {}", e))?;
+            unused_tcp_port().map_err(|e| format!("Failed to get port for libp2p: {}", e))?;
         client_config.network.discovery_port =
-            unused_port("udp").map_err(|e| format!("Failed to get port for discovery: {}", e))?;
+            unused_udp_port().map_err(|e| format!("Failed to get port for discovery: {}", e))?;
         client_config.http_api.listen_port = 0;
         client_config.http_metrics.listen_port = 0;
     }
@@ -784,45 +784,4 @@ pub fn get_data_dir(cli_args: &ArgMatches) -> PathBuf {
             })
         })
         .unwrap_or_else(|| PathBuf::from("."))
-}
-
-/// A bit of hack to find an unused port.
-///
-/// Does not guarantee that the given port is unused after the function exits, just that it was
-/// unused before the function started (i.e., it does not reserve a port).
-///
-/// Used for passing unused ports to libp2 so that lighthouse won't have to update
-/// its own ENR.
-///
-/// NOTE: It is possible that libp2p/discv5 is unable to bind to the
-/// ports returned by this function as the OS has a buffer period where
-/// it doesn't allow binding to the same port even after the socket is closed.
-/// We might have to use SO_REUSEADDR socket option from `std::net2` crate in
-/// that case.
-pub fn unused_port(transport: &str) -> Result<u16, String> {
-    let local_addr = match transport {
-        "tcp" => {
-            let listener = TcpListener::bind("127.0.0.1:0").map_err(|e| {
-                format!("Failed to create TCP listener to find unused port: {:?}", e)
-            })?;
-            listener.local_addr().map_err(|e| {
-                format!(
-                    "Failed to read TCP listener local_addr to find unused port: {:?}",
-                    e
-                )
-            })?
-        }
-        "udp" => {
-            let socket = UdpSocket::bind("127.0.0.1:0")
-                .map_err(|e| format!("Failed to create UDP socket to find unused port: {:?}", e))?;
-            socket.local_addr().map_err(|e| {
-                format!(
-                    "Failed to read UDP socket local_addr to find unused port: {:?}",
-                    e
-                )
-            })?
-        }
-        _ => return Err("Invalid transport to find unused port".into()),
-    };
-    Ok(local_addr.port())
 }

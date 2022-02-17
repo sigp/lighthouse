@@ -361,6 +361,7 @@ dependencies = [
  "store",
  "task_executor",
  "types",
+ "unused_port",
 ]
 
 [[package]]
@@ -626,9 +627,9 @@ dependencies = [
 
 [[package]]
 name = "cc"
-version = "1.0.72"
+version = "1.0.73"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "22a9137b95ea06864e018375b72adfb7db6e6f68cfc8df5a04d00288050485ee"
+checksum = "2fff2a6927b3bb87f9595d67196a70493f627687a71d87a0d692242c33f58c11"
 
 [[package]]
 name = "cexpr"
@@ -1499,6 +1500,7 @@ dependencies = [
  "serde_json",
  "tokio",
  "types",
+ "unused_port",
  "web3",
 ]
 
@@ -1802,6 +1804,23 @@ dependencies = [
  "impl-serde",
  "primitive-types 0.10.1",
  "uint 0.9.3",
+]
+
+[[package]]
+name = "execution_engine_integration"
+version = "0.1.0"
+dependencies = [
+ "environment",
+ "execution_layer",
+ "exit-future",
+ "futures",
+ "sensitive_url",
+ "serde_json",
+ "task_executor",
+ "tempfile",
+ "tokio",
+ "types",
+ "unused_port",
 ]
 
 [[package]]
@@ -3325,6 +3344,7 @@ dependencies = [
  "task_executor",
  "tempfile",
  "types",
+ "unused_port",
  "validator_client",
  "validator_dir",
 ]
@@ -3380,6 +3400,7 @@ dependencies = [
  "tokio-util",
  "types",
  "unsigned-varint 0.6.0",
+ "unused_port",
  "void",
 ]
 
@@ -6598,6 +6619,10 @@ name = "untrusted"
 version = "0.7.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a156c684c91ea7d62626509bce3cb4e1d9ed5c4d978f7b4352658f96a4c26b4a"
+
+[[package]]
+name = "unused_port"
+version = "0.1.0"
 
 [[package]]
 name = "url"

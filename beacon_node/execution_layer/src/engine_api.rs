@@ -55,10 +55,10 @@ pub trait EngineApi {
         block_hash: Hash256,
     ) -> Result<Option<ExecutionBlock>, Error>;
 
-    async fn notify_new_payload_v1<T: EthSpec>(
+    async fn new_payload_v1<T: EthSpec>(
         &self,
         execution_payload: ExecutionPayload<T>,
-    ) -> Result<ExecutePayloadResponse, Error>;
+    ) -> Result<PayloadStatusV1, Error>;
 
     async fn get_payload_v1<T: EthSpec>(
         &self,
@@ -73,15 +73,18 @@ pub trait EngineApi {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub enum ExecutePayloadResponseStatus {
+pub enum PayloadStatusV1Status {
     Valid,
     Invalid,
     Syncing,
+    Accepted,
+    InvalidBlockHash,
+    InvalidTerminalBlock,
 }
 
 #[derive(Clone, Debug, PartialEq)]
-pub struct ExecutePayloadResponse {
-    pub status: ExecutePayloadResponseStatus,
+pub struct PayloadStatusV1 {
+    pub status: PayloadStatusV1Status,
     pub latest_valid_hash: Option<Hash256>,
     pub validation_error: Option<String>,
 }
@@ -110,13 +113,8 @@ pub struct PayloadAttributes {
     pub suggested_fee_recipient: Address,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub enum ForkchoiceUpdatedResponseStatus {
-    Success,
-    Syncing,
-}
 #[derive(Clone, Debug, PartialEq)]
 pub struct ForkchoiceUpdatedResponse {
-    pub status: ForkchoiceUpdatedResponseStatus,
+    pub payload_status: PayloadStatusV1,
     pub payload_id: Option<PayloadId>,
 }

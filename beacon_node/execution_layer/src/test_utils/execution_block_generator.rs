@@ -1,6 +1,5 @@
 use crate::engine_api::{
-    ExecutePayloadResponse, ExecutePayloadResponseStatus, ExecutionBlock, PayloadAttributes,
-    PayloadId,
+    ExecutionBlock, PayloadAttributes, PayloadId, PayloadStatusV1, PayloadStatusV1Status,
 };
 use crate::engines::ForkChoiceState;
 use serde::{Deserialize, Serialize};
@@ -235,20 +234,20 @@ impl<T: EthSpec> ExecutionBlockGenerator<T> {
         self.payload_ids.remove(id)
     }
 
-    pub fn notify_new_payload(&mut self, payload: ExecutionPayload<T>) -> ExecutePayloadResponse {
+    pub fn new_payload(&mut self, payload: ExecutionPayload<T>) -> PayloadStatusV1 {
         let parent = if let Some(parent) = self.blocks.get(&payload.parent_hash) {
             parent
         } else {
-            return ExecutePayloadResponse {
-                status: ExecutePayloadResponseStatus::Syncing,
+            return PayloadStatusV1 {
+                status: PayloadStatusV1Status::Syncing,
                 latest_valid_hash: None,
                 validation_error: None,
             };
         };
 
         if payload.block_number != parent.block_number() + 1 {
-            return ExecutePayloadResponse {
-                status: ExecutePayloadResponseStatus::Invalid,
+            return PayloadStatusV1 {
+                status: PayloadStatusV1Status::Invalid,
                 latest_valid_hash: Some(parent.block_hash()),
                 validation_error: Some("invalid block number".to_string()),
             };
@@ -257,8 +256,8 @@ impl<T: EthSpec> ExecutionBlockGenerator<T> {
         let valid_hash = payload.block_hash;
         self.pending_payloads.insert(payload.block_hash, payload);
 
-        ExecutePayloadResponse {
-            status: ExecutePayloadResponseStatus::Valid,
+        PayloadStatusV1 {
+            status: PayloadStatusV1Status::Valid,
             latest_valid_hash: Some(valid_hash),
             validation_error: None,
         }

@@ -39,6 +39,7 @@ regex = "1.3.9"
 strum = { version = "0.21.0", features = ["derive"] }
 superstruct = "0.4.0"
 prometheus-client = "0.15.0"
+unused_port = { path = "../../common/unused_port" }
 
 [dependencies.libp2p]
 git = "https://github.com/sigp/rust-libp2p"

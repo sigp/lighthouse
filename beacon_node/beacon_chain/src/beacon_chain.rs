@@ -52,7 +52,7 @@ use crate::{metrics, BeaconChainError};
 use eth2::types::{
     EventKind, SseBlock, SseChainReorg, SseFinalizedCheckpoint, SseHead, SseLateHead, SyncDuty,
 };
-use execution_layer::ExecutionLayer;
+use execution_layer::{ExecutionLayer, PayloadStatusV1Status};
 use fork_choice::{AttestationFromBlock, ForkChoice};
 use futures::channel::mpsc::Sender;
 use itertools::process_results;
@@ -3590,10 +3590,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                             store,
                             new_finalized_checkpoint.root,
                             new_head_execution_block_hash,
+                            &log,
                         )
                         .await
                         {
-                            debug!(
+                            crit!(
                                 log,
                                 "Failed to update execution head";
                                 "error" => ?e
@@ -3613,6 +3614,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         store: BeaconStore<T>,
         finalized_beacon_block_root: Hash256,
         head_execution_block_hash: Hash256,
+        log: &Logger,
     ) -> Result<(), Error> {
         // Loading the finalized block from the store is not ideal. Perhaps it would be better to
         // store it on fork-choice so we can do a lookup without hitting the database.
@@ -3630,14 +3632,45 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .map(|ep| ep.block_hash)
             .unwrap_or_else(Hash256::zero);
 
-        execution_layer
+        let forkchoice_updated_response = execution_layer
             .notify_forkchoice_updated(
                 head_execution_block_hash,
                 finalized_execution_block_hash,
                 None,
             )
             .await
-            .map_err(Error::ExecutionForkChoiceUpdateFailed)
+            .map_err(Error::ExecutionForkChoiceUpdateFailed);
+
+        match forkchoice_updated_response {
+            Ok((status, latest_valid_hash)) => match status {
+                PayloadStatusV1Status::Valid | PayloadStatusV1Status::Syncing => Ok(()),
+                // The specification doesn't list `ACCEPTED` as a valid response to a fork choice
+                // update. This response *seems* innocent enough, so we won't return early with an
+                // error. However, we create a log to bring attention to the issue.
+                PayloadStatusV1Status::Accepted => {
+                    warn!(
+                        log,
+                        "Fork choice update received ACCEPTED";
+                        "msg" => "execution engine provided an unexpected response to a fork \
+                        choice update. although this is not a serious issue, please raise \
+                        an issue."
+                    );
+                    Ok(())
+                }
+                PayloadStatusV1Status::Invalid
+                | PayloadStatusV1Status::InvalidTerminalBlock
+                | PayloadStatusV1Status::InvalidBlockHash => {
+                    // TODO(bellatrix): process the invalid payload.
+                    //
+                    // See: https://github.com/sigp/lighthouse/pull/2837
+                    Err(BeaconChainError::ExecutionForkChoiceUpdateInvalid {
+                        status,
+                        latest_valid_hash,
+                    })
+                }
+            },
+            Err(e) => Err(e),
+        }
     }
 
     /// Returns the status of the current head block, regarding the validity of the execution
