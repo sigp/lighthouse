@@ -1,4 +1,7 @@
 use crate::engine_api::{
+    json_structures::{
+        JsonForkchoiceUpdatedV1Response, JsonPayloadStatusV1, JsonPayloadStatusV1Status,
+    },
     ExecutionBlock, PayloadAttributes, PayloadId, PayloadStatusV1, PayloadStatusV1Status,
 };
 use crate::engines::ForkChoiceState;
@@ -267,39 +270,34 @@ impl<T: EthSpec> ExecutionBlockGenerator<T> {
         &mut self,
         forkchoice_state: ForkChoiceState,
         payload_attributes: Option<PayloadAttributes>,
-    ) -> Result<Option<PayloadId>, String> {
+    ) -> Result<JsonForkchoiceUpdatedV1Response, String> {
         if let Some(payload) = self
             .pending_payloads
             .remove(&forkchoice_state.head_block_hash)
         {
             self.insert_block(Block::PoS(payload))?;
         }
-        if !self.blocks.contains_key(&forkchoice_state.head_block_hash) {
-            return Err(format!(
-                "block hash {:?} unknown",
-                forkchoice_state.head_block_hash
-            ));
-        }
-        if !self.blocks.contains_key(&forkchoice_state.safe_block_hash) {
-            return Err(format!(
-                "block hash {:?} unknown",
-                forkchoice_state.head_block_hash
-            ));
-        }
 
-        if forkchoice_state.finalized_block_hash != Hash256::zero()
+        let unknown_head_block_hash = !self.blocks.contains_key(&forkchoice_state.head_block_hash);
+        let unknown_safe_block_hash = !self.blocks.contains_key(&forkchoice_state.safe_block_hash);
+        let unknown_finalized_block_hash = forkchoice_state.finalized_block_hash != Hash256::zero()
             && !self
                 .blocks
-                .contains_key(&forkchoice_state.finalized_block_hash)
-        {
-            return Err(format!(
-                "finalized block hash {:?} is unknown",
-                forkchoice_state.finalized_block_hash
-            ));
+                .contains_key(&forkchoice_state.finalized_block_hash);
+
+        if unknown_head_block_hash || unknown_safe_block_hash || unknown_finalized_block_hash {
+            return Ok(JsonForkchoiceUpdatedV1Response {
+                payload_status: JsonPayloadStatusV1 {
+                    status: JsonPayloadStatusV1Status::Syncing,
+                    latest_valid_hash: None,
+                    validation_error: None,
+                },
+                payload_id: None,
+            });
         }
 
-        match payload_attributes {
-            None => Ok(None),
+        let id = match payload_attributes {
+            None => None,
             Some(attributes) => {
                 if !self.blocks.iter().any(|(_, block)| {
                     block.block_hash() == self.terminal_block_hash
@@ -342,9 +340,18 @@ impl<T: EthSpec> ExecutionBlockGenerator<T> {
 
                 self.payload_ids.insert(id, execution_payload);
 
-                Ok(Some(id))
+                Some(id)
             }
-        }
+        };
+
+        Ok(JsonForkchoiceUpdatedV1Response {
+            payload_status: JsonPayloadStatusV1 {
+                status: JsonPayloadStatusV1Status::Valid,
+                latest_valid_hash: Some(forkchoice_state.head_block_hash),
+                validation_error: None,
+            },
+            payload_id: id.map(Into::into),
+        })
     }
 }
 

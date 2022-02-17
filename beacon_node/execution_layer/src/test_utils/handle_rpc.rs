@@ -95,8 +95,7 @@ pub async fn handle_rpc<T: EthSpec>(
             let forkchoice_state: JsonForkChoiceStateV1 = get_param(params, 0)?;
             let payload_attributes: Option<JsonPayloadAttributesV1> = get_param(params, 1)?;
 
-            let head_block_hash = forkchoice_state.head_block_hash;
-            let id = ctx
+            let response = ctx
                 .execution_block_generator
                 .write()
                 .forkchoice_updated_v1(
@@ -104,15 +103,7 @@ pub async fn handle_rpc<T: EthSpec>(
                     payload_attributes.map(|json| json.into()),
                 )?;
 
-            Ok(serde_json::to_value(JsonForkchoiceUpdatedV1Response {
-                payload_status: JsonPayloadStatusV1 {
-                    status: JsonPayloadStatusV1Status::Valid,
-                    latest_valid_hash: Some(head_block_hash),
-                    validation_error: None,
-                },
-                payload_id: id.map(Into::into),
-            })
-            .unwrap())
+            Ok(serde_json::to_value(response).unwrap())
         }
         other => Err(format!(
             "The method {} does not exist/is not available",
