@@ -350,12 +350,12 @@ pub fn update_gossip_metrics<T: EthSpec>(
         set_gauge_vec(
             &BEACON_BLOCK_MESH_PEERS_PER_CLIENT,
             &[&client_kind.to_string()],
-            0 as i64,
+            0_i64,
         );
         set_gauge_vec(
             &BEACON_AGGREGATE_AND_PROOF_MESH_PEERS_PER_CLIENT,
             &[&client_kind.to_string()],
-            0 as i64,
+            0_i64,
         );
     }
 
