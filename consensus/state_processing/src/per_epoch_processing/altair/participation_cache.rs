@@ -11,8 +11,8 @@
 //! Additionally, this cache is returned from the `altair::process_epoch` function and can be used
 //! to get useful summaries about the validator participation in an epoch.
 
+use rustc_hash::FxHashMap as HashMap;
 use safe_arith::{ArithError, SafeArith};
-use std::collections::HashMap;
 use types::{
     consts::altair::{
         NUM_FLAG_INDICES, TIMELY_HEAD_FLAG_INDEX, TIMELY_SOURCE_FLAG_INDEX,
@@ -82,7 +82,10 @@ impl SingleEpochParticipationCache {
         let zero_balance = Balance::zero(spec.effective_balance_increment);
 
         Self {
-            unslashed_participating_indices: HashMap::with_capacity(hashmap_len),
+            unslashed_participating_indices: HashMap::with_capacity_and_hasher(
+                hashmap_len,
+                Default::default(),
+            ),
             total_flag_balances: [zero_balance; NUM_FLAG_INDICES],
             total_active_balance: zero_balance,
         }
@@ -200,7 +203,8 @@ impl ParticipationCache {
         let mut previous_epoch_participation =
             SingleEpochParticipationCache::new(num_previous_epoch_active_vals, spec);
 
-        let mut effective_balances = HashMap::with_capacity(num_current_epoch_active_vals);
+        let mut effective_balances =
+            HashMap::with_capacity_and_hasher(num_current_epoch_active_vals, Default::default());
 
         // Contains the set of validators which are either:
         //

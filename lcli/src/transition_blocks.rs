@@ -2,7 +2,8 @@ use clap::ArgMatches;
 use eth2_network_config::Eth2NetworkConfig;
 use ssz::Encode;
 use state_processing::{
-    per_block_processing, per_slot_processing, BlockSignatureStrategy, VerifyBlockRoot,
+    per_block_processing, per_slot_processing, BlockSignatureStrategy, ConsensusContext,
+    VerifyBlockRoot,
 };
 use std::fs::File;
 use std::io::prelude::*;
@@ -94,12 +95,14 @@ fn do_transition<T: EthSpec>(
         .map_err(|e| format!("Unable to build caches: {:?}", e))?;
 
     let t = std::time::Instant::now();
+    let mut ctxt =
+        ConsensusContext::new(block.slot()).set_proposer_index(block.message().proposer_index());
     per_block_processing(
         &mut pre_state,
         &block,
-        None,
         BlockSignatureStrategy::NoVerification,
         VerifyBlockRoot::True,
+        &mut ctxt,
         spec,
     )
     .map_err(|e| format!("State transition failed: {:?}", e))?;
