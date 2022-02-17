@@ -60,11 +60,7 @@ pub async fn handle_rpc<T: EthSpec>(
             let (static_response, should_import) =
                 if let Some(mut response) = ctx.static_new_payload_response.lock().clone() {
                     if response.status.status == PayloadStatusV1Status::Valid {
-                        response.status.latest_valid_hash = ctx
-                            .execution_block_generator
-                            .read()
-                            .latest_execution_block()
-                            .map(|b| b.block_hash);
+                        response.status.latest_valid_hash = Some(request.block_hash)
                     }
 
                     (Some(response.status), response.should_import)
