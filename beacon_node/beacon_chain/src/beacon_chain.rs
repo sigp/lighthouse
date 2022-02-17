@@ -70,7 +70,7 @@ use state_processing::{
     per_block_processing::{errors::AttestationValidationError, is_merge_transition_complete},
     per_slot_processing,
     state_advance::{complete_state_advance, partial_state_advance},
-    BlockSignatureStrategy, SigVerifiedOp, VerifyBlockRoot,
+    BlockSignatureStrategy, ConsensusContext, SigVerifiedOp, VerifyBlockRoot,
 };
 use std::borrow::Cow;
 use std::cmp::Ordering;
@@ -3096,12 +3096,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         }
 
         let process_timer = metrics::start_timer(&metrics::BLOCK_PRODUCTION_PROCESS_TIMES);
+        let mut ctxt = ConsensusContext::new(block.slot()).set_proposer_index(proposer_index);
         per_block_processing(
             &mut state,
             &block,
-            None,
             BlockSignatureStrategy::VerifyRandao,
             VerifyBlockRoot::True,
+            &mut ctxt,
             &self.spec,
         )?;
         drop(process_timer);
