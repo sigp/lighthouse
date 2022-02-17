@@ -9,6 +9,3 @@ mod range_sync;
 
 pub use manager::{BatchProcessResult, SyncMessage};
 pub use range_sync::ChainId;
-
-/// Type of id of rpc requests sent by sync
-pub type RequestId = usize;
