@@ -438,7 +438,16 @@ impl ExecutionLayer {
                         )
                         .await
                         .map(|response| response.payload_id)?
-                        .ok_or(ApiError::PayloadIdUnavailable)?
+                        .ok_or_else(|| {
+                            crit!(
+                                self.log(),
+                                "Exec engine unable to produce payload";
+                                "msg" => "no payload id, the engine is likely syncing. /
+                                this has potentially caused a missed block proposal.",
+                            );
+
+                            ApiError::PayloadIdUnavailable
+                        })?
                 };
 
                 engine.api.get_payload_v1(payload_id).await
