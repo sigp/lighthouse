@@ -120,7 +120,7 @@ pub enum SyncMessage<T: EthSpec> {
 
     /// A batch has been processed by the block processor thread.
     BatchProcessed {
-        sync_type: SyncRequestType,
+        sync_type: BatchProcessType,
         result: BatchProcessResult,
     },
 
@@ -135,7 +135,7 @@ pub enum SyncMessage<T: EthSpec> {
 
 /// The type of sync request made
 #[derive(Debug, Clone)]
-pub enum SyncRequestType {
+pub enum BatchProcessType {
     /// Request was from the backfill sync algorithm.
     BackFillSync(Epoch),
     /// The request was from a chain in the range sync algorithm.
@@ -1030,7 +1030,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                         request_id,
                     } => self.inject_error(peer_id, request_id),
                     SyncMessage::BatchProcessed { sync_type, result } => match sync_type {
-                        SyncRequestType::RangeSync(epoch, chain_id) => {
+                        BatchProcessType::RangeSync(epoch, chain_id) => {
                             self.range_sync.handle_block_process_result(
                                 &mut self.network,
                                 chain_id,
@@ -1039,7 +1039,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                             );
                             self.update_sync_state();
                         }
-                        SyncRequestType::BackFillSync(epoch) => {
+                        BatchProcessType::BackFillSync(epoch) => {
                             match self.backfill_sync.on_batch_process_result(
                                 &mut self.network,
                                 epoch,

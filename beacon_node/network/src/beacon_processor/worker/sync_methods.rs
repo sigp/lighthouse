@@ -2,7 +2,7 @@ use super::{super::work_reprocessing_queue::ReprocessQueueMessage, Worker};
 use crate::beacon_processor::worker::FUTURE_SLOT_TOLERANCE;
 use crate::beacon_processor::{BlockResultSender, DuplicateCache};
 use crate::metrics;
-use crate::sync::manager::{SyncMessage, SyncRequestType};
+use crate::sync::manager::{BatchProcessType, SyncMessage};
 use crate::sync::{BatchProcessResult, ChainId};
 use beacon_chain::{
     BeaconChainError, BeaconChainTypes, BlockError, ChainSegmentResult, HistoricalBlockError,
@@ -141,7 +141,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                     }
                 };
 
-                let sync_type = SyncRequestType::RangeSync(epoch, chain_id);
+                let sync_type = BatchProcessType::RangeSync(epoch, chain_id);
 
                 self.send_sync_message(SyncMessage::BatchProcessed { sync_type, result });
             }
@@ -175,7 +175,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                     }
                 };
 
-                let sync_type = SyncRequestType::BackFillSync(epoch);
+                let sync_type = BatchProcessType::BackFillSync(epoch);
 
                 self.send_sync_message(SyncMessage::BatchProcessed { sync_type, result });
             }
