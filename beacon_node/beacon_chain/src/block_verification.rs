@@ -41,7 +41,7 @@
 //!
 //! ```
 use crate::execution_payload::{
-    execute_payload, validate_execution_payload_for_gossip, validate_merge_block,
+    notify_new_payload, validate_execution_payload_for_gossip, validate_merge_block,
 };
 use crate::snapshot_cache::PreProcessingSnapshot;
 use crate::validator_monitor::HISTORIC_EPOCHS as VALIDATOR_MONITOR_HISTORIC_EPOCHS;
@@ -54,6 +54,7 @@ use crate::{
     metrics, BeaconChain, BeaconChainError, BeaconChainTypes,
 };
 use eth2::types::EventKind;
+use execution_layer::PayloadStatusV1Status;
 use fork_choice::{ForkChoice, ForkChoiceStore, PayloadVerificationStatus};
 use parking_lot::RwLockReadGuard;
 use proto_array::Block as ProtoBlock;
@@ -269,7 +270,10 @@ pub enum ExecutionPayloadError {
     /// ## Peer scoring
     ///
     /// The block is invalid and the peer is faulty
-    RejectedByExecutionEngine,
+    RejectedByExecutionEngine {
+        status: PayloadStatusV1Status,
+        latest_valid_hash: Option<Vec<Hash256>>,
+    },
     /// The execution payload timestamp does not match the slot
     ///
     /// ## Peer scoring
@@ -1125,7 +1129,7 @@ impl<'a, T: BeaconChainTypes> FullyVerifiedBlock<'a, T> {
         //
         // It is important that this function is called *after* `per_slot_processing`, since the
         // `randao` may change.
-        let payload_verification_status = execute_payload(chain, &state, block.message())?;
+        let payload_verification_status = notify_new_payload(chain, &state, block.message())?;
 
         // If the block is sufficiently recent, notify the validator monitor.
         if let Some(slot) = chain.slot_clock.now() {

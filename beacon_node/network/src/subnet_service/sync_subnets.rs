@@ -21,7 +21,7 @@ use crate::metrics;
 
 /// The minimum number of slots ahead that we attempt to discover peers for a subscription. If the
 /// slot is less than this number, skip the peer discovery process.
-/// Subnet discovery query takes atmost 30 secs, 2 slots take 24s.
+/// Subnet discovery query takes at most 30 secs, 2 slots take 24s.
 const MIN_PEER_DISCOVERY_SLOT_LOOK_AHEAD: u64 = 2;
 
 /// A particular subnet at a given slot.
@@ -115,7 +115,7 @@ impl<T: BeaconChainTypes> SyncCommitteeService<T> {
             metrics::inc_counter(&metrics::SYNC_COMMITTEE_SUBSCRIPTION_REQUESTS);
             //NOTE: We assume all subscriptions have been verified before reaching this service
 
-            // Registers the validator with the subnet  service.
+            // Registers the validator with the subnet service.
             // This will subscribe to long-lived random subnets if required.
             trace!(self.log,
                 "Sync committee subscription";

@@ -44,7 +44,7 @@ jobs:
       run: make test-release
   release-tests-windows:
     name: release-tests-windows
-    runs-on: windows-latest
+    runs-on: windows-2019
     needs: cargo-fmt
     steps:
     - uses: actions/checkout@v1
@@ -184,6 +184,16 @@ jobs:
             run: |
                 cd scripts/tests
                 ./doppelganger_protection.sh failure
+  execution-engine-integration-ubuntu:
+    name: execution-engine-integration-ubuntu
+    runs-on: ubuntu-latest
+    needs: cargo-fmt
+    steps:
+    - uses: actions/checkout@v1
+    - name: Get latest version of stable Rust
+      run: rustup update stable
+    - name: Run exec engine integration tests in release
+      run: make test-exec-engine
   check-benchmarks:
     name: check-benchmarks
     runs-on: ubuntu-latest

@@ -1671,7 +1671,7 @@ impl ApiTester {
     pub async fn test_get_validator_duties_proposer(self) -> Self {
         let current_epoch = self.chain.epoch().unwrap();
 
-        for epoch in 0..=self.chain.epoch().unwrap().as_u64() {
+        for epoch in 0..=self.chain.epoch().unwrap().as_u64() + 1 {
             let epoch = Epoch::from(epoch);
 
             let dependent_root = self
@@ -1780,9 +1780,9 @@ impl ApiTester {
             }
         }
 
-        // Requests to future epochs should fail.
+        // Requests to the epochs after the next epoch should fail.
         self.client
-            .get_validator_duties_proposer(current_epoch + 1)
+            .get_validator_duties_proposer(current_epoch + 2)
             .await
             .unwrap_err();
 
@@ -1802,15 +1802,27 @@ impl ApiTester {
             current_epoch_start - MAXIMUM_GOSSIP_CLOCK_DISPARITY - Duration::from_millis(1),
         );
 
-        assert_eq!(
-            self.client
-                .get_validator_duties_proposer(current_epoch)
-                .await
-                .unwrap_err()
-                .status()
-                .map(Into::into),
-            Some(400),
-            "should not get proposer duties outside of tolerance"
+        let dependent_root = self
+            .chain
+            .block_root_at_slot(
+                current_epoch.start_slot(E::slots_per_epoch()) - 1,
+                WhenSlotSkipped::Prev,
+            )
+            .unwrap()
+            .unwrap_or(self.chain.head_beacon_block_root().unwrap());
+
+        self.client
+            .get_validator_duties_proposer(current_epoch)
+            .await
+            .expect("should get proposer duties for the next epoch outside of tolerance");
+
+        assert!(
+            self.chain
+                .beacon_proposer_cache
+                .lock()
+                .get_epoch::<E>(dependent_root, current_epoch)
+                .is_none(),
+            "should not prime the proposer cache outside of tolerance"
         );
 
         assert_eq!(
@@ -1832,6 +1844,16 @@ impl ApiTester {
             .get_validator_duties_proposer(current_epoch)
             .await
             .expect("should get proposer duties within tolerance");
+
+        assert!(
+            self.chain
+                .beacon_proposer_cache
+                .lock()
+                .get_epoch::<E>(dependent_root, current_epoch)
+                .is_some(),
+            "should prime the proposer cache inside the tolerance"
+        );
+
         self.client
             .post_validator_duties_attester(next_epoch, &[0])
             .await
