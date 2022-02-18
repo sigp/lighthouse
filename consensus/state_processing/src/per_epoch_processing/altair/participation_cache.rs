@@ -11,6 +11,7 @@
 //! Additionally, this cache is returned from the `altair::process_epoch` function and can be used
 //! to get useful summaries about the validator participation in an epoch.
 
+use crate::common::altair::get_base_reward;
 use rustc_hash::FxHashMap as HashMap;
 use safe_arith::{ArithError, SafeArith};
 use types::{
@@ -19,14 +20,14 @@ use types::{
         TIMELY_TARGET_FLAG_INDEX,
     },
     BeaconState, BeaconStateError, ChainSpec, Epoch, EthSpec, ParticipationFlags, RelativeEpoch,
-    Validator,
+    Unsigned, Validator,
 };
 
 #[derive(Debug, PartialEq)]
 pub enum Error {
     InvalidFlagIndex(usize),
     NoUnslashedParticipatingIndices,
-    MissingEffectiveBalance(usize),
+    MissingValidator(usize),
 }
 
 /// A balance which will never be below the specified `minimum`.
@@ -58,16 +59,6 @@ impl Balance {
 /// Caches the participation values for one epoch (either the previous or current).
 #[derive(PartialEq, Debug)]
 struct SingleEpochParticipationCache {
-    /// Maps an active validator index to their participation flags.
-    ///
-    /// To reiterate, only active and unslashed validator indices are stored in this map.
-    ///
-    /// ## Note
-    ///
-    /// It would be ideal to maintain a reference to the `BeaconState` here rather than copying the
-    /// `ParticipationFlags`, however that would cause us to run into mutable reference limitations
-    /// upstream.
-    unslashed_participating_indices: Option<HashMap<usize, ParticipationFlags>>,
     /// Stores the sum of the balances for all validators in `self.unslashed_participating_indices`
     /// for all flags in `NUM_FLAG_INDICES`.
     ///
@@ -79,12 +70,10 @@ struct SingleEpochParticipationCache {
 }
 
 impl SingleEpochParticipationCache {
-    fn new(hashmap_len: Option<usize>, spec: &ChainSpec) -> Self {
+    fn new(spec: &ChainSpec) -> Self {
         let zero_balance = Balance::zero(spec.effective_balance_increment);
 
         Self {
-            unslashed_participating_indices: hashmap_len
-                .map(|len| HashMap::with_capacity_and_hasher(len, Default::default())),
             total_flag_balances: [zero_balance; NUM_FLAG_INDICES],
             total_active_balance: zero_balance,
         }
@@ -96,29 +85,6 @@ impl SingleEpochParticipationCache {
             .get(flag_index)
             .map(Balance::get)
             .ok_or(Error::InvalidFlagIndex(flag_index))
-    }
-
-    /// Returns `true` if `val_index` is active, unslashed and has `flag_index` set.
-    ///
-    /// ## Errors
-    ///
-    /// May return an error if `flag_index` is out-of-bounds.
-    fn has_flag(&self, val_index: usize, flag_index: usize) -> Result<bool, Error> {
-        if let Some(participation_flags) = self.unslashed_participating_indices()?.get(&val_index) {
-            participation_flags
-                .has_flag(flag_index)
-                .map_err(|_| Error::InvalidFlagIndex(flag_index))
-        } else {
-            Ok(false)
-        }
-    }
-
-    fn unslashed_participating_indices(
-        &self,
-    ) -> Result<&HashMap<usize, ParticipationFlags>, Error> {
-        self.unslashed_participating_indices
-            .as_ref()
-            .ok_or(Error::NoUnslashedParticipatingIndices)
     }
 
     /// Process an **active** validator, reading from the `state` with respect to the
@@ -152,12 +118,6 @@ impl SingleEpochParticipationCache {
             return Ok(());
         }
 
-        // Add their `ParticipationFlags` to the map *if* we need them (for the previous epoch).
-        if let Some(ref mut unslashed_participating_indices) = self.unslashed_participating_indices
-        {
-            unslashed_participating_indices.insert(val_index, *epoch_participation);
-        }
-
         // Iterate through all the flags and increment the total flag balances for whichever flags
         // are set for `val_index`.
         for (flag, balance) in self.total_flag_balances.iter_mut().enumerate() {
@@ -170,6 +130,42 @@ impl SingleEpochParticipationCache {
     }
 }
 
+#[derive(Debug, PartialEq)]
+pub struct ValidatorInfo {
+    pub effective_balance: u64,
+    pub base_reward: u64,
+    pub is_eligible: bool,
+    pub is_slashed: bool,
+    pub is_active_current_epoch: bool,
+    pub is_active_previous_epoch: bool,
+    pub previous_epoch_participation: ParticipationFlags,
+}
+
+impl ValidatorInfo {
+    pub fn is_unslashed_participating_index(&self, flag_index: usize) -> Result<bool, Error> {
+        Ok(self.is_active_previous_epoch
+            && !self.is_slashed
+            && self
+                .previous_epoch_participation
+                .has_flag(flag_index)
+                .map_err(|_| Error::InvalidFlagIndex(flag_index))?)
+    }
+}
+
+/// Single `HashMap` for validator info relevant to `process_epoch`.
+#[derive(Debug, PartialEq)]
+struct ValidatorInfoCache {
+    info: HashMap<usize, ValidatorInfo>,
+}
+
+impl ValidatorInfoCache {
+    pub fn new(capacity: usize) -> Self {
+        Self {
+            info: HashMap::with_capacity_and_hasher(capacity, Default::default()),
+        }
+    }
+}
+
 /// Maintains a cache to be used during `altair::process_epoch`.
 #[derive(PartialEq, Debug)]
 pub struct ParticipationCache {
@@ -179,10 +175,13 @@ pub struct ParticipationCache {
     previous_epoch: Epoch,
     /// Caches information about active validators pertaining to `self.previous_epoch`.
     previous_epoch_participation: SingleEpochParticipationCache,
-    /// Caches validator effective balances from the start of `process_epoch`.
-    effective_balances: HashMap<usize, u64>,
+    /// Caches validator information relevant to `process_epoch`.
+    validators: ValidatorInfoCache,
     /// Caches the result of the `get_eligible_validator_indices` function.
     eligible_indices: Vec<usize>,
+    /// Caches the indices and effective balances of validators that need to be processed by
+    /// `process_slashings`.
+    process_slashings_indices: Vec<(usize, u64)>,
 }
 
 impl ParticipationCache {
@@ -204,12 +203,12 @@ impl ParticipationCache {
 
         // Both the current/previous epoch participations are set to a capacity that is slightly
         // larger than required. The difference will be due slashed-but-active validators.
-        let mut current_epoch_participation = SingleEpochParticipationCache::new(None, spec);
-        let mut previous_epoch_participation =
-            SingleEpochParticipationCache::new(Some(num_previous_epoch_active_vals), spec);
+        let mut current_epoch_participation = SingleEpochParticipationCache::new(spec);
+        let mut previous_epoch_participation = SingleEpochParticipationCache::new(spec);
 
-        let mut effective_balances =
-            HashMap::with_capacity_and_hasher(num_previous_epoch_active_vals, Default::default());
+        let mut validators = ValidatorInfoCache::new(num_previous_epoch_active_vals);
+
+        let current_epoch_total_active_balance = state.get_total_active_balance()?;
 
         // Contains the set of validators which are either:
         //
@@ -219,6 +218,8 @@ impl ParticipationCache {
         // Using the full length of `state.validators` is almost always overkill, but it ensures no
         // reallocations.
         let mut eligible_indices = Vec::with_capacity(state.validators().len());
+
+        let mut process_slashings_indices = vec![];
 
         // Iterate through all validators, updating:
         //
@@ -234,7 +235,11 @@ impl ParticipationCache {
             .zip(state.previous_epoch_participation()?)
             .enumerate();
         for (val_index, ((val, curr_epoch_flags), prev_epoch_flags)) in iter {
-            if val.is_active_at(current_epoch) {
+            let is_active_current_epoch = val.is_active_at(current_epoch);
+            let is_active_previous_epoch = val.is_active_at(previous_epoch);
+            let is_eligible = state.is_eligible_validator(val);
+
+            if is_active_current_epoch {
                 current_epoch_participation.process_active_validator(
                     val_index,
                     val,
@@ -244,7 +249,9 @@ impl ParticipationCache {
                 )?;
             }
 
-            if val.is_active_at(previous_epoch) {
+            if is_active_previous_epoch {
+                assert!(is_eligible);
+
                 previous_epoch_participation.process_active_validator(
                     val_index,
                     val,
@@ -254,21 +261,55 @@ impl ParticipationCache {
                 )?;
             }
 
+            if val.slashed
+                && current_epoch.safe_add(T::EpochsPerSlashingsVector::to_u64().safe_div(2)?)?
+                    == val.withdrawable_epoch
+            {
+                process_slashings_indices.push((val_index, val.effective_balance));
+            }
+
             // Note: a validator might still be "eligible" whilst returning `false` to
-            // `Validator::is_active_at`.
-            if state.is_eligible_validator(val) {
+            // `Validator::is_active_at`. It's also possible for a validator to be active
+            // in the current epoch without being eligible (if it was just activated).
+            if is_eligible {
                 eligible_indices.push(val_index);
-                effective_balances.insert(val_index, val.effective_balance);
+            }
+
+            if is_eligible || is_active_current_epoch {
+                let effective_balance = val.effective_balance;
+                let base_reward =
+                    get_base_reward(effective_balance, current_epoch_total_active_balance, spec)?;
+
+                validators.info.insert(
+                    val_index,
+                    ValidatorInfo {
+                        effective_balance,
+                        base_reward,
+                        is_eligible,
+                        is_slashed: val.slashed,
+                        is_active_current_epoch,
+                        is_active_previous_epoch,
+                        previous_epoch_participation: *prev_epoch_flags,
+                    },
+                );
             }
         }
+
+        // Sanity check total active balance.
+        // FIXME(sproul): assert
+        assert_eq!(
+            current_epoch_participation.total_active_balance.get(),
+            current_epoch_total_active_balance
+        );
 
         Ok(Self {
             current_epoch,
             current_epoch_participation,
             previous_epoch,
             previous_epoch_participation,
-            effective_balances,
+            validators,
             eligible_indices,
+            process_slashings_indices,
         })
     }
 
@@ -277,24 +318,8 @@ impl ParticipationCache {
         &self.eligible_indices
     }
 
-    /// Equivalent to the `get_unslashed_participating_indices` function in the specification.
-    pub fn get_unslashed_participating_indices(
-        &self,
-        flag_index: usize,
-        epoch: Epoch,
-    ) -> Result<UnslashedParticipatingIndices, BeaconStateError> {
-        let participation = if epoch == self.current_epoch {
-            &self.current_epoch_participation
-        } else if epoch == self.previous_epoch {
-            &self.previous_epoch_participation
-        } else {
-            return Err(BeaconStateError::EpochOutOfBounds);
-        };
-
-        Ok(UnslashedParticipatingIndices {
-            participation,
-            flag_index,
-        })
+    pub fn process_slashings_indices(&mut self) -> Vec<(usize, u64)> {
+        std::mem::take(&mut self.process_slashings_indices)
     }
 
     /*
@@ -315,28 +340,28 @@ impl ParticipationCache {
     }
 
     pub fn previous_epoch_target_attesting_balance(&self) -> Result<u64, Error> {
-        self.previous_epoch_participation
-            .total_flag_balance(TIMELY_TARGET_FLAG_INDEX)
+        self.previous_epoch_flag_attesting_balance(TIMELY_TARGET_FLAG_INDEX)
     }
 
     pub fn previous_epoch_source_attesting_balance(&self) -> Result<u64, Error> {
-        self.previous_epoch_participation
-            .total_flag_balance(TIMELY_SOURCE_FLAG_INDEX)
+        self.previous_epoch_flag_attesting_balance(TIMELY_SOURCE_FLAG_INDEX)
     }
 
     pub fn previous_epoch_head_attesting_balance(&self) -> Result<u64, Error> {
+        self.previous_epoch_flag_attesting_balance(TIMELY_HEAD_FLAG_INDEX)
+    }
+
+    pub fn previous_epoch_flag_attesting_balance(&self, flag_index: usize) -> Result<u64, Error> {
         self.previous_epoch_participation
-            .total_flag_balance(TIMELY_HEAD_FLAG_INDEX)
+            .total_flag_balance(flag_index)
     }
 
     /*
      * Active/Unslashed
      */
 
-    pub fn is_active_unslashed_in_previous_epoch(&self, val_index: usize) -> bool {
-        self.previous_epoch_participation
-            .unslashed_participating_indices()
-            .map_or(false, |indices| indices.contains_key(&val_index))
+    pub fn is_active_unslashed_in_previous_epoch(&self, _val_index: usize) -> bool {
+        false
     }
 
     pub fn is_active_unslashed_in_current_epoch(&self, _val_index: usize) -> bool {
@@ -344,88 +369,52 @@ impl ParticipationCache {
         false
     }
 
-    pub fn get_effective_balance(&self, val_index: usize) -> Result<u64, Error> {
-        self.effective_balances
+    pub fn get_validator(&self, val_index: usize) -> Result<&ValidatorInfo, Error> {
+        self.validators
+            .info
             .get(&val_index)
-            .copied()
-            .ok_or(Error::MissingEffectiveBalance(val_index))
+            .ok_or(Error::MissingValidator(val_index))
     }
 
     /*
      * Flags
      */
+    // FIXME(sproul): broken
 
     /// Always returns false for a slashed validator.
     pub fn is_previous_epoch_timely_source_attester(
         &self,
-        val_index: usize,
+        _val_index: usize,
     ) -> Result<bool, Error> {
-        self.previous_epoch_participation
-            .has_flag(val_index, TIMELY_SOURCE_FLAG_INDEX)
+        Ok(false)
     }
 
     /// Always returns false for a slashed validator.
     pub fn is_previous_epoch_timely_target_attester(
         &self,
-        val_index: usize,
+        _val_index: usize,
     ) -> Result<bool, Error> {
-        self.previous_epoch_participation
-            .has_flag(val_index, TIMELY_TARGET_FLAG_INDEX)
+        Ok(false)
     }
 
     /// Always returns false for a slashed validator.
-    pub fn is_previous_epoch_timely_head_attester(&self, val_index: usize) -> Result<bool, Error> {
-        self.previous_epoch_participation
-            .has_flag(val_index, TIMELY_HEAD_FLAG_INDEX)
+    pub fn is_previous_epoch_timely_head_attester(&self, _val_index: usize) -> Result<bool, Error> {
+        Ok(false)
     }
 
     /// Always returns false for a slashed validator.
-    pub fn is_current_epoch_timely_source_attester(&self, val_index: usize) -> Result<bool, Error> {
-        self.current_epoch_participation
-            .has_flag(val_index, TIMELY_SOURCE_FLAG_INDEX)
+    pub fn is_current_epoch_timely_source_attester(
+        &self,
+        _val_index: usize,
+    ) -> Result<bool, Error> {
+        Ok(false)
     }
 
     /// Always returns false for a slashed validator.
-    pub fn is_current_epoch_timely_target_attester(&self, val_index: usize) -> Result<bool, Error> {
-        self.current_epoch_participation
-            .has_flag(val_index, TIMELY_TARGET_FLAG_INDEX)
-    }
-
-    /// Always returns false for a slashed validator.
-    pub fn is_current_epoch_timely_head_attester(&self, val_index: usize) -> Result<bool, Error> {
-        self.current_epoch_participation
-            .has_flag(val_index, TIMELY_HEAD_FLAG_INDEX)
-    }
-}
-
-/// Imitates the return value of the `get_unslashed_participating_indices` in the
-/// specification.
-///
-/// This struct exists to help make the Lighthouse code read more like the specification.
-pub struct UnslashedParticipatingIndices<'a> {
-    participation: &'a SingleEpochParticipationCache,
-    flag_index: usize,
-}
-
-impl<'a> UnslashedParticipatingIndices<'a> {
-    /// Returns `Ok(true)` if the given `val_index` is both:
-    ///
-    /// - An active validator.
-    /// - Has `self.flag_index` set.
-    pub fn contains(&self, val_index: usize) -> Result<bool, Error> {
-        self.participation.has_flag(val_index, self.flag_index)
-    }
-
-    /// Returns the sum of all balances of validators which have `self.flag_index` set.
-    ///
-    /// ## Notes
-    ///
-    /// Respects the `EFFECTIVE_BALANCE_INCREMENT` minimum.
-    pub fn total_balance(&self) -> Result<u64, Error> {
-        self.participation
-            .total_flag_balances
-            .get(self.flag_index)
-            .ok_or(Error::InvalidFlagIndex(self.flag_index))
-            .map(Balance::get)
+    pub fn is_current_epoch_timely_target_attester(
+        &self,
+        _val_index: usize,
+    ) -> Result<bool, Error> {
+        Ok(false)
     }
 }

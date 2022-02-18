@@ -45,8 +45,12 @@ pub fn run_transition_blocks<T: EthSpec>(
         load_from_ssz_with(&block_path, spec, SignedBeaconBlock::from_ssz_bytes)?;
 
     let t = std::time::Instant::now();
-    let post_state = do_transition(pre_state.clone(), block, spec)?;
+    let mut post_state = do_transition(pre_state.clone(), block.clone(), spec)?;
     println!("Total transition time: {}ms", t.elapsed().as_millis());
+
+    if post_state.update_tree_hash_cache().unwrap() != block.state_root() {
+        return Err("state root mismatch".into());
+    }
 
     let mut output_file =
         File::create(output_path).map_err(|e| format!("Unable to create output file: {:?}", e))?;

@@ -1327,6 +1327,10 @@ impl<T: EthSpec> BeaconState<T> {
         }
     }
 
+    pub fn set_total_active_balance(&mut self, epoch: Epoch, balance: u64) {
+        *self.total_active_balance_mut() = Some((epoch, balance));
+    }
+
     /// Build the total active balance cache.
     fn build_total_active_balance_cache(&mut self, spec: &ChainSpec) -> Result<(), Error> {
         let current_epoch = self.current_epoch();
@@ -1473,32 +1477,8 @@ impl<T: EthSpec> BeaconState<T> {
     ///
     /// Note: this function will not build any new committee caches, but will build the total
     /// balance cache if the (new) current epoch cache is initialized.
-    pub fn advance_caches(&mut self, spec: &ChainSpec) -> Result<(), Error> {
+    pub fn advance_caches(&mut self, _spec: &ChainSpec) -> Result<(), Error> {
         self.committee_caches_mut().rotate_left(1);
-
-        // Re-compute total active balance for current epoch.
-        //
-        // This can only be computed once the state's effective balances have been updated
-        // for the current epoch. I.e. it is not possible to know this value with the same
-        // lookahead as the committee shuffling.
-        let curr = Self::committee_cache_index(RelativeEpoch::Current);
-        let curr_cache = mem::take(self.committee_cache_at_index_mut(curr)?);
-
-        // If current epoch cache is initialized, compute the total active balance from its
-        // indices. We check that the cache is initialized at the _next_ epoch because the slot has
-        // not yet been advanced.
-        let new_current_epoch = self.next_epoch()?;
-        if curr_cache.is_initialized_at(new_current_epoch) {
-            let total_active_balance =
-                self.compute_total_active_balance(new_current_epoch, spec)?;
-            *self.total_active_balance_mut() = Some((new_current_epoch, total_active_balance));
-        }
-        // If the cache is not initialized, then the previous cached value for the total balance is
-        // wrong, so delete it.
-        else {
-            self.drop_total_active_balance_cache();
-        }
-        *self.committee_cache_at_index_mut(curr)? = curr_cache;
 
         let next = Self::committee_cache_index(RelativeEpoch::Next);
         *self.committee_cache_at_index_mut(next)? = Arc::new(CommitteeCache::default());

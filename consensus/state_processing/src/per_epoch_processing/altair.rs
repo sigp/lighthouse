@@ -29,7 +29,7 @@ pub fn process_epoch<T: EthSpec>(
     state.build_committee_cache(RelativeEpoch::Next, spec)?;
 
     // Pre-compute participating indices and total balances.
-    let participation_cache = ParticipationCache::new(state, spec)?;
+    let mut participation_cache = ParticipationCache::new(state, spec)?;
     let sync_committee = state.current_sync_committee()?.clone();
 
     // Justification and finalization.
@@ -46,6 +46,7 @@ pub fn process_epoch<T: EthSpec>(
     // Slashings.
     process_slashings(
         state,
+        Some(participation_cache.process_slashings_indices()),
         participation_cache.current_epoch_total_active_balance(),
         spec,
     )?;

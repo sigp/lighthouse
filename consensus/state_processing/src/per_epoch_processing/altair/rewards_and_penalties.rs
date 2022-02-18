@@ -6,9 +6,7 @@ use types::consts::altair::{
 };
 use types::{BeaconState, BeaconStateError, ChainSpec, EthSpec};
 
-use crate::common::{
-    altair::get_base_reward, decrease_balance_directly, increase_balance_directly,
-};
+use crate::common::{decrease_balance_directly, increase_balance_directly};
 use crate::per_epoch_processing::{Delta, Error};
 
 /// Apply attester and proposer rewards.
@@ -72,24 +70,20 @@ pub fn get_flag_index_deltas<T: EthSpec>(
     participation_cache: &ParticipationCache,
     spec: &ChainSpec,
 ) -> Result<(), Error> {
-    let previous_epoch = state.previous_epoch();
-    let unslashed_participating_indices =
-        participation_cache.get_unslashed_participating_indices(flag_index, previous_epoch)?;
     let weight = get_flag_weight(flag_index)?;
-    let unslashed_participating_balance = unslashed_participating_indices.total_balance()?;
+    let unslashed_participating_balance =
+        participation_cache.previous_epoch_flag_attesting_balance(flag_index)?;
     let unslashed_participating_increments =
         unslashed_participating_balance.safe_div(spec.effective_balance_increment)?;
     let active_increments = total_active_balance.safe_div(spec.effective_balance_increment)?;
 
     for &index in participation_cache.eligible_validator_indices() {
-        let base_reward = get_base_reward(
-            participation_cache.get_effective_balance(index as usize)?,
-            total_active_balance,
-            spec,
-        )?;
+        let validator = participation_cache.get_validator(index)?;
+        let base_reward = validator.base_reward;
+
         let mut delta = Delta::default();
 
-        if unslashed_participating_indices.contains(index as usize)? {
+        if validator.is_unslashed_participating_index(flag_index)? {
             if !state.is_in_inactivity_leak(spec) {
                 let reward_numerator = base_reward
                     .safe_mul(weight)?
@@ -102,8 +96,8 @@ pub fn get_flag_index_deltas<T: EthSpec>(
             delta.penalize(base_reward.safe_mul(weight)?.safe_div(WEIGHT_DENOMINATOR)?)?;
         }
         deltas
-            .get_mut(index as usize)
-            .ok_or(Error::DeltaOutOfBounds(index as usize))?
+            .get_mut(index)
+            .ok_or(Error::DeltaOutOfBounds(index))?
             .combine(delta)?;
     }
     Ok(())
@@ -123,15 +117,13 @@ pub fn get_inactivity_penalty_deltas<T: EthSpec>(
     participation_cache: &ParticipationCache,
     spec: &ChainSpec,
 ) -> Result<(), Error> {
-    let previous_epoch = state.previous_epoch();
-    let matching_target_indices = participation_cache
-        .get_unslashed_participating_indices(TIMELY_TARGET_FLAG_INDEX, previous_epoch)?;
     for &index in participation_cache.eligible_validator_indices() {
+        let validator = participation_cache.get_validator(index)?;
         let mut delta = Delta::default();
 
-        if !matching_target_indices.contains(index)? {
-            let penalty_numerator = participation_cache
-                .get_effective_balance(index)?
+        if !validator.is_unslashed_participating_index(TIMELY_TARGET_FLAG_INDEX)? {
+            let penalty_numerator = validator
+                .effective_balance
                 .safe_mul(state.get_inactivity_score(index)?)?;
             let penalty_denominator = spec
                 .inactivity_score_bias
