@@ -9,9 +9,7 @@ pub fn process_participation_flag_updates<T: EthSpec>(
 ) -> Result<(), EpochProcessingError> {
     *state.previous_epoch_participation_mut()? =
         std::mem::take(state.current_epoch_participation_mut()?);
-    *state.current_epoch_participation_mut()? = VList::new(vec![
-        ParticipationFlags::default();
-        state.validators().len()
-    ])?;
+    *state.current_epoch_participation_mut()? =
+        VList::repeat(ParticipationFlags::default(), state.validators().len())?;
     Ok(())
 }

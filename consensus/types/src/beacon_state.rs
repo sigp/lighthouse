@@ -486,10 +486,8 @@ impl<T: EthSpec> BeaconState<T> {
     /// If the current epoch is the genesis epoch, the genesis_epoch is returned.
     pub fn previous_epoch(&self) -> Epoch {
         let current_epoch = self.current_epoch();
-        if current_epoch > T::genesis_epoch() {
-            current_epoch
-                .safe_sub(1)
-                .expect("current epoch greater than genesis implies greater than 0")
+        if let Ok(prev_epoch) = current_epoch.safe_sub(1) {
+            prev_epoch
         } else {
             current_epoch
         }

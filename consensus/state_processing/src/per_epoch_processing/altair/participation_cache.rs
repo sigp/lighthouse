@@ -25,6 +25,7 @@ use types::{
 #[derive(Debug, PartialEq)]
 pub enum Error {
     InvalidFlagIndex(usize),
+    NoUnslashedParticipatingIndices,
     MissingEffectiveBalance(usize),
 }
 
@@ -66,7 +67,7 @@ struct SingleEpochParticipationCache {
     /// It would be ideal to maintain a reference to the `BeaconState` here rather than copying the
     /// `ParticipationFlags`, however that would cause us to run into mutable reference limitations
     /// upstream.
-    unslashed_participating_indices: HashMap<usize, ParticipationFlags>,
+    unslashed_participating_indices: Option<HashMap<usize, ParticipationFlags>>,
     /// Stores the sum of the balances for all validators in `self.unslashed_participating_indices`
     /// for all flags in `NUM_FLAG_INDICES`.
     ///
@@ -78,14 +79,12 @@ struct SingleEpochParticipationCache {
 }
 
 impl SingleEpochParticipationCache {
-    fn new(hashmap_len: usize, spec: &ChainSpec) -> Self {
+    fn new(hashmap_len: Option<usize>, spec: &ChainSpec) -> Self {
         let zero_balance = Balance::zero(spec.effective_balance_increment);
 
         Self {
-            unslashed_participating_indices: HashMap::with_capacity_and_hasher(
-                hashmap_len,
-                Default::default(),
-            ),
+            unslashed_participating_indices: hashmap_len
+                .map(|len| HashMap::with_capacity_and_hasher(len, Default::default())),
             total_flag_balances: [zero_balance; NUM_FLAG_INDICES],
             total_active_balance: zero_balance,
         }
@@ -105,13 +104,21 @@ impl SingleEpochParticipationCache {
     ///
     /// May return an error if `flag_index` is out-of-bounds.
     fn has_flag(&self, val_index: usize, flag_index: usize) -> Result<bool, Error> {
-        if let Some(participation_flags) = self.unslashed_participating_indices.get(&val_index) {
+        if let Some(participation_flags) = self.unslashed_participating_indices()?.get(&val_index) {
             participation_flags
                 .has_flag(flag_index)
                 .map_err(|_| Error::InvalidFlagIndex(flag_index))
         } else {
             Ok(false)
         }
+    }
+
+    fn unslashed_participating_indices(
+        &self,
+    ) -> Result<&HashMap<usize, ParticipationFlags>, Error> {
+        self.unslashed_participating_indices
+            .as_ref()
+            .ok_or(Error::NoUnslashedParticipatingIndices)
     }
 
     /// Process an **active** validator, reading from the `state` with respect to the
@@ -145,9 +152,11 @@ impl SingleEpochParticipationCache {
             return Ok(());
         }
 
-        // Add their `ParticipationFlags` to the map.
-        self.unslashed_participating_indices
-            .insert(val_index, *epoch_participation);
+        // Add their `ParticipationFlags` to the map *if* we need them (for the previous epoch).
+        if let Some(ref mut unslashed_participating_indices) = self.unslashed_participating_indices
+        {
+            unslashed_participating_indices.insert(val_index, *epoch_participation);
+        }
 
         // Iterate through all the flags and increment the total flag balances for whichever flags
         // are set for `val_index`.
@@ -192,19 +201,15 @@ impl ParticipationCache {
         let num_previous_epoch_active_vals = state
             .get_cached_active_validator_indices(RelativeEpoch::Previous)?
             .len();
-        let num_current_epoch_active_vals = state
-            .get_cached_active_validator_indices(RelativeEpoch::Current)?
-            .len();
 
         // Both the current/previous epoch participations are set to a capacity that is slightly
         // larger than required. The difference will be due slashed-but-active validators.
-        let mut current_epoch_participation =
-            SingleEpochParticipationCache::new(num_current_epoch_active_vals, spec);
+        let mut current_epoch_participation = SingleEpochParticipationCache::new(None, spec);
         let mut previous_epoch_participation =
-            SingleEpochParticipationCache::new(num_previous_epoch_active_vals, spec);
+            SingleEpochParticipationCache::new(Some(num_previous_epoch_active_vals), spec);
 
         let mut effective_balances =
-            HashMap::with_capacity_and_hasher(num_current_epoch_active_vals, Default::default());
+            HashMap::with_capacity_and_hasher(num_previous_epoch_active_vals, Default::default());
 
         // Contains the set of validators which are either:
         //
@@ -330,14 +335,13 @@ impl ParticipationCache {
 
     pub fn is_active_unslashed_in_previous_epoch(&self, val_index: usize) -> bool {
         self.previous_epoch_participation
-            .unslashed_participating_indices
-            .contains_key(&val_index)
+            .unslashed_participating_indices()
+            .map_or(false, |indices| indices.contains_key(&val_index))
     }
 
-    pub fn is_active_unslashed_in_current_epoch(&self, val_index: usize) -> bool {
-        self.current_epoch_participation
-            .unslashed_participating_indices
-            .contains_key(&val_index)
+    pub fn is_active_unslashed_in_current_epoch(&self, _val_index: usize) -> bool {
+        // FIXME(sproul): work out how to serve this for the validator API
+        false
     }
 
     pub fn get_effective_balance(&self, val_index: usize) -> Result<u64, Error> {
