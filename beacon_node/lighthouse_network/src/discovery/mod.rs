@@ -63,7 +63,7 @@ const MAX_SUBNETS_IN_QUERY: usize = 3;
 ///
 /// We could reduce this constant to speed up queries however at the cost of security. It will
 /// make it easier to peers to eclipse this node. Kademlia suggests a value of 16.
-const FIND_NODE_QUERY_CLOSEST_PEERS: usize = 16;
+pub const FIND_NODE_QUERY_CLOSEST_PEERS: usize = 16;
 /// The threshold for updating `min_ttl` on a connected peer.
 const DURATION_DIFFERENCE: Duration = Duration::from_millis(1);
 

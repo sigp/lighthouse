@@ -937,8 +937,8 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
                     }
                     // Only remove up to the target outbound peer count.
                     if info.is_outbound_only() {
-                        if self.target_outbound_peers()
-                            < connected_outbound_peer_count - outbound_peers_pruned
+                        if self.target_outbound_peers() + outbound_peers_pruned
+                            < connected_outbound_peer_count
                         {
                             outbound_peers_pruned += 1;
                         } else {
@@ -1004,90 +1004,94 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
 
             // Add to the peers to prune mapping
             while peers_to_prune.len() < connected_peer_count.saturating_sub(self.target_peers) {
-                if let Some(subnet_most_peers) = subnet_to_peer
-                    .iter()
+                if let Some((_, peers_on_subnet)) = subnet_to_peer
+                    .iter_mut()
                     .max_by_key(|(_, peers)| peers.len())
-                    .map(|v| *v.0)
                 {
-                    // If the subnet is in the mapping
-                    if let Some(peers_on_subnet) = subnet_to_peer.get_mut(&subnet_most_peers) {
-                        // and the subnet still contains peers
-                        if !peers_on_subnet.is_empty() {
-                            // Order the peers by the number of subnets they are long-lived
-                            // subscribed too, shuffle equal peers.
-                            peers_on_subnet.shuffle(&mut rand::thread_rng());
-                            peers_on_subnet.sort_by_key(|(_, info)| info.long_lived_subnet_count());
+                    // and the subnet still contains peers
+                    if !peers_on_subnet.is_empty() {
+                        // Order the peers by the number of subnets they are long-lived
+                        // subscribed too, shuffle equal peers.
+                        peers_on_subnet.shuffle(&mut rand::thread_rng());
+                        peers_on_subnet.sort_by_key(|(_, info)| info.long_lived_subnet_count());
 
-                            // Try and find a candidate peer to remove from the subnet.
-                            // We ignore peers that would put us below our target outbound peers
-                            // and we currently ignore peers that would put us below our
-                            // sync-committee threshold, if we can avoid it.
+                        // Try and find a candidate peer to remove from the subnet.
+                        // We ignore peers that would put us below our target outbound peers
+                        // and we currently ignore peers that would put us below our
+                        // sync-committee threshold, if we can avoid it.
 
-                            let mut removed_peer_index = None;
-                            for (index, (candidate_peer, info)) in
-                                peers_on_subnet.iter().enumerate()
-                            {
-                                // Ensure we don't remove too many outbound peers
-                                if info.is_outbound_only() {
-                                    if self.target_outbound_peers()
-                                        < connected_outbound_peer_count - outbound_peers_pruned
-                                    {
-                                        outbound_peers_pruned += 1;
-                                    } else {
-                                        // Restart the main loop with the outbound peer removed from
-                                        // the list. This will lower the peers per subnet count and
-                                        // potentially a new subnet may be chosen to remove peers. This
-                                        // can occur recursively until we have no peers left to choose
-                                        // from.
+                        let mut removed_peer_index = None;
+                        for (index, (candidate_peer, info)) in peers_on_subnet.iter().enumerate() {
+                            // Ensure we don't remove too many outbound peers
+                            if info.is_outbound_only() {
+                                if self.target_outbound_peers()
+                                    < connected_outbound_peer_count
+                                        .saturating_sub(outbound_peers_pruned)
+                                {
+                                    outbound_peers_pruned += 1;
+                                } else {
+                                    // Restart the main loop with the outbound peer removed from
+                                    // the list. This will lower the peers per subnet count and
+                                    // potentially a new subnet may be chosen to remove peers. This
+                                    // can occur recursively until we have no peers left to choose
+                                    // from.
+                                    continue;
+                                }
+                            }
+
+                            // Check the sync committee
+                            if let Some(subnets) = peer_to_sync_committee.get(candidate_peer) {
+                                // The peer is subscribed to some long-lived sync-committees
+                                // Of all the subnets this peer is subscribed too, the minimum
+                                // peer count of all of them is min_subnet_count
+                                if let Some(min_subnet_count) = subnets
+                                    .iter()
+                                    .filter_map(|v| sync_committee_peer_count.get(v).copied())
+                                    .min()
+                                {
+                                    // If the minimum count is our target or lower, we
+                                    // shouldn't remove this peer, because it drops us lower
+                                    // than our target
+                                    if min_subnet_count <= MIN_SYNC_COMMITTEE_PEERS {
+                                        // Do not drop this peer in this pruning interval
                                         continue;
                                     }
                                 }
+                            }
 
-                                // Check the sync committee
-                                if let Some(subnets) = peer_to_sync_committee.get(candidate_peer) {
-                                    // The peer is subscribed to some long-lived sync-committees
-                                    // Of all the subnets this peer is subscribed too, the minimum
-                                    // peer count of all of them is min_subnet_count
-                                    if let Some(min_subnet_count) = subnets
-                                        .iter()
-                                        .map(|v| {
-                                            *sync_committee_peer_count.get(v).unwrap_or(&100u64)
-                                        })
-                                        .min()
+                            // This peer is suitable to be pruned
+                            removed_peer_index = Some(index);
+                            break;
+                        }
+
+                        // If we have successfully found a candidate peer to prune, prune it,
+                        // otherwise all peers on this subnet should not be removed due to our
+                        // outbound limit or min_subnet_count. In this case, we remove all
+                        // peers from the pruning logic and try another subnet.
+                        if let Some(index) = removed_peer_index {
+                            let (candidate_peer, _) = peers_on_subnet.remove(index);
+                            // Remove pruned peers from other subnet counts
+                            for subnet_peers in subnet_to_peer.values_mut() {
+                                subnet_peers.retain(|(peer_id, _)| peer_id != &candidate_peer);
+                            }
+                            // Remove pruned peers from all sync-committee counts
+                            if let Some(known_sync_committes) =
+                                peer_to_sync_committee.get(&candidate_peer)
+                            {
+                                for sync_committee in known_sync_committes {
+                                    if let Some(sync_committee_count) =
+                                        sync_committee_peer_count.get_mut(sync_committee)
                                     {
-                                        // If the minimum count is our target or lower, we
-                                        // shouldn't remove this peer, because it drops us lower
-                                        // than our target
-                                        if min_subnet_count <= MIN_SYNC_COMMITTEE_PEERS {
-                                            // Do not drop this peer in this pruning interval
-                                            continue;
-                                        }
+                                        *sync_committee_count =
+                                            sync_committee_count.saturating_sub(1);
                                     }
                                 }
-
-                                // This peer is suitable to be pruned
-                                removed_peer_index = Some(index);
-                                break;
                             }
-
-                            // If we have successfully found a candidate peer to prune, prune it,
-                            // otherwise all peers on this subnet should not be removed due to our
-                            // outbound limit or min_subnet_count. In this case, we remove all
-                            // peers from the pruning logic and try another subnet.
-                            if let Some(index) = removed_peer_index {
-                                let (candidate_peer, _) = peers_on_subnet.remove(index);
-                                // Remove pruned peers from other subnet counts
-                                for subnet_peers in subnet_to_peer.values_mut() {
-                                    subnet_peers.retain(|(peer_id, _)| peer_id != &candidate_peer);
-                                }
-                                peers_to_prune.insert(candidate_peer);
-                            } else {
-                                peers_on_subnet.clear();
-                            }
-                            continue;
+                            peers_to_prune.insert(candidate_peer);
+                        } else {
+                            peers_on_subnet.clear();
                         }
-                    } else {
-                        unreachable!();
+                        continue;
                     }
                 }
                 // If there are no peers left to prune exit.
@@ -1130,7 +1134,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
         // Maintain minimum count for sync committee peers.
         self.maintain_sync_committee_peers();
 
-        // Prune any excess peers back to our target in such a way that incentives good scores and
+        // Prune any excess peers back to our target in such a way that incentivises good scores and
         // a uniform distribution of subnets.
         self.prune_excess_peers();
     }

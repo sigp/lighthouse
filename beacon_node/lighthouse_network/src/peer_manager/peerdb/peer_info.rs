@@ -164,14 +164,14 @@ impl<T: EthSpec> PeerInfo<T> {
         // Check the meta_data
         if let Some(meta_data) = self.meta_data.as_ref() {
             for subnet in 0..=meta_data.attnets().highest_set_bit().unwrap_or(0) {
-                if meta_data.attnets().get(subnet).expect("within bounds") {
+                if meta_data.attnets().get(subnet).unwrap_or(false) {
                     long_lived_subnets.push(Subnet::Attestation((subnet as u64).into()));
                 }
             }
 
             if let Ok(syncnet) = meta_data.syncnets() {
                 for subnet in 0..=syncnet.highest_set_bit().unwrap_or(0) {
-                    if syncnet.get(subnet).expect("within bounds") {
+                    if syncnet.get(subnet).unwrap_or(false) {
                         long_lived_subnets.push(Subnet::SyncCommittee((subnet as u64).into()));
                     }
                 }
@@ -179,7 +179,7 @@ impl<T: EthSpec> PeerInfo<T> {
         } else if let Some(enr) = self.enr.as_ref() {
             if let Ok(attnets) = enr.attestation_bitfield::<T>() {
                 for subnet in 0..=attnets.highest_set_bit().unwrap_or(0) {
-                    if attnets.get(subnet).expect("within bounds") {
+                    if attnets.get(subnet).unwrap_or(false) {
                         long_lived_subnets.push(Subnet::Attestation((subnet as u64).into()));
                     }
                 }
@@ -187,7 +187,7 @@ impl<T: EthSpec> PeerInfo<T> {
 
             if let Ok(syncnets) = enr.sync_committee_bitfield::<T>() {
                 for subnet in 0..=syncnets.highest_set_bit().unwrap_or(0) {
-                    if syncnets.get(subnet).expect("within bounds") {
+                    if syncnets.get(subnet).unwrap_or(false) {
                         long_lived_subnets.push(Subnet::SyncCommittee((subnet as u64).into()));
                     }
                 }

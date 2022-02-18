@@ -2,7 +2,9 @@ use crate::behaviour::gossipsub_scoring_parameters::{
     lighthouse_gossip_thresholds, PeerScoreSettings,
 };
 use crate::config::gossipsub_config;
-use crate::discovery::{subnet_predicate, Discovery, DiscoveryEvent};
+use crate::discovery::{
+    subnet_predicate, Discovery, DiscoveryEvent, FIND_NODE_QUERY_CLOSEST_PEERS,
+};
 use crate::peer_manager::{
     config::Config as PeerManagerCfg, peerdb::score::PeerAction, peerdb::score::ReportSource,
     ConnectionDirection, PeerManager, PeerManagerEvent,
@@ -218,7 +220,7 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
         let mut discovery =
             Discovery::new(local_key, &config, network_globals.clone(), log).await?;
         // start searching for peers
-        discovery.discover_peers(16);
+        discovery.discover_peers(FIND_NODE_QUERY_CLOSEST_PEERS);
 
         // Grab our local ENR FORK ID
         let enr_fork_id = network_globals
