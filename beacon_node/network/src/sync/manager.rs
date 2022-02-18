@@ -37,7 +37,7 @@ use super::backfill_sync::{BackFillSync, ProcessResult, SyncStart};
 use super::network_context::SyncNetworkContext;
 use super::peer_sync_info::{remote_sync_type, PeerSyncType};
 use super::range_sync::{ChainId, RangeSync, RangeSyncType, EPOCHS_PER_BATCH};
-use crate::beacon_processor::{ProcessId, WorkEvent as BeaconWorkEvent};
+use crate::beacon_processor::{ChainSegmentProcessId, WorkEvent as BeaconWorkEvent};
 use crate::service::NetworkMessage;
 use crate::status::ToStatusMessage;
 use beacon_chain::{BeaconChain, BeaconChainTypes, BlockError};
@@ -889,7 +889,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                     self.request_parent(parent_request);
                 }
                 Ok(_) | Err(BlockError::BlockIsAlreadyKnown { .. }) => {
-                    let process_id = ProcessId::ParentLookup(
+                    let process_id = ChainSegmentProcessId::ParentLookup(
                         parent_request.last_submitted_peer,
                         chain_block_hash,
                     );

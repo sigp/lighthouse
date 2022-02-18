@@ -73,7 +73,7 @@ mod work_reprocessing_queue;
 mod worker;
 
 use crate::beacon_processor::work_reprocessing_queue::QueuedBlock;
-pub use worker::{GossipAggregatePackage, GossipAttestationPackage, ProcessId};
+pub use worker::{GossipAggregatePackage, GossipAttestationPackage, ChainSegmentProcessId};
 
 /// The maximum size of the channel for work events to the `BeaconProcessor`.
 ///
@@ -509,7 +509,7 @@ impl<T: BeaconChainTypes> WorkEvent<T> {
 
     /// Create a new work event to import `blocks` as a beacon chain segment.
     pub fn chain_segment(
-        process_id: ProcessId,
+        process_id: ChainSegmentProcessId,
         blocks: Vec<SignedBeaconBlock<T::EthSpec>>,
     ) -> Self {
         Self {
@@ -697,7 +697,7 @@ pub enum Work<T: BeaconChainTypes> {
         result_tx: BlockResultSender<T::EthSpec>,
     },
     ChainSegment {
-        process_id: ProcessId,
+        process_id: ChainSegmentProcessId,
         blocks: Vec<SignedBeaconBlock<T::EthSpec>>,
     },
     Status {

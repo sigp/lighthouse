@@ -12,9 +12,9 @@ use slog::{crit, debug, error, info, trace, warn};
 use tokio::sync::mpsc;
 use types::{Epoch, Hash256, SignedBeaconBlock};
 
-/// Id associated to a block processing request, either a batch or a single block.
+/// Id associated to a batch processing request, either a sync batch or a parent lookup.
 #[derive(Clone, Debug, PartialEq)]
-pub enum ProcessId {
+pub enum ChainSegmentProcessId {
     /// Processing Id of a range syncing batch.
     RangeBatchId(ChainId, Epoch),
     /// Processing ID for a backfill syncing batch.
@@ -103,12 +103,12 @@ impl<T: BeaconChainTypes> Worker<T> {
     /// thread if more blocks are needed to process it.
     pub fn process_chain_segment(
         &self,
-        process_id: ProcessId,
+        process_id: ChainSegmentProcessId,
         downloaded_blocks: Vec<SignedBeaconBlock<T::EthSpec>>,
     ) {
         match process_id {
             // this a request from the range sync
-            ProcessId::RangeBatchId(chain_id, epoch) => {
+            ChainSegmentProcessId::RangeBatchId(chain_id, epoch) => {
                 let start_slot = downloaded_blocks.first().map(|b| b.slot().as_u64());
                 let end_slot = downloaded_blocks.last().map(|b| b.slot().as_u64());
                 let sent_blocks = downloaded_blocks.len();
@@ -146,7 +146,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                 self.send_sync_message(SyncMessage::BatchProcessed { sync_type, result });
             }
             // this a request from the Backfill sync
-            ProcessId::BackSyncBatchId(epoch) => {
+            ChainSegmentProcessId::BackSyncBatchId(epoch) => {
                 let start_slot = downloaded_blocks.first().map(|b| b.slot().as_u64());
                 let end_slot = downloaded_blocks.last().map(|b| b.slot().as_u64());
                 let sent_blocks = downloaded_blocks.len();
@@ -180,7 +180,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                 self.send_sync_message(SyncMessage::BatchProcessed { sync_type, result });
             }
             // this is a parent lookup request from the sync manager
-            ProcessId::ParentLookup(peer_id, chain_head) => {
+            ChainSegmentProcessId::ParentLookup(peer_id, chain_head) => {
                 debug!(
                     self.log, "Processing parent lookup";
                     "last_peer_id" => %peer_id,
