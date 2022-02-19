@@ -3,12 +3,7 @@ use crate::*;
 use derivative::Derivative;
 use serde_derive::{Deserialize, Serialize};
 use ssz::{Decode, DecodeError, Encode};
-use ssz_derive::{Decode, Encode};
-use ssz_types::VariableList;
-use superstruct::superstruct;
-use test_random_derive::TestRandom;
 use tree_hash::TreeHash;
-use tree_hash_derive::TreeHash;
 
 //TODO: is there a way around this newtype
 #[derive(Derivative, Debug, Clone, Serialize, Deserialize)]

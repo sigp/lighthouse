@@ -94,7 +94,6 @@ pub mod sqlite;
 pub use kzg_commitment::KZGCommitment;
 
 use ethereum_types::{H160, H256};
-use serde::Serialize;
 
 pub use crate::aggregate_and_proof::AggregateAndProof;
 pub use crate::attestation::{Attestation, Error as AttestationError};

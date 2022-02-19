@@ -1,7 +1,7 @@
-use crate::{BLSFieldElement, Blob, EthSpec, SignedBeaconBlock};
+use crate::{Blob, EthSpec, SignedBeaconBlock};
 use serde_derive::{Deserialize, Serialize};
-use ssz_derive::{Decode, Encode};
-use ssz_types::{FixedVector, VariableList};
+use ssz_derive::{Encode};
+use ssz_types::{VariableList};
 use tree_hash::TreeHash;
 use tree_hash_derive::TreeHash;
 
