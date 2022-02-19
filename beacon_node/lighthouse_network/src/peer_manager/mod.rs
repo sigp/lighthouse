@@ -501,6 +501,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
                     Protocol::Ping => PeerAction::MidToleranceError,
                     Protocol::BlocksByRange => PeerAction::MidToleranceError,
                     Protocol::BlocksByRoot => PeerAction::MidToleranceError,
+                    Protocol::TxBlobsByRange => PeerAction::MidToleranceError,
                     Protocol::Goodbye => PeerAction::LowToleranceError,
                     Protocol::MetaData => PeerAction::LowToleranceError,
                     Protocol::Status => PeerAction::LowToleranceError,
@@ -515,6 +516,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
                 match protocol {
                     Protocol::Ping => PeerAction::Fatal,
                     Protocol::BlocksByRange => return,
+                    Protocol::TxBlobsByRange => return,
                     Protocol::BlocksByRoot => return,
                     Protocol::Goodbye => return,
                     Protocol::MetaData => PeerAction::LowToleranceError,
@@ -530,6 +532,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
                 ConnectionDirection::Outgoing => match protocol {
                     Protocol::Ping => PeerAction::LowToleranceError,
                     Protocol::BlocksByRange => PeerAction::MidToleranceError,
+                    Protocol::TxBlobsByRange => PeerAction::MidToleranceError,
                     Protocol::BlocksByRoot => PeerAction::MidToleranceError,
                     Protocol::Goodbye => return,
                     Protocol::MetaData => return,

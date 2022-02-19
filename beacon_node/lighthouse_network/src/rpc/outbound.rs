@@ -37,6 +37,7 @@ pub enum OutboundRequest<TSpec: EthSpec> {
     Status(StatusMessage),
     Goodbye(GoodbyeReason),
     BlocksByRange(OldBlocksByRangeRequest),
+    TxBlobsByRange(TxBlobsByRangeRequest),
     BlocksByRoot(BlocksByRootRequest),
     Ping(Ping),
     MetaData(PhantomData<TSpec>),
@@ -71,6 +72,10 @@ impl<TSpec: EthSpec> OutboundRequest<TSpec> {
                 ProtocolId::new(Protocol::BlocksByRange, Version::V2, Encoding::SSZSnappy),
                 ProtocolId::new(Protocol::BlocksByRange, Version::V1, Encoding::SSZSnappy),
             ],
+            //FIXME(sean) what should the protocol version be?
+            OutboundRequest::TxBlobsByRange(_) => vec![
+                ProtocolId::new(Protocol::TxBlobsByRange, Version::V2, Encoding::SSZSnappy),
+            ],
             OutboundRequest::BlocksByRoot(_) => vec![
                 ProtocolId::new(Protocol::BlocksByRoot, Version::V2, Encoding::SSZSnappy),
                 ProtocolId::new(Protocol::BlocksByRoot, Version::V1, Encoding::SSZSnappy),
@@ -95,6 +100,7 @@ impl<TSpec: EthSpec> OutboundRequest<TSpec> {
             OutboundRequest::Status(_) => 1,
             OutboundRequest::Goodbye(_) => 0,
             OutboundRequest::BlocksByRange(req) => req.count,
+            OutboundRequest::TxBlobsByRange(req) => req.count,
             OutboundRequest::BlocksByRoot(req) => req.block_roots.len() as u64,
             OutboundRequest::Ping(_) => 1,
             OutboundRequest::MetaData(_) => 1,
@@ -107,6 +113,7 @@ impl<TSpec: EthSpec> OutboundRequest<TSpec> {
             OutboundRequest::Status(_) => Protocol::Status,
             OutboundRequest::Goodbye(_) => Protocol::Goodbye,
             OutboundRequest::BlocksByRange(_) => Protocol::BlocksByRange,
+            OutboundRequest::TxBlobsByRange(_) => Protocol::TxBlobsByRange,
             OutboundRequest::BlocksByRoot(_) => Protocol::BlocksByRoot,
             OutboundRequest::Ping(_) => Protocol::Ping,
             OutboundRequest::MetaData(_) => Protocol::MetaData,
@@ -120,6 +127,7 @@ impl<TSpec: EthSpec> OutboundRequest<TSpec> {
             // this only gets called after `multiple_responses()` returns true. Therefore, only
             // variants that have `multiple_responses()` can have values.
             OutboundRequest::BlocksByRange(_) => ResponseTermination::BlocksByRange,
+            OutboundRequest::TxBlobsByRange(_) => ResponseTermination::TxBlobsByRange,
             OutboundRequest::BlocksByRoot(_) => ResponseTermination::BlocksByRoot,
             OutboundRequest::Status(_) => unreachable!(),
             OutboundRequest::Goodbye(_) => unreachable!(),
@@ -175,6 +183,7 @@ impl<TSpec: EthSpec> std::fmt::Display for OutboundRequest<TSpec> {
             OutboundRequest::Status(status) => write!(f, "Status Message: {}", status),
             OutboundRequest::Goodbye(reason) => write!(f, "Goodbye: {}", reason),
             OutboundRequest::BlocksByRange(req) => write!(f, "Blocks by range: {}", req),
+            OutboundRequest::TxBlobsByRange(req) => write!(f, "Blobs by range: {}", req),
             OutboundRequest::BlocksByRoot(req) => write!(f, "Blocks by root: {:?}", req),
             OutboundRequest::Ping(ping) => write!(f, "Ping: {}", ping.data),
             OutboundRequest::MetaData(_) => write!(f, "MetaData request"),

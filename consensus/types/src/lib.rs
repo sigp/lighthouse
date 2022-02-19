@@ -169,6 +169,7 @@ pub use crate::validator_registration_data::*;
 pub use crate::validator_subscription::ValidatorSubscription;
 pub use crate::voluntary_exit::VoluntaryExit;
 use serde_big_array::BigArray;
+pub use crate::blob_wrapper::BlobWrapper;
 
 pub type CommitteeIndex = u64;
 pub type Hash256 = H256;

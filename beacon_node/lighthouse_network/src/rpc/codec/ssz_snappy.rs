@@ -15,10 +15,7 @@ use std::io::{Read, Write};
 use std::marker::PhantomData;
 use std::sync::Arc;
 use tokio_util::codec::{Decoder, Encoder};
-use types::{
-    EthSpec, ForkContext, ForkName, SignedBeaconBlock, SignedBeaconBlockAltair,
-    SignedBeaconBlockBase, SignedBeaconBlockMerge, SignedBeaconBlockShanghai,
-};
+use types::{BlobWrapper, EthSpec, ForkContext, ForkName, SignedBeaconBlock, SignedBeaconBlockAltair, SignedBeaconBlockBase, SignedBeaconBlockMerge, SignedBeaconBlockShanghai};
 use unsigned_varint::codec::Uvi;
 
 const CONTEXT_BYTES_LEN: usize = 4;
@@ -69,6 +66,7 @@ impl<TSpec: EthSpec> Encoder<RPCCodedResponse<TSpec>> for SSZSnappyInboundCodec<
             RPCCodedResponse::Success(resp) => match &resp {
                 RPCResponse::Status(res) => res.as_ssz_bytes(),
                 RPCResponse::BlocksByRange(res) => res.as_ssz_bytes(),
+                RPCResponse::TxBlobsByRange(res) => res.as_ssz_bytes(),
                 RPCResponse::BlocksByRoot(res) => res.as_ssz_bytes(),
                 RPCResponse::Pong(res) => res.data.as_ssz_bytes(),
                 RPCResponse::MetaData(res) =>
@@ -227,6 +225,7 @@ impl<TSpec: EthSpec> Encoder<OutboundRequest<TSpec>> for SSZSnappyOutboundCodec<
             OutboundRequest::Status(req) => req.as_ssz_bytes(),
             OutboundRequest::Goodbye(req) => req.as_ssz_bytes(),
             OutboundRequest::BlocksByRange(req) => req.as_ssz_bytes(),
+            OutboundRequest::TxBlobsByRange(req) => req.as_ssz_bytes(),
             OutboundRequest::BlocksByRoot(req) => req.block_roots.as_ssz_bytes(),
             OutboundRequest::Ping(req) => req.as_ssz_bytes(),
             OutboundRequest::MetaData(_) => return Ok(()), // no metadata to encode
@@ -469,6 +468,9 @@ fn handle_v1_request<T: EthSpec>(
         Protocol::BlocksByRange => Ok(Some(InboundRequest::BlocksByRange(
             OldBlocksByRangeRequest::from_ssz_bytes(decoded_buffer)?,
         ))),
+        Protocol::TxBlobsByRange => Ok(Some(InboundRequest::TxBlobsByRange(
+            TxBlobsByRangeRequest::from_ssz_bytes(decoded_buffer)?,
+        ))),
         Protocol::BlocksByRoot => Ok(Some(InboundRequest::BlocksByRoot(BlocksByRootRequest {
             block_roots: VariableList::from_ssz_bytes(decoded_buffer)?,
         }))),
@@ -500,6 +502,9 @@ fn handle_v2_request<T: EthSpec>(
     match protocol {
         Protocol::BlocksByRange => Ok(Some(InboundRequest::BlocksByRange(
             OldBlocksByRangeRequest::from_ssz_bytes(decoded_buffer)?,
+        ))),
+        Protocol::TxBlobsByRange => Ok(Some(InboundRequest::TxBlobsByRange(
+            TxBlobsByRangeRequest::from_ssz_bytes(decoded_buffer)?,
         ))),
         Protocol::BlocksByRoot => Ok(Some(InboundRequest::BlocksByRoot(BlocksByRootRequest {
             block_roots: VariableList::from_ssz_bytes(decoded_buffer)?,
@@ -538,6 +543,9 @@ fn handle_v1_response<T: EthSpec>(
         Protocol::BlocksByRange => Ok(Some(RPCResponse::BlocksByRange(Arc::new(
             SignedBeaconBlock::Base(SignedBeaconBlockBase::from_ssz_bytes(decoded_buffer)?),
         )))),
+        Protocol::TxBlobsByRange => Ok(Some(RPCResponse::TxBlobsByRange(Arc::new(
+            BlobWrapper::from_ssz_bytes(decoded_buffer)?),
+        ))),
         Protocol::BlocksByRoot => Ok(Some(RPCResponse::BlocksByRoot(Arc::new(
             SignedBeaconBlock::Base(SignedBeaconBlockBase::from_ssz_bytes(decoded_buffer)?),
         )))),
@@ -594,6 +602,13 @@ fn handle_v2_response<T: EthSpec>(
                         decoded_buffer,
                     )?),
                 )))),
+            },
+            Protocol::TxBlobsByRange => {
+                Ok(Some(RPCResponse::TxBlobsByRange(Box::new(
+                    BlobWrapper::from_ssz_bytes(
+                        decoded_buffer,
+                    )?
+                ))))
             },
             Protocol::BlocksByRoot => match fork_name {
                 ForkName::Altair => Ok(Some(RPCResponse::BlocksByRoot(Arc::new(

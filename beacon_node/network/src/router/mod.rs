@@ -165,6 +165,9 @@ impl<T: BeaconChainTypes> Router<T> {
             Request::BlocksByRange(request) => self
                 .processor
                 .on_blocks_by_range_request(peer_id, id, request),
+            Request::TxBlobsByRange(request) => self
+                .processor
+                .on_tx_blobs_by_range_request(peer_id, id, request),
             Request::BlocksByRoot(request) => self
                 .processor
                 .on_blocks_by_root_request(peer_id, id, request),
@@ -187,6 +190,10 @@ impl<T: BeaconChainTypes> Router<T> {
             Response::BlocksByRange(beacon_block) => {
                 self.processor
                     .on_blocks_by_range_response(peer_id, request_id, beacon_block);
+            }
+            Response::TxBlobsByRange(blob_wrapper) => {
+                self.processor
+                    .on_tx_blobs_by_range_response(peer_id, request_id, blob_wrapper);
             }
             Response::BlocksByRoot(beacon_block) => {
                 self.processor

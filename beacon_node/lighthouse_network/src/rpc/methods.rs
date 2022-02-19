@@ -12,7 +12,7 @@ use std::ops::Deref;
 use std::sync::Arc;
 use strum::IntoStaticStr;
 use superstruct::superstruct;
-use types::{Epoch, EthSpec, Hash256, SignedBeaconBlock, Slot};
+use types::{BlobWrapper, Epoch, EthSpec, Hash256, SignedBeaconBlock, Slot};
 
 /// Maximum number of blocks in a single request.
 pub type MaxRequestBlocks = U1024;
@@ -221,6 +221,12 @@ pub struct OldBlocksByRangeRequest {
     pub step: u64,
 }
 
+#[derive(Encode, Decode, Clone, Debug, PartialEq)]
+pub struct TxBlobsByRangeRequest {
+    pub execution_block_number: u64,
+    pub count: u64,
+}
+
 /// Request a number of beacon block bodies from a peer.
 #[derive(Clone, Debug, PartialEq)]
 pub struct BlocksByRootRequest {
@@ -240,6 +246,8 @@ pub enum RPCResponse<T: EthSpec> {
     /// batch.
     BlocksByRange(Arc<SignedBeaconBlock<T>>),
 
+    TxBlobsByRange(Box<BlobWrapper<T>>),
+
     /// A response to a get BLOCKS_BY_ROOT request.
     BlocksByRoot(Arc<SignedBeaconBlock<T>>),
 
@@ -255,6 +263,8 @@ pub enum RPCResponse<T: EthSpec> {
 pub enum ResponseTermination {
     /// Blocks by range stream termination.
     BlocksByRange,
+
+    TxBlobsByRange,
 
     /// Blocks by root stream termination.
     BlocksByRoot,
@@ -318,6 +328,7 @@ impl<T: EthSpec> RPCCodedResponse<T> {
             RPCCodedResponse::Success(resp) => match resp {
                 RPCResponse::Status(_) => false,
                 RPCResponse::BlocksByRange(_) => true,
+                RPCResponse::TxBlobsByRange(_) => true,
                 RPCResponse::BlocksByRoot(_) => true,
                 RPCResponse::Pong(_) => false,
                 RPCResponse::MetaData(_) => false,
@@ -385,6 +396,9 @@ impl<T: EthSpec> std::fmt::Display for RPCResponse<T> {
             RPCResponse::BlocksByRange(block) => {
                 write!(f, "BlocksByRange: Block slot: {}", block.slot())
             }
+            RPCResponse::TxBlobsByRange(blob) => {
+                write!(f, "TxBlobsByRange: Block slot: {}", blob.beacon_block_slot)
+            }
             RPCResponse::BlocksByRoot(block) => {
                 write!(f, "BlocksByRoot: Block slot: {}", block.slot())
             }
@@ -432,6 +446,16 @@ impl std::fmt::Display for OldBlocksByRangeRequest {
             f,
             "Start Slot: {}, Count: {}, Step: {}",
             self.start_slot, self.count, self.step
+        )
+    }
+}
+
+impl std::fmt::Display for TxBlobsByRangeRequest {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "Execution block number: {}, Count: {}",
+            self.execution_block_number, self.count
         )
     }
 }

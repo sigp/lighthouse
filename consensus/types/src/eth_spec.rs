@@ -227,6 +227,14 @@ pub trait EthSpec: 'static + Default + Sync + Send + Clone + Debug + PartialEq +
     fn bytes_per_logs_bloom() -> usize {
         Self::BytesPerLogsBloom::to_usize()
     }
+
+    fn max_object_list_size() -> usize {
+        Self::MaxObjectListSize::to_usize()
+    }
+
+    fn chunks_per_blob() -> usize {
+        Self::ChunksPerBlob::to_usize()
+    }
 }
 
 /// Macro to inherit some type values from another EthSpec.

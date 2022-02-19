@@ -125,6 +125,12 @@ impl<Id: ReqId, TSpec: EthSpec> RPC<Id, TSpec> {
                 methods::MAX_REQUEST_BLOCKS,
                 Duration::from_secs(10),
             )
+            //FIXME(sean)
+            .n_every(
+                Protocol::TxBlobsByRange,
+                methods::MAX_REQUEST_BLOCKS,
+                Duration::from_secs(10),
+            )
             .n_every(Protocol::BlocksByRoot, 128, Duration::from_secs(10))
             .build()
             .expect("Configuration parameters are valid");

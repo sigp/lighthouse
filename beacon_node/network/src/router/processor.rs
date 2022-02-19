@@ -16,10 +16,8 @@ use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use store::SyncCommitteeMessage;
 use tokio::sync::mpsc;
-use types::{
-    Attestation, AttesterSlashing, EthSpec, ProposerSlashing, SignedAggregateAndProof,
-    SignedBeaconBlock, SignedContributionAndProof, SignedVoluntaryExit, SubnetId, SyncSubnetId,
-};
+use lighthouse_network::rpc::methods::TxBlobsByRangeRequest;
+use types::{Attestation, AttesterSlashing, BlobWrapper, EthSpec, ProposerSlashing, SignedAggregateAndProof, SignedBeaconBlock, SignedContributionAndProof, SignedVoluntaryExit, SubnetId, SyncSubnetId};
 
 /// Processes validated messages from the network. It relays necessary data to the syncing thread
 /// and processes blocks from the pubsub network.
@@ -202,6 +200,25 @@ impl<T: BeaconChainTypes> Processor<T> {
             beacon_block,
             seen_timestamp: timestamp_now(),
         });
+    }
+
+    /// Handle a `BlocksByRange` request from the peer.
+    pub fn on_tx_blobs_by_range_request(
+        &mut self,
+        peer_id: PeerId,
+        request_id: PeerRequestId,
+        req: TxBlobsByRangeRequest,
+    ) {
+        //FIXME(sean)
+    }
+
+    pub fn on_tx_blobs_by_range_response(
+        &mut self,
+        peer_id: PeerId,
+        request_id: RequestId,
+        blob_wrapper: Option<Box<BlobWrapper<T::EthSpec>>>,
+    ) {
+        //FIXME(sean)
     }
 
     /// Handle a `BlocksByRoot` response from the peer.

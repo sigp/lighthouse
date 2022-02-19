@@ -71,6 +71,7 @@ pub struct RPCRateLimiter {
     status_rl: Limiter<PeerId>,
     /// BlocksByRange rate limiter.
     bbrange_rl: Limiter<PeerId>,
+    txbbrange_rl: Limiter<PeerId>,
     /// BlocksByRoot rate limiter.
     bbroots_rl: Limiter<PeerId>,
 }
@@ -96,6 +97,7 @@ pub struct RPCRateLimiterBuilder {
     status_quota: Option<Quota>,
     /// Quota for the BlocksByRange protocol.
     bbrange_quota: Option<Quota>,
+    txbbrange_quota: Option<Quota>,
     /// Quota for the BlocksByRoot protocol.
     bbroots_quota: Option<Quota>,
 }
@@ -115,6 +117,7 @@ impl RPCRateLimiterBuilder {
             Protocol::MetaData => self.metadata_quota = q,
             Protocol::Goodbye => self.goodbye_quota = q,
             Protocol::BlocksByRange => self.bbrange_quota = q,
+            Protocol::TxBlobsByRange => self.txbbrange_quota = q,
             Protocol::BlocksByRoot => self.bbroots_quota = q,
         }
         self
@@ -155,6 +158,9 @@ impl RPCRateLimiterBuilder {
         let bbrange_quota = self
             .bbrange_quota
             .ok_or("BlocksByRange quota not specified")?;
+        let txbbrange_quota = self
+            .txbbrange_quota
+            .ok_or("TxBlobsByRange quota not specified")?;
 
         // create the rate limiters
         let ping_rl = Limiter::from_quota(ping_quota)?;
@@ -163,6 +169,7 @@ impl RPCRateLimiterBuilder {
         let goodbye_rl = Limiter::from_quota(goodbye_quota)?;
         let bbroots_rl = Limiter::from_quota(bbroots_quota)?;
         let bbrange_rl = Limiter::from_quota(bbrange_quota)?;
+        let txbbrange_rl = Limiter::from_quota(txbbrange_quota)?;
 
         // check for peers to prune every 30 seconds, starting in 30 seconds
         let prune_every = tokio::time::Duration::from_secs(30);
@@ -176,6 +183,7 @@ impl RPCRateLimiterBuilder {
             goodbye_rl,
             bbroots_rl,
             bbrange_rl,
+            txbbrange_rl,
             init_time: Instant::now(),
         })
     }
@@ -198,6 +206,7 @@ impl RPCRateLimiter {
             Protocol::MetaData => &mut self.metadata_rl,
             Protocol::Goodbye => &mut self.goodbye_rl,
             Protocol::BlocksByRange => &mut self.bbrange_rl,
+            Protocol::TxBlobsByRange => &mut self.txbbrange_rl,
             Protocol::BlocksByRoot => &mut self.bbroots_rl,
         };
         check(limiter)

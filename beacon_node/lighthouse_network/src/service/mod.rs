@@ -39,7 +39,9 @@ use std::sync::Arc;
 use std::task::{Context, Poll};
 use types::{
     consts::altair::SYNC_COMMITTEE_SUBNET_COUNT, EnrForkId, EthSpec, ForkContext, Slot, SubnetId,
+    BlobWrapper, SignedBeaconBlock, SyncSubnetId
 };
+use crate::rpc::methods::TxBlobsByRangeRequest;
 use utils::{build_transport, strip_peer_id, Context as ServiceContext, MAX_CONNECTIONS_PER_PEER};
 
 use self::behaviour::Behaviour;
@@ -981,6 +983,9 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
             Request::BlocksByRange { .. } => {
                 metrics::inc_counter_vec(&metrics::TOTAL_RPC_REQUESTS, &["blocks_by_range"])
             }
+            Request::TxBlobsByRange { .. } => {
+                metrics::inc_counter_vec(&metrics::TOTAL_RPC_REQUESTS, &["tx_blobs_by_range"])
+            }
             Request::BlocksByRoot { .. } => {
                 metrics::inc_counter_vec(&metrics::TOTAL_RPC_REQUESTS, &["blocks_by_root"])
             }
@@ -1271,6 +1276,9 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
                     RPCResponse::BlocksByRange(resp) => {
                         self.build_response(id, peer_id, Response::BlocksByRange(Some(resp)))
                     }
+                    RPCResponse::TxBlobsByRange(resp) => {
+                        self.propagate_response(id, peer_id, Response::TxBlobsByRange(Some(resp)))
+                    }
                     RPCResponse::BlocksByRoot(resp) => {
                         self.build_response(id, peer_id, Response::BlocksByRoot(Some(resp)))
                     }
@@ -1279,6 +1287,7 @@ impl<AppReqId: ReqId, TSpec: EthSpec> Network<AppReqId, TSpec> {
             Ok(RPCReceived::EndOfStream(id, termination)) => {
                 let response = match termination {
                     ResponseTermination::BlocksByRange => Response::BlocksByRange(None),
+                    ResponseTermination::TxBlobsByRange => Response::TxBlobsByRange(None),
                     ResponseTermination::BlocksByRoot => Response::BlocksByRoot(None),
                 };
                 self.build_response(id, peer_id, response)
