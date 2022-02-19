@@ -86,11 +86,15 @@ pub mod sync_subnet_id;
 mod tree_hash_impls;
 pub mod validator_registration_data;
 
+mod beacon_block_and_blobs;
+mod kzg_commitment;
 pub mod slot_data;
 #[cfg(feature = "sqlite")]
 pub mod sqlite;
+pub use kzg_commitment::KZGCommitment;
 
 use ethereum_types::{H160, H256};
+use serde::Serialize;
 
 pub use crate::aggregate_and_proof::AggregateAndProof;
 pub use crate::attestation::{Attestation, Error as AttestationError};
@@ -98,12 +102,12 @@ pub use crate::attestation_data::AttestationData;
 pub use crate::attestation_duty::AttestationDuty;
 pub use crate::attester_slashing::AttesterSlashing;
 pub use crate::beacon_block::{
-    BeaconBlock, BeaconBlockAltair, BeaconBlockBase, BeaconBlockMerge, BeaconBlockRef,
+    BeaconBlock, BeaconBlockAltair, BeaconBlockBase, BeaconBlockDank, BeaconBlockMerge, BeaconBlockRef,
     BeaconBlockRefMut, BlindedBeaconBlock,
 };
 pub use crate::beacon_block_body::{
-    BeaconBlockBody, BeaconBlockBodyAltair, BeaconBlockBodyBase, BeaconBlockBodyMerge,
-    BeaconBlockBodyRef, BeaconBlockBodyRefMut,
+    BeaconBlockBody, BeaconBlockBodyAltair, BeaconBlockBodyBase, BeaconBlockBodyDank,
+    BeaconBlockBodyMerge, BeaconBlockBodyRef, BeaconBlockBodyRefMut,
 };
 pub use crate::beacon_block_header::BeaconBlockHeader;
 pub use crate::beacon_committee::{BeaconCommittee, OwnedBeaconCommittee};
@@ -144,7 +148,7 @@ pub use crate::shuffling_id::AttestationShufflingId;
 pub use crate::signed_aggregate_and_proof::SignedAggregateAndProof;
 pub use crate::signed_beacon_block::{
     SignedBeaconBlock, SignedBeaconBlockAltair, SignedBeaconBlockBase, SignedBeaconBlockHash,
-    SignedBeaconBlockMerge, SignedBlindedBeaconBlock,
+    SignedBeaconBlockMerge, SignedBlindedBeaconBlock,SignedBeaconBlockDank
 };
 pub use crate::signed_beacon_block_header::SignedBeaconBlockHeader;
 pub use crate::signed_contribution_and_proof::SignedContributionAndProof;
@@ -165,12 +169,15 @@ pub use crate::validator::Validator;
 pub use crate::validator_registration_data::*;
 pub use crate::validator_subscription::ValidatorSubscription;
 pub use crate::voluntary_exit::VoluntaryExit;
+use serde_big_array::BigArray;
 
 pub type CommitteeIndex = u64;
 pub type Hash256 = H256;
 pub type Uint256 = ethereum_types::U256;
 pub type Address = H160;
 pub type ForkVersion = [u8; 4];
+pub type BLSFieldElement = Uint256;
+pub type Blob<T> = FixedVector<BLSFieldElement, T>;
 
 pub use bls::{
     AggregatePublicKey, AggregateSignature, Keypair, PublicKey, PublicKeyBytes, SecretKey,

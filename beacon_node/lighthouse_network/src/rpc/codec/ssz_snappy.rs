@@ -17,7 +17,7 @@ use std::sync::Arc;
 use tokio_util::codec::{Decoder, Encoder};
 use types::{
     EthSpec, ForkContext, ForkName, SignedBeaconBlock, SignedBeaconBlockAltair,
-    SignedBeaconBlockBase, SignedBeaconBlockMerge,
+    SignedBeaconBlockBase, SignedBeaconBlockDank, SignedBeaconBlockMerge,
 };
 use unsigned_varint::codec::Uvi;
 
@@ -407,6 +407,7 @@ fn context_bytes<T: EthSpec>(
                 return match **ref_box_block {
                     // NOTE: If you are adding another fork type here, be sure to modify the
                     //       `fork_context.to_context_bytes()` function to support it as well!
+                    SignedBeaconBlock::Dank { .. } => fork_context.to_context_bytes(ForkName::Dank),
                     SignedBeaconBlock::Merge { .. } => {
                         // Merge context being `None` implies that "merge never happened".
                         fork_context.to_context_bytes(ForkName::Merge)
@@ -586,6 +587,9 @@ fn handle_v2_response<T: EthSpec>(
                         decoded_buffer,
                     )?),
                 )))),
+                ForkName::Dank => Ok(Some(RPCResponse::BlocksByRange(Box::new(
+                    SignedBeaconBlock::Dank(SignedBeaconBlockDank::from_ssz_bytes(decoded_buffer)?),
+                )))),
             },
             Protocol::BlocksByRoot => match fork_name {
                 ForkName::Altair => Ok(Some(RPCResponse::BlocksByRoot(Arc::new(
@@ -600,6 +604,9 @@ fn handle_v2_response<T: EthSpec>(
                     SignedBeaconBlock::Merge(SignedBeaconBlockMerge::from_ssz_bytes(
                         decoded_buffer,
                     )?),
+                )))),
+                ForkName::Dank => Ok(Some(RPCResponse::BlocksByRoot(Box::new(
+                    SignedBeaconBlock::Dank(SignedBeaconBlockDank::from_ssz_bytes(decoded_buffer)?),
                 )))),
             },
             _ => Err(RPCError::ErrorResponse(

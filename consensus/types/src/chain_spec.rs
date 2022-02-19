@@ -151,6 +151,10 @@ pub struct ChainSpec {
     pub safe_slots_to_import_optimistically: u64,
 
     /*
+    * Danksharding hard fork params
+    */
+
+    /*
      * Networking
      */
     pub boot_nodes: Vec<String>,
@@ -245,6 +249,8 @@ impl ChainSpec {
             ForkName::Base => self.genesis_fork_version,
             ForkName::Altair => self.altair_fork_version,
             ForkName::Merge => self.bellatrix_fork_version,
+            //TODO: update this
+            ForkName::Dank => self.bellatrix_fork_version,
         }
     }
 
@@ -254,6 +260,8 @@ impl ChainSpec {
             ForkName::Base => Some(Epoch::new(0)),
             ForkName::Altair => self.altair_fork_epoch,
             ForkName::Merge => self.bellatrix_fork_epoch,
+            //TODO: update this
+            ForkName::Dank => self.bellatrix_fork_epoch,
         }
     }
 

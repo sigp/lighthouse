@@ -1,4 +1,4 @@
-use crate::{ChainSpec, Epoch};
+use crate::{ChainSpec, Epoch, Fork};
 use serde_derive::{Deserialize, Serialize};
 use std::convert::TryFrom;
 use std::fmt::{self, Display, Formatter};
@@ -11,6 +11,7 @@ pub enum ForkName {
     Base,
     Altair,
     Merge,
+    Dank,
 }
 
 impl ForkName {
@@ -38,6 +39,12 @@ impl ForkName {
                 spec.bellatrix_fork_epoch = Some(Epoch::new(0));
                 spec
             }
+            //TODO(sean): update
+            ForkName::Dank => {
+                spec.altair_fork_epoch = Some(Epoch::new(0));
+                spec.bellatrix_fork_epoch = Some(Epoch::new(0));
+                spec
+            }
         }
     }
 
@@ -49,6 +56,7 @@ impl ForkName {
             ForkName::Base => None,
             ForkName::Altair => Some(ForkName::Base),
             ForkName::Merge => Some(ForkName::Altair),
+            ForkName::Dank => Some(ForkName::Merge),
         }
     }
 
@@ -59,7 +67,8 @@ impl ForkName {
         match self {
             ForkName::Base => Some(ForkName::Altair),
             ForkName::Altair => Some(ForkName::Merge),
-            ForkName::Merge => None,
+            ForkName::Merge => Some(ForkName::Dank),
+            ForkName::Dank => None,
         }
     }
 }
@@ -101,6 +110,11 @@ macro_rules! map_fork_name_with {
                 let (value, extra_data) = $body;
                 ($t::Merge(value), extra_data)
             }
+            //TODO: don't have a beacon state variant for the new fork yet
+            ForkName::Dank => {
+                let (value, extra_data) = $body;
+                ($t::Merge(value), extra_data)
+            }
         }
     };
 }
@@ -124,6 +138,7 @@ impl Display for ForkName {
             ForkName::Base => "phase0".fmt(f),
             ForkName::Altair => "altair".fmt(f),
             ForkName::Merge => "bellatrix".fmt(f),
+            ForkName::Dank => "dank".fmt(f),
         }
     }
 }

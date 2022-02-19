@@ -78,5 +78,6 @@ pub fn previous_fork(fork_name: ForkName) -> ForkName {
         ForkName::Base => ForkName::Base,
         ForkName::Altair => ForkName::Base,
         ForkName::Merge => ForkName::Altair, // TODO: Check this when tests are released..
+        ForkName::Dank => ForkName::Merge,   // TODO: Check this when tests are released..
     }
 }

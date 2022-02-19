@@ -38,7 +38,7 @@ impl From<SignedBeaconBlockHash> for Hash256 {
 
 /// A `BeaconBlock` and a signature from its proposer.
 #[superstruct(
-    variants(Base, Altair, Merge),
+    variants(Base, Altair, Merge, Dank),
     variant_attributes(
         derive(
             Debug,
@@ -72,6 +72,8 @@ pub struct SignedBeaconBlock<E: EthSpec, Payload: ExecPayload<E> = FullPayload<E
     pub message: BeaconBlockAltair<E, Payload>,
     #[superstruct(only(Merge), partial_getter(rename = "message_merge"))]
     pub message: BeaconBlockMerge<E, Payload>,
+    #[superstruct(only(Dank), partial_getter(rename = "message_dank"))]
+    pub message: BeaconBlockDank<E, Payload>,
     pub signature: Signature,
 }
 
@@ -128,6 +130,9 @@ impl<E: EthSpec, Payload: ExecPayload<E>> SignedBeaconBlock<E, Payload> {
             }
             BeaconBlock::Merge(message) => {
                 SignedBeaconBlock::Merge(SignedBeaconBlockMerge { message, signature })
+            }
+            BeaconBlock::Dank(message) => {
+                SignedBeaconBlock::Dank(SignedBeaconBlockDank { message, signature })
             }
         }
     }
