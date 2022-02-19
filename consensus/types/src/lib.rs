@@ -86,7 +86,7 @@ pub mod sync_subnet_id;
 mod tree_hash_impls;
 pub mod validator_registration_data;
 
-mod beacon_block_and_blobs;
+mod blob_wrapper;
 mod kzg_commitment;
 pub mod slot_data;
 #[cfg(feature = "sqlite")]
@@ -101,12 +101,12 @@ pub use crate::attestation_data::AttestationData;
 pub use crate::attestation_duty::AttestationDuty;
 pub use crate::attester_slashing::AttesterSlashing;
 pub use crate::beacon_block::{
-    BeaconBlock, BeaconBlockAltair, BeaconBlockBase, BeaconBlockDank, BeaconBlockMerge, BeaconBlockRef,
+    BeaconBlock, BeaconBlockAltair, BeaconBlockBase, BeaconBlockShanghai, BeaconBlockMerge, BeaconBlockRef,
     BeaconBlockRefMut, BlindedBeaconBlock,
 };
 pub use crate::beacon_block_body::{
-    BeaconBlockBody, BeaconBlockBodyAltair, BeaconBlockBodyBase, BeaconBlockBodyDank,
-    BeaconBlockBodyMerge, BeaconBlockBodyRef, BeaconBlockBodyRefMut,
+    BeaconBlockBody, BeaconBlockBodyAltair, BeaconBlockBodyBase, BeaconBlockBodyMerge,
+    BeaconBlockBodyRef, BeaconBlockBodyRefMut, BeaconBlockBodyShanghai,
 };
 pub use crate::beacon_block_header::BeaconBlockHeader;
 pub use crate::beacon_committee::{BeaconCommittee, OwnedBeaconCommittee};
@@ -147,7 +147,7 @@ pub use crate::shuffling_id::AttestationShufflingId;
 pub use crate::signed_aggregate_and_proof::SignedAggregateAndProof;
 pub use crate::signed_beacon_block::{
     SignedBeaconBlock, SignedBeaconBlockAltair, SignedBeaconBlockBase, SignedBeaconBlockHash,
-    SignedBeaconBlockMerge, SignedBlindedBeaconBlock,SignedBeaconBlockDank
+    SignedBeaconBlockMerge, SignedBlindedBeaconBlock,SignedBeaconBlockShanghai
 };
 pub use crate::signed_beacon_block_header::SignedBeaconBlockHeader;
 pub use crate::signed_contribution_and_proof::SignedContributionAndProof;

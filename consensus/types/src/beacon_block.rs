@@ -1,6 +1,6 @@
 use crate::beacon_block_body::{
-    BeaconBlockBodyAltair, BeaconBlockBodyBase, BeaconBlockBodyDank, BeaconBlockBodyMerge,
-    BeaconBlockBodyRef, BeaconBlockBodyRefMut,
+    BeaconBlockBodyAltair, BeaconBlockBodyBase, BeaconBlockBodyMerge, BeaconBlockBodyRef,
+    BeaconBlockBodyRefMut, BeaconBlockBodyShanghai,
 };
 use crate::test_utils::TestRandom;
 use crate::*;
@@ -17,7 +17,7 @@ use tree_hash_derive::TreeHash;
 
 /// A block of the `BeaconChain`.
 #[superstruct(
-    variants(Base, Altair, Merge, Dank),
+    variants(Base, Altair, Merge, Shanghai),
     variant_attributes(
         derive(
             Debug,
@@ -64,8 +64,8 @@ pub struct BeaconBlock<T: EthSpec, Payload: ExecPayload<T> = FullPayload<T>> {
     pub body: BeaconBlockBodyAltair<T, Payload>,
     #[superstruct(only(Merge), partial_getter(rename = "body_merge"))]
     pub body: BeaconBlockBodyMerge<T, Payload>,
-    #[superstruct(only(Dank), partial_getter(rename = "body_dank"))]
-    pub body: BeaconBlockBodyDank<T, Payload>,
+    #[superstruct(only(Shanghai), partial_getter(rename = "body_shanghai"))]
+    pub body: BeaconBlockBodyShanghai<T, Payload>,
 }
 
 pub type BlindedBeaconBlock<E> = BeaconBlock<E, BlindedPayload<E>>;
@@ -191,7 +191,7 @@ impl<'a, T: EthSpec, Payload: ExecPayload<T>> BeaconBlockRef<'a, T, Payload> {
             BeaconBlockRef::Base { .. } => ForkName::Base,
             BeaconBlockRef::Altair { .. } => ForkName::Altair,
             BeaconBlockRef::Merge { .. } => ForkName::Merge,
-            BeaconBlockRef::Dank { .. } => ForkName::Dank,
+            BeaconBlockRef::Shanghai { .. } => ForkName::Shanghai,
         };
 
         if fork_at_slot == object_fork {

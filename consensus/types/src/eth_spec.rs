@@ -96,7 +96,7 @@ pub trait EthSpec: 'static + Default + Sync + Send + Clone + Debug + PartialEq +
     type MinGasLimit: Unsigned + Clone + Sync + Send + Debug + PartialEq;
     type MaxExtraDataBytes: Unsigned + Clone + Sync + Send + Debug + PartialEq;
     /*
-     * New in Danksharding
+     * New in Shanghaisharding
      */
     type MaxObjectListSize: Unsigned + Clone + Sync + Send + Debug + PartialEq;
     type ChunksPerBlob: Unsigned + Clone + Sync + Send + Debug + PartialEq;

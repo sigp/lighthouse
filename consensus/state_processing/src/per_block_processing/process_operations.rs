@@ -232,7 +232,7 @@ pub fn process_attestations<'a, T: EthSpec, Payload: ExecPayload<T>>(
         }
         BeaconBlockBodyRef::Altair(_)
         | BeaconBlockBodyRef::Merge(_)
-        | BeaconBlockBodyRef::Dank(_) => {
+        | BeaconBlockBodyRef::Shanghai(_) => {
             altair::process_attestations(
                 state,
                 block_body.attestations(),

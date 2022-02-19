@@ -151,8 +151,10 @@ pub struct ChainSpec {
     pub safe_slots_to_import_optimistically: u64,
 
     /*
-    * Danksharding hard fork params
-    */
+     * Shanghai hard fork params
+     */
+    pub shanghai_fork_version: [u8; 4],
+    pub shanghai_fork_epoch: Option<Epoch>,
 
     /*
      * Networking
@@ -234,11 +236,14 @@ impl ChainSpec {
 
     /// Returns the name of the fork which is active at `epoch`.
     pub fn fork_name_at_epoch(&self, epoch: Epoch) -> ForkName {
-        match self.bellatrix_fork_epoch {
-            Some(fork_epoch) if epoch >= fork_epoch => ForkName::Merge,
-            _ => match self.altair_fork_epoch {
-                Some(fork_epoch) if epoch >= fork_epoch => ForkName::Altair,
-                _ => ForkName::Base,
+        match self.shanghai_fork_epoch {
+            Some(fork_epoch) if epoch >= fork_epoch => ForkName::Shanghai,
+            _ => match self.bellatrix_fork_epoch {
+                Some(fork_epoch) if epoch >= fork_epoch => ForkName::Merge,
+                _ => match self.altair_fork_epoch {
+                    Some(fork_epoch) if epoch >= fork_epoch => ForkName::Altair,
+                    _ => ForkName::Base,
+                },
             },
         }
     }
@@ -249,8 +254,7 @@ impl ChainSpec {
             ForkName::Base => self.genesis_fork_version,
             ForkName::Altair => self.altair_fork_version,
             ForkName::Merge => self.bellatrix_fork_version,
-            //TODO: update this
-            ForkName::Dank => self.bellatrix_fork_version,
+            ForkName::Shanghai => self.shanghai_fork_version,
         }
     }
 
@@ -260,8 +264,7 @@ impl ChainSpec {
             ForkName::Base => Some(Epoch::new(0)),
             ForkName::Altair => self.altair_fork_epoch,
             ForkName::Merge => self.bellatrix_fork_epoch,
-            //TODO: update this
-            ForkName::Dank => self.bellatrix_fork_epoch,
+            ForkName::Shanghai => self.shanghai_fork_epoch,
         }
     }
 
@@ -577,6 +580,13 @@ impl ChainSpec {
             safe_slots_to_import_optimistically: 128u64,
 
             /*
+             * Shanghai hardfork params
+             */
+            //FIXME(sean)
+            shanghai_fork_version: [0x03, 0x00, 0x00, 0x00],
+            shanghai_fork_epoch: None,
+
+            /*
              * Network specific
              */
             boot_nodes: vec![],
@@ -631,6 +641,10 @@ impl ChainSpec {
                 // `Uint256::MAX` which is `2*256- 1`.
                 .checked_add(Uint256::one())
                 .expect("addition does not overflow"),
+            // Shanghai
+            //FIXME(sean)
+            shanghai_fork_version: [0x03, 0x00, 0x00, 0x01],
+            shanghai_fork_epoch: None,
             // Other
             network_id: 2, // lighthouse testnet network id
             deposit_chain_id: 5,
@@ -786,6 +800,10 @@ impl ChainSpec {
             terminal_block_hash_activation_epoch: Epoch::new(u64::MAX),
             safe_slots_to_import_optimistically: 128u64,
 
+            //FIXME(sean)
+            shanghai_fork_version: [0x03, 0x00, 0x00, 0x64],
+            shanghai_fork_epoch: None,
+
             /*
              * Network specific
              */
@@ -861,6 +879,16 @@ pub struct Config {
     #[serde(deserialize_with = "deserialize_fork_epoch")]
     pub bellatrix_fork_epoch: Option<MaybeQuoted<Epoch>>,
 
+    // FIXME(sean): remove this default
+    #[serde(default = "default_shanghai_fork_version")]
+    #[serde(with = "eth2_serde_utils::bytes_4_hex")]
+    shanghai_fork_version: [u8; 4],
+    // FIXME(sean): remove this default
+    #[serde(default = "default_shanghai_fork_epoch")]
+    #[serde(serialize_with = "serialize_fork_epoch")]
+    #[serde(deserialize_with = "deserialize_fork_epoch")]
+    pub shanghai_fork_epoch: Option<MaybeQuoted<Epoch>>,
+
     #[serde(with = "eth2_serde_utils::quoted_u64")]
     seconds_per_slot: u64,
     #[serde(with = "eth2_serde_utils::quoted_u64")]
@@ -894,6 +922,11 @@ pub struct Config {
 }
 
 fn default_bellatrix_fork_version() -> [u8; 4] {
+    // This value shouldn't be used.
+    [0xff, 0xff, 0xff, 0xff]
+}
+
+fn default_shanghai_fork_version() -> [u8; 4] {
     // This value shouldn't be used.
     [0xff, 0xff, 0xff, 0xff]
 }
@@ -994,6 +1027,10 @@ impl Config {
             bellatrix_fork_epoch: spec
                 .bellatrix_fork_epoch
                 .map(|epoch| MaybeQuoted { value: epoch }),
+            shanghai_fork_version: spec.shanghai_fork_version,
+            shanghai_fork_epoch: spec
+                .shanghai_fork_epoch
+                .map(|epoch| MaybeQuoted { value: epoch }),
 
             seconds_per_slot: spec.seconds_per_slot,
             seconds_per_eth1_block: spec.seconds_per_eth1_block,
@@ -1039,6 +1076,8 @@ impl Config {
             altair_fork_epoch,
             bellatrix_fork_epoch,
             bellatrix_fork_version,
+            shanghai_fork_epoch,
+            shanghai_fork_version,
             seconds_per_slot,
             seconds_per_eth1_block,
             min_validator_withdrawability_delay,
@@ -1069,6 +1108,8 @@ impl Config {
             altair_fork_epoch: altair_fork_epoch.map(|q| q.value),
             bellatrix_fork_epoch: bellatrix_fork_epoch.map(|q| q.value),
             bellatrix_fork_version,
+            shanghai_fork_epoch: shanghai_fork_epoch.map(|q| q.value),
+            shanghai_fork_version,
             seconds_per_slot,
             seconds_per_eth1_block,
             min_validator_withdrawability_delay,

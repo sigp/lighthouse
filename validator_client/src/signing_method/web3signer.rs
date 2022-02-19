@@ -90,8 +90,8 @@ impl<'a, T: EthSpec, Payload: ExecPayload<T>> Web3SignerObject<'a, T, Payload> {
                 block: None,
                 block_header: Some(block.block_header()),
             }),
-            BeaconBlock::Dank(_) => Ok(Web3SignerObject::BeaconBlock {
-                version: ForkName::Dank,
+            BeaconBlock::Shanghai(_) => Ok(Web3SignerObject::BeaconBlock {
+                version: ForkName::Shanghai,
                 block: None,
                 block_header: Some(block.block_header()),
             }),
