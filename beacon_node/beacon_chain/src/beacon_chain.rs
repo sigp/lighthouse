@@ -3242,12 +3242,14 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // Check to ensure the justified checkpoint does not have an invalid payload. If so, try
         // to kill the client.
         let head_info = self.head_info()?;
-        let justified_root = head_info.current_justified_checkpoint.root;
-        // De-alias 0x00..00 to the genesis block.
-        let justified_root = if justified_root == Hash256::zero() {
-            self.genesis_block_root
-        } else {
-            justified_root
+        // De-alias 0x00..00 to the genesis block at genesis.
+        let justified_root = {
+            let justified_checkpoint = head_info.current_justified_checkpoint;
+            if justified_checkpoint.root == Hash256::zero() && justified_checkpoint.epoch == 0 {
+                self.genesis_block_root
+            } else {
+                justified_checkpoint.root
+            }
         };
 
         if let Some(proto_block) = self.fork_choice.read().get_block(&justified_root) {
@@ -3256,15 +3258,20 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     self.log,
                     "The justified checkpoint is invalid";
                     "msg" => "ensure you are not connected to a malicious network. this error is not \
-                    recoverable, please reach out to the developers for assistance."
+                    recoverable, please reach out to the lighthouse developers for assistance."
                 );
 
                 let mut shutdown_sender = self.shutdown_sender();
-                shutdown_sender
-                    .try_send(ShutdownReason::Failure(
-                        INVALID_JUSTIFIED_PAYLOAD_SHUTDOWN_REASON,
-                    ))
-                    .map_err(BeaconChainError::InvalidFinalizedPayloadShutdownError)?;
+                if let Err(e) = shutdown_sender.try_send(ShutdownReason::Failure(
+                    INVALID_JUSTIFIED_PAYLOAD_SHUTDOWN_REASON,
+                )) {
+                    crit!(
+                        self.log,
+                        "Unable trigger client shut down";
+                        "msg" => "shut down may already be under way",
+                        "error" => ?e
+                    );
+                }
 
                 // Return an error here to try and prevent progression by upstream functions.
                 return Err(Error::JustifiedPayloadInvalid { justified_root });
