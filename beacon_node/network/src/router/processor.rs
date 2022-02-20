@@ -5,7 +5,8 @@ use crate::service::{NetworkMessage, RequestId};
 use crate::status::status_message;
 use crate::sync::manager::RequestId as SyncId;
 use crate::sync::SyncMessage;
-use beacon_chain::{BeaconChain, BeaconChainTypes};
+use beacon_chain::{BeaconChain, BeaconChainError, BeaconChainTypes};
+use lighthouse_network::rpc::methods::TxBlobsByRangeRequest;
 use lighthouse_network::rpc::*;
 use lighthouse_network::{
     Client, MessageId, NetworkGlobals, PeerId, PeerRequestId, Request, Response,
@@ -16,8 +17,10 @@ use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use store::SyncCommitteeMessage;
 use tokio::sync::mpsc;
-use lighthouse_network::rpc::methods::TxBlobsByRangeRequest;
-use types::{Attestation, AttesterSlashing, BlobWrapper, EthSpec, ProposerSlashing, SignedAggregateAndProof, SignedBeaconBlock, SignedContributionAndProof, SignedVoluntaryExit, SubnetId, SyncSubnetId};
+use types::{
+    Attestation, AttesterSlashing, BlobWrapper, EthSpec, ProposerSlashing, SignedAggregateAndProof,
+    SignedBeaconBlock, SignedContributionAndProof, SignedVoluntaryExit, SubnetId, SyncSubnetId,
+};
 
 /// Processes validated messages from the network. It relays necessary data to the syncing thread
 /// and processes blocks from the pubsub network.
@@ -287,6 +290,22 @@ impl<T: BeaconChainTypes> Processor<T> {
             peer_id,
             peer_client,
             block,
+            timestamp_now(),
+        ))
+    }
+
+    pub fn on_tx_blob_gossip(
+        &mut self,
+        message_id: MessageId,
+        peer_id: PeerId,
+        peer_client: Client,
+        blob: Box<BlobWrapper<T::EthSpec>>,
+    ) {
+        self.send_beacon_processor_work(BeaconWorkEvent::gossip_tx_blob_block(
+            message_id,
+            peer_id,
+            peer_client,
+            blob,
             timestamp_now(),
         ))
     }

@@ -9,6 +9,8 @@ use crate::peer_manager::{
 use crate::peer_manager::{MIN_OUTBOUND_ONLY_FACTOR, PEER_EXCESS_FACTOR, PRIORITY_PEER_EXCESS};
 use crate::service::behaviour::BehaviourEvent;
 pub use crate::service::behaviour::Gossipsub;
+use crate::rpc::*;
+use crate::service::{Context as ServiceContext, METADATA_FILENAME};
 use crate::types::{
     subnet_from_topic_hash, GossipEncoding, GossipKind, GossipTopic, SnappyTransform, Subnet,
     SubnetDiscovery,
@@ -42,7 +44,7 @@ use types::{
     BlobWrapper, SignedBeaconBlock, SyncSubnetId
 };
 use crate::rpc::methods::TxBlobsByRangeRequest;
-use utils::{build_transport, strip_peer_id, Context as ServiceContext, MAX_CONNECTIONS_PER_PEER};
+use utils::{build_transport, strip_peer_id, MAX_CONNECTIONS_PER_PEER};
 
 use self::behaviour::Behaviour;
 use self::gossip_cache::GossipCache;

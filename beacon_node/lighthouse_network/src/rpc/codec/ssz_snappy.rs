@@ -15,7 +15,10 @@ use std::io::{Read, Write};
 use std::marker::PhantomData;
 use std::sync::Arc;
 use tokio_util::codec::{Decoder, Encoder};
-use types::{BlobWrapper, EthSpec, ForkContext, ForkName, SignedBeaconBlock, SignedBeaconBlockAltair, SignedBeaconBlockBase, SignedBeaconBlockMerge, SignedBeaconBlockShanghai};
+use types::{
+    BlobWrapper, EthSpec, ForkContext, ForkName, SignedBeaconBlock, SignedBeaconBlockAltair,
+    SignedBeaconBlockBase, SignedBeaconBlockMerge, SignedBeaconBlockShanghai,
+};
 use unsigned_varint::codec::Uvi;
 
 const CONTEXT_BYTES_LEN: usize = 4;
@@ -603,13 +606,9 @@ fn handle_v2_response<T: EthSpec>(
                     )?),
                 )))),
             },
-            Protocol::TxBlobsByRange => {
-                Ok(Some(RPCResponse::TxBlobsByRange(Box::new(
-                    BlobWrapper::from_ssz_bytes(
-                        decoded_buffer,
-                    )?
-                ))))
-            },
+            Protocol::TxBlobsByRange => Ok(Some(RPCResponse::TxBlobsByRange(Box::new(
+                BlobWrapper::from_ssz_bytes(decoded_buffer)?,
+            )))),
             Protocol::BlocksByRoot => match fork_name {
                 ForkName::Altair => Ok(Some(RPCResponse::BlocksByRoot(Arc::new(
                     SignedBeaconBlock::Altair(SignedBeaconBlockAltair::from_ssz_bytes(

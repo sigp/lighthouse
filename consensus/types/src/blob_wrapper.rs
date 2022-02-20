@@ -1,10 +1,10 @@
 use crate::{Blob, EthSpec, Hash256, SignedBeaconBlock, Slot};
 use serde_derive::{Deserialize, Serialize};
-use ssz_derive::{Encode, Decode};
+use ssz::{Decode, Encode};
+use ssz_derive::{Decode, Encode};
 use ssz_types::VariableList;
 use tree_hash::TreeHash;
 use tree_hash_derive::TreeHash;
-use ssz::{Decode, Encode};
 
 #[cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary))]
 #[derive(Debug, Clone, Serialize, Deserialize, Encode, Decode, TreeHash, PartialEq, Default)]
@@ -14,7 +14,7 @@ pub struct BlobWrapper<E: EthSpec> {
     pub blobs: VariableList<Blob<E::ChunksPerBlob>, E::MaxObjectListSize>,
 }
 
-impl <E: EthSpec> BlobWrapper<E> {
+impl<E: EthSpec> BlobWrapper<E> {
     pub fn empty() -> Self {
         Self::default()
     }

@@ -20,7 +20,10 @@ use tokio_util::{
     codec::Framed,
     compat::{Compat, FuturesAsyncReadCompatExt},
 };
-use types::{BeaconBlock, BeaconBlockAltair, BeaconBlockBase, BeaconBlockMerge, BlobWrapper, EthSpec, ForkContext, ForkName, Hash256, MainnetEthSpec, Signature, SignedBeaconBlock};
+use types::{
+    BeaconBlock, BeaconBlockAltair, BeaconBlockBase, BeaconBlockMerge, BlobWrapper, EthSpec,
+    ForkContext, ForkName, Hash256, MainnetEthSpec, Signature, SignedBeaconBlock,
+};
 
 lazy_static! {
     // Note: Hardcoding the `EthSpec` type for `SignedBeaconBlock` as min/max values is
@@ -288,12 +291,10 @@ impl ProtocolId {
                 <OldBlocksByRangeRequest as Encode>::ssz_fixed_len(),
                 <OldBlocksByRangeRequest as Encode>::ssz_fixed_len(),
             ),
-            Protocol::TxBlobsByRange => {
-                RpcLimits::new(
-                    <TxBlobsByRangeRequest as Encode>::ssz_fixed_len(),
-                    <TxBlobsByRangeRequest as Encode>::ssz_fixed_len(),
-                )
-            }
+            Protocol::TxBlobsByRange => RpcLimits::new(
+                <TxBlobsByRangeRequest as Encode>::ssz_fixed_len(),
+                <TxBlobsByRangeRequest as Encode>::ssz_fixed_len(),
+            ),
             Protocol::BlocksByRoot => {
                 RpcLimits::new(*BLOCKS_BY_ROOT_REQUEST_MIN, *BLOCKS_BY_ROOT_REQUEST_MAX)
             }

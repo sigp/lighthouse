@@ -73,9 +73,11 @@ impl<TSpec: EthSpec> OutboundRequest<TSpec> {
                 ProtocolId::new(Protocol::BlocksByRange, Version::V1, Encoding::SSZSnappy),
             ],
             //FIXME(sean) what should the protocol version be?
-            OutboundRequest::TxBlobsByRange(_) => vec![
-                ProtocolId::new(Protocol::TxBlobsByRange, Version::V2, Encoding::SSZSnappy),
-            ],
+            OutboundRequest::TxBlobsByRange(_) => vec![ProtocolId::new(
+                Protocol::TxBlobsByRange,
+                Version::V2,
+                Encoding::SSZSnappy,
+            )],
             OutboundRequest::BlocksByRoot(_) => vec![
                 ProtocolId::new(Protocol::BlocksByRoot, Version::V2, Encoding::SSZSnappy),
                 ProtocolId::new(Protocol::BlocksByRoot, Version::V1, Encoding::SSZSnappy),

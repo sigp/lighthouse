@@ -18,9 +18,9 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use store::hot_cold_store::HotColdDBError;
 use tokio::sync::mpsc;
 use types::{
-    Attestation, AttesterSlashing, EthSpec, Hash256, IndexedAttestation, ProposerSlashing,
-    SignedAggregateAndProof, SignedBeaconBlock, SignedContributionAndProof, SignedVoluntaryExit,
-    Slot, SubnetId, SyncCommitteeMessage, SyncSubnetId,
+    Attestation, AttesterSlashing, BlobWrapper, EthSpec, Hash256, IndexedAttestation,
+    ProposerSlashing, SignedAggregateAndProof, SignedBeaconBlock, SignedContributionAndProof,
+    SignedVoluntaryExit, Slot, SubnetId, SyncCommitteeMessage, SyncSubnetId,
 };
 
 use super::{
@@ -690,6 +690,20 @@ impl<T: BeaconChainTypes> Worker<T> {
                 );
             }
         }
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn process_gossip_blob(
+        self,
+        message_id: MessageId,
+        peer_id: PeerId,
+        peer_client: Client,
+        blob: BlobWrapper<T::EthSpec>,
+        reprocess_tx: mpsc::Sender<ReprocessQueueMessage<T>>,
+        duplicate_cache: DuplicateCache,
+        seen_duration: Duration,
+    ) {
+        //FIXME(sean)
     }
 
     /// Process the beacon block received from the gossip network and

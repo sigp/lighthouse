@@ -11,6 +11,8 @@ use crate::Subnet;
 pub const TOPIC_PREFIX: &str = "eth2";
 pub const SSZ_SNAPPY_ENCODING_POSTFIX: &str = "ssz_snappy";
 pub const BEACON_BLOCK_TOPIC: &str = "beacon_block";
+//FIXME(sean) check this name
+pub const BLOB_TOPIC: &str = "tx_blob";
 pub const BEACON_AGGREGATE_AND_PROOF_TOPIC: &str = "beacon_aggregate_and_proof";
 pub const BEACON_ATTESTATION_PREFIX: &str = "beacon_attestation_";
 pub const VOLUNTARY_EXIT_TOPIC: &str = "voluntary_exit";
@@ -47,6 +49,7 @@ pub struct GossipTopic {
 pub enum GossipKind {
     /// Topic for publishing beacon blocks.
     BeaconBlock,
+    Blob,
     /// Topic for publishing aggregate attestations and proofs.
     BeaconAggregateAndProof,
     /// Topic for publishing raw attestations on a particular subnet.
@@ -178,6 +181,7 @@ impl From<GossipTopic> for String {
 
         let kind = match topic.kind {
             GossipKind::BeaconBlock => BEACON_BLOCK_TOPIC.into(),
+            GossipKind::Blob => BLOB_TOPIC.into(),
             GossipKind::BeaconAggregateAndProof => BEACON_AGGREGATE_AND_PROOF_TOPIC.into(),
             GossipKind::VoluntaryExit => VOLUNTARY_EXIT_TOPIC.into(),
             GossipKind::ProposerSlashing => PROPOSER_SLASHING_TOPIC.into(),
@@ -206,6 +210,7 @@ impl std::fmt::Display for GossipTopic {
 
         let kind = match self.kind {
             GossipKind::BeaconBlock => BEACON_BLOCK_TOPIC.into(),
+            GossipKind::Blob => BLOB_TOPIC.into(),
             GossipKind::BeaconAggregateAndProof => BEACON_AGGREGATE_AND_PROOF_TOPIC.into(),
             GossipKind::VoluntaryExit => VOLUNTARY_EXIT_TOPIC.into(),
             GossipKind::ProposerSlashing => PROPOSER_SLASHING_TOPIC.into(),
