@@ -3180,9 +3180,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// This method must be called whenever an execution engine indicates that a payload is
     /// invalid.
     ///
-    /// All beacon blocks between `latest_root` and `latest_valid_hash` will be
-    /// invalidated in fork choice. Conversely, the `last_valid_hash` and all ancestors will be
-    /// validated.
+    /// If the `latest_root` is known to fork-choice it will be invalidated. If it is not known, an
+    /// error will be returned.
+    ///
+    /// If `latest_valid_hash` is `None` or references a block unknown to fork choice, no other
+    /// blocks will be invalidated. If `latest_valid_hash` is a block known to fork choice, all
+    /// blocks between the `latest_root` and the `latest_valid_hash` will be invalidated (which may
+    /// cause further, second-order invalidations).
     ///
     /// ## Notes
     ///
