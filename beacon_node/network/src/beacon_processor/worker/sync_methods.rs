@@ -1,14 +1,14 @@
 use super::{super::work_reprocessing_queue::ReprocessQueueMessage, Worker};
 use crate::beacon_processor::worker::FUTURE_SLOT_TOLERANCE;
-use crate::beacon_processor::{BlockResultSender, DuplicateCache};
-use crate::metrics;
-use crate::sync::manager::{BatchProcessType, SyncMessage};
+use crate::beacon_processor::DuplicateCache;
+use crate::sync::manager::{BatchProcessType, BlockProcessType, SyncMessage};
 use crate::sync::{BatchProcessResult, ChainId};
+use crate::{metrics, NetworkMessage};
 use beacon_chain::{
     BeaconChainError, BeaconChainTypes, BlockError, ChainSegmentResult, HistoricalBlockError,
 };
-use lighthouse_network::{PeerAction, PeerId};
-use slog::{crit, debug, error, info, trace, warn};
+use lighthouse_network::{PeerAction, PeerId, ReportSource};
+use slog::{debug, error, info, trace, warn};
 use tokio::sync::mpsc;
 use types::{Epoch, Hash256, SignedBeaconBlock};
 
@@ -39,19 +39,26 @@ impl<T: BeaconChainTypes> Worker<T> {
     pub fn process_rpc_block(
         self,
         block: SignedBeaconBlock<T::EthSpec>,
-        result_tx: BlockResultSender<T::EthSpec>,
+        peer_id: PeerId,
+        process_type: BlockProcessType,
         reprocess_tx: mpsc::Sender<ReprocessQueueMessage<T>>,
         duplicate_cache: DuplicateCache,
     ) {
-        let block_root = block.canonical_root();
-        // Checks if the block is already being imported through another source
-        if let Some(handle) = duplicate_cache.check_and_insert(block_root) {
-            let slot = block.slot();
-            let block_result = self.chain.process_block(block);
+        // Check if the block is already being imported through another source
+        let handle = match duplicate_cache.check_and_insert(block.canonical_root()) {
+            Some(handle) => handle,
+            None => {
+                // TODO: check if sync needs a result
+                return;
+            }
+        };
+        let slot = block.slot();
+        let block_result = self.chain.process_block(block);
 
-            metrics::inc_counter(&metrics::BEACON_PROCESSOR_RPC_BLOCK_IMPORTED_TOTAL);
+        metrics::inc_counter(&metrics::BEACON_PROCESSOR_RPC_BLOCK_IMPORTED_TOTAL);
 
-            if let Ok(root) = &block_result {
+        match block_result {
+            Ok(root) => {
                 info!(
                     self.log,
                     "New RPC block received";
@@ -60,7 +67,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                 );
 
                 if reprocess_tx
-                    .try_send(ReprocessQueueMessage::BlockImported(*root))
+                    .try_send(ReprocessQueueMessage::BlockImported(root))
                     .is_err()
                 {
                     error!(
@@ -70,33 +77,46 @@ impl<T: BeaconChainTypes> Worker<T> {
                         "block_root" => %root,
                     )
                 };
+                match process_type {
+                    BlockProcessType::SingleBlock { seen_timestamp } => {
+                        // Block has been processed, so write the block time to the cache.
+                        // append here then
+                        self.chain.block_times_cache.write().set_time_observed(
+                            root,
+                            slot,
+                            seen_timestamp,
+                            None,
+                            None,
+                        );
+                        info!(self.log, "Processed block"; "block" => %root);
+                        self.run_fork_choice() // TODO: wrong log
+                    }
+                    BlockProcessType::ParentLookup => todo!(),
+                }
             }
-
-            if result_tx.send(block_result).is_err() {
-                crit!(self.log, "Failed return sync block result");
+            Err(BlockError::ParentUnknown(block)) => {
+                self.send_sync_message(SyncMessage::UnknownBlock(peer_id, block));
             }
-            // Drop the handle to remove the entry from the cache
-            drop(handle);
-        } else {
-            debug!(
-                self.log,
-                "Gossip block is being imported";
-                "block_root" => %block_root,
-            );
-            // The gossip block that is being imported should eventually
-            // trigger reprocessing of queued attestations once it is imported.
-            // If the gossip block fails import, then it will be downscored
-            // appropriately in `process_gossip_block`.
-
-            // Here, we assume that the block will eventually be imported and
-            // send a `BlockIsAlreadyKnown` message to sync.
-            if result_tx
-                .send(Err(BlockError::BlockIsAlreadyKnown))
-                .is_err()
-            {
-                crit!(self.log, "Failed return sync block result");
+            Err(BlockError::BlockIsAlreadyKnown) => {
+                trace!(self.log, "Single block lookup already known");
+            }
+            Err(BlockError::BeaconChainError(e)) => {
+                warn!(self.log, "Unexpected block processing error"; "error" => ?e);
+            }
+            outcome => {
+                warn!(self.log, "Single block lookup failed"; "outcome" => ?outcome);
+                // This could be a range of errors. But we couldn't process the block.
+                // For now we consider this a mid tolerance error.
+                self.send_network_message(NetworkMessage::ReportPeer {
+                    peer_id,
+                    action: PeerAction::MidToleranceError,
+                    source: ReportSource::SyncService,
+                    msg: "single_block_lookup_failed",
+                });
             }
         }
+        // Drop the handle to remove the entry from the cache
+        drop(handle);
     }
 
     /// Attempt to import the chain segment (`blocks`) to the beacon chain, informing the sync

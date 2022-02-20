@@ -131,15 +131,28 @@ pub enum SyncMessage<T: EthSpec> {
         /// The peer that instigated the chain lookup.
         peer_id: PeerId,
     },
+
+    /// Block processed
+    BlockProcessed {
+        result: Result<Hash256, BlockError<T>>,
+        process_type: BlockProcessType,
+    },
 }
 
-/// The type of sync request made
+/// The type of sync request sent for processing.
 #[derive(Debug, Clone)]
 pub enum BatchProcessType {
     /// Request was from the backfill sync algorithm.
     BackFillSync(Epoch),
     /// The request was from a chain in the range sync algorithm.
     RangeSync(Epoch, ChainId),
+}
+
+/// The type of processing specified for a received block.
+#[derive(Debug, Clone)]
+pub enum BlockProcessType {
+    SingleBlock { seen_timestamp: Duration },
+    ParentLookup,
 }
 
 /// The result of processing multiple blocks (a chain segment).
@@ -387,33 +400,19 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         }
     }
 
-    async fn process_block_async(
+    fn send_block_for_processing(
         &mut self,
         block: SignedBeaconBlock<T::EthSpec>,
-    ) -> Option<Result<Hash256, BlockError<T::EthSpec>>> {
-        let (event, rx) = BeaconWorkEvent::rpc_beacon_block(Box::new(block));
-        match self.beacon_processor_send.try_send(event) {
-            Ok(_) => {}
-            Err(e) => {
-                error!(
-                    self.log,
-                    "Failed to send sync block to processor";
-                    "error" => ?e
-                );
-                return None;
-            }
-        }
-
-        match rx.await {
-            Ok(block_result) => Some(block_result),
-            Err(_) => {
-                warn!(
-                    self.log,
-                    "Sync block not processed";
-                    "msg" => "likely due to system resource exhaustion"
-                );
-                None
-            }
+        peer_id: PeerId,
+        process_type: BlockProcessType,
+    ) {
+        let event = BeaconWorkEvent::rpc_beacon_block(Box::new(block), peer_id, process_type);
+        if let Err(e) = self.beacon_processor_send.try_send(event) {
+            error!(
+                self.log,
+                "Failed to send sync block to processor";
+                "error" => ?e
+            );
         }
     }
 
@@ -457,62 +456,41 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                         return;
                     }
 
-                    let block_result = match self.process_block_async(block.clone()).await {
-                        Some(block_result) => block_result,
-                        None => return,
-                    };
-
-                    // we have the correct block, try and process it
-                    match block_result {
-                        Ok(block_root) => {
-                            // Block has been processed, so write the block time to the cache.
-                            self.chain.block_times_cache.write().set_time_observed(
-                                block_root,
-                                block.slot(),
-                                seen_timestamp,
-                                None,
-                                None,
-                            );
-                            info!(self.log, "Processed block"; "block" => %block_root);
-
-                            match self.chain.fork_choice() {
-                                Ok(()) => trace!(
-                                    self.log,
-                                    "Fork choice success";
-                                    "location" => "single block"
-                                ),
-                                Err(e) => error!(
-                                    self.log,
-                                    "Fork choice failed";
-                                    "error" => ?e,
-                                    "location" => "single block"
-                                ),
-                            }
-                        }
-                        Err(BlockError::ParentUnknown { .. }) => {
-                            // We don't know of the blocks parent, begin a parent lookup search
-                            self.add_unknown_block(peer_id, block);
-                        }
-                        Err(BlockError::BlockIsAlreadyKnown) => {
-                            trace!(self.log, "Single block lookup already known");
-                        }
-                        Err(BlockError::BeaconChainError(e)) => {
-                            warn!(self.log, "Unexpected block processing error"; "error" => ?e);
-                        }
-                        outcome => {
-                            warn!(self.log, "Single block lookup failed"; "outcome" => ?outcome);
-                            // This could be a range of errors. But we couldn't process the block.
-                            // For now we consider this a mid tolerance error.
-                            self.network.report_peer(
-                                peer_id,
-                                PeerAction::MidToleranceError,
-                                "single_block_lookup_failed",
-                            );
-                        }
-                    }
+                    self.send_block_for_processing(
+                        block,
+                        peer_id,
+                        BlockProcessType::SingleBlock { seen_timestamp },
+                    );
                 }
             }
         }
+    }
+
+    fn single_block_lookup_processed(
+        &mut self,
+        block_result: Result<Hash256, BlockError<T::EthSpec>>,
+    ) {
+        // TODO: move to the processor
+        /*
+        // we have the correct block, try and process it
+        match block_result {
+            Ok(block_root) => {
+
+                match self.chain.fork_choice() {
+                    Ok(()) => trace!(
+                        self.log,
+                        "Fork choice success";
+                        "location" => "single block"
+                    ),
+                    Err(e) => error!(
+                        self.log,
+                        "Fork choice failed";
+                        "error" => ?e,
+                        "location" => "single block"
+                    ),
+                }
+            }
+            */
     }
 
     /// A block has been sent to us that has an unknown parent. This begins a parent lookup search
@@ -876,60 +854,60 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                 .pop()
                 .expect("There is always at least one block in the queue");
 
-            let block_result = match self.process_block_async(newest_block.clone()).await {
-                Some(block_result) => block_result,
-                None => return,
-            };
+            let peer_id = parent_request.last_submitted_peer;
+            self.send_block_for_processing(newest_block, peer_id, BlockProcessType::ParentLookup);
+        }
+    }
 
-            match block_result {
-                Err(BlockError::ParentUnknown { .. }) => {
-                    // need to keep looking for parents
-                    // add the block back to the queue and continue the search
-                    parent_request.downloaded_blocks.push(newest_block);
-                    self.request_parent(parent_request);
-                }
-                Ok(_) | Err(BlockError::BlockIsAlreadyKnown { .. }) => {
-                    let process_id = ChainSegmentProcessId::ParentLookup(
-                        parent_request.last_submitted_peer,
-                        chain_block_hash,
-                    );
-                    let blocks = parent_request.downloaded_blocks;
+    fn parent_lookup_processed(&mut self, block_result: Result<Hash256, BlockError<T::EthSpec>>) {
+        match block_result {
+            Err(BlockError::ParentUnknown { .. }) => {
+                // need to keep looking for parents
+                // add the block back to the queue and continue the search
+                parent_request.downloaded_blocks.push(newest_block);
+                self.request_parent(parent_request);
+            }
+            Ok(_) | Err(BlockError::BlockIsAlreadyKnown { .. }) => {
+                let process_id = ChainSegmentProcessId::ParentLookup(
+                    parent_request.last_submitted_peer,
+                    chain_block_hash,
+                );
+                let blocks = parent_request.downloaded_blocks;
 
-                    match self
-                        .beacon_processor_send
-                        .try_send(BeaconWorkEvent::chain_segment(process_id, blocks))
-                    {
-                        Ok(_) => {}
-                        Err(e) => {
-                            error!(
-                                self.log,
-                                "Failed to send chain segment to processor";
-                                "error" => ?e
-                            );
-                        }
+                match self
+                    .beacon_processor_send
+                    .try_send(BeaconWorkEvent::chain_segment(process_id, blocks))
+                {
+                    Ok(_) => {}
+                    Err(e) => {
+                        error!(
+                            self.log,
+                            "Failed to send chain segment to processor";
+                            "error" => ?e
+                        );
                     }
                 }
-                Err(outcome) => {
-                    // all else we consider the chain a failure and downvote the peer that sent
-                    // us the last block
-                    warn!(
-                        self.log, "Invalid parent chain";
-                        "score_adjustment" => %PeerAction::MidToleranceError,
-                        "outcome" => ?outcome,
-                        "last_peer" => %parent_request.last_submitted_peer,
-                    );
+            }
+            Err(outcome) => {
+                // all else we consider the chain a failure and downvote the peer that sent
+                // us the last block
+                warn!(
+                    self.log, "Invalid parent chain";
+                    "score_adjustment" => %PeerAction::MidToleranceError,
+                    "outcome" => ?outcome,
+                    "last_peer" => %parent_request.last_submitted_peer,
+                );
 
-                    // Add this chain to cache of failed chains
-                    self.failed_chains.insert(chain_block_hash);
+                // Add this chain to cache of failed chains
+                self.failed_chains.insert(chain_block_hash);
 
-                    // This currently can be a host of errors. We permit this due to the partial
-                    // ambiguity.
-                    self.network.report_peer(
-                        parent_request.last_submitted_peer,
-                        PeerAction::MidToleranceError,
-                        "parent_request_err",
-                    );
-                }
+                // This currently can be a host of errors. We permit this due to the partial
+                // ambiguity.
+                self.network.report_peer(
+                    parent_request.last_submitted_peer,
+                    PeerAction::MidToleranceError,
+                    "parent_request_err",
+                );
             }
         }
     }
@@ -1029,6 +1007,13 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                         peer_id,
                         request_id,
                     } => self.inject_error(peer_id, request_id),
+                    SyncMessage::BlockProcessed {
+                        result,
+                        process_type,
+                    } => match process_type {
+                        BlockProcessType::SingleBlock => todo!(),
+                        BlockProcessType::ParentLookup => todo!(),
+                    },
                     SyncMessage::BatchProcessed { sync_type, result } => match sync_type {
                         BatchProcessType::RangeSync(epoch, chain_id) => {
                             self.range_sync.handle_block_process_result(
