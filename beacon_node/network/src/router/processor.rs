@@ -209,7 +209,9 @@ impl<T: BeaconChainTypes> Processor<T> {
         request_id: PeerRequestId,
         req: TxBlobsByRangeRequest,
     ) {
-        //FIXME(sean)
+        self.send_beacon_processor_work(BeaconWorkEvent::tx_blob_by_range_request(
+            peer_id, request_id, req,
+        ))
     }
 
     pub fn on_tx_blobs_by_range_response(
@@ -218,7 +220,24 @@ impl<T: BeaconChainTypes> Processor<T> {
         request_id: RequestId,
         blob_wrapper: Option<Box<BlobWrapper<T::EthSpec>>>,
     ) {
-        //FIXME(sean)
+        trace!(
+            self.log,
+            "Received TxBlobsByRange Response";
+            "peer" => %peer_id,
+        );
+
+        if let RequestId::Sync(id) = request_id {
+            self.send_to_sync(SyncMessage::TxBlobsByRangeResponse {
+                peer_id,
+                request_id: id,
+                blob_wrapper,
+            });
+        } else {
+            debug!(
+                self.log,
+                "All tx blobs by range responses should belong to sync"
+            );
+        }
     }
 
     /// Handle a `BlocksByRoot` response from the peer.

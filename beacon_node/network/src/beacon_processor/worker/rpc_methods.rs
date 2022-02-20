@@ -8,6 +8,7 @@ use lighthouse_network::rpc::StatusMessage;
 use lighthouse_network::rpc::*;
 use lighthouse_network::{PeerId, PeerRequestId, ReportSource, Response, SyncInfo};
 use slog::{debug, error};
+use lighthouse_network::rpc::methods::TxBlobsByRangeRequest;
 use slot_clock::SlotClock;
 use std::sync::Arc;
 use task_executor::TaskExecutor;
@@ -120,6 +121,15 @@ impl<T: BeaconChainTypes> Worker<T> {
             }
             Err(e) => error!(self.log, "Could not process status message"; "error" => ?e),
         }
+    }
+
+    pub fn handle_tx_blobs_by_range_request(
+        &self,
+        peer_id: PeerId,
+        request_id: PeerRequestId,
+        mut req: TxBlobsByRangeRequest,
+    ) {
+        //FIXME(sean)
     }
 
     /// Handle a `BlocksByRoot` request from the peer.

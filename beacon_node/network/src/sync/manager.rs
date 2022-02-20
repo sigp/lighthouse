@@ -53,7 +53,7 @@ use std::ops::Sub;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::mpsc;
-use types::{EthSpec, Hash256, SignedBeaconBlock, Slot};
+use types::{BlobWrapper, Epoch, EthSpec, Hash256, SignedBeaconBlock, Slot};
 
 /// The number of slots ahead of us that is allowed before requesting a long-range (batch)  Sync
 /// from a peer. If a peer is within this tolerance (forwards or backwards), it is treated as a
@@ -88,6 +88,18 @@ pub enum SyncMessage<T: EthSpec> {
     /// A block has been received from the RPC.
     RpcBlock {
         request_id: RequestId,
+        beacon_block: Option<Box<SignedBeaconBlock<T>>>,
+    },
+
+    /// A [`TxBlobsByRangeResponse`] response has been received.
+    TxBlobsByRangeResponse {
+        peer_id: PeerId,
+        request_id: RequestId,
+        blob_wrapper: Option<Box<BlobWrapper<T>>>,
+    },
+
+    /// A [`BlocksByRoot`] response has been received.
+    BlocksByRootResponse {
         peer_id: PeerId,
         beacon_block: Option<Arc<SignedBeaconBlock<T>>>,
         seen_timestamp: Duration,

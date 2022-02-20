@@ -59,7 +59,8 @@ use std::task::Context;
 use std::time::Duration;
 use std::{cmp, collections::HashSet};
 use task_executor::TaskExecutor;
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, oneshot};
+use lighthouse_network::rpc::methods::TxBlobsByRangeRequest;
 use types::{
     Attestation, AttesterSlashing, Hash256, ProposerSlashing, SignedAggregateAndProof,
     SignedBeaconBlock, SignedContributionAndProof, SignedVoluntaryExit, SubnetId,
@@ -152,6 +153,8 @@ const MAX_STATUS_QUEUE_LEN: usize = 1_024;
 /// will be stored before we start dropping them.
 const MAX_BLOCKS_BY_RANGE_QUEUE_LEN: usize = 1_024;
 
+const MAX_TX_BLOBS_BY_RANGE_QUEUE_LEN: usize = 1_024;
+
 /// The maximum number of queued `BlocksByRootRequest` objects received from the network RPC that
 /// will be stored before we start dropping them.
 const MAX_BLOCKS_BY_ROOTS_QUEUE_LEN: usize = 1_024;
@@ -194,6 +197,7 @@ pub const RPC_BLOCK: &str = "rpc_block";
 pub const CHAIN_SEGMENT: &str = "chain_segment";
 pub const STATUS_PROCESSING: &str = "status_processing";
 pub const BLOCKS_BY_RANGE_REQUEST: &str = "blocks_by_range_request";
+pub const TX_BLOBS_BY_RANGE_REQUEST: &str = "tx_blobs_by_range_request";
 pub const BLOCKS_BY_ROOTS_REQUEST: &str = "blocks_by_roots_request";
 pub const UNKNOWN_BLOCK_ATTESTATION: &str = "unknown_block_attestation";
 pub const UNKNOWN_BLOCK_AGGREGATE: &str = "unknown_block_aggregate";
@@ -541,6 +545,21 @@ impl<T: BeaconChainTypes> WorkEvent<T> {
         }
     }
 
+    pub fn tx_blob_by_range_request(
+        peer_id: PeerId,
+        request_id: PeerRequestId,
+        request: TxBlobsByRangeRequest,
+    ) -> Self {
+        Self {
+            drop_during_sync: false,
+            work: Work::TxBlobsByRangeRequest {
+                peer_id,
+                request_id,
+                request,
+            },
+        }
+    }
+
     /// Create a new work event to process `BlocksByRootRequest`s from the RPC network.
     pub fn blocks_by_roots_request(
         peer_id: PeerId,
@@ -728,6 +747,11 @@ pub enum Work<T: BeaconChainTypes> {
         request_id: PeerRequestId,
         request: BlocksByRangeRequest,
     },
+    TxBlobsByRangeRequest {
+        peer_id: PeerId,
+        request_id: PeerRequestId,
+        request: TxBlobsByRangeRequest,
+    },
     BlocksByRootsRequest {
         peer_id: PeerId,
         request_id: PeerRequestId,
@@ -754,6 +778,7 @@ impl<T: BeaconChainTypes> Work<T> {
             Work::ChainSegment { .. } => CHAIN_SEGMENT,
             Work::Status { .. } => STATUS_PROCESSING,
             Work::BlocksByRangeRequest { .. } => BLOCKS_BY_RANGE_REQUEST,
+            Work::TxBlobsByRangeRequest { .. } => TX_BLOBS_BY_RANGE_REQUEST,
             Work::BlocksByRootsRequest { .. } => BLOCKS_BY_ROOTS_REQUEST,
             Work::UnknownBlockAttestation { .. } => UNKNOWN_BLOCK_ATTESTATION,
             Work::UnknownBlockAggregate { .. } => UNKNOWN_BLOCK_AGGREGATE,
@@ -897,6 +922,7 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
 
         let mut status_queue = FifoQueue::new(MAX_STATUS_QUEUE_LEN);
         let mut bbrange_queue = FifoQueue::new(MAX_BLOCKS_BY_RANGE_QUEUE_LEN);
+        let mut txbbrange_queue = FifoQueue::new(MAX_TX_BLOBS_BY_RANGE_QUEUE_LEN);
         let mut bbroots_queue = FifoQueue::new(MAX_BLOCKS_BY_ROOTS_QUEUE_LEN);
 
         // Channels for sending work to the re-process scheduler (`work_reprocessing_tx`) and to
@@ -1119,6 +1145,8 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                             self.spawn_worker(item, toolbox);
                         } else if let Some(item) = bbrange_queue.pop() {
                             self.spawn_worker(item, toolbox);
+                        } else if let Some(item) = txbbrange_queue.pop() {
+                            self.spawn_worker(item, toolbox);
                         } else if let Some(item) = bbroots_queue.pop() {
                             self.spawn_worker(item, toolbox);
                         // Check slashings after all other consensus messages so we prioritize
@@ -1233,6 +1261,9 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                             Work::Status { .. } => status_queue.push(work, work_id, &self.log),
                             Work::BlocksByRangeRequest { .. } => {
                                 bbrange_queue.push(work, work_id, &self.log)
+                            }
+                            Work::TxBlobsByRangeRequest { .. } => {
+                                txbbrange_queue.push(work, work_id, &self.log)
                             }
                             Work::BlocksByRootsRequest { .. } => {
                                 bbroots_queue.push(work, work_id, &self.log)
