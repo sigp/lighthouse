@@ -81,14 +81,16 @@ impl<E: EthSpec> Operation<E> for Attestation<E> {
             BeaconState::Base(_) => {
                 base::process_attestations(state, &[self.clone()], VerifySignatures::True, spec)
             }
-            BeaconState::Altair(_) | BeaconState::Merge(_) => altair::process_attestation(
-                state,
-                self,
-                0,
-                proposer_index,
-                VerifySignatures::True,
-                spec,
-            ),
+            BeaconState::Altair(_) | BeaconState::Merge(_) | BeaconState::Shanghai(_) => {
+                altair::process_attestation(
+                    state,
+                    self,
+                    0,
+                    proposer_index,
+                    VerifySignatures::True,
+                    spec,
+                )
+            }
         }
     }
 }

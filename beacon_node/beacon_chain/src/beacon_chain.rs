@@ -3619,6 +3619,30 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         .ok_or(BlockProductionError::MissingExecutionPayload)?,
                 },
             }),
+            BeaconState::Shanghai(_) => {
+                let sync_aggregate = get_sync_aggregate()?;
+                let execution_payload = get_execution_payload(self, &state, proposer_index)?;
+                //FIXME(sean) get blobs
+                BeaconBlock::Shanghai(BeaconBlockShanghai {
+                    slot,
+                    proposer_index,
+                    parent_root,
+                    state_root: Hash256::zero(),
+                    body: BeaconBlockBodyShanghai {
+                        randao_reveal,
+                        eth1_data,
+                        graffiti,
+                        proposer_slashings: proposer_slashings.into(),
+                        attester_slashings: attester_slashings.into(),
+                        attestations,
+                        deposits,
+                        voluntary_exits: voluntary_exits.into(),
+                        sync_aggregate,
+                        execution_payload,
+                        blob_kzgs: VariableList::empty(),
+                    },
+                })
+            }
         };
 
         let block = SignedBeaconBlock::from_block(

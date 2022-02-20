@@ -274,6 +274,7 @@ impl ChainSpec {
             BeaconState::Base(_) => self.inactivity_penalty_quotient,
             BeaconState::Altair(_) => self.inactivity_penalty_quotient_altair,
             BeaconState::Merge(_) => self.inactivity_penalty_quotient_bellatrix,
+            BeaconState::Shanghai(_) => self.inactivity_penalty_quotient_bellatrix,
         }
     }
 
@@ -286,6 +287,7 @@ impl ChainSpec {
             BeaconState::Base(_) => self.proportional_slashing_multiplier,
             BeaconState::Altair(_) => self.proportional_slashing_multiplier_altair,
             BeaconState::Merge(_) => self.proportional_slashing_multiplier_bellatrix,
+            BeaconState::Shanghai(_) => self.proportional_slashing_multiplier_bellatrix,
         }
     }
 
@@ -298,6 +300,7 @@ impl ChainSpec {
             BeaconState::Base(_) => self.min_slashing_penalty_quotient,
             BeaconState::Altair(_) => self.min_slashing_penalty_quotient_altair,
             BeaconState::Merge(_) => self.min_slashing_penalty_quotient_bellatrix,
+            BeaconState::Shanghai(_) => self.min_slashing_penalty_quotient_bellatrix,
         }
     }
 

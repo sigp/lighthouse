@@ -45,9 +45,11 @@ pub fn slash_validator<T: EthSpec>(
         validator_effective_balance.safe_div(spec.whistleblower_reward_quotient)?;
     let proposer_reward = match state {
         BeaconState::Base(_) => whistleblower_reward.safe_div(spec.proposer_reward_quotient)?,
-        BeaconState::Altair(_) | BeaconState::Merge(_) => whistleblower_reward
-            .safe_mul(PROPOSER_WEIGHT)?
-            .safe_div(WEIGHT_DENOMINATOR)?,
+        BeaconState::Altair(_) | BeaconState::Merge(_) | BeaconState::Shanghai(_) => {
+            whistleblower_reward
+                .safe_mul(PROPOSER_WEIGHT)?
+                .safe_div(WEIGHT_DENOMINATOR)?
+        }
     };
 
     // Ensure the whistleblower index is in the validator registry.
