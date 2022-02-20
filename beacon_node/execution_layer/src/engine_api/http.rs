@@ -34,6 +34,9 @@ pub const ENGINE_NEW_PAYLOAD_TIMEOUT: Duration = Duration::from_secs(8);
 pub const ENGINE_GET_PAYLOAD_V1: &str = "engine_getPayloadV1";
 pub const ENGINE_GET_PAYLOAD_TIMEOUT: Duration = Duration::from_secs(2);
 
+pub const ENGINE_GET_BLOB_V1: &str = "engine_getBlobV1";
+pub const ENGINE_GET_BLOB_TIMEOUT: Duration = Duration::from_secs(2);
+
 pub const ENGINE_FORKCHOICE_UPDATED_V1: &str = "engine_forkchoiceUpdatedV1";
 pub const ENGINE_FORKCHOICE_UPDATED_TIMEOUT: Duration = Duration::from_secs(8);
 
@@ -659,6 +662,20 @@ impl HttpJsonRpc {
 
         let response: JsonExecutionPayloadV1<T> = self
             .rpc_request(ENGINE_GET_PAYLOAD_V1, params, ENGINE_GET_PAYLOAD_TIMEOUT)
+            .await?;
+
+        Ok(response.into())
+    }
+
+    async fn get_blob_v1<T: EthSpec>(
+        &self,
+        payload_id: PayloadId,
+        versioned_hash: Hash256,
+    ) -> Result<BlobDetailsV1, Error> {
+        let params = json!([JsonPayloadIdRequest::from(payload_id), versioned_hash]);
+
+        let response: BlobDetailsV1 = self
+            .rpc_request(ENGINE_GET_BLOB_V1, params, ENGINE_GET_BLOB_TIMEOUT)
             .await?;
 
         Ok(response.into())

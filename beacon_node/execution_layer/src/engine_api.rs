@@ -11,6 +11,10 @@ pub use types::{
 };
 
 pub mod auth;
+use crate::engines::ForkChoiceState;
+pub use types::{Address, EthSpec, ExecutionPayload, Hash256, Uint256};
+use types::{Blob, KZGCommitment};
+
 pub mod http;
 pub mod json_structures;
 
@@ -165,4 +169,10 @@ pub struct ProposeBlindedBlockResponse {
     pub status: ProposeBlindedBlockResponseStatus,
     pub latest_valid_hash: Option<Hash256>,
     pub validation_error: Option<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct BlobDetailsV1 {
+    kzg: KZGCommitment,
+    blob: Vec<Hash256>,
 }

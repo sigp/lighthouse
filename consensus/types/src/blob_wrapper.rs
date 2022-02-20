@@ -1,6 +1,6 @@
-use crate::{Blob, EthSpec, Hash256, SignedBeaconBlock, Slot};
+use crate::{Blob, EthSpec, Hash256, Slot};
 use serde_derive::{Deserialize, Serialize};
-use ssz::{Decode, Encode};
+use ssz::Encode;
 use ssz_derive::{Decode, Encode};
 use ssz_types::VariableList;
 use tree_hash::TreeHash;
