@@ -38,6 +38,7 @@ use super::network_context::SyncNetworkContext;
 use super::peer_sync_info::{remote_sync_type, PeerSyncType};
 use super::range_sync::{ChainId, RangeSync, RangeSyncType, EPOCHS_PER_BATCH};
 use crate::beacon_processor::{ChainSegmentProcessId, WorkEvent as BeaconWorkEvent};
+use crate::metrics;
 use crate::service::NetworkMessage;
 use crate::status::ToStatusMessage;
 use beacon_chain::{BeaconChain, BeaconChainTypes, BlockError};
@@ -434,6 +435,10 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                 None => {
                     // Stream termination. Remove the lookup
                     let (_, single_block_request) = entry.remove_entry();
+                    metrics::set_gauge(
+                        &metrics::SYNC_SINGLE_BLOCK_LOOKUPS,
+                        self.single_block_lookups.len() as i64,
+                    );
                     // The peer didn't respond with a block that it referenced.
                     // This can be allowed as some clients may implement pruning. We mildly
                     // tolerate this behaviour.
@@ -559,6 +564,10 @@ impl<T: BeaconChainTypes> SyncManager<T> {
             self.single_block_lookups
                 .insert(request_id, SingleBlockRequest::new(block_hash));
         }
+        metrics::set_gauge(
+            &metrics::SYNC_SINGLE_BLOCK_LOOKUPS,
+            self.single_block_lookups.len() as i64,
+        )
     }
 
     /// Handles RPC errors related to requests that were emitted from the sync manager.
@@ -567,6 +576,10 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         match request_id {
             RequestId::SingleBlock { id } => {
                 self.single_block_lookups.remove(&id);
+                metrics::set_gauge(
+                    &metrics::SYNC_SINGLE_BLOCK_LOOKUPS,
+                    self.single_block_lookups.len() as i64,
+                );
             }
             RequestId::ParentLookup { id } => {
                 if let Some(pos) = self
@@ -838,6 +851,10 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                 },
             );
         }
+        metrics::set_gauge(
+            &metrics::SYNC_PARENT_BLOCK_LOOKUPS,
+            self.parent_queue.len() as i64,
+        );
     }
 
     fn parent_lookup_processed(
@@ -861,6 +878,10 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                 return crit!(self.log, "Parent lookup process result for unknown chain_hash"; "root" => %chain_hash);
             }
         };
+        metrics::set_gauge(
+            &metrics::SYNC_PARENT_BLOCK_LOOKUPS,
+            self.parent_queue.len() as i64,
+        );
 
         match block_result {
             Err(BlockError::ParentUnknown(block)) => {
@@ -971,6 +992,10 @@ impl<T: BeaconChainTypes> SyncManager<T> {
             parent_request.pending = Some(request_id);
             self.parent_queue.push(parent_request);
         }
+        metrics::set_gauge(
+            &metrics::SYNC_PARENT_BLOCK_LOOKUPS,
+            self.parent_queue.len() as i64,
+        )
     }
 
     /// The main driving future for the sync manager.
