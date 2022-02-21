@@ -49,22 +49,20 @@ impl<T: BeaconChainTypes> Worker<T> {
         let handle = match duplicate_cache.check_and_insert(root) {
             Some(handle) => handle,
             None => {
-                // TODO: check if sync needs a result
                 return;
             }
         };
         let slot = block.slot();
         let block_result = self.chain.process_block(block);
 
-        // TODO: regardless of outcome?
         metrics::inc_counter(&metrics::BEACON_PROCESSOR_RPC_BLOCK_IMPORTED_TOTAL);
 
         match (process_type, block_result) {
-            /* RPC block imported, regardless of process type */
+            // RPC block imported, regardless of process type
             (process_type, Ok(root)) => {
                 info!(self.log, "New RPC block received"; "slot" => slot, "hash" => %root);
 
-                // Trigger processing for work refercing this block.
+                // Trigger processing for work referencing this block.
                 let reprocess_msg = ReprocessQueueMessage::BlockImported(root);
                 if reprocess_tx.try_send(reprocess_msg).is_err() {
                     error!(self.log, "Failed to inform block import"; "source" => "rpc", "block_root" => %root)
@@ -72,7 +70,6 @@ impl<T: BeaconChainTypes> Worker<T> {
                 match process_type {
                     BlockProcessType::SingleBlock { seen_timestamp } => {
                         // Block has been processed, so write the block time to the cache.
-                        // append here then
                         self.chain.block_times_cache.write().set_time_observed(
                             root,
                             slot,
@@ -103,7 +100,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                     self.send_sync_message(SyncMessage::UnknownBlock(peer_id, block))
                 }
                 other => {
-                    warn!(self.log, "Peer sent invalid block in single lookup"; "root" => %root, "error" => ?other, "peer_id" => %peer_id);
+                    warn!(self.log, "Peer sent invalid block in single block lookup"; "root" => %root, "error" => ?other, "peer_id" => %peer_id);
                     self.send_network_message(NetworkMessage::ReportPeer {
                         peer_id,
                         action: PeerAction::MidToleranceError,

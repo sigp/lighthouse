@@ -847,9 +847,10 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                 newest_block,
                 peer_id,
                 BlockProcessType::ParentLookup {
-                    chain_hash: parent_request.downloaded_blocks[0].canonical_root(),
+                    chain_hash: parent_request.chain_hash,
                 },
             );
+            self.parent_queue.push(parent_request);
         }
         metrics::set_gauge(
             &metrics::SYNC_PARENT_BLOCK_LOOKUPS,
