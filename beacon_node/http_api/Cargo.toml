@@ -27,7 +27,9 @@ slot_clock = { path = "../../common/slot_clock" }
 eth2_ssz = "0.4.1"
 bs58 = "0.4.0"
 futures = "0.3.8"
+parking_lot = "0.11.0"
 safe_arith = {path = "../../consensus/safe_arith"}
+
 
 [dev-dependencies]
 store = { path = "../store" }
