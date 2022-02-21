@@ -45,7 +45,8 @@ impl<T: BeaconChainTypes> Worker<T> {
         duplicate_cache: DuplicateCache,
     ) {
         // Check if the block is already being imported through another source
-        let handle = match duplicate_cache.check_and_insert(block.canonical_root()) {
+        let root = block.canonical_root();
+        let handle = match duplicate_cache.check_and_insert(root) {
             Some(handle) => handle,
             None => {
                 // TODO: check if sync needs a result
@@ -55,27 +56,18 @@ impl<T: BeaconChainTypes> Worker<T> {
         let slot = block.slot();
         let block_result = self.chain.process_block(block);
 
+        // TODO: regardless of outcome?
         metrics::inc_counter(&metrics::BEACON_PROCESSOR_RPC_BLOCK_IMPORTED_TOTAL);
 
-        match block_result {
-            Ok(root) => {
-                info!(
-                    self.log,
-                    "New RPC block received";
-                    "slot" => slot,
-                    "hash" => %root
-                );
+        match (process_type, block_result) {
+            /* RPC block imported, regardless of process type */
+            (process_type, Ok(root)) => {
+                info!(self.log, "New RPC block received"; "slot" => slot, "hash" => %root);
 
-                if reprocess_tx
-                    .try_send(ReprocessQueueMessage::BlockImported(root))
-                    .is_err()
-                {
-                    error!(
-                        self.log,
-                        "Failed to inform block import";
-                        "source" => "rpc",
-                        "block_root" => %root,
-                    )
+                // Trigger processing for work refercing this block.
+                let reprocess_msg = ReprocessQueueMessage::BlockImported(root);
+                if reprocess_tx.try_send(reprocess_msg).is_err() {
+                    error!(self.log, "Failed to inform block import"; "source" => "rpc", "block_root" => %root)
                 };
                 match process_type {
                     BlockProcessType::SingleBlock { seen_timestamp } => {
@@ -91,30 +83,44 @@ impl<T: BeaconChainTypes> Worker<T> {
                         info!(self.log, "Processed block"; "block" => %root);
                         self.run_fork_choice() // TODO: wrong log
                     }
-                    BlockProcessType::ParentLookup => todo!(),
+                    BlockProcessType::ParentLookup { chain_hash } => {
+                        self.send_sync_message(SyncMessage::ParentBlockProcessed {
+                            chain_hash,
+                            result: Ok(root),
+                        })
+                    }
                 }
             }
-            Err(BlockError::ParentUnknown(block)) => {
-                self.send_sync_message(SyncMessage::UnknownBlock(peer_id, block));
-            }
-            Err(BlockError::BlockIsAlreadyKnown) => {
-                trace!(self.log, "Single block lookup already known");
-            }
-            Err(BlockError::BeaconChainError(e)) => {
-                warn!(self.log, "Unexpected block processing error"; "error" => ?e);
-            }
-            outcome => {
-                warn!(self.log, "Single block lookup failed"; "outcome" => ?outcome);
-                // This could be a range of errors. But we couldn't process the block.
-                // For now we consider this a mid tolerance error.
-                self.send_network_message(NetworkMessage::ReportPeer {
-                    peer_id,
-                    action: PeerAction::MidToleranceError,
-                    source: ReportSource::SyncService,
-                    msg: "single_block_lookup_failed",
-                });
+            (BlockProcessType::SingleBlock { .. }, Err(e)) => match e {
+                BlockError::BlockIsAlreadyKnown => {
+                    // No error here
+                }
+                BlockError::BeaconChainError(e) => {
+                    // Internal error
+                    error!(self.log, "Beacon chain error processing single block"; "block_root" => %root, "error" => ?e);
+                }
+                BlockError::ParentUnknown(block) => {
+                    self.send_sync_message(SyncMessage::UnknownBlock(peer_id, block))
+                }
+                other => {
+                    warn!(self.log, "Peer sent invalid block in single lookup"; "root" => %root, "error" => ?other, "peer_id" => %peer_id);
+                    self.send_network_message(NetworkMessage::ReportPeer {
+                        peer_id,
+                        action: PeerAction::MidToleranceError,
+                        source: ReportSource::SyncService,
+                        msg: "single_block_failure",
+                    })
+                }
+            },
+            (BlockProcessType::ParentLookup { chain_hash }, error @ Err(_)) => {
+                // Sync handles these results
+                self.send_sync_message(SyncMessage::ParentBlockProcessed {
+                    chain_hash,
+                    result: error,
+                })
             }
         }
+
         // Drop the handle to remove the entry from the cache
         drop(handle);
     }

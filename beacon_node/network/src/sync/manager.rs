@@ -133,9 +133,9 @@ pub enum SyncMessage<T: EthSpec> {
     },
 
     /// Block processed
-    BlockProcessed {
+    ParentBlockProcessed {
+        chain_hash: Hash256,
         result: Result<Hash256, BlockError<T>>,
-        process_type: BlockProcessType,
     },
 }
 
@@ -152,7 +152,7 @@ pub enum BatchProcessType {
 #[derive(Debug, Clone)]
 pub enum BlockProcessType {
     SingleBlock { seen_timestamp: Duration },
-    ParentLookup,
+    ParentLookup { chain_hash: Hash256 },
 }
 
 /// The result of processing multiple blocks (a chain segment).
@@ -169,6 +169,9 @@ pub enum BatchProcessResult {
 
 /// Maintains a sequential list of parents to lookup and the lookup's current state.
 struct ParentRequests<T: EthSpec> {
+    /// The root of the block triggering this parent request.
+    chain_hash: Hash256,
+
     /// The blocks that have currently been downloaded.
     downloaded_blocks: Vec<SignedBeaconBlock<T>>,
 
@@ -466,33 +469,6 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         }
     }
 
-    fn single_block_lookup_processed(
-        &mut self,
-        block_result: Result<Hash256, BlockError<T::EthSpec>>,
-    ) {
-        // TODO: move to the processor
-        /*
-        // we have the correct block, try and process it
-        match block_result {
-            Ok(block_root) => {
-
-                match self.chain.fork_choice() {
-                    Ok(()) => trace!(
-                        self.log,
-                        "Fork choice success";
-                        "location" => "single block"
-                    ),
-                    Err(e) => error!(
-                        self.log,
-                        "Fork choice failed";
-                        "error" => ?e,
-                        "location" => "single block"
-                    ),
-                }
-            }
-            */
-    }
-
     /// A block has been sent to us that has an unknown parent. This begins a parent lookup search
     /// to find the parent or chain of parents that match our current chain.
     fn add_unknown_block(&mut self, peer_id: PeerId, block: SignedBeaconBlock<T::EthSpec>) {
@@ -538,9 +514,10 @@ impl<T: BeaconChainTypes> SyncManager<T> {
             }
         }
 
-        debug!(self.log, "Unknown block received. Starting a parent lookup"; "block_slot" => block.slot(), "block_hash" => %block.canonical_root());
+        debug!(self.log, "Unknown block received. Starting a parent lookup"; "block_slot" => block.slot(), "block_hash" => %block_root);
 
         let parent_request = ParentRequests {
+            chain_hash: block_root,
             downloaded_blocks: vec![block],
             failed_attempts: 0,
             last_submitted_peer: peer_id,
@@ -847,30 +824,55 @@ impl<T: BeaconChainTypes> SyncManager<T> {
             // If the last block in the queue has an unknown parent, we continue the parent
             // lookup-search.
 
-            let chain_block_hash = parent_request.downloaded_blocks[0].canonical_root();
-
             let newest_block = parent_request
                 .downloaded_blocks
                 .pop()
                 .expect("There is always at least one block in the queue");
 
             let peer_id = parent_request.last_submitted_peer;
-            self.send_block_for_processing(newest_block, peer_id, BlockProcessType::ParentLookup);
+            self.send_block_for_processing(
+                newest_block,
+                peer_id,
+                BlockProcessType::ParentLookup {
+                    chain_hash: parent_request.downloaded_blocks[0].canonical_root(),
+                },
+            );
         }
     }
 
-    fn parent_lookup_processed(&mut self, block_result: Result<Hash256, BlockError<T::EthSpec>>) {
+    fn parent_lookup_processed(
+        &mut self,
+        chain_hash: Hash256,
+        block_result: Result<Hash256, BlockError<T::EthSpec>>,
+    ) {
+        let mut parent_request = match self
+            .parent_queue
+            .iter()
+            .position(|request| request.chain_hash == chain_hash)
+        {
+            Some(pos) => self.parent_queue.remove(pos),
+            None => {
+                if cfg!(debug_assertions) {
+                    panic!(
+                        "Parent lookup process result for unknown chain_hash {}",
+                        chain_hash
+                    );
+                }
+                return crit!(self.log, "Parent lookup process result for unknown chain_hash"; "root" => %chain_hash);
+            }
+        };
+
         match block_result {
-            Err(BlockError::ParentUnknown { .. }) => {
+            Err(BlockError::ParentUnknown(block)) => {
                 // need to keep looking for parents
                 // add the block back to the queue and continue the search
-                parent_request.downloaded_blocks.push(newest_block);
+                parent_request.downloaded_blocks.push(*block);
                 self.request_parent(parent_request);
             }
             Ok(_) | Err(BlockError::BlockIsAlreadyKnown { .. }) => {
                 let process_id = ChainSegmentProcessId::ParentLookup(
                     parent_request.last_submitted_peer,
-                    chain_block_hash,
+                    parent_request.chain_hash,
                 );
                 let blocks = parent_request.downloaded_blocks;
 
@@ -899,7 +901,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                 );
 
                 // Add this chain to cache of failed chains
-                self.failed_chains.insert(chain_block_hash);
+                self.failed_chains.insert(chain_hash);
 
                 // This currently can be a host of errors. We permit this due to the partial
                 // ambiguity.
@@ -1007,13 +1009,9 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                         peer_id,
                         request_id,
                     } => self.inject_error(peer_id, request_id),
-                    SyncMessage::BlockProcessed {
-                        result,
-                        process_type,
-                    } => match process_type {
-                        BlockProcessType::SingleBlock => todo!(),
-                        BlockProcessType::ParentLookup => todo!(),
-                    },
+                    SyncMessage::ParentBlockProcessed { chain_hash, result } => {
+                        self.parent_lookup_processed(chain_hash, result)
+                    }
                     SyncMessage::BatchProcessed { sync_type, result } => match sync_type {
                         BatchProcessType::RangeSync(epoch, chain_id) => {
                             self.range_sync.handle_block_process_result(
