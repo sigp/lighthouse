@@ -41,7 +41,7 @@
 use crate::sync::manager::BlockProcessType;
 use crate::{metrics, service::NetworkMessage, sync::SyncMessage};
 use beacon_chain::parking_lot::Mutex;
-use beacon_chain::{BeaconChain, BeaconChainTypes, BlockError, GossipVerifiedBlock};
+use beacon_chain::{BeaconChain, BeaconChainTypes, GossipVerifiedBlock};
 use futures::stream::{Stream, StreamExt};
 use futures::task::Poll;
 use lighthouse_network::{
@@ -57,7 +57,7 @@ use std::task::Context;
 use std::time::{Duration, Instant};
 use std::{cmp, collections::HashSet};
 use task_executor::TaskExecutor;
-use tokio::sync::{mpsc, oneshot};
+use tokio::sync::mpsc;
 use types::{
     Attestation, AttesterSlashing, Hash256, ProposerSlashing, SignedAggregateAndProof,
     SignedBeaconBlock, SignedContributionAndProof, SignedVoluntaryExit, SubnetId,
@@ -198,10 +198,6 @@ pub const BLOCKS_BY_RANGE_REQUEST: &str = "blocks_by_range_request";
 pub const BLOCKS_BY_ROOTS_REQUEST: &str = "blocks_by_roots_request";
 pub const UNKNOWN_BLOCK_ATTESTATION: &str = "unknown_block_attestation";
 pub const UNKNOWN_BLOCK_AGGREGATE: &str = "unknown_block_aggregate";
-
-/// Used to send/receive results from a rpc block import in a blocking task.
-pub type BlockResultSender<E> = oneshot::Sender<Result<Hash256, BlockError<E>>>;
-pub type BlockResultReceiver<E> = oneshot::Receiver<Result<Hash256, BlockError<E>>>;
 
 /// A simple first-in-first-out queue with a maximum length.
 struct FifoQueue<T> {
