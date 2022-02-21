@@ -341,7 +341,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
     /// There are two reasons we could have received a BlocksByRoot response
     /// - We requested a single hash and have received a response for the single_block_lookup
     /// - We are looking up parent blocks in parent lookup search
-    async fn parent_lookup_response(
+    fn parent_lookup_response(
         &mut self,
         peer_id: PeerId,
         request_id: Id,
@@ -392,7 +392,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                 // add the block to response
                 parent_request.downloaded_blocks.push(block);
                 // queue for processing
-                self.process_parent_request(parent_request).await;
+                self.process_parent_request(parent_request);
             }
             None => {
                 // An empty response has been returned to a parent request
@@ -423,7 +423,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
     /// Processes the response obtained from a single block lookup search. If the block is
     /// processed or errors, the search ends. If the blocks parent is unknown, a block parent
     /// lookup search is started.
-    async fn single_block_lookup_response(
+    fn single_block_lookup_response(
         &mut self,
         request_id: Id,
         peer_id: PeerId,
@@ -785,7 +785,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
     // manager
 
     /// A new block has been received for a parent lookup query, process it.
-    async fn process_parent_request(&mut self, mut parent_request: ParentRequests<T::EthSpec>) {
+    fn process_parent_request(&mut self, mut parent_request: ParentRequests<T::EthSpec>) {
         // verify the last added block is the parent of the last requested block
 
         if parent_request.downloaded_blocks.len() < 2 {
@@ -1018,8 +1018,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                             peer_id,
                             beacon_block.map(|b| *b),
                             seen_timestamp,
-                        )
-                        .await;
+                        );
                     }
                     SyncMessage::UnknownBlock(peer_id, block) => {
                         self.add_unknown_block(peer_id, *block);
@@ -1081,7 +1080,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         }
     }
 
-    async fn rpc_block_received(
+    fn rpc_block_received(
         &mut self,
         request_id: RequestId,
         peer_id: PeerId,
@@ -1090,12 +1089,10 @@ impl<T: BeaconChainTypes> SyncManager<T> {
     ) {
         match request_id {
             RequestId::SingleBlock { id } => {
-                self.single_block_lookup_response(id, peer_id, beacon_block, seen_timestamp)
-                    .await;
+                self.single_block_lookup_response(id, peer_id, beacon_block, seen_timestamp);
             }
             RequestId::ParentLookup { id } => {
-                self.parent_lookup_response(peer_id, id, beacon_block, seen_timestamp)
-                    .await
+                self.parent_lookup_response(peer_id, id, beacon_block, seen_timestamp);
             }
             RequestId::BackFillSync { id } => {
                 if let Some(batch_id) = self
