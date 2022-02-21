@@ -103,7 +103,7 @@ pub fn validate_merge_block<T: BeaconChainTypes>(
     let block_epoch = block.slot().epoch(T::EthSpec::slots_per_epoch());
     let execution_payload = block.execution_payload()?;
 
-    if spec.terminal_block_hash != Hash256::zero() {
+    if spec.terminal_block_hash != ExecutionBlockHash::zero() {
         if block_epoch < spec.terminal_block_hash_activation_epoch {
             return Err(ExecutionPayloadError::InvalidActivationEpoch {
                 activation_epoch: spec.terminal_block_hash_activation_epoch,
@@ -267,7 +267,7 @@ pub async fn prepare_execution_payload<T: BeaconChainTypes>(
         .ok_or(BlockProductionError::ExecutionLayerMissing)?;
 
     let parent_hash = if !is_merge_transition_complete(state) {
-        let is_terminal_block_hash_set = spec.terminal_block_hash != Hash256::zero();
+        let is_terminal_block_hash_set = spec.terminal_block_hash != ExecutionBlockHash::zero();
         let is_activation_epoch_reached =
             state.current_epoch() >= spec.terminal_block_hash_activation_epoch;
 
@@ -318,7 +318,7 @@ pub async fn prepare_execution_payload<T: BeaconChainTypes>(
             parent_hash,
             timestamp,
             random,
-            finalized_block_hash.unwrap_or_else(Hash256::zero),
+            finalized_block_hash.unwrap_or_else(ExecutionBlockHash::zero),
             proposer_index,
         )
         .await

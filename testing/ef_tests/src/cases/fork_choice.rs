@@ -14,15 +14,15 @@ use ssz_derive::Decode;
 use state_processing::state_advance::complete_state_advance;
 use std::time::Duration;
 use types::{
-    Attestation, BeaconBlock, BeaconState, Checkpoint, Epoch, EthSpec, ForkName, Hash256,
-    IndexedAttestation, SignedBeaconBlock, Slot, Uint256,
+    Attestation, BeaconBlock, BeaconState, Checkpoint, Epoch, EthSpec, ExecutionBlockHash,
+    ForkName, Hash256, IndexedAttestation, SignedBeaconBlock, Slot, Uint256,
 };
 
 #[derive(Default, Debug, PartialEq, Clone, Deserialize, Decode)]
 #[serde(deny_unknown_fields)]
 pub struct PowBlock {
-    pub block_hash: Hash256,
-    pub parent_hash: Hash256,
+    pub block_hash: ExecutionBlockHash,
+    pub parent_hash: ExecutionBlockHash,
     pub total_difficulty: Uint256,
 }
 

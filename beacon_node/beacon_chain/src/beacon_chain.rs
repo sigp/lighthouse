@@ -205,7 +205,7 @@ pub struct HeadInfo {
     pub genesis_validators_root: Hash256,
     pub proposer_shuffling_decision_root: Hash256,
     pub is_merge_transition_complete: bool,
-    pub execution_payload_block_hash: Option<Hash256>,
+    pub execution_payload_block_hash: Option<ExecutionBlockHash>,
 }
 
 pub trait BeaconChainTypes: Send + Sync + 'static {
@@ -224,15 +224,15 @@ pub enum HeadSafetyStatus {
     ///
     /// If the block is post-terminal-block, `Some(execution_payload.block_hash)` is included with
     /// the variant.
-    Safe(Option<Hash256>),
+    Safe(Option<ExecutionBlockHash>),
     /// The head block execution payload has not yet been verified by an EL.
     ///
     /// The `execution_payload.block_hash` of the head block is returned.
-    Unsafe(Hash256),
+    Unsafe(ExecutionBlockHash),
     /// The head block execution payload was deemed to be invalid by an EL.
     ///
     /// The `execution_payload.block_hash` of the head block is returned.
-    Invalid(Hash256),
+    Invalid(ExecutionBlockHash),
 }
 
 pub type BeaconForkChoice<T> = ForkChoice<
@@ -3202,7 +3202,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     pub fn process_invalid_execution_payload(
         &self,
         latest_root: Hash256,
-        latest_valid_hash: Option<Hash256>,
+        latest_valid_hash: Option<ExecutionBlockHash>,
     ) -> Result<(), Error> {
         debug!(
             self.log,
@@ -3690,6 +3690,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             if is_merge_transition_complete {
                 if let Err(e) = self.update_execution_engine_forkchoice_blocking(
                     new_finalized_checkpoint.root,
+                    beacon_block_root,
                     new_head_execution_block_hash,
                 ) {
                     crit!(
@@ -3707,7 +3708,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     pub fn update_execution_engine_forkchoice_blocking(
         &self,
         finalized_beacon_block_root: Hash256,
-        head_execution_block_hash: Hash256,
+        head_block_root: Hash256,
+        head_execution_block_hash: ExecutionBlockHash,
     ) -> Result<(), Error> {
         let execution_layer = self
             .execution_layer
@@ -3718,6 +3720,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .block_on_generic(|_| {
                 self.update_execution_engine_forkchoice_async(
                     finalized_beacon_block_root,
+                    head_block_root,
                     head_execution_block_hash,
                 )
             })
@@ -3727,7 +3730,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     pub async fn update_execution_engine_forkchoice_async(
         &self,
         finalized_beacon_block_root: Hash256,
-        head_execution_block_hash: Hash256,
+        head_block_root: Hash256,
+        head_execution_block_hash: ExecutionBlockHash,
     ) -> Result<(), Error> {
         // Loading the finalized block from the store is not ideal. Perhaps it would be better to
         // store it on fork-choice so we can do a lookup without hitting the database.
@@ -3744,7 +3748,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .execution_payload()
             .ok()
             .map(|ep| ep.block_hash)
-            .unwrap_or_else(Hash256::zero);
+            .unwrap_or_else(ExecutionBlockHash::zero);
 
         let forkchoice_updated_response = self
             .execution_layer
@@ -3780,7 +3784,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     // The execution engine has stated that all blocks between the
                     // `head_execution_block_hash` and `latest_valid_hash` are invalid.
                     self.process_invalid_execution_payload(
-                        head_execution_block_hash,
+                        head_block_root,
                         Some(latest_valid_hash),
                     )?;
 
@@ -3793,7 +3797,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     //
                     // Using a `None` latest valid ancestor will result in only the head block
                     // being invalidated (no ancestors).
-                    self.process_invalid_execution_payload(head_execution_block_hash, None)?;
+                    self.process_invalid_execution_payload(head_block_root, None)?;
 
                     Err(BeaconChainError::ExecutionForkChoiceUpdateInvalid { status })
                 }

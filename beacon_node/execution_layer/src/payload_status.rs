@@ -2,7 +2,7 @@ use crate::engine_api::{Error as ApiError, PayloadStatusV1, PayloadStatusV1Statu
 use crate::engines::EngineError;
 use crate::Error;
 use slog::{crit, warn, Logger};
-use types::Hash256;
+use types::ExecutionBlockHash;
 
 /// Provides a simpler, easier to parse version of `PayloadStatusV1` for upstream users.
 ///
@@ -11,7 +11,7 @@ use types::Hash256;
 pub enum PayloadStatus {
     Valid,
     Invalid {
-        latest_valid_hash: Hash256,
+        latest_valid_hash: ExecutionBlockHash,
         validation_error: Option<String>,
     },
     Syncing,
@@ -44,7 +44,7 @@ pub enum PayloadStatus {
 ///     processed.
 /// - If there are no responses (only errors or nothing), return an error.
 pub fn process_multiple_payload_statuses(
-    head_block_hash: Hash256,
+    head_block_hash: ExecutionBlockHash,
     statuses: impl Iterator<Item = Result<PayloadStatusV1, EngineError>>,
     log: &Logger,
 ) -> Result<PayloadStatus, Error> {

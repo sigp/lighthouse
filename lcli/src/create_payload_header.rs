@@ -23,7 +23,7 @@ pub fn run<T: EthSpec>(matches: &ArgMatches) -> Result<(), String> {
         base_fee_per_gas,
         timestamp: genesis_time,
         block_hash: eth1_block_hash,
-        random: eth1_block_hash,
+        random: eth1_block_hash.into_root(),
         ..ExecutionPayloadHeader::default()
     };
     let mut file = File::create(file_name).map_err(|_| "Unable to create file".to_string())?;

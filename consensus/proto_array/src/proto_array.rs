@@ -5,7 +5,10 @@ use ssz::four_byte_option_impl;
 use ssz::Encode;
 use ssz_derive::{Decode, Encode};
 use std::collections::{HashMap, HashSet};
-use types::{AttestationShufflingId, ChainSpec, Checkpoint, Epoch, EthSpec, Hash256, Slot};
+use types::{
+    AttestationShufflingId, ChainSpec, Checkpoint, Epoch, EthSpec, ExecutionBlockHash, Hash256,
+    Slot,
+};
 
 // Define a "legacy" implementation of `Option<usize>` which uses four bytes for encoding the union
 // selector.
@@ -310,7 +313,7 @@ impl ProtoArray {
     pub fn propagate_execution_payload_invalidation(
         &mut self,
         head_block_root: Hash256,
-        latest_valid_ancestor_hash: Option<Hash256>,
+        latest_valid_ancestor_hash: Option<ExecutionBlockHash>,
     ) -> Result<(), Error> {
         let mut invalidated_indices: HashSet<usize> = <_>::default();
         let mut index = *self
@@ -767,7 +770,7 @@ impl ProtoArray {
     /// `block_hash`, if any.
     pub fn execution_block_hash_to_beacon_block_root(
         &self,
-        block_hash: &Hash256,
+        block_hash: &ExecutionBlockHash,
     ) -> Option<Hash256> {
         self.nodes
             .iter()

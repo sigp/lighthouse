@@ -58,7 +58,7 @@ impl<T: EthSpec> MockExecutionLayer<T> {
         Self::new(
             DEFAULT_TERMINAL_DIFFICULTY.into(),
             DEFAULT_TERMINAL_BLOCK,
-            Hash256::zero(),
+            ExecutionBlockHash::zero(),
             Epoch::new(0),
         )
     }
@@ -66,7 +66,7 @@ impl<T: EthSpec> MockExecutionLayer<T> {
     pub fn new(
         terminal_total_difficulty: Uint256,
         terminal_block: u64,
-        terminal_block_hash: Hash256,
+        terminal_block_hash: ExecutionBlockHash,
         terminal_block_hash_activation_epoch: Epoch,
     ) -> Self {
         let el_runtime = ExecutionLayerRuntime::default();
@@ -117,7 +117,7 @@ impl<T: EthSpec> MockExecutionLayer<T> {
         self.el
             .notify_forkchoice_updated(
                 parent_hash,
-                Hash256::zero(),
+                ExecutionBlockHash::zero(),
                 Some(PayloadAttributes {
                     timestamp,
                     random,
@@ -149,7 +149,7 @@ impl<T: EthSpec> MockExecutionLayer<T> {
         assert_eq!(status, PayloadStatus::Valid);
 
         self.el
-            .notify_forkchoice_updated(block_hash, Hash256::zero(), None)
+            .notify_forkchoice_updated(block_hash, ExecutionBlockHash::zero(), None)
             .await
             .unwrap();
 

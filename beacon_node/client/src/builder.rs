@@ -680,6 +680,7 @@ where
                             let result = inner_chain
                                 .update_execution_engine_forkchoice_async(
                                     head.finalized_checkpoint.root,
+                                    head.block_root,
                                     block_hash,
                                 )
                                 .await;

@@ -58,8 +58,8 @@ pub enum BlockProcessingError {
     InconsistentBlockFork(InconsistentFork),
     InconsistentStateFork(InconsistentFork),
     ExecutionHashChainIncontiguous {
-        expected: Hash256,
-        found: Hash256,
+        expected: ExecutionBlockHash,
+        found: ExecutionBlockHash,
     },
     ExecutionRandaoMismatch {
         expected: Hash256,

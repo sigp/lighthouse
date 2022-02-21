@@ -1,4 +1,4 @@
-use types::{Checkpoint, Epoch, Hash256};
+use types::{Checkpoint, Epoch, ExecutionBlockHash, Hash256};
 
 #[derive(Clone, PartialEq, Debug)]
 pub enum Error {
@@ -28,18 +28,18 @@ pub enum Error {
     InvalidBestNode(Box<InvalidBestNodeInfo>),
     InvalidAncestorOfValidPayload {
         ancestor_block_root: Hash256,
-        ancestor_payload_block_hash: Hash256,
+        ancestor_payload_block_hash: ExecutionBlockHash,
     },
     ValidExecutionStatusBecameInvalid {
         block_root: Hash256,
-        payload_block_hash: Hash256,
+        payload_block_hash: ExecutionBlockHash,
     },
     InvalidJustifiedCheckpointExecutionStatus {
         justified_root: Hash256,
     },
     UnknownLatestValidAncestorHash {
         block_root: Hash256,
-        latest_valid_ancestor_hash: Option<Hash256>,
+        latest_valid_ancestor_hash: Option<ExecutionBlockHash>,
     },
 }
 

@@ -16,7 +16,9 @@ type E = MainnetEthSpec;
 #[derive(PartialEq, Clone)]
 enum Payload {
     Valid,
-    Invalid { latest_valid_hash: Option<Hash256> },
+    Invalid {
+        latest_valid_hash: Option<ExecutionBlockHash>,
+    },
     Syncing,
 }
 
@@ -52,7 +54,7 @@ impl InvalidPayloadRig {
         self
     }
 
-    fn block_hash(&self, block_root: Hash256) -> Hash256 {
+    fn block_hash(&self, block_root: Hash256) -> ExecutionBlockHash {
         self.harness
             .chain
             .get_block(&block_root)
@@ -308,13 +310,14 @@ fn pre_finalized_latest_valid_hash() {
     assert_eq!(rig.head_info().finalized_checkpoint.epoch, finalized_epoch);
 
     let pre_finalized_block_root = rig.block_root_at_slot(Slot::new(1)).unwrap();
+    let pre_finalized_block_hash = rig.block_hash(pre_finalized_block_root);
 
     // No service should have triggered a shutdown, yet.
     assert!(rig.harness.shutdown_reasons().is_empty());
 
     // Import a block that will invalidate the justified checkpoint.
     rig.import_block(Payload::Invalid {
-        latest_valid_hash: Some(pre_finalized_block_root),
+        latest_valid_hash: Some(pre_finalized_block_hash),
     });
 
     // The latest imported block should be the head.
@@ -388,7 +391,7 @@ fn latest_valid_hash_is_junk() {
     // No service should have triggered a shutdown, yet.
     assert!(rig.harness.shutdown_reasons().is_empty());
 
-    let junk_hash = Hash256::from_low_u64_be(42);
+    let junk_hash = ExecutionBlockHash::repeat_byte(42);
     rig.import_block(Payload::Invalid {
         latest_valid_hash: Some(junk_hash),
     });

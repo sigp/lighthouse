@@ -5,7 +5,10 @@ use serde_derive::{Deserialize, Serialize};
 use ssz::{Decode, Encode};
 use ssz_derive::{Decode, Encode};
 use std::collections::HashMap;
-use types::{AttestationShufflingId, ChainSpec, Checkpoint, Epoch, EthSpec, Hash256, Slot};
+use types::{
+    AttestationShufflingId, ChainSpec, Checkpoint, Epoch, EthSpec, ExecutionBlockHash, Hash256,
+    Slot,
+};
 
 pub const DEFAULT_PRUNE_THRESHOLD: usize = 256;
 
@@ -21,11 +24,11 @@ pub struct VoteTracker {
 #[ssz(enum_behaviour = "union")]
 pub enum ExecutionStatus {
     /// An EL has determined that the payload is valid.
-    Valid(Hash256),
+    Valid(ExecutionBlockHash),
     /// An EL has determined that the payload is invalid.
-    Invalid(Hash256),
+    Invalid(ExecutionBlockHash),
     /// An EL has not yet verified the execution payload.
-    Unknown(Hash256),
+    Unknown(ExecutionBlockHash),
     /// The block is either prior to the merge fork, or after the merge fork but before the terminal
     /// PoW block has been found.
     ///
@@ -41,7 +44,7 @@ impl ExecutionStatus {
         ExecutionStatus::Irrelevant(false)
     }
 
-    pub fn block_hash(&self) -> Option<Hash256> {
+    pub fn block_hash(&self) -> Option<ExecutionBlockHash> {
         match self {
             ExecutionStatus::Valid(hash)
             | ExecutionStatus::Invalid(hash)
@@ -165,7 +168,7 @@ impl ProtoArrayForkChoice {
     pub fn process_execution_payload_invalidation(
         &mut self,
         head_block_root: Hash256,
-        latest_valid_ancestor_root: Option<Hash256>,
+        latest_valid_ancestor_root: Option<ExecutionBlockHash>,
     ) -> Result<(), String> {
         self.proto_array
             .propagate_execution_payload_invalidation(head_block_root, latest_valid_ancestor_root)

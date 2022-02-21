@@ -6,8 +6,8 @@ use std::marker::PhantomData;
 use std::time::Duration;
 use types::{
     consts::merge::INTERVALS_PER_SLOT, AttestationShufflingId, BeaconBlock, BeaconState,
-    BeaconStateError, ChainSpec, Checkpoint, Epoch, EthSpec, Hash256, IndexedAttestation,
-    RelativeEpoch, SignedBeaconBlock, Slot,
+    BeaconStateError, ChainSpec, Checkpoint, Epoch, EthSpec, ExecutionBlockHash, Hash256,
+    IndexedAttestation, RelativeEpoch, SignedBeaconBlock, Slot,
 };
 
 #[derive(Debug)]
@@ -468,7 +468,7 @@ where
     pub fn on_invalid_execution_payload(
         &mut self,
         head_block_root: Hash256,
-        latest_valid_ancestor_root: Option<Hash256>,
+        latest_valid_ancestor_root: Option<ExecutionBlockHash>,
     ) -> Result<(), Error<T::Error>> {
         self.proto_array
             .process_execution_payload_invalidation(head_block_root, latest_valid_ancestor_root)
@@ -603,7 +603,7 @@ where
         let execution_status = if let Ok(execution_payload) = block.body().execution_payload() {
             let block_hash = execution_payload.block_hash;
 
-            if block_hash == Hash256::zero() {
+            if block_hash == ExecutionBlockHash::zero() {
                 // The block is post-merge-fork, but pre-terminal-PoW block. We don't need to verify
                 // the payload.
                 ExecutionStatus::irrelevant()

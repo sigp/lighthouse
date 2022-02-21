@@ -14,7 +14,7 @@ use std::marker::PhantomData;
 use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
 use std::sync::Arc;
 use tokio::{runtime, sync::oneshot};
-use types::{EthSpec, Hash256, Uint256};
+use types::{EthSpec, ExecutionBlockHash, Hash256, Uint256};
 use warp::Filter;
 
 pub use execution_block_generator::{generate_pow_block, ExecutionBlockGenerator};
@@ -47,7 +47,7 @@ impl<T: EthSpec> MockServer<T> {
             &runtime::Handle::current(),
             DEFAULT_TERMINAL_DIFFICULTY.into(),
             DEFAULT_TERMINAL_BLOCK,
-            Hash256::zero(),
+            ExecutionBlockHash::zero(),
         )
     }
 
@@ -55,7 +55,7 @@ impl<T: EthSpec> MockServer<T> {
         handle: &runtime::Handle,
         terminal_difficulty: Uint256,
         terminal_block: u64,
-        terminal_block_hash: Hash256,
+        terminal_block_hash: ExecutionBlockHash,
     ) -> Self {
         let last_echo_request = Arc::new(RwLock::new(None));
         let preloaded_responses = Arc::new(Mutex::new(vec![]));
@@ -148,7 +148,7 @@ impl<T: EthSpec> MockServer<T> {
         *self.ctx.static_new_payload_response.lock() = Some(response)
     }
 
-    pub fn all_payloads_invalid(&self, latest_valid_hash: Hash256) {
+    pub fn all_payloads_invalid(&self, latest_valid_hash: ExecutionBlockHash) {
         let response = StaticNewPayloadResponse {
             status: PayloadStatusV1 {
                 status: PayloadStatusV1Status::Invalid,
@@ -167,8 +167,8 @@ impl<T: EthSpec> MockServer<T> {
     pub fn insert_pow_block(
         &self,
         block_number: u64,
-        block_hash: Hash256,
-        parent_hash: Hash256,
+        block_hash: ExecutionBlockHash,
+        parent_hash: ExecutionBlockHash,
         total_difficulty: Uint256,
     ) {
         let block = Block::PoW(PoWBlock {
@@ -187,7 +187,7 @@ impl<T: EthSpec> MockServer<T> {
             .unwrap()
     }
 
-    pub fn get_block(&self, block_hash: Hash256) -> Option<Block<T>> {
+    pub fn get_block(&self, block_hash: ExecutionBlockHash) -> Option<Block<T>> {
         self.ctx
             .execution_block_generator
             .read()

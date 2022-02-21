@@ -20,7 +20,7 @@ use tokio::{
     sync::{Mutex, MutexGuard},
     time::{sleep, sleep_until, Instant},
 };
-use types::{ChainSpec, Epoch, ProposerPreparationData};
+use types::{ChainSpec, Epoch, ExecutionBlockHash, ProposerPreparationData};
 
 pub use engine_api::{http::HttpJsonRpc, PayloadAttributes, PayloadStatusV1Status};
 pub use payload_status::PayloadStatus;
@@ -72,7 +72,7 @@ struct Inner {
     engines: Engines<HttpJsonRpc>,
     suggested_fee_recipient: Option<Address>,
     proposer_preparation_data: Mutex<HashMap<u64, ProposerPreparationDataEntry>>,
-    execution_blocks: Mutex<LruCache<Hash256, ExecutionBlock>>,
+    execution_blocks: Mutex<LruCache<ExecutionBlockHash, ExecutionBlock>>,
     executor: TaskExecutor,
     log: Logger,
 }
@@ -141,7 +141,9 @@ impl ExecutionLayer {
     }
 
     /// Note: this function returns a mutex guard, be careful to avoid deadlocks.
-    async fn execution_blocks(&self) -> MutexGuard<'_, LruCache<Hash256, ExecutionBlock>> {
+    async fn execution_blocks(
+        &self,
+    ) -> MutexGuard<'_, LruCache<ExecutionBlockHash, ExecutionBlock>> {
         self.inner.execution_blocks.lock().await
     }
 
@@ -388,10 +390,10 @@ impl ExecutionLayer {
     /// will be contacted.
     pub async fn get_payload<T: EthSpec>(
         &self,
-        parent_hash: Hash256,
+        parent_hash: ExecutionBlockHash,
         timestamp: u64,
         random: Hash256,
-        finalized_block_hash: Hash256,
+        finalized_block_hash: ExecutionBlockHash,
         proposer_index: u64,
     ) -> Result<ExecutionPayload<T>, Error> {
         let suggested_fee_recipient = self.get_suggested_fee_recipient(proposer_index).await;
@@ -508,8 +510,8 @@ impl ExecutionLayer {
     /// - An error, if all nodes return an error.
     pub async fn notify_forkchoice_updated(
         &self,
-        head_block_hash: Hash256,
-        finalized_block_hash: Hash256,
+        head_block_hash: ExecutionBlockHash,
+        finalized_block_hash: ExecutionBlockHash,
         payload_attributes: Option<PayloadAttributes>,
     ) -> Result<PayloadStatus, Error> {
         debug!(
@@ -561,12 +563,12 @@ impl ExecutionLayer {
     pub async fn get_terminal_pow_block_hash(
         &self,
         spec: &ChainSpec,
-    ) -> Result<Option<Hash256>, Error> {
+    ) -> Result<Option<ExecutionBlockHash>, Error> {
         let hash_opt = self
             .engines()
             .first_success(|engine| async move {
                 let terminal_block_hash = spec.terminal_block_hash;
-                if terminal_block_hash != Hash256::zero() {
+                if terminal_block_hash != ExecutionBlockHash::zero() {
                     if self
                         .get_pow_block(engine, terminal_block_hash)
                         .await?
@@ -610,7 +612,7 @@ impl ExecutionLayer {
         &self,
         engine: &Engine<HttpJsonRpc>,
         spec: &ChainSpec,
-    ) -> Result<Option<Hash256>, ApiError> {
+    ) -> Result<Option<ExecutionBlockHash>, ApiError> {
         let mut block = engine
             .api
             .get_block_by_number(BlockByNumberQuery::Tag(LATEST_TAG))
@@ -622,7 +624,7 @@ impl ExecutionLayer {
         loop {
             let block_reached_ttd = block.total_difficulty >= spec.terminal_total_difficulty;
             if block_reached_ttd {
-                if block.parent_hash == Hash256::zero() {
+                if block.parent_hash == ExecutionBlockHash::zero() {
                     return Ok(Some(block.block_hash));
                 }
                 let parent = self
@@ -670,7 +672,7 @@ impl ExecutionLayer {
     /// https://github.com/ethereum/consensus-specs/blob/v1.1.0/specs/merge/fork-choice.md
     pub async fn is_valid_terminal_pow_block_hash(
         &self,
-        block_hash: Hash256,
+        block_hash: ExecutionBlockHash,
         spec: &ChainSpec,
     ) -> Result<Option<bool>, Error> {
         let broadcast_results = self
@@ -749,7 +751,7 @@ impl ExecutionLayer {
     async fn get_pow_block(
         &self,
         engine: &Engine<HttpJsonRpc>,
-        hash: Hash256,
+        hash: ExecutionBlockHash,
     ) -> Result<Option<ExecutionBlock>, ApiError> {
         if let Some(cached) = self.execution_blocks().await.get(&hash).copied() {
             // The block was in the cache, no need to request it from the execution
@@ -843,7 +845,7 @@ mod test {
         MockExecutionLayer::default_params()
             .move_to_terminal_block()
             .with_terminal_block(|spec, el, _| async move {
-                let missing_terminal_block = Hash256::repeat_byte(42);
+                let missing_terminal_block = ExecutionBlockHash::repeat_byte(42);
 
                 assert_eq!(
                     el.is_valid_terminal_pow_block_hash(missing_terminal_block, &spec)
