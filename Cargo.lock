@@ -2442,6 +2442,7 @@ dependencies = [
  "lighthouse_network",
  "lighthouse_version",
  "network",
+ "parking_lot",
  "safe_arith",
  "sensitive_url",
  "serde",

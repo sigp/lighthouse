@@ -8,6 +8,7 @@
 mod attestation_performance;
 mod attester_duties;
 mod block_id;
+mod block_packing_efficiency;
 mod block_rewards;
 mod database;
 mod metrics;
@@ -2615,6 +2616,19 @@ pub fn serve<T: BeaconChainTypes>(
             })
         });
 
+    // GET lighthouse/analysis/block_packing_efficiency
+    let get_lighthouse_block_packing_efficiency = warp::path("lighthouse")
+        .and(warp::path("analysis"))
+        .and(warp::path("block_packing_efficiency"))
+        .and(warp::query::<eth2::lighthouse::BlockPackingEfficiencyQuery>())
+        .and(warp::path::end())
+        .and(chain_filter.clone())
+        .and_then(|query, chain: Arc<BeaconChain<T>>| {
+            blocking_json_task(move || {
+                block_packing_efficiency::get_block_packing_efficiency(query, chain)
+            })
+        });
+
     let get_events = eth1_v1
         .and(warp::path("events"))
         .and(warp::path::end())
@@ -2741,6 +2755,7 @@ pub fn serve<T: BeaconChainTypes>(
                 .or(get_lighthouse_database_info.boxed())
                 .or(get_lighthouse_block_rewards.boxed())
                 .or(get_lighthouse_attestation_performance.boxed())
+                .or(get_lighthouse_block_packing_efficiency.boxed())
                 .or(get_events.boxed()),
         )
         .or(warp::post().and(
