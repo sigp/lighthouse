@@ -185,14 +185,17 @@ impl<E: EthSpec> EnvironmentBuilder<E> {
                 let res = create_dir_all(dir);
 
                 // If the directories cannot be created, warn and disable the logger.
-                if res.is_err() {
-                    let log = stdout_logger;
-                    warn!(
-                        log,
-                        "Background file logging has been disabled";
-                        "reason" => "logfile could not be created, check directory permissions");
-                    self.log = Some(log);
-                    return Ok(self);
+                match res {
+                    Ok(_) => (),
+                    Err(e) => {
+                        let log = stdout_logger;
+                        warn!(
+                            log,
+                            "Background file logging is disabled";
+                            "error" => e);
+                        self.log = Some(log);
+                        return Ok(self);
+                    }
                 }
             }
         }

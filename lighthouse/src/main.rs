@@ -381,23 +381,19 @@ fn run<E: EthSpec>(
                     .with_extension("log"),
             ),
             ("validator_client", Some(vc_matches)) => {
-                if vc_matches.is_present("validators-dir") {
-                    Some(
-                        parse_path_or_default(vc_matches, "validators-dir")?
-                            .join(DEFAULT_VALIDATOR_DIR)
-                            .join("logs")
-                            .join("validator")
-                            .with_extension("log"),
-                    )
+                let base_path = if vc_matches.is_present("validators-dir") {
+                    parse_path_or_default(vc_matches, "validators-dir")?
                 } else {
-                    Some(
-                        parse_path_or_default(matches, "datadir")?
-                            .join(DEFAULT_VALIDATOR_DIR)
-                            .join("logs")
-                            .join("validator")
-                            .with_extension("log"),
-                    )
-                }
+                    parse_path_or_default(matches, "datadir")?
+                };
+
+                Some(
+                    base_path
+                        .join(DEFAULT_VALIDATOR_DIR)
+                        .join("logs")
+                        .join("validator")
+                        .with_extension("log"),
+                )
             }
             _ => None,
         };
