@@ -19,8 +19,8 @@ jobs:
     runs-on: ubuntu-latest
     if: github.event_name == 'pull_request'
     steps:
-        - name: Check that pull request is targeting unstable branch
-          run: test ${{ github.base_ref }} = "unstable"
+        - name: Check that the pull request is not targeting the stable branch
+          run: test ${{ github.base_ref }} != "stable"
   cargo-fmt:
     name: cargo-fmt
     runs-on: ubuntu-latest
