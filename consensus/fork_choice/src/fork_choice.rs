@@ -300,9 +300,15 @@ where
         let execution_status = anchor_block.message_merge().map_or_else(
             |()| ExecutionStatus::irrelevant(),
             |message| {
-                // Assume that this payload is valid, since the anchor should be a trusted block and
-                // state.
-                ExecutionStatus::Valid(message.body.execution_payload.block_hash)
+                let execution_payload = &message.body.execution_payload;
+                if execution_payload == &<_>::default() {
+                    // A default payload does not have execution enabled.
+                    ExecutionStatus::irrelevant()
+                } else {
+                    // Assume that this payload is valid, since the anchor should be a trusted block and
+                    // state.
+                    ExecutionStatus::Valid(message.body.execution_payload.block_hash)
+                }
             },
         );
 
