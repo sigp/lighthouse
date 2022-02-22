@@ -53,16 +53,35 @@ impl ExecutionStatus {
         }
     }
 
+    /// Returns `true` if the block:
+    ///
+    /// - Has execution enabled
+    /// - Has a valid payload
     pub fn is_valid(&self) -> bool {
         matches!(self, ExecutionStatus::Valid(_))
     }
 
+    /// Returns `true` if the block:
+    ///
+    /// - Has execution enabled
+    /// - Has a payload that has not yet been verified by an EL.
     pub fn is_not_verified(&self) -> bool {
         matches!(self, ExecutionStatus::Unknown(_))
     }
 
+    /// Returns `true` if the block:
+    ///
+    /// - Has execution enabled
+    /// - Has an invalid payload.
     pub fn is_invalid(&self) -> bool {
         matches!(self, ExecutionStatus::Invalid(_))
+    }
+
+    /// Returns `true` if the block:
+    ///
+    /// - Does not have execution enabled (before or after Bellatrix fork)
+    pub fn is_irrelevant(&self) -> bool {
+        matches!(self, ExecutionStatus::Irrelevant(_))
     }
 }
 

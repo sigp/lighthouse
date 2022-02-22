@@ -370,6 +370,8 @@ fn latest_valid_hash_will_validate() {
 
         if slot > LATEST_VALID_SLOT {
             assert!(execution_status.is_invalid())
+        } else if slot == 0 {
+            assert!(execution_status.is_irrelevant())
         } else {
             assert!(execution_status.is_valid())
         }
