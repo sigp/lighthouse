@@ -184,6 +184,7 @@ impl ProtoArrayForkChoice {
         })
     }
 
+    /// See `ProtoArray::propagate_execution_payload_invalidation` for documentation.
     pub fn process_execution_payload_invalidation(
         &mut self,
         head_block_root: Hash256,

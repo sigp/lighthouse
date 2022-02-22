@@ -471,6 +471,7 @@ where
         Ok(true)
     }
 
+    /// See `ProtoArrayForkChoice::process_execution_payload_invalidation` for documentation.
     pub fn on_invalid_execution_payload(
         &mut self,
         head_block_root: Hash256,

@@ -27,6 +27,7 @@ mod execution_block_generator;
 mod handle_rpc;
 mod mock_execution_layer;
 
+/// Used for returning a static response for new payload calls.
 pub enum FixedPayloadResponse {
     None,
     Valid,
@@ -160,6 +161,8 @@ impl<T: EthSpec> MockServer<T> {
         *self.ctx.static_new_payload_response.lock() = Some(response)
     }
 
+    /// Disables any static payload response so the execution block generator will do its own
+    /// verification.
     pub fn full_payload_verification(&self) {
         *self.ctx.static_new_payload_response.lock() = None
     }

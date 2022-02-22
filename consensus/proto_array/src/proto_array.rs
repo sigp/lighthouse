@@ -267,6 +267,12 @@ impl ProtoArray {
         Ok(())
     }
 
+    /// Updates the `verified_node_index` and all descendants to have validated execution payloads.
+    ///
+    /// Returns an error if:
+    ///
+    /// - The `verified_node_index` is unknown.
+    /// - Any of the to-be-validated payloads are already invalid.
     pub fn propagate_execution_payload_validation(
         &mut self,
         verified_node_index: usize,
@@ -310,6 +316,28 @@ impl ProtoArray {
         }
     }
 
+    /// Potentially updates blocks to have an invalid payload and therefore be ineligible for the
+    /// head.
+    ///
+    /// The `head_block_root` is the block *root* of the latest invalid block. The
+    /// `latest_valid_hash` is a payload *hash* and should be:
+    ///
+    /// - `Some(hash)` if the block with that payload *hash* is known to be valid and is an
+    ///     ancestor of `head_block_root`.
+    /// - `None` if the latest valid ancestor of `head_block_root` is unkown.
+    ///
+    /// ## Details
+    ///
+    /// If `head_block_root` is not known to fork choice, an error is returned.
+    ///
+    /// If `latest_valid_hash` is `Some(hash)` where `hash` is either not known to fork choice
+    /// (perhaps it's junk orpre-finalization), then only the `head_block_root` block will be
+    /// invalidated (no ancestors). No error will be returned in this case.
+    ///
+    /// If `latest_valid_hash` is `Some(hash)` where `hash` is a known ancestor of
+    /// `head_block_root`, then all blocks between `head_block_root` and `latest_valid_hash` will
+    /// be invalidated. Additionally, all blocks that descend from a newly-invalidated block will
+    /// also be invalidated.
     pub fn propagate_execution_payload_invalidation(
         &mut self,
         head_block_root: Hash256,
