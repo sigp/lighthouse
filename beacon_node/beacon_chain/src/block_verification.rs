@@ -1137,7 +1137,7 @@ impl<'a, T: BeaconChainTypes> FullyVerifiedBlock<'a, T> {
 
         if payload_verification_status == PayloadVerificationStatus::NotVerified {
             // Check the optimistic sync conditions before going further
-            // https://github.com/sigp/consensus-specs/blob/opt-sync-2/sync/optimistic.md#when-to-optimistically-import-blocks
+            // https://github.com/ethereum/consensus-specs/blob/v1.1.9/sync/optimistic.md#when-to-optimistically-import-blocks
             let current_slot = chain
                 .slot_clock
                 .now()
