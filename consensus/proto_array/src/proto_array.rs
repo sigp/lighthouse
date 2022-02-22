@@ -357,9 +357,10 @@ impl ProtoArray {
         //
         // 1. The `head_block_root` is a descendant of `latest_valid_ancestor_hash`
         // 2. The `latest_valid_ancestor_hash` is equal to or a descendant of the finalized block.
-        let latest_valid_ancestor_is_descendant = latest_valid_ancestor_root
-            .map_or(false, |ancestor_root| {
+        let latest_valid_ancestor_is_descendant =
+            latest_valid_ancestor_root.map_or(false, |ancestor_root| {
                 self.is_descendant(ancestor_root, head_block_root)
+                    && self.is_descendant(self.finalized_checkpoint.root, ancestor_root)
             });
 
         // Collect all *ancestors* which were declared invalid since they reside between the
