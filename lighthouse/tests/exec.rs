@@ -24,8 +24,8 @@ pub trait CommandLineTestExec {
     /// Executes the `Command` returned by `Self::cmd_mut` with temporary data directory, dumps
     /// the configuration and shuts down immediately.
     ///
-    /// Options `--datadir`, `--dump-config` and `--immediate-shutdown` must not be set on the
-    /// command.
+    /// Options `--datadir`, `--dump-config`, `--dump-chain-config` and `--immediate-shutdown` must
+    /// not be set on the command.
     fn run(&mut self) -> CompletedTest<Self::Config> {
         // Setup temp directory.
         let tmp_dir = TempDir::new().expect("Unable to create temporary directory");
@@ -63,7 +63,8 @@ pub trait CommandLineTestExec {
     /// Executes the `Command` returned by `Self::cmd_mut` dumps the configuration and
     /// shuts down immediately.
     ///
-    /// Options `--dump-config` and `--immediate-shutdown` must not be set on the command.
+    /// Options `--dump-config`, `--dump-chain-config` and `--immediate-shutdown` must not be set on
+    /// the command.
     fn run_with_no_datadir(&mut self) -> CompletedTest<Self::Config> {
         // Setup temp directory.
         let tmp_dir = TempDir::new().expect("Unable to create temporary directory");
