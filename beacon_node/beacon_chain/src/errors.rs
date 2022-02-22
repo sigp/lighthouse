@@ -151,6 +151,9 @@ pub enum BeaconChainError {
         justified_root: Hash256,
     },
     ForkchoiceUpdate(execution_layer::Error),
+    JustifiedMissingFromForkChoice {
+        justified_root: Hash256,
+    },
 }
 
 easy_from_to!(SlotProcessingError, BeaconChainError);

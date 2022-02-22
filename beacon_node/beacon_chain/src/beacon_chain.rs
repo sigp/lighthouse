@@ -3281,6 +3281,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 self.log,
                 "Justified block is not in fork choice";
             );
+            return Err(Error::JustifiedMissingFromForkChoice { justified_root });
         }
 
         Ok(())
@@ -3763,7 +3764,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .map_err(Error::ExecutionForkChoiceUpdateFailed);
 
         match forkchoice_updated_response {
-            Ok(status) => match status {
+            Ok(status) => match &status {
                 PayloadStatus::Valid | PayloadStatus::Syncing => Ok(()),
                 // The specification doesn't list `ACCEPTED` as a valid response to a fork choice
                 // update. This response *seems* innocent enough, so we won't return early with an
@@ -3781,17 +3782,27 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 PayloadStatus::Invalid {
                     latest_valid_hash, ..
                 } => {
+                    warn!(
+                        self.log,
+                        "Fork choice update invalidated payload";
+                        "status" => ?status
+                    );
                     // The execution engine has stated that all blocks between the
                     // `head_execution_block_hash` and `latest_valid_hash` are invalid.
                     self.process_invalid_execution_payload(
                         head_block_root,
-                        Some(latest_valid_hash),
+                        Some(*latest_valid_hash),
                     )?;
 
                     Err(BeaconChainError::ExecutionForkChoiceUpdateInvalid { status })
                 }
                 PayloadStatus::InvalidTerminalBlock { .. }
                 | PayloadStatus::InvalidBlockHash { .. } => {
+                    warn!(
+                        self.log,
+                        "Fork choice update invalidated payload";
+                        "status" => ?status
+                    );
                     // The execution engine has stated that the head block is invalid, however it
                     // hasn't returned a latest valid ancestor.
                     //
