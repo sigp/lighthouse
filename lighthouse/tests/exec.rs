@@ -32,7 +32,7 @@ pub trait CommandLineTestExec {
         let tmp_config_path: PathBuf = tmp_dir.path().join("config.json");
         let tmp_chain_config_path: PathBuf = tmp_dir.path().join("chain_spec.yaml");
 
-        // Add args --datadir <tmp_dir> --dump-config <tmp_config_path> --immediate-shutdown
+        // Add args --datadir <tmp_dir> --dump-config <tmp_config_path> --dump-chain-config <tmp_chain_config_path> --immediate-shutdown
         let cmd = self.cmd_mut();
         cmd.arg("--datadir")
             .arg(tmp_dir.path().as_os_str())
