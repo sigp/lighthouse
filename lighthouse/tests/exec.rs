@@ -36,9 +36,9 @@ pub trait CommandLineTestExec {
         let cmd = self.cmd_mut();
         cmd.arg("--datadir")
             .arg(tmp_dir.path().as_os_str())
-            .arg(format!("--{}", "--dump-config"))
+            .arg(format!("--{}", "dump-config"))
             .arg(tmp_config_path.as_os_str())
-            .arg(format!("--{}", "--dump-chain-config"))
+            .arg(format!("--{}", "dump-chain-config"))
             .arg(tmp_chain_config_path.as_os_str())
             .arg("--immediate-shutdown");
 
@@ -72,9 +72,9 @@ pub trait CommandLineTestExec {
 
         // Add args --datadir <tmp_dir> --dump-config <tmp_config_path> --dump-chain-config <tmp_chain_config_path> --immediate-shutdown
         let cmd = self.cmd_mut();
-        cmd.arg(format!("--{}", "--dump-config"))
+        cmd.arg(format!("--{}", "dump-config"))
             .arg(tmp_config_path.as_os_str())
-            .arg(format!("--{}", "--dump-chain-config"))
+            .arg(format!("--{}", "dump-chain-config"))
             .arg(tmp_chain_config_path.as_os_str())
             .arg("--immediate-shutdown");
 

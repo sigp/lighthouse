@@ -283,6 +283,23 @@ fn terminal_block_hash_and_activation_epoch_override_flags() {
         });
 }
 #[test]
+#[should_panic]
+fn terminal_block_hash_missing_activation_epoch() {
+    CommandLineTest::new()
+        .flag(
+            "terminal-block-hash-override",
+            Some("0x4242424242424242424242424242424242424242424242424242424242424242"),
+        )
+        .run_with_zero_port();
+}
+#[test]
+#[should_panic]
+fn epoch_override_missing_terminal_block_hash() {
+    CommandLineTest::new()
+        .flag("terminal-block-hash-epoch-override", Some("1337"))
+        .run_with_zero_port();
+}
+#[test]
 fn safe_slots_to_import_optimistically_flag() {
     CommandLineTest::new()
         .flag("safe-slots-to-import-optimistically", Some("421337"))
