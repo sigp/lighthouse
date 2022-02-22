@@ -3,6 +3,7 @@ use derivative::Derivative;
 use serde_derive::{Deserialize, Serialize};
 use ssz::Encode;
 use ssz_derive::{Decode, Encode};
+use std::slice::Iter;
 use test_random_derive::TestRandom;
 use tree_hash_derive::TreeHash;
 
@@ -57,5 +58,9 @@ impl<T: EthSpec> ExecutionPayload<T> {
             + (T::max_extra_data_bytes() * <u8 as Encode>::ssz_fixed_len())
             // Max size of variable length `transactions` field
             + (T::max_transactions_per_payload() * (ssz::BYTES_PER_LENGTH_OFFSET + T::max_bytes_per_transaction()))
+    }
+
+    pub fn blob_txns_iter(&self) -> Iter<'_, Transaction<T::MaxBytesPerTransaction>> {
+        self.transactions.iter()
     }
 }

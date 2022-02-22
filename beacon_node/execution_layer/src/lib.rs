@@ -888,6 +888,71 @@ impl<T: EthSpec> ExecutionLayer<T> {
             .map_err(Error::EngineError)
     }
 
+    pub async fn get_blob<T: EthSpec>(
+        &self,
+        parent_hash: Hash256,
+        timestamp: u64,
+        random: Hash256,
+        finalized_block_hash: Hash256,
+        proposer_index: u64,
+        versioned_hash: Hash256,
+    ) -> Result<BlobDetailsV1, Error> {
+        let suggested_fee_recipient = self.get_suggested_fee_recipient(proposer_index).await;
+
+        debug!(
+            self.log(),
+            "Issuing engine_getBlob";
+            "suggested_fee_recipient" => ?suggested_fee_recipient,
+            "random" => ?random,
+            "timestamp" => timestamp,
+            "parent_hash" => ?parent_hash,
+        );
+        self.engines()
+            .first_success(|engine| async move {
+                let payload_id = if let Some(id) = engine
+                    .get_payload_id(parent_hash, timestamp, random, suggested_fee_recipient)
+                    .await
+                {
+                    // The payload id has been cached for this engine.
+                    id
+                } else {
+                    // The payload id has *not* been cached for this engine. Trigger an artificial
+                    // fork choice update to retrieve a payload ID.
+                    //
+                    // TODO(merge): a better algorithm might try to favour a node that already had a
+                    // cached payload id, since a payload that has had more time to produce is
+                    // likely to be more profitable.
+                    let fork_choice_state = ForkChoiceState {
+                        head_block_hash: parent_hash,
+                        safe_block_hash: parent_hash,
+                        finalized_block_hash,
+                    };
+                    let payload_attributes = PayloadAttributes {
+                        timestamp,
+                        random,
+                        suggested_fee_recipient,
+                    };
+
+                    engine
+                        .notify_forkchoice_updated(
+                            fork_choice_state,
+                            Some(payload_attributes),
+                            self.log(),
+                        )
+                        .await
+                        .map(|response| response.payload_id)?
+                        .ok_or(ApiError::PayloadIdUnavailable)?
+                };
+
+                engine
+                    .api
+                    .get_blob_v1::<T>(payload_id, versioned_hash)
+                    .await
+            })
+            .await
+            .map_err(Error::EngineErrors)
+    }
+
     /// Maps to the `engine_newPayload` JSON-RPC call.
     ///
     /// ## Fallback Behaviour

@@ -17,8 +17,9 @@ use crate::early_attester_cache::EarlyAttesterCache;
 use crate::errors::{BeaconChainError as Error, BlockProductionError};
 use crate::eth1_chain::{Eth1Chain, Eth1ChainBackend};
 use crate::events::ServerSentEventHandler;
-use crate::execution_payload::{get_execution_payload, PreparePayloadHandle};
+use crate::execution_payload::{ PreparePayloadHandle};
 use crate::fork_choice_signal::{ForkChoiceSignalRx, ForkChoiceSignalTx, ForkChoiceWaitResult};
+use crate::execution_payload::{get_execution_payload, get_execution_payload_and_blobs};
 use crate::head_tracker::HeadTracker;
 use crate::historical_blocks::HistoricalBlockError;
 use crate::migrate::BackgroundMigrator;
@@ -3621,7 +3622,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             }),
             BeaconState::Shanghai(_) => {
                 let sync_aggregate = get_sync_aggregate()?;
-                let execution_payload = get_execution_payload(self, &state, proposer_index)?;
+                let (execution_payload, blobs) =
+                    get_execution_payload_and_blobs(self, &state, proposer_index)?;
                 //FIXME(sean) get blobs
                 BeaconBlock::Shanghai(BeaconBlockShanghai {
                     slot,
