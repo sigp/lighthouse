@@ -3302,17 +3302,49 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     }
 
     fn fork_choice_internal(&self) -> Result<(), Error> {
-        // Determine the root of the block that is the head of the chain.
-        let beacon_block_root = self
-            .fork_choice
-            .write()
-            .get_head(self.slot()?, &self.spec)?;
+        // Atomically obtain the head block root and the finalized block.
+        let (beacon_block_root, finalized_block) = {
+            let mut fork_choice = self.fork_choice.write();
+
+            // Determine the root of the block that is the head of the chain.
+            let beacon_block_root = fork_choice.get_head(self.slot()?, &self.spec)?;
+
+            let finalized_checkpoint = fork_choice.finalized_checkpoint();
+            let finalized_block = fork_choice.get_block(&finalized_checkpoint.root).ok_or(
+                BeaconChainError::FinalizedBlockMissingFromForkChoice(finalized_checkpoint.root),
+            )?;
+
+            (beacon_block_root, finalized_block)
+        };
 
         let current_head = self.head_info()?;
         let old_finalized_checkpoint = current_head.finalized_checkpoint;
 
+        // Exit early if the head hasn't changed.
         if beacon_block_root == current_head.block_root {
             return Ok(());
+        }
+
+        // Check to ensure that this finalized block hasn't been marked as invalid.
+        if let ExecutionStatus::Invalid(block_hash) = finalized_block.execution_status {
+            crit!(
+                self.log,
+                "Finalized block has an invalid payload";
+                "msg" => "You must use the `--purge-db` flag to clear the database and restart sync. \
+                You may be on a hostile network.",
+                "block_hash" => ?block_hash
+            );
+            let mut shutdown_sender = self.shutdown_sender();
+            shutdown_sender
+                .try_send(ShutdownReason::Failure(
+                    "Finalized block has an invalid execution payload.",
+                ))
+                .map_err(BeaconChainError::InvalidFinalizedPayloadShutdownError)?;
+
+            // Exit now, the node is in an invalid state.
+            return Err(Error::InvalidFinalizedPayload {
+                finalized_root: finalized_block.root,
+            });
         }
 
         let lag_timer = metrics::start_timer(&metrics::FORK_CHOICE_SET_HEAD_LAG_TIMES);
@@ -3562,33 +3594,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         }
 
         if new_finalized_checkpoint.epoch != old_finalized_checkpoint.epoch {
-            // Check to ensure that this finalized block hasn't been marked as invalid.
-            let finalized_block = self
-                .fork_choice
-                .read()
-                .get_block(&new_finalized_checkpoint.root)
-                .ok_or(BeaconChainError::FinalizedBlockMissingFromForkChoice(
-                    new_finalized_checkpoint.root,
-                ))?;
-            if let ExecutionStatus::Invalid(block_hash) = finalized_block.execution_status {
-                crit!(
-                    self.log,
-                    "Finalized block has an invalid payload";
-                    "msg" => "You must use the `--purge-db` flag to clear the database and restart sync. \
-                    You may be on a hostile network.",
-                    "block_hash" => ?block_hash
-                );
-                let mut shutdown_sender = self.shutdown_sender();
-                shutdown_sender
-                    .try_send(ShutdownReason::Failure(
-                        "Finalized block has an invalid execution payload.",
-                    ))
-                    .map_err(BeaconChainError::InvalidFinalizedPayloadShutdownError)?;
-
-                // Exit now, the node is in an invalid state.
-                return Ok(());
-            }
-
             // Due to race conditions, it's technically possible that the head we load here is
             // different to the one earlier in this function.
             //
@@ -3689,8 +3694,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // If this is a post-merge block, update the execution layer.
         if let Some(new_head_execution_block_hash) = new_head_execution_block_hash_opt {
             if is_merge_transition_complete {
+                let finalized_execution_block_hash = finalized_block
+                    .execution_status
+                    .block_hash()
+                    .unwrap_or_else(ExecutionBlockHash::zero);
                 if let Err(e) = self.update_execution_engine_forkchoice_blocking(
-                    new_finalized_checkpoint.root,
+                    finalized_execution_block_hash,
                     beacon_block_root,
                     new_head_execution_block_hash,
                 ) {
@@ -3708,7 +3717,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
     pub fn update_execution_engine_forkchoice_blocking(
         &self,
-        finalized_beacon_block_root: Hash256,
+        finalized_execution_block_hash: ExecutionBlockHash,
         head_block_root: Hash256,
         head_execution_block_hash: ExecutionBlockHash,
     ) -> Result<(), Error> {
@@ -3720,7 +3729,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         execution_layer
             .block_on_generic(|_| {
                 self.update_execution_engine_forkchoice_async(
-                    finalized_beacon_block_root,
+                    finalized_execution_block_hash,
                     head_block_root,
                     head_execution_block_hash,
                 )
@@ -3730,27 +3739,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
     pub async fn update_execution_engine_forkchoice_async(
         &self,
-        finalized_beacon_block_root: Hash256,
+        finalized_execution_block_hash: ExecutionBlockHash,
         head_block_root: Hash256,
         head_execution_block_hash: ExecutionBlockHash,
     ) -> Result<(), Error> {
-        // Loading the finalized block from the store is not ideal. Perhaps it would be better to
-        // store it on fork-choice so we can do a lookup without hitting the database.
-        //
-        // See: https://github.com/sigp/lighthouse/pull/2627#issuecomment-927537245
-        let finalized_block = self
-            .store
-            .get_block(&finalized_beacon_block_root)?
-            .ok_or(Error::MissingBeaconBlock(finalized_beacon_block_root))?;
-
-        let finalized_execution_block_hash = finalized_block
-            .message()
-            .body()
-            .execution_payload()
-            .ok()
-            .map(|ep| ep.block_hash)
-            .unwrap_or_else(ExecutionBlockHash::zero);
-
         let forkchoice_updated_response = self
             .execution_layer
             .as_ref()

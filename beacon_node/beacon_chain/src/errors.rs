@@ -146,6 +146,9 @@ pub enum BeaconChainError {
     BlockRewardSyncError,
     HeadMissingFromForkChoice(Hash256),
     FinalizedBlockMissingFromForkChoice(Hash256),
+    InvalidFinalizedPayload {
+        finalized_root: Hash256,
+    },
     InvalidFinalizedPayloadShutdownError(TrySendError<ShutdownReason>),
     JustifiedPayloadInvalid {
         justified_root: Hash256,
@@ -153,6 +156,10 @@ pub enum BeaconChainError {
     ForkchoiceUpdate(execution_layer::Error),
     JustifiedMissingFromForkChoice {
         justified_root: Hash256,
+    },
+    FinalizedCheckpointMismatch {
+        head_state: Checkpoint,
+        fork_choice: Hash256,
     },
 }
 
