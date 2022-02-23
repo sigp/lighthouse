@@ -35,7 +35,7 @@ are likely to be removed due to an execution chain re-org.
 
 Now we know there's a 4 hours delay before the beacon nodes even _consider_ an
 execution layer block. Once they _are_ considering these blocks, there's a voting period
-where beacon validators vote on which execution layer to include in the beacon chain. This
+where beacon validators vote on which execution block hash to include in the beacon chain. This
 period is defined as 32 epochs (~3.4 hours, see
 [`ETH1_VOTING_PERIOD`](https://github.com/ethereum/consensus-specs/blob/v0.12.1/specs/phase0/beacon-chain.md#time-parameters)).
 During this voting period, each beacon block producer includes an
