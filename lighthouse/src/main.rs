@@ -384,12 +384,11 @@ fn run<E: EthSpec>(
                 let base_path = if vc_matches.is_present("validators-dir") {
                     parse_path_or_default(vc_matches, "validators-dir")?
                 } else {
-                    parse_path_or_default(matches, "datadir")?
+                    parse_path_or_default(matches, "datadir")?.join(DEFAULT_VALIDATOR_DIR)
                 };
 
                 Some(
                     base_path
-                        .join(DEFAULT_VALIDATOR_DIR)
                         .join("logs")
                         .join("validator")
                         .with_extension("log"),
