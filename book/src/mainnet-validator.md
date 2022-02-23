@@ -81,7 +81,7 @@ including generating keys via the Python CLI and submitting gETH/ETH deposits.
 
 ### Step 2. Start an execution client
 
-Since consensus client relies upon the execution chain for validator on-boarding, all consensus validators must have a
+Since the consensus chain relies upon the execution chain for validator on-boarding, all consensus validators must have a
 connection to an execution client.
 
 We provide instructions for using Geth, but you could use any client that implements the JSON RPC
