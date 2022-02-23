@@ -1,6 +1,6 @@
 # Beacon Node API
 
-Lighthouse implements the standard [Eth Beacon Node API
+Lighthouse implements the standard [Beacon Node API
 specification][OpenAPI]. Please follow that link for a full description of each API endpoint.
 
 ## Starting the server
