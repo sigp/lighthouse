@@ -357,10 +357,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let mut batch = vec![];
 
         let _head_timer = metrics::start_timer(&metrics::PERSIST_HEAD);
-        batch.push(self.persist_head_in_batch());
+        batch.push(self.persist_head_in_batch()?);
 
         let _fork_choice_timer = metrics::start_timer(&metrics::PERSIST_FORK_CHOICE);
-        batch.push(self.persist_fork_choice_in_batch());
+        batch.push(self.persist_fork_choice_in_batch()?);
 
         self.store.hot_db.do_atomically(batch)?;
 
@@ -380,20 +380,20 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     }
 
     /// Return a database operation for writing the beacon chain head to disk.
-    pub fn persist_head_in_batch(&self) -> KeyValueStoreOp {
+    pub fn persist_head_in_batch(&self) -> Result<KeyValueStoreOp, DBError> {
         Self::persist_head_in_batch_standalone(self.genesis_block_root, &self.head_tracker)
     }
 
     pub fn persist_head_in_batch_standalone(
         genesis_block_root: Hash256,
         head_tracker: &HeadTracker,
-    ) -> KeyValueStoreOp {
+    ) -> Result<KeyValueStoreOp, DBError> {
         Self::make_persisted_head(genesis_block_root, head_tracker)
             .as_kv_store_op(BEACON_CHAIN_DB_KEY)
     }
 
     /// Return a database operation for writing fork choice to disk.
-    pub fn persist_fork_choice_in_batch(&self) -> KeyValueStoreOp {
+    pub fn persist_fork_choice_in_batch(&self) -> Result<KeyValueStoreOp, DBError> {
         let fork_choice = self.fork_choice.read();
         Self::persist_fork_choice_in_batch_standalone(&fork_choice)
     }
@@ -401,7 +401,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// Return a database operation for writing fork choice to disk.
     pub fn persist_fork_choice_in_batch_standalone(
         fork_choice: &BeaconForkChoice<T>,
-    ) -> KeyValueStoreOp {
+    ) -> Result<KeyValueStoreOp, DBError> {
         let persisted_fork_choice = PersistedForkChoice {
             fork_choice: fork_choice.to_persisted(),
             fork_choice_store: fork_choice.fc_store().to_persisted(),
@@ -2928,6 +2928,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         drop(slot_timer);
 
         state.build_committee_cache(RelativeEpoch::Current, &self.spec)?;
+        state.apply_pending_mutations()?;
 
         let parent_root = if state.slot() > 0 {
             *state

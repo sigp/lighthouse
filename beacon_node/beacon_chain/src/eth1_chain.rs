@@ -179,8 +179,8 @@ impl StoreItem for SszEth1 {
         DBColumn::Eth1Cache
     }
 
-    fn as_store_bytes(&self) -> Vec<u8> {
-        self.as_ssz_bytes()
+    fn as_store_bytes(&self) -> Result<Vec<u8>, StoreError> {
+        Ok(self.as_ssz_bytes())
     }
 
     fn from_store_bytes(bytes: &[u8]) -> Result<Self, StoreError> {

@@ -87,6 +87,33 @@ lazy_static! {
         "Total number of beacon state bytes written to the DB"
     );
     /*
+     * Beacon state diffs
+     */
+    pub static ref BEACON_STATE_DIFF_WRITE_BYTES: Result<IntCounter> = try_create_int_counter(
+        "store_beacon_state_diff_write_bytes_total",
+        "Total number of bytes written for beacon state diffs"
+    );
+    pub static ref BEACON_STATE_DIFF_WRITE_COUNT: Result<IntCounter> = try_create_int_counter(
+        "store_beacon_state_diff_write_count_total",
+        "Total number of beacon state diffs written"
+    );
+    pub static ref BEACON_STATE_DIFF_COMPRESSION_RATIO: Result<Gauge> = try_create_float_gauge(
+        "store_beacon_state_diff_compression_ratio",
+        "Compression ratio for beacon state diffs (higher is better)"
+    );
+    pub static ref BEACON_STATE_DIFF_COMPUTE_TIME: Result<Histogram> = try_create_histogram(
+        "store_beacon_state_diff_compute_time",
+        "Time to calculate a beacon state diff"
+    );
+    pub static ref BEACON_STATE_DIFF_ENCODE_TIME: Result<Histogram> = try_create_histogram(
+        "store_beacon_state_diff_encode_time",
+        "Time to encode a beacon state diff as SSZ"
+    );
+    pub static ref BEACON_STATE_DIFF_COMPRESSION_TIME: Result<Histogram> = try_create_histogram(
+        "store_beacon_state_diff_compression_time",
+        "Time to compress beacon state SSZ using Flate2"
+    );
+    /*
      * Beacon Block
      */
     pub static ref BEACON_BLOCK_GET_COUNT: Result<IntCounter> = try_create_int_counter(

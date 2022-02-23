@@ -114,7 +114,7 @@ pub fn migrate_schema<T: BeaconChainTypes>(
                     .map_err(StoreError::SchemaMigrationError)?;
 
                 // Store the converted fork choice store under the same key.
-                ops.push(persisted_fork_choice.as_kv_store_op(FORK_CHOICE_DB_KEY));
+                ops.push(persisted_fork_choice.as_kv_store_op(FORK_CHOICE_DB_KEY)?);
             }
 
             db.store_schema_version_atomically(to, ops)?;
@@ -159,7 +159,7 @@ pub fn migrate_schema<T: BeaconChainTypes>(
                 }
 
                 // Store the converted fork choice store under the same key.
-                ops.push(persisted_fork_choice_v7.as_kv_store_op(FORK_CHOICE_DB_KEY));
+                ops.push(persisted_fork_choice_v7.as_kv_store_op(FORK_CHOICE_DB_KEY)?);
             }
 
             db.store_schema_version_atomically(to, ops)?;
@@ -174,7 +174,7 @@ pub fn migrate_schema<T: BeaconChainTypes>(
                 let updated_fork_choice =
                     migration_schema_v8::update_fork_choice::<T>(fork_choice, db.clone())?;
 
-                ops.push(updated_fork_choice.as_kv_store_op(FORK_CHOICE_DB_KEY));
+                ops.push(updated_fork_choice.as_kv_store_op(FORK_CHOICE_DB_KEY)?);
             }
 
             db.store_schema_version_atomically(to, ops)?;
@@ -202,8 +202,8 @@ impl StoreItem for OnDiskStoreConfigV4 {
         DBColumn::BeaconMeta
     }
 
-    fn as_store_bytes(&self) -> Vec<u8> {
-        self.as_ssz_bytes()
+    fn as_store_bytes(&self) -> Result<Vec<u8>, StoreError> {
+        Ok(self.as_ssz_bytes())
     }
 
     fn from_store_bytes(bytes: &[u8]) -> Result<Self, StoreError> {

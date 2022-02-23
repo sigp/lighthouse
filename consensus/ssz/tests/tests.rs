@@ -4,6 +4,8 @@ use ssz_derive::{Decode, Encode};
 
 mod round_trip {
     use super::*;
+    use std::collections::BTreeMap;
+    use std::iter::FromIterator;
 
     fn round_trip<T: Encode + Decode + std::fmt::Debug + PartialEq>(items: Vec<T>) {
         for item in items {
@@ -320,6 +322,52 @@ mod round_trip {
         ];
 
         round_trip(vec);
+    }
+
+    #[test]
+    fn btree_map_fixed() {
+        let data = vec![
+            BTreeMap::new(),
+            BTreeMap::from_iter(vec![(0u8, 0u16), (1, 2), (2, 4), (4, 6)]),
+        ];
+        round_trip(data);
+    }
+
+    #[test]
+    fn btree_map_variable_value() {
+        let data = vec![
+            BTreeMap::new(),
+            BTreeMap::from_iter(vec![
+                (
+                    0u64,
+                    ThreeVariableLen {
+                        a: 1,
+                        b: vec![3, 5, 7],
+                        c: vec![],
+                        d: vec![0, 0],
+                    },
+                ),
+                (
+                    1,
+                    ThreeVariableLen {
+                        a: 99,
+                        b: vec![1],
+                        c: vec![2, 3, 4, 5, 6, 7, 8, 9, 10],
+                        d: vec![4, 5, 6, 7, 8],
+                    },
+                ),
+                (
+                    2,
+                    ThreeVariableLen {
+                        a: 0,
+                        b: vec![],
+                        c: vec![],
+                        d: vec![],
+                    },
+                ),
+            ]),
+        ];
+        round_trip(data);
     }
 }
 

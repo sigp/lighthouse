@@ -28,6 +28,8 @@ sloggers = { version = "2.1.1", features = ["json"] }
 directory = { path = "../../common/directory" }
 tree_hash = "0.4.0"
 take-until = "0.1.0"
+flate2 = { version = "1.0.22", features = ["zlib"], default-features = false }
+bincode = "1.3.3"
 
 [features]
 milhouse = ["state_processing/milhouse"]

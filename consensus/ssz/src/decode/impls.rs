@@ -2,6 +2,8 @@ use super::*;
 use core::num::NonZeroUsize;
 use ethereum_types::{H160, H256, U128, U256};
 use smallvec::SmallVec;
+use std::collections::BTreeMap;
+use std::iter::{self, FromIterator};
 use std::sync::Arc;
 
 macro_rules! impl_decodable_for_uint {
@@ -380,14 +382,14 @@ macro_rules! impl_for_vec {
 
             fn from_ssz_bytes(bytes: &[u8]) -> Result<Self, DecodeError> {
                 if bytes.is_empty() {
-                    Ok(vec![].into())
+                    Ok(Self::from_iter(iter::empty()))
                 } else if T::is_ssz_fixed_len() {
                     bytes
                         .chunks(T::ssz_fixed_len())
-                        .map(|chunk| T::from_ssz_bytes(chunk))
+                        .map(T::from_ssz_bytes)
                         .collect()
                 } else {
-                    decode_list_of_variable_length_items(bytes, $max_len).map(|vec| vec.into())
+                    decode_list_of_variable_length_items(bytes, $max_len)
                 }
             }
         }
@@ -404,17 +406,40 @@ impl_for_vec!(SmallVec<[T; 6]>, Some(6));
 impl_for_vec!(SmallVec<[T; 7]>, Some(7));
 impl_for_vec!(SmallVec<[T; 8]>, Some(8));
 
+impl<K, V> Decode for BTreeMap<K, V>
+where
+    K: Decode + Ord,
+    V: Decode,
+{
+    fn is_ssz_fixed_len() -> bool {
+        false
+    }
+
+    fn from_ssz_bytes(bytes: &[u8]) -> Result<Self, DecodeError> {
+        if bytes.is_empty() {
+            Ok(Self::from_iter(iter::empty()))
+        } else if <(K, V)>::is_ssz_fixed_len() {
+            bytes
+                .chunks(<(K, V)>::ssz_fixed_len())
+                .map(<(K, V)>::from_ssz_bytes)
+                .collect()
+        } else {
+            decode_list_of_variable_length_items(bytes, None)
+        }
+    }
+}
+
 /// Decodes `bytes` as if it were a list of variable-length items.
 ///
-/// The `ssz::SszDecoder` can also perform this functionality, however it it significantly faster
-/// as it is optimized to read same-typed items whilst `ssz::SszDecoder` supports reading items of
-/// differing types.
-pub fn decode_list_of_variable_length_items<T: Decode>(
+/// The `ssz::SszDecoder` can also perform this functionality, however this function is
+/// significantly faster as it is optimized to read same-typed items whilst `ssz::SszDecoder`
+/// supports reading items of differing types.
+pub fn decode_list_of_variable_length_items<T: Decode, Container: FromIterator<T>>(
     bytes: &[u8],
     max_len: Option<usize>,
-) -> Result<Vec<T>, DecodeError> {
+) -> Result<Container, DecodeError> {
     if bytes.is_empty() {
-        return Ok(vec![]);
+        return Ok(Container::from_iter(iter::empty()));
     }
 
     let first_offset = read_offset(bytes)?;
@@ -433,35 +458,25 @@ pub fn decode_list_of_variable_length_items<T: Decode>(
         )));
     }
 
-    // Only initialize the vec with a capacity if a maximum length is provided.
-    //
-    // We assume that if a max length is provided then the application is able to handle an
-    // allocation of this size.
-    let mut values = if max_len.is_some() {
-        Vec::with_capacity(num_items)
-    } else {
-        vec![]
-    };
-
     let mut offset = first_offset;
-    for i in 1..=num_items {
-        let slice_option = if i == num_items {
-            bytes.get(offset..)
-        } else {
-            let start = offset;
+    (1..=num_items)
+        .map(|i| {
+            let slice_option = if i == num_items {
+                bytes.get(offset..)
+            } else {
+                let start = offset;
 
-            let next_offset = read_offset(&bytes[(i * BYTES_PER_LENGTH_OFFSET)..])?;
-            offset = sanitize_offset(next_offset, Some(offset), bytes.len(), Some(first_offset))?;
+                let next_offset = read_offset(&bytes[(i * BYTES_PER_LENGTH_OFFSET)..])?;
+                offset =
+                    sanitize_offset(next_offset, Some(offset), bytes.len(), Some(first_offset))?;
 
-            bytes.get(start..offset)
-        };
+                bytes.get(start..offset)
+            };
 
-        let slice = slice_option.ok_or(DecodeError::OutOfBoundsByte { i: offset })?;
-
-        values.push(T::from_ssz_bytes(slice)?);
-    }
-
-    Ok(values)
+            let slice = slice_option.ok_or(DecodeError::OutOfBoundsByte { i: offset })?;
+            T::from_ssz_bytes(slice)
+        })
+        .collect()
 }
 
 #[cfg(test)]

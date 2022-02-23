@@ -10,7 +10,7 @@ use slasher::{Config as SlasherConfig, Slasher};
 use state_processing::{
     common::get_indexed_attestation,
     per_block_processing::{per_block_processing, BlockSignatureStrategy},
-    per_slot_processing, BlockProcessingError, VerifyBlockRoot,
+    per_slot_processing, BlockProcessingError, ConsensusContext, VerifyBlockRoot,
 };
 use std::sync::Arc;
 use tempfile::tempdir;
@@ -968,13 +968,14 @@ fn add_base_block_to_altair_chain() {
     {
         let mut state = state;
         per_slot_processing(&mut state, None, &harness.chain.spec).unwrap();
+        let mut ctxt = ConsensusContext::new(state.slot());
         assert!(matches!(
             per_block_processing(
                 &mut state,
                 &base_block,
-                None,
                 BlockSignatureStrategy::NoVerification,
                 VerifyBlockRoot::True,
+                &mut ctxt,
                 &harness.chain.spec,
             ),
             Err(BlockProcessingError::InconsistentBlockFork(
@@ -1087,13 +1088,14 @@ fn add_altair_block_to_base_chain() {
     {
         let mut state = state;
         per_slot_processing(&mut state, None, &harness.chain.spec).unwrap();
+        let mut ctxt = ConsensusContext::new(state.slot());
         assert!(matches!(
             per_block_processing(
                 &mut state,
                 &altair_block,
-                None,
                 BlockSignatureStrategy::NoVerification,
                 VerifyBlockRoot::True,
+                &mut ctxt,
                 &harness.chain.spec,
             ),
             Err(BlockProcessingError::InconsistentBlockFork(

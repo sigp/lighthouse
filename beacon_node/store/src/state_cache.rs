@@ -88,6 +88,16 @@ impl<E: EthSpec> StateCache<E> {
         block_root: Hash256,
         state: &BeaconState<E>,
     ) -> Result<bool, Error> {
+        if self
+            .finalized_state
+            .as_ref()
+            .map_or(false, |finalized_state| {
+                finalized_state.state_root == state_root
+            })
+        {
+            // FIXME(sproul): this should technically be true
+            return Ok(false);
+        }
         if self.states.peek(&state_root).is_some() {
             return Ok(true);
         }
@@ -136,6 +146,11 @@ impl<E: EthSpec> StateCache<E> {
         let state = self.get_by_state_root(state_root)?;
         Some((state_root, state))
     }
+
+    pub fn delete(&mut self, state_root: &Hash256) {
+        self.states.pop(state_root);
+        self.block_map.delete(state_root);
+    }
 }
 
 impl BlockMap {
@@ -163,6 +178,16 @@ impl BlockMap {
         });
 
         pruned_states
+    }
+
+    // FIXME(sproul): slow, make generic
+    fn delete(&mut self, state_root_to_delete: &Hash256) {
+        self.blocks.retain(|_, slot_map| {
+            slot_map
+                .slots
+                .retain(|_, state_root| state_root != state_root_to_delete);
+            !slot_map.slots.is_empty()
+        });
     }
 }
 

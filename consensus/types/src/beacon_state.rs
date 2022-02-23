@@ -26,6 +26,7 @@ pub use self::committee_cache::{
     CommitteeCache,
 };
 pub use clone_config::CloneConfig;
+pub use diff::BeaconStateDiff;
 pub use eth_spec::*;
 pub use iter::BlockRootsIter;
 
@@ -40,6 +41,7 @@ pub use {
 #[macro_use]
 mod committee_cache;
 mod clone_config;
+mod diff;
 mod exit_cache;
 mod iter;
 mod pubkey_cache;
@@ -1577,13 +1579,19 @@ impl<T: EthSpec> BeaconState<T> {
             || self.randao_mixes().has_pending_updates()
             || self.slashings().has_pending_updates()
             || self
-                .inactivity_scores()
+                .previous_epoch_attestations()
+                .map_or(false, VList::has_pending_updates)
+            || self
+                .current_epoch_attestations()
                 .map_or(false, VList::has_pending_updates)
             || self
                 .previous_epoch_participation()
                 .map_or(false, VList::has_pending_updates)
             || self
                 .current_epoch_participation()
+                .map_or(false, VList::has_pending_updates)
+            || self
+                .inactivity_scores()
                 .map_or(false, VList::has_pending_updates)
     }
 
@@ -1598,7 +1606,12 @@ impl<T: EthSpec> BeaconState<T> {
         self.randao_mixes_mut().apply_updates()?;
         self.slashings_mut().apply_updates()?;
 
-        // FIXME(sproul): phase0 fields
+        if let Ok(previous_epoch_attestations) = self.previous_epoch_attestations_mut() {
+            previous_epoch_attestations.apply_updates()?;
+        }
+        if let Ok(current_epoch_attestations) = self.current_epoch_attestations_mut() {
+            current_epoch_attestations.apply_updates()?;
+        }
         if let Ok(inactivity_scores) = self.inactivity_scores_mut() {
             inactivity_scores.apply_updates()?;
         }

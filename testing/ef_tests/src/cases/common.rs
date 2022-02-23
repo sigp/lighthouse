@@ -43,7 +43,7 @@ macro_rules! uint_wrapper {
                 <$wrapped_type>::tree_hash_type()
             }
 
-            fn tree_hash_packed_encoding(&self) -> Vec<u8> {
+            fn tree_hash_packed_encoding(&self) -> tree_hash::PackedEncoding {
                 self.x.tree_hash_packed_encoding()
             }
 

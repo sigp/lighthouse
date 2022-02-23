@@ -137,16 +137,17 @@ impl<E: EthSpec> EpochTransition<E> for Slashings {
                 validator_statuses.process_attestations(state)?;
                 process_slashings(
                     state,
+                    None,
                     validator_statuses.total_balances.current_epoch(),
                     spec,
                 )?;
             }
             BeaconState::Altair(_) | BeaconState::Merge(_) => {
+                let mut cache = altair::ParticipationCache::new(state, spec).unwrap();
                 process_slashings(
                     state,
-                    altair::ParticipationCache::new(state, spec)
-                        .unwrap()
-                        .current_epoch_total_active_balance(),
+                    Some(cache.process_slashings_indices()),
+                    cache.current_epoch_total_active_balance(),
                     spec,
                 )?;
             }

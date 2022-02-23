@@ -440,9 +440,9 @@ where
                 weak_subj_slot.epoch(TEthSpec::slots_per_epoch()),
                 weak_subj_state.clone(),
             )
-            .map_err(|e| format!("Failed to set genesis state as finalized state: {:?}", e))?;
+            .map_err(|e| format!("Failed to set checkpoint state as finalized state: {:?}", e))?;
         store
-            .put_state(&weak_subj_state_root, &weak_subj_state)
+            .store_full_state(&weak_subj_state_root, &weak_subj_state)
             .map_err(|e| format!("Failed to store weak subjectivity state: {:?}", e))?;
         store
             .put_block(&weak_subj_block_root, weak_subj_block.clone())
@@ -451,7 +451,11 @@ where
         // Stage the database's metadata fields for atomic storage when `build` is called.
         // This prevents the database from restarting in an inconsistent state if the anchor
         // info or split point is written before the `PersistedBeaconChain`.
-        self.pending_io_batch.push(store.store_split_in_batch());
+        self.pending_io_batch.push(
+            store
+                .store_split_in_batch()
+                .map_err(|e| format!("Failed to store split: {:?}", e))?,
+        );
         self.pending_io_batch.push(
             store
                 .init_anchor_info(weak_subj_block.message())
@@ -459,11 +463,14 @@ where
         );
 
         // Store pruning checkpoint to prevent attempting to prune before the anchor state.
-        self.pending_io_batch
-            .push(store.pruning_checkpoint_store_op(Checkpoint {
-                root: weak_subj_block_root,
-                epoch: weak_subj_state.slot().epoch(TEthSpec::slots_per_epoch()),
-            }));
+        self.pending_io_batch.push(
+            store
+                .pruning_checkpoint_store_op(Checkpoint {
+                    root: weak_subj_block_root,
+                    epoch: weak_subj_state.slot().epoch(TEthSpec::slots_per_epoch()),
+                })
+                .map_err(|e| format!("{:?}", e))?,
+        );
 
         let snapshot = BeaconSnapshot {
             beacon_block_root: weak_subj_block_root,
@@ -716,12 +723,12 @@ where
             Witness<TSlotClock, TEth1Backend, TEthSpec, THotStore, TColdStore>,
         >::persist_head_in_batch_standalone(
             genesis_block_root, &head_tracker
-        ));
+        ).map_err(|e| format!("{:?}", e))?);
         self.pending_io_batch.push(BeaconChain::<
             Witness<TSlotClock, TEth1Backend, TEthSpec, THotStore, TColdStore>,
         >::persist_fork_choice_in_batch_standalone(
             &fork_choice
-        ));
+        ).map_err(|e| format!("{:?}", e))?);
         store
             .hot_db
             .do_atomically(self.pending_io_batch)

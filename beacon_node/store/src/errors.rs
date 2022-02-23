@@ -47,6 +47,8 @@ pub enum Error {
     BlockReplayError(BlockReplayError),
     #[cfg(feature = "milhouse")]
     MilhouseError(milhouse::Error),
+    Bincode(Box<bincode::ErrorKind>),
+    FlateCompression(std::io::Error),
 }
 
 pub trait HandleUnavailable<T> {
@@ -109,6 +111,12 @@ impl From<milhouse::Error> for Error {
 impl From<BlockReplayError> for Error {
     fn from(e: BlockReplayError) -> Error {
         Error::BlockReplayError(e)
+    }
+}
+
+impl From<Box<bincode::ErrorKind>> for Error {
+    fn from(e: Box<bincode::ErrorKind>) -> Self {
+        Self::Bincode(e)
     }
 }
 

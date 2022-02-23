@@ -559,10 +559,10 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
             ssz_head_tracker: SszHeadTracker::from_map(&*head_tracker_lock),
         };
         drop(head_tracker_lock);
-        kv_batch.push(persisted_head.as_kv_store_op(BEACON_CHAIN_DB_KEY));
+        kv_batch.push(persisted_head.as_kv_store_op(BEACON_CHAIN_DB_KEY)?);
 
         // Persist the new finalized checkpoint as the pruning checkpoint.
-        kv_batch.push(store.pruning_checkpoint_store_op(new_finalized_checkpoint));
+        kv_batch.push(store.pruning_checkpoint_store_op(new_finalized_checkpoint)?);
 
         store.hot_db.do_atomically(kv_batch)?;
         debug!(log, "Database pruning complete");

@@ -310,19 +310,6 @@ fn epoch_boundary_state_attestation_processing() {
     let mut checked_pre_fin = false;
 
     for (attestation, subnet_id) in late_attestations.into_iter().flatten() {
-        // load_epoch_boundary_state is idempotent!
-        let block_root = attestation.data.beacon_block_root;
-        let block = store.get_block(&block_root).unwrap().expect("block exists");
-        let epoch_boundary_state = store
-            .load_epoch_boundary_state(&block.state_root())
-            .expect("no error")
-            .expect("epoch boundary state exists");
-        let ebs_of_ebs = store
-            .load_epoch_boundary_state(&epoch_boundary_state.canonical_root())
-            .expect("no error")
-            .expect("ebs of ebs exists");
-        assert_eq!(epoch_boundary_state, ebs_of_ebs);
-
         // If the attestation is pre-finalization it should be rejected.
         let finalized_epoch = harness
             .chain
@@ -539,6 +526,8 @@ fn block_replayer_hooks() {
     assert_eq!(post_block_slots, block_slots);
 
     // States match.
+    end_state.apply_pending_mutations().unwrap();
+    replay_state.apply_pending_mutations().unwrap();
     end_state.drop_all_caches().unwrap();
     replay_state.drop_all_caches().unwrap();
     assert_eq!(end_state, replay_state);
@@ -2465,15 +2454,15 @@ fn check_split_slot(harness: &TestHarness, store: Arc<HotColdDB<E, LevelDB<E>, L
 
 /// Check that all the states in a chain dump have the correct tree hash.
 fn check_chain_dump(harness: &TestHarness, expected_len: u64) {
-    let chain_dump = harness.chain.chain_dump().unwrap();
+    let mut chain_dump = harness.chain.chain_dump().unwrap();
 
     assert_eq!(chain_dump.len() as u64, expected_len);
 
-    for checkpoint in &chain_dump {
+    for checkpoint in &mut chain_dump {
         // Check that the tree hash of the stored state is as expected
         assert_eq!(
             checkpoint.beacon_state_root(),
-            checkpoint.beacon_state.tree_hash_root(),
+            checkpoint.beacon_state.update_tree_hash_cache().unwrap(),
             "tree hash of stored state is incorrect"
         );
 

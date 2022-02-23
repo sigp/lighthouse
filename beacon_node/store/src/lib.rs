@@ -26,6 +26,7 @@ pub mod metrics;
 mod partial_beacon_state;
 pub mod reconstruct;
 mod state_cache;
+mod state_diff;
 
 pub mod iter;
 
@@ -94,7 +95,7 @@ pub trait ItemStore<E: EthSpec>: KeyValueStore<E> + Sync + Send + Sized + 'stati
         let column = I::db_column().into();
         let key = key.as_bytes();
 
-        self.put_bytes(column, key, &item.as_store_bytes())
+        self.put_bytes(column, key, &item.as_store_bytes()?)
             .map_err(Into::into)
     }
 
@@ -102,7 +103,7 @@ pub trait ItemStore<E: EthSpec>: KeyValueStore<E> + Sync + Send + Sized + 'stati
         let column = I::db_column().into();
         let key = key.as_bytes();
 
-        self.put_bytes_sync(column, key, &item.as_store_bytes())
+        self.put_bytes_sync(column, key, &item.as_store_bytes()?)
             .map_err(Into::into)
     }
 
@@ -151,7 +152,15 @@ pub enum DBColumn {
     /// For data related to the database itself.
     BeaconMeta,
     BeaconBlock,
+    /// For full `BeaconState`s in the hot database (finalized or fork-boundary states).
     BeaconState,
+    /// For compact `BeaconStateDiff`s.
+    BeaconStateDiff,
+    /// For the mapping from state roots to their slots or summaries.
+    BeaconStateSummary,
+    /// For the list of temporary states stored during block import,
+    /// and then made non-temporary by the deletion of their state root from this column.
+    BeaconStateTemporary,
     /// For persisting in-memory state to the database.
     BeaconChain,
     OpPool,
@@ -160,11 +169,6 @@ pub enum DBColumn {
     PubkeyCache,
     /// For the table mapping restore point numbers to state roots.
     BeaconRestorePoint,
-    /// For the mapping from state roots to their slots or summaries.
-    BeaconStateSummary,
-    /// For the list of temporary states stored during block import,
-    /// and then made non-temporary by the deletion of their state root from this column.
-    BeaconStateTemporary,
     BeaconBlockRoots,
     BeaconStateRoots,
     BeaconHistoricalRoots,
@@ -179,14 +183,15 @@ impl Into<&'static str> for DBColumn {
             DBColumn::BeaconMeta => "bma",
             DBColumn::BeaconBlock => "blk",
             DBColumn::BeaconState => "ste",
+            DBColumn::BeaconStateDiff => "bsd",
+            DBColumn::BeaconStateSummary => "bss",
+            DBColumn::BeaconStateTemporary => "bst",
             DBColumn::BeaconChain => "bch",
             DBColumn::OpPool => "opo",
             DBColumn::Eth1Cache => "etc",
             DBColumn::ForkChoice => "frk",
             DBColumn::PubkeyCache => "pkc",
             DBColumn::BeaconRestorePoint => "brp",
-            DBColumn::BeaconStateSummary => "bss",
-            DBColumn::BeaconStateTemporary => "bst",
             DBColumn::BeaconBlockRoots => "bbr",
             DBColumn::BeaconStateRoots => "bsr",
             DBColumn::BeaconHistoricalRoots => "bhr",
@@ -212,16 +217,16 @@ pub trait StoreItem: Sized {
     fn db_column() -> DBColumn;
 
     /// Serialize `self` as bytes.
-    fn as_store_bytes(&self) -> Vec<u8>;
+    fn as_store_bytes(&self) -> Result<Vec<u8>, Error>;
 
     /// De-serialize `self` from bytes.
     ///
     /// Return an instance of the type and the number of bytes that were read.
     fn from_store_bytes(bytes: &[u8]) -> Result<Self, Error>;
 
-    fn as_kv_store_op(&self, key: Hash256) -> KeyValueStoreOp {
+    fn as_kv_store_op(&self, key: Hash256) -> Result<KeyValueStoreOp, Error> {
         let db_key = get_key_for_col(Self::db_column().into(), key.as_bytes());
-        KeyValueStoreOp::PutKeyValue(db_key, self.as_store_bytes())
+        Ok(KeyValueStoreOp::PutKeyValue(db_key, self.as_store_bytes()?))
     }
 }
 
@@ -243,8 +248,8 @@ mod tests {
             DBColumn::BeaconBlock
         }
 
-        fn as_store_bytes(&self) -> Vec<u8> {
-            self.as_ssz_bytes()
+        fn as_store_bytes(&self) -> Result<Vec<u8>, Error> {
+            Ok(self.as_ssz_bytes())
         }
 
         fn from_store_bytes(bytes: &[u8]) -> Result<Self, Error> {

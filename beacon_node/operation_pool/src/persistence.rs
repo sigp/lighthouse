@@ -165,8 +165,8 @@ impl<T: EthSpec> StoreItem for PersistedOperationPoolBase<T> {
         DBColumn::OpPool
     }
 
-    fn as_store_bytes(&self) -> Vec<u8> {
-        self.as_ssz_bytes()
+    fn as_store_bytes(&self) -> Result<Vec<u8>, StoreError> {
+        Ok(self.as_ssz_bytes())
     }
 
     fn from_store_bytes(bytes: &[u8]) -> Result<Self, StoreError> {
@@ -182,8 +182,8 @@ impl<T: EthSpec> StoreItem for PersistedOperationPool<T> {
         DBColumn::OpPool
     }
 
-    fn as_store_bytes(&self) -> Vec<u8> {
-        self.as_ssz_bytes()
+    fn as_store_bytes(&self) -> Result<Vec<u8>, StoreError> {
+        Ok(self.as_ssz_bytes())
     }
 
     fn from_store_bytes(bytes: &[u8]) -> Result<Self, StoreError> {

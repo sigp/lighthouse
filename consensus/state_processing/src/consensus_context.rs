@@ -71,7 +71,7 @@ impl<T: EthSpec> ConsensusContext<T> {
             return Ok(current_block_root);
         }
 
-        let current_block_root = block.tree_hash_root();
+        let current_block_root = block.message().tree_hash_root();
         self.current_block_root = Some(current_block_root);
         Ok(current_block_root)
     }

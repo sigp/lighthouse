@@ -42,7 +42,7 @@ fn load_from_dir<T: SszStaticType>(path: &Path) -> Result<(SszStaticRoots, Vec<u
     let roots = yaml_decode_file(&path.join("roots.yaml"))?;
     let serialized = snappy_decode_file(&path.join("serialized.ssz_snappy"))
         .expect("serialized.ssz_snappy exists");
-    let value = yaml_decode_file(&path.join("value.yaml"))?;
+    let value = yaml_decode_file(&path.join("value.yaml")).unwrap();
 
     Ok((roots, serialized, value))
 }

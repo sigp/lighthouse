@@ -1350,7 +1350,7 @@ dependencies = [
  "store",
  "swap_or_not_shuffle",
  "tree_hash",
- "tree_hash_derive 0.4.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "tree_hash_derive",
  "types",
 ]
 
@@ -1683,11 +1683,13 @@ dependencies = [
  "derivative",
  "eth2_serde_utils",
  "eth2_ssz",
+ "milhouse",
  "serde",
  "serde_derive",
  "serde_json",
+ "smallvec",
  "tree_hash",
- "tree_hash_derive 0.4.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "tree_hash_derive",
  "typenum",
 ]
 
@@ -1838,7 +1840,7 @@ dependencies = [
  "task_executor",
  "tokio",
  "tree_hash",
- "tree_hash_derive 0.4.0",
+ "tree_hash_derive",
  "types",
  "warp 0.3.0",
 ]
@@ -3604,6 +3606,7 @@ dependencies = [
  "derivative",
  "eth2_hashing 0.2.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "eth2_ssz",
+ "eth2_ssz_derive 0.3.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "itertools",
  "parking_lot",
  "rayon",
@@ -5516,7 +5519,7 @@ dependencies = [
  "sloggers",
  "tempfile",
  "tree_hash",
- "tree_hash_derive 0.4.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "tree_hash_derive",
  "types",
 ]
 
@@ -5785,6 +5788,7 @@ dependencies = [
  "lighthouse_metrics",
  "merkle_proof",
  "rayon",
+ "rustc-hash",
  "safe_arith",
  "smallvec",
  "tree_hash",
@@ -5813,10 +5817,12 @@ name = "store"
 version = "0.2.0"
 dependencies = [
  "beacon_chain",
+ "bincode",
  "db-key",
  "directory",
  "eth2_ssz",
  "eth2_ssz_derive 0.3.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "flate2",
  "itertools",
  "lazy_static",
  "leveldb",
@@ -6385,24 +6391,13 @@ dependencies = [
  "ethereum-types 0.12.1",
  "rand 0.7.3",
  "smallvec",
- "tree_hash_derive 0.4.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "tree_hash_derive",
  "types",
 ]
 
 [[package]]
 name = "tree_hash_derive"
 version = "0.4.0"
-dependencies = [
- "darling",
- "quote",
- "syn",
-]
-
-[[package]]
-name = "tree_hash_derive"
-version = "0.4.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3cd22d128157837a4434bb51119aef11103f17bfe8c402ce688cf25aa1e608ad"
 dependencies = [
  "darling",
  "quote",
@@ -6562,13 +6557,14 @@ dependencies = [
  "serde_json",
  "serde_yaml",
  "slog",
+ "smallvec",
  "state_processing",
  "superstruct",
  "swap_or_not_shuffle",
  "tempfile",
  "test_random_derive",
  "tree_hash",
- "tree_hash_derive 0.4.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "tree_hash_derive",
 ]
 
 [[package]]
