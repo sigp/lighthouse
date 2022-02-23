@@ -542,8 +542,6 @@ impl ExecutionLayer {
             })
             .await;
 
-        // TODO(bellatrix): process payload_ids so we can use them for producing payloads later.
-
         process_multiple_payload_statuses(
             head_block_hash,
             broadcast_results
