@@ -24,7 +24,7 @@ Detailed answers below:
 
 #### 1. Waiting for the beacon chain to detect the execution layer deposit
 
-Since the beacon chain uses execution client for validator on-boarding, beacon chain
+Since the beacon chain uses the execution layer for validator on-boarding, beacon chain
 validators must listen to event logs from the deposit contract. Since the
 latest blocks of the execution chain are vulnerable to re-orgs due to minor network
 partitions, beacon nodes follow the execution chain at a distance of 1,024 blocks
