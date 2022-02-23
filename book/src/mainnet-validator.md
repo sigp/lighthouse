@@ -37,7 +37,7 @@ Remember, if you get stuck you can always reach out on our [Discord][discord].
 > occured through the use of Lighthouse. We have an experienced internal security team and have
 > undergone multiple third-party security-reviews, however the possibility of bugs or malicious
 > interference remains a real and constant threat. Validators should be prepared to lose some rewards
-> due to the actions of other actors on consensus layer or software bugs. See the
+> due to the actions of other actors on the consensus layer or software bugs. See the
 > [software license][license] for more detail on liability.
 
 ## Using Lighthouse for Mainnet
