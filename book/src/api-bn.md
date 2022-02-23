@@ -64,7 +64,7 @@ lighthouse bn --http
 ## HTTP Request/Response Examples
 
 This section contains some simple examples of using the HTTP API via `curl`.
-All endpoints are documented in the [Eth Beacon Node API
+All endpoints are documented in the [Beacon Node API
 specification][OpenAPI].
 
 ### View the head of the beacon chain
