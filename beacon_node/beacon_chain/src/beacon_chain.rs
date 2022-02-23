@@ -3239,49 +3239,47 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             );
         }
 
-        // Check to ensure the justified checkpoint does not have an invalid payload. If so, try
-        // to kill the client.
-        let head_info = self.head_info()?;
-        // De-alias 0x00..00 to the genesis block at genesis.
-        let justified_root = {
-            let justified_checkpoint = head_info.current_justified_checkpoint;
-            if justified_checkpoint.root == Hash256::zero() && justified_checkpoint.epoch == 0 {
-                self.genesis_block_root
-            } else {
-                justified_checkpoint.root
-            }
+        // Atomically obtain the justified root from fork choice.
+        let justified_block = {
+            let fork_choice = self.fork_choice.read();
+            // De-alias 0x00..00 to the genesis block at genesis.
+            let justified_root = {
+                let justified_checkpoint = fork_choice.justified_checkpoint();
+                if justified_checkpoint.root == Hash256::zero() && justified_checkpoint.epoch == 0 {
+                    self.genesis_block_root
+                } else {
+                    justified_checkpoint.root
+                }
+            };
+            fork_choice
+                .get_block(&justified_root)
+                .ok_or_else(|| Error::JustifiedMissingFromForkChoice { justified_root })?
         };
 
-        if let Some(proto_block) = self.fork_choice.read().get_block(&justified_root) {
-            if proto_block.execution_status.is_invalid() {
-                crit!(
-                    self.log,
-                    "The justified checkpoint is invalid";
-                    "msg" => "ensure you are not connected to a malicious network. this error is not \
-                    recoverable, please reach out to the lighthouse developers for assistance."
-                );
-
-                let mut shutdown_sender = self.shutdown_sender();
-                if let Err(e) = shutdown_sender.try_send(ShutdownReason::Failure(
-                    INVALID_JUSTIFIED_PAYLOAD_SHUTDOWN_REASON,
-                )) {
-                    crit!(
-                        self.log,
-                        "Unable trigger client shut down";
-                        "msg" => "shut down may already be under way",
-                        "error" => ?e
-                    );
-                }
-
-                // Return an error here to try and prevent progression by upstream functions.
-                return Err(Error::JustifiedPayloadInvalid { justified_root });
-            }
-        } else {
+        if justified_block.execution_status.is_invalid() {
             crit!(
                 self.log,
-                "Justified block is not in fork choice";
+                "The justified checkpoint is invalid";
+                "msg" => "ensure you are not connected to a malicious network. this error is not \
+                recoverable, please reach out to the lighthouse developers for assistance."
             );
-            return Err(Error::JustifiedMissingFromForkChoice { justified_root });
+
+            let mut shutdown_sender = self.shutdown_sender();
+            if let Err(e) = shutdown_sender.try_send(ShutdownReason::Failure(
+                INVALID_JUSTIFIED_PAYLOAD_SHUTDOWN_REASON,
+            )) {
+                crit!(
+                    self.log,
+                    "Unable trigger client shut down";
+                    "msg" => "shut down may already be under way",
+                    "error" => ?e
+                );
+            }
+
+            // Return an error here to try and prevent progression by upstream functions.
+            return Err(Error::JustifiedPayloadInvalid {
+                justified_root: justified_block.root,
+            });
         }
 
         Ok(())
