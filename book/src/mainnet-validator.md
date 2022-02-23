@@ -68,7 +68,7 @@ setting aside one or two hours for this process.
 
 ### Step 1. Create validator keys
 
-The Ethereum Foundation provides an "Staking launch pad" for creating validator keypairs and submitting
+The Ethereum Foundation provides a "Staking Launchpad" for creating validator keypairs and submitting
 deposits:
 
 - [Staking Launchpad][launchpad]
