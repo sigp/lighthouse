@@ -3253,7 +3253,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             };
             fork_choice
                 .get_block(&justified_root)
-                .ok_or_else(|| Error::JustifiedMissingFromForkChoice { justified_root })?
+                .ok_or(Error::JustifiedMissingFromForkChoice { justified_root })?
         };
 
         if justified_block.execution_status.is_invalid() {
