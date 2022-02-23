@@ -3,7 +3,7 @@
 The [Staking Lauchpad](https://github.com/ethereum/eth2.0-deposit) is a website
 from the Ethereum Foundation which guides users how to use the
 [`eth2.0-deposit-cli`](https://github.com/ethereum/eth2.0-deposit-cli)
-command-line program to generate consensus client validator keys.
+command-line program to generate consensus validator keys.
 
 The keys that are generated from `eth2.0-deposit-cli` can be easily loaded into
 a Lighthouse validator client (`lighthouse vc`). In fact, both of these
