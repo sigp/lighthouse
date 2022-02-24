@@ -392,7 +392,7 @@ impl ExecutionLayer {
         &self,
         parent_hash: ExecutionBlockHash,
         timestamp: u64,
-        random: Hash256,
+        prev_randao: Hash256,
         finalized_block_hash: ExecutionBlockHash,
         proposer_index: u64,
     ) -> Result<ExecutionPayload<T>, Error> {
@@ -402,14 +402,14 @@ impl ExecutionLayer {
             self.log(),
             "Issuing engine_getPayload";
             "suggested_fee_recipient" => ?suggested_fee_recipient,
-            "random" => ?random,
+            "prev_randao" => ?prev_randao,
             "timestamp" => timestamp,
             "parent_hash" => ?parent_hash,
         );
         self.engines()
             .first_success(|engine| async move {
                 let payload_id = if let Some(id) = engine
-                    .get_payload_id(parent_hash, timestamp, random, suggested_fee_recipient)
+                    .get_payload_id(parent_hash, timestamp, prev_randao, suggested_fee_recipient)
                     .await
                 {
                     // The payload id has been cached for this engine.
@@ -428,7 +428,7 @@ impl ExecutionLayer {
                     };
                     let payload_attributes = PayloadAttributes {
                         timestamp,
-                        random,
+                        prev_randao,
                         suggested_fee_recipient,
                     };
 

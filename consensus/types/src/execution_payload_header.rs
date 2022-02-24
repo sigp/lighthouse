@@ -15,7 +15,7 @@ pub struct ExecutionPayloadHeader<T: EthSpec> {
     pub receipts_root: Hash256,
     #[serde(with = "ssz_types::serde_utils::hex_fixed_vec")]
     pub logs_bloom: FixedVector<u8, T::BytesPerLogsBloom>,
-    pub random: Hash256,
+    pub prev_randao: Hash256,
     #[serde(with = "eth2_serde_utils::quoted_u64")]
     pub block_number: u64,
     #[serde(with = "eth2_serde_utils::quoted_u64")]

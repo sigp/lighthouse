@@ -329,10 +329,10 @@ pub fn partially_verify_execution_payload<T: EthSpec>(
         );
     }
     block_verify!(
-        payload.random == *state.get_randao_mix(state.current_epoch())?,
+        payload.prev_randao == *state.get_randao_mix(state.current_epoch())?,
         BlockProcessingError::ExecutionRandaoMismatch {
             expected: *state.get_randao_mix(state.current_epoch())?,
-            found: payload.random,
+            found: payload.prev_randao,
         }
     );
 
@@ -368,7 +368,7 @@ pub fn process_execution_payload<T: EthSpec>(
         state_root: payload.state_root,
         receipts_root: payload.receipts_root,
         logs_bloom: payload.logs_bloom.clone(),
-        random: payload.random,
+        prev_randao: payload.prev_randao,
         block_number: payload.block_number,
         gas_limit: payload.gas_limit,
         gas_used: payload.gas_used,
