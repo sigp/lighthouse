@@ -2289,7 +2289,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 .position(|(_root, block)| {
                     block.slot().epoch(T::EthSpec::slots_per_epoch()) > start_epoch
                 })
-                .unwrap_or_else(|| filtered_chain_segment.len());
+                .unwrap_or(filtered_chain_segment.len());
 
             // Split off the first section blocks that are all either within the current epoch of
             // the first block. These blocks can all be signature-verified with the same

@@ -51,7 +51,7 @@ where
     let raw = hex::encode(num.to_be_bytes());
     let trimmed = raw.trim_start_matches('0');
 
-    let hex = if trimmed.is_empty() { "0" } else { &trimmed };
+    let hex = if trimmed.is_empty() { "0" } else { trimmed };
 
     serializer.serialize_str(&format!("0x{}", &hex))
 }
