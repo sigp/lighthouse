@@ -613,7 +613,7 @@ fn justified_balances() {
 }
 
 macro_rules! assert_invalid_block {
-    ($err: tt, $($error: pat) |+ $( if $guard: expr )?) => {
+    ($err: tt, $($error: pat_param) |+ $( if $guard: expr )?) => {
         assert!(
             matches!(
                 $err,
@@ -719,7 +719,7 @@ fn invalid_block_finalized_descendant() {
 }
 
 macro_rules! assert_invalid_attestation {
-    ($err: tt, $($error: pat) |+ $( if $guard: expr )?) => {
+    ($err: tt, $($error: pat_param) |+ $( if $guard: expr )?) => {
         assert!(
             matches!(
                 $err,
