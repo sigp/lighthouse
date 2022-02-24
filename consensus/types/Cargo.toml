@@ -2,7 +2,7 @@
 name = "types"
 version = "0.2.0"
 authors = ["Paul Hauner <paul@paulhauner.com>", "Age Manning <Age@AgeManning.com>"]
-edition = "2018"
+edition = "2021"
 
 [[bench]]
 name = "benches"
