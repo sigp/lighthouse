@@ -128,6 +128,7 @@ impl<T: EthSpec> MockExecutionLayer<T> {
             .await
             .unwrap();
 
+        let validator_index = 0;
         let payload = self
             .el
             .get_payload::<T, ExecTransactions<T>>(
@@ -135,6 +136,7 @@ impl<T: EthSpec> MockExecutionLayer<T> {
                 timestamp,
                 random,
                 finalized_block_hash,
+                validator_index,
             )
             .await
             .unwrap();
@@ -145,9 +147,9 @@ impl<T: EthSpec> MockExecutionLayer<T> {
         assert_eq!(payload.random, random);
 
         let (payload_response, latest_valid_hash) =
-            self.el.execute_payload(&payload).await.unwrap();
-        assert_eq!(payload_response, ExecutePayloadResponseStatus::Valid);
-        assert_eq!(latest_valid_hash, Some(payload.block_hash));
+            self.el.notify_new_payload(&payload).await.unwrap();
+        assert_eq!(payload_response, PayloadStatusV1Status::Valid);
+        assert_eq!(latest_valid_hash, Some(vec![payload.block_hash]));
 
         self.el
             .notify_forkchoice_updated(block_hash, Hash256::zero(), None)

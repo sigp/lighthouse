@@ -27,7 +27,7 @@ use std::io::{self, Read};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
-use types::{Graffiti, Keypair, PublicKey, PublicKeyBytes};
+use types::{Address, Graffiti, Keypair, PublicKey, PublicKeyBytes};
 use url::{ParseError, Url};
 use validator_dir::Builder as ValidatorDirBuilder;
 
@@ -104,6 +104,7 @@ impl From<LockfileError> for Error {
 pub struct InitializedValidator {
     signing_method: Arc<SigningMethod>,
     graffiti: Option<Graffiti>,
+    suggested_fee_recipient: Option<Address>,
     /// The validators index in `state.validators`, to be updated by an external service.
     index: Option<u64>,
 }
@@ -269,6 +270,7 @@ impl InitializedValidator {
         Ok(Self {
             signing_method: Arc::new(signing_method),
             graffiti: def.graffiti.map(Into::into),
+            suggested_fee_recipient: def.suggested_fee_recipient,
             index: None,
         })
     }
@@ -536,6 +538,14 @@ impl InitializedValidators {
     /// Returns the `graffiti` for a given public key specified in the `ValidatorDefinitions`.
     pub fn graffiti(&self, public_key: &PublicKeyBytes) -> Option<Graffiti> {
         self.validators.get(public_key).and_then(|v| v.graffiti)
+    }
+
+    /// Returns the `suggested_fee_recipient` for a given public key specified in the
+    /// `ValidatorDefinitions`.
+    pub fn suggested_fee_recipient(&self, public_key: &PublicKeyBytes) -> Option<Address> {
+        self.validators
+            .get(public_key)
+            .and_then(|v| v.suggested_fee_recipient)
     }
 
     /// Sets the `InitializedValidator` and `ValidatorDefinition` `enabled` values.

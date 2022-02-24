@@ -6,12 +6,12 @@ use lighthouse_network::Multiaddr;
 use lighthouse_network::Service as LibP2PService;
 use lighthouse_network::{Libp2pEvent, NetworkConfig};
 use slog::{debug, error, o, Drain};
-use std::net::{TcpListener, UdpSocket};
 use std::sync::Arc;
 use std::sync::Weak;
 use std::time::Duration;
 use tokio::runtime::Runtime;
 use types::{ChainSpec, EnrForkId, EthSpec, ForkContext, Hash256, MinimalEthSpec};
+use unused_port::unused_tcp_port;
 
 #[allow(clippy::type_complexity)]
 #[allow(unused)]
@@ -61,38 +61,6 @@ pub fn build_log(level: slog::Level, enabled: bool) -> slog::Logger {
     }
 }
 
-// A bit of hack to find an unused port.
-///
-/// Does not guarantee that the given port is unused after the function exits, just that it was
-/// unused before the function started (i.e., it does not reserve a port).
-pub fn unused_port(transport: &str) -> Result<u16, String> {
-    let local_addr = match transport {
-        "tcp" => {
-            let listener = TcpListener::bind("127.0.0.1:0").map_err(|e| {
-                format!("Failed to create TCP listener to find unused port: {:?}", e)
-            })?;
-            listener.local_addr().map_err(|e| {
-                format!(
-                    "Failed to read TCP listener local_addr to find unused port: {:?}",
-                    e
-                )
-            })?
-        }
-        "udp" => {
-            let socket = UdpSocket::bind("127.0.0.1:0")
-                .map_err(|e| format!("Failed to create UDP socket to find unused port: {:?}", e))?;
-            socket.local_addr().map_err(|e| {
-                format!(
-                    "Failed to read UDP socket local_addr to find unused port: {:?}",
-                    e
-                )
-            })?
-        }
-        _ => return Err("Invalid transport to find unused port".into()),
-    };
-    Ok(local_addr.port())
-}
-
 pub fn build_config(port: u16, mut boot_nodes: Vec<Enr>) -> NetworkConfig {
     let mut config = NetworkConfig::default();
     let path = TempBuilder::new()
@@ -121,7 +89,7 @@ pub async fn build_libp2p_instance(
     boot_nodes: Vec<Enr>,
     log: slog::Logger,
 ) -> Libp2pInstance {
-    let port = unused_port("tcp").unwrap();
+    let port = unused_tcp_port().unwrap();
     let config = build_config(port, boot_nodes);
     // launch libp2p service
 

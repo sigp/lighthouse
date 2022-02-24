@@ -81,14 +81,30 @@ lazy_static! {
             "Gossipsub messages that we did not accept, per client",
             &["client", "validation_result"]
         );
-
+    pub static ref GOSSIP_LATE_PUBLISH_PER_TOPIC_KIND: Result<IntCounterVec> =
+        try_create_int_counter_vec(
+            "gossipsub_late_publish_per_topic_kind",
+            "Messages published late to gossipsub per topic kind.",
+            &["topic_kind"]
+        );
+    pub static ref GOSSIP_EXPIRED_LATE_PUBLISH_PER_TOPIC_KIND: Result<IntCounterVec> =
+        try_create_int_counter_vec(
+            "gossipsub_expired_late_publish_per_topic_kind",
+            "Messages that expired waiting to be published on retry to gossipsub per topic kind.",
+            &["topic_kind"]
+        );
+    pub static ref GOSSIP_FAILED_LATE_PUBLISH_PER_TOPIC_KIND: Result<IntCounterVec> =
+        try_create_int_counter_vec(
+            "gossipsub_failed_late_publish_per_topic_kind",
+            "Messages that failed to be published on retry to gossipsub per topic kind.",
+            &["topic_kind"]
+        );
     pub static ref PEER_SCORE_DISTRIBUTION: Result<IntGaugeVec> =
         try_create_int_gauge_vec(
             "peer_score_distribution",
             "The distribution of connected peer scores",
             &["position"]
         );
-
     pub static ref PEER_SCORE_PER_CLIENT: Result<GaugeVec> =
         try_create_float_gauge_vec(
             "peer_score_per_client",

@@ -11,11 +11,9 @@ use crate::{
     BeaconChain, BeaconChainError, BeaconChainTypes, BlockError, BlockProductionError,
     ExecutionPayloadError,
 };
-use execution_layer::ExecutePayloadResponseStatus;
+use execution_layer::PayloadStatusV1Status;
 use fork_choice::PayloadVerificationStatus;
 use proto_array::{Block as ProtoBlock, ExecutionStatus};
-use serde::de::DeserializeOwned;
-use serde::Serialize;
 use slog::debug;
 use slot_clock::SlotClock;
 use state_processing::per_block_processing::{
@@ -29,11 +27,11 @@ use types::*;
 ///
 /// ## Specification
 ///
-/// Equivalent to the `execute_payload` function in the merge Beacon Chain Changes, although it
+/// Equivalent to the `notify_new_payload` function in the merge Beacon Chain Changes, although it
 /// contains a few extra checks by running `partially_verify_execution_payload` first:
 ///
-/// https://github.com/ethereum/consensus-specs/blob/v1.1.5/specs/merge/beacon-chain.md#execute_payload
-pub fn execute_payload<T: BeaconChainTypes>(
+/// https://github.com/ethereum/consensus-specs/blob/v1.1.9/specs/bellatrix/beacon-chain.md#notify_new_payload
+pub fn notify_new_payload<T: BeaconChainTypes>(
     chain: &BeaconChain<T>,
     state: &BeaconState<T::EthSpec>,
     block: BeaconBlockRef<T::EthSpec>,
@@ -55,19 +53,29 @@ pub fn execute_payload<T: BeaconChainTypes>(
         .execution_layer
         .as_ref()
         .ok_or(ExecutionPayloadError::NoExecutionConnection)?;
-    let execute_payload_response = execution_layer
-        .block_on(|execution_layer| execution_layer.execute_payload(execution_payload));
+    let new_payload_response = execution_layer
+        .block_on(|execution_layer| execution_layer.notify_new_payload(execution_payload));
 
-    match execute_payload_response {
-        Ok((status, _latest_valid_hash)) => match status {
-            ExecutePayloadResponseStatus::Valid => Ok(PayloadVerificationStatus::Verified),
-            // TODO(merge): invalidate any invalid ancestors of this block in fork choice.
-            ExecutePayloadResponseStatus::Invalid => {
-                Err(ExecutionPayloadError::RejectedByExecutionEngine.into())
+    match new_payload_response {
+        Ok((status, latest_valid_hash)) => match status {
+            PayloadStatusV1Status::Valid => Ok(PayloadVerificationStatus::Verified),
+            PayloadStatusV1Status::Syncing | PayloadStatusV1Status::Accepted => {
+                Ok(PayloadVerificationStatus::NotVerified)
             }
-            ExecutePayloadResponseStatus::Syncing => Ok(PayloadVerificationStatus::NotVerified),
+            PayloadStatusV1Status::Invalid
+            | PayloadStatusV1Status::InvalidTerminalBlock
+            | PayloadStatusV1Status::InvalidBlockHash => {
+                // TODO(bellatrix): process the invalid payload.
+                //
+                // See: https://github.com/sigp/lighthouse/pull/2837
+                Err(ExecutionPayloadError::RejectedByExecutionEngine {
+                    status,
+                    latest_valid_hash,
+                }
+                .into())
+            }
         },
-        Err(_) => Err(ExecutionPayloadError::RejectedByExecutionEngine.into()),
+        Err(e) => Err(ExecutionPayloadError::RequestFailed(e).into()),
     }
 }
 
@@ -206,6 +214,7 @@ pub fn validate_execution_payload_for_gossip<T: BeaconChainTypes>(
 pub fn get_execution_payload<T: BeaconChainTypes, Txns: Transactions<T::EthSpec>>(
     chain: &BeaconChain<T>,
     state: &BeaconState<T::EthSpec>,
+    proposer_index: u64,
 ) -> Result<ExecutionPayload<T::EthSpec, Txns>, BlockProductionError> {
     Ok(prepare_execution_payload_blocking::<T, Txns>(chain, state)?.unwrap_or_default())
 }
@@ -214,6 +223,7 @@ pub fn get_execution_payload<T: BeaconChainTypes, Txns: Transactions<T::EthSpec>
 pub fn prepare_execution_payload_blocking<T: BeaconChainTypes, Txns: Transactions<T::EthSpec>>(
     chain: &BeaconChain<T>,
     state: &BeaconState<T::EthSpec>,
+    proposer_index: u64,
 ) -> Result<Option<ExecutionPayload<T::EthSpec, Txns>>, BlockProductionError> {
     let execution_layer = chain
         .execution_layer
@@ -221,7 +231,7 @@ pub fn prepare_execution_payload_blocking<T: BeaconChainTypes, Txns: Transaction
         .ok_or(BlockProductionError::ExecutionLayerMissing)?;
 
     execution_layer
-        .block_on_generic(|_| async { prepare_execution_payload::<T, Txns>(chain, state).await })
+        .block_on_generic(|_| async { prepare_execution_payload::<T, Txns>(chain, state, proposer_index).await })
         .map_err(BlockProductionError::BlockingFailed)?
 }
 
@@ -241,10 +251,11 @@ pub fn prepare_execution_payload_blocking<T: BeaconChainTypes, Txns: Transaction
 /// https://github.com/ethereum/consensus-specs/blob/v1.1.5/specs/merge/validator.md#block-proposal
 pub async fn prepare_execution_payload<
     T: BeaconChainTypes,
-    Txns: Transactions<T::EthSpec> + Serialize + DeserializeOwned,
+    Txns: Transactions<T::EthSpec>,
 >(
     chain: &BeaconChain<T>,
     state: &BeaconState<T::EthSpec>,
+    proposer_index: u64,
 ) -> Result<Option<ExecutionPayload<T::EthSpec, Txns>>, BlockProductionError> {
     let spec = &chain.spec;
     let execution_layer = chain
@@ -305,6 +316,7 @@ pub async fn prepare_execution_payload<
             timestamp,
             random,
             finalized_block_hash.unwrap_or_else(Hash256::zero),
+            proposer_index,
         )
         .await
         .map_err(BlockProductionError::GetPayloadFailed)?;

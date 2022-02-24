@@ -315,7 +315,8 @@ Typical Responses | 200
         "enable": true,
         "description": "validator_one",
         "deposit_gwei": "32000000000",
-        "graffiti": "Mr F was here"
+        "graffiti": "Mr F was here",
+        "suggested_fee_recipient": "0xa2e334e71511686bcfe38bb3ee1ad8f6babcc03d"
     },
     {
         "enable": false,
@@ -492,6 +493,7 @@ Typical Responses | 200, 400
         "enable": true,
         "description": "validator_one",
         "graffiti": "Mr F was here",
+        "suggested_fee_recipient": "0xa2e334e71511686bcfe38bb3ee1ad8f6babcc03d",
         "voting_public_key": "0xa062f95fee747144d5e511940624bc6546509eeaeae9383257a9c43e7ddc58c17c2bab4ae62053122184c381b90db380",
         "url": "http://path-to-web3signer.com",
         "root_certificate_path": "/path/on/vc/filesystem/to/certificate.pem",
@@ -503,6 +505,7 @@ Typical Responses | 200, 400
 The following fields may be omitted or nullified to obtain default values:
 
 - `graffiti`
+- `suggested_fee_recipient`
 - `root_certificate_path`
 - `request_timeout_ms`
 

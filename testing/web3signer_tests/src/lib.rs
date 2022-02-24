@@ -45,7 +45,7 @@ mod tests {
     /// assume it failed to start.
     const UPCHECK_TIMEOUT: Duration = Duration::from_secs(20);
 
-    /// Set to `true` to send the Web3Signer logs to the console during tests. Logs are useful when
+    /// Set to `false` to send the Web3Signer logs to the console during tests. Logs are useful when
     /// debugging.
     const SUPPRESS_WEB3SIGNER_LOGS: bool = true;
 
@@ -336,6 +336,7 @@ mod tests {
                     enabled: true,
                     voting_public_key: validator_pubkey.clone(),
                     graffiti: None,
+                    suggested_fee_recipient: None,
                     description: String::default(),
                     signing_definition: SigningDefinition::LocalKeystore {
                         voting_keystore_path: signer_rig.keystore_path.clone(),
@@ -351,6 +352,7 @@ mod tests {
                     enabled: true,
                     voting_public_key: validator_pubkey.clone(),
                     graffiti: None,
+                    suggested_fee_recipient: None,
                     description: String::default(),
                     signing_definition: SigningDefinition::Web3Signer {
                         url: signer_rig.url.to_string(),
@@ -562,16 +564,6 @@ mod tests {
     #[tokio::test]
     async fn mainnet_altair_types() {
         test_altair_types("mainnet", 4243).await
-    }
-
-    #[tokio::test]
-    async fn pyrmont_base_types() {
-        test_base_types("pyrmont", 4244).await
-    }
-
-    #[tokio::test]
-    async fn pyrmont_altair_types() {
-        test_altair_types("pyrmont", 4245).await
     }
 
     #[tokio::test]

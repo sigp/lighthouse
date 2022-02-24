@@ -7,8 +7,10 @@ use std::io::Write;
 use std::net::Ipv4Addr;
 use std::path::PathBuf;
 use std::process::Command;
+use std::str::FromStr;
 use std::string::ToString;
 use tempfile::TempDir;
+use types::Address;
 
 /// Returns the `lighthouse validator_client` command.
 fn base_cmd() -> Command {
@@ -56,6 +58,19 @@ fn validators_and_secrets_dir_flags() {
     let dir = TempDir::new().expect("Unable to create temporary directory");
     CommandLineTest::new()
         .flag("validators-dir", dir.path().join("validators").to_str())
+        .flag("secrets-dir", dir.path().join("secrets").to_str())
+        .run_with_no_datadir()
+        .with_config(|config| {
+            assert_eq!(config.validator_dir, dir.path().join("validators"));
+            assert_eq!(config.secrets_dir, dir.path().join("secrets"));
+        });
+}
+
+#[test]
+fn validators_dir_alias_flags() {
+    let dir = TempDir::new().expect("Unable to create temporary directory");
+    CommandLineTest::new()
+        .flag("validator-dir", dir.path().join("validators").to_str())
         .flag("secrets-dir", dir.path().join("secrets").to_str())
         .run_with_no_datadir()
         .with_config(|config| {
@@ -214,6 +229,83 @@ fn graffiti_file_with_pk_flag() {
                     .unwrap()
                     .to_string(),
                 "0x6e6963652d677261666669746900000000000000000000000000000000000000"
+            )
+        });
+}
+
+// Tests for suggested-fee-recipient flags.
+#[test]
+fn fee_recipient_flag() {
+    CommandLineTest::new()
+        .flag(
+            "suggested-fee-recipient",
+            Some("0x00000000219ab540356cbb839cbe05303d7705fa"),
+        )
+        .run()
+        .with_config(|config| {
+            assert_eq!(
+                config.fee_recipient,
+                Some(Address::from_str("0x00000000219ab540356cbb839cbe05303d7705fa").unwrap())
+            )
+        });
+}
+#[test]
+fn fee_recipient_file_flag() {
+    let dir = TempDir::new().expect("Unable to create temporary directory");
+    let mut file =
+        File::create(dir.path().join("fee_recipient.txt")).expect("Unable to create file");
+    let new_key = Keypair::random();
+    let pubkeybytes = PublicKeyBytes::from(new_key.pk);
+    let contents = "default:0x00000000219ab540356cbb839cbe05303d7705fa";
+    file.write_all(contents.as_bytes())
+        .expect("Unable to write to file");
+    CommandLineTest::new()
+        .flag(
+            "suggested-fee-recipient-file",
+            dir.path().join("fee_recipient.txt").as_os_str().to_str(),
+        )
+        .run()
+        .with_config(|config| {
+            // Public key not present so load default.
+            assert_eq!(
+                config
+                    .fee_recipient_file
+                    .clone()
+                    .unwrap()
+                    .load_fee_recipient(&pubkeybytes)
+                    .unwrap(),
+                Some(Address::from_str("0x00000000219ab540356cbb839cbe05303d7705fa").unwrap())
+            )
+        });
+}
+#[test]
+fn fee_recipient_file_with_pk_flag() {
+    let dir = TempDir::new().expect("Unable to create temporary directory");
+    let mut file =
+        File::create(dir.path().join("fee_recipient.txt")).expect("Unable to create file");
+    let new_key = Keypair::random();
+    let pubkeybytes = PublicKeyBytes::from(new_key.pk);
+    let contents = format!(
+        "{}:0x00000000219ab540356cbb839cbe05303d7705fa",
+        pubkeybytes.to_string()
+    );
+    file.write_all(contents.as_bytes())
+        .expect("Unable to write to file");
+    CommandLineTest::new()
+        .flag(
+            "suggested-fee-recipient-file",
+            dir.path().join("fee_recipient.txt").as_os_str().to_str(),
+        )
+        .run()
+        .with_config(|config| {
+            assert_eq!(
+                config
+                    .fee_recipient_file
+                    .clone()
+                    .unwrap()
+                    .load_fee_recipient(&pubkeybytes)
+                    .unwrap(),
+                Some(Address::from_str("0x00000000219ab540356cbb839cbe05303d7705fa").unwrap())
             )
         });
 }

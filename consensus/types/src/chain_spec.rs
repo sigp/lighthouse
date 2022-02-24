@@ -29,6 +29,11 @@ pub enum Domain {
 #[derive(PartialEq, Debug, Clone)]
 pub struct ChainSpec {
     /*
+     * Config name
+     */
+    pub config_name: Option<String>,
+
+    /*
      * Constants
      */
     pub genesis_slot: Slot,
@@ -406,6 +411,10 @@ impl ChainSpec {
     pub fn mainnet() -> Self {
         Self {
             /*
+             * Config name
+             */
+            config_name: Some("mainnet".to_string()),
+            /*
              * Constants
              */
             genesis_slot: Slot::new(0),
@@ -563,6 +572,7 @@ impl ChainSpec {
         let boot_nodes = vec![];
 
         Self {
+            config_name: None,
             max_committees_per_slot: 4,
             target_committee_size: 4,
             churn_limit_quotient: 32,
@@ -600,6 +610,7 @@ impl ChainSpec {
     /// Returns a `ChainSpec` compatible with the Gnosis Beacon Chain specification.
     pub fn gnosis() -> Self {
         Self {
+            config_name: Some("gnosis".to_string()),
             /*
              * Constants
              */
@@ -764,6 +775,10 @@ impl Default for ChainSpec {
 #[serde(rename_all = "UPPERCASE")]
 pub struct Config {
     #[serde(default)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub config_name: Option<String>,
+
+    #[serde(default)]
     pub preset_base: String,
 
     // TODO(merge): remove this default
@@ -914,6 +929,7 @@ impl Config {
 
     pub fn from_chain_spec<T: EthSpec>(spec: &ChainSpec) -> Self {
         Self {
+            config_name: spec.config_name.clone(),
             preset_base: T::spec_name().to_string(),
 
             terminal_total_difficulty: spec.terminal_total_difficulty,
@@ -964,6 +980,7 @@ impl Config {
     pub fn apply_to_chain_spec<T: EthSpec>(&self, chain_spec: &ChainSpec) -> Option<ChainSpec> {
         // Pattern match here to avoid missing any fields.
         let &Config {
+            ref config_name,
             ref preset_base,
             terminal_total_difficulty,
             terminal_block_hash,
@@ -997,6 +1014,7 @@ impl Config {
         }
 
         Some(ChainSpec {
+            config_name: config_name.clone(),
             min_genesis_active_validator_count,
             min_genesis_time,
             genesis_fork_version,

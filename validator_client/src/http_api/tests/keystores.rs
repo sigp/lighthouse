@@ -37,6 +37,7 @@ fn web3signer_validator_with_pubkey(pubkey: PublicKey) -> Web3SignerValidatorReq
         enable: true,
         description: "".into(),
         graffiti: None,
+        suggested_fee_recipient: None,
         voting_public_key: pubkey,
         url: web3_signer_url(),
         root_certificate_path: None,

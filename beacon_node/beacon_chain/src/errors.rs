@@ -8,6 +8,7 @@ use crate::naive_aggregation_pool::Error as NaiveAggregationError;
 use crate::observed_aggregates::Error as ObservedAttestationsError;
 use crate::observed_attesters::Error as ObservedAttestersError;
 use crate::observed_block_producers::Error as ObservedBlockProducersError;
+use execution_layer::PayloadStatusV1Status;
 use futures::channel::mpsc::TrySendError;
 use operation_pool::OpPoolError;
 use safe_arith::ArithError;
@@ -137,6 +138,10 @@ pub enum BeaconChainError {
     AltairForkDisabled,
     ExecutionLayerMissing,
     ExecutionForkChoiceUpdateFailed(execution_layer::Error),
+    ExecutionForkChoiceUpdateInvalid {
+        status: PayloadStatusV1Status,
+        latest_valid_hash: Option<Vec<Hash256>>,
+    },
     BlockRewardSlotError,
     BlockRewardAttestationError,
     BlockRewardSyncError,

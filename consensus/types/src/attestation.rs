@@ -110,9 +110,34 @@ impl<T: EthSpec> SlotData for Attestation<T> {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
     use crate::*;
 
-    use super::*;
+    // Check the in-memory size of an `Attestation`, which is useful for reasoning about memory
+    // and preventing regressions.
+    //
+    // This test will only pass with `blst`, if we run these tests with Milagro or another
+    // BLS library in future we will have to make it generic.
+    #[test]
+    fn size_of() {
+        use std::mem::size_of;
+
+        let aggregation_bits =
+            size_of::<BitList<<MainnetEthSpec as EthSpec>::MaxValidatorsPerCommittee>>();
+        let attestation_data = size_of::<AttestationData>();
+        let signature = size_of::<AggregateSignature>();
+
+        assert_eq!(aggregation_bits, 56);
+        assert_eq!(attestation_data, 128);
+        assert_eq!(signature, 288 + 16);
+
+        let attestation_expected = aggregation_bits + attestation_data + signature;
+        assert_eq!(attestation_expected, 488);
+        assert_eq!(
+            size_of::<Attestation<MainnetEthSpec>>(),
+            attestation_expected
+        );
+    }
 
     ssz_and_tree_hash_tests!(Attestation<MainnetEthSpec>);
 }
