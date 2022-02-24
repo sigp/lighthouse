@@ -161,7 +161,6 @@ where
         let mut socket = Framed::new(socket, codec);
 
         async {
-            let _ = &self;
             socket.send(self.req).await?;
             socket.close().await?;
             Ok(socket)
