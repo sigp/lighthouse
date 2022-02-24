@@ -21,9 +21,11 @@ use tokio::{
     time::{sleep, sleep_until, Instant},
 };
 use types::execution_payload::BlockType;
-use types::{BlindedTransactions, ChainSpec, SignedBeaconBlock, Transactions, Epoch, ProposerPreparationDat};
+use types::{
+    BlindedTransactions, ChainSpec, Epoch, ProposerPreparationData, SignedBeaconBlock, Transactions,
+};
 
-pub use engine_api::{http::HttpJsonRpc, PayloadAttributes, PayloadStatusV1Status, ExecutePayloadResponseStatus};
+pub use engine_api::{http::HttpJsonRpc, PayloadAttributes, PayloadStatusV1Status};
 
 mod engine_api;
 mod engines;
@@ -524,7 +526,7 @@ impl ExecutionLayer {
                     .await
                     .map_err(Error::EngineErrors)
             }
-            }
+        }
     }
 
     /// Maps to the `engine_newPayload` JSON-RPC call.
@@ -698,7 +700,10 @@ impl ExecutionLayer {
         let mut invalid = 0;
         let mut syncing = 0;
         let mut invalid_latest_valid_hash = HashSet::new();
-        for result in broadcast_results.chain(builder_broadcast_results) {
+        for result in broadcast_results
+            .into_iter()
+            .chain(builder_broadcast_results.into_iter())
+        {
             match result {
                 Ok(response) => match (&response.payload_status.latest_valid_hash, &response.payload_status.status) {
                     // TODO(bellatrix) a strict interpretation of the v1.0.0.alpha.6 spec says that

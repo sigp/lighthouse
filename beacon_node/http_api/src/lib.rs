@@ -47,9 +47,9 @@ use tokio_stream::{wrappers::BroadcastStream, StreamExt};
 use types::{
     Attestation, AttesterSlashing, BeaconBlockBodyMerge, BeaconBlockMerge, BeaconStateError,
     BlindedTransactions, CommitteeCache, ConfigAndPreset, Epoch, EthSpec, ExecTransactions,
-    ForkName, ProposerSlashing, RelativeEpoch, SignedAggregateAndProof, SignedBeaconBlock,
-    SignedBeaconBlockMerge, SignedContributionAndProof, SignedVoluntaryExit, Slot,
-    SyncCommitteeMessage, SyncContributionData, ProposerPreparationData
+    ForkName, ProposerPreparationData, ProposerSlashing, RelativeEpoch, SignedAggregateAndProof,
+    SignedBeaconBlock, SignedBeaconBlockMerge, SignedContributionAndProof, SignedVoluntaryExit,
+    Slot, SyncCommitteeMessage, SyncContributionData,
 };
 use version::{
     add_consensus_version_header, fork_versioned_response, inconsistent_fork_rejection,

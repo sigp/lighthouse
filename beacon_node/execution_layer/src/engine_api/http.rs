@@ -226,11 +226,11 @@ impl EngineApi for BuilderHttpJsonRpc {
         self.0.get_block_by_hash(block_hash).await
     }
 
-    async fn execute_payload_v1<T: EthSpec>(
+    async fn new_payload_v1<T: EthSpec>(
         &self,
         execution_payload: ExecutionPayload<T>,
-    ) -> Result<ExecutePayloadResponse, Error> {
-        self.0.execute_payload_v1(execution_payload).await
+    ) -> Result<PayloadStatusV1, Error> {
+        self.0.new_payload_v1(execution_payload).await
     }
 
     async fn get_payload_v1<T: EthSpec, Txns: Transactions<T>>(

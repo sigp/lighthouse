@@ -18,7 +18,7 @@ use std::path::Path;
 use std::sync::Arc;
 use task_executor::TaskExecutor;
 use types::{
-    attestation::Error as AttestationError, graffiti::GraffitiString, AggregateAndProof, Address,
+    attestation::Error as AttestationError, graffiti::GraffitiString, Address, AggregateAndProof,
     Attestation, BeaconBlock, BlindedTransactions, ChainSpec, ContributionAndProof, Domain, Epoch,
     EthSpec, Fork, Graffiti, Hash256, Keypair, PublicKeyBytes, SelectionProof, Signature,
     SignedAggregateAndProof, SignedBeaconBlock, SignedContributionAndProof, Slot,

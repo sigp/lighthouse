@@ -216,7 +216,10 @@ pub fn get_execution_payload<T: BeaconChainTypes, Txns: Transactions<T::EthSpec>
     state: &BeaconState<T::EthSpec>,
     proposer_index: u64,
 ) -> Result<ExecutionPayload<T::EthSpec, Txns>, BlockProductionError> {
-    Ok(prepare_execution_payload_blocking::<T, Txns>(chain, state)?.unwrap_or_default())
+    Ok(
+        prepare_execution_payload_blocking::<T, Txns>(chain, state, proposer_index)?
+            .unwrap_or_default(),
+    )
 }
 
 /// Wraps the async `prepare_execution_payload` function as a blocking task.
@@ -231,7 +234,9 @@ pub fn prepare_execution_payload_blocking<T: BeaconChainTypes, Txns: Transaction
         .ok_or(BlockProductionError::ExecutionLayerMissing)?;
 
     execution_layer
-        .block_on_generic(|_| async { prepare_execution_payload::<T, Txns>(chain, state, proposer_index).await })
+        .block_on_generic(|_| async {
+            prepare_execution_payload::<T, Txns>(chain, state, proposer_index).await
+        })
         .map_err(BlockProductionError::BlockingFailed)?
 }
 
@@ -249,10 +254,7 @@ pub fn prepare_execution_payload_blocking<T: BeaconChainTypes, Txns: Transaction
 /// Equivalent to the `prepare_execution_payload` function in the Validator Guide:
 ///
 /// https://github.com/ethereum/consensus-specs/blob/v1.1.5/specs/merge/validator.md#block-proposal
-pub async fn prepare_execution_payload<
-    T: BeaconChainTypes,
-    Txns: Transactions<T::EthSpec>,
->(
+pub async fn prepare_execution_payload<T: BeaconChainTypes, Txns: Transactions<T::EthSpec>>(
     chain: &BeaconChain<T>,
     state: &BeaconState<T::EthSpec>,
     proposer_index: u64,

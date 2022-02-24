@@ -4,7 +4,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use task_executor::TaskExecutor;
 use tokio::time::sleep;
-use types::{Address, ChainSpec, EthSpec, Hash256, MainnetEthSpec, Uint256};
+use types::{Address, ChainSpec, EthSpec, ExecTransactions, Hash256, MainnetEthSpec, Uint256};
 
 const EXECUTION_ENGINE_START_TIMEOUT: Duration = Duration::from_secs(10);
 
@@ -47,9 +47,14 @@ impl<E: GenericExecutionEngine> TestRig<E> {
         let ee_a = {
             let execution_engine = ExecutionEngine::new(generic_engine.clone());
             let urls = vec![execution_engine.http_url()];
-            let execution_layer =
-                ExecutionLayer::from_urls(urls, fee_recipient, executor.clone(), log.clone())
-                    .unwrap();
+            let execution_layer = ExecutionLayer::from_urls(
+                urls,
+                vec![],
+                fee_recipient,
+                executor.clone(),
+                log.clone(),
+            )
+            .unwrap();
             ExecutionPair {
                 execution_engine,
                 execution_layer,
@@ -60,7 +65,7 @@ impl<E: GenericExecutionEngine> TestRig<E> {
             let execution_engine = ExecutionEngine::new(generic_engine);
             let urls = vec![execution_engine.http_url()];
             let execution_layer =
-                ExecutionLayer::from_urls(urls, fee_recipient, executor, log).unwrap();
+                ExecutionLayer::from_urls(urls, vec![], fee_recipient, executor, log).unwrap();
             ExecutionPair {
                 execution_engine,
                 execution_layer,
@@ -144,7 +149,7 @@ impl<E: GenericExecutionEngine> TestRig<E> {
         let valid_payload = self
             .ee_a
             .execution_layer
-            .get_payload::<MainnetEthSpec>(
+            .get_payload::<MainnetEthSpec, ExecTransactions<MainnetEthSpec>>(
                 parent_hash,
                 timestamp,
                 random,
@@ -236,7 +241,7 @@ impl<E: GenericExecutionEngine> TestRig<E> {
         let second_payload = self
             .ee_a
             .execution_layer
-            .get_payload::<MainnetEthSpec>(
+            .get_payload::<MainnetEthSpec, ExecTransactions<MainnetEthSpec>>(
                 parent_hash,
                 timestamp,
                 random,
