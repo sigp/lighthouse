@@ -220,7 +220,7 @@ fn dequeue_attestations(
         queued_attestations
             .iter()
             .position(|a| a.slot >= current_slot)
-            .unwrap_or_else(|| queued_attestations.len()),
+            .unwrap_or(queued_attestations.len()),
     );
 
     std::mem::replace(queued_attestations, remaining)

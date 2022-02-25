@@ -2,7 +2,7 @@
 name = "beacon_node"
 version = "2.1.3"
 authors = ["Paul Hauner <paul@paulhauner.com>", "Age Manning <Age@AgeManning.com"]
-edition = "2018"
+edition = "2021"
 
 [lib]
 name = "beacon_node"

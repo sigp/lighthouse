@@ -180,7 +180,7 @@ fn aggregated_gossip_verification() {
         get_valid_sync_contribution(&harness, RelativeSyncCommittee::Current);
 
     macro_rules! assert_invalid {
-            ($desc: tt, $attn_getter: expr, $($error: pat) |+ $( if $guard: expr )?) => {
+            ($desc: tt, $attn_getter: expr, $($error: pat_param) |+ $( if $guard: expr )?) => {
                 assert!(
                     matches!(
                         harness
@@ -506,7 +506,7 @@ fn unaggregated_gossip_verification() {
         get_valid_sync_committee_message(&harness, current_slot, RelativeSyncCommittee::Current);
 
     macro_rules! assert_invalid {
-            ($desc: tt, $attn_getter: expr, $subnet_getter: expr, $($error: pat) |+ $( if $guard: expr )?) => {
+            ($desc: tt, $attn_getter: expr, $subnet_getter: expr, $($error: pat_param) |+ $( if $guard: expr )?) => {
                 assert!(
                     matches!(
                         harness

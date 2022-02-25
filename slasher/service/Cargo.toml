@@ -2,7 +2,7 @@
 name = "slasher_service"
 version = "0.1.0"
 authors = ["Michael Sproul <michael@sigmaprime.io>"]
-edition = "2018"
+edition = "2021"
 
 [dependencies]
 beacon_chain = { path = "../../beacon_node/beacon_chain" }
