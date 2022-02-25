@@ -1,4 +1,4 @@
-use std::collections::hash_map::Entry;
+use std::collections::{hash_map::Entry, HashSet};
 
 use beacon_chain::{BeaconChainTypes, BlockError};
 use fnv::FnvHashMap;
@@ -38,6 +38,9 @@ struct BlockLookups<T: BeaconChainTypes> {
     ///
     /// The flag allows us to determine if the peer returned data or sent us nothing.
     single_block_lookups: FnvHashMap<Id, SingleBlockRequest>,
+
+    /// Block being requested from parent requests.
+    // active_block_lookups: HashSet<Hash256>,
 
     /// A multi-threaded, non-blocking processor for applying messages to the beacon chain.
     beacon_processor_send: mpsc::Sender<WorkEvent<T>>,
@@ -150,12 +153,15 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         id: Id,
         peer_id: PeerId,
         block: Box<SignedBeaconBlock<T::EthSpec>>,
+        cx: &mut SyncNetworkContext<T::EthSpec>,
     ) {
     }
 
     pub fn parent_lookup_failed(&mut self, id: Id, peer_id: PeerId) {}
 
-    pub fn single_block_lookup_failed(&mut self, id: Id, peer_id: PeerId) {}
+    pub fn single_block_lookup_failed(&mut self, id: Id) {
+        self.single_block_lookups.remove(&id);
+    }
 
     /* Processing responses */
 

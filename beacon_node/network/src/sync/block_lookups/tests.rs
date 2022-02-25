@@ -128,6 +128,16 @@ impl TestRig {
             other => panic!("Expected peer penalty, found {:?}", other),
         }
     }
+
+    pub fn block_with_parent(&mut self, parent_root: Hash256) -> SignedBeaconBlock<E> {
+        SignedBeaconBlock::from_block(
+            types::BeaconBlock::Base(types::BeaconBlockBase {
+                parent_root,
+                ..<_>::random_for_test(&mut self.rng)
+            }),
+            types::Signature::random_for_test(&mut self.rng),
+        )
+    }
 }
 
 #[test]
@@ -174,4 +184,52 @@ fn test_single_block_lookup_empty_response() {
     // The request should not be active
     assert_eq!(bl.single_block_lookups.len(), 0);
     rig.expect_empty_network();
+}
+
+#[test]
+fn test_single_block_lookup_failure() {
+    let (mut bl, mut cx, mut rig) = TestRig::test_setup(Some(Level::Debug));
+
+    let block_hash = Hash256::random();
+    let peer_id = PeerId::random();
+
+    // Trigger the request
+    bl.search_block(block_hash, peer_id, &mut cx);
+    let id = rig.expect_block_request();
+
+    // The request fails. RPC failures are handled elsewhere so we should not penalize the peer.
+    // The request should be removed.
+    bl.single_block_lookup_failed(id);
+    rig.expect_empty_network();
+    assert_eq!(bl.single_block_lookups.len(), 0);
+}
+
+#[test]
+fn test_parent_lookup() {
+    let (mut bl, mut cx, mut rig) = TestRig::test_setup(Some(Level::Debug));
+
+    let block = rig.rand_block();
+    let chain_hash = block.canonical_root();
+    let parent = rig.block_with_parent(chain_hash);
+    let peer_id = PeerId::random();
+
+    // Trigger the request
+    bl.search_parent(Box::new(block), peer_id, &mut cx);
+    let id = rig.expect_parent_request();
+
+    // Peer sends the right block, it should be sent for processing. Peer should not be penalized.
+    bl.parent_lookup_response(id, peer_id, Box::new(parent), &mut cx);
+    rig.expect_block_process();
+    rig.expect_empty_network();
+
+    // Processing succeeds, now the rest of the chain should be sent for processing.
+    bl.parent_block_processed(chain_hash, Err(BlockError::BlockIsAlreadyKnown), peer_id);
+    rig.expect_parent_chain_process();
+    assert_eq!(bl.parent_queue.len(), 1);
+
+    // Chain processing succeeds, the request should be removed and the peers should not be
+    // penalized.
+    bl.parent_chain_processed(chain_hash, Ok(chain_hash));
+    rig.expect_empty_network();
+    assert_eq!(bl.parent_queue.len(), 0);
 }
