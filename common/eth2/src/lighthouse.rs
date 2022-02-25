@@ -31,8 +31,7 @@ four_byte_option_impl!(four_byte_option_u64, u64);
 four_byte_option_impl!(four_byte_option_hash256, Hash256);
 
 /// Information returned by `peers` and `connected_peers`.
-// TODO: this should be deserializable..
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(bound = "T: EthSpec")]
 pub struct Peer<T: EthSpec> {
     /// The Peer's ID

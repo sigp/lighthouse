@@ -6,7 +6,7 @@
 //!
 //! The scoring algorithms are currently experimental.
 use crate::behaviour::gossipsub_scoring_parameters::GREYLIST_THRESHOLD as GOSSIPSUB_GREYLIST_THRESHOLD;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::time::Instant;
 use strum::AsRefStr;
 use tokio::time::Duration;
@@ -124,7 +124,7 @@ impl std::fmt::Display for ScoreState {
 ///
 /// This simplistic version consists of a global score per peer which decays to 0 over time. The
 /// decay rate applies equally to positive and negative scores.
-#[derive(PartialEq, Clone, Debug, Serialize)]
+#[derive(PartialEq, Clone, Debug, Serialize, Deserialize)]
 pub struct RealScore {
     /// The global score.
     // NOTE: In the future we may separate this into sub-scores involving the RPC, Gossipsub and
@@ -137,6 +137,7 @@ pub struct RealScore {
     score: f64,
     /// The time the score was last updated to perform time-based adjustments such as score-decay.
     #[serde(skip)]
+    #[serde(default = "Instant::now")]
     last_updated: Instant,
 }
 
@@ -267,7 +268,7 @@ impl RealScore {
     }
 }
 
-#[derive(PartialEq, Clone, Debug, Serialize)]
+#[derive(PartialEq, Clone, Debug, Serialize, Deserialize)]
 pub enum Score {
     Max,
     Real(RealScore),

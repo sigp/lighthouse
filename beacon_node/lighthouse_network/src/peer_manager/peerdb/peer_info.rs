@@ -5,11 +5,13 @@ use crate::discovery::Eth2Enr;
 use crate::Multiaddr;
 use crate::{rpc::MetaData, types::Subnet};
 use discv5::Enr;
+use serde::de::Visitor;
 use serde::{
     ser::{SerializeStruct, Serializer},
-    Serialize,
+    Deserialize, Serialize,
 };
 use std::collections::HashSet;
+use std::fmt;
 use std::net::{IpAddr, SocketAddr};
 use std::time::Instant;
 use strum::AsRefStr;
@@ -17,7 +19,7 @@ use types::EthSpec;
 use PeerConnectionStatus::*;
 
 /// Information about a given connected peer.
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(bound = "T: EthSpec")]
 pub struct PeerInfo<T: EthSpec> {
     /// The peers reputation
@@ -467,7 +469,7 @@ impl<T: EthSpec> PeerInfo<T> {
 }
 
 /// Connection Direction of connection.
-#[derive(Debug, Clone, Serialize, AsRefStr)]
+#[derive(Debug, Clone, Serialize, Deserialize, AsRefStr)]
 #[strum(serialize_all = "snake_case")]
 pub enum ConnectionDirection {
     /// The connection was established by a peer dialing us.
@@ -559,6 +561,16 @@ impl Serialize for PeerConnectionStatus {
                 s.end()
             }
         }
+    }
+}
+
+/// Deserialization for http requests.
+impl<'de> Deserialize<'de> for PeerConnectionStatus {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        todo!()
     }
 }
 

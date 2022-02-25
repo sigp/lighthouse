@@ -2,7 +2,7 @@
 
 use crate::types::{EnrAttestationBitfield, EnrSyncCommitteeBitfield};
 use regex::bytes::Regex;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
 use ssz_types::{
     typenum::{U1024, U256},
@@ -97,11 +97,11 @@ pub struct Ping {
 #[superstruct(
     variants(V1, V2),
     variant_attributes(
-        derive(Encode, Decode, Clone, Debug, PartialEq, Serialize),
+        derive(Encode, Decode, Clone, Debug, PartialEq, Serialize, Deserialize),
         serde(bound = "T: EthSpec", deny_unknown_fields),
     )
 )]
-#[derive(Clone, Debug, PartialEq, Serialize, Encode)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Encode)]
 #[serde(bound = "T: EthSpec")]
 #[ssz(enum_behaviour = "transparent")]
 pub struct MetaData<T: EthSpec> {
