@@ -10,6 +10,7 @@ use types::EthSpec;
 pub const CMD: &str = "account_manager";
 pub const SECRETS_DIR_FLAG: &str = "secrets-dir";
 pub const VALIDATOR_DIR_FLAG: &str = "validator-dir";
+pub const VALIDATOR_DIR_FLAG_ALIAS: &str = "validators-dir";
 pub const WALLETS_DIR_FLAG: &str = "wallets-dir";
 
 pub fn cli_app<'a, 'b>() -> App<'a, 'b> {

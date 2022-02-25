@@ -38,6 +38,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
         .arg(
             Arg::with_name("validators-dir")
                 .long("validators-dir")
+                .alias("validator-dir")
                 .value_name("VALIDATORS_DIR")
                 .help(
                     "The directory which contains the validator keystores, deposit data for \
