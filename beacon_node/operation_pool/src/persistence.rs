@@ -97,20 +97,19 @@ impl<T: EthSpec> PersistedOperationPool<T> {
     /// Reconstruct an `OperationPool`. Sets `sync_contributions` to its `Default` if `self` matches
     /// `PersistedOperationPool::Base`.
     pub fn into_operation_pool(self) -> Result<OperationPool<T>, OpPoolError> {
-        let attestations = RwLock::new(self.attestations().to_vec().into_iter().collect());
-        let attester_slashings =
-            RwLock::new(self.attester_slashings().to_vec().into_iter().collect());
+        let attestations = RwLock::new(self.attestations().iter().cloned().collect());
+        let attester_slashings = RwLock::new(self.attester_slashings().iter().cloned().collect());
         let proposer_slashings = RwLock::new(
             self.proposer_slashings()
-                .to_vec()
-                .into_iter()
+                .iter()
+                .cloned()
                 .map(|slashing| (slashing.signed_header_1.message.proposer_index, slashing))
                 .collect(),
         );
         let voluntary_exits = RwLock::new(
             self.voluntary_exits()
-                .to_vec()
-                .into_iter()
+                .iter()
+                .cloned()
                 .map(|exit| (exit.message.validator_index, exit))
                 .collect(),
         );
@@ -125,7 +124,7 @@ impl<T: EthSpec> PersistedOperationPool<T> {
             },
             PersistedOperationPool::Altair(_) => {
                 let sync_contributions =
-                    RwLock::new(self.sync_contributions()?.to_vec().into_iter().collect());
+                    RwLock::new(self.sync_contributions()?.iter().cloned().collect());
 
                 OperationPool {
                     attestations,

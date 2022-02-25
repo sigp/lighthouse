@@ -635,7 +635,7 @@ pub fn verify_sync_committee_message<T: BeaconChainTypes>(
     let pubkey = pubkey_cache
         .get_pubkey_from_pubkey_bytes(pubkey_bytes)
         .map(Cow::Borrowed)
-        .ok_or_else(|| Error::UnknownValidatorPubkey(*pubkey_bytes))?;
+        .ok_or(Error::UnknownValidatorPubkey(*pubkey_bytes))?;
 
     let next_slot_epoch = (sync_message.get_slot() + 1).epoch(T::EthSpec::slots_per_epoch());
     let fork = chain.spec.fork_at_epoch(next_slot_epoch);

@@ -198,14 +198,11 @@ impl MonitoredValidator {
     /// as the value recorded by the validator monitor ignores skip slots.
     fn min_inclusion_distance(&self, epoch: &Epoch) -> Option<u64> {
         let summaries = self.summaries.read();
-        summaries
-            .get(epoch)
-            .map(|summary| {
-                summary
-                    .attestation_min_block_inclusion_distance
-                    .map(Into::into)
-            })
-            .flatten()
+        summaries.get(epoch).and_then(|summary| {
+            summary
+                .attestation_min_block_inclusion_distance
+                .map(Into::into)
+        })
     }
 
     /// Maps `func` across the `self.summaries`.

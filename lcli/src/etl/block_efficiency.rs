@@ -74,9 +74,9 @@ async fn get_block_attestations_set<'a, T: EthSpec>(
             .graffiti()
             .as_utf8_lossy()
             // Remove commas and apostropes from graffiti to ensure correct CSV format.
-            .replace(",", "")
-            .replace("\"", "")
-            .replace("'", ""),
+            .replace(',', "")
+            .replace('"', "")
+            .replace('\'', ""),
     };
 
     let attestations = block.message().body().attestations();
