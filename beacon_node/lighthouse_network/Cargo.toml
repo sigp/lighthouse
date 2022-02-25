@@ -42,9 +42,7 @@ prometheus-client = "0.15.0"
 unused_port = { path = "../../common/unused_port" }
 
 [dependencies.libp2p]
-git = "https://github.com/sigp/rust-libp2p"
-# branch libp2p-gossipsub-interval-hotfix
-rev = "03c89bf77db020ee46045d149f5367a2914609a4"
+version = "0.43.0"
 default-features = false
 features = ["websocket", "identify", "mplex", "yamux", "noise", "gossipsub", "dns-tokio", "tcp-tokio", "plaintext", "secp256k1"]
 
