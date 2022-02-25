@@ -910,6 +910,45 @@ where
             .is_descendant(self.fc_store.finalized_checkpoint().root, block_root)
     }
 
+    pub fn safe_to_import_optimistically(
+        &self,
+        current_slot: Slot,
+        block_slot: Slot,
+        block_parent_root: &Hash256,
+        spec: &ChainSpec,
+    ) -> Result<bool, Error<T::Error>> {
+        // If the block is sufficiently old, import it.
+        if block_slot + spec.safe_slots_to_import_optimistically > current_slot {
+            return Ok(true);
+        }
+
+        // If the block has an ancestor with a verified parent, import this block.
+        //
+        // TODO(paul): this is not in the spec, add it.
+        //
+        // ## Note
+        //
+        // If `block_parent_root` is unknown this iter will always return `None`.
+        if self
+            .proto_array
+            .iter_nodes(block_parent_root)
+            .any(|node| node.execution_status.is_valid())
+        {
+            return Ok(true);
+        }
+
+        // If the justified block has execution enabled, then optimistically import any block.
+        if !self
+            .get_justified_block()?
+            .execution_status
+            .is_execution_enabled()
+        {
+            return Ok(true);
+        }
+
+        Ok(false)
+    }
+
     /// Return the current finalized checkpoint.
     pub fn finalized_checkpoint(&self) -> Checkpoint {
         *self.fc_store.finalized_checkpoint()
