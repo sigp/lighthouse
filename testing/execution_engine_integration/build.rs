@@ -3,7 +3,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-const GETH_BRANCH: &str = "merge-kiln";
+const GETH_BRANCH: &str = "merge-kiln-v2";
 const GETH_REPO_URL: &str = "https://github.com/MariusVanDerWijden/go-ethereum";
 
 fn main() {
