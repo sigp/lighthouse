@@ -231,6 +231,7 @@ pub struct SyncManager<T: BeaconChainTypes> {
 }
 
 /// Object representing a single block lookup request.
+#[derive(PartialEq, Eq)]
 struct SingleBlockRequest {
     /// The hash of the requested block.
     pub hash: Hash256,
@@ -345,14 +346,16 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         &mut self,
         peer_id: PeerId,
         request_id: Id,
-        block: Option<SignedBeaconBlock<T::EthSpec>>,
+        block: Option<Box<SignedBeaconBlock<T::EthSpec>>>,
         _seen_timestamp: Duration,
     ) {
-        let mut parent_request = if let Some(pos) = self
-            .parent_queue
-            .iter()
-            .position(|request| request.pending == Some(request_id))
-        {
+        let mut parent_request = if let Some(pos) = self.parent_queue.iter().position(|request| {
+            request
+                .pending
+                .as_ref()
+                .map(|id| *id == request_id)
+                .unwrap_or(false)
+        }) {
             // we remove from the queue and process it. It will get re-added if required
             self.parent_queue.remove(pos)
         } else {
@@ -375,13 +378,8 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                         "block" => ?block.message().parent_root(),
                         "slot" => block.slot()
                     );
-                    if !parent_request.downloaded_blocks.is_empty() {
-                        // Add the root block to failed chains
-                        self.failed_chains
-                            .insert(parent_request.downloaded_blocks[0].canonical_root());
-                    } else {
-                        crit!(self.log, "Parent chain has no blocks");
-                    }
+                    // Add the root block to failed chains
+                    self.failed_chains.insert(parent_request.chain_hash);
                     self.network.report_peer(
                         peer_id,
                         PeerAction::MidToleranceError,
@@ -389,10 +387,8 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                     );
                     return;
                 }
-                // add the block to response
-                parent_request.downloaded_blocks.push(block);
                 // queue for processing
-                self.process_parent_request(parent_request);
+                self.process_parent_request(parent_request, block);
             }
             None => {
                 // An empty response has been returned to a parent request
@@ -785,7 +781,11 @@ impl<T: BeaconChainTypes> SyncManager<T> {
     // manager
 
     /// A new block has been received for a parent lookup query, process it.
-    fn process_parent_request(&mut self, mut parent_request: ParentRequests<T::EthSpec>) {
+    fn process_parent_request(
+        &mut self,
+        mut parent_request: ParentRequests<T::EthSpec>,
+        newest_block: Box<SignedBeaconBlock<T::EthSpec>>,
+    ) {
         // verify the last added block is the parent of the last requested block
 
         if parent_request.downloaded_blocks.len() < 2 {
@@ -1093,7 +1093,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                 self.single_block_lookup_response(id, peer_id, beacon_block, seen_timestamp);
             }
             RequestId::ParentLookup { id } => {
-                self.parent_lookup_response(peer_id, id, beacon_block, seen_timestamp);
+                // self.parent_lookup_response(peer_id, id, beacon_block, seen_timestamp);
             }
             RequestId::BackFillSync { id } => {
                 if let Some(batch_id) = self
@@ -1133,5 +1133,35 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    use types::{
+        test_utils::{SeedableRng, TestRandom, XorShiftRng},
+        MainnetEthSpec as E,
+    };
+    use types::{BeaconBlock, BeaconBlockBase, BeaconBlockBodyBase};
+
+    fn random_sync_block() -> SignedBeaconBlock<E> {
+        let rng = &mut XorShiftRng::from_seed([42; 16]);
+        let random_block = BeaconBlock::Base(BeaconBlockBase {
+            ..<_>::random_for_test(rng)
+        });
+        let signed_block =
+            SignedBeaconBlock::from_block(random_block, types::Signature::random_for_test(rng));
+        signed_block
+    }
+
+    #[test]
+    fn test_random_sync_block() {
+        assert_eq!(
+            random_sync_block().canonical_root(),
+            Hash256::zero(),
+            "it worked"
+        );
     }
 }
