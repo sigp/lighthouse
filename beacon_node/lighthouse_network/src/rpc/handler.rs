@@ -16,7 +16,8 @@ use libp2p::core::upgrade::{
     InboundUpgrade, NegotiationError, OutboundUpgrade, ProtocolError, UpgradeError,
 };
 use libp2p::swarm::handler::{
-    KeepAlive, ConnectionHandler, ConnectionHandlerEvent, ConnectionHandlerUpgrErr, SubstreamProtocol,
+    ConnectionHandler, ConnectionHandlerEvent, ConnectionHandlerUpgrErr, KeepAlive,
+    SubstreamProtocol,
 };
 use libp2p::swarm::NegotiatedSubstream;
 use slog::{crit, debug, trace, warn};
@@ -447,7 +448,8 @@ where
         >,
     ) {
         let (id, req) = request_info;
-        if let ConnectionHandlerUpgrErr::Upgrade(UpgradeError::Apply(RPCError::IoError(_))) = error {
+        if let ConnectionHandlerUpgrErr::Upgrade(UpgradeError::Apply(RPCError::IoError(_))) = error
+        {
             self.outbound_io_error_retries += 1;
             if self.outbound_io_error_retries < IO_ERROR_RETRIES {
                 self.send_request(id, req);
