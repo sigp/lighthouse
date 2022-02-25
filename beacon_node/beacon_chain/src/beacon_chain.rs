@@ -3242,7 +3242,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // Atomically obtain the justified root from fork choice.
         let justified_block = {
             let fork_choice = self.fork_choice.read();
-            // De-alias 0x00..00 to the genesis block at genesis.
+            // De-alias 0x00..00 to the genesis block root.
             let justified_root = {
                 let justified_checkpoint = fork_choice.justified_checkpoint();
                 if justified_checkpoint.root == Hash256::zero() && justified_checkpoint.epoch == 0 {
@@ -3260,7 +3260,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             crit!(
                 self.log,
                 "The justified checkpoint is invalid";
-                "msg" => "ensure you are not connected to a malicious network. this error is not \
+                "msg" => "ensure you are not connected to a malicious network. This error is not \
                 recoverable, please reach out to the lighthouse developers for assistance."
             );
 
@@ -3270,7 +3270,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             )) {
                 crit!(
                     self.log,
-                    "Unable trigger client shut down";
+                    "Unable to trigger client shut down";
                     "msg" => "shut down may already be under way",
                     "error" => ?e
                 );

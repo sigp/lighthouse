@@ -73,7 +73,7 @@ pub fn notify_new_payload<T: BeaconChainTypes>(
                 Err(ExecutionPayloadError::RejectedByExecutionEngine { status }.into())
             }
             PayloadStatus::InvalidTerminalBlock { .. } | PayloadStatus::InvalidBlockHash { .. } => {
-                // Returning an error here should sufficient to invalidate the block. We have no
+                // Returning an error here should be sufficient to invalidate the block. We have no
                 // information to indicate it's parent is invalid, so no need to run
                 // `BeaconChain::process_invalid_execution_payload`.
                 Err(ExecutionPayloadError::RejectedByExecutionEngine { status }.into())

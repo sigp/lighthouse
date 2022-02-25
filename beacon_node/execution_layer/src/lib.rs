@@ -444,8 +444,8 @@ impl ExecutionLayer {
                             crit!(
                                 self.log(),
                                 "Exec engine unable to produce payload";
-                                "msg" => "no payload id, the engine is likely syncing. /
-                                this has potentially caused a missed block proposal.",
+                                "msg" => "No payload ID, the engine is likely syncing. \
+                                          This has the potential to cause a missed block proposal.",
                             );
 
                             ApiError::PayloadIdUnavailable

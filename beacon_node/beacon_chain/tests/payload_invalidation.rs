@@ -227,7 +227,7 @@ fn valid_invalid_syncing() {
     rig.import_block(Payload::Syncing);
 }
 
-/// Ensure that an invalid payload can invalidate its parent too (give then right
+/// Ensure that an invalid payload can invalidate its parent too (given the right
 /// `latest_valid_hash`.
 #[test]
 fn invalid_payload_invalidates_parent() {
@@ -297,7 +297,7 @@ fn justified_checkpoint_becomes_invalid() {
     );
 }
 
-/// Ensure that a `latest_valid_hash` for a pre-finality block only revert a single block.
+/// Ensure that a `latest_valid_hash` for a pre-finality block only reverts a single block.
 #[test]
 fn pre_finalized_latest_valid_hash() {
     let num_blocks = E::slots_per_epoch() * 4;
@@ -315,7 +315,7 @@ fn pre_finalized_latest_valid_hash() {
     // No service should have triggered a shutdown, yet.
     assert!(rig.harness.shutdown_reasons().is_empty());
 
-    // Import a block that will invalidate the justified checkpoint.
+    // Import a pre-finalized block.
     rig.import_block(Payload::Invalid {
         latest_valid_hash: Some(pre_finalized_block_hash),
     });

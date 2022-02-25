@@ -267,7 +267,7 @@ impl ProtoArray {
         Ok(())
     }
 
-    /// Updates the `verified_node_index` and all descendants to have validated execution payloads.
+    /// Updates the `verified_node_index` and all ancestors to have validated execution payloads.
     ///
     /// Returns an error if:
     ///
@@ -324,14 +324,14 @@ impl ProtoArray {
     ///
     /// - `Some(hash)` if the block with that payload *hash* is known to be valid and is an
     ///     ancestor of `head_block_root`.
-    /// - `None` if the latest valid ancestor of `head_block_root` is unkown.
+    /// - `None` if the latest valid ancestor of `head_block_root` is unknown.
     ///
     /// ## Details
     ///
     /// If `head_block_root` is not known to fork choice, an error is returned.
     ///
     /// If `latest_valid_hash` is `Some(hash)` where `hash` is either not known to fork choice
-    /// (perhaps it's junk orpre-finalization), then only the `head_block_root` block will be
+    /// (perhaps it's junk or pre-finalization), then only the `head_block_root` block will be
     /// invalidated (no ancestors). No error will be returned in this case.
     ///
     /// If `latest_valid_hash` is `Some(hash)` where `hash` is a known ancestor of
@@ -364,7 +364,7 @@ impl ProtoArray {
             });
 
         // Collect all *ancestors* which were declared invalid since they reside between the
-        // `invalid_root` and the `latest_valid_ancestor_root`.
+        // `head_block_root` and the `latest_valid_ancestor_root`.
         loop {
             let node = self
                 .nodes
@@ -376,7 +376,7 @@ impl ProtoArray {
                 | ExecutionStatus::Invalid(hash)
                 | ExecutionStatus::Unknown(hash) => {
                     // If we're no longer processing the `head_block_root` and the last valid
-                    // ancestor is known, exit now with an error.
+                    // ancestor is unknown, exit now with an error.
                     //
                     // In effect, this means that if an unknown hash (junk or pre-finalization) is
                     // supplied, we only invalidate a single block and no ancestors. The alternative
@@ -434,7 +434,7 @@ impl ProtoArray {
                 // The block is already invalid, but keep going backwards to ensure all ancestors
                 // are updated.
                 ExecutionStatus::Invalid(_) => (),
-                // This block is pre-merge, therefore it has no execution status. Nor does its
+                // This block is pre-merge, therefore it has no execution status. Nor do its
                 // ancestors.
                 ExecutionStatus::Irrelevant(_) => break,
             }
@@ -458,7 +458,7 @@ impl ProtoArray {
                 .ok_or(Error::NodeUnknown(latest_valid_ancestor_root))?;
             let first_potential_descendant = latest_valid_ancestor_index + 1;
 
-            // Collect all *descendants* which declared invalid since they're the descendant of a block
+            // Collect all *descendants* which have been declared invalid since they're the descendant of a block
             // with an invalid execution payload.
             for index in first_potential_descendant..self.nodes.len() {
                 let node = self
@@ -777,7 +777,7 @@ impl ProtoArray {
     }
 
     /// Returns `true` if the `descendant_root` has an ancestor with `ancestor_root`. Always
-    /// returns `false` if either input roots are unknown.
+    /// returns `false` if either input root is unknown.
     ///
     /// ## Notes
     ///
