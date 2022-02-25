@@ -3240,21 +3240,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         }
 
         // Atomically obtain the justified root from fork choice.
-        let justified_block = {
-            let fork_choice = self.fork_choice.read();
-            // De-alias 0x00..00 to the genesis block root.
-            let justified_root = {
-                let justified_checkpoint = fork_choice.justified_checkpoint();
-                if justified_checkpoint.root == Hash256::zero() && justified_checkpoint.epoch == 0 {
-                    self.genesis_block_root
-                } else {
-                    justified_checkpoint.root
-                }
-            };
-            fork_choice
-                .get_block(&justified_root)
-                .ok_or(Error::JustifiedMissingFromForkChoice { justified_root })?
-        };
+        let justified_block = self.fork_choice.read().get_justified_block()?;
 
         if justified_block.execution_status.is_invalid() {
             crit!(
@@ -3307,12 +3293,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             // Determine the root of the block that is the head of the chain.
             let beacon_block_root = fork_choice.get_head(self.slot()?, &self.spec)?;
 
-            let finalized_checkpoint = fork_choice.finalized_checkpoint();
-            let finalized_block = fork_choice.get_block(&finalized_checkpoint.root).ok_or(
-                BeaconChainError::FinalizedBlockMissingFromForkChoice(finalized_checkpoint.root),
-            )?;
-
-            (beacon_block_root, finalized_block)
+            (beacon_block_root, fork_choice.get_finalized_block()?)
         };
 
         let current_head = self.head_info()?;

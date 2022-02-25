@@ -44,6 +44,12 @@ pub enum Error<T> {
         block_root: Hash256,
         payload_verification_status: PayloadVerificationStatus,
     },
+    MissingJustifiedBlock {
+        justified_checkpoint: Checkpoint,
+    },
+    MissingFinalizedBlock {
+        finalized_checkpoint: Checkpoint,
+    },
 }
 
 impl<T> From<InvalidAttestation> for Error<T> {
@@ -891,6 +897,29 @@ where
         } else {
             None
         }
+    }
+
+    /// Returns the `ProtoBlock` for the justified checkpoint.
+    ///
+    /// ## Notes
+    ///
+    /// This does *not* return the "best justified checkpoint". It returns the justified checkpoint
+    /// that is used for computing balances.
+    pub fn get_justified_block(&self) -> Result<ProtoBlock, Error<T::Error>> {
+        let justified_checkpoint = self.justified_checkpoint();
+        self.get_block(&justified_checkpoint.root)
+            .ok_or(Error::MissingJustifiedBlock {
+                justified_checkpoint,
+            })
+    }
+
+    /// Returns the `ProtoBlock` for the finalized checkpoint.
+    pub fn get_finalized_block(&self) -> Result<ProtoBlock, Error<T::Error>> {
+        let finalized_checkpoint = self.finalized_checkpoint();
+        self.get_block(&finalized_checkpoint.root)
+            .ok_or(Error::MissingFinalizedBlock {
+                finalized_checkpoint,
+            })
     }
 
     /// Return `true` if `block_root` is equal to the finalized root, or a known descendant of it.
