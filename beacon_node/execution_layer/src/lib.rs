@@ -441,7 +441,7 @@ impl ExecutionLayer {
                         .await
                         .map(|response| response.payload_id)?
                         .ok_or_else(|| {
-                            crit!(
+                            error!(
                                 self.log(),
                                 "Exec engine unable to produce payload";
                                 "msg" => "No payload ID, the engine is likely syncing. \
