@@ -129,7 +129,9 @@ impl ProtoArray {
                 continue;
             }
 
-            let mut node_delta = if node.execution_status.is_invalid() {
+            let execution_status_is_invalid = node.execution_status.is_invalid();
+
+            let mut node_delta = if execution_status_is_invalid {
                 // If the node has an invalid execution payload, reduce its weight to zero.
                 0_i64
                     .checked_sub(node.weight as i64)
@@ -145,17 +147,24 @@ impl ProtoArray {
             // the delta by the previous score amount.
             if self.previous_proposer_boost.root != Hash256::zero()
                 && self.previous_proposer_boost.root == node.root
+                // Invalid nodes will always have a weight of zero so there's no need to subtract
+                // the proposer boost delta.
+                && !execution_status_is_invalid
             {
                 node_delta = node_delta
                     .checked_sub(self.previous_proposer_boost.score as i64)
                     .ok_or(Error::DeltaOverflow(node_index))?;
             }
             // If we find the node matching the current proposer boost root, increase
-            // the delta by the new score amount.
+            // the delta by the new score amount (unless the block has an invalid execution status).
             //
             // https://github.com/ethereum/consensus-specs/blob/dev/specs/phase0/fork-choice.md#get_latest_attesting_balance
             if let Some(proposer_score_boost) = spec.proposer_score_boost {
-                if proposer_boost_root != Hash256::zero() && proposer_boost_root == node.root {
+                if proposer_boost_root != Hash256::zero()
+                    && proposer_boost_root == node.root
+                    // Invalid nodes (or their ancestors) should not receive a proposer boost.
+                    && !execution_status_is_invalid
+                {
                     proposer_score =
                         calculate_proposer_boost::<E>(new_balances, proposer_score_boost)
                             .ok_or(Error::ProposerBoostOverflow(node_index))?;
@@ -166,7 +175,10 @@ impl ProtoArray {
             }
 
             // Apply the delta to the node.
-            if node_delta < 0 {
+            if execution_status_is_invalid {
+                // Invalid nodes always have a weight of 0.
+                node.weight = 0
+            } else if node_delta < 0 {
                 // Note: I am conflicted about whether to use `saturating_sub` or `checked_sub`
                 // here.
                 //
