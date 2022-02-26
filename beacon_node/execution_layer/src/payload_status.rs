@@ -172,6 +172,15 @@ pub fn process_multiple_payload_statuses(
         return Err(Error::ConsensusFailure);
     }
 
+    // Log any errors to assist with troubleshooting.
+    for error in &errors {
+        warn!(
+            log,
+            "Error whilst processing payload status";
+            "error" => ?error,
+        );
+    }
+
     valid_statuses
         .first()
         .or_else(|| invalid_statuses.first())
