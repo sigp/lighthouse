@@ -148,10 +148,12 @@ pub enum BeaconChainError {
     FinalizedBlockMissingFromForkChoice(Hash256),
     InvalidFinalizedPayload {
         finalized_root: Hash256,
+        execution_block_hash: ExecutionBlockHash,
     },
     InvalidFinalizedPayloadShutdownError(TrySendError<ShutdownReason>),
     JustifiedPayloadInvalid {
         justified_root: Hash256,
+        execution_block_hash: Option<ExecutionBlockHash>,
     },
     ForkchoiceUpdate(execution_layer::Error),
     FinalizedCheckpointMismatch {

@@ -3265,6 +3265,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             // Return an error here to try and prevent progression by upstream functions.
             return Err(Error::JustifiedPayloadInvalid {
                 justified_root: justified_block.root,
+                execution_block_hash: justified_block.execution_status.block_hash(),
             });
         }
 
@@ -3323,6 +3324,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             // Exit now, the node is in an invalid state.
             return Err(Error::InvalidFinalizedPayload {
                 finalized_root: finalized_block.root,
+                execution_block_hash: block_hash,
             });
         }
 
