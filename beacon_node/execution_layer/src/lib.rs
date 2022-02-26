@@ -17,10 +17,10 @@ use std::sync::Arc;
 use std::time::Duration;
 use task_executor::TaskExecutor;
 use tokio::{
-    sync::{Mutex, MutexGuard},
+    sync::{Mutex, MutexGuard, RwLock},
     time::{sleep, sleep_until, Instant},
 };
-use types::{ChainSpec, Epoch, ExecutionBlockHash, ProposerPreparationData};
+use types::{ChainSpec, Epoch, ExecutionBlockHash, ProposerPreparationData, Slot};
 
 pub use engine_api::{http::HttpJsonRpc, PayloadAttributes, PayloadStatusV1Status};
 pub use payload_status::PayloadStatus;
@@ -68,11 +68,24 @@ pub struct ProposerPreparationDataEntry {
     preparation_data: ProposerPreparationData,
 }
 
+#[derive(Hash, PartialEq, Eq)]
+pub struct ProposerKey {
+    slot: Slot,
+    head_block_root: Hash256,
+}
+
+#[derive(PartialEq, Clone)]
+pub struct Proposer {
+    validator_index: u64,
+    payload_attributes: PayloadAttributes,
+}
+
 struct Inner {
     engines: Engines<HttpJsonRpc>,
     suggested_fee_recipient: Option<Address>,
     proposer_preparation_data: Mutex<HashMap<u64, ProposerPreparationDataEntry>>,
     execution_blocks: Mutex<LruCache<ExecutionBlockHash, ExecutionBlock>>,
+    proposers: RwLock<HashMap<ProposerKey, Proposer>>,
     executor: TaskExecutor,
     log: Logger,
 }
@@ -120,6 +133,7 @@ impl ExecutionLayer {
             },
             suggested_fee_recipient,
             proposer_preparation_data: Mutex::new(HashMap::new()),
+            proposers: RwLock::new(HashMap::new()),
             execution_blocks: Mutex::new(LruCache::new(EXECUTION_BLOCKS_LRU_CACHE_SIZE)),
             executor,
             log,
@@ -152,6 +166,10 @@ impl ExecutionLayer {
         &self,
     ) -> MutexGuard<'_, HashMap<u64, ProposerPreparationDataEntry>> {
         self.inner.proposer_preparation_data.lock().await
+    }
+
+    fn proposers(&self) -> &RwLock<HashMap<ProposerKey, Proposer>> {
+        &self.inner.proposers
     }
 
     fn log(&self) -> &Logger {
@@ -495,6 +513,55 @@ impl ExecutionLayer {
         )
     }
 
+    pub async fn insert_proposer(
+        &self,
+        slot: Slot,
+        head_block_root: Hash256,
+        validator_index: u64,
+        payload_attributes: PayloadAttributes,
+    ) -> bool {
+        let proposers_key = ProposerKey {
+            slot,
+            head_block_root,
+        };
+
+        self.proposers()
+            .write()
+            .await
+            .insert(
+                proposers_key,
+                Proposer {
+                    validator_index,
+                    payload_attributes,
+                },
+            )
+            .is_some()
+    }
+
+    pub async fn payload_attributes(
+        &self,
+        current_slot: Slot,
+        head_block_root: Hash256,
+    ) -> Option<PayloadAttributes> {
+        let proposers_key = ProposerKey {
+            slot: current_slot,
+            head_block_root,
+        };
+
+        let proposer = self.proposers().read().await.get(&proposers_key).cloned()?;
+
+        debug!(
+            self.log(),
+            "Beacon proposer found";
+            "payload_attributes" => ?proposer.payload_attributes,
+            "head_block_root" => ?head_block_root,
+            "slot" => current_slot,
+            "validator_index" => proposer.validator_index,
+        );
+
+        Some(proposer.payload_attributes)
+    }
+
     /// Maps to the `engine_consensusValidated` JSON-RPC call.
     ///
     /// ## Fallback Behaviour
@@ -513,6 +580,8 @@ impl ExecutionLayer {
         head_block_hash: ExecutionBlockHash,
         finalized_block_hash: ExecutionBlockHash,
         payload_attributes: Option<PayloadAttributes>,
+        current_slot: Slot,
+        head_block_root: Hash256,
     ) -> Result<PayloadStatus, Error> {
         debug!(
             self.log(),
@@ -520,6 +589,8 @@ impl ExecutionLayer {
             "finalized_block_hash" => ?finalized_block_hash,
             "head_block_hash" => ?head_block_hash,
         );
+
+        let payload_attributes = self.payload_attributes(current_slot, head_block_root).await;
 
         // see https://hackmd.io/@n0ble/kintsugi-spec#Engine-API
         // for now, we must set safe_block_hash = head_block_hash

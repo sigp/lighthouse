@@ -666,6 +666,10 @@ where
                     .head_info()
                     .map_err(|e| format!("Unable to read beacon chain head: {:?}", e))?;
 
+                let current_slot = beacon_chain
+                    .slot()
+                    .map_err(|e| format!("Unable to read slot: {:?}", e))?;
+
                 // Issue the head to the execution engine on startup. This ensures it can start
                 // syncing.
                 if let Some(block_hash) = head.execution_payload_block_hash {
@@ -699,6 +703,8 @@ where
                                     finalized_execution_block_hash,
                                     head.block_root,
                                     block_hash,
+                                    current_slot,
+                                    head.block_root,
                                 )
                                 .await;
 
