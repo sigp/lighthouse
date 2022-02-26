@@ -356,6 +356,14 @@ impl ProtoArray {
         latest_valid_ancestor_hash: Option<ExecutionBlockHash>,
     ) -> Result<(), Error> {
         let mut invalidated_indices: HashSet<usize> = <_>::default();
+
+        /*
+         * Step 1:
+         *
+         * Find the `head_block_root` and maybe iterate backwards and invalidate ancestors. Record
+         * all invalidated block indices in `invalidated_indices`.
+         */
+
         let mut index = *self
             .indices
             .get(&head_block_root)
@@ -388,17 +396,15 @@ impl ProtoArray {
                 | ExecutionStatus::Invalid(hash)
                 | ExecutionStatus::Unknown(hash) => {
                     // If we're no longer processing the `head_block_root` and the last valid
-                    // ancestor is unknown, exit now with an error.
+                    // ancestor is unknown, exit this loop and proceed to invalidate and
+                    // descendants of `head_block_root`.
                     //
                     // In effect, this means that if an unknown hash (junk or pre-finalization) is
-                    // supplied, we only invalidate a single block and no ancestors. The alternative
-                    // is to invalidate *all* ancestors, which would likely involve shutting down
-                    // the client due to an invalid justified checkpoint.
+                    // supplied, don't validate any ancestors. The alternative is to invalidate
+                    // *all* ancestors, which would likely involve shutting down the client due to
+                    // an invalid justified checkpoint.
                     if !latest_valid_ancestor_is_descendant && node.root != head_block_root {
-                        return Err(Error::UnknownLatestValidAncestorHash {
-                            block_root: node.root,
-                            latest_valid_ancestor_hash,
-                        });
+                        break;
                     } else if Some(hash) == latest_valid_ancestor_hash {
                         // If the `best_child` or `best_descendant` of the latest valid hash was
                         // invalidated, set those fields to `None`.
@@ -469,42 +475,50 @@ impl ProtoArray {
             }
         }
 
-        if let Some(latest_valid_ancestor_root) = latest_valid_ancestor_root {
-            let latest_valid_ancestor_index = *self
-                .indices
-                .get(&latest_valid_ancestor_root)
-                .ok_or(Error::NodeUnknown(latest_valid_ancestor_root))?;
-            let first_potential_descendant = latest_valid_ancestor_index + 1;
+        /*
+         * Step 2:
+         *
+         * Start at either the `latest_valid_ancestor` or the `head_block_root` and iterate
+         * *forwards* to invalidate all descendants of all blocks in `invalidated_indices`.
+         */
 
-            // Collect all *descendants* which have been declared invalid since they're the descendant of a block
-            // with an invalid execution payload.
-            for index in first_potential_descendant..self.nodes.len() {
-                let node = self
-                    .nodes
-                    .get_mut(index)
-                    .ok_or(Error::InvalidNodeIndex(index))?;
+        let starting_block_root = latest_valid_ancestor_root
+            .filter(|_| latest_valid_ancestor_is_descendant)
+            .unwrap_or(head_block_root);
+        let latest_valid_ancestor_index = *self
+            .indices
+            .get(&starting_block_root)
+            .ok_or(Error::NodeUnknown(starting_block_root))?;
+        let first_potential_descendant = latest_valid_ancestor_index + 1;
 
-                if let Some(parent_index) = node.parent {
-                    if invalidated_indices.contains(&parent_index) {
-                        match &node.execution_status {
-                            ExecutionStatus::Valid(hash) => {
-                                return Err(Error::ValidExecutionStatusBecameInvalid {
-                                    block_root: node.root,
-                                    payload_block_hash: *hash,
-                                })
-                            }
-                            ExecutionStatus::Unknown(hash) | ExecutionStatus::Invalid(hash) => {
-                                node.execution_status = ExecutionStatus::Invalid(*hash)
-                            }
-                            ExecutionStatus::Irrelevant(_) => {
-                                return Err(Error::IrrelevantDescendant {
-                                    block_root: node.root,
-                                })
-                            }
+        // Collect all *descendants* which have been declared invalid since they're the descendant of a block
+        // with an invalid execution payload.
+        for index in first_potential_descendant..self.nodes.len() {
+            let node = self
+                .nodes
+                .get_mut(index)
+                .ok_or(Error::InvalidNodeIndex(index))?;
+
+            if let Some(parent_index) = node.parent {
+                if invalidated_indices.contains(&parent_index) {
+                    match &node.execution_status {
+                        ExecutionStatus::Valid(hash) => {
+                            return Err(Error::ValidExecutionStatusBecameInvalid {
+                                block_root: node.root,
+                                payload_block_hash: *hash,
+                            })
                         }
-
-                        invalidated_indices.insert(index);
+                        ExecutionStatus::Unknown(hash) | ExecutionStatus::Invalid(hash) => {
+                            node.execution_status = ExecutionStatus::Invalid(*hash)
+                        }
+                        ExecutionStatus::Irrelevant(_) => {
+                            return Err(Error::IrrelevantDescendant {
+                                block_root: node.root,
+                            })
+                        }
                     }
+
+                    invalidated_indices.insert(index);
                 }
             }
         }
