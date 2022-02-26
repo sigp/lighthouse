@@ -395,12 +395,18 @@ impl ProtoArray {
                         // `best_descendant`. However, we check each variable independently to
                         // defend against errors which might result in an invalid block being set as
                         // head.
-                        node.best_child = node
+                        if node
                             .best_child
-                            .filter(|best_child| invalidated_indices.contains(best_child));
-                        node.best_descendant = node.best_descendant.filter(|best_descendant| {
-                            invalidated_indices.contains(best_descendant)
-                        });
+                            .map_or(false, |i| invalidated_indices.contains(&i))
+                        {
+                            node.best_child = None
+                        }
+                        if node
+                            .best_descendant
+                            .map_or(false, |i| invalidated_indices.contains(&i))
+                        {
+                            node.best_descendant = None
+                        }
 
                         // It might be new knowledge that this block is valid, ensure that it and all
                         // ancestors are marked as valid.
