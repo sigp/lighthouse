@@ -14,7 +14,7 @@ use std::marker::PhantomData;
 use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
 use std::sync::Arc;
 use tokio::{runtime, sync::oneshot};
-use types::{EthSpec, ExecutionBlockHash, Hash256, Uint256};
+use types::{EthSpec, ExecutionBlockHash, Uint256};
 use warp::Filter;
 
 pub use execution_block_generator::{generate_pow_block, ExecutionBlockGenerator};
@@ -26,14 +26,6 @@ pub const DEFAULT_TERMINAL_BLOCK: u64 = 64;
 mod execution_block_generator;
 mod handle_rpc;
 mod mock_execution_layer;
-
-/// Used for returning a static response for new payload calls.
-pub enum FixedPayloadResponse {
-    None,
-    Valid,
-    Invalid { latest_valid_hash: Hash256 },
-    Syncing,
-}
 
 pub struct MockServer<T: EthSpec> {
     _shutdown_tx: oneshot::Sender<()>,
