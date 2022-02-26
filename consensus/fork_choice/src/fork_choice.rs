@@ -910,7 +910,14 @@ where
             .is_descendant(self.fc_store.finalized_checkpoint().root, block_root)
     }
 
-    pub fn safe_to_import_optimistically(
+    /// Returns `Ok(false)` if a block is not viable to be imported optimistically.
+    ///
+    /// ## Notes
+    ///
+    /// Equivalent to the function with the same name in the optimistic sync specs:
+    ///
+    /// https://github.com/ethereum/consensus-specs/blob/dev/sync/optimistic.md#helpers
+    pub fn is_optimistic_candidate_block(
         &self,
         current_slot: Slot,
         block_slot: Slot,
@@ -918,13 +925,24 @@ where
         spec: &ChainSpec,
     ) -> Result<bool, Error<T::Error>> {
         // If the block is sufficiently old, import it.
-        if block_slot + spec.safe_slots_to_import_optimistically > current_slot {
+        if block_slot + spec.safe_slots_to_import_optimistically <= current_slot {
+            return Ok(true);
+        }
+
+        // If the justified block has execution enabled, then optimistically import any block.
+        if self
+            .get_justified_block()?
+            .execution_status
+            .is_execution_enabled()
+        {
             return Ok(true);
         }
 
         // If the block has an ancestor with a verified parent, import this block.
         //
-        // TODO(paul): this is not in the spec, add it.
+        // TODO: This condition is not yet merged into the spec. See:
+        //
+        // https://github.com/ethereum/consensus-specs/pull/2841
         //
         // ## Note
         //
@@ -933,15 +951,6 @@ where
             .proto_array
             .iter_nodes(block_parent_root)
             .any(|node| node.execution_status.is_valid())
-        {
-            return Ok(true);
-        }
-
-        // If the justified block has execution enabled, then optimistically import any block.
-        if !self
-            .get_justified_block()?
-            .execution_status
-            .is_execution_enabled()
         {
             return Ok(true);
         }
