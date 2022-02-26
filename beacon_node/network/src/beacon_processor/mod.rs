@@ -47,13 +47,14 @@ use lighthouse_network::{
     rpc::{BlocksByRangeRequest, BlocksByRootRequest, StatusMessage},
     Client, MessageId, NetworkGlobals, PeerId, PeerRequestId,
 };
+use logging::TimeLatch;
 use slog::{crit, debug, error, trace, warn, Logger};
 use std::collections::VecDeque;
 use std::fmt;
 use std::pin::Pin;
 use std::sync::{Arc, Weak};
 use std::task::Context;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 use std::{cmp, collections::HashSet};
 use task_executor::TaskExecutor;
 use tokio::sync::{mpsc, oneshot};
@@ -158,9 +159,6 @@ const MANAGER_TASK_NAME: &str = "beacon_processor_manager";
 
 /// The name of the worker tokio tasks.
 const WORKER_TASK_NAME: &str = "beacon_processor_worker";
-
-/// The minimum interval between log messages indicating that a queue is full.
-const LOG_DEBOUNCE_INTERVAL: Duration = Duration::from_secs(30);
 
 /// The `MAX_..._BATCH_SIZE` variables define how many attestations can be included in a single
 /// batch.
@@ -739,25 +737,6 @@ impl<T: BeaconChainTypes> Work<T> {
             Work::UnknownBlockAttestation { .. } => UNKNOWN_BLOCK_ATTESTATION,
             Work::UnknownBlockAggregate { .. } => UNKNOWN_BLOCK_AGGREGATE,
         }
-    }
-}
-
-/// Provides de-bounce functionality for logging.
-#[derive(Default)]
-struct TimeLatch(Option<Instant>);
-
-impl TimeLatch {
-    /// Only returns true once every `LOG_DEBOUNCE_INTERVAL`.
-    fn elapsed(&mut self) -> bool {
-        let now = Instant::now();
-
-        let is_elapsed = self.0.map_or(false, |elapse_time| now > elapse_time);
-
-        if is_elapsed || self.0.is_none() {
-            self.0 = Some(now + LOG_DEBOUNCE_INTERVAL);
-        }
-
-        is_elapsed
     }
 }
 
