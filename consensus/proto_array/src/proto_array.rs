@@ -496,7 +496,11 @@ impl ProtoArray {
                             ExecutionStatus::Unknown(hash) | ExecutionStatus::Invalid(hash) => {
                                 node.execution_status = ExecutionStatus::Invalid(*hash)
                             }
-                            ExecutionStatus::Irrelevant(_) => (),
+                            ExecutionStatus::Irrelevant(_) => {
+                                return Err(Error::IrrelevantDescendant {
+                                    block_root: node.root,
+                                })
+                            }
                         }
 
                         invalidated_indices.insert(index);

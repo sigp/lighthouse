@@ -41,6 +41,9 @@ pub enum Error {
         block_root: Hash256,
         latest_valid_ancestor_hash: Option<ExecutionBlockHash>,
     },
+    IrrelevantDescendant {
+        block_root: Hash256,
+    },
 }
 
 #[derive(Clone, PartialEq, Debug)]
