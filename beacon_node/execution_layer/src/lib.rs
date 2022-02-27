@@ -371,6 +371,10 @@ impl ExecutionLayer {
         Ok(())
     }
 
+    pub async fn has_proposers(&self) -> bool {
+        !self.proposer_preparation_data().await.is_empty()
+    }
+
     pub async fn has_proposer_preparation_data(&self, proposer_index: u64) -> bool {
         self.proposer_preparation_data()
             .await

@@ -116,6 +116,8 @@ const EARLY_ATTESTER_CACHE_HISTORIC_SLOTS: u64 = 4;
 pub const INVALID_JUSTIFIED_PAYLOAD_SHUTDOWN_REASON: &str =
     "Justified block has an invalid execution payload.";
 
+const PAYLOAD_PREPARATION_LOOKAHEAD_FACTOR: u32 = 3;
+
 /// Defines the behaviour when a block/block-root for a skipped slot is requested.
 pub enum WhenSlotSkipped {
     /// If the slot is a skip slot, return `None`.
@@ -3710,6 +3712,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .clone()
             .ok_or(Error::ExecutionLayerMissing)?;
 
+        if !execution_layer.has_proposers().await {
+            // Nothing to do if there are no proposers registered with the EL.
+            return Ok(());
+        }
+
         let head = self.head_info()?;
         let head_epoch = head.slot.epoch(T::EthSpec::slots_per_epoch());
         let prepare_slot = self.slot()? + 1;
@@ -3769,8 +3776,25 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         self.log,
                         "Prepared beacon proposer";
                         "already_known" => already_known,
+                        "prepare_slot" => prepare_slot,
                         "validator" => proposer.index,
                     );
+
+                    if let Some(duration) = self.slot_clock.duration_to_slot(prepare_slot) {
+                        if duration
+                            <= self.slot_clock.slot_duration()
+                                / PAYLOAD_PREPARATION_LOOKAHEAD_FACTOR
+                        {
+                            // TODO(paul): update fork choice.
+                        }
+                    } else {
+                        warn!(
+                            self.log,
+                            "Delayed proposer preparation";
+                            "prepare_slot" => prepare_slot,
+                            "validator" => proposer.index,
+                        );
+                    }
                 }
             } else {
                 debug!(
