@@ -312,6 +312,15 @@ impl ProtoArrayForkChoice {
         }
     }
 
+    /// Returns the weight of a given block.
+    pub fn get_weight(&self, block_root: &Hash256) -> Option<u64> {
+        let block_index = self.proto_array.indices.get(block_root)?;
+        self.proto_array
+            .nodes
+            .get(*block_index)
+            .map(|node| node.weight)
+    }
+
     /// See `ProtoArray` documentation.
     pub fn is_descendant(&self, ancestor_root: Hash256, descendant_root: Hash256) -> bool {
         self.proto_array

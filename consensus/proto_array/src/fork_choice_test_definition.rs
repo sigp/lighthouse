@@ -1,11 +1,16 @@
+mod execution_status;
 mod ffg_updates;
 mod no_votes;
 mod votes;
 
 use crate::proto_array_fork_choice::{Block, ExecutionStatus, ProtoArrayForkChoice};
 use serde_derive::{Deserialize, Serialize};
-use types::{AttestationShufflingId, Checkpoint, Epoch, EthSpec, Hash256, MainnetEthSpec, Slot};
+use types::{
+    AttestationShufflingId, Checkpoint, Epoch, EthSpec, ExecutionBlockHash, Hash256,
+    MainnetEthSpec, Slot,
+};
 
+pub use execution_status::*;
 pub use ffg_updates::*;
 pub use no_votes::*;
 pub use votes::*;
@@ -17,6 +22,13 @@ pub enum Operation {
         finalized_checkpoint: Checkpoint,
         justified_state_balances: Vec<u64>,
         expected_head: Hash256,
+    },
+    ProposerBoostFindHead {
+        justified_checkpoint: Checkpoint,
+        finalized_checkpoint: Checkpoint,
+        justified_state_balances: Vec<u64>,
+        expected_head: Hash256,
+        proposer_boost_root: Hash256,
     },
     InvalidFindHead {
         justified_checkpoint: Checkpoint,
@@ -40,6 +52,14 @@ pub enum Operation {
         prune_threshold: usize,
         expected_len: usize,
     },
+    InvalidatePayload {
+        head_block_root: Hash256,
+        latest_valid_ancestor_root: Option<ExecutionBlockHash>,
+    },
+    AssertWeight {
+        block_root: Hash256,
+        weight: u64,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -52,9 +72,11 @@ pub struct ForkChoiceTestDefinition {
 
 impl ForkChoiceTestDefinition {
     pub fn run(self) {
+        let mut spec = MainnetEthSpec::default_spec();
+        spec.proposer_score_boost = Some(50);
+
         let junk_shuffling_id =
             AttestationShufflingId::from_components(Epoch::new(0), Hash256::zero());
-        let execution_status = ExecutionStatus::irrelevant();
         let mut fork_choice = ProtoArrayForkChoice::new(
             self.finalized_block_slot,
             Hash256::zero(),
@@ -62,7 +84,7 @@ impl ForkChoiceTestDefinition {
             self.finalized_checkpoint,
             junk_shuffling_id.clone(),
             junk_shuffling_id,
-            execution_status,
+            ExecutionStatus::Unknown(ExecutionBlockHash::zero()),
         )
         .expect("should create fork choice struct");
 
@@ -80,7 +102,7 @@ impl ForkChoiceTestDefinition {
                             finalized_checkpoint,
                             &justified_state_balances,
                             Hash256::zero(),
-                            &MainnetEthSpec::default_spec(),
+                            &spec,
                         )
                         .map_err(|e| e)
                         .unwrap_or_else(|e| {
@@ -89,7 +111,34 @@ impl ForkChoiceTestDefinition {
 
                     assert_eq!(
                         head, expected_head,
-                        "Operation at index {} failed checks. Operation: {:?}",
+                        "Operation at index {} failed head check. Operation: {:?}",
+                        op_index, op
+                    );
+                    check_bytes_round_trip(&fork_choice);
+                }
+                Operation::ProposerBoostFindHead {
+                    justified_checkpoint,
+                    finalized_checkpoint,
+                    justified_state_balances,
+                    expected_head,
+                    proposer_boost_root,
+                } => {
+                    let head = fork_choice
+                        .find_head::<MainnetEthSpec>(
+                            justified_checkpoint,
+                            finalized_checkpoint,
+                            &justified_state_balances,
+                            proposer_boost_root,
+                            &spec,
+                        )
+                        .map_err(|e| e)
+                        .unwrap_or_else(|e| {
+                            panic!("find_head op at index {} returned error {}", op_index, e)
+                        });
+
+                    assert_eq!(
+                        head, expected_head,
+                        "Operation at index {} failed head check. Operation: {:?}",
                         op_index, op
                     );
                     check_bytes_round_trip(&fork_choice);
@@ -104,7 +153,7 @@ impl ForkChoiceTestDefinition {
                         finalized_checkpoint,
                         &justified_state_balances,
                         Hash256::zero(),
-                        &MainnetEthSpec::default_spec(),
+                        &spec,
                     );
 
                     assert!(
@@ -138,7 +187,10 @@ impl ForkChoiceTestDefinition {
                         ),
                         justified_checkpoint,
                         finalized_checkpoint,
-                        execution_status,
+                        // All blocks are imported optimistically.
+                        execution_status: ExecutionStatus::Unknown(ExecutionBlockHash::from_root(
+                            root,
+                        )),
                     };
                     fork_choice.process_block(block).unwrap_or_else(|e| {
                         panic!(
@@ -183,14 +235,33 @@ impl ForkChoiceTestDefinition {
                         expected_len
                     );
                 }
+                Operation::InvalidatePayload {
+                    head_block_root,
+                    latest_valid_ancestor_root,
+                } => fork_choice
+                    .process_execution_payload_invalidation(
+                        head_block_root,
+                        latest_valid_ancestor_root,
+                    )
+                    .unwrap(),
+                Operation::AssertWeight { block_root, weight } => assert_eq!(
+                    fork_choice.get_weight(&block_root).unwrap(),
+                    weight,
+                    "block weight"
+                ),
             }
         }
     }
 }
 
-/// Gives a hash that is not the zero hash (unless i is `usize::max_value)`.
-fn get_hash(i: u64) -> Hash256 {
+/// Gives a root that is not the zero hash (unless i is `usize::max_value)`.
+fn get_root(i: u64) -> Hash256 {
     Hash256::from_low_u64_be(i + 1)
+}
+
+/// Gives a hash that is not the zero hash (unless i is `usize::max_value)`.
+fn get_hash(i: u64) -> ExecutionBlockHash {
+    ExecutionBlockHash::from_root(get_root(i))
 }
 
 /// Gives a checkpoint with a root that is not the zero hash (unless i is `usize::max_value)`.
@@ -198,7 +269,7 @@ fn get_hash(i: u64) -> Hash256 {
 fn get_checkpoint(i: u64) -> Checkpoint {
     Checkpoint {
         epoch: Epoch::new(i),
-        root: get_hash(i),
+        root: get_root(i),
     }
 }
 
