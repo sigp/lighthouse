@@ -52,7 +52,7 @@ use crate::{metrics, BeaconChainError};
 use eth2::types::{
     EventKind, SseBlock, SseChainReorg, SseFinalizedCheckpoint, SseHead, SseLateHead, SyncDuty,
 };
-use execution_layer::{ExecutionLayer, PayloadStatus};
+use execution_layer::{ExecutionLayer, PayloadAttributes, PayloadStatus};
 use fork_choice::{AttestationFromBlock, ForkChoice};
 use futures::channel::mpsc::Sender;
 use itertools::process_results;
@@ -206,6 +206,7 @@ pub struct HeadInfo {
     pub proposer_shuffling_decision_root: Hash256,
     pub is_merge_transition_complete: bool,
     pub execution_payload_block_hash: Option<ExecutionBlockHash>,
+    pub random: Hash256,
 }
 
 pub trait BeaconChainTypes: Send + Sync + 'static {
@@ -1116,6 +1117,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 .beacon_state
                 .proposer_shuffling_decision_root(head.beacon_block_root)?;
 
+            let current_epoch = head.beacon_state.current_epoch();
+            let random = *head.beacon_state.get_randao_mix(current_epoch)?;
+
             Ok(HeadInfo {
                 slot: head.beacon_block.slot(),
                 block_root: head.beacon_block_root,
@@ -1134,6 +1138,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     .execution_payload()
                     .ok()
                     .map(|ep| ep.block_hash),
+                random,
             })
         })
     }
@@ -3693,6 +3698,86 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         "error" => ?e
                     );
                 }
+            }
+        }
+
+        Ok(())
+    }
+
+    pub async fn prepare_beacon_proposer(self) -> Result<(), Error> {
+        let execution_layer = self
+            .execution_layer
+            .clone()
+            .ok_or(Error::ExecutionLayerMissing)?;
+
+        let head = self.head_info()?;
+        let head_epoch = head.slot.epoch(T::EthSpec::slots_per_epoch());
+        let prepare_slot = self.slot()? + 1;
+        let prepare_epoch = prepare_slot.epoch(T::EthSpec::slots_per_epoch());
+
+        let shuffling_decision_root = if head_epoch == prepare_epoch {
+            head.proposer_shuffling_decision_root
+        } else {
+            head.block_root
+        };
+
+        if let Some(proposer) = self
+            .beacon_proposer_cache
+            .lock()
+            .get_slot::<T::EthSpec>(shuffling_decision_root, prepare_slot)
+        {
+            if execution_layer
+                .has_proposer_preparation_data(proposer.index as u64)
+                .await
+            {
+                let suggested_fee_recipient = execution_layer
+                    .get_suggested_fee_recipient(proposer.index as u64)
+                    .await;
+
+                let timestamp = self
+                    .slot_clock
+                    .start_of(prepare_slot)
+                    .ok_or(Error::InvalidSlot(prepare_slot))?
+                    .as_secs();
+
+                let payload_attributes = PayloadAttributes {
+                    timestamp,
+                    random: head.random,
+                    suggested_fee_recipient,
+                };
+
+                debug!(
+                    self.log,
+                    "Preparing beacon proposer";
+                    "payload_attributes" => ?payload_attributes,
+                    "head_root" => ?head.block_root,
+                    "prepare_slot" => prepare_slot,
+                    "validator" => proposer.index,
+                );
+
+                let already_known = execution_layer
+                    .insert_proposer(
+                        prepare_slot,
+                        head.block_root,
+                        proposer.index as u64,
+                        payload_attributes,
+                    )
+                    .await;
+
+                if !already_known {
+                    info!(
+                        self.log,
+                        "Prepared beacon proposer";
+                        "already_known" => already_known,
+                        "validator" => proposer.index,
+                    );
+                }
+            } else {
+                debug!(
+                    self.log,
+                    "No proposers for preparation";
+                    "prepare_slot" => prepare_slot,
+                );
             }
         }
 

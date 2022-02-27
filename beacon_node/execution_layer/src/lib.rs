@@ -371,8 +371,14 @@ impl ExecutionLayer {
         Ok(())
     }
 
+    pub async fn has_proposer_preparation_data(&self, proposer_index: u64) -> bool {
+        self.proposer_preparation_data()
+            .await
+            .contains_key(&proposer_index)
+    }
+
     /// Returns the fee-recipient address that should be used to build a block
-    async fn get_suggested_fee_recipient(&self, proposer_index: u64) -> Address {
+    pub async fn get_suggested_fee_recipient(&self, proposer_index: u64) -> Address {
         if let Some(preparation_data_entry) =
             self.proposer_preparation_data().await.get(&proposer_index)
         {
@@ -590,7 +596,8 @@ impl ExecutionLayer {
             "head_block_hash" => ?head_block_hash,
         );
 
-        let payload_attributes = self.payload_attributes(current_slot, head_block_root).await;
+        let next_slot = current_slot + 1;
+        let payload_attributes = self.payload_attributes(next_slot, head_block_root).await;
 
         // see https://hackmd.io/@n0ble/kintsugi-spec#Engine-API
         // for now, we must set safe_block_hash = head_block_hash

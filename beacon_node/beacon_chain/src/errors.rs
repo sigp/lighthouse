@@ -160,6 +160,7 @@ pub enum BeaconChainError {
         head_state: Checkpoint,
         fork_choice: Hash256,
     },
+    InvalidSlot(Slot),
 }
 
 easy_from_to!(SlotProcessingError, BeaconChainError);
