@@ -3718,7 +3718,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         let head = self.head_info()?;
         let head_epoch = head.slot.epoch(T::EthSpec::slots_per_epoch());
-        let prepare_slot = self.slot()? + 1;
+        let current_slot = self.slot()?;
+        let prepare_slot = current_slot + 1;
         let prepare_epoch = prepare_slot.epoch(T::EthSpec::slots_per_epoch());
 
         let shuffling_decision_root = if head_epoch == prepare_epoch {
@@ -3784,7 +3785,26 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                             <= self.slot_clock.slot_duration()
                                 / PAYLOAD_PREPARATION_LOOKAHEAD_FACTOR
                         {
-                            // TODO(paul): update fork choice.
+                            if let Some(head_block_hash) = head.execution_payload_block_hash {
+                                let finalized_root = head.finalized_checkpoint.root;
+                                let finalized_hash = self
+                                    .fork_choice
+                                    .read()
+                                    .get_block(&finalized_root)
+                                    .ok_or(Error::FinalizedBlockMissingFromForkChoice(
+                                        finalized_root,
+                                    ))?
+                                    .execution_status
+                                    .block_hash()
+                                    .unwrap_or_else(ExecutionBlockHash::zero);
+
+                                self.update_execution_engine_forkchoice_blocking(
+                                    finalized_hash,
+                                    head.block_root,
+                                    head_block_hash,
+                                    current_slot,
+                                )?;
+                            }
                         }
                     } else {
                         warn!(
