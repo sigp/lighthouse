@@ -4,11 +4,9 @@ use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use task_executor::TaskExecutor;
 use tokio::time::sleep;
-<<<<<<< HEAD
-use types::{Address, ChainSpec, EthSpec, ExecutionBlockHash, Hash256, MainnetEthSpec, Uint256};
-=======
-use types::{Address, ChainSpec, EthSpec, Hash256, MainnetEthSpec, Slot, Uint256};
->>>>>>> ea3b677fe (Add `proposers` cache to EL)
+use types::{
+    Address, ChainSpec, EthSpec, ExecutionBlockHash, Hash256, MainnetEthSpec, Slot, Uint256,
+};
 
 const EXECUTION_ENGINE_START_TIMEOUT: Duration = Duration::from_secs(10);
 
@@ -165,16 +163,10 @@ impl<E: GenericExecutionEngine> TestRig<E> {
          * `notify_new_payload`.
          */
         let head_block_hash = valid_payload.block_hash;
-<<<<<<< HEAD
         let finalized_block_hash = ExecutionBlockHash::zero();
-        let payload_attributes = None;
-        let status = self
-=======
-        let finalized_block_hash = Hash256::zero();
         let slot = Slot::new(42);
         let head_block_root = Hash256::repeat_byte(42);
-        let (status, _) = self
->>>>>>> ea3b677fe (Add `proposers` cache to EL)
+        let status = self
             .ee_a
             .execution_layer
             .notify_forkchoice_updated(head_block_hash, finalized_block_hash, slot, head_block_root)
@@ -204,16 +196,10 @@ impl<E: GenericExecutionEngine> TestRig<E> {
          * Do not provide payload attributes (we'll test that later).
          */
         let head_block_hash = valid_payload.block_hash;
-<<<<<<< HEAD
         let finalized_block_hash = ExecutionBlockHash::zero();
-        let payload_attributes = None;
-        let status = self
-=======
-        let finalized_block_hash = Hash256::zero();
         let slot = Slot::new(42);
         let head_block_root = Hash256::repeat_byte(42);
-        let (status, _) = self
->>>>>>> ea3b677fe (Add `proposers` cache to EL)
+        let status = self
             .ee_a
             .execution_layer
             .notify_forkchoice_updated(head_block_hash, finalized_block_hash, slot, head_block_root)
@@ -281,16 +267,7 @@ impl<E: GenericExecutionEngine> TestRig<E> {
          * Indicate that the payload is the head of the chain, providing payload attributes.
          */
         let head_block_hash = valid_payload.block_hash;
-<<<<<<< HEAD
         let finalized_block_hash = ExecutionBlockHash::zero();
-        let payload_attributes = Some(PayloadAttributes {
-            timestamp: second_payload.timestamp + 1,
-            random: Hash256::zero(),
-            suggested_fee_recipient: Address::zero(),
-        });
-        let status = self
-=======
-        let finalized_block_hash = Hash256::zero();
         let payload_attributes = PayloadAttributes {
             timestamp: second_payload.timestamp + 1,
             random: Hash256::zero(),
@@ -303,8 +280,7 @@ impl<E: GenericExecutionEngine> TestRig<E> {
             .execution_layer
             .insert_proposer(slot, head_block_root, validator_index, payload_attributes)
             .await;
-        let (status, _) = self
->>>>>>> ea3b677fe (Add `proposers` cache to EL)
+        let status = self
             .ee_a
             .execution_layer
             .notify_forkchoice_updated(head_block_hash, finalized_block_hash, slot, head_block_root)
@@ -331,18 +307,11 @@ impl<E: GenericExecutionEngine> TestRig<E> {
          * Set the second payload as the head, without providing payload attributes.
          */
         let head_block_hash = second_payload.block_hash;
-<<<<<<< HEAD
         let finalized_block_hash = ExecutionBlockHash::zero();
-        let payload_attributes = None;
-        let status = self
-            .ee_b
-=======
-        let finalized_block_hash = Hash256::zero();
         let slot = Slot::new(42);
         let head_block_root = Hash256::repeat_byte(42);
-        let (status, _) = self
-            .ee_a
->>>>>>> ea3b677fe (Add `proposers` cache to EL)
+        let status = self
+            .ee_b
             .execution_layer
             .notify_forkchoice_updated(head_block_hash, finalized_block_hash, slot, head_block_root)
             .await
@@ -382,18 +351,11 @@ impl<E: GenericExecutionEngine> TestRig<E> {
          * Set the second payload as the head, without providing payload attributes.
          */
         let head_block_hash = second_payload.block_hash;
-<<<<<<< HEAD
         let finalized_block_hash = ExecutionBlockHash::zero();
-        let payload_attributes = None;
-        let status = self
-            .ee_b
-=======
-        let finalized_block_hash = Hash256::zero();
         let slot = Slot::new(42);
         let head_block_root = Hash256::repeat_byte(42);
-        let (status, _) = self
-            .ee_a
->>>>>>> ea3b677fe (Add `proposers` cache to EL)
+        let status = self
+            .ee_b
             .execution_layer
             .notify_forkchoice_updated(head_block_hash, finalized_block_hash, slot, head_block_root)
             .await

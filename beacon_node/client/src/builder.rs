@@ -704,7 +704,6 @@ where
                                     head.block_root,
                                     block_hash,
                                     current_slot,
-                                    head.block_root,
                                 )
                                 .await;
 

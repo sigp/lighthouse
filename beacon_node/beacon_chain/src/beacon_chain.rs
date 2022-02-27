@@ -3692,7 +3692,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     beacon_block_root,
                     new_head_execution_block_hash,
                     current_slot,
-                    beacon_block_root,
                 ) {
                     crit!(
                         self.log,
@@ -3814,7 +3813,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         head_block_root: Hash256,
         head_execution_block_hash: ExecutionBlockHash,
         current_slot: Slot,
-        head_block_root: Hash256,
     ) -> Result<(), Error> {
         let execution_layer = self
             .execution_layer
@@ -3827,6 +3825,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     finalized_execution_block_hash,
                     head_block_root,
                     head_execution_block_hash,
+                    current_slot,
                 )
             })
             .map_err(Error::ForkchoiceUpdate)?
@@ -3837,6 +3836,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         finalized_execution_block_hash: ExecutionBlockHash,
         head_block_root: Hash256,
         head_execution_block_hash: ExecutionBlockHash,
+        current_slot: Slot,
     ) -> Result<(), Error> {
         let forkchoice_updated_response = self
             .execution_layer

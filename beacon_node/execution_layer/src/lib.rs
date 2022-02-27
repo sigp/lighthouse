@@ -589,7 +589,6 @@ impl ExecutionLayer {
         &self,
         head_block_hash: ExecutionBlockHash,
         finalized_block_hash: ExecutionBlockHash,
-        payload_attributes: Option<PayloadAttributes>,
         current_slot: Slot,
         head_block_root: Hash256,
     ) -> Result<PayloadStatus, Error> {
