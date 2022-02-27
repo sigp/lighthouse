@@ -397,7 +397,7 @@ impl ProtoArray {
                 | ExecutionStatus::Unknown(hash) => {
                     // If we're no longer processing the `head_block_root` and the last valid
                     // ancestor is unknown, exit this loop and proceed to invalidate and
-                    // descendants of `head_block_root`.
+                    // descendants of `head_block_root`/`latest_valid_ancestor_root`.
                     //
                     // In effect, this means that if an unknown hash (junk or pre-finalization) is
                     // supplied, don't validate any ancestors. The alternative is to invalidate
