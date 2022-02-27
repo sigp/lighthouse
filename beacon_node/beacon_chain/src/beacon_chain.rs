@@ -35,6 +35,7 @@ use crate::observed_operations::{ObservationOutcome, ObservedOperations};
 use crate::persisted_beacon_chain::{PersistedBeaconChain, DUMMY_CANONICAL_HEAD_BLOCK_ROOT};
 use crate::persisted_fork_choice::PersistedForkChoice;
 use crate::pre_finalization_cache::PreFinalizationBlockCache;
+use crate::proposer_prep_service::PAYLOAD_PREPARATION_LOOKAHEAD_FACTOR;
 use crate::shuffling_cache::{BlockShufflingIds, ShufflingCache};
 use crate::snapshot_cache::SnapshotCache;
 use crate::sync_committee_verification::{
@@ -115,8 +116,6 @@ const EARLY_ATTESTER_CACHE_HISTORIC_SLOTS: u64 = 4;
 /// Reported to the user when the justified block has an invalid execution payload.
 pub const INVALID_JUSTIFIED_PAYLOAD_SHUTDOWN_REASON: &str =
     "Justified block has an invalid execution payload.";
-
-const PAYLOAD_PREPARATION_LOOKAHEAD_FACTOR: u32 = 3;
 
 /// Defines the behaviour when a block/block-root for a skipped slot is requested.
 pub enum WhenSlotSkipped {
@@ -3705,7 +3704,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         Ok(())
     }
 
-    pub async fn prepare_beacon_proposer(self) -> Result<(), Error> {
+    pub async fn prepare_beacon_proposer(&self) -> Result<(), Error> {
         let execution_layer = self
             .execution_layer
             .clone()
@@ -3728,11 +3727,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             head.block_root
         };
 
-        if let Some(proposer) = self
+        let proposer_opt = self
             .beacon_proposer_cache
             .lock()
-            .get_slot::<T::EthSpec>(shuffling_decision_root, prepare_slot)
-        {
+            .get_slot::<T::EthSpec>(shuffling_decision_root, prepare_slot);
+
+        if let Some(proposer) = proposer_opt {
             if execution_layer
                 .has_proposer_preparation_data(proposer.index as u64)
                 .await
