@@ -43,13 +43,6 @@ enum State {
     Processing,
 }
 
-#[derive(Debug)]
-pub enum RequestError {
-    TooManyFailures,
-    ChainTooLong,
-    SendRequestFailed(&'static str),
-}
-
 pub enum VerifyError {
     #[cfg(not(debug_assertions))]
     WrongRequest,

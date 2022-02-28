@@ -13,7 +13,7 @@ use tokio::sync::mpsc;
 use crate::beacon_processor::{ChainSegmentProcessId, WorkEvent};
 
 use self::{
-    parent_lookup::{ParentLookup, RequestError, VerifyError},
+    parent_lookup::{ParentLookup, VerifyError},
     single_block_lookup::SingleBlockRequest,
 };
 

@@ -350,3 +350,30 @@ fn test_parent_lookup_rpc_failure() {
     rig.expect_parent_chain_process();
     assert_eq!(bl.parent_queue.len(), 0);
 }
+
+#[test]
+fn test_parent_lookup_too_many_attempts() {
+    let (mut bl, mut cx, mut rig) = TestRig::test_setup(Some(Level::Trace));
+
+    let parent = rig.rand_block();
+    let block = rig.block_with_parent(parent.canonical_root());
+    let chain_hash = block.canonical_root();
+    let peer_id = PeerId::random();
+
+    // Trigger the request
+    bl.search_parent(Box::new(block), peer_id, &mut cx);
+    let id1 = rig.expect_parent_request();
+
+    // The request fails. It should be tried again.
+    bl.parent_lookup_failed(id1, peer_id, &mut cx);
+    let id2 = rig.expect_parent_request();
+
+    // Send the right block this time.
+    bl.parent_lookup_response(id2, peer_id, Some(Box::new(parent)), &mut cx);
+    rig.expect_block_process();
+
+    // Processing succeeds, now the rest of the chain should be sent for processing.
+    bl.parent_block_processed(chain_hash, Ok(()), peer_id, &mut cx);
+    rig.expect_parent_chain_process();
+    assert_eq!(bl.parent_queue.len(), 0);
+}
