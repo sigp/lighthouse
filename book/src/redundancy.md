@@ -105,7 +105,7 @@ failure to update the execution client cache in the beacon node. Consistent fail
 period of hours may result in a failure in block production.
 
 However, in the case of (2), the `http://192.168.0.1:8545` execution client endpoint will
-be tried each time the first fails. execution client endpoints will be tried from first to
+be tried each time the first fails. Execution client endpoints will be tried from first to
 last in the list, until a successful response is obtained.
 
 There is no need for special configuration on the execution client endpoint, all endpoints can (probably should)
