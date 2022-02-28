@@ -11,10 +11,13 @@ pub fn start_proposer_prep_service<T: BeaconChainTypes>(
     executor: &TaskExecutor,
     chain: Arc<BeaconChain<T>>,
 ) {
-    executor.spawn(
-        async move { proposer_prep_service(chain).await },
-        "proposer_prep_service",
-    );
+    // Avoid spawning the service if there's no EL, it'll just error anyway.
+    if chain.execution_layer.is_some() {
+        executor.spawn(
+            async move { proposer_prep_service(chain).await },
+            "proposer_prep_service",
+        );
+    }
 }
 
 async fn proposer_prep_service<T: BeaconChainTypes>(chain: Arc<BeaconChain<T>>) {
