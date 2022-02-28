@@ -3704,14 +3704,27 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         Ok(())
     }
 
+    /// Determines the beacon proposer for the next slot. If that proposer is registered in the
+    /// `execution_layer`, provide the `execution_layer` with the necessary information to produce
+    /// `PayloadAttributes` for future calls to fork choice.
+    ///
+    /// The `PayloadAttributes` are used by the EL to give it a look-ahead for preparing an optimal
+    /// set of transactions for a new `ExecutionPayload`.
+    ///
+    /// This function will result in a call to `forkchoiceUpdated` on the EL if:
+    ///
+    /// 1. We're in the tail-end of the slot (as defined by PAYLOAD_PREPARATION_LOOKAHEAD_FACTOR)
+    /// 2. The head block is one slot (or less) behind the prepare slot (e.g., we're preparing for
+    ///    the next slot and the block at the current slot is already known).
     pub async fn prepare_beacon_proposer(&self) -> Result<(), Error> {
         let execution_layer = self
             .execution_layer
             .clone()
             .ok_or(Error::ExecutionLayerMissing)?;
 
+        // Nothing to do if there are no proposers registered with the EL, exit early to avoid
+        // wasting cycles.
         if !execution_layer.has_proposers().await {
-            // Nothing to do if there are no proposers registered with the EL.
             return Ok(());
         }
 
@@ -3721,105 +3734,134 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let prepare_slot = current_slot + 1;
         let prepare_epoch = prepare_slot.epoch(T::EthSpec::slots_per_epoch());
 
+        // Ensure that the shuffling decision root is correct relative to the epoch we wish to
+        // query.
         let shuffling_decision_root = if head_epoch == prepare_epoch {
             head.proposer_shuffling_decision_root
         } else {
             head.block_root
         };
 
-        let proposer_opt = self
+        // Read the proposer from the proposer cache.
+        let proposer = if let Some(proposer) = self
             .beacon_proposer_cache
             .lock()
-            .get_slot::<T::EthSpec>(shuffling_decision_root, prepare_slot);
+            .get_slot::<T::EthSpec>(shuffling_decision_root, prepare_slot)
+        {
+            proposer
+        } else {
+            debug!(
+                self.log,
+                "No proposers for preparation";
+                "prepare_slot" => prepare_slot,
+            );
+            // Nothing more to do.
+            return Ok(());
+        };
 
-        if let Some(proposer) = proposer_opt {
-            if execution_layer
-                .has_proposer_preparation_data(proposer.index as u64)
-                .await
-            {
-                let suggested_fee_recipient = execution_layer
-                    .get_suggested_fee_recipient(proposer.index as u64)
-                    .await;
+        // If the execution layer doesn't have any proposer data for this validator then we assume
+        // it's not connected to this BN and no action is required.
+        if !execution_layer
+            .has_proposer_preparation_data(proposer.index as u64)
+            .await
+        {
+            return Ok(());
+        }
 
-                let timestamp = self
-                    .slot_clock
-                    .start_of(prepare_slot)
-                    .ok_or(Error::InvalidSlot(prepare_slot))?
-                    .as_secs();
+        let payload_attributes = PayloadAttributes {
+            timestamp: self
+                .slot_clock
+                .start_of(prepare_slot)
+                .ok_or(Error::InvalidSlot(prepare_slot))?
+                .as_secs(),
+            random: head.random,
+            suggested_fee_recipient: execution_layer
+                .get_suggested_fee_recipient(proposer.index as u64)
+                .await,
+        };
 
-                let payload_attributes = PayloadAttributes {
-                    timestamp,
-                    random: head.random,
-                    suggested_fee_recipient,
-                };
+        debug!(
+            self.log,
+            "Preparing beacon proposer";
+            "payload_attributes" => ?payload_attributes,
+            "head_root" => ?head.block_root,
+            "prepare_slot" => prepare_slot,
+            "validator" => proposer.index,
+        );
 
-                debug!(
-                    self.log,
-                    "Preparing beacon proposer";
-                    "payload_attributes" => ?payload_attributes,
-                    "head_root" => ?head.block_root,
-                    "prepare_slot" => prepare_slot,
-                    "validator" => proposer.index,
-                );
+        let already_known = execution_layer
+            .insert_proposer(
+                prepare_slot,
+                head.block_root,
+                proposer.index as u64,
+                payload_attributes,
+            )
+            .await;
+        // Only push a log to the user if this is the first time we've seen this proposer for this
+        // slot.
+        if !already_known {
+            info!(
+                self.log,
+                "Prepared beacon proposer";
+                "already_known" => already_known,
+                "prepare_slot" => prepare_slot,
+                "validator" => proposer.index,
+            );
+        }
 
-                let already_known = execution_layer
-                    .insert_proposer(
-                        prepare_slot,
-                        head.block_root,
-                        proposer.index as u64,
-                        payload_attributes,
-                    )
-                    .await;
-
-                if !already_known {
-                    info!(
+        // If the head block has has execution enabled, then it might be a good idea to push
+        // a `forkchoiceUpdated` message to the EL to provide the payload attributes.
+        //
+        // There is no payload preparation for the transition block (i.e., the first block
+        // with execution enabled in some chain).
+        if let Some(head_block_hash) = head.execution_payload_block_hash {
+            // `SlotClock::duration_to_slot` will return `None` when we are past the start
+            // of `prepare_slot`. Don't bother sending a `forkchoiceUpdated` in that case,
+            // it's too late.
+            if let Some(till_prepare_slot) = self.slot_clock.duration_to_slot(prepare_slot) {
+                // If either of the following are true, send a fork-choice update message to the
+                // EL:
+                //
+                // 1. We're in the tail-end of the slot (as defined by
+                //    PAYLOAD_PREPARATION_LOOKAHEAD_FACTOR)
+                // 2. The head block is one slot (or less) behind the prepare slot (e.g., we're
+                //    preparing for the next slot and the block at the current slot is already
+                //    known).
+                if till_prepare_slot
+                    <= self.slot_clock.slot_duration() / PAYLOAD_PREPARATION_LOOKAHEAD_FACTOR
+                    || head.slot + 1 >= prepare_slot
+                {
+                    debug!(
                         self.log,
-                        "Prepared beacon proposer";
-                        "already_known" => already_known,
-                        "prepare_slot" => prepare_slot,
-                        "validator" => proposer.index,
+                        "Pushing update to prepare proposer";
+                        "till_prepare_slot" => ?till_prepare_slot,
+                        "prepare_slot" => prepare_slot
                     );
 
-                    if let Some(duration) = self.slot_clock.duration_to_slot(prepare_slot) {
-                        if duration
-                            <= self.slot_clock.slot_duration()
-                                / PAYLOAD_PREPARATION_LOOKAHEAD_FACTOR
-                        {
-                            if let Some(head_block_hash) = head.execution_payload_block_hash {
-                                let finalized_root = head.finalized_checkpoint.root;
-                                let finalized_hash = self
-                                    .fork_choice
-                                    .read()
-                                    .get_block(&finalized_root)
-                                    .ok_or(Error::FinalizedBlockMissingFromForkChoice(
-                                        finalized_root,
-                                    ))?
-                                    .execution_status
-                                    .block_hash()
-                                    .unwrap_or_else(ExecutionBlockHash::zero);
+                    let finalized_root = head.finalized_checkpoint.root;
+                    let finalized_hash = self
+                        .fork_choice
+                        .read()
+                        .get_block(&finalized_root)
+                        .ok_or(Error::FinalizedBlockMissingFromForkChoice(finalized_root))?
+                        .execution_status
+                        .block_hash()
+                        .unwrap_or_else(ExecutionBlockHash::zero);
 
-                                self.update_execution_engine_forkchoice_blocking(
-                                    finalized_hash,
-                                    head.block_root,
-                                    head_block_hash,
-                                    current_slot,
-                                )?;
-                            }
-                        }
-                    } else {
-                        warn!(
-                            self.log,
-                            "Delayed proposer preparation";
-                            "prepare_slot" => prepare_slot,
-                            "validator" => proposer.index,
-                        );
-                    }
+                    self.update_execution_engine_forkchoice_blocking(
+                        finalized_hash,
+                        head.block_root,
+                        head_block_hash,
+                        current_slot,
+                    )?;
                 }
             } else {
-                debug!(
+                // This scenario might occur on an overloaded/under-resourced node.
+                warn!(
                     self.log,
-                    "No proposers for preparation";
+                    "Delayed proposer preparation";
                     "prepare_slot" => prepare_slot,
+                    "validator" => proposer.index,
                 );
             }
         }
