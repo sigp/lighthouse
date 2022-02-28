@@ -145,7 +145,7 @@ pub fn validate_merge_block<T: BeaconChainTypes>(
             // the justified checkpoint can't have execution enabled so we only need to check the
             // current slot is at least SAFE_SLOTS_TO_IMPORT_OPTIMISTICALLY ahead of the block
             // https://github.com/ethereum/consensus-specs/blob/v1.1.9/sync/optimistic.md#when-to-optimistically-import-blocks
-            if current_slot - block.slot() >= chain.spec.safe_slots_to_import_optimistically {
+            if block.slot() + chain.spec.safe_slots_to_import_optimistically <= current_slot {
                 debug!(
                     chain.log,
                     "Optimistically accepting terminal block";
