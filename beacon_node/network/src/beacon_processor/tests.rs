@@ -1,4 +1,4 @@
-#![cfg(not(debug_assertions))] // Tests are too slow in debug.
+// #![cfg(not(debug_assertions))] // Tests are too slow in debug.
 #![cfg(test)]
 
 use crate::beacon_processor::work_reprocessing_queue::QUEUED_ATTESTATION_DELAY;
@@ -240,7 +240,13 @@ impl TestRig {
     }
 
     pub fn enqueue_rpc_block(&self) {
-        let (event, _rx) = WorkEvent::rpc_beacon_block(Box::new(self.next_block.clone()));
+        let event = WorkEvent::rpc_beacon_block(
+            Box::new(self.next_block.clone()),
+            PeerId::random(),
+            BlockProcessType::ParentLookup {
+                chain_hash: Hash256::random(),
+            },
+        );
         self.beacon_processor_tx.try_send(event).unwrap();
     }
 

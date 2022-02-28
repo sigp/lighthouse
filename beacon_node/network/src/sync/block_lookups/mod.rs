@@ -1,4 +1,7 @@
-use std::{collections::{hash_map::Entry, HashSet}, time::Duration};
+use std::{
+    collections::{hash_map::Entry, HashSet},
+    time::Duration,
+};
 
 use beacon_chain::{BeaconChainTypes, BlockError};
 use fnv::FnvHashMap;
@@ -252,7 +255,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                     );
                 }
                 #[cfg(not(debug_assertions))]
-                WrongRequest => {
+                VerifyError::WrongRequest => {
                     crit!(self.log, "Block response assigned to wrong parent request")
                 }
             },

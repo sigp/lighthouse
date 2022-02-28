@@ -554,7 +554,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                         let peer_id = PeerId::random(); // TODO: handle this correctly
                         self.block_lookups.parent_block_processed(
                             chain_hash,
-                            result.map(|_| ()), // TODO: match the ok types
+                            result,
                             peer_id,
                             &mut self.network,
                         )

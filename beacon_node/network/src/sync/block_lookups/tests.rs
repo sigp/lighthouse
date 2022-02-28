@@ -37,7 +37,7 @@ impl TestRig {
             }
         };
 
-        let (beacon_processor_tx, beacon_processor_rx) = mpsc::channel(10);
+        let (beacon_processor_tx, beacon_processor_rx) = mpsc::channel(100);
         let (network_tx, network_rx) = mpsc::unbounded_channel();
         let rng = XorShiftRng::from_seed([42; 16]);
         let rig = TestRig {
@@ -423,7 +423,7 @@ fn test_parent_lookup_too_deep() {
         bl.parent_lookup_response(id, peer_id, Some(Box::new(block.clone())), &mut cx);
         // the stream termination
         bl.parent_lookup_response(id, peer_id, None, &mut cx);
-
+        // the processing request
         rig.expect_block_process();
         // the processing result
         bl.parent_block_processed(
