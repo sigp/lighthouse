@@ -2,7 +2,7 @@
 name = "proto_array"
 version = "0.2.0"
 authors = ["Paul Hauner <paul@sigmaprime.io>"]
-edition = "2018"
+edition = "2021"
 
 [[bin]]
 name = "proto_array"

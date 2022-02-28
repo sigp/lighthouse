@@ -67,6 +67,19 @@ fn validators_and_secrets_dir_flags() {
 }
 
 #[test]
+fn validators_dir_alias_flags() {
+    let dir = TempDir::new().expect("Unable to create temporary directory");
+    CommandLineTest::new()
+        .flag("validator-dir", dir.path().join("validators").to_str())
+        .flag("secrets-dir", dir.path().join("secrets").to_str())
+        .run_with_no_datadir()
+        .with_config(|config| {
+            assert_eq!(config.validator_dir, dir.path().join("validators"));
+            assert_eq!(config.secrets_dir, dir.path().join("secrets"));
+        });
+}
+
+#[test]
 fn beacon_nodes_flag() {
     CommandLineTest::new()
         .flag(

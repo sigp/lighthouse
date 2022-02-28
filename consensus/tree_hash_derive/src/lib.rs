@@ -109,7 +109,7 @@ fn cached_tree_hash_attr_metas(attrs: &[Attribute]) -> Vec<Meta> {
 fn should_skip_hashing(field: &syn::Field) -> bool {
     field.attrs.iter().any(|attr| {
         attr.path.is_ident("tree_hash")
-            && attr.tokens.to_string().replace(" ", "") == "(skip_hashing)"
+            && attr.tokens.to_string().replace(' ', "") == "(skip_hashing)"
     })
 }
 

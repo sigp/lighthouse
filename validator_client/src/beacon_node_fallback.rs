@@ -162,19 +162,23 @@ impl<E: EthSpec> CandidateBeaconNode<E> {
         spec: &ChainSpec,
         log: &Logger,
     ) -> Result<(), CandidateError> {
-        let mut status = self.status.write().await;
-
-        if let Err(e) = self.is_online(log).await {
-            *status = Err(e);
+        let new_status = if let Err(e) = self.is_online(log).await {
+            Err(e)
         } else if let Err(e) = self.is_compatible(spec, log).await {
-            *status = Err(e);
+            Err(e)
         } else if let Err(e) = self.is_synced(slot_clock, log).await {
-            *status = Err(e);
+            Err(e)
         } else {
-            *status = Ok(())
-        }
+            Ok(())
+        };
 
-        *status
+        // In case of concurrent use, the latest value will always be used. It's possible that a
+        // long time out might over-ride a recent successful response, leading to a falsely-offline
+        // status. I deem this edge-case acceptable in return for the concurrency benefits of not
+        // holding a write-lock whilst we check the online status of the node.
+        *self.status.write().await = new_status;
+
+        new_status
     }
 
     /// Checks if the node is reachable.

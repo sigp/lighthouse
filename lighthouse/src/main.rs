@@ -372,21 +372,28 @@ fn run<E: EthSpec>(
     // Construct the path to the log file.
     let mut log_path: Option<PathBuf> = clap_utils::parse_optional(matches, "logfile")?;
     if log_path.is_none() {
-        log_path = match matches.subcommand_name() {
-            Some("beacon_node") => Some(
+        log_path = match matches.subcommand() {
+            ("beacon_node", _) => Some(
                 parse_path_or_default(matches, "datadir")?
                     .join(DEFAULT_BEACON_NODE_DIR)
                     .join("logs")
                     .join("beacon")
                     .with_extension("log"),
             ),
-            Some("validator_client") => Some(
-                parse_path_or_default(matches, "datadir")?
-                    .join(DEFAULT_VALIDATOR_DIR)
-                    .join("logs")
-                    .join("validator")
-                    .with_extension("log"),
-            ),
+            ("validator_client", Some(vc_matches)) => {
+                let base_path = if vc_matches.is_present("validators-dir") {
+                    parse_path_or_default(vc_matches, "validators-dir")?
+                } else {
+                    parse_path_or_default(matches, "datadir")?.join(DEFAULT_VALIDATOR_DIR)
+                };
+
+                Some(
+                    base_path
+                        .join("logs")
+                        .join("validator")
+                        .with_extension("log"),
+                )
+            }
             _ => None,
         };
     }

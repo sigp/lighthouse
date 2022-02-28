@@ -2,7 +2,7 @@
 name = "validator_dir"
 version = "0.1.0"
 authors = ["Paul Hauner <paul@paulhauner.com>"]
-edition = "2018"
+edition = "2021"
 
 [features]
 insecure_keys = []

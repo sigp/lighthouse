@@ -560,9 +560,8 @@ impl<T: EthSpec> OperationPool<T> {
     pub fn get_all_attestations(&self) -> Vec<Attestation<T>> {
         self.attestations
             .read()
-            .iter()
-            .map(|(_, attns)| attns.iter().cloned())
-            .flatten()
+            .values()
+            .flat_map(|attns| attns.iter().cloned())
             .collect()
     }
 
@@ -575,10 +574,10 @@ impl<T: EthSpec> OperationPool<T> {
     {
         self.attestations
             .read()
-            .iter()
-            .map(|(_, attns)| attns.iter().cloned())
-            .flatten()
-            .filter(filter)
+            .values()
+            .flat_map(|attns| attns.iter())
+            .filter(|attn| filter(*attn))
+            .cloned()
             .collect()
     }
 

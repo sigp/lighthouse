@@ -39,6 +39,7 @@ members = [
     "common/task_executor",
     "common/target_check",
     "common/test_random_derive",
+    "common/unused_port",
     "common/validator_dir",
     "common/warp_utils",
     "common/fallback",
@@ -74,6 +75,7 @@ members = [
 
     "testing/ef_tests",
     "testing/eth1_test_rig",
+    "testing/execution_engine_integration",
     "testing/node_test_rig",
     "testing/simulator",
     "testing/test-test_logger",

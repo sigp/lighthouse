@@ -11,7 +11,7 @@ use crate::{
     BeaconChain, BeaconChainError, BeaconChainTypes, BlockError, BlockProductionError,
     ExecutionPayloadError,
 };
-use execution_layer::ExecutePayloadResponseStatus;
+use execution_layer::PayloadStatusV1Status;
 use fork_choice::PayloadVerificationStatus;
 use proto_array::{Block as ProtoBlock, ExecutionStatus};
 use slog::debug;
@@ -53,19 +53,29 @@ pub fn notify_new_payload<T: BeaconChainTypes>(
         .execution_layer
         .as_ref()
         .ok_or(ExecutionPayloadError::NoExecutionConnection)?;
-    let notify_new_payload_response = execution_layer
+    let new_payload_response = execution_layer
         .block_on(|execution_layer| execution_layer.notify_new_payload(execution_payload));
 
-    match notify_new_payload_response {
-        Ok((status, _latest_valid_hash)) => match status {
-            ExecutePayloadResponseStatus::Valid => Ok(PayloadVerificationStatus::Verified),
-            // TODO(merge): invalidate any invalid ancestors of this block in fork choice.
-            ExecutePayloadResponseStatus::Invalid => {
-                Err(ExecutionPayloadError::RejectedByExecutionEngine.into())
+    match new_payload_response {
+        Ok((status, latest_valid_hash)) => match status {
+            PayloadStatusV1Status::Valid => Ok(PayloadVerificationStatus::Verified),
+            PayloadStatusV1Status::Syncing | PayloadStatusV1Status::Accepted => {
+                Ok(PayloadVerificationStatus::NotVerified)
             }
-            ExecutePayloadResponseStatus::Syncing => Ok(PayloadVerificationStatus::NotVerified),
+            PayloadStatusV1Status::Invalid
+            | PayloadStatusV1Status::InvalidTerminalBlock
+            | PayloadStatusV1Status::InvalidBlockHash => {
+                // TODO(bellatrix): process the invalid payload.
+                //
+                // See: https://github.com/sigp/lighthouse/pull/2837
+                Err(ExecutionPayloadError::RejectedByExecutionEngine {
+                    status,
+                    latest_valid_hash,
+                }
+                .into())
+            }
         },
-        Err(_) => Err(ExecutionPayloadError::RejectedByExecutionEngine.into()),
+        Err(e) => Err(ExecutionPayloadError::RequestFailed(e).into()),
     }
 }
 

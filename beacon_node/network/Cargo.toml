@@ -2,7 +2,7 @@
 name = "network"
 version = "0.2.0"
 authors = ["Sigma Prime <contact@sigmaprime.io>"]
-edition = "2018"
+edition = "2021"
 
 [dev-dependencies]
 sloggers = { version = "2.1.1", features = ["json"] }
