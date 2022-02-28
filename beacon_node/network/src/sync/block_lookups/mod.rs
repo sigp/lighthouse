@@ -233,6 +233,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
 
                     // We try again, but downvote the peer.
                     if parent_lookup.request_parent(cx, &self.log).is_err() {
+                        self.failed_chains.insert(parent_lookup.chain_hash());
                         self.parent_queue.remove(pos);
                     }
                 }
@@ -277,6 +278,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                 .expect("Parent lookup was found");
             parent_lookup.download_failed();
             if parent_lookup.request_parent(cx, &self.log).is_err() {
+                self.failed_chains.insert(parent_lookup.chain_hash());
                 self.parent_queue.remove(pos);
             }
         } else {
@@ -314,6 +316,8 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                 parent_lookup.append_block(*block);
                 if parent_lookup.request_parent(cx, &self.log).is_ok() {
                     self.parent_queue.push(parent_lookup);
+                } else {
+                    self.failed_chains.insert(parent_lookup.chain_hash());
                 }
             }
             Ok(_) | Err(BlockError::BlockIsAlreadyKnown { .. }) => {

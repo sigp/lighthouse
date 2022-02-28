@@ -11,11 +11,11 @@ use crate::sync::{
 use super::single_block_lookup::SingleBlockRequest;
 
 /// How many attempts we try to find a parent of a block before we give up trying .
-const PARENT_FAIL_TOLERANCE: usize = 5;
+pub(crate) const PARENT_FAIL_TOLERANCE: usize = 5;
 /// The maximum depth we will search for a parent block. In principle we should have sync'd any
 /// canonical chain to its head once the peer connects. A chain should not appear where it's depth
 /// is further back than the most recent head slot.
-const PARENT_DEPTH_TOLERANCE: usize = SLOT_IMPORT_TOLERANCE * 2;
+pub(crate) const PARENT_DEPTH_TOLERANCE: usize = SLOT_IMPORT_TOLERANCE * 2;
 
 /// Maintains a sequential list of parents to lookup and the lookup's current state.
 pub(crate) struct ParentLookup<T: EthSpec> {
@@ -197,5 +197,9 @@ impl<T: EthSpec> ParentLookup<T> {
 
     pub fn last_submitted_peer(&self) -> PeerId {
         self.last_submitted_peer
+    }
+
+    pub fn failed_attempts(&self) -> usize {
+        self.failed_attempts
     }
 }

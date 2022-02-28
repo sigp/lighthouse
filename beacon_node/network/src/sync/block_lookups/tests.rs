@@ -326,7 +326,7 @@ fn test_parent_lookup_empty_response() {
 
 #[test]
 fn test_parent_lookup_rpc_failure() {
-    let (mut bl, mut cx, mut rig) = TestRig::test_setup(Some(Level::Trace));
+    let (mut bl, mut cx, mut rig) = TestRig::test_setup(None);
 
     let parent = rig.rand_block();
     let block = rig.block_with_parent(parent.canonical_root());
@@ -362,18 +362,66 @@ fn test_parent_lookup_too_many_attempts() {
 
     // Trigger the request
     bl.search_parent(Box::new(block), peer_id, &mut cx);
-    let id1 = rig.expect_parent_request();
+    for i in 1..=parent_lookup::PARENT_FAIL_TOLERANCE {
+        let id = rig.expect_parent_request();
+        match i % 2 {
+            // make sure every error is accounted for
+            0 => {
+                // The request fails. It should be tried again.
+                bl.parent_lookup_failed(id, peer_id, &mut cx);
+            }
+            _ => {
+                // Send a bad block this time. It should be tried again.
+                let bad_block = rig.rand_block();
+                bl.parent_lookup_response(id, peer_id, Some(Box::new(bad_block)), &mut cx);
+                rig.expect_penalty();
+            }
+        }
+        if i < parent_lookup::PARENT_FAIL_TOLERANCE {
+            assert_eq!(bl.parent_queue[0].failed_attempts(), i);
+        }
+    }
 
-    // The request fails. It should be tried again.
-    bl.parent_lookup_failed(id1, peer_id, &mut cx);
-    let id2 = rig.expect_parent_request();
-
-    // Send the right block this time.
-    bl.parent_lookup_response(id2, peer_id, Some(Box::new(parent)), &mut cx);
-    rig.expect_block_process();
-
-    // Processing succeeds, now the rest of the chain should be sent for processing.
-    bl.parent_block_processed(chain_hash, Ok(()), peer_id, &mut cx);
-    rig.expect_parent_chain_process();
     assert_eq!(bl.parent_queue.len(), 0);
+    assert!(bl.failed_chains.contains(&chain_hash));
+}
+
+#[test]
+fn test_parent_lookup_too_deep() {
+    let (mut bl, mut cx, mut rig) = TestRig::test_setup(Some(Level::Trace));
+    let mut blocks =
+        Vec::<SignedBeaconBlock<E>>::with_capacity(parent_lookup::PARENT_DEPTH_TOLERANCE);
+    while blocks.len() < parent_lookup::PARENT_DEPTH_TOLERANCE {
+        let parent = blocks
+            .last()
+            .map(|b| b.canonical_root())
+            .unwrap_or_else(|| Hash256::random());
+        let block = rig.block_with_parent(parent);
+        blocks.push(block);
+    }
+
+    let peer_id = PeerId::random();
+    let trigger_block = blocks.pop().unwrap();
+    let chain_hash = trigger_block.canonical_root();
+    bl.search_parent(Box::new(trigger_block), peer_id, &mut cx);
+
+    for block in blocks.into_iter().rev() {
+        let id = rig.expect_parent_request();
+        // the block
+        bl.parent_lookup_response(id, peer_id, Some(Box::new(block.clone())), &mut cx);
+        // the stream termination
+        bl.parent_lookup_response(id, peer_id, None, &mut cx);
+
+        rig.expect_block_process();
+        // the processing result
+        bl.parent_block_processed(
+            chain_hash,
+            Err(BlockError::ParentUnknown(Box::new(block))),
+            peer_id,
+            &mut cx,
+        )
+    }
+
+    rig.expect_penalty();
+    assert!(bl.failed_chains.contains(&chain_hash));
 }
