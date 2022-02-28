@@ -1,4 +1,4 @@
-use std::collections::{hash_map::Entry, HashSet};
+use std::{collections::{hash_map::Entry, HashSet}, time::Duration};
 
 use beacon_chain::{BeaconChainTypes, BlockError};
 use fnv::FnvHashMap;
@@ -29,7 +29,7 @@ mod tests;
 
 const FAILED_CHAINS_CACHE_SIZE: usize = 500;
 
-struct BlockLookups<T: BeaconChainTypes> {
+pub(crate) struct BlockLookups<T: BeaconChainTypes> {
     /// A collection of parent block lookups.
     parent_queue: SmallVec<[ParentLookup<T::EthSpec>; 3]>,
 
@@ -140,19 +140,17 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         id: Id,
         peer_id: PeerId,
         block: Option<Box<SignedBeaconBlock<T::EthSpec>>>,
+        seen_timestamp: Duration,
         cx: &mut SyncNetworkContext<T::EthSpec>,
     ) {
         match self.single_block_lookups.entry(id) {
             Entry::Occupied(mut req) => match req.get_mut().verify_block(block) {
                 Ok(Some(block)) => {
                     // This is the corrrect block, send it for processing
-                    // TODO: fix the seen timestamp
                     self.send_block_for_processing(
                         block,
                         peer_id,
-                        BlockProcessType::SingleBlock {
-                            seen_timestamp: std::time::Duration::from_secs(1),
-                        },
+                        BlockProcessType::SingleBlock { seen_timestamp },
                     )
                 }
                 Ok(None) => {

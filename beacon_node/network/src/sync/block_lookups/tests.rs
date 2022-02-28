@@ -159,7 +159,13 @@ fn test_single_block_lookup_happy_path() {
 
     // The peer provides the correct block, should not be penalized. Now the block should be sent
     // for processing.
-    bl.single_block_lookup_response(id, peer_id, Some(Box::new(block)), &mut cx);
+    bl.single_block_lookup_response(
+        id,
+        peer_id,
+        Some(Box::new(block)),
+        Duration::default(),
+        &mut cx,
+    );
     rig.expect_empty_network();
     rig.expect_block_process();
 
@@ -167,7 +173,7 @@ fn test_single_block_lookup_happy_path() {
     assert_eq!(bl.single_block_lookups.len(), 1);
 
     // Send the stream termination. Peer should have not been penalized, and the request removed.
-    bl.single_block_lookup_response(id, peer_id, None, &mut cx);
+    bl.single_block_lookup_response(id, peer_id, None, Duration::default(), &mut cx);
     rig.expect_empty_network();
     assert_eq!(bl.single_block_lookups.len(), 0);
 }
@@ -184,7 +190,7 @@ fn test_single_block_lookup_empty_response() {
     let id = rig.expect_block_request();
 
     // The peer does not have the block. It should be penalized.
-    bl.single_block_lookup_response(id, peer_id, None, &mut cx);
+    bl.single_block_lookup_response(id, peer_id, None, Duration::default(), &mut cx);
     rig.expect_penalty();
 
     // The request should not be active
@@ -205,11 +211,17 @@ fn test_single_block_lookup_wrong_response() {
 
     // Peer sends something else. It should be penalized.
     let bad_block = rig.rand_block();
-    bl.single_block_lookup_response(id, peer_id, Some(Box::new(bad_block)), &mut cx);
+    bl.single_block_lookup_response(
+        id,
+        peer_id,
+        Some(Box::new(bad_block)),
+        Duration::default(),
+        &mut cx,
+    );
     rig.expect_penalty();
 
     // Send the stream termination. This should not produce an additional penalty.
-    bl.single_block_lookup_response(id, peer_id, None, &mut cx);
+    bl.single_block_lookup_response(id, peer_id, None, Duration::default(), &mut cx);
     rig.expect_empty_network();
 
     // The request should not be active
