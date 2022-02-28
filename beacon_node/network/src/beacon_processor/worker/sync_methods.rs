@@ -78,11 +78,12 @@ impl<T: BeaconChainTypes> Worker<T> {
                             None,
                         );
                         info!(self.log, "Processed block"; "block" => %root);
-                        self.run_fork_choice() // TODO: wrong log
+                        self.run_fork_choice()
                     }
                     BlockProcessType::ParentLookup { chain_hash } => {
                         self.send_sync_message(SyncMessage::ParentBlockProcessed {
                             chain_hash,
+                            peer_id,
                             result: Ok(()),
                         })
                     }
@@ -113,6 +114,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                 // Sync handles these results
                 self.send_sync_message(SyncMessage::ParentBlockProcessed {
                     chain_hash,
+                    peer_id,
                     result: Err(e),
                 })
             }

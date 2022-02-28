@@ -137,6 +137,7 @@ pub enum SyncMessage<T: EthSpec> {
     /// Block processed
     ParentBlockProcessed {
         chain_hash: Hash256,
+        peer_id: PeerId,
         result: Result<(), BlockError<T>>,
     },
 }
@@ -550,15 +551,16 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                         peer_id,
                         request_id,
                     } => self.inject_error(peer_id, request_id),
-                    SyncMessage::ParentBlockProcessed { chain_hash, result } => {
-                        let peer_id = PeerId::random(); // TODO: handle this correctly
-                        self.block_lookups.parent_block_processed(
-                            chain_hash,
-                            result,
-                            peer_id,
-                            &mut self.network,
-                        )
-                    }
+                    SyncMessage::ParentBlockProcessed {
+                        chain_hash,
+                        peer_id,
+                        result,
+                    } => self.block_lookups.parent_block_processed(
+                        chain_hash,
+                        result,
+                        peer_id,
+                        &mut self.network,
+                    ),
                     SyncMessage::BatchProcessed { sync_type, result } => match sync_type {
                         BatchProcessType::RangeSync(epoch, chain_id) => {
                             self.range_sync.handle_block_process_result(
