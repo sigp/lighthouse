@@ -1,5 +1,5 @@
 use crate::error::Error;
-use crate::proto_array::{ProposerBoost, ProtoArray};
+use crate::proto_array::{Iter, ProposerBoost, ProtoArray};
 use crate::ssz_container::SszContainer;
 use serde_derive::{Deserialize, Serialize};
 use ssz::{Decode, Encode};
@@ -37,6 +37,14 @@ pub enum ExecutionStatus {
 }
 
 impl ExecutionStatus {
+    pub fn is_valid(&self) -> bool {
+        matches!(self, ExecutionStatus::Valid(_))
+    }
+
+    pub fn is_execution_enabled(&self) -> bool {
+        !matches!(self, ExecutionStatus::Irrelevant(_))
+    }
+
     pub fn irrelevant() -> Self {
         ExecutionStatus::Irrelevant(false)
     }
@@ -300,6 +308,11 @@ impl ProtoArrayForkChoice {
         } else {
             None
         }
+    }
+
+    /// See `ProtoArray::iter_nodes`
+    pub fn iter_nodes<'a>(&'a self, block_root: &Hash256) -> Iter<'a> {
+        self.proto_array.iter_nodes(block_root)
     }
 
     pub fn as_bytes(&self) -> Vec<u8> {

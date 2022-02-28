@@ -43,6 +43,12 @@ pub enum Error<T> {
         block_root: Hash256,
         payload_verification_status: PayloadVerificationStatus,
     },
+    MissingJustifiedBlock {
+        justified_checkpoint: Checkpoint,
+    },
+    MissingFinalizedBlock {
+        finalized_checkpoint: Checkpoint,
+    },
 }
 
 impl<T> From<InvalidAttestation> for Error<T> {
@@ -875,10 +881,81 @@ where
         }
     }
 
+    /// Returns the `ProtoBlock` for the justified checkpoint.
+    ///
+    /// ## Notes
+    ///
+    /// This does *not* return the "best justified checkpoint". It returns the justified checkpoint
+    /// that is used for computing balances.
+    pub fn get_justified_block(&self) -> Result<ProtoBlock, Error<T::Error>> {
+        let justified_checkpoint = self.justified_checkpoint();
+        self.get_block(&justified_checkpoint.root)
+            .ok_or(Error::MissingJustifiedBlock {
+                justified_checkpoint,
+            })
+    }
+
+    /// Returns the `ProtoBlock` for the finalized checkpoint.
+    pub fn get_finalized_block(&self) -> Result<ProtoBlock, Error<T::Error>> {
+        let finalized_checkpoint = self.finalized_checkpoint();
+        self.get_block(&finalized_checkpoint.root)
+            .ok_or(Error::MissingFinalizedBlock {
+                finalized_checkpoint,
+            })
+    }
+
     /// Return `true` if `block_root` is equal to the finalized root, or a known descendant of it.
     pub fn is_descendant_of_finalized(&self, block_root: Hash256) -> bool {
         self.proto_array
             .is_descendant(self.fc_store.finalized_checkpoint().root, block_root)
+    }
+
+    /// Returns `Ok(false)` if a block is not viable to be imported optimistically.
+    ///
+    /// ## Notes
+    ///
+    /// Equivalent to the function with the same name in the optimistic sync specs:
+    ///
+    /// https://github.com/ethereum/consensus-specs/blob/dev/sync/optimistic.md#helpers
+    pub fn is_optimistic_candidate_block(
+        &self,
+        current_slot: Slot,
+        block_slot: Slot,
+        block_parent_root: &Hash256,
+        spec: &ChainSpec,
+    ) -> Result<bool, Error<T::Error>> {
+        // If the block is sufficiently old, import it.
+        if block_slot + spec.safe_slots_to_import_optimistically <= current_slot {
+            return Ok(true);
+        }
+
+        // If the justified block has execution enabled, then optimistically import any block.
+        if self
+            .get_justified_block()?
+            .execution_status
+            .is_execution_enabled()
+        {
+            return Ok(true);
+        }
+
+        // If the block has an ancestor with a verified parent, import this block.
+        //
+        // TODO: This condition is not yet merged into the spec. See:
+        //
+        // https://github.com/ethereum/consensus-specs/pull/2841
+        //
+        // ## Note
+        //
+        // If `block_parent_root` is unknown this iter will always return `None`.
+        if self
+            .proto_array
+            .iter_nodes(block_parent_root)
+            .any(|node| node.execution_status.is_valid())
+        {
+            return Ok(true);
+        }
+
+        Ok(false)
     }
 
     /// Return the current finalized checkpoint.

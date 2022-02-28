@@ -55,11 +55,9 @@ use crate::{
 };
 use eth2::types::EventKind;
 use execution_layer::PayloadStatusV1Status;
-use fork_choice::{
-    Error as ForkChoiceError, ForkChoice, ForkChoiceStore, PayloadVerificationStatus,
-};
+use fork_choice::{ForkChoice, ForkChoiceStore, PayloadVerificationStatus};
 use parking_lot::RwLockReadGuard;
-use proto_array::{Block as ProtoBlock, ExecutionStatus};
+use proto_array::Block as ProtoBlock;
 use safe_arith::ArithError;
 use slog::{debug, error, Logger};
 use slot_clock::SlotClock;
@@ -1135,31 +1133,26 @@ impl<'a, T: BeaconChainTypes> FullyVerifiedBlock<'a, T> {
         // `randao` may change.
         let payload_verification_status = notify_new_payload(chain, &state, block.message())?;
 
+        // If the payload did not validate or invalidate the block, check to see if this block is
+        // valid for optimistic import.
         if payload_verification_status == PayloadVerificationStatus::NotVerified {
-            // Check the optimistic sync conditions before going further
-            // https://github.com/ethereum/consensus-specs/blob/v1.1.9/sync/optimistic.md#when-to-optimistically-import-blocks
             let current_slot = chain
                 .slot_clock
                 .now()
                 .ok_or(BeaconChainError::UnableToReadSlot)?;
-            // pass if current slot is at least SAFE_SLOTS_TO_IMPORT_OPTIMISTICALLY ahead of the block
-            if current_slot - block.slot() < chain.spec.safe_slots_to_import_optimistically {
-                // pass if the justified checkpoint has execution enabled
-                let justified_root = state.current_justified_checkpoint().root;
-                let justified_checkpoint_execution_status = chain
-                    .fork_choice
-                    .read()
-                    .get_block(&justified_root)
-                    .map(|block| block.execution_status)
-                    .ok_or(BeaconChainError::ForkChoiceError(
-                        ForkChoiceError::MissingProtoArrayBlock(justified_root),
-                    ))?;
-                if matches!(
-                    justified_checkpoint_execution_status,
-                    ExecutionStatus::Irrelevant(_)
-                ) {
-                    return Err(ExecutionPayloadError::UnverifiedNonOptimisticCandidate.into());
-                }
+
+            if !chain
+                .fork_choice
+                .read()
+                .is_optimistic_candidate_block(
+                    current_slot,
+                    block.slot(),
+                    &block.parent_root(),
+                    &chain.spec,
+                )
+                .map_err(BeaconChainError::from)?
+            {
+                return Err(ExecutionPayloadError::UnverifiedNonOptimisticCandidate.into());
             }
         }
 
