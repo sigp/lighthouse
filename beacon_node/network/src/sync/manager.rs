@@ -1135,33 +1135,3 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         }
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    use types::{
-        test_utils::{SeedableRng, TestRandom, XorShiftRng},
-        MainnetEthSpec as E,
-    };
-    use types::{BeaconBlock, BeaconBlockBase, BeaconBlockBodyBase};
-
-    fn random_sync_block() -> SignedBeaconBlock<E> {
-        let rng = &mut XorShiftRng::from_seed([42; 16]);
-        let random_block = BeaconBlock::Base(BeaconBlockBase {
-            ..<_>::random_for_test(rng)
-        });
-        let signed_block =
-            SignedBeaconBlock::from_block(random_block, types::Signature::random_for_test(rng));
-        signed_block
-    }
-
-    #[test]
-    fn test_random_sync_block() {
-        assert_eq!(
-            random_sync_block().canonical_root(),
-            Hash256::zero(),
-            "it worked"
-        );
-    }
-}
