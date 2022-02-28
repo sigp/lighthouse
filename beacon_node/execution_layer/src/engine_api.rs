@@ -7,6 +7,7 @@ pub const LATEST_TAG: &str = "latest";
 use crate::engines::ForkChoiceState;
 pub use types::{Address, EthSpec, ExecutionBlockHash, ExecutionPayload, Hash256, Uint256};
 
+pub mod auth;
 pub mod http;
 pub mod json_structures;
 
@@ -15,6 +16,7 @@ pub type PayloadId = [u8; 8];
 #[derive(Debug)]
 pub enum Error {
     Reqwest(reqwest::Error),
+    AuthError(jsonwebtoken::errors::Error),
     BadResponse(String),
     RequestFailed(String),
     InvalidExecutePayloadResponse(&'static str),
@@ -38,6 +40,12 @@ impl From<reqwest::Error> for Error {
 impl From<serde_json::Error> for Error {
     fn from(e: serde_json::Error) -> Self {
         Error::Json(e)
+    }
+}
+
+impl From<jsonwebtoken::errors::Error> for Error {
+    fn from(e: jsonwebtoken::errors::Error) -> Self {
+        Error::AuthError(e)
     }
 }
 

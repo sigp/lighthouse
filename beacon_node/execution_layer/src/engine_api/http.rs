@@ -1,6 +1,7 @@
 //! Contains an implementation of `EngineAPI` using the JSON-RPC API via HTTP.
 
 use super::*;
+use crate::auth::Auth;
 use crate::json_structures::*;
 use async_trait::async_trait;
 use eth1::http::EIP155_ERROR_STR;
@@ -39,6 +40,7 @@ pub const ENGINE_FORKCHOICE_UPDATED_TIMEOUT: Duration = Duration::from_millis(50
 pub struct HttpJsonRpc {
     pub client: Client,
     pub url: SensitiveUrl,
+    auth: Option<Auth>,
 }
 
 impl HttpJsonRpc {
@@ -46,6 +48,15 @@ impl HttpJsonRpc {
         Ok(Self {
             client: Client::builder().build()?,
             url,
+            auth: None,
+        })
+    }
+
+    pub fn new_with_auth(url: SensitiveUrl, auth: Auth) -> Result<Self, Error> {
+        Ok(Self {
+            client: Client::builder().build()?,
+            url,
+            auth: Some(auth),
         })
     }
 
@@ -62,17 +73,19 @@ impl HttpJsonRpc {
             id: STATIC_ID,
         };
 
-        let body: JsonResponseBody = self
+        let mut request = self
             .client
             .post(self.url.full.clone())
             .timeout(timeout)
             .header(CONTENT_TYPE, "application/json")
-            .json(&body)
-            .send()
-            .await?
-            .error_for_status()?
-            .json()
-            .await?;
+            .json(&body);
+
+        // Generate and add a jwt token to the header if auth is defined.
+        if let Some(auth) = &self.auth {
+            request = request.bearer_auth(auth.generate_token()?);
+        };
+
+        let body: JsonResponseBody = request.send().await?.error_for_status()?.json().await?;
 
         match (body.result, body.error) {
             (result, None) => serde_json::from_value(result).map_err(Into::into),
