@@ -6,8 +6,8 @@ use std::marker::PhantomData;
 use std::time::Duration;
 use types::{
     consts::merge::INTERVALS_PER_SLOT, AttestationShufflingId, BeaconBlock, BeaconState,
-    BeaconStateError, ChainSpec, Checkpoint, Epoch, EthSpec, Hash256, IndexedAttestation,
-    RelativeEpoch, SignedBeaconBlock, Slot,
+    BeaconStateError, ChainSpec, Checkpoint, Epoch, EthSpec, ExecutionBlockHash, Hash256,
+    IndexedAttestation, RelativeEpoch, SignedBeaconBlock, Slot,
 };
 
 #[derive(Debug)]
@@ -17,6 +17,7 @@ pub enum Error<T> {
     ProtoArrayError(String),
     InvalidProtoArrayBytes(String),
     InvalidLegacyProtoArrayBytes(String),
+    FailedToProcessInvalidExecutionPayload(String),
     MissingProtoArrayBlock(Hash256),
     UnknownAncestor {
         ancestor_slot: Slot,
@@ -42,6 +43,12 @@ pub enum Error<T> {
         block_slot: Slot,
         block_root: Hash256,
         payload_verification_status: PayloadVerificationStatus,
+    },
+    MissingJustifiedBlock {
+        justified_checkpoint: Checkpoint,
+    },
+    MissingFinalizedBlock {
+        finalized_checkpoint: Checkpoint,
     },
 }
 
@@ -299,9 +306,15 @@ where
         let execution_status = anchor_block.message_merge().map_or_else(
             |()| ExecutionStatus::irrelevant(),
             |message| {
-                // Assume that this payload is valid, since the anchor should be a trusted block and
-                // state.
-                ExecutionStatus::Valid(message.body.execution_payload.block_hash)
+                let execution_payload = &message.body.execution_payload;
+                if execution_payload == &<_>::default() {
+                    // A default payload does not have execution enabled.
+                    ExecutionStatus::irrelevant()
+                } else {
+                    // Assume that this payload is valid, since the anchor should be a trusted block and
+                    // state.
+                    ExecutionStatus::Valid(message.body.execution_payload.block_hash)
+                }
             },
         );
 
@@ -464,6 +477,17 @@ where
         Ok(true)
     }
 
+    /// See `ProtoArrayForkChoice::process_execution_payload_invalidation` for documentation.
+    pub fn on_invalid_execution_payload(
+        &mut self,
+        head_block_root: Hash256,
+        latest_valid_ancestor_root: Option<ExecutionBlockHash>,
+    ) -> Result<(), Error<T::Error>> {
+        self.proto_array
+            .process_execution_payload_invalidation(head_block_root, latest_valid_ancestor_root)
+            .map_err(Error::FailedToProcessInvalidExecutionPayload)
+    }
+
     /// Add `block` to the fork choice DAG.
     ///
     /// - `block_root` is the root of `block.
@@ -592,7 +616,7 @@ where
         let execution_status = if let Ok(execution_payload) = block.body().execution_payload() {
             let block_hash = execution_payload.block_hash;
 
-            if block_hash == Hash256::zero() {
+            if block_hash == ExecutionBlockHash::zero() {
                 // The block is post-merge-fork, but pre-terminal-PoW block. We don't need to verify
                 // the payload.
                 ExecutionStatus::irrelevant()
@@ -873,6 +897,29 @@ where
         } else {
             None
         }
+    }
+
+    /// Returns the `ProtoBlock` for the justified checkpoint.
+    ///
+    /// ## Notes
+    ///
+    /// This does *not* return the "best justified checkpoint". It returns the justified checkpoint
+    /// that is used for computing balances.
+    pub fn get_justified_block(&self) -> Result<ProtoBlock, Error<T::Error>> {
+        let justified_checkpoint = self.justified_checkpoint();
+        self.get_block(&justified_checkpoint.root)
+            .ok_or(Error::MissingJustifiedBlock {
+                justified_checkpoint,
+            })
+    }
+
+    /// Returns the `ProtoBlock` for the finalized checkpoint.
+    pub fn get_finalized_block(&self) -> Result<ProtoBlock, Error<T::Error>> {
+        let finalized_checkpoint = self.finalized_checkpoint();
+        self.get_block(&finalized_checkpoint.root)
+            .ok_or(Error::MissingFinalizedBlock {
+                finalized_checkpoint,
+            })
     }
 
     /// Return `true` if `block_root` is equal to the finalized root, or a known descendant of it.

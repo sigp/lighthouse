@@ -31,8 +31,8 @@ use std::time::Duration;
 use timer::spawn_timer;
 use tokio::sync::{mpsc::UnboundedSender, oneshot};
 use types::{
-    test_utils::generate_deterministic_keypairs, BeaconState, ChainSpec, EthSpec, Hash256,
-    SignedBeaconBlock,
+    test_utils::generate_deterministic_keypairs, BeaconState, ChainSpec, EthSpec,
+    ExecutionBlockHash, Hash256, SignedBeaconBlock,
 };
 
 /// Interval between polling the eth1 node for genesis information.
@@ -662,9 +662,6 @@ where
             );
 
             if let Some(execution_layer) = beacon_chain.execution_layer.as_ref() {
-                let store = beacon_chain.store.clone();
-                let inner_execution_layer = execution_layer.clone();
-
                 let head = beacon_chain
                     .head_info()
                     .map_err(|e| format!("Unable to read beacon chain head: {:?}", e))?;
@@ -672,18 +669,38 @@ where
                 // Issue the head to the execution engine on startup. This ensures it can start
                 // syncing.
                 if let Some(block_hash) = head.execution_payload_block_hash {
+                    let finalized_root = head.finalized_checkpoint.root;
+                    let finalized_block = beacon_chain
+                        .store
+                        .get_block(&finalized_root)
+                        .map_err(|e| format!("Failed to read finalized block from DB: {:?}", e))?
+                        .ok_or(format!(
+                            "Finalized block missing from store: {:?}",
+                            finalized_root
+                        ))?;
+                    let finalized_execution_block_hash = finalized_block
+                        .message()
+                        .body()
+                        .execution_payload()
+                        .ok()
+                        .map(|ep| ep.block_hash)
+                        .unwrap_or_else(ExecutionBlockHash::zero);
+
+                    // Spawn a new task using the "async" fork choice update method, rather than
+                    // using the "blocking" method.
+                    //
+                    // Using the blocking method may cause a panic if this code is run inside an
+                    // async context.
+                    let inner_chain = beacon_chain.clone();
                     runtime_context.executor.spawn(
                         async move {
-                            let result = BeaconChain::<
-                                Witness<TSlotClock, TEth1Backend, TEthSpec, THotStore, TColdStore>,
-                            >::update_execution_engine_forkchoice(
-                                inner_execution_layer,
-                                store,
-                                head.finalized_checkpoint.root,
-                                block_hash,
-                                &log,
-                            )
-                            .await;
+                            let result = inner_chain
+                                .update_execution_engine_forkchoice_async(
+                                    finalized_execution_block_hash,
+                                    head.block_root,
+                                    block_hash,
+                                )
+                                .await;
 
                             // No need to exit early if setting the head fails. It will be set again if/when the
                             // node comes online.

@@ -1,9 +1,10 @@
-use types::{Checkpoint, Epoch, Hash256};
+use types::{Checkpoint, Epoch, ExecutionBlockHash, Hash256};
 
 #[derive(Clone, PartialEq, Debug)]
 pub enum Error {
     FinalizedNodeUnknown(Hash256),
     JustifiedNodeUnknown(Hash256),
+    NodeUnknown(Hash256),
     InvalidFinalizedRootChange,
     InvalidNodeIndex(usize),
     InvalidParentIndex(usize),
@@ -15,6 +16,7 @@ pub enum Error {
     DeltaOverflow(usize),
     ProposerBoostOverflow(usize),
     IndexOverflow(&'static str),
+    InvalidExecutionDeltaOverflow(usize),
     InvalidDeltaLen {
         deltas: usize,
         indices: usize,
@@ -26,7 +28,21 @@ pub enum Error {
     InvalidBestNode(Box<InvalidBestNodeInfo>),
     InvalidAncestorOfValidPayload {
         ancestor_block_root: Hash256,
-        ancestor_payload_block_hash: Hash256,
+        ancestor_payload_block_hash: ExecutionBlockHash,
+    },
+    ValidExecutionStatusBecameInvalid {
+        block_root: Hash256,
+        payload_block_hash: ExecutionBlockHash,
+    },
+    InvalidJustifiedCheckpointExecutionStatus {
+        justified_root: Hash256,
+    },
+    UnknownLatestValidAncestorHash {
+        block_root: Hash256,
+        latest_valid_ancestor_hash: Option<ExecutionBlockHash>,
+    },
+    IrrelevantDescendant {
+        block_root: Hash256,
     },
 }
 

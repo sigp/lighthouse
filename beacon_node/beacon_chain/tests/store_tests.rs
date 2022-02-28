@@ -66,6 +66,7 @@ fn get_harness(
         .default_spec()
         .keypairs(KEYPAIRS[0..validator_count].to_vec())
         .fresh_disk_store(store)
+        .mock_execution_layer()
         .build();
     harness.advance_slot();
     harness
@@ -554,6 +555,7 @@ fn delete_blocks_and_states() {
         .default_spec()
         .keypairs(validators_keypairs)
         .fresh_disk_store(store.clone())
+        .mock_execution_layer()
         .build();
 
     let unforked_blocks: u64 = 4 * E::slots_per_epoch();
@@ -680,6 +682,7 @@ fn multi_epoch_fork_valid_blocks_test(
         .default_spec()
         .keypairs(validators_keypairs)
         .fresh_disk_store(store)
+        .mock_execution_layer()
         .build();
 
     let num_fork1_blocks: u64 = num_fork1_blocks_.try_into().unwrap();
@@ -974,6 +977,7 @@ fn prunes_abandoned_fork_between_two_finalized_checkpoints() {
         .default_spec()
         .keypairs(validators_keypairs)
         .fresh_ephemeral_store()
+        .mock_execution_layer()
         .build();
     let slots_per_epoch = rig.slots_per_epoch();
     let (mut state, state_root) = rig.get_current_state_and_root();
@@ -1083,6 +1087,7 @@ fn pruning_does_not_touch_abandoned_block_shared_with_canonical_chain() {
         .default_spec()
         .keypairs(validators_keypairs)
         .fresh_ephemeral_store()
+        .mock_execution_layer()
         .build();
     let slots_per_epoch = rig.slots_per_epoch();
     let (state, state_root) = rig.get_current_state_and_root();
@@ -1212,6 +1217,7 @@ fn pruning_does_not_touch_blocks_prior_to_finalization() {
         .default_spec()
         .keypairs(validators_keypairs)
         .fresh_ephemeral_store()
+        .mock_execution_layer()
         .build();
     let slots_per_epoch = rig.slots_per_epoch();
     let (mut state, state_root) = rig.get_current_state_and_root();
@@ -1306,6 +1312,7 @@ fn prunes_fork_growing_past_youngest_finalized_checkpoint() {
         .default_spec()
         .keypairs(validators_keypairs)
         .fresh_ephemeral_store()
+        .mock_execution_layer()
         .build();
     let (state, state_root) = rig.get_current_state_and_root();
 
@@ -1448,6 +1455,7 @@ fn prunes_skipped_slots_states() {
         .default_spec()
         .keypairs(validators_keypairs)
         .fresh_ephemeral_store()
+        .mock_execution_layer()
         .build();
     let (state, state_root) = rig.get_current_state_and_root();
 
@@ -1571,6 +1579,7 @@ fn finalizes_non_epoch_start_slot() {
         .default_spec()
         .keypairs(validators_keypairs)
         .fresh_ephemeral_store()
+        .mock_execution_layer()
         .build();
     let (state, state_root) = rig.get_current_state_and_root();
 
@@ -2140,6 +2149,7 @@ fn finalizes_after_resuming_from_db() {
         .default_spec()
         .keypairs(KEYPAIRS[0..validator_count].to_vec())
         .fresh_disk_store(store.clone())
+        .mock_execution_layer()
         .build();
 
     harness.advance_slot();
@@ -2183,6 +2193,7 @@ fn finalizes_after_resuming_from_db() {
         .default_spec()
         .keypairs(KEYPAIRS[0..validator_count].to_vec())
         .resumed_disk_store(store)
+        .mock_execution_layer()
         .build();
 
     assert_chains_pretty_much_the_same(&original_chain, &resumed_harness.chain);
@@ -2254,6 +2265,7 @@ fn revert_minority_fork_on_resume() {
         .spec(spec1)
         .keypairs(KEYPAIRS[0..validator_count].to_vec())
         .fresh_disk_store(store1)
+        .mock_execution_layer()
         .build();
 
     // Chain with fork epoch configured.
@@ -2263,6 +2275,7 @@ fn revert_minority_fork_on_resume() {
         .spec(spec2.clone())
         .keypairs(KEYPAIRS[0..validator_count].to_vec())
         .fresh_disk_store(store2)
+        .mock_execution_layer()
         .build();
 
     // Apply the same blocks to both chains initially.
@@ -2358,6 +2371,7 @@ fn revert_minority_fork_on_resume() {
                 .set_slot(end_slot.as_u64());
             builder
         }))
+        .mock_execution_layer()
         .build();
 
     // Head should now be just before the fork.

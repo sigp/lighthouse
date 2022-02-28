@@ -13,7 +13,7 @@ fn verify_execution_payload_chain<T: EthSpec>(chain: &[ExecutionPayload<T>]) {
 
     for ep in chain {
         assert!(*ep != ExecutionPayload::default());
-        assert!(ep.block_hash != Hash256::zero());
+        assert!(ep.block_hash != ExecutionBlockHash::zero());
 
         // Check against previous `ExecutionPayload`.
         if let Some(prev_ep) = prev_ep {
@@ -40,7 +40,7 @@ fn merge_with_terminal_block_hash_override() {
         spec.terminal_total_difficulty,
         DEFAULT_TERMINAL_BLOCK,
         0,
-        Hash256::zero(),
+        ExecutionBlockHash::zero(),
     )
     .unwrap()
     .block_hash;

@@ -1,5 +1,5 @@
 use super::Context;
-use crate::engine_api::{http::*, PayloadStatusV1, PayloadStatusV1Status};
+use crate::engine_api::{http::*, *};
 use crate::json_structures::*;
 use serde::de::DeserializeOwned;
 use serde_json::Value as JsonValue;
@@ -57,25 +57,28 @@ pub async fn handle_rpc<T: EthSpec>(
         ENGINE_NEW_PAYLOAD_V1 => {
             let request: JsonExecutionPayloadV1<T> = get_param(params, 0)?;
 
-            let response = if let Some(status) = *ctx.static_new_payload_response.lock() {
-                match status {
-                    PayloadStatusV1Status::Valid => PayloadStatusV1 {
-                        status,
-                        latest_valid_hash: Some(request.block_hash),
-                        validation_error: None,
-                    },
-                    PayloadStatusV1Status::Syncing => PayloadStatusV1 {
-                        status,
-                        latest_valid_hash: None,
-                        validation_error: None,
-                    },
-                    _ => unimplemented!("invalid static newPayloadResponse"),
-                }
+            let (static_response, should_import) =
+                if let Some(mut response) = ctx.static_new_payload_response.lock().clone() {
+                    if response.status.status == PayloadStatusV1Status::Valid {
+                        response.status.latest_valid_hash = Some(request.block_hash)
+                    }
+
+                    (Some(response.status), response.should_import)
+                } else {
+                    (None, true)
+                };
+
+            let dynamic_response = if should_import {
+                Some(
+                    ctx.execution_block_generator
+                        .write()
+                        .new_payload(request.into()),
+                )
             } else {
-                ctx.execution_block_generator
-                    .write()
-                    .new_payload(request.into())
+                None
             };
+
+            let response = static_response.or(dynamic_response).unwrap();
 
             Ok(serde_json::to_value(JsonPayloadStatusV1::from(response)).unwrap())
         }
@@ -95,8 +98,7 @@ pub async fn handle_rpc<T: EthSpec>(
             let forkchoice_state: JsonForkChoiceStateV1 = get_param(params, 0)?;
             let payload_attributes: Option<JsonPayloadAttributesV1> = get_param(params, 1)?;
 
-            let head_block_hash = forkchoice_state.head_block_hash;
-            let id = ctx
+            let response = ctx
                 .execution_block_generator
                 .write()
                 .forkchoice_updated_v1(
@@ -104,15 +106,7 @@ pub async fn handle_rpc<T: EthSpec>(
                     payload_attributes.map(|json| json.into()),
                 )?;
 
-            Ok(serde_json::to_value(JsonForkchoiceUpdatedV1Response {
-                payload_status: JsonPayloadStatusV1 {
-                    status: JsonPayloadStatusV1Status::Valid,
-                    latest_valid_hash: Some(head_block_hash),
-                    validation_error: None,
-                },
-                payload_id: id.map(Into::into),
-            })
-            .unwrap())
+            Ok(serde_json::to_value(response).unwrap())
         }
         other => Err(format!(
             "The method {} does not exist/is not available",

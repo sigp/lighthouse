@@ -122,18 +122,24 @@ impl ForkChoiceTest {
     }
 
     /// Assert there was a shutdown signal sent by the beacon chain.
-    pub fn assert_shutdown_signal_sent(mut self) -> Self {
-        self.harness.shutdown_receiver.close();
-        let msg = self.harness.shutdown_receiver.try_next().unwrap();
-        assert!(msg.is_some());
+    pub fn shutdown_signal_sent(&self) -> bool {
+        let mutex = self.harness.shutdown_receiver.clone();
+        let mut shutdown_receiver = mutex.lock();
+
+        shutdown_receiver.close();
+        let msg = shutdown_receiver.try_next().unwrap();
+        msg.is_some()
+    }
+
+    /// Assert there was a shutdown signal sent by the beacon chain.
+    pub fn assert_shutdown_signal_sent(self) -> Self {
+        assert!(self.shutdown_signal_sent());
         self
     }
 
     /// Assert no shutdown was signal sent by the beacon chain.
-    pub fn assert_shutdown_signal_not_sent(mut self) -> Self {
-        self.harness.shutdown_receiver.close();
-        let msg = self.harness.shutdown_receiver.try_next().unwrap();
-        assert!(msg.is_none());
+    pub fn assert_shutdown_signal_not_sent(self) -> Self {
+        assert!(!self.shutdown_signal_sent());
         self
     }
 
@@ -477,6 +483,22 @@ impl ForkChoiceTest {
 
 fn is_safe_to_update(slot: Slot, spec: &ChainSpec) -> bool {
     slot % E::slots_per_epoch() < spec.safe_slots_to_update_justified
+}
+
+#[test]
+fn justified_and_finalized_blocks() {
+    let tester = ForkChoiceTest::new();
+    let fork_choice = tester.harness.chain.fork_choice.read();
+
+    let justified_checkpoint = fork_choice.justified_checkpoint();
+    assert_eq!(justified_checkpoint.epoch, 0);
+    assert!(justified_checkpoint.root != Hash256::zero());
+    assert!(fork_choice.get_justified_block().is_ok());
+
+    let finalized_checkpoint = fork_choice.finalized_checkpoint();
+    assert_eq!(finalized_checkpoint.epoch, 0);
+    assert!(finalized_checkpoint.root != Hash256::zero());
+    assert!(fork_choice.get_finalized_block().is_ok());
 }
 
 /// - The new justified checkpoint descends from the current.

@@ -40,6 +40,7 @@ fn get_harness(store: Arc<HotColdDB>, validator_count: usize) -> TestHarness {
         .default_spec()
         .keypairs(KEYPAIRS[0..validator_count].to_vec())
         .fresh_disk_store(store)
+        .mock_execution_layer()
         .build();
     harness.advance_slot();
     harness

@@ -5,7 +5,10 @@ use serde_derive::{Deserialize, Serialize};
 use ssz::{Decode, Encode};
 use ssz_derive::{Decode, Encode};
 use std::collections::HashMap;
-use types::{AttestationShufflingId, ChainSpec, Checkpoint, Epoch, EthSpec, Hash256, Slot};
+use types::{
+    AttestationShufflingId, ChainSpec, Checkpoint, Epoch, EthSpec, ExecutionBlockHash, Hash256,
+    Slot,
+};
 
 pub const DEFAULT_PRUNE_THRESHOLD: usize = 256;
 
@@ -21,11 +24,11 @@ pub struct VoteTracker {
 #[ssz(enum_behaviour = "union")]
 pub enum ExecutionStatus {
     /// An EL has determined that the payload is valid.
-    Valid(Hash256),
+    Valid(ExecutionBlockHash),
     /// An EL has determined that the payload is invalid.
-    Invalid(Hash256),
+    Invalid(ExecutionBlockHash),
     /// An EL has not yet verified the execution payload.
-    Unknown(Hash256),
+    Unknown(ExecutionBlockHash),
     /// The block is either prior to the merge fork, or after the merge fork but before the terminal
     /// PoW block has been found.
     ///
@@ -41,13 +44,44 @@ impl ExecutionStatus {
         ExecutionStatus::Irrelevant(false)
     }
 
-    pub fn block_hash(&self) -> Option<Hash256> {
+    pub fn block_hash(&self) -> Option<ExecutionBlockHash> {
         match self {
             ExecutionStatus::Valid(hash)
             | ExecutionStatus::Invalid(hash)
             | ExecutionStatus::Unknown(hash) => Some(*hash),
             ExecutionStatus::Irrelevant(_) => None,
         }
+    }
+
+    /// Returns `true` if the block:
+    ///
+    /// - Has execution enabled
+    /// - Has a valid payload
+    pub fn is_valid(&self) -> bool {
+        matches!(self, ExecutionStatus::Valid(_))
+    }
+
+    /// Returns `true` if the block:
+    ///
+    /// - Has execution enabled
+    /// - Has a payload that has not yet been verified by an EL.
+    pub fn is_not_verified(&self) -> bool {
+        matches!(self, ExecutionStatus::Unknown(_))
+    }
+
+    /// Returns `true` if the block:
+    ///
+    /// - Has execution enabled
+    /// - Has an invalid payload.
+    pub fn is_invalid(&self) -> bool {
+        matches!(self, ExecutionStatus::Invalid(_))
+    }
+
+    /// Returns `true` if the block:
+    ///
+    /// - Does not have execution enabled (before or after Bellatrix fork)
+    pub fn is_irrelevant(&self) -> bool {
+        matches!(self, ExecutionStatus::Irrelevant(_))
     }
 }
 
@@ -148,6 +182,17 @@ impl ProtoArrayForkChoice {
             votes: ElasticList::default(),
             balances: vec![],
         })
+    }
+
+    /// See `ProtoArray::propagate_execution_payload_invalidation` for documentation.
+    pub fn process_execution_payload_invalidation(
+        &mut self,
+        head_block_root: Hash256,
+        latest_valid_ancestor_root: Option<ExecutionBlockHash>,
+    ) -> Result<(), String> {
+        self.proto_array
+            .propagate_execution_payload_invalidation(head_block_root, latest_valid_ancestor_root)
+            .map_err(|e| format!("Failed to process invalid payload: {:?}", e))
     }
 
     pub fn process_attestation(
@@ -267,25 +312,19 @@ impl ProtoArrayForkChoice {
         }
     }
 
-    /// Returns `true` if the `descendant_root` has an ancestor with `ancestor_root`. Always
-    /// returns `false` if either input roots are unknown.
-    ///
-    /// ## Notes
-    ///
-    /// Still returns `true` if `ancestor_root` is known and `ancestor_root == descendant_root`.
+    /// Returns the weight of a given block.
+    pub fn get_weight(&self, block_root: &Hash256) -> Option<u64> {
+        let block_index = self.proto_array.indices.get(block_root)?;
+        self.proto_array
+            .nodes
+            .get(*block_index)
+            .map(|node| node.weight)
+    }
+
+    /// See `ProtoArray` documentation.
     pub fn is_descendant(&self, ancestor_root: Hash256, descendant_root: Hash256) -> bool {
         self.proto_array
-            .indices
-            .get(&ancestor_root)
-            .and_then(|ancestor_index| self.proto_array.nodes.get(*ancestor_index))
-            .and_then(|ancestor| {
-                self.proto_array
-                    .iter_block_roots(&descendant_root)
-                    .take_while(|(_root, slot)| *slot >= ancestor.slot)
-                    .find(|(_root, slot)| *slot == ancestor.slot)
-                    .map(|(root, _slot)| root == ancestor_root)
-            })
-            .unwrap_or(false)
+            .is_descendant(ancestor_root, descendant_root)
     }
 
     pub fn latest_message(&self, validator_index: usize) -> Option<(Hash256, Epoch)> {
