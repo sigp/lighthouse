@@ -46,7 +46,6 @@ impl ConfigAndPreset {
         let u32_hex = |v: u32| hex_string(&v.to_le_bytes());
         let u8_hex = |v: u8| hex_string(&v.to_le_bytes());
         let fields = vec![
-            ("config_name", self.config.preset_base.clone()),
             (
                 "bls_withdrawal_prefix",
                 u8_hex(spec.bls_withdrawal_prefix_byte),

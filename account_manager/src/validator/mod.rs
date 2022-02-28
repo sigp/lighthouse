@@ -6,7 +6,7 @@ pub mod modify;
 pub mod recover;
 pub mod slashing_protection;
 
-use crate::VALIDATOR_DIR_FLAG;
+use crate::{VALIDATOR_DIR_FLAG, VALIDATOR_DIR_FLAG_ALIAS};
 use clap::{App, Arg, ArgMatches};
 use directory::{parse_path_or_default_with_flag, DEFAULT_VALIDATOR_DIR};
 use environment::Environment;
@@ -21,6 +21,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
         .arg(
             Arg::with_name(VALIDATOR_DIR_FLAG)
                 .long(VALIDATOR_DIR_FLAG)
+                .alias(VALIDATOR_DIR_FLAG_ALIAS)
                 .value_name("VALIDATOR_DIRECTORY")
                 .help(
                     "The path to search for validator directories. \

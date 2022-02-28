@@ -21,7 +21,7 @@ use libp2p::{
     swarm::{SwarmBuilder, SwarmEvent},
     PeerId, Swarm, Transport,
 };
-use open_metrics_client::registry::Registry;
+use prometheus_client::registry::Registry;
 use slog::{crit, debug, info, o, trace, warn, Logger};
 use ssz::Decode;
 use std::fs::File;

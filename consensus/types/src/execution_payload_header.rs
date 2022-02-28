@@ -12,7 +12,7 @@ pub struct ExecutionPayloadHeader<T: EthSpec> {
     pub parent_hash: Hash256,
     pub fee_recipient: Address,
     pub state_root: Hash256,
-    pub receipt_root: Hash256,
+    pub receipts_root: Hash256,
     #[serde(with = "ssz_types::serde_utils::hex_fixed_vec")]
     pub logs_bloom: FixedVector<u8, T::BytesPerLogsBloom>,
     pub random: Hash256,

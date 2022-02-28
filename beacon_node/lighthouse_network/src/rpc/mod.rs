@@ -202,36 +202,25 @@ where
     }
 
     // Use connection established/closed instead of these currently
-    fn inject_connected(&mut self, peer_id: &PeerId) {
-        // find the peer's meta-data
-        debug!(self.log, "Requesting new peer's metadata"; "peer_id" => %peer_id);
-        let rpc_event =
-            RPCSend::Request(RequestId::Behaviour, OutboundRequest::MetaData(PhantomData));
-        self.events.push(NetworkBehaviourAction::NotifyHandler {
-            peer_id: *peer_id,
-            handler: NotifyHandler::Any,
-            event: rpc_event,
-        });
-    }
-
-    fn inject_disconnected(&mut self, _peer_id: &PeerId) {}
-
     fn inject_connection_established(
         &mut self,
-        _peer_id: &PeerId,
+        peer_id: &PeerId,
         _connection_id: &ConnectionId,
         _endpoint: &ConnectedPoint,
         _failed_addresses: Option<&Vec<Multiaddr>>,
+        other_established: usize,
     ) {
-    }
-
-    fn inject_connection_closed(
-        &mut self,
-        _peer_id: &PeerId,
-        _: &ConnectionId,
-        _connected_point: &ConnectedPoint,
-        _handler: Self::ProtocolsHandler,
-    ) {
+        if other_established == 0 {
+            // find the peer's meta-data
+            debug!(self.log, "Requesting new peer's metadata"; "peer_id" => %peer_id);
+            let rpc_event =
+                RPCSend::Request(RequestId::Behaviour, OutboundRequest::MetaData(PhantomData));
+            self.events.push(NetworkBehaviourAction::NotifyHandler {
+                peer_id: *peer_id,
+                handler: NotifyHandler::Any,
+                event: rpc_event,
+            });
+        }
     }
 
     fn inject_event(

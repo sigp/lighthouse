@@ -39,13 +39,13 @@ The exit phrase is the following:
 
 
 
-Below is an example for initiating a voluntary exit on the Pyrmont testnet.
+Below is an example for initiating a voluntary exit on the Prater testnet.
 
 ```
-$ lighthouse --network pyrmont account validator exit --keystore /path/to/keystore --beacon-node http://localhost:5052
+$ lighthouse --network prater account validator exit --keystore /path/to/keystore --beacon-node http://localhost:5052
 
-Running account manager for pyrmont network
-validator-dir path: ~/.lighthouse/pyrmont/validators
+Running account manager for Prater network
+validator-dir path: ~/.lighthouse/prater/validators
 
 Enter the keystore password for validator in 0xabcd
 

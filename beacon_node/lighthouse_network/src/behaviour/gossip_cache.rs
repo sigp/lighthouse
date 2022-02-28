@@ -96,19 +96,19 @@ impl GossipCacheBuilder {
     }
 
     /// Timeout for attester slashings.
-    pub fn attester_slashing(mut self, timeout: Duration) -> Self {
+    pub fn attester_slashing_timeout(mut self, timeout: Duration) -> Self {
         self.attester_slashing = Some(timeout);
         self
     }
 
     /// Timeout for aggregated sync commitee signatures.
-    pub fn signed_contribution_and_proof(mut self, timeout: Duration) -> Self {
+    pub fn signed_contribution_and_proof_timeout(mut self, timeout: Duration) -> Self {
         self.signed_contribution_and_proof = Some(timeout);
         self
     }
 
     /// Timeout for sync commitee messages.
-    pub fn sync_committee_message(mut self, timeout: Duration) -> Self {
+    pub fn sync_committee_message_timeout(mut self, timeout: Duration) -> Self {
         self.sync_committee_message = Some(timeout);
         self
     }

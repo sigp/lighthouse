@@ -187,12 +187,13 @@ impl<'a> SszDecoderBuilder<'a> {
             let start = self.items_index;
             self.items_index += ssz_fixed_len;
 
-            let slice = self.bytes.get(start..self.items_index).ok_or_else(|| {
-                DecodeError::InvalidByteLength {
-                    len: self.bytes.len(),
-                    expected: self.items_index,
-                }
-            })?;
+            let slice =
+                self.bytes
+                    .get(start..self.items_index)
+                    .ok_or(DecodeError::InvalidByteLength {
+                        len: self.bytes.len(),
+                        expected: self.items_index,
+                    })?;
 
             self.items.push(slice);
         } else {
@@ -347,12 +348,12 @@ pub fn split_union_bytes(bytes: &[u8]) -> Result<(UnionSelector, &[u8]), DecodeE
 /// Reads a `BYTES_PER_LENGTH_OFFSET`-byte length from `bytes`, where `bytes.len() >=
 /// BYTES_PER_LENGTH_OFFSET`.
 pub fn read_offset(bytes: &[u8]) -> Result<usize, DecodeError> {
-    decode_offset(bytes.get(0..BYTES_PER_LENGTH_OFFSET).ok_or_else(|| {
+    decode_offset(bytes.get(0..BYTES_PER_LENGTH_OFFSET).ok_or(
         DecodeError::InvalidLengthPrefix {
             len: bytes.len(),
             expected: BYTES_PER_LENGTH_OFFSET,
-        }
-    })?)
+        },
+    )?)
 }
 
 /// Decode bytes as a little-endian usize, returning an `Err` if `bytes.len() !=

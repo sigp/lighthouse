@@ -38,6 +38,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
         .arg(
             Arg::with_name("validators-dir")
                 .long("validators-dir")
+                .alias("validator-dir")
                 .value_name("VALIDATORS_DIR")
                 .help(
                     "The directory which contains the validator keystores, deposit data for \
@@ -126,6 +127,22 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .value_name("GRAFFITI-FILE")
                 .takes_value(true)
                 .conflicts_with("graffiti")
+        )
+        .arg(
+            Arg::with_name("suggested-fee-recipient")
+                .long("suggested-fee-recipient")
+                .help("The fallback address provided to the BN if nothing suitable is found \
+                           in the validator definitions or fee recipient file.")
+                .value_name("FEE-RECIPIENT")
+                .takes_value(true)
+        )
+        .arg(
+            Arg::with_name("suggested-fee-recipient-file")
+                .long("suggested-fee-recipient-file")
+                .help("The fallback address provided to the BN if nothing suitable is found \
+                           in the validator definitions.")
+                .value_name("FEE-RECIPIENT-FILE")
+                .takes_value(true)
         )
         /* REST API related arguments */
         .arg(

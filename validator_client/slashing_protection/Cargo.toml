@@ -2,7 +2,7 @@
 name = "slashing_protection"
 version = "0.1.0"
 authors = ["Michael Sproul <michael@sigmaprime.io>", "pscott <scottpiriou@gmail.com>"]
-edition = "2018"
+edition = "2021"
 autotests = false
 
 [[test]]

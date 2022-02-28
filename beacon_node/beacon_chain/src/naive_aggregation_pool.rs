@@ -421,10 +421,7 @@ impl<T: AggregateMap> NaiveAggregationPool<T> {
 
     /// Iterate all items in all slots of `self`.
     pub fn iter(&self) -> impl Iterator<Item = &T::Value> {
-        self.maps
-            .iter()
-            .map(|(_slot, map)| map.get_map().iter().map(|(_key, value)| value))
-            .flatten()
+        self.maps.values().flat_map(|map| map.get_map().values())
     }
 
     /// Removes any items with a slot lower than `current_slot` and bars any future

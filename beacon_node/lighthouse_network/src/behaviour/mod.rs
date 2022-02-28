@@ -2,7 +2,9 @@ use crate::behaviour::gossipsub_scoring_parameters::{
     lighthouse_gossip_thresholds, PeerScoreSettings,
 };
 use crate::config::gossipsub_config;
-use crate::discovery::{subnet_predicate, Discovery, DiscoveryEvent};
+use crate::discovery::{
+    subnet_predicate, Discovery, DiscoveryEvent, FIND_NODE_QUERY_CLOSEST_PEERS,
+};
 use crate::peer_manager::{
     config::Config as PeerManagerCfg, peerdb::score::PeerAction, peerdb::score::ReportSource,
     ConnectionDirection, PeerManager, PeerManagerEvent,
@@ -218,7 +220,7 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
         let mut discovery =
             Discovery::new(local_key, &config, network_globals.clone(), log).await?;
         // start searching for peers
-        discovery.discover_peers();
+        discovery.discover_peers(FIND_NODE_QUERY_CLOSEST_PEERS);
 
         // Grab our local ENR FORK ID
         let enr_fork_id = network_globals
@@ -288,13 +290,18 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
         };
 
         let slot_duration = std::time::Duration::from_secs(ctx.chain_spec.seconds_per_slot);
-        // Half an epoch
-        let gossip_max_retry_delay = std::time::Duration::from_secs(
+        let half_epoch = std::time::Duration::from_secs(
             ctx.chain_spec.seconds_per_slot * TSpec::slots_per_epoch() / 2,
         );
         let gossip_cache = GossipCache::builder()
-            .default_timeout(gossip_max_retry_delay)
             .beacon_block_timeout(slot_duration)
+            .aggregates_timeout(half_epoch)
+            .attestation_timeout(half_epoch)
+            .voluntary_exit_timeout(half_epoch * 2)
+            .proposer_slashing_timeout(half_epoch * 2)
+            .attester_slashing_timeout(half_epoch * 2)
+            // .signed_contribution_and_proof_timeout(timeout) // Do not retry
+            // .sync_committee_message_timeout(timeout) // Do not retry
             .build();
 
         Ok(Behaviour {
@@ -451,7 +458,7 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
                         GossipKind::Attestation(subnet_id) => {
                             if let Some(v) = metrics::get_int_gauge(
                                 &metrics::FAILED_ATTESTATION_PUBLISHES_PER_SUBNET,
-                                &[&subnet_id.to_string()],
+                                &[subnet_id.as_ref()],
                             ) {
                                 v.inc()
                             };
@@ -812,7 +819,11 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
         for peer_id in peers_to_dial {
             debug!(self.log, "Dialing cached ENR peer"; "peer_id" => %peer_id);
             // Remove the ENR from the cache to prevent continual re-dialing on disconnects
+
             self.discovery.remove_cached_enr(&peer_id);
+            // For any dial event, inform the peer manager
+            let enr = self.discovery_mut().enr_of_peer(&peer_id);
+            self.peer_manager.inject_dialing(&peer_id, enr);
             self.internal_events
                 .push_back(InternalBehaviourMessage::DialPeer(peer_id));
         }
@@ -1096,6 +1107,9 @@ impl<TSpec: EthSpec> NetworkBehaviourEventProcess<DiscoveryEvent> for Behaviour<
                 let to_dial_peers = self.peer_manager.peers_discovered(results);
                 for peer_id in to_dial_peers {
                     debug!(self.log, "Dialing discovered peer"; "peer_id" => %peer_id);
+                    // For any dial event, inform the peer manager
+                    let enr = self.discovery_mut().enr_of_peer(&peer_id);
+                    self.peer_manager.inject_dialing(&peer_id, enr);
                     self.internal_events
                         .push_back(InternalBehaviourMessage::DialPeer(peer_id));
                 }
@@ -1147,9 +1161,6 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
         if let Some(event) = self.internal_events.pop_front() {
             match event {
                 InternalBehaviourMessage::DialPeer(peer_id) => {
-                    // For any dial event, inform the peer manager
-                    let enr = self.discovery_mut().enr_of_peer(&peer_id);
-                    self.peer_manager.inject_dialing(&peer_id, enr);
                     // Submit the event
                     let handler = self.new_handler();
                     return Poll::Ready(NBAction::Dial {
@@ -1221,9 +1232,9 @@ impl<TSpec: EthSpec> NetworkBehaviourEventProcess<PeerManagerEvent> for Behaviou
                 // the network to send a status to this peer
                 self.add_event(BehaviourEvent::StatusPeer(peer_id));
             }
-            PeerManagerEvent::DiscoverPeers => {
+            PeerManagerEvent::DiscoverPeers(peers_to_find) => {
                 // Peer manager has requested a discovery query for more peers.
-                self.discovery.discover_peers();
+                self.discovery.discover_peers(peers_to_find);
             }
             PeerManagerEvent::DiscoverSubnetPeers(subnets_to_discover) => {
                 // Peer manager has requested a subnet discovery query for more peers.
