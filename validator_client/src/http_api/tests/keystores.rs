@@ -5,7 +5,6 @@ use eth2::lighthouse_vc::{
     std_types::{KeystoreJsonStr as Keystore, *},
     types::Web3SignerValidatorRequest,
 };
-// use eth2_keystore::Keystore;
 use itertools::Itertools;
 use rand::{rngs::SmallRng, Rng, SeedableRng};
 use slashing_protection::interchange::{Interchange, InterchangeMetadata};
@@ -148,6 +147,7 @@ fn check_delete_response<'a>(
 #[test]
 fn get_auth_no_token() {
     run_test(|mut tester| async move {
+        let _ = &tester;
         tester.client.send_authorization_header(false);
         let auth_response = tester.client.get_auth().await.unwrap();
 
@@ -163,6 +163,7 @@ fn get_auth_no_token() {
 #[test]
 fn get_empty_keystores() {
     run_test(|tester| async move {
+        let _ = &tester;
         let res = tester.client.get_keystores().await.unwrap();
         assert_eq!(res, ListKeystoresResponse { data: vec![] });
     })
@@ -171,6 +172,7 @@ fn get_empty_keystores() {
 #[test]
 fn import_new_keystores() {
     run_test(|tester| async move {
+        let _ = &tester;
         let password = random_password_string();
         let keystores = (0..3)
             .map(|_| new_keystore(password.clone()))
@@ -198,6 +200,7 @@ fn import_new_keystores() {
 #[test]
 fn import_only_duplicate_keystores() {
     run_test(|tester| async move {
+        let _ = &tester;
         let password = random_password_string();
         let keystores = (0..3)
             .map(|_| new_keystore(password.clone()))
@@ -226,6 +229,7 @@ fn import_only_duplicate_keystores() {
 #[test]
 fn import_some_duplicate_keystores() {
     run_test(|tester| async move {
+        let _ = &tester;
         let password = random_password_string();
         let num_keystores = 5;
         let keystores_all = (0..num_keystores)
@@ -276,6 +280,7 @@ fn import_some_duplicate_keystores() {
 #[test]
 fn import_wrong_number_of_passwords() {
     run_test(|tester| async move {
+        let _ = &tester;
         let password = random_password_string();
         let keystores = (0..3)
             .map(|_| new_keystore(password.clone()))
@@ -297,6 +302,7 @@ fn import_wrong_number_of_passwords() {
 #[test]
 fn get_web3_signer_keystores() {
     run_test(|tester| async move {
+        let _ = &tester;
         let num_local = 3;
         let num_remote = 2;
 
@@ -356,6 +362,7 @@ fn get_web3_signer_keystores() {
 #[test]
 fn import_and_delete_conflicting_web3_signer_keystores() {
     run_test(|tester| async move {
+        let _ = &tester;
         let num_keystores = 3;
 
         // Create some keystores to be used as both web3signer keystores and local keystores.
@@ -420,6 +427,7 @@ fn import_and_delete_conflicting_web3_signer_keystores() {
 #[test]
 fn import_keystores_wrong_password() {
     run_test(|tester| async move {
+        let _ = &tester;
         let num_keystores = 4;
         let (keystores, correct_passwords): (Vec<_>, Vec<_>) = (0..num_keystores)
             .map(|_| {
@@ -494,6 +502,7 @@ fn import_keystores_wrong_password() {
 #[test]
 fn import_invalid_slashing_protection() {
     run_test(|tester| async move {
+        let _ = &tester;
         let password = random_password_string();
         let keystores = (0..3)
             .map(|_| new_keystore(password.clone()))
@@ -642,6 +651,7 @@ fn generic_migration_test(
     second_vc_attestations: Vec<(usize, Attestation<E>, bool)>,
 ) {
     run_dual_vc_test(move |tester1, tester2| async move {
+        let _ = (&tester1, &tester2);
         // Create the validators on VC1.
         let (keystores, passwords): (Vec<_>, Vec<_>) = (0..num_validators)
             .map(|_| {
@@ -756,6 +766,7 @@ fn generic_migration_test(
 #[test]
 fn delete_keystores_twice() {
     run_test(|tester| async move {
+        let _ = &tester;
         let password = random_password_string();
         let keystores = (0..2)
             .map(|_| new_keystore(password.clone()))
@@ -786,6 +797,7 @@ fn delete_keystores_twice() {
 #[test]
 fn delete_nonexistent_keystores() {
     run_test(|tester| async move {
+        let _ = &tester;
         let password = random_password_string();
         let keystores = (0..2)
             .map(|_| new_keystore(password.clone()))
@@ -947,6 +959,7 @@ fn delete_concurrent_with_signing() {
 #[test]
 fn delete_then_reimport() {
     run_test(|tester| async move {
+        let _ = &tester;
         let password = random_password_string();
         let keystores = (0..2)
             .map(|_| new_keystore(password.clone()))

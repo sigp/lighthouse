@@ -705,13 +705,15 @@ pub fn set_network_config(
                 // Appending enr-port to the dns hostname to appease `to_socket_addrs()` parsing.
                 // Since enr-update is disabled with a dns address, not setting the enr-udp-port
                 // will make the node undiscoverable.
-                if let Some(enr_udp_port) = config.enr_udp_port.or_else(|| {
-                    if use_listening_port_as_enr_port_by_default {
-                        Some(config.discovery_port)
-                    } else {
-                        None
-                    }
-                }) {
+                if let Some(enr_udp_port) =
+                    config
+                        .enr_udp_port
+                        .or(if use_listening_port_as_enr_port_by_default {
+                            Some(config.discovery_port)
+                        } else {
+                            None
+                        })
+                {
                     addr.push_str(&format!(":{}", enr_udp_port));
                 } else {
                     return Err(

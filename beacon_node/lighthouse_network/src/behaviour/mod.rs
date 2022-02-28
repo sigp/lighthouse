@@ -458,7 +458,7 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
                         GossipKind::Attestation(subnet_id) => {
                             if let Some(v) = metrics::get_int_gauge(
                                 &metrics::FAILED_ATTESTATION_PUBLISHES_PER_SUBNET,
-                                &[&subnet_id.to_string()],
+                                &[subnet_id.as_ref()],
                             ) {
                                 v.inc()
                             };

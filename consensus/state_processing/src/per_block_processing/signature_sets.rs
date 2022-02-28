@@ -177,7 +177,7 @@ where
 
     Ok(SignatureSet::single_pubkey(
         block.body().randao_reveal(),
-        get_pubkey(proposer_index).ok_or_else(|| Error::ValidatorUnknown(proposer_index as u64))?,
+        get_pubkey(proposer_index).ok_or(Error::ValidatorUnknown(proposer_index as u64))?,
         message,
     ))
 }
@@ -199,15 +199,13 @@ where
         block_header_signature_set(
             state,
             &proposer_slashing.signed_header_1,
-            get_pubkey(proposer_index)
-                .ok_or_else(|| Error::ValidatorUnknown(proposer_index as u64))?,
+            get_pubkey(proposer_index).ok_or(Error::ValidatorUnknown(proposer_index as u64))?,
             spec,
         ),
         block_header_signature_set(
             state,
             &proposer_slashing.signed_header_2,
-            get_pubkey(proposer_index)
-                .ok_or_else(|| Error::ValidatorUnknown(proposer_index as u64))?,
+            get_pubkey(proposer_index).ok_or(Error::ValidatorUnknown(proposer_index as u64))?,
             spec,
         ),
     ))
@@ -363,7 +361,7 @@ where
 
     Ok(SignatureSet::single_pubkey(
         &signed_exit.signature,
-        get_pubkey(proposer_index).ok_or_else(|| Error::ValidatorUnknown(proposer_index as u64))?,
+        get_pubkey(proposer_index).ok_or(Error::ValidatorUnknown(proposer_index as u64))?,
         message,
     ))
 }
@@ -521,7 +519,7 @@ where
 {
     let mut pubkeys = Vec::with_capacity(T::SyncSubcommitteeSize::to_usize());
     for pubkey in pubkey_bytes {
-        pubkeys.push(get_pubkey(pubkey).ok_or_else(|| Error::ValidatorPubkeyUnknown(*pubkey))?);
+        pubkeys.push(get_pubkey(pubkey).ok_or(Error::ValidatorPubkeyUnknown(*pubkey))?);
     }
 
     let domain = spec.get_domain(epoch, Domain::SyncCommittee, fork, genesis_validators_root);

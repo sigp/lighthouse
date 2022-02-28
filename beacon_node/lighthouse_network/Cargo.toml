@@ -2,7 +2,7 @@
 name = "lighthouse_network"
 version = "0.2.0"
 authors = ["Sigma Prime <contact@sigmaprime.io>"]
-edition = "2018"
+edition = "2021"
 
 [dependencies]
 discv5 = { version = "0.1.0-beta.13", features = ["libp2p"] }
