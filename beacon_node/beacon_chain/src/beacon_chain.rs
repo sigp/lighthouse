@@ -1118,6 +1118,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 .beacon_state
                 .proposer_shuffling_decision_root(head.beacon_block_root)?;
 
+            // The `random` value is used whilst producing an `ExecutionPayload` atop the head.
             let current_epoch = head.beacon_state.current_epoch();
             let random = *head.beacon_state.get_randao_mix(current_epoch)?;
 
@@ -3700,12 +3701,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     );
                 }
 
-                // This performing this call immediately after
+                // Performing this call immediately after
                 // `update_execution_engine_forkchoice_blocking` might result in two calls to fork
-                // choice, one *without* payload attributes and then a second *with* payload
-                // attributes.
+                // choice updated, one *without* payload attributes and then a second *with*
+                // payload attributes.
                 //
-                // This seems OK, it's not a significant waste of EL<>CL bandwidth or resources, as
+                // This seems OK. It's not a significant waste of EL<>CL bandwidth or resources, as
                 // far as I know.
                 if let Err(e) = self.prepare_beacon_proposer_blocking() {
                     crit!(
@@ -3751,7 +3752,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         // Nothing to do if there are no proposers registered with the EL, exit early to avoid
         // wasting cycles.
-        if !execution_layer.has_proposers().await {
+        if !execution_layer.has_any_proposer_preparation_data().await {
             return Ok(());
         }
 

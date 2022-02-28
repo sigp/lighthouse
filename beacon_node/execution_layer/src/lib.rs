@@ -335,7 +335,7 @@ impl ExecutionLayer {
         self.block_on_generic(|_| async move {
             self.update_proposer_preparation(update_epoch, preparation_data)
                 .await
-        })?
+        })
     }
 
     /// Updates the proposer preparation data provided by validators
@@ -343,7 +343,7 @@ impl ExecutionLayer {
         &self,
         update_epoch: Epoch,
         preparation_data: &[ProposerPreparationData],
-    ) -> Result<(), Error> {
+    ) {
         let mut proposer_preparation_data = self.proposer_preparation_data().await;
         for preparation_entry in preparation_data {
             proposer_preparation_data.insert(
@@ -354,8 +354,6 @@ impl ExecutionLayer {
                 },
             );
         }
-
-        Ok(())
     }
 
     /// Removes expired entries from cached proposer preparations
@@ -371,10 +369,14 @@ impl ExecutionLayer {
         Ok(())
     }
 
-    pub async fn has_proposers(&self) -> bool {
+    /// Returns `true` if there have been any validators registered via
+    /// `Self::update_proposer_preparation`.
+    pub async fn has_any_proposer_preparation_data(&self) -> bool {
         !self.proposer_preparation_data().await.is_empty()
     }
 
+    /// Returns `true` if the `proposer_index` has registered as a local validator via
+    /// `Self::update_proposer_preparation`.
     pub async fn has_proposer_preparation_data(&self, proposer_index: u64) -> bool {
         self.proposer_preparation_data()
             .await
@@ -523,6 +525,10 @@ impl ExecutionLayer {
         )
     }
 
+    /// Register that the given `validator_index` is going to produce a block at `slot`.
+    ///
+    /// The block will be build atop `head_block_root` and the EL will need to prepare an
+    /// `ExecutionPayload` as defined by the given `payload_attributes`.
     pub async fn insert_proposer(
         &self,
         slot: Slot,
@@ -548,6 +554,9 @@ impl ExecutionLayer {
             .is_some()
     }
 
+    /// If there has been a proposer registered via `Self::insert_proposer` with a matching `slot`
+    /// `head_block_root`, then return the appropriate `PayloadAttributes` for inclusion in
+    /// `forkchoiceUpdated` calls.
     pub async fn payload_attributes(
         &self,
         current_slot: Slot,
