@@ -32,8 +32,8 @@ use std::time::Duration;
 use timer::spawn_timer;
 use tokio::sync::{mpsc::UnboundedSender, oneshot};
 use types::{
-    test_utils::generate_deterministic_keypairs, BeaconState, ChainSpec, EthSpec,
-    ExecutionBlockHash, Hash256, SignedBeaconBlock,
+    test_utils::generate_deterministic_keypairs, BeaconState, ChainSpec, EthSpec, Hash256,
+    SignedBeaconBlock,
 };
 
 /// Interval between polling the eth1 node for genesis information.
@@ -673,24 +673,7 @@ where
 
                 // Issue the head to the execution engine on startup. This ensures it can start
                 // syncing.
-                if let Some(block_hash) = head.execution_payload_block_hash {
-                    let finalized_root = head.finalized_checkpoint.root;
-                    let finalized_block = beacon_chain
-                        .store
-                        .get_block(&finalized_root)
-                        .map_err(|e| format!("Failed to read finalized block from DB: {:?}", e))?
-                        .ok_or(format!(
-                            "Finalized block missing from store: {:?}",
-                            finalized_root
-                        ))?;
-                    let finalized_execution_block_hash = finalized_block
-                        .message()
-                        .body()
-                        .execution_payload()
-                        .ok()
-                        .map(|ep| ep.block_hash)
-                        .unwrap_or_else(ExecutionBlockHash::zero);
-
+                if head.execution_payload_block_hash.is_some() {
                     // Spawn a new task using the "async" fork choice update method, rather than
                     // using the "blocking" method.
                     //
@@ -700,12 +683,7 @@ where
                     runtime_context.executor.spawn(
                         async move {
                             let result = inner_chain
-                                .update_execution_engine_forkchoice_async(
-                                    finalized_execution_block_hash,
-                                    head.block_root,
-                                    block_hash,
-                                    current_slot,
-                                )
+                                .update_execution_engine_forkchoice_async(current_slot)
                                 .await;
 
                             // No need to exit early if setting the head fails. It will be set again if/when the

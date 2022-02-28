@@ -82,6 +82,7 @@ pub struct Proposer {
 
 struct Inner {
     engines: Engines<HttpJsonRpc>,
+    execution_engine_forkchoice_lock: Mutex<()>,
     suggested_fee_recipient: Option<Address>,
     proposer_preparation_data: Mutex<HashMap<u64, ProposerPreparationDataEntry>>,
     execution_blocks: Mutex<LruCache<ExecutionBlockHash, ExecutionBlock>>,
@@ -131,6 +132,7 @@ impl ExecutionLayer {
                 latest_forkchoice_state: <_>::default(),
                 log: log.clone(),
             },
+            execution_engine_forkchoice_lock: <_>::default(),
             suggested_fee_recipient,
             proposer_preparation_data: Mutex::new(HashMap::new()),
             proposers: RwLock::new(HashMap::new()),
@@ -174,6 +176,10 @@ impl ExecutionLayer {
 
     fn log(&self) -> &Logger {
         &self.inner.log
+    }
+
+    pub async fn execution_engine_forkchoice_lock(&self) -> MutexGuard<'_, ()> {
+        self.inner.execution_engine_forkchoice_lock.lock().await
     }
 
     /// Convenience function to allow calling async functions in a non-async context.

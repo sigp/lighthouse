@@ -3464,13 +3464,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .attester_shuffling_decision_root(self.genesis_block_root, RelativeEpoch::Current);
 
         // Used later for the execution engine.
-        let new_head_execution_block_hash_opt = new_head
-            .beacon_block
-            .message()
-            .body()
-            .execution_payload()
-            .ok()
-            .map(|ep| ep.block_hash);
         let is_merge_transition_complete = is_merge_transition_complete(&new_head.beacon_state);
 
         drop(lag_timer);
@@ -3680,41 +3673,30 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         }
 
         // If this is a post-merge block, update the execution layer.
-        if let Some(new_head_execution_block_hash) = new_head_execution_block_hash_opt {
-            if is_merge_transition_complete {
-                let finalized_execution_block_hash = finalized_block
-                    .execution_status
-                    .block_hash()
-                    .unwrap_or_else(ExecutionBlockHash::zero);
-                let current_slot = self.slot()?;
+        if is_merge_transition_complete {
+            let current_slot = self.slot()?;
 
-                if let Err(e) = self.update_execution_engine_forkchoice_blocking(
-                    finalized_execution_block_hash,
-                    beacon_block_root,
-                    new_head_execution_block_hash,
-                    current_slot,
-                ) {
-                    crit!(
-                        self.log,
-                        "Failed to update execution head";
-                        "error" => ?e
-                    );
-                }
+            if let Err(e) = self.update_execution_engine_forkchoice_blocking(current_slot) {
+                crit!(
+                    self.log,
+                    "Failed to update execution head";
+                    "error" => ?e
+                );
+            }
 
-                // Performing this call immediately after
-                // `update_execution_engine_forkchoice_blocking` might result in two calls to fork
-                // choice updated, one *without* payload attributes and then a second *with*
-                // payload attributes.
-                //
-                // This seems OK. It's not a significant waste of EL<>CL bandwidth or resources, as
-                // far as I know.
-                if let Err(e) = self.prepare_beacon_proposer_blocking() {
-                    crit!(
-                        self.log,
-                        "Failed to prepare proposers after fork choice";
-                        "error" => ?e
-                    );
-                }
+            // Performing this call immediately after
+            // `update_execution_engine_forkchoice_blocking` might result in two calls to fork
+            // choice updated, one *without* payload attributes and then a second *with*
+            // payload attributes.
+            //
+            // This seems OK. It's not a significant waste of EL<>CL bandwidth or resources, as
+            // far as I know.
+            if let Err(e) = self.prepare_beacon_proposer_blocking() {
+                crit!(
+                    self.log,
+                    "Failed to prepare proposers after fork choice";
+                    "error" => ?e
+                );
             }
         }
 
@@ -3758,14 +3740,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         let head = self.head_info()?;
 
-        let head_block_hash = if let Some(block_hash) = head.execution_payload_block_hash {
-            block_hash
-        } else {
-            // We only start to push preparation data for some chain *after* the transition block
-            // has been imported.
-            //
-            // There is no payload preparation for the transition block (i.e., the first block with
-            // execution enabled in some chain).
+        // We only start to push preparation data for some chain *after* the transition block
+        // has been imported.
+        //
+        // There is no payload preparation for the transition block (i.e., the first block with
+        // execution enabled in some chain).
+        if head.execution_payload_block_hash.is_none() {
             return Ok(());
         };
 
@@ -3886,22 +3866,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 "prepare_slot" => prepare_slot
             );
 
-            let finalized_root = head.finalized_checkpoint.root;
-            let finalized_hash = self
-                .fork_choice
-                .read()
-                .get_block(&finalized_root)
-                .ok_or(Error::FinalizedBlockMissingFromForkChoice(finalized_root))?
-                .execution_status
-                .block_hash()
-                .unwrap_or_else(ExecutionBlockHash::zero);
-
-            self.update_execution_engine_forkchoice_blocking(
-                finalized_hash,
-                head.block_root,
-                head_block_hash,
-                current_slot,
-            )?;
+            // Use the blocking method here so that we don't form a queue of these functions when
+            // routinely calling them.
+            self.update_execution_engine_forkchoice_blocking(current_slot)?;
         }
 
         Ok(())
@@ -3909,9 +3876,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
     pub fn update_execution_engine_forkchoice_blocking(
         &self,
-        finalized_execution_block_hash: ExecutionBlockHash,
-        head_block_root: Hash256,
-        head_execution_block_hash: ExecutionBlockHash,
         current_slot: Slot,
     ) -> Result<(), Error> {
         let execution_layer = self
@@ -3920,24 +3884,62 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .ok_or(Error::ExecutionLayerMissing)?;
 
         execution_layer
-            .block_on_generic(|_| {
-                self.update_execution_engine_forkchoice_async(
-                    finalized_execution_block_hash,
-                    head_block_root,
-                    head_execution_block_hash,
-                    current_slot,
-                )
-            })
+            .block_on_generic(|_| self.update_execution_engine_forkchoice_async(current_slot))
             .map_err(Error::ForkchoiceUpdate)?
     }
 
     pub async fn update_execution_engine_forkchoice_async(
         &self,
-        finalized_execution_block_hash: ExecutionBlockHash,
-        head_block_root: Hash256,
-        head_execution_block_hash: ExecutionBlockHash,
         current_slot: Slot,
     ) -> Result<(), Error> {
+        let execution_layer = self
+            .execution_layer
+            .as_ref()
+            .ok_or(Error::ExecutionLayerMissing)?;
+
+        // Take the global lock for updating the execution engine fork choice.
+        //
+        // Whilst holding this lock we must:
+        //
+        // 1. Read the canonical head.
+        // 2. Issue a forkchoiceUpdated call to the execution engine.
+        //
+        // This will allow us to ensure that we provide the execution layer with an *ordered* view
+        // of the head. I.e., we will never communicate a past head after communicating a later
+        // one.
+        //
+        // There are two "deadlock warnings" in this function. The downside of this nice ordering
+        // is the potential for deadlock. I would advise against any other use of
+        // `execution_engine_forkchoice_lock` apart from the one here.
+        let forkchoice_lock = execution_layer.execution_engine_forkchoice_lock().await;
+
+        // Deadlock warning:
+        //
+        // We are taking the `self.canonical_head` lock whilst holding the `forkchoice_lock`. This
+        // is intentional, since it allows us to ensure a consistent ordering of messages to the
+        // execution layer.
+        let head = self.head_info()?;
+        let head_block_root = head.block_root;
+        let head_execution_block_hash = if let Some(hash) = head.execution_payload_block_hash {
+            hash
+        } else {
+            // Don't send fork choice updates to the execution layer before the transition block.
+            return Ok(());
+        };
+
+        // Deadlock warning:
+        //
+        // The same as above, but the lock on `self.fork_choice`.
+        let finalized_root = head.finalized_checkpoint.root;
+        let finalized_execution_block_hash = self
+            .fork_choice
+            .read()
+            .get_block(&finalized_root)
+            .ok_or(Error::FinalizedBlockMissingFromForkChoice(finalized_root))?
+            .execution_status
+            .block_hash()
+            .unwrap_or_else(ExecutionBlockHash::zero);
+
         let forkchoice_updated_response = self
             .execution_layer
             .as_ref()
@@ -3950,6 +3952,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             )
             .await
             .map_err(Error::ExecutionForkChoiceUpdateFailed);
+
+        // The head has been read and the execution layer has been updated. It is now valid to send
+        // another fork choice update.
+        drop(forkchoice_lock);
 
         match forkchoice_updated_response {
             Ok(status) => match &status {
