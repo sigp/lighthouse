@@ -3,6 +3,7 @@ use execution_layer::{ExecutionLayer, PayloadAttributes, PayloadStatus};
 use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use task_executor::TaskExecutor;
+use tempfile::NamedTempFile;
 use tokio::time::sleep;
 use types::{Address, ChainSpec, EthSpec, ExecutionBlockHash, Hash256, MainnetEthSpec, Uint256};
 
@@ -47,9 +48,22 @@ impl<E: GenericExecutionEngine> TestRig<E> {
         let ee_a = {
             let execution_engine = ExecutionEngine::new(generic_engine.clone());
             let urls = vec![execution_engine.http_url()];
+            let file = NamedTempFile::new().unwrap();
+
+            let path = file.path().into();
+            std::fs::write(
+                &path,
+                "0x2a7b5bc2c6b5902f716ea513f9a62381c03c41077e772a906709663245df425c",
+            )
+            .unwrap();
+            let config = execution_layer::Config {
+                endpoint_urls: urls,
+                secret_files: vec![path],
+                suggested_fee_recipient: Some(Address::repeat_byte(42)),
+                ..Default::default()
+            };
             let execution_layer =
-                ExecutionLayer::from_urls(urls, fee_recipient, executor.clone(), log.clone())
-                    .unwrap();
+                ExecutionLayer::from_config(config, executor.clone(), log.clone()).unwrap();
             ExecutionPair {
                 execution_engine,
                 execution_layer,
@@ -59,8 +73,22 @@ impl<E: GenericExecutionEngine> TestRig<E> {
         let ee_b = {
             let execution_engine = ExecutionEngine::new(generic_engine);
             let urls = vec![execution_engine.http_url()];
+            let file = NamedTempFile::new().unwrap();
+
+            let path = file.path().into();
+            std::fs::write(
+                &path,
+                "0x2a7b5bc2c6b5902f716ea513f9a62381c03c41077e772a906709663245df425c",
+            )
+            .unwrap();
+            let config = execution_layer::Config {
+                endpoint_urls: urls,
+                secret_files: vec![path],
+                suggested_fee_recipient: fee_recipient,
+                ..Default::default()
+            };
             let execution_layer =
-                ExecutionLayer::from_urls(urls, fee_recipient, executor, log).unwrap();
+                ExecutionLayer::from_config(config, executor.clone(), log.clone()).unwrap();
             ExecutionPair {
                 execution_engine,
                 execution_layer,

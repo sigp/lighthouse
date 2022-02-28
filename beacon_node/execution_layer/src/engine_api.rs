@@ -16,7 +16,7 @@ pub type PayloadId = [u8; 8];
 #[derive(Debug)]
 pub enum Error {
     Reqwest(reqwest::Error),
-    AuthError(jsonwebtoken::errors::Error),
+    AuthError(auth::Error),
     BadResponse(String),
     RequestFailed(String),
     InvalidExecutePayloadResponse(&'static str),
@@ -43,8 +43,8 @@ impl From<serde_json::Error> for Error {
     }
 }
 
-impl From<jsonwebtoken::errors::Error> for Error {
-    fn from(e: jsonwebtoken::errors::Error) -> Self {
+impl From<auth::Error> for Error {
+    fn from(e: auth::Error) -> Self {
         Error::AuthError(e)
     }
 }

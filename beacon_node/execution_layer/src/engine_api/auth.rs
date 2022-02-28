@@ -1,7 +1,25 @@
-use jsonwebtoken::{encode, errors::Error, get_current_timestamp, Algorithm, EncodingKey, Header};
+use jsonwebtoken::{encode, get_current_timestamp, Algorithm, EncodingKey, Header};
 use serde::{Deserialize, Serialize};
 
 const DEFAULT_ALGORITHM: Algorithm = Algorithm::HS256;
+
+#[derive(Debug)]
+pub enum Error {
+    FromHexError(hex::FromHexError),
+    JWTError(jsonwebtoken::errors::Error),
+}
+
+impl From<hex::FromHexError> for Error {
+    fn from(e: hex::FromHexError) -> Self {
+        Error::FromHexError(e)
+    }
+}
+
+impl From<jsonwebtoken::errors::Error> for Error {
+    fn from(e: jsonwebtoken::errors::Error) -> Self {
+        Error::JWTError(e)
+    }
+}
 
 pub struct Auth {
     secret: EncodingKey,
@@ -12,7 +30,7 @@ pub struct Auth {
 impl Auth {
     pub fn new(secret: &str, id: Option<String>, clv: Option<String>) -> Result<Self, Error> {
         Ok(Self {
-            secret: EncodingKey::from_base64_secret(secret)?,
+            secret: EncodingKey::from_secret(hex::decode(secret)?.as_slice()),
             id,
             clv,
         })
@@ -26,7 +44,7 @@ impl Auth {
             id: self.id.clone(),
             clv: self.clv.clone(),
         };
-        encode(&header, &claims, &self.secret)
+        Ok(encode(&header, &claims, &self.secret)?)
     }
 }
 

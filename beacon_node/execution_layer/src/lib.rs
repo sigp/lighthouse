@@ -4,15 +4,19 @@
 //! This crate only provides useful functionality for "The Merge", it does not provide any of the
 //! deposit-contract functionality that the `beacon_node/eth1` crate already provides.
 
+use account_utils::ZeroizeString;
+use auth::Auth;
 use engine_api::{Error as ApiError, *};
 use engines::{Engine, EngineError, Engines, ForkChoiceState, Logging};
 use lru::LruCache;
 use payload_status::process_multiple_payload_statuses;
 use sensitive_url::SensitiveUrl;
+use serde::{Deserialize, Serialize};
 use slog::{crit, debug, error, info, trace, Logger};
 use slot_clock::SlotClock;
 use std::collections::HashMap;
 use std::future::Future;
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 use task_executor::TaskExecutor;
@@ -54,6 +58,8 @@ pub enum Error {
     FeeRecipientUnspecified,
     ConsensusFailure,
     MissingLatestValidHash,
+    InvalidJWTSecret(String),
+    NoAuthProvided(String),
 }
 
 impl From<ApiError> for Error {
@@ -77,6 +83,21 @@ struct Inner {
     log: Logger,
 }
 
+#[derive(Debug, Default, Clone, Serialize, Deserialize)]
+pub struct Config {
+    /// Endpoint urls for EL nodes that are running the engine api.
+    pub endpoint_urls: Vec<SensitiveUrl>,
+    /// JWT secrets for the above endpoints running the engine api.
+    pub secret_files: Vec<PathBuf>,
+    /// The default fee recipient to use on the beacon node if none if provided from
+    /// the validator client during block preparation.
+    pub suggested_fee_recipient: Option<Address>,
+    /// An optional id for the beacon node that will be passed to the EL in the JWT token claim.
+    pub jwt_id: Option<String>,
+    /// An optional client version for the beacon node that will be passed to the EL in the JWT token claim.
+    pub jwt_version: Option<String>,
+}
+
 /// Provides access to one or more execution engines and provides a neat interface for consumption
 /// by the `BeaconChain`.
 ///
@@ -92,26 +113,48 @@ pub struct ExecutionLayer {
 }
 
 impl ExecutionLayer {
-    /// Instantiate `Self` with `urls.len()` engines, all using the JSON-RPC via HTTP.
-    pub fn from_urls(
-        urls: Vec<SensitiveUrl>,
-        suggested_fee_recipient: Option<Address>,
-        executor: TaskExecutor,
-        log: Logger,
-    ) -> Result<Self, Error> {
+    /// Instantiate `Self` with Execution engines specified using `Config`, all using the JSON-RPC via HTTP.
+    pub fn from_config(config: Config, executor: TaskExecutor, log: Logger) -> Result<Self, Error> {
+        let Config {
+            endpoint_urls: urls,
+            secret_files,
+            suggested_fee_recipient,
+            jwt_id,
+            jwt_version,
+        } = config;
+
         if urls.is_empty() {
             return Err(Error::NoEngines);
         }
 
-        let engines = urls
+        let secrets: Vec<ZeroizeString> = secret_files
+            .iter()
+            .map(|p| {
+                std::fs::read_to_string(p)
+                    .map(|mut s| {
+                        if s.starts_with("0x") {
+                            ZeroizeString::from(s.split_off(2))
+                        } else {
+                            ZeroizeString::from(s)
+                        }
+                    })
+                    .map_err(|e| format!("Failed to read JWT token file {:?}, error: {:?}", p, e))
+            })
+            .collect::<Result<_, _>>()
+            .map_err(Error::InvalidJWTSecret)?;
+
+        let engines: Vec<Engine<_>> = urls
             .into_iter()
-            .map(|url| {
+            .zip(secrets.into_iter())
+            .map(|(url, secret)| {
                 let id = url.to_string();
-                let api = HttpJsonRpc::new(url)?;
+                let auth = Auth::new(secret.as_str(), jwt_id.clone(), jwt_version.clone())?;
+                let api = HttpJsonRpc::new_with_auth(url, auth)?;
                 Ok(Engine::new(id, api))
             })
             .collect::<Result<_, ApiError>>()?;
 
+        debug!(log, "Loaded execution endpoints"; "endpoints" => ?engines.iter().map(|e| e.id.clone()).collect::<Vec<_>>());
         let inner = Inner {
             engines: Engines {
                 engines,

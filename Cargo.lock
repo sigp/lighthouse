@@ -345,6 +345,7 @@ dependencies = [
  "environment",
  "eth2_config",
  "eth2_network_config",
+ "execution_layer",
  "futures",
  "genesis",
  "hex",
@@ -1833,6 +1834,7 @@ dependencies = [
 name = "execution_layer"
 version = "0.1.0"
 dependencies = [
+ "account_utils",
  "async-trait",
  "bytes",
  "environment",
@@ -1852,6 +1854,7 @@ dependencies = [
  "slog",
  "slot_clock",
  "task_executor",
+ "tempfile",
  "tokio",
  "tree_hash",
  "tree_hash_derive 0.4.0",
