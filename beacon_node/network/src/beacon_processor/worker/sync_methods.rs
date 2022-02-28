@@ -216,10 +216,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                 match self.process_blocks(downloaded_blocks.iter().rev()) {
                     (_, Err(e)) => {
                         debug!(self.log, "Parent lookup failed"; "last_peer_id" => %peer_id, "error" => %e.message);
-                        self.send_sync_message(SyncMessage::ParentLookupFailed {
-                            peer_id,
-                            chain_head,
-                        })
+                        self.send_sync_message(SyncMessage::ParentLookupFailed { chain_head })
                     }
                     (_, Ok(_)) => {
                         debug!(self.log, "Parent lookup processed successfully");

@@ -1,7 +1,5 @@
-use std::{
-    collections::{hash_map::Entry, HashSet},
-    time::Duration,
-};
+use std::collections::hash_map::Entry;
+use std::time::Duration;
 
 use beacon_chain::{BeaconChainTypes, BlockError};
 use fnv::FnvHashMap;
@@ -322,11 +320,8 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                 }
             }
             Ok(_) | Err(BlockError::BlockIsAlreadyKnown { .. }) => {
-                let process_id = ChainSegmentProcessId::ParentLookup(
-                    parent_lookup.last_submitted_peer(),
-                    parent_lookup.chain_hash(),
-                );
-                let blocks = parent_lookup.downloaded_blocks;
+                let (chain_hash, blocks, peer_id) = parent_lookup.destructure();
+                let process_id = ChainSegmentProcessId::ParentLookup(peer_id, chain_hash);
 
                 match self
                     .beacon_processor_send

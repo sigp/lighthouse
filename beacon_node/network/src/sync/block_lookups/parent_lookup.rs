@@ -23,7 +23,7 @@ pub(crate) struct ParentLookup<T: EthSpec> {
     chain_hash: Hash256,
 
     /// The blocks that have currently been downloaded.
-    pub downloaded_blocks: Vec<SignedBeaconBlock<T>>,
+    downloaded_blocks: Vec<SignedBeaconBlock<T>>,
 
     /// The number of failed attempts to retrieve a parent block. If too many attempts occur, this
     /// lookup is failed and rejected.
@@ -145,6 +145,16 @@ impl<T: EthSpec> ParentLookup<T> {
         self.failed_attempts += 1;
     }
 
+    pub fn destructure(self) -> (Hash256, Vec<SignedBeaconBlock<T>>, PeerId) {
+        let ParentLookup {
+            chain_hash,
+            downloaded_blocks,
+            last_submitted_peer,
+            ..
+        } = self;
+        (chain_hash, downloaded_blocks, last_submitted_peer)
+    }
+
     /// Verifies that the received block is what we requested. If so, parent lookup now waits for
     /// the processing result of the block.
     pub fn verify_block(
@@ -166,7 +176,7 @@ impl<T: EthSpec> ParentLookup<T> {
                     }
                 }
             }
-            other => {
+            _ => {
                 #[cfg(not(debug_assertions))]
                 return Err(VerifyError::WrongRequest);
                 #[cfg(debug_assertions)]
@@ -199,6 +209,7 @@ impl<T: EthSpec> ParentLookup<T> {
         self.last_submitted_peer
     }
 
+    #[cfg(test)]
     pub fn failed_attempts(&self) -> usize {
         self.failed_attempts
     }

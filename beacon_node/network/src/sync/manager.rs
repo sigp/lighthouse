@@ -38,22 +38,16 @@ use super::block_lookups::BlockLookups;
 use super::network_context::SyncNetworkContext;
 use super::peer_sync_info::{remote_sync_type, PeerSyncType};
 use super::range_sync::{ChainId, RangeSync, RangeSyncType, EPOCHS_PER_BATCH};
-use crate::beacon_processor::{ChainSegmentProcessId, WorkEvent as BeaconWorkEvent};
-use crate::metrics;
+use crate::beacon_processor::WorkEvent as BeaconWorkEvent;
 use crate::service::NetworkMessage;
 use crate::status::ToStatusMessage;
 use beacon_chain::{BeaconChain, BeaconChainTypes, BlockError};
-use fnv::FnvHashMap;
-use lighthouse_network::rpc::{methods::MAX_REQUEST_BLOCKS, BlocksByRootRequest, GoodbyeReason};
+use lighthouse_network::rpc::methods::MAX_REQUEST_BLOCKS;
 use lighthouse_network::types::{NetworkGlobals, SyncState};
 use lighthouse_network::SyncInfo;
 use lighthouse_network::{PeerAction, PeerId};
-use lru_cache::LRUCache;
-use slog::{crit, debug, error, info, trace, warn, Logger};
-use smallvec::SmallVec;
-use ssz_types::VariableList;
+use slog::{crit, debug, error, info, trace, Logger};
 use std::boxed::Box;
-use std::collections::hash_map::Entry;
 use std::ops::Sub;
 use std::sync::Arc;
 use std::time::Duration;
@@ -68,12 +62,6 @@ use types::{Epoch, EthSpec, Hash256, SignedBeaconBlock, Slot};
 /// gossip if no peers are further than this range ahead of us that we have not already downloaded
 /// blocks for.
 pub const SLOT_IMPORT_TOLERANCE: usize = 32;
-/// How many attempts we try to find a parent of a block before we give up trying .
-const PARENT_FAIL_TOLERANCE: usize = 5;
-/// The maximum depth we will search for a parent block. In principle we should have sync'd any
-/// canonical chain to its head once the peer connects. A chain should not appear where it's depth
-/// is further back than the most recent head slot.
-const PARENT_DEPTH_TOLERANCE: usize = SLOT_IMPORT_TOLERANCE * 2;
 
 pub type Id = u32;
 
@@ -130,8 +118,6 @@ pub enum SyncMessage<T: EthSpec> {
     ParentLookupFailed {
         /// The head of the chain of blocks that failed to process.
         chain_head: Hash256,
-        /// The peer that instigated the chain lookup.
-        peer_id: PeerId,
     },
 
     /// Block processed
@@ -170,26 +156,6 @@ pub enum BatchProcessResult {
     },
 }
 
-/// Maintains a sequential list of parents to lookup and the lookup's current state.
-struct ParentRequests<T: EthSpec> {
-    /// The root of the block triggering this parent request.
-    chain_hash: Hash256,
-
-    /// The blocks that have currently been downloaded.
-    downloaded_blocks: Vec<SignedBeaconBlock<T>>,
-
-    /// The number of failed attempts to retrieve a parent block. If too many attempts occur, this
-    /// lookup is failed and rejected.
-    failed_attempts: usize,
-
-    /// The peer who last submitted a block. If the chain ends or fails, this is the peer that is
-    /// penalized.
-    last_submitted_peer: PeerId,
-
-    /// The request ID of this lookup is in progress.
-    pending: Option<Id>,
-}
-
 /// The primary object for handling and driving all the current syncing logic. It maintains the
 /// current state of the syncing process, the number of useful peers, downloaded blocks and
 /// controls the logic behind both the long-range (batch) sync and the on-going potential parent
@@ -217,24 +183,6 @@ pub struct SyncManager<T: BeaconChainTypes> {
 
     /// The logger for the import manager.
     log: Logger,
-}
-
-/// Object representing a single block lookup request.
-#[derive(PartialEq, Eq)]
-struct SingleBlockRequest {
-    /// The hash of the requested block.
-    pub hash: Hash256,
-    /// Whether a block was received from this request, or the peer returned an empty response.
-    pub block_returned: bool,
-}
-
-impl SingleBlockRequest {
-    pub fn new(hash: Hash256) -> Self {
-        Self {
-            hash,
-            block_returned: false,
-        }
-    }
 }
 
 /// Spawns a new `SyncManager` thread which has a weak reference to underlying beacon
@@ -587,10 +535,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                             }
                         }
                     },
-                    SyncMessage::ParentLookupFailed {
-                        chain_head,
-                        peer_id,
-                    } => {
+                    SyncMessage::ParentLookupFailed { chain_head } => {
                         self.block_lookups
                             .parent_chain_processing_failed(chain_head);
                     }
