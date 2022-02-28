@@ -206,11 +206,11 @@ fn test_single_block_lookup_failure() {
 
 #[test]
 fn test_parent_lookup() {
-    let (mut bl, mut cx, mut rig) = TestRig::test_setup(Some(Level::Debug));
+    let (mut bl, mut cx, mut rig) = TestRig::test_setup(Some(Level::Trace));
 
-    let block = rig.rand_block();
+    let parent = rig.rand_block();
+    let block = rig.block_with_parent(parent.canonical_root());
     let chain_hash = block.canonical_root();
-    let parent = rig.block_with_parent(chain_hash);
     let peer_id = PeerId::random();
 
     // Trigger the request
@@ -218,7 +218,7 @@ fn test_parent_lookup() {
     let id = rig.expect_parent_request();
 
     // Peer sends the right block, it should be sent for processing. Peer should not be penalized.
-    bl.parent_lookup_response(id, peer_id, Box::new(parent), &mut cx);
+    bl.parent_lookup_response(id, peer_id, Some(Box::new(parent)), &mut cx);
     rig.expect_block_process();
     rig.expect_empty_network();
 

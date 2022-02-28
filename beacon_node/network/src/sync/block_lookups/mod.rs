@@ -12,7 +12,10 @@ use tokio::sync::mpsc;
 
 use crate::beacon_processor::WorkEvent;
 
-use self::{parent_lookup::ParentLookup, single_block_lookup::SingleBlockRequest};
+use self::{
+    parent_lookup::{ParentLookup, VerifyError},
+    single_block_lookup::SingleBlockRequest,
+};
 
 use super::{
     manager::{BlockProcessType, Id},
@@ -100,6 +103,34 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         peer_id: PeerId,
         cx: &mut SyncNetworkContext<T::EthSpec>,
     ) {
+        let block_root = block.canonical_root();
+        // If this block or it's parent is part of a known failed chain, ignore it.
+        if self.failed_chains.contains(&block.message().parent_root())
+            || self.failed_chains.contains(&block_root)
+        {
+            debug!(self.log, "Block is from a past failed chain. Dropping";
+                "block_root" => ?block_root, "block_slot" => block.slot());
+            return;
+        }
+
+        // Make sure this block is not already being searched for
+        // NOTE: Potentially store a hashset of blocks for O(1) lookups
+        if self
+            .parent_queue
+            .iter()
+            .any(|parent_req| parent_req.contains_block(&block))
+        {
+            // we are already searching for this block, ignore it
+            return;
+        }
+
+        debug!(self.log, "Block with unknown parent received. Starting a parent lookup";
+            "block_slot" => block.slot(), "block_hash" => %block_root, "parent_root" => %block.parent_root() );
+
+        let mut parent_req = ParentLookup::new(*block, peer_id);
+        if let Ok(()) = parent_req.request_parent(cx) {
+            self.parent_queue.push(parent_req);
+        }
     }
 
     /* Lookup responses */
@@ -152,9 +183,60 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         &mut self,
         id: Id,
         peer_id: PeerId,
-        block: Box<SignedBeaconBlock<T::EthSpec>>,
+        block: Option<Box<SignedBeaconBlock<T::EthSpec>>>,
         cx: &mut SyncNetworkContext<T::EthSpec>,
     ) {
+        let pos = if let Some(pos) = self
+            .parent_queue
+            .iter()
+            .position(|request| request.pending_response(id))
+        {
+            pos
+        } else {
+            return debug!(self.log, "Response for a parent lookup request that was not found"; "peer_id" => %peer_id);
+        };
+
+        let parent_lookup = self
+            .parent_queue
+            .get_mut(pos)
+            .expect("Parent request was found");
+        match parent_lookup.verify_block(id, block, &self.failed_chains) {
+            Ok(Some(block)) => {
+                // Block is correct, send to the beacon processor.
+                let chain_hash = parent_lookup.chain_hash();
+                self.send_block_for_processing(
+                    block,
+                    peer_id,
+                    BlockProcessType::ParentLookup { chain_hash },
+                )
+            }
+            Ok(None) => {
+                // Request finished successfully, nothing else to do.
+            }
+            Err(e) => match e {
+                VerifyError::Failed(e) => println!("{}", e),
+                VerifyError::PreviousFailure { parent_root } => {
+                    self.failed_chains.insert(parent_lookup.chain_hash());
+                    debug!(
+                        self.log,
+                        "Parent chain ignored due to past failure";
+                        "block" => %parent_root,
+                    );
+                    // Add the root block to failed chains
+                    self.failed_chains.insert(parent_lookup.chain_hash());
+
+                    return cx.report_peer(
+                        peer_id,
+                        PeerAction::MidToleranceError,
+                        "bbroot_failed_chains",
+                    );
+                }
+                #[cfg(not(debug_assertions))]
+                WrongRequest => {
+                    crit!(self.log, "Block response assigned to wrong parent request")
+                }
+            },
+        };
     }
 
     pub fn parent_lookup_failed(&mut self, id: Id, peer_id: PeerId) {}

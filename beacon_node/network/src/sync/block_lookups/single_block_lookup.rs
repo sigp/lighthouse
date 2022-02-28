@@ -18,7 +18,7 @@ impl SingleBlockRequest {
     }
 
     /// Verifies if the received block matches the requested one.
-    /// Returns whether the request is finalized.
+    /// Returns the block for processing if the response is what we expected.
     pub fn verify_block<T: EthSpec>(
         &mut self,
         block: Option<Box<SignedBeaconBlock<T>>>,
