@@ -328,15 +328,24 @@ impl ProtoArray {
         }
     }
 
-    /// Potentially updates blocks to have an invalid payload and therefore be ineligible for the
-    /// head.
+    /// Invalidate the relevant ancestors and descendants of a block with an invalid execution
+    /// payload.
     ///
-    /// The `head_block_root` is the block *root* of the latest invalid block. The
-    /// `latest_valid_hash` is a payload *hash* and should be:
+    /// The `head_block_root` should be the beacon block root of the block with the invalid
+    /// execution payload, _or_ its parent where the block with the invalid payload has not yet
+    /// been applied to `self`.
     ///
-    /// - `Some(hash)` if the block with that payload *hash* is known to be valid and is an
-    ///     ancestor of `head_block_root`.
-    /// - `None` if the latest valid ancestor of `head_block_root` is unknown.
+    /// The `latest_valid_hash` should be the hash of most recent *valid* execution payload
+    /// contained in an ancestor block of `head_block_root`.
+    ///
+    /// This function will invalidate:
+    ///
+    /// * The block matching `head_block_root` _unless_ that block has a payload matching `latest_valid_hash`.
+    /// * All ancestors of `head_block_root` back to the block with payload matching
+    ///   `latest_valid_hash` (endpoint > exclusive). In the case where the `head_block_root` is the parent
+    ///   of the invalid block and itself matches `latest_valid_hash`, no ancestors will be invalidated.
+    /// * All descendants of `latest_valid_hash` if supplied and consistent with `head_block_root`,
+    ///   or else all descendants of `head_block_root`.
     ///
     /// ## Details
     ///
