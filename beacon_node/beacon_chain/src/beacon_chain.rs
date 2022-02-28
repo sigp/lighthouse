@@ -3756,6 +3756,18 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         }
 
         let head = self.head_info()?;
+
+        let head_block_hash = if let Some(block_hash) = head.execution_payload_block_hash {
+            block_hash
+        } else {
+            // We only start to push preparation data for some chain *after* the transition block
+            // has been imported.
+            //
+            // There is no payload preparation for the transition block (i.e., the first block with
+            // execution enabled in some chain).
+            return Ok(());
+        };
+
         let head_epoch = head.slot.epoch(T::EthSpec::slots_per_epoch());
         let current_slot = self.slot()?;
         let prepare_slot = current_slot + 1;
@@ -3836,53 +3848,14 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             );
         }
 
-        // If the head block has has execution enabled, then it might be a good idea to push
-        // a `forkchoiceUpdated` message to the EL to provide the payload attributes.
-        //
-        // There is no payload preparation for the transition block (i.e., the first block
-        // with execution enabled in some chain).
-        if let Some(head_block_hash) = head.execution_payload_block_hash {
-            // `SlotClock::duration_to_slot` will return `None` when we are past the start
-            // of `prepare_slot`. Don't bother sending a `forkchoiceUpdated` in that case,
-            // it's too late.
-            if let Some(till_prepare_slot) = self.slot_clock.duration_to_slot(prepare_slot) {
-                // If either of the following are true, send a fork-choice update message to the
-                // EL:
-                //
-                // 1. We're in the tail-end of the slot (as defined by
-                //    PAYLOAD_PREPARATION_LOOKAHEAD_FACTOR)
-                // 2. The head block is one slot (or less) behind the prepare slot (e.g., we're
-                //    preparing for the next slot and the block at the current slot is already
-                //    known).
-                if till_prepare_slot
-                    <= self.slot_clock.slot_duration() / PAYLOAD_PREPARATION_LOOKAHEAD_FACTOR
-                    || head.slot + 1 >= prepare_slot
-                {
-                    debug!(
-                        self.log,
-                        "Pushing update to prepare proposer";
-                        "till_prepare_slot" => ?till_prepare_slot,
-                        "prepare_slot" => prepare_slot
-                    );
-
-                    let finalized_root = head.finalized_checkpoint.root;
-                    let finalized_hash = self
-                        .fork_choice
-                        .read()
-                        .get_block(&finalized_root)
-                        .ok_or(Error::FinalizedBlockMissingFromForkChoice(finalized_root))?
-                        .execution_status
-                        .block_hash()
-                        .unwrap_or_else(ExecutionBlockHash::zero);
-
-                    self.update_execution_engine_forkchoice_blocking(
-                        finalized_hash,
-                        head.block_root,
-                        head_block_hash,
-                        current_slot,
-                    )?;
-                }
+        let till_prepare_slot =
+            if let Some(duration) = self.slot_clock.duration_to_slot(prepare_slot) {
+                duration
             } else {
+                // `SlotClock::duration_to_slot` will return `None` when we are past the start
+                // of `prepare_slot`. Don't bother sending a `forkchoiceUpdated` in that case,
+                // it's too late.
+                //
                 // This scenario might occur on an overloaded/under-resourced node.
                 warn!(
                     self.log,
@@ -3890,7 +3863,44 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     "prepare_slot" => prepare_slot,
                     "validator" => proposer.index,
                 );
-            }
+                return Ok(());
+            };
+
+        // If either of the following are true, send a fork-choice update message to the
+        // EL:
+        //
+        // 1. We're in the tail-end of the slot (as defined by
+        //    PAYLOAD_PREPARATION_LOOKAHEAD_FACTOR)
+        // 2. The head block is one slot (or less) behind the prepare slot (e.g., we're
+        //    preparing for the next slot and the block at the current slot is already
+        //    known).
+        if till_prepare_slot
+            <= self.slot_clock.slot_duration() / PAYLOAD_PREPARATION_LOOKAHEAD_FACTOR
+            || head.slot + 1 >= prepare_slot
+        {
+            debug!(
+                self.log,
+                "Pushing update to prepare proposer";
+                "till_prepare_slot" => ?till_prepare_slot,
+                "prepare_slot" => prepare_slot
+            );
+
+            let finalized_root = head.finalized_checkpoint.root;
+            let finalized_hash = self
+                .fork_choice
+                .read()
+                .get_block(&finalized_root)
+                .ok_or(Error::FinalizedBlockMissingFromForkChoice(finalized_root))?
+                .execution_status
+                .block_hash()
+                .unwrap_or_else(ExecutionBlockHash::zero);
+
+            self.update_execution_engine_forkchoice_blocking(
+                finalized_hash,
+                head.block_root,
+                head_block_hash,
+                current_slot,
+            )?;
         }
 
         Ok(())
