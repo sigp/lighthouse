@@ -137,7 +137,7 @@ pub enum SyncMessage<T: EthSpec> {
     /// Block processed
     ParentBlockProcessed {
         chain_hash: Hash256,
-        result: Result<Hash256, BlockError<T>>,
+        result: Result<(), BlockError<T>>,
     },
 }
 

@@ -83,7 +83,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                     BlockProcessType::ParentLookup { chain_hash } => {
                         self.send_sync_message(SyncMessage::ParentBlockProcessed {
                             chain_hash,
-                            result: Ok(root),
+                            result: Ok(()),
                         })
                     }
                 }
@@ -109,11 +109,11 @@ impl<T: BeaconChainTypes> Worker<T> {
                     })
                 }
             },
-            (BlockProcessType::ParentLookup { chain_hash }, error @ Err(_)) => {
+            (BlockProcessType::ParentLookup { chain_hash }, Err(e)) => {
                 // Sync handles these results
                 self.send_sync_message(SyncMessage::ParentBlockProcessed {
                     chain_hash,
-                    result: error,
+                    result: Err(e),
                 })
             }
         }
