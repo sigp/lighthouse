@@ -485,12 +485,36 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                         self.rpc_block_received(request_id, peer_id, beacon_block, seen_timestamp);
                     }
                     SyncMessage::UnknownBlock(peer_id, block) => {
+                        // If we are not synced or within SLOT_IMPORT_TOLERANCE of the block, ignore
+                        if !self.network_globals.sync_state.read().is_synced() {
+                            let head_slot = self
+                                .chain
+                                .head_info()
+                                .map(|info| info.slot)
+                                .unwrap_or_else(|_| Slot::from(0u64));
+                            let unknown_block_slot = block.slot();
+
+                            // if the block is far in the future, ignore it. If its within the slot tolerance of
+                            // our current head, regardless of the syncing state, fetch it.
+                            if (head_slot >= unknown_block_slot
+                                && head_slot.sub(unknown_block_slot).as_usize()
+                                    > SLOT_IMPORT_TOLERANCE)
+                                || (head_slot < unknown_block_slot
+                                    && unknown_block_slot.sub(head_slot).as_usize()
+                                        > SLOT_IMPORT_TOLERANCE)
+                            {
+                                return;
+                            }
+                        }
                         self.block_lookups
                             .search_parent(block, peer_id, &mut self.network);
                     }
                     SyncMessage::UnknownBlockHash(peer_id, block_hash) => {
-                        self.block_lookups
-                            .search_block(block_hash, peer_id, &mut self.network);
+                        // If we are not synced, ignore this block
+                        if self.network_globals.sync_state.read().is_synced() {
+                            self.block_lookups
+                                .search_block(block_hash, peer_id, &mut self.network);
+                        }
                     }
                     SyncMessage::Disconnect(peer_id) => {
                         self.peer_disconnect(&peer_id);
