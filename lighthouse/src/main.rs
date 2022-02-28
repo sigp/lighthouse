@@ -13,11 +13,10 @@ use eth2_network_config::{Eth2NetworkConfig, DEFAULT_HARDCODED_NETWORK, HARDCODE
 use lighthouse_version::VERSION;
 use malloc_utils::configure_memory_allocator;
 use slog::{crit, info, warn};
-use std::fs::File;
 use std::path::PathBuf;
 use std::process::exit;
 use task_executor::ShutdownReason;
-use types::{Config, EthSpec, EthSpecId};
+use types::{EthSpec, EthSpecId};
 use validator_client::ProductionValidatorClient;
 
 fn bls_library_name() -> &'static str {
@@ -495,23 +494,8 @@ fn run<E: EthSpec>(
             let executor = context.executor.clone();
             let config = beacon_node::get_config::<E>(matches, &context)?;
             let shutdown_flag = matches.is_present("immediate-shutdown");
-            if let Some(dump_path) = clap_utils::parse_optional::<PathBuf>(matches, "dump-config")?
-            {
-                let mut file = File::create(dump_path)
-                    .map_err(|e| format!("Failed to create dumped config: {:?}", e))?;
-                serde_json::to_writer(&mut file, &config)
-                    .map_err(|e| format!("Error serializing config: {:?}", e))?;
-            };
-            if let Some(dump_path) =
-                clap_utils::parse_optional::<PathBuf>(matches, "dump-chain-config")?
-            {
-                let chain_config = Config::from_chain_spec::<E>(&context.eth2_config.spec);
-                let mut file = File::create(dump_path)
-                    .map_err(|e| format!("Failed to create dumped chain config: {:?}", e))?;
-                serde_yaml::to_writer(&mut file, &chain_config)
-                    .map_err(|e| format!("Error serializing chain config: {:?}", e))?;
-            };
-
+            // Dump configs if `dump-config` or `dump-chain-config` flags are set
+            clap_utils::check_dump_configs::<_, E>(matches, &config, &context.eth2_config.spec)?;
             executor.clone().spawn(
                 async move {
                     if let Err(e) = ProductionBeaconNode::new(context.clone(), config).await {
@@ -537,22 +521,8 @@ fn run<E: EthSpec>(
             let config = validator_client::Config::from_cli(matches, context.log())
                 .map_err(|e| format!("Unable to initialize validator config: {}", e))?;
             let shutdown_flag = matches.is_present("immediate-shutdown");
-            if let Some(dump_path) = clap_utils::parse_optional::<PathBuf>(matches, "dump-config")?
-            {
-                let mut file = File::create(dump_path)
-                    .map_err(|e| format!("Failed to create dumped config: {:?}", e))?;
-                serde_json::to_writer(&mut file, &config)
-                    .map_err(|e| format!("Error serializing config: {:?}", e))?;
-            };
-            if let Some(dump_path) =
-                clap_utils::parse_optional::<PathBuf>(matches, "dump-chain-config")?
-            {
-                let chain_config = Config::from_chain_spec::<E>(&context.eth2_config.spec);
-                let mut file = File::create(dump_path)
-                    .map_err(|e| format!("Failed to create dumped chain config: {:?}", e))?;
-                serde_yaml::to_writer(&mut file, &chain_config)
-                    .map_err(|e| format!("Error serializing chain config: {:?}", e))?;
-            };
+            // Dump configs if `dump-config` or `dump-chain-config` flags are set
+            clap_utils::check_dump_configs::<_, E>(matches, &config, &context.eth2_config.spec)?;
             if !shutdown_flag {
                 executor.clone().spawn(
                     async move {

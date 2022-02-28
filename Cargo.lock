@@ -730,6 +730,10 @@ dependencies = [
  "eth2_ssz",
  "ethereum-types 0.12.1",
  "hex",
+ "serde",
+ "serde_json",
+ "serde_yaml",
+ "types",
 ]
 
 [[package]]

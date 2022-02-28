@@ -3,8 +3,6 @@ use clap::ArgMatches;
 use slog::{o, Drain, Level, Logger};
 
 use eth2_network_config::Eth2NetworkConfig;
-use std::fs::File;
-use std::path::PathBuf;
 mod cli;
 pub mod config;
 mod server;
@@ -86,24 +84,13 @@ fn main<T: EthSpec>(
     // parse the CLI args into a useable config
     let config: BootNodeConfig<T> = BootNodeConfig::new(bn_matches, eth2_network_config)?;
 
-    // Dump config if `dump-config` flag is set
-    let dump_config = clap_utils::parse_optional::<PathBuf>(lh_matches, "dump-config")?;
-    if let Some(dump_path) = dump_config {
-        let config_sz = BootNodeConfigSerialization::from_config_ref(&config);
-        let mut file = File::create(dump_path)
-            .map_err(|e| format!("Failed to create dumped config: {:?}", e))?;
-        serde_json::to_writer(&mut file, &config_sz)
-            .map_err(|e| format!("Error serializing config: {:?}", e))?;
-    }
-    if let Some(dump_path) = clap_utils::parse_optional::<PathBuf>(lh_matches, "dump-chain-config")?
-    {
-        let chain_config =
-            types::Config::from_chain_spec::<T>(&eth2_network_config.chain_spec::<T>()?);
-        let mut file = File::create(dump_path)
-            .map_err(|e| format!("Failed to create dumped chain config: {:?}", e))?;
-        serde_yaml::to_writer(&mut file, &chain_config)
-            .map_err(|e| format!("Error serializing chain config: {:?}", e))?;
-    }
+    // Dump configs if `dump-config` or `dump-chain-config` flags are set
+    let config_sz = BootNodeConfigSerialization::from_config_ref(&config);
+    clap_utils::check_dump_configs::<_, T>(
+        lh_matches,
+        &config_sz,
+        &eth2_network_config.chain_spec::<T>()?,
+    )?;
 
     // Run the boot node
     if !lh_matches.is_present("immediate-shutdown") {
