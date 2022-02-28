@@ -22,7 +22,7 @@ The following CLI flags control the HTTP server:
 - `--http-tls-cert`: specify the path to the certificate file for Lighthouse to use.
 - `--http-tls-key`: specify the path to the private key file for Lighthouse to use.
 
-The schema of the API aligns with the standard Eth Beacon Node API as defined
+The schema of the API aligns with the standard Beacon Node API as defined
 at [github.com/ethereum/beacon-APIs](https://github.com/ethereum/beacon-APIs).
 An interactive specification is available [here][OpenAPI].
 
