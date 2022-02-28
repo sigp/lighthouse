@@ -138,6 +138,7 @@ pub enum BeaconChainError {
     AltairForkDisabled,
     ExecutionLayerMissing,
     ExecutionForkChoiceUpdateFailed(execution_layer::Error),
+    PrepareProposerBlockingFailed(execution_layer::Error),
     ExecutionForkChoiceUpdateInvalid {
         status: PayloadStatus,
     },

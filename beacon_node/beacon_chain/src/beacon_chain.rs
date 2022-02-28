@@ -3686,6 +3686,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     .block_hash()
                     .unwrap_or_else(ExecutionBlockHash::zero);
                 let current_slot = self.slot()?;
+
                 if let Err(e) = self.update_execution_engine_forkchoice_blocking(
                     finalized_execution_block_hash,
                     beacon_block_root,
@@ -3698,10 +3699,36 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         "error" => ?e
                     );
                 }
+
+                // This performing this call immediately after
+                // `update_execution_engine_forkchoice_blocking` might result in two calls to fork
+                // choice, one *without* payload attributes and then a second *with* payload
+                // attributes.
+                //
+                // This seems OK, it's not a significant waste of EL<>CL bandwidth or resources, as
+                // far as I know.
+                if let Err(e) = self.prepare_beacon_proposer_blocking() {
+                    crit!(
+                        self.log,
+                        "Failed to prepare proposers after fork choice";
+                        "error" => ?e
+                    );
+                }
             }
         }
 
         Ok(())
+    }
+
+    pub fn prepare_beacon_proposer_blocking(&self) -> Result<(), Error> {
+        let execution_layer = self
+            .execution_layer
+            .as_ref()
+            .ok_or(Error::ExecutionLayerMissing)?;
+
+        execution_layer
+            .block_on_generic(|_| self.prepare_beacon_proposer_async())
+            .map_err(Error::PrepareProposerBlockingFailed)?
     }
 
     /// Determines the beacon proposer for the next slot. If that proposer is registered in the
@@ -3716,7 +3743,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// 1. We're in the tail-end of the slot (as defined by PAYLOAD_PREPARATION_LOOKAHEAD_FACTOR)
     /// 2. The head block is one slot (or less) behind the prepare slot (e.g., we're preparing for
     ///    the next slot and the block at the current slot is already known).
-    pub async fn prepare_beacon_proposer(&self) -> Result<(), Error> {
+    pub async fn prepare_beacon_proposer_async(&self) -> Result<(), Error> {
         let execution_layer = self
             .execution_layer
             .clone()

@@ -27,7 +27,7 @@ async fn proposer_prep_service<T: BeaconChainTypes>(chain: Arc<BeaconChain<T>>) 
                     - chain.slot_clock.slot_duration() / PAYLOAD_PREPARATION_LOOKAHEAD_FACTOR;
                 sleep(duration + additional_delay).await;
 
-                if let Err(e) = chain.prepare_beacon_proposer().await {
+                if let Err(e) = chain.prepare_beacon_proposer_async().await {
                     error!(
                         chain.log,
                         "Proposer prepare routine failed";
