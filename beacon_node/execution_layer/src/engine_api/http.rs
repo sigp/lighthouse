@@ -179,6 +179,23 @@ impl EngineApi for HttpJsonRpc {
 
         Ok(response.into())
     }
+
+    async fn exchange_transition_configuration_v1(
+        &self,
+        transition_configuration: TransitionConfigurationV1,
+    ) -> Result<TransitionConfigurationV1, Error> {
+        let params = json!([transition_configuration]);
+
+        let response = self
+            .rpc_request(
+                ENGINE_FORKCHOICE_UPDATED_V1,
+                params,
+                ENGINE_FORKCHOICE_UPDATED_TIMEOUT,
+            )
+            .await?;
+
+        Ok(response)
+    }
 }
 
 #[cfg(test)]
