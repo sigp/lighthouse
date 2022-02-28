@@ -70,6 +70,7 @@ impl TestRig {
         )
     }
 
+    #[track_caller]
     fn expect_block_request(&mut self) -> Id {
         match self.network_rx.try_recv() {
             Ok(NetworkMessage::SendRequest {
@@ -86,6 +87,7 @@ impl TestRig {
         }
     }
 
+    #[track_caller]
     fn expect_parent_request(&mut self) -> Id {
         match self.network_rx.try_recv() {
             Ok(NetworkMessage::SendRequest {
@@ -97,6 +99,7 @@ impl TestRig {
         }
     }
 
+    #[track_caller]
     fn expect_block_process(&mut self) {
         match self.beacon_processor_rx.try_recv() {
             Ok(work) => {
@@ -106,6 +109,7 @@ impl TestRig {
         }
     }
 
+    #[track_caller]
     fn expect_parent_chain_process(&mut self) {
         match self.beacon_processor_rx.try_recv() {
             Ok(work) => {
@@ -115,6 +119,7 @@ impl TestRig {
         }
     }
 
+    #[track_caller]
     fn expect_empty_network(&mut self) {
         assert_eq!(
             self.network_rx.try_recv().expect_err("must err"),
@@ -122,6 +127,7 @@ impl TestRig {
         );
     }
 
+    #[track_caller]
     pub fn expect_penalty(&mut self) {
         match self.network_rx.try_recv() {
             Ok(NetworkMessage::ReportPeer { .. }) => {}
@@ -141,8 +147,8 @@ impl TestRig {
 }
 
 #[test]
-fn test_single_block_lookup() {
-    let (mut bl, mut cx, mut rig) = TestRig::test_setup(Some(Level::Debug));
+fn test_single_block_lookup_happy_path() {
+    let (mut bl, mut cx, mut rig) = TestRig::test_setup(None);
 
     let block = rig.rand_block();
     let peer_id = PeerId::random();
@@ -168,7 +174,7 @@ fn test_single_block_lookup() {
 
 #[test]
 fn test_single_block_lookup_empty_response() {
-    let (mut bl, mut cx, mut rig) = TestRig::test_setup(Some(Level::Debug));
+    let (mut bl, mut cx, mut rig) = TestRig::test_setup(None);
 
     let block_hash = Hash256::random();
     let peer_id = PeerId::random();
@@ -187,8 +193,32 @@ fn test_single_block_lookup_empty_response() {
 }
 
 #[test]
+fn test_single_block_lookup_wrong_response() {
+    let (mut bl, mut cx, mut rig) = TestRig::test_setup(None);
+
+    let block_hash = Hash256::random();
+    let peer_id = PeerId::random();
+
+    // Trigger the request
+    bl.search_block(block_hash, peer_id, &mut cx);
+    let id = rig.expect_block_request();
+
+    // Peer sends something else. It should be penalized.
+    let bad_block = rig.rand_block();
+    bl.single_block_lookup_response(id, peer_id, Some(Box::new(bad_block)), &mut cx);
+    rig.expect_penalty();
+
+    // Send the stream termination. This should not produce an additional penalty.
+    bl.single_block_lookup_response(id, peer_id, None, &mut cx);
+    rig.expect_empty_network();
+
+    // The request should not be active
+    assert_eq!(bl.single_block_lookups.len(), 0);
+}
+
+#[test]
 fn test_single_block_lookup_failure() {
-    let (mut bl, mut cx, mut rig) = TestRig::test_setup(Some(Level::Debug));
+    let (mut bl, mut cx, mut rig) = TestRig::test_setup(None);
 
     let block_hash = Hash256::random();
     let peer_id = PeerId::random();
@@ -205,8 +235,8 @@ fn test_single_block_lookup_failure() {
 }
 
 #[test]
-fn test_parent_lookup() {
-    let (mut bl, mut cx, mut rig) = TestRig::test_setup(Some(Level::Trace));
+fn test_parent_lookup_happy_path() {
+    let (mut bl, mut cx, mut rig) = TestRig::test_setup(None);
 
     let parent = rig.rand_block();
     let block = rig.block_with_parent(parent.canonical_root());
@@ -223,13 +253,100 @@ fn test_parent_lookup() {
     rig.expect_empty_network();
 
     // Processing succeeds, now the rest of the chain should be sent for processing.
-    bl.parent_block_processed(chain_hash, Err(BlockError::BlockIsAlreadyKnown), peer_id);
+    bl.parent_block_processed(
+        chain_hash,
+        Err(BlockError::BlockIsAlreadyKnown),
+        peer_id,
+        &mut cx,
+    );
     rig.expect_parent_chain_process();
-    assert_eq!(bl.parent_queue.len(), 1);
+    assert_eq!(bl.parent_queue.len(), 0);
+}
 
-    // Chain processing succeeds, the request should be removed and the peers should not be
-    // penalized.
-    bl.parent_chain_processed(chain_hash, Ok(chain_hash));
+#[test]
+fn test_parent_lookup_wrong_response() {
+    let (mut bl, mut cx, mut rig) = TestRig::test_setup(None);
+
+    let parent = rig.rand_block();
+    let block = rig.block_with_parent(parent.canonical_root());
+    let chain_hash = block.canonical_root();
+    let peer_id = PeerId::random();
+
+    // Trigger the request
+    bl.search_parent(Box::new(block), peer_id, &mut cx);
+    let id1 = rig.expect_parent_request();
+
+    // Peer sends the wrong block, peer should be penalized and the block re-requested.
+    let bad_block = rig.rand_block();
+    bl.parent_lookup_response(id1, peer_id, Some(Box::new(bad_block)), &mut cx);
+    rig.expect_penalty();
+    let id2 = rig.expect_parent_request();
+
+    // Send the stream termination for the first request. This should not produce extra penalties.
+    bl.parent_lookup_response(id1, peer_id, None, &mut cx);
     rig.expect_empty_network();
+
+    // Send the right block this time.
+    bl.parent_lookup_response(id2, peer_id, Some(Box::new(parent)), &mut cx);
+    rig.expect_block_process();
+
+    // Processing succeeds, now the rest of the chain should be sent for processing.
+    bl.parent_block_processed(chain_hash, Ok(()), peer_id, &mut cx);
+    rig.expect_parent_chain_process();
+    assert_eq!(bl.parent_queue.len(), 0);
+}
+
+#[test]
+fn test_parent_lookup_empty_response() {
+    let (mut bl, mut cx, mut rig) = TestRig::test_setup(None);
+
+    let parent = rig.rand_block();
+    let block = rig.block_with_parent(parent.canonical_root());
+    let chain_hash = block.canonical_root();
+    let peer_id = PeerId::random();
+
+    // Trigger the request
+    bl.search_parent(Box::new(block), peer_id, &mut cx);
+    let id1 = rig.expect_parent_request();
+
+    // Peer sends an empty response, peer should be penalized and the block re-requested.
+    bl.parent_lookup_response(id1, peer_id, None, &mut cx);
+    rig.expect_penalty();
+    let id2 = rig.expect_parent_request();
+
+    // Send the right block this time.
+    bl.parent_lookup_response(id2, peer_id, Some(Box::new(parent)), &mut cx);
+    rig.expect_block_process();
+
+    // Processing succeeds, now the rest of the chain should be sent for processing.
+    bl.parent_block_processed(chain_hash, Ok(()), peer_id, &mut cx);
+    rig.expect_parent_chain_process();
+    assert_eq!(bl.parent_queue.len(), 0);
+}
+
+#[test]
+fn test_parent_lookup_rpc_failure() {
+    let (mut bl, mut cx, mut rig) = TestRig::test_setup(Some(Level::Trace));
+
+    let parent = rig.rand_block();
+    let block = rig.block_with_parent(parent.canonical_root());
+    let chain_hash = block.canonical_root();
+    let peer_id = PeerId::random();
+
+    // Trigger the request
+    bl.search_parent(Box::new(block), peer_id, &mut cx);
+    let id1 = rig.expect_parent_request();
+
+    // The request fails. It should be tried again.
+    bl.parent_lookup_failed(id1, peer_id, &mut cx);
+    let id2 = rig.expect_parent_request();
+
+    // Send the right block this time.
+    bl.parent_lookup_response(id2, peer_id, Some(Box::new(parent)), &mut cx);
+    rig.expect_block_process();
+
+    // Processing succeeds, now the rest of the chain should be sent for processing.
+    bl.parent_block_processed(chain_hash, Ok(()), peer_id, &mut cx);
+    rig.expect_parent_chain_process();
     assert_eq!(bl.parent_queue.len(), 0);
 }

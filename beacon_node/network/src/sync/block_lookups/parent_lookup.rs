@@ -1,4 +1,5 @@
-use lighthouse_network::{rpc::BlocksByRootRequest, PeerId};
+use lighthouse_network::{rpc::BlocksByRootRequest, PeerAction, PeerId};
+use slog::warn;
 use ssz_types::VariableList;
 use store::{EthSpec, Hash256, SignedBeaconBlock};
 
@@ -22,7 +23,7 @@ pub(crate) struct ParentLookup<T: EthSpec> {
     chain_hash: Hash256,
 
     /// The blocks that have currently been downloaded.
-    downloaded_blocks: Vec<SignedBeaconBlock<T>>,
+    pub downloaded_blocks: Vec<SignedBeaconBlock<T>>,
 
     /// The number of failed attempts to retrieve a parent block. If too many attempts occur, this
     /// lookup is failed and rejected.
@@ -42,6 +43,7 @@ enum State {
     Processing,
 }
 
+#[derive(Debug)]
 pub enum RequestError {
     TooManyFailures,
     ChainTooLong,
@@ -74,13 +76,36 @@ impl<T: EthSpec> ParentLookup<T> {
         }
     }
 
-    pub fn request_parent(&mut self, cx: &mut SyncNetworkContext<T>) -> Result<(), RequestError> {
+    /// Attempts to request the next unknown parent. If the request fails, it should be removed.
+    pub fn request_parent(
+        &mut self,
+        cx: &mut SyncNetworkContext<T>,
+        log: &slog::Logger,
+    ) -> Result<(), ()> {
         // check to make sure this request hasn't failed
         if self.failed_attempts >= PARENT_FAIL_TOLERANCE {
-            return Err(RequestError::TooManyFailures);
+            warn!(log, "Parent request failed";
+                "chain_hash" => %self.chain_hash,
+                "downloaded_blocks" => self.downloaded_blocks.len()
+            );
+            cx.report_peer(
+                self.last_submitted_peer,
+                PeerAction::MidToleranceError,
+                "failed_parent_request",
+            );
+            return Err(());
         }
         if self.downloaded_blocks.len() >= PARENT_DEPTH_TOLERANCE {
-            return Err(RequestError::ChainTooLong);
+            warn!(log, "Parent request reached max chain depth";
+                "chain_hash" => %self.chain_hash,
+                "downloaded_blocks" => self.downloaded_blocks.len()
+            );
+            cx.report_peer(
+                self.last_submitted_peer,
+                PeerAction::MidToleranceError,
+                "failed_parent_request",
+            );
+            return Err(());
         }
 
         let parent_hash = self
@@ -101,7 +126,10 @@ impl<T: EthSpec> ParentLookup<T> {
             Ok(request_id) => {
                 self.state = State::Downloading(request_id, SingleBlockRequest::new(parent_hash));
             }
-            Err(reason) => return Err(RequestError::SendRequestFailed(reason)),
+            Err(reason) => {
+                warn!(log, "Send parent request failed"; "chain_hash" => %self.chain_hash, "reason" => reason);
+                return Err(());
+            }
         }
 
         Ok(())
@@ -117,6 +145,11 @@ impl<T: EthSpec> ParentLookup<T> {
     /// Get the parent lookup's chain hash.
     pub fn chain_hash(&self) -> Hash256 {
         self.chain_hash
+    }
+
+    pub fn download_failed(&mut self) {
+        self.state = State::AwaitingDownload;
+        self.failed_attempts += 1;
     }
 
     /// Verifies that the received block is what we requested. If so, parent lookup now waits for
@@ -159,5 +192,17 @@ impl<T: EthSpec> ParentLookup<T> {
 
         self.state = State::Processing;
         Ok(block)
+    }
+
+    pub fn pending_block_processing(&self, chain_hash: Hash256) -> bool {
+        matches!(self.state, State::Processing) && self.chain_hash == chain_hash
+    }
+
+    pub fn append_block(&mut self, block: SignedBeaconBlock<T>) {
+        self.downloaded_blocks.push(block)
+    }
+
+    pub fn last_submitted_peer(&self) -> PeerId {
+        self.last_submitted_peer
     }
 }

@@ -4,16 +4,16 @@ use beacon_chain::{BeaconChainTypes, BlockError};
 use fnv::FnvHashMap;
 use lighthouse_network::{rpc::BlocksByRootRequest, PeerAction, PeerId};
 use lru_cache::LRUCache;
-use slog::{crit, debug, error, Logger};
+use slog::{crit, debug, error, warn, Logger};
 use smallvec::SmallVec;
 use ssz_types::VariableList;
 use store::{Hash256, SignedBeaconBlock};
 use tokio::sync::mpsc;
 
-use crate::beacon_processor::WorkEvent;
+use crate::beacon_processor::{ChainSegmentProcessId, WorkEvent};
 
 use self::{
-    parent_lookup::{ParentLookup, VerifyError},
+    parent_lookup::{ParentLookup, RequestError, VerifyError},
     single_block_lookup::SingleBlockRequest,
 };
 
@@ -128,7 +128,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
             "block_slot" => block.slot(), "block_hash" => %block_root, "parent_root" => %block.parent_root() );
 
         let mut parent_req = ParentLookup::new(*block, peer_id);
-        if let Ok(()) = parent_req.request_parent(cx) {
+        if parent_req.request_parent(cx, &self.log).is_ok() {
             self.parent_queue.push(parent_req);
         }
     }
@@ -193,7 +193,10 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         {
             pos
         } else {
-            return debug!(self.log, "Response for a parent lookup request that was not found"; "peer_id" => %peer_id);
+            if block.is_some() {
+                debug!(self.log, "Response for a parent lookup request that was not found"; "peer_id" => %peer_id);
+            }
+            return;
         };
 
         let parent_lookup = self
@@ -214,7 +217,25 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                 // Request finished successfully, nothing else to do.
             }
             Err(e) => match e {
-                VerifyError::Failed(e) => println!("{}", e),
+                VerifyError::Failed(e) => {
+                    warn!(self.log, "Peer sent invalid response to parent request.";
+                        "peer_id" => %peer_id,
+                        "reason" => e
+                    );
+
+                    // We do not tolerate these kinds of errors. We will accept a few but these are signs
+                    // of a faulty peer.
+                    cx.report_peer(
+                        peer_id,
+                        PeerAction::LowToleranceError,
+                        "parent_request_bad_hash",
+                    );
+
+                    // We try again, but downvote the peer.
+                    if parent_lookup.request_parent(cx, &self.log).is_err() {
+                        self.parent_queue.remove(pos);
+                    }
+                }
                 VerifyError::PreviousFailure { parent_root } => {
                     self.failed_chains.insert(parent_lookup.chain_hash());
                     debug!(
@@ -239,7 +260,29 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         };
     }
 
-    pub fn parent_lookup_failed(&mut self, id: Id, peer_id: PeerId) {}
+    pub fn parent_lookup_failed(
+        &mut self,
+        id: Id,
+        peer_id: PeerId,
+        cx: &mut SyncNetworkContext<T::EthSpec>,
+    ) {
+        if let Some(pos) = self
+            .parent_queue
+            .iter()
+            .position(|request| request.pending_response(id))
+        {
+            let parent_lookup = self
+                .parent_queue
+                .get_mut(pos)
+                .expect("Parent lookup was found");
+            parent_lookup.download_failed();
+            if parent_lookup.request_parent(cx, &self.log).is_err() {
+                self.parent_queue.remove(pos);
+            }
+        } else {
+            return debug!(self.log, "RPC failure for a parent lookup request that was not found"; "peer_id" => %peer_id);
+        };
+    }
 
     pub fn single_block_lookup_failed(&mut self, id: Id) {
         self.single_block_lookups.remove(&id);
@@ -250,16 +293,76 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
     pub fn parent_block_processed(
         &mut self,
         chain_hash: Hash256,
-        result: Result<Hash256, BlockError<T::EthSpec>>,
+        result: Result<(), BlockError<T::EthSpec>>,
         peer_id: PeerId,
+        cx: &mut SyncNetworkContext<T::EthSpec>,
     ) {
+        let mut parent_lookup = if let Some(pos) = self
+            .parent_queue
+            .iter()
+            .position(|request| request.pending_block_processing(chain_hash))
+        {
+            self.parent_queue.remove(pos)
+        } else {
+            return debug!(self.log, "Process response for a parent lookup request that was not found"; "peer_id" => %peer_id);
+        };
+
+        match result {
+            Err(BlockError::ParentUnknown(block)) => {
+                // need to keep looking for parents
+                // add the block back to the queue and continue the search
+                parent_lookup.append_block(*block);
+                if parent_lookup.request_parent(cx, &self.log).is_ok() {
+                    self.parent_queue.push(parent_lookup);
+                }
+            }
+            Ok(_) | Err(BlockError::BlockIsAlreadyKnown { .. }) => {
+                let process_id = ChainSegmentProcessId::ParentLookup(
+                    parent_lookup.last_submitted_peer(),
+                    parent_lookup.chain_hash(),
+                );
+                let blocks = parent_lookup.downloaded_blocks;
+
+                match self
+                    .beacon_processor_send
+                    .try_send(WorkEvent::chain_segment(process_id, blocks))
+                {
+                    Ok(_) => {}
+                    Err(e) => {
+                        error!(
+                            self.log,
+                            "Failed to send chain segment to processor";
+                            "error" => ?e
+                        );
+                    }
+                }
+            }
+            Err(outcome) => {
+                // all else we consider the chain a failure and downvote the peer that sent
+                // us the last block
+                warn!(
+                    self.log, "Invalid parent chain";
+                    "score_adjustment" => %PeerAction::MidToleranceError,
+                    "outcome" => ?outcome,
+                    "last_peer" => %parent_lookup.last_submitted_peer(),
+                );
+
+                // Add this chain to cache of failed chains
+                self.failed_chains.insert(chain_hash);
+
+                // This currently can be a host of errors. We permit this due to the partial
+                // ambiguity.
+                cx.report_peer(
+                    parent_lookup.last_submitted_peer(),
+                    PeerAction::MidToleranceError,
+                    "parent_request_err",
+                );
+            }
+        }
     }
 
-    pub fn parent_chain_processed(
-        &mut self,
-        chain_hash: Hash256,
-        result: Result<Hash256, BlockError<T::EthSpec>>,
-    ) {
+    pub fn parent_chain_processing_failed(&mut self, chain_hash: Hash256) {
+        self.failed_chains.insert(chain_hash);
     }
 
     /* Helper functions */
