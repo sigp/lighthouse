@@ -2,7 +2,7 @@
 name = "task_executor"
 version = "0.1.0"
 authors = ["Sigma Prime <contact@sigmaprime.io>"]
-edition = "2018"
+edition = "2021"
 
 [dependencies]
 tokio = { version = "1.14.0", features = ["rt"] }

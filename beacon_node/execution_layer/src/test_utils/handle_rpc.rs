@@ -1,5 +1,5 @@
 use super::Context;
-use crate::engine_api::{http::*, ExecutePayloadResponse, ExecutePayloadResponseStatus};
+use crate::engine_api::{http::*, PayloadStatusV1, PayloadStatusV1Status};
 use crate::json_structures::*;
 use serde::de::DeserializeOwned;
 use serde_json::Value as JsonValue;
@@ -54,30 +54,30 @@ pub async fn handle_rpc<T: EthSpec>(
             )
             .unwrap())
         }
-        ENGINE_EXECUTE_PAYLOAD_V1 => {
+        ENGINE_NEW_PAYLOAD_V1 => {
             let request: JsonExecutionPayloadV1<T> = get_param(params, 0)?;
 
-            let response = if let Some(status) = *ctx.static_notify_new_payload_response.lock() {
+            let response = if let Some(status) = *ctx.static_new_payload_response.lock() {
                 match status {
-                    ExecutePayloadResponseStatus::Valid => ExecutePayloadResponse {
+                    PayloadStatusV1Status::Valid => PayloadStatusV1 {
                         status,
                         latest_valid_hash: Some(request.block_hash),
                         validation_error: None,
                     },
-                    ExecutePayloadResponseStatus::Syncing => ExecutePayloadResponse {
+                    PayloadStatusV1Status::Syncing => PayloadStatusV1 {
                         status,
                         latest_valid_hash: None,
                         validation_error: None,
                     },
-                    _ => unimplemented!("invalid static executePayloadResponse"),
+                    _ => unimplemented!("invalid static newPayloadResponse"),
                 }
             } else {
                 ctx.execution_block_generator
                     .write()
-                    .notify_new_payload(request.into())
+                    .new_payload(request.into())
             };
 
-            Ok(serde_json::to_value(JsonExecutePayloadV1Response::from(response)).unwrap())
+            Ok(serde_json::to_value(JsonPayloadStatusV1::from(response)).unwrap())
         }
         ENGINE_GET_PAYLOAD_V1 => {
             let request: JsonPayloadIdRequest = get_param(params, 0)?;
@@ -94,6 +94,8 @@ pub async fn handle_rpc<T: EthSpec>(
         ENGINE_FORKCHOICE_UPDATED_V1 => {
             let forkchoice_state: JsonForkChoiceStateV1 = get_param(params, 0)?;
             let payload_attributes: Option<JsonPayloadAttributesV1> = get_param(params, 1)?;
+
+            let head_block_hash = forkchoice_state.head_block_hash;
             let id = ctx
                 .execution_block_generator
                 .write()
@@ -103,7 +105,11 @@ pub async fn handle_rpc<T: EthSpec>(
                 )?;
 
             Ok(serde_json::to_value(JsonForkchoiceUpdatedV1Response {
-                status: JsonForkchoiceUpdatedV1ResponseStatus::Success,
+                payload_status: JsonPayloadStatusV1 {
+                    status: JsonPayloadStatusV1Status::Valid,
+                    latest_valid_hash: Some(head_block_hash),
+                    validation_error: None,
+                },
                 payload_id: id.map(Into::into),
             })
             .unwrap())

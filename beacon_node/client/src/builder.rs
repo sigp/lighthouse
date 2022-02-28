@@ -681,6 +681,7 @@ where
                                 store,
                                 head.finalized_checkpoint.root,
                                 block_hash,
+                                &log,
                             )
                             .await;
 

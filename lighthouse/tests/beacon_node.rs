@@ -5,13 +5,13 @@ use lighthouse_network::PeerId;
 use std::fs::File;
 use std::io::Write;
 use std::net::{IpAddr, Ipv4Addr};
-use std::net::{TcpListener, UdpSocket};
 use std::path::PathBuf;
 use std::process::Command;
 use std::str::FromStr;
 use std::string::ToString;
 use tempfile::TempDir;
 use types::{Address, Checkpoint, Epoch, Hash256};
+use unused_port::{unused_tcp_port, unused_udp_port};
 
 const DEFAULT_ETH1_ENDPOINT: &str = "http://localhost:8545/";
 
@@ -279,7 +279,7 @@ fn network_listen_address_flag() {
 }
 #[test]
 fn network_port_flag() {
-    let port = unused_port("tcp").expect("Unable to find unused port.");
+    let port = unused_tcp_port().expect("Unable to find unused port.");
     CommandLineTest::new()
         .flag("port", Some(port.to_string().as_str()))
         .run()
@@ -290,8 +290,8 @@ fn network_port_flag() {
 }
 #[test]
 fn network_port_and_discovery_port_flags() {
-    let port1 = unused_port("tcp").expect("Unable to find unused port.");
-    let port2 = unused_port("udp").expect("Unable to find unused port.");
+    let port1 = unused_tcp_port().expect("Unable to find unused port.");
+    let port2 = unused_udp_port().expect("Unable to find unused port.");
     CommandLineTest::new()
         .flag("port", Some(port1.to_string().as_str()))
         .flag("discovery-port", Some(port2.to_string().as_str()))
@@ -414,7 +414,7 @@ fn zero_ports_flag() {
 // Tests for ENR flags.
 #[test]
 fn enr_udp_port_flags() {
-    let port = unused_port("udp").expect("Unable to find unused port.");
+    let port = unused_udp_port().expect("Unable to find unused port.");
     CommandLineTest::new()
         .flag("enr-udp-port", Some(port.to_string().as_str()))
         .run_with_zero_port()
@@ -422,7 +422,7 @@ fn enr_udp_port_flags() {
 }
 #[test]
 fn enr_tcp_port_flags() {
-    let port = unused_port("tcp").expect("Unable to find unused port.");
+    let port = unused_tcp_port().expect("Unable to find unused port.");
     CommandLineTest::new()
         .flag("enr-tcp-port", Some(port.to_string().as_str()))
         .run_with_zero_port()
@@ -431,8 +431,8 @@ fn enr_tcp_port_flags() {
 #[test]
 fn enr_match_flag() {
     let addr = "127.0.0.2".parse::<IpAddr>().unwrap();
-    let port1 = unused_port("udp").expect("Unable to find unused port.");
-    let port2 = unused_port("udp").expect("Unable to find unused port.");
+    let port1 = unused_udp_port().expect("Unable to find unused port.");
+    let port2 = unused_udp_port().expect("Unable to find unused port.");
     CommandLineTest::new()
         .flag("enr-match", None)
         .flag("listen-address", Some("127.0.0.2"))
@@ -449,7 +449,7 @@ fn enr_match_flag() {
 #[test]
 fn enr_address_flag() {
     let addr = "192.167.1.1".parse::<IpAddr>().unwrap();
-    let port = unused_port("udp").expect("Unable to find unused port.");
+    let port = unused_udp_port().expect("Unable to find unused port.");
     CommandLineTest::new()
         .flag("enr-address", Some("192.167.1.1"))
         .flag("enr-udp-port", Some(port.to_string().as_str()))
@@ -463,7 +463,7 @@ fn enr_address_flag() {
 fn enr_address_dns_flag() {
     let addr = "127.0.0.1".parse::<IpAddr>().unwrap();
     let ipv6addr = "::1".parse::<IpAddr>().unwrap();
-    let port = unused_port("udp").expect("Unable to find unused port.");
+    let port = unused_udp_port().expect("Unable to find unused port.");
     CommandLineTest::new()
         .flag("enr-address", Some("localhost"))
         .flag("enr-udp-port", Some(port.to_string().as_str()))
@@ -502,8 +502,8 @@ fn http_address_flag() {
 }
 #[test]
 fn http_port_flag() {
-    let port1 = unused_port("tcp").expect("Unable to find unused port.");
-    let port2 = unused_port("tcp").expect("Unable to find unused port.");
+    let port1 = unused_tcp_port().expect("Unable to find unused port.");
+    let port2 = unused_tcp_port().expect("Unable to find unused port.");
     CommandLineTest::new()
         .flag("http-port", Some(port1.to_string().as_str()))
         .flag("port", Some(port2.to_string().as_str()))
@@ -573,8 +573,8 @@ fn metrics_address_flag() {
 }
 #[test]
 fn metrics_port_flag() {
-    let port1 = unused_port("tcp").expect("Unable to find unused port.");
-    let port2 = unused_port("tcp").expect("Unable to find unused port.");
+    let port1 = unused_tcp_port().expect("Unable to find unused port.");
+    let port2 = unused_tcp_port().expect("Unable to find unused port.");
     CommandLineTest::new()
         .flag("metrics", None)
         .flag("metrics-port", Some(port1.to_string().as_str()))
@@ -855,36 +855,4 @@ fn ensure_panic_on_failed_launch() {
                 .expect("Unable to parse Slasher config");
             assert_eq!(slasher_config.chunk_size, 10);
         });
-}
-
-/// A bit of hack to find an unused port.
-///
-/// Does not guarantee that the given port is unused after the function exits, just that it was
-/// unused before the function started (i.e., it does not reserve a port).
-pub fn unused_port(transport: &str) -> Result<u16, String> {
-    let local_addr = match transport {
-        "tcp" => {
-            let listener = TcpListener::bind("127.0.0.1:0").map_err(|e| {
-                format!("Failed to create TCP listener to find unused port: {:?}", e)
-            })?;
-            listener.local_addr().map_err(|e| {
-                format!(
-                    "Failed to read TCP listener local_addr to find unused port: {:?}",
-                    e
-                )
-            })?
-        }
-        "udp" => {
-            let socket = UdpSocket::bind("127.0.0.1:0")
-                .map_err(|e| format!("Failed to create UDP socket to find unused port: {:?}", e))?;
-            socket.local_addr().map_err(|e| {
-                format!(
-                    "Failed to read UDP socket local_addr to find unused port: {:?}",
-                    e
-                )
-            })?
-        }
-        _ => return Err("Invalid transport to find unused port".into()),
-    };
-    Ok(local_addr.port())
 }

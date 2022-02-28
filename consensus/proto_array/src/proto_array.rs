@@ -313,7 +313,7 @@ impl ProtoArray {
             .indices
             .get(justified_root)
             .copied()
-            .ok_or_else(|| Error::JustifiedNodeUnknown(*justified_root))?;
+            .ok_or(Error::JustifiedNodeUnknown(*justified_root))?;
 
         let justified_node = self
             .nodes
