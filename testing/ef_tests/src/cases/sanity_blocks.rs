@@ -1,6 +1,6 @@
 use super::*;
 use crate::bls_setting::BlsSetting;
-use crate::case_result::compare_beacon_state_results_without_caches;
+use crate::case_result::{check_state_diff, compare_beacon_state_results_without_caches};
 use crate::decode::{ssz_decode_file_with, ssz_decode_state, yaml_decode_file};
 use serde_derive::Deserialize;
 use state_processing::{
@@ -129,6 +129,9 @@ impl<E: EthSpec> Case for SanityBlocks<E> {
             Ok(res) => (Ok(res.0), Ok(res.1)),
         };
         compare_beacon_state_results_without_caches(&mut indiv_result, &mut expected)?;
-        compare_beacon_state_results_without_caches(&mut bulk_result, &mut expected)
+        compare_beacon_state_results_without_caches(&mut bulk_result, &mut expected)?;
+        check_state_diff(&self.pre, &self.post)?;
+
+        Ok(())
     }
 }

@@ -1,6 +1,6 @@
 use super::*;
 use crate::bls_setting::BlsSetting;
-use crate::case_result::compare_beacon_state_results_without_caches;
+use crate::case_result::{check_state_diff, compare_beacon_state_results_without_caches};
 use crate::decode::{ssz_decode_state, yaml_decode_file};
 use crate::type_name;
 use crate::type_name::TypeName;
@@ -274,7 +274,7 @@ impl<E: EthSpec, T: EpochTransition<E>> Case for EpochProcessing<E, T> {
                     && T::name() != "inactivity_updates"
                     && T::name() != "participation_flag_updates"
             }
-            ForkName::Altair | ForkName::Merge => true, // TODO: revisit when tests are out
+            ForkName::Altair | ForkName::Merge => true,
         }
     }
 
@@ -293,6 +293,7 @@ impl<E: EthSpec, T: EpochTransition<E>> Case for EpochProcessing<E, T> {
             T::run(&mut state, spec).map(|_| state)
         })();
 
-        compare_beacon_state_results_without_caches(&mut result, &mut expected)
+        compare_beacon_state_results_without_caches(&mut result, &mut expected)?;
+        check_state_diff(&self.pre, &self.post)
     }
 }

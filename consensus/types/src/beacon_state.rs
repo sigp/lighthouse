@@ -363,8 +363,8 @@ impl<T: EthSpec> BeaconState<T> {
 
             // History
             latest_block_header: BeaconBlock::<T>::empty(spec).temporary_block_header(),
-            block_roots: FixedVector::from_elem(Hash256::zero()),
-            state_roots: FixedVector::from_elem(Hash256::zero()),
+            block_roots: FixedVector::default(),
+            state_roots: FixedVector::default(),
             historical_roots: VList::default(),
 
             // Eth1
@@ -377,10 +377,10 @@ impl<T: EthSpec> BeaconState<T> {
             balances: VList::default(),   // Set later.
 
             // Randomness
-            randao_mixes: FixedVector::from_elem(Hash256::zero()),
+            randao_mixes: FixedVector::default(),
 
             // Slashings
-            slashings: FixedVector::from_elem(0),
+            slashings: FixedVector::default(),
 
             // Attestations
             previous_epoch_attestations: VList::default(),
@@ -970,8 +970,9 @@ impl<T: EthSpec> BeaconState<T> {
     }
 
     /// Fill `randao_mixes` with
-    pub fn fill_randao_mixes_with(&mut self, index_root: Hash256) {
-        *self.randao_mixes_mut() = FixedVector::from_elem(index_root);
+    pub fn fill_randao_mixes_with(&mut self, index_root: Hash256) -> Result<(), Error> {
+        *self.randao_mixes_mut() = FixedVector::from_elem(index_root)?;
+        Ok(())
     }
 
     /// Safely obtains the index for `randao_mixes`

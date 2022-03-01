@@ -1077,10 +1077,9 @@ impl<'a, T: BeaconChainTypes> FullyVerifiedBlock<'a, T> {
                 // Store the state immediately, marking it as temporary, and staging the deletion
                 // of its temporary status as part of the larger atomic operation.
                 let txn_lock = chain.store.hot_db.begin_rw_transaction();
-                chain.store.do_atomically(vec![
-                    StoreOp::PutState(state_root, &state),
-                    StoreOp::PutStateTemporaryFlag(state_root),
-                ])?;
+                chain
+                    .store
+                    .do_atomically(vec![StoreOp::PutState(state_root, &state)])?;
                 drop(txn_lock);
 
                 confirmation_db_batch.push(StoreOp::DeleteStateTemporaryFlag(state_root));

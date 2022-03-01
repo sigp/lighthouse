@@ -543,7 +543,7 @@ pub fn load_variable_list_from_db<F: VariableLengthField<E>, E: EthSpec, S: KeyV
 
     let chunks: Vec<Chunk<F::Value>> = range_query(store, F::column(), start_cindex, end_cindex)?;
 
-    let mut result = VList::empty()?;
+    let mut result = VList::empty();
 
     for (chunk_index, chunk) in chunks.into_iter().enumerate() {
         for (i, value) in chunk.values.into_iter().enumerate() {

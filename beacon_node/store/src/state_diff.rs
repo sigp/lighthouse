@@ -1,8 +1,18 @@
 use crate::{metrics, DBColumn, Error, StoreItem};
-use flate2::bufread::{ZlibDecoder, ZlibEncoder};
 use ssz::{Decode, Encode};
-use std::io::Read;
+use std::io::{Read, Write};
 use types::{beacon_state::BeaconStateDiff, EthSpec};
+use zstd::{Decoder, Encoder};
+
+const EST_COMPRESSION_FACTOR: usize = 2;
+
+fn estimate_compressed_size(len: usize, compression_level: i32) -> usize {
+    if compression_level == 0 {
+        len
+    } else {
+        len / EST_COMPRESSION_FACTOR
+    }
+}
 
 impl<E: EthSpec> StoreItem for BeaconStateDiff<E> {
     fn db_column() -> DBColumn {
@@ -14,13 +24,13 @@ impl<E: EthSpec> StoreItem for BeaconStateDiff<E> {
         let value = self.as_ssz_bytes();
         drop(encode_timer);
 
-        // FIXME(sproul): try vec with capacity
         let compression_timer = metrics::start_timer(&metrics::BEACON_STATE_DIFF_COMPRESSION_TIME);
-        let mut encoder = ZlibEncoder::new(&value[..], flate2::Compression::fast());
-        let mut compressed_value = vec![];
-        encoder
-            .read_to_end(&mut compressed_value)
-            .map_err(Error::FlateCompression)?;
+
+        let level = 1;
+        let mut compressed_value = Vec::with_capacity(estimate_compressed_size(value.len(), level));
+        let mut encoder = Encoder::new(&mut compressed_value, level).map_err(Error::Compression)?;
+        encoder.write_all(&value).map_err(Error::Compression)?;
+        encoder.finish().map_err(Error::Compression)?;
         drop(compression_timer);
 
         let compression_ratio = value.len() as f64 / compressed_value.len() as f64;
@@ -39,11 +49,11 @@ impl<E: EthSpec> StoreItem for BeaconStateDiff<E> {
     }
 
     fn from_store_bytes(bytes: &[u8]) -> Result<Self, Error> {
-        let mut ssz_bytes = vec![];
-        let mut decoder = ZlibDecoder::new(bytes);
+        let mut ssz_bytes = Vec::with_capacity(EST_COMPRESSION_FACTOR * bytes.len());
+        let mut decoder = Decoder::new(bytes).map_err(Error::Compression)?;
         decoder
             .read_to_end(&mut ssz_bytes)
-            .map_err(Error::FlateCompression)?;
+            .map_err(Error::Compression)?;
         Ok(Self::from_ssz_bytes(&ssz_bytes)?)
     }
 }

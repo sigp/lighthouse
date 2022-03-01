@@ -26,7 +26,7 @@ pub fn initialize_beacon_state_from_eth1<T: EthSpec>(
     let mut state = BeaconState::new(genesis_time, eth1_data, spec);
 
     // Seed RANDAO with Eth1 entropy
-    state.fill_randao_mixes_with(eth1_block_hash);
+    state.fill_randao_mixes_with(eth1_block_hash)?;
 
     let mut deposit_tree = DepositDataTree::create(&[], 0, DEPOSIT_TREE_DEPTH);
 

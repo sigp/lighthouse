@@ -1,6 +1,6 @@
 use super::*;
 use crate::bls_setting::BlsSetting;
-use crate::case_result::compare_beacon_state_results_without_caches;
+use crate::case_result::{check_state_diff, compare_beacon_state_results_without_caches};
 use crate::decode::{ssz_decode_file, ssz_decode_file_with, ssz_decode_state, yaml_decode_file};
 use crate::testing_spec;
 use crate::type_name::TypeName;
@@ -335,6 +335,7 @@ impl<E: EthSpec, O: Operation<E>> Case for Operations<E, O> {
             .apply_to(&mut state, spec, self)
             .map(|()| state);
 
-        compare_beacon_state_results_without_caches(&mut result, &mut expected)
+        compare_beacon_state_results_without_caches(&mut result, &mut expected)?;
+        check_state_diff(&self.pre, &self.post)
     }
 }

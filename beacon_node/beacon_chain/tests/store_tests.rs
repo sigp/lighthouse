@@ -25,7 +25,6 @@ use store::{
     HotColdDB, LevelDB, StoreConfig,
 };
 use tempfile::{tempdir, TempDir};
-use tree_hash::TreeHash;
 use types::test_utils::{SeedableRng, XorShiftRng};
 use types::*;
 

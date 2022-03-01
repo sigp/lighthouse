@@ -95,8 +95,7 @@ impl<E: EthSpec> StateCache<E> {
                 finalized_state.state_root == state_root
             })
         {
-            // FIXME(sproul): this should technically be true
-            return Ok(false);
+            return Ok(true);
         }
         if self.states.peek(&state_root).is_some() {
             return Ok(true);
@@ -167,7 +166,7 @@ impl BlockMap {
 
         self.blocks.retain(|_, slot_map| {
             slot_map.slots.retain(|slot, state_root| {
-                let keep = *slot > finalized_slot;
+                let keep = *slot >= finalized_slot;
                 if !keep {
                     pruned_states.insert(*state_root);
                 }
