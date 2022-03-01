@@ -136,6 +136,7 @@ pub struct Engines<T> {
 pub enum EngineError {
     Offline { id: String },
     Api { id: String, error: EngineApiError },
+    Auth { id: String },
 }
 
 impl<T: EngineApi> Engines<T> {
@@ -264,7 +265,7 @@ impl<T: EngineApi> Engines<T> {
             }
         }
 
-        if num_synced == 0 && num_auth_failed == self.engines.len() && logging.is_enabled() {
+        if num_synced == 0 && num_auth_failed != 0 && logging.is_enabled() {
             crit!(
                 self.log,
                 "No synced execution engines";
@@ -313,6 +314,7 @@ impl<T: EngineApi> Engines<T> {
 
         for engine in &self.engines {
             let engine_synced = *engine.state.read().await == EngineState::Synced;
+            let engine_auth_failed = *engine.state.read().await == EngineState::AuthFailed;
             if engine_synced {
                 match func(engine).await {
                     Ok(result) => return Ok(result),
@@ -330,6 +332,10 @@ impl<T: EngineApi> Engines<T> {
                         })
                     }
                 }
+            } else if engine_auth_failed {
+                errors.push(EngineError::Auth {
+                    id: engine.id.clone(),
+                })
             } else {
                 errors.push(EngineError::Offline {
                     id: engine.id.clone(),

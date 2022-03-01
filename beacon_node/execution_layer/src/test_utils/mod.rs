@@ -346,7 +346,6 @@ pub fn serve<T: EthSpec>(
     //
     // Handles actual JSON-RPC requests.
     let root = warp::path::end()
-        .and(auth_header_filter(JWT_SECRET))
         .and(warp::body::json())
         .and(ctx_filter.clone())
         .and_then(|body: serde_json::Value, ctx: Arc<Context<T>>| async move {
@@ -404,6 +403,7 @@ pub fn serve<T: EthSpec>(
         });
 
     let routes = warp::post()
+        .and(auth_header_filter(JWT_SECRET))
         .and(root.or(echo))
         .recover(handle_rejection)
         // Add a `Server` header.
