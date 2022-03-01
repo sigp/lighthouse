@@ -334,7 +334,10 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         {
             self.parent_queue.remove(pos)
         } else {
-            return debug!(self.log, "Process response for a parent lookup request that was not found"; "peer_id" => %peer_id);
+            #[cfg(debug_assertions)]
+            panic!("Process response for a parent lookip request that was not found. peer_id: {} chain_hash: {}", peer_id, chain_hash);
+            #[cfg(not(debug_assertions))]
+            return crit!(self.log, "Process response for a parent lookup request that was not found"; "peer_id" => %peer_id);
         };
 
         match result {
