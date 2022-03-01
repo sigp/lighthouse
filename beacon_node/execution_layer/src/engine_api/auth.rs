@@ -5,23 +5,24 @@ const DEFAULT_ALGORITHM: Algorithm = Algorithm::HS256;
 
 #[derive(Debug)]
 pub enum Error {
-    FromHexError(hex::FromHexError),
-    JWTError(jsonwebtoken::errors::Error),
+    InvalidSecret(hex::FromHexError),
+    JWT(jsonwebtoken::errors::Error),
     InvalidToken,
 }
 
 impl From<hex::FromHexError> for Error {
     fn from(e: hex::FromHexError) -> Self {
-        Error::FromHexError(e)
+        Error::InvalidSecret(e)
     }
 }
 
 impl From<jsonwebtoken::errors::Error> for Error {
     fn from(e: jsonwebtoken::errors::Error) -> Self {
-        Error::JWTError(e)
+        Error::JWT(e)
     }
 }
 
+/// Contains the JWT secret and claims parameters.
 pub struct Auth {
     secret: EncodingKey,
     id: Option<String>,
@@ -37,7 +38,7 @@ impl Auth {
         })
     }
 
-    /// Generate a JWT token with iat set to current time.
+    /// Generate a JWT token with `claims.iat` set to current time.
     pub fn generate_token(&self) -> Result<String, Error> {
         let header = Header::new(DEFAULT_ALGORITHM);
         let claims = Claims {
@@ -46,6 +47,22 @@ impl Auth {
             clv: self.clv.clone(),
         };
         Ok(encode(&header, &claims, &self.secret)?)
+    }
+
+    /// Validate a JWT token given the secret key.
+    pub fn validate_token(token: &str, secret: &str) -> Result<(), Error> {
+        let mut validation = jsonwebtoken::Validation::new(DEFAULT_ALGORITHM);
+        validation.validate_exp = false;
+        // Really weird that we have to do this to get the validation working
+        validation.required_spec_claims.remove("exp");
+
+        jsonwebtoken::decode::<Claims>(
+            token,
+            &jsonwebtoken::DecodingKey::from_secret(hex::decode(secret)?.as_slice()),
+            &validation,
+        )
+        .map(|_| ())
+        .map_err(Into::into)
     }
 }
 

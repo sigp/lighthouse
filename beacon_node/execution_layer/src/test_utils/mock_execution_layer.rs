@@ -1,5 +1,5 @@
 use crate::{
-    test_utils::{MockServer, DEFAULT_TERMINAL_BLOCK, DEFAULT_TERMINAL_DIFFICULTY},
+    test_utils::{MockServer, DEFAULT_TERMINAL_BLOCK, DEFAULT_TERMINAL_DIFFICULTY, JWT_SECRET},
     Config, *,
 };
 use environment::null_logger;
@@ -89,11 +89,7 @@ impl<T: EthSpec> MockExecutionLayer<T> {
         let file = NamedTempFile::new().unwrap();
 
         let path = file.path().into();
-        std::fs::write(
-            &path,
-            "0x2a7b5bc2c6b5902f716ea513f9a62381c03c41077e772a906709663245df425c",
-        )
-        .unwrap();
+        std::fs::write(&path, JWT_SECRET).unwrap();
         let config = Config {
             endpoint_urls: vec![url],
             secret_files: vec![path],

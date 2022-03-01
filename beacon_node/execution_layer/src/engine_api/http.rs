@@ -197,7 +197,7 @@ impl EngineApi for HttpJsonRpc {
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::test_utils::MockServer;
+    use crate::test_utils::{MockServer, JWT_SECRET};
     use std::future::Future;
     use std::str::FromStr;
     use std::sync::Arc;
@@ -214,7 +214,8 @@ mod test {
             let server = MockServer::unit_testing();
 
             let rpc_url = SensitiveUrl::parse(&server.url()).unwrap();
-            let rpc_client = Arc::new(HttpJsonRpc::new(rpc_url).unwrap());
+            let auth = Auth::new(JWT_SECRET, None, None).unwrap();
+            let rpc_client = Arc::new(HttpJsonRpc::new_with_auth(rpc_url, auth).unwrap());
 
             let echo_url = SensitiveUrl::parse(&format!("{}/echo", server.url())).unwrap();
             let echo_client = Arc::new(HttpJsonRpc::new(echo_url).unwrap());

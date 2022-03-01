@@ -88,7 +88,7 @@ impl<E: GenericExecutionEngine> TestRig<E> {
                 ..Default::default()
             };
             let execution_layer =
-                ExecutionLayer::from_config(config, executor.clone(), log.clone()).unwrap();
+                ExecutionLayer::from_config(config, executor, log.clone()).unwrap();
             ExecutionPair {
                 execution_engine,
                 execution_layer,
