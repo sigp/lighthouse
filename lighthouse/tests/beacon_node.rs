@@ -237,14 +237,27 @@ fn merge_execution_endpoints_flag() {
 }
 #[test]
 fn merge_fee_recipient_flag() {
+    let dir = TempDir::new().expect("Unable to create temporary directory");
+    let _file = File::create(dir.path().join("jwt-file")).expect("Unable to create file");
     CommandLineTest::new()
         .flag("merge", None)
         .flag(
             "suggested-fee-recipient",
             Some("0x00000000219ab540356cbb839cbe05303d7705fa"),
         )
+        .flag("execution-endpoints", Some("http://localhost:8551/"))
+        .flag(
+            "jwt-secrets",
+            dir.path().join("jwt-file").as_os_str().to_str(),
+        )
         .run_with_zero_port()
         .with_config(|config| {
+            let config = config.execution_layer.clone().unwrap();
+            assert_eq!(
+                config.endpoint_urls[0].full.to_string(),
+                "http://localhost:8551/"
+            );
+            assert_eq!(config.secret_files[0], dir.path().join("jwt-file"));
             assert_eq!(
                 config.suggested_fee_recipient,
                 Some(Address::from_str("0x00000000219ab540356cbb839cbe05303d7705fa").unwrap())
