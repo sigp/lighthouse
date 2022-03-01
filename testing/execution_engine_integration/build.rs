@@ -52,11 +52,15 @@ fn build_geth(execution_clients_dir: &Path) {
         .success());
 
     // Build geth
-    assert!(Command::new("make")
+    let make_result = Command::new("make")
         .arg("geth")
         .current_dir(&repo_dir)
         .output()
-        .expect("failed to make geth")
-        .status
-        .success());
+        .expect("failed to make geth");
+
+    if !make_result.status.success() {
+        dbg!(String::from_utf8_lossy(&make_result.stdout));
+        dbg!(String::from_utf8_lossy(&make_result.stderr));
+        panic!("make make failed");
+    }
 }
