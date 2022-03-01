@@ -351,6 +351,7 @@ pub fn gossipsub_config(network_load: u8, fork_context: Arc<ForkContext>) -> Gos
 
 /// Helper function to determine if the IpAddr is a global address or not. The `is_global()`
 /// function is not yet stable on IpAddr.
+#[allow(clippy::nonminimal_bool)]
 fn is_global(addr: &std::net::Ipv4Addr) -> bool {
     // check if this address is 192.0.0.9 or 192.0.0.10. These addresses are the only two
     // globally routable addresses in the 192.0.0.0/24 range.
