@@ -144,7 +144,7 @@ pub struct ChainSpec {
     /// The Merge fork epoch is optional, with `None` representing "Merge never happens".
     pub bellatrix_fork_epoch: Option<Epoch>,
     pub terminal_total_difficulty: Uint256,
-    pub terminal_block_hash: Hash256,
+    pub terminal_block_hash: ExecutionBlockHash,
     pub terminal_block_hash_activation_epoch: Epoch,
 
     /*
@@ -549,7 +549,7 @@ impl ChainSpec {
                 // `Uint256::MAX` which is `2*256- 1`.
                 .checked_add(Uint256::one())
                 .expect("addition does not overflow"),
-            terminal_block_hash: Hash256::zero(),
+            terminal_block_hash: ExecutionBlockHash::zero(),
             terminal_block_hash_activation_epoch: Epoch::new(u64::MAX),
 
             /*
@@ -746,7 +746,7 @@ impl ChainSpec {
                 // `Uint256::MAX` which is `2*256- 1`.
                 .checked_add(Uint256::one())
                 .expect("addition does not overflow"),
-            terminal_block_hash: Hash256::zero(),
+            terminal_block_hash: ExecutionBlockHash::zero(),
             terminal_block_hash_activation_epoch: Epoch::new(u64::MAX),
 
             /*
@@ -787,7 +787,7 @@ pub struct Config {
     pub terminal_total_difficulty: Uint256,
     // TODO(merge): remove this default
     #[serde(default = "default_terminal_block_hash")]
-    pub terminal_block_hash: Hash256,
+    pub terminal_block_hash: ExecutionBlockHash,
     // TODO(merge): remove this default
     #[serde(default = "default_terminal_block_hash_activation_epoch")]
     pub terminal_block_hash_activation_epoch: Epoch,
@@ -870,8 +870,8 @@ const fn default_terminal_total_difficulty() -> Uint256 {
     ])
 }
 
-fn default_terminal_block_hash() -> Hash256 {
-    Hash256::zero()
+fn default_terminal_block_hash() -> ExecutionBlockHash {
+    ExecutionBlockHash::zero()
 }
 
 fn default_terminal_block_hash_activation_epoch() -> Epoch {

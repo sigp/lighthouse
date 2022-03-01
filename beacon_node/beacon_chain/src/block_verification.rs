@@ -54,7 +54,7 @@ use crate::{
     metrics, BeaconChain, BeaconChainError, BeaconChainTypes,
 };
 use eth2::types::EventKind;
-use execution_layer::PayloadStatusV1Status;
+use execution_layer::PayloadStatus;
 use fork_choice::{ForkChoice, ForkChoiceStore, PayloadVerificationStatus};
 use parking_lot::RwLockReadGuard;
 use proto_array::Block as ProtoBlock;
@@ -76,9 +76,9 @@ use std::time::Duration;
 use store::{Error as DBError, HotColdDB, HotStateSummary, KeyValueStore, StoreOp};
 use tree_hash::TreeHash;
 use types::{
-    BeaconBlockRef, BeaconState, BeaconStateError, ChainSpec, CloneConfig, Epoch, EthSpec, Hash256,
-    InconsistentFork, PublicKey, PublicKeyBytes, RelativeEpoch, SignedBeaconBlock,
-    SignedBeaconBlockHeader, Slot,
+    BeaconBlockRef, BeaconState, BeaconStateError, ChainSpec, CloneConfig, Epoch, EthSpec,
+    ExecutionBlockHash, Hash256, InconsistentFork, PublicKey, PublicKeyBytes, RelativeEpoch,
+    SignedBeaconBlock, SignedBeaconBlockHeader, Slot,
 };
 
 /// Maximum block slot number. Block with slots bigger than this constant will NOT be processed.
@@ -270,10 +270,7 @@ pub enum ExecutionPayloadError {
     /// ## Peer scoring
     ///
     /// The block is invalid and the peer is faulty
-    RejectedByExecutionEngine {
-        status: PayloadStatusV1Status,
-        latest_valid_hash: Option<Vec<Hash256>>,
-    },
+    RejectedByExecutionEngine { status: PayloadStatus },
     /// The execution payload timestamp does not match the slot
     ///
     /// ## Peer scoring
@@ -286,7 +283,7 @@ pub enum ExecutionPayloadError {
     ///
     /// The block is invalid and the peer sent us a block that passes gossip propagation conditions,
     /// but is invalid upon further verification.
-    InvalidTerminalPoWBlock { parent_hash: Hash256 },
+    InvalidTerminalPoWBlock { parent_hash: ExecutionBlockHash },
     /// The `TERMINAL_BLOCK_HASH` is set, but the block has not reached the
     /// `TERMINAL_BLOCK_HASH_ACTIVATION_EPOCH`.
     ///
@@ -305,8 +302,8 @@ pub enum ExecutionPayloadError {
     /// The block is invalid and the peer sent us a block that passes gossip propagation conditions,
     /// but is invalid upon further verification.
     InvalidTerminalBlockHash {
-        terminal_block_hash: Hash256,
-        payload_parent_hash: Hash256,
+        terminal_block_hash: ExecutionBlockHash,
+        payload_parent_hash: ExecutionBlockHash,
     },
     /// The execution node failed to provide a parent block to a known block. This indicates an
     /// issue with the execution node.
@@ -314,7 +311,7 @@ pub enum ExecutionPayloadError {
     /// ## Peer scoring
     ///
     /// The peer is not necessarily invalid.
-    PoWParentMissing(Hash256),
+    PoWParentMissing(ExecutionBlockHash),
 }
 
 impl From<execution_layer::Error> for ExecutionPayloadError {

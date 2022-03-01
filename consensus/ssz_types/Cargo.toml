@@ -2,7 +2,7 @@
 name = "eth2_ssz_types"
 version = "0.2.2"
 authors = ["Paul Hauner <paul@paulhauner.com>"]
-edition = "2018"
+edition = "2021"
 description = "Provides types with unique properties required for SSZ serialization and Merklization."
 license = "Apache-2.0"
 

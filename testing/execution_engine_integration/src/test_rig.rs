@@ -1,10 +1,10 @@
 use crate::execution_engine::{ExecutionEngine, GenericExecutionEngine};
-use execution_layer::{ExecutionLayer, PayloadAttributes, PayloadStatusV1Status};
+use execution_layer::{ExecutionLayer, PayloadAttributes, PayloadStatus};
 use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use task_executor::TaskExecutor;
 use tokio::time::sleep;
-use types::{Address, ChainSpec, EthSpec, Hash256, MainnetEthSpec, Uint256};
+use types::{Address, ChainSpec, EthSpec, ExecutionBlockHash, Hash256, MainnetEthSpec, Uint256};
 
 const EXECUTION_ENGINE_START_TIMEOUT: Duration = Duration::from_secs(10);
 
@@ -139,7 +139,7 @@ impl<E: GenericExecutionEngine> TestRig<E> {
         let parent_hash = terminal_pow_block_hash;
         let timestamp = timestamp_now();
         let random = Hash256::zero();
-        let finalized_block_hash = Hash256::zero();
+        let finalized_block_hash = ExecutionBlockHash::zero();
         let proposer_index = 0;
         let valid_payload = self
             .ee_a
@@ -161,15 +161,15 @@ impl<E: GenericExecutionEngine> TestRig<E> {
          * `notify_new_payload`.
          */
         let head_block_hash = valid_payload.block_hash;
-        let finalized_block_hash = Hash256::zero();
+        let finalized_block_hash = ExecutionBlockHash::zero();
         let payload_attributes = None;
-        let (status, _) = self
+        let status = self
             .ee_a
             .execution_layer
             .notify_forkchoice_updated(head_block_hash, finalized_block_hash, payload_attributes)
             .await
             .unwrap();
-        assert_eq!(status, PayloadStatusV1Status::Syncing);
+        assert_eq!(status, PayloadStatus::Syncing);
 
         /*
          * Execution Engine A:
@@ -177,13 +177,13 @@ impl<E: GenericExecutionEngine> TestRig<E> {
          * Provide the valid payload back to the EE again.
          */
 
-        let (status, _) = self
+        let status = self
             .ee_a
             .execution_layer
             .notify_new_payload(&valid_payload)
             .await
             .unwrap();
-        assert_eq!(status, PayloadStatusV1Status::Valid);
+        assert_eq!(status, PayloadStatus::Valid);
 
         /*
          * Execution Engine A:
@@ -193,15 +193,15 @@ impl<E: GenericExecutionEngine> TestRig<E> {
          * Do not provide payload attributes (we'll test that later).
          */
         let head_block_hash = valid_payload.block_hash;
-        let finalized_block_hash = Hash256::zero();
+        let finalized_block_hash = ExecutionBlockHash::zero();
         let payload_attributes = None;
-        let (status, _) = self
+        let status = self
             .ee_a
             .execution_layer
             .notify_forkchoice_updated(head_block_hash, finalized_block_hash, payload_attributes)
             .await
             .unwrap();
-        assert_eq!(status, PayloadStatusV1Status::Valid);
+        assert_eq!(status, PayloadStatus::Valid);
 
         /*
          * Execution Engine A:
@@ -211,16 +211,13 @@ impl<E: GenericExecutionEngine> TestRig<E> {
 
         let mut invalid_payload = valid_payload.clone();
         invalid_payload.random = Hash256::from_low_u64_be(42);
-        let (status, _) = self
+        let status = self
             .ee_a
             .execution_layer
             .notify_new_payload(&invalid_payload)
             .await
             .unwrap();
-        assert!(matches!(
-            status,
-            PayloadStatusV1Status::Invalid | PayloadStatusV1Status::InvalidBlockHash
-        ));
+        assert!(matches!(status, PayloadStatus::InvalidBlockHash { .. }));
 
         /*
          * Execution Engine A:
@@ -231,7 +228,7 @@ impl<E: GenericExecutionEngine> TestRig<E> {
         let parent_hash = valid_payload.block_hash;
         let timestamp = valid_payload.timestamp + 1;
         let random = Hash256::zero();
-        let finalized_block_hash = Hash256::zero();
+        let finalized_block_hash = ExecutionBlockHash::zero();
         let proposer_index = 0;
         let second_payload = self
             .ee_a
@@ -252,13 +249,13 @@ impl<E: GenericExecutionEngine> TestRig<E> {
          * Provide the second payload back to the EE again.
          */
 
-        let (status, _) = self
+        let status = self
             .ee_a
             .execution_layer
             .notify_new_payload(&second_payload)
             .await
             .unwrap();
-        assert_eq!(status, PayloadStatusV1Status::Valid);
+        assert_eq!(status, PayloadStatus::Valid);
 
         /*
          * Execution Engine A:
@@ -266,32 +263,32 @@ impl<E: GenericExecutionEngine> TestRig<E> {
          * Indicate that the payload is the head of the chain, providing payload attributes.
          */
         let head_block_hash = valid_payload.block_hash;
-        let finalized_block_hash = Hash256::zero();
+        let finalized_block_hash = ExecutionBlockHash::zero();
         let payload_attributes = Some(PayloadAttributes {
             timestamp: second_payload.timestamp + 1,
             random: Hash256::zero(),
             suggested_fee_recipient: Address::zero(),
         });
-        let (status, _) = self
+        let status = self
             .ee_a
             .execution_layer
             .notify_forkchoice_updated(head_block_hash, finalized_block_hash, payload_attributes)
             .await
             .unwrap();
-        assert_eq!(status, PayloadStatusV1Status::Valid);
+        assert_eq!(status, PayloadStatus::Valid);
 
         /*
          * Execution Engine B:
          *
          * Provide the second payload, without providing the first.
          */
-        let (status, _) = self
+        let status = self
             .ee_b
             .execution_layer
             .notify_new_payload(&second_payload)
             .await
             .unwrap();
-        assert_eq!(status, PayloadStatusV1Status::Syncing);
+        assert_eq!(status, PayloadStatus::Accepted);
 
         /*
          * Execution Engine B:
@@ -299,15 +296,15 @@ impl<E: GenericExecutionEngine> TestRig<E> {
          * Set the second payload as the head, without providing payload attributes.
          */
         let head_block_hash = second_payload.block_hash;
-        let finalized_block_hash = Hash256::zero();
+        let finalized_block_hash = ExecutionBlockHash::zero();
         let payload_attributes = None;
-        let (status, _) = self
+        let status = self
             .ee_b
             .execution_layer
             .notify_forkchoice_updated(head_block_hash, finalized_block_hash, payload_attributes)
             .await
             .unwrap();
-        assert_eq!(status, PayloadStatusV1Status::Syncing);
+        assert_eq!(status, PayloadStatus::Syncing);
 
         /*
          * Execution Engine B:
@@ -315,26 +312,26 @@ impl<E: GenericExecutionEngine> TestRig<E> {
          * Provide the first payload to the EE.
          */
 
-        let (status, _) = self
+        let status = self
             .ee_b
             .execution_layer
             .notify_new_payload(&valid_payload)
             .await
             .unwrap();
-        assert_eq!(status, PayloadStatusV1Status::Valid);
+        assert_eq!(status, PayloadStatus::Valid);
 
         /*
          * Execution Engine B:
          *
          * Provide the second payload, now the first has been provided.
          */
-        let (status, _) = self
+        let status = self
             .ee_b
             .execution_layer
             .notify_new_payload(&second_payload)
             .await
             .unwrap();
-        assert_eq!(status, PayloadStatusV1Status::Valid);
+        assert_eq!(status, PayloadStatus::Valid);
 
         /*
          * Execution Engine B:
@@ -342,15 +339,15 @@ impl<E: GenericExecutionEngine> TestRig<E> {
          * Set the second payload as the head, without providing payload attributes.
          */
         let head_block_hash = second_payload.block_hash;
-        let finalized_block_hash = Hash256::zero();
+        let finalized_block_hash = ExecutionBlockHash::zero();
         let payload_attributes = None;
-        let (status, _) = self
+        let status = self
             .ee_b
             .execution_layer
             .notify_forkchoice_updated(head_block_hash, finalized_block_hash, payload_attributes)
             .await
             .unwrap();
-        assert_eq!(status, PayloadStatusV1Status::Valid);
+        assert_eq!(status, PayloadStatus::Valid);
     }
 }
 

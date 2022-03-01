@@ -304,10 +304,7 @@ impl<E: EthSpec, O: Operation<E>> LoadCase for Operations<E, O> {
 
 impl<E: EthSpec, O: Operation<E>> Case for Operations<E, O> {
     fn description(&self) -> String {
-        self.metadata
-            .description
-            .clone()
-            .unwrap_or_else(String::new)
+        self.metadata.description.clone().unwrap_or_default()
     }
 
     fn is_enabled_for_fork(fork_name: ForkName) -> bool {

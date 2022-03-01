@@ -31,7 +31,7 @@ pub fn get_eth2_network_config(cli_args: &ArgMatches) -> Result<Eth2NetworkConfi
 
     if let Some(string) = parse_optional::<String>(cli_args, "terminal-total-difficulty-override")?
     {
-        let stripped = string.replace(",", "");
+        let stripped = string.replace(',', "");
         let terminal_total_difficulty = Uint256::from_dec_str(&stripped).map_err(|e| {
             format!(
                 "Could not parse --terminal-total-difficulty-override as decimal value: {:?}",

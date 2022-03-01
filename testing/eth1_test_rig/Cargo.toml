@@ -2,7 +2,7 @@
 name = "eth1_test_rig"
 version = "0.2.0"
 authors = ["Paul Hauner <paul@paulhauner.com>"]
-edition = "2018"
+edition = "2021"
 
 [dependencies]
 tokio = { version = "1.14.0", features = ["time"] }

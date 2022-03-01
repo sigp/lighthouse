@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 pub const LATEST_TAG: &str = "latest";
 
 use crate::engines::ForkChoiceState;
-pub use types::{Address, EthSpec, ExecutionPayload, Hash256, Uint256};
+pub use types::{Address, EthSpec, ExecutionBlockHash, ExecutionPayload, Hash256, Uint256};
 
 pub mod http;
 pub mod json_structures;
@@ -17,14 +17,15 @@ pub enum Error {
     Reqwest(reqwest::Error),
     BadResponse(String),
     RequestFailed(String),
+    InvalidExecutePayloadResponse(&'static str),
     JsonRpc(RpcError),
     Json(serde_json::Error),
     ServerMessage { code: i64, message: String },
     Eip155Failure,
     IsSyncing,
-    ExecutionBlockNotFound(Hash256),
+    ExecutionBlockNotFound(ExecutionBlockHash),
     ExecutionHeadBlockNotFound,
-    ParentHashEqualsBlockHash(Hash256),
+    ParentHashEqualsBlockHash(ExecutionBlockHash),
     PayloadIdUnavailable,
 }
 
@@ -52,7 +53,7 @@ pub trait EngineApi {
 
     async fn get_block_by_hash<'a>(
         &self,
-        block_hash: Hash256,
+        block_hash: ExecutionBlockHash,
     ) -> Result<Option<ExecutionBlock>, Error>;
 
     async fn new_payload_v1<T: EthSpec>(
@@ -85,7 +86,7 @@ pub enum PayloadStatusV1Status {
 #[derive(Clone, Debug, PartialEq)]
 pub struct PayloadStatusV1 {
     pub status: PayloadStatusV1Status,
-    pub latest_valid_hash: Option<Hash256>,
+    pub latest_valid_hash: Option<ExecutionBlockHash>,
     pub validation_error: Option<String>,
 }
 
@@ -99,10 +100,10 @@ pub enum BlockByNumberQuery<'a> {
 #[serde(rename_all = "camelCase")]
 pub struct ExecutionBlock {
     #[serde(rename = "hash")]
-    pub block_hash: Hash256,
+    pub block_hash: ExecutionBlockHash,
     #[serde(rename = "number", with = "eth2_serde_utils::u64_hex_be")]
     pub block_number: u64,
-    pub parent_hash: Hash256,
+    pub parent_hash: ExecutionBlockHash,
     pub total_difficulty: Uint256,
 }
 
