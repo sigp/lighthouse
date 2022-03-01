@@ -53,7 +53,7 @@ impl TestRig {
             let globals = Arc::new(NetworkGlobals::new_test_globals(&log));
             SyncNetworkContext::new(
                 network_tx,
-                globals.clone(),
+                globals,
                 log.new(slog::o!("component" => "network_context")),
             )
         };
@@ -77,10 +77,7 @@ impl TestRig {
                 peer_id: _,
                 request: Request::BlocksByRoot(_request),
                 request_id: RequestId::Sync(SyncId::SingleBlock { id }),
-            }) => {
-                println!("found id: {}", id);
-                return id;
-            }
+            }) => id,
             other => {
                 panic!("Expected block request, found {:?}", other);
             }
@@ -94,7 +91,7 @@ impl TestRig {
                 peer_id: _,
                 request: Request::BlocksByRoot(_request),
                 request_id: RequestId::Sync(SyncId::ParentLookup { id }),
-            }) => return id,
+            }) => id,
             other => panic!("Expected parent request, found {:?}", other),
         }
     }
@@ -407,7 +404,7 @@ fn test_parent_lookup_too_deep() {
         let parent = blocks
             .last()
             .map(|b| b.canonical_root())
-            .unwrap_or_else(|| Hash256::random());
+            .unwrap_or_else(Hash256::random);
         let block = rig.block_with_parent(parent);
         blocks.push(block);
     }
