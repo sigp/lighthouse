@@ -40,10 +40,6 @@ pub enum ExecutionStatus {
 }
 
 impl ExecutionStatus {
-    pub fn is_valid(&self) -> bool {
-        matches!(self, ExecutionStatus::Valid(_))
-    }
-
     pub fn is_execution_enabled(&self) -> bool {
         !matches!(self, ExecutionStatus::Irrelevant(_))
     }
