@@ -2,10 +2,7 @@ use crate::metrics;
 use crate::{
     block_cache::{BlockCache, Error as BlockCacheError, Eth1Block},
     deposit_cache::{DepositCacheInsertOutcome, Error as DepositCacheError},
-    http::{
-        get_block, get_block_number, get_chain_id, get_deposit_logs_in_range, get_network_id,
-        BlockQuery, Eth1Id,
-    },
+    http::{BlockQuery, Eth1Client, Eth1Id},
     inner::{DepositUpdater, Inner},
 };
 use fallback::{Fallback, FallbackError};
@@ -459,6 +456,7 @@ impl Default for Config {
 pub struct Service {
     inner: Arc<Inner>,
     pub log: Logger,
+    client: Eth1Client,
 }
 
 impl Service {
@@ -476,6 +474,7 @@ impl Service {
                 spec,
             }),
             log,
+            client: Eth1Client::new(),
         }
     }
 
@@ -507,6 +506,7 @@ impl Service {
         Ok(Self {
             inner: Arc::new(inner),
             log,
+            client: Eth1Client::new(),
         })
     }
 
