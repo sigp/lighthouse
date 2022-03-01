@@ -12,6 +12,7 @@ use store::{Hash256, SignedBeaconBlock};
 use tokio::sync::mpsc;
 
 use crate::beacon_processor::{ChainSegmentProcessId, WorkEvent};
+use crate::metrics;
 
 use self::{
     parent_lookup::{ParentLookup, VerifyError},
@@ -96,6 +97,10 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
             self.single_block_lookups
                 .insert(request_id, SingleBlockRequest::new(hash));
         }
+        metrics::set_gauge(
+            &metrics::SYNC_SINGLE_BLOCK_LOOKUPS,
+            self.single_block_lookups.len() as i64,
+        );
     }
 
     pub fn search_parent(
@@ -132,6 +137,10 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         if parent_req.request_parent(cx, &self.log).is_ok() {
             self.parent_queue.push(parent_req);
         }
+        metrics::set_gauge(
+            &metrics::SYNC_PARENT_BLOCK_LOOKUPS,
+            self.parent_queue.len() as i64,
+        );
     }
 
     /* Lookup responses */
@@ -176,6 +185,11 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                 return;
             }
         };
+
+        metrics::set_gauge(
+            &metrics::SYNC_SINGLE_BLOCK_LOOKUPS,
+            self.single_block_lookups.len() as i64,
+        );
     }
 
     pub fn parent_lookup_response(
@@ -246,7 +260,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                     // Add the root block to failed chains
                     self.failed_chains.insert(parent_lookup.chain_hash());
 
-                    return cx.report_peer(
+                    cx.report_peer(
                         peer_id,
                         PeerAction::MidToleranceError,
                         "bbroot_failed_chains",
@@ -258,6 +272,11 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                 }
             },
         };
+
+        metrics::set_gauge(
+            &metrics::SYNC_PARENT_BLOCK_LOOKUPS,
+            self.parent_queue.len() as i64,
+        );
     }
 
     pub fn parent_lookup_failed(
@@ -283,10 +302,20 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         } else {
             return debug!(self.log, "RPC failure for a parent lookup request that was not found"; "peer_id" => %peer_id);
         };
+
+        metrics::set_gauge(
+            &metrics::SYNC_PARENT_BLOCK_LOOKUPS,
+            self.parent_queue.len() as i64,
+        );
     }
 
     pub fn single_block_lookup_failed(&mut self, id: Id) {
         self.single_block_lookups.remove(&id);
+
+        metrics::set_gauge(
+            &metrics::SYNC_SINGLE_BLOCK_LOOKUPS,
+            self.single_block_lookups.len() as i64,
+        );
     }
 
     /* Processing responses */
@@ -359,6 +388,11 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                 );
             }
         }
+
+        metrics::set_gauge(
+            &metrics::SYNC_PARENT_BLOCK_LOOKUPS,
+            self.parent_queue.len() as i64,
+        );
     }
 
     pub fn parent_chain_processing_failed(&mut self, chain_hash: Hash256) {
