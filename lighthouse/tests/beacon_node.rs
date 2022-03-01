@@ -10,7 +10,7 @@ use std::process::Command;
 use std::str::FromStr;
 use std::string::ToString;
 use tempfile::TempDir;
-use types::{Address, Checkpoint, Epoch, Hash256, MainnetEthSpec};
+use types::{Address, Checkpoint, Epoch, ExecutionBlockHash, Hash256, MainnetEthSpec};
 use unused_port::{unused_tcp_port, unused_udp_port};
 
 const DEFAULT_ETH1_ENDPOINT: &str = "http://localhost:8545/";
@@ -263,7 +263,6 @@ fn terminal_total_difficulty_override_flag() {
 }
 #[test]
 fn terminal_block_hash_and_activation_epoch_override_flags() {
-    use beacon_node::beacon_chain::types::Hash256;
     CommandLineTest::new()
         .flag("terminal-block-hash-epoch-override", Some("1337"))
         .flag(
@@ -274,7 +273,7 @@ fn terminal_block_hash_and_activation_epoch_override_flags() {
         .with_spec::<MainnetEthSpec, _>(|spec| {
             assert_eq!(
                 spec.terminal_block_hash,
-                Hash256::from_str(
+                ExecutionBlockHash::from_str(
                     "0x4242424242424242424242424242424242424242424242424242424242424242"
                 )
                 .unwrap()
