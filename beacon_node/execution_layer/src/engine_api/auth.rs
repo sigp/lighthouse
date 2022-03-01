@@ -7,6 +7,7 @@ const DEFAULT_ALGORITHM: Algorithm = Algorithm::HS256;
 pub enum Error {
     FromHexError(hex::FromHexError),
     JWTError(jsonwebtoken::errors::Error),
+    InvalidToken,
 }
 
 impl From<hex::FromHexError> for Error {

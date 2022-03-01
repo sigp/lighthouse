@@ -21,6 +21,7 @@ enum EngineState {
     Synced,
     Offline,
     Syncing,
+    AuthFailed,
 }
 
 #[derive(Copy, Clone, PartialEq, Debug)]
@@ -226,6 +227,18 @@ impl<T: EngineApi> Engines<T> {
 
                         *state_lock = EngineState::Syncing
                     }
+                    Err(EngineApiError::Auth(err)) => {
+                        if logging.is_enabled() {
+                            warn!(
+                                self.log,
+                                "Failed jwt authorization";
+                                "error" => ?err,
+                                "id" => &engine.id
+                            );
+                        }
+
+                        *state_lock = EngineState::AuthFailed
+                    }
                     Err(e) => {
                         if logging.is_enabled() {
                             warn!(
@@ -241,13 +254,17 @@ impl<T: EngineApi> Engines<T> {
             *state_lock
         });
 
-        let num_synced = join_all(upcheck_futures)
-            .await
-            .into_iter()
-            .filter(|state: &EngineState| *state == EngineState::Synced)
-            .count();
+        let mut num_synced = 0;
+        let mut num_auth_failed = 0;
+        for state in join_all(upcheck_futures).await.into_iter() {
+            if state == EngineState::Synced {
+                num_synced += 1;
+            } else if state == EngineState::AuthFailed {
+                num_auth_failed += 1;
+            }
+        }
 
-        if num_synced == 0 && logging.is_enabled() {
+        if num_synced == 0 && num_auth_failed == self.engines.len() && logging.is_enabled() {
             crit!(
                 self.log,
                 "No synced execution engines";

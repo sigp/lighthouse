@@ -1,5 +1,6 @@
 use async_trait::async_trait;
 use eth1::http::RpcError;
+use reqwest::StatusCode;
 use serde::{Deserialize, Serialize};
 
 pub const LATEST_TAG: &str = "latest";
@@ -33,7 +34,14 @@ pub enum Error {
 
 impl From<reqwest::Error> for Error {
     fn from(e: reqwest::Error) -> Self {
-        Error::Reqwest(e)
+        if matches!(
+            e.status(),
+            Some(StatusCode::UNAUTHORIZED) | Some(StatusCode::FORBIDDEN)
+        ) {
+            Error::Auth(auth::Error::InvalidToken)
+        } else {
+            Error::Reqwest(e)
+        }
     }
 }
 
