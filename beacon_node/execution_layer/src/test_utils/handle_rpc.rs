@@ -10,6 +10,8 @@ pub async fn handle_rpc<T: EthSpec>(
     body: JsonValue,
     ctx: Arc<Context<T>>,
 ) -> Result<JsonValue, String> {
+    *ctx.previous_request.lock() = Some(body.clone());
+
     let method = body
         .get("method")
         .and_then(JsonValue::as_str)

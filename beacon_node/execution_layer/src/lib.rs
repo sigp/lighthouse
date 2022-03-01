@@ -22,7 +22,9 @@ use tokio::{
 };
 use types::{ChainSpec, Epoch, ExecutionBlockHash, ProposerPreparationData, Slot};
 
-pub use engine_api::{http::HttpJsonRpc, PayloadAttributes, PayloadStatusV1Status};
+pub use engine_api::{
+    http::HttpJsonRpc, json_structures, PayloadAttributes, PayloadStatusV1Status,
+};
 pub use payload_status::PayloadStatus;
 
 mod engine_api;
