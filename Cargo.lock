@@ -316,6 +316,7 @@ dependencies = [
  "sensitive_url",
  "serde",
  "serde_derive",
+ "serde_json",
  "slasher",
  "slog",
  "sloggers",
