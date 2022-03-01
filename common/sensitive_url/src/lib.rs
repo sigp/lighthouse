@@ -10,7 +10,7 @@ pub enum SensitiveError {
 }
 
 // Wrapper around Url which provides a custom `Display` implementation to protect user secrets.
-#[derive(Clone)]
+#[derive(Clone, PartialEq)]
 pub struct SensitiveUrl {
     pub full: Url,
     pub redacted: String,

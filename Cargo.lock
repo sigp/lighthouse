@@ -513,6 +513,7 @@ dependencies = [
  "serde",
  "serde_derive",
  "serde_json",
+ "serde_yaml",
  "slog",
  "slog-async",
  "slog-scope",
@@ -729,6 +730,10 @@ dependencies = [
  "eth2_ssz",
  "ethereum-types 0.12.1",
  "hex",
+ "serde",
+ "serde_json",
+ "serde_yaml",
+ "types",
 ]
 
 [[package]]
@@ -3339,8 +3344,10 @@ dependencies = [
  "lighthouse_network",
  "lighthouse_version",
  "malloc_utils",
+ "sensitive_url",
  "serde",
  "serde_json",
+ "serde_yaml",
  "slashing_protection",
  "slog",
  "sloggers",
