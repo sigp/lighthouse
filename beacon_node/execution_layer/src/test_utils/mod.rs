@@ -278,7 +278,7 @@ fn auth_header_filter(secret: &'static str) -> warp::filters::BoxedFilter<()> {
                 Some(auth) => {
                     if let Some(token) = auth.strip_prefix("Bearer ") {
                         match Auth::validate_token(token, secret) {
-                            Ok(()) => Ok(()),
+                            Ok(_) => Ok(()),
                             Err(e) => Err(warp::reject::custom(AuthError(format!(
                                 "Auth failure: {:?}",
                                 e
