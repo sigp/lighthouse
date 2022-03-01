@@ -148,8 +148,7 @@ fn parent_sk_to_lamport_pk(ikm: &[u8], index: u32) -> ZeroizeHash {
 
     lamports
         .iter()
-        .map(LamportSecretKey::iter_chunks)
-        .flatten()
+        .flat_map(LamportSecretKey::iter_chunks)
         .enumerate()
         .for_each(|(i, chunk)| {
             let mut hasher = Sha256::new();

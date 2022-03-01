@@ -182,7 +182,21 @@ impl<E: EthSpec> EnvironmentBuilder<E> {
 
             // Create the necessary directories for the correct service and network.
             if !dir.exists() {
-                create_dir_all(dir).map_err(|e| format!("Unable to create directory: {:?}", e))?;
+                let res = create_dir_all(dir);
+
+                // If the directories cannot be created, warn and disable the logger.
+                match res {
+                    Ok(_) => (),
+                    Err(e) => {
+                        let log = stdout_logger;
+                        warn!(
+                            log,
+                            "Background file logging is disabled";
+                            "error" => e);
+                        self.log = Some(log);
+                        return Ok(self);
+                    }
+                }
             }
         }
 

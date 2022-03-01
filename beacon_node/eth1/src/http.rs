@@ -449,7 +449,7 @@ fn response_result_or_error(response: &str) -> Result<Value, RpcError> {
     let json = serde_json::from_str::<Value>(response)
         .map_err(|e| RpcError::InvalidJson(e.to_string()))?;
 
-    if let Some(error) = json.get("error").map(|e| e.get("message")).flatten() {
+    if let Some(error) = json.get("error").and_then(|e| e.get("message")) {
         let error = error.to_string();
         if error.contains(EIP155_ERROR_STR) {
             Err(RpcError::Eip155Error)

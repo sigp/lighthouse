@@ -7,6 +7,7 @@
 use engine_api::{Error as ApiError, *};
 use engines::{Engine, EngineError, Engines, ForkChoiceState, Logging};
 use lru::LruCache;
+use payload_status::process_multiple_payload_statuses;
 use sensitive_url::SensitiveUrl;
 use slog::{crit, debug, error, info, Logger};
 use slot_clock::SlotClock;
@@ -19,12 +20,14 @@ use tokio::{
     sync::{Mutex, MutexGuard},
     time::{sleep, sleep_until, Instant},
 };
-use types::{ChainSpec, Epoch, ProposerPreparationData};
+use types::{ChainSpec, Epoch, ExecutionBlockHash, ProposerPreparationData};
 
-pub use engine_api::{http::HttpJsonRpc, ExecutePayloadResponseStatus};
+pub use engine_api::{http::HttpJsonRpc, PayloadAttributes, PayloadStatusV1Status};
+pub use payload_status::PayloadStatus;
 
 mod engine_api;
 mod engines;
+mod payload_status;
 pub mod test_utils;
 
 /// Each time the `ExecutionLayer` retrieves a block from an execution node, it stores that block
@@ -49,6 +52,8 @@ pub enum Error {
     NotSynced,
     ShuttingDown,
     FeeRecipientUnspecified,
+    ConsensusFailure,
+    MissingLatestValidHash,
 }
 
 impl From<ApiError> for Error {
@@ -67,7 +72,7 @@ struct Inner {
     engines: Engines<HttpJsonRpc>,
     suggested_fee_recipient: Option<Address>,
     proposer_preparation_data: Mutex<HashMap<u64, ProposerPreparationDataEntry>>,
-    execution_blocks: Mutex<LruCache<Hash256, ExecutionBlock>>,
+    execution_blocks: Mutex<LruCache<ExecutionBlockHash, ExecutionBlock>>,
     executor: TaskExecutor,
     log: Logger,
 }
@@ -136,7 +141,9 @@ impl ExecutionLayer {
     }
 
     /// Note: this function returns a mutex guard, be careful to avoid deadlocks.
-    async fn execution_blocks(&self) -> MutexGuard<'_, LruCache<Hash256, ExecutionBlock>> {
+    async fn execution_blocks(
+        &self,
+    ) -> MutexGuard<'_, LruCache<ExecutionBlockHash, ExecutionBlock>> {
         self.inner.execution_blocks.lock().await
     }
 
@@ -249,7 +256,7 @@ impl ExecutionLayer {
     }
 
     /// Performs a single execution of the watchdog routine.
-    async fn watchdog_task(&self) {
+    pub async fn watchdog_task(&self) {
         // Disable logging since this runs frequently and may get annoying.
         self.engines().upcheck_not_synced(Logging::Disabled).await;
     }
@@ -383,10 +390,10 @@ impl ExecutionLayer {
     /// will be contacted.
     pub async fn get_payload<T: EthSpec>(
         &self,
-        parent_hash: Hash256,
+        parent_hash: ExecutionBlockHash,
         timestamp: u64,
         random: Hash256,
-        finalized_block_hash: Hash256,
+        finalized_block_hash: ExecutionBlockHash,
         proposer_index: u64,
     ) -> Result<ExecutionPayload<T>, Error> {
         let suggested_fee_recipient = self.get_suggested_fee_recipient(proposer_index).await;
@@ -431,8 +438,18 @@ impl ExecutionLayer {
                             Some(payload_attributes),
                             self.log(),
                         )
-                        .await?
-                        .ok_or(ApiError::PayloadIdUnavailable)?
+                        .await
+                        .map(|response| response.payload_id)?
+                        .ok_or_else(|| {
+                            error!(
+                                self.log(),
+                                "Exec engine unable to produce payload";
+                                "msg" => "No payload ID, the engine is likely syncing. \
+                                          This has the potential to cause a missed block proposal.",
+                            );
+
+                            ApiError::PayloadIdUnavailable
+                        })?
                 };
 
                 engine.api.get_payload_v1(payload_id).await
@@ -441,7 +458,7 @@ impl ExecutionLayer {
             .map_err(Error::EngineErrors)
     }
 
-    /// Maps to the `engine_executePayload` JSON-RPC call.
+    /// Maps to the `engine_newPayload` JSON-RPC call.
     ///
     /// ## Fallback Behaviour
     ///
@@ -449,17 +466,18 @@ impl ExecutionLayer {
     /// failure) from all nodes and then return based on the first of these conditions which
     /// returns true:
     ///
+    /// - Error::ConsensusFailure if some nodes return valid and some return invalid
     /// - Valid, if any nodes return valid.
     /// - Invalid, if any nodes return invalid.
     /// - Syncing, if any nodes return syncing.
     /// - An error, if all nodes return an error.
-    pub async fn execute_payload<T: EthSpec>(
+    pub async fn notify_new_payload<T: EthSpec>(
         &self,
         execution_payload: &ExecutionPayload<T>,
-    ) -> Result<(ExecutePayloadResponseStatus, Option<Hash256>), Error> {
+    ) -> Result<PayloadStatus, Error> {
         debug!(
             self.log(),
-            "Issuing engine_executePayload";
+            "Issuing engine_newPayload";
             "parent_hash" => ?execution_payload.parent_hash,
             "block_hash" => ?execution_payload.block_hash,
             "block_number" => execution_payload.block_number,
@@ -467,70 +485,14 @@ impl ExecutionLayer {
 
         let broadcast_results = self
             .engines()
-            .broadcast(|engine| engine.api.execute_payload_v1(execution_payload.clone()))
+            .broadcast(|engine| engine.api.new_payload_v1(execution_payload.clone()))
             .await;
 
-        let mut errors = vec![];
-        let mut valid = 0;
-        let mut invalid = 0;
-        let mut syncing = 0;
-        let mut invalid_latest_valid_hash = vec![];
-        for result in broadcast_results {
-            match result.map(|response| (response.latest_valid_hash, response.status)) {
-                Ok((Some(latest_hash), ExecutePayloadResponseStatus::Valid)) => {
-                    if latest_hash == execution_payload.block_hash {
-                        valid += 1;
-                    } else {
-                        invalid += 1;
-                        errors.push(EngineError::Api {
-                            id: "unknown".to_string(),
-                            error: engine_api::Error::BadResponse(
-                                format!(
-                                    "execute_payload: response.status = Valid but invalid latest_valid_hash. Expected({:?}) Found({:?})",
-                                    execution_payload.block_hash,
-                                    latest_hash,
-                                )
-                            ),
-                        });
-                        invalid_latest_valid_hash.push(latest_hash);
-                    }
-                }
-                Ok((Some(latest_hash), ExecutePayloadResponseStatus::Invalid)) => {
-                    invalid += 1;
-                    invalid_latest_valid_hash.push(latest_hash);
-                }
-                Ok((_, ExecutePayloadResponseStatus::Syncing)) => syncing += 1,
-                Ok((None, status)) => errors.push(EngineError::Api {
-                    id: "unknown".to_string(),
-                    error: engine_api::Error::BadResponse(format!(
-                        "execute_payload: status {:?} returned with null latest_valid_hash",
-                        status
-                    )),
-                }),
-                Err(e) => errors.push(e),
-            }
-        }
-
-        if valid > 0 && invalid > 0 {
-            crit!(
-                self.log(),
-                "Consensus failure between execution nodes";
-                "method" => "execute_payload"
-            );
-        }
-
-        if valid > 0 {
-            Ok((
-                ExecutePayloadResponseStatus::Valid,
-                Some(execution_payload.block_hash),
-            ))
-        } else if invalid > 0 {
-            Ok((ExecutePayloadResponseStatus::Invalid, None))
-        } else if syncing > 0 {
-            Ok((ExecutePayloadResponseStatus::Syncing, None))
-        } else {
-            Err(Error::EngineErrors(errors))
-        }
+        process_multiple_payload_statuses(
+            execution_payload.block_hash,
+            broadcast_results.into_iter(),
+            self.log(),
+        )
     }
 
     /// Maps to the `engine_consensusValidated` JSON-RPC call.
@@ -541,14 +503,17 @@ impl ExecutionLayer {
     /// failure) from all nodes and then return based on the first of these conditions which
     /// returns true:
     ///
-    /// - Ok, if any node returns successfully.
+    /// - Error::ConsensusFailure if some nodes return valid and some return invalid
+    /// - Valid, if any nodes return valid.
+    /// - Invalid, if any nodes return invalid.
+    /// - Syncing, if any nodes return syncing.
     /// - An error, if all nodes return an error.
     pub async fn notify_forkchoice_updated(
         &self,
-        head_block_hash: Hash256,
-        finalized_block_hash: Hash256,
+        head_block_hash: ExecutionBlockHash,
+        finalized_block_hash: ExecutionBlockHash,
         payload_attributes: Option<PayloadAttributes>,
-    ) -> Result<(), Error> {
+    ) -> Result<PayloadStatus, Error> {
         debug!(
             self.log(),
             "Issuing engine_forkchoiceUpdated";
@@ -577,15 +542,13 @@ impl ExecutionLayer {
             })
             .await;
 
-        if broadcast_results.iter().any(Result::is_ok) {
-            Ok(())
-        } else {
-            let errors = broadcast_results
+        process_multiple_payload_statuses(
+            head_block_hash,
+            broadcast_results
                 .into_iter()
-                .filter_map(Result::err)
-                .collect();
-            Err(Error::EngineErrors(errors))
-        }
+                .map(|result| result.map(|response| response.payload_status)),
+            self.log(),
+        )
     }
 
     /// Used during block production to determine if the merge has been triggered.
@@ -598,12 +561,12 @@ impl ExecutionLayer {
     pub async fn get_terminal_pow_block_hash(
         &self,
         spec: &ChainSpec,
-    ) -> Result<Option<Hash256>, Error> {
+    ) -> Result<Option<ExecutionBlockHash>, Error> {
         let hash_opt = self
             .engines()
             .first_success(|engine| async move {
                 let terminal_block_hash = spec.terminal_block_hash;
-                if terminal_block_hash != Hash256::zero() {
+                if terminal_block_hash != ExecutionBlockHash::zero() {
                     if self
                         .get_pow_block(engine, terminal_block_hash)
                         .await?
@@ -647,7 +610,7 @@ impl ExecutionLayer {
         &self,
         engine: &Engine<HttpJsonRpc>,
         spec: &ChainSpec,
-    ) -> Result<Option<Hash256>, ApiError> {
+    ) -> Result<Option<ExecutionBlockHash>, ApiError> {
         let mut block = engine
             .api
             .get_block_by_number(BlockByNumberQuery::Tag(LATEST_TAG))
@@ -659,7 +622,7 @@ impl ExecutionLayer {
         loop {
             let block_reached_ttd = block.total_difficulty >= spec.terminal_total_difficulty;
             if block_reached_ttd {
-                if block.parent_hash == Hash256::zero() {
+                if block.parent_hash == ExecutionBlockHash::zero() {
                     return Ok(Some(block.block_hash));
                 }
                 let parent = self
@@ -707,7 +670,7 @@ impl ExecutionLayer {
     /// https://github.com/ethereum/consensus-specs/blob/v1.1.0/specs/merge/fork-choice.md
     pub async fn is_valid_terminal_pow_block_hash(
         &self,
-        block_hash: Hash256,
+        block_hash: ExecutionBlockHash,
         spec: &ChainSpec,
     ) -> Result<Option<bool>, Error> {
         let broadcast_results = self
@@ -786,7 +749,7 @@ impl ExecutionLayer {
     async fn get_pow_block(
         &self,
         engine: &Engine<HttpJsonRpc>,
-        hash: Hash256,
+        hash: ExecutionBlockHash,
     ) -> Result<Option<ExecutionBlock>, ApiError> {
         if let Some(cached) = self.execution_blocks().await.get(&hash).copied() {
             // The block was in the cache, no need to request it from the execution
@@ -880,7 +843,7 @@ mod test {
         MockExecutionLayer::default_params()
             .move_to_terminal_block()
             .with_terminal_block(|spec, el, _| async move {
-                let missing_terminal_block = Hash256::repeat_byte(42);
+                let missing_terminal_block = ExecutionBlockHash::repeat_byte(42);
 
                 assert_eq!(
                     el.is_valid_terminal_pow_block_hash(missing_terminal_block, &spec)

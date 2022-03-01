@@ -399,6 +399,16 @@ pub async fn poll_sync_committee_duties_for_period<T: SlotClock + 'static, E: Et
     let spec = &duties_service.spec;
     let log = duties_service.context.log();
 
+    // no local validators don't need to poll for sync committee
+    if local_indices.is_empty() {
+        debug!(
+            duties_service.context.log(),
+            "No validators, not polling for sync comittee";
+            "sync_committee_period" => sync_committee_period,
+        );
+        return Ok(());
+    }
+
     debug!(
         log,
         "Fetching sync committee duties";

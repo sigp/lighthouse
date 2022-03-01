@@ -5,11 +5,12 @@ use beacon_chain::{
     BeaconChain, BeaconChainError, BeaconChainTypes, MAXIMUM_GOSSIP_CLOCK_DISPARITY,
 };
 use eth2::types::{self as api_types};
+use safe_arith::SafeArith;
 use slog::{debug, Logger};
 use slot_clock::SlotClock;
 use state_processing::state_advance::partial_state_advance;
 use std::cmp::Ordering;
-use types::{BeaconState, ChainSpec, CloneConfig, Epoch, EthSpec, Hash256, Slot};
+use types::{BeaconState, ChainSpec, CloneConfig, Epoch, EthSpec, Fork, Hash256, Slot};
 
 /// The struct that is returned to the requesting HTTP client.
 type ApiDuties = api_types::DutiesResponse<Vec<api_types::ProposerData>>;
@@ -49,11 +50,21 @@ pub fn proposer_duties<T: BeaconChainTypes>(
             );
             compute_and_cache_proposer_duties(request_epoch, chain)
         }
-    } else if request_epoch > current_epoch {
-        // Reject queries about the future as they're very expensive there's no look-ahead for
-        // proposer duties.
+    } else if request_epoch
+        == current_epoch
+            .safe_add(1)
+            .map_err(warp_utils::reject::arith_error)?
+    {
+        let (proposers, dependent_root, _) = compute_proposer_duties(request_epoch, chain)?;
+        convert_to_api_response(chain, request_epoch, dependent_root, proposers)
+    } else if request_epoch
+        > current_epoch
+            .safe_add(1)
+            .map_err(warp_utils::reject::arith_error)?
+    {
+        // Reject queries about the future epochs for which lookahead is not possible
         Err(warp_utils::reject::custom_bad_request(format!(
-            "request epoch {} is ahead of the current epoch {}",
+            "request epoch {} is ahead of the next epoch {}",
             request_epoch, current_epoch
         )))
     } else {
@@ -119,6 +130,24 @@ fn compute_and_cache_proposer_duties<T: BeaconChainTypes>(
     current_epoch: Epoch,
     chain: &BeaconChain<T>,
 ) -> Result<ApiDuties, warp::reject::Rejection> {
+    let (indices, dependent_root, fork) = compute_proposer_duties(current_epoch, chain)?;
+
+    // Prime the proposer shuffling cache with the newly-learned value.
+    chain
+        .beacon_proposer_cache
+        .lock()
+        .insert(current_epoch, dependent_root, indices.clone(), fork)
+        .map_err(BeaconChainError::from)
+        .map_err(warp_utils::reject::beacon_chain_error)?;
+
+    convert_to_api_response(chain, current_epoch, dependent_root, indices)
+}
+
+/// Compute the proposer duties using the head state without cache.
+fn compute_proposer_duties<T: BeaconChainTypes>(
+    current_epoch: Epoch,
+    chain: &BeaconChain<T>,
+) -> Result<(Vec<usize>, Hash256, Fork), warp::reject::Rejection> {
     // Take a copy of the head of the chain.
     let head = chain
         .head()
@@ -140,20 +169,7 @@ fn compute_and_cache_proposer_duties<T: BeaconChainTypes>(
         .map_err(BeaconChainError::from)
         .map_err(warp_utils::reject::beacon_chain_error)?;
 
-    // Prime the proposer shuffling cache with the newly-learned value.
-    chain
-        .beacon_proposer_cache
-        .lock()
-        .insert(
-            state.current_epoch(),
-            dependent_root,
-            indices.clone(),
-            state.fork(),
-        )
-        .map_err(BeaconChainError::from)
-        .map_err(warp_utils::reject::beacon_chain_error)?;
-
-    convert_to_api_response(chain, current_epoch, dependent_root, indices)
+    Ok((indices, dependent_root, state.fork()))
 }
 
 /// Compute some proposer duties by reading a `BeaconState` from disk, completely ignoring the

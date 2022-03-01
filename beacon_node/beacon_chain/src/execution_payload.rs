@@ -11,7 +11,7 @@ use crate::{
     BeaconChain, BeaconChainError, BeaconChainTypes, BlockError, BlockProductionError,
     ExecutionPayloadError,
 };
-use execution_layer::ExecutePayloadResponseStatus;
+use execution_layer::PayloadStatus;
 use fork_choice::PayloadVerificationStatus;
 use proto_array::{Block as ProtoBlock, ExecutionStatus};
 use slog::debug;
@@ -27,11 +27,11 @@ use types::*;
 ///
 /// ## Specification
 ///
-/// Equivalent to the `execute_payload` function in the merge Beacon Chain Changes, although it
+/// Equivalent to the `notify_new_payload` function in the merge Beacon Chain Changes, although it
 /// contains a few extra checks by running `partially_verify_execution_payload` first:
 ///
-/// https://github.com/ethereum/consensus-specs/blob/v1.1.5/specs/merge/beacon-chain.md#execute_payload
-pub fn execute_payload<T: BeaconChainTypes>(
+/// https://github.com/ethereum/consensus-specs/blob/v1.1.9/specs/bellatrix/beacon-chain.md#notify_new_payload
+pub fn notify_new_payload<T: BeaconChainTypes>(
     chain: &BeaconChain<T>,
     state: &BeaconState<T::EthSpec>,
     block: BeaconBlockRef<T::EthSpec>,
@@ -53,19 +53,33 @@ pub fn execute_payload<T: BeaconChainTypes>(
         .execution_layer
         .as_ref()
         .ok_or(ExecutionPayloadError::NoExecutionConnection)?;
-    let execute_payload_response = execution_layer
-        .block_on(|execution_layer| execution_layer.execute_payload(execution_payload));
+    let new_payload_response = execution_layer
+        .block_on(|execution_layer| execution_layer.notify_new_payload(execution_payload));
 
-    match execute_payload_response {
-        Ok((status, _latest_valid_hash)) => match status {
-            ExecutePayloadResponseStatus::Valid => Ok(PayloadVerificationStatus::Verified),
-            // TODO(merge): invalidate any invalid ancestors of this block in fork choice.
-            ExecutePayloadResponseStatus::Invalid => {
-                Err(ExecutionPayloadError::RejectedByExecutionEngine.into())
+    match new_payload_response {
+        Ok(status) => match status {
+            PayloadStatus::Valid => Ok(PayloadVerificationStatus::Verified),
+            PayloadStatus::Syncing | PayloadStatus::Accepted => {
+                Ok(PayloadVerificationStatus::NotVerified)
             }
-            ExecutePayloadResponseStatus::Syncing => Ok(PayloadVerificationStatus::NotVerified),
+            PayloadStatus::Invalid {
+                latest_valid_hash, ..
+            } => {
+                // This block has not yet been applied to fork choice, so the latest block that was
+                // imported to fork choice was the parent.
+                let latest_root = block.parent_root();
+                chain.process_invalid_execution_payload(latest_root, Some(latest_valid_hash))?;
+
+                Err(ExecutionPayloadError::RejectedByExecutionEngine { status }.into())
+            }
+            PayloadStatus::InvalidTerminalBlock { .. } | PayloadStatus::InvalidBlockHash { .. } => {
+                // Returning an error here should be sufficient to invalidate the block. We have no
+                // information to indicate its parent is invalid, so no need to run
+                // `BeaconChain::process_invalid_execution_payload`.
+                Err(ExecutionPayloadError::RejectedByExecutionEngine { status }.into())
+            }
         },
-        Err(_) => Err(ExecutionPayloadError::RejectedByExecutionEngine.into()),
+        Err(e) => Err(ExecutionPayloadError::RequestFailed(e).into()),
     }
 }
 
@@ -89,7 +103,7 @@ pub fn validate_merge_block<T: BeaconChainTypes>(
     let block_epoch = block.slot().epoch(T::EthSpec::slots_per_epoch());
     let execution_payload = block.execution_payload()?;
 
-    if spec.terminal_block_hash != Hash256::zero() {
+    if spec.terminal_block_hash != ExecutionBlockHash::zero() {
         if block_epoch < spec.terminal_block_hash_activation_epoch {
             return Err(ExecutionPayloadError::InvalidActivationEpoch {
                 activation_epoch: spec.terminal_block_hash_activation_epoch,
@@ -253,7 +267,7 @@ pub async fn prepare_execution_payload<T: BeaconChainTypes>(
         .ok_or(BlockProductionError::ExecutionLayerMissing)?;
 
     let parent_hash = if !is_merge_transition_complete(state) {
-        let is_terminal_block_hash_set = spec.terminal_block_hash != Hash256::zero();
+        let is_terminal_block_hash_set = spec.terminal_block_hash != ExecutionBlockHash::zero();
         let is_activation_epoch_reached =
             state.current_epoch() >= spec.terminal_block_hash_activation_epoch;
 
@@ -304,7 +318,7 @@ pub async fn prepare_execution_payload<T: BeaconChainTypes>(
             parent_hash,
             timestamp,
             random,
-            finalized_block_hash.unwrap_or_else(Hash256::zero),
+            finalized_block_hash.unwrap_or_else(ExecutionBlockHash::zero),
             proposer_index,
         )
         .await

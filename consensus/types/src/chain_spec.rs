@@ -29,6 +29,11 @@ pub enum Domain {
 #[derive(PartialEq, Debug, Clone)]
 pub struct ChainSpec {
     /*
+     * Config name
+     */
+    pub config_name: Option<String>,
+
+    /*
      * Constants
      */
     pub genesis_slot: Slot,
@@ -139,7 +144,7 @@ pub struct ChainSpec {
     /// The Merge fork epoch is optional, with `None` representing "Merge never happens".
     pub bellatrix_fork_epoch: Option<Epoch>,
     pub terminal_total_difficulty: Uint256,
-    pub terminal_block_hash: Hash256,
+    pub terminal_block_hash: ExecutionBlockHash,
     pub terminal_block_hash_activation_epoch: Epoch,
 
     /*
@@ -413,6 +418,10 @@ impl ChainSpec {
     pub fn mainnet() -> Self {
         Self {
             /*
+             * Config name
+             */
+            config_name: Some("mainnet".to_string()),
+            /*
              * Constants
              */
             genesis_slot: Slot::new(0),
@@ -547,7 +556,7 @@ impl ChainSpec {
                 // `Uint256::MAX` which is `2*256- 1`.
                 .checked_add(Uint256::one())
                 .expect("addition does not overflow"),
-            terminal_block_hash: Hash256::zero(),
+            terminal_block_hash: ExecutionBlockHash::zero(),
             terminal_block_hash_activation_epoch: Epoch::new(u64::MAX),
 
             /*
@@ -570,6 +579,7 @@ impl ChainSpec {
         let boot_nodes = vec![];
 
         Self {
+            config_name: None,
             max_committees_per_slot: 4,
             target_committee_size: 4,
             churn_limit_quotient: 32,
@@ -607,6 +617,7 @@ impl ChainSpec {
     /// Returns a `ChainSpec` compatible with the Gnosis Beacon Chain specification.
     pub fn gnosis() -> Self {
         Self {
+            config_name: Some("gnosis".to_string()),
             /*
              * Constants
              */
@@ -742,7 +753,7 @@ impl ChainSpec {
                 // `Uint256::MAX` which is `2*256- 1`.
                 .checked_add(Uint256::one())
                 .expect("addition does not overflow"),
-            terminal_block_hash: Hash256::zero(),
+            terminal_block_hash: ExecutionBlockHash::zero(),
             terminal_block_hash_activation_epoch: Epoch::new(u64::MAX),
 
             /*
@@ -771,6 +782,10 @@ impl Default for ChainSpec {
 #[serde(rename_all = "UPPERCASE")]
 pub struct Config {
     #[serde(default)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub config_name: Option<String>,
+
+    #[serde(default)]
     pub preset_base: String,
 
     // TODO(merge): remove this default
@@ -779,7 +794,7 @@ pub struct Config {
     pub terminal_total_difficulty: Uint256,
     // TODO(merge): remove this default
     #[serde(default = "default_terminal_block_hash")]
-    pub terminal_block_hash: Hash256,
+    pub terminal_block_hash: ExecutionBlockHash,
     // TODO(merge): remove this default
     #[serde(default = "default_terminal_block_hash_activation_epoch")]
     pub terminal_block_hash_activation_epoch: Epoch,
@@ -862,8 +877,8 @@ const fn default_terminal_total_difficulty() -> Uint256 {
     ])
 }
 
-fn default_terminal_block_hash() -> Hash256 {
-    Hash256::zero()
+fn default_terminal_block_hash() -> ExecutionBlockHash {
+    ExecutionBlockHash::zero()
 }
 
 fn default_terminal_block_hash_activation_epoch() -> Epoch {
@@ -921,6 +936,7 @@ impl Config {
 
     pub fn from_chain_spec<T: EthSpec>(spec: &ChainSpec) -> Self {
         Self {
+            config_name: spec.config_name.clone(),
             preset_base: T::spec_name().to_string(),
 
             terminal_total_difficulty: spec.terminal_total_difficulty,
@@ -971,6 +987,7 @@ impl Config {
     pub fn apply_to_chain_spec<T: EthSpec>(&self, chain_spec: &ChainSpec) -> Option<ChainSpec> {
         // Pattern match here to avoid missing any fields.
         let &Config {
+            ref config_name,
             ref preset_base,
             terminal_total_difficulty,
             terminal_block_hash,
@@ -1004,6 +1021,7 @@ impl Config {
         }
 
         Some(ChainSpec {
+            config_name: config_name.clone(),
             min_genesis_active_validator_count,
             min_genesis_time,
             genesis_fork_version,

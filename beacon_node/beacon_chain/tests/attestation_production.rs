@@ -26,6 +26,7 @@ fn produces_attestations() {
         .default_spec()
         .keypairs(KEYPAIRS[..].to_vec())
         .fresh_ephemeral_store()
+        .mock_execution_layer()
         .build();
 
     let chain = &harness.chain;

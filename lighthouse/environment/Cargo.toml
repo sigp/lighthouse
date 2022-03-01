@@ -2,7 +2,7 @@
 name = "environment"
 version = "0.1.2"
 authors = ["Paul Hauner <paul@paulhauner.com>"]
-edition = "2018"
+edition = "2021"
 
 [dependencies]
 tokio = { version = "1.14.0", features = ["macros", "rt", "rt-multi-thread", "signal" ] }

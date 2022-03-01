@@ -3,7 +3,7 @@
     not(test),
     deny(
         clippy::integer_arithmetic,
-        clippy::disallowed_method,
+        clippy::disallowed_methods,
         clippy::indexing_slicing,
         clippy::unwrap_used,
         clippy::expect_used,

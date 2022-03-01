@@ -29,6 +29,9 @@ const BANNED_PEERS_PER_IP_THRESHOLD: usize = 5;
 /// Relative factor of peers that are allowed to have a negative gossipsub score without penalizing
 /// them in lighthouse.
 const ALLOWED_NEGATIVE_GOSSIPSUB_FACTOR: f32 = 0.1;
+/// The time we allow peers to be in the dialing state in our PeerDb before we revert them to a
+/// disconnected state.
+const DIAL_TIMEOUT: u64 = 15;
 
 /// Storage of known peers, their reputation and information
 pub struct PeerDB<TSpec: EthSpec> {
@@ -321,6 +324,32 @@ impl<TSpec: EthSpec> PeerDB<TSpec> {
     }
 
     /* Mutability */
+
+    /// Cleans up the connection state of dialing peers.
+    // Libp2p dial's peerids, but sometimes the response is from another peer-id or libp2p
+    // returns dial errors without a peer-id attached. This function reverts peers that have a
+    // dialing status longer than DIAL_TIMEOUT seconds to a disconnected status. This is important because
+    // we count the number of dialing peers in our inbound connections.
+    pub fn cleanup_dialing_peers(&mut self) {
+        let peers_to_disconnect: Vec<_> = self
+            .peers
+            .iter()
+            .filter_map(|(peer_id, info)| {
+                if let PeerConnectionStatus::Dialing { since } = info.connection_status() {
+                    if (*since) + std::time::Duration::from_secs(DIAL_TIMEOUT)
+                        < std::time::Instant::now()
+                    {
+                        return Some(*peer_id);
+                    }
+                }
+                None
+            })
+            .collect();
+
+        for peer_id in peers_to_disconnect {
+            self.update_connection_state(&peer_id, NewConnectionState::Disconnected);
+        }
+    }
 
     /// Allows the sync module to update sync status' of peers. Returns None, if the peer doesn't
     /// exist and returns Some(bool) representing if the sync state was modified.

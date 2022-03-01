@@ -1,12 +1,14 @@
 //! Provides generic behaviour for multiple execution engines, specifically fallback behaviour.
 
-use crate::engine_api::{EngineApi, Error as EngineApiError, PayloadAttributes, PayloadId};
+use crate::engine_api::{
+    EngineApi, Error as EngineApiError, ForkchoiceUpdatedResponse, PayloadAttributes, PayloadId,
+};
 use futures::future::join_all;
 use lru::LruCache;
 use slog::{crit, debug, info, warn, Logger};
 use std::future::Future;
 use tokio::sync::{Mutex, RwLock};
-use types::{Address, Hash256};
+use types::{Address, ExecutionBlockHash, Hash256};
 
 /// The number of payload IDs that will be stored for each `Engine`.
 ///
@@ -23,9 +25,9 @@ enum EngineState {
 
 #[derive(Copy, Clone, PartialEq, Debug)]
 pub struct ForkChoiceState {
-    pub head_block_hash: Hash256,
-    pub safe_block_hash: Hash256,
-    pub finalized_block_hash: Hash256,
+    pub head_block_hash: ExecutionBlockHash,
+    pub safe_block_hash: ExecutionBlockHash,
+    pub finalized_block_hash: ExecutionBlockHash,
 }
 
 /// Used to enable/disable logging on some tasks.
@@ -46,7 +48,7 @@ impl Logging {
 
 #[derive(Hash, PartialEq, std::cmp::Eq)]
 struct PayloadIdCacheKey {
-    pub head_block_hash: Hash256,
+    pub head_block_hash: ExecutionBlockHash,
     pub timestamp: u64,
     pub random: Hash256,
     pub suggested_fee_recipient: Address,
@@ -73,7 +75,7 @@ impl<T> Engine<T> {
 
     pub async fn get_payload_id(
         &self,
-        head_block_hash: Hash256,
+        head_block_hash: ExecutionBlockHash,
         timestamp: u64,
         random: Hash256,
         suggested_fee_recipient: Address,
@@ -97,7 +99,7 @@ impl<T: EngineApi> Engine<T> {
         forkchoice_state: ForkChoiceState,
         payload_attributes: Option<PayloadAttributes>,
         log: &Logger,
-    ) -> Result<Option<PayloadId>, EngineApiError> {
+    ) -> Result<ForkchoiceUpdatedResponse, EngineApiError> {
         let response = self
             .api
             .forkchoice_updated_v1(forkchoice_state, payload_attributes)
@@ -117,7 +119,7 @@ impl<T: EngineApi> Engine<T> {
             }
         }
 
-        Ok(response.payload_id)
+        Ok(response)
     }
 }
 

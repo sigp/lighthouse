@@ -63,7 +63,7 @@ const MAX_SUBNETS_IN_QUERY: usize = 3;
 ///
 /// We could reduce this constant to speed up queries however at the cost of security. It will
 /// make it easier to peers to eclipse this node. Kademlia suggests a value of 16.
-const FIND_NODE_QUERY_CLOSEST_PEERS: usize = 16;
+pub const FIND_NODE_QUERY_CLOSEST_PEERS: usize = 16;
 /// The threshold for updating `min_ttl` on a connected peer.
 const DURATION_DIFFERENCE: Duration = Duration::from_millis(1);
 
@@ -317,17 +317,18 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
     }
 
     /// This adds a new `FindPeers` query to the queue if one doesn't already exist.
-    pub fn discover_peers(&mut self) {
+    /// The `target_peers` parameter informs discovery to end the query once the target is found.
+    /// The maximum this can be is 16.
+    pub fn discover_peers(&mut self, target_peers: usize) {
         // If the discv5 service isn't running or we are in the process of a query, don't bother queuing a new one.
         if !self.started || self.find_peer_active {
             return;
         }
         // Immediately start a FindNode query
-        debug!(self.log, "Starting a peer discovery request");
+        let target_peers = std::cmp::min(FIND_NODE_QUERY_CLOSEST_PEERS, target_peers);
+        debug!(self.log, "Starting a peer discovery request"; "target_peers" => target_peers );
         self.find_peer_active = true;
-        self.start_query(QueryType::FindPeers, FIND_NODE_QUERY_CLOSEST_PEERS, |_| {
-            true
-        });
+        self.start_query(QueryType::FindPeers, target_peers, |_| true);
     }
 
     /// Processes a request to search for more peers on a subnet.
@@ -1049,16 +1050,10 @@ mod tests {
     use crate::rpc::methods::{MetaData, MetaDataV2};
     use enr::EnrBuilder;
     use slog::{o, Drain};
-    use std::net::UdpSocket;
     use types::{BitVector, MinimalEthSpec, SubnetId};
+    use unused_port::unused_udp_port;
 
     type E = MinimalEthSpec;
-
-    pub fn unused_port() -> u16 {
-        let socket = UdpSocket::bind("127.0.0.1:0").expect("should create udp socket");
-        let local_addr = socket.local_addr().expect("should read udp socket");
-        local_addr.port()
-    }
 
     pub fn build_log(level: slog::Level, enabled: bool) -> slog::Logger {
         let decorator = slog_term::TermDecorator::new().build();
@@ -1075,7 +1070,7 @@ mod tests {
     async fn build_discovery() -> Discovery<E> {
         let keypair = libp2p::identity::Keypair::generate_secp256k1();
         let config = NetworkConfig {
-            discovery_port: unused_port(),
+            discovery_port: unused_udp_port().unwrap(),
             ..Default::default()
         };
         let enr_key: CombinedKey = CombinedKey::from_libp2p(&keypair).unwrap();

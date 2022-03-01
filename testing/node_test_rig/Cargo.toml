@@ -2,7 +2,7 @@
 name = "node_test_rig"
 version = "0.2.0"
 authors = ["Paul Hauner <paul@paulhauner.com>"]
-edition = "2018"
+edition = "2021"
 
 [dependencies]
 environment = { path = "../../lighthouse/environment" }

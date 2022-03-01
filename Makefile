@@ -2,6 +2,7 @@
 
 EF_TESTS = "testing/ef_tests"
 STATE_TRANSITION_VECTORS = "testing/state_transition_vectors"
+EXECUTION_ENGINE_INTEGRATION = "testing/execution_engine_integration"
 GIT_TAG := $(shell git describe --tags --candidates 1)
 BIN_DIR = "bin"
 
@@ -14,7 +15,7 @@ PINNED_NIGHTLY ?= nightly
 
 # List of all hard forks. This list is used to set env variables for several tests so that
 # they run for different forks.
-FORKS=phase0 altair
+FORKS=phase0 altair merge
 
 # Builds the Lighthouse binary in release (optimized).
 #
@@ -123,17 +124,21 @@ run-state-transition-tests:
 # Downloads and runs the EF test vectors.
 test-ef: make-ef-tests run-ef-tests
 
+# Runs tests checking interop between Lighthouse and execution clients.
+test-exec-engine:
+	make -C $(EXECUTION_ENGINE_INTEGRATION) test
+
 # Runs the full workspace tests in release, without downloading any additional
 # test vectors.
 test: test-release
 
 # Runs the entire test suite, downloading test vectors if required.
-test-full: cargo-fmt test-release test-debug test-ef
+test-full: cargo-fmt test-release test-debug test-ef test-exec-engine
 
 # Lints the code for bad style and potentially unsafe arithmetic using Clippy.
 # Clippy lints are opt-in per-crate for now. By default, everything is allowed except for performance and correctness lints.
 lint:
-	cargo clippy --workspace --tests -- \
+	cargo clippy --workspace --tests --features lighthouse/tree-states -- \
 		-D clippy::fn_to_numeric_cast_any \
 		-D warnings \
 		-A clippy::from-over-into \

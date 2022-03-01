@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 pub const LATEST_TAG: &str = "latest";
 
 use crate::engines::ForkChoiceState;
-pub use types::{Address, EthSpec, ExecutionPayload, Hash256, Uint256};
+pub use types::{Address, EthSpec, ExecutionBlockHash, ExecutionPayload, Hash256, Uint256};
 
 pub mod http;
 pub mod json_structures;
@@ -17,14 +17,15 @@ pub enum Error {
     Reqwest(reqwest::Error),
     BadResponse(String),
     RequestFailed(String),
+    InvalidExecutePayloadResponse(&'static str),
     JsonRpc(RpcError),
     Json(serde_json::Error),
     ServerMessage { code: i64, message: String },
     Eip155Failure,
     IsSyncing,
-    ExecutionBlockNotFound(Hash256),
+    ExecutionBlockNotFound(ExecutionBlockHash),
     ExecutionHeadBlockNotFound,
-    ParentHashEqualsBlockHash(Hash256),
+    ParentHashEqualsBlockHash(ExecutionBlockHash),
     PayloadIdUnavailable,
 }
 
@@ -52,13 +53,13 @@ pub trait EngineApi {
 
     async fn get_block_by_hash<'a>(
         &self,
-        block_hash: Hash256,
+        block_hash: ExecutionBlockHash,
     ) -> Result<Option<ExecutionBlock>, Error>;
 
-    async fn execute_payload_v1<T: EthSpec>(
+    async fn new_payload_v1<T: EthSpec>(
         &self,
         execution_payload: ExecutionPayload<T>,
-    ) -> Result<ExecutePayloadResponse, Error>;
+    ) -> Result<PayloadStatusV1, Error>;
 
     async fn get_payload_v1<T: EthSpec>(
         &self,
@@ -73,16 +74,19 @@ pub trait EngineApi {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub enum ExecutePayloadResponseStatus {
+pub enum PayloadStatusV1Status {
     Valid,
     Invalid,
     Syncing,
+    Accepted,
+    InvalidBlockHash,
+    InvalidTerminalBlock,
 }
 
 #[derive(Clone, Debug, PartialEq)]
-pub struct ExecutePayloadResponse {
-    pub status: ExecutePayloadResponseStatus,
-    pub latest_valid_hash: Option<Hash256>,
+pub struct PayloadStatusV1 {
+    pub status: PayloadStatusV1Status,
+    pub latest_valid_hash: Option<ExecutionBlockHash>,
     pub validation_error: Option<String>,
 }
 
@@ -96,10 +100,10 @@ pub enum BlockByNumberQuery<'a> {
 #[serde(rename_all = "camelCase")]
 pub struct ExecutionBlock {
     #[serde(rename = "hash")]
-    pub block_hash: Hash256,
+    pub block_hash: ExecutionBlockHash,
     #[serde(rename = "number", with = "eth2_serde_utils::u64_hex_be")]
     pub block_number: u64,
-    pub parent_hash: Hash256,
+    pub parent_hash: ExecutionBlockHash,
     pub total_difficulty: Uint256,
 }
 
@@ -110,13 +114,8 @@ pub struct PayloadAttributes {
     pub suggested_fee_recipient: Address,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub enum ForkchoiceUpdatedResponseStatus {
-    Success,
-    Syncing,
-}
 #[derive(Clone, Debug, PartialEq)]
 pub struct ForkchoiceUpdatedResponse {
-    pub status: ForkchoiceUpdatedResponseStatus,
+    pub payload_status: PayloadStatusV1,
     pub payload_id: Option<PayloadId>,
 }

@@ -4,7 +4,6 @@ use crate::per_epoch_processing::{
     Delta, Error,
 };
 use safe_arith::SafeArith;
-use std::array::IntoIter as ArrayIter;
 use types::{BeaconState, ChainSpec, EthSpec};
 
 /// Combination of several deltas for different components of an attestation reward.
@@ -30,13 +29,13 @@ impl AttestationDelta {
             inactivity_penalty_delta,
         } = self;
         let mut result = Delta::default();
-        for delta in ArrayIter::new([
+        for delta in [
             source_delta,
             target_delta,
             head_delta,
             inclusion_delay_delta,
             inactivity_penalty_delta,
-        ]) {
+        ] {
             result.combine(delta)?;
         }
         Ok(result)

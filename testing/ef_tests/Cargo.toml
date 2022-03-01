@@ -2,7 +2,7 @@
 name = "ef_tests"
 version = "0.2.0"
 authors = ["Paul Hauner <paul@paulhauner.com>"]
-edition = "2018"
+edition = "2021"
 
 [features]
 # `ef_tests` feature must be enabled to actually run the tests

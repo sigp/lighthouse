@@ -287,7 +287,7 @@ impl SlashingDatabase {
     ) -> Result<i64, NotSafe> {
         let (validator_id, enabled) = self
             .get_validator_id_with_status(txn, public_key)?
-            .ok_or_else(|| NotSafe::UnregisteredValidator(*public_key))?;
+            .ok_or(NotSafe::UnregisteredValidator(*public_key))?;
         if enabled {
             Ok(validator_id)
         } else {
@@ -303,7 +303,7 @@ impl SlashingDatabase {
     ) -> Result<i64, NotSafe> {
         let (validator_id, _) = self
             .get_validator_id_with_status(txn, public_key)?
-            .ok_or_else(|| NotSafe::UnregisteredValidator(*public_key))?;
+            .ok_or(NotSafe::UnregisteredValidator(*public_key))?;
         Ok(validator_id)
     }
 
