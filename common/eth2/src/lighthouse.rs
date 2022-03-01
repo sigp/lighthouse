@@ -383,13 +383,30 @@ impl BeaconNodeHttpClient {
         self.get(path).await
     }
 
-    /*
-     * Note:
-     *
-     * The `lighthouse/peers` endpoints do not have functions here. We are yet to implement
-     * `Deserialize` on the `PeerInfo` struct since it contains use of `Instant`. This could be
-     * fairly simply achieved, if desired.
-     */
+    /// `GET lighthouse/peers`
+    pub async fn get_lighthouse_peers<E: EthSpec>(&self) -> Result<Vec<Peer<E>>, Error> {
+        let mut path = self.server.full.clone();
+
+        path.path_segments_mut()
+            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
+            .push("lighthouse")
+            .push("peers");
+
+        self.get(path).await
+    }
+
+    /// `GET lighthouse/peers/connected`
+    pub async fn get_lighthouse_connected_peers<E: EthSpec>(&self) -> Result<Vec<Peer<E>>, Error> {
+        let mut path = self.server.full.clone();
+
+        path.path_segments_mut()
+            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
+            .push("lighthouse")
+            .push("peers")
+            .push("connected");
+
+        self.get(path).await
+    }
 
     /// `GET lighthouse/proto_array`
     pub async fn get_lighthouse_proto_array(&self) -> Result<GenericResponse<ProtoArray>, Error> {
