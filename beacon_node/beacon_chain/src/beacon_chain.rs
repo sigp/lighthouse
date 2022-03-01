@@ -3770,9 +3770,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         {
             proposer
         } else {
-            debug!(
+            error!(
                 self.log,
-                "No proposers for preparation";
+                "Failed to read proposer for preparation";
                 "prepare_slot" => prepare_slot,
             );
             // Nothing more to do.
