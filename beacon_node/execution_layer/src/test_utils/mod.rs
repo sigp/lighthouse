@@ -1,7 +1,6 @@
 //! Provides a mock execution engine HTTP JSON-RPC API for use in testing.
 
-use crate::engine_api::http::JSONRPC_VERSION;
-use crate::engine_api::PayloadStatusV1Status;
+use crate::engine_api::{http::JSONRPC_VERSION, PayloadStatusV1, PayloadStatusV1Status};
 use bytes::Bytes;
 use environment::null_logger;
 use execution_block_generator::{Block, PoWBlock};
@@ -15,7 +14,7 @@ use std::marker::PhantomData;
 use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
 use std::sync::Arc;
 use tokio::{runtime, sync::oneshot};
-use types::{EthSpec, Hash256, Uint256};
+use types::{EthSpec, ExecutionBlockHash, Uint256};
 use warp::Filter;
 
 pub use execution_block_generator::{generate_pow_block, ExecutionBlockGenerator};
@@ -41,7 +40,7 @@ impl<T: EthSpec> MockServer<T> {
             &runtime::Handle::current(),
             DEFAULT_TERMINAL_DIFFICULTY.into(),
             DEFAULT_TERMINAL_BLOCK,
-            Hash256::zero(),
+            ExecutionBlockHash::zero(),
         )
     }
 
@@ -49,7 +48,7 @@ impl<T: EthSpec> MockServer<T> {
         handle: &runtime::Handle,
         terminal_difficulty: Uint256,
         terminal_block: u64,
-        terminal_block_hash: Hash256,
+        terminal_block_hash: ExecutionBlockHash,
     ) -> Self {
         let last_echo_request = Arc::new(RwLock::new(None));
         let preloaded_responses = Arc::new(Mutex::new(vec![]));
@@ -117,14 +116,54 @@ impl<T: EthSpec> MockServer<T> {
     }
 
     pub fn all_payloads_valid(&self) {
-        *self.ctx.static_new_payload_response.lock() = Some(PayloadStatusV1Status::Valid)
+        let response = StaticNewPayloadResponse {
+            status: PayloadStatusV1 {
+                status: PayloadStatusV1Status::Valid,
+                latest_valid_hash: None,
+                validation_error: None,
+            },
+            should_import: true,
+        };
+        *self.ctx.static_new_payload_response.lock() = Some(response)
+    }
+
+    /// Setting `should_import = true` simulates an EE that initially returns `SYNCING` but obtains
+    /// the block via it's own means (e.g., devp2p).
+    pub fn all_payloads_syncing(&self, should_import: bool) {
+        let response = StaticNewPayloadResponse {
+            status: PayloadStatusV1 {
+                status: PayloadStatusV1Status::Syncing,
+                latest_valid_hash: None,
+                validation_error: None,
+            },
+            should_import,
+        };
+        *self.ctx.static_new_payload_response.lock() = Some(response)
+    }
+
+    pub fn all_payloads_invalid(&self, latest_valid_hash: ExecutionBlockHash) {
+        let response = StaticNewPayloadResponse {
+            status: PayloadStatusV1 {
+                status: PayloadStatusV1Status::Invalid,
+                latest_valid_hash: Some(latest_valid_hash),
+                validation_error: Some("static response".into()),
+            },
+            should_import: true,
+        };
+        *self.ctx.static_new_payload_response.lock() = Some(response)
+    }
+
+    /// Disables any static payload response so the execution block generator will do its own
+    /// verification.
+    pub fn full_payload_verification(&self) {
+        *self.ctx.static_new_payload_response.lock() = None
     }
 
     pub fn insert_pow_block(
         &self,
         block_number: u64,
-        block_hash: Hash256,
-        parent_hash: Hash256,
+        block_hash: ExecutionBlockHash,
+        parent_hash: ExecutionBlockHash,
         total_difficulty: Uint256,
     ) {
         let block = Block::PoW(PoWBlock {
@@ -143,7 +182,7 @@ impl<T: EthSpec> MockServer<T> {
             .unwrap()
     }
 
-    pub fn get_block(&self, block_hash: Hash256) -> Option<Block<T>> {
+    pub fn get_block(&self, block_hash: ExecutionBlockHash) -> Option<Block<T>> {
         self.ctx
             .execution_block_generator
             .read()
@@ -178,6 +217,12 @@ struct MissingIdField;
 
 impl warp::reject::Reject for MissingIdField {}
 
+#[derive(Debug, Clone, PartialEq)]
+pub struct StaticNewPayloadResponse {
+    status: PayloadStatusV1,
+    should_import: bool,
+}
+
 /// A wrapper around all the items required to spawn the HTTP server.
 ///
 /// The server will gracefully handle the case where any fields are `None`.
@@ -187,7 +232,7 @@ pub struct Context<T: EthSpec> {
     pub last_echo_request: Arc<RwLock<Option<Bytes>>>,
     pub execution_block_generator: RwLock<ExecutionBlockGenerator<T>>,
     pub preloaded_responses: Arc<Mutex<Vec<serde_json::Value>>>,
-    pub static_new_payload_response: Arc<Mutex<Option<PayloadStatusV1Status>>>,
+    pub static_new_payload_response: Arc<Mutex<Option<StaticNewPayloadResponse>>>,
     pub _phantom: PhantomData<T>,
 }
 

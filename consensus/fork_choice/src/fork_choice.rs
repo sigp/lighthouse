@@ -6,8 +6,8 @@ use std::marker::PhantomData;
 use std::time::Duration;
 use types::{
     consts::merge::INTERVALS_PER_SLOT, AttestationShufflingId, BeaconBlock, BeaconState,
-    BeaconStateError, ChainSpec, Checkpoint, Epoch, EthSpec, Hash256, IndexedAttestation,
-    RelativeEpoch, SignedBeaconBlock, Slot,
+    BeaconStateError, ChainSpec, Checkpoint, Epoch, EthSpec, ExecutionBlockHash, Hash256,
+    IndexedAttestation, RelativeEpoch, SignedBeaconBlock, Slot,
 };
 
 #[derive(Debug)]
@@ -17,6 +17,7 @@ pub enum Error<T> {
     ProtoArrayError(String),
     InvalidProtoArrayBytes(String),
     InvalidLegacyProtoArrayBytes(String),
+    FailedToProcessInvalidExecutionPayload(String),
     MissingProtoArrayBlock(Hash256),
     UnknownAncestor {
         ancestor_slot: Slot,
@@ -225,7 +226,7 @@ fn dequeue_attestations(
         queued_attestations
             .iter()
             .position(|a| a.slot >= current_slot)
-            .unwrap_or_else(|| queued_attestations.len()),
+            .unwrap_or(queued_attestations.len()),
     );
 
     std::mem::replace(queued_attestations, remaining)
@@ -305,9 +306,15 @@ where
         let execution_status = anchor_block.message_merge().map_or_else(
             |()| ExecutionStatus::irrelevant(),
             |message| {
-                // Assume that this payload is valid, since the anchor should be a trusted block and
-                // state.
-                ExecutionStatus::Valid(message.body.execution_payload.block_hash)
+                let execution_payload = &message.body.execution_payload;
+                if execution_payload == &<_>::default() {
+                    // A default payload does not have execution enabled.
+                    ExecutionStatus::irrelevant()
+                } else {
+                    // Assume that this payload is valid, since the anchor should be a trusted block and
+                    // state.
+                    ExecutionStatus::Valid(message.body.execution_payload.block_hash)
+                }
             },
         );
 
@@ -470,6 +477,17 @@ where
         Ok(true)
     }
 
+    /// See `ProtoArrayForkChoice::process_execution_payload_invalidation` for documentation.
+    pub fn on_invalid_execution_payload(
+        &mut self,
+        head_block_root: Hash256,
+        latest_valid_ancestor_root: Option<ExecutionBlockHash>,
+    ) -> Result<(), Error<T::Error>> {
+        self.proto_array
+            .process_execution_payload_invalidation(head_block_root, latest_valid_ancestor_root)
+            .map_err(Error::FailedToProcessInvalidExecutionPayload)
+    }
+
     /// Add `block` to the fork choice DAG.
     ///
     /// - `block_root` is the root of `block.
@@ -598,7 +616,7 @@ where
         let execution_status = if let Ok(execution_payload) = block.body().execution_payload() {
             let block_hash = execution_payload.block_hash;
 
-            if block_hash == Hash256::zero() {
+            if block_hash == ExecutionBlockHash::zero() {
                 // The block is post-merge-fork, but pre-terminal-PoW block. We don't need to verify
                 // the payload.
                 ExecutionStatus::irrelevant()

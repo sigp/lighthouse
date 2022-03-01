@@ -125,7 +125,7 @@ impl EngineApi for HttpJsonRpc {
 
     async fn get_block_by_hash<'a>(
         &self,
-        block_hash: Hash256,
+        block_hash: ExecutionBlockHash,
     ) -> Result<Option<ExecutionBlock>, Error> {
         let params = json!([block_hash, RETURN_FULL_TRANSACTION_OBJECTS]);
 
@@ -413,7 +413,9 @@ mod test {
         Tester::new()
             .assert_request_equals(
                 |client| async move {
-                    let _ = client.get_block_by_hash(Hash256::repeat_byte(1)).await;
+                    let _ = client
+                        .get_block_by_hash(ExecutionBlockHash::repeat_byte(1))
+                        .await;
                 },
                 json!({
                     "id": STATIC_ID,
@@ -433,9 +435,9 @@ mod test {
                     let _ = client
                         .forkchoice_updated_v1(
                             ForkChoiceState {
-                                head_block_hash: Hash256::repeat_byte(1),
-                                safe_block_hash: Hash256::repeat_byte(1),
-                                finalized_block_hash: Hash256::zero(),
+                                head_block_hash: ExecutionBlockHash::repeat_byte(1),
+                                safe_block_hash: ExecutionBlockHash::repeat_byte(1),
+                                finalized_block_hash: ExecutionBlockHash::zero(),
                             },
                             Some(PayloadAttributes {
                                 timestamp: 5,
@@ -488,7 +490,7 @@ mod test {
                 |client| async move {
                     let _ = client
                         .new_payload_v1::<MainnetEthSpec>(ExecutionPayload {
-                            parent_hash: Hash256::repeat_byte(0),
+                            parent_hash: ExecutionBlockHash::repeat_byte(0),
                             fee_recipient: Address::repeat_byte(1),
                             state_root: Hash256::repeat_byte(1),
                             receipts_root: Hash256::repeat_byte(0),
@@ -500,7 +502,7 @@ mod test {
                             timestamp: 42,
                             extra_data: vec![].into(),
                             base_fee_per_gas: Uint256::from(1),
-                            block_hash: Hash256::repeat_byte(1),
+                            block_hash: ExecutionBlockHash::repeat_byte(1),
                             transactions: vec![].into(),
                         })
                         .await;
@@ -538,9 +540,9 @@ mod test {
                     let _ = client
                         .forkchoice_updated_v1(
                             ForkChoiceState {
-                                head_block_hash: Hash256::repeat_byte(0),
-                                safe_block_hash: Hash256::repeat_byte(0),
-                                finalized_block_hash: Hash256::repeat_byte(1),
+                                head_block_hash: ExecutionBlockHash::repeat_byte(0),
+                                safe_block_hash: ExecutionBlockHash::repeat_byte(0),
+                                finalized_block_hash: ExecutionBlockHash::repeat_byte(1),
                             },
                             None,
                         )
@@ -588,9 +590,9 @@ mod test {
                     let _ = client
                         .forkchoice_updated_v1(
                             ForkChoiceState {
-                                head_block_hash: Hash256::from_str("0x3b8fb240d288781d4aac94d3fd16809ee413bc99294a085798a589dae51ddd4a").unwrap(),
-                                safe_block_hash: Hash256::from_str("0x3b8fb240d288781d4aac94d3fd16809ee413bc99294a085798a589dae51ddd4a").unwrap(),
-                                finalized_block_hash: Hash256::zero(),
+                                head_block_hash: ExecutionBlockHash::from_str("0x3b8fb240d288781d4aac94d3fd16809ee413bc99294a085798a589dae51ddd4a").unwrap(),
+                                safe_block_hash: ExecutionBlockHash::from_str("0x3b8fb240d288781d4aac94d3fd16809ee413bc99294a085798a589dae51ddd4a").unwrap(),
+                                finalized_block_hash: ExecutionBlockHash::zero(),
                             },
                             Some(PayloadAttributes {
                                 timestamp: 5,
@@ -635,9 +637,9 @@ mod test {
                     let response = client
                         .forkchoice_updated_v1(
                             ForkChoiceState {
-                                head_block_hash: Hash256::from_str("0x3b8fb240d288781d4aac94d3fd16809ee413bc99294a085798a589dae51ddd4a").unwrap(),
-                                safe_block_hash: Hash256::from_str("0x3b8fb240d288781d4aac94d3fd16809ee413bc99294a085798a589dae51ddd4a").unwrap(),
-                                finalized_block_hash: Hash256::zero(),
+                                head_block_hash: ExecutionBlockHash::from_str("0x3b8fb240d288781d4aac94d3fd16809ee413bc99294a085798a589dae51ddd4a").unwrap(),
+                                safe_block_hash: ExecutionBlockHash::from_str("0x3b8fb240d288781d4aac94d3fd16809ee413bc99294a085798a589dae51ddd4a").unwrap(),
+                                finalized_block_hash: ExecutionBlockHash::zero(),
                             },
                             Some(PayloadAttributes {
                                 timestamp: 5,
@@ -650,7 +652,7 @@ mod test {
                     assert_eq!(response, ForkchoiceUpdatedResponse {
                         payload_status: PayloadStatusV1 {
                             status: PayloadStatusV1Status::Valid,
-                            latest_valid_hash: Some(Hash256::zero()),
+                            latest_valid_hash: Some(ExecutionBlockHash::zero()),
                             validation_error: Some(String::new()),
                         },
                         payload_id:
@@ -703,7 +705,7 @@ mod test {
                         .unwrap();
 
                     let expected = ExecutionPayload {
-                            parent_hash: Hash256::from_str("0x3b8fb240d288781d4aac94d3fd16809ee413bc99294a085798a589dae51ddd4a").unwrap(),
+                            parent_hash: ExecutionBlockHash::from_str("0x3b8fb240d288781d4aac94d3fd16809ee413bc99294a085798a589dae51ddd4a").unwrap(),
                             fee_recipient: Address::from_str("0xa94f5374fce5edbc8e2a8697c15331677e6ebf0b").unwrap(),
                             state_root: Hash256::from_str("0xca3149fa9e37db08d1cd49c9061db1002ef1cd58db2210f2115c8c989b2bdf45").unwrap(),
                             receipts_root: Hash256::from_str("0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421").unwrap(),
@@ -715,7 +717,7 @@ mod test {
                             timestamp: 5,
                             extra_data: vec![].into(),
                             base_fee_per_gas: Uint256::from(7),
-                            block_hash: Hash256::from_str("0x6359b8381a370e2f54072a5784ddd78b6ed024991558c511d4452eb4f6ac898c").unwrap(),
+                            block_hash: ExecutionBlockHash::from_str("0x6359b8381a370e2f54072a5784ddd78b6ed024991558c511d4452eb4f6ac898c").unwrap(),
                             transactions: vec![].into(),
                         };
 
@@ -728,7 +730,7 @@ mod test {
                 |client| async move {
                     let _ = client
                         .new_payload_v1::<MainnetEthSpec>(ExecutionPayload {
-                            parent_hash: Hash256::from_str("0x3b8fb240d288781d4aac94d3fd16809ee413bc99294a085798a589dae51ddd4a").unwrap(),
+                            parent_hash: ExecutionBlockHash::from_str("0x3b8fb240d288781d4aac94d3fd16809ee413bc99294a085798a589dae51ddd4a").unwrap(),
                             fee_recipient: Address::from_str("0xa94f5374fce5edbc8e2a8697c15331677e6ebf0b").unwrap(),
                             state_root: Hash256::from_str("0xca3149fa9e37db08d1cd49c9061db1002ef1cd58db2210f2115c8c989b2bdf45").unwrap(),
                             receipts_root: Hash256::from_str("0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421").unwrap(),
@@ -740,7 +742,7 @@ mod test {
                             timestamp: 5,
                             extra_data: vec![].into(),
                             base_fee_per_gas: Uint256::from(7),
-                            block_hash: Hash256::from_str("0x3559e851470f6e7bbed1db474980683e8c315bfce99b2a6ef47c057c04de7858").unwrap(),
+                            block_hash: ExecutionBlockHash::from_str("0x3559e851470f6e7bbed1db474980683e8c315bfce99b2a6ef47c057c04de7858").unwrap(),
                             transactions: vec![].into(),
                         })
                         .await;
@@ -788,7 +790,7 @@ mod test {
                     assert_eq!(response,
                                PayloadStatusV1 {
                             status: PayloadStatusV1Status::Valid,
-                            latest_valid_hash: Some(Hash256::from_str("0x3559e851470f6e7bbed1db474980683e8c315bfce99b2a6ef47c057c04de7858").unwrap()),
+                            latest_valid_hash: Some(ExecutionBlockHash::from_str("0x3559e851470f6e7bbed1db474980683e8c315bfce99b2a6ef47c057c04de7858").unwrap()),
                             validation_error: Some(String::new()),
                         }
                     );
@@ -801,9 +803,9 @@ mod test {
                     let _ = client
                         .forkchoice_updated_v1(
                             ForkChoiceState {
-                                head_block_hash: Hash256::from_str("0x3559e851470f6e7bbed1db474980683e8c315bfce99b2a6ef47c057c04de7858").unwrap(),
-                                safe_block_hash: Hash256::from_str("0x3559e851470f6e7bbed1db474980683e8c315bfce99b2a6ef47c057c04de7858").unwrap(),
-                                finalized_block_hash: Hash256::from_str("0x3b8fb240d288781d4aac94d3fd16809ee413bc99294a085798a589dae51ddd4a").unwrap(),
+                                head_block_hash: ExecutionBlockHash::from_str("0x3559e851470f6e7bbed1db474980683e8c315bfce99b2a6ef47c057c04de7858").unwrap(),
+                                safe_block_hash: ExecutionBlockHash::from_str("0x3559e851470f6e7bbed1db474980683e8c315bfce99b2a6ef47c057c04de7858").unwrap(),
+                                finalized_block_hash: ExecutionBlockHash::from_str("0x3b8fb240d288781d4aac94d3fd16809ee413bc99294a085798a589dae51ddd4a").unwrap(),
                             },
                             None,
                         )
@@ -840,9 +842,9 @@ mod test {
                     let response = client
                         .forkchoice_updated_v1(
                             ForkChoiceState {
-                                head_block_hash: Hash256::from_str("0x3559e851470f6e7bbed1db474980683e8c315bfce99b2a6ef47c057c04de7858").unwrap(),
-                                safe_block_hash: Hash256::from_str("0x3559e851470f6e7bbed1db474980683e8c315bfce99b2a6ef47c057c04de7858").unwrap(),
-                                finalized_block_hash: Hash256::from_str("0x3b8fb240d288781d4aac94d3fd16809ee413bc99294a085798a589dae51ddd4a").unwrap(),
+                                head_block_hash: ExecutionBlockHash::from_str("0x3559e851470f6e7bbed1db474980683e8c315bfce99b2a6ef47c057c04de7858").unwrap(),
+                                safe_block_hash: ExecutionBlockHash::from_str("0x3559e851470f6e7bbed1db474980683e8c315bfce99b2a6ef47c057c04de7858").unwrap(),
+                                finalized_block_hash: ExecutionBlockHash::from_str("0x3b8fb240d288781d4aac94d3fd16809ee413bc99294a085798a589dae51ddd4a").unwrap(),
                             },
                             None,
                         )
@@ -851,7 +853,7 @@ mod test {
                     assert_eq!(response, ForkchoiceUpdatedResponse {
                         payload_status: PayloadStatusV1 {
                             status: PayloadStatusV1Status::Valid,
-                            latest_valid_hash: Some(Hash256::zero()),
+                            latest_valid_hash: Some(ExecutionBlockHash::zero()),
                             validation_error: Some(String::new()),
                         },
                         payload_id: None,

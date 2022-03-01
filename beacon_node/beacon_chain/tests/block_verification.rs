@@ -54,6 +54,7 @@ fn get_harness(validator_count: usize) -> BeaconChainHarness<EphemeralHarnessTyp
         .default_spec()
         .keypairs(KEYPAIRS[0..validator_count].to_vec())
         .fresh_ephemeral_store()
+        .mock_execution_layer()
         .build();
 
     harness.advance_slot();
@@ -839,6 +840,7 @@ fn verify_block_for_gossip_slashing_detection() {
         .keypairs(KEYPAIRS.to_vec())
         .fresh_ephemeral_store()
         .initial_mutator(Box::new(move |builder| builder.slasher(inner_slasher)))
+        .mock_execution_layer()
         .build();
     harness.advance_slot();
 
@@ -918,6 +920,7 @@ fn add_base_block_to_altair_chain() {
         .spec(spec)
         .keypairs(KEYPAIRS[..].to_vec())
         .fresh_ephemeral_store()
+        .mock_execution_layer()
         .build();
 
     // Move out of the genesis slot.
@@ -1036,6 +1039,7 @@ fn add_altair_block_to_base_chain() {
         .spec(spec)
         .keypairs(KEYPAIRS[..].to_vec())
         .fresh_ephemeral_store()
+        .mock_execution_layer()
         .build();
 
     // Move out of the genesis slot.

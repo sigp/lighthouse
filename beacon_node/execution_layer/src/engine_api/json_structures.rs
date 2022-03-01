@@ -1,6 +1,6 @@
 use super::*;
 use serde::{Deserialize, Serialize};
-use types::{EthSpec, FixedVector, Transaction, Unsigned, VariableList};
+use types::{EthSpec, ExecutionBlockHash, FixedVector, Transaction, Unsigned, VariableList};
 
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -58,7 +58,7 @@ pub struct JsonPayloadIdResponse {
 #[derive(Debug, PartialEq, Default, Serialize, Deserialize)]
 #[serde(bound = "T: EthSpec", rename_all = "camelCase")]
 pub struct JsonExecutionPayloadV1<T: EthSpec> {
-    pub parent_hash: Hash256,
+    pub parent_hash: ExecutionBlockHash,
     pub fee_recipient: Address,
     pub state_root: Hash256,
     pub receipts_root: Hash256,
@@ -76,7 +76,7 @@ pub struct JsonExecutionPayloadV1<T: EthSpec> {
     #[serde(with = "ssz_types::serde_utils::hex_var_list")]
     pub extra_data: VariableList<u8, T::MaxExtraDataBytes>,
     pub base_fee_per_gas: Uint256,
-    pub block_hash: Hash256,
+    pub block_hash: ExecutionBlockHash,
     #[serde(with = "serde_transactions")]
     pub transactions:
         VariableList<Transaction<T::MaxBytesPerTransaction>, T::MaxTransactionsPerPayload>,
@@ -206,9 +206,9 @@ impl From<JsonPayloadAttributesV1> for PayloadAttributes {
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct JsonForkChoiceStateV1 {
-    pub head_block_hash: Hash256,
-    pub safe_block_hash: Hash256,
-    pub finalized_block_hash: Hash256,
+    pub head_block_hash: ExecutionBlockHash,
+    pub safe_block_hash: ExecutionBlockHash,
+    pub finalized_block_hash: ExecutionBlockHash,
 }
 
 impl From<ForkChoiceState> for JsonForkChoiceStateV1 {
@@ -260,7 +260,7 @@ pub enum JsonPayloadStatusV1Status {
 #[serde(rename_all = "camelCase")]
 pub struct JsonPayloadStatusV1 {
     pub status: JsonPayloadStatusV1Status,
-    pub latest_valid_hash: Option<Hash256>,
+    pub latest_valid_hash: Option<ExecutionBlockHash>,
     pub validation_error: Option<String>,
 }
 

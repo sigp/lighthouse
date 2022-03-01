@@ -2,7 +2,7 @@
 name = "operation_pool"
 version = "0.2.0"
 authors = ["Michael Sproul <michael@sigmaprime.io>"]
-edition = "2018"
+edition = "2021"
 
 [dependencies]
 derivative = "2.1.1"

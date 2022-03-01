@@ -28,6 +28,7 @@ fn get_harness(validator_count: usize) -> BeaconChainHarness<EphemeralHarnessTyp
         .default_spec()
         .keypairs(KEYPAIRS[0..validator_count].to_vec())
         .fresh_ephemeral_store()
+        .mock_execution_layer()
         .build();
 
     harness.advance_slot();

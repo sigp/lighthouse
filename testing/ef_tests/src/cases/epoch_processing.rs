@@ -259,10 +259,7 @@ impl<E: EthSpec, T: EpochTransition<E>> LoadCase for EpochProcessing<E, T> {
 
 impl<E: EthSpec, T: EpochTransition<E>> Case for EpochProcessing<E, T> {
     fn description(&self) -> String {
-        self.metadata
-            .description
-            .clone()
-            .unwrap_or_else(String::new)
+        self.metadata.description.clone().unwrap_or_default()
     }
 
     fn is_enabled_for_fork(fork_name: ForkName) -> bool {

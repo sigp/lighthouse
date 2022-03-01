@@ -762,7 +762,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         let partial_state_bytes = self
             .cold_db
             .get_bytes(DBColumn::BeaconState.into(), state_root.as_bytes())?
-            .ok_or_else(|| HotColdDBError::MissingRestorePoint(*state_root))?;
+            .ok_or(HotColdDBError::MissingRestorePoint(*state_root))?;
         let mut partial_state: PartialBeaconState<E> =
             PartialBeaconState::from_ssz_bytes(&partial_state_bytes, &self.spec)?;
 
