@@ -5,7 +5,7 @@ use crate::discovery::Eth2Enr;
 use crate::Multiaddr;
 use crate::{rpc::MetaData, types::Subnet};
 use discv5::Enr;
-use serde::de::Visitor;
+use serde::de::{self, MapAccess, Visitor};
 use serde::{
     ser::{SerializeStruct, Serializer},
     Deserialize, Serialize,
@@ -13,7 +13,7 @@ use serde::{
 use std::collections::HashSet;
 use std::fmt;
 use std::net::{IpAddr, SocketAddr};
-use std::time::Instant;
+use std::time::{Duration, Instant};
 use strum::AsRefStr;
 use types::EthSpec;
 use PeerConnectionStatus::*;
@@ -570,7 +570,107 @@ impl<'de> Deserialize<'de> for PeerConnectionStatus {
     where
         D: serde::Deserializer<'de>,
     {
-        todo!()
+        #[derive(Deserialize)]
+        #[serde(field_identifier, rename_all = "snake_case")]
+        enum Field {
+            Status,
+            ConnectionsIn,
+            ConnectionsOut,
+            LastSeen,
+            BannedIps,
+        }
+
+        const FIELDS: &[&str] = &[
+            "status",
+            "connections_in",
+            "connections_out",
+            "last_seen",
+            "banned_ips",
+        ];
+
+        const VARIANTS: &[&str] = &[
+            "connected",
+            "disconnecting",
+            "disconnected",
+            "banned",
+            "dialing",
+            "unknown",
+        ];
+
+        struct PeerConnectionStatusVisitor;
+
+        impl<'de> Visitor<'de> for PeerConnectionStatusVisitor {
+            type Value = PeerConnectionStatus;
+
+            fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+                formatter.write_str("struct PeerConnectionStatus")
+            }
+
+            fn visit_map<V>(self, mut map: V) -> Result<PeerConnectionStatus, V::Error>
+            where
+                V: MapAccess<'de>,
+            {
+                let mut status = None;
+                let mut connections_in = None;
+                let mut connections_out = None;
+                let mut last_seen = None;
+                while let Some(key) = map.next_key()? {
+                    match key {
+                        Field::Status => {
+                            if status.is_some() {
+                                return Err(de::Error::duplicate_field("status"));
+                            }
+                            status = Some(map.next_value()?);
+                        }
+                        Field::ConnectionsIn => {
+                            if connections_in.is_some() {
+                                return Err(de::Error::duplicate_field("connections_in"));
+                            }
+                            connections_in = Some(map.next_value()?);
+                        }
+                        Field::ConnectionsOut => {
+                            if connections_out.is_some() {
+                                return Err(de::Error::duplicate_field("connections_out"));
+                            }
+                            connections_out = Some(map.next_value()?);
+                        }
+                        Field::LastSeen => {
+                            if last_seen.is_some() {
+                                return Err(de::Error::duplicate_field("last_seen"));
+                            }
+                            last_seen = Some(map.next_value()?);
+                        }
+                        _ => {}
+                    }
+                }
+
+                let since = last_seen
+                    .and_then(|secs| Instant::now().checked_sub(Duration::from_secs(secs)));
+
+                match status.ok_or_else(|| de::Error::missing_field("status"))? {
+                    "connected" => Ok(PeerConnectionStatus::Connected {
+                        n_in: connections_in
+                            .ok_or_else(|| de::Error::missing_field("connections_in"))?,
+                        n_out: connections_out
+                            .ok_or_else(|| de::Error::missing_field("connections_out"))?,
+                    }),
+                    "disconnecting" => Ok(PeerConnectionStatus::Disconnecting { to_ban: false }),
+                    "disconnected" => Ok(PeerConnectionStatus::Disconnected {
+                        since: since.ok_or_else(|| de::Error::missing_field("last_seen"))?,
+                    }),
+                    "banned" => Ok(PeerConnectionStatus::Banned {
+                        since: since.ok_or_else(|| de::Error::missing_field("last_seen"))?,
+                    }),
+                    "dialing" => Ok(PeerConnectionStatus::Dialing {
+                        since: since.ok_or_else(|| de::Error::missing_field("last_seen"))?,
+                    }),
+                    "unknown" => Ok(PeerConnectionStatus::Unknown),
+                    unknown => Err(de::Error::unknown_variant(unknown, VARIANTS)),
+                }
+            }
+        }
+
+        deserializer.deserialize_struct("Duration", FIELDS, PeerConnectionStatusVisitor)
     }
 }
 
