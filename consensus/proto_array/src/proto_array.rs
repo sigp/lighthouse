@@ -395,12 +395,6 @@ impl ProtoArray {
         // Collect all *ancestors* which were declared invalid since they reside between the
         // `head_block_root` and the `latest_valid_ancestor_root`.
         loop {
-            // If there is no latest valid block then exit this loop early and don't invalidate any
-            // blocks.
-            if !latest_valid_ancestor_is_descendant {
-                break;
-            }
-
             let node = self
                 .nodes
                 .get_mut(index)
@@ -410,7 +404,17 @@ impl ProtoArray {
                 ExecutionStatus::Valid(hash)
                 | ExecutionStatus::Invalid(hash)
                 | ExecutionStatus::Unknown(hash) => {
-                    if Some(hash) == latest_valid_ancestor_hash {
+                    // If we're no longer processing the `head_block_root` and the last valid
+                    // ancestor is unknown, exit this loop and proceed to invalidate and
+                    // descendants of `head_block_root`/`latest_valid_ancestor_root`.
+                    //
+                    // In effect, this means that if an unknown hash (junk or pre-finalization) is
+                    // supplied, don't validate any ancestors. The alternative is to invalidate
+                    // *all* ancestors, which would likely involve shutting down the client due to
+                    // an invalid justified checkpoint.
+                    if !latest_valid_ancestor_is_descendant && node.root != head_block_root {
+                        break;
+                    } else if Some(hash) == latest_valid_ancestor_hash {
                         // If the `best_child` or `best_descendant` of the latest valid hash was
                         // invalidated, set those fields to `None`.
                         //
