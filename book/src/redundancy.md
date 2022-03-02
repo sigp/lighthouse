@@ -5,7 +5,7 @@
 There are three places in Lighthouse where redundancy is notable:
 
 1. ✅ GOOD: Using a redundant Beacon node in `lighthouse vc --beacon-nodes`
-1. ✅ GOOD: Using a redundant Eth1 node in `lighthouse bn --eth1-endpoints`
+1. ✅ GOOD: Using a redundant execution node in `lighthouse bn --eth1-endpoints`
 1. ☠️ BAD: Running redundant `lighthouse vc` instances with overlapping keypairs.
 
 I mention (3) since it is unsafe and should not be confused with the other two
@@ -55,7 +55,7 @@ In our previous example we listed `http://192.168.1.1:5052` as a redundant
 node. Apart from having sufficient resources, the backup node should have the
 following flags:
 
-- `--staking`: starts the HTTP API server and ensures the Eth1 chain is synced.
+- `--staking`: starts the HTTP API server and ensures the execution chain is synced.
 - `--http-address 0.0.0.0`: this allows *any* external IP address to access the
 	HTTP server (a firewall should be configured to deny unauthorized access to port
 	`5052`). This is only required if your backup node is on a different host.
@@ -92,23 +92,23 @@ There are 64 subnets and each validator will result in a subscription to *at
 least* one subnet. So, using the two aforementioned flags will result in
 resource consumption akin to running 64+ validators.
 
-## Redundant Eth1 nodes
+## Redundant execution nodes
 
-Compared to redundancy in beacon nodes (see above), using redundant Eth1 nodes
+Compared to redundancy in beacon nodes (see above), using redundant execution nodes
 is very straight-forward:
 
 1. `lighthouse bn --eth1-endpoints http://localhost:8545`
 1. `lighthouse bn --eth1-endpoints http://localhost:8545,http://192.168.0.1:8545`
 
 In the case of (1), any failure on `http://localhost:8545` will result in a
-failure to update the Eth1 cache in the beacon node. Consistent failure over a
+failure to update the execution client cache in the beacon node. Consistent failure over a
 period of hours may result in a failure in block production.
 
-However, in the case of (2), the `http://192.168.0.1:8545` Eth1 endpoint will
-be tried each time the first fails. Eth1 endpoints will be tried from first to
+However, in the case of (2), the `http://192.168.0.1:8545` execution client endpoint will
+be tried each time the first fails. Execution client endpoints will be tried from first to
 last in the list, until a successful response is obtained.
 
-There is no need for special configuration on the Eth1 endpoint, all endpoints can (probably should)
+There is no need for special configuration on the execution client endpoint, all endpoints can (probably should)
 be configured identically.
 
 > Note: When supplying multiple endpoints the `http://localhost:8545` address must be explicitly

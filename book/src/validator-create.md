@@ -3,7 +3,7 @@
 [launchpad]: https://launchpad.ethereum.org/
 
 >
-> **Note: we recommend using the [Eth2 launchpad][launchpad] to create validators.**
+> **Note: we recommend using the [Staking launchpad][launchpad] to create validators.**
 
 Validators are fundamentally represented by a BLS keypair. In Lighthouse, we
 use a [wallet](./wallet-create.md) to generate these keypairs. Once a wallet
