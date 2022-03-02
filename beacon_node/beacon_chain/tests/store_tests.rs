@@ -1915,8 +1915,9 @@ fn pruning_test(
     check_no_blocks_exist(&harness, stray_blocks.values());
 }
 
+/* FIXME(sproul): adapt this test for new paradigm
 #[test]
-fn garbage_collect_temp_states_from_failed_block() {
+fn delete_states_from_failed_block() {
     let db_path = tempdir().unwrap();
     let store = get_store(&db_path);
     let harness = get_harness(store.clone(), LOW_VALIDATOR_COUNT);
@@ -1954,6 +1955,7 @@ fn garbage_collect_temp_states_from_failed_block() {
     let store = get_store(&db_path);
     assert_eq!(store.iter_temporary_state_roots().count(), 0);
 }
+*/
 
 #[test]
 fn weak_subjectivity_sync() {

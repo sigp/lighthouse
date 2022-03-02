@@ -1,4 +1,5 @@
 use super::*;
+use crate::hot_cold_store::HotColdDBError;
 use crate::metrics;
 use db_key::Key;
 use leveldb::compaction::Compaction;
@@ -6,7 +7,7 @@ use leveldb::database::batch::{Batch, Writebatch};
 use leveldb::database::kv::KV;
 use leveldb::database::Database;
 use leveldb::error::Error as LevelDBError;
-use leveldb::iterator::{Iterable, KeyIterator};
+use leveldb::iterator::{Iterable, KeyIterator, LevelDBIterator};
 use leveldb::options::{Options, ReadOptions, WriteOptions};
 use parking_lot::{Mutex, MutexGuard};
 use std::marker::PhantomData;
@@ -167,12 +168,37 @@ impl<E: EthSpec> KeyValueStore<E> for LevelDB<E> {
         };
 
         for (start_key, end_key) in vec![
-            endpoints(DBColumn::BeaconStateTemporary),
             endpoints(DBColumn::BeaconState),
+            endpoints(DBColumn::BeaconStateDiff),
+            endpoints(DBColumn::BeaconStateSummary),
         ] {
             self.db.compact(&start_key, &end_key);
         }
         Ok(())
+    }
+
+    /// Iterate through all keys and values in a particular column.
+    fn iter_column<'a>(
+        &'a self,
+        column: DBColumn,
+    ) -> Box<dyn Iterator<Item = Result<(Hash256, Vec<u8>), Error>> + 'a> {
+        let start_key =
+            BytesKey::from_vec(get_key_for_col(column.into(), Hash256::zero().as_bytes()));
+
+        let iter = self.db.iter(self.read_options());
+        iter.seek(&start_key);
+
+        Box::new(
+            iter.take_while(move |(key, _)| key.matches_column(column))
+                .map(move |(bytes_key, value)| {
+                    let key = bytes_key.remove_column(column).ok_or_else(|| {
+                        HotColdDBError::IterationError {
+                            unexpected_key: bytes_key,
+                        }
+                    })?;
+                    Ok((key, value))
+                }),
+        )
     }
 }
 

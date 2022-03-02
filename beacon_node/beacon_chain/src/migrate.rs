@@ -3,7 +3,7 @@ use crate::errors::BeaconChainError;
 use crate::head_tracker::{HeadTracker, SszHeadTracker};
 use crate::persisted_beacon_chain::{PersistedBeaconChain, DUMMY_CANONICAL_HEAD_BLOCK_ROOT};
 use parking_lot::Mutex;
-use slog::{debug, error, info, warn, Logger};
+use slog::{debug, error, info, trace, warn, Logger};
 use std::collections::{HashMap, HashSet};
 use std::mem;
 use std::sync::{mpsc, Arc};
@@ -380,15 +380,14 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
         // We don't know which blocks are shared among abandoned chains, so we buffer and delete
         // everything in one fell swoop.
         let mut abandoned_blocks: HashSet<SignedBeaconBlockHash> = HashSet::new();
-        let mut abandoned_states: HashSet<(Slot, BeaconStateHash)> = HashSet::new();
         let mut abandoned_heads: HashSet<Hash256> = HashSet::new();
 
         let heads = head_tracker.heads();
         debug!(
             log,
             "Extra pruning information";
-            "old_finalized_root" => format!("{:?}", old_finalized_checkpoint.root),
-            "new_finalized_root" => format!("{:?}", new_finalized_checkpoint.root),
+            "old_finalized_root" => ?old_finalized_checkpoint.root,
+            "new_finalized_root" => ?new_finalized_checkpoint.root,
             "head_count" => heads.len(),
         );
 
@@ -416,9 +415,9 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
             };
 
             let mut potentially_abandoned_head = Some(head_hash);
-            let mut potentially_abandoned_blocks = vec![];
+            let mut potentially_abandoned_blocks = HashSet::new();
 
-            // Iterate backwards from this head, staging blocks and states for deletion.
+            // Iterate backwards from this head, staging blocks for deletion.
             let iter = std::iter::once(Ok((head_hash, head_state_root, head_slot)))
                 .chain(RootsIterator::from_block(&store, head_hash)?);
 
@@ -433,11 +432,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
                     // the fork's block and state for possible deletion.
                     None => {
                         if slot > new_finalized_slot {
-                            potentially_abandoned_blocks.push((
-                                slot,
-                                Some(block_root),
-                                Some(state_root),
-                            ));
+                            potentially_abandoned_blocks.insert(block_root);
                         } else if slot >= old_finalized_slot {
                             return Err(PruningError::MissingInfoForCanonicalChain { slot }.into());
                         } else {
@@ -447,7 +442,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
                             warn!(
                                 log,
                                 "Found a chain that should already have been pruned";
-                                "head_block_root" => format!("{:?}", head_hash),
+                                "head_block_root" => ?head_hash,
                                 "head_slot" => head_slot,
                             );
                             potentially_abandoned_head.take();
@@ -475,26 +470,14 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
                             // we will have just staged the common block for deletion.
                             // Unstage it.
                             else {
-                                for (_, block_root, _) in
-                                    potentially_abandoned_blocks.iter_mut().rev()
-                                {
-                                    if block_root.as_ref() == Some(finalized_block_root) {
-                                        *block_root = None;
-                                    } else {
-                                        break;
-                                    }
-                                }
+                                potentially_abandoned_blocks.remove(finalized_block_root);
                             }
                             break;
                         } else {
                             if state_root == *finalized_state_root {
                                 return Err(PruningError::UnexpectedEqualStateRoots.into());
                             }
-                            potentially_abandoned_blocks.push((
-                                slot,
-                                Some(block_root),
-                                Some(state_root),
-                            ));
+                            potentially_abandoned_blocks.insert(block_root);
                         }
                     }
                 }
@@ -504,18 +487,11 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
                 debug!(
                     log,
                     "Pruning head";
-                    "head_block_root" => format!("{:?}", abandoned_head),
+                    "head_block_root" => ?abandoned_head,
                     "head_slot" => head_slot,
                 );
                 abandoned_heads.insert(abandoned_head);
-                abandoned_blocks.extend(
-                    potentially_abandoned_blocks
-                        .iter()
-                        .filter_map(|(_, maybe_block_hash, _)| *maybe_block_hash),
-                );
-                abandoned_states.extend(potentially_abandoned_blocks.iter().filter_map(
-                    |(slot, _, maybe_state_hash)| maybe_state_hash.map(|sr| (*slot, sr)),
-                ));
+                abandoned_blocks.extend(potentially_abandoned_blocks);
             }
         }
 
@@ -538,18 +514,12 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
             head_tracker_lock.remove(&head_hash);
         }
 
-        let batch: Vec<StoreOp<E>> = abandoned_blocks
+        let num_deleted_blocks = abandoned_blocks.len();
+        let mut batch: Vec<StoreOp<E>> = abandoned_blocks
             .into_iter()
             .map(Into::into)
             .map(StoreOp::DeleteBlock)
-            .chain(
-                abandoned_states
-                    .into_iter()
-                    .map(|(slot, state_hash)| StoreOp::DeleteState(state_hash.into(), Some(slot))),
-            )
             .collect();
-
-        let mut kv_batch = store.convert_to_kv_batch(&batch)?;
 
         // Persist the head in case the process is killed or crashes here. This prevents
         // the head tracker reverting after our mutation above.
@@ -559,13 +529,53 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
             ssz_head_tracker: SszHeadTracker::from_map(&*head_tracker_lock),
         };
         drop(head_tracker_lock);
-        kv_batch.push(persisted_head.as_kv_store_op(BEACON_CHAIN_DB_KEY)?);
+        batch.push(StoreOp::KeyValueOp(
+            persisted_head.as_kv_store_op(BEACON_CHAIN_DB_KEY)?,
+        ));
 
         // Persist the new finalized checkpoint as the pruning checkpoint.
-        kv_batch.push(store.pruning_checkpoint_store_op(new_finalized_checkpoint)?);
+        batch.push(StoreOp::KeyValueOp(
+            store.pruning_checkpoint_store_op(new_finalized_checkpoint)?,
+        ));
 
-        store.hot_db.do_atomically(kv_batch)?;
-        debug!(log, "Database pruning complete");
+        store.do_atomically(batch)?;
+        debug!(
+            log,
+            "Database block pruning complete";
+            "num_deleted_blocks" => num_deleted_blocks,
+        );
+
+        // Do a separate pass to clean up irrelevant states.
+        let mut state_delete_batch = vec![];
+        for res in store.iter_hot_state_summaries() {
+            let (state_root, summary) = res?;
+
+            if summary.slot <= new_finalized_slot {
+                // If state root doesn't match state root from canonical chain, or this slot
+                // is not part of the recently finalized chain, then delete.
+                if newly_finalized_chain
+                    .get(&summary.slot)
+                    .map_or(true, |(_, canonical_state_root)| {
+                        state_root != Hash256::from(*canonical_state_root)
+                    })
+                {
+                    trace!(
+                        log,
+                        "Deleting state";
+                        "state_root" => ?state_root,
+                        "slot" => summary.slot,
+                    );
+                    state_delete_batch.push(StoreOp::DeleteState(state_root, Some(summary.slot)));
+                }
+            }
+        }
+        let num_deleted_states = state_delete_batch.len();
+        store.do_atomically(state_delete_batch)?;
+        debug!(
+            log,
+            "Database state pruning complete";
+            "num_deleted_states" => num_deleted_states,
+        );
 
         Ok(PruningOutcome::Successful {
             old_finalized_checkpoint,

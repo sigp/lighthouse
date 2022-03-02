@@ -146,9 +146,17 @@ impl<E: EthSpec> StateCache<E> {
         Some((state_root, state))
     }
 
-    pub fn delete(&mut self, state_root: &Hash256) {
+    pub fn delete_state(&mut self, state_root: &Hash256) {
         self.states.pop(state_root);
         self.block_map.delete(state_root);
+    }
+
+    pub fn delete_block_states(&mut self, block_root: &Hash256) {
+        if let Some(slot_map) = self.block_map.delete_block_states(block_root) {
+            for state_root in slot_map.slots.values() {
+                self.states.pop(state_root);
+            }
+        }
     }
 }
 
@@ -187,6 +195,10 @@ impl BlockMap {
                 .retain(|_, state_root| state_root != state_root_to_delete);
             !slot_map.slots.is_empty()
         });
+    }
+
+    fn delete_block_states(&mut self, block_root: &Hash256) -> Option<SlotMap> {
+        self.blocks.remove(block_root)
     }
 }
 
