@@ -3,7 +3,7 @@ pub mod attestation_verification;
 mod attester_cache;
 mod beacon_chain;
 mod beacon_fork_choice_store;
-mod beacon_proposer_cache;
+pub mod beacon_proposer_cache;
 mod beacon_snapshot;
 pub mod block_reward;
 mod block_times_cache;

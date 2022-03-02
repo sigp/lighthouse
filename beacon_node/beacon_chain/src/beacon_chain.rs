@@ -4,6 +4,7 @@ use crate::attestation_verification::{
     VerifiedUnaggregatedAttestation,
 };
 use crate::attester_cache::{AttesterCache, AttesterCacheKey};
+use crate::beacon_proposer_cache::compute_proposer_duties_from_head;
 use crate::beacon_proposer_cache::BeaconProposerCache;
 use crate::block_times_cache::BlockTimesCache;
 use crate::block_verification::{
@@ -3763,26 +3764,67 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         };
 
         // Read the proposer from the proposer cache.
-        let proposer = if let Some(proposer) = self
+        let cached_proposer = self
             .beacon_proposer_cache
             .lock()
-            .get_slot::<T::EthSpec>(shuffling_decision_root, prepare_slot)
-        {
-            proposer
+            .get_slot::<T::EthSpec>(shuffling_decision_root, prepare_slot);
+        let proposer = if let Some(proposer) = cached_proposer {
+            proposer.index
         } else {
-            error!(
-                self.log,
-                "Failed to read proposer for preparation";
-                "prepare_slot" => prepare_slot,
-            );
-            // Nothing more to do.
-            return Ok(());
+            if head_epoch + 2 < prepare_epoch {
+                warn!(
+                    self.log,
+                    "Skipping proposer preparation";
+                    "msg" => "this is a non-critical issue that can happen on unhealthy nodes or \
+                              networks.",
+                    "prepare_epoch" => prepare_epoch,
+                    "head_epoch" => head_epoch,
+                );
+
+                // Don't skip the head forward more than two epochs. This avoids burdening an
+                // unhealthy node.
+                //
+                // Although this node might miss out on preparing for a proposal, they should still
+                // be able to propose. This will prioritise beacon chain health over efficient
+                // packing of execution blocks.
+                return Ok(());
+            }
+
+            let (proposers, decision_root, fork) =
+                compute_proposer_duties_from_head(prepare_epoch, self)?;
+
+            let proposer_index = prepare_slot.as_usize() % (T::EthSpec::slots_per_epoch() as usize);
+            let proposer = *proposers
+                .get(proposer_index)
+                .ok_or(BeaconChainError::NoProposerForSlot(prepare_slot))?;
+
+            self.beacon_proposer_cache.lock().insert(
+                prepare_epoch,
+                decision_root,
+                proposers,
+                fork,
+            )?;
+
+            // It's possible that the head changes whilst computing these duties. If so, abandon
+            // this routine since the change of head would have also spawned another instance of
+            // this routine.
+            //
+            // Exit now, after updating the cache.
+            if decision_root != shuffling_decision_root {
+                warn!(
+                    self.log,
+                    "Head changed during proposer preparation";
+                );
+                return Ok(());
+            }
+
+            proposer
         };
 
         // If the execution layer doesn't have any proposer data for this validator then we assume
         // it's not connected to this BN and no action is required.
         if !execution_layer
-            .has_proposer_preparation_data(proposer.index as u64)
+            .has_proposer_preparation_data(proposer as u64)
             .await
         {
             return Ok(());
@@ -3796,7 +3838,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 .as_secs(),
             random: head.random,
             suggested_fee_recipient: execution_layer
-                .get_suggested_fee_recipient(proposer.index as u64)
+                .get_suggested_fee_recipient(proposer as u64)
                 .await,
         };
 
@@ -3806,14 +3848,14 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             "payload_attributes" => ?payload_attributes,
             "head_root" => ?head.block_root,
             "prepare_slot" => prepare_slot,
-            "validator" => proposer.index,
+            "validator" => proposer,
         );
 
         let already_known = execution_layer
             .insert_proposer(
                 prepare_slot,
                 head.block_root,
-                proposer.index as u64,
+                proposer as u64,
                 payload_attributes,
             )
             .await;
@@ -3825,7 +3867,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 "Prepared beacon proposer";
                 "already_known" => already_known,
                 "prepare_slot" => prepare_slot,
-                "validator" => proposer.index,
+                "validator" => proposer,
             );
         }
 
@@ -3842,7 +3884,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     self.log,
                     "Delayed proposer preparation";
                     "prepare_slot" => prepare_slot,
-                    "validator" => proposer.index,
+                    "validator" => proposer,
                 );
                 return Ok(());
             };
