@@ -8,24 +8,21 @@ mod execution_engine;
 mod genesis_json;
 mod test_rig;
 
+use execution_engine::Geth;
+use test_rig::TestRig;
+
 /// Set to `false` to send logs to the console during tests. Logs are useful when debugging.
 const SUPPRESS_LOGS: bool = false;
 
 fn main() {
-    run_tests()
+    if cfg!(windows) {
+        panic!("windows is not supported, only linux");
+    }
+
+    test_geth()
 }
 
-#[cfg(not(target_family = "windows"))]
-fn run_tests() {
-    use execution_engine::Geth;
-    use test_rig::TestRig;
-
+fn test_geth() {
     build_geth::build();
-
     TestRig::new(Geth).perform_tests_blocking();
-}
-
-#[cfg(target_family = "windows")]
-fn run_tests() {
-    // Tests are not supported on Windows. All the build scripts assume Linux at this point.
 }
