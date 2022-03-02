@@ -12,7 +12,7 @@ use crate::{
     ExecutionPayloadError,
 };
 use execution_layer::PayloadStatus;
-use fork_choice::PayloadVerificationStatus;
+use fork_choice::{InvalidationOperation, PayloadVerificationStatus};
 use proto_array::{Block as ProtoBlock, ExecutionStatus};
 use slog::debug;
 use slot_clock::SlotClock;
@@ -69,9 +69,11 @@ pub fn notify_new_payload<T: BeaconChainTypes>(
                 // imported to fork choice was the parent.
                 let latest_root = block.parent_root();
                 chain.process_invalid_execution_payload(
-                    latest_root,
-                    false,
-                    Some(latest_valid_hash),
+                    &InvalidationOperation::InvalidateMany {
+                        head_block_root: latest_root,
+                        always_invalidate_head: false,
+                        latest_valid_ancestor: latest_valid_hash,
+                    },
                 )?;
 
                 Err(ExecutionPayloadError::RejectedByExecutionEngine { status }.into())
