@@ -11,7 +11,7 @@ use crate::sync::{
 use super::single_block_lookup::SingleBlockRequest;
 
 /// How many attempts we try to find a parent of a block before we give up trying .
-pub(crate) const PARENT_FAIL_TOLERANCE: usize = 5;
+pub(crate) const PARENT_FAIL_TOLERANCE: u8 = 5;
 /// The maximum depth we will search for a parent block. In principle we should have sync'd any
 /// canonical chain to its head once the peer connects. A chain should not appear where it's depth
 /// is further back than the most recent head slot.
@@ -25,22 +25,8 @@ pub(crate) struct ParentLookup<T: EthSpec> {
     /// The blocks that have currently been downloaded.
     downloaded_blocks: Vec<SignedBeaconBlock<T>>,
 
-    /// The number of failed attempts to retrieve a parent block. If too many attempts occur, this
-    /// lookup is failed and rejected.
-    failed_attempts: usize,
-
-    /// The peer who last submitted a block. If the chain ends or fails, this is the peer that is
-    /// penalized.
-    last_submitted_peer: PeerId,
-
-    /// The state of the parent lookup.
-    state: State,
-}
-
-enum State {
-    AwaitingDownload,
-    Downloading(Id, SingleBlockRequest),
-    Processing,
+    /// The block lookup for the latest parent.
+    current_parent_lookup: SingleBlockRequest<PARENT_FAIL_TOLERANCE>,
 }
 
 pub enum VerifyError {
@@ -53,20 +39,22 @@ pub enum VerifyError {
 }
 
 impl<T: EthSpec> ParentLookup<T> {
+    pub fn new(block: SignedBeaconBlock<T>, peer_id: PeerId) -> Self {
+        Self {
+            chain_hash: block.canonical_root(),
+            downloaded_blocks: vec![block],
+            current_parent_lookup: SingleBlockRequest::new(block.parent_root(), peer_id),
+        }
+    }
+
     pub fn contains_block(&self, block: &SignedBeaconBlock<T>) -> bool {
         self.downloaded_blocks
             .iter()
             .any(|d_block| d_block == block)
     }
 
-    pub fn new(block: SignedBeaconBlock<T>, peer_id: PeerId) -> Self {
-        Self {
-            chain_hash: block.canonical_root(),
-            downloaded_blocks: vec![block],
-            failed_attempts: 0,
-            last_submitted_peer: peer_id,
-            state: State::AwaitingDownload,
-        }
+    pub fn add_peer(&mut self, block_root: &Hash256, peer_id: &PeerId) -> bool {
+        return self.current_parent_lookup.add_peer(block_root, peer_id);
     }
 
     /// Attempts to request the next unknown parent. If the request fails, it should be removed.
@@ -75,45 +63,31 @@ impl<T: EthSpec> ParentLookup<T> {
         cx: &mut SyncNetworkContext<T>,
         log: &slog::Logger,
     ) -> Result<(), ()> {
-        // check to make sure this request hasn't failed
-        if self.failed_attempts >= PARENT_FAIL_TOLERANCE {
-            warn!(log, "Parent request failed";
-                "chain_hash" => %self.chain_hash,
-                "downloaded_blocks" => self.downloaded_blocks.len()
-            );
-            cx.report_peer(
-                self.last_submitted_peer,
-                PeerAction::MidToleranceError,
-                "failed_parent_request",
-            );
-            return Err(());
-        }
         if self.downloaded_blocks.len() >= PARENT_DEPTH_TOLERANCE {
             warn!(log, "Parent request reached max chain depth";
                 "chain_hash" => %self.chain_hash,
                 "downloaded_blocks" => self.downloaded_blocks.len()
             );
             cx.report_peer(
-                self.last_submitted_peer,
+                *self.current_parent_lookup.current_peer(),
                 PeerAction::MidToleranceError,
                 "failed_parent_request",
             );
             return Err(());
         }
+        match self.current_parent_lookup.request_block() {
 
-        let parent_hash = self
-            .downloaded_blocks
-            .last()
-            .expect("Parent requests are never empty")
-            .parent_root();
+        }
+
+        let request = self.current_parent_lookup.request_block();
+
+        let parent_hash = self.current_parent_lookup.hash;
 
         let request = BlocksByRootRequest {
             block_roots: VariableList::from(vec![parent_hash]),
         };
 
-        // We continue to search for the chain of blocks from the same peer. Other peers are not
-        // guaranteed to have this chain of blocks.
-        let peer_id = self.last_submitted_peer;
+        if let Some(peer_id) = self.current_parent_lookup.next_peer() {}
 
         match cx.parent_lookup_request(peer_id, request) {
             Ok(request_id) => {
