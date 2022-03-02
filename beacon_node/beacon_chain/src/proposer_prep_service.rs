@@ -16,20 +16,23 @@ pub const PAYLOAD_PREPARATION_LOOKAHEAD_FACTOR: u32 = 3;
 ///
 /// The service will not be started if there is no `execution_layer` on the `chain`.
 pub fn start_proposer_prep_service<T: BeaconChainTypes>(
-    executor: &TaskExecutor,
+    executor: TaskExecutor,
     chain: Arc<BeaconChain<T>>,
 ) {
     // Avoid spawning the service if there's no EL, it'll just error anyway.
     if chain.execution_layer.is_some() {
-        executor.spawn(
-            async move { proposer_prep_service(chain).await },
+        executor.clone().spawn(
+            async move { proposer_prep_service(executor, chain).await },
             "proposer_prep_service",
         );
     }
 }
 
 /// Loop indefinitely, calling `BeaconChain::prepare_beacon_proposer_async` at an interval.
-async fn proposer_prep_service<T: BeaconChainTypes>(chain: Arc<BeaconChain<T>>) {
+async fn proposer_prep_service<T: BeaconChainTypes>(
+    executor: TaskExecutor,
+    chain: Arc<BeaconChain<T>>,
+) {
     let slot_duration = chain.slot_clock.slot_duration();
 
     loop {
@@ -44,13 +47,19 @@ async fn proposer_prep_service<T: BeaconChainTypes>(chain: Arc<BeaconChain<T>>) 
                     "Proposer prepare routine firing";
                 );
 
-                if let Err(e) = chain.prepare_beacon_proposer_async().await {
-                    error!(
-                        chain.log,
-                        "Proposer prepare routine failed";
-                        "error" => ?e
-                    );
-                }
+                let inner_chain = chain.clone();
+                executor.spawn(
+                    async move {
+                        if let Err(e) = inner_chain.prepare_beacon_proposer_async().await {
+                            error!(
+                                inner_chain.log,
+                                "Proposer prepare routine failed";
+                                "error" => ?e
+                            );
+                        }
+                    },
+                    "proposer_prep_update",
+                );
 
                 continue;
             }

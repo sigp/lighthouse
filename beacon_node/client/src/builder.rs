@@ -709,7 +709,7 @@ where
                 );
             }
 
-            start_proposer_prep_service(&runtime_context.executor, beacon_chain.clone());
+            start_proposer_prep_service(runtime_context.executor.clone(), beacon_chain.clone());
         }
 
         Ok(Client {
