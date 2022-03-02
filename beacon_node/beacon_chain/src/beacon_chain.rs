@@ -3910,7 +3910,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
             // Use the blocking method here so that we don't form a queue of these functions when
             // routinely calling them.
-            self.update_execution_engine_forkchoice_blocking(current_slot)?;
+            self.update_execution_engine_forkchoice_async(current_slot)
+                .await?;
         }
 
         Ok(())
@@ -3969,10 +3970,15 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             return Ok(());
         };
 
+        let finalized_root = if head.finalized_checkpoint.root == Hash256::zero() {
+            // De-alias `0x00..00` to the genesis block root.
+            self.genesis_block_root
+        } else {
+            head.finalized_checkpoint.root
+        };
         // Deadlock warning:
         //
         // The same as above, but the lock on `self.fork_choice`.
-        let finalized_root = head.finalized_checkpoint.root;
         let finalized_execution_block_hash = self
             .fork_choice
             .read()
