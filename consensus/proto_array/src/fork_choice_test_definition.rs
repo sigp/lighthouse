@@ -241,6 +241,7 @@ impl ForkChoiceTestDefinition {
                 } => fork_choice
                     .process_execution_payload_invalidation(
                         head_block_root,
+                        true,
                         latest_valid_ancestor_root,
                     )
                     .unwrap(),

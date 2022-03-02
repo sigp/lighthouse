@@ -481,10 +481,15 @@ where
     pub fn on_invalid_execution_payload(
         &mut self,
         head_block_root: Hash256,
+        invalidate_head_block: bool,
         latest_valid_ancestor_root: Option<ExecutionBlockHash>,
     ) -> Result<(), Error<T::Error>> {
         self.proto_array
-            .process_execution_payload_invalidation(head_block_root, latest_valid_ancestor_root)
+            .process_execution_payload_invalidation(
+                head_block_root,
+                invalidate_head_block,
+                latest_valid_ancestor_root,
+            )
             .map_err(Error::FailedToProcessInvalidExecutionPayload)
     }
 

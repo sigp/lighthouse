@@ -3202,6 +3202,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     pub fn process_invalid_execution_payload(
         &self,
         latest_root: Hash256,
+        should_invalidate_latest_root: bool,
         latest_valid_hash: Option<ExecutionBlockHash>,
     ) -> Result<(), Error> {
         debug!(
@@ -3212,11 +3213,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         );
 
         // Update fork choice.
-        if let Err(e) = self
-            .fork_choice
-            .write()
-            .on_invalid_execution_payload(latest_root, latest_valid_hash)
-        {
+        if let Err(e) = self.fork_choice.write().on_invalid_execution_payload(
+            latest_root,
+            should_invalidate_latest_root,
+            latest_valid_hash,
+        ) {
             crit!(
                 self.log,
                 "Failed to process invalid payload";
@@ -3764,6 +3765,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     // `head_execution_block_hash` and `latest_valid_hash` are invalid.
                     self.process_invalid_execution_payload(
                         head_block_root,
+                        true,
                         Some(*latest_valid_hash),
                     )?;
 
@@ -3781,7 +3783,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     //
                     // Using a `None` latest valid ancestor will result in only the head block
                     // being invalidated (no ancestors).
-                    self.process_invalid_execution_payload(head_block_root, None)?;
+                    self.process_invalid_execution_payload(head_block_root, true, None)?;
 
                     Err(BeaconChainError::ExecutionForkChoiceUpdateInvalid { status })
                 }

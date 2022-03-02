@@ -362,6 +362,7 @@ impl ProtoArray {
     pub fn propagate_execution_payload_invalidation(
         &mut self,
         head_block_root: Hash256,
+        invalidate_head_block: bool,
         latest_valid_ancestor_hash: Option<ExecutionBlockHash>,
     ) -> Result<(), Error> {
         let mut invalidated_indices: HashSet<usize> = <_>::default();
@@ -444,35 +445,43 @@ impl ProtoArray {
                 ExecutionStatus::Irrelevant(_) => break,
             }
 
-            match &node.execution_status {
-                // It's illegal for an execution client to declare that some previously-valid block
-                // is now invalid. This is a consensus failure on their behalf.
-                ExecutionStatus::Valid(hash) => {
-                    return Err(Error::ValidExecutionStatusBecameInvalid {
-                        block_root: node.root,
-                        payload_block_hash: *hash,
-                    })
-                }
-                ExecutionStatus::Unknown(hash) => {
-                    node.execution_status = ExecutionStatus::Invalid(*hash);
+            // Only invalidate the head block if either:
+            //
+            // - The head block was specifically indicated to be invalidated.
+            // - The latest valid hash is a known ancestor.
+            if node.root != head_block_root
+                || invalidate_head_block
+                || latest_valid_ancestor_is_descendant
+            {
+                match &node.execution_status {
+                    // It's illegal for an execution client to declare that some previously-valid block
+                    // is now invalid. This is a consensus failure on their behalf.
+                    ExecutionStatus::Valid(hash) => {
+                        return Err(Error::ValidExecutionStatusBecameInvalid {
+                            block_root: node.root,
+                            payload_block_hash: *hash,
+                        })
+                    }
+                    ExecutionStatus::Unknown(hash) => {
+                        invalidated_indices.insert(index);
+                        node.execution_status = ExecutionStatus::Invalid(*hash);
 
-                    // It's impossible for an invalid block to lead to a "best" block, so set these
-                    // fields to `None`.
-                    //
-                    // Failing to set these values will result in `Self::node_leads_to_viable_head`
-                    // returning `false` for *valid* ancestors of invalid blocks.
-                    node.best_child = None;
-                    node.best_descendant = None;
+                        // It's impossible for an invalid block to lead to a "best" block, so set these
+                        // fields to `None`.
+                        //
+                        // Failing to set these values will result in `Self::node_leads_to_viable_head`
+                        // returning `false` for *valid* ancestors of invalid blocks.
+                        node.best_child = None;
+                        node.best_descendant = None;
+                    }
+                    // The block is already invalid, but keep going backwards to ensure all ancestors
+                    // are updated.
+                    ExecutionStatus::Invalid(_) => (),
+                    // This block is pre-merge, therefore it has no execution status. Nor do its
+                    // ancestors.
+                    ExecutionStatus::Irrelevant(_) => break,
                 }
-                // The block is already invalid, but keep going backwards to ensure all ancestors
-                // are updated.
-                ExecutionStatus::Invalid(_) => (),
-                // This block is pre-merge, therefore it has no execution status. Nor do its
-                // ancestors.
-                ExecutionStatus::Irrelevant(_) => break,
             }
-
-            invalidated_indices.insert(index);
 
             if let Some(parent_index) = node.parent {
                 index = parent_index
