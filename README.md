@@ -1,6 +1,6 @@
-# Lighthouse: Ethereum 2.0
+# Lighthouse: Ethereum consensus client
 
-An open-source Ethereum 2.0 client, written in Rust and maintained by Sigma Prime.
+An open-source Ethereum consensus client, written in Rust and maintained by Sigma Prime.
 
 [![Build Status]][Build Link] [![Book Status]][Book Link] [![Chat Badge]][Chat Link]
 
@@ -22,7 +22,7 @@ An open-source Ethereum 2.0 client, written in Rust and maintained by Sigma Prim
 
 Lighthouse is:
 
-- Ready for use on Eth2 mainnet.
+- Ready for use on Ethereum consensus mainnet.
 - Fully open-source, licensed under Apache 2.0.
 - Security-focused. Fuzzing techniques have been continuously applied and several external security reviews have been performed.
 - Built in [Rust](https://www.rust-lang.org), a modern language providing unique safety guarantees and
@@ -30,13 +30,13 @@ Lighthouse is:
 - Funded by various organisations, including Sigma Prime, the
 	Ethereum Foundation, ConsenSys, the Decentralization Foundation and private individuals.
 - Actively involved in the specification and security analysis of the
-	Ethereum 2.0 specification.
+	Ethereum proof-of-stake consensus specification.
 
-## Eth2 Deposit Contract
+## Staking Deposit Contract
 
 The Lighthouse team acknowledges
 [`0x00000000219ab540356cBB839Cbe05303d7705Fa`](https://etherscan.io/address/0x00000000219ab540356cbb839cbe05303d7705fa)
-as the canonical Eth2 deposit contract address.
+as the canonical staking deposit contract address.
 
 ## Documentation
 
@@ -66,7 +66,7 @@ of the Lighthouse book.
 ## Contact
 
 The best place for discussion is the [Lighthouse Discord
-server](https://discord.gg/cyAszAh). 
+server](https://discord.gg/cyAszAh).
 
 Sign up to the [Lighthouse Development Updates](http://eepurl.com/dh9Lvb) mailing list for email
 notifications about releases, network status and other important information.
