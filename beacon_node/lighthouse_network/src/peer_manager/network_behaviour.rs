@@ -110,9 +110,13 @@ impl<TSpec: EthSpec> NetworkBehaviour for PeerManager<TSpec> {
         _connection_id: &ConnectionId,
         endpoint: &ConnectedPoint,
         _failed_addresses: Option<&Vec<Multiaddr>>,
-        _other_established: usize,
+        other_established: usize,
     ) {
         debug!(self.log, "Connection established"; "peer_id" => %peer_id, "connection" => ?endpoint.to_endpoint());
+        if other_established == 0 {
+            self.events.push(PeerManagerEvent::MetaData(*peer_id));
+        }
+
         // Check NAT if metrics are enabled
         if self.network_globals.local_enr.read().udp().is_some() {
             metrics::check_nat();

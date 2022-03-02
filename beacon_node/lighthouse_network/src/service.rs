@@ -4,9 +4,7 @@ use crate::behaviour::{
 use crate::config::NetworkLoad;
 use crate::discovery::enr;
 use crate::multiaddr::Protocol;
-use crate::rpc::{
-    GoodbyeReason, MetaData, MetaDataV1, MetaDataV2, RPCResponseErrorCode, RequestId,
-};
+use crate::rpc::{GoodbyeReason, MetaData, MetaDataV1, MetaDataV2, RPCResponseErrorCode, ReqId};
 use crate::types::{error, EnrAttestationBitfield, EnrSyncCommitteeBitfield, GossipKind};
 use crate::EnrExt;
 use crate::{NetworkConfig, NetworkGlobals, PeerAction, ReportSource};
@@ -42,9 +40,9 @@ pub const METADATA_FILENAME: &str = "metadata";
 ///
 /// This is a subset of the events that a libp2p swarm emits.
 #[derive(Debug)]
-pub enum Libp2pEvent<TSpec: EthSpec> {
+pub enum Libp2pEvent<AppReqId: ReqId, TSpec: EthSpec> {
     /// A behaviour event
-    Behaviour(BehaviourEvent<TSpec>),
+    Behaviour(BehaviourEvent<AppReqId, TSpec>),
     /// A new listening address has been established.
     NewListenAddr(Multiaddr),
     /// We reached zero listening addresses.
@@ -52,9 +50,9 @@ pub enum Libp2pEvent<TSpec: EthSpec> {
 }
 
 /// The configuration and state of the libp2p components for the beacon node.
-pub struct Service<TSpec: EthSpec> {
+pub struct Service<AppReqId: ReqId, TSpec: EthSpec> {
     /// The libp2p Swarm handler.
-    pub swarm: Swarm<Behaviour<TSpec>>,
+    pub swarm: Swarm<Behaviour<AppReqId, TSpec>>,
     /// The bandwidth logger for the underlying libp2p transport.
     pub bandwidth: Arc<BandwidthSinks>,
     /// This node's PeerId.
@@ -71,7 +69,7 @@ pub struct Context<'a> {
     pub gossipsub_registry: Option<&'a mut Registry>,
 }
 
-impl<TSpec: EthSpec> Service<TSpec> {
+impl<AppReqId: ReqId, TSpec: EthSpec> Service<AppReqId, TSpec> {
     pub async fn new(
         executor: task_executor::TaskExecutor,
         ctx: Context<'_>,
@@ -260,7 +258,7 @@ impl<TSpec: EthSpec> Service<TSpec> {
     }
 
     /// Sends a request to a peer, with a given Id.
-    pub fn send_request(&mut self, peer_id: PeerId, request_id: RequestId, request: Request) {
+    pub fn send_request(&mut self, peer_id: PeerId, request_id: AppReqId, request: Request) {
         self.swarm
             .behaviour_mut()
             .send_request(peer_id, request_id, request);
@@ -307,7 +305,7 @@ impl<TSpec: EthSpec> Service<TSpec> {
             .send_successful_response(peer_id, id, response);
     }
 
-    pub async fn next_event(&mut self) -> Libp2pEvent<TSpec> {
+    pub async fn next_event(&mut self) -> Libp2pEvent<AppReqId, TSpec> {
         loop {
             match self.swarm.select_next_some().await {
                 SwarmEvent::Behaviour(behaviour) => {

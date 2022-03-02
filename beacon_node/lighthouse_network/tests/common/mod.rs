@@ -21,6 +21,8 @@ pub mod behaviour;
 pub mod swarm;
 
 type E = MinimalEthSpec;
+type ReqId = usize;
+
 use tempfile::Builder as TempBuilder;
 
 /// Returns a dummy fork context
@@ -33,10 +35,10 @@ pub fn fork_context() -> ForkContext {
     ForkContext::new::<E>(types::Slot::new(0), Hash256::zero(), &chain_spec)
 }
 
-pub struct Libp2pInstance(LibP2PService<E>, exit_future::Signal);
+pub struct Libp2pInstance(LibP2PService<ReqId, E>, exit_future::Signal);
 
 impl std::ops::Deref for Libp2pInstance {
-    type Target = LibP2PService<E>;
+    type Target = LibP2PService<ReqId, E>;
     fn deref(&self) -> &Self::Target {
         &self.0
     }
@@ -113,7 +115,7 @@ pub async fn build_libp2p_instance(
 }
 
 #[allow(dead_code)]
-pub fn get_enr(node: &LibP2PService<E>) -> Enr {
+pub fn get_enr(node: &LibP2PService<ReqId, E>) -> Enr {
     node.swarm.behaviour().local_enr()
 }
 

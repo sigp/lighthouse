@@ -5,13 +5,13 @@
 //! syncing.
 
 use futures::future::FutureExt;
-use handler::RPCHandler;
-use libp2p::core::{connection::ConnectionId, ConnectedPoint};
+use handler::{HandlerEvent, RPCHandler};
+use libp2p::core::connection::ConnectionId;
 use libp2p::swarm::{
     handler::ConnectionHandler, NetworkBehaviour, NetworkBehaviourAction, NotifyHandler,
     PollParameters, SubstreamProtocol,
 };
-use libp2p::{Multiaddr, PeerId};
+use libp2p::PeerId;
 use rate_limiter::{RPCRateLimiter as RateLimiter, RPCRateLimiterBuilder, RateLimitedErr};
 use slog::{crit, debug, o};
 use std::marker::PhantomData;
@@ -27,7 +27,7 @@ pub(crate) use protocol::{InboundRequest, RPCProtocol};
 pub use handler::SubstreamId;
 pub use methods::{
     BlocksByRangeRequest, BlocksByRootRequest, GoodbyeReason, MaxRequestBlocks,
-    RPCResponseErrorCode, RequestId, ResponseTermination, StatusMessage, MAX_REQUEST_BLOCKS,
+    RPCResponseErrorCode, ResponseTermination, StatusMessage, MAX_REQUEST_BLOCKS,
 };
 pub(crate) use outbound::OutboundRequest;
 pub use protocol::{max_rpc_size, Protocol, RPCError};
@@ -39,14 +39,18 @@ mod outbound;
 mod protocol;
 mod rate_limiter;
 
+/// Composite trait for a request id.
+pub trait ReqId: Send + 'static + std::fmt::Debug + Copy + Clone {}
+impl<T> ReqId for T where T: Send + 'static + std::fmt::Debug + Copy + Clone {}
+
 /// RPC events sent from Lighthouse.
 #[derive(Debug, Clone)]
-pub enum RPCSend<TSpec: EthSpec> {
+pub enum RPCSend<Id, TSpec: EthSpec> {
     /// A request sent from Lighthouse.
     ///
-    /// The `RequestId` is given by the application making the request. These
+    /// The `Id` is given by the application making the request. These
     /// go over *outbound* connections.
-    Request(RequestId, OutboundRequest<TSpec>),
+    Request(Id, OutboundRequest<TSpec>),
     /// A response sent from Lighthouse.
     ///
     /// The `SubstreamId` must correspond to the RPC-given ID of the original request received from the
@@ -54,12 +58,12 @@ pub enum RPCSend<TSpec: EthSpec> {
     /// connections.
     Response(SubstreamId, RPCCodedResponse<TSpec>),
     /// Lighthouse has requested to terminate the connection with a goodbye message.
-    Shutdown(GoodbyeReason),
+    Shutdown(Id, GoodbyeReason),
 }
 
 /// RPC events received from outside Lighthouse.
 #[derive(Debug, Clone)]
-pub enum RPCReceived<T: EthSpec> {
+pub enum RPCReceived<Id, T: EthSpec> {
     /// A request received from the outside.
     ///
     /// The `SubstreamId` is given by the `RPCHandler` as it identifies this request with the
@@ -67,47 +71,47 @@ pub enum RPCReceived<T: EthSpec> {
     Request(SubstreamId, InboundRequest<T>),
     /// A response received from the outside.
     ///
-    /// The `RequestId` corresponds to the application given ID of the original request sent to the
+    /// The `Id` corresponds to the application given ID of the original request sent to the
     /// peer. The second parameter is a single chunk of a response. These go over *outbound*
     /// connections.
-    Response(RequestId, RPCResponse<T>),
+    Response(Id, RPCResponse<T>),
     /// Marks a request as completed
-    EndOfStream(RequestId, ResponseTermination),
+    EndOfStream(Id, ResponseTermination),
 }
 
-impl<T: EthSpec> std::fmt::Display for RPCSend<T> {
+impl<T: EthSpec, Id: std::fmt::Debug> std::fmt::Display for RPCSend<Id, T> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             RPCSend::Request(id, req) => write!(f, "RPC Request(id: {:?}, {})", id, req),
             RPCSend::Response(id, res) => write!(f, "RPC Response(id: {:?}, {})", id, res),
-            RPCSend::Shutdown(reason) => write!(f, "Sending Goodbye: {}", reason),
+            RPCSend::Shutdown(_id, reason) => write!(f, "Sending Goodbye: {}", reason),
         }
     }
 }
 
 /// Messages sent to the user from the RPC protocol.
-pub struct RPCMessage<TSpec: EthSpec> {
+pub struct RPCMessage<Id, TSpec: EthSpec> {
     /// The peer that sent the message.
     pub peer_id: PeerId,
     /// Handler managing this message.
     pub conn_id: ConnectionId,
     /// The message that was sent.
-    pub event: <RPCHandler<TSpec> as ConnectionHandler>::OutEvent,
+    pub event: HandlerEvent<Id, TSpec>,
 }
 
 /// Implements the libp2p `NetworkBehaviour` trait and therefore manages network-level
 /// logic.
-pub struct RPC<TSpec: EthSpec> {
+pub struct RPC<Id: ReqId, TSpec: EthSpec> {
     /// Rate limiter
     limiter: RateLimiter,
     /// Queue of events to be processed.
-    events: Vec<NetworkBehaviourAction<RPCMessage<TSpec>, RPCHandler<TSpec>>>,
+    events: Vec<NetworkBehaviourAction<RPCMessage<Id, TSpec>, RPCHandler<Id, TSpec>>>,
     fork_context: Arc<ForkContext>,
     /// Slog logger for RPC behaviour.
     log: slog::Logger,
 }
 
-impl<TSpec: EthSpec> RPC<TSpec> {
+impl<Id: ReqId, TSpec: EthSpec> RPC<Id, TSpec> {
     pub fn new(fork_context: Arc<ForkContext>, log: slog::Logger) -> Self {
         let log = log.new(o!("service" => "libp2p_rpc"));
         let limiter = RPCRateLimiterBuilder::new()
@@ -150,12 +154,7 @@ impl<TSpec: EthSpec> RPC<TSpec> {
     /// Submits an RPC request.
     ///
     /// The peer must be connected for this to succeed.
-    pub fn send_request(
-        &mut self,
-        peer_id: PeerId,
-        request_id: RequestId,
-        event: OutboundRequest<TSpec>,
-    ) {
+    pub fn send_request(&mut self, peer_id: PeerId, request_id: Id, event: OutboundRequest<TSpec>) {
         self.events.push(NetworkBehaviourAction::NotifyHandler {
             peer_id,
             handler: NotifyHandler::Any,
@@ -165,21 +164,22 @@ impl<TSpec: EthSpec> RPC<TSpec> {
 
     /// Lighthouse wishes to disconnect from this peer by sending a Goodbye message. This
     /// gracefully terminates the RPC behaviour with a goodbye message.
-    pub fn shutdown(&mut self, peer_id: PeerId, reason: GoodbyeReason) {
+    pub fn shutdown(&mut self, peer_id: PeerId, id: Id, reason: GoodbyeReason) {
         self.events.push(NetworkBehaviourAction::NotifyHandler {
             peer_id,
             handler: NotifyHandler::Any,
-            event: RPCSend::Shutdown(reason),
+            event: RPCSend::Shutdown(id, reason),
         });
     }
 }
 
-impl<TSpec> NetworkBehaviour for RPC<TSpec>
+impl<Id, TSpec> NetworkBehaviour for RPC<Id, TSpec>
 where
     TSpec: EthSpec,
+    Id: ReqId,
 {
-    type ConnectionHandler = RPCHandler<TSpec>;
-    type OutEvent = RPCMessage<TSpec>;
+    type ConnectionHandler = RPCHandler<Id, TSpec>;
+    type OutEvent = RPCMessage<Id, TSpec>;
 
     fn new_handler(&mut self) -> Self::ConnectionHandler {
         RPCHandler::new(
@@ -194,33 +194,6 @@ where
             self.fork_context.clone(),
             &self.log,
         )
-    }
-
-    // handled by discovery
-    fn addresses_of_peer(&mut self, _peer_id: &PeerId) -> Vec<Multiaddr> {
-        Vec::new()
-    }
-
-    // Use connection established/closed instead of these currently
-    fn inject_connection_established(
-        &mut self,
-        peer_id: &PeerId,
-        _connection_id: &ConnectionId,
-        _endpoint: &ConnectedPoint,
-        _failed_addresses: Option<&Vec<Multiaddr>>,
-        other_established: usize,
-    ) {
-        if other_established == 0 {
-            // find the peer's meta-data
-            debug!(self.log, "Requesting new peer's metadata"; "peer_id" => %peer_id);
-            let rpc_event =
-                RPCSend::Request(RequestId::Behaviour, OutboundRequest::MetaData(PhantomData));
-            self.events.push(NetworkBehaviourAction::NotifyHandler {
-                peer_id: *peer_id,
-                handler: NotifyHandler::Any,
-                event: rpc_event,
-            });
-        }
     }
 
     fn inject_event(

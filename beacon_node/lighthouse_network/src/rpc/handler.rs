@@ -1,12 +1,10 @@
 #![allow(clippy::type_complexity)]
 #![allow(clippy::cognitive_complexity)]
 
-use super::methods::{
-    GoodbyeReason, RPCCodedResponse, RPCResponseErrorCode, RequestId, ResponseTermination,
-};
+use super::methods::{GoodbyeReason, RPCCodedResponse, RPCResponseErrorCode, ResponseTermination};
 use super::outbound::OutboundRequestContainer;
 use super::protocol::{max_rpc_size, InboundRequest, Protocol, RPCError, RPCProtocol};
-use super::{RPCReceived, RPCSend};
+use super::{RPCReceived, RPCSend, ReqId};
 use crate::rpc::outbound::{OutboundFramed, OutboundRequest};
 use crate::rpc::protocol::InboundFramed;
 use fnv::FnvHashMap;
@@ -49,11 +47,11 @@ pub struct SubstreamId(usize);
 type InboundSubstream<TSpec> = InboundFramed<NegotiatedSubstream, TSpec>;
 
 /// Events the handler emits to the behaviour.
-type HandlerEvent<T> = Result<RPCReceived<T>, HandlerErr>;
+pub type HandlerEvent<Id, T> = Result<RPCReceived<Id, T>, HandlerErr<Id>>;
 
 /// An error encountered by the handler.
 #[derive(Debug)]
-pub enum HandlerErr {
+pub enum HandlerErr<Id> {
     /// An error occurred for this peer's request. This can occur during protocol negotiation,
     /// message passing, or if the handler identifies that we are sending an error response to the peer.
     Inbound {
@@ -69,7 +67,7 @@ pub enum HandlerErr {
     /// indicates an error.
     Outbound {
         /// Application-given Id of the request for which an error occurred.
-        id: RequestId,
+        id: Id,
         /// Information of the protocol.
         proto: Protocol,
         /// The error that occurred.
@@ -78,7 +76,7 @@ pub enum HandlerErr {
 }
 
 /// Implementation of `ConnectionHandler` for the RPC protocol.
-pub struct RPCHandler<TSpec>
+pub struct RPCHandler<Id, TSpec>
 where
     TSpec: EthSpec,
 {
@@ -86,10 +84,10 @@ where
     listen_protocol: SubstreamProtocol<RPCProtocol<TSpec>, ()>,
 
     /// Queue of events to produce in `poll()`.
-    events_out: SmallVec<[HandlerEvent<TSpec>; 4]>,
+    events_out: SmallVec<[HandlerEvent<Id, TSpec>; 4]>,
 
     /// Queue of outbound substreams to open.
-    dial_queue: SmallVec<[(RequestId, OutboundRequest<TSpec>); 4]>,
+    dial_queue: SmallVec<[(Id, OutboundRequest<TSpec>); 4]>,
 
     /// Current number of concurrent outbound substreams being opened.
     dial_negotiated: u32,
@@ -101,7 +99,7 @@ where
     inbound_substreams_delay: DelayQueue<SubstreamId>,
 
     /// Map of outbound substreams that need to be driven to completion.
-    outbound_substreams: FnvHashMap<SubstreamId, OutboundInfo<TSpec>>,
+    outbound_substreams: FnvHashMap<SubstreamId, OutboundInfo<Id, TSpec>>,
 
     /// Inbound substream `DelayQueue` which keeps track of when an inbound substream will timeout.
     outbound_substreams_delay: DelayQueue<SubstreamId>,
@@ -163,7 +161,7 @@ struct InboundInfo<TSpec: EthSpec> {
 }
 
 /// Contains the information the handler keeps on established outbound substreams.
-struct OutboundInfo<TSpec: EthSpec> {
+struct OutboundInfo<Id, TSpec: EthSpec> {
     /// State of the substream.
     state: OutboundSubstreamState<TSpec>,
     /// Key to keep track of the substream's timeout via `self.outbound_substreams_delay`.
@@ -172,8 +170,8 @@ struct OutboundInfo<TSpec: EthSpec> {
     proto: Protocol,
     /// Number of chunks to be seen from the peer's response.
     remaining_chunks: Option<u64>,
-    /// `RequestId` as given by the application that sent the request.
-    req_id: RequestId,
+    /// `Id` as given by the application that sent the request.
+    req_id: Id,
 }
 
 /// State of an inbound substream connection.
@@ -204,7 +202,7 @@ pub enum OutboundSubstreamState<TSpec: EthSpec> {
     Poisoned,
 }
 
-impl<TSpec> RPCHandler<TSpec>
+impl<Id, TSpec> RPCHandler<Id, TSpec>
 where
     TSpec: EthSpec,
 {
@@ -235,7 +233,7 @@ where
 
     /// Initiates the handler's shutdown process, sending an optional Goodbye message to the
     /// peer.
-    fn shutdown(&mut self, goodbye_reason: Option<GoodbyeReason>) {
+    fn shutdown(&mut self, goodbye_reason: Option<(Id, GoodbyeReason)>) {
         if matches!(self.state, HandlerState::Active) {
             if !self.dial_queue.is_empty() {
                 debug!(self.log, "Starting handler shutdown"; "unsent_queued_requests" => self.dial_queue.len());
@@ -250,9 +248,8 @@ where
             }
 
             // Queue our goodbye message.
-            if let Some(reason) = goodbye_reason {
-                self.dial_queue
-                    .push((RequestId::Router, OutboundRequest::Goodbye(reason)));
+            if let Some((id, reason)) = goodbye_reason {
+                self.dial_queue.push((id, OutboundRequest::Goodbye(reason)));
             }
 
             self.state = HandlerState::ShuttingDown(Box::new(sleep_until(
@@ -262,7 +259,7 @@ where
     }
 
     /// Opens an outbound substream with a request.
-    fn send_request(&mut self, id: RequestId, req: OutboundRequest<TSpec>) {
+    fn send_request(&mut self, id: Id, req: OutboundRequest<TSpec>) {
         match self.state {
             HandlerState::Active => {
                 self.dial_queue.push((id, req));
@@ -310,16 +307,17 @@ where
     }
 }
 
-impl<TSpec> ConnectionHandler for RPCHandler<TSpec>
+impl<Id, TSpec> ConnectionHandler for RPCHandler<Id, TSpec>
 where
     TSpec: EthSpec,
+    Id: ReqId,
 {
-    type InEvent = RPCSend<TSpec>;
-    type OutEvent = HandlerEvent<TSpec>;
+    type InEvent = RPCSend<Id, TSpec>;
+    type OutEvent = HandlerEvent<Id, TSpec>;
     type Error = RPCError;
     type InboundProtocol = RPCProtocol<TSpec>;
     type OutboundProtocol = OutboundRequestContainer<TSpec>;
-    type OutboundOpenInfo = (RequestId, OutboundRequest<TSpec>); // Keep track of the id and the request
+    type OutboundOpenInfo = (Id, OutboundRequest<TSpec>); // Keep track of the id and the request
     type InboundOpenInfo = ();
 
     fn listen_protocol(&self) -> SubstreamProtocol<Self::InboundProtocol, ()> {
@@ -432,7 +430,7 @@ where
         match rpc_event {
             RPCSend::Request(id, req) => self.send_request(id, req),
             RPCSend::Response(inbound_id, response) => self.send_response(inbound_id, response),
-            RPCSend::Shutdown(reason) => self.shutdown(Some(reason)),
+            RPCSend::Shutdown(id, reason) => self.shutdown(Some((id, reason))),
         }
         // In any case, we need the handler to process the event.
         if let Some(waker) = &self.waker {
