@@ -140,7 +140,7 @@ mod tests {
         let token = auth.generate_token_with_claims(&claims).unwrap();
 
         assert_eq!(
-            Auth::validate_token(&token, JwtKey::from_slice(&JWT_SECRET).unwrap(),)
+            Auth::validate_token(&token, &JwtKey::from_slice(&JWT_SECRET).unwrap())
                 .unwrap()
                 .claims,
             claims

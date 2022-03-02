@@ -196,6 +196,7 @@ impl EngineApi for HttpJsonRpc {
 
 #[cfg(test)]
 mod test {
+    use super::auth::JwtKey;
     use super::*;
     use crate::test_utils::{MockServer, JWT_SECRET};
     use std::future::Future;
@@ -217,8 +218,8 @@ mod test {
             let echo_url = SensitiveUrl::parse(&format!("{}/echo", server.url())).unwrap();
             // Create rpc clients that include JWT auth headers if `with_auth` is true.
             let (rpc_client, echo_client) = if with_auth {
-                let rpc_auth = Auth::new(JWT_SECRET, None, None).unwrap();
-                let echo_auth = Auth::new(JWT_SECRET, None, None).unwrap();
+                let rpc_auth = Auth::new(JwtKey::from_slice(&JWT_SECRET).unwrap(), None, None);
+                let echo_auth = Auth::new(JwtKey::from_slice(&JWT_SECRET).unwrap(), None, None);
                 (
                     Arc::new(HttpJsonRpc::new_with_auth(rpc_url, rpc_auth).unwrap()),
                     Arc::new(HttpJsonRpc::new_with_auth(echo_url, echo_auth).unwrap()),

@@ -89,7 +89,8 @@ impl<T: EthSpec> MockExecutionLayer<T> {
         let file = NamedTempFile::new().unwrap();
 
         let path = file.path().into();
-        std::fs::write(&path, JWT_SECRET).unwrap();
+        std::fs::write(&path, hex::encode(JWT_SECRET)).unwrap();
+
         let config = Config {
             execution_endpoints: vec![url],
             secret_files: vec![path],
