@@ -12,13 +12,12 @@ use crate::EnrExt;
 use crate::{NetworkConfig, NetworkGlobals, PeerAction, ReportSource};
 use futures::prelude::*;
 use libp2p::core::{
-    connection::ConnectionLimits, identity::Keypair, multiaddr::Multiaddr, muxing::StreamMuxerBox,
-    transport::Boxed,
+    identity::Keypair, multiaddr::Multiaddr, muxing::StreamMuxerBox, transport::Boxed,
 };
 use libp2p::{
     bandwidth::{BandwidthLogging, BandwidthSinks},
     core, noise,
-    swarm::{SwarmBuilder, SwarmEvent},
+    swarm::{ConnectionLimits, SwarmBuilder, SwarmEvent},
     PeerId, Swarm, Transport,
 };
 use prometheus_client::registry::Registry;

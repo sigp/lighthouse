@@ -8,7 +8,7 @@ use futures::future::FutureExt;
 use handler::RPCHandler;
 use libp2p::core::{connection::ConnectionId, ConnectedPoint};
 use libp2p::swarm::{
-    protocols_handler::ProtocolsHandler, NetworkBehaviour, NetworkBehaviourAction, NotifyHandler,
+    handler::ConnectionHandler, NetworkBehaviour, NetworkBehaviourAction, NotifyHandler,
     PollParameters, SubstreamProtocol,
 };
 use libp2p::{Multiaddr, PeerId};
@@ -92,7 +92,7 @@ pub struct RPCMessage<TSpec: EthSpec> {
     /// Handler managing this message.
     pub conn_id: ConnectionId,
     /// The message that was sent.
-    pub event: <RPCHandler<TSpec> as ProtocolsHandler>::OutEvent,
+    pub event: <RPCHandler<TSpec> as ConnectionHandler>::OutEvent,
 }
 
 /// Implements the libp2p `NetworkBehaviour` trait and therefore manages network-level
@@ -178,10 +178,10 @@ impl<TSpec> NetworkBehaviour for RPC<TSpec>
 where
     TSpec: EthSpec,
 {
-    type ProtocolsHandler = RPCHandler<TSpec>;
+    type ConnectionHandler = RPCHandler<TSpec>;
     type OutEvent = RPCMessage<TSpec>;
 
-    fn new_handler(&mut self) -> Self::ProtocolsHandler {
+    fn new_handler(&mut self) -> Self::ConnectionHandler {
         RPCHandler::new(
             SubstreamProtocol::new(
                 RPCProtocol {
@@ -227,7 +227,7 @@ where
         &mut self,
         peer_id: PeerId,
         conn_id: ConnectionId,
-        event: <Self::ProtocolsHandler as ProtocolsHandler>::OutEvent,
+        event: <Self::ConnectionHandler as ConnectionHandler>::OutEvent,
     ) {
         if let Ok(RPCReceived::Request(ref id, ref req)) = event {
             // check if the request is conformant to the quota
@@ -289,7 +289,7 @@ where
         &mut self,
         cx: &mut Context,
         _: &mut impl PollParameters,
-    ) -> Poll<NetworkBehaviourAction<Self::OutEvent, Self::ProtocolsHandler>> {
+    ) -> Poll<NetworkBehaviourAction<Self::OutEvent, Self::ConnectionHandler>> {
         // let the rate limiter prune
         let _ = self.limiter.poll_unpin(cx);
         if !self.events.is_empty() {

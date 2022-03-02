@@ -3,9 +3,9 @@ use std::task::{Context, Poll};
 use futures::StreamExt;
 use libp2p::core::connection::ConnectionId;
 use libp2p::core::ConnectedPoint;
-use libp2p::swarm::protocols_handler::DummyProtocolsHandler;
+use libp2p::swarm::handler::DummyConnectionHandler;
 use libp2p::swarm::{
-    DialError, NetworkBehaviour, NetworkBehaviourAction, PollParameters, ProtocolsHandler,
+    ConnectionHandler, DialError, NetworkBehaviour, NetworkBehaviourAction, PollParameters,
 };
 use libp2p::{Multiaddr, PeerId};
 use slog::{debug, error};
@@ -19,21 +19,21 @@ use super::peerdb::BanResult;
 use super::{PeerManager, PeerManagerEvent, ReportSource};
 
 impl<TSpec: EthSpec> NetworkBehaviour for PeerManager<TSpec> {
-    type ProtocolsHandler = DummyProtocolsHandler;
+    type ConnectionHandler = DummyConnectionHandler;
 
     type OutEvent = PeerManagerEvent;
 
     /* Required trait members */
 
-    fn new_handler(&mut self) -> Self::ProtocolsHandler {
-        DummyProtocolsHandler::default()
+    fn new_handler(&mut self) -> Self::ConnectionHandler {
+        DummyConnectionHandler::default()
     }
 
     fn inject_event(
         &mut self,
         _: PeerId,
         _: ConnectionId,
-        _: <DummyProtocolsHandler as ProtocolsHandler>::OutEvent,
+        _: <DummyConnectionHandler as ConnectionHandler>::OutEvent,
     ) {
         unreachable!("Dummy handler does not emit events")
     }
@@ -42,7 +42,7 @@ impl<TSpec: EthSpec> NetworkBehaviour for PeerManager<TSpec> {
         &mut self,
         cx: &mut Context<'_>,
         _params: &mut impl PollParameters,
-    ) -> Poll<NetworkBehaviourAction<Self::OutEvent, Self::ProtocolsHandler>> {
+    ) -> Poll<NetworkBehaviourAction<Self::OutEvent, Self::ConnectionHandler>> {
         // perform the heartbeat when necessary
         while self.heartbeat.poll_tick(cx).is_ready() {
             self.heartbeat();
@@ -178,7 +178,7 @@ impl<TSpec: EthSpec> NetworkBehaviour for PeerManager<TSpec> {
         peer_id: &PeerId,
         _: &ConnectionId,
         _: &ConnectedPoint,
-        _: DummyProtocolsHandler,
+        _: DummyConnectionHandler,
         remaining_established: usize,
     ) {
         if remaining_established > 0 {
@@ -243,7 +243,7 @@ impl<TSpec: EthSpec> NetworkBehaviour for PeerManager<TSpec> {
     fn inject_dial_failure(
         &mut self,
         peer_id: Option<PeerId>,
-        _handler: DummyProtocolsHandler,
+        _handler: DummyConnectionHandler,
         _error: &DialError,
     ) {
         if let Some(peer_id) = peer_id {

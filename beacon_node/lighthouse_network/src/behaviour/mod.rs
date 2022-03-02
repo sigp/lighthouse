@@ -1147,7 +1147,7 @@ impl<TSpec: EthSpec> Behaviour<TSpec> {
         cx: &mut Context,
         _: &mut impl PollParameters,
     ) -> Poll<
-        NBAction<BehaviourEvent<TSpec>, <Behaviour<TSpec> as NetworkBehaviour>::ProtocolsHandler>,
+        NBAction<BehaviourEvent<TSpec>, <Behaviour<TSpec> as NetworkBehaviour>::ConnectionHandler>,
     > {
         if let Some(waker) = &self.waker {
             if waker.will_wake(cx.waker()) {
