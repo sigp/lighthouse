@@ -4,8 +4,7 @@
 //! This crate only provides useful functionality for "The Merge", it does not provide any of the
 //! deposit-contract functionality that the `beacon_node/eth1` crate already provides.
 
-use account_utils::ZeroizeString;
-use auth::Auth;
+use auth::{Auth, JwtKey};
 use engine_api::{Error as ApiError, *};
 use engines::{Engine, EngineError, Engines, ForkChoiceState, Logging};
 use lru::LruCache;
@@ -105,6 +104,14 @@ pub struct Config {
     pub default_datadir: PathBuf,
 }
 
+fn strip_prefix(s: &str) -> &str {
+    if let Some(stripped) = s.strip_prefix("0x") {
+        stripped
+    } else {
+        s
+    }
+}
+
 /// Provides access to one or more execution engines and provides a neat interface for consumption
 /// by the `BeaconChain`.
 ///
@@ -142,15 +149,21 @@ impl ExecutionLayer {
             urls.len().saturating_sub(secret_files.len())
         ]);
 
-        let secrets: Vec<ZeroizeString> = secret_files
+        let secrets: Vec<(JwtKey, PathBuf)> = secret_files
             .iter()
             .map(|p| {
                 // Read secret from file if it already exists
                 if p.exists() {
                     std::fs::read_to_string(p)
-                        .map(ZeroizeString::from)
                         .map_err(|e| {
-                            format!("Failed to read JWT token file {:?}, error: {:?}", p, e)
+                            format!("Failed to read JWT secret file {:?}, error: {:?}", p, e)
+                        })
+                        .and_then(|ref s| {
+                            let secret = JwtKey::from_slice(
+                                &hex::decode(strip_prefix(s))
+                                    .map_err(|e| format!("Invalid hex string: {:?}", e))?,
+                            )?;
+                            Ok((secret, p.to_path_buf()))
                         })
                 } else {
                     // Create a new file and write a randomly generated secret to it if file does not exist
@@ -158,13 +171,15 @@ impl ExecutionLayer {
                         .write(true)
                         .create_new(true)
                         .open(p)
-                        .and_then(|mut f| {
-                            let secret = auth::JwtKey::random().to_string();
-                            f.write_all(secret.as_str().as_bytes())?;
-                            Ok(secret)
-                        })
                         .map_err(|e| {
-                            format!("Failed to write JWT token to file {:?}, error: {:?}", p, e)
+                            format!("Failed to open JWT secret file {:?}, error: {:?}", p, e)
+                        })
+                        .and_then(|mut f| {
+                            let secret = auth::JwtKey::random();
+                            f.write_all(secret.to_string().as_bytes()).map_err(|e| {
+                                format!("Failed to write to JWT secret file: {:?}", e)
+                            })?;
+                            Ok((secret, p.to_path_buf()))
                         })
                 }
             })
@@ -174,15 +189,15 @@ impl ExecutionLayer {
         let engines: Vec<Engine<_>> = urls
             .into_iter()
             .zip(secrets.into_iter())
-            .map(|(url, secret)| {
+            .map(|(url, (secret, path))| {
                 let id = url.to_string();
-                let auth = Auth::new(secret.as_str(), jwt_id.clone(), jwt_version.clone())?;
+                let auth = Auth::new(secret, jwt_id.clone(), jwt_version.clone());
+                debug!(log, "Loaded execution endpoint"; "endpoint" => %id, "jwt_path" => ?path);
                 let api = HttpJsonRpc::new_with_auth(url, auth)?;
                 Ok(Engine::new(id, api))
             })
             .collect::<Result<_, ApiError>>()?;
 
-        debug!(log, "Loaded execution endpoints"; "endpoints" => ?engines.iter().map(|e| e.id.clone()).collect::<Vec<_>>());
         let inner = Inner {
             engines: Engines {
                 engines,

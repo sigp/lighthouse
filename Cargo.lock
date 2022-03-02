@@ -1834,7 +1834,6 @@ dependencies = [
 name = "execution_layer"
 version = "0.1.0"
 dependencies = [
- "account_utils",
  "async-trait",
  "bytes",
  "environment",

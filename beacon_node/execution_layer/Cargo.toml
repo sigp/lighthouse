@@ -19,7 +19,6 @@ serde = { version = "1.0.116", features = ["derive"] }
 eth1 = { path = "../eth1" }
 warp = { git = "https://github.com/macladson/warp", rev ="dfa259e", features = ["tls"] }
 jsonwebtoken = "8"
-account_utils = { path = "../../common/account_utils" }
 environment = { path = "../../lighthouse/environment" }
 bytes = "1.1.0"
 task_executor = { path = "../../common/task_executor" }

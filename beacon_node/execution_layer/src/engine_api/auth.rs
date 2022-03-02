@@ -1,4 +1,3 @@
-use account_utils::ZeroizeString;
 use jsonwebtoken::{encode, get_current_timestamp, Algorithm, EncodingKey, Header};
 use rand::Rng;
 use serde::{Deserialize, Serialize};
@@ -12,28 +11,13 @@ pub const JWT_SECRET_LENGTH: usize = 32;
 
 #[derive(Debug)]
 pub enum Error {
-    InvalidSecret(hex::FromHexError),
     JWT(jsonwebtoken::errors::Error),
     InvalidToken,
-}
-
-impl From<hex::FromHexError> for Error {
-    fn from(e: hex::FromHexError) -> Self {
-        Error::InvalidSecret(e)
-    }
 }
 
 impl From<jsonwebtoken::errors::Error> for Error {
     fn from(e: jsonwebtoken::errors::Error) -> Self {
         Error::JWT(e)
-    }
-}
-
-fn strip_prefix(s: &str) -> &str {
-    if let Some(stripped) = s.strip_prefix("0x") {
-        stripped
-    } else {
-        s
     }
 }
 
@@ -43,32 +27,50 @@ fn strip_prefix(s: &str) -> &str {
 pub struct JwtKey([u8; JWT_SECRET_LENGTH as usize]);
 
 impl JwtKey {
+    /// Wrap given slice in `Self`. Returns an error if slice.len() != `JWT_SECRET_LENGTH`.
+    pub fn from_slice(key: &[u8]) -> Result<Self, String> {
+        if key.len() != JWT_SECRET_LENGTH {
+            return Err(format!(
+                "Invalid key length. Expected {} got {}",
+                JWT_SECRET_LENGTH,
+                key.len()
+            ));
+        }
+        let mut res = [0; JWT_SECRET_LENGTH];
+        res.copy_from_slice(&key);
+        Ok(Self(res))
+    }
+
     /// Generate a random secret.
     pub fn random() -> Self {
         Self(rand::thread_rng().gen::<[u8; JWT_SECRET_LENGTH]>())
     }
 
-    /// Returns the hex encoded `ZeroizeString` for the secret.
-    pub fn to_string(&self) -> ZeroizeString {
-        ZeroizeString::from(hex::encode(self.0))
+    /// Returns a reference to the underlying byte array.
+    pub fn as_bytes(&self) -> &[u8] {
+        &self.0
+    }
+
+    /// Returns the hex encoded `String` for the secret.
+    pub fn to_string(&self) -> String {
+        hex::encode(self.0)
     }
 }
 
 /// Contains the JWT secret and claims parameters.
 pub struct Auth {
-    secret: EncodingKey,
+    key: EncodingKey,
     id: Option<String>,
     clv: Option<String>,
 }
 
 impl Auth {
-    pub fn new(secret: &str, id: Option<String>, clv: Option<String>) -> Result<Self, Error> {
-        let secret = strip_prefix(secret);
-        Ok(Self {
-            secret: EncodingKey::from_secret(hex::decode(secret)?.as_slice()),
+    pub fn new(secret: JwtKey, id: Option<String>, clv: Option<String>) -> Self {
+        Self {
+            key: EncodingKey::from_secret(secret.as_bytes()),
             id,
             clv,
-        })
+        }
     }
 
     /// Generate a JWT token with `claims.iat` set to current time.
@@ -80,7 +82,7 @@ impl Auth {
     /// Generate a JWT token with the given claims.
     fn generate_token_with_claims(&self, claims: &Claims) -> Result<String, Error> {
         let header = Header::new(DEFAULT_ALGORITHM);
-        Ok(encode(&header, claims, &self.secret)?)
+        Ok(encode(&header, claims, &self.key)?)
     }
 
     /// Generate a `Claims` struct with `iat` set to current time
@@ -95,9 +97,8 @@ impl Auth {
     /// Validate a JWT token given the secret key and return the originally signed `TokenData`.
     pub fn validate_token(
         token: &str,
-        secret: &str,
+        secret: &JwtKey,
     ) -> Result<jsonwebtoken::TokenData<Claims>, Error> {
-        let secret = strip_prefix(secret);
         let mut validation = jsonwebtoken::Validation::new(DEFAULT_ALGORITHM);
         validation.validate_exp = false;
         // Really weird that we have to do this to get the validation working
@@ -105,7 +106,7 @@ impl Auth {
 
         jsonwebtoken::decode::<Claims>(
             token,
-            &jsonwebtoken::DecodingKey::from_secret(hex::decode(secret)?.as_slice()),
+            &jsonwebtoken::DecodingKey::from_secret(secret.as_bytes()),
             &validation,
         )
         .map_err(Into::into)
@@ -130,12 +131,18 @@ mod tests {
 
     #[test]
     fn test_roundtrip() {
-        let auth = Auth::new(JWT_SECRET, Some("42".into()), Some("Lighthouse".into())).unwrap();
+        let auth = Auth::new(
+            JwtKey::from_slice(&JWT_SECRET).unwrap(),
+            Some("42".into()),
+            Some("Lighthouse".into()),
+        );
         let claims = auth.generate_claims_at_timestamp();
         let token = auth.generate_token_with_claims(&claims).unwrap();
 
         assert_eq!(
-            Auth::validate_token(&token, JWT_SECRET).unwrap().claims,
+            Auth::validate_token(&token, JwtKey::from_slice(&JWT_SECRET).unwrap(),)
+                .unwrap()
+                .claims,
             claims
         );
     }

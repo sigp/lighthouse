@@ -1,6 +1,9 @@
 //! Provides a mock execution engine HTTP JSON-RPC API for use in testing.
 
-use crate::engine_api::{http::JSONRPC_VERSION, Auth, PayloadStatusV1, PayloadStatusV1Status};
+use crate::engine_api::auth::JwtKey;
+use crate::engine_api::{
+    auth::Auth, http::JSONRPC_VERSION, PayloadStatusV1, PayloadStatusV1Status,
+};
 use bytes::Bytes;
 use environment::null_logger;
 use execution_block_generator::{Block, PoWBlock};
@@ -23,7 +26,7 @@ pub use mock_execution_layer::{ExecutionLayerRuntime, MockExecutionLayer};
 
 pub const DEFAULT_TERMINAL_DIFFICULTY: u64 = 6400;
 pub const DEFAULT_TERMINAL_BLOCK: u64 = 64;
-pub const JWT_SECRET: &str = "3cbc11b0d8fa16f3344eacfd6ff6430b9d30734450e8adcf5400f88d327dcb33";
+pub const JWT_SECRET: [u8; 32] = [42; 32];
 
 mod execution_block_generator;
 mod handle_rpc;
@@ -267,7 +270,7 @@ struct ErrorMessage {
 
 /// Returns a `warp` header which filters out request that has a missing or incorrectly
 /// signed JWT token.
-fn auth_header_filter(secret: &'static str) -> warp::filters::BoxedFilter<()> {
+fn auth_header_filter() -> warp::filters::BoxedFilter<()> {
     warp::any()
         .and(warp::filters::header::optional("Authorization"))
         .and_then(move |authorization: Option<String>| async move {
@@ -277,7 +280,8 @@ fn auth_header_filter(secret: &'static str) -> warp::filters::BoxedFilter<()> {
                 ))),
                 Some(auth) => {
                     if let Some(token) = auth.strip_prefix("Bearer ") {
-                        match Auth::validate_token(token, secret) {
+                        let secret = JwtKey::from_slice(&JWT_SECRET).unwrap();
+                        match Auth::validate_token(token, &secret) {
                             Ok(_) => Ok(()),
                             Err(e) => Err(warp::reject::custom(AuthError(format!(
                                 "Auth failure: {:?}",
@@ -403,7 +407,7 @@ pub fn serve<T: EthSpec>(
         });
 
     let routes = warp::post()
-        .and(auth_header_filter(JWT_SECRET))
+        .and(auth_header_filter())
         .and(root.or(echo))
         .recover(handle_rejection)
         // Add a `Server` header.
