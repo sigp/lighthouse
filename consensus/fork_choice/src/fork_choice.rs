@@ -956,19 +956,19 @@ where
             return Ok(true);
         }
 
-        // If the block has an ancestor with a verified parent, import this block.
+        // If the parent block has execution enabled, always import the block.
         //
-        // TODO: This condition is not yet merged into the spec. See:
+        // TODO(bellatrix): this condition has not yet been merged into the spec.
         //
-        // https://github.com/ethereum/consensus-specs/pull/2841
+        // See:
         //
-        // ## Note
-        //
-        // If `block_parent_root` is unknown this iter will always return `None`.
+        // https://github.com/ethereum/consensus-specs/pull/2844
         if self
             .proto_array
-            .iter_nodes(block_parent_root)
-            .any(|node| node.execution_status.is_valid())
+            .get_block(block_parent_root)
+            .map_or(false, |parent| {
+                parent.execution_status.is_execution_enabled()
+            })
         {
             return Ok(true);
         }
