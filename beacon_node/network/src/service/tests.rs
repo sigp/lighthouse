@@ -59,6 +59,7 @@ mod tests {
         );
 
         let mut config = NetworkConfig::default();
+        config.discv5_config.table_filter = |_| true; // Do not ignore local IPs
         config.libp2p_port = 21212;
         config.upnp_enabled = false;
         config.discovery_port = 21212;

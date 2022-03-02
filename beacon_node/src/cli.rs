@@ -187,6 +187,12 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .help("One or more comma-delimited trusted peer ids which always have the highest score according to the peer scoring system.")
                 .takes_value(true),
         )
+        .arg(
+            Arg::with_name("enable-private-discovery")
+                .long("enable-private-discovery")
+                .help("Lighthouse by default does not discover private IP addresses. Set this flag to enable connection attempts to local addresses.")
+                .takes_value(false),
+        )
         /* REST API related arguments */
         .arg(
             Arg::with_name("http")
