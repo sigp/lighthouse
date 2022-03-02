@@ -7,7 +7,7 @@ use tempfile::NamedTempFile;
 use tokio::time::sleep;
 use types::{Address, ChainSpec, EthSpec, ExecutionBlockHash, Hash256, MainnetEthSpec, Uint256};
 
-const EXECUTION_ENGINE_START_TIMEOUT: Duration = Duration::from_secs(10);
+const EXECUTION_ENGINE_START_TIMEOUT: Duration = Duration::from_secs(100);
 
 struct ExecutionPair<E> {
     /// The Lighthouse `ExecutionLayer` struct, connected to the `execution_engine` via HTTP.
@@ -47,18 +47,18 @@ impl<E: GenericExecutionEngine> TestRig<E> {
 
         let ee_a = {
             let execution_engine = ExecutionEngine::new(generic_engine.clone());
-            let urls = vec![execution_engine.http_url()];
-            let file = NamedTempFile::new().unwrap();
+            let urls = vec![execution_engine.http_auth_url()];
 
-            let path = file.path().into();
+            let jwt_path = execution_engine.jwt_auth_path();
             std::fs::write(
-                &path,
+                &jwt_path,
                 "0x2a7b5bc2c6b5902f716ea513f9a62381c03c41077e772a906709663245df425c",
             )
             .unwrap();
+
             let config = execution_layer::Config {
                 endpoint_urls: urls,
-                secret_files: vec![path],
+                secret_files: vec![jwt_path],
                 suggested_fee_recipient: Some(Address::repeat_byte(42)),
                 ..Default::default()
             };
@@ -73,17 +73,17 @@ impl<E: GenericExecutionEngine> TestRig<E> {
         let ee_b = {
             let execution_engine = ExecutionEngine::new(generic_engine);
             let urls = vec![execution_engine.http_url()];
-            let file = NamedTempFile::new().unwrap();
 
-            let path = file.path().into();
+            let jwt_path = execution_engine.jwt_auth_path();
             std::fs::write(
-                &path,
+                &jwt_path,
                 "0x2a7b5bc2c6b5902f716ea513f9a62381c03c41077e772a906709663245df425c",
             )
             .unwrap();
+
             let config = execution_layer::Config {
                 endpoint_urls: urls,
-                secret_files: vec![path],
+                secret_files: vec![jwt_path],
                 suggested_fee_recipient: fee_recipient,
                 ..Default::default()
             };

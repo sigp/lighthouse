@@ -6,6 +6,9 @@ use std::{env, fs::File};
 use tempfile::TempDir;
 use unused_port::unused_tcp_port;
 
+/// Filename for the jwt secret
+pub const JWT_FILE_NAME: &str = "jwtsecret";
+
 /// Defined for each EE type (e.g., Geth, Nethermind, etc).
 pub trait GenericExecutionEngine: Clone {
     fn init_datadir() -> TempDir;
@@ -51,9 +54,12 @@ impl<E: GenericExecutionEngine> ExecutionEngine<E> {
         SensitiveUrl::parse(&format!("http://127.0.0.1:{}", self.http_port)).unwrap()
     }
 
-    #[allow(dead_code)] // Future use.
-    pub fn http_ath_url(&self) -> SensitiveUrl {
+    pub fn http_auth_url(&self) -> SensitiveUrl {
         SensitiveUrl::parse(&format!("http://127.0.0.1:{}", self.http_auth_port)).unwrap()
+    }
+
+    pub fn jwt_auth_path(&self) -> PathBuf {
+        self.datadir.path().join(JWT_FILE_NAME)
     }
 }
 
@@ -113,6 +119,8 @@ impl GenericExecutionEngine for Geth {
             .arg(http_auth_port.to_string())
             .arg("--port")
             .arg(network_port.to_string())
+            .arg("--jwt-secret")
+            .arg(datadir.path().join(JWT_FILE_NAME).to_str().unwrap())
             .stdout(build_stdio())
             .stderr(build_stdio())
             .spawn()

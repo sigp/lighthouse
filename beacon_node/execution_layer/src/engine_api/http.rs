@@ -532,7 +532,7 @@ mod test {
                         },
                         Some(PayloadAttributes {
                             timestamp: 5,
-                            random: Hash256::zero(),
+                            prev_randao: Hash256::zero(),
                             suggested_fee_recipient: Address::repeat_byte(0),
                         }),
                     )
@@ -621,7 +621,7 @@ mod test {
                         state_root: Hash256::repeat_byte(1),
                         receipts_root: Hash256::repeat_byte(0),
                         logs_bloom: vec![1; 256].into(),
-                        random: Hash256::repeat_byte(1),
+                        prev_randao: Hash256::repeat_byte(1),
                         block_number: 0,
                         gas_limit: 1,
                         gas_used: 2,
