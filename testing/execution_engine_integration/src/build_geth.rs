@@ -6,7 +6,7 @@ use std::process::Command;
 const GETH_BRANCH: &str = "merge-kiln-v2";
 const GETH_REPO_URL: &str = "https://github.com/MariusVanDerWijden/go-ethereum";
 
-fn main() {
+pub fn build() {
     let manifest_dir: PathBuf = env::var("CARGO_MANIFEST_DIR").unwrap().into();
     let execution_clients_dir = manifest_dir.join("execution_clients");
 
