@@ -7,6 +7,8 @@ use types::{EthSpec, MinimalEthSpec};
 pub const DEFAULT_SLOTS_PER_RESTORE_POINT: u64 = 2048;
 pub const DEFAULT_BLOCK_CACHE_SIZE: usize = 64;
 pub const DEFAULT_STATE_CACHE_SIZE: usize = 128;
+pub const DEFAULT_COMPRESSION_LEVEL: i32 = 1;
+const EST_COMPRESSION_FACTOR: usize = 2;
 
 /// Database configuration parameters.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -15,8 +17,10 @@ pub struct StoreConfig {
     pub slots_per_restore_point: u64,
     /// Maximum number of blocks to store in the in-memory block cache.
     pub block_cache_size: usize,
-    /// Maximum number of states to sore in the in-memory state cache.
+    /// Maximum number of states to store in the in-memory state cache.
     pub state_cache_size: usize,
+    /// Compression level for `BeaconStateDiff`s.
+    pub compression_level: i32,
     /// Whether to compact the database on initialization.
     pub compact_on_init: bool,
     /// Whether to compact the database during database pruning.
@@ -32,6 +36,7 @@ pub struct OnDiskStoreConfig {
 #[derive(Debug, Clone)]
 pub enum StoreConfigError {
     MismatchedSlotsPerRestorePoint { config: u64, on_disk: u64 },
+    InvalidCompressionLevel { level: i32 },
 }
 
 impl Default for StoreConfig {
@@ -41,6 +46,7 @@ impl Default for StoreConfig {
             slots_per_restore_point: MinimalEthSpec::slots_per_historical_root() as u64,
             block_cache_size: DEFAULT_BLOCK_CACHE_SIZE,
             state_cache_size: DEFAULT_STATE_CACHE_SIZE,
+            compression_level: DEFAULT_COMPRESSION_LEVEL,
             compact_on_init: false,
             compact_on_prune: true,
         }
@@ -65,6 +71,36 @@ impl StoreConfig {
             });
         }
         Ok(())
+    }
+
+    /// Check that the compression level is valid.
+    pub fn verify_compression_level(&self) -> Result<(), StoreConfigError> {
+        if zstd::compression_level_range().contains(&self.compression_level) {
+            Ok(())
+        } else {
+            Err(StoreConfigError::InvalidCompressionLevel {
+                level: self.compression_level,
+            })
+        }
+    }
+
+    /// Estimate the size of `len` bytes after compression at the current compression level.
+    pub fn estimate_compressed_size(&self, len: usize) -> usize {
+        if self.compression_level == 0 {
+            len
+        } else {
+            len / EST_COMPRESSION_FACTOR
+        }
+    }
+
+    /// Estimate the size of `len` compressed bytes after decompression at the current compression
+    /// level.
+    pub fn estimate_decompressed_size(&self, len: usize) -> usize {
+        if self.compression_level == 0 {
+            len
+        } else {
+            len * EST_COMPRESSION_FACTOR
+        }
     }
 }
 

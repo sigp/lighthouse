@@ -371,22 +371,6 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .default_value("1000")
                 .takes_value(true)
         )
-        .arg(
-            Arg::with_name("slots-per-restore-point")
-                .long("slots-per-restore-point")
-                .value_name("SLOT_COUNT")
-                .help("Specifies how often a freezer DB restore point should be stored. \
-                       Cannot be changed after initialization. \
-                       [default: 2048 (mainnet) or 64 (minimal)]")
-                .takes_value(true)
-        )
-        .arg(
-            Arg::with_name("block-cache-size")
-                .long("block-cache-size")
-                .value_name("SIZE")
-                .help("Specifies how many blocks the database should cache in memory [default: 5]")
-                .takes_value(true)
-        )
         /*
          * Execution Layer Integration
          */
@@ -421,8 +405,17 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
         )
 
         /*
-         * Database purging and compaction.
+         * Database.
          */
+        .arg(
+            Arg::with_name("slots-per-restore-point")
+                .long("slots-per-restore-point")
+                .value_name("SLOT_COUNT")
+                .help("Specifies how often a freezer DB restore point should be stored. \
+                       Cannot be changed after initialization. \
+                       [default: 2048 (mainnet) or 64 (minimal)]")
+                .takes_value(true)
+        )
         .arg(
             Arg::with_name("purge-db")
                 .long("purge-db")
@@ -441,7 +434,28 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .takes_value(true)
                 .default_value("true")
         )
-
+        .arg(
+            Arg::with_name("block-cache-size")
+                .long("block-cache-size")
+                .value_name("SIZE")
+                .help("Specifies how many blocks the database should cache in memory [default: 64]")
+                .takes_value(true)
+        )
+        .arg(
+            Arg::with_name("state-cache-size")
+                .long("state-cache-size")
+                .value_name("SIZE")
+                .help("Specifies how many states the database should cache in memory [default: 128]")
+                .takes_value(true)
+        )
+        .arg(
+            Arg::with_name("compression-level")
+                .long("compression-level")
+                .value_name("LEVEL")
+                .help("Compression level (-99 to 22) for zstd compression applied to states on disk \
+                       [default: 1]. You may change the compression level freely without re-syncing.")
+                .takes_value(true)
+        )
         /*
          * Misc.
          */

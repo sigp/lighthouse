@@ -36,6 +36,7 @@ use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 use types::*;
+use types::{beacon_state::BeaconStateDiff, EthSpec};
 
 /// On-disk database that stores finalized states efficiently.
 ///
@@ -121,6 +122,7 @@ impl<E: EthSpec> HotColdDB<E, MemoryStore<E>, MemoryStore<E>> {
         log: Logger,
     ) -> Result<HotColdDB<E, MemoryStore<E>, MemoryStore<E>>, Error> {
         Self::verify_slots_per_restore_point(config.slots_per_restore_point)?;
+        config.verify_compression_level()?;
 
         let db = HotColdDB {
             split: RwLock::new(Split::default()),
@@ -155,6 +157,7 @@ impl<E: EthSpec> HotColdDB<E, LevelDB<E>, LevelDB<E>> {
         log: Logger,
     ) -> Result<Arc<Self>, Error> {
         Self::verify_slots_per_restore_point(config.slots_per_restore_point)?;
+        config.verify_compression_level()?;
 
         let db = Arc::new(HotColdDB {
             split: RwLock::new(Split::default()),
@@ -671,7 +674,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
                     metrics::start_timer(&metrics::BEACON_STATE_DIFF_COMPUTE_TIME);
                 let diff = BeaconStateDiff::compute_diff(&prev_boundary_state, state)?;
                 drop(compute_diff_timer);
-                ops.push(diff.as_kv_store_op(*state_root)?);
+                ops.push(self.state_diff_as_kv_store_op(state_root, &diff)?);
             }
         }
 
@@ -825,11 +828,6 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
 
         let latest_block_root = state.get_latest_block_root(state_root);
         Ok((state, latest_block_root))
-    }
-
-    pub fn load_state_diff(&self, state_root: Hash256) -> Result<BeaconStateDiff<E>, Error> {
-        self.get_item(&state_root)?
-            .ok_or(HotColdDBError::MissingStateDiff(state_root).into())
     }
 
     /// Store a pre-finalization state in the freezer database.

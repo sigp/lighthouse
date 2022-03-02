@@ -266,10 +266,14 @@ pub fn get_config<E: EthSpec>(
         );
     }
 
-    if let Some(block_cache_size) = cli_args.value_of("block-cache-size") {
-        client_config.store.block_cache_size = block_cache_size
-            .parse()
-            .map_err(|_| "block-cache-size is not a valid integer".to_string())?;
+    if let Some(block_cache_size) = clap_utils::parse_optional(cli_args, "block-cache-size")? {
+        client_config.store.block_cache_size = block_cache_size;
+    }
+    if let Some(state_cache_size) = clap_utils::parse_optional(cli_args, "state-cache-size")? {
+        client_config.store.state_cache_size = state_cache_size;
+    }
+    if let Some(compression_level) = clap_utils::parse_optional(cli_args, "compression-level")? {
+        client_config.store.compression_level = compression_level;
     }
 
     client_config.store.compact_on_init = cli_args.is_present("compact-db");
