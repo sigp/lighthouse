@@ -61,6 +61,6 @@ fn build_geth(execution_clients_dir: &Path) {
     if !make_result.status.success() {
         dbg!(String::from_utf8_lossy(&make_result.stdout));
         dbg!(String::from_utf8_lossy(&make_result.stderr));
-        panic!("make make failed");
+        panic!("make failed");
     }
 }
