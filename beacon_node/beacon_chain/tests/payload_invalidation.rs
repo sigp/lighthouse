@@ -9,6 +9,7 @@ use execution_layer::{
     json_structures::JsonPayloadAttributesV1, ExecutionLayer, PayloadAttributes,
 };
 use proto_array::ExecutionStatus;
+use slot_clock::SlotClock;
 use task_executor::ShutdownReason;
 use types::*;
 
@@ -639,12 +640,14 @@ fn payload_preparation() {
         .get_beacon_proposer_index(next_slot, &rig.harness.chain.spec)
         .unwrap();
 
+    let fee_recipient = Address::repeat_byte(99);
+
     // Provide preparation data to the EL for `proposer`.
     el.update_proposer_preparation_blocking(
         Epoch::new(1),
         &[ProposerPreparationData {
             validator_index: proposer as u64,
-            fee_recipient: Address::zero(),
+            fee_recipient,
         }],
     )
     .unwrap();
@@ -655,48 +658,18 @@ fn payload_preparation() {
         .unwrap();
 
     let payload_attributes = PayloadAttributes {
-        timestamp: 0,
-        random: Hash256::zero(),
-        suggested_fee_recipient: Address::repeat_byte(42),
+        timestamp: rig
+            .harness
+            .chain
+            .slot_clock
+            .start_of(next_slot)
+            .unwrap()
+            .as_secs(),
+        random: *head
+            .beacon_state
+            .get_randao_mix(head.beacon_state.current_epoch())
+            .unwrap(),
+        suggested_fee_recipient: fee_recipient,
     };
     assert_eq!(rig.previous_payload_attributes(), payload_attributes);
-
-    /*
-    // Register `proposer` to propose at `next_slot`.
-    let timestamp = 42;
-    let random = Hash256::from_low_u64_be(timestamp);
-    let payload_attributes = PayloadAttributes {
-        timestamp,
-        random,
-        suggested_fee_recipient: Address::repeat_byte(42),
-    };
-    let already_known = el
-        .block_on_generic(|el| async {
-            el.insert_proposer(
-                next_slot,
-                head.beacon_block_root,
-                proposer as u64,
-                payload_attributes.clone(),
-            )
-            .await
-        })
-        .unwrap();
-    assert!(!already_known);
-
-    assert_eq!(rig.previous_payload_attributes(), payload_attributes);
-
-    // Insert the same proposer and ensure that it is flagged as "already known".
-    let already_known = el
-        .block_on_generic(|el| async {
-            el.insert_proposer(
-                next_slot,
-                head.beacon_block_root,
-                proposer as u64,
-                payload_attributes,
-            )
-            .await
-        })
-        .unwrap();
-    assert!(already_known);
-    */
 }
