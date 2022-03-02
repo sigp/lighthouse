@@ -39,7 +39,6 @@ use std::sync::Arc;
 use std::time::Duration;
 use store::{config::StoreConfig, HotColdDB, ItemStore, LevelDB, MemoryStore};
 use task_executor::ShutdownReason;
-use tempfile::NamedTempFile;
 use tree_hash::TreeHash;
 use types::sync_selection_proof::SyncSelectionProof;
 pub use types::test_utils::generate_deterministic_keypairs;
@@ -344,24 +343,9 @@ where
             .collect::<Result<_, _>>()
             .unwrap();
 
-        let secrets = urls
-            .iter()
-            .map(|_| {
-                let file = NamedTempFile::new().unwrap();
-
-                let path = file.path().into();
-                std::fs::write(
-                    &path,
-                    "0x2a7b5bc2c6b5902f716ea513f9a62381c03c41077e772a906709663245df425c",
-                )
-                .unwrap();
-                path
-            })
-            .collect();
-
         let config = execution_layer::Config {
-            endpoint_urls: urls,
-            secret_files: secrets,
+            execution_endpoints: urls,
+            secret_files: vec![],
             suggested_fee_recipient: Some(Address::repeat_byte(42)),
             ..Default::default()
         };

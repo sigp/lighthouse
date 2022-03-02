@@ -3,11 +3,10 @@ use execution_layer::{ExecutionLayer, PayloadAttributes, PayloadStatus};
 use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use task_executor::TaskExecutor;
-use tempfile::NamedTempFile;
 use tokio::time::sleep;
 use types::{Address, ChainSpec, EthSpec, ExecutionBlockHash, Hash256, MainnetEthSpec, Uint256};
 
-const EXECUTION_ENGINE_START_TIMEOUT: Duration = Duration::from_secs(100);
+const EXECUTION_ENGINE_START_TIMEOUT: Duration = Duration::from_secs(10);
 
 struct ExecutionPair<E> {
     /// The Lighthouse `ExecutionLayer` struct, connected to the `execution_engine` via HTTP.
@@ -49,17 +48,11 @@ impl<E: GenericExecutionEngine> TestRig<E> {
             let execution_engine = ExecutionEngine::new(generic_engine.clone());
             let urls = vec![execution_engine.http_auth_url()];
 
-            let jwt_path = execution_engine.jwt_auth_path();
-            std::fs::write(
-                &jwt_path,
-                "0x2a7b5bc2c6b5902f716ea513f9a62381c03c41077e772a906709663245df425c",
-            )
-            .unwrap();
-
             let config = execution_layer::Config {
-                endpoint_urls: urls,
-                secret_files: vec![jwt_path],
+                execution_endpoints: urls,
+                secret_files: vec![],
                 suggested_fee_recipient: Some(Address::repeat_byte(42)),
+                default_datadir: execution_engine.datadir(),
                 ..Default::default()
             };
             let execution_layer =
@@ -74,17 +67,11 @@ impl<E: GenericExecutionEngine> TestRig<E> {
             let execution_engine = ExecutionEngine::new(generic_engine);
             let urls = vec![execution_engine.http_url()];
 
-            let jwt_path = execution_engine.jwt_auth_path();
-            std::fs::write(
-                &jwt_path,
-                "0x2a7b5bc2c6b5902f716ea513f9a62381c03c41077e772a906709663245df425c",
-            )
-            .unwrap();
-
             let config = execution_layer::Config {
-                endpoint_urls: urls,
-                secret_files: vec![jwt_path],
+                execution_endpoints: urls,
+                secret_files: vec![],
                 suggested_fee_recipient: fee_recipient,
+                default_datadir: execution_engine.datadir(),
                 ..Default::default()
             };
             let execution_layer =
