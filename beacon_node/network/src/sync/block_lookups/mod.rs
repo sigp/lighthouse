@@ -95,7 +95,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
 
         if let Ok(request_id) = cx.single_block_lookup_request(peer_id, request) {
             self.single_block_lookups
-                .insert(request_id, SingleBlockRequest::new(hash));
+                .insert(request_id, SingleBlockRequest::new(hash, peer_id));
         }
         metrics::set_gauge(
             &metrics::SYNC_SINGLE_BLOCK_LOOKUPS,
@@ -131,7 +131,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         }
 
         debug!(self.log, "Block with unknown parent received. Starting a parent lookup";
-            "block_slot" => block.slot(), "block_hash" => %block_root, "parent_root" => %block.parent_root() );
+            "block_slot" => block.slot(), "block_hash" => %block_root, "parent_root" => %block.parent_root());
 
         let mut parent_req = ParentLookup::new(*block, peer_id);
         if parent_req.request_parent(cx, &self.log).is_ok() {
@@ -159,13 +159,12 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                     // This is the corrrect block, send it for processing
                     self.send_block_for_processing(
                         block,
-                        peer_id,
-                        BlockProcessType::SingleBlock { seen_timestamp },
+                        seen_timestamp,
+                        BlockProcessType::SingleBlock { id },
                     )
                 }
                 Ok(None) => {
-                    // request finished correctly, we can remove it.
-                    req.remove();
+                    // request finished correctly, it will be removed after the block is processed.
                 }
                 Err(msg) => {
                     debug!(self.log, "Single block lookup failed"; "peer_id" => %peer_id, "error" => msg);
@@ -197,6 +196,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         id: Id,
         peer_id: PeerId,
         block: Option<Box<SignedBeaconBlock<T::EthSpec>>>,
+        seen_timestamp: Duration,
         cx: &mut SyncNetworkContext<T::EthSpec>,
     ) {
         let pos = if let Some(pos) = self
@@ -222,7 +222,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                 let chain_hash = parent_lookup.chain_hash();
                 self.send_block_for_processing(
                     block,
-                    peer_id,
+                    seen_timestamp,
                     BlockProcessType::ParentLookup { chain_hash },
                 )
             }
@@ -320,11 +320,69 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
 
     /* Processing responses */
 
+    pub fn single_block_processed(
+        &mut self,
+        id: Id,
+        result: Result<(), BlockError<T::EthSpec>>,
+        cx: &mut SyncNetworkContext<T::EthSpec>,
+    ) {
+        match self.single_block_lookups.remove(&id) {
+            Some(mut req) => {
+                let root = req.hash;
+                let peer_id = req.peer_id;
+                match result {
+                    Err(e) => match e {
+                        BlockError::BlockIsAlreadyKnown => {
+                            // No error here
+                        }
+                        BlockError::BeaconChainError(e) => {
+                            // Internal error
+                            error!(self.log, "Beacon chain error processing single block"; "block_root" => %root, "error" => ?e);
+                        }
+                        BlockError::ParentUnknown(block) => {
+                            self.search_parent(block, peer_id, cx);
+                        }
+                        other => {
+                            warn!(self.log, "Peer sent invalid block in single block lookup"; "root" => %root, "error" => ?other, "peer_id" => %peer_id);
+                            cx.report_peer(
+                                peer_id,
+                                PeerAction::MidToleranceError,
+                                "single_block_failure",
+                            );
+
+                            // Try it again if possible.
+                            req.request_failed();
+                            if let Some(next_peer) = req.next_peer() {
+                                let request = BlocksByRootRequest {
+                                    block_roots: VariableList::from(vec![req.hash]),
+                                };
+
+                                if let Ok(request_id) =
+                                    cx.single_block_lookup_request(next_peer, request)
+                                {
+                                    // insert with the new id
+                                    self.single_block_lookups.insert(request_id, req);
+                                }
+                            }
+                        }
+                    },
+                    Ok(()) => {}
+                }
+            }
+            None => {
+                crit!(
+                    self.log,
+                    "Block processed for single block lookup not present"
+                );
+                #[cfg(debug_assertions)]
+                panic!("block processed for single block lookup not present");
+            }
+        };
+    }
     pub fn parent_block_processed(
         &mut self,
         chain_hash: Hash256,
         result: Result<(), BlockError<T::EthSpec>>,
-        peer_id: PeerId,
         cx: &mut SyncNetworkContext<T::EthSpec>,
     ) {
         let mut parent_lookup = if let Some(pos) = self
@@ -335,9 +393,12 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
             self.parent_queue.remove(pos)
         } else {
             #[cfg(debug_assertions)]
-            panic!("Process response for a parent lookip request that was not found. peer_id: {} chain_hash: {}", peer_id, chain_hash);
+            panic!(
+                "Process response for a parent lookip request that was not found. Chain_hash: {}",
+                chain_hash
+            );
             #[cfg(not(debug_assertions))]
-            return crit!(self.log, "Process response for a parent lookup request that was not found"; "peer_id" => %peer_id, "chain_hash" => %chain_hash);
+            return crit!(self.log, "Process response for a parent lookup request that was not found"; "chain_hash" => %chain_hash);
         };
 
         match result {
@@ -407,10 +468,10 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
     fn send_block_for_processing(
         &mut self,
         block: Box<SignedBeaconBlock<T::EthSpec>>,
-        peer_id: PeerId,
+        duration: Duration,
         process_type: BlockProcessType,
     ) {
-        let event = WorkEvent::rpc_beacon_block(block, peer_id, process_type);
+        let event = WorkEvent::rpc_beacon_block(block, duration, process_type);
         if let Err(e) = self.beacon_processor_send.try_send(event) {
             error!(
                 self.log,

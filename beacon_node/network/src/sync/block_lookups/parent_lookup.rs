@@ -117,7 +117,8 @@ impl<T: EthSpec> ParentLookup<T> {
 
         match cx.parent_lookup_request(peer_id, request) {
             Ok(request_id) => {
-                self.state = State::Downloading(request_id, SingleBlockRequest::new(parent_hash));
+                self.state =
+                    State::Downloading(request_id, SingleBlockRequest::new(parent_hash, peer_id));
             }
             Err(reason) => {
                 warn!(log, "Send parent request failed"; "chain_hash" => %self.chain_hash, "reason" => reason);

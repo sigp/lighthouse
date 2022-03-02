@@ -23,6 +23,8 @@ struct TestRig {
     rng: XorShiftRng,
 }
 
+const D: Duration = Duration::new(0, 0);
+
 impl TestRig {
     fn test_setup(log_level: Option<Level>) -> (BlockLookups<T>, SyncNetworkContext<E>, Self) {
         let log = {
@@ -156,21 +158,17 @@ fn test_single_block_lookup_happy_path() {
 
     // The peer provides the correct block, should not be penalized. Now the block should be sent
     // for processing.
-    bl.single_block_lookup_response(
-        id,
-        peer_id,
-        Some(Box::new(block)),
-        Duration::default(),
-        &mut cx,
-    );
+    bl.single_block_lookup_response(id, peer_id, Some(Box::new(block)), D, &mut cx);
     rig.expect_empty_network();
     rig.expect_block_process();
 
     // The request should still be active.
     assert_eq!(bl.single_block_lookups.len(), 1);
 
-    // Send the stream termination. Peer should have not been penalized, and the request removed.
-    bl.single_block_lookup_response(id, peer_id, None, Duration::default(), &mut cx);
+    // Send the stream termination. Peer should have not been penalized, and the request removed
+    // after processing.
+    bl.single_block_lookup_response(id, peer_id, None, D, &mut cx);
+    bl.single_block_processed(id, Ok(()), &mut cx);
     rig.expect_empty_network();
     assert_eq!(bl.single_block_lookups.len(), 0);
 }
@@ -187,7 +185,7 @@ fn test_single_block_lookup_empty_response() {
     let id = rig.expect_block_request();
 
     // The peer does not have the block. It should be penalized.
-    bl.single_block_lookup_response(id, peer_id, None, Duration::default(), &mut cx);
+    bl.single_block_lookup_response(id, peer_id, None, D, &mut cx);
     rig.expect_penalty();
 
     // The request should not be active
@@ -208,17 +206,11 @@ fn test_single_block_lookup_wrong_response() {
 
     // Peer sends something else. It should be penalized.
     let bad_block = rig.rand_block();
-    bl.single_block_lookup_response(
-        id,
-        peer_id,
-        Some(Box::new(bad_block)),
-        Duration::default(),
-        &mut cx,
-    );
+    bl.single_block_lookup_response(id, peer_id, Some(Box::new(bad_block)), D, &mut cx);
     rig.expect_penalty();
 
     // Send the stream termination. This should not produce an additional penalty.
-    bl.single_block_lookup_response(id, peer_id, None, Duration::default(), &mut cx);
+    bl.single_block_lookup_response(id, peer_id, None, D, &mut cx);
     rig.expect_empty_network();
 
     // The request should not be active
@@ -244,6 +236,35 @@ fn test_single_block_lookup_failure() {
 }
 
 #[test]
+fn test_single_block_lookup_becomes_parent_request() {
+    let (mut bl, mut cx, mut rig) = TestRig::test_setup(Some(Level::Trace));
+
+    let block = rig.rand_block();
+    let peer_id = PeerId::random();
+
+    // Trigger the request
+    bl.search_block(block.canonical_root(), peer_id, &mut cx);
+    let id = rig.expect_block_request();
+
+    // The peer provides the correct block, should not be penalized. Now the block should be sent
+    // for processing.
+    bl.single_block_lookup_response(id, peer_id, Some(Box::new(block.clone())), D, &mut cx);
+    rig.expect_empty_network();
+    rig.expect_block_process();
+
+    // The request should still be active.
+    assert_eq!(bl.single_block_lookups.len(), 1);
+
+    // Send the stream termination. Peer should have not been penalized, and the request moved to a
+    // parent request after processing.
+    bl.single_block_processed(id, Err(BlockError::ParentUnknown(Box::new(block))), &mut cx);
+    assert_eq!(bl.single_block_lookups.len(), 0);
+    rig.expect_parent_request();
+    rig.expect_empty_network();
+    assert_eq!(bl.parent_queue.len(), 1);
+}
+
+#[test]
 fn test_parent_lookup_happy_path() {
     let (mut bl, mut cx, mut rig) = TestRig::test_setup(None);
 
@@ -257,17 +278,12 @@ fn test_parent_lookup_happy_path() {
     let id = rig.expect_parent_request();
 
     // Peer sends the right block, it should be sent for processing. Peer should not be penalized.
-    bl.parent_lookup_response(id, peer_id, Some(Box::new(parent)), &mut cx);
+    bl.parent_lookup_response(id, peer_id, Some(Box::new(parent)), D, &mut cx);
     rig.expect_block_process();
     rig.expect_empty_network();
 
     // Processing succeeds, now the rest of the chain should be sent for processing.
-    bl.parent_block_processed(
-        chain_hash,
-        Err(BlockError::BlockIsAlreadyKnown),
-        peer_id,
-        &mut cx,
-    );
+    bl.parent_block_processed(chain_hash, Err(BlockError::BlockIsAlreadyKnown), &mut cx);
     rig.expect_parent_chain_process();
     assert_eq!(bl.parent_queue.len(), 0);
 }
@@ -287,20 +303,20 @@ fn test_parent_lookup_wrong_response() {
 
     // Peer sends the wrong block, peer should be penalized and the block re-requested.
     let bad_block = rig.rand_block();
-    bl.parent_lookup_response(id1, peer_id, Some(Box::new(bad_block)), &mut cx);
+    bl.parent_lookup_response(id1, peer_id, Some(Box::new(bad_block)), D, &mut cx);
     rig.expect_penalty();
     let id2 = rig.expect_parent_request();
 
     // Send the stream termination for the first request. This should not produce extra penalties.
-    bl.parent_lookup_response(id1, peer_id, None, &mut cx);
+    bl.parent_lookup_response(id1, peer_id, None, D, &mut cx);
     rig.expect_empty_network();
 
     // Send the right block this time.
-    bl.parent_lookup_response(id2, peer_id, Some(Box::new(parent)), &mut cx);
+    bl.parent_lookup_response(id2, peer_id, Some(Box::new(parent)), D, &mut cx);
     rig.expect_block_process();
 
     // Processing succeeds, now the rest of the chain should be sent for processing.
-    bl.parent_block_processed(chain_hash, Ok(()), peer_id, &mut cx);
+    bl.parent_block_processed(chain_hash, Ok(()), &mut cx);
     rig.expect_parent_chain_process();
     assert_eq!(bl.parent_queue.len(), 0);
 }
@@ -319,16 +335,16 @@ fn test_parent_lookup_empty_response() {
     let id1 = rig.expect_parent_request();
 
     // Peer sends an empty response, peer should be penalized and the block re-requested.
-    bl.parent_lookup_response(id1, peer_id, None, &mut cx);
+    bl.parent_lookup_response(id1, peer_id, None, D, &mut cx);
     rig.expect_penalty();
     let id2 = rig.expect_parent_request();
 
     // Send the right block this time.
-    bl.parent_lookup_response(id2, peer_id, Some(Box::new(parent)), &mut cx);
+    bl.parent_lookup_response(id2, peer_id, Some(Box::new(parent)), D, &mut cx);
     rig.expect_block_process();
 
     // Processing succeeds, now the rest of the chain should be sent for processing.
-    bl.parent_block_processed(chain_hash, Ok(()), peer_id, &mut cx);
+    bl.parent_block_processed(chain_hash, Ok(()), &mut cx);
     rig.expect_parent_chain_process();
     assert_eq!(bl.parent_queue.len(), 0);
 }
@@ -351,11 +367,11 @@ fn test_parent_lookup_rpc_failure() {
     let id2 = rig.expect_parent_request();
 
     // Send the right block this time.
-    bl.parent_lookup_response(id2, peer_id, Some(Box::new(parent)), &mut cx);
+    bl.parent_lookup_response(id2, peer_id, Some(Box::new(parent)), D, &mut cx);
     rig.expect_block_process();
 
     // Processing succeeds, now the rest of the chain should be sent for processing.
-    bl.parent_block_processed(chain_hash, Ok(()), peer_id, &mut cx);
+    bl.parent_block_processed(chain_hash, Ok(()), &mut cx);
     rig.expect_parent_chain_process();
     assert_eq!(bl.parent_queue.len(), 0);
 }
@@ -382,7 +398,7 @@ fn test_parent_lookup_too_many_attempts() {
             _ => {
                 // Send a bad block this time. It should be tried again.
                 let bad_block = rig.rand_block();
-                bl.parent_lookup_response(id, peer_id, Some(Box::new(bad_block)), &mut cx);
+                bl.parent_lookup_response(id, peer_id, Some(Box::new(bad_block)), D, &mut cx);
                 rig.expect_penalty();
             }
         }
@@ -417,16 +433,15 @@ fn test_parent_lookup_too_deep() {
     for block in blocks.into_iter().rev() {
         let id = rig.expect_parent_request();
         // the block
-        bl.parent_lookup_response(id, peer_id, Some(Box::new(block.clone())), &mut cx);
+        bl.parent_lookup_response(id, peer_id, Some(Box::new(block.clone())), D, &mut cx);
         // the stream termination
-        bl.parent_lookup_response(id, peer_id, None, &mut cx);
+        bl.parent_lookup_response(id, peer_id, None, D, &mut cx);
         // the processing request
         rig.expect_block_process();
         // the processing result
         bl.parent_block_processed(
             chain_hash,
             Err(BlockError::ParentUnknown(Box::new(block))),
-            peer_id,
             &mut cx,
         )
     }

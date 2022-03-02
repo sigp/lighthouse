@@ -1,13 +1,15 @@
+use std::time::Duration;
+
 use super::{super::work_reprocessing_queue::ReprocessQueueMessage, Worker};
 use crate::beacon_processor::worker::FUTURE_SLOT_TOLERANCE;
 use crate::beacon_processor::DuplicateCache;
+use crate::metrics;
 use crate::sync::manager::{BatchProcessType, BlockProcessType, SyncMessage};
 use crate::sync::{BatchProcessResult, ChainId};
-use crate::{metrics, NetworkMessage};
 use beacon_chain::{
     BeaconChainError, BeaconChainTypes, BlockError, ChainSegmentResult, HistoricalBlockError,
 };
-use lighthouse_network::{PeerAction, PeerId, ReportSource};
+use lighthouse_network::{PeerAction, PeerId};
 use slog::{debug, error, info, trace, warn};
 use tokio::sync::mpsc;
 use types::{Epoch, Hash256, SignedBeaconBlock};
@@ -39,86 +41,48 @@ impl<T: BeaconChainTypes> Worker<T> {
     pub fn process_rpc_block(
         self,
         block: SignedBeaconBlock<T::EthSpec>,
-        peer_id: PeerId,
+        seen_timestamp: Duration,
         process_type: BlockProcessType,
         reprocess_tx: mpsc::Sender<ReprocessQueueMessage<T>>,
         duplicate_cache: DuplicateCache,
     ) {
         // Check if the block is already being imported through another source
-        let root = block.canonical_root();
-        let handle = match duplicate_cache.check_and_insert(root) {
+        let handle = match duplicate_cache.check_and_insert(block.canonical_root()) {
             Some(handle) => handle,
             None => {
                 return;
             }
         };
         let slot = block.slot();
-        let block_result = self.chain.process_block(block);
+        let result = self.chain.process_block(block);
 
         metrics::inc_counter(&metrics::BEACON_PROCESSOR_RPC_BLOCK_IMPORTED_TOTAL);
 
-        match (process_type, block_result) {
-            // RPC block imported, regardless of process type
-            (process_type, Ok(root)) => {
-                info!(self.log, "New RPC block received"; "slot" => slot, "hash" => %root);
+        // RPC block imported, regardless of process type
+        if let &Ok(hash) = &result {
+            info!(self.log, "New RPC block received"; "slot" => slot, "hash" => %hash);
 
-                // Trigger processing for work referencing this block.
-                let reprocess_msg = ReprocessQueueMessage::BlockImported(root);
-                if reprocess_tx.try_send(reprocess_msg).is_err() {
-                    error!(self.log, "Failed to inform block import"; "source" => "rpc", "block_root" => %root)
-                };
-                match process_type {
-                    BlockProcessType::SingleBlock { seen_timestamp } => {
-                        // Block has been processed, so write the block time to the cache.
-                        self.chain.block_times_cache.write().set_time_observed(
-                            root,
-                            slot,
-                            seen_timestamp,
-                            None,
-                            None,
-                        );
-                        info!(self.log, "Processed block"; "block" => %root);
-                        self.run_fork_choice()
-                    }
-                    BlockProcessType::ParentLookup { chain_hash } => {
-                        self.send_sync_message(SyncMessage::ParentBlockProcessed {
-                            chain_hash,
-                            peer_id,
-                            result: Ok(()),
-                        })
-                    }
-                }
-            }
-            (BlockProcessType::SingleBlock { .. }, Err(e)) => match e {
-                BlockError::BlockIsAlreadyKnown => {
-                    // No error here
-                }
-                BlockError::BeaconChainError(e) => {
-                    // Internal error
-                    error!(self.log, "Beacon chain error processing single block"; "block_root" => %root, "error" => ?e);
-                }
-                BlockError::ParentUnknown(block) => {
-                    self.send_sync_message(SyncMessage::UnknownBlock(peer_id, block))
-                }
-                other => {
-                    warn!(self.log, "Peer sent invalid block in single block lookup"; "root" => %root, "error" => ?other, "peer_id" => %peer_id);
-                    self.send_network_message(NetworkMessage::ReportPeer {
-                        peer_id,
-                        action: PeerAction::MidToleranceError,
-                        source: ReportSource::SyncService,
-                        msg: "single_block_failure",
-                    })
-                }
-            },
-            (BlockProcessType::ParentLookup { chain_hash }, Err(e)) => {
-                // Sync handles these results
-                self.send_sync_message(SyncMessage::ParentBlockProcessed {
-                    chain_hash,
-                    peer_id,
-                    result: Err(e),
-                })
+            // Trigger processing for work referencing this block.
+            let reprocess_msg = ReprocessQueueMessage::BlockImported(hash);
+            if reprocess_tx.try_send(reprocess_msg).is_err() {
+                error!(self.log, "Failed to inform block import"; "source" => "rpc", "block_root" => %hash)
+            };
+            if matches!(process_type, BlockProcessType::SingleBlock { .. }) {
+                self.chain.block_times_cache.write().set_time_observed(
+                    hash,
+                    slot,
+                    seen_timestamp,
+                    None,
+                    None,
+                );
+                self.run_fork_choice()
             }
         }
+        // Sync handles these results
+        self.send_sync_message(SyncMessage::BlockProcessed {
+            process_type,
+            result: result.map(|_| ()),
+        });
 
         // Drop the handle to remove the entry from the cache
         drop(handle);

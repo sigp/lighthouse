@@ -121,9 +121,8 @@ pub enum SyncMessage<T: EthSpec> {
     },
 
     /// Block processed
-    ParentBlockProcessed {
-        chain_hash: Hash256,
-        peer_id: PeerId,
+    BlockProcessed {
+        process_type: BlockProcessType,
         result: Result<(), BlockError<T>>,
     },
 }
@@ -140,7 +139,7 @@ pub enum BatchProcessType {
 /// The type of processing specified for a received block.
 #[derive(Debug, Clone)]
 pub enum BlockProcessType {
-    SingleBlock { seen_timestamp: Duration },
+    SingleBlock { id: Id },
     ParentLookup { chain_hash: Hash256 },
 }
 
@@ -506,12 +505,16 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                                 return;
                             }
                         }
-                        self.block_lookups
-                            .search_parent(block, peer_id, &mut self.network);
+                        if self.network_globals.peers.read().is_connected(&peer_id) {
+                            self.block_lookups
+                                .search_parent(block, peer_id, &mut self.network);
+                        }
                     }
                     SyncMessage::UnknownBlockHash(peer_id, block_hash) => {
-                        // If we are not synced, ignore this block
-                        if self.network_globals.sync_state.read().is_synced() {
+                        // If we are not synced, ignore this block.
+                        if self.network_globals.sync_state.read().is_synced()
+                            && self.network_globals.peers.read().is_connected(&peer_id)
+                        {
                             self.block_lookups
                                 .search_block(block_hash, peer_id, &mut self.network);
                         }
@@ -523,16 +526,15 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                         peer_id,
                         request_id,
                     } => self.inject_error(peer_id, request_id),
-                    SyncMessage::ParentBlockProcessed {
-                        chain_hash,
-                        peer_id,
+                    SyncMessage::BlockProcessed {
+                        process_type,
                         result,
-                    } => self.block_lookups.parent_block_processed(
-                        chain_hash,
-                        result,
-                        peer_id,
-                        &mut self.network,
-                    ),
+                    } => match process_type {
+                        BlockProcessType::SingleBlock { id } => todo!(),
+                        BlockProcessType::ParentLookup { chain_hash } => self
+                            .block_lookups
+                            .parent_block_processed(chain_hash, result, &mut self.network),
+                    },
                     SyncMessage::BatchProcessed { sync_type, result } => match sync_type {
                         BatchProcessType::RangeSync(epoch, chain_id) => {
                             self.range_sync.handle_block_process_result(
@@ -587,6 +589,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                 id,
                 peer_id,
                 beacon_block,
+                seen_timestamp,
                 &mut self.network,
             ),
             RequestId::BackFillSync { id } => {

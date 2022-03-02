@@ -495,14 +495,14 @@ impl<T: BeaconChainTypes> WorkEvent<T> {
     /// sent to the other side of `result_tx`.
     pub fn rpc_beacon_block(
         block: Box<SignedBeaconBlock<T::EthSpec>>,
-        peer_id: PeerId,
+        seen_timestamp: Duration,
         process_type: BlockProcessType,
     ) -> Self {
         Self {
             drop_during_sync: false,
             work: Work::RpcBlock {
                 block,
-                peer_id,
+                seen_timestamp,
                 process_type,
             },
         }
@@ -695,7 +695,7 @@ pub enum Work<T: BeaconChainTypes> {
     },
     RpcBlock {
         block: Box<SignedBeaconBlock<T::EthSpec>>,
-        peer_id: PeerId,
+        seen_timestamp: Duration,
         process_type: BlockProcessType,
     },
     ChainSegment {
@@ -1513,12 +1513,12 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                      */
                     Work::RpcBlock {
                         block,
-                        peer_id,
+                        seen_timestamp,
                         process_type,
                     } => {
                         worker.process_rpc_block(
                             *block,
-                            peer_id,
+                            seen_timestamp,
                             process_type,
                             work_reprocessing_tx.clone(),
                             duplicate_cache,
