@@ -413,7 +413,6 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                        If this flag is omitted and the --eth1-endpoints is supplied, those values \
                        will be used. Defaults to http://127.0.0.1:8545.")
                 .takes_value(true)
-                .requires("jwt-secrets")
         )
         .arg(
             Arg::with_name("jwt-secrets")

@@ -236,30 +236,29 @@ pub fn get_config<E: EthSpec>(
         client_config.eth1.purge_cache = true;
     }
 
-    // Set the merge config only if the merge flag is present.
-    if cli_args.is_present("merge") {
-        client_config.sync_eth1_chain = true;
+    if cli_args.is_present("merge") || cli_args.is_present("execution-endpoints") {
         let mut el_config = execution_layer::Config::default();
+
         if let Some(endpoints) = cli_args.value_of("execution-endpoints") {
-            let endpoint_urls: Vec<SensitiveUrl> = endpoints
+            client_config.sync_eth1_chain = true;
+            el_config.execution_endpoints = endpoints
                 .split(',')
                 .map(SensitiveUrl::parse)
                 .collect::<Result<_, _>>()
                 .map_err(|e| format!("execution-endpoints contains an invalid URL {:?}", e))?;
-            el_config.endpoint_urls = endpoint_urls;
+        } else if cli_args.is_present("merge") {
+            el_config.execution_endpoints = client_config.eth1.endpoints.clone();
         }
+
         if let Some(secrets) = cli_args.value_of("jwt-secrets") {
-            let secret_files: Vec<PathBuf> = secrets.split(',').map(PathBuf::from).collect();
-            if secret_files.len() != el_config.endpoint_urls.len() {
-                return Err("Execution endpoint count should be same as jwt-secrets".to_string());
-            }
-            el_config.secret_files = secret_files;
+            el_config.secret_files = secrets.split(',').map(PathBuf::from).collect();
         }
 
         el_config.suggested_fee_recipient =
             clap_utils::parse_optional(cli_args, "suggested-fee-recipient")?;
         el_config.jwt_id = clap_utils::parse_optional(cli_args, "jwt-id")?;
         el_config.jwt_version = clap_utils::parse_optional(cli_args, "jwt-version")?;
+        el_config.default_datadir = client_config.data_dir.clone();
         client_config.execution_layer = Some(el_config);
     }
 

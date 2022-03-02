@@ -16,6 +16,7 @@ use slog::{crit, debug, error, info, trace, Logger};
 use slot_clock::SlotClock;
 use std::collections::HashMap;
 use std::future::Future;
+use std::io::Write;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
@@ -33,6 +34,9 @@ mod engine_api;
 mod engines;
 mod payload_status;
 pub mod test_utils;
+
+/// Name for the default file used for the jwt secret.
+pub const DEFAULT_JWT_FILE: &str = "jwtsecret";
 
 /// Each time the `ExecutionLayer` retrieves a block from an execution node, it stores that block
 /// in an LRU cache to avoid redundant lookups. This is the size of that cache.
@@ -87,7 +91,7 @@ struct Inner {
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
 pub struct Config {
     /// Endpoint urls for EL nodes that are running the engine api.
-    pub endpoint_urls: Vec<SensitiveUrl>,
+    pub execution_endpoints: Vec<SensitiveUrl>,
     /// JWT secrets for the above endpoints running the engine api.
     pub secret_files: Vec<PathBuf>,
     /// The default fee recipient to use on the beacon node if none if provided from
@@ -97,6 +101,8 @@ pub struct Config {
     pub jwt_id: Option<String>,
     /// An optional client version for the beacon node that will be passed to the EL in the JWT token claim.
     pub jwt_version: Option<String>,
+    /// Default directory for the jwt secret if not provided through cli.
+    pub default_datadir: PathBuf,
 }
 
 /// Provides access to one or more execution engines and provides a neat interface for consumption
@@ -117,29 +123,50 @@ impl ExecutionLayer {
     /// Instantiate `Self` with Execution engines specified using `Config`, all using the JSON-RPC via HTTP.
     pub fn from_config(config: Config, executor: TaskExecutor, log: Logger) -> Result<Self, Error> {
         let Config {
-            endpoint_urls: urls,
-            secret_files,
+            execution_endpoints: urls,
+            mut secret_files,
             suggested_fee_recipient,
             jwt_id,
             jwt_version,
+            default_datadir,
         } = config;
 
         if urls.is_empty() {
             return Err(Error::NoEngines);
         }
 
+        // Extend the jwt secret files with the default jwt secret path if not provided via cli.
+        // This ensures that we have a jwt secret for every EL.
+        secret_files.extend(vec![
+            default_datadir.join(DEFAULT_JWT_FILE);
+            urls.len().saturating_sub(secret_files.len())
+        ]);
+
         let secrets: Vec<ZeroizeString> = secret_files
             .iter()
             .map(|p| {
-                std::fs::read_to_string(p)
-                    .map(|mut s| {
-                        if s.starts_with("0x") {
-                            ZeroizeString::from(s.split_off(2))
-                        } else {
-                            ZeroizeString::from(s)
-                        }
-                    })
-                    .map_err(|e| format!("Failed to read JWT token file {:?}, error: {:?}", p, e))
+                // Read secret from file if it already exists
+                if p.exists() {
+                    std::fs::read_to_string(p)
+                        .map(ZeroizeString::from)
+                        .map_err(|e| {
+                            format!("Failed to read JWT token file {:?}, error: {:?}", p, e)
+                        })
+                } else {
+                    // Create a new file and write a randomly generated secret to it if file does not exist
+                    std::fs::File::options()
+                        .write(true)
+                        .create_new(true)
+                        .open(p)
+                        .and_then(|mut f| {
+                            let secret = auth::JwtKey::random().to_string();
+                            f.write_all(secret.as_str().as_bytes())?;
+                            Ok(secret)
+                        })
+                        .map_err(|e| {
+                            format!("Failed to write JWT token to file {:?}, error: {:?}", p, e)
+                        })
+                }
             })
             .collect::<Result<_, _>>()
             .map_err(Error::InvalidJWTSecret)?;

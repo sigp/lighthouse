@@ -1847,6 +1847,7 @@ dependencies = [
  "jsonwebtoken",
  "lru",
  "parking_lot 0.11.2",
+ "rand 0.7.3",
  "reqwest",
  "sensitive_url",
  "serde",
@@ -1860,6 +1861,7 @@ dependencies = [
  "tree_hash_derive 0.4.0",
  "types",
  "warp 0.3.0",
+ "zeroize",
 ]
 
 [[package]]

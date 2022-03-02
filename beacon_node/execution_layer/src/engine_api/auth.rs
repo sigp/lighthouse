@@ -1,7 +1,14 @@
+use account_utils::ZeroizeString;
 use jsonwebtoken::{encode, get_current_timestamp, Algorithm, EncodingKey, Header};
+use rand::Rng;
 use serde::{Deserialize, Serialize};
+use zeroize::Zeroize;
 
+/// Default algorithm used for JWT token signing.
 const DEFAULT_ALGORITHM: Algorithm = Algorithm::HS256;
+
+/// JWT secret length in bytes.
+pub const JWT_SECRET_LENGTH: usize = 32;
 
 #[derive(Debug)]
 pub enum Error {
@@ -22,6 +29,31 @@ impl From<jsonwebtoken::errors::Error> for Error {
     }
 }
 
+fn strip_prefix(s: &str) -> &str {
+    if let Some(stripped) = s.strip_prefix("0x") {
+        stripped
+    } else {
+        s
+    }
+}
+
+/// Provides wrapper around `[u8; JWT_SECRET_LENGTH]` that implements `Zeroize`.
+#[derive(Zeroize)]
+#[zeroize(drop)]
+pub struct JwtKey([u8; JWT_SECRET_LENGTH as usize]);
+
+impl JwtKey {
+    /// Generate a random secret.
+    pub fn random() -> Self {
+        Self(rand::thread_rng().gen::<[u8; JWT_SECRET_LENGTH]>())
+    }
+
+    /// Returns the hex encoded `ZeroizeString` for the secret.
+    pub fn to_string(&self) -> ZeroizeString {
+        ZeroizeString::from(hex::encode(self.0))
+    }
+}
+
 /// Contains the JWT secret and claims parameters.
 pub struct Auth {
     secret: EncodingKey,
@@ -31,6 +63,7 @@ pub struct Auth {
 
 impl Auth {
     pub fn new(secret: &str, id: Option<String>, clv: Option<String>) -> Result<Self, Error> {
+        let secret = strip_prefix(secret);
         Ok(Self {
             secret: EncodingKey::from_secret(hex::decode(secret)?.as_slice()),
             id,
@@ -64,6 +97,7 @@ impl Auth {
         token: &str,
         secret: &str,
     ) -> Result<jsonwebtoken::TokenData<Claims>, Error> {
+        let secret = strip_prefix(secret);
         let mut validation = jsonwebtoken::Validation::new(DEFAULT_ALGORITHM);
         validation.validate_exp = false;
         // Really weird that we have to do this to get the validation working
