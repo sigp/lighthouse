@@ -5,15 +5,10 @@ use crate::discovery::Eth2Enr;
 use crate::Multiaddr;
 use crate::{rpc::MetaData, types::Subnet};
 use discv5::Enr;
-use serde::de::{self, MapAccess, Visitor};
-use serde::{
-    ser::{SerializeStruct, Serializer},
-    Deserialize, Serialize,
-};
+use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
-use std::fmt;
 use std::net::{IpAddr, SocketAddr};
-use std::time::{Duration, Instant};
+use std::time::Instant;
 use strum::AsRefStr;
 use types::EthSpec;
 use PeerConnectionStatus::*;
@@ -479,7 +474,9 @@ pub enum ConnectionDirection {
 }
 
 /// Connection Status of the peer.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "type")]
+#[serde(rename_all = "lowercase")]
 pub enum PeerConnectionStatus {
     /// The peer is connected.
     Connected {
@@ -496,181 +493,48 @@ pub enum PeerConnectionStatus {
     /// The peer has disconnected.
     Disconnected {
         /// last time the peer was connected or discovered.
+        #[serde(with = "instant")]
         since: Instant,
     },
     /// The peer has been banned and is disconnected.
     Banned {
         /// moment when the peer was banned.
+        #[serde(with = "instant")]
         since: Instant,
     },
     /// We are currently dialing this peer.
     Dialing {
         /// time since we last communicated with the peer.
+        #[serde(with = "instant")]
         since: Instant,
     },
     /// The connection status has not been specified.
     Unknown,
 }
 
-/// Serialization for http requests.
-impl Serialize for PeerConnectionStatus {
-    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        let mut s = serializer.serialize_struct("connection_status", 6)?;
-        match self {
-            Connected { n_in, n_out } => {
-                s.serialize_field("status", "connected")?;
-                s.serialize_field("connections_in", n_in)?;
-                s.serialize_field("connections_out", n_out)?;
-                s.serialize_field("last_seen", &0)?;
-                s.end()
-            }
-            Disconnecting { .. } => {
-                s.serialize_field("status", "disconnecting")?;
-                s.serialize_field("connections_in", &0)?;
-                s.serialize_field("connections_out", &0)?;
-                s.serialize_field("last_seen", &0)?;
-                s.end()
-            }
-            Disconnected { since } => {
-                s.serialize_field("status", "disconnected")?;
-                s.serialize_field("connections_in", &0)?;
-                s.serialize_field("connections_out", &0)?;
-                s.serialize_field("last_seen", &since.elapsed().as_secs())?;
-                s.serialize_field("banned_ips", &Vec::<IpAddr>::new())?;
-                s.end()
-            }
-            Banned { since } => {
-                s.serialize_field("status", "banned")?;
-                s.serialize_field("connections_in", &0)?;
-                s.serialize_field("connections_out", &0)?;
-                s.serialize_field("last_seen", &since.elapsed().as_secs())?;
-                s.end()
-            }
-            Dialing { since } => {
-                s.serialize_field("status", "dialing")?;
-                s.serialize_field("connections_in", &0)?;
-                s.serialize_field("connections_out", &0)?;
-                s.serialize_field("last_seen", &since.elapsed().as_secs())?;
-                s.end()
-            }
-            Unknown => {
-                s.serialize_field("status", "unknown")?;
-                s.serialize_field("connections_in", &0)?;
-                s.serialize_field("connections_out", &0)?;
-                s.serialize_field("last_seen", &0)?;
-                s.end()
-            }
-        }
-    }
-}
+mod instant {
+    use serde::de::Error;
+    use serde::{Deserialize, Deserializer, Serialize, Serializer};
+    use std::time::{Duration, Instant};
 
-/// Deserialization for http requests.
-impl<'de> Deserialize<'de> for PeerConnectionStatus {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    pub fn serialize<S>(instant: &Instant, serializer: S) -> Result<S::Ok, S::Error>
     where
-        D: serde::Deserializer<'de>,
+        S: Serializer,
     {
-        #[derive(Deserialize)]
-        #[serde(field_identifier, rename_all = "snake_case")]
-        enum Field {
-            Status,
-            ConnectionsIn,
-            ConnectionsOut,
-            LastSeen,
-            BannedIps,
-        }
+        let duration = instant.elapsed();
+        duration.serialize(serializer)
+    }
 
-        const FIELDS: &[&str] = &[
-            "status",
-            "connections_in",
-            "connections_out",
-            "last_seen",
-            "banned_ips",
-        ];
-
-        const VARIANTS: &[&str] = &[
-            "connected",
-            "disconnecting",
-            "disconnected",
-            "banned",
-            "dialing",
-            "unknown",
-        ];
-
-        struct PeerConnectionStatusVisitor;
-
-        impl<'de> Visitor<'de> for PeerConnectionStatusVisitor {
-            type Value = PeerConnectionStatus;
-
-            fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
-                formatter.write_str("struct PeerConnectionStatus")
-            }
-
-            fn visit_map<V>(self, mut map: V) -> Result<PeerConnectionStatus, V::Error>
-            where
-                V: MapAccess<'de>,
-            {
-                let mut status = None;
-                let mut connections_in = None;
-                let mut connections_out = None;
-                let mut last_seen = None;
-                while let Some(key) = map.next_key()? {
-                    match key {
-                        Field::Status => {
-                            if status.is_some() {
-                                return Err(de::Error::duplicate_field("status"));
-                            }
-                            status = Some(map.next_value()?);
-                        }
-                        Field::ConnectionsIn => {
-                            if connections_in.is_some() {
-                                return Err(de::Error::duplicate_field("connections_in"));
-                            }
-                            connections_in = Some(map.next_value()?);
-                        }
-                        Field::ConnectionsOut => {
-                            if connections_out.is_some() {
-                                return Err(de::Error::duplicate_field("connections_out"));
-                            }
-                            connections_out = Some(map.next_value()?);
-                        }
-                        Field::LastSeen => {
-                            if last_seen.is_some() {
-                                return Err(de::Error::duplicate_field("last_seen"));
-                            }
-                            last_seen = Some(map.next_value()?);
-                        }
-                        _ => {}
-                    }
-                }
-
-                let since = last_seen
-                    .and_then(|secs| Instant::now().checked_sub(Duration::from_secs(secs)));
-
-                match status.ok_or_else(|| de::Error::missing_field("status"))? {
-                    "connected" => Ok(PeerConnectionStatus::Connected {
-                        n_in: connections_in
-                            .ok_or_else(|| de::Error::missing_field("connections_in"))?,
-                        n_out: connections_out
-                            .ok_or_else(|| de::Error::missing_field("connections_out"))?,
-                    }),
-                    "disconnecting" => Ok(PeerConnectionStatus::Disconnecting { to_ban: false }),
-                    "disconnected" => Ok(PeerConnectionStatus::Disconnected {
-                        since: since.ok_or_else(|| de::Error::missing_field("last_seen"))?,
-                    }),
-                    "banned" => Ok(PeerConnectionStatus::Banned {
-                        since: since.ok_or_else(|| de::Error::missing_field("last_seen"))?,
-                    }),
-                    "dialing" => Ok(PeerConnectionStatus::Dialing {
-                        since: since.ok_or_else(|| de::Error::missing_field("last_seen"))?,
-                    }),
-                    "unknown" => Ok(PeerConnectionStatus::Unknown),
-                    unknown => Err(de::Error::unknown_variant(unknown, VARIANTS)),
-                }
-            }
-        }
-
-        deserializer.deserialize_struct("Duration", FIELDS, PeerConnectionStatusVisitor)
+    pub fn deserialize<'de, D>(deserializer: D) -> Result<Instant, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let duration = Duration::deserialize(deserializer)?;
+        let now = Instant::now();
+        let instant = now
+            .checked_sub(duration)
+            .ok_or_else(|| Error::custom("checked_sub error"))?;
+        Ok(instant)
     }
 }
 
