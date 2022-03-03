@@ -535,7 +535,7 @@ impl ExecutionLayer {
 
     /// Register that the given `validator_index` is going to produce a block at `slot`.
     ///
-    /// The block will be build atop `head_block_root` and the EL will need to prepare an
+    /// The block will be built atop `head_block_root` and the EL will need to prepare an
     /// `ExecutionPayload` as defined by the given `payload_attributes`.
     pub async fn insert_proposer(
         &self,
