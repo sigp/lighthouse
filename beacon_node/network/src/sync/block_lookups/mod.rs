@@ -76,8 +76,8 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         // Do not re-request a block that is already being requested
         if self
             .single_block_lookups
-            .values_mut()
-            .any(|single_block_request| single_block_request.add_peer(&hash, &peer_id))
+            .values()
+            .any(|single_block_request| single_block_request.hash == hash)
         {
             return;
         }
@@ -110,7 +110,6 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         cx: &mut SyncNetworkContext<T::EthSpec>,
     ) {
         let block_root = block.canonical_root();
-        let parent_root = block.parent_root();
         // If this block or it's parent is part of a known failed chain, ignore it.
         if self.failed_chains.contains(&block.message().parent_root())
             || self.failed_chains.contains(&block_root)
@@ -120,19 +119,19 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
             return;
         }
 
-        // Make sure this block is not already downloaded or being searched for.
+        // Make sure this block is not already being searched for
         // NOTE: Potentially store a hashset of blocks for O(1) lookups
-        if self.parent_queue.iter_mut().any(|parent_req| {
-            parent_req.add_peer(&parent_root, &peer_id)
-                || parent_req.add_peer(&block_root, &peer_id)
-                || parent_req.contains_block(&block)
-        }) {
+        if self
+            .parent_queue
+            .iter()
+            .any(|parent_req| parent_req.contains_block(&block))
+        {
             // we are already searching for this block, ignore it
             return;
         }
 
         debug!(self.log, "Block with unknown parent received. Starting a parent lookup";
-            "block_slot" => block.slot(), "block_hash" => %block_root, "parent_root" => %parent_root);
+            "block_slot" => block.slot(), "block_hash" => %block_root, "parent_root" => %block.parent_root());
 
         let mut parent_req = ParentLookup::new(*block, peer_id);
         if parent_req.request_parent(cx, &self.log).is_ok() {
