@@ -43,7 +43,7 @@ impl GanacheInstance {
             let mut line = String::new();
             if let Err(e) = reader.read_line(&mut line) {
                 break Err(format!("Failed to read line from ganache process: {:?}", e));
-            } else if line.starts_with("Listening on") {
+            } else if line.starts_with("RPC Listening on") {
                 break Ok(());
             } else {
                 continue;
@@ -85,15 +85,13 @@ impl GanacheInstance {
             .arg("1000000000")
             .arg("--accounts")
             .arg("10")
-            .arg("--keepAliveTimeout")
-            .arg("0")
             .arg("--port")
             .arg(format!("{}", port))
             .arg("--mnemonic")
             .arg("\"vast thought differ pull jewel broom cook wrist tribe word before omit\"")
             .arg("--networkId")
             .arg(format!("{}", network_id))
-            .arg("--chainId")
+            .arg("--chain.chainId")
             .arg(format!("{}", chain_id))
             .spawn()
             .map_err(|e| {
@@ -119,9 +117,7 @@ impl GanacheInstance {
             .arg(self.endpoint())
             .arg("--port")
             .arg(format!("{}", port))
-            .arg("--keepAliveTimeout")
-            .arg("0")
-            .arg("--chainId")
+            .arg("--chain.chainId")
             .arg(format!("{}", self.chain_id))
             .spawn()
             .map_err(|e| {
