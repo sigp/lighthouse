@@ -3,7 +3,7 @@
 [launchpad]: https://launchpad.ethereum.org/
 
 >
-> **Note: we recommend using the [Eth2 launchpad][launchpad] to create validators.**
+> **Note: we recommend using the [Staking launchpad][launchpad] to create validators.**
 
 Lighthouse uses a _hierarchical_ key management system for producing validator
 keys. It is hierarchical because each validator key can be _derived_ from a
@@ -92,7 +92,7 @@ leaking private key data.
 
 ### Withdrawal Keypairs
 
-In Eth2 Phase 0, withdrawal keypairs do not serve any immediate purpose.
+In Ethereum consensus Phase 0, withdrawal keypairs do not serve any immediate purpose.
 However, they become very important _after_ Phase 0: they will provide the
 ultimate control of the ETH of withdrawn validators.
 

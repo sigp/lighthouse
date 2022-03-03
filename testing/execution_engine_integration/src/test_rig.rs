@@ -140,7 +140,7 @@ impl<E: GenericExecutionEngine> TestRig<E> {
 
         let parent_hash = terminal_pow_block_hash;
         let timestamp = timestamp_now();
-        let random = Hash256::zero();
+        let prev_randao = Hash256::zero();
         let finalized_block_hash = ExecutionBlockHash::zero();
         let proposer_index = 0;
         let valid_payload = self
@@ -149,7 +149,7 @@ impl<E: GenericExecutionEngine> TestRig<E> {
             .get_payload::<MainnetEthSpec>(
                 parent_hash,
                 timestamp,
-                random,
+                prev_randao,
                 finalized_block_hash,
                 proposer_index,
             )
@@ -214,7 +214,7 @@ impl<E: GenericExecutionEngine> TestRig<E> {
          */
 
         let mut invalid_payload = valid_payload.clone();
-        invalid_payload.random = Hash256::from_low_u64_be(42);
+        invalid_payload.prev_randao = Hash256::from_low_u64_be(42);
         let status = self
             .ee_a
             .execution_layer
@@ -231,7 +231,7 @@ impl<E: GenericExecutionEngine> TestRig<E> {
 
         let parent_hash = valid_payload.block_hash;
         let timestamp = valid_payload.timestamp + 1;
-        let random = Hash256::zero();
+        let prev_randao = Hash256::zero();
         let finalized_block_hash = ExecutionBlockHash::zero();
         let proposer_index = 0;
         let second_payload = self
@@ -240,7 +240,7 @@ impl<E: GenericExecutionEngine> TestRig<E> {
             .get_payload::<MainnetEthSpec>(
                 parent_hash,
                 timestamp,
-                random,
+                prev_randao,
                 finalized_block_hash,
                 proposer_index,
             )
@@ -270,7 +270,7 @@ impl<E: GenericExecutionEngine> TestRig<E> {
         let finalized_block_hash = ExecutionBlockHash::zero();
         let payload_attributes = PayloadAttributes {
             timestamp: second_payload.timestamp + 1,
-            random: Hash256::zero(),
+            prev_randao: Hash256::zero(),
             suggested_fee_recipient: Address::zero(),
         };
         let slot = Slot::new(42);

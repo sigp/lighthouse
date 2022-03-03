@@ -146,6 +146,7 @@ pub struct ChainSpec {
     pub terminal_total_difficulty: Uint256,
     pub terminal_block_hash: ExecutionBlockHash,
     pub terminal_block_hash_activation_epoch: Epoch,
+    pub safe_slots_to_import_optimistically: u64,
 
     /*
      * Networking
@@ -551,6 +552,7 @@ impl ChainSpec {
                 .expect("addition does not overflow"),
             terminal_block_hash: ExecutionBlockHash::zero(),
             terminal_block_hash_activation_epoch: Epoch::new(u64::MAX),
+            safe_slots_to_import_optimistically: 128u64,
 
             /*
              * Network specific
@@ -748,6 +750,7 @@ impl ChainSpec {
                 .expect("addition does not overflow"),
             terminal_block_hash: ExecutionBlockHash::zero(),
             terminal_block_hash_activation_epoch: Epoch::new(u64::MAX),
+            safe_slots_to_import_optimistically: 128u64,
 
             /*
              * Network specific
@@ -791,6 +794,9 @@ pub struct Config {
     // TODO(merge): remove this default
     #[serde(default = "default_terminal_block_hash_activation_epoch")]
     pub terminal_block_hash_activation_epoch: Epoch,
+    // TODO(merge): remove this default
+    #[serde(default = "default_safe_slots_to_import_optimistically")]
+    pub safe_slots_to_import_optimistically: u64,
 
     #[serde(with = "eth2_serde_utils::quoted_u64")]
     min_genesis_active_validator_count: u64,
@@ -878,6 +884,10 @@ fn default_terminal_block_hash_activation_epoch() -> Epoch {
     Epoch::new(u64::MAX)
 }
 
+fn default_safe_slots_to_import_optimistically() -> u64 {
+    128u64
+}
+
 impl Default for Config {
     fn default() -> Self {
         let chain_spec = MainnetEthSpec::default_spec();
@@ -935,6 +945,7 @@ impl Config {
             terminal_total_difficulty: spec.terminal_total_difficulty,
             terminal_block_hash: spec.terminal_block_hash,
             terminal_block_hash_activation_epoch: spec.terminal_block_hash_activation_epoch,
+            safe_slots_to_import_optimistically: spec.safe_slots_to_import_optimistically,
 
             min_genesis_active_validator_count: spec.min_genesis_active_validator_count,
             min_genesis_time: spec.min_genesis_time,
@@ -985,6 +996,7 @@ impl Config {
             terminal_total_difficulty,
             terminal_block_hash,
             terminal_block_hash_activation_epoch,
+            safe_slots_to_import_optimistically,
             min_genesis_active_validator_count,
             min_genesis_time,
             genesis_fork_version,
@@ -1040,6 +1052,7 @@ impl Config {
             terminal_total_difficulty,
             terminal_block_hash,
             terminal_block_hash_activation_epoch,
+            safe_slots_to_import_optimistically,
             ..chain_spec.clone()
         })
     }
@@ -1227,6 +1240,7 @@ mod yaml_tests {
         #TERMINAL_TOTAL_DIFFICULTY: 115792089237316195423570985008687907853269984665640564039457584007913129638911
         #TERMINAL_BLOCK_HASH: 0x0000000000000000000000000000000000000000000000000000000000000001
         #TERMINAL_BLOCK_HASH_ACTIVATION_EPOCH: 18446744073709551614
+        #SAFE_SLOTS_TO_IMPORT_OPTIMISTICALLY: 2
         MIN_GENESIS_ACTIVE_VALIDATOR_COUNT: 16384
         MIN_GENESIS_TIME: 1606824000
         GENESIS_FORK_VERSION: 0x00000000
@@ -1265,6 +1279,10 @@ mod yaml_tests {
         assert_eq!(
             chain_spec.terminal_block_hash_activation_epoch,
             default_terminal_block_hash_activation_epoch()
+        );
+        assert_eq!(
+            chain_spec.safe_slots_to_import_optimistically,
+            default_safe_slots_to_import_optimistically()
         );
 
         assert_eq!(

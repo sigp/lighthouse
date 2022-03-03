@@ -6,6 +6,7 @@ use ethereum_types::U256 as Uint256;
 use ssz::Decode;
 use std::path::PathBuf;
 use std::str::FromStr;
+use types::{ChainSpec, Config, EthSpec};
 
 pub mod flags;
 
@@ -50,6 +51,12 @@ pub fn get_eth2_network_config(cli_args: &ArgMatches) -> Result<Eth2NetworkConfi
         eth2_network_config
             .config
             .terminal_block_hash_activation_epoch = epoch;
+    }
+
+    if let Some(slots) = parse_optional(cli_args, "safe-slots-to-import-optimistically")? {
+        eth2_network_config
+            .config
+            .safe_slots_to_import_optimistically = slots;
     }
 
     Ok(eth2_network_config)
@@ -156,4 +163,30 @@ pub fn parse_ssz_optional<T: Decode>(
             }
         })
         .transpose()
+}
+
+/// Writes configs to file if `dump-config` or `dump-chain-config` flags are set
+pub fn check_dump_configs<S, E>(
+    matches: &ArgMatches,
+    config: S,
+    spec: &ChainSpec,
+) -> Result<(), String>
+where
+    S: serde::Serialize,
+    E: EthSpec,
+{
+    if let Some(dump_path) = parse_optional::<PathBuf>(matches, "dump-config")? {
+        let mut file = std::fs::File::create(dump_path)
+            .map_err(|e| format!("Failed to open file for writing config: {:?}", e))?;
+        serde_json::to_writer(&mut file, &config)
+            .map_err(|e| format!("Error serializing config: {:?}", e))?;
+    }
+    if let Some(dump_path) = parse_optional::<PathBuf>(matches, "dump-chain-config")? {
+        let chain_config = Config::from_chain_spec::<E>(spec);
+        let mut file = std::fs::File::create(dump_path)
+            .map_err(|e| format!("Failed to open file for writing chain config: {:?}", e))?;
+        serde_yaml::to_writer(&mut file, &chain_config)
+            .map_err(|e| format!("Error serializing config: {:?}", e))?;
+    }
+    Ok(())
 }

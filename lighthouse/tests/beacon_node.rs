@@ -10,7 +10,7 @@ use std::process::Command;
 use std::str::FromStr;
 use std::string::ToString;
 use tempfile::TempDir;
-use types::{Address, Checkpoint, Epoch, Hash256};
+use types::{Address, Checkpoint, Epoch, ExecutionBlockHash, Hash256, MainnetEthSpec};
 use unused_port::{unused_tcp_port, unused_udp_port};
 
 const DEFAULT_ETH1_ENDPOINT: &str = "http://localhost:8545/";
@@ -206,7 +206,35 @@ fn eth1_purge_cache_flag() {
         .with_config(|config| assert!(config.eth1.purge_cache));
 }
 
-// Tests for Merge flags.
+// Tests for Bellatrix flags.
+#[test]
+fn merge_flag() {
+    CommandLineTest::new()
+        .flag("merge", None)
+        .run_with_zero_port()
+        .with_config(|config| assert!(config.execution_endpoints.is_some()));
+}
+#[test]
+fn merge_execution_endpoints_flag() {
+    use sensitive_url::SensitiveUrl;
+    let urls = vec!["http://sigp.io/no-way:1337", "http://infura.not_real:4242"];
+    let endpoints = urls
+        .iter()
+        .map(|s| SensitiveUrl::parse(s).unwrap())
+        .collect::<Vec<_>>();
+    let mut endpoint_arg = urls[0].to_string();
+    for url in urls.into_iter().skip(1) {
+        endpoint_arg.push(',');
+        endpoint_arg.push_str(url);
+    }
+    // this is way better but intersperse is still a nightly feature :/
+    // let endpoint_arg: String = urls.into_iter().intersperse(",").collect();
+    CommandLineTest::new()
+        .flag("merge", None)
+        .flag("execution-endpoints", Some(&endpoint_arg))
+        .run_with_zero_port()
+        .with_config(|config| assert_eq!(config.execution_endpoints.as_ref(), Some(&endpoints)));
+}
 #[test]
 fn merge_fee_recipient_flag() {
     CommandLineTest::new()
@@ -221,6 +249,62 @@ fn merge_fee_recipient_flag() {
                 config.suggested_fee_recipient,
                 Some(Address::from_str("0x00000000219ab540356cbb839cbe05303d7705fa").unwrap())
             )
+        });
+}
+#[test]
+fn terminal_total_difficulty_override_flag() {
+    use beacon_node::beacon_chain::types::Uint256;
+    CommandLineTest::new()
+        .flag("terminal-total-difficulty-override", Some("1337424242"))
+        .run_with_zero_port()
+        .with_spec::<MainnetEthSpec, _>(|spec| {
+            assert_eq!(spec.terminal_total_difficulty, Uint256::from(1337424242))
+        });
+}
+#[test]
+fn terminal_block_hash_and_activation_epoch_override_flags() {
+    CommandLineTest::new()
+        .flag("terminal-block-hash-epoch-override", Some("1337"))
+        .flag(
+            "terminal-block-hash-override",
+            Some("0x4242424242424242424242424242424242424242424242424242424242424242"),
+        )
+        .run_with_zero_port()
+        .with_spec::<MainnetEthSpec, _>(|spec| {
+            assert_eq!(
+                spec.terminal_block_hash,
+                ExecutionBlockHash::from_str(
+                    "0x4242424242424242424242424242424242424242424242424242424242424242"
+                )
+                .unwrap()
+            );
+            assert_eq!(spec.terminal_block_hash_activation_epoch, 1337);
+        });
+}
+#[test]
+#[should_panic]
+fn terminal_block_hash_missing_activation_epoch() {
+    CommandLineTest::new()
+        .flag(
+            "terminal-block-hash-override",
+            Some("0x4242424242424242424242424242424242424242424242424242424242424242"),
+        )
+        .run_with_zero_port();
+}
+#[test]
+#[should_panic]
+fn epoch_override_missing_terminal_block_hash() {
+    CommandLineTest::new()
+        .flag("terminal-block-hash-epoch-override", Some("1337"))
+        .run_with_zero_port();
+}
+#[test]
+fn safe_slots_to_import_optimistically_flag() {
+    CommandLineTest::new()
+        .flag("safe-slots-to-import-optimistically", Some("421337"))
+        .run_with_zero_port()
+        .with_spec::<MainnetEthSpec, _>(|spec| {
+            assert_eq!(spec.safe_slots_to_import_optimistically, 421337)
         });
 }
 
@@ -410,6 +494,15 @@ fn zero_ports_flag() {
             assert_eq!(config.http_metrics.listen_port, 0);
         });
 }
+#[test]
+fn network_load_flag() {
+    CommandLineTest::new()
+        .flag("network-load", Some("4"))
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert_eq!(config.network.network_load, 4);
+        });
+}
 
 // Tests for ENR flags.
 #[test]
@@ -525,6 +618,13 @@ fn http_allow_origin_all_flag() {
         .flag("http-allow-origin", Some("*"))
         .run_with_zero_port()
         .with_config(|config| assert_eq!(config.http_api.allow_origin, Some("*".to_string())));
+}
+#[test]
+fn http_allow_sync_stalled_flag() {
+    CommandLineTest::new()
+        .flag("http-allow-sync-stalled", None)
+        .run_with_zero_port()
+        .with_config(|config| assert_eq!(config.http_api.allow_sync_stalled, true));
 }
 #[test]
 fn http_tls_flags() {

@@ -35,10 +35,10 @@ Lighthouse maintains two permanent branches:
 - [`unstable`][unstable]: Used for development, contains the latest PRs.
   - Developers should base thier PRs on this branch.
 
-## Ethereum 2.0
+## Ethereum consensus client
 
-Lighthouse is an implementation of the Ethereum 2.0 specification, as defined
-in the  [ethereum/eth2.0-specs](https://github.com/ethereum/eth2.0-specs)
+Lighthouse is an implementation of the Ethereum proof-of-stake consensus specification, as defined
+in the  [ethereum/consensus-specs](https://github.com/ethereum/consensus-specs)
 repository.
 
 We recommend reading Danny Ryan's (incomplete) [Phase 0 for

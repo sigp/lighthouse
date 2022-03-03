@@ -93,7 +93,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
             Arg::with_name("target-peers")
                 .long("target-peers")
                 .help("The target number of peers.")
-                .default_value("50")
+                .default_value("80")
                 .takes_value(true),
         )
         .arg(
@@ -186,6 +186,12 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .value_name("TRUSTED_PEERS")
                 .help("One or more comma-delimited trusted peer ids which always have the highest score according to the peer scoring system.")
                 .takes_value(true),
+        )
+        .arg(
+            Arg::with_name("enable-private-discovery")
+                .long("enable-private-discovery")
+                .help("Lighthouse by default does not discover private IP addresses. Set this flag to enable connection attempts to local addresses.")
+                .takes_value(false),
         )
         /* REST API related arguments */
         .arg(

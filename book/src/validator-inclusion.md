@@ -4,7 +4,7 @@ The `/lighthouse/validator_inclusion` API endpoints provide information on
 results of the proof-of-stake voting process used for finality/justification
 under Casper FFG.
 
-These endpoints are not stable or included in the Eth2 standard API. As such,
+These endpoints are not stable or included in the Ethereum consensus standard API. As such,
 they are subject to change or removal without a change in major release
 version.
 

@@ -1,3 +1,4 @@
+use super::sync::manager::RequestId as SyncId;
 use crate::persisted_dht::{clear_dht, load_dht, persist_dht};
 use crate::router::{Router, RouterMessage};
 use crate::subnet_service::SyncCommitteeService;
@@ -14,7 +15,7 @@ use lighthouse_network::{
     prometheus_client::registry::Registry, MessageAcceptance, Service as LibP2PService,
 };
 use lighthouse_network::{
-    rpc::{GoodbyeReason, RPCResponseErrorCode, RequestId},
+    rpc::{GoodbyeReason, RPCResponseErrorCode},
     Context, Libp2pEvent, PeerAction, PeerRequestId, PubsubMessage, ReportSource, Request,
     Response, Subnet,
 };
@@ -41,6 +42,13 @@ const METRIC_UPDATE_INTERVAL: u64 = 5;
 const SUBSCRIBE_DELAY_SLOTS: u64 = 2;
 /// Delay after a fork where we unsubscribe from pre-fork topics.
 const UNSUBSCRIBE_DELAY_EPOCHS: u64 = 2;
+
+/// Application level requests sent to the network.
+#[derive(Debug, Clone, Copy)]
+pub enum RequestId {
+    Sync(SyncId),
+    Router,
+}
 
 /// Types of messages that the network service can receive.
 #[derive(Debug)]
@@ -112,7 +120,7 @@ pub struct NetworkService<T: BeaconChainTypes> {
     /// A reference to the underlying beacon chain.
     beacon_chain: Arc<BeaconChain<T>>,
     /// The underlying libp2p service that drives all the network interactions.
-    libp2p: LibP2PService<T::EthSpec>,
+    libp2p: LibP2PService<RequestId, T::EthSpec>,
     /// An attestation and subnet manager service.
     attestation_service: AttestationService<T>,
     /// A sync committeee subnet manager service.
@@ -389,7 +397,7 @@ impl<T: BeaconChainTypes> NetworkService<T> {
     /// Handle an event received from the network.
     async fn on_libp2p_event(
         &mut self,
-        ev: Libp2pEvent<T::EthSpec>,
+        ev: Libp2pEvent<RequestId, T::EthSpec>,
         shutdown_sender: &mut Sender<ShutdownReason>,
     ) {
         match ev {

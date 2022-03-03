@@ -20,7 +20,7 @@ use futures::StreamExt;
 use libp2p::{
     core::either::EitherError,
     swarm::SwarmEvent,
-    swarm::{protocols_handler::DummyProtocolsHandler, DummyBehaviour, KeepAlive, Swarm},
+    swarm::{handler::DummyConnectionHandler, DummyBehaviour, KeepAlive, Swarm},
     NetworkBehaviour,
 };
 
@@ -77,7 +77,7 @@ impl Behaviour {
     fn new(pm: PeerManager<E>) -> Self {
         Behaviour {
             pm_call_trace: CallTraceBehaviour::new(pm),
-            sibling: MockBehaviour::new(DummyProtocolsHandler {
+            sibling: MockBehaviour::new(DummyConnectionHandler {
                 // The peer manager votes No, so we make sure the combined handler stays alive this
                 // way.
                 keep_alive: KeepAlive::Yes,

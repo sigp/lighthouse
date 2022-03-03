@@ -88,15 +88,14 @@ fn test_status_rpc() {
                     Libp2pEvent::Behaviour(BehaviourEvent::PeerConnectedOutgoing(peer_id)) => {
                         // Send a STATUS message
                         debug!(log, "Sending RPC");
-                        sender.swarm.behaviour_mut().send_request(
-                            peer_id,
-                            RequestId::Sync(10),
-                            rpc_request.clone(),
-                        );
+                        sender
+                            .swarm
+                            .behaviour_mut()
+                            .send_request(peer_id, 10, rpc_request.clone());
                     }
                     Libp2pEvent::Behaviour(BehaviourEvent::ResponseReceived {
                         peer_id: _,
-                        id: RequestId::Sync(10),
+                        id: 10,
                         response,
                     }) => {
                         // Should receive the RPC response
@@ -186,7 +185,7 @@ fn test_blocks_by_range_chunked_rpc() {
 
         // keep count of the number of messages received
         let mut messages_received = 0;
-        let request_id = RequestId::Sync(messages_to_send as usize);
+        let request_id = messages_to_send as usize;
         // build the sender future
         let sender_future = async {
             loop {
@@ -313,7 +312,7 @@ fn test_blocks_by_range_over_limit() {
         let signed_full_block = SignedBeaconBlock::from_block(full_block, Signature::empty());
         let rpc_response_merge_large = Response::BlocksByRange(Some(Box::new(signed_full_block)));
 
-        let request_id = RequestId::Sync(messages_to_send as usize);
+        let request_id = messages_to_send as usize;
         // build the sender future
         let sender_future = async {
             loop {
@@ -413,7 +412,7 @@ fn test_blocks_by_range_chunked_rpc_terminates_correctly() {
 
         // keep count of the number of messages received
         let mut messages_received: u64 = 0;
-        let request_id = RequestId::Sync(messages_to_send as usize);
+        let request_id = messages_to_send as usize;
         // build the sender future
         let sender_future = async {
             loop {
@@ -553,15 +552,14 @@ fn test_blocks_by_range_single_empty_rpc() {
                     Libp2pEvent::Behaviour(BehaviourEvent::PeerConnectedOutgoing(peer_id)) => {
                         // Send a STATUS message
                         debug!(log, "Sending RPC");
-                        sender.swarm.behaviour_mut().send_request(
-                            peer_id,
-                            RequestId::Sync(10),
-                            rpc_request.clone(),
-                        );
+                        sender
+                            .swarm
+                            .behaviour_mut()
+                            .send_request(peer_id, 10, rpc_request.clone());
                     }
                     Libp2pEvent::Behaviour(BehaviourEvent::ResponseReceived {
                         peer_id: _,
-                        id: RequestId::Sync(10),
+                        id: 10,
                         response,
                     }) => match response {
                         Response::BlocksByRange(Some(_)) => {
@@ -679,15 +677,14 @@ fn test_blocks_by_root_chunked_rpc() {
                     Libp2pEvent::Behaviour(BehaviourEvent::PeerConnectedOutgoing(peer_id)) => {
                         // Send a STATUS message
                         debug!(log, "Sending RPC");
-                        sender.swarm.behaviour_mut().send_request(
-                            peer_id,
-                            RequestId::Sync(6),
-                            rpc_request.clone(),
-                        );
+                        sender
+                            .swarm
+                            .behaviour_mut()
+                            .send_request(peer_id, 6, rpc_request.clone());
                     }
                     Libp2pEvent::Behaviour(BehaviourEvent::ResponseReceived {
                         peer_id: _,
-                        id: RequestId::Sync(6),
+                        id: 6,
                         response,
                     }) => match response {
                         Response::BlocksByRoot(Some(_)) => {
@@ -814,15 +811,14 @@ fn test_blocks_by_root_chunked_rpc_terminates_correctly() {
                     Libp2pEvent::Behaviour(BehaviourEvent::PeerConnectedOutgoing(peer_id)) => {
                         // Send a STATUS message
                         debug!(log, "Sending RPC");
-                        sender.swarm.behaviour_mut().send_request(
-                            peer_id,
-                            RequestId::Sync(10),
-                            rpc_request.clone(),
-                        );
+                        sender
+                            .swarm
+                            .behaviour_mut()
+                            .send_request(peer_id, 10, rpc_request.clone());
                     }
                     Libp2pEvent::Behaviour(BehaviourEvent::ResponseReceived {
                         peer_id: _,
-                        id: RequestId::Sync(10),
+                        id: 10,
                         response,
                     }) => {
                         debug!(log, "Sender received a response");

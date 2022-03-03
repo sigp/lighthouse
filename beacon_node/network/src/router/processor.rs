@@ -1,7 +1,8 @@
 use crate::beacon_processor::{
     BeaconProcessor, WorkEvent as BeaconWorkEvent, MAX_WORK_EVENT_QUEUE_LEN,
 };
-use crate::service::NetworkMessage;
+use crate::service::{NetworkMessage, RequestId};
+use crate::sync::manager::RequestId as SyncId;
 use crate::sync::SyncMessage;
 use beacon_chain::{BeaconChain, BeaconChainError, BeaconChainTypes};
 use lighthouse_network::rpc::*;
@@ -100,8 +101,11 @@ impl<T: BeaconChainTypes> Processor<T> {
     /// this function notifies the sync manager of the error.
     pub fn on_rpc_error(&mut self, peer_id: PeerId, request_id: RequestId) {
         // Check if the failed RPC belongs to sync
-        if let RequestId::Sync(id) = request_id {
-            self.send_to_sync(SyncMessage::RPCError(peer_id, id));
+        if let RequestId::Sync(request_id) = request_id {
+            self.send_to_sync(SyncMessage::RpcError {
+                peer_id,
+                request_id,
+            });
         }
     }
 
@@ -176,24 +180,28 @@ impl<T: BeaconChainTypes> Processor<T> {
         request_id: RequestId,
         beacon_block: Option<Box<SignedBeaconBlock<T::EthSpec>>>,
     ) {
+        let request_id = match request_id {
+            RequestId::Sync(sync_id) => match sync_id {
+                SyncId::SingleBlock { .. } | SyncId::ParentLookup { .. } => {
+                    unreachable!("Block lookups do not request BBRange requests")
+                }
+                id @ (SyncId::BackFillSync { .. } | SyncId::RangeSync { .. }) => id,
+            },
+            RequestId::Router => unreachable!("All BBRange requests belong to sync"),
+        };
+
         trace!(
             self.log,
             "Received BlocksByRange Response";
             "peer" => %peer_id,
         );
 
-        if let RequestId::Sync(id) = request_id {
-            self.send_to_sync(SyncMessage::BlocksByRangeResponse {
-                peer_id,
-                request_id: id,
-                beacon_block,
-            });
-        } else {
-            debug!(
-                self.log,
-                "All blocks by range responses should belong to sync"
-            );
-        }
+        self.send_to_sync(SyncMessage::RpcBlock {
+            peer_id,
+            request_id,
+            beacon_block,
+            seen_timestamp: timestamp_now(),
+        });
     }
 
     /// Handle a `BlocksByRoot` response from the peer.
@@ -203,25 +211,27 @@ impl<T: BeaconChainTypes> Processor<T> {
         request_id: RequestId,
         beacon_block: Option<Box<SignedBeaconBlock<T::EthSpec>>>,
     ) {
+        let request_id = match request_id {
+            RequestId::Sync(sync_id) => match sync_id {
+                id @ (SyncId::SingleBlock { .. } | SyncId::ParentLookup { .. }) => id,
+                SyncId::BackFillSync { .. } | SyncId::RangeSync { .. } => {
+                    unreachable!("Batch syncing do not request BBRoot requests")
+                }
+            },
+            RequestId::Router => unreachable!("All BBRoot requests belong to sync"),
+        };
+
         trace!(
             self.log,
             "Received BlocksByRoot Response";
             "peer" => %peer_id,
         );
-
-        if let RequestId::Sync(id) = request_id {
-            self.send_to_sync(SyncMessage::BlocksByRootResponse {
-                peer_id,
-                request_id: id,
-                beacon_block,
-                seen_timestamp: timestamp_now(),
-            });
-        } else {
-            debug!(
-                self.log,
-                "All Blocks by Root responses should belong to sync"
-            )
-        }
+        self.send_to_sync(SyncMessage::RpcBlock {
+            peer_id,
+            request_id,
+            beacon_block,
+            seen_timestamp: timestamp_now(),
+        });
     }
 
     /// Process a gossip message declaring a new block.

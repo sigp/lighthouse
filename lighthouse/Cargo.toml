@@ -41,6 +41,7 @@ lighthouse_metrics = { path = "../common/lighthouse_metrics" }
 lazy_static = "1.4.0"
 serde = { version = "1.0.116", features = ["derive"] }
 serde_json = "1.0.59"
+serde_yaml = "0.8.13"
 task_executor = { path = "../common/task_executor" }
 malloc_utils = { path = "../common/malloc_utils" }
 directory = { path = "../common/directory" }
@@ -51,6 +52,7 @@ tempfile = "3.1.0"
 validator_dir = { path = "../common/validator_dir" }
 slashing_protection = { path = "../validator_client/slashing_protection" }
 lighthouse_network = { path = "../beacon_node/lighthouse_network" }
+sensitive_url = { path = "../common/sensitive_url" }
 
 [[test]]
 name = "lighthouse_tests"

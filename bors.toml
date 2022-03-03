@@ -13,7 +13,12 @@ status = [
     "clippy",
     "arbitrary-check",
     "cargo-audit",
-    "cargo-udeps"
+    "cargo-udeps",
+    "beacon-chain-tests",
+    "op-pool-tests",
+    "doppelganger-protection-test",
+    "execution-engine-integration-ubuntu",
+    "cargo-vendor"
 ]
 use_squash_merge = true
 timeout_sec = 10800

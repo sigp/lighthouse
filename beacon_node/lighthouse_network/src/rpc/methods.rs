@@ -56,17 +56,6 @@ impl ToString for ErrorType {
 
 /* Requests */
 
-/// Identifier of a request.
-///
-// NOTE: The handler stores the `RequestId` to inform back of responses and errors, but it's execution
-// is independent of the contents on this type.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum RequestId {
-    Router,
-    Sync(usize),
-    Behaviour,
-}
-
 /// The STATUS request/response handshake message.
 #[derive(Encode, Decode, Clone, Debug, PartialEq)]
 pub struct StatusMessage {
@@ -430,20 +419,5 @@ impl slog::KV for StatusMessage {
         Value::serialize(&self.head_slot, record, "head_slot", serializer)?;
         serializer.emit_arguments("head_root", &format_args!("{}", self.head_root))?;
         slog::Result::Ok(())
-    }
-}
-
-impl slog::Value for RequestId {
-    fn serialize(
-        &self,
-        record: &slog::Record,
-        key: slog::Key,
-        serializer: &mut dyn slog::Serializer,
-    ) -> slog::Result {
-        match self {
-            RequestId::Behaviour => slog::Value::serialize("Behaviour", record, key, serializer),
-            RequestId::Router => slog::Value::serialize("Router", record, key, serializer),
-            RequestId::Sync(ref id) => slog::Value::serialize(id, record, key, serializer),
-        }
     }
 }

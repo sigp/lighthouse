@@ -24,7 +24,7 @@ use futures::stream::FuturesUnordered;
 pub use libp2p::{
     core::{connection::ConnectionId, ConnectedPoint, Multiaddr, PeerId},
     swarm::{
-        protocols_handler::ProtocolsHandler, DialError, NetworkBehaviour,
+        handler::ConnectionHandler, DialError, NetworkBehaviour,
         NetworkBehaviourAction as NBAction, NotifyHandler, PollParameters, SubstreamProtocol,
     },
 };
@@ -908,11 +908,11 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
 
 impl<TSpec: EthSpec> NetworkBehaviour for Discovery<TSpec> {
     // Discovery is not a real NetworkBehaviour...
-    type ProtocolsHandler = libp2p::swarm::protocols_handler::DummyProtocolsHandler;
+    type ConnectionHandler = libp2p::swarm::handler::DummyConnectionHandler;
     type OutEvent = DiscoveryEvent;
 
-    fn new_handler(&mut self) -> Self::ProtocolsHandler {
-        libp2p::swarm::protocols_handler::DummyProtocolsHandler::default()
+    fn new_handler(&mut self) -> Self::ConnectionHandler {
+        libp2p::swarm::handler::DummyConnectionHandler::default()
     }
 
     // Handles the libp2p request to obtain multiaddrs for peer_id's in order to dial them.
@@ -932,14 +932,14 @@ impl<TSpec: EthSpec> NetworkBehaviour for Discovery<TSpec> {
         &mut self,
         _: PeerId,
         _: ConnectionId,
-        _: <Self::ProtocolsHandler as ProtocolsHandler>::OutEvent,
+        _: <Self::ConnectionHandler as ConnectionHandler>::OutEvent,
     ) {
     }
 
     fn inject_dial_failure(
         &mut self,
         peer_id: Option<PeerId>,
-        _handler: Self::ProtocolsHandler,
+        _handler: Self::ConnectionHandler,
         error: &DialError,
     ) {
         if let Some(peer_id) = peer_id {
@@ -967,7 +967,7 @@ impl<TSpec: EthSpec> NetworkBehaviour for Discovery<TSpec> {
         &mut self,
         cx: &mut Context,
         _: &mut impl PollParameters,
-    ) -> Poll<NBAction<Self::OutEvent, Self::ProtocolsHandler>> {
+    ) -> Poll<NBAction<Self::OutEvent, Self::ConnectionHandler>> {
         if !self.started {
             return Poll::Pending;
         }

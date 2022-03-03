@@ -50,7 +50,7 @@ impl Logging {
 struct PayloadIdCacheKey {
     pub head_block_hash: ExecutionBlockHash,
     pub timestamp: u64,
-    pub random: Hash256,
+    pub prev_randao: Hash256,
     pub suggested_fee_recipient: Address,
 }
 
@@ -77,7 +77,7 @@ impl<T> Engine<T> {
         &self,
         head_block_hash: ExecutionBlockHash,
         timestamp: u64,
-        random: Hash256,
+        prev_randao: Hash256,
         suggested_fee_recipient: Address,
     ) -> Option<PayloadId> {
         self.payload_id_cache
@@ -86,7 +86,7 @@ impl<T> Engine<T> {
             .get(&PayloadIdCacheKey {
                 head_block_hash,
                 timestamp,
-                random,
+                prev_randao,
                 suggested_fee_recipient,
             })
             .cloned()
@@ -393,7 +393,7 @@ impl PayloadIdCacheKey {
         Self {
             head_block_hash: state.head_block_hash,
             timestamp: attributes.timestamp,
-            random: attributes.random,
+            prev_randao: attributes.prev_randao,
             suggested_fee_recipient: attributes.suggested_fee_recipient,
         }
     }
