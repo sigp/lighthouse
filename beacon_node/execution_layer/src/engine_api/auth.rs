@@ -37,7 +37,7 @@ impl JwtKey {
             ));
         }
         let mut res = [0; JWT_SECRET_LENGTH];
-        res.copy_from_slice(&key);
+        res.copy_from_slice(key);
         Ok(Self(res))
     }
 
@@ -52,7 +52,7 @@ impl JwtKey {
     }
 
     /// Returns the hex encoded `String` for the secret.
-    pub fn to_string(&self) -> String {
+    pub fn hex_string(&self) -> String {
         hex::encode(self.0)
     }
 }

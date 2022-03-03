@@ -63,7 +63,6 @@ pub enum Error {
     MissingLatestValidHash,
     InvalidJWTSecret(String),
     NoAuthProvided(String),
-    MissingLatestValidHash,
 }
 
 impl From<ApiError> for Error {
@@ -176,7 +175,7 @@ impl ExecutionLayer {
                         })
                         .and_then(|mut f| {
                             let secret = auth::JwtKey::random();
-                            f.write_all(secret.to_string().as_bytes()).map_err(|e| {
+                            f.write_all(secret.hex_string().as_bytes()).map_err(|e| {
                                 format!("Failed to write to JWT secret file: {:?}", e)
                             })?;
                             Ok((secret, p.to_path_buf()))
