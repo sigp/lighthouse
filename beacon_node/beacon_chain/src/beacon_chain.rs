@@ -3837,7 +3837,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 .start_of(prepare_slot)
                 .ok_or(Error::InvalidSlot(prepare_slot))?
                 .as_secs(),
-            random: head.random,
+            prev_randao: head.random,
             suggested_fee_recipient: execution_layer
                 .get_suggested_fee_recipient(proposer as u64)
                 .await,
