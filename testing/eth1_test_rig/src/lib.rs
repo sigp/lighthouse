@@ -1,6 +1,6 @@
 //! Provides utilities for deploying and manipulating the eth2 deposit contract on the eth1 chain.
 //!
-//! Presently used with [`ganache-cli`](https://github.com/trufflesuite/ganache-cli) to simulate
+//! Presently used with [`ganache`](https://github.com/trufflesuite/ganache) to simulate
 //! the deposit contract for testing beacon node eth1 integration.
 //!
 //! Not tested to work with actual clients (e.g., geth). It should work fine, however there may be
@@ -23,7 +23,7 @@ use web3::Web3;
 pub const DEPLOYER_ACCOUNTS_INDEX: usize = 0;
 pub const DEPOSIT_ACCOUNTS_INDEX: usize = 0;
 
-/// Provides a dedicated ganache-cli instance with the deposit contract already deployed.
+/// Provides a dedicated ganache instance with the deposit contract already deployed.
 pub struct GanacheEth1Instance {
     pub ganache: GanacheInstance,
     pub deposit_contract: DepositContract,

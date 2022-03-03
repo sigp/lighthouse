@@ -36,7 +36,7 @@ impl GanacheInstance {
         loop {
             if start + Duration::from_millis(GANACHE_STARTUP_TIMEOUT_MILLIS) <= Instant::now() {
                 break Err(
-                    "Timed out waiting for ganache to start. Is ganache-cli installed?".to_string(),
+                    "Timed out waiting for ganache to start. Is ganache installed?".to_string(),
                 );
             }
 
@@ -69,13 +69,13 @@ impl GanacheInstance {
         })
     }
 
-    /// Start a new `ganache-cli` process, waiting until it indicates that it is ready to accept
+    /// Start a new `ganache` process, waiting until it indicates that it is ready to accept
     /// RPC connections.
     pub fn new(network_id: u64, chain_id: u64) -> Result<Self, String> {
         let port = unused_tcp_port()?;
         let binary = match cfg!(windows) {
-            true => "ganache-cli.cmd",
-            false => "ganache-cli",
+            true => "ganache.cmd",
+            false => "ganache",
         };
         let child = Command::new(binary)
             .stdout(Stdio::piped())
@@ -108,8 +108,8 @@ impl GanacheInstance {
     pub fn fork(&self) -> Result<Self, String> {
         let port = unused_tcp_port()?;
         let binary = match cfg!(windows) {
-            true => "ganache-cli.cmd",
-            false => "ganache-cli",
+            true => "ganache.cmd",
+            false => "ganache",
         };
         let child = Command::new(binary)
             .stdout(Stdio::piped())
@@ -174,7 +174,7 @@ impl GanacheInstance {
             .await
             .map(|_| ())
             .map_err(|_| {
-                "utils should mine new block with evm_mine (only works with ganache-cli!)"
+                "utils should mine new block with evm_mine (only works with ganache!)"
                     .to_string()
             })
     }
