@@ -9,7 +9,7 @@ use engines::{Engine, EngineError, Engines, ForkChoiceState, Logging};
 use lru::LruCache;
 use payload_status::process_multiple_payload_statuses;
 use sensitive_url::SensitiveUrl;
-use slog::{crit, debug, error, info, Logger};
+use slog::{crit, debug, error, info, trace, Logger};
 use slot_clock::SlotClock;
 use std::collections::HashMap;
 use std::future::Future;
@@ -475,7 +475,7 @@ impl ExecutionLayer {
         &self,
         execution_payload: &ExecutionPayload<T>,
     ) -> Result<PayloadStatus, Error> {
-        debug!(
+        trace!(
             self.log(),
             "Issuing engine_newPayload";
             "parent_hash" => ?execution_payload.parent_hash,
@@ -514,7 +514,7 @@ impl ExecutionLayer {
         finalized_block_hash: ExecutionBlockHash,
         payload_attributes: Option<PayloadAttributes>,
     ) -> Result<PayloadStatus, Error> {
-        debug!(
+        trace!(
             self.log(),
             "Issuing engine_forkchoiceUpdated";
             "finalized_block_hash" => ?finalized_block_hash,
