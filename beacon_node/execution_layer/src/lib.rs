@@ -62,7 +62,6 @@ pub enum Error {
     ConsensusFailure,
     MissingLatestValidHash,
     InvalidJWTSecret(String),
-    NoAuthProvided(String),
 }
 
 impl From<ApiError> for Error {
