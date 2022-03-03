@@ -686,7 +686,7 @@ fn payload_preparation() {
             .start_of(next_slot)
             .unwrap()
             .as_secs(),
-        random: *head
+        prev_randao: *head
             .beacon_state
             .get_randao_mix(head.beacon_state.current_epoch())
             .unwrap(),
