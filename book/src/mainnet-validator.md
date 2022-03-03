@@ -1,4 +1,4 @@
-# Become an Eth2 Mainnet Validator
+# Become an Ethereum Consensus Mainnet Validator
 
 [launchpad]: https://launchpad.ethereum.org/
 [lh-book]: https://lighthouse-book.sigmaprime.io/
@@ -8,18 +8,18 @@
 [slashing]: ./slashing-protection.md
 [discord]: https://discord.gg/cyAszAh
 
-Becoming an Eth2 validator is rewarding, but it's not for the faint of heart. You'll need to be
+Becoming an Ethereum consensus validator is rewarding, but it's not for the faint of heart. You'll need to be
 familiar with the rules of staking (e.g., rewards, penalties, etc.) and also configuring and
 managing servers. You'll also need at least 32 ETH!
 
-For those with an understanding of Eth2 and server maintenance, you'll find that running Lighthouse
+For those with an understanding of Ethereum consensus and server maintenance, you'll find that running Lighthouse
 is easy. Install it, start it, monitor it and keep it updated. You shouldn't need to interact
 with it on a day-to-day basis.
 
 Being educated is critical to validator success. Before submitting your mainnet deposit, we
 recommend:
 
-- Thoroughly exploring the [Eth2 Launchpad][launchpad] website
+- Thoroughly exploring the [Staking Launchpad][launchpad] website
   - Try running through the deposit process *without* actually submitting a deposit.
 - Reading through this documentation, especially the [Slashing Protection][slashing] section.
 - Running a [testnet validator][testnet-validator].
@@ -37,7 +37,7 @@ Remember, if you get stuck you can always reach out on our [Discord][discord].
 > occured through the use of Lighthouse. We have an experienced internal security team and have
 > undergone multiple third-party security-reviews, however the possibility of bugs or malicious
 > interference remains a real and constant threat. Validators should be prepared to lose some rewards
-> due to the actions of other actors on the Eth2 network or software bugs. See the
+> due to the actions of other actors on the consensus layer or software bugs. See the
 > [software license][license] for more detail on liability.
 
 ## Using Lighthouse for Mainnet
@@ -57,7 +57,7 @@ provide a `--network` flag instead of relying on the default.
 There are five primary steps to become a testnet validator:
 
 1. Create validator keys and submit deposits.
-1. Start an Eth1 client.
+1. Start an execution client.
 1. Install Lighthouse.
 1. Import the validator keys into Lighthouse.
 1. Start Lighthouse.
@@ -68,10 +68,10 @@ setting aside one or two hours for this process.
 
 ### Step 1. Create validator keys
 
-The Ethereum Foundation provides an "Eth2 launch pad" for creating validator keypairs and submitting
+The Ethereum Foundation provides a "Staking Launchpad" for creating validator keypairs and submitting
 deposits:
 
-- [Eth2 Launchpad][launchpad]
+- [Staking Launchpad][launchpad]
 
 Please follow the steps on the launch pad site to generate validator keys and submit deposits. Make
 sure you select "Lighthouse" as your client.
@@ -79,10 +79,10 @@ sure you select "Lighthouse" as your client.
 Move to the next step once you have completed the steps on the launch pad,
 including generating keys via the Python CLI and submitting gETH/ETH deposits.
 
-### Step 2. Start an Eth1 client
+### Step 2. Start an execution client
 
-Since Eth2 relies upon the Eth1 chain for validator on-boarding, all Eth2 validators must have a
-connection to an Eth1 node.
+Since the consensus chain relies upon the execution chain for validator on-boarding, all consensus validators must have a
+connection to an execution client.
 
 We provide instructions for using Geth, but you could use any client that implements the JSON RPC
 via HTTP. A fast-synced node is sufficient.
@@ -95,7 +95,7 @@ geth. Otherwise [see here](https://github.com/ethereum/go-ethereum/wiki/Installi
 
 #### Starting Geth
 
-Once you have geth installed, use this command to start your Eth1 node:
+Once you have geth installed, use this command to start your execution node:
 
 ```bash
  geth --http
@@ -116,7 +116,7 @@ its `--version` info.
 
 ### Step 4. Import validator keys to Lighthouse
 
-When Lighthouse is installed, follow the [Importing from the Ethereum 2.0 Launch
+When Lighthouse is installed, follow the [Importing from the Ethereum Staking Launch
 pad](./validator-import-launchpad.md) instructions so the validator client can
 perform your validator duties.
 

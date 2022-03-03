@@ -312,6 +312,8 @@ pub enum ExecutionPayloadError {
     ///
     /// The peer is not necessarily invalid.
     PoWParentMissing(ExecutionBlockHash),
+    /// The execution node is syncing but we fail the conditions for optimistic sync
+    UnverifiedNonOptimisticCandidate,
 }
 
 impl From<execution_layer::Error> for ExecutionPayloadError {
@@ -1127,6 +1129,29 @@ impl<'a, T: BeaconChainTypes> FullyVerifiedBlock<'a, T> {
         // It is important that this function is called *after* `per_slot_processing`, since the
         // `randao` may change.
         let payload_verification_status = notify_new_payload(chain, &state, block.message())?;
+
+        // If the payload did not validate or invalidate the block, check to see if this block is
+        // valid for optimistic import.
+        if payload_verification_status == PayloadVerificationStatus::NotVerified {
+            let current_slot = chain
+                .slot_clock
+                .now()
+                .ok_or(BeaconChainError::UnableToReadSlot)?;
+
+            if !chain
+                .fork_choice
+                .read()
+                .is_optimistic_candidate_block(
+                    current_slot,
+                    block.slot(),
+                    &block.parent_root(),
+                    &chain.spec,
+                )
+                .map_err(BeaconChainError::from)?
+            {
+                return Err(ExecutionPayloadError::UnverifiedNonOptimisticCandidate.into());
+            }
+        }
 
         // If the block is sufficiently recent, notify the validator monitor.
         if let Some(slot) = chain.slot_clock.now() {

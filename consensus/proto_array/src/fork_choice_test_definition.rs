@@ -4,6 +4,7 @@ mod no_votes;
 mod votes;
 
 use crate::proto_array_fork_choice::{Block, ExecutionStatus, ProtoArrayForkChoice};
+use crate::InvalidationOperation;
 use serde_derive::{Deserialize, Serialize};
 use types::{
     AttestationShufflingId, Checkpoint, Epoch, EthSpec, ExecutionBlockHash, Hash256,
@@ -238,12 +239,22 @@ impl ForkChoiceTestDefinition {
                 Operation::InvalidatePayload {
                     head_block_root,
                     latest_valid_ancestor_root,
-                } => fork_choice
-                    .process_execution_payload_invalidation(
-                        head_block_root,
-                        latest_valid_ancestor_root,
-                    )
-                    .unwrap(),
+                } => {
+                    let op = if let Some(latest_valid_ancestor) = latest_valid_ancestor_root {
+                        InvalidationOperation::InvalidateMany {
+                            head_block_root,
+                            always_invalidate_head: true,
+                            latest_valid_ancestor,
+                        }
+                    } else {
+                        InvalidationOperation::InvalidateOne {
+                            block_root: head_block_root,
+                        }
+                    };
+                    fork_choice
+                        .process_execution_payload_invalidation(&op)
+                        .unwrap()
+                }
                 Operation::AssertWeight { block_root, weight } => assert_eq!(
                     fork_choice.get_weight(&block_root).unwrap(),
                     weight,

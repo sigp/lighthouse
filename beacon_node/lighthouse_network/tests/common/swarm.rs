@@ -5,8 +5,8 @@ use super::behaviour::{CallTraceBehaviour, MockBehaviour};
 
 use futures::stream::Stream;
 use futures::task::{Context, Poll};
-use libp2p::swarm::protocols_handler::ProtocolsHandler;
-use libp2p::swarm::{IntoProtocolsHandler, NetworkBehaviour, Swarm, SwarmBuilder, SwarmEvent};
+use libp2p::swarm::handler::ConnectionHandler;
+use libp2p::swarm::{IntoConnectionHandler, NetworkBehaviour, Swarm, SwarmBuilder, SwarmEvent};
 use libp2p::{PeerId, Transport};
 
 use futures::StreamExt;
@@ -82,10 +82,10 @@ impl<B: NetworkBehaviour> SwarmPool<B> {
 impl<B> Stream for SwarmPool<B>
 where
     B: NetworkBehaviour,
-    <B as NetworkBehaviour>::ProtocolsHandler: ProtocolsHandler,
+    <B as NetworkBehaviour>::ConnectionHandler: ConnectionHandler,
 {
     type Item = (PeerId,
-                 SwarmEvent<<B as NetworkBehaviour>::OutEvent, <<<B as NetworkBehaviour>::ProtocolsHandler as IntoProtocolsHandler>::Handler as ProtocolsHandler>::Error>);
+                 SwarmEvent<<B as NetworkBehaviour>::OutEvent, <<<B as NetworkBehaviour>::ConnectionHandler as IntoConnectionHandler>::Handler as ConnectionHandler>::Error>);
 
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         let mut polls = self

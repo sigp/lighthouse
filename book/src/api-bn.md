@@ -1,6 +1,6 @@
 # Beacon Node API
 
-Lighthouse implements the standard [Eth2 Beacon Node API
+Lighthouse implements the standard [Beacon Node API
 specification][OpenAPI]. Please follow that link for a full description of each API endpoint.
 
 ## Starting the server
@@ -22,7 +22,7 @@ The following CLI flags control the HTTP server:
 - `--http-tls-cert`: specify the path to the certificate file for Lighthouse to use.
 - `--http-tls-key`: specify the path to the private key file for Lighthouse to use.
 
-The schema of the API aligns with the standard Eth2 Beacon Node API as defined
+The schema of the API aligns with the standard Beacon Node API as defined
 at [github.com/ethereum/beacon-APIs](https://github.com/ethereum/beacon-APIs).
 An interactive specification is available [here][OpenAPI].
 
@@ -64,7 +64,7 @@ lighthouse bn --http
 ## HTTP Request/Response Examples
 
 This section contains some simple examples of using the HTTP API via `curl`.
-All endpoints are documented in the [Eth2 Beacon Node API
+All endpoints are documented in the [Beacon Node API
 specification][OpenAPI].
 
 ### View the head of the beacon chain

@@ -111,7 +111,7 @@ impl<T: EthSpec> MockExecutionLayer<T> {
         let parent_hash = latest_execution_block.block_hash();
         let block_number = latest_execution_block.block_number() + 1;
         let timestamp = block_number;
-        let random = Hash256::from_low_u64_be(block_number);
+        let prev_randao = Hash256::from_low_u64_be(block_number);
         let finalized_block_hash = parent_hash;
 
         self.el
@@ -120,7 +120,7 @@ impl<T: EthSpec> MockExecutionLayer<T> {
                 ExecutionBlockHash::zero(),
                 Some(PayloadAttributes {
                     timestamp,
-                    random,
+                    prev_randao,
                     suggested_fee_recipient: Address::repeat_byte(42),
                 }),
             )
@@ -133,7 +133,7 @@ impl<T: EthSpec> MockExecutionLayer<T> {
             .get_payload::<T>(
                 parent_hash,
                 timestamp,
-                random,
+                prev_randao,
                 finalized_block_hash,
                 validator_index,
             )
@@ -143,7 +143,7 @@ impl<T: EthSpec> MockExecutionLayer<T> {
         assert_eq!(payload.parent_hash, parent_hash);
         assert_eq!(payload.block_number, block_number);
         assert_eq!(payload.timestamp, timestamp);
-        assert_eq!(payload.random, random);
+        assert_eq!(payload.prev_randao, prev_randao);
 
         let status = self.el.notify_new_payload(&payload).await.unwrap();
         assert_eq!(status, PayloadStatus::Valid);

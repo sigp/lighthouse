@@ -10,7 +10,7 @@ use hashset_delay::HashSetDelay;
 use libp2p::identify::IdentifyInfo;
 use peerdb::{client::ClientKind, BanOperation, BanResult, ScoreUpdateResult};
 use rand::seq::SliceRandom;
-use slog::{debug, error, warn};
+use slog::{debug, error, trace, warn};
 use smallvec::SmallVec;
 use std::{
     sync::Arc,
@@ -547,7 +547,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
         if let Some(peer_info) = self.network_globals.peers.read().peer_info(peer_id) {
             // received a ping
             // reset the to-ping timer for this peer
-            debug!(self.log, "Received a ping request"; "peer_id" => %peer_id, "seq_no" => seq);
+            trace!(self.log, "Received a ping request"; "peer_id" => %peer_id, "seq_no" => seq);
             match peer_info.connection_direction() {
                 Some(ConnectionDirection::Incoming) => {
                     self.inbound_ping_peers.insert(*peer_id);
@@ -563,7 +563,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
             // if the sequence number is unknown send an update the meta data of the peer.
             if let Some(meta_data) = &peer_info.meta_data() {
                 if *meta_data.seq_number() < seq {
-                    debug!(self.log, "Requesting new metadata from peer";
+                    trace!(self.log, "Requesting new metadata from peer";
                         "peer_id" => %peer_id, "known_seq_no" => meta_data.seq_number(), "ping_seq_no" => seq);
                     self.events.push(PeerManagerEvent::MetaData(*peer_id));
                 }
@@ -587,13 +587,13 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
             // if the sequence number is unknown send update the meta data of the peer.
             if let Some(meta_data) = &peer_info.meta_data() {
                 if *meta_data.seq_number() < seq {
-                    debug!(self.log, "Requesting new metadata from peer";
+                    trace!(self.log, "Requesting new metadata from peer";
                         "peer_id" => %peer_id, "known_seq_no" => meta_data.seq_number(), "pong_seq_no" => seq);
                     self.events.push(PeerManagerEvent::MetaData(*peer_id));
                 }
             } else {
                 // if we don't know the meta-data, request it
-                debug!(self.log, "Requesting first metadata from peer";
+                trace!(self.log, "Requesting first metadata from peer";
                     "peer_id" => %peer_id);
                 self.events.push(PeerManagerEvent::MetaData(*peer_id));
             }
@@ -607,10 +607,10 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
         if let Some(peer_info) = self.network_globals.peers.write().peer_info_mut(peer_id) {
             if let Some(known_meta_data) = &peer_info.meta_data() {
                 if *known_meta_data.seq_number() < *meta_data.seq_number() {
-                    debug!(self.log, "Updating peer's metadata";
+                    trace!(self.log, "Updating peer's metadata";
                         "peer_id" => %peer_id, "known_seq_no" => known_meta_data.seq_number(), "new_seq_no" => meta_data.seq_number());
                 } else {
-                    debug!(self.log, "Received old metadata";
+                    trace!(self.log, "Received old metadata";
                         "peer_id" => %peer_id, "known_seq_no" => known_meta_data.seq_number(), "new_seq_no" => meta_data.seq_number());
                     // Updating metadata even in this case to prevent storing
                     // incorrect  `attnets/syncnets` for a peer

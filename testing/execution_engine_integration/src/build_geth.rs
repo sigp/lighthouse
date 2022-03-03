@@ -3,10 +3,10 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-const GETH_BRANCH: &str = "merge-kiln";
+const GETH_BRANCH: &str = "merge-kiln-v2";
 const GETH_REPO_URL: &str = "https://github.com/MariusVanDerWijden/go-ethereum";
 
-fn main() {
+pub fn build() {
     let manifest_dir: PathBuf = env::var("CARGO_MANIFEST_DIR").unwrap().into();
     let execution_clients_dir = manifest_dir.join("execution_clients");
 
@@ -52,11 +52,15 @@ fn build_geth(execution_clients_dir: &Path) {
         .success());
 
     // Build geth
-    assert!(Command::new("make")
+    let make_result = Command::new("make")
         .arg("geth")
         .current_dir(&repo_dir)
         .output()
-        .expect("failed to make geth")
-        .status
-        .success());
+        .expect("failed to make geth");
+
+    if !make_result.status.success() {
+        dbg!(String::from_utf8_lossy(&make_result.stdout));
+        dbg!(String::from_utf8_lossy(&make_result.stderr));
+        panic!("make failed");
+    }
 }

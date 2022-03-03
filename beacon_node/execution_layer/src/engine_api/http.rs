@@ -288,7 +288,7 @@ mod test {
             "stateRoot": HASH_01,
             "receiptsRoot": HASH_00,
             "logsBloom": LOGS_BLOOM_01,
-            "random": HASH_01,
+            "prevRandao": HASH_01,
             "blockNumber": "0x0",
             "gasLimit": "0x1",
             "gasUsed": "0x2",
@@ -441,7 +441,7 @@ mod test {
                             },
                             Some(PayloadAttributes {
                                 timestamp: 5,
-                                random: Hash256::zero(),
+                                prev_randao: Hash256::zero(),
                                 suggested_fee_recipient: Address::repeat_byte(0),
                             }),
                         )
@@ -458,7 +458,7 @@ mod test {
                     },
                     {
                         "timestamp":"0x5",
-                        "random": HASH_00,
+                        "prevRandao": HASH_00,
                         "suggestedFeeRecipient": ADDRESS_00
                     }]
                 }),
@@ -495,7 +495,7 @@ mod test {
                             state_root: Hash256::repeat_byte(1),
                             receipts_root: Hash256::repeat_byte(0),
                             logs_bloom: vec![1; 256].into(),
-                            random: Hash256::repeat_byte(1),
+                            prev_randao: Hash256::repeat_byte(1),
                             block_number: 0,
                             gas_limit: 1,
                             gas_used: 2,
@@ -517,7 +517,7 @@ mod test {
                         "stateRoot": HASH_01,
                         "receiptsRoot": HASH_00,
                         "logsBloom": LOGS_BLOOM_01,
-                        "random": HASH_01,
+                        "prevRandao": HASH_01,
                         "blockNumber": "0x0",
                         "gasLimit": "0x1",
                         "gasUsed": "0x2",
@@ -596,7 +596,7 @@ mod test {
                             },
                             Some(PayloadAttributes {
                                 timestamp: 5,
-                                random: Hash256::zero(),
+                                prev_randao: Hash256::zero(),
                                 suggested_fee_recipient: Address::from_str("0xa94f5374fce5edbc8e2a8697c15331677e6ebf0b").unwrap(),
                             })
                         )
@@ -613,7 +613,7 @@ mod test {
                     },
                     {
                         "timestamp":"0x5",
-                        "random": HASH_00,
+                        "prevRandao": HASH_00,
                         "suggestedFeeRecipient":"0xa94f5374fce5edbc8e2a8697c15331677e6ebf0b"
                     }]
                 })
@@ -643,7 +643,7 @@ mod test {
                             },
                             Some(PayloadAttributes {
                                 timestamp: 5,
-                                random: Hash256::zero(),
+                                prev_randao: Hash256::zero(),
                                 suggested_fee_recipient: Address::from_str("0xa94f5374fce5edbc8e2a8697c15331677e6ebf0b").unwrap(),
                             })
                         )
@@ -687,7 +687,7 @@ mod test {
                         "stateRoot":"0xca3149fa9e37db08d1cd49c9061db1002ef1cd58db2210f2115c8c989b2bdf45",
                         "receiptsRoot":"0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421",
                         "logsBloom": LOGS_BLOOM_00,
-                        "random": HASH_00,
+                        "prevRandao": HASH_00,
                         "blockNumber":"0x1",
                         "gasLimit":"0x1c95111",
                         "gasUsed":"0x0",
@@ -710,7 +710,7 @@ mod test {
                             state_root: Hash256::from_str("0xca3149fa9e37db08d1cd49c9061db1002ef1cd58db2210f2115c8c989b2bdf45").unwrap(),
                             receipts_root: Hash256::from_str("0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421").unwrap(),
                             logs_bloom: vec![0; 256].into(),
-                            random: Hash256::zero(),
+                            prev_randao: Hash256::zero(),
                             block_number: 1,
                             gas_limit: u64::from_str_radix("1c95111",16).unwrap(),
                             gas_used: 0,
@@ -735,7 +735,7 @@ mod test {
                             state_root: Hash256::from_str("0xca3149fa9e37db08d1cd49c9061db1002ef1cd58db2210f2115c8c989b2bdf45").unwrap(),
                             receipts_root: Hash256::from_str("0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421").unwrap(),
                             logs_bloom: vec![0; 256].into(),
-                            random: Hash256::zero(),
+                            prev_randao: Hash256::zero(),
                             block_number: 1,
                             gas_limit: u64::from_str_radix("1c9c380",16).unwrap(),
                             gas_used: 0,
@@ -757,7 +757,7 @@ mod test {
                         "stateRoot":"0xca3149fa9e37db08d1cd49c9061db1002ef1cd58db2210f2115c8c989b2bdf45",
                         "receiptsRoot":"0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421",
                         "logsBloom": LOGS_BLOOM_00,
-                        "random": HASH_00,
+                        "prevRandao": HASH_00,
                         "blockNumber":"0x1",
                         "gasLimit":"0x1c9c380",
                         "gasUsed":"0x0",

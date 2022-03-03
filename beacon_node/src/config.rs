@@ -765,6 +765,10 @@ pub fn set_network_config(
         config.metrics_enabled = true;
     }
 
+    if cli_args.is_present("enable-private-discovery") {
+        config.discv5_config.table_filter = |_| true;
+    }
+
     Ok(())
 }
 

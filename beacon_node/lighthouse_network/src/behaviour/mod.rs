@@ -1171,7 +1171,7 @@ where
 }
 
 type BehaviourHandler<AppReqId, TSpec> =
-    <Behaviour<AppReqId, TSpec> as NetworkBehaviour>::ProtocolsHandler;
+    <Behaviour<AppReqId, TSpec> as NetworkBehaviour>::ConnectionHandler;
 
 impl<AppReqId, TSpec> Behaviour<AppReqId, TSpec>
 where

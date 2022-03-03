@@ -1,4 +1,4 @@
-use crate::ForkChoiceStore;
+use crate::{ForkChoiceStore, InvalidationOperation};
 use proto_array::{Block as ProtoBlock, ExecutionStatus, ProtoArrayForkChoice};
 use ssz_derive::{Decode, Encode};
 use std::cmp::Ordering;
@@ -480,11 +480,10 @@ where
     /// See `ProtoArrayForkChoice::process_execution_payload_invalidation` for documentation.
     pub fn on_invalid_execution_payload(
         &mut self,
-        head_block_root: Hash256,
-        latest_valid_ancestor_root: Option<ExecutionBlockHash>,
+        op: &InvalidationOperation,
     ) -> Result<(), Error<T::Error>> {
         self.proto_array
-            .process_execution_payload_invalidation(head_block_root, latest_valid_ancestor_root)
+            .process_execution_payload_invalidation(op)
             .map_err(Error::FailedToProcessInvalidExecutionPayload)
     }
 
@@ -926,6 +925,54 @@ where
     pub fn is_descendant_of_finalized(&self, block_root: Hash256) -> bool {
         self.proto_array
             .is_descendant(self.fc_store.finalized_checkpoint().root, block_root)
+    }
+
+    /// Returns `Ok(false)` if a block is not viable to be imported optimistically.
+    ///
+    /// ## Notes
+    ///
+    /// Equivalent to the function with the same name in the optimistic sync specs:
+    ///
+    /// https://github.com/ethereum/consensus-specs/blob/dev/sync/optimistic.md#helpers
+    pub fn is_optimistic_candidate_block(
+        &self,
+        current_slot: Slot,
+        block_slot: Slot,
+        block_parent_root: &Hash256,
+        spec: &ChainSpec,
+    ) -> Result<bool, Error<T::Error>> {
+        // If the block is sufficiently old, import it.
+        if block_slot + spec.safe_slots_to_import_optimistically <= current_slot {
+            return Ok(true);
+        }
+
+        // If the justified block has execution enabled, then optimistically import any block.
+        if self
+            .get_justified_block()?
+            .execution_status
+            .is_execution_enabled()
+        {
+            return Ok(true);
+        }
+
+        // If the parent block has execution enabled, always import the block.
+        //
+        // TODO(bellatrix): this condition has not yet been merged into the spec.
+        //
+        // See:
+        //
+        // https://github.com/ethereum/consensus-specs/pull/2844
+        if self
+            .proto_array
+            .get_block(block_parent_root)
+            .map_or(false, |parent| {
+                parent.execution_status.is_execution_enabled()
+            })
+        {
+            return Ok(true);
+        }
+
+        Ok(false)
     }
 
     /// Return the current finalized checkpoint.

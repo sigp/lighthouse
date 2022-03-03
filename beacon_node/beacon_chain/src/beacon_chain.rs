@@ -53,7 +53,7 @@ use eth2::types::{
     EventKind, SseBlock, SseChainReorg, SseFinalizedCheckpoint, SseHead, SseLateHead, SyncDuty,
 };
 use execution_layer::{ExecutionLayer, PayloadStatus};
-use fork_choice::{AttestationFromBlock, ForkChoice};
+use fork_choice::{AttestationFromBlock, ForkChoice, InvalidationOperation};
 use futures::channel::mpsc::Sender;
 use itertools::process_results;
 use itertools::Itertools;
@@ -3180,49 +3180,29 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// This method must be called whenever an execution engine indicates that a payload is
     /// invalid.
     ///
-    /// If the `latest_root` is known to fork-choice it will be invalidated. If it is not known, an
-    /// error will be returned.
+    /// Fork choice will be run after the invalidation. The client may be shut down if the `op`
+    /// results in the justified checkpoint being invalidated.
     ///
-    /// If `latest_valid_hash` is `None` or references a block unknown to fork choice, no other
-    /// blocks will be invalidated. If `latest_valid_hash` is a block known to fork choice, all
-    /// blocks between the `latest_root` and the `latest_valid_hash` will be invalidated (which may
-    /// cause further, second-order invalidations).
-    ///
-    /// ## Notes
-    ///
-    /// Use these rules to set `latest_root`:
-    ///
-    /// - When `forkchoiceUpdated` indicates an invalid block, set `latest_root` to be the
-    ///     block root that was the head of the chain when `forkchoiceUpdated` was called.
-    /// - When `executePayload` returns an invalid block *during* block import, set
-    ///     `latest_root` to be the parent of the beacon block containing the invalid
-    ///     payload (because the block containing the payload is not present in fork choice).
-    /// - When `executePayload` returns an invalid block *after* block import, set
-    ///     `latest_root` to be root of the beacon block containing the invalid payload.
+    /// See the documentation of `InvalidationOperation` for information about defining `op`.
     pub fn process_invalid_execution_payload(
         &self,
-        latest_root: Hash256,
-        latest_valid_hash: Option<ExecutionBlockHash>,
+        op: &InvalidationOperation,
     ) -> Result<(), Error> {
         debug!(
             self.log,
             "Invalid execution payload in block";
-            "latest_valid_hash" => ?latest_valid_hash,
-            "latest_root" => ?latest_root,
+            "latest_valid_ancestor" => ?op.latest_valid_ancestor(),
+            "block_root" => ?op.block_root(),
         );
 
         // Update fork choice.
-        if let Err(e) = self
-            .fork_choice
-            .write()
-            .on_invalid_execution_payload(latest_root, latest_valid_hash)
-        {
+        if let Err(e) = self.fork_choice.write().on_invalid_execution_payload(op) {
             crit!(
                 self.log,
                 "Failed to process invalid payload";
                 "error" => ?e,
-                "latest_valid_hash" => ?latest_valid_hash,
-                "latest_root" => ?latest_root,
+                "latest_valid_ancestor" => ?op.latest_valid_ancestor(),
+                "block_root" => ?op.block_root(),
             );
         }
 
@@ -3763,8 +3743,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     // The execution engine has stated that all blocks between the
                     // `head_execution_block_hash` and `latest_valid_hash` are invalid.
                     self.process_invalid_execution_payload(
-                        head_block_root,
-                        Some(*latest_valid_hash),
+                        &InvalidationOperation::InvalidateMany {
+                            head_block_root,
+                            always_invalidate_head: true,
+                            latest_valid_ancestor: *latest_valid_hash,
+                        },
                     )?;
 
                     Err(BeaconChainError::ExecutionForkChoiceUpdateInvalid { status })
@@ -3781,7 +3764,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     //
                     // Using a `None` latest valid ancestor will result in only the head block
                     // being invalidated (no ancestors).
-                    self.process_invalid_execution_payload(head_block_root, None)?;
+                    self.process_invalid_execution_payload(
+                        &InvalidationOperation::InvalidateOne {
+                            block_root: head_block_root,
+                        },
+                    )?;
 
                     Err(BeaconChainError::ExecutionForkChoiceUpdateInvalid { status })
                 }
