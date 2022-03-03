@@ -5,7 +5,6 @@ on:
         branches:
             - unstable
             - stable
-            - merge-devnet-5
         tags:
             - v*
 
