@@ -114,6 +114,11 @@ pub const FORK_CHOICE_DB_KEY: Hash256 = Hash256::zero();
 /// Defines how old a block can be before it's no longer a candidate for the early attester cache.
 const EARLY_ATTESTER_CACHE_HISTORIC_SLOTS: u64 = 4;
 
+/// Defines a distance between the head block slot and the current slot.
+///
+/// If the head block is older than this value, don't bother preparing beacon proposers.
+const PREPARE_PROPOSER_HISTORIC_EPOCHS: u64 = 4;
+
 /// Reported to the user when the justified block has an invalid execution payload.
 pub const INVALID_JUSTIFIED_PAYLOAD_SHUTDOWN_REASON: &str =
     "Justified block has an invalid execution payload.";
@@ -3740,6 +3745,23 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         }
 
         let head = self.head_info()?;
+        let current_slot = self.slot()?;
+
+        // Don't bother with proposer prep if the head is more than
+        // `PREPARE_PROPOSER_HISTORIC_EPOCHS` prior to the current slot.
+        //
+        // This prevents the routine from running during sync.
+        if head.slot + T::EthSpec::slots_per_epoch() * PREPARE_PROPOSER_HISTORIC_EPOCHS
+            < current_slot
+        {
+            debug!(
+                self.log,
+                "Head too old for proposer prep";
+                "head_slot" => head.slot,
+                "current_slot" => current_slot,
+            );
+            return Ok(());
+        }
 
         // We only start to push preparation data for some chain *after* the transition block
         // has been imported.
@@ -3751,7 +3773,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         };
 
         let head_epoch = head.slot.epoch(T::EthSpec::slots_per_epoch());
-        let current_slot = self.slot()?;
         let prepare_slot = current_slot + 1;
         let prepare_epoch = prepare_slot.epoch(T::EthSpec::slots_per_epoch());
 
