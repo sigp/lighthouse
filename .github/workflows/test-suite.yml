@@ -48,10 +48,10 @@ jobs:
     needs: cargo-fmt
     steps:
     - uses: actions/checkout@v1
+    - uses: microsoft/setup-msbuild@v1.0.2
     - name: Get latest version of stable Rust
       run: rustup update stable
     - name: Install ganache
-      uses: microsoft/setup-msbuild@v1.0.2
       run: npm install -g ganache
     - name: Install make
       run: choco install -y make
