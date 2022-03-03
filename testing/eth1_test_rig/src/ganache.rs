@@ -174,8 +174,7 @@ impl GanacheInstance {
             .await
             .map(|_| ())
             .map_err(|_| {
-                "utils should mine new block with evm_mine (only works with ganache!)"
-                    .to_string()
+                "utils should mine new block with evm_mine (only works with ganache!)".to_string()
             })
     }
 }
