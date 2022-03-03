@@ -3653,7 +3653,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         }
 
         // If this is a post-merge block, update the execution layer.
-        if let Some(new_head_execution_block_hash) = new_head_execution_block_hash_opt {
+        if let Some(new_head_execution_block_hash) =
+            new_head_execution_block_hash_opt.filter(|h| *h != ExecutionBlockHash::zero())
+        {
             if is_merge_transition_complete {
                 let finalized_execution_block_hash = finalized_block
                     .execution_status
@@ -3704,6 +3706,15 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         head_block_root: Hash256,
         head_execution_block_hash: ExecutionBlockHash,
     ) -> Result<(), Error> {
+        if head_execution_block_hash == ExecutionBlockHash::zero() {
+            debug!(
+                self.log,
+                "Not sending forkchoice updated";
+                "msg" => "head block hash is zero"
+            );
+            return Ok(());
+        }
+
         let forkchoice_updated_response = self
             .execution_layer
             .as_ref()

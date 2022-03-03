@@ -668,7 +668,10 @@ where
 
                 // Issue the head to the execution engine on startup. This ensures it can start
                 // syncing.
-                if let Some(block_hash) = head.execution_payload_block_hash {
+                if let Some(block_hash) = head
+                    .execution_payload_block_hash
+                    .filter(|h| *h != ExecutionBlockHash::zero())
+                {
                     let finalized_root = head.finalized_checkpoint.root;
                     let finalized_block = beacon_chain
                         .store
