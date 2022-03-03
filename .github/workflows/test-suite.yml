@@ -190,6 +190,9 @@ jobs:
     needs: cargo-fmt
     steps:
     - uses: actions/checkout@v1
+    - uses: actions/setup-go@v2
+      with:
+        go-version: '1.17'
     - name: Get latest version of stable Rust
       run: rustup update stable
     - name: Run exec engine integration tests in release

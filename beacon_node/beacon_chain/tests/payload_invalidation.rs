@@ -231,8 +231,10 @@ fn valid_invalid_syncing() {
 /// `latest_valid_hash`.
 #[test]
 fn invalid_payload_invalidates_parent() {
-    let mut rig = InvalidPayloadRig::new();
+    let mut rig = InvalidPayloadRig::new().enable_attestations();
     rig.move_to_terminal_block();
+    rig.import_block(Payload::Valid); // Import a valid transition block.
+    rig.move_to_first_justification(Payload::Syncing);
 
     let roots = vec![
         rig.import_block(Payload::Syncing),
@@ -258,6 +260,7 @@ fn invalid_payload_invalidates_parent() {
 fn justified_checkpoint_becomes_invalid() {
     let mut rig = InvalidPayloadRig::new().enable_attestations();
     rig.move_to_terminal_block();
+    rig.import_block(Payload::Valid); // Import a valid transition block.
     rig.move_to_first_justification(Payload::Syncing);
 
     let justified_checkpoint = rig.head_info().current_justified_checkpoint;
@@ -305,7 +308,9 @@ fn pre_finalized_latest_valid_hash() {
 
     let mut rig = InvalidPayloadRig::new().enable_attestations();
     rig.move_to_terminal_block();
-    let blocks = rig.build_blocks(num_blocks, Payload::Syncing);
+    let mut blocks = vec![];
+    blocks.push(rig.import_block(Payload::Valid)); // Import a valid transition block.
+    blocks.extend(rig.build_blocks(num_blocks - 1, Payload::Syncing));
 
     assert_eq!(rig.head_info().finalized_checkpoint.epoch, finalized_epoch);
 
@@ -330,7 +335,11 @@ fn pre_finalized_latest_valid_hash() {
     for i in E::slots_per_epoch() * finalized_epoch..num_blocks {
         let slot = Slot::new(i);
         let root = rig.block_root_at_slot(slot).unwrap();
-        assert!(rig.execution_status(root).is_not_verified());
+        if slot == 1 {
+            assert!(rig.execution_status(root).is_valid());
+        } else {
+            assert!(rig.execution_status(root).is_not_verified());
+        }
     }
 }
 
@@ -344,7 +353,10 @@ fn latest_valid_hash_will_validate() {
 
     let mut rig = InvalidPayloadRig::new().enable_attestations();
     rig.move_to_terminal_block();
-    let blocks = rig.build_blocks(4, Payload::Syncing);
+
+    let mut blocks = vec![];
+    blocks.push(rig.import_block(Payload::Valid)); // Import a valid transition block.
+    blocks.extend(rig.build_blocks(4, Payload::Syncing));
 
     let latest_valid_root = rig
         .block_root_at_slot(Slot::new(LATEST_VALID_SLOT))
@@ -357,7 +369,7 @@ fn latest_valid_hash_will_validate() {
 
     assert_eq!(rig.head_info().slot, LATEST_VALID_SLOT);
 
-    for slot in 0..=4 {
+    for slot in 0..=5 {
         let slot = Slot::new(slot);
         let root = if slot > 0 {
             // If not the genesis slot, check the blocks we just produced.
@@ -386,7 +398,9 @@ fn latest_valid_hash_is_junk() {
 
     let mut rig = InvalidPayloadRig::new().enable_attestations();
     rig.move_to_terminal_block();
-    let blocks = rig.build_blocks(num_blocks, Payload::Syncing);
+    let mut blocks = vec![];
+    blocks.push(rig.import_block(Payload::Valid)); // Import a valid transition block.
+    blocks.extend(rig.build_blocks(num_blocks, Payload::Syncing));
 
     assert_eq!(rig.head_info().finalized_checkpoint.epoch, finalized_epoch);
 
@@ -408,7 +422,11 @@ fn latest_valid_hash_is_junk() {
     for i in E::slots_per_epoch() * finalized_epoch..num_blocks {
         let slot = Slot::new(i);
         let root = rig.block_root_at_slot(slot).unwrap();
-        assert!(rig.execution_status(root).is_not_verified());
+        if slot == 1 {
+            assert!(rig.execution_status(root).is_valid());
+        } else {
+            assert!(rig.execution_status(root).is_not_verified());
+        }
     }
 }
 
@@ -421,6 +439,7 @@ fn invalidates_all_descendants() {
 
     let mut rig = InvalidPayloadRig::new().enable_attestations();
     rig.move_to_terminal_block();
+    rig.import_block(Payload::Valid); // Import a valid transition block.
     let blocks = rig.build_blocks(num_blocks, Payload::Syncing);
 
     assert_eq!(rig.head_info().finalized_checkpoint.epoch, finalized_epoch);
@@ -493,6 +512,7 @@ fn switches_heads() {
 
     let mut rig = InvalidPayloadRig::new().enable_attestations();
     rig.move_to_terminal_block();
+    rig.import_block(Payload::Valid); // Import a valid transition block.
     let blocks = rig.build_blocks(num_blocks, Payload::Syncing);
 
     assert_eq!(rig.head_info().finalized_checkpoint.epoch, finalized_epoch);
@@ -571,8 +591,9 @@ fn invalid_during_processing() {
 
 #[test]
 fn invalid_after_optimistic_sync() {
-    let mut rig = InvalidPayloadRig::new();
+    let mut rig = InvalidPayloadRig::new().enable_attestations();
     rig.move_to_terminal_block();
+    rig.import_block(Payload::Valid); // Import a valid transition block.
 
     let mut roots = vec![
         rig.import_block(Payload::Syncing),

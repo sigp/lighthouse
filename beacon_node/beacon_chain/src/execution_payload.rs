@@ -12,7 +12,7 @@ use crate::{
     ExecutionPayloadError,
 };
 use execution_layer::PayloadStatus;
-use fork_choice::PayloadVerificationStatus;
+use fork_choice::{InvalidationOperation, PayloadVerificationStatus};
 use proto_array::{Block as ProtoBlock, ExecutionStatus};
 use slog::debug;
 use slot_clock::SlotClock;
@@ -68,7 +68,13 @@ pub fn notify_new_payload<T: BeaconChainTypes>(
                 // This block has not yet been applied to fork choice, so the latest block that was
                 // imported to fork choice was the parent.
                 let latest_root = block.parent_root();
-                chain.process_invalid_execution_payload(latest_root, Some(latest_valid_hash))?;
+                chain.process_invalid_execution_payload(
+                    &InvalidationOperation::InvalidateMany {
+                        head_block_root: latest_root,
+                        always_invalidate_head: false,
+                        latest_valid_ancestor: latest_valid_hash,
+                    },
+                )?;
 
                 Err(ExecutionPayloadError::RejectedByExecutionEngine { status }.into())
             }
@@ -145,11 +151,19 @@ pub fn validate_merge_block<T: BeaconChainTypes>(
                 .slot_clock
                 .now()
                 .ok_or(BeaconChainError::UnableToReadSlot)?;
-            // Check the optimistic sync conditions. Note that because this is the merge block,
-            // the justified checkpoint can't have execution enabled so we only need to check the
-            // current slot is at least SAFE_SLOTS_TO_IMPORT_OPTIMISTICALLY ahead of the block
-            // https://github.com/ethereum/consensus-specs/blob/v1.1.9/sync/optimistic.md#when-to-optimistically-import-blocks
-            if block.slot() + chain.spec.safe_slots_to_import_optimistically <= current_slot {
+
+            // Ensure the block is a candidate for optimistic import.
+            if chain
+                .fork_choice
+                .read()
+                .is_optimistic_candidate_block(
+                    current_slot,
+                    block.slot(),
+                    &block.parent_root(),
+                    &chain.spec,
+                )
+                .map_err(BeaconChainError::from)?
+            {
                 debug!(
                     chain.log,
                     "Optimistically accepting terminal block";

@@ -1,5 +1,5 @@
 use crate::error::Error;
-use crate::proto_array::{Iter, ProposerBoost, ProtoArray};
+use crate::proto_array::{InvalidationOperation, Iter, ProposerBoost, ProtoArray};
 use crate::ssz_container::SszContainer;
 use serde_derive::{Deserialize, Serialize};
 use ssz::{Decode, Encode};
@@ -191,11 +191,10 @@ impl ProtoArrayForkChoice {
     /// See `ProtoArray::propagate_execution_payload_invalidation` for documentation.
     pub fn process_execution_payload_invalidation(
         &mut self,
-        head_block_root: Hash256,
-        latest_valid_ancestor_root: Option<ExecutionBlockHash>,
+        op: &InvalidationOperation,
     ) -> Result<(), String> {
         self.proto_array
-            .propagate_execution_payload_invalidation(head_block_root, latest_valid_ancestor_root)
+            .propagate_execution_payload_invalidation(op)
             .map_err(|e| format!("Failed to process invalid payload: {:?}", e))
     }
 
