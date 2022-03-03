@@ -1719,6 +1719,14 @@ impl<T: BeaconChainTypes> Worker<T> {
                 );
 
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
+
+                // The peer that sent us this could be a lagger, or a spammer, or this failure could
+                // be due to us processing attestations extremely slowly. Don't be too harsh.
+                self.gossip_penalize_peer(
+                    peer_id,
+                    PeerAction::HighToleranceError,
+                    "attn_to_finalized_block",
+                );
             }
             AttnError::BeaconChainError(BeaconChainError::DBError(Error::HotColdDBError(
                 HotColdDBError::AttestationStateIsFinalized { .. },
