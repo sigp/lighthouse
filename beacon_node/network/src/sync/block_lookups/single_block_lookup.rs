@@ -4,7 +4,7 @@ use lighthouse_network::{rpc::BlocksByRootRequest, PeerId};
 use rand::seq::IteratorRandom;
 use ssz_types::VariableList;
 use store::{EthSpec, Hash256, SignedBeaconBlock};
-use strum::AsRefStr;
+use strum::AsStaticStr;
 
 const SINGLE_BLOCK_LOOKUP_MAX_ATTEMPTS: u8 = 3;
 
@@ -17,6 +17,9 @@ pub struct SingleBlockRequest<const MAX_ATTEMPTS: u8 = SINGLE_BLOCK_LOOKUP_MAX_A
     pub state: State,
     /// Peers that should have this block.
     pub available_peers: HashSet<PeerId>,
+    /// Peers from which we have requested this block.
+    pub used_peers: HashSet<PeerId>,
+    /// How many times have we attempted this block.
     pub failed_attempts: u8,
 }
 
@@ -27,7 +30,7 @@ pub enum State {
     Processing { peer_id: PeerId },
 }
 
-#[derive(Debug, PartialEq, Eq, AsRefStr)]
+#[derive(Debug, PartialEq, Eq, AsStaticStr)]
 pub enum VerifyError {
     RootMismatch,
     NoBlockReturned,
@@ -46,6 +49,7 @@ impl<const MAX_ATTEMPTS: u8> SingleBlockRequest<MAX_ATTEMPTS> {
             hash,
             state: State::AwaitingDownload,
             available_peers: HashSet::from([peer_id]),
+            used_peers: HashSet::default(),
             failed_attempts: 0,
         }
     }
@@ -119,7 +123,7 @@ impl<const MAX_ATTEMPTS: u8> SingleBlockRequest<MAX_ATTEMPTS> {
         }
     }
 
-    pub fn request_block(&self) -> Result<(PeerId, BlocksByRootRequest), LookupRequestError> {
+    pub fn request_block(&mut self) -> Result<(PeerId, BlocksByRootRequest), LookupRequestError> {
         debug_assert!(matches!(self.state, State::AwaitingDownload));
         if self.failed_attempts <= MAX_ATTEMPTS {
             if let Some(&peer_id) = self.available_peers.iter().choose(&mut rand::thread_rng()) {
@@ -127,6 +131,7 @@ impl<const MAX_ATTEMPTS: u8> SingleBlockRequest<MAX_ATTEMPTS> {
                     block_roots: VariableList::from(vec![self.hash]),
                 };
                 self.state = State::Downloading { peer_id };
+                self.used_peers.insert(peer_id);
                 return Ok((peer_id, request));
             } else {
                 Err(LookupRequestError::NoPeers)
@@ -156,7 +161,7 @@ mod tests {
     use types::MinimalEthSpec as E;
 
     fn rand_block() -> SignedBeaconBlock<E> {
-        let rng = XorShiftRng::from_seed([42; 16]);
+        let mut rng = XorShiftRng::from_seed([42; 16]);
         SignedBeaconBlock::from_block(
             types::BeaconBlock::Base(types::BeaconBlockBase {
                 ..<_>::random_for_test(&mut rng)
@@ -170,7 +175,7 @@ mod tests {
         let peer_id = PeerId::random();
         let block = rand_block();
 
-        let mut sl = SingleBlockRequest::new(block.canonical_root(), peer_id);
+        let mut sl = SingleBlockRequest::<4>::new(block.canonical_root(), peer_id);
         // Should fail
         let block = sl.verify_block(Some(Box::new(block))).unwrap().unwrap();
     }
@@ -180,7 +185,7 @@ mod tests {
         let peer_id = PeerId::random();
         let block = rand_block();
 
-        let mut sl = SingleBlockRequest::new(block.canonical_root(), peer_id);
+        let mut sl = SingleBlockRequest::<4>::new(block.canonical_root(), peer_id);
         sl.register_failure();
     }
 }

@@ -8,6 +8,7 @@ use lru_cache::LRUCache;
 use slog::{crit, debug, error, warn, Logger};
 use smallvec::SmallVec;
 use store::{Hash256, SignedBeaconBlock};
+use strum::AsStaticRef;
 use tokio::sync::mpsc;
 
 use crate::beacon_processor::{ChainSegmentProcessId, WorkEvent};
@@ -88,7 +89,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
             "block" => %hash
         );
 
-        let single_block_request = SingleBlockRequest::new(hash, peer_id);
+        let mut single_block_request = SingleBlockRequest::new(hash, peer_id);
 
         let (peer_id, request) = single_block_request.request_block().unwrap();
         if let Ok(request_id) = cx.single_block_lookup_request(peer_id, request) {
@@ -174,14 +175,14 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                     .is_err()
                 {
                     // Remove to avoid inconsistencies
-                    request.remove();
+                    self.single_block_lookups.remove(&id);
                 }
             }
             Ok(None) => {
                 // request finished correctly, it will be removed after the block is processed.
             }
             Err(error) => {
-                let msg: &'static str = error.as_ref();
+                let msg: &str = error.as_static();
                 cx.report_peer(peer_id, PeerAction::LowToleranceError, msg);
                 // Remove the request, if it can be retried it will be added with a new id.
                 let mut req = request.remove();
@@ -211,7 +212,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         seen_timestamp: Duration,
         cx: &mut SyncNetworkContext<T::EthSpec>,
     ) {
-        let parent_lookup = if let Some(pos) = self
+        let mut parent_lookup = if let Some(pos) = self
             .parent_queue
             .iter()
             .position(|request| request.pending_response(id))
@@ -247,7 +248,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                 VerifyError::RootMismatch
                 | VerifyError::NoBlockReturned
                 | VerifyError::ExtraBlocksReturned => {
-                    let e = e.as_ref();
+                    let e = e.as_static();
                     warn!(self.log, "Peer sent invalid response to parent request.";
                         "peer_id" => %peer_id, "reason" => e);
 
@@ -319,7 +320,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         result: Result<(), BlockError<T::EthSpec>>,
         cx: &mut SyncNetworkContext<T::EthSpec>,
     ) {
-        let req = match self.single_block_lookups.remove(&id) {
+        let mut req = match self.single_block_lookups.remove(&id) {
             Some(req) => req,
             None => {
                 crit!(
@@ -379,12 +380,16 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         result: Result<(), BlockError<T::EthSpec>>,
         cx: &mut SyncNetworkContext<T::EthSpec>,
     ) {
-        let mut parent_lookup = if let Some(pos) = self
+        let (mut parent_lookup, peer_id) = if let Some((pos, peer)) = self
             .parent_queue
             .iter()
-            .position(|request| request.pending_block_processing(chain_hash))
-        {
-            self.parent_queue.remove(pos)
+            .enumerate()
+            .find_map(|(pos, request)| {
+                request
+                    .get_processing_peer(chain_hash)
+                    .map(|peer| (pos, peer))
+            }) {
+            (self.parent_queue.remove(pos), peer)
         } else {
             #[cfg(debug_assertions)]
             panic!(
@@ -430,7 +435,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                     self.log, "Invalid parent chain";
                     "score_adjustment" => %PeerAction::MidToleranceError,
                     "outcome" => ?outcome,
-                    "last_peer" => %parent_lookup.last_submitted_peer(),
+                    "last_peer" => %peer_id,
                 );
 
                 // Add this chain to cache of failed chains
@@ -438,11 +443,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
 
                 // This currently can be a host of errors. We permit this due to the partial
                 // ambiguity.
-                cx.report_peer(
-                    parent_lookup.last_submitted_peer(),
-                    PeerAction::MidToleranceError,
-                    "parent_request_err",
-                );
+                cx.report_peer(peer_id, PeerAction::MidToleranceError, "parent_request_err");
             }
         }
 

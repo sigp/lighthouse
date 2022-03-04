@@ -1,6 +1,6 @@
 use lighthouse_network::PeerId;
 use store::{EthSpec, Hash256, SignedBeaconBlock};
-use strum::AsRefStr;
+use strum::AsStaticStr;
 
 use crate::sync::{
     manager::{Id, SLOT_IMPORT_TOLERANCE},
@@ -28,7 +28,7 @@ pub(crate) struct ParentLookup<T: EthSpec> {
     current_parent_request_id: Option<Id>,
 }
 
-#[derive(Debug, PartialEq, Eq, AsRefStr)]
+#[derive(Debug, PartialEq, Eq, AsStaticStr)]
 pub enum VerifyError {
     RootMismatch,
     NoBlockReturned,
@@ -36,7 +36,7 @@ pub enum VerifyError {
     PreviousFailure { parent_root: Hash256 },
 }
 
-#[derive(Debug, PartialEq, Eq, AsRefStr)]
+#[derive(Debug, PartialEq, Eq, AsStaticStr)]
 pub enum RequestError {
     SendFailed(&'static str),
     ChainTooLong,
@@ -141,8 +141,11 @@ impl<T: EthSpec> ParentLookup<T> {
         Ok(block)
     }
 
-    pub fn pending_block_processing(&self, chain_hash: Hash256) -> bool {
-        self.current_parent_request.is_processing() && self.chain_hash == chain_hash
+    pub fn get_processing_peer(&self, chain_hash: Hash256) -> Option<PeerId> {
+        if self.chain_hash == chain_hash {
+            return self.current_parent_request.processing_peer().ok();
+        }
+        None
     }
 
     #[cfg(test)]
@@ -150,7 +153,7 @@ impl<T: EthSpec> ParentLookup<T> {
         self.current_parent_request.failed_attempts
     }
 
-    pub fn add_peer(&self, block_root: &Hash256, peer_id: &PeerId) -> bool {
+    pub fn add_peer(&mut self, block_root: &Hash256, peer_id: &PeerId) -> bool {
         self.current_parent_request.add_peer(block_root, peer_id)
     }
 }
