@@ -54,6 +54,8 @@ jobs:
       uses: actions/setup-python@v2
       with:
         python-version: "2.7"
+    - name: Install ganache
+      run: npm install -g ganache
     - name: Install make
       run: choco install -y make
     - uses: KyleMayes/install-llvm-action@v1
