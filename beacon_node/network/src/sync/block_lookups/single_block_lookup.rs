@@ -13,7 +13,7 @@ pub(crate) struct SingleBlockRequest {
     pub peer_id: PeerId,
 }
 
-enum VerifyError {
+pub enum VerifyError {
     RootMismatch,
     NoBlockReturned,
     ExtraBlocksReturned,
