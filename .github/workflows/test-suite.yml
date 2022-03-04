@@ -50,10 +50,10 @@ jobs:
     - uses: actions/checkout@v1
     - name: Get latest version of stable Rust
       run: rustup update stable
-    - name: Install Windows Build Tools
-      run: npm install --global windows-build-tools
-    - name: Install ganache
-      run: npm install -g ganache
+    - name: Use Python 2.7
+       uses: actions/setup-python@v2
+       with:
+         python-version: "2.7"
     - name: Install make
       run: choco install -y make
     - uses: KyleMayes/install-llvm-action@v1
