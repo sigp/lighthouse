@@ -3,11 +3,10 @@ use std::time::Duration;
 
 use beacon_chain::{BeaconChainTypes, BlockError};
 use fnv::FnvHashMap;
-use lighthouse_network::{rpc::BlocksByRootRequest, PeerAction, PeerId};
+use lighthouse_network::{PeerAction, PeerId};
 use lru_cache::LRUCache;
 use slog::{crit, debug, error, warn, Logger};
 use smallvec::SmallVec;
-use ssz_types::VariableList;
 use store::{Hash256, SignedBeaconBlock};
 use tokio::sync::mpsc;
 
@@ -405,7 +404,10 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
             }
             Ok(_) | Err(BlockError::BlockIsAlreadyKnown { .. }) => {
                 let (chain_hash, blocks, peer_id) = parent_lookup.destructure();
-                let process_id = ChainSegmentProcessId::ParentLookup(peer_id, chain_hash);
+                let process_id = ChainSegmentProcessId::ParentLookup(
+                    peer_id.into_iter().next().unwrap(),
+                    chain_hash,
+                );
 
                 match self
                     .beacon_processor_send

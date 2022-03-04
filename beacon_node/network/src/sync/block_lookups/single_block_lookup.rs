@@ -143,6 +143,10 @@ impl<const MAX_ATTEMPTS: u8> SingleBlockRequest<MAX_ATTEMPTS> {
             Err(())
         }
     }
+
+    pub fn is_processing(&self) -> bool {
+        matches!(self.state, State::Processing { .. })
+    }
 }
 
 #[cfg(test)]

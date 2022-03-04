@@ -1,5 +1,3 @@
-use std::collections::HashSet;
-
 use lighthouse_network::PeerId;
 use store::{EthSpec, Hash256, SignedBeaconBlock};
 use strum::AsRefStr;
@@ -102,14 +100,24 @@ impl<T: EthSpec> ParentLookup<T> {
         self.current_parent_request.register_failure();
     }
 
-    pub fn destructure(self) -> (Hash256, Vec<SignedBeaconBlock<T>>, PeerId) {
+    pub fn destructure(
+        self,
+    ) -> (
+        Hash256,
+        Vec<SignedBeaconBlock<T>>,
+        std::collections::HashSet<PeerId>,
+    ) {
         let ParentLookup {
             chain_hash,
             downloaded_blocks,
-            last_submitted_peer,
+            current_parent_request,
             ..
         } = self;
-        (chain_hash, downloaded_blocks, last_submitted_peer)
+        (
+            chain_hash,
+            downloaded_blocks,
+            current_parent_request.available_peers,
+        )
     }
 
     /// Verifies that the received block is what we requested. If so, parent lookup now waits for
@@ -134,16 +142,12 @@ impl<T: EthSpec> ParentLookup<T> {
     }
 
     pub fn pending_block_processing(&self, chain_hash: Hash256) -> bool {
-        matches!(self.state, State::Processing) && self.chain_hash == chain_hash
-    }
-
-    pub fn last_submitted_peer(&self) -> PeerId {
-        self.last_submitted_peer
+        self.current_parent_request.is_processing() && self.chain_hash == chain_hash
     }
 
     #[cfg(test)]
     pub fn failed_attempts(&self) -> u8 {
-        self.failed_attempts
+        self.current_parent_request.failed_attempts
     }
 
     pub fn add_peer(&self, block_root: &Hash256, peer_id: &PeerId) -> bool {
