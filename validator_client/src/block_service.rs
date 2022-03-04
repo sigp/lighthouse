@@ -9,7 +9,9 @@ use slog::{crit, debug, error, info, trace, warn};
 use slot_clock::SlotClock;
 use std::ops::Deref;
 use std::sync::Arc;
+use std::time::Duration;
 use tokio::sync::mpsc;
+use tokio::time::sleep;
 use types::{EthSpec, PublicKeyBytes, Slot};
 
 /// Builds a `BlockService`.
@@ -20,6 +22,7 @@ pub struct BlockServiceBuilder<T, E: EthSpec> {
     context: Option<RuntimeContext<E>>,
     graffiti: Option<Graffiti>,
     graffiti_file: Option<GraffitiFile>,
+    block_delay: Option<Duration>,
 }
 
 impl<T: SlotClock + 'static, E: EthSpec> BlockServiceBuilder<T, E> {
@@ -31,6 +34,7 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockServiceBuilder<T, E> {
             context: None,
             graffiti: None,
             graffiti_file: None,
+            block_delay: None,
         }
     }
 
@@ -64,6 +68,11 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockServiceBuilder<T, E> {
         self
     }
 
+    pub fn block_delay(mut self, block_delay: Option<Duration>) -> Self {
+        self.block_delay = block_delay;
+        self
+    }
+
     pub fn build(self) -> Result<BlockService<T, E>, String> {
         Ok(BlockService {
             inner: Arc::new(Inner {
@@ -81,6 +90,7 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockServiceBuilder<T, E> {
                     .ok_or("Cannot build BlockService without runtime_context")?,
                 graffiti: self.graffiti,
                 graffiti_file: self.graffiti_file,
+                block_delay: self.block_delay,
             }),
         })
     }
@@ -94,6 +104,7 @@ pub struct Inner<T, E: EthSpec> {
     context: RuntimeContext<E>,
     graffiti: Option<Graffiti>,
     graffiti_file: Option<GraffitiFile>,
+    block_delay: Option<Duration>,
 }
 
 /// Attempts to produce attestations for any block producer(s) at the start of the epoch.
@@ -138,6 +149,16 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
             async move {
                 while let Some(notif) = notification_rx.recv().await {
                     let service = self.clone();
+
+                    if let Some(delay) = service.block_delay {
+                        debug!(
+                            service.context.log(),
+                            "Delaying block production by {}ms",
+                            delay.as_millis()
+                        );
+                        sleep(delay).await;
+                    }
+
                     service.do_update(notif).await.ok();
                 }
                 debug!(log, "Block service shutting down");

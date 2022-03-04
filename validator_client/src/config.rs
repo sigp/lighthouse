@@ -14,6 +14,7 @@ use slog::{info, warn, Logger};
 use std::fs;
 use std::net::Ipv4Addr;
 use std::path::PathBuf;
+use std::time::Duration;
 use types::{Address, GRAFFITI_BYTES_LEN};
 
 pub const DEFAULT_BEACON_NODE: &str = "http://localhost:5052/";
@@ -58,6 +59,10 @@ pub struct Config {
     /// A list of custom certificates that the validator client will additionally use when
     /// connecting to a beacon node over SSL/TLS.
     pub beacon_nodes_tls_certs: Option<Vec<PathBuf>>,
+    /// Delay from the start of the slot to wait before publishing a block.
+    ///
+    /// This is *not* recommended in prod and should only be used for testing.
+    pub block_delay: Option<Duration>,
 }
 
 impl Default for Config {
@@ -91,6 +96,7 @@ impl Default for Config {
             monitoring_api: None,
             enable_doppelganger_protection: false,
             beacon_nodes_tls_certs: None,
+            block_delay: None,
         }
     }
 }
@@ -304,6 +310,13 @@ impl Config {
 
         if cli_args.is_present("enable-doppelganger-protection") {
             config.enable_doppelganger_protection = true;
+        }
+
+        /*
+         * Experimental
+         */
+        if let Some(delay_ms) = parse_optional::<u64>(cli_args, "block-delay-ms")? {
+            config.block_delay = Some(Duration::from_millis(delay_ms));
         }
 
         Ok(config)

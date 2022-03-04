@@ -2957,6 +2957,15 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         head_info: &HeadInfo,
     ) -> Result<Option<BlockProductionPreState<T::EthSpec>>, BlockProductionError> {
         if let Some(re_org_threshold) = self.config.re_org_threshold {
+            if self.spec.proposer_score_boost.is_none() {
+                warn!(
+                    self.log,
+                    "Ignoring proposer re-org configuration";
+                    "reason" => "this network does not have proposer boosting enabled"
+                );
+                return Ok(None);
+            }
+
             let canonical_head = head_info.block_root;
             let slot_delay = self
                 .slot_clock
