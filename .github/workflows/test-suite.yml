@@ -54,6 +54,10 @@ jobs:
       uses: actions/setup-python@v2
       with:
         python-version: "2.7"
+    - name: Set node config to use python2.7
+      run: npm config set python python2.7
+    - name: Set msvs_version to 2019
+      run: npm config set msvs_version 2019 --global
     - name: Install ganache
       run: npm install -g ganache
     - name: Install make
