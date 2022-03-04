@@ -26,21 +26,15 @@ pub(crate) struct ParentLookup<T: EthSpec> {
     /// The blocks that have currently been downloaded.
     downloaded_blocks: Vec<SignedBeaconBlock<T>>,
     /// Request of the last parent.
-    current_parent_request: SingleBlockRequest,
-    /// Id of the last parent request. TODO: docs
-    state: State,
+    current_parent_request: SingleBlockRequest<PARENT_FAIL_TOLERANCE>,
+    /// Id of the last parent request.
+    current_parent_request_id: Id,
     /// Peers that should have these blocks.
     available_peers: HashSet<PeerId>,
     /// Number of times we have sent a request for this chain to retry a block.
     failed_attempts: u8,
 }
 
-#[derive(Debug, PartialEq, Eq)]
-enum State {
-    AwaitingDownload,
-    Downloading(Id),
-    Processing,
-}
 pub enum VerifyError {
     RootMismatch,
     NoBlockReturned,
@@ -114,10 +108,9 @@ impl<T: EthSpec> ParentLookup<T> {
     pub fn add_block(&mut self, block: SignedBeaconBlock<T>) {
         let next_parent = block.parent_root();
         self.downloaded_blocks.push(block);
-        self.state =  State::AwaitingDownload;
+        self.state = State::AwaitingDownload;
         self.current_parent_request.hash = next_parent;
         self.current_par
-
     }
 
     pub fn pending_response(&self, req_id: Id) -> bool {

@@ -76,8 +76,8 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         // Do not re-request a block that is already being requested
         if self
             .single_block_lookups
-            .values()
-            .any(|single_block_request| single_block_request.hash == hash)
+            .iter_mut()
+            .any(|single_block_request| single_block_request.add_peer(&hash, &peer_id))
         {
             return;
         }
@@ -89,18 +89,17 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
             "block" => %hash
         );
 
-        let request = BlocksByRootRequest {
-            block_roots: VariableList::from(vec![hash]),
-        };
+        let single_block_request = SingleBlockRequest::new(hash, peer_id);
 
+        let (peer_id, request) = single_block_request.request_block().unwrap();
         if let Ok(request_id) = cx.single_block_lookup_request(peer_id, request) {
             self.single_block_lookups
-                .insert(request_id, SingleBlockRequest::new(hash, peer_id));
+                .insert(request_id, single_block_request);
+            metrics::set_gauge(
+                &metrics::SYNC_SINGLE_BLOCK_LOOKUPS,
+                self.single_block_lookups.len() as i64,
+            );
         }
-        metrics::set_gauge(
-            &metrics::SYNC_SINGLE_BLOCK_LOOKUPS,
-            self.single_block_lookups.len() as i64,
-        );
     }
 
     pub fn search_parent(
@@ -379,6 +378,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
             }
         };
     }
+
     pub fn parent_block_processed(
         &mut self,
         chain_hash: Hash256,

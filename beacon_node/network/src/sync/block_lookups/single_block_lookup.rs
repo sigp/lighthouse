@@ -5,9 +5,11 @@ use rand::seq::IteratorRandom;
 use ssz_types::VariableList;
 use store::{EthSpec, Hash256, SignedBeaconBlock};
 
+const SINGLE_BLOCK_LOOKUP_MAX_ATTEMPTS: u8 = 3;
+
 /// Object representing a single block lookup request.
 #[derive(PartialEq, Eq)]
-pub struct SingleBlockRequest<const MAX_ATTEMPTS: u8> {
+pub struct SingleBlockRequest<const MAX_ATTEMPTS: u8 = SINGLE_BLOCK_LOOKUP_MAX_ATTEMPTS> {
     /// The hash of the requested block.
     pub hash: Hash256,
     /// State of this request.
@@ -24,6 +26,7 @@ pub enum State {
     Processing { peer_id: PeerId },
 }
 
+#[derive(Debug, PartialEq, Eq)]
 pub enum VerifyError {
     RootMismatch,
     NoBlockReturned,
@@ -46,9 +49,9 @@ impl<const MAX_ATTEMPTS: u8> SingleBlockRequest<MAX_ATTEMPTS> {
     }
 
     pub fn add_peer(&mut self, hash: &Hash256, peer_id: &PeerId) -> bool {
-        let is_useful = self.hash == hash;
+        let is_useful = &self.hash == hash;
         if is_useful {
-            self.available_peers.insert(*peer_id)
+            self.available_peers.insert(*peer_id);
         }
         is_useful
     }
@@ -90,6 +93,8 @@ impl<const MAX_ATTEMPTS: u8> SingleBlockRequest<MAX_ATTEMPTS> {
                     }
                 }
                 None => {
+                    // We don't want to use this peer, since it has claimed it doesn't have the
+                    // block.
                     self.register_failure();
                     Err(VerifyError::NoBlockReturned)
                 }
@@ -110,7 +115,7 @@ impl<const MAX_ATTEMPTS: u8> SingleBlockRequest<MAX_ATTEMPTS> {
     }
 
     pub fn request_block(&self) -> Result<(PeerId, BlocksByRootRequest), ()> {
-        debug_assert!(matches!(self.state, State::AwaitingDownload { .. }));
+        debug_assert!(matches!(self.state, State::AwaitingDownload));
         if self.failed_attempts <= MAX_ATTEMPTS {
             if let Some(&peer_id) = self.available_peers.iter().choose(&mut rand::thread_rng()) {
                 let request = BlocksByRootRequest {
@@ -121,5 +126,49 @@ impl<const MAX_ATTEMPTS: u8> SingleBlockRequest<MAX_ATTEMPTS> {
             }
         }
         Err(())
+    }
+
+    pub fn processing_peer(&self) -> Result<PeerId, ()> {
+        if let State::Processing { peer_id } = &self.state {
+            Ok(*peer_id)
+        } else {
+            Err(())
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use types::test_utils::{SeedableRng, TestRandom, XorShiftRng};
+    use types::MinimalEthSpec as E;
+
+    fn rand_block() -> SignedBeaconBlock<E> {
+        let rng = XorShiftRng::from_seed([42; 16]);
+        SignedBeaconBlock::from_block(
+            types::BeaconBlock::Base(types::BeaconBlockBase {
+                ..<_>::random_for_test(&mut rng)
+            }),
+            types::Signature::random_for_test(&mut rng),
+        )
+    }
+
+    #[test]
+    fn test_happy_path() {
+        let peer_id = PeerId::random();
+        let block = rand_block();
+
+        let mut sl = SingleBlockRequest::new(block.canonical_root(), peer_id);
+        // Should fail
+        let block = sl.verify_block(Some(Box::new(block))).unwrap().unwrap();
+    }
+
+    #[test]
+    fn test_max_attempts() {
+        let peer_id = PeerId::random();
+        let block = rand_block();
+
+        let mut sl = SingleBlockRequest::new(block.canonical_root(), peer_id);
+        sl.register_failure();
     }
 }
