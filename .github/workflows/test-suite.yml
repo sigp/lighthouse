@@ -51,9 +51,9 @@ jobs:
     - name: Get latest version of stable Rust
       run: rustup update stable
     - name: Use Python 2.7
-       uses: actions/setup-python@v2
-       with:
-         python-version: "2.7"
+      uses: actions/setup-python@v2
+      with:
+        python-version: "2.7"
     - name: Install make
       run: choco install -y make
     - uses: KyleMayes/install-llvm-action@v1
