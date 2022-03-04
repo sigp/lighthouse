@@ -368,7 +368,7 @@ impl From<ForkchoiceUpdatedResponse> for JsonForkchoiceUpdatedV1Response {
 pub struct TransitionConfigurationV1 {
     pub terminal_total_difficulty: Uint256,
     pub terminal_block_hash: ExecutionBlockHash,
-    #[serde(rename = "number", with = "eth2_serde_utils::u64_hex_be")]
+    #[serde(with = "eth2_serde_utils::u64_hex_be")]
     pub terminal_block_number: u64,
 }
 
