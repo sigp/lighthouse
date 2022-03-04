@@ -1,16 +1,27 @@
+use std::collections::HashSet;
+
 use lighthouse_network::{rpc::BlocksByRootRequest, PeerId};
+use rand::seq::IteratorRandom;
 use ssz_types::VariableList;
 use store::{EthSpec, Hash256, SignedBeaconBlock};
 
 /// Object representing a single block lookup request.
 #[derive(PartialEq, Eq)]
-pub(crate) struct SingleBlockRequest {
+pub struct SingleBlockRequest<const MAX_ATTEMPTS: u8> {
     /// The hash of the requested block.
     pub hash: Hash256,
-    /// Whether a block was received from this request, or the peer returned an empty response.
-    pub block_returned: bool,
-    /// Peer handling this request.
-    pub peer_id: PeerId,
+    /// State of this request.
+    pub state: State,
+    /// Peers that should have this block.
+    pub available_peers: HashSet<PeerId>,
+    pub failed_attempts: u8,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub enum State {
+    AwaitingDownload,
+    Downloading { peer_id: PeerId },
+    Processing { peer_id: PeerId },
 }
 
 pub enum VerifyError {
@@ -19,23 +30,40 @@ pub enum VerifyError {
     ExtraBlocksReturned,
 }
 
-impl SingleBlockRequest {
+impl<const MAX_ATTEMPTS: u8> SingleBlockRequest<MAX_ATTEMPTS> {
     pub fn new(hash: Hash256, peer_id: PeerId) -> Self {
         Self {
             hash,
-            block_returned: false,
-            peer_id,
+            state: State::AwaitingDownload,
+            available_peers: HashSet::from([peer_id]),
+            failed_attempts: 0,
         }
     }
 
-    /// If a peer disconnects, this request could be failed. If so, an error is returned informing
-    /// whether the request can be tried again with other peer.
-    pub fn check_peer_disconnected(&mut self, peer_id: &PeerId) -> Result<(), ()> {
-        if &self.peer_id == peer_id {
-            Err(())
-        } else {
-            Ok(())
+    pub fn register_failure(&mut self) {
+        self.failed_attempts += 1;
+        self.state = State::AwaitingDownload;
+    }
+
+    pub fn add_peer(&mut self, hash: &Hash256, peer_id: &PeerId) -> bool {
+        let is_useful = self.hash == hash;
+        if is_useful {
+            self.available_peers.insert(*peer_id)
         }
+        is_useful
+    }
+
+    /// If a peer disconnects, this request could be failed. If so, an error is returned
+    pub fn check_peer_disconnected(&mut self, dc_peer_id: &PeerId) -> Result<(), ()> {
+        self.available_peers.remove(dc_peer_id);
+        if let State::Downloading { peer_id } = &self.state {
+            if peer_id == dc_peer_id {
+                // Peer disconnected before providing a block
+                self.register_failure();
+                return Err(());
+            }
+        }
+        Ok(())
     }
 
     /// Verifies if the received block matches the requested one.
@@ -44,37 +72,54 @@ impl SingleBlockRequest {
         &mut self,
         block: Option<Box<SignedBeaconBlock<T>>>,
     ) -> Result<Option<Box<SignedBeaconBlock<T>>>, VerifyError> {
-        match block {
-            Some(block) => {
-                if self.block_returned {
-                    // In theory RPC should not allow this but better safe than sorry.
-                    Err(VerifyError::ExtraBlocksReturned)
-                } else {
-                    self.block_returned = true;
+        match self.state {
+            State::AwaitingDownload => {
+                self.register_failure();
+                Err(VerifyError::ExtraBlocksReturned)
+            }
+            State::Downloading { peer_id } => match block {
+                Some(block) => {
                     if block.canonical_root() != self.hash {
                         // return an error and drop the block
+                        self.register_failure();
                         Err(VerifyError::RootMismatch)
                     } else {
-                        // The request still needs to wait for the stream termination
+                        // Return the block for processing.
+                        self.state = State::Processing { peer_id };
                         Ok(Some(block))
                     }
                 }
-            }
-            None => {
-                if self.block_returned {
-                    Ok(None)
-                } else {
-                    // Peer did not return the block
+                None => {
+                    self.register_failure();
                     Err(VerifyError::NoBlockReturned)
                 }
-            }
+            },
+            State::Processing { peer_id } => match block {
+                Some(_) => {
+                    // We sent the block for processing and received an extra block.
+                    self.register_failure();
+                    Err(VerifyError::ExtraBlocksReturned)
+                }
+                None => {
+                    // This is simply the stream termination and we are already processing the
+                    // block
+                    Ok(None)
+                }
+            },
         }
     }
 
-    pub fn block_request(&self) -> (PeerId, BlocksByRootRequest) {
-        let request = BlocksByRootRequest {
-            block_roots: VariableList::from(vec![self.hash]),
-        };
-        (self.peer_id, request)
+    pub fn request_block(&self) -> Result<(PeerId, BlocksByRootRequest), ()> {
+        debug_assert!(matches!(self.state, State::AwaitingDownload { .. }));
+        if self.failed_attempts <= MAX_ATTEMPTS {
+            if let Some(&peer_id) = self.available_peers.iter().choose(&mut rand::thread_rng()) {
+                let request = BlocksByRootRequest {
+                    block_roots: VariableList::from(vec![self.hash]),
+                };
+                self.state = State::Downloading { peer_id };
+                return Ok((peer_id, request));
+            }
+        }
+        Err(())
     }
 }
