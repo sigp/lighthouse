@@ -1,6 +1,7 @@
 use beacon_node::ClientConfig as Config;
 
 use crate::exec::{CommandLineTestExec, CompletedTest};
+use beacon_node::beacon_chain::chain_config::DEFAULT_RE_ORG_THRESHOLD;
 use lighthouse_network::PeerId;
 use std::fs::File;
 use std::io::Write;
@@ -955,4 +956,41 @@ fn ensure_panic_on_failed_launch() {
                 .expect("Unable to parse Slasher config");
             assert_eq!(slasher_config.chunk_size, 10);
         });
+}
+
+#[test]
+fn enable_proposer_re_orgs_true() {
+    CommandLineTest::new()
+        .flag("enable-proposer-re-orgs", Some("true"))
+        .run()
+        .with_config(|config| {
+            assert_eq!(
+                config.chain.re_org_threshold,
+                Some(DEFAULT_RE_ORG_THRESHOLD)
+            )
+        });
+}
+
+#[test]
+fn enable_proposer_re_orgs_false() {
+    CommandLineTest::new()
+        .flag("enable-proposer-re-orgs", Some("false"))
+        .run()
+        .with_config(|config| assert_eq!(config.chain.re_org_threshold, None));
+}
+
+#[test]
+fn enable_proposer_re_orgs_default() {
+    CommandLineTest::new()
+        .run()
+        .with_config(|config| assert_eq!(config.chain.re_org_threshold, None));
+}
+
+#[test]
+fn proposer_re_org_fraction() {
+    CommandLineTest::new()
+        .flag("enable-proposer-re-orgs", Some("true"))
+        .flag("proposer-re-org-fraction", Some("90"))
+        .run()
+        .with_config(|config| assert_eq!(config.chain.re_org_threshold, Some(90)));
 }
