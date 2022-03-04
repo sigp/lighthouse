@@ -48,6 +48,7 @@ jobs:
     needs: cargo-fmt
     steps:
     - uses: actions/checkout@v1
+    - uses: actions/setup-node@v2
     - uses: microsoft/setup-msbuild@v1.0.2
     - name: Get latest version of stable Rust
       run: rustup update stable
