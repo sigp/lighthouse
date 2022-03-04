@@ -104,7 +104,10 @@ pub const ATTESTATION_CACHE_LOCK_TIMEOUT: Duration = Duration::from_secs(1);
 pub const VALIDATOR_PUBKEY_CACHE_LOCK_TIMEOUT: Duration = Duration::from_secs(1);
 
 /// The latest delay from the start of the slot at which to attempt a 1-slot re-org.
-const MAX_RE_ORG_SLOT_DELAY: Duration = Duration::from_secs(2);
+fn max_re_org_slot_delay(seconds_per_slot: u64) -> Duration {
+    // Allow at least half of the attestation deadline for the block to propagate.
+    Duration::from_secs(seconds_per_slot) / 6
+}
 
 // These keys are all zero because they get stored in different columns, see `DBColumn` type.
 pub const BEACON_CHAIN_DB_KEY: Hash256 = Hash256::zero();
@@ -2974,7 +2977,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
             // Check that we're producing a block one slot after the current head, and early enough
             // in the slot to be able to propagate widely.
-            if head_info.slot + 1 == slot && slot_delay < MAX_RE_ORG_SLOT_DELAY {
+            if head_info.slot + 1 == slot
+                && slot_delay < max_re_org_slot_delay(self.spec.seconds_per_slot)
+            {
                 // Is the current head weak and appropriate for re-orging?
                 let proposer_head = self.fork_choice.write().get_proposer_head(
                     slot,
