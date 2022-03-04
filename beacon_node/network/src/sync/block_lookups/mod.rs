@@ -76,7 +76,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         // Do not re-request a block that is already being requested
         if self
             .single_block_lookups
-            .iter_mut()
+            .values_mut()
             .any(|single_block_request| single_block_request.add_peer(&hash, &peer_id))
         {
             return;
@@ -95,6 +95,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         if let Ok(request_id) = cx.single_block_lookup_request(peer_id, request) {
             self.single_block_lookups
                 .insert(request_id, single_block_request);
+
             metrics::set_gauge(
                 &metrics::SYNC_SINGLE_BLOCK_LOOKUPS,
                 self.single_block_lookups.len() as i64,
@@ -109,37 +110,32 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         cx: &mut SyncNetworkContext<T::EthSpec>,
     ) {
         let block_root = block.canonical_root();
+        let parent_root = block.parent_root();
         // If this block or it's parent is part of a known failed chain, ignore it.
-        if self.failed_chains.contains(&block.message().parent_root())
-            || self.failed_chains.contains(&block_root)
-        {
+        if self.failed_chains.contains(&parent_root) || self.failed_chains.contains(&block_root) {
             debug!(self.log, "Block is from a past failed chain. Dropping";
                 "block_root" => ?block_root, "block_slot" => block.slot());
             return;
         }
 
-        // Make sure this block is not already being searched for
-        // NOTE: Potentially store a hashset of blocks for O(1) lookups
-        if self
-            .parent_queue
-            .iter()
-            .any(|parent_req| parent_req.contains_block(&block))
-        {
+        // Make sure this block is not already downloaded, and that neither it or its parent is
+        // being searched for.
+        if self.parent_queue.iter_mut().any(|parent_req| {
+            parent_req.contains_block(&block)
+                || parent_req.add_peer(&block_root, &peer_id)
+                || parent_req.add_peer(&parent_root, &peer_id)
+        }) {
             // we are already searching for this block, ignore it
             return;
         }
 
         debug!(self.log, "Block with unknown parent received. Starting a parent lookup";
-            "block_slot" => block.slot(), "block_hash" => %block_root, "parent_root" => %block.parent_root());
+            "block_slot" => block.slot(), "block_hash" => %block_root, "parent_root" => %parent_root);
 
         let mut parent_req = ParentLookup::new(*block, peer_id);
-        if parent_req.request_parent(cx, &self.log).is_ok() {
+        if parent_req.request_parent(cx).is_ok() {
             self.parent_queue.push(parent_req);
         }
-        metrics::set_gauge(
-            &metrics::SYNC_PARENT_BLOCK_LOOKUPS,
-            self.parent_queue.len() as i64,
-        );
     }
 
     /* Lookup responses */
@@ -152,25 +148,8 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         seen_timestamp: Duration,
         cx: &mut SyncNetworkContext<T::EthSpec>,
     ) {
-        match self.single_block_lookups.entry(id) {
-            Entry::Occupied(mut req) => match req.get_mut().verify_block(block) {
-                Ok(Some(block)) => {
-                    // This is the corrrect block, send it for processing
-                    self.send_block_for_processing(
-                        block,
-                        seen_timestamp,
-                        BlockProcessType::SingleBlock { id },
-                    )
-                }
-                Ok(None) => {
-                    // request finished correctly, it will be removed after the block is processed.
-                }
-                Err(msg) => {
-                    debug!(self.log, "Single block lookup failed"; "peer_id" => %peer_id, "error" => msg);
-                    cx.report_peer(peer_id, PeerAction::LowToleranceError, msg);
-                    req.remove();
-                }
-            },
+        let mut request = match self.single_block_lookups.entry(id) {
+            Entry::Occupied(req) => req,
             Entry::Vacant(_) => {
                 if block.is_some() {
                     crit!(
@@ -183,6 +162,41 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                 return;
             }
         };
+
+        match request.get_mut().verify_block(block) {
+            Ok(Some(block)) => {
+                // This is the corrrect block, send it for processing
+                if self
+                    .send_block_for_processing(
+                        block,
+                        seen_timestamp,
+                        BlockProcessType::SingleBlock { id },
+                    )
+                    .is_err()
+                {
+                    // Remove to avoid inconsistencies
+                    request.remove();
+                }
+            }
+            Ok(None) => {
+                // request finished correctly, it will be removed after the block is processed.
+            }
+            Err(error) => {
+                let msg: &'static str = error.as_ref();
+                cx.report_peer(peer_id, PeerAction::LowToleranceError, msg);
+                // Remove the request, if it can be retried it will be added with a new id.
+                let mut req = request.remove();
+
+                debug!(self.log, "Single block lookup failed";
+                        "peer_id" => %peer_id, "error" => msg, "block_root" => %req.hash);
+                // try the request again if possible
+                if let Ok((peer_id, request)) = req.request_block() {
+                    if let Ok(id) = cx.single_block_lookup_request(peer_id, request) {
+                        self.single_block_lookups.insert(id, req);
+                    }
+                }
+            }
+        }
 
         metrics::set_gauge(
             &metrics::SYNC_SINGLE_BLOCK_LOOKUPS,
@@ -198,12 +212,12 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         seen_timestamp: Duration,
         cx: &mut SyncNetworkContext<T::EthSpec>,
     ) {
-        let pos = if let Some(pos) = self
+        let parent_lookup = if let Some(pos) = self
             .parent_queue
             .iter()
             .position(|request| request.pending_response(id))
         {
-            pos
+            self.parent_queue.remove(pos)
         } else {
             if block.is_some() {
                 debug!(self.log, "Response for a parent lookup request that was not found"; "peer_id" => %peer_id);
@@ -211,43 +225,39 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
             return;
         };
 
-        let parent_lookup = self
-            .parent_queue
-            .get_mut(pos)
-            .expect("Parent request was found");
-        match parent_lookup.verify_block(id, block, &self.failed_chains) {
+        match parent_lookup.verify_block(block, &self.failed_chains) {
             Ok(Some(block)) => {
                 // Block is correct, send to the beacon processor.
                 let chain_hash = parent_lookup.chain_hash();
-                self.send_block_for_processing(
-                    block,
-                    seen_timestamp,
-                    BlockProcessType::ParentLookup { chain_hash },
-                )
+                if self
+                    .send_block_for_processing(
+                        block,
+                        seen_timestamp,
+                        BlockProcessType::ParentLookup { chain_hash },
+                    )
+                    .is_ok()
+                {
+                    self.parent_queue.push(parent_lookup)
+                }
             }
             Ok(None) => {
-                // Request finished successfully, nothing else to do.
+                // Request finished successfully, nothing else to do. It will be removed after the
+                // processing result arrives.
             }
             Err(e) => match e {
-                VerifyError::Failed(e) => {
+                VerifyError::RootMismatch
+                | VerifyError::NoBlockReturned
+                | VerifyError::ExtraBlocksReturned => {
+                    let e = e.as_ref();
                     warn!(self.log, "Peer sent invalid response to parent request.";
-                        "peer_id" => %peer_id,
-                        "reason" => e
-                    );
+                        "peer_id" => %peer_id, "reason" => e);
 
                     // We do not tolerate these kinds of errors. We will accept a few but these are signs
                     // of a faulty peer.
-                    cx.report_peer(
-                        peer_id,
-                        PeerAction::LowToleranceError,
-                        "parent_request_bad_hash",
-                    );
+                    cx.report_peer(peer_id, PeerAction::LowToleranceError, e);
 
-                    // We try again, but downvote the peer.
-                    if parent_lookup.request_parent(cx, &self.log).is_err() {
-                        self.failed_chains.insert(parent_lookup.chain_hash());
-                        self.parent_queue.remove(pos);
-                    }
+                    // We try again if possible.
+                    self.request_parent(parent_lookup, cx);
                 }
                 VerifyError::PreviousFailure { parent_root } => {
                     self.failed_chains.insert(parent_lookup.chain_hash());
@@ -264,10 +274,6 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                         PeerAction::MidToleranceError,
                         "bbroot_failed_chains",
                     );
-                }
-                #[cfg(not(debug_assertions))]
-                VerifyError::WrongRequest => {
-                    crit!(self.log, "Block response assigned to wrong parent request")
                 }
             },
         };
@@ -289,23 +295,12 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
             .iter()
             .position(|request| request.pending_response(id))
         {
-            let parent_lookup = self
-                .parent_queue
-                .get_mut(pos)
-                .expect("Parent lookup was found");
+            let mut parent_lookup = self.parent_queue.remove(pos);
             parent_lookup.download_failed();
-            if parent_lookup.request_parent(cx, &self.log).is_err() {
-                self.failed_chains.insert(parent_lookup.chain_hash());
-                self.parent_queue.remove(pos);
-            }
+            self.request_parent(parent_lookup, cx);
         } else {
             return debug!(self.log, "RPC failure for a parent lookup request that was not found"; "peer_id" => %peer_id);
         };
-
-        metrics::set_gauge(
-            &metrics::SYNC_PARENT_BLOCK_LOOKUPS,
-            self.parent_queue.len() as i64,
-        );
     }
 
     pub fn single_block_lookup_failed(&mut self, id: Id) {
@@ -325,49 +320,8 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         result: Result<(), BlockError<T::EthSpec>>,
         cx: &mut SyncNetworkContext<T::EthSpec>,
     ) {
-        match self.single_block_lookups.remove(&id) {
-            Some(mut req) => {
-                let root = req.hash;
-                let peer_id = req.peer_id;
-                match result {
-                    Err(e) => match e {
-                        BlockError::BlockIsAlreadyKnown => {
-                            // No error here
-                        }
-                        BlockError::BeaconChainError(e) => {
-                            // Internal error
-                            error!(self.log, "Beacon chain error processing single block"; "block_root" => %root, "error" => ?e);
-                        }
-                        BlockError::ParentUnknown(block) => {
-                            self.search_parent(block, peer_id, cx);
-                        }
-                        other => {
-                            warn!(self.log, "Peer sent invalid block in single block lookup"; "root" => %root, "error" => ?other, "peer_id" => %peer_id);
-                            cx.report_peer(
-                                peer_id,
-                                PeerAction::MidToleranceError,
-                                "single_block_failure",
-                            );
-
-                            // Try it again if possible.
-                            req.request_failed();
-                            if let Some(next_peer) = req.next_peer() {
-                                let request = BlocksByRootRequest {
-                                    block_roots: VariableList::from(vec![req.hash]),
-                                };
-
-                                if let Ok(request_id) =
-                                    cx.single_block_lookup_request(next_peer, request)
-                                {
-                                    // insert with the new id
-                                    self.single_block_lookups.insert(request_id, req);
-                                }
-                            }
-                        }
-                    },
-                    Ok(()) => {}
-                }
-            }
+        let req = match self.single_block_lookups.remove(&id) {
+            Some(req) => req,
             None => {
                 crit!(
                     self.log,
@@ -377,6 +331,47 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                 panic!("block processed for single block lookup not present");
             }
         };
+
+        let root = req.hash;
+        let peer_id = match req.processing_peer() {
+            Ok(peer) => peer,
+            Err(_) => return,
+        };
+
+        match result {
+            Err(e) => match e {
+                BlockError::BlockIsAlreadyKnown => {
+                    // No error here
+                }
+                BlockError::BeaconChainError(e) => {
+                    // Internal error
+                    error!(self.log, "Beacon chain error processing single block"; "block_root" => %root, "error" => ?e);
+                }
+                BlockError::ParentUnknown(block) => {
+                    self.search_parent(block, peer_id, cx);
+                }
+                other => {
+                    warn!(self.log, "Peer sent invalid block in single block lookup"; "root" => %root, "error" => ?other, "peer_id" => %peer_id);
+                    cx.report_peer(
+                        peer_id,
+                        PeerAction::MidToleranceError,
+                        "single_block_failure",
+                    );
+
+                    // Try it again if possible.
+                    req.register_failure();
+                    if let Ok((peer_id, request)) = req.request_block() {
+                        if let Ok(request_id) = cx.single_block_lookup_request(peer_id, request) {
+                            // insert with the new id
+                            self.single_block_lookups.insert(request_id, req);
+                        }
+                    }
+                }
+            },
+            Ok(()) => {
+                // No error here
+            }
+        }
     }
 
     pub fn parent_block_processed(
@@ -405,12 +400,8 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
             Err(BlockError::ParentUnknown(block)) => {
                 // need to keep looking for parents
                 // add the block back to the queue and continue the search
-                parent_lookup.append_block(*block);
-                if parent_lookup.request_parent(cx, &self.log).is_ok() {
-                    self.parent_queue.push(parent_lookup);
-                } else {
-                    self.failed_chains.insert(parent_lookup.chain_hash());
-                }
+                parent_lookup.add_block(*block);
+                self.request_parent(parent_lookup, cx);
             }
             Ok(_) | Err(BlockError::BlockIsAlreadyKnown { .. }) => {
                 let (chain_hash, blocks, peer_id) = parent_lookup.destructure();
@@ -470,7 +461,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         block: Box<SignedBeaconBlock<T::EthSpec>>,
         duration: Duration,
         process_type: BlockProcessType,
-    ) {
+    ) -> Result<(), ()> {
         let event = WorkEvent::rpc_beacon_block(block, duration, process_type);
         if let Err(e) = self.beacon_processor_send.try_send(event) {
             error!(
@@ -478,6 +469,40 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                 "Failed to send sync block to processor";
                 "error" => ?e
             );
+            return Err(());
         }
+        Ok(())
+    }
+
+    fn request_parent(
+        &mut self,
+        mut parent_lookup: ParentLookup<T::EthSpec>,
+        cx: &mut SyncNetworkContext<T::EthSpec>,
+    ) {
+        match parent_lookup.request_parent(cx) {
+            Err(e) => {
+                match e {
+                    parent_lookup::RequestError::SendFailed(e) => {
+                        // Probably shutting down, nothing to do here. Drop the request to avoid
+                        // inconsistencies
+                    }
+                    parent_lookup::RequestError::ChainTooLong
+                    | parent_lookup::RequestError::TooManyAttempts => {
+                        // This indicates faulty peers.
+                        // TODO: downscore them all?
+                    }
+                    parent_lookup::RequestError::NoPeers => {
+                        // This happens if the peer disconnects while the block is being
+                        // processed. Drop the request without extra penalty
+                    }
+                }
+            }
+            Ok(_) => self.parent_queue.push(parent_lookup),
+        }
+
+        metrics::set_gauge(
+            &metrics::SYNC_PARENT_BLOCK_LOOKUPS,
+            self.parent_queue.len() as i64,
+        );
     }
 }

@@ -4,6 +4,7 @@ use lighthouse_network::{rpc::BlocksByRootRequest, PeerId};
 use rand::seq::IteratorRandom;
 use ssz_types::VariableList;
 use store::{EthSpec, Hash256, SignedBeaconBlock};
+use strum::AsRefStr;
 
 const SINGLE_BLOCK_LOOKUP_MAX_ATTEMPTS: u8 = 3;
 
@@ -26,11 +27,17 @@ pub enum State {
     Processing { peer_id: PeerId },
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, AsRefStr)]
 pub enum VerifyError {
     RootMismatch,
     NoBlockReturned,
     ExtraBlocksReturned,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub enum LookupRequestError {
+    TooManyAttempts,
+    NoPeers,
 }
 
 impl<const MAX_ATTEMPTS: u8> SingleBlockRequest<MAX_ATTEMPTS> {
@@ -93,8 +100,6 @@ impl<const MAX_ATTEMPTS: u8> SingleBlockRequest<MAX_ATTEMPTS> {
                     }
                 }
                 None => {
-                    // We don't want to use this peer, since it has claimed it doesn't have the
-                    // block.
                     self.register_failure();
                     Err(VerifyError::NoBlockReturned)
                 }
@@ -114,7 +119,7 @@ impl<const MAX_ATTEMPTS: u8> SingleBlockRequest<MAX_ATTEMPTS> {
         }
     }
 
-    pub fn request_block(&self) -> Result<(PeerId, BlocksByRootRequest), ()> {
+    pub fn request_block(&self) -> Result<(PeerId, BlocksByRootRequest), LookupRequestError> {
         debug_assert!(matches!(self.state, State::AwaitingDownload));
         if self.failed_attempts <= MAX_ATTEMPTS {
             if let Some(&peer_id) = self.available_peers.iter().choose(&mut rand::thread_rng()) {
@@ -123,9 +128,12 @@ impl<const MAX_ATTEMPTS: u8> SingleBlockRequest<MAX_ATTEMPTS> {
                 };
                 self.state = State::Downloading { peer_id };
                 return Ok((peer_id, request));
+            } else {
+                Err(LookupRequestError::NoPeers)
             }
+        } else {
+            Err(LookupRequestError::TooManyAttempts)
         }
-        Err(())
     }
 
     pub fn processing_peer(&self) -> Result<PeerId, ()> {

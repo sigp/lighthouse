@@ -1,16 +1,15 @@
 use std::collections::HashSet;
 
-use lighthouse_network::{rpc::BlocksByRootRequest, PeerAction, PeerId};
-use slog::warn;
-use ssz_types::VariableList;
+use lighthouse_network::PeerId;
 use store::{EthSpec, Hash256, SignedBeaconBlock};
+use strum::AsRefStr;
 
 use crate::sync::{
     manager::{Id, SLOT_IMPORT_TOLERANCE},
     network_context::SyncNetworkContext,
 };
 
-use super::single_block_lookup::SingleBlockRequest;
+use super::single_block_lookup::{self, SingleBlockRequest};
 
 /// How many attempts we try to find a parent of a block before we give up trying .
 pub(crate) const PARENT_FAIL_TOLERANCE: u8 = 5;
@@ -28,13 +27,10 @@ pub(crate) struct ParentLookup<T: EthSpec> {
     /// Request of the last parent.
     current_parent_request: SingleBlockRequest<PARENT_FAIL_TOLERANCE>,
     /// Id of the last parent request.
-    current_parent_request_id: Id,
-    /// Peers that should have these blocks.
-    available_peers: HashSet<PeerId>,
-    /// Number of times we have sent a request for this chain to retry a block.
-    failed_attempts: u8,
+    current_parent_request_id: Option<Id>,
 }
 
+#[derive(Debug, PartialEq, Eq, AsRefStr)]
 pub enum VerifyError {
     RootMismatch,
     NoBlockReturned,
@@ -42,21 +38,12 @@ pub enum VerifyError {
     PreviousFailure { parent_root: Hash256 },
 }
 
-impl From<super::single_block_lookup::VerifyError> for VerifyError {
-    fn from(e: super::single_block_lookup::VerifyError) -> Self {
-        use super::single_block_lookup::VerifyError as E;
-        match e {
-            E::RootMismatch => VerifyError::RootMismatch,
-            E::NoBlockReturned => VerifyError::NoBlockReturned,
-            E::ExtraBlocksReturned => VerifyError::ExtraBlocksReturned,
-        }
-    }
-}
-
-enum RequestError {
+#[derive(Debug, PartialEq, Eq, AsRefStr)]
+pub enum RequestError {
     SendFailed(&'static str),
     ChainTooLong,
     TooManyAttempts,
+    NoPeers,
 }
 
 impl<T: EthSpec> ParentLookup<T> {
@@ -73,51 +60,37 @@ impl<T: EthSpec> ParentLookup<T> {
             chain_hash: block.canonical_root(),
             downloaded_blocks: vec![block],
             current_parent_request,
-            state: State::AwaitingDownload,
-            available_peers: HashSet::from([peer_id]),
-            failed_attempts: 0,
+            current_parent_request_id: None,
         }
     }
 
     /// Attempts to request the next unknown parent. If the request fails, it should be removed.
-    pub fn request_parent(&mut self, cx: &mut SyncNetworkContext<T>) -> Result<Id, RequestError> {
+    pub fn request_parent(&mut self, cx: &mut SyncNetworkContext<T>) -> Result<(), RequestError> {
         // check to make sure this request hasn't failed
-        if self.failed_attempts >= PARENT_FAIL_TOLERANCE {
-            return Err(RequestError::TooManyAttempts);
-        }
         if self.downloaded_blocks.len() >= PARENT_DEPTH_TOLERANCE {
             return Err(RequestError::ChainTooLong);
         }
 
-        debug_assert_eq!(self.state, State::AwaitingDownload);
-
-        let (peer_id, request) = self.current_parent_request.block_request();
-
+        let (peer_id, request) = self.current_parent_request.request_block()?;
         match cx.parent_lookup_request(peer_id, request) {
             Ok(request_id) => {
-                self.state = State::Downloading(request_id);
-                Ok(request_id)
+                self.current_parent_request_id = Some(request_id);
+                Ok(())
             }
-            Err(reason) => {
-                self.failed_attempts += 1;
-                Err(RequestError::SendFailed(reason))
-            }
+            Err(reason) => Err(RequestError::SendFailed(reason)),
         }
     }
 
     pub fn add_block(&mut self, block: SignedBeaconBlock<T>) {
         let next_parent = block.parent_root();
         self.downloaded_blocks.push(block);
-        self.state = State::AwaitingDownload;
         self.current_parent_request.hash = next_parent;
-        self.current_par
+        self.current_parent_request.state = single_block_lookup::State::AwaitingDownload;
+        self.current_parent_request_id = None;
     }
 
     pub fn pending_response(&self, req_id: Id) -> bool {
-        match &self.state {
-            State::Downloading(id) => req_id == *id,
-            _ => false,
-        }
+        self.current_parent_request_id == Some(req_id)
     }
 
     /// Get the parent lookup's chain hash.
@@ -126,8 +99,7 @@ impl<T: EthSpec> ParentLookup<T> {
     }
 
     pub fn download_failed(&mut self) {
-        self.state = State::AwaitingDownload;
-        self.failed_attempts += 1;
+        self.current_parent_request.register_failure();
     }
 
     pub fn destructure(self) -> (Hash256, Vec<SignedBeaconBlock<T>>, PeerId) {
@@ -147,37 +119,22 @@ impl<T: EthSpec> ParentLookup<T> {
         block: Option<Box<SignedBeaconBlock<T>>>,
         failed_chains: &lru_cache::LRUCache<Hash256>,
     ) -> Result<Option<Box<SignedBeaconBlock<T>>>, VerifyError> {
-        debug_assert!(matches!(self.state, State::Downloading { .. }));
-
-        let block = match self.current_parent_request.verify_block(block) {
-            Ok(block) => block,
-            Err(e) => {
-                self.failed_attempts += 1;
-                self.state = State::AwaitingDownload;
-                return Err(e.into());
-            }
-        };
+        let block = self.current_parent_request.verify_block(block)?;
 
         // check if the parent of this block isn't in the failed cache. If it is, this chain should
         // be dropped and the peer downscored.
         if let Some(parent_root) = block.as_ref().map(|block| block.parent_root()) {
             if failed_chains.contains(&parent_root) {
-                self.failed_attempts += 1;
-                self.state = State::AwaitingDownload;
+                self.current_parent_request.register_failure();
                 return Err(VerifyError::PreviousFailure { parent_root });
             }
         }
 
-        self.state = State::Processing;
         Ok(block)
     }
 
     pub fn pending_block_processing(&self, chain_hash: Hash256) -> bool {
         matches!(self.state, State::Processing) && self.chain_hash == chain_hash
-    }
-
-    pub fn append_block(&mut self, block: SignedBeaconBlock<T>) {
-        self.downloaded_blocks.push(block)
     }
 
     pub fn last_submitted_peer(&self) -> PeerId {
@@ -187,5 +144,30 @@ impl<T: EthSpec> ParentLookup<T> {
     #[cfg(test)]
     pub fn failed_attempts(&self) -> u8 {
         self.failed_attempts
+    }
+
+    pub fn add_peer(&self, block_root: &Hash256, peer_id: &PeerId) -> bool {
+        self.current_parent_request.add_peer(block_root, peer_id)
+    }
+}
+
+impl From<super::single_block_lookup::VerifyError> for VerifyError {
+    fn from(e: super::single_block_lookup::VerifyError) -> Self {
+        use super::single_block_lookup::VerifyError as E;
+        match e {
+            E::RootMismatch => VerifyError::RootMismatch,
+            E::NoBlockReturned => VerifyError::NoBlockReturned,
+            E::ExtraBlocksReturned => VerifyError::ExtraBlocksReturned,
+        }
+    }
+}
+
+impl From<super::single_block_lookup::LookupRequestError> for RequestError {
+    fn from(e: super::single_block_lookup::LookupRequestError) -> Self {
+        use super::single_block_lookup::LookupRequestError as E;
+        match e {
+            E::TooManyAttempts => RequestError::TooManyAttempts,
+            E::NoPeers => RequestError::NoPeers,
+        }
     }
 }
