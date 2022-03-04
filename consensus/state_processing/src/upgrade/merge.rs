@@ -5,7 +5,7 @@ use types::{
 };
 
 /// Transform a `Altair` state into an `Merge` state.
-pub fn upgrade_to_merge<E: EthSpec>(
+pub fn upgrade_to_bellatrix<E: EthSpec>(
     pre_state: &mut BeaconState<E>,
     spec: &ChainSpec,
 ) -> Result<(), Error> {
@@ -24,7 +24,7 @@ pub fn upgrade_to_merge<E: EthSpec>(
         slot: pre.slot,
         fork: Fork {
             previous_version: pre.fork.current_version,
-            current_version: spec.merge_fork_version,
+            current_version: spec.bellatrix_fork_version,
             epoch,
         },
         // History

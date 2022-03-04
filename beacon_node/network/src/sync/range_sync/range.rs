@@ -45,8 +45,9 @@ use super::chain_collection::ChainCollection;
 use super::sync_type::RangeSyncType;
 use crate::beacon_processor::WorkEvent as BeaconWorkEvent;
 use crate::status::ToStatusMessage;
+use crate::sync::manager::Id;
 use crate::sync::network_context::SyncNetworkContext;
-use crate::sync::{BatchProcessResult, RequestId};
+use crate::sync::BatchProcessResult;
 use beacon_chain::{BeaconChain, BeaconChainTypes};
 use lighthouse_network::PeerId;
 use lighthouse_network::SyncInfo;
@@ -201,7 +202,7 @@ where
         peer_id: PeerId,
         chain_id: ChainId,
         batch_id: BatchId,
-        request_id: RequestId,
+        request_id: Id,
         beacon_block: Option<SignedBeaconBlock<T::EthSpec>>,
     ) {
         // check if this chunk removes the chain
@@ -300,7 +301,7 @@ where
         peer_id: PeerId,
         batch_id: BatchId,
         chain_id: ChainId,
-        request_id: RequestId,
+        request_id: Id,
     ) {
         // check that this request is pending
         match self.chains.call_by_id(chain_id, |chain| {
@@ -364,6 +365,7 @@ where
 
 #[cfg(test)]
 mod tests {
+    use crate::service::RequestId;
     use crate::NetworkMessage;
 
     use super::*;
@@ -371,7 +373,7 @@ mod tests {
     use beacon_chain::eth1_chain::CachingEth1Backend;
     use beacon_chain::parking_lot::RwLock;
     use lighthouse_network::rpc::BlocksByRangeRequest;
-    use lighthouse_network::{libp2p, Request};
+    use lighthouse_network::Request;
     use lighthouse_network::{rpc::StatusMessage, NetworkGlobals};
     use slog::{o, Drain};
 
@@ -494,10 +496,7 @@ mod tests {
         }
 
         /// Reads an BlocksByRange request to a given peer from the network receiver channel.
-        fn grab_request(
-            &mut self,
-            expected_peer: &PeerId,
-        ) -> (lighthouse_network::rpc::RequestId, BlocksByRangeRequest) {
+        fn grab_request(&mut self, expected_peer: &PeerId) -> (RequestId, BlocksByRangeRequest) {
             if let Some(NetworkMessage::SendRequest {
                 peer_id,
                 request: Request::BlocksByRange(request),
@@ -568,29 +567,7 @@ mod tests {
             log.new(o!("component" => "range")),
         );
         let (network_tx, network_rx) = mpsc::unbounded_channel();
-        let globals = {
-            use lighthouse_network::discovery::enr_ext::CombinedKeyExt;
-            use lighthouse_network::discv5::enr::CombinedKey;
-            use lighthouse_network::discv5::enr::EnrBuilder;
-            use lighthouse_network::rpc::methods::{MetaData, MetaDataV2};
-
-            let keypair = libp2p::identity::Keypair::generate_secp256k1();
-            let enr_key: CombinedKey = CombinedKey::from_libp2p(&keypair).unwrap();
-            let enr = EnrBuilder::new("v4").build(&enr_key).unwrap();
-            let globals = NetworkGlobals::new(
-                enr,
-                9000,
-                9000,
-                MetaData::V2(MetaDataV2 {
-                    seq_number: 0,
-                    attnets: Default::default(),
-                    syncnets: Default::default(),
-                }),
-                vec![],
-                &log,
-            );
-            Arc::new(globals)
-        };
+        let globals = Arc::new(NetworkGlobals::new_test_globals(&log));
         let cx = SyncNetworkContext::new(
             network_tx,
             globals.clone(),

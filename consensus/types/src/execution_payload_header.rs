@@ -9,13 +9,13 @@ use tree_hash_derive::TreeHash;
     Default, Debug, Clone, PartialEq, Serialize, Deserialize, Encode, Decode, TreeHash, TestRandom,
 )]
 pub struct ExecutionPayloadHeader<T: EthSpec> {
-    pub parent_hash: Hash256,
+    pub parent_hash: ExecutionBlockHash,
     pub fee_recipient: Address,
     pub state_root: Hash256,
-    pub receipt_root: Hash256,
+    pub receipts_root: Hash256,
     #[serde(with = "ssz_types::serde_utils::hex_fixed_vec")]
     pub logs_bloom: FixedVector<u8, T::BytesPerLogsBloom>,
-    pub random: Hash256,
+    pub prev_randao: Hash256,
     #[serde(with = "eth2_serde_utils::quoted_u64")]
     pub block_number: u64,
     #[serde(with = "eth2_serde_utils::quoted_u64")]
@@ -28,7 +28,7 @@ pub struct ExecutionPayloadHeader<T: EthSpec> {
     pub extra_data: VariableList<u8, T::MaxExtraDataBytes>,
     #[serde(with = "eth2_serde_utils::quoted_u256")]
     pub base_fee_per_gas: Uint256,
-    pub block_hash: Hash256,
+    pub block_hash: ExecutionBlockHash,
     pub transactions_root: Hash256,
 }
 

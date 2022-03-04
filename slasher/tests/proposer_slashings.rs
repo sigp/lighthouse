@@ -9,7 +9,7 @@ use types::{Epoch, EthSpec};
 #[test]
 fn empty_pruning() {
     let tempdir = tempdir().unwrap();
-    let config = Config::new(tempdir.path().into()).for_testing();
+    let config = Config::new(tempdir.path().into());
     let slasher = Slasher::<E>::open(config, test_logger()).unwrap();
     slasher.prune_database(Epoch::new(0)).unwrap();
 }
@@ -19,7 +19,7 @@ fn block_pruning() {
     let slots_per_epoch = E::slots_per_epoch();
 
     let tempdir = tempdir().unwrap();
-    let mut config = Config::new(tempdir.path().into()).for_testing();
+    let mut config = Config::new(tempdir.path().into());
     config.chunk_size = 2;
     config.history_length = 2;
 

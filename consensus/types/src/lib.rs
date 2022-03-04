@@ -7,7 +7,7 @@
     not(test),
     deny(
         clippy::integer_arithmetic,
-        clippy::disallowed_method,
+        clippy::disallowed_methods,
         clippy::indexing_slicing
     )
 )]
@@ -37,6 +37,7 @@ pub mod deposit_message;
 pub mod enr_fork_id;
 pub mod eth1_data;
 pub mod eth_spec;
+pub mod execution_block_hash;
 pub mod execution_payload;
 pub mod execution_payload_header;
 pub mod fork;
@@ -47,6 +48,7 @@ pub mod graffiti;
 pub mod historical_batch;
 pub mod indexed_attestation;
 pub mod pending_attestation;
+pub mod proposer_preparation_data;
 pub mod proposer_slashing;
 pub mod relative_epoch;
 pub mod selection_proof;
@@ -112,6 +114,7 @@ pub use crate::deposit_message::DepositMessage;
 pub use crate::enr_fork_id::EnrForkId;
 pub use crate::eth1_data::Eth1Data;
 pub use crate::eth_spec::EthSpecId;
+pub use crate::execution_block_hash::ExecutionBlockHash;
 pub use crate::execution_payload::{ExecutionPayload, Transaction};
 pub use crate::execution_payload_header::ExecutionPayloadHeader;
 pub use crate::fork::Fork;
@@ -125,7 +128,8 @@ pub use crate::indexed_attestation::IndexedAttestation;
 pub use crate::participation_flags::ParticipationFlags;
 pub use crate::participation_list::ParticipationList;
 pub use crate::pending_attestation::PendingAttestation;
-pub use crate::preset::{AltairPreset, BasePreset};
+pub use crate::preset::{AltairPreset, BasePreset, BellatrixPreset};
+pub use crate::proposer_preparation_data::ProposerPreparationData;
 pub use crate::proposer_slashing::ProposerSlashing;
 pub use crate::relative_epoch::{Error as RelativeEpochError, RelativeEpoch};
 pub use crate::selection_proof::SelectionProof;

@@ -12,15 +12,10 @@ use std::cmp;
 use std::cmp::max;
 use std::fs;
 use std::net::{IpAddr, Ipv4Addr, ToSocketAddrs};
-use std::net::{TcpListener, UdpSocket};
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
-use types::{Address, Checkpoint, Epoch, EthSpec, Hash256, PublicKeyBytes, GRAFFITI_BYTES_LEN};
-
-// TODO(merge): remove this default value. It's just there to make life easy during
-// early testnets.
-const DEFAULT_SUGGESTED_FEE_RECIPIENT: [u8; 20] =
-    [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1];
+use types::{Checkpoint, Epoch, EthSpec, Hash256, PublicKeyBytes, GRAFFITI_BYTES_LEN};
+use unused_port::{unused_tcp_port, unused_udp_port};
 
 /// Gets the fully-initialized global client.
 ///
@@ -254,12 +249,8 @@ pub fn get_config<E: EthSpec>(
         client_config.execution_endpoints = Some(client_config.eth1.endpoints.clone());
     }
 
-    client_config.suggested_fee_recipient = Some(
-        clap_utils::parse_optional(cli_args, "fee-recipient")?
-            // TODO(merge): remove this default value. It's just there to make life easy during
-            // early testnets.
-            .unwrap_or_else(|| Address::from(DEFAULT_SUGGESTED_FEE_RECIPIENT)),
-    );
+    client_config.suggested_fee_recipient =
+        clap_utils::parse_optional(cli_args, "suggested-fee-recipient")?;
 
     if let Some(freezer_dir) = cli_args.value_of("freezer-dir") {
         client_config.freezer_db_path = Some(PathBuf::from(freezer_dir));
@@ -303,9 +294,9 @@ pub fn get_config<E: EthSpec>(
             client_config.network.enr_address = None
         }
         client_config.network.libp2p_port =
-            unused_port("tcp").map_err(|e| format!("Failed to get port for libp2p: {}", e))?;
+            unused_tcp_port().map_err(|e| format!("Failed to get port for libp2p: {}", e))?;
         client_config.network.discovery_port =
-            unused_port("udp").map_err(|e| format!("Failed to get port for discovery: {}", e))?;
+            unused_udp_port().map_err(|e| format!("Failed to get port for discovery: {}", e))?;
         client_config.http_api.listen_port = 0;
         client_config.http_metrics.listen_port = 0;
     }
@@ -470,7 +461,7 @@ pub fn get_config<E: EthSpec>(
     }
 
     client_config.chain.max_network_size =
-        lighthouse_network::gossip_max_size(spec.merge_fork_epoch.is_some());
+        lighthouse_network::gossip_max_size(spec.bellatrix_fork_epoch.is_some());
 
     if cli_args.is_present("slasher") {
         let slasher_dir = if let Some(slasher_dir) = cli_args.value_of("slasher-dir") {
@@ -509,6 +500,12 @@ pub fn get_config<E: EthSpec>(
             clap_utils::parse_optional::<usize>(cli_args, "slasher-max-db-size")?
         {
             slasher_config.max_db_size_mbs = max_db_size_gbs * 1024;
+        }
+
+        if let Some(attestation_cache_size) =
+            clap_utils::parse_optional(cli_args, "slasher-att-cache-size")?
+        {
+            slasher_config.attestation_root_cache_size = attestation_cache_size;
         }
 
         if let Some(chunk_size) = clap_utils::parse_optional(cli_args, "slasher-chunk-size")? {
@@ -632,6 +629,13 @@ pub fn set_network_config(
         config.discovery_port = port;
     }
 
+    if let Some(value) = cli_args.value_of("network-load") {
+        let network_load = value
+            .parse::<u8>()
+            .map_err(|_| format!("Invalid integer: {}", value))?;
+        config.network_load = network_load;
+    }
+
     if let Some(boot_enr_str) = cli_args.value_of("boot-nodes") {
         let mut enrs: Vec<Enr> = vec![];
         let mut multiaddrs: Vec<Multiaddr> = vec![];
@@ -713,14 +717,16 @@ pub fn set_network_config(
                 // Appending enr-port to the dns hostname to appease `to_socket_addrs()` parsing.
                 // Since enr-update is disabled with a dns address, not setting the enr-udp-port
                 // will make the node undiscoverable.
-                if let Some(enr_udp_port) = config.enr_udp_port.or_else(|| {
-                    if use_listening_port_as_enr_port_by_default {
-                        Some(config.discovery_port)
-                    } else {
-                        None
-                    }
-                }) {
-                    addr.push_str(&format!(":{}", enr_udp_port.to_string()));
+                if let Some(enr_udp_port) =
+                    config
+                        .enr_udp_port
+                        .or(if use_listening_port_as_enr_port_by_default {
+                            Some(config.discovery_port)
+                        } else {
+                            None
+                        })
+                {
+                    addr.push_str(&format!(":{}", enr_udp_port));
                 } else {
                     return Err(
                         "enr-udp-port must be set for node to be discoverable with dns address"
@@ -771,6 +777,10 @@ pub fn set_network_config(
         config.metrics_enabled = true;
     }
 
+    if cli_args.is_present("enable-private-discovery") {
+        config.discv5_config.table_filter = |_| true;
+    }
+
     Ok(())
 }
 
@@ -792,45 +802,4 @@ pub fn get_data_dir(cli_args: &ArgMatches) -> PathBuf {
             })
         })
         .unwrap_or_else(|| PathBuf::from("."))
-}
-
-/// A bit of hack to find an unused port.
-///
-/// Does not guarantee that the given port is unused after the function exits, just that it was
-/// unused before the function started (i.e., it does not reserve a port).
-///
-/// Used for passing unused ports to libp2 so that lighthouse won't have to update
-/// its own ENR.
-///
-/// NOTE: It is possible that libp2p/discv5 is unable to bind to the
-/// ports returned by this function as the OS has a buffer period where
-/// it doesn't allow binding to the same port even after the socket is closed.
-/// We might have to use SO_REUSEADDR socket option from `std::net2` crate in
-/// that case.
-pub fn unused_port(transport: &str) -> Result<u16, String> {
-    let local_addr = match transport {
-        "tcp" => {
-            let listener = TcpListener::bind("127.0.0.1:0").map_err(|e| {
-                format!("Failed to create TCP listener to find unused port: {:?}", e)
-            })?;
-            listener.local_addr().map_err(|e| {
-                format!(
-                    "Failed to read TCP listener local_addr to find unused port: {:?}",
-                    e
-                )
-            })?
-        }
-        "udp" => {
-            let socket = UdpSocket::bind("127.0.0.1:0")
-                .map_err(|e| format!("Failed to create UDP socket to find unused port: {:?}", e))?;
-            socket.local_addr().map_err(|e| {
-                format!(
-                    "Failed to read UDP socket local_addr to find unused port: {:?}",
-                    e
-                )
-            })?
-        }
-        _ => return Err("Invalid transport to find unused port".into()),
-    };
-    Ok(local_addr.port())
 }

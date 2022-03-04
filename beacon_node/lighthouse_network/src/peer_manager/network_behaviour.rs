@@ -3,9 +3,9 @@ use std::task::{Context, Poll};
 use futures::StreamExt;
 use libp2p::core::connection::ConnectionId;
 use libp2p::core::ConnectedPoint;
-use libp2p::swarm::protocols_handler::DummyProtocolsHandler;
+use libp2p::swarm::handler::DummyConnectionHandler;
 use libp2p::swarm::{
-    DialError, NetworkBehaviour, NetworkBehaviourAction, PollParameters, ProtocolsHandler,
+    ConnectionHandler, DialError, NetworkBehaviour, NetworkBehaviourAction, PollParameters,
 };
 use libp2p::{Multiaddr, PeerId};
 use slog::{debug, error};
@@ -19,21 +19,21 @@ use super::peerdb::BanResult;
 use super::{PeerManager, PeerManagerEvent, ReportSource};
 
 impl<TSpec: EthSpec> NetworkBehaviour for PeerManager<TSpec> {
-    type ProtocolsHandler = DummyProtocolsHandler;
+    type ConnectionHandler = DummyConnectionHandler;
 
     type OutEvent = PeerManagerEvent;
 
     /* Required trait members */
 
-    fn new_handler(&mut self) -> Self::ProtocolsHandler {
-        DummyProtocolsHandler::default()
+    fn new_handler(&mut self) -> Self::ConnectionHandler {
+        DummyConnectionHandler::default()
     }
 
     fn inject_event(
         &mut self,
         _: PeerId,
         _: ConnectionId,
-        _: <DummyProtocolsHandler as ProtocolsHandler>::OutEvent,
+        _: <DummyConnectionHandler as ConnectionHandler>::OutEvent,
     ) {
         unreachable!("Dummy handler does not emit events")
     }
@@ -42,7 +42,7 @@ impl<TSpec: EthSpec> NetworkBehaviour for PeerManager<TSpec> {
         &mut self,
         cx: &mut Context<'_>,
         _params: &mut impl PollParameters,
-    ) -> Poll<NetworkBehaviourAction<Self::OutEvent, Self::ProtocolsHandler>> {
+    ) -> Poll<NetworkBehaviourAction<Self::OutEvent, Self::ConnectionHandler>> {
         // perform the heartbeat when necessary
         while self.heartbeat.poll_tick(cx).is_ready() {
             self.heartbeat();
@@ -110,16 +110,24 @@ impl<TSpec: EthSpec> NetworkBehaviour for PeerManager<TSpec> {
         _connection_id: &ConnectionId,
         endpoint: &ConnectedPoint,
         _failed_addresses: Option<&Vec<Multiaddr>>,
+        other_established: usize,
     ) {
-        // Log the connection
         debug!(self.log, "Connection established"; "peer_id" => %peer_id, "connection" => ?endpoint.to_endpoint());
+        if other_established == 0 {
+            self.events.push(PeerManagerEvent::MetaData(*peer_id));
+        }
+
+        // Check NAT if metrics are enabled
+        if self.network_globals.local_enr.read().udp().is_some() {
+            metrics::check_nat();
+        }
 
         // Check to make sure the peer is not supposed to be banned
         match self.ban_status(peer_id) {
             // TODO: directly emit the ban event?
             BanResult::BadScore => {
                 // This is a faulty state
-                error!(self.log, "Connecteded to a banned peer, re-banning"; "peer_id" => %peer_id);
+                error!(self.log, "Connected to a banned peer, re-banning"; "peer_id" => %peer_id);
                 // Reban the peer
                 self.goodbye_peer(peer_id, GoodbyeReason::Banned, ReportSource::PeerManager);
                 return;
@@ -150,32 +158,37 @@ impl<TSpec: EthSpec> NetworkBehaviour for PeerManager<TSpec> {
             return;
         }
 
-        // Register the newly connected peer (regardless if we are about to disconnect them).
         // NOTE: We don't register peers that we are disconnecting immediately. The network service
         // does not need to know about these peers.
-        // let enr
         match endpoint {
             ConnectedPoint::Listener { send_back_addr, .. } => {
                 self.inject_connect_ingoing(peer_id, send_back_addr.clone(), None);
                 self.events
                     .push(PeerManagerEvent::PeerConnectedIncoming(*peer_id));
             }
-            ConnectedPoint::Dialer { address } => {
+            ConnectedPoint::Dialer { address, .. } => {
                 self.inject_connect_outgoing(peer_id, address.clone(), None);
                 self.events
                     .push(PeerManagerEvent::PeerConnectedOutgoing(*peer_id));
             }
         }
 
-        let connected_peers = self.network_globals.connected_peers() as i64;
-
         // increment prometheus metrics
+        self.update_connected_peer_metrics();
         metrics::inc_counter(&metrics::PEER_CONNECT_EVENT_COUNT);
-        metrics::set_gauge(&metrics::PEERS_CONNECTED, connected_peers);
-        metrics::set_gauge(&metrics::PEERS_CONNECTED_INTEROP, connected_peers);
     }
+    fn inject_connection_closed(
+        &mut self,
+        peer_id: &PeerId,
+        _: &ConnectionId,
+        _: &ConnectedPoint,
+        _: DummyConnectionHandler,
+        remaining_established: usize,
+    ) {
+        if remaining_established > 0 {
+            return;
+        }
 
-    fn inject_disconnected(&mut self, peer_id: &PeerId) {
         // There are no more connections
         if self
             .network_globals
@@ -190,21 +203,6 @@ impl<TSpec: EthSpec> NetworkBehaviour for PeerManager<TSpec> {
             self.events
                 .push(PeerManagerEvent::PeerDisconnected(*peer_id));
             debug!(self.log, "Peer disconnected"; "peer_id" => %peer_id);
-
-            // Decrement the PEERS_PER_CLIENT metric
-            if let Some(kind) = self
-                .network_globals
-                .peers
-                .read()
-                .peer_info(peer_id)
-                .map(|info| info.client().kind.clone())
-            {
-                if let Some(v) =
-                    metrics::get_int_gauge(&metrics::PEERS_PER_CLIENT, &[&kind.to_string()])
-                {
-                    v.dec()
-                };
-            }
         }
 
         // NOTE: It may be the case that a rejected node, due to too many peers is disconnected
@@ -212,12 +210,9 @@ impl<TSpec: EthSpec> NetworkBehaviour for PeerManager<TSpec> {
         // reference so that peer manager can track this peer.
         self.inject_disconnect(peer_id);
 
-        let connected_peers = self.network_globals.connected_peers() as i64;
-
         // Update the prometheus metrics
+        self.update_connected_peer_metrics();
         metrics::inc_counter(&metrics::PEER_DISCONNECT_EVENT_COUNT);
-        metrics::set_gauge(&metrics::PEERS_CONNECTED, connected_peers);
-        metrics::set_gauge(&metrics::PEERS_CONNECTED_INTEROP, connected_peers);
     }
 
     fn inject_address_change(
@@ -252,7 +247,7 @@ impl<TSpec: EthSpec> NetworkBehaviour for PeerManager<TSpec> {
     fn inject_dial_failure(
         &mut self,
         peer_id: Option<PeerId>,
-        _handler: DummyProtocolsHandler,
+        _handler: DummyConnectionHandler,
         _error: &DialError,
     ) {
         if let Some(peer_id) = peer_id {

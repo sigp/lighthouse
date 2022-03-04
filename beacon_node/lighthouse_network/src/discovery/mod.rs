@@ -7,7 +7,8 @@ pub(crate) mod enr;
 pub mod enr_ext;
 
 // Allow external use of the lighthouse ENR builder
-use crate::{config, metrics};
+use crate::behaviour::TARGET_SUBNET_PEERS;
+use crate::metrics;
 use crate::{error, Enr, NetworkConfig, NetworkGlobals, Subnet, SubnetDiscovery};
 use discv5::{enr::NodeId, Discv5, Discv5Event};
 pub use enr::{
@@ -23,7 +24,7 @@ use futures::stream::FuturesUnordered;
 pub use libp2p::{
     core::{connection::ConnectionId, ConnectedPoint, Multiaddr, PeerId},
     swarm::{
-        protocols_handler::ProtocolsHandler, DialError, NetworkBehaviour,
+        handler::ConnectionHandler, DialError, NetworkBehaviour,
         NetworkBehaviourAction as NBAction, NotifyHandler, PollParameters, SubstreamProtocol,
     },
 };
@@ -47,8 +48,6 @@ pub use subnet_predicate::subnet_predicate;
 
 /// Local ENR storage filename.
 pub const ENR_FILENAME: &str = "enr.dat";
-/// Target number of peers we'd like to have connected to a given long-lived subnet.
-pub const TARGET_SUBNET_PEERS: usize = config::MESH_N_LOW;
 /// Target number of peers to search for given a grouped subnet query.
 const TARGET_PEERS_FOR_GROUPED_QUERY: usize = 6;
 /// Number of times to attempt a discovery request.
@@ -64,7 +63,7 @@ const MAX_SUBNETS_IN_QUERY: usize = 3;
 ///
 /// We could reduce this constant to speed up queries however at the cost of security. It will
 /// make it easier to peers to eclipse this node. Kademlia suggests a value of 16.
-const FIND_NODE_QUERY_CLOSEST_PEERS: usize = 16;
+pub const FIND_NODE_QUERY_CLOSEST_PEERS: usize = 16;
 /// The threshold for updating `min_ttl` on a connected peer.
 const DURATION_DIFFERENCE: Duration = Duration::from_millis(1);
 
@@ -318,17 +317,18 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
     }
 
     /// This adds a new `FindPeers` query to the queue if one doesn't already exist.
-    pub fn discover_peers(&mut self) {
+    /// The `target_peers` parameter informs discovery to end the query once the target is found.
+    /// The maximum this can be is 16.
+    pub fn discover_peers(&mut self, target_peers: usize) {
         // If the discv5 service isn't running or we are in the process of a query, don't bother queuing a new one.
         if !self.started || self.find_peer_active {
             return;
         }
         // Immediately start a FindNode query
-        debug!(self.log, "Starting a peer discovery request");
+        let target_peers = std::cmp::min(FIND_NODE_QUERY_CLOSEST_PEERS, target_peers);
+        debug!(self.log, "Starting a peer discovery request"; "target_peers" => target_peers );
         self.find_peer_active = true;
-        self.start_query(QueryType::FindPeers, FIND_NODE_QUERY_CLOSEST_PEERS, |_| {
-            true
-        });
+        self.start_query(QueryType::FindPeers, target_peers, |_| true);
     }
 
     /// Processes a request to search for more peers on a subnet.
@@ -692,7 +692,7 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
                     return false;
                 }
 
-                let target_peers = TARGET_SUBNET_PEERS - peers_on_subnet;
+                let target_peers = TARGET_SUBNET_PEERS.saturating_sub(peers_on_subnet);
                 trace!(self.log, "Discovery query started for subnet";
                     "subnet_query" => ?subnet_query,
                     "connected_peers_on_subnet" => peers_on_subnet,
@@ -908,11 +908,11 @@ impl<TSpec: EthSpec> Discovery<TSpec> {
 
 impl<TSpec: EthSpec> NetworkBehaviour for Discovery<TSpec> {
     // Discovery is not a real NetworkBehaviour...
-    type ProtocolsHandler = libp2p::swarm::protocols_handler::DummyProtocolsHandler;
+    type ConnectionHandler = libp2p::swarm::handler::DummyConnectionHandler;
     type OutEvent = DiscoveryEvent;
 
-    fn new_handler(&mut self) -> Self::ProtocolsHandler {
-        libp2p::swarm::protocols_handler::DummyProtocolsHandler::default()
+    fn new_handler(&mut self) -> Self::ConnectionHandler {
+        libp2p::swarm::handler::DummyConnectionHandler::default()
     }
 
     // Handles the libp2p request to obtain multiaddrs for peer_id's in order to dial them.
@@ -928,46 +928,29 @@ impl<TSpec: EthSpec> NetworkBehaviour for Discovery<TSpec> {
         }
     }
 
-    fn inject_connected(&mut self, _peer_id: &PeerId) {}
-    fn inject_disconnected(&mut self, _peer_id: &PeerId) {}
-    fn inject_connection_established(
-        &mut self,
-        _peer_id: &PeerId,
-        _connection_id: &ConnectionId,
-        _endpoint: &ConnectedPoint,
-        _failed_addresses: Option<&Vec<Multiaddr>>,
-    ) {
-    }
-    fn inject_connection_closed(
-        &mut self,
-        _: &PeerId,
-        _: &ConnectionId,
-        _connected_point: &ConnectedPoint,
-        _handler: Self::ProtocolsHandler,
-    ) {
-    }
     fn inject_event(
         &mut self,
         _: PeerId,
         _: ConnectionId,
-        _: <Self::ProtocolsHandler as ProtocolsHandler>::OutEvent,
+        _: <Self::ConnectionHandler as ConnectionHandler>::OutEvent,
     ) {
     }
 
     fn inject_dial_failure(
         &mut self,
         peer_id: Option<PeerId>,
-        _handler: Self::ProtocolsHandler,
+        _handler: Self::ConnectionHandler,
         error: &DialError,
     ) {
         if let Some(peer_id) = peer_id {
             match error {
                 DialError::Banned
                 | DialError::LocalPeerId
-                | DialError::InvalidPeerId
+                | DialError::InvalidPeerId(_)
                 | DialError::ConnectionIo(_)
                 | DialError::NoAddresses
-                | DialError::Transport(_) => {
+                | DialError::Transport(_)
+                | DialError::WrongPeerId { .. } => {
                     // set peer as disconnected in discovery DHT
                     debug!(self.log, "Marking peer disconnected in DHT"; "peer_id" => %peer_id);
                     self.disconnect_peer(&peer_id);
@@ -984,7 +967,7 @@ impl<TSpec: EthSpec> NetworkBehaviour for Discovery<TSpec> {
         &mut self,
         cx: &mut Context,
         _: &mut impl PollParameters,
-    ) -> Poll<NBAction<Self::OutEvent, Self::ProtocolsHandler>> {
+    ) -> Poll<NBAction<Self::OutEvent, Self::ConnectionHandler>> {
         if !self.started {
             return Poll::Pending;
         }
@@ -1039,6 +1022,7 @@ impl<TSpec: EthSpec> NetworkBehaviour for Discovery<TSpec> {
                         Discv5Event::SocketUpdated(socket) => {
                             info!(self.log, "Address updated"; "ip" => %socket.ip(), "udp_port" => %socket.port());
                             metrics::inc_counter(&metrics::ADDRESS_UPDATE_COUNT);
+                            metrics::check_nat();
                             // Discv5 will have updated our local ENR. We save the updated version
                             // to disk.
                             let enr = self.discv5.local_enr();
@@ -1066,16 +1050,10 @@ mod tests {
     use crate::rpc::methods::{MetaData, MetaDataV2};
     use enr::EnrBuilder;
     use slog::{o, Drain};
-    use std::net::UdpSocket;
     use types::{BitVector, MinimalEthSpec, SubnetId};
+    use unused_port::unused_udp_port;
 
     type E = MinimalEthSpec;
-
-    pub fn unused_port() -> u16 {
-        let socket = UdpSocket::bind("127.0.0.1:0").expect("should create udp socket");
-        let local_addr = socket.local_addr().expect("should read udp socket");
-        local_addr.port()
-    }
 
     pub fn build_log(level: slog::Level, enabled: bool) -> slog::Logger {
         let decorator = slog_term::TermDecorator::new().build();
@@ -1092,11 +1070,11 @@ mod tests {
     async fn build_discovery() -> Discovery<E> {
         let keypair = libp2p::identity::Keypair::generate_secp256k1();
         let config = NetworkConfig {
-            discovery_port: unused_port(),
+            discovery_port: unused_udp_port().unwrap(),
             ..Default::default()
         };
         let enr_key: CombinedKey = CombinedKey::from_libp2p(&keypair).unwrap();
-        let enr: Enr = build_enr::<E>(&enr_key, &config, EnrForkId::default()).unwrap();
+        let enr: Enr = build_enr::<E>(&enr_key, &config, &EnrForkId::default()).unwrap();
         let log = build_log(slog::Level::Debug, false);
         let globals = NetworkGlobals::new(
             enr,

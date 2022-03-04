@@ -19,14 +19,15 @@ project.
 The `Makefile` in the project contains four targets for cross-compiling:
 
 - `build-x86_64`: builds an optimized version for x86_64 processors (suitable for most users).
-  Supports Intel Broadwell (2014) and newer, and AMD Ryzen (2017) and newer.
 - `build-x86_64-portable`: builds a version for x86_64 processors which avoids using some modern CPU
-  instructions that are incompatible with older CPUs. Suitable for pre-Broadwell/Ryzen CPUs.
-- `build-aarch64`: builds an optimized version for 64-bit ARM processors
-	(suitable for Raspberry Pi 4).
+  instructions that are incompatible with older CPUs.
+- `build-aarch64`: builds an optimized version for 64-bit ARM processors (suitable for Raspberry Pi 4).
 - `build-aarch64-portable`: builds a version for 64-bit ARM processors which avoids using some
   modern CPU instructions. In practice, very few ARM processors lack the instructions necessary to
   run the faster non-portable build.
+
+For more information about optimized vs portable builds see
+[Portability](./installation-binaries.md#portability).
 
 ### Example
 

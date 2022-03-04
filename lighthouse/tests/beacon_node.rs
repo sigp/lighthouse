@@ -5,13 +5,13 @@ use lighthouse_network::PeerId;
 use std::fs::File;
 use std::io::Write;
 use std::net::{IpAddr, Ipv4Addr};
-use std::net::{TcpListener, UdpSocket};
 use std::path::PathBuf;
 use std::process::Command;
 use std::str::FromStr;
 use std::string::ToString;
 use tempfile::TempDir;
-use types::{Checkpoint, Epoch, Hash256};
+use types::{Address, Checkpoint, Epoch, ExecutionBlockHash, Hash256, MainnetEthSpec};
+use unused_port::{unused_tcp_port, unused_udp_port};
 
 const DEFAULT_ETH1_ENDPOINT: &str = "http://localhost:8545/";
 
@@ -206,6 +206,108 @@ fn eth1_purge_cache_flag() {
         .with_config(|config| assert!(config.eth1.purge_cache));
 }
 
+// Tests for Bellatrix flags.
+#[test]
+fn merge_flag() {
+    CommandLineTest::new()
+        .flag("merge", None)
+        .run_with_zero_port()
+        .with_config(|config| assert!(config.execution_endpoints.is_some()));
+}
+#[test]
+fn merge_execution_endpoints_flag() {
+    use sensitive_url::SensitiveUrl;
+    let urls = vec!["http://sigp.io/no-way:1337", "http://infura.not_real:4242"];
+    let endpoints = urls
+        .iter()
+        .map(|s| SensitiveUrl::parse(s).unwrap())
+        .collect::<Vec<_>>();
+    let mut endpoint_arg = urls[0].to_string();
+    for url in urls.into_iter().skip(1) {
+        endpoint_arg.push(',');
+        endpoint_arg.push_str(url);
+    }
+    // this is way better but intersperse is still a nightly feature :/
+    // let endpoint_arg: String = urls.into_iter().intersperse(",").collect();
+    CommandLineTest::new()
+        .flag("merge", None)
+        .flag("execution-endpoints", Some(&endpoint_arg))
+        .run_with_zero_port()
+        .with_config(|config| assert_eq!(config.execution_endpoints.as_ref(), Some(&endpoints)));
+}
+#[test]
+fn merge_fee_recipient_flag() {
+    CommandLineTest::new()
+        .flag("merge", None)
+        .flag(
+            "suggested-fee-recipient",
+            Some("0x00000000219ab540356cbb839cbe05303d7705fa"),
+        )
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert_eq!(
+                config.suggested_fee_recipient,
+                Some(Address::from_str("0x00000000219ab540356cbb839cbe05303d7705fa").unwrap())
+            )
+        });
+}
+#[test]
+fn terminal_total_difficulty_override_flag() {
+    use beacon_node::beacon_chain::types::Uint256;
+    CommandLineTest::new()
+        .flag("terminal-total-difficulty-override", Some("1337424242"))
+        .run_with_zero_port()
+        .with_spec::<MainnetEthSpec, _>(|spec| {
+            assert_eq!(spec.terminal_total_difficulty, Uint256::from(1337424242))
+        });
+}
+#[test]
+fn terminal_block_hash_and_activation_epoch_override_flags() {
+    CommandLineTest::new()
+        .flag("terminal-block-hash-epoch-override", Some("1337"))
+        .flag(
+            "terminal-block-hash-override",
+            Some("0x4242424242424242424242424242424242424242424242424242424242424242"),
+        )
+        .run_with_zero_port()
+        .with_spec::<MainnetEthSpec, _>(|spec| {
+            assert_eq!(
+                spec.terminal_block_hash,
+                ExecutionBlockHash::from_str(
+                    "0x4242424242424242424242424242424242424242424242424242424242424242"
+                )
+                .unwrap()
+            );
+            assert_eq!(spec.terminal_block_hash_activation_epoch, 1337);
+        });
+}
+#[test]
+#[should_panic]
+fn terminal_block_hash_missing_activation_epoch() {
+    CommandLineTest::new()
+        .flag(
+            "terminal-block-hash-override",
+            Some("0x4242424242424242424242424242424242424242424242424242424242424242"),
+        )
+        .run_with_zero_port();
+}
+#[test]
+#[should_panic]
+fn epoch_override_missing_terminal_block_hash() {
+    CommandLineTest::new()
+        .flag("terminal-block-hash-epoch-override", Some("1337"))
+        .run_with_zero_port();
+}
+#[test]
+fn safe_slots_to_import_optimistically_flag() {
+    CommandLineTest::new()
+        .flag("safe-slots-to-import-optimistically", Some("421337"))
+        .run_with_zero_port()
+        .with_spec::<MainnetEthSpec, _>(|spec| {
+            assert_eq!(spec.safe_slots_to_import_optimistically, 421337)
+        });
+}
+
 // Tests for Network flags.
 #[test]
 fn network_dir_flag() {
@@ -261,7 +363,7 @@ fn network_listen_address_flag() {
 }
 #[test]
 fn network_port_flag() {
-    let port = unused_port("tcp").expect("Unable to find unused port.");
+    let port = unused_tcp_port().expect("Unable to find unused port.");
     CommandLineTest::new()
         .flag("port", Some(port.to_string().as_str()))
         .run()
@@ -272,8 +374,8 @@ fn network_port_flag() {
 }
 #[test]
 fn network_port_and_discovery_port_flags() {
-    let port1 = unused_port("tcp").expect("Unable to find unused port.");
-    let port2 = unused_port("udp").expect("Unable to find unused port.");
+    let port1 = unused_tcp_port().expect("Unable to find unused port.");
+    let port2 = unused_udp_port().expect("Unable to find unused port.");
     CommandLineTest::new()
         .flag("port", Some(port1.to_string().as_str()))
         .flag("discovery-port", Some(port2.to_string().as_str()))
@@ -392,11 +494,20 @@ fn zero_ports_flag() {
             assert_eq!(config.http_metrics.listen_port, 0);
         });
 }
+#[test]
+fn network_load_flag() {
+    CommandLineTest::new()
+        .flag("network-load", Some("4"))
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert_eq!(config.network.network_load, 4);
+        });
+}
 
 // Tests for ENR flags.
 #[test]
 fn enr_udp_port_flags() {
-    let port = unused_port("udp").expect("Unable to find unused port.");
+    let port = unused_udp_port().expect("Unable to find unused port.");
     CommandLineTest::new()
         .flag("enr-udp-port", Some(port.to_string().as_str()))
         .run_with_zero_port()
@@ -404,7 +515,7 @@ fn enr_udp_port_flags() {
 }
 #[test]
 fn enr_tcp_port_flags() {
-    let port = unused_port("tcp").expect("Unable to find unused port.");
+    let port = unused_tcp_port().expect("Unable to find unused port.");
     CommandLineTest::new()
         .flag("enr-tcp-port", Some(port.to_string().as_str()))
         .run_with_zero_port()
@@ -413,8 +524,8 @@ fn enr_tcp_port_flags() {
 #[test]
 fn enr_match_flag() {
     let addr = "127.0.0.2".parse::<IpAddr>().unwrap();
-    let port1 = unused_port("udp").expect("Unable to find unused port.");
-    let port2 = unused_port("udp").expect("Unable to find unused port.");
+    let port1 = unused_udp_port().expect("Unable to find unused port.");
+    let port2 = unused_udp_port().expect("Unable to find unused port.");
     CommandLineTest::new()
         .flag("enr-match", None)
         .flag("listen-address", Some("127.0.0.2"))
@@ -431,7 +542,7 @@ fn enr_match_flag() {
 #[test]
 fn enr_address_flag() {
     let addr = "192.167.1.1".parse::<IpAddr>().unwrap();
-    let port = unused_port("udp").expect("Unable to find unused port.");
+    let port = unused_udp_port().expect("Unable to find unused port.");
     CommandLineTest::new()
         .flag("enr-address", Some("192.167.1.1"))
         .flag("enr-udp-port", Some(port.to_string().as_str()))
@@ -445,7 +556,7 @@ fn enr_address_flag() {
 fn enr_address_dns_flag() {
     let addr = "127.0.0.1".parse::<IpAddr>().unwrap();
     let ipv6addr = "::1".parse::<IpAddr>().unwrap();
-    let port = unused_port("udp").expect("Unable to find unused port.");
+    let port = unused_udp_port().expect("Unable to find unused port.");
     CommandLineTest::new()
         .flag("enr-address", Some("localhost"))
         .flag("enr-udp-port", Some(port.to_string().as_str()))
@@ -484,8 +595,8 @@ fn http_address_flag() {
 }
 #[test]
 fn http_port_flag() {
-    let port1 = unused_port("tcp").expect("Unable to find unused port.");
-    let port2 = unused_port("tcp").expect("Unable to find unused port.");
+    let port1 = unused_tcp_port().expect("Unable to find unused port.");
+    let port2 = unused_tcp_port().expect("Unable to find unused port.");
     CommandLineTest::new()
         .flag("http-port", Some(port1.to_string().as_str()))
         .flag("port", Some(port2.to_string().as_str()))
@@ -507,6 +618,13 @@ fn http_allow_origin_all_flag() {
         .flag("http-allow-origin", Some("*"))
         .run_with_zero_port()
         .with_config(|config| assert_eq!(config.http_api.allow_origin, Some("*".to_string())));
+}
+#[test]
+fn http_allow_sync_stalled_flag() {
+    CommandLineTest::new()
+        .flag("http-allow-sync-stalled", None)
+        .run_with_zero_port()
+        .with_config(|config| assert_eq!(config.http_api.allow_sync_stalled, true));
 }
 #[test]
 fn http_tls_flags() {
@@ -555,8 +673,8 @@ fn metrics_address_flag() {
 }
 #[test]
 fn metrics_port_flag() {
-    let port1 = unused_port("tcp").expect("Unable to find unused port.");
-    let port2 = unused_port("tcp").expect("Unable to find unused port.");
+    let port1 = unused_tcp_port().expect("Unable to find unused port.");
+    let port2 = unused_tcp_port().expect("Unable to find unused port.");
     CommandLineTest::new()
         .flag("metrics", None)
         .flag("metrics-port", Some(port1.to_string().as_str()))
@@ -670,7 +788,6 @@ fn no_reconstruct_historic_states_flag() {
 fn slasher_flag() {
     CommandLineTest::new()
         .flag("slasher", None)
-        .flag("slasher-max-db-size", Some("16"))
         .run_with_zero_port()
         .with_config_and_dir(|config, dir| {
             if let Some(slasher_config) = &config.slasher {
@@ -689,7 +806,6 @@ fn slasher_dir_flag() {
     CommandLineTest::new()
         .flag("slasher", None)
         .flag("slasher-dir", dir.path().as_os_str().to_str())
-        .flag("slasher-max-db-size", Some("16"))
         .run_with_zero_port()
         .with_config(|config| {
             if let Some(slasher_config) = &config.slasher {
@@ -703,7 +819,6 @@ fn slasher_dir_flag() {
 fn slasher_update_period_flag() {
     CommandLineTest::new()
         .flag("slasher", None)
-        .flag("slasher-max-db-size", Some("16"))
         .flag("slasher-update-period", Some("100"))
         .run_with_zero_port()
         .with_config(|config| {
@@ -715,21 +830,21 @@ fn slasher_update_period_flag() {
         });
 }
 #[test]
-fn slasher_slot_offset() {
-    // TODO: check that the offset is actually stored, once the config is un-hacked
-    // See: https://github.com/sigp/lighthouse/pull/2767#discussion_r741610402
+fn slasher_slot_offset_flag() {
     CommandLineTest::new()
         .flag("slasher", None)
-        .flag("slasher-max-db-size", Some("16"))
         .flag("slasher-slot-offset", Some("11.25"))
-        .run();
+        .run()
+        .with_config(|config| {
+            let slasher_config = config.slasher.as_ref().unwrap();
+            assert_eq!(slasher_config.slot_offset, 11.25);
+        });
 }
 #[test]
 #[should_panic]
-fn slasher_slot_offset_nan() {
+fn slasher_slot_offset_nan_flag() {
     CommandLineTest::new()
         .flag("slasher", None)
-        .flag("slasher-max-db-size", Some("16"))
         .flag("slasher-slot-offset", Some("NaN"))
         .run();
 }
@@ -737,7 +852,6 @@ fn slasher_slot_offset_nan() {
 fn slasher_history_length_flag() {
     CommandLineTest::new()
         .flag("slasher", None)
-        .flag("slasher-max-db-size", Some("16"))
         .flag("slasher-history-length", Some("2048"))
         .run_with_zero_port()
         .with_config(|config| {
@@ -763,11 +877,24 @@ fn slasher_max_db_size_flag() {
         });
 }
 #[test]
+fn slasher_attestation_cache_size_flag() {
+    CommandLineTest::new()
+        .flag("slasher", None)
+        .flag("slasher-att-cache-size", Some("10000"))
+        .run()
+        .with_config(|config| {
+            let slasher_config = config
+                .slasher
+                .as_ref()
+                .expect("Unable to parse Slasher config");
+            assert_eq!(slasher_config.attestation_root_cache_size, 10000);
+        });
+}
+#[test]
 fn slasher_chunk_size_flag() {
     CommandLineTest::new()
         .flag("slasher", None)
         .flag("slasher-chunk-size", Some("32"))
-        .flag("slasher-max-db-size", Some("16"))
         .run_with_zero_port()
         .with_config(|config| {
             let slasher_config = config
@@ -781,7 +908,6 @@ fn slasher_chunk_size_flag() {
 fn slasher_validator_chunk_size_flag() {
     CommandLineTest::new()
         .flag("slasher", None)
-        .flag("slasher-max-db-size", Some("16"))
         .flag("slasher-validator-chunk-size", Some("512"))
         .run_with_zero_port()
         .with_config(|config| {
@@ -797,7 +923,6 @@ fn slasher_broadcast_flag() {
     CommandLineTest::new()
         .flag("slasher", None)
         .flag("slasher-broadcast", None)
-        .flag("slasher-max-db-size", Some("16"))
         .run_with_zero_port()
         .with_config(|config| {
             let slasher_config = config
@@ -830,36 +955,4 @@ fn ensure_panic_on_failed_launch() {
                 .expect("Unable to parse Slasher config");
             assert_eq!(slasher_config.chunk_size, 10);
         });
-}
-
-/// A bit of hack to find an unused port.
-///
-/// Does not guarantee that the given port is unused after the function exits, just that it was
-/// unused before the function started (i.e., it does not reserve a port).
-pub fn unused_port(transport: &str) -> Result<u16, String> {
-    let local_addr = match transport {
-        "tcp" => {
-            let listener = TcpListener::bind("127.0.0.1:0").map_err(|e| {
-                format!("Failed to create TCP listener to find unused port: {:?}", e)
-            })?;
-            listener.local_addr().map_err(|e| {
-                format!(
-                    "Failed to read TCP listener local_addr to find unused port: {:?}",
-                    e
-                )
-            })?
-        }
-        "udp" => {
-            let socket = UdpSocket::bind("127.0.0.1:0")
-                .map_err(|e| format!("Failed to create UDP socket to find unused port: {:?}", e))?;
-            socket.local_addr().map_err(|e| {
-                format!(
-                    "Failed to read UDP socket local_addr to find unused port: {:?}",
-                    e
-                )
-            })?
-        }
-        _ => return Err("Invalid transport to find unused port".into()),
-    };
-    Ok(local_addr.port())
 }

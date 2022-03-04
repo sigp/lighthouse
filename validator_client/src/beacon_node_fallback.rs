@@ -162,19 +162,23 @@ impl<E: EthSpec> CandidateBeaconNode<E> {
         spec: &ChainSpec,
         log: &Logger,
     ) -> Result<(), CandidateError> {
-        let mut status = self.status.write().await;
-
-        if let Err(e) = self.is_online(log).await {
-            *status = Err(e);
+        let new_status = if let Err(e) = self.is_online(log).await {
+            Err(e)
         } else if let Err(e) = self.is_compatible(spec, log).await {
-            *status = Err(e);
+            Err(e)
         } else if let Err(e) = self.is_synced(slot_clock, log).await {
-            *status = Err(e);
+            Err(e)
         } else {
-            *status = Ok(())
-        }
+            Ok(())
+        };
 
-        *status
+        // In case of concurrent use, the latest value will always be used. It's possible that a
+        // long time out might over-ride a recent successful response, leading to a falsely-offline
+        // status. I deem this edge-case acceptable in return for the concurrency benefits of not
+        // holding a write-lock whilst we check the online status of the node.
+        *self.status.write().await = new_status;
+
+        new_status
     }
 
     /// Checks if the node is reachable.
@@ -253,22 +257,19 @@ impl<E: EthSpec> CandidateBeaconNode<E> {
                 "our_genesis_fork" => ?spec.genesis_fork_version,
             );
             return Err(CandidateError::Incompatible);
-        } else if *spec != beacon_node_spec {
+        } else if beacon_node_spec.altair_fork_epoch != spec.altair_fork_epoch {
             warn!(
                 log,
-                "Beacon node config does not match exactly";
+                "Beacon node has mismatched Altair fork epoch";
                 "endpoint" => %self.beacon_node,
-                "advice" => "check that the BN is updated and configured for any upcoming forks",
+                "endpoint_altair_fork_epoch" => ?beacon_node_spec.altair_fork_epoch,
             );
-            debug!(
+        } else if beacon_node_spec.bellatrix_fork_epoch != spec.bellatrix_fork_epoch {
+            warn!(
                 log,
-                "Beacon node config";
-                "config" => ?beacon_node_spec,
-            );
-            debug!(
-                log,
-                "Our config";
-                "config" => ?spec,
+                "Beacon node has mismatched Bellatrix fork epoch";
+                "endpoint" => %self.beacon_node,
+                "endpoint_bellatrix_fork_epoch" => ?beacon_node_spec.bellatrix_fork_epoch,
             );
         }
 

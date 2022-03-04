@@ -2,7 +2,6 @@ use crate::errors::HandleUnavailable;
 use crate::{Error, HotColdDB, ItemStore};
 use std::borrow::Cow;
 use std::marker::PhantomData;
-use std::sync::Arc;
 use types::{
     typenum::Unsigned, BeaconState, BeaconStateError, EthSpec, Hash256, SignedBeaconBlock, Slot,
 };
@@ -13,19 +12,19 @@ use types::{
 ///
 /// It is assumed that all ancestors for this object are stored in the database. If this is not the
 /// case, the iterator will start returning `None` prior to genesis.
-pub trait AncestorIter<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>, I: Iterator> {
+pub trait AncestorIter<'a, E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>, I: Iterator> {
     /// Returns an iterator over the roots of the ancestors of `self`.
-    fn try_iter_ancestor_roots(&self, store: Arc<HotColdDB<E, Hot, Cold>>) -> Option<I>;
+    fn try_iter_ancestor_roots(&self, store: &'a HotColdDB<E, Hot, Cold>) -> Option<I>;
 }
 
 impl<'a, E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>>
-    AncestorIter<E, Hot, Cold, BlockRootsIterator<'a, E, Hot, Cold>> for SignedBeaconBlock<E>
+    AncestorIter<'a, E, Hot, Cold, BlockRootsIterator<'a, E, Hot, Cold>> for SignedBeaconBlock<E>
 {
     /// Iterates across all available prior block roots of `self`, starting at the most recent and ending
     /// at genesis.
     fn try_iter_ancestor_roots(
         &self,
-        store: Arc<HotColdDB<E, Hot, Cold>>,
+        store: &'a HotColdDB<E, Hot, Cold>,
     ) -> Option<BlockRootsIterator<'a, E, Hot, Cold>> {
         let state = store
             .get_state(&self.message().state_root(), Some(self.slot()))
@@ -36,13 +35,13 @@ impl<'a, E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>>
 }
 
 impl<'a, E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>>
-    AncestorIter<E, Hot, Cold, StateRootsIterator<'a, E, Hot, Cold>> for BeaconState<E>
+    AncestorIter<'a, E, Hot, Cold, StateRootsIterator<'a, E, Hot, Cold>> for BeaconState<E>
 {
     /// Iterates across all available prior state roots of `self`, starting at the most recent and ending
     /// at genesis.
     fn try_iter_ancestor_roots(
         &self,
-        store: Arc<HotColdDB<E, Hot, Cold>>,
+        store: &'a HotColdDB<E, Hot, Cold>,
     ) -> Option<StateRootsIterator<'a, E, Hot, Cold>> {
         // The `self.clone()` here is wasteful.
         Some(StateRootsIterator::owned(store, self.clone()))
@@ -64,13 +63,13 @@ impl<'a, T: EthSpec, Hot: ItemStore<T>, Cold: ItemStore<T>> Clone
 }
 
 impl<'a, T: EthSpec, Hot: ItemStore<T>, Cold: ItemStore<T>> StateRootsIterator<'a, T, Hot, Cold> {
-    pub fn new(store: Arc<HotColdDB<T, Hot, Cold>>, beacon_state: &'a BeaconState<T>) -> Self {
+    pub fn new(store: &'a HotColdDB<T, Hot, Cold>, beacon_state: &'a BeaconState<T>) -> Self {
         Self {
             inner: RootsIterator::new(store, beacon_state),
         }
     }
 
-    pub fn owned(store: Arc<HotColdDB<T, Hot, Cold>>, beacon_state: BeaconState<T>) -> Self {
+    pub fn owned(store: &'a HotColdDB<T, Hot, Cold>, beacon_state: BeaconState<T>) -> Self {
         Self {
             inner: RootsIterator::owned(store, beacon_state),
         }
@@ -113,21 +112,21 @@ impl<'a, T: EthSpec, Hot: ItemStore<T>, Cold: ItemStore<T>> Clone
 
 impl<'a, T: EthSpec, Hot: ItemStore<T>, Cold: ItemStore<T>> BlockRootsIterator<'a, T, Hot, Cold> {
     /// Create a new iterator over all block roots in the given `beacon_state` and prior states.
-    pub fn new(store: Arc<HotColdDB<T, Hot, Cold>>, beacon_state: &'a BeaconState<T>) -> Self {
+    pub fn new(store: &'a HotColdDB<T, Hot, Cold>, beacon_state: &'a BeaconState<T>) -> Self {
         Self {
             inner: RootsIterator::new(store, beacon_state),
         }
     }
 
     /// Create a new iterator over all block roots in the given `beacon_state` and prior states.
-    pub fn owned(store: Arc<HotColdDB<T, Hot, Cold>>, beacon_state: BeaconState<T>) -> Self {
+    pub fn owned(store: &'a HotColdDB<T, Hot, Cold>, beacon_state: BeaconState<T>) -> Self {
         Self {
             inner: RootsIterator::owned(store, beacon_state),
         }
     }
 
     pub fn from_block(
-        store: Arc<HotColdDB<T, Hot, Cold>>,
+        store: &'a HotColdDB<T, Hot, Cold>,
         block_hash: Hash256,
     ) -> Result<Self, Error> {
         Ok(Self {
@@ -150,7 +149,7 @@ impl<'a, T: EthSpec, Hot: ItemStore<T>, Cold: ItemStore<T>> Iterator
 
 /// Iterator over state and block roots that backtracks using the vectors from a `BeaconState`.
 pub struct RootsIterator<'a, T: EthSpec, Hot: ItemStore<T>, Cold: ItemStore<T>> {
-    store: Arc<HotColdDB<T, Hot, Cold>>,
+    store: &'a HotColdDB<T, Hot, Cold>,
     beacon_state: Cow<'a, BeaconState<T>>,
     slot: Slot,
 }
@@ -160,7 +159,7 @@ impl<'a, T: EthSpec, Hot: ItemStore<T>, Cold: ItemStore<T>> Clone
 {
     fn clone(&self) -> Self {
         Self {
-            store: self.store.clone(),
+            store: self.store,
             beacon_state: self.beacon_state.clone(),
             slot: self.slot,
         }
@@ -168,7 +167,7 @@ impl<'a, T: EthSpec, Hot: ItemStore<T>, Cold: ItemStore<T>> Clone
 }
 
 impl<'a, T: EthSpec, Hot: ItemStore<T>, Cold: ItemStore<T>> RootsIterator<'a, T, Hot, Cold> {
-    pub fn new(store: Arc<HotColdDB<T, Hot, Cold>>, beacon_state: &'a BeaconState<T>) -> Self {
+    pub fn new(store: &'a HotColdDB<T, Hot, Cold>, beacon_state: &'a BeaconState<T>) -> Self {
         Self {
             store,
             slot: beacon_state.slot(),
@@ -176,7 +175,7 @@ impl<'a, T: EthSpec, Hot: ItemStore<T>, Cold: ItemStore<T>> RootsIterator<'a, T,
         }
     }
 
-    pub fn owned(store: Arc<HotColdDB<T, Hot, Cold>>, beacon_state: BeaconState<T>) -> Self {
+    pub fn owned(store: &'a HotColdDB<T, Hot, Cold>, beacon_state: BeaconState<T>) -> Self {
         Self {
             store,
             slot: beacon_state.slot(),
@@ -185,7 +184,7 @@ impl<'a, T: EthSpec, Hot: ItemStore<T>, Cold: ItemStore<T>> RootsIterator<'a, T,
     }
 
     pub fn from_block(
-        store: Arc<HotColdDB<T, Hot, Cold>>,
+        store: &'a HotColdDB<T, Hot, Cold>,
         block_hash: Hash256,
     ) -> Result<Self, Error> {
         let block = store
@@ -310,14 +309,14 @@ pub struct BlockIterator<'a, T: EthSpec, Hot: ItemStore<T>, Cold: ItemStore<T>> 
 
 impl<'a, T: EthSpec, Hot: ItemStore<T>, Cold: ItemStore<T>> BlockIterator<'a, T, Hot, Cold> {
     /// Create a new iterator over all blocks in the given `beacon_state` and prior states.
-    pub fn new(store: Arc<HotColdDB<T, Hot, Cold>>, beacon_state: &'a BeaconState<T>) -> Self {
+    pub fn new(store: &'a HotColdDB<T, Hot, Cold>, beacon_state: &'a BeaconState<T>) -> Self {
         Self {
             roots: BlockRootsIterator::new(store, beacon_state),
         }
     }
 
     /// Create a new iterator over all blocks in the given `beacon_state` and prior states.
-    pub fn owned(store: Arc<HotColdDB<T, Hot, Cold>>, beacon_state: BeaconState<T>) -> Self {
+    pub fn owned(store: &'a HotColdDB<T, Hot, Cold>, beacon_state: BeaconState<T>) -> Self {
         Self {
             roots: BlockRootsIterator::owned(store, beacon_state),
         }
@@ -397,9 +396,8 @@ mod test {
     #[test]
     fn block_root_iter() {
         let log = NullLoggerBuilder.build().unwrap();
-        let store = Arc::new(
-            HotColdDB::open_ephemeral(Config::default(), ChainSpec::minimal(), log).unwrap(),
-        );
+        let store =
+            HotColdDB::open_ephemeral(Config::default(), ChainSpec::minimal(), log).unwrap();
         let slots_per_historical_root = MainnetEthSpec::slots_per_historical_root();
 
         let mut state_a: BeaconState<MainnetEthSpec> = get_state();
@@ -422,7 +420,7 @@ mod test {
         state_b.state_roots_mut()[0] = state_a_root;
         store.put_state(&state_a_root, &state_a).unwrap();
 
-        let iter = BlockRootsIterator::new(store, &state_b);
+        let iter = BlockRootsIterator::new(&store, &state_b);
 
         assert!(
             iter.clone()
@@ -445,9 +443,8 @@ mod test {
     #[test]
     fn state_root_iter() {
         let log = NullLoggerBuilder.build().unwrap();
-        let store = Arc::new(
-            HotColdDB::open_ephemeral(Config::default(), ChainSpec::minimal(), log).unwrap(),
-        );
+        let store =
+            HotColdDB::open_ephemeral(Config::default(), ChainSpec::minimal(), log).unwrap();
         let slots_per_historical_root = MainnetEthSpec::slots_per_historical_root();
 
         let mut state_a: BeaconState<MainnetEthSpec> = get_state();
@@ -475,7 +472,7 @@ mod test {
         store.put_state(&state_a_root, &state_a).unwrap();
         store.put_state(&state_b_root, &state_b).unwrap();
 
-        let iter = StateRootsIterator::new(store, &state_b);
+        let iter = StateRootsIterator::new(&store, &state_b);
 
         assert!(
             iter.clone()

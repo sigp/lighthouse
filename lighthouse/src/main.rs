@@ -13,7 +13,6 @@ use eth2_network_config::{Eth2NetworkConfig, DEFAULT_HARDCODED_NETWORK, HARDCODE
 use lighthouse_version::VERSION;
 use malloc_utils::configure_memory_allocator;
 use slog::{crit, info, warn};
-use std::fs::File;
 use std::path::PathBuf;
 use std::process::exit;
 use task_executor::ShutdownReason;
@@ -52,11 +51,12 @@ fn main() {
                 "{}\n\
                  BLS library: {}\n\
                  SHA256 hardware acceleration: {}\n\
-                 Specs: mainnet (true), minimal ({})",
+                 Specs: mainnet (true), minimal ({}), gnosis ({})",
                  VERSION.replace("Lighthouse/", ""),
                  bls_library_name(),
                  have_sha_extensions(),
                  cfg!(feature = "spec-minimal"),
+                 cfg!(feature = "gnosis"),
             ).as_str()
         )
         .arg(
@@ -193,6 +193,14 @@ fn main() {
                 .global(true)
         )
         .arg(
+            Arg::with_name("dump-chain-config")
+                .long("dump-chain-config")
+                .hidden(true)
+                .help("Dumps the chain config to a desired location. Used for testing only.")
+                .takes_value(true)
+                .global(true)
+        )
+        .arg(
             Arg::with_name("immediate-shutdown")
                 .long("immediate-shutdown")
                 .hidden(true)
@@ -250,6 +258,19 @@ fn main() {
                 .takes_value(true)
                 .global(true)
         )
+        .arg(
+            Arg::with_name("safe-slots-to-import-optimistically")
+                .long("safe-slots-to-import-optimistically")
+                .value_name("INTEGER")
+                .help("Used to coordinate manual overrides of the SAFE_SLOTS_TO_IMPORT_OPTIMISTICALLY \
+                      parameter. This flag should only be used if the user has a clear understanding \
+                      that the broad Ethereum community has elected to override this parameter in the event \
+                      of an attack at the PoS transition block. Incorrect use of this flag can cause your \
+                      node to possibly accept an invalid chain or sync more slowly. Be extremely careful with \
+                      this flag.")
+                .takes_value(true)
+                .global(true)
+        )
         .subcommand(beacon_node::cli_app())
         .subcommand(boot_node::cli_app())
         .subcommand(validator_client::cli_app())
@@ -302,9 +323,11 @@ fn main() {
 
         match eth_spec_id {
             EthSpecId::Mainnet => run(EnvironmentBuilder::mainnet(), &matches, eth2_network_config),
+            #[cfg(feature = "gnosis")]
+            EthSpecId::Gnosis => run(EnvironmentBuilder::gnosis(), &matches, eth2_network_config),
             #[cfg(feature = "spec-minimal")]
             EthSpecId::Minimal => run(EnvironmentBuilder::minimal(), &matches, eth2_network_config),
-            #[cfg(not(feature = "spec-minimal"))]
+            #[cfg(not(all(feature = "spec-minimal", feature = "gnosis")))]
             other => {
                 eprintln!(
                     "Eth spec `{}` is not supported by this build of Lighthouse",
@@ -369,21 +392,28 @@ fn run<E: EthSpec>(
     // Construct the path to the log file.
     let mut log_path: Option<PathBuf> = clap_utils::parse_optional(matches, "logfile")?;
     if log_path.is_none() {
-        log_path = match matches.subcommand_name() {
-            Some("beacon_node") => Some(
+        log_path = match matches.subcommand() {
+            ("beacon_node", _) => Some(
                 parse_path_or_default(matches, "datadir")?
                     .join(DEFAULT_BEACON_NODE_DIR)
                     .join("logs")
                     .join("beacon")
                     .with_extension("log"),
             ),
-            Some("validator_client") => Some(
-                parse_path_or_default(matches, "datadir")?
-                    .join(DEFAULT_VALIDATOR_DIR)
-                    .join("logs")
-                    .join("validator")
-                    .with_extension("log"),
-            ),
+            ("validator_client", Some(vc_matches)) => {
+                let base_path = if vc_matches.is_present("validators-dir") {
+                    parse_path_or_default(vc_matches, "validators-dir")?
+                } else {
+                    parse_path_or_default(matches, "datadir")?.join(DEFAULT_VALIDATOR_DIR)
+                };
+
+                Some(
+                    base_path
+                        .join("logs")
+                        .join("validator")
+                        .with_extension("log"),
+                )
+            }
             _ => None,
         };
     }
@@ -471,14 +501,8 @@ fn run<E: EthSpec>(
             let executor = context.executor.clone();
             let config = beacon_node::get_config::<E>(matches, &context)?;
             let shutdown_flag = matches.is_present("immediate-shutdown");
-            if let Some(dump_path) = clap_utils::parse_optional::<PathBuf>(matches, "dump-config")?
-            {
-                let mut file = File::create(dump_path)
-                    .map_err(|e| format!("Failed to create dumped config: {:?}", e))?;
-                serde_json::to_writer(&mut file, &config)
-                    .map_err(|e| format!("Error serializing config: {:?}", e))?;
-            };
-
+            // Dump configs if `dump-config` or `dump-chain-config` flags are set
+            clap_utils::check_dump_configs::<_, E>(matches, &config, &context.eth2_config.spec)?;
             executor.clone().spawn(
                 async move {
                     if let Err(e) = ProductionBeaconNode::new(context.clone(), config).await {
@@ -504,13 +528,8 @@ fn run<E: EthSpec>(
             let config = validator_client::Config::from_cli(matches, context.log())
                 .map_err(|e| format!("Unable to initialize validator config: {}", e))?;
             let shutdown_flag = matches.is_present("immediate-shutdown");
-            if let Some(dump_path) = clap_utils::parse_optional::<PathBuf>(matches, "dump-config")?
-            {
-                let mut file = File::create(dump_path)
-                    .map_err(|e| format!("Failed to create dumped config: {:?}", e))?;
-                serde_json::to_writer(&mut file, &config)
-                    .map_err(|e| format!("Error serializing config: {:?}", e))?;
-            };
+            // Dump configs if `dump-config` or `dump-chain-config` flags are set
+            clap_utils::check_dump_configs::<_, E>(matches, &config, &context.eth2_config.spec)?;
             if !shutdown_flag {
                 executor.clone().spawn(
                     async move {

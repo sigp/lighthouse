@@ -10,7 +10,7 @@ use slasher::{Config as SlasherConfig, Slasher};
 use state_processing::{
     common::get_indexed_attestation,
     per_block_processing::{per_block_processing, BlockSignatureStrategy},
-    per_slot_processing, BlockProcessingError,
+    per_slot_processing, BlockProcessingError, VerifyBlockRoot,
 };
 use std::sync::Arc;
 use tempfile::tempdir;
@@ -54,6 +54,7 @@ fn get_harness(validator_count: usize) -> BeaconChainHarness<EphemeralHarnessTyp
         .default_spec()
         .keypairs(KEYPAIRS[0..validator_count].to_vec())
         .fresh_ephemeral_store()
+        .mock_execution_layer()
         .build();
 
     harness.advance_slot();
@@ -830,11 +831,7 @@ fn block_gossip_verification() {
 fn verify_block_for_gossip_slashing_detection() {
     let slasher_dir = tempdir().unwrap();
     let slasher = Arc::new(
-        Slasher::open(
-            SlasherConfig::new(slasher_dir.path().into()).for_testing(),
-            test_logger(),
-        )
-        .unwrap(),
+        Slasher::open(SlasherConfig::new(slasher_dir.path().into()), test_logger()).unwrap(),
     );
 
     let inner_slasher = slasher.clone();
@@ -843,6 +840,7 @@ fn verify_block_for_gossip_slashing_detection() {
         .keypairs(KEYPAIRS.to_vec())
         .fresh_ephemeral_store()
         .initial_mutator(Box::new(move |builder| builder.slasher(inner_slasher)))
+        .mock_execution_layer()
         .build();
     harness.advance_slot();
 
@@ -922,6 +920,7 @@ fn add_base_block_to_altair_chain() {
         .spec(spec)
         .keypairs(KEYPAIRS[..].to_vec())
         .fresh_ephemeral_store()
+        .mock_execution_layer()
         .build();
 
     // Move out of the genesis slot.
@@ -978,6 +977,7 @@ fn add_base_block_to_altair_chain() {
                 &base_block,
                 None,
                 BlockSignatureStrategy::NoVerification,
+                VerifyBlockRoot::True,
                 &harness.chain.spec,
             ),
             Err(BlockProcessingError::InconsistentBlockFork(
@@ -1039,6 +1039,7 @@ fn add_altair_block_to_base_chain() {
         .spec(spec)
         .keypairs(KEYPAIRS[..].to_vec())
         .fresh_ephemeral_store()
+        .mock_execution_layer()
         .build();
 
     // Move out of the genesis slot.
@@ -1096,6 +1097,7 @@ fn add_altair_block_to_base_chain() {
                 &altair_block,
                 None,
                 BlockSignatureStrategy::NoVerification,
+                VerifyBlockRoot::True,
                 &harness.chain.spec,
             ),
             Err(BlockProcessingError::InconsistentBlockFork(

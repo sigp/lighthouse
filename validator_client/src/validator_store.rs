@@ -6,7 +6,9 @@ use crate::{
 };
 use account_utils::{validator_definitions::ValidatorDefinition, ZeroizeString};
 use parking_lot::{Mutex, RwLock};
-use slashing_protection::{NotSafe, Safe, SlashingDatabase};
+use slashing_protection::{
+    interchange::Interchange, InterchangeError, NotSafe, Safe, SlashingDatabase,
+};
 use slog::{crit, error, info, warn, Logger};
 use slot_clock::SlotClock;
 use std::iter::FromIterator;
@@ -15,7 +17,7 @@ use std::path::Path;
 use std::sync::Arc;
 use task_executor::TaskExecutor;
 use types::{
-    attestation::Error as AttestationError, graffiti::GraffitiString, AggregateAndProof,
+    attestation::Error as AttestationError, graffiti::GraffitiString, Address, AggregateAndProof,
     Attestation, BeaconBlock, ChainSpec, ContributionAndProof, Domain, Epoch, EthSpec, Fork,
     Graffiti, Hash256, Keypair, PublicKeyBytes, SelectionProof, Signature, SignedAggregateAndProof,
     SignedBeaconBlock, SignedContributionAndProof, Slot, SyncAggregatorSelectionData,
@@ -146,11 +148,13 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
         password: ZeroizeString,
         enable: bool,
         graffiti: Option<GraffitiString>,
+        suggested_fee_recipient: Option<Address>,
     ) -> Result<ValidatorDefinition, String> {
         let mut validator_def = ValidatorDefinition::new_keystore_with_password(
             voting_keystore_path,
             Some(password),
             graffiti.map(Into::into),
+            suggested_fee_recipient,
         )
         .map_err(|e| format!("failed to create validator definitions: {:?}", e))?;
 
@@ -183,7 +187,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
 
         self.validators
             .write()
-            .add_definition(validator_def.clone())
+            .add_definition_replace_disabled(validator_def.clone())
             .await
             .map_err(|e| format!("Unable to add definition: {:?}", e))?;
 
@@ -347,6 +351,12 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
 
     pub fn graffiti(&self, validator_pubkey: &PublicKeyBytes) -> Option<Graffiti> {
         self.validators.read().graffiti(validator_pubkey)
+    }
+
+    pub fn suggested_fee_recipient(&self, validator_pubkey: &PublicKeyBytes) -> Option<Address> {
+        self.validators
+            .read()
+            .suggested_fee_recipient(validator_pubkey)
     }
 
     pub async fn sign_block(
@@ -691,6 +701,48 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
         );
 
         Ok(SignedContributionAndProof { message, signature })
+    }
+
+    pub fn import_slashing_protection(
+        &self,
+        interchange: Interchange,
+    ) -> Result<(), InterchangeError> {
+        self.slashing_protection
+            .import_interchange_info(interchange, self.genesis_validators_root)?;
+        Ok(())
+    }
+
+    /// Export slashing protection data while also disabling the given keys in the database.
+    ///
+    /// If any key is unknown to the slashing protection database it will be silently omitted
+    /// from the result. It is the caller's responsibility to check whether all keys provided
+    /// had data returned for them.
+    pub fn export_slashing_protection_for_keys(
+        &self,
+        pubkeys: &[PublicKeyBytes],
+    ) -> Result<Interchange, InterchangeError> {
+        self.slashing_protection.with_transaction(|txn| {
+            let known_pubkeys = pubkeys
+                .iter()
+                .filter_map(|pubkey| {
+                    let validator_id = self
+                        .slashing_protection
+                        .get_validator_id_ignoring_status(txn, pubkey)
+                        .ok()?;
+
+                    Some(
+                        self.slashing_protection
+                            .update_validator_status(txn, validator_id, false)
+                            .map(|()| *pubkey),
+                    )
+                })
+                .collect::<Result<Vec<PublicKeyBytes>, _>>()?;
+            self.slashing_protection.export_interchange_info_in_txn(
+                self.genesis_validators_root,
+                Some(&known_pubkeys),
+                txn,
+            )
+        })
     }
 
     /// Prune the slashing protection database so that it remains performant.

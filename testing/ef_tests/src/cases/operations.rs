@@ -12,7 +12,7 @@ use state_processing::per_block_processing::{
         altair, base, process_attester_slashings, process_deposits, process_exits,
         process_proposer_slashings,
     },
-    process_sync_aggregate, VerifySignatures,
+    process_sync_aggregate, VerifyBlockRoot, VerifySignatures,
 };
 use std::fmt::Debug;
 use std::path::Path;
@@ -183,7 +183,7 @@ impl<E: EthSpec> Operation<E> for BeaconBlock<E> {
         spec: &ChainSpec,
         _: &Operations<E, Self>,
     ) -> Result<(), BlockProcessingError> {
-        process_block_header(state, self.to_ref(), spec)?;
+        process_block_header(state, self.to_ref(), VerifyBlockRoot::True, spec)?;
         Ok(())
     }
 }
@@ -239,7 +239,6 @@ impl<E: EthSpec> Operation<E> for ExecutionPayload<E> {
         spec: &ChainSpec,
         extra: &Operations<E, Self>,
     ) -> Result<(), BlockProcessingError> {
-        // FIXME(merge): we may want to plumb the validity bool into state processing
         let valid = extra
             .execution_metadata
             .as_ref()
@@ -305,10 +304,7 @@ impl<E: EthSpec, O: Operation<E>> LoadCase for Operations<E, O> {
 
 impl<E: EthSpec, O: Operation<E>> Case for Operations<E, O> {
     fn description(&self) -> String {
-        self.metadata
-            .description
-            .clone()
-            .unwrap_or_else(String::new)
+        self.metadata.description.clone().unwrap_or_default()
     }
 
     fn is_enabled_for_fork(fork_name: ForkName) -> bool {

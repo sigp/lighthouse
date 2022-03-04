@@ -134,15 +134,18 @@ impl<'a> Builder<'a> {
         self
     }
 
+    /// Return the path to the validator dir to be built, i.e. `base_dir/pubkey`.
+    pub fn get_dir_path(base_validators_dir: &Path, voting_keystore: &Keystore) -> PathBuf {
+        base_validators_dir.join(format!("0x{}", voting_keystore.pubkey()))
+    }
+
     /// Consumes `self`, returning a `ValidatorDir` if no error is encountered.
     pub fn build(self) -> Result<ValidatorDir, Error> {
         let (voting_keystore, voting_password) = self
             .voting_keystore
             .ok_or(Error::UninitializedVotingKeystore)?;
 
-        let dir = self
-            .base_validators_dir
-            .join(format!("0x{}", voting_keystore.pubkey()));
+        let dir = Self::get_dir_path(&self.base_validators_dir, &voting_keystore);
 
         if dir.exists() {
             return Err(Error::DirectoryAlreadyExists(dir));

@@ -8,9 +8,8 @@
 //! If a batch fails, the backfill sync cannot progress. In this scenario, we mark the backfill
 //! sync as failed, log an error and attempt to retry once a new peer joins the node.
 
-use super::RequestId;
 use crate::beacon_processor::{ProcessId, WorkEvent as BeaconWorkEvent};
-use crate::sync::manager::BatchProcessResult;
+use crate::sync::manager::{BatchProcessResult, Id};
 use crate::sync::network_context::SyncNetworkContext;
 use crate::sync::range_sync::{BatchConfig, BatchId, BatchInfo, BatchState};
 use beacon_chain::{BeaconChain, BeaconChainTypes};
@@ -53,6 +52,13 @@ impl BatchConfig for BackFillBatchConfig {
     }
     fn max_batch_processing_attempts() -> u8 {
         MAX_BATCH_PROCESSING_ATTEMPTS
+    }
+    fn batch_attempt_hash<T: EthSpec>(blocks: &[SignedBeaconBlock<T>]) -> u64 {
+        use std::collections::hash_map::DefaultHasher;
+        use std::hash::{Hash, Hasher};
+        let mut hasher = DefaultHasher::new();
+        blocks.hash(&mut hasher);
+        hasher.finish()
     }
 }
 
@@ -119,7 +125,7 @@ pub struct BackFillSync<T: BeaconChainTypes> {
     /// Batches validated by this chain.
     validated_batches: u64,
 
-    /// We keep track of peer that are participating in the backfill sync. Unlike RangeSync,
+    /// We keep track of peers that are participating in the backfill sync. Unlike RangeSync,
     /// BackFillSync uses all synced peers to download the chain from. If BackFillSync fails, we don't
     /// want to penalize all our synced peers, so we use this variable to keep track of peers that
     /// have participated and only penalize these peers if backfill sync fails.
@@ -350,7 +356,7 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
         network: &mut SyncNetworkContext<T::EthSpec>,
         batch_id: BatchId,
         peer_id: &PeerId,
-        request_id: RequestId,
+        request_id: Id,
     ) -> Result<(), BackFillError> {
         if let Some(batch) = self.batches.get_mut(&batch_id) {
             // A batch could be retried without the peer failing the request (disconnecting/
@@ -385,7 +391,7 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
         network: &mut SyncNetworkContext<T::EthSpec>,
         batch_id: BatchId,
         peer_id: &PeerId,
-        request_id: RequestId,
+        request_id: Id,
         beacon_block: Option<SignedBeaconBlock<T::EthSpec>>,
     ) -> Result<ProcessResult, BackFillError> {
         // check if we have this batch
@@ -539,9 +545,17 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
                 "error" => %e, "batch" => self.processing_target);
             // This is unlikely to happen but it would stall syncing since the batch now has no
             // blocks to continue, and the chain is expecting a processing result that won't
-            // arrive.  To mitigate this, (fake) fail this processing so that the batch is
+            // arrive. To mitigate this, (fake) fail this processing so that the batch is
             // re-downloaded.
-            self.on_batch_process_result(network, batch_id, &BatchProcessResult::Failed(false))
+            self.on_batch_process_result(
+                network,
+                batch_id,
+                &BatchProcessResult::Failed {
+                    imported_blocks: false,
+                    // The beacon processor queue is full, no need to penalize the peer.
+                    peer_action: None,
+                },
+            )
         } else {
             Ok(ProcessResult::Successful)
         }
@@ -621,7 +635,10 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
                     self.process_completed_batches(network)
                 }
             }
-            BatchProcessResult::Failed(imported_blocks) => {
+            BatchProcessResult::Failed {
+                imported_blocks,
+                peer_action,
+            } => {
                 let batch = match self.batches.get_mut(&batch_id) {
                     Some(v) => v,
                     None => {
@@ -659,12 +676,20 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
                         // that it is likely all peers are sending invalid batches
                         // repeatedly and are either malicious or faulty. We stop the backfill sync and
                         // report all synced peers that have participated.
-                        let action = PeerAction::LowToleranceError;
-                        warn!(self.log, "Backfill batch failed to download. Penalizing peers";
-                        "score_adjustment" => %action,
-                        "batch_epoch"=> batch_id);
-                        for peer in self.participating_peers.drain() {
-                            network.report_peer(peer, action);
+                        warn!(
+                            self.log,
+                            "Backfill batch failed to download. Penalizing peers";
+                            "score_adjustment" => %peer_action
+                                .as_ref()
+                                .map(ToString::to_string)
+                                .unwrap_or_else(|| "None".into()),
+                            "batch_epoch"=> batch_id
+                        );
+
+                        if let Some(peer_action) = peer_action {
+                            for peer in self.participating_peers.drain() {
+                                network.report_peer(peer, *peer_action, "backfill_batch_failed");
+                            }
                         }
                         self.fail_sync(BackFillError::BatchProcessingFailed(batch_id))
                             .map(|_| ProcessResult::Successful)
@@ -776,7 +801,7 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
                     for attempt in batch.attempts() {
                         // The validated batch has been re-processed
                         if attempt.hash != processed_attempt.hash {
-                            // The re-downloaded version was different
+                            // The re-downloaded version was different.
                             if processed_attempt.peer_id != attempt.peer_id {
                                 // A different peer sent the correct batch, the previous peer did not
                                 // We negatively score the original peer.
@@ -785,7 +810,11 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
                                     "batch_epoch" => id, "score_adjustment" => %action,
                                     "original_peer" => %attempt.peer_id, "new_peer" => %processed_attempt.peer_id
                                 );
-                                network.report_peer(attempt.peer_id, action);
+                                network.report_peer(
+                                    attempt.peer_id,
+                                    action,
+                                    "backfill_reprocessed_original_peer",
+                                );
                             } else {
                                 // The same peer corrected it's previous mistake. There was an error, so we
                                 // negative score the original peer.
@@ -794,7 +823,11 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
                                     "batch_epoch" => id, "score_adjustment" => %action,
                                     "original_peer" => %attempt.peer_id, "new_peer" => %processed_attempt.peer_id
                                 );
-                                network.report_peer(attempt.peer_id, action);
+                                network.report_peer(
+                                    attempt.peer_id,
+                                    action,
+                                    "backfill_reprocessed_same_peer",
+                                );
                             }
                         }
                     }

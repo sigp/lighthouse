@@ -1,6 +1,6 @@
 # Slashing Protection
 
-The security of Ethereum 2.0's proof of stake protocol depends on penalties for misbehaviour, known
+The security of the Ethereum proof-of-stake protocol depends on penalties for misbehaviour, known
 as _slashings_. Validators that sign conflicting messages (blocks or attestations), can be slashed
 by other validators through the inclusion of a `ProposerSlashing` or `AttesterSlashing` on chain.
 

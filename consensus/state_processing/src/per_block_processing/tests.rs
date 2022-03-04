@@ -6,7 +6,10 @@ use crate::per_block_processing::errors::{
     DepositInvalid, HeaderInvalid, IndexedAttestationInvalid, IntoWithIndex,
     ProposerSlashingInvalid,
 };
-use crate::{per_block_processing::process_operations, BlockSignatureStrategy, VerifySignatures};
+use crate::{
+    per_block_processing::process_operations, BlockSignatureStrategy, VerifyBlockRoot,
+    VerifySignatures,
+};
 use beacon_chain::test_utils::{BeaconChainHarness, EphemeralHarnessType};
 use lazy_static::lazy_static;
 use ssz_types::Bitfield;
@@ -65,6 +68,7 @@ fn valid_block_ok() {
         &block,
         None,
         BlockSignatureStrategy::VerifyIndividual,
+        VerifyBlockRoot::True,
         &spec,
     );
 
@@ -88,6 +92,7 @@ fn invalid_block_header_state_slot() {
         &SignedBeaconBlock::from_block(block, signature),
         None,
         BlockSignatureStrategy::VerifyIndividual,
+        VerifyBlockRoot::True,
         &spec,
     );
 
@@ -116,6 +121,7 @@ fn invalid_parent_block_root() {
         &SignedBeaconBlock::from_block(block, signature),
         None,
         BlockSignatureStrategy::VerifyIndividual,
+        VerifyBlockRoot::True,
         &spec,
     );
 
@@ -145,6 +151,7 @@ fn invalid_block_signature() {
         &SignedBeaconBlock::from_block(block, Signature::empty()),
         None,
         BlockSignatureStrategy::VerifyIndividual,
+        VerifyBlockRoot::True,
         &spec,
     );
 
@@ -174,6 +181,7 @@ fn invalid_randao_reveal_signature() {
         &signed_block,
         None,
         BlockSignatureStrategy::VerifyIndividual,
+        VerifyBlockRoot::True,
         &spec,
     );
 

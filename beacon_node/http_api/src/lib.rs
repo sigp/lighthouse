@@ -5,8 +5,11 @@
 //! There are also some additional, non-standard endpoints behind the `/lighthouse/` path which are
 //! used for development.
 
+mod attestation_performance;
 mod attester_duties;
 mod block_id;
+mod block_packing_efficiency;
+mod block_rewards;
 mod database;
 mod metrics;
 mod proposer_duties;
@@ -43,9 +46,9 @@ use tokio::sync::mpsc::UnboundedSender;
 use tokio_stream::{wrappers::BroadcastStream, StreamExt};
 use types::{
     Attestation, AttesterSlashing, BeaconStateError, CommitteeCache, ConfigAndPreset, Epoch,
-    EthSpec, ForkName, ProposerSlashing, RelativeEpoch, SignedAggregateAndProof, SignedBeaconBlock,
-    SignedContributionAndProof, SignedVoluntaryExit, Slot, SyncCommitteeMessage,
-    SyncContributionData,
+    EthSpec, ForkName, ProposerPreparationData, ProposerSlashing, RelativeEpoch,
+    SignedAggregateAndProof, SignedBeaconBlock, SignedContributionAndProof, SignedVoluntaryExit,
+    Slot, SyncCommitteeMessage, SyncContributionData,
 };
 use version::{
     add_consensus_version_header, fork_versioned_response, inconsistent_fork_rejection,
@@ -55,7 +58,10 @@ use warp::http::StatusCode;
 use warp::sse::Event;
 use warp::Reply;
 use warp::{http::Response, Filter};
-use warp_utils::task::{blocking_json_task, blocking_task};
+use warp_utils::{
+    query::multi_key_query,
+    task::{blocking_json_task, blocking_task},
+};
 
 const API_PREFIX: &str = "eth";
 
@@ -505,12 +511,13 @@ pub fn serve<T: BeaconChainTypes>(
         .clone()
         .and(warp::path("validator_balances"))
         .and(warp::path::end())
-        .and(warp::query::<api_types::ValidatorBalancesQuery>())
+        .and(multi_key_query::<api_types::ValidatorBalancesQuery>())
         .and_then(
             |state_id: StateId,
              chain: Arc<BeaconChain<T>>,
-             query: api_types::ValidatorBalancesQuery| {
+             query_res: Result<api_types::ValidatorBalancesQuery, warp::Rejection>| {
                 blocking_json_task(move || {
+                    let query = query_res?;
                     state_id
                         .map_state(&chain, |state| {
                             Ok(state
@@ -521,7 +528,7 @@ pub fn serve<T: BeaconChainTypes>(
                                 // filter by validator id(s) if provided
                                 .filter(|(index, (validator, _))| {
                                     query.id.as_ref().map_or(true, |ids| {
-                                        ids.0.iter().any(|id| match id {
+                                        ids.iter().any(|id| match id {
                                             ValidatorId::PublicKey(pubkey) => {
                                                 &validator.pubkey == pubkey
                                             }
@@ -548,11 +555,14 @@ pub fn serve<T: BeaconChainTypes>(
     let get_beacon_state_validators = beacon_states_path
         .clone()
         .and(warp::path("validators"))
-        .and(warp::query::<api_types::ValidatorsQuery>())
         .and(warp::path::end())
+        .and(multi_key_query::<api_types::ValidatorsQuery>())
         .and_then(
-            |state_id: StateId, chain: Arc<BeaconChain<T>>, query: api_types::ValidatorsQuery| {
+            |state_id: StateId,
+             chain: Arc<BeaconChain<T>>,
+             query_res: Result<api_types::ValidatorsQuery, warp::Rejection>| {
                 blocking_json_task(move || {
+                    let query = query_res?;
                     state_id
                         .map_state(&chain, |state| {
                             let epoch = state.current_epoch();
@@ -566,7 +576,7 @@ pub fn serve<T: BeaconChainTypes>(
                                 // filter by validator id(s) if provided
                                 .filter(|(index, (validator, _))| {
                                     query.id.as_ref().map_or(true, |ids| {
-                                        ids.0.iter().any(|id| match id {
+                                        ids.iter().any(|id| match id {
                                             ValidatorId::PublicKey(pubkey) => {
                                                 &validator.pubkey == pubkey
                                             }
@@ -586,8 +596,8 @@ pub fn serve<T: BeaconChainTypes>(
 
                                     let status_matches =
                                         query.status.as_ref().map_or(true, |statuses| {
-                                            statuses.0.contains(&status)
-                                                || statuses.0.contains(&status.superstatus())
+                                            statuses.contains(&status)
+                                                || statuses.contains(&status.superstatus())
                                         });
 
                                     if status_matches {
@@ -1721,11 +1731,13 @@ pub fn serve<T: BeaconChainTypes>(
         .and(warp::path("node"))
         .and(warp::path("peers"))
         .and(warp::path::end())
-        .and(warp::query::<api_types::PeersQuery>())
+        .and(multi_key_query::<api_types::PeersQuery>())
         .and(network_globals.clone())
         .and_then(
-            |query: api_types::PeersQuery, network_globals: Arc<NetworkGlobals<T::EthSpec>>| {
+            |query_res: Result<api_types::PeersQuery, warp::Rejection>,
+             network_globals: Arc<NetworkGlobals<T::EthSpec>>| {
                 blocking_json_task(move || {
+                    let query = query_res?;
                     let mut peers: Vec<api_types::PeerData> = Vec::new();
                     network_globals
                         .peers
@@ -1755,11 +1767,11 @@ pub fn serve<T: BeaconChainTypes>(
                                 );
 
                                 let state_matches = query.state.as_ref().map_or(true, |states| {
-                                    states.0.iter().any(|state_param| *state_param == state)
+                                    states.iter().any(|state_param| *state_param == state)
                                 });
                                 let direction_matches =
                                     query.direction.as_ref().map_or(true, |directions| {
-                                        directions.0.iter().any(|dir_param| *dir_param == direction)
+                                        directions.iter().any(|dir_param| *dir_param == direction)
                                     });
 
                                 if state_matches && direction_matches {
@@ -2175,6 +2187,53 @@ pub fn serve<T: BeaconChainTypes>(
             },
         );
 
+    // POST validator/prepare_beacon_proposer
+    let post_validator_prepare_beacon_proposer = eth1_v1
+        .and(warp::path("validator"))
+        .and(warp::path("prepare_beacon_proposer"))
+        .and(warp::path::end())
+        .and(not_while_syncing_filter.clone())
+        .and(chain_filter.clone())
+        .and(warp::addr::remote())
+        .and(log_filter.clone())
+        .and(warp::body::json())
+        .and_then(
+            |chain: Arc<BeaconChain<T>>,
+             client_addr: Option<SocketAddr>,
+             log: Logger,
+             preparation_data: Vec<ProposerPreparationData>| {
+                blocking_json_task(move || {
+                    let execution_layer = chain
+                        .execution_layer
+                        .as_ref()
+                        .ok_or(BeaconChainError::ExecutionLayerMissing)
+                        .map_err(warp_utils::reject::beacon_chain_error)?;
+                    let current_epoch = chain
+                        .epoch()
+                        .map_err(warp_utils::reject::beacon_chain_error)?;
+
+                    debug!(
+                        log,
+                        "Received proposer preparation data";
+                        "count" => preparation_data.len(),
+                        "client" => client_addr
+                            .map(|a| a.to_string())
+                            .unwrap_or_else(|| "unknown".to_string()),
+                    );
+
+                    execution_layer
+                        .update_proposer_preparation_blocking(current_epoch, &preparation_data)
+                        .map_err(|_e| {
+                            warp_utils::reject::custom_bad_request(
+                                "error processing proposer preparations".to_string(),
+                            )
+                        })?;
+
+                    Ok(())
+                })
+            },
+        );
+
     // POST validator/sync_committee_subscriptions
     let post_validator_sync_committee_subscriptions = eth1_v1
         .and(warp::path("validator"))
@@ -2271,6 +2330,22 @@ pub fn serve<T: BeaconChainTypes>(
             blocking_json_task(move || {
                 Ok(api_types::GenericResponse::from(
                     network_globals.sync_state(),
+                ))
+            })
+        });
+
+    // GET lighthouse/nat
+    let get_lighthouse_nat = warp::path("lighthouse")
+        .and(warp::path("nat"))
+        .and(warp::path::end())
+        .and_then(|| {
+            blocking_json_task(move || {
+                Ok(api_types::GenericResponse::from(
+                    lighthouse_network::metrics::NAT_OPEN
+                        .as_ref()
+                        .map(|v| v.get())
+                        .unwrap_or(0)
+                        != 0,
                 ))
             })
         });
@@ -2515,19 +2590,60 @@ pub fn serve<T: BeaconChainTypes>(
             },
         );
 
+    // GET lighthouse/analysis/block_rewards
+    let get_lighthouse_block_rewards = warp::path("lighthouse")
+        .and(warp::path("analysis"))
+        .and(warp::path("block_rewards"))
+        .and(warp::query::<eth2::lighthouse::BlockRewardsQuery>())
+        .and(warp::path::end())
+        .and(chain_filter.clone())
+        .and(log_filter.clone())
+        .and_then(|query, chain, log| {
+            blocking_json_task(move || block_rewards::get_block_rewards(query, chain, log))
+        });
+
+    // GET lighthouse/analysis/attestation_performance/{index}
+    let get_lighthouse_attestation_performance = warp::path("lighthouse")
+        .and(warp::path("analysis"))
+        .and(warp::path("attestation_performance"))
+        .and(warp::path::param::<String>())
+        .and(warp::query::<eth2::lighthouse::AttestationPerformanceQuery>())
+        .and(warp::path::end())
+        .and(chain_filter.clone())
+        .and_then(|target, query, chain: Arc<BeaconChain<T>>| {
+            blocking_json_task(move || {
+                attestation_performance::get_attestation_performance(target, query, chain)
+            })
+        });
+
+    // GET lighthouse/analysis/block_packing_efficiency
+    let get_lighthouse_block_packing_efficiency = warp::path("lighthouse")
+        .and(warp::path("analysis"))
+        .and(warp::path("block_packing_efficiency"))
+        .and(warp::query::<eth2::lighthouse::BlockPackingEfficiencyQuery>())
+        .and(warp::path::end())
+        .and(chain_filter.clone())
+        .and_then(|query, chain: Arc<BeaconChain<T>>| {
+            blocking_json_task(move || {
+                block_packing_efficiency::get_block_packing_efficiency(query, chain)
+            })
+        });
+
     let get_events = eth1_v1
         .and(warp::path("events"))
         .and(warp::path::end())
-        .and(warp::query::<api_types::EventQuery>())
+        .and(multi_key_query::<api_types::EventQuery>())
         .and(chain_filter)
         .and_then(
-            |topics: api_types::EventQuery, chain: Arc<BeaconChain<T>>| {
+            |topics_res: Result<api_types::EventQuery, warp::Rejection>,
+             chain: Arc<BeaconChain<T>>| {
                 blocking_task(move || {
+                    let topics = topics_res?;
                     // for each topic subscribed spawn a new subscription
-                    let mut receivers = Vec::with_capacity(topics.topics.0.len());
+                    let mut receivers = Vec::with_capacity(topics.topics.len());
 
                     if let Some(event_handler) = chain.event_handler.as_ref() {
-                        for topic in topics.topics.0.clone() {
+                        for topic in topics.topics {
                             let receiver = match topic {
                                 api_types::EventTopic::Head => event_handler.subscribe_head(),
                                 api_types::EventTopic::Block => event_handler.subscribe_block(),
@@ -2548,6 +2664,9 @@ pub fn serve<T: BeaconChainTypes>(
                                 }
                                 api_types::EventTopic::LateHead => {
                                     event_handler.subscribe_late_head()
+                                }
+                                api_types::EventTopic::BlockReward => {
+                                    event_handler.subscribe_block_reward()
                                 }
                             };
 
@@ -2590,8 +2709,8 @@ pub fn serve<T: BeaconChainTypes>(
                 .or(get_beacon_state_fork.boxed())
                 .or(get_beacon_state_finality_checkpoints.boxed())
                 .or(get_beacon_state_validator_balances.boxed())
-                .or(get_beacon_state_validators.boxed())
                 .or(get_beacon_state_validators_id.boxed())
+                .or(get_beacon_state_validators.boxed())
                 .or(get_beacon_state_committees.boxed())
                 .or(get_beacon_state_sync_committees.boxed())
                 .or(get_beacon_headers.boxed())
@@ -2622,6 +2741,7 @@ pub fn serve<T: BeaconChainTypes>(
                 .or(get_validator_sync_committee_contribution.boxed())
                 .or(get_lighthouse_health.boxed())
                 .or(get_lighthouse_syncing.boxed())
+                .or(get_lighthouse_nat.boxed())
                 .or(get_lighthouse_peers.boxed())
                 .or(get_lighthouse_peers_connected.boxed())
                 .or(get_lighthouse_proto_array.boxed())
@@ -2633,6 +2753,9 @@ pub fn serve<T: BeaconChainTypes>(
                 .or(get_lighthouse_beacon_states_ssz.boxed())
                 .or(get_lighthouse_staking.boxed())
                 .or(get_lighthouse_database_info.boxed())
+                .or(get_lighthouse_block_rewards.boxed())
+                .or(get_lighthouse_attestation_performance.boxed())
+                .or(get_lighthouse_block_packing_efficiency.boxed())
                 .or(get_events.boxed()),
         )
         .or(warp::post().and(
@@ -2649,6 +2772,7 @@ pub fn serve<T: BeaconChainTypes>(
                 .or(post_validator_contribution_and_proofs.boxed())
                 .or(post_validator_beacon_committee_subscriptions.boxed())
                 .or(post_validator_sync_committee_subscriptions.boxed())
+                .or(post_validator_prepare_beacon_proposer.boxed())
                 .or(post_lighthouse_liveness.boxed())
                 .or(post_lighthouse_database_reconstruct.boxed())
                 .or(post_lighthouse_database_historical_blocks.boxed()),

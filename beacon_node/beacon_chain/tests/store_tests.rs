@@ -14,6 +14,7 @@ use lazy_static::lazy_static;
 use logging::test_logger;
 use maplit::hashset;
 use rand::Rng;
+use state_processing::BlockReplayer;
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::convert::TryInto;
@@ -65,6 +66,7 @@ fn get_harness(
         .default_spec()
         .keypairs(KEYPAIRS[0..validator_count].to_vec())
         .fresh_disk_store(store)
+        .mock_execution_layer()
         .build();
     harness.advance_slot();
     harness
@@ -126,7 +128,7 @@ fn randomised_skips() {
         "head should be at the current slot"
     );
 
-    check_split_slot(&harness, store);
+    check_split_slot(&harness, store.clone());
     check_chain_dump(&harness, num_blocks_produced + 1);
     check_iterators(&harness);
 }
@@ -358,6 +360,191 @@ fn epoch_boundary_state_attestation_processing() {
     assert!(checked_pre_fin);
 }
 
+// Test that the `end_slot` for forwards block and state root iterators works correctly.
+#[test]
+fn forwards_iter_block_and_state_roots_until() {
+    let num_blocks_produced = E::slots_per_epoch() * 17;
+    let db_path = tempdir().unwrap();
+    let store = get_store(&db_path);
+    let harness = get_harness(store.clone(), LOW_VALIDATOR_COUNT);
+
+    let all_validators = &harness.get_all_validators();
+    let (mut head_state, mut head_state_root) = harness.get_current_state_and_root();
+    let head_block_root = harness.chain.head_info().unwrap().block_root;
+    let mut block_roots = vec![head_block_root];
+    let mut state_roots = vec![head_state_root];
+
+    for slot in (1..=num_blocks_produced).map(Slot::from) {
+        let (block_root, mut state) = harness
+            .add_attested_block_at_slot(slot, head_state, head_state_root, all_validators)
+            .unwrap();
+        head_state_root = state.update_tree_hash_cache().unwrap();
+        head_state = state;
+        block_roots.push(block_root.into());
+        state_roots.push(head_state_root);
+    }
+
+    check_finalization(&harness, num_blocks_produced);
+    check_split_slot(&harness, store.clone());
+
+    // The last restore point slot is the point at which the hybrid forwards iterator behaviour
+    // changes.
+    let last_restore_point_slot = store.get_latest_restore_point_slot();
+    assert!(last_restore_point_slot > 0);
+
+    let chain = &harness.chain;
+    let head_state = harness.get_current_state();
+    let head_slot = head_state.slot();
+    assert_eq!(head_slot, num_blocks_produced);
+
+    let test_range = |start_slot: Slot, end_slot: Slot| {
+        let mut block_root_iter = chain
+            .forwards_iter_block_roots_until(start_slot, end_slot)
+            .unwrap();
+        let mut state_root_iter = chain
+            .forwards_iter_state_roots_until(start_slot, end_slot)
+            .unwrap();
+
+        for slot in (start_slot.as_u64()..=end_slot.as_u64()).map(Slot::new) {
+            let block_root = block_roots[slot.as_usize()];
+            assert_eq!(block_root_iter.next().unwrap().unwrap(), (block_root, slot));
+
+            let state_root = state_roots[slot.as_usize()];
+            assert_eq!(state_root_iter.next().unwrap().unwrap(), (state_root, slot));
+        }
+    };
+
+    let split_slot = store.get_split_slot();
+    assert!(split_slot > last_restore_point_slot);
+
+    test_range(Slot::new(0), last_restore_point_slot);
+    test_range(last_restore_point_slot, last_restore_point_slot);
+    test_range(last_restore_point_slot - 1, last_restore_point_slot);
+    test_range(Slot::new(0), last_restore_point_slot - 1);
+    test_range(Slot::new(0), split_slot);
+    test_range(last_restore_point_slot - 1, split_slot);
+    test_range(Slot::new(0), head_state.slot());
+}
+
+#[test]
+fn block_replay_with_inaccurate_state_roots() {
+    let num_blocks_produced = E::slots_per_epoch() * 3 + 31;
+    let db_path = tempdir().unwrap();
+    let store = get_store(&db_path);
+    let harness = get_harness(store.clone(), LOW_VALIDATOR_COUNT);
+    let chain = &harness.chain;
+
+    harness.extend_chain(
+        num_blocks_produced as usize,
+        BlockStrategy::OnCanonicalHead,
+        AttestationStrategy::AllValidators,
+    );
+
+    // Slot must not be 0 mod 32 or else no blocks will be replayed.
+    let (mut head_state, head_root) = harness.get_current_state_and_root();
+    assert_ne!(head_state.slot() % 32, 0);
+
+    let mut fast_head_state = store
+        .get_inconsistent_state_for_attestation_verification_only(
+            &head_root,
+            Some(head_state.slot()),
+        )
+        .unwrap()
+        .unwrap();
+    assert_eq!(head_state.validators(), fast_head_state.validators());
+
+    head_state.build_all_committee_caches(&chain.spec).unwrap();
+    fast_head_state
+        .build_all_committee_caches(&chain.spec)
+        .unwrap();
+
+    assert_eq!(
+        head_state
+            .get_cached_active_validator_indices(RelativeEpoch::Current)
+            .unwrap(),
+        fast_head_state
+            .get_cached_active_validator_indices(RelativeEpoch::Current)
+            .unwrap()
+    );
+}
+
+#[test]
+fn block_replayer_hooks() {
+    let db_path = tempdir().unwrap();
+    let store = get_store(&db_path);
+    let harness = get_harness(store.clone(), LOW_VALIDATOR_COUNT);
+    let chain = &harness.chain;
+
+    let block_slots = vec![1, 3, 5, 10, 11, 12, 13, 14, 31, 32, 33]
+        .into_iter()
+        .map(Slot::new)
+        .collect::<Vec<_>>();
+    let max_slot = *block_slots.last().unwrap();
+    let all_slots = (0..=max_slot.as_u64()).map(Slot::new).collect::<Vec<_>>();
+
+    let (state, state_root) = harness.get_current_state_and_root();
+    let all_validators = harness.get_all_validators();
+    let (_, _, end_block_root, mut end_state) = harness.add_attested_blocks_at_slots(
+        state.clone(),
+        state_root,
+        &block_slots,
+        &all_validators,
+    );
+
+    let blocks = store
+        .load_blocks_to_replay(Slot::new(0), max_slot, end_block_root.into())
+        .unwrap();
+
+    let mut pre_slots = vec![];
+    let mut post_slots = vec![];
+    let mut pre_block_slots = vec![];
+    let mut post_block_slots = vec![];
+
+    let mut replay_state = BlockReplayer::<MinimalEthSpec>::new(state, &chain.spec)
+        .pre_slot_hook(Box::new(|state| {
+            pre_slots.push(state.slot());
+            Ok(())
+        }))
+        .post_slot_hook(Box::new(|state, epoch_summary, is_skip_slot| {
+            if is_skip_slot {
+                assert!(!block_slots.contains(&state.slot()));
+            } else {
+                assert!(block_slots.contains(&state.slot()));
+            }
+            if state.slot() % E::slots_per_epoch() == 0 {
+                assert!(epoch_summary.is_some());
+            }
+            post_slots.push(state.slot());
+            Ok(())
+        }))
+        .pre_block_hook(Box::new(|state, block| {
+            assert_eq!(state.slot(), block.slot());
+            pre_block_slots.push(block.slot());
+            Ok(())
+        }))
+        .post_block_hook(Box::new(|state, block| {
+            assert_eq!(state.slot(), block.slot());
+            post_block_slots.push(block.slot());
+            Ok(())
+        }))
+        .apply_blocks(blocks, None)
+        .unwrap()
+        .into_state();
+
+    // All but last slot seen by pre-slot hook
+    assert_eq!(&pre_slots, all_slots.split_last().unwrap().1);
+    // All but 0th slot seen by post-slot hook
+    assert_eq!(&post_slots, all_slots.split_first().unwrap().1);
+    // All blocks seen by both hooks
+    assert_eq!(pre_block_slots, block_slots);
+    assert_eq!(post_block_slots, block_slots);
+
+    // States match.
+    end_state.drop_all_caches().unwrap();
+    replay_state.drop_all_caches().unwrap();
+    assert_eq!(end_state, replay_state);
+}
+
 #[test]
 fn delete_blocks_and_states() {
     let db_path = tempdir().unwrap();
@@ -368,6 +555,7 @@ fn delete_blocks_and_states() {
         .default_spec()
         .keypairs(validators_keypairs)
         .fresh_disk_store(store.clone())
+        .mock_execution_layer()
         .build();
 
     let unforked_blocks: u64 = 4 * E::slots_per_epoch();
@@ -430,7 +618,7 @@ fn delete_blocks_and_states() {
     // Delete faulty fork
     // Attempting to load those states should find them unavailable
     for (state_root, slot) in
-        StateRootsIterator::new(store.clone(), &faulty_head_state).map(Result::unwrap)
+        StateRootsIterator::new(&store, &faulty_head_state).map(Result::unwrap)
     {
         if slot <= unforked_blocks {
             break;
@@ -441,7 +629,7 @@ fn delete_blocks_and_states() {
 
     // Double-deleting should also be OK (deleting non-existent things is fine)
     for (state_root, slot) in
-        StateRootsIterator::new(store.clone(), &faulty_head_state).map(Result::unwrap)
+        StateRootsIterator::new(&store, &faulty_head_state).map(Result::unwrap)
     {
         if slot <= unforked_blocks {
             break;
@@ -451,7 +639,7 @@ fn delete_blocks_and_states() {
 
     // Deleting the blocks from the fork should remove them completely
     for (block_root, slot) in
-        BlockRootsIterator::new(store.clone(), &faulty_head_state).map(Result::unwrap)
+        BlockRootsIterator::new(&store, &faulty_head_state).map(Result::unwrap)
     {
         if slot <= unforked_blocks + 1 {
             break;
@@ -494,6 +682,7 @@ fn multi_epoch_fork_valid_blocks_test(
         .default_spec()
         .keypairs(validators_keypairs)
         .fresh_disk_store(store)
+        .mock_execution_layer()
         .build();
 
     let num_fork1_blocks: u64 = num_fork1_blocks_.try_into().unwrap();
@@ -788,6 +977,7 @@ fn prunes_abandoned_fork_between_two_finalized_checkpoints() {
         .default_spec()
         .keypairs(validators_keypairs)
         .fresh_ephemeral_store()
+        .mock_execution_layer()
         .build();
     let slots_per_epoch = rig.slots_per_epoch();
     let (mut state, state_root) = rig.get_current_state_and_root();
@@ -897,6 +1087,7 @@ fn pruning_does_not_touch_abandoned_block_shared_with_canonical_chain() {
         .default_spec()
         .keypairs(validators_keypairs)
         .fresh_ephemeral_store()
+        .mock_execution_layer()
         .build();
     let slots_per_epoch = rig.slots_per_epoch();
     let (state, state_root) = rig.get_current_state_and_root();
@@ -1026,6 +1217,7 @@ fn pruning_does_not_touch_blocks_prior_to_finalization() {
         .default_spec()
         .keypairs(validators_keypairs)
         .fresh_ephemeral_store()
+        .mock_execution_layer()
         .build();
     let slots_per_epoch = rig.slots_per_epoch();
     let (mut state, state_root) = rig.get_current_state_and_root();
@@ -1120,6 +1312,7 @@ fn prunes_fork_growing_past_youngest_finalized_checkpoint() {
         .default_spec()
         .keypairs(validators_keypairs)
         .fresh_ephemeral_store()
+        .mock_execution_layer()
         .build();
     let (state, state_root) = rig.get_current_state_and_root();
 
@@ -1262,6 +1455,7 @@ fn prunes_skipped_slots_states() {
         .default_spec()
         .keypairs(validators_keypairs)
         .fresh_ephemeral_store()
+        .mock_execution_layer()
         .build();
     let (state, state_root) = rig.get_current_state_and_root();
 
@@ -1385,6 +1579,7 @@ fn finalizes_non_epoch_start_slot() {
         .default_spec()
         .keypairs(validators_keypairs)
         .fresh_ephemeral_store()
+        .mock_execution_layer()
         .build();
     let (state, state_root) = rig.get_current_state_and_root();
 
@@ -1954,6 +2149,7 @@ fn finalizes_after_resuming_from_db() {
         .default_spec()
         .keypairs(KEYPAIRS[0..validator_count].to_vec())
         .fresh_disk_store(store.clone())
+        .mock_execution_layer()
         .build();
 
     harness.advance_slot();
@@ -1997,6 +2193,7 @@ fn finalizes_after_resuming_from_db() {
         .default_spec()
         .keypairs(KEYPAIRS[0..validator_count].to_vec())
         .resumed_disk_store(store)
+        .mock_execution_layer()
         .build();
 
     assert_chains_pretty_much_the_same(&original_chain, &resumed_harness.chain);
@@ -2068,6 +2265,7 @@ fn revert_minority_fork_on_resume() {
         .spec(spec1)
         .keypairs(KEYPAIRS[0..validator_count].to_vec())
         .fresh_disk_store(store1)
+        .mock_execution_layer()
         .build();
 
     // Chain with fork epoch configured.
@@ -2077,6 +2275,7 @@ fn revert_minority_fork_on_resume() {
         .spec(spec2.clone())
         .keypairs(KEYPAIRS[0..validator_count].to_vec())
         .fresh_disk_store(store2)
+        .mock_execution_layer()
         .build();
 
     // Apply the same blocks to both chains initially.
@@ -2172,6 +2371,7 @@ fn revert_minority_fork_on_resume() {
                 .set_slot(end_slot.as_u64());
             builder
         }))
+        .mock_execution_layer()
         .build();
 
     // Head should now be just before the fork.

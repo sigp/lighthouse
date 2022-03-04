@@ -93,7 +93,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
             Arg::with_name("target-peers")
                 .long("target-peers")
                 .help("The target number of peers.")
-                .default_value("50")
+                .default_value("80")
                 .takes_value(true),
         )
         .arg(
@@ -102,6 +102,15 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .allow_hyphen_values(true)
                 .value_name("ENR/MULTIADDR LIST")
                 .help("One or more comma-delimited base64-encoded ENR's to bootstrap the p2p network. Multiaddr is also supported.")
+                .takes_value(true),
+        )
+        .arg(
+            Arg::with_name("network-load")
+                .long("network-load")
+                .value_name("INTEGER")
+                .help("Lighthouse's network can be tuned for bandwidth/performance. Setting this to a high value, will increase the bandwidth lighthouse uses, increasing the likelihood of redundant information in exchange for faster communication. This can increase profit of validators marginally by receiving messages faster on the network. Lower values decrease bandwidth usage, but makes communication slower which can lead to validator performance reduction. Values are in the range [1,5].")
+                .default_value("3")
+                .set(clap::ArgSettings::Hidden)
                 .takes_value(true),
         )
         .arg(
@@ -177,6 +186,12 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .value_name("TRUSTED_PEERS")
                 .help("One or more comma-delimited trusted peer ids which always have the highest score according to the peer scoring system.")
                 .takes_value(true),
+        )
+        .arg(
+            Arg::with_name("enable-private-discovery")
+                .long("enable-private-discovery")
+                .help("Lighthouse by default does not discover private IP addresses. Set this flag to enable connection attempts to local addresses.")
+                .takes_value(false),
         )
         /* REST API related arguments */
         .arg(
@@ -400,13 +415,15 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .takes_value(true)
         )
         .arg(
-            Arg::with_name("fee-recipient")
-                .long("fee-recipient")
+            Arg::with_name("suggested-fee-recipient")
+                .long("suggested-fee-recipient")
+                .value_name("SUGGESTED-FEE-RECIPIENT")
                 .help("Once the merge has happened, this address will receive transaction fees \
                        collected from any blocks produced by this node. Defaults to a junk \
                        address whilst the merge is in development stages. THE DEFAULT VALUE \
                        WILL BE REMOVED BEFORE THE MERGE ENTERS PRODUCTION")
                 .requires("merge")
+                .takes_value(true)
         )
 
         /*
@@ -515,9 +532,17 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
             Arg::with_name("slasher-max-db-size")
                 .long("slasher-max-db-size")
                 .help(
-                    "Maximum size of the LMDB database used by the slasher."
+                    "Maximum size of the MDBX database used by the slasher."
                 )
                 .value_name("GIGABYTES")
+                .requires("slasher")
+                .takes_value(true)
+        )
+        .arg(
+            Arg::with_name("slasher-att-cache-size")
+                .long("slasher-att-cache-size")
+                .help("Set the maximum number of attestation roots for the slasher to cache")
+                .value_name("COUNT")
                 .requires("slasher")
                 .takes_value(true)
         )

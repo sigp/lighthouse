@@ -6,9 +6,8 @@ use crate::metrics::{
 };
 use crate::{
     array, AttestationBatch, AttestationQueue, AttesterRecord, BlockQueue, Config, Error,
-    ProposerSlashingStatus, SimpleBatch, SlasherDB,
+    IndexedAttestationId, ProposerSlashingStatus, RwTransaction, SimpleBatch, SlasherDB,
 };
-use lmdb::{RwTransaction, Transaction};
 use parking_lot::Mutex;
 use slog::{debug, error, info, Logger};
 use std::collections::HashSet;
@@ -32,7 +31,7 @@ impl<E: EthSpec> Slasher<E> {
     pub fn open(config: Config, log: Logger) -> Result<Self, Error> {
         config.validate()?;
         let config = Arc::new(config);
-        let db = SlasherDB::open(config.clone())?;
+        let db = SlasherDB::open(config.clone(), log.clone())?;
         let attester_slashings = Mutex::new(HashSet::new());
         let proposer_slashings = Mutex::new(HashSet::new());
         let attestation_queue = AttestationQueue::default();
@@ -159,11 +158,19 @@ impl<E: EthSpec> Slasher<E> {
         let mut num_stored = 0;
         for weak_record in &batch.attestations {
             if let Some(indexed_record) = weak_record.upgrade() {
-                self.db.store_indexed_attestation(
+                let indexed_attestation_id = self.db.store_indexed_attestation(
                     txn,
                     indexed_record.record.indexed_attestation_hash,
                     &indexed_record.indexed,
                 )?;
+                indexed_record.set_id(indexed_attestation_id);
+
+                // Prime the attestation data root LRU cache.
+                self.db.cache_attestation_data_root(
+                    IndexedAttestationId::new(indexed_attestation_id),
+                    indexed_record.record.attestation_data_hash,
+                );
+
                 num_stored += 1;
             }
         }
@@ -184,6 +191,12 @@ impl<E: EthSpec> Slasher<E> {
         for (subqueue_id, subqueue) in grouped_attestations.subqueues.into_iter().enumerate() {
             self.process_batch(txn, subqueue_id, subqueue, current_epoch)?;
         }
+
+        metrics::set_gauge(
+            &metrics::SLASHER_ATTESTATION_ROOT_CACHE_SIZE,
+            self.db.attestation_root_cache_size() as i64,
+        );
+
         Ok(AttestationStats { num_processed })
     }
 
@@ -197,11 +210,13 @@ impl<E: EthSpec> Slasher<E> {
     ) -> Result<(), Error> {
         // First, check for double votes.
         for attestation in &batch {
+            let indexed_attestation_id = IndexedAttestationId::new(attestation.get_id());
             match self.check_double_votes(
                 txn,
                 subqueue_id,
                 &attestation.indexed,
-                attestation.record,
+                &attestation.record,
+                indexed_attestation_id,
             ) {
                 Ok(slashings) => {
                     if !slashings.is_empty() {
@@ -262,7 +277,8 @@ impl<E: EthSpec> Slasher<E> {
         txn: &mut RwTransaction<'_>,
         subqueue_id: usize,
         attestation: &IndexedAttestation<E>,
-        attester_record: AttesterRecord,
+        attester_record: &AttesterRecord,
+        indexed_attestation_id: IndexedAttestationId,
     ) -> Result<HashSet<AttesterSlashing<E>>, Error> {
         let mut slashings = HashSet::new();
 
@@ -275,6 +291,7 @@ impl<E: EthSpec> Slasher<E> {
                 validator_index,
                 attestation,
                 attester_record,
+                indexed_attestation_id,
             )?;
 
             if let Some(slashing) = slashing_status.into_slashing(attestation) {

@@ -20,8 +20,6 @@ use types::{ForkContext, ForkName};
 const GOSSIP_MAX_SIZE: usize = 1_048_576; // 1M
 /// The maximum transmit size of gossip messages in bytes post-merge.
 const GOSSIP_MAX_SIZE_POST_MERGE: usize = 10 * 1_048_576; // 10M
-/// This is a constant to be used in discovery. The lower bound of the gossipsub mesh.
-pub const MESH_N_LOW: usize = 6;
 
 /// The cache time is set to accommodate the circulation time of an attestation.
 ///
@@ -116,6 +114,10 @@ pub struct Config {
     /// runtime.
     pub import_all_attestations: bool,
 
+    /// A setting specifying a range of values that tune the network parameters of lighthouse. The
+    /// lower the value the less bandwidth used, but the slower messages will be received.
+    pub network_load: u8,
+
     /// Indicates if the user has set the network to be in private mode. Currently this
     /// prevents sending client identifying information over identify.
     pub private: bool,
@@ -174,6 +176,7 @@ impl Default for Config {
             .filter_rate_limiter(filter_rate_limiter)
             .filter_max_bans_per_ip(Some(5))
             .filter_max_nodes_per_ip(Some(10))
+            .table_filter(|enr| enr.ip().map_or(false, |ip| is_global(&ip))) // Filter non-global IPs
             .ban_duration(Some(Duration::from_secs(3600)))
             .ping_interval(Duration::from_secs(300))
             .build();
@@ -197,6 +200,7 @@ impl Default for Config {
             client_version: lighthouse_version::version_with_platform(),
             disable_discovery: false,
             upnp_enabled: true,
+            network_load: 3,
             private: false,
             subscribe_all_subnets: false,
             import_all_attestations: false,
@@ -207,8 +211,78 @@ impl Default for Config {
     }
 }
 
+/// Controls sizes of gossipsub meshes to tune a Lighthouse node's bandwidth/performance.
+pub struct NetworkLoad {
+    pub name: &'static str,
+    pub mesh_n_low: usize,
+    pub outbound_min: usize,
+    pub mesh_n: usize,
+    pub mesh_n_high: usize,
+    pub gossip_lazy: usize,
+    pub history_gossip: usize,
+    pub heartbeat_interval: Duration,
+}
+
+impl From<u8> for NetworkLoad {
+    fn from(load: u8) -> NetworkLoad {
+        match load {
+            1 => NetworkLoad {
+                name: "Low",
+                mesh_n_low: 1,
+                outbound_min: 1,
+                mesh_n: 3,
+                mesh_n_high: 4,
+                gossip_lazy: 3,
+                history_gossip: 3,
+                heartbeat_interval: Duration::from_millis(1200),
+            },
+            2 => NetworkLoad {
+                name: "Low",
+                mesh_n_low: 2,
+                outbound_min: 2,
+                mesh_n: 4,
+                mesh_n_high: 8,
+                gossip_lazy: 3,
+                history_gossip: 3,
+                heartbeat_interval: Duration::from_millis(1000),
+            },
+            3 => NetworkLoad {
+                name: "Average",
+                mesh_n_low: 3,
+                outbound_min: 2,
+                mesh_n: 5,
+                mesh_n_high: 10,
+                gossip_lazy: 3,
+                history_gossip: 3,
+                heartbeat_interval: Duration::from_millis(700),
+            },
+            4 => NetworkLoad {
+                name: "Average",
+                mesh_n_low: 4,
+                outbound_min: 3,
+                mesh_n: 8,
+                mesh_n_high: 12,
+                gossip_lazy: 3,
+                history_gossip: 3,
+                heartbeat_interval: Duration::from_millis(700),
+            },
+            // 5 and above
+            _ => NetworkLoad {
+                name: "High",
+                mesh_n_low: 5,
+                outbound_min: 3,
+                mesh_n: 10,
+                mesh_n_high: 15,
+                gossip_lazy: 5,
+                history_gossip: 6,
+                heartbeat_interval: Duration::from_millis(500),
+            },
+        }
+    }
+}
+
 /// Return a Lighthouse specific `GossipsubConfig` where the `message_id_fn` depends on the current fork.
-pub fn gossipsub_config(fork_context: Arc<ForkContext>) -> GossipsubConfig {
+pub fn gossipsub_config(network_load: u8, fork_context: Arc<ForkContext>) -> GossipsubConfig {
     // The function used to generate a gossipsub message id
     // We use the first 8 bytes of SHA256(data) for content addressing
     let fast_gossip_message_id =
@@ -250,17 +324,21 @@ pub fn gossipsub_config(fork_context: Arc<ForkContext>) -> GossipsubConfig {
             )[..20],
         )
     };
+
+    let load = NetworkLoad::from(network_load);
+
     GossipsubConfigBuilder::default()
         .max_transmit_size(gossip_max_size(is_merge_enabled))
-        .heartbeat_interval(Duration::from_millis(700))
-        .mesh_n(8)
-        .mesh_n_low(MESH_N_LOW)
-        .mesh_n_high(12)
-        .gossip_lazy(6)
+        .heartbeat_interval(load.heartbeat_interval)
+        .mesh_n(load.mesh_n)
+        .mesh_n_low(load.mesh_n_low)
+        .mesh_outbound_min(load.outbound_min)
+        .mesh_n_high(load.mesh_n_high)
+        .gossip_lazy(load.gossip_lazy)
         .fanout_ttl(Duration::from_secs(60))
         .history_length(12)
         .max_messages_per_rpc(Some(500)) // Responses to IWANT can be quite large
-        .history_gossip(3)
+        .history_gossip(load.history_gossip)
         .validate_messages() // require validation before propagation
         .validation_mode(ValidationMode::Anonymous)
         .duplicate_cache_time(DUPLICATE_CACHE_TIME)
@@ -269,4 +347,29 @@ pub fn gossipsub_config(fork_context: Arc<ForkContext>) -> GossipsubConfig {
         .allow_self_origin(true)
         .build()
         .expect("valid gossipsub configuration")
+}
+
+/// Helper function to determine if the IpAddr is a global address or not. The `is_global()`
+/// function is not yet stable on IpAddr.
+#[allow(clippy::nonminimal_bool)]
+fn is_global(addr: &std::net::Ipv4Addr) -> bool {
+    // check if this address is 192.0.0.9 or 192.0.0.10. These addresses are the only two
+    // globally routable addresses in the 192.0.0.0/24 range.
+    if u32::from_be_bytes(addr.octets()) == 0xc0000009
+        || u32::from_be_bytes(addr.octets()) == 0xc000000a
+    {
+        return true;
+    }
+    !addr.is_private()
+            && !addr.is_loopback()
+            && !addr.is_link_local()
+            && !addr.is_broadcast()
+            && !addr.is_documentation()
+            // shared
+            && !(addr.octets()[0] == 100 && (addr.octets()[1] & 0b1100_0000 == 0b0100_0000)) &&!(addr.octets()[0] & 240 == 240 && !addr.is_broadcast())
+            // addresses reserved for future protocols (`192.0.0.0/24`)
+            // reserved
+            && !(addr.octets()[0] == 192 && addr.octets()[1] == 0 && addr.octets()[2] == 0)
+            // Make sure the address is not in 0.0.0.0/8
+            && addr.octets()[0] != 0
 }

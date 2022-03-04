@@ -4,6 +4,8 @@
 # Starts a beacon node based upon a genesis state created by `./setup.sh`.
 #
 
+set -Eeuo pipefail
+
 source ./vars.env
 
 SUBSCRIBE_ALL_SUBNETS=
@@ -44,6 +46,7 @@ exec lighthouse \
 	$SUBSCRIBE_ALL_SUBNETS \
 	--datadir $data_dir \
 	--testnet-dir $TESTNET_DIR \
+	--enable-private-discovery \
 	--staking \
 	--enr-address 127.0.0.1 \
 	--enr-udp-port $network_port \

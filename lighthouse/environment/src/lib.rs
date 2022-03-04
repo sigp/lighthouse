@@ -21,7 +21,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use task_executor::{ShutdownReason, TaskExecutor};
 use tokio::runtime::{Builder as RuntimeBuilder, Runtime};
-use types::{EthSpec, MainnetEthSpec, MinimalEthSpec};
+use types::{EthSpec, GnosisEthSpec, MainnetEthSpec, MinimalEthSpec};
 
 #[cfg(target_family = "unix")]
 use {
@@ -82,6 +82,19 @@ impl EnvironmentBuilder<MainnetEthSpec> {
             log: None,
             eth_spec_instance: MainnetEthSpec,
             eth2_config: Eth2Config::mainnet(),
+            eth2_network_config: None,
+        }
+    }
+}
+
+impl EnvironmentBuilder<GnosisEthSpec> {
+    /// Creates a new builder using the `gnosis` eth2 specification.
+    pub fn gnosis() -> Self {
+        Self {
+            runtime: None,
+            log: None,
+            eth_spec_instance: GnosisEthSpec,
+            eth2_config: Eth2Config::gnosis(),
             eth2_network_config: None,
         }
     }
@@ -169,7 +182,21 @@ impl<E: EthSpec> EnvironmentBuilder<E> {
 
             // Create the necessary directories for the correct service and network.
             if !dir.exists() {
-                create_dir_all(dir).map_err(|e| format!("Unable to create directory: {:?}", e))?;
+                let res = create_dir_all(dir);
+
+                // If the directories cannot be created, warn and disable the logger.
+                match res {
+                    Ok(_) => (),
+                    Err(e) => {
+                        let log = stdout_logger;
+                        warn!(
+                            log,
+                            "Background file logging is disabled";
+                            "error" => e);
+                        self.log = Some(log);
+                        return Ok(self);
+                    }
+                }
             }
         }
 

@@ -63,7 +63,7 @@ pub fn run<T: EthSpec>(testnet_dir_path: PathBuf, matches: &ArgMatches) -> Resul
     }
 
     if let Some(fork_epoch) = parse_optional(matches, "merge-fork-epoch")? {
-        spec.merge_fork_epoch = Some(fork_epoch);
+        spec.bellatrix_fork_epoch = Some(fork_epoch);
     }
 
     let genesis_state_bytes = if matches.is_present("interop-genesis-state") {
@@ -108,7 +108,7 @@ pub fn run<T: EthSpec>(testnet_dir_path: PathBuf, matches: &ArgMatches) -> Resul
         let genesis_state = interop_genesis_state::<T>(
             &keypairs,
             genesis_time,
-            eth1_block_hash,
+            eth1_block_hash.into_root(),
             execution_payload_header,
             &spec,
         )?;

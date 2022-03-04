@@ -3,7 +3,9 @@ use fork_choice::{ForkChoice, PayloadVerificationStatus};
 use itertools::process_results;
 use slog::{info, warn, Logger};
 use state_processing::state_advance::complete_state_advance;
-use state_processing::{per_block_processing, per_block_processing::BlockSignatureStrategy};
+use state_processing::{
+    per_block_processing, per_block_processing::BlockSignatureStrategy, VerifyBlockRoot,
+};
 use std::sync::Arc;
 use std::time::Duration;
 use store::{iter::ParentRootBlockIterator, HotColdDB, ItemStore};
@@ -161,6 +163,7 @@ pub fn reset_fork_choice_to_finalization<E: EthSpec, Hot: ItemStore<E>, Cold: It
             &block,
             None,
             BlockSignatureStrategy::NoVerification,
+            VerifyBlockRoot::True,
             spec,
         )
         .map_err(|e| format!("Error replaying block: {:?}", e))?;

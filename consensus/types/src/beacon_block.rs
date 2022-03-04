@@ -5,6 +5,7 @@ use crate::beacon_block_body::{
 use crate::test_utils::TestRandom;
 use crate::*;
 use bls::Signature;
+use derivative::Derivative;
 use serde_derive::{Deserialize, Serialize};
 use ssz::{Decode, DecodeError};
 use ssz_derive::{Decode, Encode};
@@ -19,15 +20,16 @@ use tree_hash_derive::TreeHash;
     variant_attributes(
         derive(
             Debug,
-            PartialEq,
             Clone,
             Serialize,
             Deserialize,
             Encode,
             Decode,
             TreeHash,
-            TestRandom
+            TestRandom,
+            Derivative,
         ),
+        derivative(PartialEq, Hash(bound = "T: EthSpec")),
         serde(bound = "T: EthSpec", deny_unknown_fields),
         cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary)),
     ),
@@ -36,7 +38,8 @@ use tree_hash_derive::TreeHash;
         tree_hash(enum_behaviour = "transparent")
     )
 )]
-#[derive(Debug, PartialEq, Clone, Serialize, Deserialize, Encode, TreeHash)]
+#[derive(Debug, Clone, Serialize, Deserialize, Encode, TreeHash, Derivative)]
+#[derivative(PartialEq, Hash(bound = "T: EthSpec"))]
 #[serde(untagged)]
 #[serde(bound = "T: EthSpec")]
 #[cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary))]
@@ -66,7 +69,7 @@ impl<'a, T: EthSpec> SignedRoot for BeaconBlockRef<'a, T> {}
 impl<T: EthSpec> BeaconBlock<T> {
     /// Returns an empty block to be used during genesis.
     pub fn empty(spec: &ChainSpec) -> Self {
-        if spec.merge_fork_epoch == Some(T::genesis_epoch()) {
+        if spec.bellatrix_fork_epoch == Some(T::genesis_epoch()) {
             Self::Merge(BeaconBlockMerge::empty(spec))
         } else if spec.altair_fork_epoch == Some(T::genesis_epoch()) {
             Self::Altair(BeaconBlockAltair::empty(spec))
@@ -237,13 +240,8 @@ impl<'a, T: EthSpec> BeaconBlockRef<'a, T> {
 
     /// Extracts a reference to an execution payload from a block, returning an error if the block
     /// is pre-merge.
-    pub fn execution_payload(&self) -> Result<&ExecutionPayload<T>, InconsistentFork> {
-        self.body()
-            .execution_payload()
-            .ok_or_else(|| InconsistentFork {
-                fork_at_slot: ForkName::Merge,
-                object_fork: self.body().fork_name(),
-            })
+    pub fn execution_payload(&self) -> Result<&ExecutionPayload<T>, Error> {
+        self.body().execution_payload()
     }
 }
 

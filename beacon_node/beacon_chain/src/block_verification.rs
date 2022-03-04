@@ -41,7 +41,7 @@
 //!
 //! ```
 use crate::execution_payload::{
-    execute_payload, validate_execution_payload_for_gossip, validate_merge_block,
+    notify_new_payload, validate_execution_payload_for_gossip, validate_merge_block,
 };
 use crate::snapshot_cache::PreProcessingSnapshot;
 use crate::validator_monitor::HISTORIC_EPOCHS as VALIDATOR_MONITOR_HISTORIC_EPOCHS;
@@ -53,6 +53,8 @@ use crate::{
     },
     metrics, BeaconChain, BeaconChainError, BeaconChainTypes,
 };
+use eth2::types::EventKind;
+use execution_layer::PayloadStatus;
 use fork_choice::{ForkChoice, ForkChoiceStore, PayloadVerificationStatus};
 use parking_lot::RwLockReadGuard;
 use proto_array::Block as ProtoBlock;
@@ -65,7 +67,7 @@ use state_processing::{
     block_signature_verifier::{BlockSignatureVerifier, Error as BlockSignatureVerifierError},
     per_block_processing, per_slot_processing,
     state_advance::partial_state_advance,
-    BlockProcessingError, BlockSignatureStrategy, SlotProcessingError,
+    BlockProcessingError, BlockSignatureStrategy, SlotProcessingError, VerifyBlockRoot,
 };
 use std::borrow::Cow;
 use std::fs;
@@ -74,9 +76,9 @@ use std::time::Duration;
 use store::{Error as DBError, HotColdDB, HotStateSummary, KeyValueStore, StoreOp};
 use tree_hash::TreeHash;
 use types::{
-    BeaconBlockRef, BeaconState, BeaconStateError, ChainSpec, CloneConfig, Epoch, EthSpec, Hash256,
-    InconsistentFork, PublicKey, PublicKeyBytes, RelativeEpoch, SignedBeaconBlock,
-    SignedBeaconBlockHeader, Slot,
+    BeaconBlockRef, BeaconState, BeaconStateError, ChainSpec, CloneConfig, Epoch, EthSpec,
+    ExecutionBlockHash, Hash256, InconsistentFork, PublicKey, PublicKeyBytes, RelativeEpoch,
+    SignedBeaconBlock, SignedBeaconBlockHeader, Slot,
 };
 
 /// Maximum block slot number. Block with slots bigger than this constant will NOT be processed.
@@ -268,7 +270,7 @@ pub enum ExecutionPayloadError {
     /// ## Peer scoring
     ///
     /// The block is invalid and the peer is faulty
-    RejectedByExecutionEngine,
+    RejectedByExecutionEngine { status: PayloadStatus },
     /// The execution payload timestamp does not match the slot
     ///
     /// ## Peer scoring
@@ -281,7 +283,7 @@ pub enum ExecutionPayloadError {
     ///
     /// The block is invalid and the peer sent us a block that passes gossip propagation conditions,
     /// but is invalid upon further verification.
-    InvalidTerminalPoWBlock { parent_hash: Hash256 },
+    InvalidTerminalPoWBlock { parent_hash: ExecutionBlockHash },
     /// The `TERMINAL_BLOCK_HASH` is set, but the block has not reached the
     /// `TERMINAL_BLOCK_HASH_ACTIVATION_EPOCH`.
     ///
@@ -300,8 +302,8 @@ pub enum ExecutionPayloadError {
     /// The block is invalid and the peer sent us a block that passes gossip propagation conditions,
     /// but is invalid upon further verification.
     InvalidTerminalBlockHash {
-        terminal_block_hash: Hash256,
-        payload_parent_hash: Hash256,
+        terminal_block_hash: ExecutionBlockHash,
+        payload_parent_hash: ExecutionBlockHash,
     },
     /// The execution node failed to provide a parent block to a known block. This indicates an
     /// issue with the execution node.
@@ -309,7 +311,9 @@ pub enum ExecutionPayloadError {
     /// ## Peer scoring
     ///
     /// The peer is not necessarily invalid.
-    PoWParentMissing(Hash256),
+    PoWParentMissing(ExecutionBlockHash),
+    /// The execution node is syncing but we fail the conditions for optimistic sync
+    UnverifiedNonOptimisticCandidate,
 }
 
 impl From<execution_layer::Error> for ExecutionPayloadError {
@@ -617,7 +621,7 @@ impl<T: BeaconChainTypes> GossipVerifiedBlock<T> {
         check_block_against_anchor_slot(block.message(), chain)?;
 
         // Do not gossip a block from a finalized slot.
-        check_block_against_finalized_slot(block.message(), chain)?;
+        check_block_against_finalized_slot(block.message(), block_root, chain)?;
 
         // Check if the block is already known. We know it is post-finalization, so it is
         // sufficient to check the fork choice.
@@ -1124,7 +1128,30 @@ impl<'a, T: BeaconChainTypes> FullyVerifiedBlock<'a, T> {
         //
         // It is important that this function is called *after* `per_slot_processing`, since the
         // `randao` may change.
-        let payload_verification_status = execute_payload(chain, &state, block.message())?;
+        let payload_verification_status = notify_new_payload(chain, &state, block.message())?;
+
+        // If the payload did not validate or invalidate the block, check to see if this block is
+        // valid for optimistic import.
+        if payload_verification_status == PayloadVerificationStatus::NotVerified {
+            let current_slot = chain
+                .slot_clock
+                .now()
+                .ok_or(BeaconChainError::UnableToReadSlot)?;
+
+            if !chain
+                .fork_choice
+                .read()
+                .is_optimistic_candidate_block(
+                    current_slot,
+                    block.slot(),
+                    &block.parent_root(),
+                    &chain.spec,
+                )
+                .map_err(BeaconChainError::from)?
+            {
+                return Err(ExecutionPayloadError::UnverifiedNonOptimisticCandidate.into());
+            }
+        }
 
         // If the block is sufficiently recent, notify the validator monitor.
         if let Some(slot) = chain.slot_clock.now() {
@@ -1166,6 +1193,18 @@ impl<'a, T: BeaconChainTypes> FullyVerifiedBlock<'a, T> {
         metrics::stop_timer(committee_timer);
 
         /*
+         * If we have block reward listeners, compute the block reward and push it to the
+         * event handler.
+         */
+        if let Some(ref event_handler) = chain.event_handler {
+            if event_handler.has_block_reward_subscribers() {
+                let block_reward =
+                    chain.compute_block_reward(block.message(), block_root, &state)?;
+                event_handler.register(EventKind::BlockReward(block_reward));
+            }
+        }
+
+        /*
          * Perform `per_block_processing` on the block and state, returning early if the block is
          * invalid.
          */
@@ -1185,6 +1224,7 @@ impl<'a, T: BeaconChainTypes> FullyVerifiedBlock<'a, T> {
             Some(block_root),
             // Signatures were verified earlier in this function.
             BlockSignatureStrategy::NoVerification,
+            VerifyBlockRoot::True,
             &chain.spec,
         ) {
             match err {
@@ -1278,6 +1318,7 @@ fn check_block_against_anchor_slot<T: BeaconChainTypes>(
 /// verifying that condition.
 fn check_block_against_finalized_slot<T: BeaconChainTypes>(
     block: BeaconBlockRef<'_, T::EthSpec>,
+    block_root: Hash256,
     chain: &BeaconChain<T>,
 ) -> Result<(), BlockError<T::EthSpec>> {
     let finalized_slot = chain
@@ -1287,6 +1328,7 @@ fn check_block_against_finalized_slot<T: BeaconChainTypes>(
         .start_slot(T::EthSpec::slots_per_epoch());
 
     if block.slot() <= finalized_slot {
+        chain.pre_finalization_block_rejected(block_root);
         Err(BlockError::WouldRevertFinalizedSlot {
             block_slot: block.slot(),
             finalized_slot,
@@ -1359,10 +1401,10 @@ pub fn check_block_relevancy<T: BeaconChainTypes>(
         return Err(BlockError::BlockSlotLimitReached);
     }
 
-    // Do not process a block from a finalized slot.
-    check_block_against_finalized_slot(block, chain)?;
-
     let block_root = block_root.unwrap_or_else(|| get_block_root(signed_block));
+
+    // Do not process a block from a finalized slot.
+    check_block_against_finalized_slot(block, block_root, chain)?;
 
     // Check if the block is already known. We know it is post-finalization, so it is
     // sufficient to check the fork choice.

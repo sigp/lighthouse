@@ -27,8 +27,8 @@ pub const ETH_GET_BLOCK_BY_HASH_TIMEOUT: Duration = Duration::from_secs(1);
 pub const ETH_SYNCING: &str = "eth_syncing";
 pub const ETH_SYNCING_TIMEOUT: Duration = Duration::from_millis(250);
 
-pub const ENGINE_EXECUTE_PAYLOAD_V1: &str = "engine_executePayloadV1";
-pub const ENGINE_EXECUTE_PAYLOAD_TIMEOUT: Duration = Duration::from_secs(2);
+pub const ENGINE_NEW_PAYLOAD_V1: &str = "engine_newPayloadV1";
+pub const ENGINE_NEW_PAYLOAD_TIMEOUT: Duration = Duration::from_secs(2);
 
 pub const ENGINE_GET_PAYLOAD_V1: &str = "engine_getPayloadV1";
 pub const ENGINE_GET_PAYLOAD_TIMEOUT: Duration = Duration::from_secs(2);
@@ -125,7 +125,7 @@ impl EngineApi for HttpJsonRpc {
 
     async fn get_block_by_hash<'a>(
         &self,
-        block_hash: Hash256,
+        block_hash: ExecutionBlockHash,
     ) -> Result<Option<ExecutionBlock>, Error> {
         let params = json!([block_hash, RETURN_FULL_TRANSACTION_OBJECTS]);
 
@@ -133,18 +133,14 @@ impl EngineApi for HttpJsonRpc {
             .await
     }
 
-    async fn execute_payload_v1<T: EthSpec>(
+    async fn new_payload_v1<T: EthSpec>(
         &self,
         execution_payload: ExecutionPayload<T>,
-    ) -> Result<ExecutePayloadResponse, Error> {
+    ) -> Result<PayloadStatusV1, Error> {
         let params = json!([JsonExecutionPayloadV1::from(execution_payload)]);
 
-        let response: JsonExecutePayloadV1Response = self
-            .rpc_request(
-                ENGINE_EXECUTE_PAYLOAD_V1,
-                params,
-                ENGINE_EXECUTE_PAYLOAD_TIMEOUT,
-            )
+        let response: JsonPayloadStatusV1 = self
+            .rpc_request(ENGINE_NEW_PAYLOAD_V1, params, ENGINE_NEW_PAYLOAD_TIMEOUT)
             .await?;
 
         Ok(response.into())
@@ -233,8 +229,7 @@ mod test {
             if request_json != expected_json {
                 panic!(
                     "json mismatch!\n\nobserved: {}\n\nexpected: {}\n\n",
-                    request_json.to_string(),
-                    expected_json.to_string()
+                    request_json, expected_json,
                 )
             }
             self
@@ -293,7 +288,7 @@ mod test {
             "stateRoot": HASH_01,
             "receiptsRoot": HASH_00,
             "logsBloom": LOGS_BLOOM_01,
-            "random": HASH_01,
+            "prevRandao": HASH_01,
             "blockNumber": "0x0",
             "gasLimit": "0x1",
             "gasUsed": "0x2",
@@ -418,7 +413,9 @@ mod test {
         Tester::new()
             .assert_request_equals(
                 |client| async move {
-                    let _ = client.get_block_by_hash(Hash256::repeat_byte(1)).await;
+                    let _ = client
+                        .get_block_by_hash(ExecutionBlockHash::repeat_byte(1))
+                        .await;
                 },
                 json!({
                     "id": STATIC_ID,
@@ -438,13 +435,13 @@ mod test {
                     let _ = client
                         .forkchoice_updated_v1(
                             ForkChoiceState {
-                                head_block_hash: Hash256::repeat_byte(1),
-                                safe_block_hash: Hash256::repeat_byte(1),
-                                finalized_block_hash: Hash256::zero(),
+                                head_block_hash: ExecutionBlockHash::repeat_byte(1),
+                                safe_block_hash: ExecutionBlockHash::repeat_byte(1),
+                                finalized_block_hash: ExecutionBlockHash::zero(),
                             },
                             Some(PayloadAttributes {
                                 timestamp: 5,
-                                random: Hash256::zero(),
+                                prev_randao: Hash256::zero(),
                                 suggested_fee_recipient: Address::repeat_byte(0),
                             }),
                         )
@@ -461,7 +458,7 @@ mod test {
                     },
                     {
                         "timestamp":"0x5",
-                        "random": HASH_00,
+                        "prevRandao": HASH_00,
                         "suggestedFeeRecipient": ADDRESS_00
                     }]
                 }),
@@ -487,25 +484,25 @@ mod test {
     }
 
     #[tokio::test]
-    async fn execute_payload_v1_request() {
+    async fn new_payload_v1_request() {
         Tester::new()
             .assert_request_equals(
                 |client| async move {
                     let _ = client
-                        .execute_payload_v1::<MainnetEthSpec>(ExecutionPayload {
-                            parent_hash: Hash256::repeat_byte(0),
+                        .new_payload_v1::<MainnetEthSpec>(ExecutionPayload {
+                            parent_hash: ExecutionBlockHash::repeat_byte(0),
                             fee_recipient: Address::repeat_byte(1),
                             state_root: Hash256::repeat_byte(1),
-                            receipt_root: Hash256::repeat_byte(0),
+                            receipts_root: Hash256::repeat_byte(0),
                             logs_bloom: vec![1; 256].into(),
-                            random: Hash256::repeat_byte(1),
+                            prev_randao: Hash256::repeat_byte(1),
                             block_number: 0,
                             gas_limit: 1,
                             gas_used: 2,
                             timestamp: 42,
                             extra_data: vec![].into(),
                             base_fee_per_gas: Uint256::from(1),
-                            block_hash: Hash256::repeat_byte(1),
+                            block_hash: ExecutionBlockHash::repeat_byte(1),
                             transactions: vec![].into(),
                         })
                         .await;
@@ -513,14 +510,14 @@ mod test {
                 json!({
                     "id": STATIC_ID,
                     "jsonrpc": JSONRPC_VERSION,
-                    "method": ENGINE_EXECUTE_PAYLOAD_V1,
+                    "method": ENGINE_NEW_PAYLOAD_V1,
                     "params": [{
                         "parentHash": HASH_00,
                         "feeRecipient": ADDRESS_01,
                         "stateRoot": HASH_01,
                         "receiptsRoot": HASH_00,
                         "logsBloom": LOGS_BLOOM_01,
-                        "random": HASH_01,
+                        "prevRandao": HASH_01,
                         "blockNumber": "0x0",
                         "gasLimit": "0x1",
                         "gasUsed": "0x2",
@@ -543,9 +540,9 @@ mod test {
                     let _ = client
                         .forkchoice_updated_v1(
                             ForkChoiceState {
-                                head_block_hash: Hash256::repeat_byte(0),
-                                safe_block_hash: Hash256::repeat_byte(0),
-                                finalized_block_hash: Hash256::repeat_byte(1),
+                                head_block_hash: ExecutionBlockHash::repeat_byte(0),
+                                safe_block_hash: ExecutionBlockHash::repeat_byte(0),
+                                finalized_block_hash: ExecutionBlockHash::repeat_byte(1),
                             },
                             None,
                         )
@@ -593,13 +590,13 @@ mod test {
                     let _ = client
                         .forkchoice_updated_v1(
                             ForkChoiceState {
-                                head_block_hash: Hash256::from_str("0x3b8fb240d288781d4aac94d3fd16809ee413bc99294a085798a589dae51ddd4a").unwrap(),
-                                safe_block_hash: Hash256::from_str("0x3b8fb240d288781d4aac94d3fd16809ee413bc99294a085798a589dae51ddd4a").unwrap(),
-                                finalized_block_hash: Hash256::zero(),
+                                head_block_hash: ExecutionBlockHash::from_str("0x3b8fb240d288781d4aac94d3fd16809ee413bc99294a085798a589dae51ddd4a").unwrap(),
+                                safe_block_hash: ExecutionBlockHash::from_str("0x3b8fb240d288781d4aac94d3fd16809ee413bc99294a085798a589dae51ddd4a").unwrap(),
+                                finalized_block_hash: ExecutionBlockHash::zero(),
                             },
                             Some(PayloadAttributes {
                                 timestamp: 5,
-                                random: Hash256::zero(),
+                                prev_randao: Hash256::zero(),
                                 suggested_fee_recipient: Address::from_str("0xa94f5374fce5edbc8e2a8697c15331677e6ebf0b").unwrap(),
                             })
                         )
@@ -616,7 +613,7 @@ mod test {
                     },
                     {
                         "timestamp":"0x5",
-                        "random": HASH_00,
+                        "prevRandao": HASH_00,
                         "suggestedFeeRecipient":"0xa94f5374fce5edbc8e2a8697c15331677e6ebf0b"
                     }]
                 })
@@ -628,7 +625,11 @@ mod test {
                     "id": STATIC_ID,
                     "jsonrpc": JSONRPC_VERSION,
                     "result": {
-                        "status": "SUCCESS",
+                        "payloadStatus": {
+                            "status": "VALID",
+                            "latestValidHash": HASH_00,
+                            "validationError": ""
+                        },
                         "payloadId": "0xa247243752eb10b4"
                     }
                 })],
@@ -636,20 +637,24 @@ mod test {
                     let response = client
                         .forkchoice_updated_v1(
                             ForkChoiceState {
-                                head_block_hash: Hash256::from_str("0x3b8fb240d288781d4aac94d3fd16809ee413bc99294a085798a589dae51ddd4a").unwrap(),
-                                safe_block_hash: Hash256::from_str("0x3b8fb240d288781d4aac94d3fd16809ee413bc99294a085798a589dae51ddd4a").unwrap(),
-                                finalized_block_hash: Hash256::zero(),
+                                head_block_hash: ExecutionBlockHash::from_str("0x3b8fb240d288781d4aac94d3fd16809ee413bc99294a085798a589dae51ddd4a").unwrap(),
+                                safe_block_hash: ExecutionBlockHash::from_str("0x3b8fb240d288781d4aac94d3fd16809ee413bc99294a085798a589dae51ddd4a").unwrap(),
+                                finalized_block_hash: ExecutionBlockHash::zero(),
                             },
                             Some(PayloadAttributes {
                                 timestamp: 5,
-                                random: Hash256::zero(),
+                                prev_randao: Hash256::zero(),
                                 suggested_fee_recipient: Address::from_str("0xa94f5374fce5edbc8e2a8697c15331677e6ebf0b").unwrap(),
                             })
                         )
                         .await
                         .unwrap();
                     assert_eq!(response, ForkchoiceUpdatedResponse {
-                        status: ForkchoiceUpdatedResponseStatus::Success,
+                        payload_status: PayloadStatusV1 {
+                            status: PayloadStatusV1Status::Valid,
+                            latest_valid_hash: Some(ExecutionBlockHash::zero()),
+                            validation_error: Some(String::new()),
+                        },
                         payload_id:
                             Some(str_to_payload_id("0xa247243752eb10b4")),
                     });
@@ -682,14 +687,14 @@ mod test {
                         "stateRoot":"0xca3149fa9e37db08d1cd49c9061db1002ef1cd58db2210f2115c8c989b2bdf45",
                         "receiptsRoot":"0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421",
                         "logsBloom": LOGS_BLOOM_00,
-                        "random": HASH_00,
+                        "prevRandao": HASH_00,
                         "blockNumber":"0x1",
-                        "gasLimit":"0x1c9c380",
+                        "gasLimit":"0x1c95111",
                         "gasUsed":"0x0",
                         "timestamp":"0x5",
                         "extraData":"0x",
                         "baseFeePerGas":"0x7",
-                        "blockHash":"0x3559e851470f6e7bbed1db474980683e8c315bfce99b2a6ef47c057c04de7858",
+                        "blockHash":"0x6359b8381a370e2f54072a5784ddd78b6ed024991558c511d4452eb4f6ac898c",
                         "transactions":[]
                     }
                 })],
@@ -700,19 +705,19 @@ mod test {
                         .unwrap();
 
                     let expected = ExecutionPayload {
-                            parent_hash: Hash256::from_str("0x3b8fb240d288781d4aac94d3fd16809ee413bc99294a085798a589dae51ddd4a").unwrap(),
+                            parent_hash: ExecutionBlockHash::from_str("0x3b8fb240d288781d4aac94d3fd16809ee413bc99294a085798a589dae51ddd4a").unwrap(),
                             fee_recipient: Address::from_str("0xa94f5374fce5edbc8e2a8697c15331677e6ebf0b").unwrap(),
                             state_root: Hash256::from_str("0xca3149fa9e37db08d1cd49c9061db1002ef1cd58db2210f2115c8c989b2bdf45").unwrap(),
-                            receipt_root: Hash256::from_str("0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421").unwrap(),
+                            receipts_root: Hash256::from_str("0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421").unwrap(),
                             logs_bloom: vec![0; 256].into(),
-                            random: Hash256::zero(),
+                            prev_randao: Hash256::zero(),
                             block_number: 1,
-                            gas_limit: u64::from_str_radix("1c9c380",16).unwrap(),
+                            gas_limit: u64::from_str_radix("1c95111",16).unwrap(),
                             gas_used: 0,
                             timestamp: 5,
                             extra_data: vec![].into(),
                             base_fee_per_gas: Uint256::from(7),
-                            block_hash: Hash256::from_str("0x3559e851470f6e7bbed1db474980683e8c315bfce99b2a6ef47c057c04de7858").unwrap(),
+                            block_hash: ExecutionBlockHash::from_str("0x6359b8381a370e2f54072a5784ddd78b6ed024991558c511d4452eb4f6ac898c").unwrap(),
                             transactions: vec![].into(),
                         };
 
@@ -721,23 +726,23 @@ mod test {
             )
             .await
             .assert_request_equals(
-                // engine_executePayloadV1 REQUEST validation
+                // engine_newPayloadV1 REQUEST validation
                 |client| async move {
                     let _ = client
-                        .execute_payload_v1::<MainnetEthSpec>(ExecutionPayload {
-                            parent_hash: Hash256::from_str("0x3b8fb240d288781d4aac94d3fd16809ee413bc99294a085798a589dae51ddd4a").unwrap(),
+                        .new_payload_v1::<MainnetEthSpec>(ExecutionPayload {
+                            parent_hash: ExecutionBlockHash::from_str("0x3b8fb240d288781d4aac94d3fd16809ee413bc99294a085798a589dae51ddd4a").unwrap(),
                             fee_recipient: Address::from_str("0xa94f5374fce5edbc8e2a8697c15331677e6ebf0b").unwrap(),
                             state_root: Hash256::from_str("0xca3149fa9e37db08d1cd49c9061db1002ef1cd58db2210f2115c8c989b2bdf45").unwrap(),
-                            receipt_root: Hash256::from_str("0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421").unwrap(),
+                            receipts_root: Hash256::from_str("0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421").unwrap(),
                             logs_bloom: vec![0; 256].into(),
-                            random: Hash256::zero(),
+                            prev_randao: Hash256::zero(),
                             block_number: 1,
                             gas_limit: u64::from_str_radix("1c9c380",16).unwrap(),
                             gas_used: 0,
                             timestamp: 5,
                             extra_data: vec![].into(),
                             base_fee_per_gas: Uint256::from(7),
-                            block_hash: Hash256::from_str("0x3559e851470f6e7bbed1db474980683e8c315bfce99b2a6ef47c057c04de7858").unwrap(),
+                            block_hash: ExecutionBlockHash::from_str("0x3559e851470f6e7bbed1db474980683e8c315bfce99b2a6ef47c057c04de7858").unwrap(),
                             transactions: vec![].into(),
                         })
                         .await;
@@ -745,14 +750,14 @@ mod test {
                 json!({
                     "id": STATIC_ID,
                     "jsonrpc": JSONRPC_VERSION,
-                    "method": ENGINE_EXECUTE_PAYLOAD_V1,
+                    "method": ENGINE_NEW_PAYLOAD_V1,
                     "params": [{
                         "parentHash":"0x3b8fb240d288781d4aac94d3fd16809ee413bc99294a085798a589dae51ddd4a",
                         "feeRecipient":"0xa94f5374fce5edbc8e2a8697c15331677e6ebf0b",
                         "stateRoot":"0xca3149fa9e37db08d1cd49c9061db1002ef1cd58db2210f2115c8c989b2bdf45",
                         "receiptsRoot":"0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421",
                         "logsBloom": LOGS_BLOOM_00,
-                        "random": HASH_00,
+                        "prevRandao": HASH_00,
                         "blockNumber":"0x1",
                         "gasLimit":"0x1c9c380",
                         "gasUsed":"0x0",
@@ -766,26 +771,27 @@ mod test {
             )
             .await
             .with_preloaded_responses(
-                // engine_executePayloadV1 RESPONSE validation
+                // engine_newPayloadV1 RESPONSE validation
                 vec![json!({
                     "jsonrpc": JSONRPC_VERSION,
                     "id": STATIC_ID,
                     "result":{
                         "status":"VALID",
-                        "latestValidHash":"0x3559e851470f6e7bbed1db474980683e8c315bfce99b2a6ef47c057c04de7858"
+                        "latestValidHash":"0x3559e851470f6e7bbed1db474980683e8c315bfce99b2a6ef47c057c04de7858",
+                        "validationError":"",
                     }
                 })],
                 |client| async move {
                     let response = client
-                        .execute_payload_v1::<MainnetEthSpec>(ExecutionPayload::default())
+                        .new_payload_v1::<MainnetEthSpec>(ExecutionPayload::default())
                         .await
                         .unwrap();
 
                     assert_eq!(response,
-                        ExecutePayloadResponse {
-                            status: ExecutePayloadResponseStatus::Valid,
-                            latest_valid_hash: Some(Hash256::from_str("0x3559e851470f6e7bbed1db474980683e8c315bfce99b2a6ef47c057c04de7858").unwrap()),
-                            validation_error: None
+                               PayloadStatusV1 {
+                            status: PayloadStatusV1Status::Valid,
+                            latest_valid_hash: Some(ExecutionBlockHash::from_str("0x3559e851470f6e7bbed1db474980683e8c315bfce99b2a6ef47c057c04de7858").unwrap()),
+                            validation_error: Some(String::new()),
                         }
                     );
                 },
@@ -797,9 +803,9 @@ mod test {
                     let _ = client
                         .forkchoice_updated_v1(
                             ForkChoiceState {
-                                head_block_hash: Hash256::from_str("0x3559e851470f6e7bbed1db474980683e8c315bfce99b2a6ef47c057c04de7858").unwrap(),
-                                safe_block_hash: Hash256::from_str("0x3559e851470f6e7bbed1db474980683e8c315bfce99b2a6ef47c057c04de7858").unwrap(),
-                                finalized_block_hash: Hash256::from_str("0x3b8fb240d288781d4aac94d3fd16809ee413bc99294a085798a589dae51ddd4a").unwrap(),
+                                head_block_hash: ExecutionBlockHash::from_str("0x3559e851470f6e7bbed1db474980683e8c315bfce99b2a6ef47c057c04de7858").unwrap(),
+                                safe_block_hash: ExecutionBlockHash::from_str("0x3559e851470f6e7bbed1db474980683e8c315bfce99b2a6ef47c057c04de7858").unwrap(),
+                                finalized_block_hash: ExecutionBlockHash::from_str("0x3b8fb240d288781d4aac94d3fd16809ee413bc99294a085798a589dae51ddd4a").unwrap(),
                             },
                             None,
                         )
@@ -820,14 +826,15 @@ mod test {
             .await
             .with_preloaded_responses(
                 // engine_forkchoiceUpdatedV1 RESPONSE validation
-                //
-                // Note: this test was modified to provide `null` rather than `0x`. The geth vectors
-                // are invalid.
                 vec![json!({
                     "jsonrpc": JSONRPC_VERSION,
                     "id": STATIC_ID,
                     "result": {
-                        "status":"SUCCESS",
+                        "payloadStatus": {
+                            "status": "VALID",
+                            "latestValidHash": HASH_00,
+                            "validationError": ""
+                        },
                         "payloadId": JSON_NULL,
                     }
                 })],
@@ -835,16 +842,20 @@ mod test {
                     let response = client
                         .forkchoice_updated_v1(
                             ForkChoiceState {
-                                head_block_hash: Hash256::from_str("0x3559e851470f6e7bbed1db474980683e8c315bfce99b2a6ef47c057c04de7858").unwrap(),
-                                safe_block_hash: Hash256::from_str("0x3559e851470f6e7bbed1db474980683e8c315bfce99b2a6ef47c057c04de7858").unwrap(),
-                                finalized_block_hash: Hash256::from_str("0x3b8fb240d288781d4aac94d3fd16809ee413bc99294a085798a589dae51ddd4a").unwrap(),
+                                head_block_hash: ExecutionBlockHash::from_str("0x3559e851470f6e7bbed1db474980683e8c315bfce99b2a6ef47c057c04de7858").unwrap(),
+                                safe_block_hash: ExecutionBlockHash::from_str("0x3559e851470f6e7bbed1db474980683e8c315bfce99b2a6ef47c057c04de7858").unwrap(),
+                                finalized_block_hash: ExecutionBlockHash::from_str("0x3b8fb240d288781d4aac94d3fd16809ee413bc99294a085798a589dae51ddd4a").unwrap(),
                             },
                             None,
                         )
                         .await
                         .unwrap();
                     assert_eq!(response, ForkchoiceUpdatedResponse {
-                        status: ForkchoiceUpdatedResponseStatus::Success,
+                        payload_status: PayloadStatusV1 {
+                            status: PayloadStatusV1Status::Valid,
+                            latest_valid_hash: Some(ExecutionBlockHash::zero()),
+                            validation_error: Some(String::new()),
+                        },
                         payload_id: None,
                     });
                 },

@@ -31,13 +31,13 @@ use rayon::prelude::*;
 use sensitive_url::SensitiveUrl;
 use slog::Logger;
 use slot_clock::TestingSlotClock;
-use state_processing::state_advance::complete_state_advance;
+use state_processing::{state_advance::complete_state_advance, StateRootStrategy};
 use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
 use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Duration;
-use store::{config::StoreConfig, BlockReplay, HotColdDB, ItemStore, LevelDB, MemoryStore};
+use store::{config::StoreConfig, HotColdDB, ItemStore, LevelDB, MemoryStore};
 use task_executor::ShutdownReason;
 use tree_hash::TreeHash;
 use types::sync_selection_proof::SyncSelectionProof;
@@ -432,7 +432,7 @@ where
             spec: chain.spec.clone(),
             chain: Arc::new(chain),
             validator_keypairs,
-            shutdown_receiver,
+            shutdown_receiver: Arc::new(Mutex::new(shutdown_receiver)),
             mock_execution_layer: self.mock_execution_layer,
             execution_layer_runtime: self.execution_layer_runtime,
             rng: make_rng(),
@@ -449,7 +449,7 @@ pub struct BeaconChainHarness<T: BeaconChainTypes> {
 
     pub chain: Arc<BeaconChain<T>>,
     pub spec: ChainSpec,
-    pub shutdown_receiver: Receiver<ShutdownReason>,
+    pub shutdown_receiver: Arc<Mutex<Receiver<ShutdownReason>>>,
 
     pub mock_execution_layer: Option<MockExecutionLayer<T::EthSpec>>,
     pub execution_layer_runtime: Option<ExecutionLayerRuntime>,
@@ -502,6 +502,17 @@ where
         epoch.start_slot(E::slots_per_epoch()).into()
     }
 
+    pub fn shutdown_reasons(&self) -> Vec<ShutdownReason> {
+        let mutex = self.shutdown_receiver.clone();
+        let mut receiver = mutex.lock();
+        std::iter::from_fn(move || match receiver.try_next() {
+            Ok(Some(s)) => Some(s),
+            Ok(None) => panic!("shutdown sender dropped"),
+            Err(_) => None,
+        })
+        .collect()
+    }
+
     pub fn get_current_state(&self) -> BeaconState<E> {
         self.chain.head().unwrap().beacon_state
     }
@@ -527,7 +538,7 @@ where
     pub fn get_hot_state(&self, state_hash: BeaconStateHash) -> Option<BeaconState<E>> {
         self.chain
             .store
-            .load_hot_state(&state_hash.into(), BlockReplay::Accurate)
+            .load_hot_state(&state_hash.into(), StateRootStrategy::Accurate)
             .unwrap()
     }
 

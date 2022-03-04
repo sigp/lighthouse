@@ -12,15 +12,15 @@ env:
   # Deny warnings in CI
   RUSTFLAGS: "-D warnings"
   # The Nightly version used for cargo-udeps, might need updating from time to time.
-  PINNED_NIGHTLY: nightly-2021-06-09
+  PINNED_NIGHTLY: nightly-2021-12-01
 jobs:
   target-branch-check:
     name: target-branch-check
     runs-on: ubuntu-latest
     if: github.event_name == 'pull_request'
     steps:
-        - name: Check that pull request is targeting unstable branch
-          run: test ${{ github.base_ref }} = "unstable"
+        - name: Check that the pull request is not targeting the stable branch
+          run: test ${{ github.base_ref }} != "stable"
   cargo-fmt:
     name: cargo-fmt
     runs-on: ubuntu-latest
@@ -44,7 +44,7 @@ jobs:
       run: make test-release
   release-tests-windows:
     name: release-tests-windows
-    runs-on: windows-latest
+    runs-on: windows-2019
     needs: cargo-fmt
     steps:
     - uses: actions/checkout@v1
@@ -54,6 +54,12 @@ jobs:
       run: npm install -g ganache-cli
     - name: Install make
       run: choco install -y make
+    - uses: KyleMayes/install-llvm-action@v1
+      with:
+        version: "13.0"
+        directory: ${{ runner.temp }}/llvm
+    - name: Set LIBCLANG_PATH
+      run: echo "LIBCLANG_PATH=$((gcm clang).source -replace "clang.exe")" >> $env:GITHUB_ENV
     - name: Run tests in release
       run: make test-release
   beacon-chain-tests:
@@ -117,7 +123,9 @@ jobs:
     - name: Get latest version of stable Rust
       run: rustup update stable
     - name: Build the root Dockerfile
-      run: docker build .
+      run: docker build --build-arg FEATURES=portable -t lighthouse:local .
+    - name: Test the built image
+      run: docker run -t lighthouse:local lighthouse --version
   eth1-simulator-ubuntu:
     name: eth1-simulator-ubuntu
     runs-on: ubuntu-latest
@@ -176,6 +184,19 @@ jobs:
             run: |
                 cd scripts/tests
                 ./doppelganger_protection.sh failure
+  execution-engine-integration-ubuntu:
+    name: execution-engine-integration-ubuntu
+    runs-on: ubuntu-latest
+    needs: cargo-fmt
+    steps:
+    - uses: actions/checkout@v1
+    - uses: actions/setup-go@v2
+      with:
+        go-version: '1.17'
+    - name: Get latest version of stable Rust
+      run: rustup update stable
+    - name: Run exec engine integration tests in release
+      run: make test-exec-engine
   check-benchmarks:
     name: check-benchmarks
     runs-on: ubuntu-latest

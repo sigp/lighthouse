@@ -6,15 +6,16 @@ mod metrics;
 mod persistence;
 mod sync_aggregate_id;
 
+pub use attestation::AttMaxCover;
+pub use max_cover::MaxCover;
 pub use persistence::{
     PersistedOperationPool, PersistedOperationPoolAltair, PersistedOperationPoolBase,
 };
 
 use crate::sync_aggregate_id::SyncAggregateId;
-use attestation::AttMaxCover;
 use attestation_id::AttestationId;
 use attester_slashing::AttesterSlashingMaxCover;
-use max_cover::{maximum_cover, MaxCover};
+use max_cover::maximum_cover;
 use parking_lot::RwLock;
 use state_processing::per_block_processing::errors::AttestationValidationError;
 use state_processing::per_block_processing::{
@@ -559,9 +560,8 @@ impl<T: EthSpec> OperationPool<T> {
     pub fn get_all_attestations(&self) -> Vec<Attestation<T>> {
         self.attestations
             .read()
-            .iter()
-            .map(|(_, attns)| attns.iter().cloned())
-            .flatten()
+            .values()
+            .flat_map(|attns| attns.iter().cloned())
             .collect()
     }
 
@@ -574,10 +574,10 @@ impl<T: EthSpec> OperationPool<T> {
     {
         self.attestations
             .read()
-            .iter()
-            .map(|(_, attns)| attns.iter().cloned())
-            .flatten()
-            .filter(filter)
+            .values()
+            .flat_map(|attns| attns.iter())
+            .filter(|attn| filter(*attn))
+            .cloned()
             .collect()
     }
 

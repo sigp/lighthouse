@@ -68,6 +68,14 @@ impl VerifySignatures {
     }
 }
 
+/// Control verification of the latest block header.
+#[cfg_attr(feature = "arbitrary-fuzz", derive(Arbitrary))]
+#[derive(PartialEq, Clone, Copy)]
+pub enum VerifyBlockRoot {
+    True,
+    False,
+}
+
 /// Updates the state for a new block, whilst validating that the block is valid, optionally
 /// checking the block proposer signature.
 ///
@@ -84,6 +92,7 @@ pub fn per_block_processing<T: EthSpec>(
     signed_block: &SignedBeaconBlock<T>,
     block_root: Option<Hash256>,
     block_signature_strategy: BlockSignatureStrategy,
+    verify_block_root: VerifyBlockRoot,
     spec: &ChainSpec,
 ) -> Result<(), BlockProcessingError> {
     let block = signed_block.message();
@@ -120,7 +129,7 @@ pub fn per_block_processing<T: EthSpec>(
         BlockSignatureStrategy::VerifyRandao => VerifySignatures::False,
     };
 
-    let proposer_index = process_block_header(state, block, spec)?;
+    let proposer_index = process_block_header(state, block, verify_block_root, spec)?;
 
     if verify_signatures.is_true() {
         verify_block_signature(state, signed_block, block_root, spec)?;
@@ -139,10 +148,7 @@ pub fn per_block_processing<T: EthSpec>(
     // `process_randao` as the former depends on the `randao_mix` computed with the reveal of the
     // previous block.
     if is_execution_enabled(state, block.body()) {
-        let payload = block
-            .body()
-            .execution_payload()
-            .ok_or(BlockProcessingError::IncorrectStateType)?;
+        let payload = block.body().execution_payload()?;
         process_execution_payload(state, payload, spec)?;
     }
 
@@ -150,7 +156,7 @@ pub fn per_block_processing<T: EthSpec>(
     process_eth1_data(state, block.body().eth1_data())?;
     process_operations(state, block.body(), proposer_index, verify_signatures, spec)?;
 
-    if let Some(sync_aggregate) = block.body().sync_aggregate() {
+    if let Ok(sync_aggregate) = block.body().sync_aggregate() {
         process_sync_aggregate(
             state,
             sync_aggregate,
@@ -167,6 +173,7 @@ pub fn per_block_processing<T: EthSpec>(
 pub fn process_block_header<T: EthSpec>(
     state: &mut BeaconState<T>,
     block: BeaconBlockRef<'_, T>,
+    verify_block_root: VerifyBlockRoot,
     spec: &ChainSpec,
 ) -> Result<u64, BlockOperationError<HeaderInvalid>> {
     // Verify that the slots match
@@ -195,14 +202,16 @@ pub fn process_block_header<T: EthSpec>(
         }
     );
 
-    let expected_previous_block_root = state.latest_block_header().tree_hash_root();
-    verify!(
-        block.parent_root() == expected_previous_block_root,
-        HeaderInvalid::ParentBlockRootMismatch {
-            state: expected_previous_block_root,
-            block: block.parent_root(),
-        }
-    );
+    if verify_block_root == VerifyBlockRoot::True {
+        let expected_previous_block_root = state.latest_block_header().tree_hash_root();
+        verify!(
+            block.parent_root() == expected_previous_block_root,
+            HeaderInvalid::ParentBlockRootMismatch {
+                state: expected_previous_block_root,
+                block: block.parent_root(),
+            }
+        );
+    }
 
     *state.latest_block_header_mut() = block.temporary_block_header();
 
@@ -320,10 +329,10 @@ pub fn partially_verify_execution_payload<T: EthSpec>(
         );
     }
     block_verify!(
-        payload.random == *state.get_randao_mix(state.current_epoch())?,
+        payload.prev_randao == *state.get_randao_mix(state.current_epoch())?,
         BlockProcessingError::ExecutionRandaoMismatch {
             expected: *state.get_randao_mix(state.current_epoch())?,
-            found: payload.random,
+            found: payload.prev_randao,
         }
     );
 
@@ -357,9 +366,9 @@ pub fn process_execution_payload<T: EthSpec>(
         parent_hash: payload.parent_hash,
         fee_recipient: payload.fee_recipient,
         state_root: payload.state_root,
-        receipt_root: payload.receipt_root,
+        receipts_root: payload.receipts_root,
         logs_bloom: payload.logs_bloom.clone(),
-        random: payload.random,
+        prev_randao: payload.prev_randao,
         block_number: payload.block_number,
         gas_limit: payload.gas_limit,
         gas_used: payload.gas_used,

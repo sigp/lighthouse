@@ -12,6 +12,7 @@ use crate::block_verification::{
     IntoFullyVerifiedBlock,
 };
 use crate::chain_config::ChainConfig;
+use crate::early_attester_cache::EarlyAttesterCache;
 use crate::errors::{BeaconChainError as Error, BlockProductionError};
 use crate::eth1_chain::{Eth1Chain, Eth1ChainBackend};
 use crate::events::ServerSentEventHandler;
@@ -33,6 +34,7 @@ use crate::observed_block_producers::ObservedBlockProducers;
 use crate::observed_operations::{ObservationOutcome, ObservedOperations};
 use crate::persisted_beacon_chain::{PersistedBeaconChain, DUMMY_CANONICAL_HEAD_BLOCK_ROOT};
 use crate::persisted_fork_choice::PersistedForkChoice;
+use crate::pre_finalization_cache::PreFinalizationBlockCache;
 use crate::shuffling_cache::{BlockShufflingIds, ShufflingCache};
 use crate::snapshot_cache::{BlockProductionPreState, SnapshotCache};
 use crate::sync_committee_verification::{
@@ -50,8 +52,8 @@ use crate::{metrics, BeaconChainError};
 use eth2::types::{
     EventKind, SseBlock, SseChainReorg, SseFinalizedCheckpoint, SseHead, SseLateHead, SyncDuty,
 };
-use execution_layer::ExecutionLayer;
-use fork_choice::{AttestationFromBlock, ForkChoice};
+use execution_layer::{ExecutionLayer, PayloadStatus};
+use fork_choice::{AttestationFromBlock, ForkChoice, InvalidationOperation};
 use futures::channel::mpsc::Sender;
 use itertools::process_results;
 use itertools::Itertools;
@@ -69,7 +71,7 @@ use state_processing::{
     per_block_processing::{errors::AttestationValidationError, is_merge_transition_complete},
     per_slot_processing,
     state_advance::{complete_state_advance, partial_state_advance},
-    BlockSignatureStrategy, SigVerifiedOp,
+    BlockSignatureStrategy, SigVerifiedOp, VerifyBlockRoot,
 };
 use std::borrow::Cow;
 use std::cmp::Ordering;
@@ -109,6 +111,13 @@ pub const BEACON_CHAIN_DB_KEY: Hash256 = Hash256::zero();
 pub const OP_POOL_DB_KEY: Hash256 = Hash256::zero();
 pub const ETH1_CACHE_DB_KEY: Hash256 = Hash256::zero();
 pub const FORK_CHOICE_DB_KEY: Hash256 = Hash256::zero();
+
+/// Defines how old a block can be before it's no longer a candidate for the early attester cache.
+const EARLY_ATTESTER_CACHE_HISTORIC_SLOTS: u64 = 4;
+
+/// Reported to the user when the justified block has an invalid execution payload.
+pub const INVALID_JUSTIFIED_PAYLOAD_SHUTDOWN_REASON: &str =
+    "Justified block has an invalid execution payload.";
 
 /// Defines the behaviour when a block/block-root for a skipped slot is requested.
 pub enum WhenSlotSkipped {
@@ -199,7 +208,7 @@ pub struct HeadInfo {
     pub genesis_validators_root: Hash256,
     pub proposer_shuffling_decision_root: Hash256,
     pub is_merge_transition_complete: bool,
-    pub execution_payload_block_hash: Option<Hash256>,
+    pub execution_payload_block_hash: Option<ExecutionBlockHash>,
 }
 
 pub trait BeaconChainTypes: Send + Sync + 'static {
@@ -218,15 +227,15 @@ pub enum HeadSafetyStatus {
     ///
     /// If the block is post-terminal-block, `Some(execution_payload.block_hash)` is included with
     /// the variant.
-    Safe(Option<Hash256>),
+    Safe(Option<ExecutionBlockHash>),
     /// The head block execution payload has not yet been verified by an EL.
     ///
     /// The `execution_payload.block_hash` of the head block is returned.
-    Unsafe(Hash256),
+    Unsafe(ExecutionBlockHash),
     /// The head block execution payload was deemed to be invalid by an EL.
     ///
     /// The `execution_payload.block_hash` of the head block is returned.
-    Invalid(Hash256),
+    Invalid(ExecutionBlockHash),
 }
 
 pub type BeaconForkChoice<T> = ForkChoice<
@@ -331,10 +340,12 @@ pub struct BeaconChain<T: BeaconChainTypes> {
     pub(crate) validator_pubkey_cache: TimeoutRwLock<ValidatorPubkeyCache<T>>,
     /// A cache used when producing attestations.
     pub(crate) attester_cache: Arc<AttesterCache>,
+    /// A cache used when producing attestations whilst the head block is still being imported.
+    pub early_attester_cache: EarlyAttesterCache<T::EthSpec>,
     /// A cache used to keep track of various block timings.
     pub block_times_cache: Arc<RwLock<BlockTimesCache>>,
-    /// A list of any hard-coded forks that have been disabled.
-    pub disabled_forks: Vec<String>,
+    /// A cache used to track pre-finalization block roots for quick rejection.
+    pub pre_finalization_block_cache: PreFinalizationBlockCache,
     /// Sender given to tasks, so that if they encounter a state in which execution cannot
     /// continue they can request that everything shuts down.
     pub shutdown_sender: Sender<ShutdownReason>,
@@ -491,7 +502,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     pub fn forwards_iter_block_roots(
         &self,
         start_slot: Slot,
-    ) -> Result<impl Iterator<Item = Result<(Hash256, Slot), Error>>, Error> {
+    ) -> Result<impl Iterator<Item = Result<(Hash256, Slot), Error>> + '_, Error> {
         let oldest_block_slot = self.store.get_oldest_block_slot();
         if start_slot < oldest_block_slot {
             return Err(Error::HistoricalBlockError(
@@ -504,8 +515,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         let local_head = self.head()?;
 
-        let iter = HotColdDB::forwards_block_roots_iterator(
-            self.store.clone(),
+        let iter = self.store.forwards_block_roots_iterator(
             start_slot,
             local_head.beacon_state,
             local_head.beacon_block_root,
@@ -513,6 +523,43 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         )?;
 
         Ok(iter.map(|result| result.map_err(Into::into)))
+    }
+
+    /// Even more efficient variant of `forwards_iter_block_roots` that will avoid cloning the head
+    /// state if it isn't required for the requested range of blocks.
+    pub fn forwards_iter_block_roots_until(
+        &self,
+        start_slot: Slot,
+        end_slot: Slot,
+    ) -> Result<impl Iterator<Item = Result<(Hash256, Slot), Error>> + '_, Error> {
+        let oldest_block_slot = self.store.get_oldest_block_slot();
+        if start_slot < oldest_block_slot {
+            return Err(Error::HistoricalBlockError(
+                HistoricalBlockError::BlockOutOfRange {
+                    slot: start_slot,
+                    oldest_block_slot,
+                },
+            ));
+        }
+
+        self.with_head(move |head| {
+            let iter = self.store.forwards_block_roots_iterator_until(
+                start_slot,
+                end_slot,
+                || {
+                    (
+                        head.beacon_state.clone_with_only_committee_caches(),
+                        head.beacon_block_root,
+                    )
+                },
+                &self.spec,
+            )?;
+            Ok(iter
+                .map(|result| result.map_err(Into::into))
+                .take_while(move |result| {
+                    result.as_ref().map_or(true, |(_, slot)| *slot <= end_slot)
+                }))
+        })
     }
 
     /// Traverse backwards from `block_root` to find the block roots of its ancestors.
@@ -527,14 +574,14 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     pub fn rev_iter_block_roots_from(
         &self,
         block_root: Hash256,
-    ) -> Result<impl Iterator<Item = Result<(Hash256, Slot), Error>>, Error> {
+    ) -> Result<impl Iterator<Item = Result<(Hash256, Slot), Error>> + '_, Error> {
         let block = self
             .get_block(&block_root)?
             .ok_or(Error::MissingBeaconBlock(block_root))?;
         let state = self
             .get_state(&block.state_root(), Some(block.slot()))?
             .ok_or_else(|| Error::MissingBeaconState(block.state_root()))?;
-        let iter = BlockRootsIterator::owned(self.store.clone(), state);
+        let iter = BlockRootsIterator::owned(&self.store, state);
         Ok(std::iter::once(Ok((block_root, block.slot())))
             .chain(iter)
             .map(|result| result.map_err(|e| e.into())))
@@ -621,12 +668,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// - As this iterator starts at the `head` of the chain (viz., the best block), the first slot
     ///     returned may be earlier than the wall-clock slot.
     pub fn rev_iter_state_roots_from<'a>(
-        &self,
+        &'a self,
         state_root: Hash256,
         state: &'a BeaconState<T::EthSpec>,
     ) -> impl Iterator<Item = Result<(Hash256, Slot), Error>> + 'a {
         std::iter::once(Ok((state_root, state.slot())))
-            .chain(StateRootsIterator::new(self.store.clone(), state))
+            .chain(StateRootsIterator::new(&self.store, state))
             .map(|result| result.map_err(Into::into))
     }
 
@@ -640,11 +687,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     pub fn forwards_iter_state_roots(
         &self,
         start_slot: Slot,
-    ) -> Result<impl Iterator<Item = Result<(Hash256, Slot), Error>>, Error> {
+    ) -> Result<impl Iterator<Item = Result<(Hash256, Slot), Error>> + '_, Error> {
         let local_head = self.head()?;
 
-        let iter = HotColdDB::forwards_state_roots_iterator(
-            self.store.clone(),
+        let iter = self.store.forwards_state_roots_iterator(
             start_slot,
             local_head.beacon_state_root(),
             local_head.beacon_state,
@@ -652,6 +698,36 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         )?;
 
         Ok(iter.map(|result| result.map_err(Into::into)))
+    }
+
+    /// Super-efficient forwards state roots iterator that avoids cloning the head if the state
+    /// roots lie entirely within the freezer database.
+    ///
+    /// The iterator returned will include roots for `start_slot..=end_slot`, i.e.  it
+    /// is endpoint inclusive.
+    pub fn forwards_iter_state_roots_until(
+        &self,
+        start_slot: Slot,
+        end_slot: Slot,
+    ) -> Result<impl Iterator<Item = Result<(Hash256, Slot), Error>> + '_, Error> {
+        self.with_head(move |head| {
+            let iter = self.store.forwards_state_roots_iterator_until(
+                start_slot,
+                end_slot,
+                || {
+                    (
+                        head.beacon_state.clone_with_only_committee_caches(),
+                        head.beacon_state_root(),
+                    )
+                },
+                &self.spec,
+            )?;
+            Ok(iter
+                .map(|result| result.map_err(Into::into))
+                .take_while(move |result| {
+                    result.as_ref().map_or(true, |(_, slot)| *slot <= end_slot)
+                }))
+        })
     }
 
     /// Returns the block at the given slot, if any. Only returns blocks in the canonical chain.
@@ -711,18 +787,21 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             return Ok(Some(root));
         }
 
-        process_results(self.forwards_iter_state_roots(request_slot)?, |mut iter| {
-            if let Some((root, slot)) = iter.next() {
-                if slot == request_slot {
-                    Ok(Some(root))
+        process_results(
+            self.forwards_iter_state_roots_until(request_slot, request_slot)?,
+            |mut iter| {
+                if let Some((root, slot)) = iter.next() {
+                    if slot == request_slot {
+                        Ok(Some(root))
+                    } else {
+                        // Sanity check.
+                        Err(Error::InconsistentForwardsIter { request_slot, slot })
+                    }
                 } else {
-                    // Sanity check.
-                    Err(Error::InconsistentForwardsIter { request_slot, slot })
+                    Ok(None)
                 }
-            } else {
-                Ok(None)
-            }
-        })?
+            },
+        )?
     }
 
     /// Returns the block root at the given slot, if any. Only returns roots in the canonical chain.
@@ -793,11 +872,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             return Ok(root_opt);
         }
 
-        if let Some(((prev_root, _), (curr_root, curr_slot))) =
-            process_results(self.forwards_iter_block_roots(prev_slot)?, |iter| {
-                iter.tuple_windows().next()
-            })?
-        {
+        if let Some(((prev_root, _), (curr_root, curr_slot))) = process_results(
+            self.forwards_iter_block_roots_until(prev_slot, request_slot)?,
+            |iter| iter.tuple_windows().next(),
+        )? {
             // Sanity check.
             if curr_slot != request_slot {
                 return Err(Error::InconsistentForwardsIter {
@@ -845,18 +923,43 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             return Ok(Some(root));
         }
 
-        process_results(self.forwards_iter_block_roots(request_slot)?, |mut iter| {
-            if let Some((root, slot)) = iter.next() {
-                if slot == request_slot {
-                    Ok(Some(root))
+        process_results(
+            self.forwards_iter_block_roots_until(request_slot, request_slot)?,
+            |mut iter| {
+                if let Some((root, slot)) = iter.next() {
+                    if slot == request_slot {
+                        Ok(Some(root))
+                    } else {
+                        // Sanity check.
+                        Err(Error::InconsistentForwardsIter { request_slot, slot })
+                    }
                 } else {
-                    // Sanity check.
-                    Err(Error::InconsistentForwardsIter { request_slot, slot })
+                    Ok(None)
                 }
-            } else {
-                Ok(None)
-            }
-        })?
+            },
+        )?
+    }
+
+    /// Returns the block at the given root, if any.
+    ///
+    /// Will also check the early attester cache for the block. Because of this, there's no
+    /// guarantee that a block returned from this function has a `BeaconState` available in
+    /// `self.store`. The expected use for this function is *only* for returning blocks requested
+    /// from P2P peers.
+    ///
+    /// ## Errors
+    ///
+    /// May return a database error.
+    pub fn get_block_checking_early_attester_cache(
+        &self,
+        block_root: &Hash256,
+    ) -> Result<Option<SignedBeaconBlock<T::EthSpec>>, Error> {
+        let block_opt = self
+            .store
+            .get_block(block_root)?
+            .or_else(|| self.early_attester_cache.get_block(*block_root));
+
+        Ok(block_opt)
     }
 
     /// Returns the block at the given root, if any.
@@ -1032,6 +1135,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     .message()
                     .body()
                     .execution_payload()
+                    .ok()
                     .map(|ep| ep.block_hash),
             })
         })
@@ -1115,12 +1219,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 Ok(state)
             }
             Ordering::Less => {
-                let state_root = process_results(self.forwards_iter_state_roots(slot)?, |iter| {
-                    iter.take_while(|(_, current_slot)| *current_slot >= slot)
-                        .find(|(_, current_slot)| *current_slot == slot)
-                        .map(|(root, _slot)| root)
-                })?
-                .ok_or(Error::NoStateForSlot(slot))?;
+                let state_root =
+                    process_results(self.forwards_iter_state_roots_until(slot, slot)?, |iter| {
+                        iter.take_while(|(_, current_slot)| *current_slot >= slot)
+                            .find(|(_, current_slot)| *current_slot == slot)
+                            .map(|(root, _slot)| root)
+                    })?
+                    .ok_or(Error::NoStateForSlot(slot))?;
 
                 Ok(self
                     .get_state(&state_root, Some(slot))?
@@ -1259,7 +1364,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         beacon_block_root: Hash256,
         state: &BeaconState<T::EthSpec>,
     ) -> Result<Option<Hash256>, Error> {
-        let iter = BlockRootsIterator::new(self.store.clone(), state);
+        let iter = BlockRootsIterator::new(&self.store, state);
         let iter_with_head = std::iter::once(Ok((beacon_block_root, state.slot())))
             .chain(iter)
             .map(|result| result.map_err(|e| e.into()));
@@ -1352,6 +1457,29 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         request_index: CommitteeIndex,
     ) -> Result<Attestation<T::EthSpec>, Error> {
         let _total_timer = metrics::start_timer(&metrics::ATTESTATION_PRODUCTION_SECONDS);
+
+        // The early attester cache will return `Some(attestation)` in the scenario where there is a
+        // block being imported that will become the head block, but that block has not yet been
+        // inserted into the database and set as `self.canonical_head`.
+        //
+        // In effect, the early attester cache prevents slow database IO from causing missed
+        // head/target votes.
+        match self
+            .early_attester_cache
+            .try_attest(request_slot, request_index, &self.spec)
+        {
+            // The cache matched this request, return the value.
+            Ok(Some(attestation)) => return Ok(attestation),
+            // The cache did not match this request, proceed with the rest of this function.
+            Ok(None) => (),
+            // The cache returned an error. Log the error and proceed with the rest of this
+            // function.
+            Err(e) => warn!(
+                self.log,
+                "Early attester cache failed";
+                "error" => ?e
+            ),
+        }
 
         let slots_per_epoch = T::EthSpec::slots_per_epoch();
         let request_epoch = request_slot.epoch(slots_per_epoch);
@@ -2168,7 +2296,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 .position(|(_root, block)| {
                     block.slot().epoch(T::EthSpec::slots_per_epoch()) > start_epoch
                 })
-                .unwrap_or_else(|| filtered_chain_segment.len());
+                .unwrap_or(filtered_chain_segment.len());
 
             // Split off the first section blocks that are all either within the current epoch of
             // the first block. These blocks can all be signature-verified with the same
@@ -2533,8 +2661,44 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             }
         }
 
+        // If the block is recent enough, check to see if it becomes the head block. If so, apply it
+        // to the early attester cache. This will allow attestations to the block without waiting
+        // for the block and state to be inserted to the database.
+        //
+        // Only performing this check on recent blocks avoids slowing down sync with lots of calls
+        // to fork choice `get_head`.
+        if block.slot() + EARLY_ATTESTER_CACHE_HISTORIC_SLOTS >= current_slot {
+            let new_head_root = fork_choice
+                .get_head(current_slot, &self.spec)
+                .map_err(BeaconChainError::from)?;
+
+            if new_head_root == block_root {
+                if let Some(proto_block) = fork_choice.get_block(&block_root) {
+                    if let Err(e) = self.early_attester_cache.add_head_block(
+                        block_root,
+                        signed_block.clone(),
+                        proto_block,
+                        &state,
+                        &self.spec,
+                    ) {
+                        warn!(
+                            self.log,
+                            "Early attester cache insert failed";
+                            "error" => ?e
+                        );
+                    }
+                } else {
+                    warn!(
+                        self.log,
+                        "Early attester block missing";
+                        "block_root" => ?block_root
+                    );
+                }
+            }
+        }
+
         // Register sync aggregate with validator monitor
-        if let Some(sync_aggregate) = block.body().sync_aggregate() {
+        if let Ok(sync_aggregate) = block.body().sync_aggregate() {
             // `SyncCommittee` for the sync_aggregate should correspond to the duty slot
             let duty_epoch = block.slot().epoch(T::EthSpec::slots_per_epoch());
             let sync_committee = self.sync_committee_at_epoch(duty_epoch)?;
@@ -2575,7 +2739,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 block.body().attestations().len() as f64,
             );
 
-            if let Some(sync_aggregate) = block.body().sync_aggregate() {
+            if let Ok(sync_aggregate) = block.body().sync_aggregate() {
                 metrics::set_gauge(
                     &metrics::BLOCK_SYNC_AGGREGATE_SET_BITS,
                     sync_aggregate.num_set_bits() as i64,
@@ -2640,6 +2804,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         beacon_block_root: block_root,
                     },
                     None,
+                    &self.spec,
                 )
             })
             .unwrap_or_else(|e| {
@@ -2699,6 +2864,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     .unwrap_or_else(|| Duration::from_secs(0)),
             );
         }
+
+        // Inform the unknown block cache, in case it was waiting on this block.
+        self.pre_finalization_block_cache
+            .block_processed(block_root);
 
         Ok(block_root)
     }
@@ -3019,7 +3188,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             }
             BeaconState::Merge(_) => {
                 let sync_aggregate = get_sync_aggregate()?;
-                let execution_payload = get_execution_payload(self, &state)?;
+                let execution_payload = get_execution_payload(self, &state, proposer_index)?;
                 BeaconBlock::Merge(BeaconBlockMerge {
                     slot,
                     proposer_index,
@@ -3066,6 +3235,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             &block,
             None,
             BlockSignatureStrategy::VerifyRandao,
+            VerifyBlockRoot::True,
             &self.spec,
         )?;
         drop(process_timer);
@@ -3082,12 +3252,87 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         trace!(
             self.log,
             "Produced beacon block";
-            "parent" => %block.parent_root(),
+            "parent" => ?block.parent_root(),
             "attestations" => block.body().attestations().len(),
             "slot" => block.slot()
         );
 
         Ok((block, state))
+    }
+
+    /// This method must be called whenever an execution engine indicates that a payload is
+    /// invalid.
+    ///
+    /// Fork choice will be run after the invalidation. The client may be shut down if the `op`
+    /// results in the justified checkpoint being invalidated.
+    ///
+    /// See the documentation of `InvalidationOperation` for information about defining `op`.
+    pub fn process_invalid_execution_payload(
+        &self,
+        op: &InvalidationOperation,
+    ) -> Result<(), Error> {
+        debug!(
+            self.log,
+            "Invalid execution payload in block";
+            "latest_valid_ancestor" => ?op.latest_valid_ancestor(),
+            "block_root" => ?op.block_root(),
+        );
+
+        // Update fork choice.
+        if let Err(e) = self.fork_choice.write().on_invalid_execution_payload(op) {
+            crit!(
+                self.log,
+                "Failed to process invalid payload";
+                "error" => ?e,
+                "latest_valid_ancestor" => ?op.latest_valid_ancestor(),
+                "block_root" => ?op.block_root(),
+            );
+        }
+
+        // Run fork choice since it's possible that the payload invalidation might result in a new
+        // head.
+        //
+        // Don't return early though, since invalidating the justified checkpoint might cause an
+        // error here.
+        if let Err(e) = self.fork_choice() {
+            crit!(
+                self.log,
+                "Failed to run fork choice routine";
+                "error" => ?e,
+            );
+        }
+
+        // Atomically obtain the justified root from fork choice.
+        let justified_block = self.fork_choice.read().get_justified_block()?;
+
+        if justified_block.execution_status.is_invalid() {
+            crit!(
+                self.log,
+                "The justified checkpoint is invalid";
+                "msg" => "ensure you are not connected to a malicious network. This error is not \
+                recoverable, please reach out to the lighthouse developers for assistance."
+            );
+
+            let mut shutdown_sender = self.shutdown_sender();
+            if let Err(e) = shutdown_sender.try_send(ShutdownReason::Failure(
+                INVALID_JUSTIFIED_PAYLOAD_SHUTDOWN_REASON,
+            )) {
+                crit!(
+                    self.log,
+                    "Unable to trigger client shut down";
+                    "msg" => "shut down may already be under way",
+                    "error" => ?e
+                );
+            }
+
+            // Return an error here to try and prevent progression by upstream functions.
+            return Err(Error::JustifiedPayloadInvalid {
+                justified_root: justified_block.root,
+                execution_block_hash: justified_block.execution_status.block_hash(),
+            });
+        }
+
+        Ok(())
     }
 
     /// Execute the fork choice algorithm and enthrone the result as the canonical head.
@@ -3105,17 +3350,45 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     }
 
     fn fork_choice_internal(&self) -> Result<(), Error> {
-        // Determine the root of the block that is the head of the chain.
-        let beacon_block_root = self
-            .fork_choice
-            .write()
-            .get_head(self.slot()?, &self.spec)?;
+        // Atomically obtain the head block root and the finalized block.
+        let (beacon_block_root, finalized_block) = {
+            let mut fork_choice = self.fork_choice.write();
+
+            // Determine the root of the block that is the head of the chain.
+            let beacon_block_root = fork_choice.get_head(self.slot()?, &self.spec)?;
+
+            (beacon_block_root, fork_choice.get_finalized_block()?)
+        };
 
         let current_head = self.head_info()?;
         let old_finalized_checkpoint = current_head.finalized_checkpoint;
 
+        // Exit early if the head hasn't changed.
         if beacon_block_root == current_head.block_root {
             return Ok(());
+        }
+
+        // Check to ensure that this finalized block hasn't been marked as invalid.
+        if let ExecutionStatus::Invalid(block_hash) = finalized_block.execution_status {
+            crit!(
+                self.log,
+                "Finalized block has an invalid payload";
+                "msg" => "You must use the `--purge-db` flag to clear the database and restart sync. \
+                You may be on a hostile network.",
+                "block_hash" => ?block_hash
+            );
+            let mut shutdown_sender = self.shutdown_sender();
+            shutdown_sender
+                .try_send(ShutdownReason::Failure(
+                    "Finalized block has an invalid execution payload.",
+                ))
+                .map_err(BeaconChainError::InvalidFinalizedPayloadShutdownError)?;
+
+            // Exit now, the node is in an invalid state.
+            return Err(Error::InvalidFinalizedPayload {
+                finalized_root: finalized_block.root,
+                execution_block_hash: block_hash,
+            });
         }
 
         let lag_timer = metrics::start_timer(&metrics::FORK_CHOICE_SET_HEAD_LAG_TIMES);
@@ -3188,10 +3461,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             warn!(
                 self.log,
                 "Beacon chain re-org";
-                "previous_head" => %current_head.block_root,
+                "previous_head" => ?current_head.block_root,
                 "previous_slot" => current_head.slot,
-                "new_head_parent" => %new_head.beacon_block.parent_root(),
-                "new_head" => %beacon_block_root,
+                "new_head_parent" => ?new_head.beacon_block.parent_root(),
+                "new_head" => ?beacon_block_root,
                 "new_slot" => new_head.beacon_block.slot(),
                 "reorg_distance" => reorg_distance,
             );
@@ -3199,11 +3472,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             debug!(
                 self.log,
                 "Head beacon block";
-                "justified_root" => %new_head.beacon_state.current_justified_checkpoint().root,
+                "justified_root" => ?new_head.beacon_state.current_justified_checkpoint().root,
                 "justified_epoch" => new_head.beacon_state.current_justified_checkpoint().epoch,
-                "finalized_root" => %new_head.beacon_state.finalized_checkpoint().root,
+                "finalized_root" => ?new_head.beacon_state.finalized_checkpoint().root,
                 "finalized_epoch" => new_head.beacon_state.finalized_checkpoint().epoch,
-                "root" => %beacon_block_root,
+                "root" => ?beacon_block_root,
                 "slot" => new_head.beacon_block.slot(),
             );
         };
@@ -3252,10 +3525,14 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .message()
             .body()
             .execution_payload()
+            .ok()
             .map(|ep| ep.block_hash);
         let is_merge_transition_complete = is_merge_transition_complete(&new_head.beacon_state);
 
         drop(lag_timer);
+
+        // Clear the early attester cache in case it conflicts with `self.canonical_head`.
+        self.early_attester_cache.clear();
 
         // Update the snapshot that stores the head of the chain at the time it received the
         // block.
@@ -3361,33 +3638,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         }
 
         if new_finalized_checkpoint.epoch != old_finalized_checkpoint.epoch {
-            // Check to ensure that this finalized block hasn't been marked as invalid.
-            let finalized_block = self
-                .fork_choice
-                .read()
-                .get_block(&new_finalized_checkpoint.root)
-                .ok_or(BeaconChainError::FinalizedBlockMissingFromForkChoice(
-                    new_finalized_checkpoint.root,
-                ))?;
-            if let ExecutionStatus::Invalid(block_hash) = finalized_block.execution_status {
-                crit!(
-                    self.log,
-                    "Finalized block has an invalid payload";
-                    "msg" => "You must use the `--purge-db` flag to clear the database and restart sync. \
-                    You may be on a hostile network.",
-                    "block_hash" => ?block_hash
-                );
-                let mut shutdown_sender = self.shutdown_sender();
-                shutdown_sender
-                    .try_send(ShutdownReason::Failure(
-                        "Finalized block has an invalid execution payload.",
-                    ))
-                    .map_err(BeaconChainError::InvalidFinalizedPayloadShutdownError)?;
-
-                // Exit now, the node is in an invalid state.
-                return Ok(());
-            }
-
             // Due to race conditions, it's technically possible that the head we load here is
             // different to the one earlier in this function.
             //
@@ -3407,7 +3657,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 .epoch
                 .start_slot(T::EthSpec::slots_per_epoch());
             let new_finalized_state_root = process_results(
-                StateRootsIterator::new(self.store.clone(), &head.beacon_state),
+                StateRootsIterator::new(&self.store, &head.beacon_state),
                 |mut iter| {
                     iter.find_map(|(state_root, slot)| {
                         if slot == new_finalized_slot {
@@ -3488,68 +3738,126 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // If this is a post-merge block, update the execution layer.
         if let Some(new_head_execution_block_hash) = new_head_execution_block_hash_opt {
             if is_merge_transition_complete {
-                let execution_layer = self
-                    .execution_layer
-                    .clone()
-                    .ok_or(Error::ExecutionLayerMissing)?;
-                let store = self.store.clone();
-                let log = self.log.clone();
-
-                // Spawn the update task, without waiting for it to complete.
-                execution_layer.spawn(
-                    move |execution_layer| async move {
-                        if let Err(e) = Self::update_execution_engine_forkchoice(
-                            execution_layer,
-                            store,
-                            new_finalized_checkpoint.root,
-                            new_head_execution_block_hash,
-                        )
-                        .await
-                        {
-                            debug!(
-                                log,
-                                "Failed to update execution head";
-                                "error" => ?e
-                            );
-                        }
-                    },
-                    "update_execution_engine_forkchoice",
-                )
+                let finalized_execution_block_hash = finalized_block
+                    .execution_status
+                    .block_hash()
+                    .unwrap_or_else(ExecutionBlockHash::zero);
+                if let Err(e) = self.update_execution_engine_forkchoice_blocking(
+                    finalized_execution_block_hash,
+                    beacon_block_root,
+                    new_head_execution_block_hash,
+                ) {
+                    crit!(
+                        self.log,
+                        "Failed to update execution head";
+                        "error" => ?e
+                    );
+                }
             }
         }
 
         Ok(())
     }
 
-    pub async fn update_execution_engine_forkchoice(
-        execution_layer: ExecutionLayer,
-        store: BeaconStore<T>,
-        finalized_beacon_block_root: Hash256,
-        head_execution_block_hash: Hash256,
+    pub fn update_execution_engine_forkchoice_blocking(
+        &self,
+        finalized_execution_block_hash: ExecutionBlockHash,
+        head_block_root: Hash256,
+        head_execution_block_hash: ExecutionBlockHash,
     ) -> Result<(), Error> {
-        // Loading the finalized block from the store is not ideal. Perhaps it would be better to
-        // store it on fork-choice so we can do a lookup without hitting the database.
-        //
-        // See: https://github.com/sigp/lighthouse/pull/2627#issuecomment-927537245
-        let finalized_block = store
-            .get_block(&finalized_beacon_block_root)?
-            .ok_or(Error::MissingBeaconBlock(finalized_beacon_block_root))?;
-
-        let finalized_execution_block_hash = finalized_block
-            .message()
-            .body()
-            .execution_payload()
-            .map(|ep| ep.block_hash)
-            .unwrap_or_else(Hash256::zero);
+        let execution_layer = self
+            .execution_layer
+            .as_ref()
+            .ok_or(Error::ExecutionLayerMissing)?;
 
         execution_layer
+            .block_on_generic(|_| {
+                self.update_execution_engine_forkchoice_async(
+                    finalized_execution_block_hash,
+                    head_block_root,
+                    head_execution_block_hash,
+                )
+            })
+            .map_err(Error::ForkchoiceUpdate)?
+    }
+
+    pub async fn update_execution_engine_forkchoice_async(
+        &self,
+        finalized_execution_block_hash: ExecutionBlockHash,
+        head_block_root: Hash256,
+        head_execution_block_hash: ExecutionBlockHash,
+    ) -> Result<(), Error> {
+        let forkchoice_updated_response = self
+            .execution_layer
+            .as_ref()
+            .ok_or(Error::ExecutionLayerMissing)?
             .notify_forkchoice_updated(
                 head_execution_block_hash,
                 finalized_execution_block_hash,
                 None,
             )
             .await
-            .map_err(Error::ExecutionForkChoiceUpdateFailed)
+            .map_err(Error::ExecutionForkChoiceUpdateFailed);
+
+        match forkchoice_updated_response {
+            Ok(status) => match &status {
+                PayloadStatus::Valid | PayloadStatus::Syncing => Ok(()),
+                // The specification doesn't list `ACCEPTED` as a valid response to a fork choice
+                // update. This response *seems* innocent enough, so we won't return early with an
+                // error. However, we create a log to bring attention to the issue.
+                PayloadStatus::Accepted => {
+                    warn!(
+                        self.log,
+                        "Fork choice update received ACCEPTED";
+                        "msg" => "execution engine provided an unexpected response to a fork \
+                        choice update. although this is not a serious issue, please raise \
+                        an issue."
+                    );
+                    Ok(())
+                }
+                PayloadStatus::Invalid {
+                    latest_valid_hash, ..
+                } => {
+                    warn!(
+                        self.log,
+                        "Fork choice update invalidated payload";
+                        "status" => ?status
+                    );
+                    // The execution engine has stated that all blocks between the
+                    // `head_execution_block_hash` and `latest_valid_hash` are invalid.
+                    self.process_invalid_execution_payload(
+                        &InvalidationOperation::InvalidateMany {
+                            head_block_root,
+                            always_invalidate_head: true,
+                            latest_valid_ancestor: *latest_valid_hash,
+                        },
+                    )?;
+
+                    Err(BeaconChainError::ExecutionForkChoiceUpdateInvalid { status })
+                }
+                PayloadStatus::InvalidTerminalBlock { .. }
+                | PayloadStatus::InvalidBlockHash { .. } => {
+                    warn!(
+                        self.log,
+                        "Fork choice update invalidated payload";
+                        "status" => ?status
+                    );
+                    // The execution engine has stated that the head block is invalid, however it
+                    // hasn't returned a latest valid ancestor.
+                    //
+                    // Using a `None` latest valid ancestor will result in only the head block
+                    // being invalidated (no ancestors).
+                    self.process_invalid_execution_payload(
+                        &InvalidationOperation::InvalidateOne {
+                            block_root: head_block_root,
+                        },
+                    )?;
+
+                    Err(BeaconChainError::ExecutionForkChoiceUpdateInvalid { status })
+                }
+            },
+            Err(e) => Err(e),
+        }
     }
 
     /// Returns the status of the current head block, regarding the validity of the execution
@@ -3658,6 +3966,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .try_write_for(BLOCK_PROCESSING_CACHE_LOCK_TIMEOUT)
             .map(|mut snapshot_cache| {
                 snapshot_cache.prune(new_finalized_checkpoint.epoch);
+                debug!(
+                    self.log,
+                    "Snapshot cache pruned";
+                    "new_len" => snapshot_cache.len(),
+                    "remaining_roots" => ?snapshot_cache.beacon_block_roots(),
+                );
             })
             .unwrap_or_else(|| {
                 error!(

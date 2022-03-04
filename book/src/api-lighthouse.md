@@ -199,23 +199,23 @@ See [Validator Inclusion APIs](./validator-inclusion.md).
 
 ### `/lighthouse/eth1/syncing`
 
-Returns information regarding the Eth1 network, as it is required for use in
-Eth2
+Returns information regarding execution layer, as it is required for use in
+consensus layer
 
 #### Fields
 
 - `head_block_number`, `head_block_timestamp`: the block number and timestamp
-from the very head of the Eth1 chain. Useful for understanding the immediate
-health of the Eth1 node that the beacon node is connected to.
+from the very head of the execution chain. Useful for understanding the immediate
+health of the execution node that the beacon node is connected to.
 - `latest_cached_block_number` & `latest_cached_block_timestamp`: the block
 number and timestamp of the latest block we have in our block cache.
-	- For correct Eth1 voting this timestamp should be later than the
+	- For correct execution client voting this timestamp should be later than the
 `voting_period_start_timestamp`.
-- `voting_target_timestamp`: The latest timestamp allowed for an eth1 block in this voting period.
+- `voting_target_timestamp`: The latest timestamp allowed for an execution layer block in this voting period.
 - `eth1_node_sync_status_percentage` (float): An estimate of how far the head of the
-	Eth1 node is from the head of the Eth1 chain.
-	- `100.0` indicates a fully synced Eth1 node.
-	- `0.0` indicates an Eth1 node that has not verified any blocks past the
+  execution node is from the head of the execution chain.
+	- `100.0` indicates a fully synced execution node.
+	- `0.0` indicates an execution node that has not verified any blocks past the
 		genesis block.
 - `lighthouse_is_cached_and_ready`: Is set to `true` if the caches in the
 	beacon node are ready for block production.
@@ -248,7 +248,7 @@ curl -X GET "http://localhost:5052/lighthouse/eth1/syncing" -H  "accept: applica
 
 ### `/lighthouse/eth1/block_cache`
 
-Returns a list of all the Eth1 blocks in the Eth1 voting cache.
+Returns a list of all the execution layer blocks in the execution client voting cache.
 
 #### Example
 
@@ -320,7 +320,7 @@ curl -X GET "http://localhost:5052/lighthouse/eth1/deposit_cache" -H  "accept: a
 
 Obtains a `BeaconState` in SSZ bytes. Useful for obtaining a genesis state.
 
-The `state_id` parameter is identical to that used in the [Standard Eth2.0 Beacon Node API
+The `state_id` parameter is identical to that used in the [Standard Beacon Node API
 `beacon/state`
 routes](https://ethereum.github.io/beacon-APIs/#/Beacon/getStateRoot).
 
@@ -408,3 +408,43 @@ The endpoint will return immediately. See the beacon node logs for an indication
 
 Manually provide `SignedBeaconBlock`s to backfill the database. This is intended
 for use by Lighthouse developers during testing only.
+
+### `/lighthouse/analysis/block_rewards`
+
+Fetch information about the block rewards paid to proposers for a range of consecutive blocks.
+
+Two query parameters are required:
+
+* `start_slot` (inclusive): the slot of the first block to compute rewards for.
+* `end_slot` (inclusive): the slot of the last block to compute rewards for.
+
+Example:
+
+```bash
+curl "http://localhost:5052/lighthouse/analysis/block_rewards?start_slot=1&end_slot=32" | jq
+```
+
+```json
+[
+  {
+    "block_root": "0x51576c2fcf0ab68d7d93c65e6828e620efbb391730511ffa35584d6c30e51410",
+    "attestation_rewards": {
+      "total": 4941156,
+    },
+    ..
+  },
+  ..
+]
+```
+
+Caveats:
+
+* Presently only attestation and sync committee rewards are computed.
+* The output format is verbose and subject to change. Please see [`BlockReward`][block_reward_src]
+  in the source.
+* For maximum efficiency the `start_slot` should satisfy `start_slot % slots_per_restore_point == 1`.
+  This is because the state _prior_ to the `start_slot` needs to be loaded from the database, and
+  loading a state on a boundary is most efficient.
+
+[block_reward_src]:
+https://github.com/sigp/lighthouse/tree/unstable/common/eth2/src/lighthouse/block_rewards.rs
