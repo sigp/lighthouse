@@ -77,6 +77,7 @@ async fn get_state(endpoint: &EndpointWithState) -> Option<EndpointState> {
 /// reachable and has the correct network id and chain id. Emits a `WARN` log if a checked endpoint
 /// is not usable.
 pub struct EndpointsCache {
+    eth1_client: Eth1Client,
     pub fallback: Fallback<EndpointWithState>,
     pub config_network_id: Eth1Id,
     pub config_chain_id: Eth1Id,
@@ -99,6 +100,7 @@ impl EndpointsCache {
             &[&endpoint.endpoint.to_string()],
         );
         let state = endpoint_state(
+            self.eth1_client.clone(),
             &endpoint.endpoint,
             &self.config_network_id,
             &self.config_chain_id,
@@ -175,6 +177,7 @@ impl EndpointsCache {
 /// Returns `Ok` if the endpoint is usable, i.e. is reachable and has a correct network id and
 /// chain id. Otherwise it returns `Err`.
 async fn endpoint_state(
+    eth1_client: Eth1Client,
     endpoint: &SensitiveUrl,
     config_network_id: &Eth1Id,
     config_chain_id: &Eth1Id,
@@ -189,7 +192,8 @@ async fn endpoint_state(
         );
         EndpointError::RequestFailed(e)
     };
-    let network_id = get_network_id(endpoint, Duration::from_millis(STANDARD_TIMEOUT_MILLIS))
+    let network_id = eth1_client
+        .get_network_id(endpoint, Duration::from_millis(STANDARD_TIMEOUT_MILLIS))
         .await
         .map_err(error_connecting)?;
     if &network_id != config_network_id {
@@ -203,7 +207,8 @@ async fn endpoint_state(
         );
         return Err(EndpointError::WrongNetworkId);
     }
-    let chain_id = get_chain_id(endpoint, Duration::from_millis(STANDARD_TIMEOUT_MILLIS))
+    let chain_id = eth1_client
+        .get_chain_id(endpoint, Duration::from_millis(STANDARD_TIMEOUT_MILLIS))
         .await
         .map_err(error_connecting)?;
     // Eth1 nodes return chain_id = 0 if the node is not synced
@@ -253,7 +258,7 @@ async fn get_remote_head_and_new_block_ranges(
     ),
     SingleEndpointError,
 > {
-    let remote_head_block = download_eth1_block(endpoint, service.inner.clone(), None).await?;
+    let remote_head_block = download_eth1_block(endpoint, service, None).await?;
     let now = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_secs())
@@ -300,10 +305,11 @@ async fn relevant_new_block_numbers_from_endpoint(
     service: &Service,
     head_type: HeadType,
 ) -> Result<Option<RangeInclusive<u64>>, SingleEndpointError> {
-    let remote_highest_block =
-        get_block_number(endpoint, Duration::from_millis(BLOCK_NUMBER_TIMEOUT_MILLIS))
-            .map_err(SingleEndpointError::GetBlockNumberFailed)
-            .await?;
+    let remote_highest_block = service
+        .eth1_client
+        .get_block_number(endpoint, Duration::from_millis(BLOCK_NUMBER_TIMEOUT_MILLIS))
+        .map_err(SingleEndpointError::GetBlockNumberFailed)
+        .await?;
     service.relevant_new_block_numbers(remote_highest_block, head_type)
 }
 
@@ -456,7 +462,7 @@ impl Default for Config {
 pub struct Service {
     inner: Arc<Inner>,
     pub log: Logger,
-    client: Eth1Client,
+    eth1_client: Eth1Client,
 }
 
 impl Service {
@@ -474,7 +480,7 @@ impl Service {
                 spec,
             }),
             log,
-            client: Eth1Client::new(),
+            eth1_client: Eth1Client::new(),
         }
     }
 
@@ -506,7 +512,7 @@ impl Service {
         Ok(Self {
             inner: Arc::new(inner),
             log,
-            client: Eth1Client::new(),
+            eth1_client: Eth1Client::new(),
         })
     }
 
@@ -647,6 +653,7 @@ impl Service {
         let config_network_id = self.config().network_id.clone();
         let config_chain_id = self.config().chain_id.clone();
         let new_cache = Arc::new(EndpointsCache {
+            eth1_client: self.eth1_client.clone(),
             fallback: Fallback::new(endpoints.into_iter().map(EndpointWithState::new).collect()),
             config_network_id,
             config_chain_id,
@@ -929,14 +936,15 @@ impl Service {
             let block_range_ref = &block_range;
             let logs = endpoints
                 .first_success(|e| async move {
-                    get_deposit_logs_in_range(
-                        e,
-                        deposit_contract_address_ref,
-                        block_range_ref.clone(),
-                        Duration::from_millis(GET_DEPOSIT_LOG_TIMEOUT_MILLIS),
-                    )
-                    .await
-                    .map_err(SingleEndpointError::GetDepositLogsFailed)
+                    self.eth1_client
+                        .get_deposit_logs_in_range(
+                            e,
+                            deposit_contract_address_ref,
+                            block_range_ref.clone(),
+                            Duration::from_millis(GET_DEPOSIT_LOG_TIMEOUT_MILLIS),
+                        )
+                        .await
+                        .map_err(SingleEndpointError::GetDepositLogsFailed)
                 })
                 .await
                 .map(|(res, _)| res)
@@ -1110,9 +1118,9 @@ impl Service {
         let mut blocks_imported = 0;
         for block_number in required_block_numbers {
             let eth1_block = endpoints
-                .first_success(|e| async move {
-                    download_eth1_block(e, self.inner.clone(), Some(block_number)).await
-                })
+                .first_success(
+                    |e| async move { download_eth1_block(e, self, Some(block_number)).await },
+                )
                 .await
                 .map(|(res, _)| res)
                 .map_err(Error::FallbackError)?;
@@ -1222,11 +1230,12 @@ fn relevant_block_range(
 /// Performs three async calls to an Eth1 HTTP JSON RPC endpoint.
 async fn download_eth1_block(
     endpoint: &SensitiveUrl,
-    cache: Arc<Inner>,
+    service: &Service,
     block_number_opt: Option<u64>,
 ) -> Result<Eth1Block, SingleEndpointError> {
     let deposit_root = block_number_opt.and_then(|block_number| {
-        cache
+        service
+            .inner
             .deposit_cache
             .read()
             .cache
@@ -1234,7 +1243,8 @@ async fn download_eth1_block(
     });
 
     let deposit_count = block_number_opt.and_then(|block_number| {
-        cache
+        service
+            .inner
             .deposit_cache
             .read()
             .cache
@@ -1242,15 +1252,17 @@ async fn download_eth1_block(
     });
 
     // Performs a `get_blockByNumber` call to an eth1 node.
-    let http_block = get_block(
-        endpoint,
-        block_number_opt
-            .map(BlockQuery::Number)
-            .unwrap_or_else(|| BlockQuery::Latest),
-        Duration::from_millis(GET_BLOCK_TIMEOUT_MILLIS),
-    )
-    .map_err(SingleEndpointError::BlockDownloadFailed)
-    .await?;
+    let http_block = service
+        .eth1_client
+        .get_block(
+            endpoint,
+            block_number_opt
+                .map(BlockQuery::Number)
+                .unwrap_or_else(|| BlockQuery::Latest),
+            Duration::from_millis(GET_BLOCK_TIMEOUT_MILLIS),
+        )
+        .map_err(SingleEndpointError::BlockDownloadFailed)
+        .await?;
 
     Ok(Eth1Block {
         hash: http_block.hash,

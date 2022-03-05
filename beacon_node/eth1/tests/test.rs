@@ -1,6 +1,6 @@
 #![cfg(test)]
 use environment::{Environment, EnvironmentBuilder};
-use eth1::http::{get_deposit_count, get_deposit_logs_in_range, get_deposit_root, Block, Log};
+use eth1::http::{Block, Eth1Client, Log};
 use eth1::{Config, Service};
 use eth1::{DepositCache, DEFAULT_CHAIN_ID, DEFAULT_NETWORK_ID};
 use eth1_test_rig::GanacheEth1Instance;
@@ -51,39 +51,54 @@ fn random_deposit_data() -> DepositData {
 }
 
 /// Blocking operation to get the deposit logs from the `deposit_contract`.
-async fn blocking_deposit_logs(eth1: &GanacheEth1Instance, range: Range<u64>) -> Vec<Log> {
-    get_deposit_logs_in_range(
-        &SensitiveUrl::parse(eth1.endpoint().as_str()).unwrap(),
-        &eth1.deposit_contract.address(),
-        range,
-        timeout(),
-    )
-    .await
-    .expect("should get logs")
+async fn blocking_deposit_logs(
+    eth1_client: &Eth1Client,
+    eth1: &GanacheEth1Instance,
+    range: Range<u64>,
+) -> Vec<Log> {
+    eth1_client
+        .get_deposit_logs_in_range(
+            &SensitiveUrl::parse(eth1.endpoint().as_str()).unwrap(),
+            &eth1.deposit_contract.address(),
+            range,
+            timeout(),
+        )
+        .await
+        .expect("should get logs")
 }
 
 /// Blocking operation to get the deposit root from the `deposit_contract`.
-async fn blocking_deposit_root(eth1: &GanacheEth1Instance, block_number: u64) -> Option<Hash256> {
-    get_deposit_root(
-        &SensitiveUrl::parse(eth1.endpoint().as_str()).unwrap(),
-        &eth1.deposit_contract.address(),
-        block_number,
-        timeout(),
-    )
-    .await
-    .expect("should get deposit root")
+async fn blocking_deposit_root(
+    eth1_client: &Eth1Client,
+    eth1: &GanacheEth1Instance,
+    block_number: u64,
+) -> Option<Hash256> {
+    eth1_client
+        .get_deposit_root(
+            &SensitiveUrl::parse(eth1.endpoint().as_str()).unwrap(),
+            &eth1.deposit_contract.address(),
+            block_number,
+            timeout(),
+        )
+        .await
+        .expect("should get deposit root")
 }
 
 /// Blocking operation to get the deposit count from the `deposit_contract`.
-async fn blocking_deposit_count(eth1: &GanacheEth1Instance, block_number: u64) -> Option<u64> {
-    get_deposit_count(
-        &SensitiveUrl::parse(eth1.endpoint().as_str()).unwrap(),
-        &eth1.deposit_contract.address(),
-        block_number,
-        timeout(),
-    )
-    .await
-    .expect("should get deposit count")
+async fn blocking_deposit_count(
+    eth1_client: &Eth1Client,
+    eth1: &GanacheEth1Instance,
+    block_number: u64,
+) -> Option<u64> {
+    eth1_client
+        .get_deposit_count(
+            &SensitiveUrl::parse(eth1.endpoint().as_str()).unwrap(),
+            &eth1.deposit_contract.address(),
+            block_number,
+            timeout(),
+        )
+        .await
+        .expect("should get deposit count")
 }
 
 async fn get_block_number(web3: &Web3<Http>) -> u64 {
@@ -475,6 +490,7 @@ mod deposit_tree {
 
             let deposits: Vec<_> = (0..n).map(|_| random_deposit_data()).collect();
 
+            let eth1_client = Eth1Client::new();
             let eth1 = new_ganache_instance()
                 .await
                 .expect("should start eth1 environment");
@@ -492,12 +508,12 @@ mod deposit_tree {
                     .expect("should perform a deposit");
                 let block_number = get_block_number(&web3).await;
                 deposit_roots.push(
-                    blocking_deposit_root(&eth1, block_number)
+                    blocking_deposit_root(&eth1_client, &eth1, block_number)
                         .await
                         .expect("should get root if contract exists"),
                 );
                 deposit_counts.push(
-                    blocking_deposit_count(&eth1, block_number)
+                    blocking_deposit_count(&eth1_client, &eth1, block_number)
                         .await
                         .expect("should get count if contract exists"),
                 );
@@ -507,7 +523,7 @@ mod deposit_tree {
 
             // Pull all the deposit logs from the contract.
             let block_number = get_block_number(&web3).await;
-            let logs: Vec<_> = blocking_deposit_logs(&eth1, 0..block_number)
+            let logs: Vec<_> = blocking_deposit_logs(&eth1_client, &eth1, 0..block_number)
                 .await
                 .iter()
                 .map(|raw| raw.to_deposit_log(spec).expect("should parse deposit log"))
@@ -572,19 +588,25 @@ mod http {
     use super::*;
     use eth1::http::BlockQuery;
 
-    async fn get_block(eth1: &GanacheEth1Instance, block_number: u64) -> Block {
-        eth1::http::get_block(
-            &SensitiveUrl::parse(eth1.endpoint().as_str()).unwrap(),
-            BlockQuery::Number(block_number),
-            timeout(),
-        )
-        .await
-        .expect("should get block number")
+    async fn get_block(
+        eth1_client: &Eth1Client,
+        eth1: &GanacheEth1Instance,
+        block_number: u64,
+    ) -> Block {
+        eth1_client
+            .get_block(
+                &SensitiveUrl::parse(eth1.endpoint().as_str()).unwrap(),
+                BlockQuery::Number(block_number),
+                timeout(),
+            )
+            .await
+            .expect("should get block number")
     }
 
     #[tokio::test]
     async fn incrementing_deposits() {
         async {
+            let eth1_client = Eth1Client::new();
             let eth1 = new_ganache_instance()
                 .await
                 .expect("should start eth1 environment");
@@ -592,15 +614,15 @@ mod http {
             let web3 = eth1.web3();
 
             let block_number = get_block_number(&web3).await;
-            let logs = blocking_deposit_logs(&eth1, 0..block_number).await;
+            let logs = blocking_deposit_logs(&eth1_client, &eth1, 0..block_number).await;
             assert_eq!(logs.len(), 0);
 
-            let mut old_root = blocking_deposit_root(&eth1, block_number).await;
-            let mut old_block = get_block(&eth1, block_number).await;
+            let mut old_root = blocking_deposit_root(&eth1_client, &eth1, block_number).await;
+            let mut old_block = get_block(&eth1_client, &eth1, block_number).await;
             let mut old_block_number = block_number;
 
             assert_eq!(
-                blocking_deposit_count(&eth1, block_number).await,
+                blocking_deposit_count(&eth1_client, &eth1, block_number).await,
                 Some(0),
                 "should have deposit count zero"
             );
@@ -618,18 +640,18 @@ mod http {
 
                 // Check the logs.
                 let block_number = get_block_number(&web3).await;
-                let logs = blocking_deposit_logs(&eth1, 0..block_number).await;
+                let logs = blocking_deposit_logs(&eth1_client, &eth1, 0..block_number).await;
                 assert_eq!(logs.len(), i, "the number of logs should be as expected");
 
                 // Check the deposit count.
                 assert_eq!(
-                    blocking_deposit_count(&eth1, block_number).await,
+                    blocking_deposit_count(&eth1_client, &eth1, block_number).await,
                     Some(i as u64),
                     "should have a correct deposit count"
                 );
 
                 // Check the deposit root.
-                let new_root = blocking_deposit_root(&eth1, block_number).await;
+                let new_root = blocking_deposit_root(&eth1_client, &eth1, block_number).await;
                 assert_ne!(
                     new_root, old_root,
                     "deposit root should change with each deposit"
@@ -637,7 +659,7 @@ mod http {
                 old_root = new_root;
 
                 // Check the block hash.
-                let new_block = get_block(&eth1, block_number).await;
+                let new_block = get_block(&eth1_client, &eth1, block_number).await;
                 assert_ne!(
                     new_block.hash, old_block.hash,
                     "block hash should change with each deposit"
@@ -680,6 +702,7 @@ mod fast {
         async {
             let log = null_logger();
 
+            let eth1_client = Eth1Client::new();
             let eth1 = new_ganache_instance()
                 .await
                 .expect("should start eth1 environment");
@@ -723,8 +746,10 @@ mod fast {
             );
 
             for block_num in 0..=get_block_number(&web3).await {
-                let expected_deposit_count = blocking_deposit_count(&eth1, block_num).await;
-                let expected_deposit_root = blocking_deposit_root(&eth1, block_num).await;
+                let expected_deposit_count =
+                    blocking_deposit_count(&eth1_client, &eth1, block_num).await;
+                let expected_deposit_root =
+                    blocking_deposit_root(&eth1_client, &eth1, block_num).await;
 
                 let deposit_count = service
                     .deposits()
