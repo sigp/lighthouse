@@ -233,7 +233,7 @@ fn test_single_block_lookup_failure() {
 
 #[test]
 fn test_single_block_lookup_becomes_parent_request() {
-    let (mut bl, mut cx, mut rig) = TestRig::test_setup(Some(Level::Trace));
+    let (mut bl, mut cx, mut rig) = TestRig::test_setup(None);
 
     let block = rig.rand_block();
     let peer_id = PeerId::random();
@@ -281,6 +281,7 @@ fn test_parent_lookup_happy_path() {
     // Processing succeeds, now the rest of the chain should be sent for processing.
     bl.parent_block_processed(chain_hash, Err(BlockError::BlockIsAlreadyKnown), &mut cx);
     rig.expect_parent_chain_process();
+    bl.parent_chain_processed(chain_hash, BatchProcessResult::Success(true), &mut cx);
     assert_eq!(bl.parent_queue.len(), 0);
 }
 
@@ -314,6 +315,7 @@ fn test_parent_lookup_wrong_response() {
     // Processing succeeds, now the rest of the chain should be sent for processing.
     bl.parent_block_processed(chain_hash, Ok(()), &mut cx);
     rig.expect_parent_chain_process();
+    bl.parent_chain_processed(chain_hash, BatchProcessResult::Success(true), &mut cx);
     assert_eq!(bl.parent_queue.len(), 0);
 }
 
@@ -342,6 +344,7 @@ fn test_parent_lookup_empty_response() {
     // Processing succeeds, now the rest of the chain should be sent for processing.
     bl.parent_block_processed(chain_hash, Ok(()), &mut cx);
     rig.expect_parent_chain_process();
+    bl.parent_chain_processed(chain_hash, BatchProcessResult::Success(true), &mut cx);
     assert_eq!(bl.parent_queue.len(), 0);
 }
 
@@ -369,6 +372,7 @@ fn test_parent_lookup_rpc_failure() {
     // Processing succeeds, now the rest of the chain should be sent for processing.
     bl.parent_block_processed(chain_hash, Ok(()), &mut cx);
     rig.expect_parent_chain_process();
+    bl.parent_chain_processed(chain_hash, BatchProcessResult::Success(true), &mut cx);
     assert_eq!(bl.parent_queue.len(), 0);
 }
 
@@ -409,7 +413,7 @@ fn test_parent_lookup_too_many_attempts() {
 
 #[test]
 fn test_parent_lookup_too_deep() {
-    let (mut bl, mut cx, mut rig) = TestRig::test_setup(Some(Level::Trace));
+    let (mut bl, mut cx, mut rig) = TestRig::test_setup(None);
     let mut blocks =
         Vec::<SignedBeaconBlock<E>>::with_capacity(parent_lookup::PARENT_DEPTH_TOLERANCE);
     while blocks.len() < parent_lookup::PARENT_DEPTH_TOLERANCE {

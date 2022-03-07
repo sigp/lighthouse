@@ -569,7 +569,9 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                     | parent_lookup::RequestError::TooManyAttempts => {
                         self.failed_chains.insert(parent_lookup.chain_hash());
                         // This indicates faulty peers.
-                        // TODO: penalities?
+                        for &peer_id in parent_lookup.used_peers() {
+                            cx.report_peer(peer_id, PeerAction::LowToleranceError, e.as_static())
+                        }
                     }
                     parent_lookup::RequestError::NoPeers => {
                         // This happens if the peer disconnects while the block is being
