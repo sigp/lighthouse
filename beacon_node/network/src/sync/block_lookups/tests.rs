@@ -226,7 +226,7 @@ fn test_single_block_lookup_failure() {
 
     // The request fails. RPC failures are handled elsewhere so we should not penalize the peer.
     // The request should be removed.
-    bl.single_block_lookup_failed(id);
+    bl.single_block_lookup_failed(id, &mut cx);
     rig.expect_empty_network();
     assert_eq!(bl.single_block_lookups.len(), 0);
 }
