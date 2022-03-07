@@ -6,11 +6,9 @@ use ssz_types::VariableList;
 use store::{EthSpec, Hash256, SignedBeaconBlock};
 use strum::AsStaticStr;
 
-const SINGLE_BLOCK_LOOKUP_MAX_ATTEMPTS: u8 = 3;
-
 /// Object representing a single block lookup request.
 #[derive(PartialEq, Eq)]
-pub struct SingleBlockRequest<const MAX_ATTEMPTS: u8 = SINGLE_BLOCK_LOOKUP_MAX_ATTEMPTS> {
+pub struct SingleBlockRequest<const MAX_ATTEMPTS: u8> {
     /// The hash of the requested block.
     pub hash: Hash256,
     /// State of this request.

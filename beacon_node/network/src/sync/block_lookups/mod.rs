@@ -31,6 +31,7 @@ mod single_block_lookup;
 mod tests;
 
 const FAILED_CHAINS_CACHE_SIZE: usize = 500;
+const SINGLE_BLOCK_LOOKUP_MAX_ATTEMPTS: u8 = 3;
 
 pub(crate) struct BlockLookups<T: BeaconChainTypes> {
     /// A collection of parent block lookups.
@@ -43,7 +44,7 @@ pub(crate) struct BlockLookups<T: BeaconChainTypes> {
     /// received or not.
     ///
     /// The flag allows us to determine if the peer returned data or sent us nothing.
-    single_block_lookups: FnvHashMap<Id, SingleBlockRequest>,
+    single_block_lookups: FnvHashMap<Id, SingleBlockRequest<SINGLE_BLOCK_LOOKUP_MAX_ATTEMPTS>>,
 
     /// A multi-threaded, non-blocking processor for applying messages to the beacon chain.
     beacon_processor_send: mpsc::Sender<WorkEvent<T>>,
