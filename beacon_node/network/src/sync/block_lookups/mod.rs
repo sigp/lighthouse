@@ -45,9 +45,6 @@ pub(crate) struct BlockLookups<T: BeaconChainTypes> {
     /// The flag allows us to determine if the peer returned data or sent us nothing.
     single_block_lookups: FnvHashMap<Id, SingleBlockRequest>,
 
-    /// Block being requested from parent requests.
-    // active_block_lookups: HashSet<Hash256>,
-
     /// A multi-threaded, non-blocking processor for applying messages to the beacon chain.
     beacon_processor_send: mpsc::Sender<WorkEvent<T>>,
 
@@ -161,7 +158,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
 
         match request.get_mut().verify_block(block) {
             Ok(Some(block)) => {
-                // This is the corrrect block, send it for processing
+                // This is the correct block, send it for processing
                 if self
                     .send_block_for_processing(
                         block,
@@ -285,7 +282,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
 
     #[allow(clippy::needless_collect)] // false positive
     pub fn peer_disconnected(&mut self, peer_id: &PeerId, cx: &mut SyncNetworkContext<T::EthSpec>) {
-        // better writter after https://github.com/rust-lang/rust/issues/59618
+        // better written after https://github.com/rust-lang/rust/issues/59618
         let remove_retry_ids: Vec<Id> = self
             .single_block_lookups
             .iter_mut()
@@ -513,7 +510,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                 chain_hash
             );
             #[cfg(not(debug_assertions))]
-            return crit!(self.log, "ChainpProcess response for a parent lookup request that was not found"; "chain_hash" => %chain_hash);
+            return crit!(self.log, "Chain process response for a parent lookup request that was not found"; "chain_hash" => %chain_hash);
         };
 
         match result {

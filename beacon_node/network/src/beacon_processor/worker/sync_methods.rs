@@ -34,10 +34,7 @@ struct ChainSegmentFailed {
 }
 
 impl<T: BeaconChainTypes> Worker<T> {
-    /// Attempt to process a block received from a direct RPC request, returning the processing
-    /// result on the `result_tx` channel.
-    ///
-    /// Raises a log if there are errors publishing the result to the channel.
+    /// Attempt to process a block received from a direct RPC request.
     pub fn process_rpc_block(
         self,
         block: SignedBeaconBlock<T::EthSpec>,
@@ -179,7 +176,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                         debug!(self.log, "Parent lookup failed"; "error" => %e.message);
                         BatchProcessResult::Failed {
                             imported_blocks: imported_blocks > 0,
-                            peer_action: Some(PeerAction::LowToleranceError),
+                            peer_action: e.peer_action,
                         }
                     }
                     (imported_blocks, Ok(_)) => {
