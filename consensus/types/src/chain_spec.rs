@@ -1163,14 +1163,13 @@ mod tests {
 #[cfg(test)]
 mod yaml_tests {
     use super::*;
-    use std::fs::OpenOptions;
     use tempfile::NamedTempFile;
 
     #[test]
     fn minimal_round_trip() {
         // create temp file
         let tmp_file = NamedTempFile::new().expect("failed to create temp file");
-        let writer = OpenOptions::new()
+        let writer = File::options()
             .read(false)
             .write(true)
             .open(tmp_file.as_ref())
@@ -1181,7 +1180,7 @@ mod yaml_tests {
         // write fresh minimal config to file
         serde_yaml::to_writer(writer, &yamlconfig).expect("failed to write or serialize");
 
-        let reader = OpenOptions::new()
+        let reader = File::options()
             .read(true)
             .write(false)
             .open(tmp_file.as_ref())
@@ -1194,7 +1193,7 @@ mod yaml_tests {
     #[test]
     fn mainnet_round_trip() {
         let tmp_file = NamedTempFile::new().expect("failed to create temp file");
-        let writer = OpenOptions::new()
+        let writer = File::options()
             .read(false)
             .write(true)
             .open(tmp_file.as_ref())
@@ -1203,7 +1202,7 @@ mod yaml_tests {
         let yamlconfig = Config::from_chain_spec::<MainnetEthSpec>(&mainnet_spec);
         serde_yaml::to_writer(writer, &yamlconfig).expect("failed to write or serialize");
 
-        let reader = OpenOptions::new()
+        let reader = File::options()
             .read(true)
             .write(false)
             .open(tmp_file.as_ref())

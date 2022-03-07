@@ -3,7 +3,7 @@ use crate::{BeaconChainTypes, BeaconStore};
 use ssz::{Decode, DecodeError, Encode};
 use std::collections::HashMap;
 use std::convert::TryInto;
-use std::fs::{File, OpenOptions};
+use std::fs::File;
 use std::io::{self, Read, Write};
 use std::path::Path;
 use store::{DBColumn, Error as StoreError, StoreItem};
@@ -255,7 +255,7 @@ impl From<Error> for BeaconChainError {
 impl ValidatorPubkeyCacheFile {
     /// Opens an existing file for reading and writing.
     pub fn open<P: AsRef<Path>>(path: P) -> Result<Self, Error> {
-        OpenOptions::new()
+        File::options()
             .read(true)
             .write(true)
             .create(false)
@@ -453,7 +453,7 @@ mod test {
         let cache = ValidatorPubkeyCache::<T>::load_from_file(&path).expect("should open cache");
         drop(cache);
 
-        let mut file = OpenOptions::new()
+        let mut file = File::options()
             .write(true)
             .append(true)
             .open(&path)

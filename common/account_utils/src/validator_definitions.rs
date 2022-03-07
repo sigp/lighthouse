@@ -10,7 +10,7 @@ use regex::Regex;
 use serde_derive::{Deserialize, Serialize};
 use slog::{error, Logger};
 use std::collections::HashSet;
-use std::fs::{self, OpenOptions};
+use std::fs::{self, File};
 use std::io;
 use std::path::{Path, PathBuf};
 use types::{graffiti::GraffitiString, Address, PublicKey};
@@ -162,7 +162,7 @@ impl ValidatorDefinitions {
     /// Open an existing file, returning an error if the file does not exist.
     pub fn open<P: AsRef<Path>>(validators_dir: P) -> Result<Self, Error> {
         let config_path = validators_dir.as_ref().join(CONFIG_FILENAME);
-        let file = OpenOptions::new()
+        let file = File::options()
             .write(true)
             .read(true)
             .create_new(false)
@@ -219,7 +219,7 @@ impl ValidatorDefinitions {
                     return None;
                 }
 
-                let keystore_result = OpenOptions::new()
+                let keystore_result = File::options()
                     .read(true)
                     .create(false)
                     .open(&voting_keystore_path)
