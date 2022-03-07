@@ -283,6 +283,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
 
     #[allow(clippy::needless_collect)] // false positive
     pub fn peer_disconnected(&mut self, peer_id: &PeerId, cx: &mut SyncNetworkContext<T::EthSpec>) {
+        /* Check disconnection for single block lookups */
         // better written after https://github.com/rust-lang/rust/issues/59618
         let remove_retry_ids: Vec<Id> = self
             .single_block_lookups
@@ -312,6 +313,17 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                     trace!(self.log, "Single block request failed on peer disconnection";
                         "block_root" => %req.hash, "peer_id" => %peer_id, "reason" => e.as_static());
                 }
+            }
+        }
+
+        /* Check disconnection for parent lookups */
+        for i in 0..self.parent_queue.len() {
+            if self.parent_queue[i]
+                .check_peer_disconnected(peer_id)
+                .is_err()
+            {
+                let parent_lookup = self.parent_queue.remove(i);
+                self.request_parent(parent_lookup, cx);
             }
         }
     }

@@ -82,6 +82,10 @@ impl<T: EthSpec> ParentLookup<T> {
         }
     }
 
+    pub fn check_peer_disconnected(&mut self, peer_id: &PeerId) -> Result<(), ()> {
+        self.current_parent_request.check_peer_disconnected(peer_id)
+    }
+
     pub fn add_block(&mut self, block: SignedBeaconBlock<T>) {
         let next_parent = block.parent_root();
         self.downloaded_blocks.push(block);

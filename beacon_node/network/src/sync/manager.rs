@@ -259,7 +259,8 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         trace!(self.log, "Sync manager received a failed RPC");
         match request_id {
             RequestId::SingleBlock { id } => {
-                self.block_lookups.single_block_lookup_failed(id);
+                self.block_lookups
+                    .single_block_lookup_failed(id, &mut self.network);
             }
             RequestId::ParentLookup { id } => {
                 self.block_lookups
