@@ -37,8 +37,8 @@ use super::backfill_sync::{BackFillSync, ProcessResult, SyncStart};
 use super::block_lookups::BlockLookups;
 use super::network_context::SyncNetworkContext;
 use super::peer_sync_info::{remote_sync_type, PeerSyncType};
-use super::range_sync::{ChainId, RangeSync, RangeSyncType, EPOCHS_PER_BATCH};
-use crate::beacon_processor::WorkEvent as BeaconWorkEvent;
+use super::range_sync::{RangeSync, RangeSyncType, EPOCHS_PER_BATCH};
+use crate::beacon_processor::{ChainSegmentProcessId, WorkEvent as BeaconWorkEvent};
 use crate::service::NetworkMessage;
 use crate::status::ToStatusMessage;
 use beacon_chain::{BeaconChain, BeaconChainTypes, BlockError};
@@ -52,7 +52,7 @@ use std::ops::Sub;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::mpsc;
-use types::{Epoch, EthSpec, Hash256, SignedBeaconBlock, Slot};
+use types::{EthSpec, Hash256, SignedBeaconBlock, Slot};
 
 /// The number of slots ahead of us that is allowed before requesting a long-range (batch)  Sync
 /// from a peer. If a peer is within this tolerance (forwards or backwards), it is treated as a
@@ -110,14 +110,8 @@ pub enum SyncMessage<T: EthSpec> {
 
     /// A batch has been processed by the block processor thread.
     BatchProcessed {
-        sync_type: BatchProcessType,
+        sync_type: ChainSegmentProcessId,
         result: BatchProcessResult,
-    },
-
-    /// A parent lookup has failed.
-    ParentLookupFailed {
-        /// The head of the chain of blocks that failed to process.
-        chain_head: Hash256,
     },
 
     /// Block processed
@@ -125,15 +119,6 @@ pub enum SyncMessage<T: EthSpec> {
         process_type: BlockProcessType,
         result: Result<(), BlockError<T>>,
     },
-}
-
-/// The type of sync request sent for processing.
-#[derive(Debug, Clone)]
-pub enum BatchProcessType {
-    /// Request was from the backfill sync algorithm.
-    BackFillSync(Epoch),
-    /// The request was from a chain in the range sync algorithm.
-    RangeSync(Epoch, ChainId),
 }
 
 /// The type of processing specified for a received block.
@@ -540,7 +525,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                             .parent_block_processed(chain_hash, result, &mut self.network),
                     },
                     SyncMessage::BatchProcessed { sync_type, result } => match sync_type {
-                        BatchProcessType::RangeSync(epoch, chain_id) => {
+                        ChainSegmentProcessId::RangeBatchId(chain_id, epoch) => {
                             self.range_sync.handle_block_process_result(
                                 &mut self.network,
                                 chain_id,
@@ -549,7 +534,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                             );
                             self.update_sync_state();
                         }
-                        BatchProcessType::BackFillSync(epoch) => {
+                        ChainSegmentProcessId::BackSyncBatchId(epoch) => {
                             match self.backfill_sync.on_batch_process_result(
                                 &mut self.network,
                                 epoch,
@@ -564,11 +549,10 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                                 }
                             }
                         }
+                        ChainSegmentProcessId::ParentLookup(chain_hash) => self
+                            .block_lookups
+                            .parent_chain_processed(chain_hash, result, &mut self.network),
                     },
-                    SyncMessage::ParentLookupFailed { chain_head } => {
-                        self.block_lookups
-                            .parent_chain_processing_failed(chain_head);
-                    }
                 }
             }
         }

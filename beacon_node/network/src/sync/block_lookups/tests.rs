@@ -188,9 +188,7 @@ fn test_single_block_lookup_empty_response() {
     bl.single_block_lookup_response(id, peer_id, None, D, &mut cx);
     rig.expect_penalty();
 
-    // The request should not be active
-    assert_eq!(bl.single_block_lookups.len(), 0);
-    rig.expect_empty_network();
+    rig.expect_block_request(); // it should be retried
 }
 
 #[test]
@@ -208,13 +206,11 @@ fn test_single_block_lookup_wrong_response() {
     let bad_block = rig.rand_block();
     bl.single_block_lookup_response(id, peer_id, Some(Box::new(bad_block)), D, &mut cx);
     rig.expect_penalty();
+    rig.expect_block_request(); // should be retried
 
     // Send the stream termination. This should not produce an additional penalty.
     bl.single_block_lookup_response(id, peer_id, None, D, &mut cx);
     rig.expect_empty_network();
-
-    // The request should not be active
-    assert_eq!(bl.single_block_lookups.len(), 0);
 }
 
 #[test]
@@ -378,7 +374,7 @@ fn test_parent_lookup_rpc_failure() {
 
 #[test]
 fn test_parent_lookup_too_many_attempts() {
-    let (mut bl, mut cx, mut rig) = TestRig::test_setup(Some(Level::Trace));
+    let (mut bl, mut cx, mut rig) = TestRig::test_setup(None);
 
     let parent = rig.rand_block();
     let block = rig.block_with_parent(parent.canonical_root());
@@ -387,7 +383,7 @@ fn test_parent_lookup_too_many_attempts() {
 
     // Trigger the request
     bl.search_parent(Box::new(block), peer_id, &mut cx);
-    for i in 1..=parent_lookup::PARENT_FAIL_TOLERANCE {
+    for i in 1..=parent_lookup::PARENT_FAIL_TOLERANCE + 1 {
         let id = rig.expect_parent_request();
         match i % 2 {
             // make sure every error is accounted for
@@ -403,7 +399,7 @@ fn test_parent_lookup_too_many_attempts() {
             }
         }
         if i < parent_lookup::PARENT_FAIL_TOLERANCE {
-            assert_eq!(bl.parent_queue[0].failed_attempts(), i);
+            assert_eq!(bl.parent_queue[0].failed_attempts(), dbg!(i));
         }
     }
 

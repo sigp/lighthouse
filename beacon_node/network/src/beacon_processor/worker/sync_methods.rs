@@ -4,12 +4,12 @@ use super::{super::work_reprocessing_queue::ReprocessQueueMessage, Worker};
 use crate::beacon_processor::worker::FUTURE_SLOT_TOLERANCE;
 use crate::beacon_processor::DuplicateCache;
 use crate::metrics;
-use crate::sync::manager::{BatchProcessType, BlockProcessType, SyncMessage};
+use crate::sync::manager::{BlockProcessType, SyncMessage};
 use crate::sync::{BatchProcessResult, ChainId};
 use beacon_chain::{
     BeaconChainError, BeaconChainTypes, BlockError, ChainSegmentResult, HistoricalBlockError,
 };
-use lighthouse_network::{PeerAction, PeerId};
+use lighthouse_network::PeerAction;
 use slog::{debug, error, info, trace, warn};
 use tokio::sync::mpsc;
 use types::{Epoch, Hash256, SignedBeaconBlock};
@@ -22,7 +22,7 @@ pub enum ChainSegmentProcessId {
     /// Processing ID for a backfill syncing batch.
     BackSyncBatchId(Epoch),
     /// Processing Id of the parent lookup of a block.
-    ParentLookup(PeerId, Hash256),
+    ParentLookup(Hash256),
 }
 
 /// Returned when a chain segment import fails.
@@ -97,17 +97,17 @@ impl<T: BeaconChainTypes> Worker<T> {
     /// thread if more blocks are needed to process it.
     pub fn process_chain_segment(
         &self,
-        process_id: ChainSegmentProcessId,
+        sync_type: ChainSegmentProcessId,
         downloaded_blocks: Vec<SignedBeaconBlock<T::EthSpec>>,
     ) {
-        match process_id {
+        let result = match sync_type {
             // this a request from the range sync
             ChainSegmentProcessId::RangeBatchId(chain_id, epoch) => {
                 let start_slot = downloaded_blocks.first().map(|b| b.slot().as_u64());
                 let end_slot = downloaded_blocks.last().map(|b| b.slot().as_u64());
                 let sent_blocks = downloaded_blocks.len();
 
-                let result = match self.process_blocks(downloaded_blocks.iter()) {
+                match self.process_blocks(downloaded_blocks.iter()) {
                     (_, Ok(_)) => {
                         debug!(self.log, "Batch processed";
                             "batch_epoch" => epoch,
@@ -133,11 +133,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                             peer_action: e.peer_action,
                         }
                     }
-                };
-
-                let sync_type = BatchProcessType::RangeSync(epoch, chain_id);
-
-                self.send_sync_message(SyncMessage::BatchProcessed { sync_type, result });
+                }
             }
             // this a request from the Backfill sync
             ChainSegmentProcessId::BackSyncBatchId(epoch) => {
@@ -145,7 +141,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                 let end_slot = downloaded_blocks.last().map(|b| b.slot().as_u64());
                 let sent_blocks = downloaded_blocks.len();
 
-                let result = match self.process_backfill_blocks(&downloaded_blocks) {
+                match self.process_backfill_blocks(&downloaded_blocks) {
                     (_, Ok(_)) => {
                         debug!(self.log, "Backfill batch processed";
                             "batch_epoch" => epoch,
@@ -167,32 +163,34 @@ impl<T: BeaconChainTypes> Worker<T> {
                             peer_action: e.peer_action,
                         }
                     }
-                };
-
-                let sync_type = BatchProcessType::BackFillSync(epoch);
-
-                self.send_sync_message(SyncMessage::BatchProcessed { sync_type, result });
+                }
             }
             // this is a parent lookup request from the sync manager
-            ChainSegmentProcessId::ParentLookup(peer_id, chain_head) => {
+            ChainSegmentProcessId::ParentLookup(chain_head) => {
                 debug!(
                     self.log, "Processing parent lookup";
-                    "last_peer_id" => %peer_id,
+                    "chain_hash" => %chain_head,
                     "blocks" => downloaded_blocks.len()
                 );
                 // parent blocks are ordered from highest slot to lowest, so we need to process in
                 // reverse
                 match self.process_blocks(downloaded_blocks.iter().rev()) {
-                    (_, Err(e)) => {
-                        debug!(self.log, "Parent lookup failed"; "last_peer_id" => %peer_id, "error" => %e.message);
-                        self.send_sync_message(SyncMessage::ParentLookupFailed { chain_head })
+                    (imported_blocks, Err(e)) => {
+                        debug!(self.log, "Parent lookup failed"; "error" => %e.message);
+                        BatchProcessResult::Failed {
+                            imported_blocks: imported_blocks > 0,
+                            peer_action: Some(PeerAction::LowToleranceError),
+                        }
                     }
-                    (_, Ok(_)) => {
+                    (imported_blocks, Ok(_)) => {
                         debug!(self.log, "Parent lookup processed successfully");
+                        BatchProcessResult::Success(imported_blocks > 0)
                     }
                 }
             }
-        }
+        };
+
+        self.send_sync_message(SyncMessage::BatchProcessed { sync_type, result });
     }
 
     /// Helper function to process blocks batches which only consumes the chain and blocks to process.

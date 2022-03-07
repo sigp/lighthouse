@@ -132,7 +132,7 @@ impl<const MAX_ATTEMPTS: u8> SingleBlockRequest<MAX_ATTEMPTS> {
                 };
                 self.state = State::Downloading { peer_id };
                 self.used_peers.insert(peer_id);
-                return Ok((peer_id, request));
+                Ok((peer_id, request))
             } else {
                 Err(LookupRequestError::NoPeers)
             }
@@ -196,8 +196,8 @@ mod tests {
         let block = rand_block();
 
         let mut sl = SingleBlockRequest::<4>::new(block.canonical_root(), peer_id);
-        // Should fail
-        let block = sl.verify_block(Some(Box::new(block))).unwrap().unwrap();
+        sl.request_block().unwrap();
+        sl.verify_block(Some(Box::new(block))).unwrap().unwrap();
     }
 
     #[test]

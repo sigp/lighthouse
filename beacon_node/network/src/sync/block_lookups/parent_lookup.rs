@@ -100,24 +100,8 @@ impl<T: EthSpec> ParentLookup<T> {
         self.current_parent_request.register_failure();
     }
 
-    pub fn destructure(
-        self,
-    ) -> (
-        Hash256,
-        Vec<SignedBeaconBlock<T>>,
-        std::collections::HashSet<PeerId>,
-    ) {
-        let ParentLookup {
-            chain_hash,
-            downloaded_blocks,
-            current_parent_request,
-            ..
-        } = self;
-        (
-            chain_hash,
-            downloaded_blocks,
-            current_parent_request.available_peers,
-        )
+    pub fn chain_blocks(&mut self) -> Vec<SignedBeaconBlock<T>> {
+        std::mem::take(&mut self.downloaded_blocks)
     }
 
     /// Verifies that the received block is what we requested. If so, parent lookup now waits for
@@ -155,6 +139,10 @@ impl<T: EthSpec> ParentLookup<T> {
 
     pub fn add_peer(&mut self, block_root: &Hash256, peer_id: &PeerId) -> bool {
         self.current_parent_request.add_peer(block_root, peer_id)
+    }
+
+    pub fn used_peers(&self) -> impl Iterator<Item = &PeerId> + '_ {
+        self.current_parent_request.used_peers.iter()
     }
 }
 

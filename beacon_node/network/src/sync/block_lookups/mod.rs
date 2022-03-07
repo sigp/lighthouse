@@ -19,6 +19,7 @@ use self::{
     single_block_lookup::SingleBlockRequest,
 };
 
+use super::BatchProcessResult;
 use super::{
     manager::{BlockProcessType, Id},
     network_context::SyncNetworkContext,
@@ -238,6 +239,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
             Ok(None) => {
                 // Request finished successfully, nothing else to do. It will be removed after the
                 // processing result arrives.
+                self.parent_queue.push(parent_lookup);
             }
             Err(e) => match e {
                 VerifyError::RootMismatch
@@ -281,13 +283,14 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
 
     /* Error responses */
 
+    #[allow(clippy::needless_collect)] // false positive
     pub fn peer_disconnected(&mut self, peer_id: &PeerId, cx: &mut SyncNetworkContext<T::EthSpec>) {
         // better writter after https://github.com/rust-lang/rust/issues/59618
         let remove_retry_ids: Vec<Id> = self
             .single_block_lookups
             .iter_mut()
             .filter_map(|(id, req)| {
-                if req.check_peer_disconnected(&peer_id).is_err() {
+                if req.check_peer_disconnected(peer_id).is_err() {
                     Some(*id)
                 } else {
                     None
@@ -424,12 +427,18 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         } else {
             #[cfg(debug_assertions)]
             panic!(
-                "Process response for a parent lookip request that was not found. Chain_hash: {}",
+                "Process response for a parent lookup request that was not found. Chain_hash: {}",
                 chain_hash
             );
             #[cfg(not(debug_assertions))]
             return crit!(self.log, "Process response for a parent lookup request that was not found"; "chain_hash" => %chain_hash);
         };
+
+        if let Err(e) = &result {
+            trace!(self.log, "Parent block processing failed"; &parent_lookup, "error" => %e);
+        } else {
+            trace!(self.log, "Parent block processing succeeded"; &parent_lookup);
+        }
 
         match result {
             Err(BlockError::ParentUnknown(block)) => {
@@ -439,17 +448,17 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                 self.request_parent(parent_lookup, cx);
             }
             Ok(_) | Err(BlockError::BlockIsAlreadyKnown { .. }) => {
-                let (chain_hash, blocks, peer_id) = parent_lookup.destructure();
-                let process_id = ChainSegmentProcessId::ParentLookup(
-                    peer_id.into_iter().next().unwrap(),
-                    chain_hash,
-                );
+                let chain_hash = parent_lookup.chain_hash();
+                let blocks = parent_lookup.chain_blocks();
+                let process_id = ChainSegmentProcessId::ParentLookup(chain_hash);
 
                 match self
                     .beacon_processor_send
                     .try_send(WorkEvent::chain_segment(process_id, blocks))
                 {
-                    Ok(_) => {}
+                    Ok(_) => {
+                        self.parent_queue.push(parent_lookup);
+                    }
                     Err(e) => {
                         error!(
                             self.log,
@@ -484,8 +493,44 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         );
     }
 
-    pub fn parent_chain_processing_failed(&mut self, chain_hash: Hash256) {
-        self.failed_chains.insert(chain_hash);
+    pub fn parent_chain_processed(
+        &mut self,
+        chain_hash: Hash256,
+        result: BatchProcessResult,
+        cx: &mut SyncNetworkContext<T::EthSpec>,
+    ) {
+        let parent_lookup = if let Some(pos) = self
+            .parent_queue
+            .iter()
+            .position(|request| request.chain_hash() == chain_hash)
+        {
+            self.parent_queue.remove(pos)
+        } else {
+            #[cfg(debug_assertions)]
+            panic!(
+                "Chain process response for a parent lookup request that was not found. Chain_hash: {}",
+                chain_hash
+            );
+            #[cfg(not(debug_assertions))]
+            return crit!(self.log, "ChainpProcess response for a parent lookup request that was not found"; "chain_hash" => %chain_hash);
+        };
+
+        match result {
+            BatchProcessResult::Success(_) => {
+                // nothing to do.
+            }
+            BatchProcessResult::Failed {
+                imported_blocks: _,
+                peer_action,
+            } => {
+                self.failed_chains.insert(parent_lookup.chain_hash());
+                if let Some(peer_action) = peer_action {
+                    for &peer_id in parent_lookup.used_peers() {
+                        cx.report_peer(peer_id, peer_action, "parent_chain_failure")
+                    }
+                }
+            }
+        }
     }
 
     /* Helper functions */
@@ -522,8 +567,9 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                     }
                     parent_lookup::RequestError::ChainTooLong
                     | parent_lookup::RequestError::TooManyAttempts => {
+                        self.failed_chains.insert(parent_lookup.chain_hash());
                         // This indicates faulty peers.
-                        // TODO: downscore them all?
+                        // TODO: penalities?
                     }
                     parent_lookup::RequestError::NoPeers => {
                         // This happens if the peer disconnects while the block is being
