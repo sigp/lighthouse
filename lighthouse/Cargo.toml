@@ -6,6 +6,7 @@ edition = "2021"
 autotests = false
 
 [features]
+default = ["tree-states"]
 # Writes debugging .ssz files to /tmp during block processing.
 write_ssz_files = ["beacon_node/write_ssz_files"]
 # Compiles the BLS crypto code so that the binary is portable across machines.
@@ -19,7 +20,7 @@ spec-minimal = []
 # Support Gnosis spec and Gnosis Beacon Chain.
 gnosis = []
 # Use `milhouse` tree states.
-tree-states = ["beacon_node/tree-states"]
+tree-states = ["beacon_node/tree-states", "malloc_utils/jemalloc"]
 
 [dependencies]
 beacon_node = { "path" = "../beacon_node" }
