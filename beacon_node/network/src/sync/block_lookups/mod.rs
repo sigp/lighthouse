@@ -357,12 +357,13 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         let mut req = match self.single_block_lookups.remove(&id) {
             Some(req) => req,
             None => {
-                crit!(
+                #[cfg(debug_assertions)]
+                panic!("block processed for single block lookup not present");
+                #[cfg(not(debug_assertions))]
+                return crit!(
                     self.log,
                     "Block processed for single block lookup not present"
                 );
-                #[cfg(debug_assertions)]
-                panic!("block processed for single block lookup not present");
             }
         };
 
