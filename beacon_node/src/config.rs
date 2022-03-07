@@ -251,7 +251,12 @@ pub fn get_config<E: EthSpec>(
         }
 
         if let Some(secrets) = cli_args.value_of("jwt-secrets") {
-            el_config.secret_files = secrets.split(',').map(PathBuf::from).collect();
+            let secret_files: Vec<_> = secrets.split(',').map(PathBuf::from).collect();
+            if !secret_files.is_empty() && secret_files.len() != el_config.execution_endpoints.len()
+            {
+                return Err("length of jwt-secrets must be equal to number of execution-endpoints or 0 to use the default secret".to_string());
+            }
+            el_config.secret_files = secret_files;
         }
 
         el_config.suggested_fee_recipient =

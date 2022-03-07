@@ -35,7 +35,7 @@ mod payload_status;
 pub mod test_utils;
 
 /// Name for the default file used for the jwt secret.
-pub const DEFAULT_JWT_FILE: &str = "jwtsecret";
+pub const DEFAULT_JWT_FILE: &str = "jwt.hex";
 
 /// Each time the `ExecutionLayer` retrieves a block from an execution node, it stores that block
 /// in an LRU cache to avoid redundant lookups. This is the size of that cache.
@@ -877,6 +877,7 @@ mod test {
         MockExecutionLayer::default_params()
             .move_to_block_prior_to_terminal_block()
             .with_terminal_block(|spec, el, _| async move {
+                el.engines().upcheck_not_synced(Logging::Disabled).await;
                 assert_eq!(el.get_terminal_pow_block_hash(&spec).await.unwrap(), None)
             })
             .await
@@ -895,6 +896,7 @@ mod test {
         MockExecutionLayer::default_params()
             .move_to_terminal_block()
             .with_terminal_block(|spec, el, terminal_block| async move {
+                el.engines().upcheck_not_synced(Logging::Disabled).await;
                 assert_eq!(
                     el.is_valid_terminal_pow_block_hash(terminal_block.unwrap().block_hash, &spec)
                         .await
@@ -910,6 +912,7 @@ mod test {
         MockExecutionLayer::default_params()
             .move_to_terminal_block()
             .with_terminal_block(|spec, el, terminal_block| async move {
+                el.engines().upcheck_not_synced(Logging::Disabled).await;
                 let invalid_terminal_block = terminal_block.unwrap().parent_hash;
 
                 assert_eq!(
@@ -927,6 +930,7 @@ mod test {
         MockExecutionLayer::default_params()
             .move_to_terminal_block()
             .with_terminal_block(|spec, el, _| async move {
+                el.engines().upcheck_not_synced(Logging::Disabled).await;
                 let missing_terminal_block = ExecutionBlockHash::repeat_byte(42);
 
                 assert_eq!(

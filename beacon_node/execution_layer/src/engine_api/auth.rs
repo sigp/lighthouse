@@ -101,7 +101,6 @@ impl Auth {
     ) -> Result<jsonwebtoken::TokenData<Claims>, Error> {
         let mut validation = jsonwebtoken::Validation::new(DEFAULT_ALGORITHM);
         validation.validate_exp = false;
-        // Really weird that we have to do this to get the validation working
         validation.required_spec_claims.remove("exp");
 
         jsonwebtoken::decode::<Claims>(

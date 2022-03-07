@@ -440,7 +440,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .value_name("JWT-VERSION")
                 .help("Used by the beacon node to communicate a client version to execution nodes \
                        during JWT authentication. It corresponds to the 'clv' field in the JWT claims object.\
-                       Set to the lighthouse version by deafult")
+                       Set to empty by deafult")
                 .takes_value(true)
         )
         .arg(
