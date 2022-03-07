@@ -116,7 +116,7 @@ impl<T: BeaconChainTypes> ValidatorPubkeyCache<T> {
                     .validators()
                     .iter_from(self.pubkeys.len())
                     .unwrap() // FIXME(sproul)
-                    .map(|v| v.pubkey),
+                    .map(|v| *v.pubkey()),
             )
         } else {
             Ok(())

@@ -6,6 +6,7 @@ use crate::common::{
 use crate::per_block_processing::errors::{BlockProcessingError, IntoWithIndex};
 use crate::VerifySignatures;
 use safe_arith::SafeArith;
+use std::sync::Arc;
 use types::consts::altair::{PARTICIPATION_FLAG_WEIGHTS, PROPOSER_WEIGHT, WEIGHT_DENOMINATOR};
 
 pub fn process_operations<'a, T: EthSpec>(
@@ -340,8 +341,10 @@ pub fn process_deposit<T: EthSpec>(
 
         // Create a new validator.
         let validator = Validator {
-            pubkey: deposit.data.pubkey,
-            withdrawal_credentials: deposit.data.withdrawal_credentials,
+            immutable: Arc::new(ValidatorImmutable {
+                pubkey: deposit.data.pubkey,
+                withdrawal_credentials: deposit.data.withdrawal_credentials,
+            }),
             activation_eligibility_epoch: spec.far_future_epoch,
             activation_epoch: spec.far_future_epoch,
             exit_epoch: spec.far_future_epoch,

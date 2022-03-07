@@ -3,17 +3,17 @@ use crate::{
 };
 use serde_derive::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
+use std::sync::Arc;
 use test_random_derive::TestRandom;
-use tree_hash_derive::TreeHash;
+use tree_hash::TreeHash;
+
+const NUM_FIELDS: usize = 8;
 
 /// Information about a `BeaconChain` validator.
-///
-/// Spec v0.12.1
 #[cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary))]
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Encode, Decode, TestRandom, TreeHash)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Encode, Decode, TestRandom)]
 pub struct Validator {
-    pub pubkey: PublicKeyBytes,
-    pub withdrawal_credentials: Hash256,
+    pub immutable: Arc<ValidatorImmutable>,
     #[serde(with = "eth2_serde_utils::quoted_u64")]
     pub effective_balance: u64,
     pub slashed: bool,
@@ -23,7 +23,23 @@ pub struct Validator {
     pub withdrawable_epoch: Epoch,
 }
 
+/// The immutable fields of a validator, behind an `Arc` to enable sharing.
+#[cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary))]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Encode, Decode, TestRandom)]
+pub struct ValidatorImmutable {
+    pub pubkey: PublicKeyBytes,
+    pub withdrawal_credentials: Hash256,
+}
+
 impl Validator {
+    pub fn pubkey(&self) -> &PublicKeyBytes {
+        &self.immutable.pubkey
+    }
+
+    pub fn withdrawal_credentials(&self) -> Hash256 {
+        self.immutable.withdrawal_credentials
+    }
+
     /// Returns `true` if the validator is considered active at some epoch.
     pub fn is_active_at(&self, epoch: Epoch) -> bool {
         self.activation_epoch <= epoch && epoch < self.exit_epoch
@@ -65,14 +81,35 @@ impl Validator {
         // Has not yet been activated
         && self.activation_epoch == spec.far_future_epoch
     }
+
+    fn tree_hash_root_internal(&self) -> Result<Hash256, tree_hash::Error> {
+        let mut hasher = tree_hash::MerkleHasher::with_leaves(NUM_FIELDS);
+
+        hasher.write(self.pubkey().tree_hash_root().as_bytes())?;
+        hasher.write(self.withdrawal_credentials().tree_hash_root().as_bytes())?;
+        hasher.write(self.effective_balance.tree_hash_root().as_bytes())?;
+        hasher.write(self.slashed.tree_hash_root().as_bytes())?;
+        hasher.write(
+            self.activation_eligibility_epoch
+                .tree_hash_root()
+                .as_bytes(),
+        )?;
+        hasher.write(self.activation_epoch.tree_hash_root().as_bytes())?;
+        hasher.write(self.exit_epoch.tree_hash_root().as_bytes())?;
+        hasher.write(self.withdrawable_epoch.tree_hash_root().as_bytes())?;
+
+        hasher.finish()
+    }
 }
 
 impl Default for Validator {
     /// Yields a "default" `Validator`. Primarily used for testing.
     fn default() -> Self {
         Self {
-            pubkey: PublicKeyBytes::empty(),
-            withdrawal_credentials: Hash256::default(),
+            immutable: Arc::new(ValidatorImmutable {
+                pubkey: PublicKeyBytes::empty(),
+                withdrawal_credentials: Hash256::default(),
+            }),
             activation_eligibility_epoch: Epoch::from(std::u64::MAX),
             activation_epoch: Epoch::from(std::u64::MAX),
             exit_epoch: Epoch::from(std::u64::MAX),
@@ -80,6 +117,25 @@ impl Default for Validator {
             slashed: false,
             effective_balance: std::u64::MAX,
         }
+    }
+}
+
+impl TreeHash for Validator {
+    fn tree_hash_type() -> tree_hash::TreeHashType {
+        tree_hash::TreeHashType::Container
+    }
+
+    fn tree_hash_packed_encoding(&self) -> tree_hash::PackedEncoding {
+        unreachable!("Struct should never be packed.")
+    }
+
+    fn tree_hash_packing_factor() -> usize {
+        unreachable!("Struct should never be packed.")
+    }
+
+    fn tree_hash_root(&self) -> Hash256 {
+        self.tree_hash_root_internal()
+            .expect("Validator tree_hash_root should not fail")
     }
 }
 

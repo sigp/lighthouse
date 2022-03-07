@@ -865,7 +865,7 @@ impl<T: EthSpec> BeaconState<T> {
             .map(|&index| {
                 self.validators()
                     .get(index)
-                    .map(|v| v.pubkey)
+                    .map(|v| *v.pubkey())
                     .ok_or(Error::UnknownValidator(index))
             })
             .collect::<Result<Vec<_>, _>>()?;
@@ -896,7 +896,7 @@ impl<T: EthSpec> BeaconState<T> {
         validator_indices
             .iter()
             .map(|&validator_index| {
-                let pubkey = self.get_validator(validator_index as usize)?.pubkey;
+                let pubkey = *self.get_validator(validator_index as usize)?.pubkey();
 
                 Ok(SyncDuty::from_sync_committee(
                     validator_index,
@@ -1555,7 +1555,7 @@ impl<T: EthSpec> BeaconState<T> {
 
         for (i, validator) in self.validators().iter_from(start_index)?.enumerate() {
             let index = start_index.safe_add(i)?;
-            let success = pubkey_cache.insert(validator.pubkey, index);
+            let success = pubkey_cache.insert(*validator.pubkey(), index);
             if !success {
                 return Err(Error::PubkeyCacheInconsistent);
             }

@@ -530,7 +530,7 @@ pub fn serve<T: BeaconChainTypes>(
                                     query.id.as_ref().map_or(true, |ids| {
                                         ids.iter().any(|id| match id {
                                             ValidatorId::PublicKey(pubkey) => {
-                                                &validator.pubkey == pubkey
+                                                validator.pubkey() == pubkey
                                             }
                                             ValidatorId::Index(param_index) => {
                                                 *param_index == *index as u64
@@ -578,7 +578,7 @@ pub fn serve<T: BeaconChainTypes>(
                                     query.id.as_ref().map_or(true, |ids| {
                                         ids.iter().any(|id| match id {
                                             ValidatorId::PublicKey(pubkey) => {
-                                                &validator.pubkey == pubkey
+                                                validator.pubkey() == pubkey
                                             }
                                             ValidatorId::Index(param_index) => {
                                                 *param_index == *index as u64
@@ -635,7 +635,7 @@ pub fn serve<T: BeaconChainTypes>(
                         .map_state(&chain, |state| {
                             let index_opt = match &validator_id {
                                 ValidatorId::PublicKey(pubkey) => {
-                                    state.validators().iter().position(|v| v.pubkey == *pubkey)
+                                    state.validators().iter().position(|v| v.pubkey() == pubkey)
                                 }
                                 ValidatorId::Index(index) => Some(*index as usize),
                             };

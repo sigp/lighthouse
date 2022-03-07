@@ -297,10 +297,10 @@ impl<T: EthSpec> ValidatorMonitor<T> {
             .skip(self.indices.len())
             .for_each(|(i, validator)| {
                 let i = i as u64;
-                if let Some(validator) = self.validators.get_mut(&validator.pubkey) {
+                if let Some(validator) = self.validators.get_mut(validator.pubkey()) {
                     validator.set_index(i)
                 }
-                self.indices.insert(i, validator.pubkey);
+                self.indices.insert(i, *validator.pubkey());
             });
 
         // Update metrics for individual validators.
