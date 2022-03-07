@@ -460,15 +460,16 @@ impl Default for Config {
 /// - Block cache: stores some number of eth1 blocks.
 #[derive(Clone)]
 pub struct Service {
+    eth1_client: Eth1Client,
     inner: Arc<Inner>,
     pub log: Logger,
-    eth1_client: Eth1Client,
 }
 
 impl Service {
     /// Creates a new service. Does not attempt to connect to the eth1 node.
     pub fn new(config: Config, log: Logger, spec: ChainSpec) -> Self {
         Self {
+            eth1_client: Eth1Client::new(),
             inner: Arc::new(Inner {
                 block_cache: <_>::default(),
                 deposit_cache: RwLock::new(DepositUpdater::new(
@@ -480,7 +481,6 @@ impl Service {
                 spec,
             }),
             log,
-            eth1_client: Eth1Client::new(),
         }
     }
 
