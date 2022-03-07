@@ -4,7 +4,7 @@ use deposit_contract::{encode_eth1_tx_data, Error as DepositError};
 use eth2_keystore::{Error as KeystoreError, Keystore, KeystoreBuilder, PlainText};
 use filesystem::create_with_600_perms;
 use rand::{distributions::Alphanumeric, Rng};
-use std::fs::{create_dir_all, OpenOptions};
+use std::fs::{create_dir_all, File};
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use types::{ChainSpec, DepositData, Hash256, Keypair, Signature};
@@ -197,7 +197,7 @@ impl<'a> Builder<'a> {
                     return Err(Error::DepositDataAlreadyExists(path));
                 } else {
                     let hex = format!("0x{}", hex::encode(&deposit_data));
-                    OpenOptions::new()
+                    File::options()
                         .write(true)
                         .read(true)
                         .create(true)
@@ -214,7 +214,7 @@ impl<'a> Builder<'a> {
                 if path.exists() {
                     return Err(Error::DepositAmountAlreadyExists(path));
                 } else {
-                    OpenOptions::new()
+                    File::options()
                         .write(true)
                         .read(true)
                         .create(true)
@@ -267,7 +267,7 @@ fn write_keystore_to_file(path: PathBuf, keystore: &Keystore) -> Result<(), Erro
     if path.exists() {
         Err(Error::KeystoreAlreadyExists(path))
     } else {
-        let file = OpenOptions::new()
+        let file = File::options()
             .write(true)
             .read(true)
             .create_new(true)
