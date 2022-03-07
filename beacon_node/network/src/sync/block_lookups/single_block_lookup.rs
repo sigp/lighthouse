@@ -121,6 +121,7 @@ impl<const MAX_ATTEMPTS: u8> SingleBlockRequest<MAX_ATTEMPTS> {
         }
     }
 
+    #[track_caller]
     pub fn request_block(&mut self) -> Result<(PeerId, BlocksByRootRequest), LookupRequestError> {
         debug_assert!(matches!(self.state, State::AwaitingDownload));
         if self.failed_attempts <= MAX_ATTEMPTS {

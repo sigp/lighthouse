@@ -353,6 +353,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
 
     pub fn single_block_lookup_failed(&mut self, id: Id, cx: &mut SyncNetworkContext<T::EthSpec>) {
         if let Some(mut request) = self.single_block_lookups.remove(&id) {
+            request.register_failure();
             if let Ok((peer_id, block_request)) = request.request_block() {
                 if let Ok(request_id) = cx.single_block_lookup_request(peer_id, block_request) {
                     self.single_block_lookups.insert(request_id, request);
