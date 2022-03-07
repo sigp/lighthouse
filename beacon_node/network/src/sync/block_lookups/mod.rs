@@ -333,10 +333,20 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         } else {
             return debug!(self.log, "RPC failure for a parent lookup request that was not found"; "peer_id" => %peer_id);
         };
+        metrics::set_gauge(
+            &metrics::SYNC_PARENT_BLOCK_LOOKUPS,
+            self.parent_queue.len() as i64,
+        );
     }
 
-    pub fn single_block_lookup_failed(&mut self, id: Id) {
-        self.single_block_lookups.remove(&id);
+    pub fn single_block_lookup_failed(&mut self, id: Id, cx: &mut SyncNetworkContext<T::EthSpec>) {
+        if let Some(mut request) = self.single_block_lookups.remove(&id) {
+            if let Ok((peer_id, block_request)) = request.request_block() {
+                if let Ok(request_id) = cx.single_block_lookup_request(peer_id, block_request) {
+                    self.single_block_lookups.insert(request_id, request);
+                }
+            }
+        }
 
         metrics::set_gauge(
             &metrics::SYNC_SINGLE_BLOCK_LOOKUPS,
@@ -405,6 +415,11 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                 // No error here
             }
         }
+
+        metrics::set_gauge(
+            &metrics::SYNC_SINGLE_BLOCK_LOOKUPS,
+            self.single_block_lookups.len() as i64,
+        );
     }
 
     pub fn parent_block_processed(
@@ -530,6 +545,11 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                 }
             }
         }
+
+        metrics::set_gauge(
+            &metrics::SYNC_PARENT_BLOCK_LOOKUPS,
+            self.parent_queue.len() as i64,
+        );
     }
 
     /* Helper functions */

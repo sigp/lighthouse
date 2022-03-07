@@ -75,7 +75,10 @@ impl<T: EthSpec> ParentLookup<T> {
                 self.current_parent_request_id = Some(request_id);
                 Ok(())
             }
-            Err(reason) => Err(RequestError::SendFailed(reason)),
+            Err(reason) => {
+                self.current_parent_request_id = None;
+                Err(RequestError::SendFailed(reason))
+            }
         }
     }
 
@@ -98,6 +101,7 @@ impl<T: EthSpec> ParentLookup<T> {
 
     pub fn download_failed(&mut self) {
         self.current_parent_request.register_failure();
+        self.current_parent_request_id = None;
     }
 
     pub fn chain_blocks(&mut self) -> Vec<SignedBeaconBlock<T>> {
@@ -118,6 +122,7 @@ impl<T: EthSpec> ParentLookup<T> {
         if let Some(parent_root) = block.as_ref().map(|block| block.parent_root()) {
             if failed_chains.contains(&parent_root) {
                 self.current_parent_request.register_failure();
+                self.current_parent_request_id = None;
                 return Err(VerifyError::PreviousFailure { parent_root });
             }
         }
