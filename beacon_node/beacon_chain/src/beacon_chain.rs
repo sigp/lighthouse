@@ -3964,7 +3964,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // execution layer.
         let head = self.head_info()?;
         let head_block_root = head.block_root;
-        let head_execution_block_hash = if let Some(hash) = head.execution_payload_block_hash {
+        let head_execution_block_hash = if let Some(hash) = head
+            .execution_payload_block_hash
+            .filter(|h| *h != ExecutionBlockHash::zero())
+        {
             hash
         } else {
             // Don't send fork choice updates to the execution layer before the transition block.

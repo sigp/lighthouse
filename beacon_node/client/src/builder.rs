@@ -32,8 +32,8 @@ use std::time::Duration;
 use timer::spawn_timer;
 use tokio::sync::{mpsc::UnboundedSender, oneshot};
 use types::{
-    test_utils::generate_deterministic_keypairs, BeaconState, ChainSpec, EthSpec, Hash256,
-    SignedBeaconBlock,
+    test_utils::generate_deterministic_keypairs, BeaconState, ChainSpec, EthSpec,
+    ExecutionBlockHash, Hash256, SignedBeaconBlock,
 };
 
 /// Interval between polling the eth1 node for genesis information.
@@ -673,7 +673,10 @@ where
 
                 // Issue the head to the execution engine on startup. This ensures it can start
                 // syncing.
-                if head.execution_payload_block_hash.is_some() {
+                if head
+                    .execution_payload_block_hash
+                    .map_or(false, |h| h != ExecutionBlockHash::zero())
+                {
                     // Spawn a new task using the "async" fork choice update method, rather than
                     // using the "blocking" method.
                     //
