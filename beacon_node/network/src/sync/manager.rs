@@ -308,6 +308,8 @@ impl<T: BeaconChainTypes> SyncManager<T> {
 
     fn peer_disconnect(&mut self, peer_id: &PeerId) {
         self.range_sync.peer_disconnect(&mut self.network, peer_id);
+        self.block_lookups
+            .peer_disconnected(peer_id, &mut self.network);
         // Regardless of the outcome, we update the sync status.
         let _ = self
             .backfill_sync
@@ -530,7 +532,9 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                         process_type,
                         result,
                     } => match process_type {
-                        BlockProcessType::SingleBlock { id } => todo!(),
+                        BlockProcessType::SingleBlock { id } => self
+                            .block_lookups
+                            .single_block_processed(id, result, &mut self.network),
                         BlockProcessType::ParentLookup { chain_hash } => self
                             .block_lookups
                             .parent_block_processed(chain_hash, result, &mut self.network),

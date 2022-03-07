@@ -36,7 +36,7 @@ pub enum VerifyError {
     PreviousFailure { parent_root: Hash256 },
 }
 
-#[derive(Debug, PartialEq, Eq, AsStaticStr)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum RequestError {
     SendFailed(&'static str),
     ChainTooLong,
@@ -175,6 +175,30 @@ impl From<super::single_block_lookup::LookupRequestError> for RequestError {
         match e {
             E::TooManyAttempts => RequestError::TooManyAttempts,
             E::NoPeers => RequestError::NoPeers,
+        }
+    }
+}
+
+impl<T: EthSpec> slog::KV for ParentLookup<T> {
+    fn serialize(
+        &self,
+        record: &slog::Record,
+        serializer: &mut dyn slog::Serializer,
+    ) -> slog::Result {
+        serializer.emit_arguments("chain_hash", &format_args!("{}", self.chain_hash))?;
+        slog::Value::serialize(&self.current_parent_request, record, "parent", serializer)?;
+        serializer.emit_usize("downloaded_blocks", self.downloaded_blocks.len())?;
+        slog::Result::Ok(())
+    }
+}
+
+impl RequestError {
+    pub fn as_static(&self) -> &'static str {
+        match self {
+            RequestError::SendFailed(e) => e,
+            RequestError::ChainTooLong => "chain_too_long",
+            RequestError::TooManyAttempts => "too_many_attempts",
+            RequestError::NoPeers => "no_peers",
         }
     }
 }

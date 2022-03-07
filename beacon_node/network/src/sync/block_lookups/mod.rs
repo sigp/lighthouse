@@ -5,7 +5,7 @@ use beacon_chain::{BeaconChainTypes, BlockError};
 use fnv::FnvHashMap;
 use lighthouse_network::{PeerAction, PeerId};
 use lru_cache::LRUCache;
-use slog::{crit, debug, error, warn, Logger};
+use slog::{crit, debug, error, trace, warn, Logger};
 use smallvec::SmallVec;
 use store::{Hash256, SignedBeaconBlock};
 use strum::AsStaticRef;
@@ -129,13 +129,8 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
             return;
         }
 
-        debug!(self.log, "Block with unknown parent received. Starting a parent lookup";
-            "block_slot" => block.slot(), "block_hash" => %block_root, "parent_root" => %parent_root);
-
-        let mut parent_req = ParentLookup::new(*block, peer_id);
-        if parent_req.request_parent(cx).is_ok() {
-            self.parent_queue.push(parent_req);
-        }
+        let parent_lookup = ParentLookup::new(*block, peer_id);
+        self.request_parent(parent_lookup, cx);
     }
 
     /* Lookup responses */
@@ -282,6 +277,42 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
             &metrics::SYNC_PARENT_BLOCK_LOOKUPS,
             self.parent_queue.len() as i64,
         );
+    }
+
+    /* Error responses */
+
+    pub fn peer_disconnected(&mut self, peer_id: &PeerId, cx: &mut SyncNetworkContext<T::EthSpec>) {
+        // better writter after https://github.com/rust-lang/rust/issues/59618
+        let remove_retry_ids: Vec<Id> = self
+            .single_block_lookups
+            .iter_mut()
+            .filter_map(|(id, req)| {
+                if req.check_peer_disconnected(&peer_id).is_err() {
+                    Some(*id)
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        for mut req in remove_retry_ids
+            .into_iter()
+            .map(|id| self.single_block_lookups.remove(&id).unwrap())
+            .collect::<Vec<_>>()
+        {
+            // retry the request
+            match req.request_block() {
+                Ok((peer_id, block_request)) => {
+                    if let Ok(request_id) = cx.single_block_lookup_request(peer_id, block_request) {
+                        self.single_block_lookups.insert(request_id, req);
+                    }
+                }
+                Err(e) => {
+                    trace!(self.log, "Single block request failed on peer disconnection";
+                        "block_root" => %req.hash, "peer_id" => %peer_id, "reason" => e.as_static());
+                }
+            }
+        }
     }
 
     pub fn parent_lookup_failed(
@@ -484,10 +515,10 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
     ) {
         match parent_lookup.request_parent(cx) {
             Err(e) => {
+                trace!(self.log, "Failed to request parent"; &parent_lookup, "error" => e.as_static());
                 match e {
-                    parent_lookup::RequestError::SendFailed(e) => {
-                        // Probably shutting down, nothing to do here. Drop the request to avoid
-                        // inconsistencies
+                    parent_lookup::RequestError::SendFailed(_) => {
+                        // Probably shutting down, nothing to do here. Drop the request
                     }
                     parent_lookup::RequestError::ChainTooLong
                     | parent_lookup::RequestError::TooManyAttempts => {
@@ -500,9 +531,13 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                     }
                 }
             }
-            Ok(_) => self.parent_queue.push(parent_lookup),
+            Ok(_) => {
+                debug!(self.log, "Requesting parent"; &parent_lookup);
+                self.parent_queue.push(parent_lookup)
+            }
         }
 
+        // We remove and add back again requests so we want this updated regardless of outcome.
         metrics::set_gauge(
             &metrics::SYNC_PARENT_BLOCK_LOOKUPS,
             self.parent_queue.len() as i64,

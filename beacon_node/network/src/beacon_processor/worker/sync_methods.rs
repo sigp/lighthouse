@@ -50,6 +50,11 @@ impl<T: BeaconChainTypes> Worker<T> {
         let handle = match duplicate_cache.check_and_insert(block.canonical_root()) {
             Some(handle) => handle,
             None => {
+                // Sync handles these results
+                self.send_sync_message(SyncMessage::BlockProcessed {
+                    process_type,
+                    result: Err(BlockError::BlockIsAlreadyKnown),
+                });
                 return;
             }
         };

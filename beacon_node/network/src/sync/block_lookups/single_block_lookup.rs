@@ -37,7 +37,7 @@ pub enum VerifyError {
     ExtraBlocksReturned,
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, AsStaticStr)]
 pub enum LookupRequestError {
     TooManyAttempts,
     NoPeers,
@@ -108,7 +108,7 @@ impl<const MAX_ATTEMPTS: u8> SingleBlockRequest<MAX_ATTEMPTS> {
                     Err(VerifyError::NoBlockReturned)
                 }
             },
-            State::Processing { peer_id } => match block {
+            State::Processing { peer_id: _ } => match block {
                 Some(_) => {
                     // We sent the block for processing and received an extra block.
                     self.register_failure();
@@ -148,9 +148,29 @@ impl<const MAX_ATTEMPTS: u8> SingleBlockRequest<MAX_ATTEMPTS> {
             Err(())
         }
     }
+}
 
-    pub fn is_processing(&self) -> bool {
-        matches!(self.state, State::Processing { .. })
+impl<const MAX_ATTEMPTS: u8> slog::Value for SingleBlockRequest<MAX_ATTEMPTS> {
+    fn serialize(
+        &self,
+        record: &slog::Record,
+        key: slog::Key,
+        serializer: &mut dyn slog::Serializer,
+    ) -> slog::Result {
+        serializer.emit_str("request", key)?;
+        serializer.emit_arguments("hash", &format_args!("{}", self.hash))?;
+        match &self.state {
+            State::AwaitingDownload => {
+                "awaiting_download".serialize(record, "state", serializer)?
+            }
+            State::Downloading { peer_id } => {
+                serializer.emit_arguments("downloading_peer", &format_args!("{}", peer_id))?
+            }
+            State::Processing { peer_id } => {
+                serializer.emit_arguments("processing_peer", &format_args!("{}", peer_id))?
+            }
+        }
+        slog::Result::Ok(())
     }
 }
 
