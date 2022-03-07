@@ -9,12 +9,12 @@ use engines::{Engine, EngineError, Engines, ForkChoiceState, Logging};
 use lru::LruCache;
 use payload_status::process_multiple_payload_statuses;
 use sensitive_url::SensitiveUrl;
-use slog::{crit, debug, error, info, Logger};
+use slog::{crit, debug, error, info, trace, Logger};
 use slot_clock::SlotClock;
 use std::collections::HashMap;
 use std::future::Future;
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use task_executor::TaskExecutor;
 use tokio::{
     sync::{Mutex, MutexGuard, RwLock},
@@ -29,6 +29,7 @@ pub use payload_status::PayloadStatus;
 
 mod engine_api;
 mod engines;
+mod metrics;
 mod payload_status;
 pub mod test_utils;
 
@@ -64,7 +65,7 @@ impl From<ApiError> for Error {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, PartialEq)]
 pub struct ProposerPreparationDataEntry {
     update_epoch: Epoch,
     preparation_data: ProposerPreparationData,
@@ -354,13 +355,17 @@ impl ExecutionLayer {
     ) {
         let mut proposer_preparation_data = self.proposer_preparation_data().await;
         for preparation_entry in preparation_data {
-            proposer_preparation_data.insert(
-                preparation_entry.validator_index,
-                ProposerPreparationDataEntry {
-                    update_epoch,
-                    preparation_data: preparation_entry.clone(),
-                },
-            );
+            let new = ProposerPreparationDataEntry {
+                update_epoch,
+                preparation_data: preparation_entry.clone(),
+            };
+
+            let existing =
+                proposer_preparation_data.insert(preparation_entry.validator_index, new.clone());
+
+            if existing != Some(new) {
+                metrics::inc_counter(&metrics::EXECUTION_LAYER_PROPOSER_DATA_UPDATED);
+            }
         }
     }
 
@@ -434,6 +439,11 @@ impl ExecutionLayer {
         finalized_block_hash: ExecutionBlockHash,
         proposer_index: u64,
     ) -> Result<ExecutionPayload<T>, Error> {
+        let _timer = metrics::start_timer_vec(
+            &metrics::EXECUTION_LAYER_REQUEST_TIMES,
+            &[metrics::GET_PAYLOAD],
+        );
+
         let suggested_fee_recipient = self.get_suggested_fee_recipient(proposer_index).await;
 
         debug!(
@@ -513,7 +523,12 @@ impl ExecutionLayer {
         &self,
         execution_payload: &ExecutionPayload<T>,
     ) -> Result<PayloadStatus, Error> {
-        debug!(
+        let _timer = metrics::start_timer_vec(
+            &metrics::EXECUTION_LAYER_REQUEST_TIMES,
+            &[metrics::NEW_PAYLOAD],
+        );
+
+        trace!(
             self.log(),
             "Issuing engine_newPayload";
             "parent_hash" => ?execution_payload.parent_hash,
@@ -549,17 +564,19 @@ impl ExecutionLayer {
             head_block_root,
         };
 
-        self.proposers()
-            .write()
-            .await
-            .insert(
-                proposers_key,
-                Proposer {
-                    validator_index,
-                    payload_attributes,
-                },
-            )
-            .is_some()
+        let existing = self.proposers().write().await.insert(
+            proposers_key,
+            Proposer {
+                validator_index,
+                payload_attributes,
+            },
+        );
+
+        if existing.is_none() {
+            metrics::inc_counter(&metrics::EXECUTION_LAYER_PROPOSER_INSERTED);
+        }
+
+        existing.is_some()
     }
 
     /// If there has been a proposer registered via `Self::insert_proposer` with a matching `slot`
@@ -609,7 +626,12 @@ impl ExecutionLayer {
         current_slot: Slot,
         head_block_root: Hash256,
     ) -> Result<PayloadStatus, Error> {
-        debug!(
+        let _timer = metrics::start_timer_vec(
+            &metrics::EXECUTION_LAYER_REQUEST_TIMES,
+            &[metrics::FORKCHOICE_UPDATED],
+        );
+
+        trace!(
             self.log(),
             "Issuing engine_forkchoiceUpdated";
             "finalized_block_hash" => ?finalized_block_hash,
@@ -618,6 +640,26 @@ impl ExecutionLayer {
 
         let next_slot = current_slot + 1;
         let payload_attributes = self.payload_attributes(next_slot, head_block_root).await;
+
+        // Compute the "lookahead", the time between when the payload will be produced and now.
+        if let Some(payload_attributes) = payload_attributes {
+            if let Ok(now) = SystemTime::now().duration_since(UNIX_EPOCH) {
+                let timestamp = Duration::from_secs(payload_attributes.timestamp);
+                if let Some(lookahead) = timestamp.checked_sub(now) {
+                    metrics::observe_duration(
+                        &metrics::EXECUTION_LAYER_PAYLOAD_ATTRIBUTES_LOOKAHEAD,
+                        lookahead,
+                    );
+                } else {
+                    debug!(
+                        self.log(),
+                        "Late payload attributes";
+                        "timestamp" => ?timestamp,
+                        "now" => ?now,
+                    )
+                }
+            }
+        }
 
         // see https://hackmd.io/@n0ble/kintsugi-spec#Engine-API
         // for now, we must set safe_block_hash = head_block_hash
@@ -660,6 +702,11 @@ impl ExecutionLayer {
         &self,
         spec: &ChainSpec,
     ) -> Result<Option<ExecutionBlockHash>, Error> {
+        let _timer = metrics::start_timer_vec(
+            &metrics::EXECUTION_LAYER_REQUEST_TIMES,
+            &[metrics::GET_TERMINAL_POW_BLOCK_HASH],
+        );
+
         let hash_opt = self
             .engines()
             .first_success(|engine| async move {
@@ -771,6 +818,11 @@ impl ExecutionLayer {
         block_hash: ExecutionBlockHash,
         spec: &ChainSpec,
     ) -> Result<Option<bool>, Error> {
+        let _timer = metrics::start_timer_vec(
+            &metrics::EXECUTION_LAYER_REQUEST_TIMES,
+            &[metrics::IS_VALID_TERMINAL_POW_BLOCK_HASH],
+        );
+
         let broadcast_results = self
             .engines()
             .broadcast(|engine| async move {
