@@ -2,8 +2,8 @@ use crate::beacon_block_body::{
     BeaconBlockBodyAltair, BeaconBlockBodyBase, BeaconBlockBodyMerge, BeaconBlockBodyRef,
     BeaconBlockBodyRefMut,
 };
-use crate::ExecTransactions;
 use crate::test_utils::TestRandom;
+use crate::ExecTransactions;
 use crate::*;
 use bls::Signature;
 use derivative::Derivative;

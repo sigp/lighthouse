@@ -1,16 +1,11 @@
 use crate::{test_utils::TestRandom, *};
 use derivative::Derivative;
-use serde::de::DeserializeOwned;
-use serde::Serialize as Ser;
 use serde_derive::{Deserialize, Serialize};
-use ssz::{Decode, DecodeError, Encode};
+use ssz::Encode;
 use ssz_derive::{Decode, Encode};
 use std::fmt::Debug;
-use std::hash::Hash;
 use test_random_derive::TestRandom;
-use tree_hash::TreeHash;
 use tree_hash_derive::TreeHash;
-
 
 pub enum BlockType {
     Full,

@@ -4,18 +4,15 @@ use serde::de::DeserializeOwned;
 use serde::Serialize as Ser;
 use serde_derive::{Deserialize, Serialize};
 use ssz::{Decode, DecodeError, Encode};
-use ssz_derive::{Decode, Encode};
 use std::fmt::Debug;
 use std::hash::Hash;
-use test_random_derive::TestRandom;
 use tree_hash::TreeHash;
-use tree_hash_derive::TreeHash;
 
 pub type Transaction<T> = VariableList<u8, T>;
 pub type BlindedTransactions = Hash256;
 
 pub trait Transactions<T>:
-Encode + Decode + TestRandom + TreeHash + Default + PartialEq + Ser + DeserializeOwned + Hash
+    Encode + Decode + TestRandom + TreeHash + Default + PartialEq + Ser + DeserializeOwned + Hash
 {
     fn block_type() -> BlockType;
 }
@@ -89,7 +86,7 @@ impl<T: EthSpec> Decode for ExecTransactions<T> {
             Transaction<<T as EthSpec>::MaxBytesPerTransaction>,
             <T as EthSpec>::MaxTransactionsPerPayload,
         > as Decode>::from_ssz_bytes(bytes)
-            .map(ExecTransactions)
+        .map(ExecTransactions)
     }
 }
 
