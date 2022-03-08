@@ -317,14 +317,13 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         }
 
         /* Check disconnection for parent lookups */
-        for i in 0..self.parent_queue.len() {
-            if self.parent_queue[i]
-                .check_peer_disconnected(peer_id)
-                .is_err()
-            {
-                let parent_lookup = self.parent_queue.remove(i);
-                self.request_parent(parent_lookup, cx);
-            }
+        while let Some(pos) = self
+            .parent_queue
+            .iter_mut()
+            .position(|req| req.check_peer_disconnected(peer_id).is_err())
+        {
+            let parent_lookup = self.parent_queue.remove(pos);
+            self.request_parent(parent_lookup, cx);
         }
     }
 
