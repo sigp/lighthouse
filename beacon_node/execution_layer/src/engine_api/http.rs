@@ -39,7 +39,7 @@ pub const ENGINE_FORKCHOICE_UPDATED_TIMEOUT: Duration = Duration::from_millis(50
 pub const ENGINE_EXCHANGE_TRANSITION_CONFIGURATION_V1: &str =
     "engine_exchangeTransitionConfigurationV1";
 pub const ENGINE_EXCHANGE_TRANSITION_CONFIGURATION_V1_TIMEOUT: Duration =
-    Duration::from_millis(100);
+    Duration::from_millis(500);
 
 pub struct HttpJsonRpc {
     pub client: Client,

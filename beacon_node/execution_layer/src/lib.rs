@@ -569,11 +569,6 @@ impl ExecutionLayer {
         let local = TransitionConfigurationV1 {
             terminal_total_difficulty: spec.terminal_total_difficulty,
             terminal_block_hash: spec.terminal_block_hash,
-            // TODO(paul): confirm that we don't know this value.
-            //
-            // See:
-            //
-            // https://discord.com/channels/595666850260713488/692062809701482577/947988779203977307
             terminal_block_number: 0,
         };
 
