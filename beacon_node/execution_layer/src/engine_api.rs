@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 pub const LATEST_TAG: &str = "latest";
 
 use crate::engines::ForkChoiceState;
+pub use json_structures::TransitionConfigurationV1;
 pub use types::{Address, EthSpec, ExecutionBlockHash, ExecutionPayload, Hash256, Uint256};
 
 pub mod http;
@@ -27,6 +28,7 @@ pub enum Error {
     ExecutionHeadBlockNotFound,
     ParentHashEqualsBlockHash(ExecutionBlockHash),
     PayloadIdUnavailable,
+    TransitionConfigurationMismatch,
 }
 
 impl From<reqwest::Error> for Error {
@@ -71,6 +73,11 @@ pub trait EngineApi {
         forkchoice_state: ForkChoiceState,
         payload_attributes: Option<PayloadAttributes>,
     ) -> Result<ForkchoiceUpdatedResponse, Error>;
+
+    async fn exchange_transition_configuration_v1(
+        &self,
+        transition_configuration: TransitionConfigurationV1,
+    ) -> Result<TransitionConfigurationV1, Error>;
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]

@@ -109,7 +109,7 @@ impl GenericExecutionEngine for Geth {
             .arg("engine,eth")
             .arg("--http.port")
             .arg(http_port.to_string())
-            .arg("--http.authport")
+            .arg("--authrpc.port")
             .arg(http_auth_port.to_string())
             .arg("--port")
             .arg(network_port.to_string())

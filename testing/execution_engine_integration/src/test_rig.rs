@@ -109,6 +109,16 @@ impl<E: GenericExecutionEngine> TestRig<E> {
         self.wait_until_synced().await;
 
         /*
+         * Check the transition config endpoint.
+         */
+        for ee in [&self.ee_a, &self.ee_b] {
+            ee.execution_layer
+                .exchange_transition_configuration(&self.spec)
+                .await
+                .unwrap();
+        }
+
+        /*
          * Read the terminal block hash from both pairs, check it's equal.
          */
 

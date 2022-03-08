@@ -36,6 +36,11 @@ pub const ENGINE_GET_PAYLOAD_TIMEOUT: Duration = Duration::from_secs(2);
 pub const ENGINE_FORKCHOICE_UPDATED_V1: &str = "engine_forkchoiceUpdatedV1";
 pub const ENGINE_FORKCHOICE_UPDATED_TIMEOUT: Duration = Duration::from_millis(500);
 
+pub const ENGINE_EXCHANGE_TRANSITION_CONFIGURATION_V1: &str =
+    "engine_exchangeTransitionConfigurationV1";
+pub const ENGINE_EXCHANGE_TRANSITION_CONFIGURATION_V1_TIMEOUT: Duration =
+    Duration::from_millis(500);
+
 pub struct HttpJsonRpc {
     pub client: Client,
     pub url: SensitiveUrl,
@@ -178,6 +183,23 @@ impl EngineApi for HttpJsonRpc {
             .await?;
 
         Ok(response.into())
+    }
+
+    async fn exchange_transition_configuration_v1(
+        &self,
+        transition_configuration: TransitionConfigurationV1,
+    ) -> Result<TransitionConfigurationV1, Error> {
+        let params = json!([transition_configuration]);
+
+        let response = self
+            .rpc_request(
+                ENGINE_EXCHANGE_TRANSITION_CONFIGURATION_V1,
+                params,
+                ENGINE_EXCHANGE_TRANSITION_CONFIGURATION_V1_TIMEOUT,
+            )
+            .await?;
+
+        Ok(response)
     }
 }
 

@@ -44,6 +44,8 @@ const EXECUTION_BLOCKS_LRU_CACHE_SIZE: usize = 128;
 const DEFAULT_SUGGESTED_FEE_RECIPIENT: [u8; 20] =
     [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1];
 
+const CONFIG_POLL_INTERVAL: Duration = Duration::from_secs(60);
+
 #[derive(Debug)]
 pub enum Error {
     NoEngines,
@@ -303,6 +305,24 @@ impl ExecutionLayer {
         self.spawn(preparation_cleaner, "exec_preparation_cleanup");
     }
 
+    /// Spawns a routine that polls the `exchange_transition_configuration` endpoint.
+    pub fn spawn_transition_configuration_poll(&self, spec: ChainSpec) {
+        let routine = |el: ExecutionLayer| async move {
+            loop {
+                if let Err(e) = el.exchange_transition_configuration(&spec).await {
+                    error!(
+                        el.log(),
+                        "Failed to check transition config";
+                        "error" => ?e
+                    );
+                }
+                sleep(CONFIG_POLL_INTERVAL).await;
+            }
+        };
+
+        self.spawn(routine, "exec_config_poll");
+    }
+
     /// Returns `true` if there is at least one synced and reachable engine.
     pub async fn is_synced(&self) -> bool {
         self.engines().any_synced().await
@@ -549,6 +569,65 @@ impl ExecutionLayer {
                 .map(|result| result.map(|response| response.payload_status)),
             self.log(),
         )
+    }
+
+    pub async fn exchange_transition_configuration(&self, spec: &ChainSpec) -> Result<(), Error> {
+        let local = TransitionConfigurationV1 {
+            terminal_total_difficulty: spec.terminal_total_difficulty,
+            terminal_block_hash: spec.terminal_block_hash,
+            terminal_block_number: 0,
+        };
+
+        let broadcast_results = self
+            .engines()
+            .broadcast(|engine| engine.api.exchange_transition_configuration_v1(local))
+            .await;
+
+        let mut errors = vec![];
+        for (i, result) in broadcast_results.into_iter().enumerate() {
+            match result {
+                Ok(remote) => {
+                    if local.terminal_total_difficulty != remote.terminal_total_difficulty
+                        || local.terminal_block_hash != remote.terminal_block_hash
+                    {
+                        error!(
+                            self.log(),
+                            "Execution client config mismatch";
+                            "msg" => "ensure lighthouse and the execution client are up-to-date and \
+                                      configured consistently",
+                            "execution_endpoint" => i,
+                            "remote" => ?remote,
+                            "local" => ?local,
+                        );
+                        errors.push(EngineError::Api {
+                            id: i.to_string(),
+                            error: ApiError::TransitionConfigurationMismatch,
+                        });
+                    } else {
+                        debug!(
+                            self.log(),
+                            "Execution client config is OK";
+                            "execution_endpoint" => i
+                        );
+                    }
+                }
+                Err(e) => {
+                    error!(
+                        self.log(),
+                        "Unable to get transition config";
+                        "error" => ?e,
+                        "execution_endpoint" => i,
+                    );
+                    errors.push(e);
+                }
+            }
+        }
+
+        if errors.is_empty() {
+            Ok(())
+        } else {
+            Err(Error::EngineErrors(errors))
+        }
     }
 
     /// Used during block production to determine if the merge has been triggered.

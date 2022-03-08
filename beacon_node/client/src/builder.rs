@@ -723,6 +723,9 @@ where
                 execution_layer.spawn_clean_proposer_preparation_routine::<TSlotClock, TEthSpec>(
                     beacon_chain.slot_clock.clone(),
                 );
+
+                // Spawns a routine that polls the `exchange_transition_configuration` endpoint.
+                execution_layer.spawn_transition_configuration_poll(beacon_chain.spec.clone());
             }
         }
 
