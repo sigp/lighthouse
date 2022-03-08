@@ -48,10 +48,17 @@ impl<E: GenericExecutionEngine> TestRig<E> {
 
         let ee_a = {
             let execution_engine = ExecutionEngine::new(generic_engine.clone());
-            let urls = vec![execution_engine.http_url()];
+            let urls = vec![execution_engine.http_auth_url()];
+
+            let config = execution_layer::Config {
+                execution_endpoints: urls,
+                secret_files: vec![],
+                suggested_fee_recipient: Some(Address::repeat_byte(42)),
+                default_datadir: execution_engine.datadir(),
+                ..Default::default()
+            };
             let execution_layer =
-                ExecutionLayer::from_urls(urls, fee_recipient, executor.clone(), log.clone())
-                    .unwrap();
+                ExecutionLayer::from_config(config, executor.clone(), log.clone()).unwrap();
             ExecutionPair {
                 execution_engine,
                 execution_layer,
@@ -61,8 +68,16 @@ impl<E: GenericExecutionEngine> TestRig<E> {
         let ee_b = {
             let execution_engine = ExecutionEngine::new(generic_engine);
             let urls = vec![execution_engine.http_url()];
+
+            let config = execution_layer::Config {
+                execution_endpoints: urls,
+                secret_files: vec![],
+                suggested_fee_recipient: fee_recipient,
+                default_datadir: execution_engine.datadir(),
+                ..Default::default()
+            };
             let execution_layer =
-                ExecutionLayer::from_urls(urls, fee_recipient, executor, log).unwrap();
+                ExecutionLayer::from_config(config, executor, log.clone()).unwrap();
             ExecutionPair {
                 execution_engine,
                 execution_layer,
@@ -109,6 +124,16 @@ impl<E: GenericExecutionEngine> TestRig<E> {
 
     pub async fn perform_tests(&self) {
         self.wait_until_synced().await;
+
+        /*
+         * Check the transition config endpoint.
+         */
+        for ee in [&self.ee_a, &self.ee_b] {
+            ee.execution_layer
+                .exchange_transition_configuration(&self.spec)
+                .await
+                .unwrap();
+        }
 
         /*
          * Read the terminal block hash from both pairs, check it's equal.

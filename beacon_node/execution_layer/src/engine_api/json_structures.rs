@@ -363,6 +363,15 @@ impl From<ForkchoiceUpdatedResponse> for JsonForkchoiceUpdatedV1Response {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TransitionConfigurationV1 {
+    pub terminal_total_difficulty: Uint256,
+    pub terminal_block_hash: ExecutionBlockHash,
+    #[serde(with = "eth2_serde_utils::u64_hex_be")]
+    pub terminal_block_number: u64,
+}
+
 /// Serializes the `logs_bloom` field of an `ExecutionPayload`.
 pub mod serde_logs_bloom {
     use super::*;

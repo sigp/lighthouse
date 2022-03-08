@@ -1,11 +1,12 @@
 use crate::{
-    test_utils::{MockServer, DEFAULT_TERMINAL_BLOCK, DEFAULT_TERMINAL_DIFFICULTY},
-    *,
+    test_utils::{MockServer, DEFAULT_TERMINAL_BLOCK, DEFAULT_TERMINAL_DIFFICULTY, JWT_SECRET},
+    Config, *,
 };
 use environment::null_logger;
 use sensitive_url::SensitiveUrl;
 use std::sync::Arc;
 use task_executor::TaskExecutor;
+use tempfile::NamedTempFile;
 use types::{Address, ChainSpec, Epoch, EthSpec, Hash256, Uint256};
 
 pub struct ExecutionLayerRuntime {
@@ -85,10 +86,19 @@ impl<T: EthSpec> MockExecutionLayer<T> {
         );
 
         let url = SensitiveUrl::parse(&server.url()).unwrap();
+        let file = NamedTempFile::new().unwrap();
 
-        let el = ExecutionLayer::from_urls(
-            vec![url],
-            Some(Address::repeat_byte(42)),
+        let path = file.path().into();
+        std::fs::write(&path, hex::encode(JWT_SECRET)).unwrap();
+
+        let config = Config {
+            execution_endpoints: vec![url],
+            secret_files: vec![path],
+            suggested_fee_recipient: Some(Address::repeat_byte(42)),
+            ..Default::default()
+        };
+        let el = ExecutionLayer::from_config(
+            config,
             el_runtime.task_executor.clone(),
             el_runtime.log.clone(),
         )
