@@ -592,6 +592,12 @@ impl ExecutionLayer {
                             "remote" => ?remote,
                             "local" => ?local,
                         )
+                    } else {
+                        debug!(
+                            self.log(),
+                            "Execution client config is OK";
+                            "execution_endpoint" => i
+                        );
                     }
                 }
                 Err(e) => error!(
