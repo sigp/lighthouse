@@ -49,6 +49,7 @@ malloc_utils = { path = "../common/malloc_utils" }
 directory = { path = "../common/directory" }
 unused_port = { path = "../common/unused_port" }
 store = { path = "../beacon_node/store" }
+database_manager = { path = "../database_manager" }
 
 [dev-dependencies]
 tempfile = "3.1.0"
