@@ -309,7 +309,13 @@ impl ExecutionLayer {
     pub fn spawn_transition_configuration_poll(&self, spec: ChainSpec) {
         let routine = |el: ExecutionLayer| async move {
             loop {
-                el.exchange_transition_configuration(&spec).await;
+                if let Err(e) = el.exchange_transition_configuration(&spec).await {
+                    error!(
+                        el.log(),
+                        "Failed to check transition config";
+                        "error" => ?e
+                    );
+                }
                 sleep(CONFIG_POLL_INTERVAL).await;
             }
         };
@@ -565,7 +571,7 @@ impl ExecutionLayer {
         )
     }
 
-    pub async fn exchange_transition_configuration(&self, spec: &ChainSpec) {
+    pub async fn exchange_transition_configuration(&self, spec: &ChainSpec) -> Result<(), Error> {
         let local = TransitionConfigurationV1 {
             terminal_total_difficulty: spec.terminal_total_difficulty,
             terminal_block_hash: spec.terminal_block_hash,
@@ -577,7 +583,8 @@ impl ExecutionLayer {
             .broadcast(|engine| engine.api.exchange_transition_configuration_v1(local))
             .await;
 
-        for (i, result) in broadcast_results.iter().enumerate() {
+        let mut errors = vec![];
+        for (i, result) in broadcast_results.into_iter().enumerate() {
             match result {
                 Ok(remote) => {
                     if local.terminal_total_difficulty != remote.terminal_total_difficulty
@@ -591,7 +598,11 @@ impl ExecutionLayer {
                             "execution_endpoint" => i,
                             "remote" => ?remote,
                             "local" => ?local,
-                        )
+                        );
+                        errors.push(EngineError::Api {
+                            id: i.to_string(),
+                            error: ApiError::TransitionConfigurationMismatch,
+                        });
                     } else {
                         debug!(
                             self.log(),
@@ -600,13 +611,22 @@ impl ExecutionLayer {
                         );
                     }
                 }
-                Err(e) => error!(
-                    self.log(),
-                    "Unable to get transition config";
-                    "error" => ?e,
-                    "execution_endpoint" => i,
-                ),
+                Err(e) => {
+                    error!(
+                        self.log(),
+                        "Unable to get transition config";
+                        "error" => ?e,
+                        "execution_endpoint" => i,
+                    );
+                    errors.push(e);
+                }
             }
+        }
+
+        if errors.is_empty() {
+            Ok(())
+        } else {
+            Err(Error::EngineErrors(errors))
         }
     }
 

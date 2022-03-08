@@ -28,6 +28,7 @@ pub enum Error {
     ExecutionHeadBlockNotFound,
     ParentHashEqualsBlockHash(ExecutionBlockHash),
     PayloadIdUnavailable,
+    TransitionConfigurationMismatch,
 }
 
 impl From<reqwest::Error> for Error {
