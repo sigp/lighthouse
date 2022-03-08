@@ -155,12 +155,14 @@ pub struct ForkchoiceUpdatedResponse {
     pub payload_status: PayloadStatusV1,
     pub payload_id: Option<PayloadId>,
 }
+
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum ProposeBlindedBlockResponseStatus {
     Valid,
     Invalid,
     Syncing,
 }
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct ProposeBlindedBlockResponse {
     pub status: ProposeBlindedBlockResponseStatus,

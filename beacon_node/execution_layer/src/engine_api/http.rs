@@ -45,10 +45,10 @@ pub const ENGINE_EXCHANGE_TRANSITION_CONFIGURATION_V1_TIMEOUT: Duration =
     Duration::from_millis(500);
 
 pub const BUILDER_GET_PAYLOAD_HEADER_V1: &str = "builder_getPayloadHeaderV1";
-pub const BUILDER_GET_PAYLOAD_HEADER_TIMEOUT: Duration = Duration::from_secs(1);
+pub const BUILDER_GET_PAYLOAD_HEADER_TIMEOUT: Duration = Duration::from_secs(2);
 
 pub const BUILDER_PROPOSE_BLINDED_BLOCK_V1: &str = "builder_proposeBlindedBlockV1";
-pub const BUILDER_PROPOSE_BLINDED_BLOCK_TIMEOUT: Duration = Duration::from_secs(1);
+pub const BUILDER_PROPOSE_BLINDED_BLOCK_TIMEOUT: Duration = Duration::from_secs(2);
 
 pub struct HttpJsonRpc {
     pub client: Client,
@@ -693,7 +693,9 @@ mod test {
 
         Tester::new(false)
             .assert_auth_failure(|client| async move {
-                client.get_payload_v1::<MainnetEthSpec, ExecTransactions<MainnetEthSpec>>([42; 8]).await
+                client
+                    .get_payload_v1::<MainnetEthSpec, ExecTransactions<MainnetEthSpec>>([42; 8])
+                    .await
             })
             .await;
     }
