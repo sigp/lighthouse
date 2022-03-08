@@ -2,7 +2,7 @@
 name = "deposit_contract"
 version = "0.2.0"
 authors = ["Paul Hauner <paul@paulhauner.com>"]
-edition = "2018"
+edition = "2021"
 
 build = "build.rs"
 

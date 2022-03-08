@@ -5,10 +5,12 @@ use beacon_chain::{
 use fnv::FnvHashMap;
 pub use lighthouse_metrics::*;
 use lighthouse_network::{
-    types::GossipKind, BandwidthSinks, GossipTopic, Gossipsub, NetworkGlobals,
+    peer_manager::peerdb::client::ClientKind, types::GossipKind, BandwidthSinks, GossipTopic,
+    Gossipsub, NetworkGlobals,
 };
 use std::sync::Arc;
 use strum::AsStaticRef;
+use strum::IntoEnumIterator;
 use types::EthSpec;
 
 lazy_static! {
@@ -343,6 +345,20 @@ pub fn update_gossip_metrics<T: EthSpec>(
     network_globals: &Arc<NetworkGlobals<T>>,
 ) {
     // Mesh peers per client
+    // Reset the gauges
+    for client_kind in ClientKind::iter() {
+        set_gauge_vec(
+            &BEACON_BLOCK_MESH_PEERS_PER_CLIENT,
+            &[&client_kind.to_string()],
+            0_i64,
+        );
+        set_gauge_vec(
+            &BEACON_AGGREGATE_AND_PROOF_MESH_PEERS_PER_CLIENT,
+            &[&client_kind.to_string()],
+            0_i64,
+        );
+    }
+
     for topic_hash in gossipsub.topics() {
         if let Ok(topic) = GossipTopic::decode(topic_hash.as_str()) {
             match topic.kind() {

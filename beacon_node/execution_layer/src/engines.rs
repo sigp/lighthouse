@@ -8,7 +8,7 @@ use lru::LruCache;
 use slog::{crit, debug, info, warn, Logger};
 use std::future::Future;
 use tokio::sync::{Mutex, RwLock};
-use types::{Address, Hash256};
+use types::{Address, ExecutionBlockHash, Hash256};
 
 /// The number of payload IDs that will be stored for each `Engine`.
 ///
@@ -21,13 +21,14 @@ enum EngineState {
     Synced,
     Offline,
     Syncing,
+    AuthFailed,
 }
 
 #[derive(Copy, Clone, PartialEq, Debug)]
 pub struct ForkChoiceState {
-    pub head_block_hash: Hash256,
-    pub safe_block_hash: Hash256,
-    pub finalized_block_hash: Hash256,
+    pub head_block_hash: ExecutionBlockHash,
+    pub safe_block_hash: ExecutionBlockHash,
+    pub finalized_block_hash: ExecutionBlockHash,
 }
 
 /// Used to enable/disable logging on some tasks.
@@ -48,9 +49,9 @@ impl Logging {
 
 #[derive(Hash, PartialEq, std::cmp::Eq)]
 struct PayloadIdCacheKey {
-    pub head_block_hash: Hash256,
+    pub head_block_hash: ExecutionBlockHash,
     pub timestamp: u64,
-    pub random: Hash256,
+    pub prev_randao: Hash256,
     pub suggested_fee_recipient: Address,
 }
 
@@ -75,9 +76,9 @@ impl<T> Engine<T> {
 
     pub async fn get_payload_id(
         &self,
-        head_block_hash: Hash256,
+        head_block_hash: ExecutionBlockHash,
         timestamp: u64,
-        random: Hash256,
+        prev_randao: Hash256,
         suggested_fee_recipient: Address,
     ) -> Option<PayloadId> {
         self.payload_id_cache
@@ -86,7 +87,7 @@ impl<T> Engine<T> {
             .get(&PayloadIdCacheKey {
                 head_block_hash,
                 timestamp,
-                random,
+                prev_randao,
                 suggested_fee_recipient,
             })
             .cloned()
@@ -135,6 +136,7 @@ pub struct Engines<T> {
 pub enum EngineError {
     Offline { id: String },
     Api { id: String, error: EngineApiError },
+    Auth { id: String },
 }
 
 impl<T: EngineApi> Engines<T> {
@@ -226,6 +228,18 @@ impl<T: EngineApi> Engines<T> {
 
                         *state_lock = EngineState::Syncing
                     }
+                    Err(EngineApiError::Auth(err)) => {
+                        if logging.is_enabled() {
+                            warn!(
+                                self.log,
+                                "Failed jwt authorization";
+                                "error" => ?err,
+                                "id" => &engine.id
+                            );
+                        }
+
+                        *state_lock = EngineState::AuthFailed
+                    }
                     Err(e) => {
                         if logging.is_enabled() {
                             warn!(
@@ -295,7 +309,13 @@ impl<T: EngineApi> Engines<T> {
         let mut errors = vec![];
 
         for engine in &self.engines {
-            let engine_synced = *engine.state.read().await == EngineState::Synced;
+            let (engine_synced, engine_auth_failed) = {
+                let state = engine.state.read().await;
+                (
+                    *state == EngineState::Synced,
+                    *state == EngineState::AuthFailed,
+                )
+            };
             if engine_synced {
                 match func(engine).await {
                     Ok(result) => return Ok(result),
@@ -313,6 +333,10 @@ impl<T: EngineApi> Engines<T> {
                         })
                     }
                 }
+            } else if engine_auth_failed {
+                errors.push(EngineError::Auth {
+                    id: engine.id.clone(),
+                })
             } else {
                 errors.push(EngineError::Offline {
                     id: engine.id.clone(),
@@ -393,7 +417,7 @@ impl PayloadIdCacheKey {
         Self {
             head_block_hash: state.head_block_hash,
             timestamp: attributes.timestamp,
-            random: attributes.random,
+            prev_randao: attributes.prev_randao,
             suggested_fee_recipient: attributes.suggested_fee_recipient,
         }
     }

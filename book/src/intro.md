@@ -7,11 +7,11 @@ _Documentation for Lighthouse users and developers._
 [Chat Badge]: https://img.shields.io/badge/chat-discord-%237289da
 [Chat Link]: https://discord.gg/cyAszAh
 
-Lighthouse is an **Ethereum 2.0 client** that connects to other Ethereum 2.0
+Lighthouse is an **Ethereum consensus client** that connects to other Ethereum consensus
 clients to form a resilient and decentralized proof-of-stake blockchain.
 
 We implement the specification as defined in the
-[ethereum/eth2.0-specs](https://github.com/ethereum/eth2.0-specs) repository.
+[ethereum/consensus-specs](https://github.com/ethereum/consensus-specs) repository.
 
 ## Topics
 

@@ -1,11 +1,12 @@
 use crate::{
-    test_utils::{MockServer, DEFAULT_TERMINAL_BLOCK, DEFAULT_TERMINAL_DIFFICULTY},
-    *,
+    test_utils::{MockServer, DEFAULT_TERMINAL_BLOCK, DEFAULT_TERMINAL_DIFFICULTY, JWT_SECRET},
+    Config, *,
 };
 use environment::null_logger;
 use sensitive_url::SensitiveUrl;
 use std::sync::Arc;
 use task_executor::TaskExecutor;
+use tempfile::NamedTempFile;
 use types::{Address, ChainSpec, Epoch, EthSpec, ExecTransactions, Hash256, Uint256};
 
 pub struct ExecutionLayerRuntime {
@@ -58,7 +59,7 @@ impl<T: EthSpec> MockExecutionLayer<T> {
         Self::new(
             DEFAULT_TERMINAL_DIFFICULTY.into(),
             DEFAULT_TERMINAL_BLOCK,
-            Hash256::zero(),
+            ExecutionBlockHash::zero(),
             Epoch::new(0),
         )
     }
@@ -66,7 +67,7 @@ impl<T: EthSpec> MockExecutionLayer<T> {
     pub fn new(
         terminal_total_difficulty: Uint256,
         terminal_block: u64,
-        terminal_block_hash: Hash256,
+        terminal_block_hash: ExecutionBlockHash,
         terminal_block_hash_activation_epoch: Epoch,
     ) -> Self {
         let el_runtime = ExecutionLayerRuntime::default();
@@ -85,11 +86,19 @@ impl<T: EthSpec> MockExecutionLayer<T> {
         );
 
         let url = SensitiveUrl::parse(&server.url()).unwrap();
+        let file = NamedTempFile::new().unwrap();
 
-        let el = ExecutionLayer::from_urls(
-            vec![url],
-            vec![],
-            Some(Address::repeat_byte(42)),
+        let path = file.path().into();
+        std::fs::write(&path, hex::encode(JWT_SECRET)).unwrap();
+
+        let config = Config {
+            execution_endpoints: vec![url],
+            secret_files: vec![path],
+            suggested_fee_recipient: Some(Address::repeat_byte(42)),
+            ..Default::default()
+        };
+        let el = ExecutionLayer::from_config(
+            config,
             el_runtime.task_executor.clone(),
             el_runtime.log.clone(),
         )
@@ -112,16 +121,16 @@ impl<T: EthSpec> MockExecutionLayer<T> {
         let parent_hash = latest_execution_block.block_hash();
         let block_number = latest_execution_block.block_number() + 1;
         let timestamp = block_number;
-        let random = Hash256::from_low_u64_be(block_number);
+        let prev_randao = Hash256::from_low_u64_be(block_number);
         let finalized_block_hash = parent_hash;
 
         self.el
             .notify_forkchoice_updated(
                 parent_hash,
-                Hash256::zero(),
+                ExecutionBlockHash::zero(),
                 Some(PayloadAttributes {
                     timestamp,
-                    random,
+                    prev_randao,
                     suggested_fee_recipient: Address::repeat_byte(42),
                 }),
             )
@@ -134,7 +143,7 @@ impl<T: EthSpec> MockExecutionLayer<T> {
             .get_payload::<T, ExecTransactions<T>>(
                 parent_hash,
                 timestamp,
-                random,
+                prev_randao,
                 finalized_block_hash,
                 validator_index,
             )
@@ -144,15 +153,13 @@ impl<T: EthSpec> MockExecutionLayer<T> {
         assert_eq!(payload.parent_hash, parent_hash);
         assert_eq!(payload.block_number, block_number);
         assert_eq!(payload.timestamp, timestamp);
-        assert_eq!(payload.random, random);
+        assert_eq!(payload.prev_randao, prev_randao);
 
-        let (payload_response, latest_valid_hash) =
-            self.el.notify_new_payload(&payload).await.unwrap();
-        assert_eq!(payload_response, PayloadStatusV1Status::Valid);
-        assert_eq!(latest_valid_hash, Some(vec![payload.block_hash]));
+        let status = self.el.notify_new_payload(&payload).await.unwrap();
+        assert_eq!(status, PayloadStatus::Valid);
 
         self.el
-            .notify_forkchoice_updated(block_hash, Hash256::zero(), None)
+            .notify_forkchoice_updated(block_hash, ExecutionBlockHash::zero(), None)
             .await
             .unwrap();
 

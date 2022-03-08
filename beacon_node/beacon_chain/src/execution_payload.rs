@@ -11,8 +11,8 @@ use crate::{
     BeaconChain, BeaconChainError, BeaconChainTypes, BlockError, BlockProductionError,
     ExecutionPayloadError,
 };
-use execution_layer::PayloadStatusV1Status;
-use fork_choice::PayloadVerificationStatus;
+use execution_layer::PayloadStatus;
+use fork_choice::{InvalidationOperation, PayloadVerificationStatus};
 use proto_array::{Block as ProtoBlock, ExecutionStatus};
 use slog::debug;
 use slot_clock::SlotClock;
@@ -57,22 +57,32 @@ pub fn notify_new_payload<T: BeaconChainTypes>(
         .block_on(|execution_layer| execution_layer.notify_new_payload(execution_payload));
 
     match new_payload_response {
-        Ok((status, latest_valid_hash)) => match status {
-            PayloadStatusV1Status::Valid => Ok(PayloadVerificationStatus::Verified),
-            PayloadStatusV1Status::Syncing | PayloadStatusV1Status::Accepted => {
+        Ok(status) => match status {
+            PayloadStatus::Valid => Ok(PayloadVerificationStatus::Verified),
+            PayloadStatus::Syncing | PayloadStatus::Accepted => {
                 Ok(PayloadVerificationStatus::NotVerified)
             }
-            PayloadStatusV1Status::Invalid
-            | PayloadStatusV1Status::InvalidTerminalBlock
-            | PayloadStatusV1Status::InvalidBlockHash => {
-                // TODO(bellatrix): process the invalid payload.
-                //
-                // See: https://github.com/sigp/lighthouse/pull/2837
-                Err(ExecutionPayloadError::RejectedByExecutionEngine {
-                    status,
-                    latest_valid_hash,
-                }
-                .into())
+            PayloadStatus::Invalid {
+                latest_valid_hash, ..
+            } => {
+                // This block has not yet been applied to fork choice, so the latest block that was
+                // imported to fork choice was the parent.
+                let latest_root = block.parent_root();
+                chain.process_invalid_execution_payload(
+                    &InvalidationOperation::InvalidateMany {
+                        head_block_root: latest_root,
+                        always_invalidate_head: false,
+                        latest_valid_ancestor: latest_valid_hash,
+                    },
+                )?;
+
+                Err(ExecutionPayloadError::RejectedByExecutionEngine { status }.into())
+            }
+            PayloadStatus::InvalidTerminalBlock { .. } | PayloadStatus::InvalidBlockHash { .. } => {
+                // Returning an error here should be sufficient to invalidate the block. We have no
+                // information to indicate its parent is invalid, so no need to run
+                // `BeaconChain::process_invalid_execution_payload`.
+                Err(ExecutionPayloadError::RejectedByExecutionEngine { status }.into())
             }
         },
         Err(e) => Err(ExecutionPayloadError::RequestFailed(e).into()),
@@ -99,7 +109,7 @@ pub fn validate_merge_block<T: BeaconChainTypes>(
     let block_epoch = block.slot().epoch(T::EthSpec::slots_per_epoch());
     let execution_payload = block.execution_payload()?;
 
-    if spec.terminal_block_hash != Hash256::zero() {
+    if spec.terminal_block_hash != ExecutionBlockHash::zero() {
         if block_epoch < spec.terminal_block_hash_activation_epoch {
             return Err(ExecutionPayloadError::InvalidActivationEpoch {
                 activation_epoch: spec.terminal_block_hash_activation_epoch,
@@ -137,13 +147,33 @@ pub fn validate_merge_block<T: BeaconChainTypes>(
         }
         .into()),
         None => {
-            debug!(
-                chain.log,
-                "Optimistically accepting terminal block";
-                "block_hash" => ?execution_payload.parent_hash,
-                "msg" => "the terminal block/parent was unavailable"
-            );
-            Ok(())
+            let current_slot = chain
+                .slot_clock
+                .now()
+                .ok_or(BeaconChainError::UnableToReadSlot)?;
+
+            // Ensure the block is a candidate for optimistic import.
+            if chain
+                .fork_choice
+                .read()
+                .is_optimistic_candidate_block(
+                    current_slot,
+                    block.slot(),
+                    &block.parent_root(),
+                    &chain.spec,
+                )
+                .map_err(BeaconChainError::from)?
+            {
+                debug!(
+                    chain.log,
+                    "Optimistically accepting terminal block";
+                    "block_hash" => ?execution_payload.parent_hash,
+                    "msg" => "the terminal block/parent was unavailable"
+                );
+                Ok(())
+            } else {
+                Err(ExecutionPayloadError::UnverifiedNonOptimisticCandidate.into())
+            }
         }
     }
 }
@@ -266,7 +296,7 @@ pub async fn prepare_execution_payload<T: BeaconChainTypes, Txns: Transactions<T
         .ok_or(BlockProductionError::ExecutionLayerMissing)?;
 
     let parent_hash = if !is_merge_transition_complete(state) {
-        let is_terminal_block_hash_set = spec.terminal_block_hash != Hash256::zero();
+        let is_terminal_block_hash_set = spec.terminal_block_hash != ExecutionBlockHash::zero();
         let is_activation_epoch_reached =
             state.current_epoch() >= spec.terminal_block_hash_activation_epoch;
 
@@ -317,7 +347,7 @@ pub async fn prepare_execution_payload<T: BeaconChainTypes, Txns: Transactions<T
             parent_hash,
             timestamp,
             random,
-            finalized_block_hash.unwrap_or_else(Hash256::zero),
+            finalized_block_hash.unwrap_or_else(ExecutionBlockHash::zero),
             proposer_index,
         )
         .await

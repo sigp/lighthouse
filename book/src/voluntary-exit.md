@@ -15,7 +15,7 @@ This number can be much higher depending on how many other validators are queued
 Even though users can perform a voluntary exit in phase 0, they **cannot withdraw their exited funds at this point in time**.
 This implies that the staked funds are effectively **frozen** until withdrawals are enabled in future phases.
 
-To understand the phased rollout strategy for Eth2, please visit <https://ethereum.org/en/eth2/#roadmap>.
+To understand the phased rollout strategy for Ethereum upgrages, please visit <https://ethereum.org/en/upgrades/#roadmap>.
 
 
 
@@ -25,7 +25,7 @@ In order to initiate an exit, users can use the `lighthouse account validator ex
 
 - The `--keystore` flag is used to specify the path to the EIP-2335 voting keystore for the validator.
 
-- The `--beacon-node` flag is used to specify a beacon chain HTTP endpoint that confirms to the [Eth2.0 Standard Beacon Node API](https://ethereum.github.io/beacon-APIs/) specifications. That beacon node will be used to validate and propagate the voluntary exit. The default value for this flag is `http://localhost:5052`.
+- The `--beacon-node` flag is used to specify a beacon chain HTTP endpoint that confirms to the [Beacon Node API](https://ethereum.github.io/beacon-APIs/) specifications. That beacon node will be used to validate and propagate the voluntary exit. The default value for this flag is `http://localhost:5052`.
 
 - The `--network` flag is used to specify a particular Eth2 network (default is `mainnet`).
 

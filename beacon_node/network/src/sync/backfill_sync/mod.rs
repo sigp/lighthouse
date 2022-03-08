@@ -8,9 +8,8 @@
 //! If a batch fails, the backfill sync cannot progress. In this scenario, we mark the backfill
 //! sync as failed, log an error and attempt to retry once a new peer joins the node.
 
-use super::RequestId;
 use crate::beacon_processor::{ProcessId, WorkEvent as BeaconWorkEvent};
-use crate::sync::manager::BatchProcessResult;
+use crate::sync::manager::{BatchProcessResult, Id};
 use crate::sync::network_context::SyncNetworkContext;
 use crate::sync::range_sync::{BatchConfig, BatchId, BatchInfo, BatchState};
 use beacon_chain::{BeaconChain, BeaconChainTypes};
@@ -357,7 +356,7 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
         network: &mut SyncNetworkContext<T::EthSpec>,
         batch_id: BatchId,
         peer_id: &PeerId,
-        request_id: RequestId,
+        request_id: Id,
     ) -> Result<(), BackFillError> {
         if let Some(batch) = self.batches.get_mut(&batch_id) {
             // A batch could be retried without the peer failing the request (disconnecting/
@@ -392,7 +391,7 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
         network: &mut SyncNetworkContext<T::EthSpec>,
         batch_id: BatchId,
         peer_id: &PeerId,
-        request_id: RequestId,
+        request_id: Id,
         beacon_block: Option<SignedBeaconBlock<T::EthSpec>>,
     ) -> Result<ProcessResult, BackFillError> {
         // check if we have this batch

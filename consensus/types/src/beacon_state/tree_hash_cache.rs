@@ -1,5 +1,5 @@
 #![allow(clippy::integer_arithmetic)]
-#![allow(clippy::disallowed_method)]
+#![allow(clippy::disallowed_methods)]
 #![allow(clippy::indexing_slicing)]
 
 use super::Error;

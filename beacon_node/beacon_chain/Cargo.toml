@@ -2,7 +2,7 @@
 name = "beacon_chain"
 version = "0.2.0"
 authors = ["Paul Hauner <paul@paulhauner.com>", "Age Manning <Age@AgeManning.com>"]
-edition = "2018"
+edition = "2021"
 autotests = false # using a single test binary compiles faster
 
 [features]

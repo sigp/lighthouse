@@ -127,7 +127,7 @@ impl<T: Encode + Decode> CacheArena<T> {
             .offsets
             .get(alloc_id + 1)
             .copied()
-            .unwrap_or_else(|| self.backing.len());
+            .unwrap_or(self.backing.len());
 
         Ok(end - start)
     }
@@ -168,7 +168,7 @@ impl<T: Encode + Decode> CacheArena<T> {
             .offsets
             .get(alloc_id + 1)
             .copied()
-            .unwrap_or_else(|| self.backing.len());
+            .unwrap_or(self.backing.len());
 
         Ok(start..end)
     }

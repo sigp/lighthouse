@@ -31,8 +31,8 @@ use std::time::Duration;
 use timer::spawn_timer;
 use tokio::sync::{mpsc::UnboundedSender, oneshot};
 use types::{
-    test_utils::generate_deterministic_keypairs, BeaconState, ChainSpec, EthSpec, Hash256,
-    SignedBeaconBlock,
+    test_utils::generate_deterministic_keypairs, BeaconState, ChainSpec, EthSpec,
+    ExecutionBlockHash, Hash256, SignedBeaconBlock,
 };
 
 /// Interval between polling the eth1 node for genesis information.
@@ -149,12 +149,10 @@ where
             None
         };
 
-        let execution_layer = if let Some(execution_endpoints) = config.execution_endpoints {
+        let execution_layer = if let Some(config) = config.execution_layer {
             let context = runtime_context.service_context("exec".into());
-            let execution_layer = ExecutionLayer::from_urls(
-                execution_endpoints,
-                config.payload_builders.unwrap_or_default(),
-                config.suggested_fee_recipient,
+            let execution_layer = ExecutionLayer::from_config(
+                config,
                 context.executor.clone(),
                 context.log().clone(),
             )
@@ -663,9 +661,6 @@ where
             );
 
             if let Some(execution_layer) = beacon_chain.execution_layer.as_ref() {
-                let store = beacon_chain.store.clone();
-                let inner_execution_layer = execution_layer.clone();
-
                 let head = beacon_chain
                     .head_info()
                     .map_err(|e| format!("Unable to read beacon chain head: {:?}", e))?;
@@ -673,18 +668,38 @@ where
                 // Issue the head to the execution engine on startup. This ensures it can start
                 // syncing.
                 if let Some(block_hash) = head.execution_payload_block_hash {
+                    let finalized_root = head.finalized_checkpoint.root;
+                    let finalized_block = beacon_chain
+                        .store
+                        .get_block(&finalized_root)
+                        .map_err(|e| format!("Failed to read finalized block from DB: {:?}", e))?
+                        .ok_or(format!(
+                            "Finalized block missing from store: {:?}",
+                            finalized_root
+                        ))?;
+                    let finalized_execution_block_hash = finalized_block
+                        .message()
+                        .body()
+                        .execution_payload()
+                        .ok()
+                        .map(|ep| ep.block_hash)
+                        .unwrap_or_else(ExecutionBlockHash::zero);
+
+                    // Spawn a new task using the "async" fork choice update method, rather than
+                    // using the "blocking" method.
+                    //
+                    // Using the blocking method may cause a panic if this code is run inside an
+                    // async context.
+                    let inner_chain = beacon_chain.clone();
                     runtime_context.executor.spawn(
                         async move {
-                            let result = BeaconChain::<
-                                Witness<TSlotClock, TEth1Backend, TEthSpec, THotStore, TColdStore>,
-                            >::update_execution_engine_forkchoice(
-                                inner_execution_layer,
-                                store,
-                                head.finalized_checkpoint.root,
-                                block_hash,
-                                &log,
-                            )
-                            .await;
+                            let result = inner_chain
+                                .update_execution_engine_forkchoice_async(
+                                    finalized_execution_block_hash,
+                                    head.block_root,
+                                    block_hash,
+                                )
+                                .await;
 
                             // No need to exit early if setting the head fails. It will be set again if/when the
                             // node comes online.
@@ -707,6 +722,9 @@ where
                 execution_layer.spawn_clean_proposer_preparation_routine::<TSlotClock, TEthSpec>(
                     beacon_chain.slot_clock.clone(),
                 );
+
+                // Spawns a routine that polls the `exchange_transition_configuration` endpoint.
+                execution_layer.spawn_transition_configuration_poll(beacon_chain.spec.clone());
             }
         }
 

@@ -2,7 +2,7 @@
 name = "lighthouse_network"
 version = "0.2.0"
 authors = ["Sigma Prime <contact@sigmaprime.io>"]
-edition = "2018"
+edition = "2021"
 
 [dependencies]
 discv5 = { version = "0.1.0-beta.13", features = ["libp2p"] }
@@ -42,9 +42,7 @@ prometheus-client = "0.15.0"
 unused_port = { path = "../../common/unused_port" }
 
 [dependencies.libp2p]
-git = "https://github.com/sigp/rust-libp2p"
-# branch libp2p-gossipsub-interval-hotfix
-rev = "e213703e616eaba3c482d7714775e0d37c4ae8e5"
+version = "0.43.0"
 default-features = false
 features = ["websocket", "identify", "mplex", "yamux", "noise", "gossipsub", "dns-tokio", "tcp-tokio", "plaintext", "secp256k1"]
 

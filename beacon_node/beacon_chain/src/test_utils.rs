@@ -337,15 +337,20 @@ where
 
         let el_runtime = ExecutionLayerRuntime::default();
 
-        let urls = urls
+        let urls: Vec<SensitiveUrl> = urls
             .iter()
             .map(|s| SensitiveUrl::parse(*s))
             .collect::<Result<_, _>>()
             .unwrap();
-        let execution_layer = ExecutionLayer::from_urls(
-            urls,
-            vec![],
-            Some(Address::repeat_byte(42)),
+
+        let config = execution_layer::Config {
+            execution_endpoints: urls,
+            secret_files: vec![],
+            suggested_fee_recipient: Some(Address::repeat_byte(42)),
+            ..Default::default()
+        };
+        let execution_layer = ExecutionLayer::from_config(
+            config,
             el_runtime.task_executor.clone(),
             el_runtime.log.clone(),
         )
@@ -433,7 +438,7 @@ where
             spec: chain.spec.clone(),
             chain: Arc::new(chain),
             validator_keypairs,
-            shutdown_receiver,
+            shutdown_receiver: Arc::new(Mutex::new(shutdown_receiver)),
             mock_execution_layer: self.mock_execution_layer,
             execution_layer_runtime: self.execution_layer_runtime,
             rng: make_rng(),
@@ -450,7 +455,7 @@ pub struct BeaconChainHarness<T: BeaconChainTypes> {
 
     pub chain: Arc<BeaconChain<T>>,
     pub spec: ChainSpec,
-    pub shutdown_receiver: Receiver<ShutdownReason>,
+    pub shutdown_receiver: Arc<Mutex<Receiver<ShutdownReason>>>,
 
     pub mock_execution_layer: Option<MockExecutionLayer<T::EthSpec>>,
     pub execution_layer_runtime: Option<ExecutionLayerRuntime>,
@@ -501,6 +506,17 @@ where
     pub fn epoch_start_slot(&self, epoch: u64) -> u64 {
         let epoch = Epoch::new(epoch);
         epoch.start_slot(E::slots_per_epoch()).into()
+    }
+
+    pub fn shutdown_reasons(&self) -> Vec<ShutdownReason> {
+        let mutex = self.shutdown_receiver.clone();
+        let mut receiver = mutex.lock();
+        std::iter::from_fn(move || match receiver.try_next() {
+            Ok(Some(s)) => Some(s),
+            Ok(None) => panic!("shutdown sender dropped"),
+            Err(_) => None,
+        })
+        .collect()
     }
 
     pub fn get_current_state(&self) -> BeaconState<E> {

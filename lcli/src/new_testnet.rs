@@ -108,7 +108,7 @@ pub fn run<T: EthSpec>(testnet_dir_path: PathBuf, matches: &ArgMatches) -> Resul
         let genesis_state = interop_genesis_state::<T>(
             &keypairs,
             genesis_time,
-            eth1_block_hash,
+            eth1_block_hash.into_root(),
             execution_payload_header,
             &spec,
         )?;

@@ -1,4 +1,4 @@
-use crate::ForkChoiceStore;
+use crate::{ForkChoiceStore, InvalidationOperation};
 use proto_array::{Block as ProtoBlock, ExecutionStatus, ProtoArrayForkChoice};
 use ssz_derive::{Decode, Encode};
 use std::cmp::Ordering;
@@ -6,8 +6,8 @@ use std::marker::PhantomData;
 use std::time::Duration;
 use types::{
     consts::merge::INTERVALS_PER_SLOT, AttestationShufflingId, BeaconBlock, BeaconState,
-    BeaconStateError, ChainSpec, Checkpoint, Epoch, EthSpec, Hash256, IndexedAttestation,
-    RelativeEpoch, SignedBeaconBlock, Slot,
+    BeaconStateError, ChainSpec, Checkpoint, Epoch, EthSpec, ExecutionBlockHash, Hash256,
+    IndexedAttestation, RelativeEpoch, SignedBeaconBlock, Slot,
 };
 
 #[derive(Debug)]
@@ -17,6 +17,7 @@ pub enum Error<T> {
     ProtoArrayError(String),
     InvalidProtoArrayBytes(String),
     InvalidLegacyProtoArrayBytes(String),
+    FailedToProcessInvalidExecutionPayload(String),
     MissingProtoArrayBlock(Hash256),
     UnknownAncestor {
         ancestor_slot: Slot,
@@ -42,6 +43,12 @@ pub enum Error<T> {
         block_slot: Slot,
         block_root: Hash256,
         payload_verification_status: PayloadVerificationStatus,
+    },
+    MissingJustifiedBlock {
+        justified_checkpoint: Checkpoint,
+    },
+    MissingFinalizedBlock {
+        finalized_checkpoint: Checkpoint,
     },
 }
 
@@ -219,7 +226,7 @@ fn dequeue_attestations(
         queued_attestations
             .iter()
             .position(|a| a.slot >= current_slot)
-            .unwrap_or_else(|| queued_attestations.len()),
+            .unwrap_or(queued_attestations.len()),
     );
 
     std::mem::replace(queued_attestations, remaining)
@@ -299,9 +306,15 @@ where
         let execution_status = anchor_block.message_merge().map_or_else(
             |()| ExecutionStatus::irrelevant(),
             |message| {
-                // Assume that this payload is valid, since the anchor should be a trusted block and
-                // state.
-                ExecutionStatus::Valid(message.body.execution_payload.block_hash)
+                let execution_payload = &message.body.execution_payload;
+                if execution_payload == &<_>::default() {
+                    // A default payload does not have execution enabled.
+                    ExecutionStatus::irrelevant()
+                } else {
+                    // Assume that this payload is valid, since the anchor should be a trusted block and
+                    // state.
+                    ExecutionStatus::Valid(message.body.execution_payload.block_hash)
+                }
             },
         );
 
@@ -464,6 +477,16 @@ where
         Ok(true)
     }
 
+    /// See `ProtoArrayForkChoice::process_execution_payload_invalidation` for documentation.
+    pub fn on_invalid_execution_payload(
+        &mut self,
+        op: &InvalidationOperation,
+    ) -> Result<(), Error<T::Error>> {
+        self.proto_array
+            .process_execution_payload_invalidation(op)
+            .map_err(Error::FailedToProcessInvalidExecutionPayload)
+    }
+
     /// Add `block` to the fork choice DAG.
     ///
     /// - `block_root` is the root of `block.
@@ -592,7 +615,7 @@ where
         let execution_status = if let Ok(execution_payload) = block.body().execution_payload() {
             let block_hash = execution_payload.block_hash;
 
-            if block_hash == Hash256::zero() {
+            if block_hash == ExecutionBlockHash::zero() {
                 // The block is post-merge-fork, but pre-terminal-PoW block. We don't need to verify
                 // the payload.
                 ExecutionStatus::irrelevant()
@@ -875,10 +898,81 @@ where
         }
     }
 
+    /// Returns the `ProtoBlock` for the justified checkpoint.
+    ///
+    /// ## Notes
+    ///
+    /// This does *not* return the "best justified checkpoint". It returns the justified checkpoint
+    /// that is used for computing balances.
+    pub fn get_justified_block(&self) -> Result<ProtoBlock, Error<T::Error>> {
+        let justified_checkpoint = self.justified_checkpoint();
+        self.get_block(&justified_checkpoint.root)
+            .ok_or(Error::MissingJustifiedBlock {
+                justified_checkpoint,
+            })
+    }
+
+    /// Returns the `ProtoBlock` for the finalized checkpoint.
+    pub fn get_finalized_block(&self) -> Result<ProtoBlock, Error<T::Error>> {
+        let finalized_checkpoint = self.finalized_checkpoint();
+        self.get_block(&finalized_checkpoint.root)
+            .ok_or(Error::MissingFinalizedBlock {
+                finalized_checkpoint,
+            })
+    }
+
     /// Return `true` if `block_root` is equal to the finalized root, or a known descendant of it.
     pub fn is_descendant_of_finalized(&self, block_root: Hash256) -> bool {
         self.proto_array
             .is_descendant(self.fc_store.finalized_checkpoint().root, block_root)
+    }
+
+    /// Returns `Ok(false)` if a block is not viable to be imported optimistically.
+    ///
+    /// ## Notes
+    ///
+    /// Equivalent to the function with the same name in the optimistic sync specs:
+    ///
+    /// https://github.com/ethereum/consensus-specs/blob/dev/sync/optimistic.md#helpers
+    pub fn is_optimistic_candidate_block(
+        &self,
+        current_slot: Slot,
+        block_slot: Slot,
+        block_parent_root: &Hash256,
+        spec: &ChainSpec,
+    ) -> Result<bool, Error<T::Error>> {
+        // If the block is sufficiently old, import it.
+        if block_slot + spec.safe_slots_to_import_optimistically <= current_slot {
+            return Ok(true);
+        }
+
+        // If the justified block has execution enabled, then optimistically import any block.
+        if self
+            .get_justified_block()?
+            .execution_status
+            .is_execution_enabled()
+        {
+            return Ok(true);
+        }
+
+        // If the parent block has execution enabled, always import the block.
+        //
+        // TODO(bellatrix): this condition has not yet been merged into the spec.
+        //
+        // See:
+        //
+        // https://github.com/ethereum/consensus-specs/pull/2844
+        if self
+            .proto_array
+            .get_block(block_parent_root)
+            .map_or(false, |parent| {
+                parent.execution_status.is_execution_enabled()
+            })
+        {
+            return Ok(true);
+        }
+
+        Ok(false)
     }
 
     /// Return the current finalized checkpoint.

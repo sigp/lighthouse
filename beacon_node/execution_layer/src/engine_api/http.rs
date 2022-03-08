@@ -1,6 +1,7 @@
 //! Contains an implementation of `EngineAPI` using the JSON-RPC API via HTTP.
 
 use super::*;
+use crate::auth::Auth;
 use crate::json_structures::*;
 use async_trait::async_trait;
 use eth1::http::EIP155_ERROR_STR;
@@ -38,6 +39,11 @@ pub const ENGINE_GET_PAYLOAD_TIMEOUT: Duration = Duration::from_secs(2);
 pub const ENGINE_FORKCHOICE_UPDATED_V1: &str = "engine_forkchoiceUpdatedV1";
 pub const ENGINE_FORKCHOICE_UPDATED_TIMEOUT: Duration = Duration::from_millis(500);
 
+pub const ENGINE_EXCHANGE_TRANSITION_CONFIGURATION_V1: &str =
+    "engine_exchangeTransitionConfigurationV1";
+pub const ENGINE_EXCHANGE_TRANSITION_CONFIGURATION_V1_TIMEOUT: Duration =
+    Duration::from_millis(500);
+
 pub const BUILDER_GET_PAYLOAD_HEADER_V1: &str = "builder_getPayloadHeaderV1";
 pub const BUILDER_GET_PAYLOAD_HEADER_TIMEOUT: Duration = Duration::from_secs(1);
 
@@ -47,6 +53,7 @@ pub const BUILDER_PROPOSE_BLINDED_BLOCK_TIMEOUT: Duration = Duration::from_secs(
 pub struct HttpJsonRpc {
     pub client: Client,
     pub url: SensitiveUrl,
+    auth: Option<Auth>,
 }
 
 impl HttpJsonRpc {
@@ -54,6 +61,15 @@ impl HttpJsonRpc {
         Ok(Self {
             client: Client::builder().build()?,
             url,
+            auth: None,
+        })
+    }
+
+    pub fn new_with_auth(url: SensitiveUrl, auth: Auth) -> Result<Self, Error> {
+        Ok(Self {
+            client: Client::builder().build()?,
+            url,
+            auth: Some(auth),
         })
     }
 
@@ -70,17 +86,19 @@ impl HttpJsonRpc {
             id: STATIC_ID,
         };
 
-        let body: JsonResponseBody = self
+        let mut request = self
             .client
             .post(self.url.full.clone())
             .timeout(timeout)
             .header(CONTENT_TYPE, "application/json")
-            .json(&body)
-            .send()
-            .await?
-            .error_for_status()?
-            .json()
-            .await?;
+            .json(&body);
+
+        // Generate and add a jwt token to the header if auth is defined.
+        if let Some(auth) = &self.auth {
+            request = request.bearer_auth(auth.generate_token()?);
+        };
+
+        let body: JsonResponseBody = request.send().await?.error_for_status()?.json().await?;
 
         match (body.result, body.error) {
             (result, None) => serde_json::from_value(result).map_err(Into::into),
@@ -133,7 +151,7 @@ impl EngineApi for HttpJsonRpc {
 
     async fn get_block_by_hash<'a>(
         &self,
-        block_hash: Hash256,
+        block_hash: ExecutionBlockHash,
     ) -> Result<Option<ExecutionBlock>, Error> {
         let params = json!([block_hash, RETURN_FULL_TRANSACTION_OBJECTS]);
 
@@ -187,6 +205,23 @@ impl EngineApi for HttpJsonRpc {
 
         Ok(response.into())
     }
+
+    async fn exchange_transition_configuration_v1(
+        &self,
+        transition_configuration: TransitionConfigurationV1,
+    ) -> Result<TransitionConfigurationV1, Error> {
+        let params = json!([transition_configuration]);
+
+        let response = self
+            .rpc_request(
+                ENGINE_EXCHANGE_TRANSITION_CONFIGURATION_V1,
+                params,
+                ENGINE_EXCHANGE_TRANSITION_CONFIGURATION_V1_TIMEOUT,
+            )
+            .await?;
+
+        Ok(response)
+    }
 }
 
 pub struct BuilderHttpJsonRpc(HttpJsonRpc);
@@ -221,7 +256,7 @@ impl EngineApi for BuilderHttpJsonRpc {
 
     async fn get_block_by_hash<'a>(
         &self,
-        block_hash: Hash256,
+        block_hash: ExecutionBlockHash,
     ) -> Result<Option<ExecutionBlock>, Error> {
         self.0.get_block_by_hash(block_hash).await
     }
@@ -247,6 +282,15 @@ impl EngineApi for BuilderHttpJsonRpc {
     ) -> Result<ForkchoiceUpdatedResponse, Error> {
         self.0
             .forkchoice_updated_v1(forkchoice_state, payload_attributes)
+            .await
+    }
+
+    async fn exchange_transition_configuration_v1(
+        &self,
+        transition_configuration: TransitionConfigurationV1,
+    ) -> Result<TransitionConfigurationV1, Error> {
+        self.0
+            .exchange_transition_configuration_v1(transition_configuration)
             .await
     }
 }
@@ -291,8 +335,9 @@ impl BuilderApi for BuilderHttpJsonRpc {
 }
 #[cfg(test)]
 mod test {
+    use super::auth::JwtKey;
     use super::*;
-    use crate::test_utils::MockServer;
+    use crate::test_utils::{MockServer, JWT_SECRET};
     use std::future::Future;
     use std::str::FromStr;
     use std::sync::Arc;
@@ -305,14 +350,25 @@ mod test {
     }
 
     impl Tester {
-        pub fn new() -> Self {
+        pub fn new(with_auth: bool) -> Self {
             let server = MockServer::unit_testing();
 
             let rpc_url = SensitiveUrl::parse(&server.url()).unwrap();
-            let rpc_client = Arc::new(HttpJsonRpc::new(rpc_url).unwrap());
-
             let echo_url = SensitiveUrl::parse(&format!("{}/echo", server.url())).unwrap();
-            let echo_client = Arc::new(HttpJsonRpc::new(echo_url).unwrap());
+            // Create rpc clients that include JWT auth headers if `with_auth` is true.
+            let (rpc_client, echo_client) = if with_auth {
+                let rpc_auth = Auth::new(JwtKey::from_slice(&JWT_SECRET).unwrap(), None, None);
+                let echo_auth = Auth::new(JwtKey::from_slice(&JWT_SECRET).unwrap(), None, None);
+                (
+                    Arc::new(HttpJsonRpc::new_with_auth(rpc_url, rpc_auth).unwrap()),
+                    Arc::new(HttpJsonRpc::new_with_auth(echo_url, echo_auth).unwrap()),
+                )
+            } else {
+                (
+                    Arc::new(HttpJsonRpc::new(rpc_url).unwrap()),
+                    Arc::new(HttpJsonRpc::new(echo_url).unwrap()),
+                )
+            };
 
             Self {
                 server,
@@ -338,6 +394,22 @@ mod test {
                 panic!(
                     "json mismatch!\n\nobserved: {}\n\nexpected: {}\n\n",
                     request_json, expected_json,
+                )
+            }
+            self
+        }
+
+        pub async fn assert_auth_failure<R, F, T>(self, request_func: R) -> Self
+        where
+            R: Fn(Arc<HttpJsonRpc>) -> F,
+            F: Future<Output = Result<T, Error>>,
+            T: std::fmt::Debug,
+        {
+            let res = request_func(self.echo_client.clone()).await;
+            if !matches!(res, Err(Error::Auth(_))) {
+                panic!(
+                    "No authentication provided, rpc call should have failed.\nResult: {:?}",
+                    res
                 )
             }
             self
@@ -390,7 +462,7 @@ mod test {
             "stateRoot": HASH_01,
             "receiptsRoot": HASH_00,
             "logsBloom": LOGS_BLOOM_01,
-            "random": HASH_01,
+            "prevRandao": HASH_01,
             "blockNumber": "0x0",
             "gasLimit": "0x1",
             "gasUsed": "0x2",
@@ -491,7 +563,7 @@ mod test {
 
     #[tokio::test]
     async fn get_block_by_number_request() {
-        Tester::new()
+        Tester::new(true)
             .assert_request_equals(
                 |client| async move {
                     let _ = client
@@ -506,14 +578,24 @@ mod test {
                 }),
             )
             .await;
+
+        Tester::new(false)
+            .assert_auth_failure(|client| async move {
+                client
+                    .get_block_by_number(BlockByNumberQuery::Tag(LATEST_TAG))
+                    .await
+            })
+            .await;
     }
 
     #[tokio::test]
     async fn get_block_by_hash_request() {
-        Tester::new()
+        Tester::new(true)
             .assert_request_equals(
                 |client| async move {
-                    let _ = client.get_block_by_hash(Hash256::repeat_byte(1)).await;
+                    let _ = client
+                        .get_block_by_hash(ExecutionBlockHash::repeat_byte(1))
+                        .await;
                 },
                 json!({
                     "id": STATIC_ID,
@@ -523,23 +605,31 @@ mod test {
                 }),
             )
             .await;
+
+        Tester::new(false)
+            .assert_auth_failure(|client| async move {
+                client
+                    .get_block_by_hash(ExecutionBlockHash::repeat_byte(1))
+                    .await
+            })
+            .await;
     }
 
     #[tokio::test]
     async fn forkchoice_updated_v1_with_payload_attributes_request() {
-        Tester::new()
+        Tester::new(true)
             .assert_request_equals(
                 |client| async move {
                     let _ = client
                         .forkchoice_updated_v1(
                             ForkChoiceState {
-                                head_block_hash: Hash256::repeat_byte(1),
-                                safe_block_hash: Hash256::repeat_byte(1),
-                                finalized_block_hash: Hash256::zero(),
+                                head_block_hash: ExecutionBlockHash::repeat_byte(1),
+                                safe_block_hash: ExecutionBlockHash::repeat_byte(1),
+                                finalized_block_hash: ExecutionBlockHash::zero(),
                             },
                             Some(PayloadAttributes {
                                 timestamp: 5,
-                                random: Hash256::zero(),
+                                prev_randao: Hash256::zero(),
                                 suggested_fee_recipient: Address::repeat_byte(0),
                             }),
                         )
@@ -556,17 +646,36 @@ mod test {
                     },
                     {
                         "timestamp":"0x5",
-                        "random": HASH_00,
+                        "prevRandao": HASH_00,
                         "suggestedFeeRecipient": ADDRESS_00
                     }]
                 }),
             )
             .await;
+
+        Tester::new(false)
+            .assert_auth_failure(|client| async move {
+                client
+                    .forkchoice_updated_v1(
+                        ForkChoiceState {
+                            head_block_hash: ExecutionBlockHash::repeat_byte(1),
+                            safe_block_hash: ExecutionBlockHash::repeat_byte(1),
+                            finalized_block_hash: ExecutionBlockHash::zero(),
+                        },
+                        Some(PayloadAttributes {
+                            timestamp: 5,
+                            prev_randao: Hash256::zero(),
+                            suggested_fee_recipient: Address::repeat_byte(0),
+                        }),
+                    )
+                    .await
+            })
+            .await;
     }
 
     #[tokio::test]
     async fn get_payload_v1_request() {
-        Tester::new()
+        Tester::new(true)
             .assert_request_equals(
                 |client| async move {
                     let _ = client
@@ -581,28 +690,34 @@ mod test {
                 }),
             )
             .await;
+
+        Tester::new(false)
+            .assert_auth_failure(|client| async move {
+                client.get_payload_v1::<MainnetEthSpec, ExecTransactions<MainnetEthSpec>>([42; 8]).await
+            })
+            .await;
     }
 
     #[tokio::test]
     async fn new_payload_v1_request() {
-        Tester::new()
+        Tester::new(true)
             .assert_request_equals(
                 |client| async move {
                     let _ = client
                         .new_payload_v1::<MainnetEthSpec>(ExecutionPayload {
-                            parent_hash: Hash256::repeat_byte(0),
+                            parent_hash: ExecutionBlockHash::repeat_byte(0),
                             fee_recipient: Address::repeat_byte(1),
                             state_root: Hash256::repeat_byte(1),
                             receipts_root: Hash256::repeat_byte(0),
                             logs_bloom: vec![1; 256].into(),
-                            random: Hash256::repeat_byte(1),
+                            prev_randao: Hash256::repeat_byte(1),
                             block_number: 0,
                             gas_limit: 1,
                             gas_used: 2,
                             timestamp: 42,
                             extra_data: vec![].into(),
                             base_fee_per_gas: Uint256::from(1),
-                            block_hash: Hash256::repeat_byte(1),
+                            block_hash: ExecutionBlockHash::repeat_byte(1),
                             transactions: ExecTransactions(vec![].into()),
                         })
                         .await;
@@ -617,7 +732,7 @@ mod test {
                         "stateRoot": HASH_01,
                         "receiptsRoot": HASH_00,
                         "logsBloom": LOGS_BLOOM_01,
-                        "random": HASH_01,
+                        "prevRandao": HASH_01,
                         "blockNumber": "0x0",
                         "gasLimit": "0x1",
                         "gasUsed": "0x2",
@@ -630,19 +745,42 @@ mod test {
                 }),
             )
             .await;
+
+        Tester::new(false)
+            .assert_auth_failure(|client| async move {
+                client
+                    .new_payload_v1::<MainnetEthSpec>(ExecutionPayload {
+                        parent_hash: ExecutionBlockHash::repeat_byte(0),
+                        fee_recipient: Address::repeat_byte(1),
+                        state_root: Hash256::repeat_byte(1),
+                        receipts_root: Hash256::repeat_byte(0),
+                        logs_bloom: vec![1; 256].into(),
+                        prev_randao: Hash256::repeat_byte(1),
+                        block_number: 0,
+                        gas_limit: 1,
+                        gas_used: 2,
+                        timestamp: 42,
+                        extra_data: vec![].into(),
+                        base_fee_per_gas: Uint256::from(1),
+                        block_hash: ExecutionBlockHash::repeat_byte(1),
+                        transactions: ExecTransactions(vec![].into()),
+                    })
+                    .await
+            })
+            .await;
     }
 
     #[tokio::test]
     async fn forkchoice_updated_v1_request() {
-        Tester::new()
+        Tester::new(true)
             .assert_request_equals(
                 |client| async move {
                     let _ = client
                         .forkchoice_updated_v1(
                             ForkChoiceState {
-                                head_block_hash: Hash256::repeat_byte(0),
-                                safe_block_hash: Hash256::repeat_byte(0),
-                                finalized_block_hash: Hash256::repeat_byte(1),
+                                head_block_hash: ExecutionBlockHash::repeat_byte(0),
+                                safe_block_hash: ExecutionBlockHash::repeat_byte(0),
+                                finalized_block_hash: ExecutionBlockHash::repeat_byte(1),
                             },
                             None,
                         )
@@ -659,6 +797,21 @@ mod test {
                     }, JSON_NULL]
                 }),
             )
+            .await;
+
+        Tester::new(false)
+            .assert_auth_failure(|client| async move {
+                client
+                    .forkchoice_updated_v1(
+                        ForkChoiceState {
+                            head_block_hash: ExecutionBlockHash::repeat_byte(0),
+                            safe_block_hash: ExecutionBlockHash::repeat_byte(0),
+                            finalized_block_hash: ExecutionBlockHash::repeat_byte(1),
+                        },
+                        None,
+                    )
+                    .await
+            })
             .await;
     }
 
@@ -683,20 +836,20 @@ mod test {
     /// The `id` field has been modified on these vectors to match the one we use.
     #[tokio::test]
     async fn geth_test_vectors() {
-        Tester::new()
+        Tester::new(true)
             .assert_request_equals(
                 // engine_forkchoiceUpdatedV1 (prepare payload) REQUEST validation
                 |client| async move {
                     let _ = client
                         .forkchoice_updated_v1(
                             ForkChoiceState {
-                                head_block_hash: Hash256::from_str("0x3b8fb240d288781d4aac94d3fd16809ee413bc99294a085798a589dae51ddd4a").unwrap(),
-                                safe_block_hash: Hash256::from_str("0x3b8fb240d288781d4aac94d3fd16809ee413bc99294a085798a589dae51ddd4a").unwrap(),
-                                finalized_block_hash: Hash256::zero(),
+                                head_block_hash: ExecutionBlockHash::from_str("0x3b8fb240d288781d4aac94d3fd16809ee413bc99294a085798a589dae51ddd4a").unwrap(),
+                                safe_block_hash: ExecutionBlockHash::from_str("0x3b8fb240d288781d4aac94d3fd16809ee413bc99294a085798a589dae51ddd4a").unwrap(),
+                                finalized_block_hash: ExecutionBlockHash::zero(),
                             },
                             Some(PayloadAttributes {
                                 timestamp: 5,
-                                random: Hash256::zero(),
+                                prev_randao: Hash256::zero(),
                                 suggested_fee_recipient: Address::from_str("0xa94f5374fce5edbc8e2a8697c15331677e6ebf0b").unwrap(),
                             })
                         )
@@ -713,7 +866,7 @@ mod test {
                     },
                     {
                         "timestamp":"0x5",
-                        "random": HASH_00,
+                        "prevRandao": HASH_00,
                         "suggestedFeeRecipient":"0xa94f5374fce5edbc8e2a8697c15331677e6ebf0b"
                     }]
                 })
@@ -737,13 +890,13 @@ mod test {
                     let response = client
                         .forkchoice_updated_v1(
                             ForkChoiceState {
-                                head_block_hash: Hash256::from_str("0x3b8fb240d288781d4aac94d3fd16809ee413bc99294a085798a589dae51ddd4a").unwrap(),
-                                safe_block_hash: Hash256::from_str("0x3b8fb240d288781d4aac94d3fd16809ee413bc99294a085798a589dae51ddd4a").unwrap(),
-                                finalized_block_hash: Hash256::zero(),
+                                head_block_hash: ExecutionBlockHash::from_str("0x3b8fb240d288781d4aac94d3fd16809ee413bc99294a085798a589dae51ddd4a").unwrap(),
+                                safe_block_hash: ExecutionBlockHash::from_str("0x3b8fb240d288781d4aac94d3fd16809ee413bc99294a085798a589dae51ddd4a").unwrap(),
+                                finalized_block_hash: ExecutionBlockHash::zero(),
                             },
                             Some(PayloadAttributes {
                                 timestamp: 5,
-                                random: Hash256::zero(),
+                                prev_randao: Hash256::zero(),
                                 suggested_fee_recipient: Address::from_str("0xa94f5374fce5edbc8e2a8697c15331677e6ebf0b").unwrap(),
                             })
                         )
@@ -752,7 +905,7 @@ mod test {
                     assert_eq!(response, ForkchoiceUpdatedResponse {
                         payload_status: PayloadStatusV1 {
                             status: PayloadStatusV1Status::Valid,
-                            latest_valid_hash: Some(Hash256::zero()),
+                            latest_valid_hash: Some(ExecutionBlockHash::zero()),
                             validation_error: Some(String::new()),
                         },
                         payload_id:
@@ -787,7 +940,7 @@ mod test {
                         "stateRoot":"0xca3149fa9e37db08d1cd49c9061db1002ef1cd58db2210f2115c8c989b2bdf45",
                         "receiptsRoot":"0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421",
                         "logsBloom": LOGS_BLOOM_00,
-                        "random": HASH_00,
+                        "prevRandao": HASH_00,
                         "blockNumber":"0x1",
                         "gasLimit":"0x1c95111",
                         "gasUsed":"0x0",
@@ -805,20 +958,20 @@ mod test {
                         .unwrap();
 
                     let expected = ExecutionPayload {
-                            parent_hash: Hash256::from_str("0x3b8fb240d288781d4aac94d3fd16809ee413bc99294a085798a589dae51ddd4a").unwrap(),
+                            parent_hash: ExecutionBlockHash::from_str("0x3b8fb240d288781d4aac94d3fd16809ee413bc99294a085798a589dae51ddd4a").unwrap(),
                             fee_recipient: Address::from_str("0xa94f5374fce5edbc8e2a8697c15331677e6ebf0b").unwrap(),
                             state_root: Hash256::from_str("0xca3149fa9e37db08d1cd49c9061db1002ef1cd58db2210f2115c8c989b2bdf45").unwrap(),
                             receipts_root: Hash256::from_str("0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421").unwrap(),
                             logs_bloom: vec![0; 256].into(),
-                            random: Hash256::zero(),
+                            prev_randao: Hash256::zero(),
                             block_number: 1,
                             gas_limit: u64::from_str_radix("1c95111",16).unwrap(),
                             gas_used: 0,
                             timestamp: 5,
                             extra_data: vec![].into(),
                             base_fee_per_gas: Uint256::from(7),
-                            block_hash: Hash256::from_str("0x6359b8381a370e2f54072a5784ddd78b6ed024991558c511d4452eb4f6ac898c").unwrap(),
-                            transactions: ExecTransactions(vec![].into()),
+                            block_hash: ExecutionBlockHash::from_str("0x6359b8381a370e2f54072a5784ddd78b6ed024991558c511d4452eb4f6ac898c").unwrap(),
+                        transactions: ExecTransactions(vec![].into()),
                         };
 
                     assert_eq!(payload, expected);
@@ -830,19 +983,19 @@ mod test {
                 |client| async move {
                     let _ = client
                         .new_payload_v1::<MainnetEthSpec>(ExecutionPayload {
-                            parent_hash: Hash256::from_str("0x3b8fb240d288781d4aac94d3fd16809ee413bc99294a085798a589dae51ddd4a").unwrap(),
+                            parent_hash: ExecutionBlockHash::from_str("0x3b8fb240d288781d4aac94d3fd16809ee413bc99294a085798a589dae51ddd4a").unwrap(),
                             fee_recipient: Address::from_str("0xa94f5374fce5edbc8e2a8697c15331677e6ebf0b").unwrap(),
                             state_root: Hash256::from_str("0xca3149fa9e37db08d1cd49c9061db1002ef1cd58db2210f2115c8c989b2bdf45").unwrap(),
                             receipts_root: Hash256::from_str("0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421").unwrap(),
                             logs_bloom: vec![0; 256].into(),
-                            random: Hash256::zero(),
+                            prev_randao: Hash256::zero(),
                             block_number: 1,
                             gas_limit: u64::from_str_radix("1c9c380",16).unwrap(),
                             gas_used: 0,
                             timestamp: 5,
                             extra_data: vec![].into(),
                             base_fee_per_gas: Uint256::from(7),
-                            block_hash: Hash256::from_str("0x3559e851470f6e7bbed1db474980683e8c315bfce99b2a6ef47c057c04de7858").unwrap(),
+                            block_hash: ExecutionBlockHash::from_str("0x3559e851470f6e7bbed1db474980683e8c315bfce99b2a6ef47c057c04de7858").unwrap(),
                             transactions: ExecTransactions(vec![].into()),
                         })
                         .await;
@@ -857,7 +1010,7 @@ mod test {
                         "stateRoot":"0xca3149fa9e37db08d1cd49c9061db1002ef1cd58db2210f2115c8c989b2bdf45",
                         "receiptsRoot":"0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421",
                         "logsBloom": LOGS_BLOOM_00,
-                        "random": HASH_00,
+                        "prevRandao": HASH_00,
                         "blockNumber":"0x1",
                         "gasLimit":"0x1c9c380",
                         "gasUsed":"0x0",
@@ -890,7 +1043,7 @@ mod test {
                     assert_eq!(response,
                                PayloadStatusV1 {
                             status: PayloadStatusV1Status::Valid,
-                            latest_valid_hash: Some(Hash256::from_str("0x3559e851470f6e7bbed1db474980683e8c315bfce99b2a6ef47c057c04de7858").unwrap()),
+                            latest_valid_hash: Some(ExecutionBlockHash::from_str("0x3559e851470f6e7bbed1db474980683e8c315bfce99b2a6ef47c057c04de7858").unwrap()),
                             validation_error: Some(String::new()),
                         }
                     );
@@ -903,9 +1056,9 @@ mod test {
                     let _ = client
                         .forkchoice_updated_v1(
                             ForkChoiceState {
-                                head_block_hash: Hash256::from_str("0x3559e851470f6e7bbed1db474980683e8c315bfce99b2a6ef47c057c04de7858").unwrap(),
-                                safe_block_hash: Hash256::from_str("0x3559e851470f6e7bbed1db474980683e8c315bfce99b2a6ef47c057c04de7858").unwrap(),
-                                finalized_block_hash: Hash256::from_str("0x3b8fb240d288781d4aac94d3fd16809ee413bc99294a085798a589dae51ddd4a").unwrap(),
+                                head_block_hash: ExecutionBlockHash::from_str("0x3559e851470f6e7bbed1db474980683e8c315bfce99b2a6ef47c057c04de7858").unwrap(),
+                                safe_block_hash: ExecutionBlockHash::from_str("0x3559e851470f6e7bbed1db474980683e8c315bfce99b2a6ef47c057c04de7858").unwrap(),
+                                finalized_block_hash: ExecutionBlockHash::from_str("0x3b8fb240d288781d4aac94d3fd16809ee413bc99294a085798a589dae51ddd4a").unwrap(),
                             },
                             None,
                         )
@@ -942,9 +1095,9 @@ mod test {
                     let response = client
                         .forkchoice_updated_v1(
                             ForkChoiceState {
-                                head_block_hash: Hash256::from_str("0x3559e851470f6e7bbed1db474980683e8c315bfce99b2a6ef47c057c04de7858").unwrap(),
-                                safe_block_hash: Hash256::from_str("0x3559e851470f6e7bbed1db474980683e8c315bfce99b2a6ef47c057c04de7858").unwrap(),
-                                finalized_block_hash: Hash256::from_str("0x3b8fb240d288781d4aac94d3fd16809ee413bc99294a085798a589dae51ddd4a").unwrap(),
+                                head_block_hash: ExecutionBlockHash::from_str("0x3559e851470f6e7bbed1db474980683e8c315bfce99b2a6ef47c057c04de7858").unwrap(),
+                                safe_block_hash: ExecutionBlockHash::from_str("0x3559e851470f6e7bbed1db474980683e8c315bfce99b2a6ef47c057c04de7858").unwrap(),
+                                finalized_block_hash: ExecutionBlockHash::from_str("0x3b8fb240d288781d4aac94d3fd16809ee413bc99294a085798a589dae51ddd4a").unwrap(),
                             },
                             None,
                         )
@@ -953,7 +1106,7 @@ mod test {
                     assert_eq!(response, ForkchoiceUpdatedResponse {
                         payload_status: PayloadStatusV1 {
                             status: PayloadStatusV1Status::Valid,
-                            latest_valid_hash: Some(Hash256::zero()),
+                            latest_valid_hash: Some(ExecutionBlockHash::zero()),
                             validation_error: Some(String::new()),
                         },
                         payload_id: None,

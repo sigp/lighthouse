@@ -92,13 +92,13 @@ impl ConfigAndPreset {
 mod test {
     use super::*;
     use crate::MainnetEthSpec;
-    use std::fs::OpenOptions;
+    use std::fs::File;
     use tempfile::NamedTempFile;
 
     #[test]
     fn extra_fields_round_trip() {
         let tmp_file = NamedTempFile::new().expect("failed to create temp file");
-        let writer = OpenOptions::new()
+        let writer = File::options()
             .read(false)
             .write(true)
             .open(tmp_file.as_ref())
@@ -116,7 +116,7 @@ mod test {
 
         serde_yaml::to_writer(writer, &yamlconfig).expect("failed to write or serialize");
 
-        let reader = OpenOptions::new()
+        let reader = File::options()
             .read(true)
             .write(false)
             .open(tmp_file.as_ref())

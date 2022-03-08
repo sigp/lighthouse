@@ -10,7 +10,7 @@ base dependencies.
 
 The additional requirements for developers are:
 - [`ganache-cli`](https://github.com/trufflesuite/ganache-cli). This is used to
-  simulate the Eth1 chain during tests. You'll get failures during tests if you
+  simulate the execution chain during tests. You'll get failures during tests if you
   don't have `ganache-cli` available on your `PATH`.
 - [`cmake`](https://cmake.org/cmake/help/latest/command/install.html). Used by
   some dependencies. See [`Installation Guide`](./installation.md) for more info.

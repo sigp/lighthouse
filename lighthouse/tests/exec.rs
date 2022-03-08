@@ -5,6 +5,7 @@ use std::path::PathBuf;
 use std::process::{Command, Output};
 use std::str::from_utf8;
 use tempfile::TempDir;
+use types::{ChainSpec, Config, EthSpec};
 
 pub trait CommandLineTestExec {
     type Config: DeserializeOwned;
@@ -23,19 +24,22 @@ pub trait CommandLineTestExec {
     /// Executes the `Command` returned by `Self::cmd_mut` with temporary data directory, dumps
     /// the configuration and shuts down immediately.
     ///
-    /// Options `--datadir`, `--dump-config` and `--immediate-shutdown` must not be set on the
-    /// command.
+    /// Options `--datadir`, `--dump-config`, `--dump-chain-config` and `--immediate-shutdown` must
+    /// not be set on the command.
     fn run(&mut self) -> CompletedTest<Self::Config> {
         // Setup temp directory.
         let tmp_dir = TempDir::new().expect("Unable to create temporary directory");
         let tmp_config_path: PathBuf = tmp_dir.path().join("config.json");
+        let tmp_chain_config_path: PathBuf = tmp_dir.path().join("chain_spec.yaml");
 
-        // Add args --datadir <tmp_dir> --dump-config <tmp_config_path> --immediate-shutdown
+        // Add args --datadir <tmp_dir> --dump-config <tmp_config_path> --dump-chain-config <tmp_chain_config_path> --immediate-shutdown
         let cmd = self.cmd_mut();
         cmd.arg("--datadir")
             .arg(tmp_dir.path().as_os_str())
-            .arg(format!("--{}", "--dump-config"))
+            .arg(format!("--{}", "dump-config"))
             .arg(tmp_config_path.as_os_str())
+            .arg(format!("--{}", "dump-chain-config"))
+            .arg(tmp_chain_config_path.as_os_str())
             .arg("--immediate-shutdown");
 
         // Run the command.
@@ -47,23 +51,32 @@ pub trait CommandLineTestExec {
         // Grab the config.
         let config_file = File::open(tmp_config_path).expect("Unable to open dumped config");
         let config: Self::Config = from_reader(config_file).expect("Unable to deserialize config");
+        // Grab the chain config.
+        let spec_file =
+            File::open(tmp_chain_config_path).expect("Unable to open dumped chain spec");
+        let chain_config: Config =
+            serde_yaml::from_reader(spec_file).expect("Unable to deserialize config");
 
-        CompletedTest::new(config, tmp_dir)
+        CompletedTest::new(config, chain_config, tmp_dir)
     }
 
     /// Executes the `Command` returned by `Self::cmd_mut` dumps the configuration and
     /// shuts down immediately.
     ///
-    /// Options `--dump-config` and `--immediate-shutdown` must not be set on the command.
+    /// Options `--dump-config`, `--dump-chain-config` and `--immediate-shutdown` must not be set on
+    /// the command.
     fn run_with_no_datadir(&mut self) -> CompletedTest<Self::Config> {
         // Setup temp directory.
         let tmp_dir = TempDir::new().expect("Unable to create temporary directory");
         let tmp_config_path: PathBuf = tmp_dir.path().join("config.json");
+        let tmp_chain_config_path: PathBuf = tmp_dir.path().join("chain_spec.yaml");
 
-        // Add args --datadir <tmp_dir> --dump-config <tmp_config_path> --immediate-shutdown
+        // Add args --datadir <tmp_dir> --dump-config <tmp_config_path> --dump-chain-config <tmp_chain_config_path> --immediate-shutdown
         let cmd = self.cmd_mut();
-        cmd.arg(format!("--{}", "--dump-config"))
+        cmd.arg(format!("--{}", "dump-config"))
             .arg(tmp_config_path.as_os_str())
+            .arg(format!("--{}", "dump-chain-config"))
+            .arg(tmp_chain_config_path.as_os_str())
             .arg("--immediate-shutdown");
 
         // Run the command.
@@ -75,8 +88,13 @@ pub trait CommandLineTestExec {
         // Grab the config.
         let config_file = File::open(tmp_config_path).expect("Unable to open dumped config");
         let config: Self::Config = from_reader(config_file).expect("Unable to deserialize config");
+        // Grab the chain config.
+        let spec_file =
+            File::open(tmp_chain_config_path).expect("Unable to open dumped chain spec");
+        let chain_config: Config =
+            serde_yaml::from_reader(spec_file).expect("Unable to deserialize config");
 
-        CompletedTest::new(config, tmp_dir)
+        CompletedTest::new(config, chain_config, tmp_dir)
     }
 }
 
@@ -95,19 +113,35 @@ fn output_result(cmd: &mut Command) -> Result<Output, String> {
 
 pub struct CompletedTest<C> {
     config: C,
+    chain_config: Config,
     dir: TempDir,
 }
 
 impl<C> CompletedTest<C> {
-    fn new(config: C, dir: TempDir) -> Self {
-        CompletedTest { config, dir }
+    fn new(config: C, chain_config: Config, dir: TempDir) -> Self {
+        CompletedTest {
+            config,
+            chain_config,
+            dir,
+        }
     }
 
     pub fn with_config<F: Fn(&C)>(self, func: F) {
         func(&self.config);
     }
 
+    pub fn with_spec<E: EthSpec, F: Fn(ChainSpec)>(self, func: F) {
+        let spec = ChainSpec::from_config::<E>(&self.chain_config).unwrap();
+        func(spec);
+    }
+
     pub fn with_config_and_dir<F: Fn(&C, &TempDir)>(self, func: F) {
         func(&self.config, &self.dir);
+    }
+
+    #[allow(dead_code)]
+    pub fn with_config_and_spec<E: EthSpec, F: Fn(&C, ChainSpec)>(self, func: F) {
+        let spec = ChainSpec::from_config::<E>(&self.chain_config).unwrap();
+        func(&self.config, spec);
     }
 }

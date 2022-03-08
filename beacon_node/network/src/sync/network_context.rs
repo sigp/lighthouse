@@ -1,15 +1,12 @@
 //! Provides network functionality for the Syncing thread. This fundamentally wraps a network
 //! channel and stores a global RPC ID to perform requests.
 
-use super::manager::SyncRequestType;
+use super::manager::{Id, RequestId as SyncRequestId};
 use super::range_sync::{BatchId, ChainId};
-use super::RequestId as SyncRequestId;
-use crate::service::NetworkMessage;
+use crate::service::{NetworkMessage, RequestId};
 use crate::status::ToStatusMessage;
 use fnv::FnvHashMap;
-use lighthouse_network::rpc::{
-    BlocksByRangeRequest, BlocksByRootRequest, GoodbyeReason, RequestId,
-};
+use lighthouse_network::rpc::{BlocksByRangeRequest, BlocksByRootRequest, GoodbyeReason};
 use lighthouse_network::{Client, NetworkGlobals, PeerAction, PeerId, ReportSource, Request};
 use slog::{debug, trace, warn};
 use std::sync::Arc;
@@ -26,10 +23,12 @@ pub struct SyncNetworkContext<T: EthSpec> {
     network_globals: Arc<NetworkGlobals<T>>,
 
     /// A sequential ID for all RPC requests.
-    request_id: SyncRequestId,
+    request_id: Id,
 
-    /// BlocksByRange requests made by syncing algorithms.
-    range_requests: FnvHashMap<SyncRequestId, SyncRequestType>,
+    /// BlocksByRange requests made by the range syncing algorithm.
+    range_requests: FnvHashMap<Id, (ChainId, BatchId)>,
+
+    backfill_requests: FnvHashMap<Id, BatchId>,
 
     /// Logger for the `SyncNetworkContext`.
     log: slog::Logger,
@@ -46,6 +45,7 @@ impl<T: EthSpec> SyncNetworkContext<T> {
             network_globals,
             request_id: 1,
             range_requests: FnvHashMap::default(),
+            backfill_requests: FnvHashMap::default(),
             log,
         }
     }
@@ -78,7 +78,13 @@ impl<T: EthSpec> SyncNetworkContext<T> {
                     "head_slot" => %status_message.head_slot,
                 );
 
-                let _ = self.send_rpc_request(peer_id, Request::Status(status_message.clone()));
+                let request = Request::Status(status_message.clone());
+                let request_id = RequestId::Router;
+                let _ = self.send_network_msg(NetworkMessage::SendRequest {
+                    peer_id,
+                    request,
+                    request_id,
+                });
             }
         }
     }
@@ -90,7 +96,7 @@ impl<T: EthSpec> SyncNetworkContext<T> {
         request: BlocksByRangeRequest,
         chain_id: ChainId,
         batch_id: BatchId,
-    ) -> Result<SyncRequestId, &'static str> {
+    ) -> Result<Id, &'static str> {
         trace!(
             self.log,
             "Sending BlocksByRange Request";
@@ -98,10 +104,16 @@ impl<T: EthSpec> SyncNetworkContext<T> {
             "count" => request.count,
             "peer" => %peer_id,
         );
-        let req_id = self.send_rpc_request(peer_id, Request::BlocksByRange(request))?;
-        self.range_requests
-            .insert(req_id, SyncRequestType::RangeSync(batch_id, chain_id));
-        Ok(req_id)
+        let request = Request::BlocksByRange(request);
+        let id = self.next_id();
+        let request_id = RequestId::Sync(SyncRequestId::RangeSync { id });
+        self.send_network_msg(NetworkMessage::SendRequest {
+            peer_id,
+            request,
+            request_id,
+        })?;
+        self.range_requests.insert(id, (chain_id, batch_id));
+        Ok(id)
     }
 
     /// A blocks by range request sent by the backfill sync algorithm
@@ -110,7 +122,7 @@ impl<T: EthSpec> SyncNetworkContext<T> {
         peer_id: PeerId,
         request: BlocksByRangeRequest,
         batch_id: BatchId,
-    ) -> Result<SyncRequestId, &'static str> {
+    ) -> Result<Id, &'static str> {
         trace!(
             self.log,
             "Sending backfill BlocksByRange Request";
@@ -118,21 +130,24 @@ impl<T: EthSpec> SyncNetworkContext<T> {
             "count" => request.count,
             "peer" => %peer_id,
         );
-        let req_id = self.send_rpc_request(peer_id, Request::BlocksByRange(request))?;
-        self.range_requests
-            .insert(req_id, SyncRequestType::BackFillSync(batch_id));
-        Ok(req_id)
+        let request = Request::BlocksByRange(request);
+        let id = self.next_id();
+        let request_id = RequestId::Sync(SyncRequestId::BackFillSync { id });
+        self.send_network_msg(NetworkMessage::SendRequest {
+            peer_id,
+            request,
+            request_id,
+        })?;
+        self.backfill_requests.insert(id, batch_id);
+        Ok(id)
     }
 
     /// Received a blocks by range response.
-    pub fn blocks_by_range_response(
+    pub fn range_sync_response(
         &mut self,
-        request_id: usize,
+        request_id: Id,
         remove: bool,
-    ) -> Option<SyncRequestType> {
-        // NOTE: we can't guarantee that the request must be registered as it could receive more
-        // than an error, and be removed after receiving the first one.
-        // FIXME: https://github.com/sigp/lighthouse/issues/1634
+    ) -> Option<(ChainId, BatchId)> {
         if remove {
             self.range_requests.remove(&request_id)
         } else {
@@ -140,12 +155,21 @@ impl<T: EthSpec> SyncNetworkContext<T> {
         }
     }
 
-    /// Sends a blocks by root request.
-    pub fn blocks_by_root_request(
+    /// Received a blocks by range response.
+    pub fn backfill_sync_response(&mut self, request_id: Id, remove: bool) -> Option<BatchId> {
+        if remove {
+            self.backfill_requests.remove(&request_id)
+        } else {
+            self.backfill_requests.get(&request_id).cloned()
+        }
+    }
+
+    /// Sends a blocks by root request for a single block lookup.
+    pub fn single_block_lookup_request(
         &mut self,
         peer_id: PeerId,
         request: BlocksByRootRequest,
-    ) -> Result<usize, &'static str> {
+    ) -> Result<Id, &'static str> {
         trace!(
             self.log,
             "Sending BlocksByRoot Request";
@@ -153,7 +177,39 @@ impl<T: EthSpec> SyncNetworkContext<T> {
             "count" => request.block_roots.len(),
             "peer" => %peer_id
         );
-        self.send_rpc_request(peer_id, Request::BlocksByRoot(request))
+        let request = Request::BlocksByRoot(request);
+        let id = self.next_id();
+        let request_id = RequestId::Sync(SyncRequestId::SingleBlock { id });
+        self.send_network_msg(NetworkMessage::SendRequest {
+            peer_id,
+            request,
+            request_id,
+        })?;
+        Ok(id)
+    }
+
+    /// Sends a blocks by root request for a parent request.
+    pub fn parent_lookup_request(
+        &mut self,
+        peer_id: PeerId,
+        request: BlocksByRootRequest,
+    ) -> Result<Id, &'static str> {
+        trace!(
+            self.log,
+            "Sending BlocksByRoot Request";
+            "method" => "BlocksByRoot",
+            "count" => request.block_roots.len(),
+            "peer" => %peer_id
+        );
+        let request = Request::BlocksByRoot(request);
+        let id = self.next_id();
+        let request_id = RequestId::Sync(SyncRequestId::ParentLookup { id });
+        self.send_network_msg(NetworkMessage::SendRequest {
+            peer_id,
+            request,
+            request_id,
+        })?;
+        Ok(id)
     }
 
     /// Terminates the connection with the peer and bans them.
@@ -184,22 +240,6 @@ impl<T: EthSpec> SyncNetworkContext<T> {
             });
     }
 
-    /// Sends an RPC request.
-    fn send_rpc_request(
-        &mut self,
-        peer_id: PeerId,
-        request: Request,
-    ) -> Result<usize, &'static str> {
-        let request_id = self.request_id;
-        self.request_id += 1;
-        self.send_network_msg(NetworkMessage::SendRequest {
-            peer_id,
-            request_id: RequestId::Sync(request_id),
-            request,
-        })?;
-        Ok(request_id)
-    }
-
     /// Subscribes to core topics.
     pub fn subscribe_core_topics(&mut self) {
         self.network_send
@@ -215,5 +255,11 @@ impl<T: EthSpec> SyncNetworkContext<T> {
             debug!(self.log, "Could not send message to the network service");
             "Network channel send Failed"
         })
+    }
+
+    fn next_id(&mut self) -> Id {
+        let id = self.request_id;
+        self.request_id += 1;
+        id
     }
 }
