@@ -1,4 +1,4 @@
-use crate::execution_payload::ExecTransactions;
+use crate::ExecTransactions;
 use crate::test_utils::TestRandom;
 use crate::*;
 use derivative::Derivative;
@@ -51,7 +51,6 @@ pub struct BeaconBlockBody<T: EthSpec, Txns: Transactions<T> = ExecTransactions<
     #[superstruct(only(Altair, Merge))]
     pub sync_aggregate: SyncAggregate<T>,
     #[superstruct(only(Merge))]
-    #[serde(alias = "execution_payload_header")]
     pub execution_payload: ExecutionPayload<T, Txns>,
     #[superstruct(only(Base, Altair))]
     #[ssz(skip_serializing, skip_deserializing)]

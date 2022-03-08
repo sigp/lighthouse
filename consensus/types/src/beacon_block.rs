@@ -2,7 +2,7 @@ use crate::beacon_block_body::{
     BeaconBlockBodyAltair, BeaconBlockBodyBase, BeaconBlockBodyMerge, BeaconBlockBodyRef,
     BeaconBlockBodyRefMut,
 };
-use crate::execution_payload::ExecTransactions;
+use crate::ExecTransactions;
 use crate::test_utils::TestRandom;
 use crate::*;
 use bls::Signature;

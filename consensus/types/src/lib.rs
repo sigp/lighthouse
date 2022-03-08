@@ -89,6 +89,7 @@ pub mod sqlite;
 pub mod blinded_beacon_block;
 pub mod blinded_beacon_block_body;
 pub mod signed_blinded_beacon_block;
+pub mod transactions;
 
 use ethereum_types::{H160, H256};
 
@@ -126,9 +127,8 @@ pub use crate::enr_fork_id::EnrForkId;
 pub use crate::eth1_data::Eth1Data;
 pub use crate::eth_spec::EthSpecId;
 pub use crate::execution_block_hash::ExecutionBlockHash;
-pub use crate::execution_payload::{
-    BlindedTransactions, BlockType, ExecTransactions, ExecutionPayload, Transaction, Transactions,
-};
+pub use crate::transactions::{BlindedTransactions, ExecTransactions,Transaction , Transactions};
+pub use crate::execution_payload::{BlockType, ExecutionPayload};
 pub use crate::execution_payload_header::ExecutionPayloadHeader;
 pub use crate::fork::Fork;
 pub use crate::fork_context::ForkContext;

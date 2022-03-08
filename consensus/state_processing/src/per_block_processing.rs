@@ -177,25 +177,25 @@ pub fn per_block_processing<T: EthSpec, Txns: Transactions<T>>(
 /// Processes the block header, returning the proposer index.
 pub fn process_block_header<T: EthSpec>(
     state: &mut BeaconState<T>,
-    block: BeaconBlockHeader,
+    block_header: BeaconBlockHeader,
     verify_block_root: VerifyBlockRoot,
     spec: &ChainSpec,
 ) -> Result<u64, BlockOperationError<HeaderInvalid>> {
     // Verify that the slots match
-    verify!(block.slot == state.slot(), HeaderInvalid::StateSlotMismatch);
+    verify!(block_header.slot == state.slot(), HeaderInvalid::StateSlotMismatch);
 
     // Verify that the block is newer than the latest block header
     verify!(
-        block.slot > state.latest_block_header().slot,
+        block_header.slot > state.latest_block_header().slot,
         HeaderInvalid::OlderThanLatestBlockHeader {
-            block_slot: block.slot,
+            block_slot: block_header.slot,
             latest_block_header_slot: state.latest_block_header().slot,
         }
     );
 
     // Verify that proposer index is the correct index
-    let proposer_index = block.proposer_index as usize;
-    let state_proposer_index = state.get_beacon_proposer_index(block.slot, spec)?;
+    let proposer_index = block_header.proposer_index as usize;
+    let state_proposer_index = state.get_beacon_proposer_index(block_header.slot, spec)?;
     verify!(
         proposer_index == state_proposer_index,
         HeaderInvalid::ProposerIndexMismatch {
@@ -207,15 +207,15 @@ pub fn process_block_header<T: EthSpec>(
     if verify_block_root == VerifyBlockRoot::True {
         let expected_previous_block_root = state.latest_block_header().tree_hash_root();
         verify!(
-            block.parent_root == expected_previous_block_root,
+            block_header.parent_root == expected_previous_block_root,
             HeaderInvalid::ParentBlockRootMismatch {
                 state: expected_previous_block_root,
-                block: block.parent_root,
+                block: block_header.parent_root,
             }
         );
     }
 
-    *state.latest_block_header_mut() = block;
+    *state.latest_block_header_mut() = block_header;
 
     // Verify proposer is not slashed
     verify!(
