@@ -99,7 +99,6 @@ impl InvalidPayloadRig {
             .server
             .take_previous_request()
             .expect("no previous request");
-        dbg!(&json);
         let params = json.get("params").expect("no params");
         let payload_param_json = params.get(1).expect("no payload param");
         let attributes: JsonPayloadAttributesV1 =
