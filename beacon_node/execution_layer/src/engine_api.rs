@@ -1,12 +1,15 @@
 use async_trait::async_trait;
 use eth1::http::RpcError;
+use reqwest::StatusCode;
 use serde::{Deserialize, Serialize};
 
 pub const LATEST_TAG: &str = "latest";
 
 use crate::engines::ForkChoiceState;
+pub use json_structures::TransitionConfigurationV1;
 pub use types::{Address, EthSpec, ExecutionBlockHash, ExecutionPayload, Hash256, Uint256};
 
+pub mod auth;
 pub mod http;
 pub mod json_structures;
 
@@ -15,6 +18,7 @@ pub type PayloadId = [u8; 8];
 #[derive(Debug)]
 pub enum Error {
     Reqwest(reqwest::Error),
+    Auth(auth::Error),
     BadResponse(String),
     RequestFailed(String),
     InvalidExecutePayloadResponse(&'static str),
@@ -27,17 +31,31 @@ pub enum Error {
     ExecutionHeadBlockNotFound,
     ParentHashEqualsBlockHash(ExecutionBlockHash),
     PayloadIdUnavailable,
+    TransitionConfigurationMismatch,
 }
 
 impl From<reqwest::Error> for Error {
     fn from(e: reqwest::Error) -> Self {
-        Error::Reqwest(e)
+        if matches!(
+            e.status(),
+            Some(StatusCode::UNAUTHORIZED) | Some(StatusCode::FORBIDDEN)
+        ) {
+            Error::Auth(auth::Error::InvalidToken)
+        } else {
+            Error::Reqwest(e)
+        }
     }
 }
 
 impl From<serde_json::Error> for Error {
     fn from(e: serde_json::Error) -> Self {
         Error::Json(e)
+    }
+}
+
+impl From<auth::Error> for Error {
+    fn from(e: auth::Error) -> Self {
+        Error::Auth(e)
     }
 }
 
@@ -71,6 +89,11 @@ pub trait EngineApi {
         forkchoice_state: ForkChoiceState,
         payload_attributes: Option<PayloadAttributes>,
     ) -> Result<ForkchoiceUpdatedResponse, Error>;
+
+    async fn exchange_transition_configuration_v1(
+        &self,
+        transition_configuration: TransitionConfigurationV1,
+    ) -> Result<TransitionConfigurationV1, Error>;
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]

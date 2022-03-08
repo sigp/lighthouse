@@ -17,6 +17,7 @@ use fnv::FnvHashMap;
 use futures::task::Poll;
 use futures::{Stream, StreamExt};
 use lighthouse_network::{MessageId, PeerId};
+use logging::TimeLatch;
 use slog::{crit, debug, error, warn, Logger};
 use slot_clock::SlotClock;
 use std::collections::{HashMap, HashSet};
@@ -133,6 +134,8 @@ struct ReprocessQueue<T: BeaconChainTypes> {
     /* Aux */
     /// Next attestation id, used for both aggregated and unaggregated attestations
     next_attestation: usize,
+    early_block_debounce: TimeLatch,
+    attestation_delay_debounce: TimeLatch,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -223,6 +226,8 @@ pub fn spawn_reprocess_scheduler<T: BeaconChainTypes>(
         queued_unaggregates: FnvHashMap::default(),
         awaiting_attestations_per_root: HashMap::new(),
         next_attestation: 0,
+        early_block_debounce: TimeLatch::default(),
+        attestation_delay_debounce: TimeLatch::default(),
     };
 
     executor.spawn(
@@ -261,12 +266,14 @@ impl<T: BeaconChainTypes> ReprocessQueue<T> {
                 if let Some(duration_till_slot) = slot_clock.duration_to_slot(block_slot) {
                     // Check to ensure this won't over-fill the queue.
                     if self.queued_block_roots.len() >= MAXIMUM_QUEUED_BLOCKS {
-                        warn!(
-                            log,
-                            "Early blocks queue is full";
-                            "queue_size" => MAXIMUM_QUEUED_BLOCKS,
-                            "msg" => "check system clock"
-                        );
+                        if self.early_block_debounce.elapsed() {
+                            warn!(
+                                log,
+                                "Early blocks queue is full";
+                                "queue_size" => MAXIMUM_QUEUED_BLOCKS,
+                                "msg" => "check system clock"
+                            );
+                        }
                         // Drop the block.
                         return;
                     }
@@ -306,12 +313,14 @@ impl<T: BeaconChainTypes> ReprocessQueue<T> {
             }
             InboundEvent::Msg(UnknownBlockAggregate(queued_aggregate)) => {
                 if self.attestations_delay_queue.len() >= MAXIMUM_QUEUED_ATTESTATIONS {
-                    error!(
-                        log,
-                        "Aggregate attestation delay queue is full";
-                        "queue_size" => MAXIMUM_QUEUED_ATTESTATIONS,
-                        "msg" => "check system clock"
-                    );
+                    if self.attestation_delay_debounce.elapsed() {
+                        error!(
+                            log,
+                            "Aggregate attestation delay queue is full";
+                            "queue_size" => MAXIMUM_QUEUED_ATTESTATIONS,
+                            "msg" => "check system clock"
+                        );
+                    }
                     // Drop the attestation.
                     return;
                 }
@@ -337,12 +346,14 @@ impl<T: BeaconChainTypes> ReprocessQueue<T> {
             }
             InboundEvent::Msg(UnknownBlockUnaggregate(queued_unaggregate)) => {
                 if self.attestations_delay_queue.len() >= MAXIMUM_QUEUED_ATTESTATIONS {
-                    error!(
-                        log,
-                        "Attestation delay queue is full";
-                        "queue_size" => MAXIMUM_QUEUED_ATTESTATIONS,
-                        "msg" => "check system clock"
-                    );
+                    if self.attestation_delay_debounce.elapsed() {
+                        error!(
+                            log,
+                            "Attestation delay queue is full";
+                            "queue_size" => MAXIMUM_QUEUED_ATTESTATIONS,
+                            "msg" => "check system clock"
+                        );
+                    }
                     // Drop the attestation.
                     return;
                 }

@@ -149,11 +149,10 @@ where
             None
         };
 
-        let execution_layer = if let Some(execution_endpoints) = config.execution_endpoints {
+        let execution_layer = if let Some(config) = config.execution_layer {
             let context = runtime_context.service_context("exec".into());
-            let execution_layer = ExecutionLayer::from_urls(
-                execution_endpoints,
-                config.suggested_fee_recipient,
+            let execution_layer = ExecutionLayer::from_config(
+                config,
                 context.executor.clone(),
                 context.log().clone(),
             )
@@ -723,6 +722,9 @@ where
                 execution_layer.spawn_clean_proposer_preparation_routine::<TSlotClock, TEthSpec>(
                     beacon_chain.slot_clock.clone(),
                 );
+
+                // Spawns a routine that polls the `exchange_transition_configuration` endpoint.
+                execution_layer.spawn_transition_configuration_poll(beacon_chain.spec.clone());
             }
         }
 

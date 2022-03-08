@@ -4,7 +4,7 @@ use eth2::{BeaconNodeHttpClient, Timeouts};
 use log::{error, info};
 use sensitive_url::SensitiveUrl;
 use std::collections::{HashMap, HashSet};
-use std::fs::OpenOptions;
+use std::fs::File;
 use std::io::Write;
 use std::path::PathBuf;
 use std::time::Duration;
@@ -158,7 +158,7 @@ pub async fn run<T: EthSpec>(matches: &ArgMatches<'_>) -> Result<(), String> {
 
     let mut proposer_map: HashMap<Slot, ProposerInfo> = HashMap::new();
 
-    let mut file = OpenOptions::new()
+    let mut file = File::options()
         .read(true)
         .write(true)
         .create(true)

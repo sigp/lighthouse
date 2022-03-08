@@ -4,7 +4,7 @@ use eth2_wallet::{
     bip39::{Language, Mnemonic, Seed},
     recover_validator_secret, DerivedKey, Error, KeyType, KeystoreError, Wallet, WalletBuilder,
 };
-use std::fs::OpenOptions;
+use std::fs::File;
 use tempfile::tempdir;
 
 const NAME: &str = "Wallet McWalletface";
@@ -133,7 +133,7 @@ fn file_round_trip() {
     let path = dir.path().join("keystore.json");
 
     let get_file = || {
-        OpenOptions::new()
+        File::options()
             .write(true)
             .read(true)
             .create(true)

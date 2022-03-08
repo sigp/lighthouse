@@ -345,6 +345,7 @@ dependencies = [
  "environment",
  "eth2_config",
  "eth2_network_config",
+ "execution_layer",
  "futures",
  "genesis",
  "hex",
@@ -611,7 +612,7 @@ dependencies = [
  "eth2_ssz_derive 0.3.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "eth2_ssz_types",
  "ethereum-types 0.12.1",
- "quickcheck",
+ "quickcheck 0.9.2",
  "quickcheck_macros",
  "smallvec",
  "tree_hash",
@@ -1842,8 +1843,10 @@ dependencies = [
  "exit-future",
  "futures",
  "hex",
+ "jsonwebtoken",
  "lru",
  "parking_lot 0.11.2",
+ "rand 0.7.3",
  "reqwest",
  "sensitive_url",
  "serde",
@@ -1851,11 +1854,13 @@ dependencies = [
  "slog",
  "slot_clock",
  "task_executor",
+ "tempfile",
  "tokio",
  "tree_hash",
  "tree_hash_derive 0.4.0",
  "types",
  "warp 0.3.0",
+ "zeroize",
 ]
 
 [[package]]
@@ -2766,6 +2771,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "jsonwebtoken"
+version = "8.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "012bb02250fdd38faa5feee63235f7a459974440b9b57593822414c31f92839e"
+dependencies = [
+ "base64 0.13.0",
+ "pem",
+ "ring",
+ "serde",
+ "serde_json",
+ "simple_asn1",
+]
+
+[[package]]
 name = "k256"
 version = "0.8.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3588,7 +3607,7 @@ dependencies = [
  "eth2_hashing 0.2.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "ethereum-types 0.12.1",
  "lazy_static",
- "quickcheck",
+ "quickcheck 0.9.2",
  "quickcheck_macros",
  "safe_arith",
 ]
@@ -4266,6 +4285,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "19b17cddbe7ec3f8bc800887bab5e717348c95ea2ca0b1bf0837fb964dc67099"
 
 [[package]]
+name = "pem"
+version = "1.0.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e9a3b09a20e374558580a4914d3b7d89bd61b954a5a5e1dcbea98753addb1947"
+dependencies = [
+ "base64 0.13.0",
+]
+
+[[package]]
 name = "percent-encoding"
 version = "2.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4670,6 +4698,15 @@ dependencies = [
  "log",
  "rand 0.7.3",
  "rand_core 0.5.1",
+]
+
+[[package]]
+name = "quickcheck"
+version = "1.0.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "588f6378e4dd99458b60ec275b4477add41ce4fa9f64dcba6f15adccb19b50d6"
+dependencies = [
+ "rand 0.8.5",
 ]
 
 [[package]]
@@ -5476,6 +5513,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "simple_asn1"
+version = "0.6.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4a762b1c38b9b990c694b9c2f8abe3372ce6a9ceaae6bca39cfc46e054f45745"
+dependencies = [
+ "num-bigint",
+ "num-traits",
+ "thiserror",
+ "time 0.3.7",
+]
+
+[[package]]
 name = "simulator"
 version = "0.2.0"
 dependencies = [
@@ -6077,6 +6126,7 @@ dependencies = [
  "itoa 1.0.1",
  "libc",
  "num_threads",
+ "quickcheck 1.0.3",
  "time-macros",
 ]
 

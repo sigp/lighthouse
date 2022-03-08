@@ -7,8 +7,12 @@ use lighthouse_metrics::{
 use slog::Logger;
 use slog_term::Decorator;
 use std::io::{Result, Write};
+use std::time::{Duration, Instant};
 
 pub const MAX_MESSAGE_WIDTH: usize = 40;
+
+/// The minimum interval between log messages indicating that a queue is full.
+const LOG_DEBOUNCE_INTERVAL: Duration = Duration::from_secs(30);
 
 lazy_static! {
     pub static ref INFOS_TOTAL: MetricsResult<IntCounter> =
@@ -185,6 +189,25 @@ fn is_ascii_control(character: &u8) -> bool {
         b'\x7f' |
         b'\x81'..=b'\x9f'
     )
+}
+
+/// Provides de-bounce functionality for logging.
+#[derive(Default)]
+pub struct TimeLatch(Option<Instant>);
+
+impl TimeLatch {
+    /// Only returns true once every `LOG_DEBOUNCE_INTERVAL`.
+    pub fn elapsed(&mut self) -> bool {
+        let now = Instant::now();
+
+        let is_elapsed = self.0.map_or(false, |elapse_time| now > elapse_time);
+
+        if is_elapsed || self.0.is_none() {
+            self.0 = Some(now + LOG_DEBOUNCE_INTERVAL);
+        }
+
+        is_elapsed
+    }
 }
 
 /// Return a logger suitable for test usage.

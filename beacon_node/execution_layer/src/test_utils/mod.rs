@@ -1,6 +1,9 @@
 //! Provides a mock execution engine HTTP JSON-RPC API for use in testing.
 
-use crate::engine_api::{http::JSONRPC_VERSION, PayloadStatusV1, PayloadStatusV1Status};
+use crate::engine_api::auth::JwtKey;
+use crate::engine_api::{
+    auth::Auth, http::JSONRPC_VERSION, PayloadStatusV1, PayloadStatusV1Status,
+};
 use bytes::Bytes;
 use environment::null_logger;
 use execution_block_generator::{Block, PoWBlock};
@@ -9,19 +12,21 @@ use parking_lot::{Mutex, RwLock, RwLockWriteGuard};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use slog::{info, Logger};
+use std::convert::Infallible;
 use std::future::Future;
 use std::marker::PhantomData;
 use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
 use std::sync::Arc;
 use tokio::{runtime, sync::oneshot};
 use types::{EthSpec, ExecutionBlockHash, Uint256};
-use warp::Filter;
+use warp::{http::StatusCode, Filter, Rejection};
 
 pub use execution_block_generator::{generate_pow_block, ExecutionBlockGenerator};
 pub use mock_execution_layer::{ExecutionLayerRuntime, MockExecutionLayer};
 
 pub const DEFAULT_TERMINAL_DIFFICULTY: u64 = 6400;
 pub const DEFAULT_TERMINAL_BLOCK: u64 = 64;
+pub const JWT_SECRET: [u8; 32] = [42; 32];
 
 mod execution_block_generator;
 mod handle_rpc;
@@ -222,6 +227,10 @@ pub struct StaticNewPayloadResponse {
     status: PayloadStatusV1,
     should_import: bool,
 }
+#[derive(Debug)]
+struct AuthError(String);
+
+impl warp::reject::Reject for AuthError {}
 
 /// A wrapper around all the items required to spawn the HTTP server.
 ///
@@ -250,6 +259,66 @@ impl Default for Config {
             listen_port: 0,
         }
     }
+}
+
+/// An API error serializable to JSON.
+#[derive(Serialize)]
+struct ErrorMessage {
+    code: u16,
+    message: String,
+}
+
+/// Returns a `warp` header which filters out request that has a missing or incorrectly
+/// signed JWT token.
+fn auth_header_filter() -> warp::filters::BoxedFilter<()> {
+    warp::any()
+        .and(warp::filters::header::optional("Authorization"))
+        .and_then(move |authorization: Option<String>| async move {
+            match authorization {
+                None => Err(warp::reject::custom(AuthError(
+                    "auth absent from request".to_string(),
+                ))),
+                Some(auth) => {
+                    if let Some(token) = auth.strip_prefix("Bearer ") {
+                        let secret = JwtKey::from_slice(&JWT_SECRET).unwrap();
+                        match Auth::validate_token(token, &secret) {
+                            Ok(_) => Ok(()),
+                            Err(e) => Err(warp::reject::custom(AuthError(format!(
+                                "Auth failure: {:?}",
+                                e
+                            )))),
+                        }
+                    } else {
+                        Err(warp::reject::custom(AuthError(
+                            "Bearer token not present in auth header".to_string(),
+                        )))
+                    }
+                }
+            }
+        })
+        .untuple_one()
+        .boxed()
+}
+/// This function receives a `Rejection` and tries to return a custom
+/// value on invalid auth, otherwise simply passes the rejection along.
+async fn handle_rejection(err: Rejection) -> Result<impl warp::Reply, Infallible> {
+    let code;
+    let message;
+
+    if let Some(e) = err.find::<AuthError>() {
+        message = format!("Authorization error: {:?}", e);
+        code = StatusCode::UNAUTHORIZED;
+    } else {
+        message = "BAD_REQUEST".to_string();
+        code = StatusCode::BAD_REQUEST;
+    }
+
+    let json = warp::reply::json(&ErrorMessage {
+        code: code.as_u16(),
+        message,
+    });
+
+    Ok(warp::reply::with_status(json, code))
 }
 
 /// Creates a server that will serve requests using information from `ctx`.
@@ -288,7 +357,6 @@ pub fn serve<T: EthSpec>(
                 .get("id")
                 .and_then(serde_json::Value::as_u64)
                 .ok_or_else(|| warp::reject::custom(MissingIdField))?;
-
             let preloaded_response = {
                 let mut preloaded_responses = ctx.preloaded_responses.lock();
                 if !preloaded_responses.is_empty() {
@@ -339,7 +407,9 @@ pub fn serve<T: EthSpec>(
         });
 
     let routes = warp::post()
+        .and(auth_header_filter())
         .and(root.or(echo))
+        .recover(handle_rejection)
         // Add a `Server` header.
         .map(|reply| warp::reply::with_header(reply, "Server", "lighthouse-mock-execution-client"));
 

@@ -212,7 +212,7 @@ fn merge_flag() {
     CommandLineTest::new()
         .flag("merge", None)
         .run_with_zero_port()
-        .with_config(|config| assert!(config.execution_endpoints.is_some()));
+        .with_config(|config| assert!(config.execution_layer.is_some()));
 }
 #[test]
 fn merge_execution_endpoints_flag() {
@@ -233,7 +233,33 @@ fn merge_execution_endpoints_flag() {
         .flag("merge", None)
         .flag("execution-endpoints", Some(&endpoint_arg))
         .run_with_zero_port()
-        .with_config(|config| assert_eq!(config.execution_endpoints.as_ref(), Some(&endpoints)));
+        .with_config(|config| {
+            let config = config.execution_layer.as_ref().unwrap();
+            assert_eq!(config.execution_endpoints, endpoints)
+        });
+}
+#[test]
+fn merge_jwt_secrets_flag() {
+    let dir = TempDir::new().expect("Unable to create temporary directory");
+    let mut file = File::create(dir.path().join("jwtsecrets")).expect("Unable to create file");
+    file.write_all(b"0x3cbc11b0d8fa16f3344eacfd6ff6430b9d30734450e8adcf5400f88d327dcb33")
+        .expect("Unable to write to file");
+    CommandLineTest::new()
+        .flag("merge", None)
+        .flag("execution-endpoints", Some("http://localhost:8551/"))
+        .flag(
+            "jwt-secrets",
+            dir.path().join("jwt-file").as_os_str().to_str(),
+        )
+        .run_with_zero_port()
+        .with_config(|config| {
+            let config = config.execution_layer.as_ref().unwrap();
+            assert_eq!(
+                config.execution_endpoints[0].full.to_string(),
+                "http://localhost:8551/"
+            );
+            assert_eq!(config.secret_files[0], dir.path().join("jwt-file"));
+        });
 }
 #[test]
 fn merge_fee_recipient_flag() {
@@ -245,10 +271,24 @@ fn merge_fee_recipient_flag() {
         )
         .run_with_zero_port()
         .with_config(|config| {
+            let config = config.execution_layer.as_ref().unwrap();
             assert_eq!(
                 config.suggested_fee_recipient,
                 Some(Address::from_str("0x00000000219ab540356cbb839cbe05303d7705fa").unwrap())
-            )
+            );
+        });
+}
+#[test]
+fn jwt_optional_flags() {
+    CommandLineTest::new()
+        .flag("merge", None)
+        .flag("jwt-id", Some("bn-1"))
+        .flag("jwt-version", Some("Lighthouse-v2.1.3"))
+        .run_with_zero_port()
+        .with_config(|config| {
+            let config = config.execution_layer.as_ref().unwrap();
+            assert_eq!(config.jwt_id, Some("bn-1".to_string()));
+            assert_eq!(config.jwt_version, Some("Lighthouse-v2.1.3".to_string()));
         });
 }
 #[test]

@@ -8,7 +8,7 @@ use crate::{signing_root_from_row, NotSafe, Safe, SignedAttestation, SignedBlock
 use filesystem::restrict_file_permissions;
 use r2d2_sqlite::SqliteConnectionManager;
 use rusqlite::{params, OptionalExtension, Transaction, TransactionBehavior};
-use std::fs::OpenOptions;
+use std::fs::File;
 use std::path::Path;
 use std::time::Duration;
 use types::{AttestationData, BeaconBlockHeader, Epoch, Hash256, PublicKeyBytes, SignedRoot, Slot};
@@ -50,7 +50,7 @@ impl SlashingDatabase {
     ///
     /// Error if a database (or any file) already exists at `path`.
     pub fn create(path: &Path) -> Result<Self, NotSafe> {
-        let _file = OpenOptions::new()
+        let _file = File::options()
             .write(true)
             .read(true)
             .create_new(true)
