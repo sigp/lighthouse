@@ -1,5 +1,7 @@
 pub use lighthouse_metrics::*;
 
+pub const HIT: &str = "hit";
+pub const MISS: &str = "miss";
 pub const GET_PAYLOAD: &str = "get_payload";
 pub const NEW_PAYLOAD: &str = "new_payload";
 pub const FORKCHOICE_UPDATED: &str = "forkchoice_updated";
@@ -23,5 +25,10 @@ lazy_static::lazy_static! {
     pub static ref EXECUTION_LAYER_PAYLOAD_ATTRIBUTES_LOOKAHEAD: Result<Histogram> = try_create_histogram(
         "execution_layer_payload_attributes_lookahead",
         "Duration between a fcU call with PayloadAttributes and when the block should be produced",
+    );
+    pub static ref EXECUTION_LAYER_PRE_PREPARED_PAYLOAD_ID: Result<IntCounterVec> = try_create_int_counter_vec(
+        "execution_layer_pre_prepared_payload_id",
+        "Indicates hits or misses for already having prepared a payload id before payload production",
+        &["event"]
     );
 }

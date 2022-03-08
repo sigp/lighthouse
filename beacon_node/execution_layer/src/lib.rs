@@ -461,6 +461,10 @@ impl ExecutionLayer {
                     .await
                 {
                     // The payload id has been cached for this engine.
+                    metrics::inc_counter_vec(
+                        &metrics::EXECUTION_LAYER_PRE_PREPARED_PAYLOAD_ID,
+                        &[metrics::HIT],
+                    );
                     id
                 } else {
                     // The payload id has *not* been cached for this engine. Trigger an artificial
@@ -469,6 +473,10 @@ impl ExecutionLayer {
                     // TODO(merge): a better algorithm might try to favour a node that already had a
                     // cached payload id, since a payload that has had more time to produce is
                     // likely to be more profitable.
+                    metrics::inc_counter_vec(
+                        &metrics::EXECUTION_LAYER_PRE_PREPARED_PAYLOAD_ID,
+                        &[metrics::MISS],
+                    );
                     let fork_choice_state = ForkChoiceState {
                         head_block_hash: parent_hash,
                         safe_block_hash: parent_hash,
