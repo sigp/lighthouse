@@ -254,7 +254,12 @@ pub fn get_config<E: EthSpec>(
             let secret_files: Vec<_> = secrets.split(',').map(PathBuf::from).collect();
             if !secret_files.is_empty() && secret_files.len() != el_config.execution_endpoints.len()
             {
-                return Err("length of jwt-secrets must be equal to number of execution-endpoints or 0 to use the default secret".to_string());
+                return Err(format!(
+                    "{} execution-endpoints supplied with {} jwt-secrets. Lengths \
+                        must match or jwt-secrets must be empty.",
+                    el_config.execution_endpoints.len(),
+                    secret_files.len(),
+                ));
             }
             el_config.secret_files = secret_files;
         }
