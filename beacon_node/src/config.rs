@@ -236,20 +236,41 @@ pub fn get_config<E: EthSpec>(
         client_config.eth1.purge_cache = true;
     }
 
-    if let Some(endpoints) = cli_args.value_of("execution-endpoints") {
-        client_config.sync_eth1_chain = true;
-        client_config.execution_endpoints = endpoints
-            .split(',')
-            .map(SensitiveUrl::parse)
-            .collect::<Result<_, _>>()
-            .map(Some)
-            .map_err(|e| format!("execution-endpoints contains an invalid URL {:?}", e))?;
-    } else if cli_args.is_present("merge") {
-        client_config.execution_endpoints = Some(client_config.eth1.endpoints.clone());
-    }
+    if cli_args.is_present("merge") || cli_args.is_present("execution-endpoints") {
+        let mut el_config = execution_layer::Config::default();
 
-    client_config.suggested_fee_recipient =
-        clap_utils::parse_optional(cli_args, "suggested-fee-recipient")?;
+        if let Some(endpoints) = cli_args.value_of("execution-endpoints") {
+            client_config.sync_eth1_chain = true;
+            el_config.execution_endpoints = endpoints
+                .split(',')
+                .map(SensitiveUrl::parse)
+                .collect::<Result<_, _>>()
+                .map_err(|e| format!("execution-endpoints contains an invalid URL {:?}", e))?;
+        } else if cli_args.is_present("merge") {
+            el_config.execution_endpoints = client_config.eth1.endpoints.clone();
+        }
+
+        if let Some(secrets) = cli_args.value_of("jwt-secrets") {
+            let secret_files: Vec<_> = secrets.split(',').map(PathBuf::from).collect();
+            if !secret_files.is_empty() && secret_files.len() != el_config.execution_endpoints.len()
+            {
+                return Err(format!(
+                    "{} execution-endpoints supplied with {} jwt-secrets. Lengths \
+                        must match or jwt-secrets must be empty.",
+                    el_config.execution_endpoints.len(),
+                    secret_files.len(),
+                ));
+            }
+            el_config.secret_files = secret_files;
+        }
+
+        el_config.suggested_fee_recipient =
+            clap_utils::parse_optional(cli_args, "suggested-fee-recipient")?;
+        el_config.jwt_id = clap_utils::parse_optional(cli_args, "jwt-id")?;
+        el_config.jwt_version = clap_utils::parse_optional(cli_args, "jwt-version")?;
+        el_config.default_datadir = client_config.data_dir.clone();
+        client_config.execution_layer = Some(el_config);
+    }
 
     if let Some(freezer_dir) = cli_args.value_of("freezer-dir") {
         client_config.freezer_db_path = Some(PathBuf::from(freezer_dir));

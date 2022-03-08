@@ -415,6 +415,35 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .takes_value(true)
         )
         .arg(
+            Arg::with_name("jwt-secrets")
+                .long("jwt-secrets")
+                .value_name("JWT-SECRETS")
+                .help("One or more comma-delimited file paths which contain the corresponding hex-encoded \
+                       JWT secrets for each execution endpoint provided in the --execution-endpoints flag. \
+                       The number of paths should be in the same order and strictly equal to the number \
+                       of execution endpoints provided.")
+                .takes_value(true)
+                .requires("execution-endpoints")
+        )
+        .arg(
+            Arg::with_name("jwt-id")
+                .long("jwt-id")
+                .value_name("JWT-ID")
+                .help("Used by the beacon node to communicate a unique identifier to execution nodes \
+                       during JWT authentication. It corresponds to the 'id' field in the JWT claims object.\
+                       Set to empty by deafult")
+                .takes_value(true)
+        )
+        .arg(
+            Arg::with_name("jwt-version")
+                .long("jwt-version")
+                .value_name("JWT-VERSION")
+                .help("Used by the beacon node to communicate a client version to execution nodes \
+                       during JWT authentication. It corresponds to the 'clv' field in the JWT claims object.\
+                       Set to empty by deafult")
+                .takes_value(true)
+        )
+        .arg(
             Arg::with_name("suggested-fee-recipient")
                 .long("suggested-fee-recipient")
                 .value_name("SUGGESTED-FEE-RECIPIENT")

@@ -1,6 +1,7 @@
 //! Contains an implementation of `EngineAPI` using the JSON-RPC API via HTTP.
 
 use super::*;
+use crate::auth::Auth;
 use crate::json_structures::*;
 use async_trait::async_trait;
 use eth1::http::EIP155_ERROR_STR;
@@ -44,6 +45,7 @@ pub const ENGINE_EXCHANGE_TRANSITION_CONFIGURATION_V1_TIMEOUT: Duration =
 pub struct HttpJsonRpc {
     pub client: Client,
     pub url: SensitiveUrl,
+    auth: Option<Auth>,
 }
 
 impl HttpJsonRpc {
@@ -51,6 +53,15 @@ impl HttpJsonRpc {
         Ok(Self {
             client: Client::builder().build()?,
             url,
+            auth: None,
+        })
+    }
+
+    pub fn new_with_auth(url: SensitiveUrl, auth: Auth) -> Result<Self, Error> {
+        Ok(Self {
+            client: Client::builder().build()?,
+            url,
+            auth: Some(auth),
         })
     }
 
@@ -67,17 +78,19 @@ impl HttpJsonRpc {
             id: STATIC_ID,
         };
 
-        let body: JsonResponseBody = self
+        let mut request = self
             .client
             .post(self.url.full.clone())
             .timeout(timeout)
             .header(CONTENT_TYPE, "application/json")
-            .json(&body)
-            .send()
-            .await?
-            .error_for_status()?
-            .json()
-            .await?;
+            .json(&body);
+
+        // Generate and add a jwt token to the header if auth is defined.
+        if let Some(auth) = &self.auth {
+            request = request.bearer_auth(auth.generate_token()?);
+        };
+
+        let body: JsonResponseBody = request.send().await?.error_for_status()?.json().await?;
 
         match (body.result, body.error) {
             (result, None) => serde_json::from_value(result).map_err(Into::into),
@@ -205,8 +218,9 @@ impl EngineApi for HttpJsonRpc {
 
 #[cfg(test)]
 mod test {
+    use super::auth::JwtKey;
     use super::*;
-    use crate::test_utils::MockServer;
+    use crate::test_utils::{MockServer, JWT_SECRET};
     use std::future::Future;
     use std::str::FromStr;
     use std::sync::Arc;
@@ -219,14 +233,25 @@ mod test {
     }
 
     impl Tester {
-        pub fn new() -> Self {
+        pub fn new(with_auth: bool) -> Self {
             let server = MockServer::unit_testing();
 
             let rpc_url = SensitiveUrl::parse(&server.url()).unwrap();
-            let rpc_client = Arc::new(HttpJsonRpc::new(rpc_url).unwrap());
-
             let echo_url = SensitiveUrl::parse(&format!("{}/echo", server.url())).unwrap();
-            let echo_client = Arc::new(HttpJsonRpc::new(echo_url).unwrap());
+            // Create rpc clients that include JWT auth headers if `with_auth` is true.
+            let (rpc_client, echo_client) = if with_auth {
+                let rpc_auth = Auth::new(JwtKey::from_slice(&JWT_SECRET).unwrap(), None, None);
+                let echo_auth = Auth::new(JwtKey::from_slice(&JWT_SECRET).unwrap(), None, None);
+                (
+                    Arc::new(HttpJsonRpc::new_with_auth(rpc_url, rpc_auth).unwrap()),
+                    Arc::new(HttpJsonRpc::new_with_auth(echo_url, echo_auth).unwrap()),
+                )
+            } else {
+                (
+                    Arc::new(HttpJsonRpc::new(rpc_url).unwrap()),
+                    Arc::new(HttpJsonRpc::new(echo_url).unwrap()),
+                )
+            };
 
             Self {
                 server,
@@ -252,6 +277,22 @@ mod test {
                 panic!(
                     "json mismatch!\n\nobserved: {}\n\nexpected: {}\n\n",
                     request_json, expected_json,
+                )
+            }
+            self
+        }
+
+        pub async fn assert_auth_failure<R, F, T>(self, request_func: R) -> Self
+        where
+            R: Fn(Arc<HttpJsonRpc>) -> F,
+            F: Future<Output = Result<T, Error>>,
+            T: std::fmt::Debug,
+        {
+            let res = request_func(self.echo_client.clone()).await;
+            if !matches!(res, Err(Error::Auth(_))) {
+                panic!(
+                    "No authentication provided, rpc call should have failed.\nResult: {:?}",
+                    res
                 )
             }
             self
@@ -413,7 +454,7 @@ mod test {
 
     #[tokio::test]
     async fn get_block_by_number_request() {
-        Tester::new()
+        Tester::new(true)
             .assert_request_equals(
                 |client| async move {
                     let _ = client
@@ -428,11 +469,19 @@ mod test {
                 }),
             )
             .await;
+
+        Tester::new(false)
+            .assert_auth_failure(|client| async move {
+                client
+                    .get_block_by_number(BlockByNumberQuery::Tag(LATEST_TAG))
+                    .await
+            })
+            .await;
     }
 
     #[tokio::test]
     async fn get_block_by_hash_request() {
-        Tester::new()
+        Tester::new(true)
             .assert_request_equals(
                 |client| async move {
                     let _ = client
@@ -447,11 +496,19 @@ mod test {
                 }),
             )
             .await;
+
+        Tester::new(false)
+            .assert_auth_failure(|client| async move {
+                client
+                    .get_block_by_hash(ExecutionBlockHash::repeat_byte(1))
+                    .await
+            })
+            .await;
     }
 
     #[tokio::test]
     async fn forkchoice_updated_v1_with_payload_attributes_request() {
-        Tester::new()
+        Tester::new(true)
             .assert_request_equals(
                 |client| async move {
                     let _ = client
@@ -486,11 +543,30 @@ mod test {
                 }),
             )
             .await;
+
+        Tester::new(false)
+            .assert_auth_failure(|client| async move {
+                client
+                    .forkchoice_updated_v1(
+                        ForkChoiceState {
+                            head_block_hash: ExecutionBlockHash::repeat_byte(1),
+                            safe_block_hash: ExecutionBlockHash::repeat_byte(1),
+                            finalized_block_hash: ExecutionBlockHash::zero(),
+                        },
+                        Some(PayloadAttributes {
+                            timestamp: 5,
+                            prev_randao: Hash256::zero(),
+                            suggested_fee_recipient: Address::repeat_byte(0),
+                        }),
+                    )
+                    .await
+            })
+            .await;
     }
 
     #[tokio::test]
     async fn get_payload_v1_request() {
-        Tester::new()
+        Tester::new(true)
             .assert_request_equals(
                 |client| async move {
                     let _ = client.get_payload_v1::<MainnetEthSpec>([42; 8]).await;
@@ -503,11 +579,17 @@ mod test {
                 }),
             )
             .await;
+
+        Tester::new(false)
+            .assert_auth_failure(|client| async move {
+                client.get_payload_v1::<MainnetEthSpec>([42; 8]).await
+            })
+            .await;
     }
 
     #[tokio::test]
     async fn new_payload_v1_request() {
-        Tester::new()
+        Tester::new(true)
             .assert_request_equals(
                 |client| async move {
                     let _ = client
@@ -552,11 +634,34 @@ mod test {
                 }),
             )
             .await;
+
+        Tester::new(false)
+            .assert_auth_failure(|client| async move {
+                client
+                    .new_payload_v1::<MainnetEthSpec>(ExecutionPayload {
+                        parent_hash: ExecutionBlockHash::repeat_byte(0),
+                        fee_recipient: Address::repeat_byte(1),
+                        state_root: Hash256::repeat_byte(1),
+                        receipts_root: Hash256::repeat_byte(0),
+                        logs_bloom: vec![1; 256].into(),
+                        prev_randao: Hash256::repeat_byte(1),
+                        block_number: 0,
+                        gas_limit: 1,
+                        gas_used: 2,
+                        timestamp: 42,
+                        extra_data: vec![].into(),
+                        base_fee_per_gas: Uint256::from(1),
+                        block_hash: ExecutionBlockHash::repeat_byte(1),
+                        transactions: vec![].into(),
+                    })
+                    .await
+            })
+            .await;
     }
 
     #[tokio::test]
     async fn forkchoice_updated_v1_request() {
-        Tester::new()
+        Tester::new(true)
             .assert_request_equals(
                 |client| async move {
                     let _ = client
@@ -582,6 +687,21 @@ mod test {
                 }),
             )
             .await;
+
+        Tester::new(false)
+            .assert_auth_failure(|client| async move {
+                client
+                    .forkchoice_updated_v1(
+                        ForkChoiceState {
+                            head_block_hash: ExecutionBlockHash::repeat_byte(0),
+                            safe_block_hash: ExecutionBlockHash::repeat_byte(0),
+                            finalized_block_hash: ExecutionBlockHash::repeat_byte(1),
+                        },
+                        None,
+                    )
+                    .await
+            })
+            .await;
     }
 
     fn str_to_payload_id(s: &str) -> PayloadId {
@@ -605,7 +725,7 @@ mod test {
     /// The `id` field has been modified on these vectors to match the one we use.
     #[tokio::test]
     async fn geth_test_vectors() {
-        Tester::new()
+        Tester::new(true)
             .assert_request_equals(
                 // engine_forkchoiceUpdatedV1 (prepare payload) REQUEST validation
                 |client| async move {

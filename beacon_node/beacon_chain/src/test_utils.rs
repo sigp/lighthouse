@@ -337,14 +337,20 @@ where
 
         let el_runtime = ExecutionLayerRuntime::default();
 
-        let urls = urls
+        let urls: Vec<SensitiveUrl> = urls
             .iter()
             .map(|s| SensitiveUrl::parse(*s))
             .collect::<Result<_, _>>()
             .unwrap();
-        let execution_layer = ExecutionLayer::from_urls(
-            urls,
-            Some(Address::repeat_byte(42)),
+
+        let config = execution_layer::Config {
+            execution_endpoints: urls,
+            secret_files: vec![],
+            suggested_fee_recipient: Some(Address::repeat_byte(42)),
+            ..Default::default()
+        };
+        let execution_layer = ExecutionLayer::from_config(
+            config,
             el_runtime.task_executor.clone(),
             el_runtime.log.clone(),
         )
