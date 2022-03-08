@@ -255,17 +255,13 @@ impl<T: EngineApi> Engines<T> {
             *state_lock
         });
 
-        let mut num_synced = 0;
-        let mut num_auth_failed = 0;
-        for state in join_all(upcheck_futures).await.into_iter() {
-            if state == EngineState::Synced {
-                num_synced += 1;
-            } else if state == EngineState::AuthFailed {
-                num_auth_failed += 1;
-            }
-        }
+        let num_synced = join_all(upcheck_futures)
+            .await
+            .into_iter()
+            .filter(|state: &EngineState| *state == EngineState::Synced)
+            .count();
 
-        if num_synced == 0 && num_auth_failed > 0 && logging.is_enabled() {
+        if num_synced == 0 && logging.is_enabled() {
             crit!(
                 self.log,
                 "No synced execution engines";
