@@ -122,9 +122,16 @@ pub struct Log {
     pub(crate) block_number: u64,
     pub(crate) data: Vec<u8>,
 }
+
 #[derive(Clone)]
 pub struct Eth1Client {
     client: Client,
+}
+
+impl Default for Eth1Client {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl Eth1Client {
