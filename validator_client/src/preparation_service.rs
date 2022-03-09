@@ -11,6 +11,9 @@ use std::sync::Arc;
 use tokio::time::{sleep, Duration};
 use types::{Address, ChainSpec, EthSpec, ProposerPreparationData};
 
+/// Number of epochs before the Bellatrix hard fork to begin posting proposer preparations.
+const PROPOSER_PREPARATION_LOOKAHEAD_EPOCHS: u64 = 2;
+
 /// Builds an `PreparationService`.
 pub struct PreparationServiceBuilder<T: SlotClock + 'static, E: EthSpec> {
     validator_store: Option<Arc<ValidatorStore<T, E>>>,
@@ -122,15 +125,9 @@ impl<T: SlotClock + 'static, E: EthSpec> PreparationService<T, E> {
         let log = self.context.log().clone();
 
         let slot_duration = Duration::from_secs(spec.seconds_per_slot);
-        let duration_to_next_epoch = self
-            .slot_clock
-            .duration_to_next_epoch(E::slots_per_epoch())
-            .ok_or("Unable to determine duration to next epoch")?;
-
         info!(
             log,
             "Proposer preparation service started";
-            "next_update_millis" => duration_to_next_epoch.as_millis()
         );
 
         let executor = self.context.executor.clone();
@@ -138,17 +135,19 @@ impl<T: SlotClock + 'static, E: EthSpec> PreparationService<T, E> {
 
         let interval_fut = async move {
             loop {
-                // Poll the endpoint immediately to ensure fee recipients are received.
-                self.prepare_proposers_and_publish(&spec)
-                    .await
-                    .map_err(|e| {
-                        error!(
-                            log,
-                            "Error during proposer preparation";
-                            "error" => format!("{:?}", e),
-                        )
-                    })
-                    .unwrap_or(());
+                if self.should_publish_at_current_slot(&spec) {
+                    // Poll the endpoint immediately to ensure fee recipients are received.
+                    self.prepare_proposers_and_publish(&spec)
+                        .await
+                        .map_err(|e| {
+                            error!(
+                                log,
+                                "Error during proposer preparation";
+                                "error" => ?e,
+                            )
+                        })
+                        .unwrap_or(());
+                }
 
                 if let Some(duration_to_next_slot) = self.slot_clock.duration_to_next_slot() {
                     sleep(duration_to_next_slot).await;
@@ -162,6 +161,20 @@ impl<T: SlotClock + 'static, E: EthSpec> PreparationService<T, E> {
 
         executor.spawn(interval_fut, "preparation_service");
         Ok(())
+    }
+
+    /// Return `true` if the current slot is close to or past the Bellatrix fork epoch.
+    ///
+    /// This avoids spamming the BN with preparations before the Bellatrix fork epoch, which may
+    /// cause errors if it doesn't support the preparation API.
+    fn should_publish_at_current_slot(&self, spec: &ChainSpec) -> bool {
+        let current_epoch = self
+            .slot_clock
+            .now()
+            .map_or(E::genesis_epoch(), |slot| slot.epoch(E::slots_per_epoch()));
+        spec.bellatrix_fork_epoch.map_or(false, |fork_epoch| {
+            current_epoch + PROPOSER_PREPARATION_LOOKAHEAD_EPOCHS >= fork_epoch
+        })
     }
 
     /// Prepare proposer preparations and send to beacon node
