@@ -2024,7 +2024,10 @@ pub fn serve<T: BeaconChainTypes>(
         .and(warp::query::<api_types::ValidatorBlocksQuery>())
         .and(chain_filter.clone())
         .and_then(
-            |slot: Slot, query: api_types::ValidatorBlocksQuery, chain: Arc<BeaconChain<T>>| {
+            |endpoint_version: EndpointVersion,
+             slot: Slot,
+             query: api_types::ValidatorBlocksQuery,
+             chain: Arc<BeaconChain<T>>| {
                 blocking_json_task(move || {
                     let randao_reveal = (&query.randao_reveal).try_into().map_err(|e| {
                         warp_utils::reject::custom_bad_request(format!(
@@ -2040,7 +2043,11 @@ pub fn serve<T: BeaconChainTypes>(
                             query.graffiti.map(Into::into),
                         )
                         .map_err(warp_utils::reject::block_production_error)?;
-                    Ok(api_types::GenericResponse::from(block))
+                    let fork_name = block
+                        .to_ref()
+                        .fork_name(&chain.spec)
+                        .map_err(inconsistent_fork_rejection)?;
+                    fork_versioned_response(endpoint_version, fork_name, block)
                 })
             },
         );

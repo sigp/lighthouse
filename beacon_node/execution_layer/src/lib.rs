@@ -28,7 +28,7 @@ use tokio::{
 use types::execution_payload::BlockType;
 use types::{
     BlindedTransactions, ChainSpec, Epoch, ExecutionBlockHash, ProposerPreparationData,
-    SignedBeaconBlock, Transactions,Slot
+    SignedBeaconBlock, Slot, Transactions,
 };
 
 pub use engine_api::{
@@ -643,39 +643,44 @@ impl ExecutionLayer {
                     .map_err(Error::EngineErrors)
             }
             BlockType::Full => {
-        self.engines()
-            .first_success(|engine| async move {
-                let payload_id = if let Some(id) = engine
-                    .get_payload_id(parent_hash, timestamp, prev_randao, suggested_fee_recipient)
-                    .await
-                {
-                    // The payload id has been cached for this engine.
-                    metrics::inc_counter_vec(
-                        &metrics::EXECUTION_LAYER_PRE_PREPARED_PAYLOAD_ID,
-                        &[metrics::HIT],
-                    );
-                    id
-                } else {
-                    // The payload id has *not* been cached for this engine. Trigger an artificial
-                    // fork choice update to retrieve a payload ID.
-                    //
-                    // TODO(merge): a better algorithm might try to favour a node that already had a
-                    // cached payload id, since a payload that has had more time to produce is
-                    // likely to be more profitable.
-                    metrics::inc_counter_vec(
-                        &metrics::EXECUTION_LAYER_PRE_PREPARED_PAYLOAD_ID,
-                        &[metrics::MISS],
-                    );
-                    let fork_choice_state = ForkChoiceState {
-                        head_block_hash: parent_hash,
-                        safe_block_hash: parent_hash,
-                        finalized_block_hash,
-                    };
-                    let payload_attributes = PayloadAttributes {
-                        timestamp,
-                        prev_randao,
-                        suggested_fee_recipient,
-                    };
+                self.engines()
+                    .first_success(|engine| async move {
+                        let payload_id = if let Some(id) = engine
+                            .get_payload_id(
+                                parent_hash,
+                                timestamp,
+                                prev_randao,
+                                suggested_fee_recipient,
+                            )
+                            .await
+                        {
+                            // The payload id has been cached for this engine.
+                            metrics::inc_counter_vec(
+                                &metrics::EXECUTION_LAYER_PRE_PREPARED_PAYLOAD_ID,
+                                &[metrics::HIT],
+                            );
+                            id
+                        } else {
+                            // The payload id has *not* been cached for this engine. Trigger an artificial
+                            // fork choice update to retrieve a payload ID.
+                            //
+                            // TODO(merge): a better algorithm might try to favour a node that already had a
+                            // cached payload id, since a payload that has had more time to produce is
+                            // likely to be more profitable.
+                            metrics::inc_counter_vec(
+                                &metrics::EXECUTION_LAYER_PRE_PREPARED_PAYLOAD_ID,
+                                &[metrics::MISS],
+                            );
+                            let fork_choice_state = ForkChoiceState {
+                                head_block_hash: parent_hash,
+                                safe_block_hash: parent_hash,
+                                finalized_block_hash,
+                            };
+                            let payload_attributes = PayloadAttributes {
+                                timestamp,
+                                prev_randao,
+                                suggested_fee_recipient,
+                            };
 
                             engine
                         .notify_forkchoice_updated(

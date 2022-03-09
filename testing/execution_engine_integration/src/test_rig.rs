@@ -6,7 +6,7 @@ use task_executor::TaskExecutor;
 use tokio::time::sleep;
 use types::{
     Address, ChainSpec, EthSpec, ExecTransactions, ExecutionBlockHash, Hash256, MainnetEthSpec,
-    Uint256,Slot
+    Slot, Uint256,
 };
 
 const EXECUTION_ENGINE_START_TIMEOUT: Duration = Duration::from_secs(10);
