@@ -209,6 +209,9 @@ pub struct SyncManager<T: BeaconChainTypes> {
     /// A multi-threaded, non-blocking processor for applying messages to the beacon chain.
     beacon_processor_send: mpsc::Sender<BeaconWorkEvent<T>>,
 
+    /// Used for spawning tasks.
+    executor: task_executor::TaskExecutor,
+
     /// The logger for the import manager.
     log: Logger,
 }
@@ -269,6 +272,7 @@ pub fn spawn<T: BeaconChainTypes>(
         failed_chains: LRUCache::new(500),
         single_block_lookups: FnvHashMap::default(),
         beacon_processor_send,
+        executor: executor.clone(),
         log: log.clone(),
     };
 
@@ -475,19 +479,27 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                             );
                             info!(self.log, "Processed block"; "block" => %block_root);
 
-                            match self.chain.fork_choice() {
-                                Ok(()) => trace!(
-                                    self.log,
-                                    "Fork choice success";
-                                    "location" => "single block"
-                                ),
-                                Err(e) => error!(
-                                    self.log,
-                                    "Fork choice failed";
-                                    "error" => ?e,
-                                    "location" => "single block"
-                                ),
-                            }
+                            // Spawn `BeaconChain::fork_choice` in a blocking task. It's
+                            // potentially long-running and it might panic if run from an async
+                            // context.
+                            let chain = self.chain.clone();
+                            let log = self.log.clone();
+                            self.executor.spawn_blocking(
+                                move || match chain.fork_choice() {
+                                    Ok(()) => trace!(
+                                        log,
+                                        "Fork choice success";
+                                        "location" => "single block"
+                                    ),
+                                    Err(e) => error!(
+                                        log,
+                                        "Fork choice failed";
+                                        "error" => ?e,
+                                        "location" => "single block"
+                                    ),
+                                },
+                                "sync_manager_fork_choice",
+                            );
                         }
                         Err(BlockError::ParentUnknown { .. }) => {
                             // We don't know of the blocks parent, begin a parent lookup search

@@ -1,6 +1,7 @@
 use crate::config::{ClientGenesis, Config as ClientConfig};
 use crate::notifier::spawn_notifier;
 use crate::Client;
+use beacon_chain::proposer_prep_service::start_proposer_prep_service;
 use beacon_chain::schema_change::migrate_schema;
 use beacon_chain::{
     builder::{BeaconChainBuilder, Witness},
@@ -665,26 +666,16 @@ where
                     .head_info()
                     .map_err(|e| format!("Unable to read beacon chain head: {:?}", e))?;
 
+                let current_slot = beacon_chain
+                    .slot()
+                    .map_err(|e| format!("Unable to read slot: {:?}", e))?;
+
                 // Issue the head to the execution engine on startup. This ensures it can start
                 // syncing.
-                if let Some(block_hash) = head.execution_payload_block_hash {
-                    let finalized_root = head.finalized_checkpoint.root;
-                    let finalized_block = beacon_chain
-                        .store
-                        .get_block(&finalized_root)
-                        .map_err(|e| format!("Failed to read finalized block from DB: {:?}", e))?
-                        .ok_or(format!(
-                            "Finalized block missing from store: {:?}",
-                            finalized_root
-                        ))?;
-                    let finalized_execution_block_hash = finalized_block
-                        .message()
-                        .body()
-                        .execution_payload()
-                        .ok()
-                        .map(|ep| ep.block_hash)
-                        .unwrap_or_else(ExecutionBlockHash::zero);
-
+                if head
+                    .execution_payload_block_hash
+                    .map_or(false, |h| h != ExecutionBlockHash::zero())
+                {
                     // Spawn a new task using the "async" fork choice update method, rather than
                     // using the "blocking" method.
                     //
@@ -694,11 +685,7 @@ where
                     runtime_context.executor.spawn(
                         async move {
                             let result = inner_chain
-                                .update_execution_engine_forkchoice_async(
-                                    finalized_execution_block_hash,
-                                    head.block_root,
-                                    block_hash,
-                                )
+                                .update_execution_engine_forkchoice_async(current_slot)
                                 .await;
 
                             // No need to exit early if setting the head fails. It will be set again if/when the
@@ -726,6 +713,8 @@ where
                 // Spawns a routine that polls the `exchange_transition_configuration` endpoint.
                 execution_layer.spawn_transition_configuration_poll(beacon_chain.spec.clone());
             }
+
+            start_proposer_prep_service(runtime_context.executor.clone(), beacon_chain.clone());
         }
 
         Ok(Client {
