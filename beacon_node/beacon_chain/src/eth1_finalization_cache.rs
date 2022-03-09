@@ -97,7 +97,7 @@ impl CheckpointMap {
 
 /// This cache stores `Eth1CacheData` that could potentially be finalized within 4
 /// future epochs.
-pub struct Eth1Cache {
+pub struct Eth1FinalizationCache {
     by_checkpoint: CheckpointMap,
     pending_eth1: BTreeMap<u64, Eth1Data>,
     last_finalized: Option<Eth1Data>,
@@ -107,9 +107,9 @@ pub struct Eth1Cache {
 /// Provides a cache of `Eth1CacheData` at epoch boundaries. This is used to
 /// finalize deposits when a new epoch is finalized.
 ///
-impl Eth1Cache {
+impl Eth1FinalizationCache {
     pub fn new(log: Logger) -> Self {
-        Eth1Cache {
+        Eth1FinalizationCache {
             by_checkpoint: CheckpointMap::new(),
             pending_eth1: BTreeMap::new(),
             last_finalized: None,
@@ -118,7 +118,7 @@ impl Eth1Cache {
     }
 
     pub fn with_capacity(log: Logger, capacity: usize) -> Self {
-        Eth1Cache {
+        Eth1FinalizationCache {
             by_checkpoint: CheckpointMap::with_capacity(capacity),
             pending_eth1: BTreeMap::new(),
             last_finalized: None,
@@ -198,9 +198,9 @@ pub mod tests {
     const MAX_DEPOSITS: u64 = 16;
     const EPOCHS_PER_ETH1_VOTING_PERIOD: u64 = 64;
 
-    fn eth1cache() -> Eth1Cache {
+    fn eth1cache() -> Eth1FinalizationCache {
         let log_builder = NullLoggerBuilder;
-        Eth1Cache::new(log_builder.build().unwrap())
+        Eth1FinalizationCache::new(log_builder.build().unwrap())
     }
 
     fn random_eth1_data(deposit_count: u64) -> Eth1Data {

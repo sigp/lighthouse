@@ -1532,6 +1532,27 @@ pub fn serve<T: BeaconChainTypes>(
             },
         );
 
+    // GET beacon/deposit_snapshot
+    let get_beacon_deposit_snapshot = eth1_v1
+        .and(warp::path("beacon"))
+        .and(warp::path("deposit_snapshot"))
+        .and(warp::path::end())
+        .and(eth1_service_filter.clone())
+        .and_then(|eth1_service: eth1::Service| {
+            blocking_task(move || {
+                Response::builder()
+                    .status(200)
+                    .header("Content-Type", "application/octet-stream")
+                    .body(eth1_service.get_deposit_snapshot().as_ssz_bytes())
+                    .map_err(|e| {
+                        warp_utils::reject::custom_server_error(format!(
+                            "failed to create response: {}",
+                            e
+                        ))
+                    })
+            })
+        });
+
     /*
      * config
      */
@@ -2691,26 +2712,6 @@ pub fn serve<T: BeaconChainTypes>(
             },
         );
 
-    // GET lighthouse/deposit_snapshot
-    let get_lighthouse_deposit_snapshot = warp::path("lighthouse")
-        .and(warp::path("deposit_snapshot"))
-        .and(warp::path::end())
-        .and(eth1_service_filter.clone())
-        .and_then(|eth1_service: eth1::Service| {
-            blocking_task(move || {
-                Response::builder()
-                    .status(200)
-                    .header("Content-Type", "application/octet-stream")
-                    .body(eth1_service.get_deposit_snapshot().as_ssz_bytes())
-                    .map_err(|e| {
-                        warp_utils::reject::custom_server_error(format!(
-                            "failed to create response: {}",
-                            e
-                        ))
-                    })
-            })
-        });
-
     // GET lighthouse/health
     let get_lighthouse_health = warp::path("lighthouse")
         .and(warp::path("health"))
@@ -3150,6 +3151,7 @@ pub fn serve<T: BeaconChainTypes>(
                 .or(get_beacon_pool_attester_slashings.boxed())
                 .or(get_beacon_pool_proposer_slashings.boxed())
                 .or(get_beacon_pool_voluntary_exits.boxed())
+                .or(get_beacon_deposit_snapshot.boxed())
                 .or(get_config_fork_schedule.boxed())
                 .or(get_config_spec.boxed())
                 .or(get_config_deposit_contract.boxed())
@@ -3168,7 +3170,6 @@ pub fn serve<T: BeaconChainTypes>(
                 .or(get_validator_attestation_data.boxed())
                 .or(get_validator_aggregate_attestation.boxed())
                 .or(get_validator_sync_committee_contribution.boxed())
-                .or(get_lighthouse_deposit_snapshot.boxed())
                 .or(get_lighthouse_health.boxed())
                 .or(get_lighthouse_syncing.boxed())
                 .or(get_lighthouse_nat.boxed())

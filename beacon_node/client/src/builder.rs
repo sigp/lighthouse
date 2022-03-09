@@ -393,7 +393,7 @@ where
                         Err(e) => {
                             warn!(context.log(),
                                 "Unable to load deposit snapshot";
-                                "error" => format!("{:?}", e)
+                                "error" => ?e
                             );
                             None
                         }
@@ -401,14 +401,14 @@ where
                     Ok(None) => {
                         warn!(
                             context.log(),
-                            "Error loading deposit snapshot from remote: received NULL"
+                            "Remote BN does not support EIP-4881 fast deposit sync"
                         );
                         None
                     }
                     Err(e) => {
                         warn!(
                             context.log(),
-                            "Error loading deposit snapshot from remote";
+                            "Remote BN does not support EIP-4881 fast deposit sync";
                             "error" => e
                         );
                         None

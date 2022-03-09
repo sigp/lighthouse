@@ -454,8 +454,6 @@ pub struct Config {
     /// Defines the number of blocks that should be retained each time the `BlockCache` calls truncate on
     /// itself.
     pub block_cache_truncation: Option<usize>,
-    /// Controls whether finalization should be enabled for the deposit cache
-    pub deposit_cache_finalization: bool,
     /// The interval between updates when using the `auto_update` function.
     pub auto_update_interval_millis: u64,
     /// The span of blocks we should query for logs, per request.
@@ -516,7 +514,6 @@ impl Default for Config {
             cache_follow_distance: None,
             node_far_behind_seconds: 128 * 14,
             block_cache_truncation: Some(4_096),
-            deposit_cache_finalization: false,
             auto_update_interval_millis: 60_000,
             blocks_per_log_query: 1_000,
             max_log_requests_per_update: Some(5_000),
@@ -567,7 +564,7 @@ impl Service {
     ) -> Result<Self, Error> {
         // first get eth1_block from endpoint
         let endpoints = Arc::new(EndpointsCache::from_config(&config, log.clone()));
-        let block_hash_ref = &deposit_snapshot.eth1_block_hash;
+        let block_hash_ref = &deposit_snapshot.execution_block_hash;
         let http_block = endpoints
             .clone()
             .first_success(|e| async move {
@@ -722,7 +719,7 @@ impl Service {
         let deposits = self.deposits().read();
         deposits
             .cache
-            .get_valid_signature_count(deposits.cache.latest_block_number()?)
+            .get_valid_signature_count(deposits.cache.latest_block_number())
     }
 
     /// Returns the number of deposits with valid signatures that have been observed up to and
@@ -995,15 +992,14 @@ impl Service {
                 .deposit_cache
                 .read()
                 .cache
-                .finalized_deposit_count()
-                .unwrap_or(0);
+                .finalized_deposit_count();
             let finalize_deposit_count = eth1_data.deposit_count;
             if finalize_deposit_count > tree_finalized {
                 match self.finalize_deposits(eth1_data) {
                     Err(e) => error!(
                         self.log,
                         "Failed to finalize deposit cache";
-                        "error" => format!("{:?}", e),
+                        "error" => ?e,
                     ),
                     Ok(()) => info!(
                         self.log,

@@ -42,7 +42,7 @@
 //!            END
 //!
 //! ```
-use crate::eth1_cache::Eth1CacheData;
+use crate::eth1_finalization_cache::Eth1CacheData;
 use crate::execution_payload::{
     is_optimistic_candidate_block, validate_execution_payload_for_gossip, validate_merge_block,
     AllowOptimisticImport, PayloadNotifier,

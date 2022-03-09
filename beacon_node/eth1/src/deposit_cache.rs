@@ -33,7 +33,7 @@ pub enum Error {
     /// You can't request deposits on or before the finalized deposit
     DepositRangeInvalid {
         range_start: u64,
-        finalized_index: u64,
+        finalized_count: u64,
     },
     /// You can't finalize what's already been finalized and the cache must have the logs
     /// that you wish to finalize
@@ -72,13 +72,19 @@ impl SszLegacyDepositCache {
                     .into(),
             );
         }
+        let finalized_block_height = if self.deposit_contract_deploy_block == 0 {
+            0
+        } else {
+            self.deposit_contract_deploy_block - 1
+        };
+
         Ok(DepositCache {
             logs: self.logs.clone(),
             leaves: self.leaves.clone(),
             deposit_contract_deploy_block: self.deposit_contract_deploy_block,
             deposit_tree,
-            finalized_deposit_count: None,
-            finalized_block_height: None,
+            finalized_deposit_count: 0,
+            finalized_block_height,
             deposit_roots: self.deposit_roots.clone(),
         })
     }
@@ -89,8 +95,8 @@ pub struct SszDepositCache {
     logs: Vec<DepositLog>,
     leaves: Vec<Hash256>,
     deposit_contract_deploy_block: u64,
-    finalized_deposit_count: Option<u64>,
-    finalized_block_height: Option<u64>,
+    finalized_deposit_count: u64,
+    finalized_block_height: u64,
     deposit_tree_snapshot: DepositTreeSnapshot,
     deposit_roots: Vec<Hash256>,
 }
@@ -148,8 +154,8 @@ pub struct DepositCache {
     logs: Vec<DepositLog>,
     leaves: Vec<Hash256>,
     deposit_contract_deploy_block: u64,
-    finalized_deposit_count: Option<u64>,
-    finalized_block_height: Option<u64>,
+    finalized_deposit_count: u64,
+    finalized_block_height: u64,
     /// An incremental merkle tree which represents the current state of the
     /// deposit contract tree.
     deposit_tree: DepositDataTree,
@@ -166,8 +172,8 @@ impl Default for DepositCache {
             logs: Vec::new(),
             leaves: Vec::new(),
             deposit_contract_deploy_block: 1,
-            finalized_deposit_count: None,
-            finalized_block_height: None,
+            finalized_deposit_count: 0,
+            finalized_block_height: 0,
             deposit_tree,
             deposit_roots,
         }
@@ -184,8 +190,14 @@ impl DepositCache {
     /// Create new `DepositCache` given block number at which deposit
     /// contract was deployed.
     pub fn new(deposit_contract_deploy_block: u64) -> Self {
+        let finalized_block_height = if deposit_contract_deploy_block == 0 {
+            0
+        } else {
+            deposit_contract_deploy_block - 1
+        };
         DepositCache {
             deposit_contract_deploy_block,
+            finalized_block_height,
             ..Self::default()
         }
     }
@@ -201,8 +213,8 @@ impl DepositCache {
             logs: Vec::new(),
             leaves: Vec::new(),
             deposit_contract_deploy_block,
-            finalized_deposit_count: Some(snapshot.deposits),
-            finalized_block_height: Some(finalized_block_number),
+            finalized_deposit_count: snapshot.deposits,
+            finalized_block_height: finalized_block_number,
             deposit_tree,
             deposit_roots: Vec::new(),
         })
@@ -210,20 +222,20 @@ impl DepositCache {
 
     /// Returns the number of deposits the cache stores
     pub fn len(&self) -> usize {
-        self.finalized_deposit_count.unwrap_or(0) as usize + self.logs.len()
+        self.finalized_deposit_count as usize + self.logs.len()
     }
 
     /// True if the cache does not store any blocks.
     pub fn is_empty(&self) -> bool {
-        self.finalized_deposit_count.is_none() && self.logs.is_empty()
+        self.finalized_deposit_count != 0 && self.logs.is_empty()
     }
 
     /// Returns the block number for the most recent deposit in the cache.
-    pub fn latest_block_number(&self) -> Option<u64> {
+    pub fn latest_block_number(&self) -> u64 {
         self.logs
             .last()
             .map(|log| log.block_number)
-            .or(self.finalized_block_height)
+            .unwrap_or(self.finalized_block_height)
     }
 
     /// Returns an iterator over all the logs in `self` that aren't finalized.
@@ -233,7 +245,7 @@ impl DepositCache {
 
     /// Returns the deposit log with INDEX i.
     pub fn get_log(&self, i: usize) -> Option<&DepositLog> {
-        let finalized_deposit_count = self.finalized_deposit_count.unwrap_or(0) as usize;
+        let finalized_deposit_count = self.finalized_deposit_count as usize;
         if i < finalized_deposit_count {
             None
         } else {
@@ -243,7 +255,7 @@ impl DepositCache {
 
     /// Returns the deposit root with DEPOSIT COUNT i
     pub fn get_root(&self, i: usize) -> Option<&Hash256> {
-        let finalized_deposit_count = self.finalized_deposit_count.unwrap_or(0) as usize;
+        let finalized_deposit_count = self.finalized_deposit_count as usize;
         if i < finalized_deposit_count {
             None
         } else {
@@ -252,17 +264,17 @@ impl DepositCache {
     }
 
     /// Returns the finalized deposit count
-    pub fn finalized_deposit_count(&self) -> Option<u64> {
+    pub fn finalized_deposit_count(&self) -> u64 {
         self.finalized_deposit_count
     }
 
-    /// Finalizes the cache up to `index`
+    /// Finalizes the cache up to `eth1_block.deposit_count`.
     pub fn finalize(&mut self, eth1_block: Eth1Block) -> Result<(), Error> {
         let deposits_to_finalize = eth1_block.deposit_count.ok_or_else(|| {
             Error::Internal("Eth1Block did not contain deposit_count".to_string())
         })?;
 
-        let currently_finalized = self.finalized_deposit_count.unwrap_or(0);
+        let currently_finalized = self.finalized_deposit_count;
         if deposits_to_finalize > self.len() as u64 || deposits_to_finalize <= currently_finalized {
             Err(Error::InvalidFinalizeIndex {
                 requested_count: deposits_to_finalize,
@@ -281,8 +293,8 @@ impl DepositCache {
             self.logs.drain(0..drop);
             self.leaves.drain(0..drop);
             self.deposit_roots.drain(0..drop);
-            self.finalized_deposit_count = Some(deposits_to_finalize);
-            self.finalized_block_height = Some(finalized_log.block_number);
+            self.finalized_deposit_count = deposits_to_finalize;
+            self.finalized_block_height = finalized_log.block_number;
 
             Ok(())
         }
@@ -316,15 +328,13 @@ impl DepositCache {
             }
             Ordering::Less => {
                 let mut compare_index = log.index as usize;
-                if let Some(count) = self.finalized_deposit_count {
-                    if log.index < count {
-                        return Err(Error::FinalizedLogInsert {
-                            log_index: log.index,
-                            finalized_index: count - 1,
-                        });
-                    } else {
-                        compare_index -= count as usize;
-                    }
+                if log.index < self.finalized_deposit_count {
+                    return Err(Error::FinalizedLogInsert {
+                        log_index: log.index,
+                        finalized_index: self.finalized_deposit_count - 1,
+                    });
+                } else {
+                    compare_index -= self.finalized_deposit_count as usize;
                 }
                 if self.logs[compare_index] == log {
                     Ok(DepositCacheInsertOutcome::Duplicate)
@@ -368,22 +378,18 @@ impl DepositCache {
                 requested: end,
                 known_deposits: self.logs.len(),
             })
-        } else if self
-            .finalized_deposit_count
-            .map(|count| start - count + 1)
-            .unwrap_or(1)
-            == 0
-        {
+        } else if self.finalized_deposit_count > start {
             // Can't ask for deposits before or on the finalized deposit
             Err(Error::DepositRangeInvalid {
                 range_start: start,
-                finalized_index: self.finalized_deposit_count.map(|count| count - 1).unwrap(),
+                finalized_count: self.finalized_deposit_count,
             })
         } else {
-            let (start, end, deposit_count) = self
-                .finalized_deposit_count
-                .map(|count| (start - count, end - count, deposit_count - count))
-                .unwrap_or((start, end, deposit_count));
+            let (start, end, deposit_count) = (
+                start - self.finalized_deposit_count,
+                end - self.finalized_deposit_count,
+                deposit_count - self.finalized_deposit_count,
+            );
             let leaves = self
                 .leaves
                 .get(0..deposit_count as usize)
@@ -442,19 +448,16 @@ impl DepositCache {
     /// Returns `None` if the `block_number` is zero or prior to contract deployment
     /// or prior to last finalized deposit.
     pub fn get_deposit_count_from_cache(&self, block_number: u64) -> Option<u64> {
-        let (finalized_block_number, finalized_deposit_count) =
-            match (self.finalized_block_height, self.finalized_deposit_count) {
-                (Some(block_height), Some(deposit_count)) => (block_height, deposit_count),
-                _ => (0, 0),
-            };
         if block_number == 0
             || block_number < self.deposit_contract_deploy_block
-            || block_number <= finalized_block_number
+            || block_number < self.finalized_block_height
         {
             None
+        } else if block_number == self.finalized_block_height {
+            Some(self.finalized_deposit_count)
         } else {
             Some(
-                finalized_deposit_count
+                self.finalized_deposit_count
                     + self
                         .logs
                         .iter()
@@ -665,8 +668,10 @@ pub mod tests {
         let block7 = fake_eth1_block(tree.get_log(7).expect("should return log"));
         tree.finalize(block7).expect("should finalize");
         // Range starts <= finalized deposit
-        assert!(tree.get_deposits(7, 9, 2).is_err());
-        assert!(tree.get_deposits(6, 9, 2).is_err());
+        assert!(tree.get_deposits(6, 9, 11).is_err());
+        assert!(tree.get_deposits(7, 9, 11).is_err());
+        // Range start > finalized deposit should be OK
+        assert!(tree.get_deposits(8, 9, 11).is_ok());
     }
 
     fn fake_eth1_block(deposit_log: &DepositLog) -> Eth1Block {
@@ -749,12 +754,12 @@ pub mod tests {
             .expect("should finalize first quarter");
         // finalized count and block number should match log
         assert_eq!(
-            deposit_cache.finalized_deposit_count.expect("should be a number"),
+            deposit_cache.finalized_deposit_count,
             f0_log.index + 1,
             "after calling finalize(eth1block) finalized_deposit_count should equal eth1_block.deposit_count",
         );
         assert_eq!(
-            deposit_cache.finalized_block_height.expect("should be a number"),
+            deposit_cache.finalized_block_height,
             f0_log.block_number,
             "after calling finalize(eth1block) finalized_block_number should equal eth1block.block_number"
         );
@@ -848,12 +853,12 @@ pub mod tests {
             .expect("should finalize a little less than half");
         // finalized count and block number should match f1_log
         assert_eq!(
-            deposit_cache.finalized_deposit_count.expect("should be a number"),
+            deposit_cache.finalized_deposit_count,
             f1_log.index + 1,
             "after calling finalize(eth1block) finalized_deposit_count should equal eth1_block.deposit_count",
         );
         assert_eq!(
-            deposit_cache.finalized_block_height.expect("should be a number"),
+            deposit_cache.finalized_block_height,
             f1_log.block_number,
             "after calling finalize(eth1block) finalized_block_number should equal eth1block.block_number"
         );

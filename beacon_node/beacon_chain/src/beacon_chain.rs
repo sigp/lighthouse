@@ -15,8 +15,8 @@ use crate::block_verification::{
 use crate::chain_config::ChainConfig;
 use crate::early_attester_cache::EarlyAttesterCache;
 use crate::errors::{BeaconChainError as Error, BlockProductionError};
-use crate::eth1_cache::{Eth1Cache, Eth1CacheData};
 use crate::eth1_chain::{Eth1Chain, Eth1ChainBackend};
+use crate::eth1_finalization_cache::{Eth1CacheData, Eth1FinalizationCache};
 use crate::events::ServerSentEventHandler;
 use crate::execution_payload::{get_execution_payload, PreparePayloadHandle};
 use crate::fork_choice_signal::{ForkChoiceSignalRx, ForkChoiceSignalTx, ForkChoiceWaitResult};
@@ -363,8 +363,8 @@ pub struct BeaconChain<T: BeaconChainTypes> {
     pub(crate) snapshot_cache: TimeoutRwLock<SnapshotCache<T::EthSpec>>,
     /// Caches the attester shuffling for a given epoch and shuffling key root.
     pub shuffling_cache: TimeoutRwLock<ShufflingCache>,
-    /// A cache of eth1_data at epoch boundaries for deposit finalization
-    pub eth1_data_cache: TimeoutRwLock<Eth1DataCache>,
+    /// A cache of eth1 deposit data at epoch boundaries for deposit finalization
+    pub eth1_cache: TimeoutRwLock<Eth1FinalizationCache>,
     /// Caches the beacon block proposer shuffling for a given epoch and shuffling key root.
     pub beacon_proposer_cache: Mutex<BeaconProposerCache>,
     /// Caches a map of `validator_index -> validator_pubkey`.
@@ -3080,10 +3080,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         )
                     };
 
-                if let Some(Some(finalized_eth1_data)) = self
+                if let Some(finalized_eth1_data) = self
                     .eth1_cache
                     .try_write_for(ETH1_CACHE_LOCK_TIMEOUT)
-                    .map(|mut cache| {
+                    .and_then(|mut cache| {
                         cache.insert(checkpoint, eth1_cache_data);
                         cache.finalize(&current_finalized_checkpoint)
                     })

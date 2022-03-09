@@ -5,9 +5,9 @@ use test_utils::TestRandom;
 
 #[derive(Encode, Decode, Clone, Debug, PartialEq, TestRandom)]
 pub struct DepositTreeSnapshot {
-    pub branches: Vec<Hash256>,
+    pub finalized: Vec<Hash256>,
     pub deposits: u64,
-    pub eth1_block_hash: Hash256,
+    pub execution_block_hash: Hash256,
 }
 
 #[cfg(test)]

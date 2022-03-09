@@ -51,12 +51,14 @@ pub enum MerkleTreeError {
     InvalidSnapshot(InvalidSnapshot),
     // Can't proof a finalized node
     ProofEncounteredFinalizedNode,
+    // This should never happen
+    PleaseNotifyTheDevs,
 }
 
 #[derive(Debug, PartialEq, Clone)]
 pub enum InvalidSnapshot {
-    // Branches are empty but deposits are not
-    EmptyBranchesWithNonZeroDeposits(usize),
+    // Branch hashes are empty but deposits are not
+    EmptyBranchWithNonZeroDeposits(usize),
     // End of tree reached but deposits != 1
     EndOfTree,
 }
@@ -195,63 +197,64 @@ impl MerkleTree {
                 Ok(())
             }
             MerkleTree::Node(hash, left, right) => {
+                if level == 0 {
+                    // this shouldn't happen but we'll put it here for safety
+                    return Err(MerkleTreeError::PleaseNotifyTheDevs);
+                }
                 let deposits = 0x1 << level;
                 if deposits <= deposits_to_finalize {
                     *self = MerkleTree::Finalized(*hash);
                     return Ok(());
                 }
                 left.finalize_deposits(deposits_to_finalize, level - 1)?;
-                let remaining = (deposits_to_finalize as i64) - (deposits as i64) / 2;
-                if remaining > 0 {
-                    right.finalize_deposits(remaining as usize, level - 1)?;
+                if deposits_to_finalize > deposits / 2 {
+                    let remaining = deposits_to_finalize - deposits / 2;
+                    right.finalize_deposits(remaining, level - 1)?;
                 }
                 Ok(())
             }
         }
     }
 
-    fn append_finalized_branches(&self, result: &mut Vec<H256>) {
+    fn append_finalized_hashes(&self, result: &mut Vec<H256>) {
         match self {
             MerkleTree::Zero(_) | MerkleTree::Leaf(_) => {}
             MerkleTree::Finalized(h) => result.push(*h),
             MerkleTree::Node(_, left, right) => {
-                left.append_finalized_branches(result);
-                right.append_finalized_branches(result);
+                left.append_finalized_hashes(result);
+                right.append_finalized_hashes(result);
             }
         }
     }
 
     pub fn get_finalized_snapshot(&self) -> Vec<H256> {
         let mut result = vec![];
-        self.append_finalized_branches(&mut result);
+        self.append_finalized_hashes(&mut result);
         result
     }
 
     pub fn from_finalized_snapshot(
-        finalized_branches: &[H256],
+        finalized_branch: &[H256],
         deposits: usize,
         level: usize,
     ) -> Result<Self, MerkleTreeError> {
-        if finalized_branches == EMPTY_SLICE {
+        if finalized_branch == EMPTY_SLICE {
             return if deposits == 0 {
                 Ok(MerkleTree::Zero(level))
             } else {
-                Err(MerkleTreeError::InvalidSnapshot(
-                    InvalidSnapshot::EmptyBranchesWithNonZeroDeposits(deposits),
-                ))
+                Err(InvalidSnapshot::EmptyBranchWithNonZeroDeposits(deposits).into())
             };
         }
         if deposits == (0x1 << level) {
-            return Ok(MerkleTree::Finalized(finalized_branches[0]));
+            return Ok(MerkleTree::Finalized(finalized_branch[0]));
         }
         if level == 0 {
-            return Err(MerkleTreeError::InvalidSnapshot(InvalidSnapshot::EndOfTree));
+            return Err(InvalidSnapshot::EndOfTree.into());
         }
 
         let left_subtree = 0x1 << (level - 1);
         if deposits <= left_subtree {
-            let left =
-                MerkleTree::from_finalized_snapshot(finalized_branches, deposits, level - 1)?;
+            let left = MerkleTree::from_finalized_snapshot(finalized_branch, deposits, level - 1)?;
             let right = MerkleTree::Zero(level - 1);
             let hash = H256::from_slice(&hash32_concat(
                 left.hash().as_bytes(),
@@ -259,9 +262,9 @@ impl MerkleTree {
             ));
             Ok(MerkleTree::Node(hash, Box::new(left), Box::new(right)))
         } else {
-            let left = MerkleTree::Finalized(finalized_branches[0]);
+            let left = MerkleTree::Finalized(finalized_branch[0]);
             let right = MerkleTree::from_finalized_snapshot(
-                &finalized_branches[1..],
+                &finalized_branch[1..],
                 deposits - left_subtree,
                 level - 1,
             )?;
@@ -381,6 +384,12 @@ fn merkle_root_from_branch(leaf: H256, branch: &[H256], depth: usize, index: usi
 impl From<ArithError> for MerkleTreeError {
     fn from(_: ArithError) -> Self {
         MerkleTreeError::ArithError
+    }
+}
+
+impl From<InvalidSnapshot> for MerkleTreeError {
+    fn from(e: InvalidSnapshot) -> Self {
+        MerkleTreeError::InvalidSnapshot(e)
     }
 }
 
