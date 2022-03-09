@@ -356,7 +356,7 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
                     }
                     BlockType::Blinded => {
                         beacon_node
-                            .get_validator_blocks_private::<E, Txns>(
+                            .get_validator_blinded_blocks::<E, Txns>(
                                 slot,
                                 randao_reveal_ref,
                                 graffiti.as_ref(),
@@ -404,7 +404,7 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
                             ))
                         })?,
                     BlockType::Blinded => beacon_node
-                        .post_beacon_blocks_private(&signed_block)
+                        .post_beacon_blinded_blocks(&signed_block)
                         .await
                         .map_err(|e| {
                             BlockError::Irrecoverable(format!(

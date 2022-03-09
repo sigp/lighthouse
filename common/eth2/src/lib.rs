@@ -596,22 +596,19 @@ impl BeaconNodeHttpClient {
         Ok(())
     }
 
-    /// `POST lighthouse/beacon/blocks_private`
+    /// `POST beacon/blinded_blocks`
     ///
     /// Returns `Ok(None)` on a 404 error.
-    pub async fn post_beacon_blocks_private<T: EthSpec, Txns: Transactions<T>>(
+    pub async fn post_beacon_blinded_blocks<T: EthSpec, Txns: Transactions<T>>(
         &self,
         block: &SignedBeaconBlock<T, Txns>,
     ) -> Result<(), Error> {
-        let mut path = self.server.full.clone();
+        let mut path = self.eth_path(V1)?;
 
         path.path_segments_mut()
             .map_err(|()| Error::InvalidUrl(self.server.clone()))?
-            .push("lighthouse")
             .push("beacon")
-            .push("blocks_private");
-
-        //FIXME(sean): into header?
+            .push("blinded_blocks");
 
         self.post_with_timeout(path, block, self.timeouts.proposal)
             .await?;
@@ -1198,20 +1195,19 @@ impl BeaconNodeHttpClient {
         self.get(path).await
     }
 
-    /// `GET lighthouse/validator/blocks_private/{slot}`
-    pub async fn get_validator_blocks_private<T: EthSpec, Txns: Transactions<T>>(
+    /// `GET v2/validator/blinded_blocks/{slot}`
+    pub async fn get_validator_blinded_blocks<T: EthSpec, Txns: Transactions<T>>(
         &self,
         slot: Slot,
         randao_reveal: &SignatureBytes,
         graffiti: Option<&Graffiti>,
     ) -> Result<GenericResponse<BeaconBlock<T, Txns>>, Error> {
-        let mut path = self.server.full.clone();
+        let mut path = self.eth_path(V2)?;
 
         path.path_segments_mut()
             .map_err(|()| Error::InvalidUrl(self.server.clone()))?
-            .push("lighthouse")
             .push("validator")
-            .push("blocks_private")
+            .push("blinded_blocks")
             .push(&slot.to_string());
 
         path.query_pairs_mut()

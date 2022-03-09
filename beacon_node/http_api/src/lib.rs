@@ -1029,9 +1029,9 @@ pub fn serve<T: BeaconChainTypes>(
      */
 
     // POST beacon/blocks
-    let post_lighthouse_beacon_blocks_private = warp::path("lighthouse")
+    let post_beacon_blinded_blocks = eth1_v1
         .and(warp::path("beacon"))
-        .and(warp::path("blocks_private"))
+        .and(warp::path("blinded_blocks"))
         .and(warp::path::end())
         .and(warp::body::json())
         .and(chain_filter.clone())
@@ -2010,6 +2010,41 @@ pub fn serve<T: BeaconChainTypes>(
             },
         );
 
+    // GET validator/blinded_blocks/{slot}
+    let get_validator_blinded_blocks = any_version
+        .and(warp::path("validator"))
+        .and(warp::path("blinded_blocks"))
+        .and(warp::path::param::<Slot>().or_else(|_| async {
+            Err(warp_utils::reject::custom_bad_request(
+                "Invalid slot".to_string(),
+            ))
+        }))
+        .and(warp::path::end())
+        .and(not_while_syncing_filter.clone())
+        .and(warp::query::<api_types::ValidatorBlocksQuery>())
+        .and(chain_filter.clone())
+        .and_then(
+            |slot: Slot, query: api_types::ValidatorBlocksQuery, chain: Arc<BeaconChain<T>>| {
+                blocking_json_task(move || {
+                    let randao_reveal = (&query.randao_reveal).try_into().map_err(|e| {
+                        warp_utils::reject::custom_bad_request(format!(
+                            "randao reveal is not valid BLS signature: {:?}",
+                            e
+                        ))
+                    })?;
+
+                    let (block, _) = chain
+                        .produce_block::<BlindedTransactions>(
+                            randao_reveal,
+                            slot,
+                            query.graffiti.map(Into::into),
+                        )
+                        .map_err(warp_utils::reject::block_production_error)?;
+                    Ok(api_types::GenericResponse::from(block))
+                })
+            },
+        );
+
     // GET validator/attestation_data?slot,committee_index
     let get_validator_attestation_data = eth1_v1
         .and(warp::path("validator"))
@@ -2380,41 +2415,6 @@ pub fn serve<T: BeaconChainTypes>(
                     }
 
                     Ok(())
-                })
-            },
-        );
-
-    // GET lighthouse/blocks_private/{slot}
-    let get_lighthouse_validator_blocks_private = warp::path("lighthouse")
-        .and(warp::path("validator"))
-        .and(warp::path("blocks_private"))
-        .and(warp::path::param::<Slot>().or_else(|_| async {
-            Err(warp_utils::reject::custom_bad_request(
-                "Invalid slot".to_string(),
-            ))
-        }))
-        .and(warp::path::end())
-        .and(not_while_syncing_filter.clone())
-        .and(warp::query::<api_types::ValidatorBlocksQuery>())
-        .and(chain_filter.clone())
-        .and_then(
-            |slot: Slot, query: api_types::ValidatorBlocksQuery, chain: Arc<BeaconChain<T>>| {
-                blocking_json_task(move || {
-                    let randao_reveal = (&query.randao_reveal).try_into().map_err(|e| {
-                        warp_utils::reject::custom_bad_request(format!(
-                            "randao reveal is not valid BLS signature: {:?}",
-                            e
-                        ))
-                    })?;
-
-                    let (block, _) = chain
-                        .produce_block::<BlindedTransactions>(
-                            randao_reveal,
-                            slot,
-                            query.graffiti.map(Into::into),
-                        )
-                        .map_err(warp_utils::reject::block_production_error)?;
-                    Ok(api_types::GenericResponse::from(block))
                 })
             },
         );
@@ -2889,6 +2889,7 @@ pub fn serve<T: BeaconChainTypes>(
                 .or(get_node_peer_count.boxed())
                 .or(get_validator_duties_proposer.boxed())
                 .or(get_validator_blocks.boxed())
+                .or(get_validator_blinded_blocks.boxed())
                 .or(get_validator_attestation_data.boxed())
                 .or(get_validator_aggregate_attestation.boxed())
                 .or(get_validator_sync_committee_contribution.boxed())
@@ -2908,13 +2909,13 @@ pub fn serve<T: BeaconChainTypes>(
                 .or(get_lighthouse_database_info.boxed())
                 .or(get_lighthouse_block_rewards.boxed())
                 .or(get_lighthouse_attestation_performance.boxed())
-                .or(get_lighthouse_validator_blocks_private.boxed())
                 .or(get_lighthouse_block_packing_efficiency.boxed())
                 .or(get_events.boxed()),
         )
         .or(warp::post().and(
             post_beacon_blocks
                 .boxed()
+                .or(post_beacon_blinded_blocks.boxed())
                 .or(post_beacon_pool_attestations.boxed())
                 .or(post_beacon_pool_attester_slashings.boxed())
                 .or(post_beacon_pool_proposer_slashings.boxed())
@@ -2929,8 +2930,7 @@ pub fn serve<T: BeaconChainTypes>(
                 .or(post_validator_prepare_beacon_proposer.boxed())
                 .or(post_lighthouse_liveness.boxed())
                 .or(post_lighthouse_database_reconstruct.boxed())
-                .or(post_lighthouse_database_historical_blocks.boxed())
-                .or(post_lighthouse_beacon_blocks_private.boxed()),
+                .or(post_lighthouse_database_historical_blocks.boxed()),
         ))
         .recover(warp_utils::reject::handle_rejection)
         .with(slog_logging(log.clone()))
