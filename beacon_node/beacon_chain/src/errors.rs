@@ -138,6 +138,7 @@ pub enum BeaconChainError {
     AltairForkDisabled,
     ExecutionLayerMissing,
     ExecutionForkChoiceUpdateFailed(execution_layer::Error),
+    PrepareProposerBlockingFailed(execution_layer::Error),
     ExecutionForkChoiceUpdateInvalid {
         status: PayloadStatus,
     },
@@ -160,6 +161,7 @@ pub enum BeaconChainError {
         head_state: Checkpoint,
         fork_choice: Hash256,
     },
+    InvalidSlot(Slot),
 }
 
 easy_from_to!(SlotProcessingError, BeaconChainError);

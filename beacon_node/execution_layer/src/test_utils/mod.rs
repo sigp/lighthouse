@@ -65,6 +65,7 @@ impl<T: EthSpec> MockServer<T> {
             log: null_logger().unwrap(),
             last_echo_request: last_echo_request.clone(),
             execution_block_generator: RwLock::new(execution_block_generator),
+            previous_request: <_>::default(),
             preloaded_responses,
             static_new_payload_response: <_>::default(),
             _phantom: PhantomData,
@@ -118,6 +119,10 @@ impl<T: EthSpec> MockServer<T> {
 
     pub fn push_preloaded_response(&self, response: serde_json::Value) {
         self.ctx.preloaded_responses.lock().push(response)
+    }
+
+    pub fn take_previous_request(&self) -> Option<serde_json::Value> {
+        self.ctx.previous_request.lock().take()
     }
 
     pub fn all_payloads_valid(&self) {
@@ -241,6 +246,7 @@ pub struct Context<T: EthSpec> {
     pub last_echo_request: Arc<RwLock<Option<Bytes>>>,
     pub execution_block_generator: RwLock<ExecutionBlockGenerator<T>>,
     pub preloaded_responses: Arc<Mutex<Vec<serde_json::Value>>>,
+    pub previous_request: Arc<Mutex<Option<serde_json::Value>>>,
     pub static_new_payload_response: Arc<Mutex<Option<StaticNewPayloadResponse>>>,
     pub _phantom: PhantomData<T>,
 }
