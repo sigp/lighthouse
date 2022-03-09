@@ -559,6 +559,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
             BatchProcessResult::Failed {
                 imported_blocks: _,
                 peer_action,
+                mode: _mode,
             } => {
                 self.failed_chains.insert(parent_lookup.chain_hash());
                 if let Some(peer_action) = peer_action {

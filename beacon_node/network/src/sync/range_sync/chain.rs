@@ -1,6 +1,7 @@
 use super::batch::{BatchInfo, BatchState};
 use crate::beacon_processor::ChainSegmentProcessId;
 use crate::beacon_processor::WorkEvent as BeaconWorkEvent;
+use crate::sync::FailureMode;
 use crate::sync::{manager::Id, network_context::SyncNetworkContext, BatchProcessResult};
 use beacon_chain::BeaconChainTypes;
 use fnv::FnvHashMap;
@@ -108,6 +109,8 @@ pub enum ChainSyncingState {
     Stopped,
     /// The chain is undergoing syncing.
     Syncing,
+    /// The chain is stalled because of an execution layer error.
+    ExecutionStalled,
 }
 
 impl<T: BeaconChainTypes> SyncingChain<T> {
@@ -319,6 +322,8 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                 &BatchProcessResult::Failed {
                     imported_blocks: false,
                     peer_action: None,
+                    // TODO(pawan): check if this is correct failure mode for all cases
+                    mode: FailureMode::CL,
                 },
             )
         } else {
@@ -344,6 +349,8 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
             if let Some(batch) = self.batches.get(&epoch) {
                 let state = batch.state();
                 match state {
+                    // Return early here without any additional processing.
+                    BatchState::WaitingOnExecution => return Ok(KeepChain),
                     BatchState::AwaitingProcessing(..) => {
                         // this batch is ready
                         debug!(self.log, "Processing optimistic start"; "epoch" => epoch);
@@ -385,6 +392,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
         if let Some(batch) = self.batches.get(&self.processing_target) {
             let state = batch.state();
             match state {
+                BatchState::WaitingOnExecution => return Ok(KeepChain),
                 BatchState::AwaitingProcessing(..) => {
                     return self.process_batch(network, self.processing_target);
                 }
@@ -498,6 +506,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
             BatchProcessResult::Failed {
                 imported_blocks,
                 peer_action,
+                mode,
             } => {
                 let batch = self.batches.get_mut(&batch_id).ok_or_else(|| {
                     RemoveChain::WrongChainState(format!(
@@ -513,6 +522,17 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                 })?;
                 debug!(self.log, "Batch processing failed"; "imported_blocks" => imported_blocks,
                     "batch_epoch" => batch_id, "peer" => %peer, "client" => %network.client_type(&peer));
+
+                // The batch failed because of an EL error.
+                // Potentially stop syncing until the EL recovers.
+                if let FailureMode::EL { pause_sync } = mode {
+                    if *pause_sync {
+                        self.execution_stalled();
+                        // Shouldn't need to do anything to the specific batch state
+                        // batch.state()
+                        return Ok(KeepChain);
+                    }
+                }
                 if batch.processing_completed(false)? {
                     // check that we have not exceeded the re-process retry counter
                     // If a batch has exceeded the invalid batch lookup attempts limit, it means
@@ -611,6 +631,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
             // only for batches awaiting validation can we be sure the last attempt is
             // right, and thus, that any different attempt is wrong
             match batch.state() {
+                BatchState::WaitingOnExecution => return,
                 BatchState::AwaitingValidation(ref processed_attempt) => {
                     for attempt in batch.attempts() {
                         // The validated batch has been re-processed
@@ -741,6 +762,22 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
 
     pub fn stop_syncing(&mut self) {
         self.state = ChainSyncingState::Stopped;
+    }
+
+    pub fn execution_stalled(&mut self) {
+        self.state = ChainSyncingState::ExecutionStalled;
+    }
+
+    pub fn execution_resumed(
+        &mut self,
+        network: &mut SyncNetworkContext<T::EthSpec>,
+    ) -> ProcessingResult {
+        if self.state == ChainSyncingState::ExecutionStalled {
+            self.state = ChainSyncingState::Syncing;
+            self.process_completed_batches(network)
+        } else {
+            Ok(KeepChain)
+        }
     }
 
     /// Either a new chain, or an old one with a peer list
@@ -926,6 +963,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
         match self.state {
             ChainSyncingState::Syncing => true,
             ChainSyncingState::Stopped => false,
+            ChainSyncingState::ExecutionStalled => false,
         }
     }
 

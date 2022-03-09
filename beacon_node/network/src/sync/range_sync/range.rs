@@ -41,7 +41,7 @@
 
 use super::block_storage::BlockStorage;
 use super::chain::{BatchId, ChainId, RemoveChain, SyncingChain};
-use super::chain_collection::ChainCollection;
+use super::chain_collection::{ChainCollection, ChainState};
 use super::sync_type::RangeSyncType;
 use crate::beacon_processor::WorkEvent as BeaconWorkEvent;
 use crate::status::ToStatusMessage;
@@ -55,7 +55,7 @@ use slog::{crit, debug, error, trace};
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::mpsc;
-use types::{Epoch, EthSpec, SignedBeaconBlock, Slot};
+use types::{Epoch, EthSpec, SignedBeaconBlock};
 
 /// The primary object dealing with long range/batch syncing. This contains all the active and
 /// non-active chains that need to be processed before the syncing is considered complete. This
@@ -94,9 +94,7 @@ where
         }
     }
 
-    pub fn state(
-        &self,
-    ) -> Result<Option<(RangeSyncType, Slot /* from */, Slot /* to */)>, &'static str> {
+    pub fn state(&self) -> Result<ChainState, &'static str> {
         self.chains.state()
     }
 
@@ -189,6 +187,21 @@ where
                     &self.beacon_processor_send,
                 );
             }
+        }
+    }
+
+    pub fn execution_ready(&mut self, network: &mut SyncNetworkContext<T::EthSpec>) {
+        for (removed_chain, sync_type, remove_reason) in self
+            .chains
+            .call_all(|chain| chain.execution_resumed(network))
+        {
+            self.on_chain_removed(
+                removed_chain,
+                sync_type,
+                remove_reason,
+                network,
+                "peer removed",
+            );
         }
     }
 

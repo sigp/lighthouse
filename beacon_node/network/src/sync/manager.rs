@@ -37,18 +37,20 @@ use super::backfill_sync::{BackFillSync, ProcessResult, SyncStart};
 use super::block_lookups::BlockLookups;
 use super::network_context::SyncNetworkContext;
 use super::peer_sync_info::{remote_sync_type, PeerSyncType};
-use super::range_sync::{RangeSync, RangeSyncType, EPOCHS_PER_BATCH};
+use super::range_sync::{ChainState, RangeSync, RangeSyncType, EPOCHS_PER_BATCH};
 use crate::beacon_processor::{ChainSegmentProcessId, WorkEvent as BeaconWorkEvent};
 use crate::service::NetworkMessage;
 use crate::status::ToStatusMessage;
 use beacon_chain::{BeaconChain, BeaconChainTypes, BlockError};
+use futures::future::OptionFuture;
 use lighthouse_network::rpc::methods::MAX_REQUEST_BLOCKS;
 use lighthouse_network::types::{NetworkGlobals, SyncState};
 use lighthouse_network::SyncInfo;
 use lighthouse_network::{PeerAction, PeerId};
-use slog::{crit, debug, error, info, trace, Logger};
+use slog::{crit, debug, error, info, trace, warn, Logger};
 use std::boxed::Box;
 use std::ops::Sub;
+use std::pin::Pin;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::mpsc;
@@ -63,7 +65,17 @@ use types::{EthSpec, Hash256, SignedBeaconBlock, Slot};
 /// blocks for.
 pub const SLOT_IMPORT_TOLERANCE: usize = 32;
 
+// Delay for polling execution layer sync status in seconds.
+const EXECTION_LAYER_POLLING_DELAY: u64 = 5;
+
 pub type Id = u32;
+
+/// Represents if the failure was on the CL or EL side.
+#[derive(Debug)]
+pub enum FailureMode {
+    EL { pause_sync: bool },
+    CL,
+}
 
 /// Id of rpc requests sent by sync to the network.
 #[derive(Debug, Hash, PartialEq, Eq, Clone, Copy)]
@@ -137,6 +149,7 @@ pub enum BatchProcessResult {
     Failed {
         imported_blocks: bool,
         peer_action: Option<PeerAction>,
+        mode: FailureMode,
     },
 }
 
@@ -164,6 +177,7 @@ pub struct SyncManager<T: BeaconChainTypes> {
     backfill_sync: BackFillSync<T>,
 
     block_lookups: BlockLookups<T>,
+    poll_execution: Pin<Box<OptionFuture<tokio::time::Sleep>>>,
 
     /// The logger for the import manager.
     log: Logger,
@@ -205,6 +219,7 @@ pub fn spawn<T: BeaconChainTypes>(
             log.clone(),
         ),
         block_lookups: BlockLookups::new(beacon_processor_send, log.clone()),
+        poll_execution: Box::pin(None.into()),
         log: log.clone(),
     };
 
@@ -363,7 +378,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                 return;
             }
             Ok(state) => match state {
-                None => {
+                ChainState::Idle => {
                     // No range sync, so we decide if we are stalled or synced.
                     // For this we check if there is at least one advanced peer. An advanced peer
                     // with Idle range is possible since a peer's status is updated periodically.
@@ -384,6 +399,8 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                             SyncState::SyncTransition
                         } else if peers.synced_peers().next().is_none() {
                             SyncState::Stalled
+                        // Another condition that if execution_layer.is_syncing == true, then sync
+                        // is stalled
                         } else {
                             // There are no peers that require syncing and we have at least one synced
                             // peer
@@ -415,7 +432,11 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                     // Return the sync state if backfilling is not required.
                     sync_state
                 }
-                Some((RangeSyncType::Finalized, start_slot, target_slot)) => {
+                ChainState::Range {
+                    range_type: RangeSyncType::Finalized,
+                    from: start_slot,
+                    to: target_slot,
+                } => {
                     // If there is a backfill sync in progress pause it.
                     self.backfill_sync.pause();
 
@@ -424,7 +445,11 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                         target_slot,
                     }
                 }
-                Some((RangeSyncType::Head, start_slot, target_slot)) => {
+                ChainState::Range {
+                    range_type: RangeSyncType::Head,
+                    from: start_slot,
+                    to: target_slot,
+                } => {
                     // If there is a backfill sync in progress pause it.
                     self.backfill_sync.pause();
 
@@ -433,6 +458,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                         target_slot,
                     }
                 }
+                ChainState::WaitingOnExecution => SyncState::WaitingOnExecution,
             },
         };
 
@@ -456,104 +482,127 @@ impl<T: BeaconChainTypes> SyncManager<T> {
 
     /// The main driving future for the sync manager.
     async fn main(&mut self) {
-        // process any inbound messages
         loop {
-            if let Some(sync_message) = self.input_channel.recv().await {
-                match sync_message {
-                    SyncMessage::AddPeer(peer_id, info) => {
-                        self.add_peer(peer_id, info);
-                    }
-                    SyncMessage::RpcBlock {
-                        request_id,
-                        peer_id,
-                        beacon_block,
-                        seen_timestamp,
-                    } => {
-                        self.rpc_block_received(request_id, peer_id, beacon_block, seen_timestamp);
-                    }
-                    SyncMessage::UnknownBlock(peer_id, block) => {
-                        // If we are not synced or within SLOT_IMPORT_TOLERANCE of the block, ignore
-                        if !self.network_globals.sync_state.read().is_synced() {
-                            let head_slot = self
-                                .chain
-                                .head_info()
-                                .map(|info| info.slot)
-                                .unwrap_or_else(|_| Slot::from(0u64));
-                            let unknown_block_slot = block.slot();
-
-                            // if the block is far in the future, ignore it. If its within the slot tolerance of
-                            // our current head, regardless of the syncing state, fetch it.
-                            if (head_slot >= unknown_block_slot
-                                && head_slot.sub(unknown_block_slot).as_usize()
-                                    > SLOT_IMPORT_TOLERANCE)
-                                || (head_slot < unknown_block_slot
-                                    && unknown_block_slot.sub(head_slot).as_usize()
-                                        > SLOT_IMPORT_TOLERANCE)
-                            {
-                                continue;
-                            }
-                        }
-                        if self.network_globals.peers.read().is_connected(&peer_id) {
-                            self.block_lookups
-                                .search_parent(block, peer_id, &mut self.network);
-                        }
-                    }
-                    SyncMessage::UnknownBlockHash(peer_id, block_hash) => {
-                        // If we are not synced, ignore this block.
-                        if self.network_globals.sync_state.read().is_synced()
-                            && self.network_globals.peers.read().is_connected(&peer_id)
-                        {
-                            self.block_lookups
-                                .search_block(block_hash, peer_id, &mut self.network);
-                        }
-                    }
-                    SyncMessage::Disconnect(peer_id) => {
-                        self.peer_disconnect(&peer_id);
-                    }
-                    SyncMessage::RpcError {
-                        peer_id,
-                        request_id,
-                    } => self.inject_error(peer_id, request_id),
-                    SyncMessage::BlockProcessed {
-                        process_type,
-                        result,
-                    } => match process_type {
-                        BlockProcessType::SingleBlock { id } => self
-                            .block_lookups
-                            .single_block_processed(id, result, &mut self.network),
-                        BlockProcessType::ParentLookup { chain_hash } => self
-                            .block_lookups
-                            .parent_block_processed(chain_hash, result, &mut self.network),
-                    },
-                    SyncMessage::BatchProcessed { sync_type, result } => match sync_type {
-                        ChainSegmentProcessId::RangeBatchId(chain_id, epoch) => {
-                            self.range_sync.handle_block_process_result(
-                                &mut self.network,
-                                chain_id,
-                                epoch,
-                                result,
-                            );
+            tokio::select! {
+                Some(_) = &mut self.poll_execution => {
+                    if let Some(el) = self.chain.execution_layer.as_ref() {
+                        if el.is_synced().await {
+                            debug!(self.log, "Execution layer back online"; "action" => "resuming sync");
+                            // unpause syncing chains
+                            self.range_sync.execution_ready(&mut self.network);
+                            // Stop polling execution layer
+                            self.poll_execution = Box::pin(None.into());
                             self.update_sync_state();
                         }
-                        ChainSegmentProcessId::BackSyncBatchId(epoch) => {
-                            match self.backfill_sync.on_batch_process_result(
-                                &mut self.network,
-                                epoch,
-                                &result,
-                            ) {
-                                Ok(ProcessResult::Successful) => {}
-                                Ok(ProcessResult::SyncCompleted) => self.update_sync_state(),
-                                Err(error) => {
-                                    error!(self.log, "Backfill sync failed"; "error" => ?error);
-                                    // Update the global status
-                                    self.update_sync_state();
+                        else {
+                            // Reset the timer to poll the EL again after the delay
+                            warn!(self.log, "Execution layer still offline"; "action" => "checking liveness after delay");
+                            self.poll_execution = Box::pin(Some(tokio::time::sleep(Duration::from_secs(EXECTION_LAYER_POLLING_DELAY))).into());
+                        }
+                    }
+                    else {
+                        // This is an invalid state as we shouldn't be waiting on execution if execution doesn't exist
+                        crit!(self.log, "Invalid state");
+                    }
+                }
+                // process any inbound messages
+                Some(sync_message) = self.input_channel.recv() => {
+                    match sync_message {
+                        SyncMessage::AddPeer(peer_id, info) => {
+                            self.add_peer(peer_id, info);
+                        }
+                        SyncMessage::RpcBlock {
+                            request_id,
+                            peer_id,
+                            beacon_block,
+                            seen_timestamp,
+                        } => {
+                            self.rpc_block_received(request_id, peer_id, beacon_block, seen_timestamp);
+                        }
+                        SyncMessage::UnknownBlock(peer_id, block) => {
+                            // If we are not synced or within SLOT_IMPORT_TOLERANCE of the block, ignore
+                            if !self.network_globals.sync_state.read().is_synced() {
+                                let head_slot = self
+                                    .chain
+                                    .head_info()
+                                    .map(|info| info.slot)
+                                    .unwrap_or_else(|_| Slot::from(0u64));
+                                let unknown_block_slot = block.slot();
+
+                                // if the block is far in the future, ignore it. If its within the slot tolerance of
+                                // our current head, regardless of the syncing state, fetch it.
+                                if (head_slot >= unknown_block_slot
+                                    && head_slot.sub(unknown_block_slot).as_usize()
+                                        > SLOT_IMPORT_TOLERANCE)
+                                    || (head_slot < unknown_block_slot
+                                        && unknown_block_slot.sub(head_slot).as_usize()
+                                            > SLOT_IMPORT_TOLERANCE)
+                                {
+                                    continue;
                                 }
                             }
+                            if self.network_globals.peers.read().is_connected(&peer_id) {
+                                self.block_lookups
+                                    .search_parent(block, peer_id, &mut self.network);
+                            }
                         }
-                        ChainSegmentProcessId::ParentLookup(chain_hash) => self
-                            .block_lookups
-                            .parent_chain_processed(chain_hash, result, &mut self.network),
-                    },
+                        SyncMessage::UnknownBlockHash(peer_id, block_hash) => {
+                            // If we are not synced, ignore this block.
+                            if self.network_globals.sync_state.read().is_synced()
+                                && self.network_globals.peers.read().is_connected(&peer_id)
+                            {
+                                self.block_lookups
+                                    .search_block(block_hash, peer_id, &mut self.network);
+                            }
+                        }
+                        SyncMessage::Disconnect(peer_id) => {
+                            self.peer_disconnect(&peer_id);
+                        }
+                        SyncMessage::RpcError {
+                            peer_id,
+                            request_id,
+                        } => self.inject_error(peer_id, request_id),
+                        SyncMessage::BlockProcessed {
+                            process_type,
+                            result,
+                        } => match process_type {
+                            BlockProcessType::SingleBlock { id } => self
+                                .block_lookups
+                                .single_block_processed(id, result, &mut self.network),
+                            BlockProcessType::ParentLookup { chain_hash } => self
+                                .block_lookups
+                                .parent_block_processed(chain_hash, result, &mut self.network),
+                        },
+                        SyncMessage::BatchProcessed { sync_type, result } => match sync_type {
+                            ChainSegmentProcessId::RangeBatchId(chain_id, epoch) => {
+                                self.range_sync.handle_block_process_result(
+                                    &mut self.network,
+                                    chain_id,
+                                    epoch,
+                                    result,
+                                );
+                                self.update_sync_state();
+                            }
+                            ChainSegmentProcessId::BackSyncBatchId(epoch) => {
+                                match self.backfill_sync.on_batch_process_result(
+                                    &mut self.network,
+                                    epoch,
+                                    &result,
+                                ) {
+                                    Ok(ProcessResult::Successful) => {}
+                                    Ok(ProcessResult::SyncCompleted) => self.update_sync_state(),
+                                    Err(error) => {
+                                        error!(self.log, "Backfill sync failed"; "error" => ?error);
+                                        // Update the global status
+                                        self.update_sync_state();
+                                    }
+                                }
+                            }
+                            ChainSegmentProcessId::ParentLookup(chain_hash) => self
+                                .block_lookups
+                                .parent_chain_processed(chain_hash, result, &mut self.network),
+                        },
+                    }
                 }
             }
         }

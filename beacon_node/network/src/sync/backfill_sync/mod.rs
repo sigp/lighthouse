@@ -12,6 +12,7 @@ use crate::beacon_processor::{ChainSegmentProcessId, WorkEvent as BeaconWorkEven
 use crate::sync::manager::{BatchProcessResult, Id};
 use crate::sync::network_context::SyncNetworkContext;
 use crate::sync::range_sync::{BatchConfig, BatchId, BatchInfo, BatchState};
+use crate::sync::FailureMode;
 use beacon_chain::{BeaconChain, BeaconChainTypes};
 use lighthouse_network::types::{BackFillState, NetworkGlobals};
 use lighthouse_network::{PeerAction, PeerId};
@@ -554,6 +555,7 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
                     imported_blocks: false,
                     // The beacon processor queue is full, no need to penalize the peer.
                     peer_action: None,
+                    mode: FailureMode::CL,
                 },
             )
         } else {
@@ -638,6 +640,7 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
             BatchProcessResult::Failed {
                 imported_blocks,
                 peer_action,
+                mode: _,
             } => {
                 let batch = match self.batches.get_mut(&batch_id) {
                     Some(v) => v,
@@ -733,12 +736,16 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
                     // Batch is not ready, nothing to process
                 }
                 BatchState::Poisoned => unreachable!("Poisoned batch"),
-                BatchState::Failed | BatchState::AwaitingDownload | BatchState::Processing(_) => {
+                BatchState::Failed
+                | BatchState::AwaitingDownload
+                | BatchState::Processing(_)
+                | BatchState::WaitingOnExecution => {
                     // these are all inconsistent states:
                     // - Failed -> non recoverable batch. Chain should have been removed
                     // - AwaitingDownload -> A recoverable failed batch should have been
                     //   re-requested.
                     // - Processing -> `self.current_processing_batch` is None
+                    // - WaitingOnExecution -> We shouldn't get an EL error when backfilling
                     return self
                         .fail_sync(BackFillError::InvalidSyncState(String::from(
                             "Invalid expected batch state",
@@ -842,6 +849,12 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
                     crit!(
                         self.log,
                         "batch indicates inconsistent chain state while advancing chain"
+                    )
+                }
+                BatchState::WaitingOnExecution => {
+                    crit!(
+                        self.log,
+                        "Batch failed with execution error while backfilling. Inconsistent state"
                     )
                 }
                 BatchState::AwaitingProcessing(..) => {}

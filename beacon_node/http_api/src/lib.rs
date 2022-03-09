@@ -383,10 +383,14 @@ pub fn serve<T: BeaconChainTypes>(
                         | SyncState::SyncTransition
                         | SyncState::BackFillSyncing { .. } => Ok(()),
                         SyncState::Synced => Ok(()),
-                        SyncState::Stalled if allow_sync_stalled => Ok(()),
-                        SyncState::Stalled => Err(warp_utils::reject::not_synced(
-                            "sync is stalled".to_string(),
-                        )),
+                        SyncState::Stalled | SyncState::WaitingOnExecution
+                            if allow_sync_stalled =>
+                        {
+                            Ok(())
+                        }
+                        SyncState::Stalled | SyncState::WaitingOnExecution => Err(
+                            warp_utils::reject::not_synced("sync is stalled".to_string()),
+                        ),
                     }
                 },
             )
@@ -1775,6 +1779,9 @@ pub fn serve<T: BeaconChainTypes>(
                 )),
                 SyncState::Stalled => Err(warp_utils::reject::not_synced(
                     "sync stalled, beacon chain may not yet be initialized.".to_string(),
+                )),
+                SyncState::WaitingOnExecution => Err(warp_utils::reject::not_synced(
+                    "sync stalled, waiting on execution node.".to_string(),
                 )),
             })
         });

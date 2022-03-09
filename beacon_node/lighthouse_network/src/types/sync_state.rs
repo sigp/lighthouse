@@ -24,6 +24,8 @@ pub enum SyncState {
     /// No useful peers are connected. Long-range sync's cannot proceed and we have no useful
     /// peers to download parents for. More peers need to be connected before we can proceed.
     Stalled,
+    /// We have useful peers connected, but the execution layer is offline.
+    WaitingOnExecution,
 }
 
 #[derive(PartialEq, Debug, Clone, Serialize, Deserialize)]
@@ -52,6 +54,7 @@ impl PartialEq for SyncState {
                 | (SyncState::Synced, SyncState::Synced)
                 | (SyncState::Stalled, SyncState::Stalled)
                 | (SyncState::SyncTransition, SyncState::SyncTransition)
+                | (SyncState::WaitingOnExecution, SyncState::WaitingOnExecution)
                 | (
                     SyncState::BackFillSyncing { .. },
                     SyncState::BackFillSyncing { .. }
@@ -71,6 +74,7 @@ impl SyncState {
             SyncState::BackFillSyncing { .. } => false,
             SyncState::Synced => false,
             SyncState::Stalled => false,
+            SyncState::WaitingOnExecution => false,
         }
     }
 
@@ -91,6 +95,7 @@ impl std::fmt::Display for SyncState {
             SyncState::Stalled { .. } => write!(f, "Stalled"),
             SyncState::SyncTransition => write!(f, "Evaluating known peers"),
             SyncState::BackFillSyncing { .. } => write!(f, "Syncing Historical Blocks"),
+            SyncState::WaitingOnExecution => write!(f, "Sync is waiting on execution layer"),
         }
     }
 }

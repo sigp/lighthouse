@@ -158,7 +158,7 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
                 | SyncState::SyncTransition => {
                     speedo.observe(head_slot, Instant::now());
                 }
-                SyncState::Stalled | SyncState::Synced => {}
+                SyncState::Stalled | SyncState::Synced | SyncState::WaitingOnExecution => {}
             }
 
             // NOTE: This is going to change based on which sync we are currently performing. A
