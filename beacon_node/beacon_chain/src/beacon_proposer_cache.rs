@@ -135,7 +135,7 @@ impl BeaconProposerCache {
 pub fn compute_proposer_duties_from_head<T: BeaconChainTypes>(
     current_epoch: Epoch,
     chain: &BeaconChain<T>,
-) -> Result<(Vec<usize>, Hash256, Fork), BeaconChainError> {
+) -> Result<(Vec<usize>, Hash256, bool, Fork), BeaconChainError> {
     // Take a copy of the head of the chain.
     let head = chain.head()?;
     let mut state = head.beacon_state;
@@ -153,7 +153,9 @@ pub fn compute_proposer_duties_from_head<T: BeaconChainTypes>(
         .proposer_shuffling_decision_root(chain.genesis_block_root)
         .map_err(BeaconChainError::from)?;
 
-    Ok((indices, dependent_root, state.fork()))
+    let execution_optimistic = chain.is_optimistic_head()?;
+
+    Ok((indices, dependent_root, execution_optimistic, state.fork()))
 }
 
 /// If required, advance `state` to `target_epoch`.

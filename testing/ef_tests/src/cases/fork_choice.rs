@@ -7,8 +7,9 @@ use beacon_chain::{
         obtain_indexed_attestation_and_committees_per_slot, VerifiedAttestation,
     },
     test_utils::{BeaconChainHarness, EphemeralHarnessType},
-    BeaconChainTypes, HeadInfo,
+    BeaconChainTypes, CanonicalHead,
 };
+use parking_lot::RwLockReadGuard;
 use serde_derive::Deserialize;
 use ssz_derive::Decode;
 use state_processing::state_advance::complete_state_advance;
@@ -287,15 +288,11 @@ impl<E: EthSpec> Tester<E> {
         Ok(self.spec.genesis_slot + slots_since_genesis)
     }
 
-    fn find_head(&self) -> Result<HeadInfo, Error> {
+    fn find_head(&self) -> Result<RwLockReadGuard<CanonicalHead<EphemeralHarnessType<E>>>, Error> {
         self.harness
-            .chain
-            .fork_choice()
+            .recompute_head_blocking()
             .map_err(|e| Error::InternalError(format!("failed to find head with {:?}", e)))?;
-        self.harness
-            .chain
-            .head_info()
-            .map_err(|e| Error::InternalError(format!("failed to read head with {:?}", e)))
+        Ok(self.harness.chain.canonical_head.read())
     }
 
     fn genesis_epoch(&self) -> Epoch {
@@ -314,8 +311,9 @@ impl<E: EthSpec> Tester<E> {
 
         self.harness
             .chain
-            .fork_choice
+            .canonical_head
             .write()
+            .fork_choice
             .update_time(slot)
             .unwrap();
     }
@@ -368,15 +366,21 @@ impl<E: EthSpec> Tester<E> {
                     .unwrap();
 
                 let (block, _) = block.deconstruct();
-                let result = self.harness.chain.fork_choice.write().on_block(
-                    self.harness.chain.slot().unwrap(),
-                    &block,
-                    block_root,
-                    block_delay,
-                    &state,
-                    PayloadVerificationStatus::Irrelevant,
-                    &self.harness.chain.spec,
-                );
+                let result = self
+                    .harness
+                    .chain
+                    .canonical_head
+                    .write()
+                    .fork_choice
+                    .on_block(
+                        self.harness.chain.slot().unwrap(),
+                        &block,
+                        block_root,
+                        block_delay,
+                        &state,
+                        PayloadVerificationStatus::Irrelevant,
+                        &self.harness.chain.spec,
+                    );
 
                 if result.is_ok() {
                     return Err(Error::DidntFail(format!(
@@ -424,10 +428,11 @@ impl<E: EthSpec> Tester<E> {
     }
 
     pub fn check_head(&self, expected_head: Head) -> Result<(), Error> {
-        let chain_head = self.find_head().map(|head| Head {
-            slot: head.slot,
-            root: head.block_root,
-        })?;
+        let head = self.find_head()?;
+        let chain_head = Head {
+            slot: head.head_slot(),
+            root: head.head_block_root(),
+        };
 
         check_equal("head", chain_head, expected_head)
     }
@@ -446,8 +451,14 @@ impl<E: EthSpec> Tester<E> {
     }
 
     pub fn check_justified_checkpoint(&self, expected_checkpoint: Checkpoint) -> Result<(), Error> {
-        let head_checkpoint = self.find_head()?.current_justified_checkpoint;
-        let fc_checkpoint = self.harness.chain.fork_choice.read().justified_checkpoint();
+        let head_checkpoint = self.find_head()?.justified_checkpoint();
+        let fc_checkpoint = self
+            .harness
+            .chain
+            .canonical_head
+            .read()
+            .fork_choice
+            .justified_checkpoint();
 
         assert_checkpoints_eq(
             "justified_checkpoint",
@@ -463,8 +474,14 @@ impl<E: EthSpec> Tester<E> {
         &self,
         expected_checkpoint_root: Hash256,
     ) -> Result<(), Error> {
-        let head_checkpoint = self.find_head()?.current_justified_checkpoint;
-        let fc_checkpoint = self.harness.chain.fork_choice.read().justified_checkpoint();
+        let head_checkpoint = self.find_head()?.justified_checkpoint();
+        let fc_checkpoint = self
+            .harness
+            .chain
+            .canonical_head
+            .read()
+            .fork_choice
+            .justified_checkpoint();
 
         assert_checkpoints_eq(
             "justified_checkpoint_root",
@@ -481,8 +498,14 @@ impl<E: EthSpec> Tester<E> {
     }
 
     pub fn check_finalized_checkpoint(&self, expected_checkpoint: Checkpoint) -> Result<(), Error> {
-        let head_checkpoint = self.find_head()?.finalized_checkpoint;
-        let fc_checkpoint = self.harness.chain.fork_choice.read().finalized_checkpoint();
+        let head_checkpoint = self.find_head()?.finalized_checkpoint();
+        let fc_checkpoint = self
+            .harness
+            .chain
+            .canonical_head
+            .read()
+            .fork_choice
+            .finalized_checkpoint();
 
         assert_checkpoints_eq(
             "finalized_checkpoint",
@@ -501,8 +524,9 @@ impl<E: EthSpec> Tester<E> {
         let best_justified_checkpoint = self
             .harness
             .chain
-            .fork_choice
+            .canonical_head
             .read()
+            .fork_choice
             .best_justified_checkpoint();
         check_equal(
             "best_justified_checkpoint",
@@ -515,7 +539,13 @@ impl<E: EthSpec> Tester<E> {
         &self,
         expected_proposer_boost_root: Hash256,
     ) -> Result<(), Error> {
-        let proposer_boost_root = self.harness.chain.fork_choice.read().proposer_boost_root();
+        let proposer_boost_root = self
+            .harness
+            .chain
+            .canonical_head
+            .read()
+            .fork_choice
+            .proposer_boost_root();
         check_equal(
             "proposer_boost_root",
             proposer_boost_root,

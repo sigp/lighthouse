@@ -1,5 +1,5 @@
 use crate::metrics;
-use beacon_chain::{BeaconChain, BeaconChainTypes, HeadSafetyStatus};
+use beacon_chain::{BeaconChain, BeaconChainTypes, ExecutionStatus};
 use lighthouse_network::{types::SyncState, NetworkGlobals};
 use parking_lot::Mutex;
 use slog::{crit, debug, error, info, warn, Logger};
@@ -100,15 +100,16 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
                 current_sync_state = sync_state;
             }
 
-            let head_info = match beacon_chain.head_info() {
-                Ok(head_info) => head_info,
-                Err(e) => {
-                    error!(log, "Failed to get beacon chain head info"; "error" => format!("{:?}", e));
-                    break;
-                }
+            // Atomically collect info about the head, avoiding holding the `canonical_head` lock
+            // any longer than necessary.
+            let (head_slot, head_root, finalized_checkpoint) = {
+                let head_lock = beacon_chain.canonical_head.read();
+                (
+                    head_lock.head_slot(),
+                    head_lock.head_block_root(),
+                    head_lock.finalized_checkpoint(),
+                )
             };
-
-            let head_slot = head_info.slot;
 
             metrics::set_gauge(&metrics::NOTIFIER_HEAD_SLOT, head_slot.as_u64() as i64);
 
@@ -125,9 +126,6 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
             };
 
             let current_epoch = current_slot.epoch(T::EthSpec::slots_per_epoch());
-            let finalized_epoch = head_info.finalized_checkpoint.epoch;
-            let finalized_root = head_info.finalized_checkpoint.root;
-            let head_root = head_info.block_root;
 
             // The default is for regular sync but this gets modified if backfill sync is in
             // progress.
@@ -177,8 +175,8 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
                 log,
                 "Slot timer";
                 "peers" => peer_count_pretty(connected_peer_count),
-                "finalized_root" => format!("{}", finalized_root),
-                "finalized_epoch" => finalized_epoch,
+                "finalized_root" => format!("{}", finalized_checkpoint.root),
+                "finalized_epoch" => finalized_checkpoint.epoch,
                 "head_block" => format!("{}", head_root),
                 "head_slot" => head_slot,
                 "current_slot" => current_slot,
@@ -264,35 +262,20 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
                     head_root.to_string()
                 };
 
-                let block_hash = match beacon_chain.head_safety_status() {
-                    Ok(HeadSafetyStatus::Safe(hash_opt)) => hash_opt
-                        .map(|hash| format!("{} (verified)", hash))
-                        .unwrap_or_else(|| "n/a".to_string()),
-                    Ok(HeadSafetyStatus::Unsafe(block_hash)) => {
-                        warn!(
-                            log,
-                            "Head execution payload is unverified";
-                            "execution_block_hash" => ?block_hash,
-                        );
-                        format!("{} (unverified)", block_hash)
-                    }
-                    Ok(HeadSafetyStatus::Invalid(block_hash)) => {
+                let block_hash = match beacon_chain.canonical_head.read().head_execution_status() {
+                    Some(ExecutionStatus::Irrelevant(_)) => "n/a".to_string(),
+                    Some(ExecutionStatus::Valid(hash)) => format!("{} (verified)", hash),
+                    Some(ExecutionStatus::Optimistic(hash)) => format!("{} (unverified)", hash),
+                    Some(ExecutionStatus::Invalid(hash)) => {
                         crit!(
                             log,
                             "Head execution payload is invalid";
                             "msg" => "this scenario may be unrecoverable",
-                            "execution_block_hash" => ?block_hash,
+                            "execution_block_hash" => ?hash,
                         );
-                        format!("{} (invalid)", block_hash)
+                        format!("{} (invalid)", hash)
                     }
-                    Err(e) => {
-                        error!(
-                            log,
-                            "Failed to read head safety status";
-                            "error" => ?e
-                        );
-                        "n/a".to_string()
-                    }
+                    None => "unknown".to_string(),
                 };
 
                 info!(
@@ -300,8 +283,8 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
                     "Synced";
                     "peers" => peer_count_pretty(connected_peer_count),
                     "exec_hash" => block_hash,
-                    "finalized_root" => format!("{}", finalized_root),
-                    "finalized_epoch" => finalized_epoch,
+                    "finalized_root" => format!("{}", finalized_checkpoint.root),
+                    "finalized_epoch" => finalized_checkpoint.epoch,
                     "epoch" => current_epoch,
                     "block" => block_info,
                     "slot" => current_slot,
@@ -312,8 +295,8 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
                     log,
                     "Searching for peers";
                     "peers" => peer_count_pretty(connected_peer_count),
-                    "finalized_root" => format!("{}", finalized_root),
-                    "finalized_epoch" => finalized_epoch,
+                    "finalized_root" => format!("{}", finalized_checkpoint.root),
+                    "finalized_epoch" => finalized_checkpoint.epoch,
                     "head_slot" => head_slot,
                     "current_slot" => current_slot,
                 );
@@ -332,57 +315,52 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
 fn eth1_logging<T: BeaconChainTypes>(beacon_chain: &BeaconChain<T>, log: &Logger) {
     let current_slot_opt = beacon_chain.slot().ok();
 
-    if let Ok(head_info) = beacon_chain.head_info() {
-        // Perform some logging about the eth1 chain
-        if let Some(eth1_chain) = beacon_chain.eth1_chain.as_ref() {
-            // No need to do logging if using the dummy backend.
-            if eth1_chain.is_dummy_backend() {
-                return;
-            }
-
-            if let Some(status) =
-                eth1_chain.sync_status(head_info.genesis_time, current_slot_opt, &beacon_chain.spec)
-            {
-                debug!(
-                    log,
-                    "Eth1 cache sync status";
-                    "eth1_head_block" => status.head_block_number,
-                    "latest_cached_block_number" => status.latest_cached_block_number,
-                    "latest_cached_timestamp" => status.latest_cached_block_timestamp,
-                    "voting_target_timestamp" => status.voting_target_timestamp,
-                    "ready" => status.lighthouse_is_cached_and_ready
-                );
-
-                if !status.lighthouse_is_cached_and_ready {
-                    let voting_target_timestamp = status.voting_target_timestamp;
-
-                    let distance = status
-                        .latest_cached_block_timestamp
-                        .map(|latest| {
-                            voting_target_timestamp.saturating_sub(latest)
-                                / beacon_chain.spec.seconds_per_eth1_block
-                        })
-                        .map(|distance| distance.to_string())
-                        .unwrap_or_else(|| "initializing deposits".to_string());
-
-                    warn!(
-                        log,
-                        "Syncing eth1 block cache";
-                        "est_blocks_remaining" => distance,
-                    );
-                }
-            } else {
-                error!(
-                    log,
-                    "Unable to determine eth1 sync status";
-                );
-            }
+    // Perform some logging about the eth1 chain
+    if let Some(eth1_chain) = beacon_chain.eth1_chain.as_ref() {
+        // No need to do logging if using the dummy backend.
+        if eth1_chain.is_dummy_backend() {
+            return;
         }
-    } else {
-        error!(
-            log,
-            "Unable to get head info";
-        );
+
+        if let Some(status) = eth1_chain.sync_status(
+            beacon_chain.genesis_time,
+            current_slot_opt,
+            &beacon_chain.spec,
+        ) {
+            debug!(
+                log,
+                "Eth1 cache sync status";
+                "eth1_head_block" => status.head_block_number,
+                "latest_cached_block_number" => status.latest_cached_block_number,
+                "latest_cached_timestamp" => status.latest_cached_block_timestamp,
+                "voting_target_timestamp" => status.voting_target_timestamp,
+                "ready" => status.lighthouse_is_cached_and_ready
+            );
+
+            if !status.lighthouse_is_cached_and_ready {
+                let voting_target_timestamp = status.voting_target_timestamp;
+
+                let distance = status
+                    .latest_cached_block_timestamp
+                    .map(|latest| {
+                        voting_target_timestamp.saturating_sub(latest)
+                            / beacon_chain.spec.seconds_per_eth1_block
+                    })
+                    .map(|distance| distance.to_string())
+                    .unwrap_or_else(|| "initializing deposits".to_string());
+
+                warn!(
+                    log,
+                    "Syncing eth1 block cache";
+                    "est_blocks_remaining" => distance,
+                );
+            }
+        } else {
+            error!(
+                log,
+                "Unable to determine eth1 sync status";
+            );
+        }
     }
 }
 

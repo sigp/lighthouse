@@ -11,7 +11,7 @@ use beacon_chain::{
     BeaconChainError, BeaconChainTypes, BlockError, ChainSegmentResult, HistoricalBlockError,
 };
 use lighthouse_network::PeerAction;
-use slog::{debug, error, info, trace, warn};
+use slog::{debug, error, info, warn};
 use tokio::sync::mpsc;
 use types::{Epoch, Hash256, SignedBeaconBlock};
 
@@ -87,7 +87,8 @@ impl<T: BeaconChainTypes> Worker<T> {
                     None,
                     None,
                 );
-                self.run_fork_choice()
+                // TODO(paul): use a SendOnDrop to keep the worker alive during this call.
+                self.chain.clone().spawn_recompute_head("process_rpc_block")
             }
         }
         // Sync handles these results
@@ -213,8 +214,8 @@ impl<T: BeaconChainTypes> Worker<T> {
             ChainSegmentResult::Successful { imported_blocks } => {
                 metrics::inc_counter(&metrics::BEACON_PROCESSOR_CHAIN_SEGMENT_SUCCESS_TOTAL);
                 if imported_blocks > 0 {
-                    // Batch completed successfully with at least one block, run fork choice.
-                    self.run_fork_choice();
+                    // TODO(paul): use a SendOnDrop to keep the worker alive during this call.
+                    self.chain.clone().spawn_recompute_head("process_blocks_ok")
                 }
 
                 (imported_blocks, Ok(()))
@@ -226,7 +227,10 @@ impl<T: BeaconChainTypes> Worker<T> {
                 metrics::inc_counter(&metrics::BEACON_PROCESSOR_CHAIN_SEGMENT_FAILED_TOTAL);
                 let r = self.handle_failed_chain_segment(error);
                 if imported_blocks > 0 {
-                    self.run_fork_choice();
+                    // TODO(paul): use a SendOnDrop to keep the worker alive during this call.
+                    self.chain
+                        .clone()
+                        .spawn_recompute_head("process_blocks_err")
                 }
                 (imported_blocks, r)
             }
@@ -352,24 +356,6 @@ impl<T: BeaconChainTypes> Worker<T> {
                 };
                 (0, Err(err))
             }
-        }
-    }
-
-    /// Runs fork-choice on a given chain. This is used during block processing after one successful
-    /// block import.
-    fn run_fork_choice(&self) {
-        match self.chain.fork_choice() {
-            Ok(()) => trace!(
-                self.log,
-                "Fork choice success";
-                "location" => "batch processing"
-            ),
-            Err(e) => error!(
-                self.log,
-                "Fork choice failed";
-                "error" => ?e,
-                "location" => "batch import error"
-            ),
         }
     }
 

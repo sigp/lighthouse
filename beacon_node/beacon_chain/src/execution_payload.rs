@@ -70,13 +70,21 @@ pub fn notify_new_payload<T: BeaconChainTypes>(
                 // This block has not yet been applied to fork choice, so the latest block that was
                 // imported to fork choice was the parent.
                 let latest_root = block.parent_root();
-                chain.process_invalid_execution_payload(
-                    &InvalidationOperation::InvalidateMany {
-                        head_block_root: latest_root,
-                        always_invalidate_head: false,
-                        latest_valid_ancestor: latest_valid_hash,
-                    },
-                )?;
+                let inner_chain = chain.clone();
+                chain
+                    .task_executor
+                    // TODO(paul): revisit dangerous call
+                    .block_on_dangerous(
+                        inner_chain.process_invalid_execution_payload(
+                            &InvalidationOperation::InvalidateMany {
+                                head_block_root: latest_root,
+                                always_invalidate_head: false,
+                                latest_valid_ancestor: latest_valid_hash,
+                            },
+                        ),
+                        "process_invalid_execution_payload_new_payload",
+                    )
+                    .ok_or(BeaconChainError::RuntimeShutdown)??;
 
                 Err(ExecutionPayloadError::RejectedByExecutionEngine { status }.into())
             }
@@ -156,8 +164,9 @@ pub fn validate_merge_block<T: BeaconChainTypes>(
 
             // Ensure the block is a candidate for optimistic import.
             if chain
-                .fork_choice
+                .canonical_head
                 .read()
+                .fork_choice
                 .is_optimistic_candidate_block(
                     current_slot,
                     block.slot(),
@@ -327,21 +336,25 @@ pub async fn prepare_execution_payload<T: BeaconChainTypes, Payload: ExecPayload
     // The finalized block hash is not included in the specification, however we provide this
     // parameter so that the execution layer can produce a payload id if one is not already known
     // (e.g., due to a recent reorg).
-    let finalized_block_hash =
-        if let Some(block) = chain.fork_choice.read().get_block(&finalized_root) {
-            block.execution_status.block_hash()
-        } else {
-            chain
-                .store
-                .get_blinded_block(&finalized_root)
-                .map_err(BlockProductionError::FailedToReadFinalizedBlock)?
-                .ok_or(BlockProductionError::MissingFinalizedBlock(finalized_root))?
-                .message()
-                .body()
-                .execution_payload()
-                .ok()
-                .map(|ep| ep.block_hash())
-        };
+    let finalized_block_hash = if let Some(block) = chain
+        .canonical_head
+        .read()
+        .fork_choice
+        .get_block(&finalized_root)
+    {
+        block.execution_status.block_hash()
+    } else {
+        chain
+            .store
+            .get_blinded_block(&finalized_root)
+            .map_err(BlockProductionError::FailedToReadFinalizedBlock)?
+            .ok_or(BlockProductionError::MissingFinalizedBlock(finalized_root))?
+            .message()
+            .body()
+            .execution_payload()
+            .ok()
+            .map(|ep| ep.block_hash())
+    };
 
     // Note: the suggested_fee_recipient is stored in the `execution_layer`, it will add this parameter.
     let execution_payload = execution_layer

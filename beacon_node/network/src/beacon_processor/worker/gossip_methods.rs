@@ -919,19 +919,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                     "peer_id" => %peer_id
                 );
 
-                match self.chain.fork_choice() {
-                    Ok(()) => trace!(
-                        self.log,
-                        "Fork choice success";
-                        "location" => "block gossip"
-                    ),
-                    Err(e) => error!(
-                        self.log,
-                        "Fork choice failed";
-                        "error" => ?e,
-                        "location" => "block gossip"
-                    ),
-                }
+                self.chain.spawn_recompute_head("block gossip");
             }
             Err(BlockError::ParentUnknown { .. }) => {
                 // Inform the sync manager to find parents for this block
@@ -1144,13 +1132,9 @@ impl<T: BeaconChainTypes> Worker<T> {
             .read()
             .register_gossip_attester_slashing(slashing.as_inner());
 
-        if let Err(e) = self.chain.import_attester_slashing(slashing) {
-            debug!(self.log, "Error importing attester slashing"; "error" => ?e);
-            metrics::inc_counter(&metrics::BEACON_PROCESSOR_ATTESTER_SLASHING_ERROR_TOTAL);
-        } else {
-            debug!(self.log, "Successfully imported attester slashing");
-            metrics::inc_counter(&metrics::BEACON_PROCESSOR_ATTESTER_SLASHING_IMPORTED_TOTAL);
-        }
+        self.chain.import_attester_slashing(slashing);
+        debug!(self.log, "Successfully imported attester slashing");
+        metrics::inc_counter(&metrics::BEACON_PROCESSOR_ATTESTER_SLASHING_IMPORTED_TOTAL);
     }
 
     /// Process the sync committee signature received from the gossip network and:

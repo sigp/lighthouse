@@ -1097,11 +1097,11 @@ where
         let mut attestation_2 = attestation_1.clone();
         attestation_2.data.index += 1;
 
+        let fork = self.chain.canonical_head.read().head_fork();
         for attestation in &mut [&mut attestation_1, &mut attestation_2] {
             for &i in &attestation.attesting_indices {
                 let sk = &self.validator_keypairs[i as usize].sk;
 
-                let fork = self.chain.head_info().unwrap().fork;
                 let genesis_validators_root = self.chain.genesis_validators_root;
 
                 let domain = self.chain.spec.get_domain(
@@ -1155,11 +1155,11 @@ where
 
         attestation_2.data.index += 1;
 
+        let fork = self.chain.canonical_head.read().head_fork();
         for attestation in &mut [&mut attestation_1, &mut attestation_2] {
             for &i in &attestation.attesting_indices {
                 let sk = &self.validator_keypairs[i as usize].sk;
 
-                let fork = self.chain.head_info().unwrap().fork;
                 let genesis_validators_root = self.chain.genesis_validators_root;
 
                 let domain = self.chain.spec.get_domain(
@@ -1193,7 +1193,7 @@ where
         block_header_2.state_root = Hash256::zero();
 
         let sk = &self.validator_keypairs[validator_index as usize].sk;
-        let fork = self.chain.head_info().unwrap().fork;
+        let fork = self.chain.canonical_head.read().head_fork();
         let genesis_validators_root = self.chain.genesis_validators_root;
 
         let mut signed_block_headers = vec![block_header_1, block_header_2]
@@ -1211,7 +1211,7 @@ where
 
     pub fn make_voluntary_exit(&self, validator_index: u64, epoch: Epoch) -> SignedVoluntaryExit {
         let sk = &self.validator_keypairs[validator_index as usize].sk;
-        let fork = self.chain.head_info().unwrap().fork;
+        let fork = self.chain.canonical_head.read().head_fork();
         let genesis_validators_root = self.chain.genesis_validators_root;
 
         VoluntaryExit {
@@ -1331,6 +1331,15 @@ where
         (deposits, state)
     }
 
+    pub fn recompute_head_blocking(&self) -> Result<(), BeaconChainError> {
+        let chain = self.chain.clone();
+        self.chain
+            .task_executor
+            .clone()
+            .block_on_dangerous(chain.recompute_head(), "recompute_head_blocking")
+            .ok_or(BeaconChainError::RuntimeShutdown)?
+    }
+
     pub fn process_block(
         &self,
         slot: Slot,
@@ -1338,7 +1347,7 @@ where
     ) -> Result<SignedBeaconBlockHash, BlockError<E>> {
         self.set_current_slot(slot);
         let block_hash: SignedBeaconBlockHash = self.chain.process_block(block)?.into();
-        self.chain.fork_choice()?;
+        self.recompute_head_blocking()?;
         Ok(block_hash)
     }
 
@@ -1347,7 +1356,7 @@ where
         block: SignedBeaconBlock<E>,
     ) -> Result<SignedBeaconBlockHash, BlockError<E>> {
         let block_hash: SignedBeaconBlockHash = self.chain.process_block(block)?.into();
-        self.chain.fork_choice().unwrap();
+        self.recompute_head_blocking().unwrap();
         Ok(block_hash)
     }
 
@@ -1606,7 +1615,7 @@ where
 
     /// Uses `Self::extend_chain` to build the chain out to the `target_slot`.
     pub fn extend_to_slot(&self, target_slot: Slot) -> Hash256 {
-        if self.chain.slot().unwrap() == self.chain.head_info().unwrap().slot {
+        if self.chain.slot().unwrap() == self.chain.canonical_head.read().head_slot() {
             self.advance_slot();
         }
 
@@ -1627,7 +1636,7 @@ where
     ///  - BlockStrategy::OnCanonicalHead,
     ///  - AttestationStrategy::AllValidators,
     pub fn extend_slots(&self, num_slots: usize) -> Hash256 {
-        if self.chain.slot().unwrap() == self.chain.head_info().unwrap().slot {
+        if self.chain.slot().unwrap() == self.chain.canonical_head.read().head_slot() {
             self.advance_slot();
         }
 

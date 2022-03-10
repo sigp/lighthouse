@@ -223,6 +223,16 @@ impl TestRig {
         }
     }
 
+    pub fn recompute_head_blocking(&self) {
+        let chain = self.chain.clone();
+        self.chain
+            .task_executor
+            .clone()
+            .block_on_dangerous(chain.recompute_head(), "recompute_head_blocking")
+            .unwrap()
+            .unwrap();
+    }
+
     pub fn head_root(&self) -> Hash256 {
         self.chain.head().unwrap().beacon_block_root
     }
@@ -617,7 +627,7 @@ fn attestation_to_unknown_block_processed(import_method: BlockImportMethod) {
 
     // Run fork choice, since it isn't run when processing an RPC block. At runtime it is the
     // responsibility of the sync manager to do this.
-    rig.chain.fork_choice().unwrap();
+    rig.recompute_head_blocking();
 
     assert_eq!(
         rig.head_root(),
@@ -684,7 +694,7 @@ fn aggregate_attestation_to_unknown_block(import_method: BlockImportMethod) {
 
     // Run fork choice, since it isn't run when processing an RPC block. At runtime it is the
     // responsibility of the sync manager to do this.
-    rig.chain.fork_choice().unwrap();
+    rig.recompute_head_blocking();
 
     assert_eq!(
         rig.head_root(),
