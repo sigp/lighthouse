@@ -710,7 +710,7 @@ mod release_tests {
     }
 
     /// Test state for sync contribution-related tests.
-    fn sync_contribution_test_state<E: EthSpec>(
+    async fn sync_contribution_test_state<E: EthSpec>(
         num_committees: usize,
     ) -> (BeaconChainHarness<EphemeralHarnessType<E>>, ChainSpec) {
         let mut spec = E::default_spec();
@@ -722,12 +722,14 @@ mod release_tests {
         let harness = get_harness::<E>(num_validators, Some(spec.clone()));
 
         let state = harness.get_current_state();
-        harness.add_attested_blocks_at_slots(
-            state,
-            Hash256::zero(),
-            &[Slot::new(1)],
-            (0..num_validators).collect::<Vec<_>>().as_slice(),
-        );
+        harness
+            .add_attested_blocks_at_slots(
+                state,
+                Hash256::zero(),
+                &[Slot::new(1)],
+                (0..num_validators).collect::<Vec<_>>().as_slice(),
+            )
+            .await;
 
         (harness, spec)
     }
@@ -1454,9 +1456,9 @@ mod release_tests {
     }
 
     /// End-to-end test of basic sync contribution handling.
-    #[test]
-    fn sync_contribution_aggregation_insert_get_prune() {
-        let (harness, _) = sync_contribution_test_state::<MainnetEthSpec>(1);
+    #[tokio::test]
+    async fn sync_contribution_aggregation_insert_get_prune() {
+        let (harness, _) = sync_contribution_test_state::<MainnetEthSpec>(1).await;
 
         let op_pool = OperationPool::<MainnetEthSpec>::new();
         let state = harness.get_current_state();
@@ -1514,9 +1516,9 @@ mod release_tests {
     }
 
     /// Adding a sync contribution already in the pool should not increase the size of the pool.
-    #[test]
-    fn sync_contribution_duplicate() {
-        let (harness, _) = sync_contribution_test_state::<MainnetEthSpec>(1);
+    #[tokio::test]
+    async fn sync_contribution_duplicate() {
+        let (harness, _) = sync_contribution_test_state::<MainnetEthSpec>(1).await;
 
         let op_pool = OperationPool::<MainnetEthSpec>::new();
         let state = harness.get_current_state();
@@ -1551,9 +1553,9 @@ mod release_tests {
 
     /// Adding a sync contribution already in the pool with more bits set should increase the
     /// number of bits set in the aggregate.
-    #[test]
-    fn sync_contribution_with_more_bits() {
-        let (harness, _) = sync_contribution_test_state::<MainnetEthSpec>(1);
+    #[tokio::test]
+    async fn sync_contribution_with_more_bits() {
+        let (harness, _) = sync_contribution_test_state::<MainnetEthSpec>(1).await;
 
         let op_pool = OperationPool::<MainnetEthSpec>::new();
         let state = harness.get_current_state();
@@ -1631,9 +1633,9 @@ mod release_tests {
 
     /// Adding a sync contribution already in the pool with fewer bits set should not increase the
     /// number of bits set in the aggregate.
-    #[test]
-    fn sync_contribution_with_fewer_bits() {
-        let (harness, _) = sync_contribution_test_state::<MainnetEthSpec>(1);
+    #[tokio::test]
+    async fn sync_contribution_with_fewer_bits() {
+        let (harness, _) = sync_contribution_test_state::<MainnetEthSpec>(1).await;
 
         let op_pool = OperationPool::<MainnetEthSpec>::new();
         let state = harness.get_current_state();

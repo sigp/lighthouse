@@ -53,7 +53,7 @@ use lighthouse_network::rpc::GoodbyeReason;
 use lighthouse_network::PeerId;
 use lighthouse_network::SyncInfo;
 use lru_cache::LRUTimeCache;
-use slog::{crit, debug, error, trace, warn};
+use slog::{crit, debug, trace, warn};
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::mpsc;
@@ -221,7 +221,7 @@ where
         chain_id: ChainId,
         batch_id: BatchId,
         request_id: Id,
-        beacon_block: Option<SignedBeaconBlock<T::EthSpec>>,
+        beacon_block: Option<Arc<SignedBeaconBlock<T::EthSpec>>>,
     ) {
         // check if this chunk removes the chain
         match self.chains.call_by_id(chain_id, |chain| {
@@ -365,17 +365,12 @@ where
 
         network.status_peers(self.beacon_chain.as_ref(), chain.peers());
 
-        let local = match self.beacon_chain.status_message() {
-            Ok(status) => SyncInfo {
-                head_slot: status.head_slot,
-                head_root: status.head_root,
-                finalized_epoch: status.finalized_epoch,
-                finalized_root: status.finalized_root,
-            },
-            Err(e) => {
-                return error!(self.log, "Failed to get peer sync info";
-                    "msg" => "likely due to head lock contention", "err" => ?e)
-            }
+        let status = self.beacon_chain.status_message();
+        let local = SyncInfo {
+            head_slot: status.head_slot,
+            head_root: status.head_root,
+            finalized_epoch: status.finalized_epoch,
+            finalized_root: status.finalized_root,
         };
 
         // update the state of the collection
@@ -447,8 +442,8 @@ mod tests {
     }
 
     impl ToStatusMessage for FakeStorage {
-        fn status_message(&self) -> Result<StatusMessage, beacon_chain::BeaconChainError> {
-            Ok(self.status.read().clone())
+        fn status_message(&self) -> StatusMessage {
+            self.status.read().clone()
         }
     }
 

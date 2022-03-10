@@ -27,11 +27,11 @@ fn verify_execution_payload_chain<T: EthSpec>(chain: &[FullPayload<T>]) {
     }
 }
 
-#[test]
+#[tokio::test]
 // TODO(merge): This isn't working cause the non-zero values in `initialize_beacon_state_from_eth1`
 // are causing failed lookups to the execution node. I need to come back to this.
 #[should_panic]
-fn merge_with_terminal_block_hash_override() {
+async fn merge_with_terminal_block_hash_override() {
     let altair_fork_epoch = Epoch::new(0);
     let bellatrix_fork_epoch = Epoch::new(0);
 
@@ -70,8 +70,7 @@ fn merge_with_terminal_block_hash_override() {
     assert!(
         harness
             .chain
-            .head()
-            .unwrap()
+            .head_snapshot()
             .beacon_block
             .as_merge()
             .is_ok(),
@@ -80,9 +79,9 @@ fn merge_with_terminal_block_hash_override() {
 
     let mut execution_payloads = vec![];
     for i in 0..E::slots_per_epoch() * 3 {
-        harness.extend_slots(1);
+        harness.extend_slots(1).await;
 
-        let block = harness.chain.head().unwrap().beacon_block;
+        let block = &harness.chain.head_snapshot().beacon_block;
 
         let execution_payload = block.message().body().execution_payload().unwrap().clone();
         if i == 0 {
@@ -94,8 +93,8 @@ fn merge_with_terminal_block_hash_override() {
     verify_execution_payload_chain(execution_payloads.as_slice());
 }
 
-#[test]
-fn base_altair_merge_with_terminal_block_after_fork() {
+#[tokio::test]
+async fn base_altair_merge_with_terminal_block_after_fork() {
     let altair_fork_epoch = Epoch::new(4);
     let altair_fork_slot = altair_fork_epoch.start_slot(E::slots_per_epoch());
     let bellatrix_fork_epoch = Epoch::new(8);
@@ -118,15 +117,15 @@ fn base_altair_merge_with_terminal_block_after_fork() {
      * Start with the base fork.
      */
 
-    assert!(harness.chain.head().unwrap().beacon_block.as_base().is_ok());
+    assert!(harness.chain.head_snapshot().beacon_block.as_base().is_ok());
 
     /*
      * Do the Altair fork.
      */
 
-    harness.extend_to_slot(altair_fork_slot);
+    harness.extend_to_slot(altair_fork_slot).await;
 
-    let altair_head = harness.chain.head().unwrap().beacon_block;
+    let altair_head = &harness.chain.head_snapshot().beacon_block;
     assert!(altair_head.as_altair().is_ok());
     assert_eq!(altair_head.slot(), altair_fork_slot);
 
@@ -134,9 +133,9 @@ fn base_altair_merge_with_terminal_block_after_fork() {
      * Do the merge fork, without a terminal PoW block.
      */
 
-    harness.extend_to_slot(merge_fork_slot);
+    harness.extend_to_slot(merge_fork_slot).await;
 
-    let merge_head = harness.chain.head().unwrap().beacon_block;
+    let merge_head = &harness.chain.head_snapshot().beacon_block;
     assert!(merge_head.as_merge().is_ok());
     assert_eq!(merge_head.slot(), merge_fork_slot);
     assert_eq!(
@@ -148,9 +147,9 @@ fn base_altair_merge_with_terminal_block_after_fork() {
      * Next merge block shouldn't include an exec payload.
      */
 
-    harness.extend_slots(1);
+    harness.extend_slots(1).await;
 
-    let one_after_merge_head = harness.chain.head().unwrap().beacon_block;
+    let one_after_merge_head = &harness.chain.head_snapshot().beacon_block;
     assert_eq!(
         *one_after_merge_head
             .message()
@@ -175,9 +174,9 @@ fn base_altair_merge_with_terminal_block_after_fork() {
      */
 
     for _ in 0..4 {
-        harness.extend_slots(1);
+        harness.extend_slots(1).await;
 
-        let block = harness.chain.head().unwrap().beacon_block;
+        let block = &harness.chain.head_snapshot().beacon_block;
         execution_payloads.push(block.message().body().execution_payload().unwrap().clone());
     }
 

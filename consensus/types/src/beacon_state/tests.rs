@@ -25,7 +25,7 @@ lazy_static! {
     static ref KEYPAIRS: Vec<Keypair> = generate_deterministic_keypairs(MAX_VALIDATOR_COUNT);
 }
 
-fn get_harness<E: EthSpec>(
+async fn get_harness<E: EthSpec>(
     validator_count: usize,
     slot: Slot,
 ) -> BeaconChainHarness<EphemeralHarnessType<E>> {
@@ -41,24 +41,26 @@ fn get_harness<E: EthSpec>(
             .map(Slot::new)
             .collect::<Vec<_>>();
         let state = harness.get_current_state();
-        harness.add_attested_blocks_at_slots(
-            state,
-            Hash256::zero(),
-            slots.as_slice(),
-            (0..validator_count).collect::<Vec<_>>().as_slice(),
-        );
+        harness
+            .add_attested_blocks_at_slots(
+                state,
+                Hash256::zero(),
+                slots.as_slice(),
+                (0..validator_count).collect::<Vec<_>>().as_slice(),
+            )
+            .await;
     }
     harness
 }
 
-fn build_state<E: EthSpec>(validator_count: usize) -> BeaconState<E> {
+async fn build_state<E: EthSpec>(validator_count: usize) -> BeaconState<E> {
     get_harness(validator_count, Slot::new(0))
+        .await
         .chain
-        .head_beacon_state()
-        .unwrap()
+        .head_beacon_state_cloned()
 }
 
-fn test_beacon_proposer_index<T: EthSpec>() {
+async fn test_beacon_proposer_index<T: EthSpec>() {
     let spec = T::default_spec();
 
     // Get the i'th candidate proposer for the given state and slot
@@ -85,20 +87,20 @@ fn test_beacon_proposer_index<T: EthSpec>() {
 
     // Test where we have one validator per slot.
     // 0th candidate should be chosen every time.
-    let state = build_state(T::slots_per_epoch() as usize);
+    let state = build_state(T::slots_per_epoch() as usize).await;
     for i in 0..T::slots_per_epoch() {
         test(&state, Slot::from(i), 0);
     }
 
     // Test where we have two validators per slot.
     // 0th candidate should be chosen every time.
-    let state = build_state((T::slots_per_epoch() as usize).mul(2));
+    let state = build_state((T::slots_per_epoch() as usize).mul(2)).await;
     for i in 0..T::slots_per_epoch() {
         test(&state, Slot::from(i), 0);
     }
 
     // Test with two validators per slot, first validator has zero balance.
-    let mut state = build_state::<T>((T::slots_per_epoch() as usize).mul(2));
+    let mut state = build_state::<T>((T::slots_per_epoch() as usize).mul(2)).await;
     let slot0_candidate0 = ith_candidate(&state, Slot::new(0), 0, &spec);
     state.validators_mut()[slot0_candidate0].effective_balance = 0;
     test(&state, Slot::new(0), 1);
@@ -107,9 +109,9 @@ fn test_beacon_proposer_index<T: EthSpec>() {
     }
 }
 
-#[test]
-fn beacon_proposer_index() {
-    test_beacon_proposer_index::<MinimalEthSpec>();
+#[tokio::test]
+async fn beacon_proposer_index() {
+    test_beacon_proposer_index::<MinimalEthSpec>().await;
 }
 
 /// Test that
@@ -144,11 +146,11 @@ fn test_cache_initialization<T: EthSpec>(
     );
 }
 
-#[test]
-fn cache_initialization() {
+#[tokio::test]
+async fn cache_initialization() {
     let spec = MinimalEthSpec::default_spec();
 
-    let mut state = build_state::<MinimalEthSpec>(16);
+    let mut state = build_state::<MinimalEthSpec>(16).await;
 
     *state.slot_mut() =
         (MinimalEthSpec::genesis_epoch() + 1).start_slot(MinimalEthSpec::slots_per_epoch());
@@ -211,11 +213,11 @@ fn test_clone_config<E: EthSpec>(base_state: &BeaconState<E>, clone_config: Clon
     }
 }
 
-#[test]
-fn clone_config() {
+#[tokio::test]
+async fn clone_config() {
     let spec = MinimalEthSpec::default_spec();
 
-    let mut state = build_state::<MinimalEthSpec>(16);
+    let mut state = build_state::<MinimalEthSpec>(16).await;
 
     state.build_all_caches(&spec).unwrap();
     state
@@ -314,7 +316,7 @@ mod committees {
         assert!(expected_indices_iter.next().is_none());
     }
 
-    fn committee_consistency_test<T: EthSpec>(
+    async fn committee_consistency_test<T: EthSpec>(
         validator_count: usize,
         state_epoch: Epoch,
         cache_epoch: RelativeEpoch,
@@ -322,7 +324,7 @@ mod committees {
         let spec = &T::default_spec();
 
         let slot = state_epoch.start_slot(T::slots_per_epoch());
-        let harness = get_harness::<T>(validator_count, slot);
+        let harness = get_harness::<T>(validator_count, slot).await;
         let mut new_head_state = harness.get_current_state();
 
         let distinct_hashes: Vec<Hash256> = (0..T::epochs_per_historical_vector())
@@ -350,7 +352,7 @@ mod committees {
         );
     }
 
-    fn committee_consistency_test_suite<T: EthSpec>(cached_epoch: RelativeEpoch) {
+    async fn committee_consistency_test_suite<T: EthSpec>(cached_epoch: RelativeEpoch) {
         let spec = T::default_spec();
 
         let validator_count = spec
@@ -359,13 +361,15 @@ mod committees {
             .mul(spec.target_committee_size)
             .add(1);
 
-        committee_consistency_test::<T>(validator_count as usize, Epoch::new(0), cached_epoch);
+        committee_consistency_test::<T>(validator_count as usize, Epoch::new(0), cached_epoch)
+            .await;
 
         committee_consistency_test::<T>(
             validator_count as usize,
             T::genesis_epoch() + 4,
             cached_epoch,
-        );
+        )
+        .await;
 
         committee_consistency_test::<T>(
             validator_count as usize,
@@ -374,38 +378,39 @@ mod committees {
                     .mul(T::slots_per_epoch())
                     .mul(4),
             cached_epoch,
-        );
+        )
+        .await;
     }
 
-    #[test]
-    fn current_epoch_committee_consistency() {
-        committee_consistency_test_suite::<MinimalEthSpec>(RelativeEpoch::Current);
+    #[tokio::test]
+    async fn current_epoch_committee_consistency() {
+        committee_consistency_test_suite::<MinimalEthSpec>(RelativeEpoch::Current).await;
     }
 
-    #[test]
-    fn previous_epoch_committee_consistency() {
-        committee_consistency_test_suite::<MinimalEthSpec>(RelativeEpoch::Previous);
+    #[tokio::test]
+    async fn previous_epoch_committee_consistency() {
+        committee_consistency_test_suite::<MinimalEthSpec>(RelativeEpoch::Previous).await;
     }
 
-    #[test]
-    fn next_epoch_committee_consistency() {
-        committee_consistency_test_suite::<MinimalEthSpec>(RelativeEpoch::Next);
+    #[tokio::test]
+    async fn next_epoch_committee_consistency() {
+        committee_consistency_test_suite::<MinimalEthSpec>(RelativeEpoch::Next).await;
     }
 }
 
 mod get_outstanding_deposit_len {
     use super::*;
 
-    fn state() -> BeaconState<MinimalEthSpec> {
+    async fn state() -> BeaconState<MinimalEthSpec> {
         get_harness(16, Slot::new(0))
+            .await
             .chain
-            .head_beacon_state()
-            .unwrap()
+            .head_beacon_state_cloned()
     }
 
-    #[test]
-    fn returns_ok() {
-        let mut state = state();
+    #[tokio::test]
+    async fn returns_ok() {
+        let mut state = state().await;
         assert_eq!(state.get_outstanding_deposit_len(), Ok(0));
 
         state.eth1_data_mut().deposit_count = 17;
@@ -413,9 +418,9 @@ mod get_outstanding_deposit_len {
         assert_eq!(state.get_outstanding_deposit_len(), Ok(1));
     }
 
-    #[test]
-    fn returns_err_if_the_state_is_invalid() {
-        let mut state = state();
+    #[tokio::test]
+    async fn returns_err_if_the_state_is_invalid() {
+        let mut state = state().await;
         // The state is invalid, deposit count is lower than deposit index.
         state.eth1_data_mut().deposit_count = 16;
         *state.eth1_deposit_index_mut() = 17;

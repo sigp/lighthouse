@@ -28,6 +28,8 @@ pub trait ExecPayload<T: EthSpec>:
     + Hash
     + TryFrom<ExecutionPayloadHeader<T>>
     + From<ExecutionPayload<T>>
+    + Send
+    + 'static
 {
     fn block_type() -> BlockType;
 

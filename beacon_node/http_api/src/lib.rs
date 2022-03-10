@@ -23,7 +23,7 @@ use beacon_chain::{
     observed_operations::ObservationOutcome,
     validator_monitor::{get_block_delay_ms, timestamp_now},
     AttestationError as AttnError, BeaconChain, BeaconChainError, BeaconChainTypes,
-    HeadSafetyStatus, ProduceBlockVerification, WhenSlotSkipped,
+    ProduceBlockVerification, WhenSlotSkipped,
 };
 use block_id::BlockId;
 use eth2::types::{self as api_types, EndpointVersion, ValidatorId};
@@ -369,9 +369,7 @@ pub fn serve<T: BeaconChainTypes>(
                       chain: Arc<BeaconChain<T>>| async move {
                     match *network_globals.sync_state.read() {
                         SyncState::SyncingFinalized { .. } => {
-                            let head_slot = chain
-                                .best_slot()
-                                .map_err(warp_utils::reject::beacon_chain_error)?;
+                            let head_slot = chain.canonical_head.cached_head().head_slot();
 
                             let current_slot =
                                 chain.slot_clock.now_or_genesis().ok_or_else(|| {
@@ -404,35 +402,6 @@ pub fn serve<T: BeaconChainTypes>(
             )
             .untuple_one();
 
-    // Create a `warp` filter that rejects requests unless the head has been verified by the
-    // execution layer.
-    let only_with_safe_head = warp::any()
-        .and(chain_filter.clone())
-        .and_then(move |chain: Arc<BeaconChain<T>>| async move {
-            let status = chain.head_safety_status().map_err(|e| {
-                warp_utils::reject::custom_server_error(format!(
-                    "failed to read head safety status: {:?}",
-                    e
-                ))
-            })?;
-            match status {
-                HeadSafetyStatus::Safe(_) => Ok(()),
-                HeadSafetyStatus::Unsafe(hash) => {
-                    Err(warp_utils::reject::custom_server_error(format!(
-                        "optimistic head hash {:?} has not been verified by the execution layer",
-                        hash
-                    )))
-                }
-                HeadSafetyStatus::Invalid(hash) => {
-                    Err(warp_utils::reject::custom_server_error(format!(
-                        "the head block has an invalid payload {:?}, this may be unrecoverable",
-                        hash
-                    )))
-                }
-            }
-        })
-        .untuple_one();
-
     // Create a `warp` filter that provides access to the logger.
     let inner_ctx = ctx.clone();
     let log_filter = warp::any().map(move || inner_ctx.log.clone());
@@ -451,15 +420,12 @@ pub fn serve<T: BeaconChainTypes>(
         .and(chain_filter.clone())
         .and_then(|chain: Arc<BeaconChain<T>>| {
             blocking_json_task(move || {
-                chain
-                    .head_info()
-                    .map_err(warp_utils::reject::beacon_chain_error)
-                    .map(|head| api_types::GenesisData {
-                        genesis_time: head.genesis_time,
-                        genesis_validators_root: head.genesis_validators_root,
-                        genesis_fork_version: chain.spec.genesis_fork_version,
-                    })
-                    .map(api_types::GenericResponse::from)
+                let genesis_data = api_types::GenesisData {
+                    genesis_time: chain.genesis_time,
+                    genesis_validators_root: chain.genesis_validators_root,
+                    genesis_fork_version: chain.spec.genesis_fork_version,
+                };
+                Ok(api_types::GenericResponse::from(genesis_data))
             })
         });
 
@@ -835,10 +801,10 @@ pub fn serve<T: BeaconChainTypes>(
                 blocking_json_task(move || {
                     let (root, block) = match (query.slot, query.parent_root) {
                         // No query parameters, return the canonical head block.
-                        (None, None) => chain
-                            .head_beacon_block()
-                            .map_err(warp_utils::reject::beacon_chain_error)
-                            .map(|block| (block.canonical_root(), block.into()))?,
+                        (None, None) => {
+                            let block = chain.head_beacon_block();
+                            (block.canonical_root(), block.clone_as_blinded())
+                        }
                         // Only the parent root parameter, do a forwards-iterator lookup.
                         (None, Some(parent_root)) => {
                             let parent = BlockId::from_root(parent_root).blinded_block(&chain)?;
@@ -945,93 +911,85 @@ pub fn serve<T: BeaconChainTypes>(
         .and(network_tx_filter.clone())
         .and(log_filter.clone())
         .and_then(
-            |block: SignedBeaconBlock<T::EthSpec>,
+            |block: Arc<SignedBeaconBlock<T::EthSpec>>,
              chain: Arc<BeaconChain<T>>,
              network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>,
-             log: Logger| {
-                blocking_json_task(move || {
-                    let seen_timestamp = timestamp_now();
+             log: Logger| async move {
+                let seen_timestamp = timestamp_now();
 
-                    // Send the block, regardless of whether or not it is valid. The API
-                    // specification is very clear that this is the desired behaviour.
-                    publish_pubsub_message(
-                        &network_tx,
-                        PubsubMessage::BeaconBlock(Box::new(block.clone())),
-                    )?;
+                // Send the block, regardless of whether or not it is valid. The API
+                // specification is very clear that this is the desired behaviour.
+                publish_pubsub_message(&network_tx, PubsubMessage::BeaconBlock(block.clone()))?;
 
-                    // Determine the delay after the start of the slot, register it with metrics.
-                    let delay =
-                        get_block_delay_ms(seen_timestamp, block.message(), &chain.slot_clock);
-                    metrics::observe_duration(
-                        &metrics::HTTP_API_BLOCK_BROADCAST_DELAY_TIMES,
-                        delay,
-                    );
+                // Determine the delay after the start of the slot, register it with metrics.
+                let delay = get_block_delay_ms(seen_timestamp, block.message(), &chain.slot_clock);
+                metrics::observe_duration(&metrics::HTTP_API_BLOCK_BROADCAST_DELAY_TIMES, delay);
 
-                    match chain.process_block(block.clone()) {
-                        Ok(root) => {
-                            info!(
+                match chain.process_block(block.clone()).await {
+                    Ok(root) => {
+                        info!(
+                            log,
+                            "Valid block from HTTP API";
+                            "block_delay" => ?delay,
+                            "root" => format!("{}", root),
+                            "proposer_index" => block.message().proposer_index(),
+                            "slot" => block.slot(),
+                        );
+
+                        // Notify the validator monitor.
+                        chain.validator_monitor.read().register_api_block(
+                            seen_timestamp,
+                            block.message(),
+                            root,
+                            &chain.slot_clock,
+                        );
+
+                        // Update the head since it's likely this block will become the new
+                        // head.
+                        chain
+                            .recompute_head_at_current_slot()
+                            .await
+                            .map_err(warp_utils::reject::beacon_chain_error)?;
+
+                        // Perform some logging to inform users if their blocks are being produced
+                        // late.
+                        //
+                        // Check to see the thresholds are non-zero to avoid logging errors with small
+                        // slot times (e.g., during testing)
+                        let crit_threshold = chain.slot_clock.unagg_attestation_production_delay();
+                        let error_threshold = crit_threshold / 2;
+                        if delay >= crit_threshold {
+                            crit!(
                                 log,
-                                "Valid block from HTTP API";
-                                "block_delay" => ?delay,
-                                "root" => format!("{}", root),
-                                "proposer_index" => block.message().proposer_index(),
+                                "Block was broadcast too late";
+                                "msg" => "system may be overloaded, block likely to be orphaned",
+                                "delay_ms" => delay.as_millis(),
                                 "slot" => block.slot(),
-                            );
-
-                            // Notify the validator monitor.
-                            chain.validator_monitor.read().register_api_block(
-                                seen_timestamp,
-                                block.message(),
-                                root,
-                                &chain.slot_clock,
-                            );
-
-                            // Update the head since it's likely this block will become the new
-                            // head.
-                            chain
-                                .fork_choice()
-                                .map_err(warp_utils::reject::beacon_chain_error)?;
-
-                            // Perform some logging to inform users if their blocks are being produced
-                            // late.
-                            //
-                            // Check to see the thresholds are non-zero to avoid logging errors with small
-                            // slot times (e.g., during testing)
-                            let crit_threshold = chain.slot_clock.unagg_attestation_production_delay();
-                            let error_threshold = crit_threshold / 2;
-                            if delay >= crit_threshold {
-                                crit!(
-                                    log,
-                                    "Block was broadcast too late";
-                                    "msg" => "system may be overloaded, block likely to be orphaned",
-                                    "delay_ms" => delay.as_millis(),
-                                    "slot" => block.slot(),
-                                    "root" => ?root,
-                                )
-                            } else if delay >= error_threshold  {
-                                error!(
-                                    log,
-                                    "Block broadcast was delayed";
-                                    "msg" => "system may be overloaded, block may be orphaned",
-                                    "delay_ms" => delay.as_millis(),
-                                    "slot" => block.slot(),
-                                    "root" => ?root,
-                                )
-                            }
-
-                            Ok(())
-                        }
-                        Err(e) => {
-                            let msg = format!("{:?}", e);
+                                "root" => ?root,
+                            )
+                        } else if delay >= error_threshold {
                             error!(
                                 log,
-                                "Invalid block provided to HTTP API";
-                                "reason" => &msg
-                            );
-                            Err(warp_utils::reject::broadcast_without_import(msg))
+                                "Block broadcast was delayed";
+                                "msg" => "system may be overloaded, block may be orphaned",
+                                "delay_ms" => delay.as_millis(),
+                                "slot" => block.slot(),
+                                "root" => ?root,
+                            )
                         }
+
+                        Ok(warp::reply::json(&()))
                     }
-                })
+                    Err(e) => {
+                        let msg = format!("{:?}", e);
+                        error!(
+                            log,
+                            "Invalid block provided to HTTP API";
+                            "reason" => &msg
+                        );
+                        Err(warp_utils::reject::broadcast_without_import(msg))
+                    }
+                }
             },
         );
 
@@ -1049,99 +1007,90 @@ pub fn serve<T: BeaconChainTypes>(
         .and(network_tx_filter.clone())
         .and(log_filter.clone())
         .and_then(
-            |block: SignedBeaconBlock<T::EthSpec, BlindedPayload<_>>,
+            |block: Arc<SignedBeaconBlock<T::EthSpec, BlindedPayload<_>>>,
              chain: Arc<BeaconChain<T>>,
              network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>,
-             _log: Logger| {
-                blocking_json_task(move || {
-                    if let Some(el) = chain.execution_layer.as_ref() {
-                        //FIXME(sean): we may not always receive the payload in this response because it
-                        // should be the relay's job to propogate the block. However, since this block is
-                        // already signed and sent this might be ok (so long as the relay validates
-                        // the block before revealing the payload).
+             _log: Logger| async move {
+                if let Some(el) = chain.execution_layer.as_ref() {
+                    //FIXME(sean): we may not always receive the payload in this response because it
+                    // should be the relay's job to propogate the block. However, since this block is
+                    // already signed and sent this might be ok (so long as the relay validates
+                    // the block before revealing the payload).
 
-                        //FIXME(sean) additionally, this endpoint should serve blocks prior to Bellatrix, and should
-                        // be able to support the normal block proposal flow, because at some point full block endpoints
-                        // will be deprecated from the beacon API. This will entail creating full blocks in
-                        // `validator/blinded_blocks`, caching their payloads, and transforming them into blinded
-                        // blocks. We will access the payload of those blocks here. This flow should happen if the
-                        // execution layer has no payload builders or if we have not yet finalized post-merge transition.
-                        let payload = el
-                            .block_on(|el| el.propose_blinded_beacon_block(&block))
-                            .map_err(|e| {
-                                warp_utils::reject::custom_server_error(format!(
-                                    "proposal failed: {:?}",
-                                    e
-                                ))
-                            })?;
-                        let new_block = SignedBeaconBlock::Merge(SignedBeaconBlockMerge {
-                            message: BeaconBlockMerge {
-                                slot: block.message().slot(),
-                                proposer_index: block.message().proposer_index(),
-                                parent_root: block.message().parent_root(),
-                                state_root: block.message().state_root(),
-                                body: BeaconBlockBodyMerge {
-                                    randao_reveal: block.message().body().randao_reveal().clone(),
-                                    eth1_data: block.message().body().eth1_data().clone(),
-                                    graffiti: *block.message().body().graffiti(),
-                                    proposer_slashings: block
-                                        .message()
-                                        .body()
-                                        .proposer_slashings()
-                                        .clone(),
-                                    attester_slashings: block
-                                        .message()
-                                        .body()
-                                        .attester_slashings()
-                                        .clone(),
-                                    attestations: block.message().body().attestations().clone(),
-                                    deposits: block.message().body().deposits().clone(),
-                                    voluntary_exits: block
-                                        .message()
-                                        .body()
-                                        .voluntary_exits()
-                                        .clone(),
-                                    sync_aggregate: block
-                                        .message()
-                                        .body()
-                                        .sync_aggregate()
-                                        .unwrap()
-                                        .clone(),
-                                    execution_payload: payload.into(),
-                                },
+                    //FIXME(sean) additionally, this endpoint should serve blocks prior to Bellatrix, and should
+                    // be able to support the normal block proposal flow, because at some point full block endpoints
+                    // will be deprecated from the beacon API. This will entail creating full blocks in
+                    // `validator/blinded_blocks`, caching their payloads, and transforming them into blinded
+                    // blocks. We will access the payload of those blocks here. This flow should happen if the
+                    // execution layer has no payload builders or if we have not yet finalized post-merge transition.
+                    let payload = el.propose_blinded_beacon_block(&block).await.map_err(|e| {
+                        warp_utils::reject::custom_server_error(format!("proposal failed: {:?}", e))
+                    })?;
+                    let new_block = SignedBeaconBlock::Merge(SignedBeaconBlockMerge {
+                        message: BeaconBlockMerge {
+                            slot: block.message().slot(),
+                            proposer_index: block.message().proposer_index(),
+                            parent_root: block.message().parent_root(),
+                            state_root: block.message().state_root(),
+                            body: BeaconBlockBodyMerge {
+                                randao_reveal: block.message().body().randao_reveal().clone(),
+                                eth1_data: block.message().body().eth1_data().clone(),
+                                graffiti: *block.message().body().graffiti(),
+                                proposer_slashings: block
+                                    .message()
+                                    .body()
+                                    .proposer_slashings()
+                                    .clone(),
+                                attester_slashings: block
+                                    .message()
+                                    .body()
+                                    .attester_slashings()
+                                    .clone(),
+                                attestations: block.message().body().attestations().clone(),
+                                deposits: block.message().body().deposits().clone(),
+                                voluntary_exits: block.message().body().voluntary_exits().clone(),
+                                sync_aggregate: block
+                                    .message()
+                                    .body()
+                                    .sync_aggregate()
+                                    .unwrap()
+                                    .clone(),
+                                execution_payload: payload.into(),
                             },
-                            signature: block.signature().clone(),
-                        });
+                        },
+                        signature: block.signature().clone(),
+                    });
+                    let new_block = Arc::new(new_block);
 
-                        // Send the block, regardless of whether or not it is valid. The API
-                        // specification is very clear that this is the desired behaviour.
-                        publish_pubsub_message(
-                            &network_tx,
-                            PubsubMessage::BeaconBlock(Box::new(new_block.clone())),
-                        )?;
+                    // Send the block, regardless of whether or not it is valid. The API
+                    // specification is very clear that this is the desired behaviour.
+                    publish_pubsub_message(
+                        &network_tx,
+                        PubsubMessage::BeaconBlock(new_block.clone()),
+                    )?;
 
-                        match chain.process_block(new_block) {
-                            Ok(_) => {
-                                // Update the head since it's likely this block will become the new
-                                // head.
-                                chain
-                                    .fork_choice()
-                                    .map_err(warp_utils::reject::beacon_chain_error)?;
+                    match chain.process_block(new_block).await {
+                        Ok(_) => {
+                            // Update the head since it's likely this block will become the new
+                            // head.
+                            chain
+                                .recompute_head_at_current_slot()
+                                .await
+                                .map_err(warp_utils::reject::beacon_chain_error)?;
 
-                                Ok(())
-                            }
-                            Err(e) => {
-                                let msg = format!("{:?}", e);
-
-                                Err(warp_utils::reject::broadcast_without_import(msg))
-                            }
+                            Ok(warp::reply::json(&()))
                         }
-                    } else {
-                        Err(warp_utils::reject::custom_server_error(
-                            "no execution layer found".to_string(),
-                        ))
+                        Err(e) => {
+                            let msg = format!("{:?}", e);
+
+                            Err(warp_utils::reject::broadcast_without_import(msg))
+                        }
                     }
-                })
+                } else {
+                    Err(warp_utils::reject::custom_server_error(
+                        "no execution layer found".to_string(),
+                    ))
+                }
             },
         );
 
@@ -1401,9 +1350,7 @@ pub fn serve<T: BeaconChainTypes>(
                             )),
                         )?;
 
-                        chain
-                            .import_attester_slashing(slashing)
-                            .map_err(warp_utils::reject::beacon_chain_error)?;
+                        chain.import_attester_slashing(slashing);
                     }
 
                     Ok(())
@@ -1744,10 +1691,7 @@ pub fn serve<T: BeaconChainTypes>(
         .and_then(
             |network_globals: Arc<NetworkGlobals<T::EthSpec>>, chain: Arc<BeaconChain<T>>| {
                 blocking_json_task(move || {
-                    let head_slot = chain
-                        .head_info()
-                        .map(|info| info.slot)
-                        .map_err(warp_utils::reject::beacon_chain_error)?;
+                    let head_slot = chain.canonical_head.cached_head().head_slot();
                     let current_slot = chain.slot_clock.now_or_genesis().ok_or_else(|| {
                         warp_utils::reject::custom_server_error("Unable to read slot clock".into())
                     })?;
@@ -1993,48 +1937,49 @@ pub fn serve<T: BeaconChainTypes>(
             |endpoint_version: EndpointVersion,
              slot: Slot,
              query: api_types::ValidatorBlocksQuery,
-             chain: Arc<BeaconChain<T>>| {
-                blocking_json_task(move || {
-                    let randao_reveal = query.randao_reveal.as_ref().map_or_else(
-                        || {
-                            if query.verify_randao {
-                                Err(warp_utils::reject::custom_bad_request(
-                                    "randao_reveal is mandatory unless verify_randao=false".into(),
-                                ))
-                            } else {
-                                Ok(Signature::empty())
-                            }
-                        },
-                        |sig_bytes| {
-                            sig_bytes.try_into().map_err(|e| {
-                                warp_utils::reject::custom_bad_request(format!(
-                                    "randao reveal is not a valid BLS signature: {:?}",
-                                    e
-                                ))
-                            })
-                        },
-                    )?;
+             chain: Arc<BeaconChain<T>>| async move {
+                let randao_reveal = query.randao_reveal.as_ref().map_or_else(
+                    || {
+                        if query.verify_randao {
+                            Err(warp_utils::reject::custom_bad_request(
+                                "randao_reveal is mandatory unless verify_randao=false".into(),
+                            ))
+                        } else {
+                            Ok(Signature::empty())
+                        }
+                    },
+                    |sig_bytes| {
+                        sig_bytes.try_into().map_err(|e| {
+                            warp_utils::reject::custom_bad_request(format!(
+                                "randao reveal is not a valid BLS signature: {:?}",
+                                e
+                            ))
+                        })
+                    },
+                )?;
 
-                    let randao_verification = if query.verify_randao {
-                        ProduceBlockVerification::VerifyRandao
-                    } else {
-                        ProduceBlockVerification::NoVerification
-                    };
+                let randao_verification = if query.verify_randao {
+                    ProduceBlockVerification::VerifyRandao
+                } else {
+                    ProduceBlockVerification::NoVerification
+                };
 
-                    let (block, _) = chain
-                        .produce_block_with_verification::<FullPayload<T::EthSpec>>(
-                            randao_reveal,
-                            slot,
-                            query.graffiti.map(Into::into),
-                            randao_verification,
-                        )
-                        .map_err(warp_utils::reject::block_production_error)?;
-                    let fork_name = block
-                        .to_ref()
-                        .fork_name(&chain.spec)
-                        .map_err(inconsistent_fork_rejection)?;
-                    fork_versioned_response(endpoint_version, fork_name, block)
-                })
+                let (block, _) = chain
+                    .produce_block_with_verification::<FullPayload<T::EthSpec>>(
+                        randao_reveal,
+                        slot,
+                        query.graffiti.map(Into::into),
+                        randao_verification,
+                    )
+                    .await
+                    .map_err(warp_utils::reject::block_production_error)?;
+                let fork_name = block
+                    .to_ref()
+                    .fork_name(&chain.spec)
+                    .map_err(inconsistent_fork_rejection)?;
+
+                fork_versioned_response(endpoint_version, fork_name, block)
+                    .map(|response| warp::reply::json(&response))
             },
         );
 
@@ -2055,48 +2000,48 @@ pub fn serve<T: BeaconChainTypes>(
             |endpoint_version: EndpointVersion,
              slot: Slot,
              query: api_types::ValidatorBlocksQuery,
-             chain: Arc<BeaconChain<T>>| {
-                blocking_json_task(move || {
-                    let randao_reveal = query.randao_reveal.as_ref().map_or_else(
-                        || {
-                            if query.verify_randao {
-                                Err(warp_utils::reject::custom_bad_request(
-                                    "randao_reveal is mandatory unless verify_randao=false".into(),
-                                ))
-                            } else {
-                                Ok(Signature::empty())
-                            }
-                        },
-                        |sig_bytes| {
-                            sig_bytes.try_into().map_err(|e| {
-                                warp_utils::reject::custom_bad_request(format!(
-                                    "randao reveal is not a valid BLS signature: {:?}",
-                                    e
-                                ))
-                            })
-                        },
-                    )?;
+             chain: Arc<BeaconChain<T>>| async move {
+                let randao_reveal = query.randao_reveal.as_ref().map_or_else(
+                    || {
+                        if query.verify_randao {
+                            Err(warp_utils::reject::custom_bad_request(
+                                "randao_reveal is mandatory unless verify_randao=false".into(),
+                            ))
+                        } else {
+                            Ok(Signature::empty())
+                        }
+                    },
+                    |sig_bytes| {
+                        sig_bytes.try_into().map_err(|e| {
+                            warp_utils::reject::custom_bad_request(format!(
+                                "randao reveal is not a valid BLS signature: {:?}",
+                                e
+                            ))
+                        })
+                    },
+                )?;
 
-                    let randao_verification = if query.verify_randao {
-                        ProduceBlockVerification::VerifyRandao
-                    } else {
-                        ProduceBlockVerification::NoVerification
-                    };
+                let randao_verification = if query.verify_randao {
+                    ProduceBlockVerification::VerifyRandao
+                } else {
+                    ProduceBlockVerification::NoVerification
+                };
 
-                    let (block, _) = chain
-                        .produce_block_with_verification::<BlindedPayload<T::EthSpec>>(
-                            randao_reveal,
-                            slot,
-                            query.graffiti.map(Into::into),
-                            randao_verification,
-                        )
-                        .map_err(warp_utils::reject::block_production_error)?;
-                    let fork_name = block
-                        .to_ref()
-                        .fork_name(&chain.spec)
-                        .map_err(inconsistent_fork_rejection)?;
-                    fork_versioned_response(endpoint_version, fork_name, block)
-                })
+                let (block, _) = chain
+                    .produce_block_with_verification::<BlindedPayload<T::EthSpec>>(
+                        randao_reveal,
+                        slot,
+                        query.graffiti.map(Into::into),
+                        randao_verification,
+                    )
+                    .await
+                    .map_err(warp_utils::reject::block_production_error)?;
+                let fork_name = block
+                    .to_ref()
+                    .fork_name(&chain.spec)
+                    .map_err(inconsistent_fork_rejection)?;
+                fork_versioned_response(endpoint_version, fork_name, block)
+                    .map(|response| warp::reply::json(&response))
             },
         );
 
@@ -2107,7 +2052,6 @@ pub fn serve<T: BeaconChainTypes>(
         .and(warp::path::end())
         .and(warp::query::<api_types::ValidatorAttestationDataQuery>())
         .and(not_while_syncing_filter.clone())
-        .and(only_with_safe_head.clone())
         .and(chain_filter.clone())
         .and_then(
             |query: api_types::ValidatorAttestationDataQuery, chain: Arc<BeaconChain<T>>| {
@@ -2140,7 +2084,6 @@ pub fn serve<T: BeaconChainTypes>(
         .and(warp::path::end())
         .and(warp::query::<api_types::ValidatorAggregateAttestationQuery>())
         .and(not_while_syncing_filter.clone())
-        .and(only_with_safe_head.clone())
         .and(chain_filter.clone())
         .and_then(
             |query: api_types::ValidatorAggregateAttestationQuery, chain: Arc<BeaconChain<T>>| {
@@ -2217,7 +2160,6 @@ pub fn serve<T: BeaconChainTypes>(
         .and(warp::path::end())
         .and(warp::query::<SyncContributionData>())
         .and(not_while_syncing_filter.clone())
-        .and(only_with_safe_head)
         .and(chain_filter.clone())
         .and_then(
             |sync_committee_data: SyncContributionData, chain: Arc<BeaconChain<T>>| {
@@ -2413,40 +2355,39 @@ pub fn serve<T: BeaconChainTypes>(
         .and_then(
             |chain: Arc<BeaconChain<T>>,
              log: Logger,
-             preparation_data: Vec<ProposerPreparationData>| {
-                blocking_json_task(move || {
-                    let execution_layer = chain
-                        .execution_layer
-                        .as_ref()
-                        .ok_or(BeaconChainError::ExecutionLayerMissing)
-                        .map_err(warp_utils::reject::beacon_chain_error)?;
-                    let current_epoch = chain
-                        .epoch()
-                        .map_err(warp_utils::reject::beacon_chain_error)?;
+             preparation_data: Vec<ProposerPreparationData>| async move {
+                let execution_layer = chain
+                    .execution_layer
+                    .as_ref()
+                    .ok_or(BeaconChainError::ExecutionLayerMissing)
+                    .map_err(warp_utils::reject::beacon_chain_error)?;
 
-                    debug!(
-                        log,
-                        "Received proposer preparation data";
-                        "count" => preparation_data.len(),
-                    );
+                let current_slot = chain
+                    .slot()
+                    .map_err(warp_utils::reject::beacon_chain_error)?;
+                let current_epoch = current_slot.epoch(T::EthSpec::slots_per_epoch());
 
-                    execution_layer
-                        .update_proposer_preparation_blocking(current_epoch, &preparation_data)
-                        .map_err(|_e| {
-                            warp_utils::reject::custom_bad_request(
-                                "error processing proposer preparations".to_string(),
-                            )
-                        })?;
+                debug!(
+                    log,
+                    "Received proposer preparation data";
+                    "count" => preparation_data.len(),
+                );
 
-                    chain.prepare_beacon_proposer_blocking().map_err(|e| {
+                execution_layer
+                    .update_proposer_preparation(current_epoch, &preparation_data)
+                    .await;
+
+                chain
+                    .prepare_beacon_proposer(current_slot)
+                    .await
+                    .map_err(|e| {
                         warp_utils::reject::custom_bad_request(format!(
                             "error updating proposer preparations: {:?}",
                             e
                         ))
                     })?;
 
-                    Ok(())
-                })
+                Ok::<_, warp::reject::Rejection>(warp::reply::json(&()))
             },
         );
 
@@ -2461,69 +2402,66 @@ pub fn serve<T: BeaconChainTypes>(
         .and_then(
             |chain: Arc<BeaconChain<T>>,
              log: Logger,
-             register_val_data: Vec<SignedValidatorRegistrationData>| {
-                blocking_json_task(move || {
-                    let execution_layer = chain
-                        .execution_layer
-                        .as_ref()
-                        .ok_or(BeaconChainError::ExecutionLayerMissing)
-                        .map_err(warp_utils::reject::beacon_chain_error)?;
-                    let current_epoch = chain
-                        .slot_clock
-                        .now_or_genesis()
-                        .ok_or(BeaconChainError::UnableToReadSlot)
-                        .map_err(warp_utils::reject::beacon_chain_error)?
-                        .epoch(T::EthSpec::slots_per_epoch());
+             register_val_data: Vec<SignedValidatorRegistrationData>| async move {
+                let execution_layer = chain
+                    .execution_layer
+                    .as_ref()
+                    .ok_or(BeaconChainError::ExecutionLayerMissing)
+                    .map_err(warp_utils::reject::beacon_chain_error)?;
+                let current_slot = chain
+                    .slot_clock
+                    .now_or_genesis()
+                    .ok_or(BeaconChainError::UnableToReadSlot)
+                    .map_err(warp_utils::reject::beacon_chain_error)?;
+                let current_epoch = current_slot.epoch(T::EthSpec::slots_per_epoch());
 
-                    debug!(
-                        log,
-                        "Received register validator request";
-                        "count" => register_val_data.len(),
-                    );
+                debug!(
+                    log,
+                    "Received register validator request";
+                    "count" => register_val_data.len(),
+                );
 
-                    let preparation_data = register_val_data
-                        .iter()
-                        .filter_map(|register_data| {
-                            chain
-                                .validator_index(&register_data.message.pubkey)
-                                .ok()
-                                .flatten()
-                                .map(|validator_index| ProposerPreparationData {
-                                    validator_index: validator_index as u64,
-                                    fee_recipient: register_data.message.fee_recipient,
-                                })
-                        })
-                        .collect::<Vec<_>>();
+                let preparation_data = register_val_data
+                    .iter()
+                    .filter_map(|register_data| {
+                        chain
+                            .validator_index(&register_data.message.pubkey)
+                            .ok()
+                            .flatten()
+                            .map(|validator_index| ProposerPreparationData {
+                                validator_index: validator_index as u64,
+                                fee_recipient: register_data.message.fee_recipient,
+                            })
+                    })
+                    .collect::<Vec<_>>();
 
-                    debug!(
-                        log,
-                        "Resolved validator request pubkeys";
-                        "count" => preparation_data.len()
-                    );
+                debug!(
+                    log,
+                    "Resolved validator request pubkeys";
+                    "count" => preparation_data.len()
+                );
 
-                    // Update the prepare beacon proposer cache based on this request.
-                    execution_layer
-                        .update_proposer_preparation_blocking(current_epoch, &preparation_data)
-                        .map_err(|_e| {
-                            warp_utils::reject::custom_bad_request(
-                                "error processing proposer preparations".to_string(),
-                            )
-                        })?;
+                // Update the prepare beacon proposer cache based on this request.
+                execution_layer
+                    .update_proposer_preparation(current_epoch, &preparation_data)
+                    .await;
 
-                    // Call prepare beacon proposer blocking with the latest update in order to make
-                    // sure we have a local payload to fall back to in the event of the blined block
-                    // flow failing.
-                    chain.prepare_beacon_proposer_blocking().map_err(|e| {
+                // Call prepare beacon proposer blocking with the latest update in order to make
+                // sure we have a local payload to fall back to in the event of the blined block
+                // flow failing.
+                chain
+                    .prepare_beacon_proposer(current_slot)
+                    .await
+                    .map_err(|e| {
                         warp_utils::reject::custom_bad_request(format!(
                             "error updating proposer preparations: {:?}",
                             e
                         ))
                     })?;
 
-                    //TODO(sean): In the MEV-boost PR, add a call here to send the update request to the builder
+                //TODO(sean): In the MEV-boost PR, add a call here to send the update request to the builder
 
-                    Ok(())
-                })
+                Ok::<_, warp::Rejection>(warp::reply::json(&()))
             },
         );
     // POST validator/sync_committee_subscriptions
@@ -2689,7 +2627,11 @@ pub fn serve<T: BeaconChainTypes>(
         .and_then(|chain: Arc<BeaconChain<T>>| {
             blocking_task(move || {
                 Ok::<_, warp::Rejection>(warp::reply::json(&api_types::GenericResponseRef::from(
-                    chain.fork_choice.read().proto_array().core_proto_array(),
+                    chain
+                        .canonical_head
+                        .fork_choice_read_lock()
+                        .proto_array()
+                        .core_proto_array(),
                 )))
             })
         });
@@ -2732,9 +2674,6 @@ pub fn serve<T: BeaconChainTypes>(
         .and(chain_filter.clone())
         .and_then(|chain: Arc<BeaconChain<T>>| {
             blocking_json_task(move || {
-                let head_info = chain
-                    .head_info()
-                    .map_err(warp_utils::reject::beacon_chain_error)?;
                 let current_slot_opt = chain.slot().ok();
 
                 chain
@@ -2746,7 +2685,7 @@ pub fn serve<T: BeaconChainTypes>(
                         )
                     })
                     .and_then(|eth1| {
-                        eth1.sync_status(head_info.genesis_time, current_slot_opt, &chain.spec)
+                        eth1.sync_status(chain.genesis_time, current_slot_opt, &chain.spec)
                             .ok_or_else(|| {
                                 warp_utils::reject::custom_server_error(
                                     "Unable to determine Eth1 sync status".to_string(),
@@ -2869,7 +2808,7 @@ pub fn serve<T: BeaconChainTypes>(
         .and(chain_filter.clone())
         .and(log_filter.clone())
         .and_then(
-            |blocks: Vec<SignedBlindedBeaconBlock<T::EthSpec>>,
+            |blocks: Vec<Arc<SignedBlindedBeaconBlock<T::EthSpec>>>,
              chain: Arc<BeaconChain<T>>,
              log: Logger| {
                 info!(

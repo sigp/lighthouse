@@ -3,8 +3,7 @@ use crate::beacon_chain::BeaconChainTypes;
 use crate::beacon_fork_choice_store::{PersistedForkChoiceStoreV1, PersistedForkChoiceStoreV7};
 use crate::persisted_fork_choice::{PersistedForkChoiceV1, PersistedForkChoiceV7};
 use crate::schema_change::types::{ProtoNodeV6, SszContainerV6, SszContainerV7};
-use crate::types::{Checkpoint, Epoch, Hash256};
-use crate::types::{EthSpec, Slot};
+use crate::types::{ChainSpec, Checkpoint, Epoch, EthSpec, Hash256, Slot};
 use crate::{BeaconForkChoiceStore, BeaconSnapshot};
 use fork_choice::ForkChoice;
 use proto_array::{core::ProtoNode, core::SszContainer, ProtoArrayForkChoice};
@@ -25,6 +24,7 @@ four_byte_option_impl!(four_byte_option_usize, usize);
 pub(crate) fn update_with_reinitialized_fork_choice<T: BeaconChainTypes>(
     persisted_fork_choice: &mut PersistedForkChoiceV7,
     db: Arc<HotColdDB<T::EthSpec, T::HotStore, T::ColdStore>>,
+    spec: &ChainSpec,
 ) -> Result<(), String> {
     let anchor_block_root = persisted_fork_choice
         .fork_choice_store
@@ -39,7 +39,7 @@ pub(crate) fn update_with_reinitialized_fork_choice<T: BeaconChainTypes>(
         .map_err(|e| format!("{:?}", e))?
         .ok_or_else(|| "Missing anchor beacon state".to_string())?;
     let snapshot = BeaconSnapshot {
-        beacon_block: anchor_block,
+        beacon_block: Arc::new(anchor_block),
         beacon_block_root: anchor_block_root,
         beacon_state: anchor_state,
     };
@@ -49,6 +49,10 @@ pub(crate) fn update_with_reinitialized_fork_choice<T: BeaconChainTypes>(
         anchor_block_root,
         &snapshot.beacon_block,
         &snapshot.beacon_state,
+        // Don't provide the current slot here, just use what's in the store. We don't need to know
+        // the head here, plus it's nice to avoid mutating fork choice during this process.
+        None,
+        spec,
     )
     .map_err(|e| format!("{:?}", e))?;
     persisted_fork_choice.fork_choice = fork_choice.to_persisted();

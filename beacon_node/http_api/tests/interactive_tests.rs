@@ -47,11 +47,13 @@ pub async fn fork_choice_before_proposal() {
 
     // Create some chain depth.
     harness.advance_slot();
-    harness.extend_chain(
-        num_initial as usize,
-        BlockStrategy::OnCanonicalHead,
-        AttestationStrategy::AllValidators,
-    );
+    harness
+        .extend_chain(
+            num_initial as usize,
+            BlockStrategy::OnCanonicalHead,
+            AttestationStrategy::AllValidators,
+        )
+        .await;
 
     // We set up the following block graph, where B is a block that is temporarily orphaned by C,
     // but is then reinstated and built upon by D.
@@ -64,8 +66,8 @@ pub async fn fork_choice_before_proposal() {
     let slot_d = slot_a + 3;
 
     let state_a = harness.get_current_state();
-    let (block_b, state_b) = harness.make_block(state_a.clone(), slot_b);
-    let block_root_b = harness.process_block(slot_b, block_b).unwrap();
+    let (block_b, state_b) = harness.make_block(state_a.clone(), slot_b).await;
+    let block_root_b = harness.process_block(slot_b, block_b).await.unwrap();
 
     // Create attestations to B but keep them in reserve until after C has been processed.
     let attestations_b = harness.make_attestations(
@@ -76,8 +78,11 @@ pub async fn fork_choice_before_proposal() {
         slot_b,
     );
 
-    let (block_c, state_c) = harness.make_block(state_a, slot_c);
-    let block_root_c = harness.process_block(slot_c, block_c.clone()).unwrap();
+    let (block_c, state_c) = harness.make_block(state_a, slot_c).await;
+    let block_root_c = harness
+        .process_block(slot_c, block_c.clone())
+        .await
+        .unwrap();
 
     // Create attestations to C from a small number of validators and process them immediately.
     let attestations_c = harness.make_attestations(
@@ -94,7 +99,7 @@ pub async fn fork_choice_before_proposal() {
 
     // Due to proposer boost, the head should be C during slot C.
     assert_eq!(
-        harness.chain.head_info().unwrap().block_root,
+        harness.chain.canonical_head.cached_head().head_block_root(),
         block_root_c.into()
     );
 
@@ -102,7 +107,7 @@ pub async fn fork_choice_before_proposal() {
     // Manually prod the per-slot task, because the slot timer doesn't run in the background in
     // these tests.
     harness.advance_slot();
-    harness.chain.per_slot_task();
+    harness.chain.per_slot_task().await;
 
     let proposer_index = state_b
         .get_beacon_proposer_index(slot_d, &harness.chain.spec)
@@ -119,7 +124,7 @@ pub async fn fork_choice_before_proposal() {
 
     // Head is now B.
     assert_eq!(
-        harness.chain.head_info().unwrap().block_root,
+        harness.chain.canonical_head.cached_head().head_block_root(),
         block_root_b.into()
     );
     // D's parent is B.

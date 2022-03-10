@@ -13,6 +13,7 @@ use lighthouse_network::{Client, MessageAcceptance, MessageId, PeerAction, PeerI
 use slog::{crit, debug, error, info, trace, warn};
 use slot_clock::SlotClock;
 use ssz::Encode;
+use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use store::hot_cold_store::HotColdDBError;
 use tokio::sync::mpsc;
@@ -636,24 +637,27 @@ impl<T: BeaconChainTypes> Worker<T> {
     ///
     /// Raises a log if there are errors.
     #[allow(clippy::too_many_arguments)]
-    pub fn process_gossip_block(
+    pub async fn process_gossip_block(
         self,
         message_id: MessageId,
         peer_id: PeerId,
         peer_client: Client,
-        block: SignedBeaconBlock<T::EthSpec>,
+        block: Arc<SignedBeaconBlock<T::EthSpec>>,
         reprocess_tx: mpsc::Sender<ReprocessQueueMessage<T>>,
         duplicate_cache: DuplicateCache,
         seen_duration: Duration,
     ) {
-        if let Some(gossip_verified_block) = self.process_gossip_unverified_block(
-            message_id,
-            peer_id,
-            peer_client,
-            block,
-            reprocess_tx.clone(),
-            seen_duration,
-        ) {
+        if let Some(gossip_verified_block) = self
+            .process_gossip_unverified_block(
+                message_id,
+                peer_id,
+                peer_client,
+                block,
+                reprocess_tx.clone(),
+                seen_duration,
+            )
+            .await
+        {
             let block_root = gossip_verified_block.block_root;
             if let Some(handle) = duplicate_cache.check_and_insert(block_root) {
                 self.process_gossip_verified_block(
@@ -661,7 +665,8 @@ impl<T: BeaconChainTypes> Worker<T> {
                     gossip_verified_block,
                     reprocess_tx,
                     seen_duration,
-                );
+                )
+                .await;
                 // Drop the handle to remove the entry from the cache
                 drop(handle);
             } else {
@@ -678,12 +683,12 @@ impl<T: BeaconChainTypes> Worker<T> {
     /// if it passes gossip propagation criteria, tell the network thread to forward it.
     ///
     /// Returns the `GossipVerifiedBlock` if verification passes and raises a log if there are errors.
-    pub fn process_gossip_unverified_block(
+    pub async fn process_gossip_unverified_block(
         &self,
         message_id: MessageId,
         peer_id: PeerId,
         peer_client: Client,
-        block: SignedBeaconBlock<T::EthSpec>,
+        block: Arc<SignedBeaconBlock<T::EthSpec>>,
         reprocess_tx: mpsc::Sender<ReprocessQueueMessage<T>>,
         seen_duration: Duration,
     ) -> Option<GossipVerifiedBlock<T>> {
@@ -704,7 +709,7 @@ impl<T: BeaconChainTypes> Worker<T> {
             Some(peer_client.to_string()),
         );
 
-        let verified_block = match self.chain.verify_block_for_gossip(block) {
+        let verified_block = match self.chain.clone().verify_block_for_gossip(block).await {
             Ok(verified_block) => {
                 if block_delay >= self.chain.slot_clock.unagg_attestation_production_delay() {
                     metrics::inc_counter(&metrics::BEACON_BLOCK_GOSSIP_ARRIVED_LATE_TOTAL);
@@ -887,7 +892,7 @@ impl<T: BeaconChainTypes> Worker<T> {
     /// Process the beacon block that has already passed gossip verification.
     ///
     /// Raises a log if there are errors.
-    pub fn process_gossip_verified_block(
+    pub async fn process_gossip_verified_block(
         self,
         peer_id: PeerId,
         verified_block: GossipVerifiedBlock<T>,
@@ -895,9 +900,9 @@ impl<T: BeaconChainTypes> Worker<T> {
         // This value is not used presently, but it might come in handy for debugging.
         _seen_duration: Duration,
     ) {
-        let block = Box::new(verified_block.block.clone());
+        let block: Arc<_> = verified_block.block.clone();
 
-        match self.chain.process_block(verified_block) {
+        match self.chain.process_block(verified_block).await {
             Ok(block_root) => {
                 metrics::inc_counter(&metrics::BEACON_PROCESSOR_GOSSIP_BLOCK_IMPORTED_TOTAL);
 
@@ -913,24 +918,27 @@ impl<T: BeaconChainTypes> Worker<T> {
                     )
                 };
 
-                trace!(
+                debug!(
                     self.log,
                     "Gossipsub block processed";
+                    "block" => ?block_root,
                     "peer_id" => %peer_id
                 );
 
-                match self.chain.fork_choice() {
-                    Ok(()) => trace!(
-                        self.log,
-                        "Fork choice success";
-                        "location" => "block gossip"
-                    ),
-                    Err(e) => error!(
+                if let Err(e) = self.chain.recompute_head_at_current_slot().await {
+                    error!(
                         self.log,
                         "Fork choice failed";
                         "error" => ?e,
-                        "location" => "block gossip"
-                    ),
+                        "location" => "block_gossip"
+                    )
+                } else {
+                    debug!(
+                        self.log,
+                        "Fork choice success";
+                        "block" => ?block_root,
+                        "location" => "block_gossip"
+                    )
                 }
             }
             Err(BlockError::ParentUnknown { .. }) => {
@@ -1144,13 +1152,9 @@ impl<T: BeaconChainTypes> Worker<T> {
             .read()
             .register_gossip_attester_slashing(slashing.as_inner());
 
-        if let Err(e) = self.chain.import_attester_slashing(slashing) {
-            debug!(self.log, "Error importing attester slashing"; "error" => ?e);
-            metrics::inc_counter(&metrics::BEACON_PROCESSOR_ATTESTER_SLASHING_ERROR_TOTAL);
-        } else {
-            debug!(self.log, "Successfully imported attester slashing");
-            metrics::inc_counter(&metrics::BEACON_PROCESSOR_ATTESTER_SLASHING_IMPORTED_TOTAL);
-        }
+        self.chain.import_attester_slashing(slashing);
+        debug!(self.log, "Successfully imported attester slashing");
+        metrics::inc_counter(&metrics::BEACON_PROCESSOR_ATTESTER_SLASHING_IMPORTED_TOTAL);
     }
 
     /// Process the sync committee signature received from the gossip network and:
