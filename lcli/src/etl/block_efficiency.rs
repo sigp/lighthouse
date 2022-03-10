@@ -55,7 +55,7 @@ async fn get_block_attestations_set<'a, T: EthSpec>(
 ) -> Result<Option<(HashMap<UniqueAttestation, InclusionDistance>, ProposerInfo)>, String> {
     let mut unique_attestations_set: HashMap<UniqueAttestation, InclusionDistance> = HashMap::new();
 
-    let option_block: Option<ForkVersionedResponse<SignedBeaconBlock<T>>> = node
+    let option_block: Option<ExecutionOptimisticForkVersionedResponse<SignedBeaconBlock<T>>> = node
         .get_beacon_blocks(BlockId::Slot(slot))
         .await
         .map_err(|e| format!("{:?}", e))?;

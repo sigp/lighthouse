@@ -52,8 +52,8 @@ use types::{
     Slot, SyncCommitteeMessage, SyncContributionData,
 };
 use version::{
-    add_consensus_version_header, fork_versioned_response, inconsistent_fork_rejection,
-    unsupported_version_rejection, V1,
+    add_consensus_version_header, execution_optimistic_fork_versioned_response,
+    fork_versioned_response, inconsistent_fork_rejection, unsupported_version_rejection, V1, V2,
 };
 use warp::http::StatusCode;
 use warp::sse::Event;
@@ -292,7 +292,7 @@ pub fn serve<T: BeaconChainTypes>(
             .untuple_one()
     };
 
-    let eth1_v1 = single_version(V1);
+    let eth_v1 = single_version(V1);
 
     // Create a `warp` filter that provides access to the network globals.
     let inner_network_globals = ctx.network_globals.clone();
@@ -432,7 +432,7 @@ pub fn serve<T: BeaconChainTypes>(
      */
 
     // GET beacon/genesis
-    let get_beacon_genesis = eth1_v1
+    let get_beacon_genesis = eth_v1
         .and(warp::path("beacon"))
         .and(warp::path("genesis"))
         .and(warp::path::end())
@@ -455,7 +455,7 @@ pub fn serve<T: BeaconChainTypes>(
      * beacon/states/{state_id}
      */
 
-    let beacon_states_path = eth1_v1
+    let beacon_states_path = eth_v1
         .and(warp::path("beacon"))
         .and(warp::path("states"))
         .and(warp::path::param::<StateId>().or_else(|_| async {
@@ -472,10 +472,12 @@ pub fn serve<T: BeaconChainTypes>(
         .and(warp::path::end())
         .and_then(|state_id: StateId, chain: Arc<BeaconChain<T>>| {
             blocking_json_task(move || {
+                let execution_optimistic = state_id.is_execution_optimistic(&chain)?;
                 state_id
                     .root(&chain)
                     .map(api_types::RootData::from)
                     .map(api_types::GenericResponse::from)
+                    .map(|resp| resp.add_execution_optimistic(execution_optimistic))
             })
         });
 
@@ -485,7 +487,13 @@ pub fn serve<T: BeaconChainTypes>(
         .and(warp::path("fork"))
         .and(warp::path::end())
         .and_then(|state_id: StateId, chain: Arc<BeaconChain<T>>| {
-            blocking_json_task(move || state_id.fork(&chain).map(api_types::GenericResponse::from))
+            blocking_json_task(move || {
+                let execution_optimistic = state_id.is_execution_optimistic(&chain)?;
+                state_id
+                    .fork(&chain)
+                    .map(api_types::GenericResponse::from)
+                    .map(|resp| resp.add_execution_optimistic(execution_optimistic))
+            })
         });
 
     // GET beacon/states/{state_id}/finality_checkpoints
@@ -495,6 +503,7 @@ pub fn serve<T: BeaconChainTypes>(
         .and(warp::path::end())
         .and_then(|state_id: StateId, chain: Arc<BeaconChain<T>>| {
             blocking_json_task(move || {
+                let execution_optimistic = state_id.is_execution_optimistic(&chain)?;
                 state_id
                     .map_state(&chain, |state| {
                         Ok(api_types::FinalityCheckpointsData {
@@ -504,6 +513,7 @@ pub fn serve<T: BeaconChainTypes>(
                         })
                     })
                     .map(api_types::GenericResponse::from)
+                    .map(|resp| resp.add_execution_optimistic(execution_optimistic))
             })
         });
 
@@ -519,6 +529,7 @@ pub fn serve<T: BeaconChainTypes>(
              query_res: Result<api_types::ValidatorBalancesQuery, warp::Rejection>| {
                 blocking_json_task(move || {
                     let query = query_res?;
+                    let execution_optimistic = state_id.is_execution_optimistic(&chain)?;
                     state_id
                         .map_state(&chain, |state| {
                             Ok(state
@@ -548,6 +559,7 @@ pub fn serve<T: BeaconChainTypes>(
                                 .collect::<Vec<_>>())
                         })
                         .map(api_types::GenericResponse::from)
+                        .map(|resp| resp.add_execution_optimistic(execution_optimistic))
                 })
             },
         );
@@ -564,6 +576,7 @@ pub fn serve<T: BeaconChainTypes>(
              query_res: Result<api_types::ValidatorsQuery, warp::Rejection>| {
                 blocking_json_task(move || {
                     let query = query_res?;
+                    let execution_optimistic = state_id.is_execution_optimistic(&chain)?;
                     state_id
                         .map_state(&chain, |state| {
                             let epoch = state.current_epoch();
@@ -615,6 +628,7 @@ pub fn serve<T: BeaconChainTypes>(
                                 .collect::<Vec<_>>())
                         })
                         .map(api_types::GenericResponse::from)
+                        .map(|resp| resp.add_execution_optimistic(execution_optimistic))
                 })
             },
         );
@@ -632,6 +646,7 @@ pub fn serve<T: BeaconChainTypes>(
         .and_then(
             |state_id: StateId, chain: Arc<BeaconChain<T>>, validator_id: ValidatorId| {
                 blocking_json_task(move || {
+                    let execution_optimistic = state_id.is_execution_optimistic(&chain)?;
                     state_id
                         .map_state(&chain, |state| {
                             let index_opt = match &validator_id {
@@ -667,6 +682,7 @@ pub fn serve<T: BeaconChainTypes>(
                                 })
                         })
                         .map(api_types::GenericResponse::from)
+                        .map(|resp| resp.add_execution_optimistic(execution_optimistic))
                 })
             },
         );
@@ -685,6 +701,7 @@ pub fn serve<T: BeaconChainTypes>(
                 });
 
                 blocking_json_task(move || {
+                    let execution_optimistic = query_state_id.is_execution_optimistic(&chain)?;
                     query_state_id.map_state(&chain, |state| {
                         let epoch = state.slot().epoch(T::EthSpec::slots_per_epoch());
 
@@ -744,7 +761,8 @@ pub fn serve<T: BeaconChainTypes>(
                             }
                         }
 
-                        Ok(api_types::GenericResponse::from(response))
+                        Ok(api_types::GenericResponse::from(response)
+                            .add_execution_optimistic(execution_optimistic))
                     })
                 })
             },
@@ -761,6 +779,7 @@ pub fn serve<T: BeaconChainTypes>(
              chain: Arc<BeaconChain<T>>,
              query: api_types::SyncCommitteesQuery| {
                 blocking_json_task(move || {
+                    let execution_optimistic = state_id.is_execution_optimistic(&chain)?;
                     let sync_committee = state_id.map_state(&chain, |state| {
                         let current_epoch = state.current_epoch();
                         let epoch = query.epoch.unwrap_or(current_epoch);
@@ -800,7 +819,8 @@ pub fn serve<T: BeaconChainTypes>(
                         validator_aggregates,
                     };
 
-                    Ok(api_types::GenericResponse::from(response))
+                    Ok(api_types::GenericResponse::from(response)
+                        .add_execution_optimistic(execution_optimistic))
                 })
             },
         );
@@ -812,7 +832,7 @@ pub fn serve<T: BeaconChainTypes>(
     // things. Returning non-canonical things is hard for us since we don't already have a
     // mechanism for arbitrary forwards block iteration, we only support iterating forwards along
     // the canonical chain.
-    let get_beacon_headers = eth1_v1
+    let get_beacon_headers = eth_v1
         .and(warp::path("beacon"))
         .and(warp::path("headers"))
         .and(warp::query::<api_types::HeadersQuery>())
@@ -821,12 +841,12 @@ pub fn serve<T: BeaconChainTypes>(
         .and_then(
             |query: api_types::HeadersQuery, chain: Arc<BeaconChain<T>>| {
                 blocking_json_task(move || {
-                    let (root, block) = match (query.slot, query.parent_root) {
+                    let (root, block, uses_head) = match (query.slot, query.parent_root) {
                         // No query parameters, return the canonical head block.
                         (None, None) => chain
                             .head_beacon_block()
                             .map_err(warp_utils::reject::beacon_chain_error)
-                            .map(|block| (block.canonical_root(), block))?,
+                            .map(|block| (block.canonical_root(), block, true))?,
                         // Only the parent root parameter, do a forwards-iterator lookup.
                         (None, Some(parent_root)) => {
                             let parent = BlockId::from_root(parent_root).block(&chain)?;
@@ -848,13 +868,14 @@ pub fn serve<T: BeaconChainTypes>(
 
                             BlockId::from_root(root)
                                 .block(&chain)
-                                .map(|block| (root, block))?
+                                .map(|block| (root, block, false))?
                         }
                         // Slot is supplied, search by slot and optionally filter by
                         // parent root.
                         (Some(slot), parent_root_opt) => {
                             let root = BlockId::from_slot(slot).root(&chain)?;
                             let block = BlockId::from_root(root).block(&chain)?;
+                            let mut uses_head = true;
 
                             // If the parent root was supplied, check that it matches the block
                             // obtained via a slot lookup.
@@ -864,12 +885,22 @@ pub fn serve<T: BeaconChainTypes>(
                                         "no canonical block at slot {} with parent root {}",
                                         slot, parent_root
                                     )));
+                                } else {
+                                    uses_head = false;
                                 }
                             }
 
-                            (root, block)
+                            (root, block, uses_head)
                         }
                     };
+
+                    // The value of `execution_optimistic` depends on whether the method used to
+                    // compute the response is dependent on the head block.
+                    let execution_optimistic = match uses_head {
+                        false => chain.is_optimistic_block(&root),
+                        true => chain.is_optimistic_head(Some(root)),
+                    }
+                    .map_err(warp_utils::reject::beacon_chain_error)?;
 
                     let data = api_types::BlockHeaderData {
                         root,
@@ -880,13 +911,14 @@ pub fn serve<T: BeaconChainTypes>(
                         },
                     };
 
-                    Ok(api_types::GenericResponse::from(vec![data]))
+                    Ok(api_types::GenericResponse::from(vec![data])
+                        .add_execution_optimistic(execution_optimistic))
                 })
             },
         );
 
     // GET beacon/headers/{block_id}
-    let get_beacon_headers_block_id = eth1_v1
+    let get_beacon_headers_block_id = eth_v1
         .and(warp::path("beacon"))
         .and(warp::path("headers"))
         .and(warp::path::param::<BlockId>().or_else(|_| async {
@@ -906,6 +938,8 @@ pub fn serve<T: BeaconChainTypes>(
                     .map_err(warp_utils::reject::beacon_chain_error)?
                     .map_or(false, |canonical| root == canonical);
 
+                let execution_optimistic = block_id.is_execution_optimistic(&chain)?;
+
                 let data = api_types::BlockHeaderData {
                     root,
                     canonical,
@@ -915,7 +949,10 @@ pub fn serve<T: BeaconChainTypes>(
                     },
                 };
 
-                Ok(api_types::GenericResponse::from(data))
+                Ok(api_types::ExecutionOptimisticResponse {
+                    execution_optimistic,
+                    data,
+                })
             })
         });
 
@@ -924,7 +961,7 @@ pub fn serve<T: BeaconChainTypes>(
      */
 
     // POST beacon/blocks
-    let post_beacon_blocks = eth1_v1
+    let post_beacon_blocks = eth_v1
         .and(warp::path("beacon"))
         .and(warp::path("blocks"))
         .and(warp::path::end())
@@ -1139,7 +1176,7 @@ pub fn serve<T: BeaconChainTypes>(
         ))
     });
 
-    let beacon_blocks_path_v1 = eth1_v1
+    let beacon_blocks_path_v1 = eth_v1
         .and(warp::path("beacon"))
         .and(warp::path("blocks"))
         .and(block_id_or_err)
@@ -1166,6 +1203,7 @@ pub fn serve<T: BeaconChainTypes>(
                     let fork_name = block
                         .fork_name(&chain.spec)
                         .map_err(inconsistent_fork_rejection)?;
+                    let execution_optimistic = block_id.is_execution_optimistic(&chain)?;
                     match accept_header {
                         Some(api_types::Accept::Ssz) => Response::builder()
                             .status(200)
@@ -1177,8 +1215,13 @@ pub fn serve<T: BeaconChainTypes>(
                                     e
                                 ))
                             }),
-                        _ => fork_versioned_response(endpoint_version, fork_name, block)
-                            .map(|res| warp::reply::json(&res).into_response()),
+                        _ => execution_optimistic_fork_versioned_response(
+                            endpoint_version,
+                            fork_name,
+                            execution_optimistic,
+                            block,
+                        )
+                        .map(|res| warp::reply::json(&res).into_response()),
                     }
                     .map(|resp| add_consensus_version_header(resp, fork_name))
                 })
@@ -1192,10 +1235,12 @@ pub fn serve<T: BeaconChainTypes>(
         .and(warp::path::end())
         .and_then(|block_id: BlockId, chain: Arc<BeaconChain<T>>| {
             blocking_json_task(move || {
+                let execution_optimistic = block_id.is_execution_optimistic(&chain)?;
                 block_id
                     .root(&chain)
                     .map(api_types::RootData::from)
                     .map(api_types::GenericResponse::from)
+                    .map(|resp| resp.add_execution_optimistic(execution_optimistic))
             })
         });
 
@@ -1206,10 +1251,12 @@ pub fn serve<T: BeaconChainTypes>(
         .and(warp::path::end())
         .and_then(|block_id: BlockId, chain: Arc<BeaconChain<T>>| {
             blocking_json_task(move || {
+                let execution_optimistic = block_id.is_execution_optimistic(&chain)?;
                 block_id
                     .block(&chain)
                     .map(|block| block.message().body().attestations().clone())
                     .map(api_types::GenericResponse::from)
+                    .map(|resp| resp.add_execution_optimistic(execution_optimistic))
             })
         });
 
@@ -1217,7 +1264,7 @@ pub fn serve<T: BeaconChainTypes>(
      * beacon/pool
      */
 
-    let beacon_pool_path = eth1_v1
+    let beacon_pool_path = eth_v1
         .and(warp::path("beacon"))
         .and(warp::path("pool"))
         .and(chain_filter.clone());
@@ -1545,7 +1592,7 @@ pub fn serve<T: BeaconChainTypes>(
      * config
      */
 
-    let config_path = eth1_v1.and(warp::path("config"));
+    let config_path = eth_v1.and(warp::path("config"));
 
     // GET config/fork_schedule
     let get_config_fork_schedule = config_path
@@ -1639,7 +1686,13 @@ pub fn serve<T: BeaconChainTypes>(
                         let fork_name = state
                             .fork_name(&chain.spec)
                             .map_err(inconsistent_fork_rejection)?;
-                        let res = fork_versioned_response(endpoint_version, fork_name, &state)?;
+                        let execution_optimistic = state_id.is_execution_optimistic(&chain)?;
+                        let res = execution_optimistic_fork_versioned_response(
+                            endpoint_version,
+                            fork_name,
+                            execution_optimistic,
+                            &state,
+                        )?;
                         Ok(add_consensus_version_header(
                             warp::reply::json(&res).into_response(),
                             fork_name,
@@ -1649,30 +1702,47 @@ pub fn serve<T: BeaconChainTypes>(
             },
         );
 
-    // GET debug/beacon/heads
-    let get_debug_beacon_heads = eth1_v1
+    // GET v1/debug/beacon/heads
+    let get_debug_beacon_heads = any_version
         .and(warp::path("debug"))
         .and(warp::path("beacon"))
         .and(warp::path("heads"))
         .and(warp::path::end())
         .and(chain_filter.clone())
-        .and_then(|chain: Arc<BeaconChain<T>>| {
-            blocking_json_task(move || {
-                let heads = chain
-                    .heads()
-                    .into_iter()
-                    .map(|(root, slot)| api_types::ChainHeadData { slot, root })
-                    .collect::<Vec<_>>();
-                Ok(api_types::GenericResponse::from(heads))
-            })
-        });
+        .and_then(
+            |endpoint_version: EndpointVersion, chain: Arc<BeaconChain<T>>| {
+                blocking_json_task(move || {
+                    let heads = chain
+                        .heads()
+                        .into_iter()
+                        .map(|(root, slot)| {
+                            let execution_optimistic = if endpoint_version == V1 {
+                                None
+                            } else if endpoint_version == V2 {
+                                BlockId::from_root(root)
+                                    .is_execution_optimistic(&chain)
+                                    .ok()
+                            } else {
+                                return Err(unsupported_version_rejection(endpoint_version));
+                            };
+                            Ok(api_types::ChainHeadData {
+                                slot,
+                                root,
+                                execution_optimistic,
+                            })
+                        })
+                        .collect::<Result<Vec<_>, warp::Rejection>>();
+                    Ok(api_types::GenericResponse::from(heads?))
+                })
+            },
+        );
 
     /*
      * node
      */
 
     // GET node/identity
-    let get_node_identity = eth1_v1
+    let get_node_identity = eth_v1
         .and(warp::path("node"))
         .and(warp::path("identity"))
         .and(warp::path::end())
@@ -1710,7 +1780,7 @@ pub fn serve<T: BeaconChainTypes>(
         });
 
     // GET node/version
-    let get_node_version = eth1_v1
+    let get_node_version = eth_v1
         .and(warp::path("node"))
         .and(warp::path("version"))
         .and(warp::path::end())
@@ -1723,7 +1793,7 @@ pub fn serve<T: BeaconChainTypes>(
         });
 
     // GET node/syncing
-    let get_node_syncing = eth1_v1
+    let get_node_syncing = eth_v1
         .and(warp::path("node"))
         .and(warp::path("syncing"))
         .and(warp::path::end())
@@ -1755,7 +1825,7 @@ pub fn serve<T: BeaconChainTypes>(
         );
 
     // GET node/health
-    let get_node_health = eth1_v1
+    let get_node_health = eth_v1
         .and(warp::path("node"))
         .and(warp::path("health"))
         .and(warp::path::end())
@@ -1780,7 +1850,7 @@ pub fn serve<T: BeaconChainTypes>(
         });
 
     // GET node/peers/{peer_id}
-    let get_node_peers_by_id = eth1_v1
+    let get_node_peers_by_id = eth_v1
         .and(warp::path("node"))
         .and(warp::path("peers"))
         .and(warp::path::param::<String>())
@@ -1837,7 +1907,7 @@ pub fn serve<T: BeaconChainTypes>(
         );
 
     // GET node/peers
-    let get_node_peers = eth1_v1
+    let get_node_peers = eth_v1
         .and(warp::path("node"))
         .and(warp::path("peers"))
         .and(warp::path::end())
@@ -1906,7 +1976,7 @@ pub fn serve<T: BeaconChainTypes>(
         );
 
     // GET node/peer_count
-    let get_node_peer_count = eth1_v1
+    let get_node_peer_count = eth_v1
         .and(warp::path("node"))
         .and(warp::path("peer_count"))
         .and(warp::path::end())
@@ -1947,7 +2017,7 @@ pub fn serve<T: BeaconChainTypes>(
      */
 
     // GET validator/duties/proposer/{epoch}
-    let get_validator_duties_proposer = eth1_v1
+    let get_validator_duties_proposer = eth_v1
         .and(warp::path("validator"))
         .and(warp::path("duties"))
         .and(warp::path("proposer"))
@@ -2089,7 +2159,7 @@ pub fn serve<T: BeaconChainTypes>(
         );
 
     // GET validator/attestation_data?slot,committee_index
-    let get_validator_attestation_data = eth1_v1
+    let get_validator_attestation_data = eth_v1
         .and(warp::path("validator"))
         .and(warp::path("attestation_data"))
         .and(warp::path::end())
@@ -2122,7 +2192,7 @@ pub fn serve<T: BeaconChainTypes>(
         );
 
     // GET validator/aggregate_attestation?attestation_data_root,slot
-    let get_validator_aggregate_attestation = eth1_v1
+    let get_validator_aggregate_attestation = eth_v1
         .and(warp::path("validator"))
         .and(warp::path("aggregate_attestation"))
         .and(warp::path::end())
@@ -2155,7 +2225,7 @@ pub fn serve<T: BeaconChainTypes>(
         );
 
     // POST validator/duties/attester/{epoch}
-    let post_validator_duties_attester = eth1_v1
+    let post_validator_duties_attester = eth_v1
         .and(warp::path("validator"))
         .and(warp::path("duties"))
         .and(warp::path("attester"))
@@ -2177,7 +2247,7 @@ pub fn serve<T: BeaconChainTypes>(
         );
 
     // POST validator/duties/sync
-    let post_validator_duties_sync = eth1_v1
+    let post_validator_duties_sync = eth_v1
         .and(warp::path("validator"))
         .and(warp::path("duties"))
         .and(warp::path("sync"))
@@ -2199,7 +2269,7 @@ pub fn serve<T: BeaconChainTypes>(
         );
 
     // GET validator/sync_committee_contribution
-    let get_validator_sync_committee_contribution = eth1_v1
+    let get_validator_sync_committee_contribution = eth_v1
         .and(warp::path("validator"))
         .and(warp::path("sync_committee_contribution"))
         .and(warp::path::end())
@@ -2223,7 +2293,7 @@ pub fn serve<T: BeaconChainTypes>(
         );
 
     // POST validator/aggregate_and_proofs
-    let post_validator_aggregate_and_proofs = eth1_v1
+    let post_validator_aggregate_and_proofs = eth_v1
         .and(warp::path("validator"))
         .and(warp::path("aggregate_and_proofs"))
         .and(warp::path::end())
@@ -2323,7 +2393,7 @@ pub fn serve<T: BeaconChainTypes>(
             },
         );
 
-    let post_validator_contribution_and_proofs = eth1_v1
+    let post_validator_contribution_and_proofs = eth_v1
         .and(warp::path("validator"))
         .and(warp::path("contribution_and_proofs"))
         .and(warp::path::end())
@@ -2350,7 +2420,7 @@ pub fn serve<T: BeaconChainTypes>(
         );
 
     // POST validator/beacon_committee_subscriptions
-    let post_validator_beacon_committee_subscriptions = eth1_v1
+    let post_validator_beacon_committee_subscriptions = eth_v1
         .and(warp::path("validator"))
         .and(warp::path("beacon_committee_subscriptions"))
         .and(warp::path::end())
@@ -2390,7 +2460,7 @@ pub fn serve<T: BeaconChainTypes>(
         );
 
     // POST validator/prepare_beacon_proposer
-    let post_validator_prepare_beacon_proposer = eth1_v1
+    let post_validator_prepare_beacon_proposer = eth_v1
         .and(warp::path("validator"))
         .and(warp::path("prepare_beacon_proposer"))
         .and(warp::path::end())
@@ -2444,7 +2514,7 @@ pub fn serve<T: BeaconChainTypes>(
         );
 
     // POST validator/sync_committee_subscriptions
-    let post_validator_sync_committee_subscriptions = eth1_v1
+    let post_validator_sync_committee_subscriptions = eth_v1
         .and(warp::path("validator"))
         .and(warp::path("sync_committee_subscriptions"))
         .and(warp::path::end())
@@ -2838,7 +2908,7 @@ pub fn serve<T: BeaconChainTypes>(
             })
         });
 
-    let get_events = eth1_v1
+    let get_events = eth_v1
         .and(warp::path("events"))
         .and(warp::path::end())
         .and(multi_key_query::<api_types::EventQuery>())

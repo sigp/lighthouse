@@ -97,6 +97,28 @@ impl BlockId {
             }
         }
     }
+
+    /// Return the `execution_optimistic` value identified by `self`.
+    pub fn is_execution_optimistic<T: BeaconChainTypes>(
+        &self,
+        chain: &BeaconChain<T>,
+    ) -> Result<bool, warp::Rejection> {
+        match self.0 {
+            // Genesis block is inherently verified.
+            CoreBlockId::Genesis => Ok(false),
+            CoreBlockId::Head => Ok(chain
+                .is_optimistic_head(None)
+                .map_err(warp_utils::reject::beacon_chain_error)?),
+            // Slot, Finalized and Justified are determined based on the current head.
+            CoreBlockId::Slot(_) | CoreBlockId::Finalized | CoreBlockId::Justified => Ok(chain
+                .is_optimistic_head(None)
+                .map_err(warp_utils::reject::beacon_chain_error)?),
+            // If the root is explicitly given, we can determine based on fork-choice.
+            CoreBlockId::Root(block_root) => Ok(chain
+                .is_optimistic_block(&block_root)
+                .map_err(warp_utils::reject::beacon_chain_error)?),
+        }
+    }
 }
 
 impl FromStr for BlockId {

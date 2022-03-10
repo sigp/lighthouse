@@ -55,10 +55,16 @@ pub fn proposer_duties<T: BeaconChainTypes>(
             .safe_add(1)
             .map_err(warp_utils::reject::arith_error)?
     {
-        let (proposers, dependent_root, _) =
+        let (proposers, dependent_root, execution_optimistic, _) =
             compute_proposer_duties_from_head(request_epoch, chain)
                 .map_err(warp_utils::reject::beacon_chain_error)?;
-        convert_to_api_response(chain, request_epoch, dependent_root, proposers)
+        convert_to_api_response(
+            chain,
+            request_epoch,
+            dependent_root,
+            execution_optimistic,
+            proposers,
+        )
     } else if request_epoch
         > current_epoch
             .safe_add(1)
@@ -107,13 +113,23 @@ fn try_proposer_duties_from_cache<T: BeaconChainTypes>(
         }
     };
 
+    let execution_optimistic = chain
+        .is_optimistic_head(Some(head.block_root))
+        .map_err(warp_utils::reject::beacon_chain_error)?;
+
     chain
         .beacon_proposer_cache
         .lock()
         .get_epoch::<T::EthSpec>(dependent_root, request_epoch)
         .cloned()
         .map(|indices| {
-            convert_to_api_response(chain, request_epoch, dependent_root, indices.to_vec())
+            convert_to_api_response(
+                chain,
+                request_epoch,
+                dependent_root,
+                execution_optimistic,
+                indices.to_vec(),
+            )
         })
         .transpose()
 }
@@ -132,8 +148,9 @@ fn compute_and_cache_proposer_duties<T: BeaconChainTypes>(
     current_epoch: Epoch,
     chain: &BeaconChain<T>,
 ) -> Result<ApiDuties, warp::reject::Rejection> {
-    let (indices, dependent_root, fork) = compute_proposer_duties_from_head(current_epoch, chain)
-        .map_err(warp_utils::reject::beacon_chain_error)?;
+    let (indices, dependent_root, execution_optimistic, fork) =
+        compute_proposer_duties_from_head(current_epoch, chain)
+            .map_err(warp_utils::reject::beacon_chain_error)?;
 
     // Prime the proposer shuffling cache with the newly-learned value.
     chain
@@ -143,7 +160,13 @@ fn compute_and_cache_proposer_duties<T: BeaconChainTypes>(
         .map_err(BeaconChainError::from)
         .map_err(warp_utils::reject::beacon_chain_error)?;
 
-    convert_to_api_response(chain, current_epoch, dependent_root, indices)
+    convert_to_api_response(
+        chain,
+        current_epoch,
+        dependent_root,
+        execution_optimistic,
+        indices,
+    )
 }
 
 /// Compute some proposer duties by reading a `BeaconState` from disk, completely ignoring the
@@ -200,7 +223,10 @@ fn compute_historic_proposer_duties<T: BeaconChainTypes>(
         .map_err(BeaconChainError::from)
         .map_err(warp_utils::reject::beacon_chain_error)?;
 
-    convert_to_api_response(chain, epoch, dependent_root, indices)
+    let execution_optimistic = StateId::slot(epoch.start_slot(T::EthSpec::slots_per_epoch()))
+        .is_execution_optimistic(chain)?;
+
+    convert_to_api_response(chain, epoch, dependent_root, execution_optimistic, indices)
 }
 
 /// Converts the internal representation of proposer duties into one that is compatible with the
@@ -209,6 +235,7 @@ fn convert_to_api_response<T: BeaconChainTypes>(
     chain: &BeaconChain<T>,
     epoch: Epoch,
     dependent_root: Hash256,
+    execution_optimistic: bool,
     indices: Vec<usize>,
 ) -> Result<ApiDuties, warp::reject::Rejection> {
     let index_to_pubkey_map = chain
@@ -243,6 +270,7 @@ fn convert_to_api_response<T: BeaconChainTypes>(
     } else {
         Ok(api_types::DutiesResponse {
             dependent_root,
+            execution_optimistic,
             data: proposer_data,
         })
     }
