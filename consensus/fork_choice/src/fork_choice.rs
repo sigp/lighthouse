@@ -241,6 +241,14 @@ pub enum AttestationFromBlock {
     False,
 }
 
+/// Parameters which are cached between calls to `Self::get_head`.
+#[derive(Clone, Copy)]
+pub struct ForkchoiceUpdateParameters {
+    pub head_root: Hash256,
+    pub head_hash: Option<ExecutionBlockHash>,
+    pub finalized_hash: Option<ExecutionBlockHash>,
+}
+
 /// Provides an implementation of "Ethereum 2.0 Phase 0 -- Beacon Chain Fork Choice":
 ///
 /// https://github.com/ethereum/eth2.0-specs/blob/v0.12.1/specs/phase0/fork-choice.md#ethereum-20-phase-0----beacon-chain-fork-choice
@@ -258,6 +266,8 @@ pub struct ForkChoice<T, E> {
     proto_array: ProtoArrayForkChoice,
     /// Attestations that arrived at the current slot and must be queued for later processing.
     queued_attestations: Vec<QueuedAttestation>,
+    /// Stores a cache of the values required to be sent to the execution layer.
+    forkchoice_update_parameters: Option<ForkchoiceUpdateParameters>,
     _phantom: PhantomData<E>,
 }
 
@@ -332,6 +342,7 @@ where
             fc_store,
             proto_array,
             queued_attestations: vec![],
+            forkchoice_update_parameters: None,
             _phantom: PhantomData,
         })
     }
@@ -349,8 +360,18 @@ where
             fc_store,
             proto_array,
             queued_attestations,
+            forkchoice_update_parameters: None,
             _phantom: PhantomData,
         }
+    }
+
+    /// Returns cached information that can be used to issue a `forkchoiceUpdated` message to an
+    /// execution engine.
+    ///
+    /// These values are updated each time `Self::get_head` is called. May return `None` if
+    /// `Self::get_head` has not yet been called.
+    pub fn get_forkchoice_update_parameters(&self) -> Option<ForkchoiceUpdateParameters> {
+        self.forkchoice_update_parameters
     }
 
     /// Returns the block root of an ancestor of `block_root` at the given `slot`. (Note: `slot` refers
@@ -414,15 +435,29 @@ where
 
         let store = &mut self.fc_store;
 
-        self.proto_array
-            .find_head::<E>(
-                *store.justified_checkpoint(),
-                *store.finalized_checkpoint(),
-                store.justified_balances(),
-                store.proposer_boost_root(),
-                spec,
-            )
-            .map_err(Into::into)
+        let head_root = self.proto_array.find_head::<E>(
+            *store.justified_checkpoint(),
+            *store.finalized_checkpoint(),
+            store.justified_balances(),
+            store.proposer_boost_root(),
+            spec,
+        )?;
+
+        // Cache some values for the next forkchoiceUpdate call to the execution layer.
+        let head_hash = self
+            .get_block(&head_root)
+            .and_then(|b| b.execution_status.block_hash());
+        let finalized_root = self.finalized_checkpoint().root;
+        let finalized_hash = self
+            .get_block(&finalized_root)
+            .and_then(|b| b.execution_status.block_hash());
+        self.forkchoice_update_parameters = Some(ForkchoiceUpdateParameters {
+            head_root,
+            head_hash,
+            finalized_hash,
+        });
+
+        Ok(head_root)
     }
 
     /// Returns `true` if the given `store` should be updated to set
@@ -1049,6 +1084,7 @@ where
             fc_store,
             proto_array,
             queued_attestations: persisted.queued_attestations,
+            forkchoice_update_parameters: None,
             _phantom: PhantomData,
         })
     }

@@ -3952,56 +3952,45 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // of the head. I.e., we will never communicate a past head after communicating a later
         // one.
         //
-        // There are two "deadlock warnings" in this function. The downside of this nice ordering
-        // is the potential for deadlock. I would advise against any other use of
+        // There is a "deadlock warning" in this function. The downside of this nice ordering is the
+        // potential for deadlock. I would advise against any other use of
         // `execution_engine_forkchoice_lock` apart from the one here.
         let forkchoice_lock = execution_layer.execution_engine_forkchoice_lock().await;
 
         // Deadlock warning:
         //
-        // We are taking the `self.canonical_head` lock whilst holding the `forkchoice_lock`. This
+        // We are taking the `self.fork_choice` lock whilst holding the `forkchoice_lock`. This
         // is intentional, since it allows us to ensure a consistent ordering of messages to the
         // execution layer.
-        let head = self.head_info()?;
-        let head_block_root = head.block_root;
-        let head_execution_block_hash = if let Some(hash) = head
-            .execution_payload_block_hash
-            .filter(|h| *h != ExecutionBlockHash::zero())
-        {
-            hash
-        } else {
-            // Don't send fork choice updates to the execution layer before the transition block.
-            return Ok(());
-        };
-
-        let finalized_root = if head.finalized_checkpoint.root == Hash256::zero() {
-            // De-alias `0x00..00` to the genesis block root.
-            self.genesis_block_root
-        } else {
-            head.finalized_checkpoint.root
-        };
-        // Deadlock warning:
-        //
-        // The same as above, but the lock on `self.fork_choice`.
-        let finalized_execution_block_hash = self
-            .fork_choice
-            .read()
-            .get_block(&finalized_root)
-            .ok_or(Error::FinalizedBlockMissingFromForkChoice(finalized_root))?
-            .execution_status
-            .block_hash()
-            .unwrap_or_else(ExecutionBlockHash::zero);
+        let (head_block_root, head_hash, finalized_hash) =
+            if let Some(params) = self.fork_choice.read().get_forkchoice_update_parameters() {
+                if let Some(head_hash) = params.head_hash {
+                    (
+                        params.head_root,
+                        head_hash,
+                        params
+                            .finalized_hash
+                            .unwrap_or_else(ExecutionBlockHash::zero),
+                    )
+                } else {
+                    // The head block does not have an execution block hash, there is no need to
+                    // send an update to the EL.
+                    return Ok(());
+                }
+            } else {
+                warn!(
+                    self.log,
+                    "Missing forkchoice params";
+                    "msg" => "please report this non-critical bug"
+                );
+                return Ok(());
+            };
 
         let forkchoice_updated_response = self
             .execution_layer
             .as_ref()
             .ok_or(Error::ExecutionLayerMissing)?
-            .notify_forkchoice_updated(
-                head_execution_block_hash,
-                finalized_execution_block_hash,
-                current_slot,
-                head_block_root,
-            )
+            .notify_forkchoice_updated(head_hash, finalized_hash, current_slot, head_block_root)
             .await
             .map_err(Error::ExecutionForkChoiceUpdateFailed);
 
