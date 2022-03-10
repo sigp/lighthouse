@@ -798,6 +798,24 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         }
     }
 
+    /// Determine if the `state_root` at `slot` should be stored as a full state.
+    ///
+    /// This is dependent on the database's current split point, so may change from `false` to
+    /// `true` after a finalization update. It cannot change from `true` to `false` for a state in
+    /// the hot database as the split state will be migrated to
+    ///
+    /// All fork boundary states are also stored as full states.
+    pub fn is_stored_as_full_state(&self, state_root: Hash256, slot: Slot) -> Result<bool, Error> {
+        let split = self.get_split_info();
+
+        if slot >= split.slot {
+            Ok(state_root == split.state_root
+                || self.spec.fork_activated_at_slot::<E>(slot).is_some())
+        } else {
+            Err(Error::SlotIsBeforeSplit { slot })
+        }
+    }
+
     pub fn load_hot_state_full(
         &self,
         state_root: &Hash256,
@@ -1040,7 +1058,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
     ///
     /// Will skip slots as necessary. The returned state is not guaranteed
     /// to have any caches built, beyond those immediately required by block processing.
-    fn replay_blocks(
+    pub fn replay_blocks(
         &self,
         state: BeaconState<E>,
         blocks: Vec<SignedBeaconBlock<E>>,
@@ -1053,7 +1071,8 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             .state_root_iter(state_root_iter)
             .apply_blocks(blocks, Some(target_slot))
             .and_then(|block_replayer| {
-                if block_replayer.state_root_miss() {
+                // FIXME(sproul): tweak state miss condition
+                if block_replayer.state_root_miss() && false {
                     Err(Error::MissingStateRoot(target_slot))
                 } else {
                     Ok(block_replayer.into_state())
@@ -1554,8 +1573,8 @@ pub fn migrate_database<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>>(
 /// Struct for storing the split slot and state root in the database.
 #[derive(Debug, Clone, Copy, PartialEq, Default, Encode, Decode, Deserialize, Serialize)]
 pub struct Split {
-    pub(crate) slot: Slot,
-    pub(crate) state_root: Hash256,
+    pub slot: Slot,
+    pub state_root: Hash256,
 }
 
 impl StoreItem for Split {
@@ -1575,29 +1594,42 @@ impl StoreItem for Split {
 /// Struct for summarising a state in the hot database.
 ///
 /// Allows full reconstruction by replaying blocks.
-#[derive(Debug, Clone, Copy, Default, Encode, Decode)]
+#[superstruct(
+    variants(V1, V10),
+    variant_attributes(derive(Debug, Clone, Copy, Default, Encode, Decode)),
+    no_enum
+)]
 pub struct HotStateSummary {
     pub slot: Slot,
     pub latest_block_root: Hash256,
+    /// The state root of the state at the prior epoch boundary.
     pub epoch_boundary_state_root: Hash256,
     /// The state root of the state at the prior slot.
-    // FIXME(sproul): migrate
+    #[superstruct(only(V10))]
     pub prev_state_root: Hash256,
 }
 
-impl StoreItem for HotStateSummary {
-    fn db_column() -> DBColumn {
-        DBColumn::BeaconStateSummary
-    }
+pub type HotStateSummary = HotStateSummaryV10;
 
-    fn as_store_bytes(&self) -> Result<Vec<u8>, Error> {
-        Ok(self.as_ssz_bytes())
-    }
+macro_rules! impl_store_item_summary {
+    ($t:ty) => {
+        impl StoreItem for $t {
+            fn db_column() -> DBColumn {
+                DBColumn::BeaconStateSummary
+            }
 
-    fn from_store_bytes(bytes: &[u8]) -> Result<Self, Error> {
-        Ok(Self::from_ssz_bytes(bytes)?)
-    }
+            fn as_store_bytes(&self) -> Result<Vec<u8>, Error> {
+                Ok(self.as_ssz_bytes())
+            }
+
+            fn from_store_bytes(bytes: &[u8]) -> Result<Self, Error> {
+                Ok(Self::from_ssz_bytes(bytes)?)
+            }
+        }
+    };
 }
+impl_store_item_summary!(HotStateSummaryV1);
+impl_store_item_summary!(HotStateSummaryV10);
 
 impl HotStateSummary {
     /// Construct a new summary of the given state.

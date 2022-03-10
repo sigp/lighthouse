@@ -48,6 +48,10 @@ pub enum Error {
     #[cfg(feature = "milhouse")]
     MilhouseError(milhouse::Error),
     Compression(std::io::Error),
+    MissingPersistedBeaconChain,
+    SlotIsBeforeSplit {
+        slot: Slot,
+    },
 }
 
 pub trait HandleUnavailable<T> {
