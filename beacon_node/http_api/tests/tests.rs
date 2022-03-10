@@ -1760,6 +1760,7 @@ impl ApiTester {
 
             let expected = DutiesResponse {
                 data: expected_duties,
+                execution_optimistic: false,
                 dependent_root,
             };
 

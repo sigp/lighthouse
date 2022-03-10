@@ -1473,7 +1473,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         validator_indices: &[u64],
         epoch: Epoch,
         head_block_root: Hash256,
-    ) -> Result<(Vec<Option<AttestationDuty>>, Hash256), Error> {
+    ) -> Result<(Vec<Option<AttestationDuty>>, Hash256, bool), Error> {
         self.with_committee_cache(head_block_root, epoch, |committee_cache, dependent_root| {
             let duties = validator_indices
                 .iter()
@@ -1483,7 +1483,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 })
                 .collect();
 
-            Ok((duties, dependent_root))
+            let execution_optimistic = self.is_optimistic_head(Some(head_block_root))?;
+
+            Ok((duties, dependent_root, execution_optimistic))
         })
     }
 
@@ -3958,7 +3960,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 return Ok(());
             }
 
-            let (proposers, decision_root, fork) =
+            let (proposers, decision_root, _, fork) =
                 compute_proposer_duties_from_head(prepare_epoch, self)?;
 
             let proposer_index = prepare_slot.as_usize() % (T::EthSpec::slots_per_epoch() as usize);
@@ -4328,6 +4330,51 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         self.spec.bellatrix_fork_epoch.map_or(true, |bellatrix| {
             slot.epoch(T::EthSpec::slots_per_epoch()) < bellatrix
         })
+    }
+
+    /// Returns the value of `execution_optimistic` for `block_root`.
+    ///
+    /// Returns `Ok(false)` if the block is pre-Bellatrix, or has `ExecutionStatus::Valid`.
+    /// Returns `Ok(true)` if the block has `ExecutionStatus::Unknown`.
+    pub fn is_optimistic_block(&self, block_root: &Hash256) -> Result<bool, BeaconChainError> {
+        if let Some(block) = self.get_block(block_root)? {
+            // Check if the block is pre-Bellatrix.
+            if block.message().execution_payload().is_err() {
+                Ok(false)
+            } else {
+                self.fork_choice
+                    .read()
+                    .is_optimistic_block(block_root)
+                    .map_err(BeaconChainError::ForkChoiceError)
+            }
+        } else {
+            Err(BeaconChainError::MissingBeaconBlock(*block_root))
+        }
+    }
+
+    /// Returns the value of `execution_optimistic` for `head_block_root` which can be provided
+    /// optionally if available.
+    ///
+    /// Returns `Ok(false)` if the head block is pre-Bellatrix, or has `ExecutionStatus::Valid`.
+    /// Returns `Ok(true)` if the head block has `ExecutionStatus::Unknown`.
+    pub fn is_optimistic_head(
+        &self,
+        head_block_root: Option<Hash256>,
+    ) -> Result<bool, BeaconChainError> {
+        let head_block_root = head_block_root.unwrap_or(self.head_info()?.block_root);
+        if let Some(block) = self.get_block(&head_block_root)? {
+            // Check if the block is pre-Bellatrix.
+            if block.message().execution_payload().is_err() {
+                Ok(false)
+            } else {
+                self.fork_choice
+                    .read()
+                    .is_optimistic_block_no_fallback(&head_block_root)
+                    .map_err(BeaconChainError::ForkChoiceError)
+            }
+        } else {
+            Err(BeaconChainError::MissingBeaconBlock(head_block_root))
+        }
     }
 
     /// Returns the status of the current head block, regarding the validity of the execution

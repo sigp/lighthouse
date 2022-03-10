@@ -103,6 +103,26 @@ impl StateId {
             _ => func(&self.state(chain)?),
         }
     }
+
+    /// Return the `execution_optimistic` value identified by `self`.
+    ///
+    /// Currently, for all operations dependent on the state, the value is determined by the
+    /// optimistic status of the head block.
+    pub fn is_execution_optimistic<T: BeaconChainTypes>(
+        &self,
+        chain: &BeaconChain<T>,
+    ) -> Result<bool, warp::Rejection> {
+        match &self.0 {
+            CoreStateId::Genesis => Ok(false),
+            CoreStateId::Head
+            | CoreStateId::Slot(_)
+            | CoreStateId::Justified
+            | CoreStateId::Finalized
+            | CoreStateId::Root(_) => chain
+                .is_optimistic_head(None)
+                .map_err(warp_utils::reject::beacon_chain_error),
+        }
+    }
 }
 
 impl FromStr for StateId {
