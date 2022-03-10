@@ -60,11 +60,17 @@ fn cached_attestation_duties<T: BeaconChainTypes>(
 ) -> Result<ApiDuties, warp::reject::Rejection> {
     let head_block_root = chain.canonical_head.cached_head().head_block_root();
 
-    let (duties, dependent_root, _execution_status) = chain
+    let (duties, dependent_root, execution_status) = chain
         .validator_attestation_duties(request_indices, request_epoch, head_block_root)
         .map_err(warp_utils::reject::beacon_chain_error)?;
 
-    convert_to_api_response(duties, request_indices, dependent_root, chain)
+    convert_to_api_response(
+        duties,
+        request_indices,
+        dependent_root,
+        execution_status.is_optimistic(),
+        chain,
+    )
 }
 
 /// Compute some attester duties by reading a `BeaconState` from disk, completely ignoring the
@@ -102,7 +108,7 @@ fn compute_historic_attester_duties<T: BeaconChainTypes>(
         )?;
         state
     } else {
-        StateId::slot(request_epoch.start_slot(T::EthSpec::slots_per_epoch())).state(chain)?
+        StateId::from_slot(request_epoch.start_slot(T::EthSpec::slots_per_epoch())).state(chain)?
     };
 
     // Sanity-check the state lookup.
@@ -140,7 +146,17 @@ fn compute_historic_attester_duties<T: BeaconChainTypes>(
         .collect::<Result<_, _>>()
         .map_err(warp_utils::reject::beacon_chain_error)?;
 
-    convert_to_api_response(duties, request_indices, dependent_root, chain)
+    let execution_optimistic =
+        StateId::from_slot(request_epoch.start_slot(T::EthSpec::slots_per_epoch()))
+            .is_execution_optimistic(chain)?;
+
+    convert_to_api_response(
+        duties,
+        request_indices,
+        dependent_root,
+        execution_optimistic,
+        chain,
+    )
 }
 
 fn ensure_state_knows_attester_duties_for_epoch<E: EthSpec>(
@@ -178,6 +194,7 @@ fn convert_to_api_response<T: BeaconChainTypes>(
     duties: Vec<Option<AttestationDuty>>,
     indices: &[u64],
     dependent_root: Hash256,
+    execution_optimistic: bool,
     chain: &BeaconChain<T>,
 ) -> Result<ApiDuties, warp::reject::Rejection> {
     // Protect against an inconsistent slot clock.
@@ -213,6 +230,7 @@ fn convert_to_api_response<T: BeaconChainTypes>(
 
     Ok(api_types::DutiesResponse {
         dependent_root,
+        execution_optimistic,
         data,
     })
 }
