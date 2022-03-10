@@ -1175,6 +1175,12 @@ where
         &self.proto_array
     }
 
+    /// Returns a mutable reference to `proto_array`.
+    /// Should only be used in testing.
+    pub fn proto_array_mut(&mut self) -> &mut ProtoArrayForkChoice {
+        &mut self.proto_array
+    }
+
     /// Returns a reference to the underlying `fc_store`.
     pub fn fc_store(&self) -> &T {
         &self.fc_store

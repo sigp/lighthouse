@@ -37,6 +37,7 @@ use state_processing::{
 };
 use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
+use std::fmt;
 use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Duration;
@@ -1776,5 +1777,12 @@ where
         assert_ne!(honest_head, faulty_head, "forks should be distinct");
 
         (honest_head, faulty_head)
+    }
+}
+
+// Junk `Debug` impl to satistfy certain trait bounds during testing.
+impl<T: BeaconChainTypes> fmt::Debug for BeaconChainHarness<T> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "BeaconChainHarness")
     }
 }
