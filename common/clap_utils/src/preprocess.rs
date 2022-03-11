@@ -1,11 +1,10 @@
 use serde_yaml::Value as YamlValue;
-use std::io::ErrorKind;
-use std::ffi::OsString;
-use std::collections::{HashMap, VecDeque};
-use toml::Value as TomlValue;
-use std::path::PathBuf;
-use serde::de::Error;
 use crate::flags::CONFIG_FILE_FLAG;
+use serde::de::Error;
+use std::collections::{HashMap, VecDeque};
+use std::ffi::OsString;
+use std::path::PathBuf;
+use toml::Value as TomlValue;
 
 #[derive(thiserror::Error, Debug)]
 pub enum ClapPreprocessingError {
@@ -14,7 +13,7 @@ pub enum ClapPreprocessingError {
     #[error("YAML parsing error: {0:?}")]
     Yaml(#[from] serde_yaml::Error),
     #[error("TOML parsing error: {0:?}")]
-    Toml(#[from] toml::de::Error)
+    Toml(#[from] toml::de::Error),
 }
 
 /// This method reads arguments from the cli, searches for `CONFIG_FILE_FLAG`, and if it finds it,
@@ -98,7 +97,9 @@ fn toml_value_to_string(value: TomlValue) -> Result<String, ClapPreprocessingErr
             .collect::<Result<Vec<_>, _>>()?
             .join(","),
         TomlValue::Table(_) => {
-            return Err(ClapPreprocessingError::Toml(toml::de::Error::custom("Unable to parse YAML table")))
+            return Err(ClapPreprocessingError::Toml(toml::de::Error::custom(
+                "Unable to parse YAML table",
+            )))
         }
     };
     Ok(string_value)
@@ -115,19 +116,26 @@ fn yaml_value_to_string(value: YamlValue) -> Result<String, ClapPreprocessingErr
             .map(yaml_value_to_string)
             .collect::<Result<Vec<_>, _>>()?
             .join(","),
-        YamlValue::Mapping(_) => {return Err(ClapPreprocessingError::Yaml(serde_yaml::Error::custom("Unable to parse YAML table")))
+        YamlValue::Mapping(_) => {
+            return Err(ClapPreprocessingError::Yaml(serde_yaml::Error::custom(
+                "Unable to parse YAML table",
+            )))
         }
     };
     Ok(string_value)
 }
 
-/// This function and `expand_args_from` are inspired by `argmatches::expand_args_from`, but differ
-/// in the following ways:
-/// - No recursion.
-/// - `parser` must return a `Result<Vec<OsString>, ClapPreprocessingError>` as opposed to an `Argument`.
+/// This function and `expand_args_from` are inspired by `argmatches::expand_args_from` and
+/// `argmatches::expand_args_from` respectively, but differ in the following ways:
+///
+/// - This has no recursion.
+/// - `parser` must return a `Result<Vec<OsString>, ClapPreprocessingError>` as opposed to a `Vec<Argument>`.
 /// - This tracks and passes along to `parser` all cli flags provided by the user.
 /// - This searches for config files based on a provided flag name rather than a prefix.
-pub fn expand_args<F>(parser: F, flag_name: &str) -> Result<Vec<std::ffi::OsString>, ClapPreprocessingError>
+pub fn expand_args<F>(
+    parser: F,
+    flag_name: &str,
+) -> Result<Vec<std::ffi::OsString>, ClapPreprocessingError>
 where
     F: Fn(&str, Vec<OsString>) -> Result<Vec<OsString>, ClapPreprocessingError>,
 {
@@ -137,7 +145,8 @@ where
 pub fn expand_args_from<F>(
     args: impl Iterator<Item = std::ffi::OsString>,
     parser: F,
-    flag_name: &str) -> Result<Vec<std::ffi::OsString>, ClapPreprocessingError>
+    flag_name: &str,
+) -> Result<Vec<std::ffi::OsString>, ClapPreprocessingError>
 where
     F: Fn(&str, Vec<OsString>) -> Result<Vec<OsString>, ClapPreprocessingError>,
 {
@@ -148,9 +157,9 @@ where
         .iter()
         .cloned()
         .filter(|argument| {
-                if let Some(arg_str) = argument.to_str() {
-                    return arg_str.starts_with("--");
-                }
+            if let Some(arg_str) = argument.to_str() {
+                return arg_str.starts_with("--");
+            }
             false
         })
         .collect();
@@ -158,16 +167,16 @@ where
     while let Some(next) = cli_args.pop_front() {
         if next.to_str() == Some(flag_name) {
             if let Some(path) = cli_args.pop_front() {
-                    let pathbuf: PathBuf = path.into();
-                    let content = std::fs::read_to_string(pathbuf)?;
-                    let new_args = parser(&content, cli_flags.clone())?;
-                    for arg in new_args.into_iter() {
-                        expanded_args.push(arg);
-                    }
+                let pathbuf: PathBuf = path.into();
+                let content = std::fs::read_to_string(pathbuf)?;
+                let new_args = parser(&content, cli_flags.clone())?;
+                for arg in new_args.into_iter() {
+                    expanded_args.push(arg);
                 }
-            }else {
-                expanded_args.push(next);
             }
+        } else {
+            expanded_args.push(next);
+        }
     }
 
     Ok(expanded_args)

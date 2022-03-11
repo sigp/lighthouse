@@ -4,6 +4,7 @@ mod metrics;
 
 use beacon_node::ProductionBeaconNode;
 use clap::{App, Arg, ArgMatches};
+use clap_utils::flags::CONFIG_FILE_FLAG;
 use clap_utils::{flags::DISABLE_MALLOC_TUNING_FLAG, get_eth2_network_config};
 use directory::{parse_path_or_default, DEFAULT_BEACON_NODE_DIR, DEFAULT_VALIDATOR_DIR};
 use env_logger::{Builder, Env};
@@ -15,7 +16,6 @@ use malloc_utils::configure_memory_allocator;
 use slog::{crit, info, warn};
 use std::path::PathBuf;
 use std::process::exit;
-use clap_utils::flags::CONFIG_FILE_FLAG;
 use task_executor::ShutdownReason;
 use types::{EthSpec, EthSpecId};
 use validator_client::ProductionValidatorClient;

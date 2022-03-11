@@ -1,18 +1,12 @@
 //! A helper library for parsing values from `clap::ArgMatches`.
 
 use clap::ArgMatches;
-use eth2_network_config::{DEFAULT_HARDCODED_NETWORK, Eth2NetworkConfig};
+use eth2_network_config::{Eth2NetworkConfig, DEFAULT_HARDCODED_NETWORK};
 use ethereum_types::U256 as Uint256;
-use serde_yaml::Value as YamlValue;
 use ssz::Decode;
-use std::collections::HashMap;
-use std::ffi::OsString;
-use std::io::ErrorKind;
 use std::path::PathBuf;
 use std::str::FromStr;
-use toml::Value as TomlValue;
 use types::{ChainSpec, Config, EthSpec};
-use std::collections::VecDeque;
 
 pub mod flags;
 pub mod preprocess;
