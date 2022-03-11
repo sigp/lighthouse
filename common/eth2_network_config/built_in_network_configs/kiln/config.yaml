@@ -1,4 +1,5 @@
 # Extends the mainnet preset
+CONFIG_NAME: 'kiln'
 PRESET_BASE: 'mainnet'
 # Genesis
 # ---------------------------------------------------------------
