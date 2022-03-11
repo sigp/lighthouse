@@ -15,6 +15,7 @@ use malloc_utils::configure_memory_allocator;
 use slog::{crit, info, warn};
 use std::path::PathBuf;
 use std::process::exit;
+use clap_utils::flags::CONFIG_FILE_FLAG;
 use task_executor::ShutdownReason;
 use types::{EthSpec, EthSpecId};
 use validator_client::ProductionValidatorClient;
@@ -37,6 +38,17 @@ fn main() {
         std::env::set_var("RUST_BACKTRACE", "1");
     }
 
+    let args = match clap_utils::preprocess() {
+        Ok(args) => args,
+        Err(e) => {
+            eprintln!(
+                "Unable to parse the provided config file: {e:?} \n\
+                Use TOML or YAML format for config files.",
+            );
+            exit(1)
+        }
+    };
+
     // Parse the CLI parameters.
     let matches = App::new("Lighthouse")
         .version(VERSION.replace("Lighthouse/", "").as_str())
@@ -58,6 +70,20 @@ fn main() {
                  cfg!(feature = "spec-minimal"),
                  cfg!(feature = "gnosis"),
             ).as_str()
+        )
+        // Config file parsing is done prior to the instantiation of the clap `App`, but it is still
+        // necessary to define this flag in order to properly validate commands that include this
+        // flag as well as to display it in `--help`.
+        .arg(
+            Arg::with_name(CONFIG_FILE_FLAG)
+                .long(CONFIG_FILE_FLAG)
+                .help(
+                    "The filepath to a YAML or TOML file with flag values. The filename must \
+                     end in `.toml`, `.yml`, or `.yaml`. To override any options in \
+                    the config file, specify the same option in the command line."
+                )
+                .global(true)
+                .takes_value(true),
         )
         .arg(
             Arg::with_name("spec")
@@ -275,7 +301,7 @@ fn main() {
         .subcommand(boot_node::cli_app())
         .subcommand(validator_client::cli_app())
         .subcommand(account_manager::cli_app())
-        .get_matches();
+        .get_matches_from(args);
 
     // Configure the allocator early in the process, before it has the chance to use the default values for
     // anything important.
