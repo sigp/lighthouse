@@ -18,5 +18,4 @@ serde_json = "1.0.59"
 serde_yaml = "0.8.13"
 types = { path = "../../consensus/types"}
 toml = "0.5.6"
-argfile = "0.1.4"
 thiserror = "1.0.30"
