@@ -796,6 +796,7 @@ pub struct Config {
     pub terminal_block_hash_activation_epoch: Epoch,
     // TODO(merge): remove this default
     #[serde(default = "default_safe_slots_to_import_optimistically")]
+    #[serde(with = "eth2_serde_utils::quoted_u64")]
     pub safe_slots_to_import_optimistically: u64,
 
     #[serde(with = "eth2_serde_utils::quoted_u64")]
