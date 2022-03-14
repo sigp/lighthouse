@@ -249,6 +249,8 @@ jobs:
     - uses: actions/checkout@v1
     - name: Install Rust @ MSRV (${{ needs.extract-msrv.outputs.MSRV }})
       run: rustup override set ${{ needs.extract-msrv.outputs.MSRV }}
+    - name: Install Clippy
+      run: rustup component add clippy
     - name: Run Clippy
       run: make lint
   arbitrary-check:
