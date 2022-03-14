@@ -19,7 +19,7 @@ use types::{Address, ExecutionBlockHash, Hash256};
 const PAYLOAD_ID_LRU_CACHE_SIZE: usize = 512;
 
 /// Stores the remembered state of a engine.
-#[derive(Copy, Clone, PartialEq)]
+#[derive(Copy, Clone, PartialEq, Debug)]
 enum EngineState {
     Synced,
     Offline,
@@ -434,10 +434,12 @@ impl Engines {
     {
         let func = &func;
         let futures = self.engines.iter().map(|engine| async move {
-            let is_offline = *engine.state.read().await == EngineState::Offline;
+            let state = *engine.state.read().await;
+            debug!(self.log, "Engine state"; "state" => ?state);
+            let is_offline = state == EngineState::Offline;
             if !is_offline {
                 match func(engine).await {
-                    Ok(res) => Ok(res),
+                    Ok(h) => return Ok(h),
                     Err(error) => {
                         debug!(
                             self.log,
