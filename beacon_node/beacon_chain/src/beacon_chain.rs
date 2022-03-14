@@ -3644,7 +3644,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                             current_duty_dependent_root,
                             previous_duty_dependent_root,
                             epoch_transition: is_epoch_transition,
-                            execution_optimistic: self.is_optimistic_head(Some(beacon_block_root))?,
+                            execution_optimistic: self
+                                .is_optimistic_head(Some(beacon_block_root))?,
                         }));
                     }
                     (Err(e), _) | (_, Err(e)) => {
