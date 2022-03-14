@@ -453,10 +453,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                         "err" => ?e
                     );
                     Err(ChainSegmentFailed {
-                        message: format!(
-                            "Peer sent a block containing invalid execution payload. Reason: {:?}",
-                            e
-                        ),
+                        message: format!("Execution layer offline. Reason: {:?}", e),
                         // Do not penalize peers for internal errors.
                         peer_action: None,
                         mode: FailureMode::EL { pause_sync: true },

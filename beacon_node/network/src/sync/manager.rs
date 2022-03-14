@@ -458,7 +458,18 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                         target_slot,
                     }
                 }
-                ChainState::WaitingOnExecution => SyncState::WaitingOnExecution,
+                ChainState::WaitingOnExecution => {
+                    // Start the timer to poll
+                    // Reset the timer to poll the EL again after the delay
+                    debug!(self.log, "Sync is waiting on execution layer");
+                    self.poll_execution = Box::pin(
+                        Some(tokio::time::sleep(Duration::from_secs(
+                            EXECTION_LAYER_POLLING_DELAY,
+                        )))
+                        .into(),
+                    );
+                    SyncState::WaitingOnExecution
+                }
             },
         };
 
