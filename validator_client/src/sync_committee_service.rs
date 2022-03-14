@@ -4,7 +4,7 @@ use environment::RuntimeContext;
 use eth2::types::BlockId;
 use futures::future::join_all;
 use futures::future::FutureExt;
-use slog::{crit, debug, error, info, trace, warn};
+use slog::{crit, debug, error, info, trace};
 use slot_clock::SlotClock;
 use std::collections::HashMap;
 use std::ops::Deref;
@@ -154,11 +154,16 @@ impl<T: SlotClock + 'static, E: EthSpec> SyncCommitteeService<T, E> {
                 .checked_sub(slot_duration / 3)
                 .unwrap_or_else(|| Duration::from_secs(0));
 
-        let slot_duties = self
+        let slot_duties = if let Some(duties) = self
             .duties_service
             .sync_duties
             .get_duties_for_slot::<E>(slot, &self.duties_service.spec)
-            .ok_or_else(|| format!("Error fetching duties for slot {}", slot))?;
+        {
+            duties
+        } else {
+            debug!(log, "No duties known for slot {}", slot);
+            return Ok(());
+        };
 
         if slot_duties.duties.is_empty() {
             debug!(
@@ -490,14 +495,23 @@ impl<T: SlotClock + 'static, E: EthSpec> SyncCommitteeService<T, E> {
                     spec,
                 )),
                 None => {
-                    warn!(
+                    debug!(
                         log,
-                        "Missing duties for subscription";
+                        "No duties for subscription";
                         "slot" => duty_slot,
                     );
                     all_succeeded = false;
                 }
             }
+        }
+
+        if subscriptions.is_empty() {
+            debug!(
+                log,
+                "No sync subscriptions to send";
+                "slot" => slot,
+            );
+            return Ok(());
         }
 
         // Post subscriptions to BN.

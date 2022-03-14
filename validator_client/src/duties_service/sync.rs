@@ -403,7 +403,7 @@ pub async fn poll_sync_committee_duties_for_period<T: SlotClock + 'static, E: Et
     if local_indices.is_empty() {
         debug!(
             duties_service.context.log(),
-            "No validators, not polling for sync comittee";
+            "No validators, not polling for sync committee duties";
             "sync_committee_period" => sync_committee_period,
         );
         return Ok(());
