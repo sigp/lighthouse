@@ -2468,6 +2468,7 @@ impl ApiTester {
         let expected_block = EventKind::Block(SseBlock {
             block: block_root,
             slot: next_slot,
+            execution_optimistic: false,
         });
 
         let expected_head = EventKind::Head(SseHead {
@@ -2481,6 +2482,7 @@ impl ApiTester {
                 .unwrap()
                 .unwrap(),
             epoch_transition: true,
+            execution_optimistic: false,
         });
 
         let expected_finalized = EventKind::FinalizedCheckpoint(SseFinalizedCheckpoint {
@@ -2495,6 +2497,7 @@ impl ApiTester {
                 .unwrap()
                 .unwrap(),
             epoch: Epoch::new(3),
+            execution_optimistic: false,
         });
 
         self.client
@@ -2523,6 +2526,7 @@ impl ApiTester {
             new_head_block: self.reorg_block.canonical_root(),
             new_head_state: self.reorg_block.state_root(),
             epoch: self.next_block.slot().epoch(E::slots_per_epoch()),
+            execution_optimistic: false,
         });
 
         self.client
@@ -2589,6 +2593,7 @@ impl ApiTester {
         let expected_block = EventKind::Block(SseBlock {
             block: block_root,
             slot: next_slot,
+            execution_optimistic: false,
         });
 
         let expected_head = EventKind::Head(SseHead {
@@ -2598,6 +2603,7 @@ impl ApiTester {
             current_duty_dependent_root: self.chain.genesis_block_root,
             previous_duty_dependent_root: self.chain.genesis_block_root,
             epoch_transition: false,
+            execution_optimistic: false,
         });
 
         self.client
