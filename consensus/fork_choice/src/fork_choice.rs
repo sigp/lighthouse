@@ -1002,7 +1002,7 @@ where
     /// execution payload has not been verified.
     ///
     /// Returns `Ok(false)` if `block_root`'s execution payload has been verfied, if it is a
-    /// pre-merge-fork block or if it is before the PoW terminal block.
+    /// pre-Bellatrix block or if it is before the PoW terminal block.
     ///
     /// Returns `Err` if the execution payload of `block_root` is `Invalid`.
     ///
