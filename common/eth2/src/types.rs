@@ -824,6 +824,7 @@ pub struct PeerCount {
 pub struct SseBlock {
     pub slot: Slot,
     pub block: Hash256,
+    pub execution_optimistic: bool,
 }
 
 #[derive(PartialEq, Debug, Serialize, Deserialize, Clone)]
@@ -831,6 +832,7 @@ pub struct SseFinalizedCheckpoint {
     pub block: Hash256,
     pub state: Hash256,
     pub epoch: Epoch,
+    pub execution_optimistic: bool,
 }
 
 #[derive(PartialEq, Debug, Serialize, Deserialize, Clone)]
@@ -841,6 +843,7 @@ pub struct SseHead {
     pub current_duty_dependent_root: Hash256,
     pub previous_duty_dependent_root: Hash256,
     pub epoch_transition: bool,
+    pub execution_optimistic: bool,
 }
 
 #[derive(PartialEq, Debug, Serialize, Deserialize, Clone)]
@@ -853,6 +856,7 @@ pub struct SseChainReorg {
     pub new_head_block: Hash256,
     pub new_head_state: Hash256,
     pub epoch: Epoch,
+    pub execution_optimistic: bool,
 }
 
 #[derive(PartialEq, Debug, Serialize, Deserialize, Clone)]
@@ -867,6 +871,7 @@ pub struct SseLateHead {
     pub observed_delay: Option<Duration>,
     pub imported_delay: Option<Duration>,
     pub set_as_head_delay: Option<Duration>,
+    pub execution_optimistic: bool,
 }
 
 #[derive(PartialEq, Debug, Serialize, Clone)]

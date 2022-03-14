@@ -2912,6 +2912,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 event_handler.register(EventKind::Block(SseBlock {
                     slot,
                     block: block_root,
+                    execution_optimistic: self.is_optimistic_block(&block_root)?,
                 }));
             }
         }
@@ -3772,6 +3773,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                             current_duty_dependent_root,
                             previous_duty_dependent_root,
                             epoch_transition: is_epoch_transition,
+                            execution_optimistic: self.is_optimistic_head(Some(beacon_block_root))?,
                         }));
                     }
                     (Err(e), _) | (_, Err(e)) => {
@@ -3793,6 +3795,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     new_head_block: beacon_block_root,
                     new_head_state: state_root,
                     epoch: head_slot.epoch(T::EthSpec::slots_per_epoch()),
+                    execution_optimistic: self.is_optimistic_head(Some(current_head.block_root))?,
                 }));
             }
 
@@ -3818,6 +3821,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     observed_delay: block_delays.observed,
                     imported_delay: block_delays.imported,
                     set_as_head_delay: block_delays.set_as_head,
+                    execution_optimistic: self.is_optimistic_head(Some(beacon_block_root))?,
                 }));
             }
         }
@@ -4541,6 +4545,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     epoch: new_finalized_checkpoint.epoch,
                     block: new_finalized_checkpoint.root,
                     state: new_finalized_state_root,
+                    execution_optimistic: self.is_optimistic_head(None)?,
                 }));
             }
         }
