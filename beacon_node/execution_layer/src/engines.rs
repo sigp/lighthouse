@@ -152,6 +152,16 @@ impl<T: EngineApi> Engines<T> {
         let latest_forkchoice_state = self.get_latest_forkchoice_state().await;
 
         if let Some(forkchoice_state) = latest_forkchoice_state {
+            if forkchoice_state.head_block_hash == ExecutionBlockHash::zero() {
+                debug!(
+                    self.log,
+                    "No need to call forkchoiceUpdated";
+                    "msg" => "head does not have execution enabled",
+                    "id" => &engine.id,
+                );
+                return;
+            }
+
             info!(
                 self.log,
                 "Issuing forkchoiceUpdated";

@@ -2229,6 +2229,13 @@ pub fn serve<T: BeaconChainTypes>(
                             )
                         })?;
 
+                    chain.prepare_beacon_proposer_blocking().map_err(|e| {
+                        warp_utils::reject::custom_bad_request(format!(
+                            "error updating proposer preparations: {:?}",
+                            e
+                        ))
+                    })?;
+
                     Ok(())
                 })
             },

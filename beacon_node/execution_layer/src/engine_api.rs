@@ -130,7 +130,7 @@ pub struct ExecutionBlock {
     pub total_difficulty: Uint256,
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct PayloadAttributes {
     pub timestamp: u64,
     pub prev_randao: Hash256,

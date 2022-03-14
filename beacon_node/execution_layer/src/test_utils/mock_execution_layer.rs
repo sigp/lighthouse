@@ -124,15 +124,29 @@ impl<T: EthSpec> MockExecutionLayer<T> {
         let prev_randao = Hash256::from_low_u64_be(block_number);
         let finalized_block_hash = parent_hash;
 
+        // Insert a proposer to ensure the fork choice updated command works.
+        let slot = Slot::new(0);
+        let head_block_root = Hash256::repeat_byte(42);
+        let validator_index = 0;
+        self.el
+            .insert_proposer(
+                slot,
+                head_block_root,
+                validator_index,
+                PayloadAttributes {
+                    timestamp,
+                    prev_randao,
+                    suggested_fee_recipient: Address::repeat_byte(42),
+                },
+            )
+            .await;
+
         self.el
             .notify_forkchoice_updated(
                 parent_hash,
                 ExecutionBlockHash::zero(),
-                Some(PayloadAttributes {
-                    timestamp,
-                    prev_randao,
-                    suggested_fee_recipient: Address::repeat_byte(42),
-                }),
+                slot,
+                head_block_root,
             )
             .await
             .unwrap();
@@ -158,8 +172,16 @@ impl<T: EthSpec> MockExecutionLayer<T> {
         let status = self.el.notify_new_payload(&payload).await.unwrap();
         assert_eq!(status, PayloadStatus::Valid);
 
+        // Use junk values for slot/head-root to ensure there is no payload supplied.
+        let slot = Slot::new(0);
+        let head_block_root = Hash256::repeat_byte(13);
         self.el
-            .notify_forkchoice_updated(block_hash, ExecutionBlockHash::zero(), None)
+            .notify_forkchoice_updated(
+                block_hash,
+                ExecutionBlockHash::zero(),
+                slot,
+                head_block_root,
+            )
             .await
             .unwrap();
 
