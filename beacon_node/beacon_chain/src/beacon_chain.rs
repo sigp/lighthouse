@@ -3985,61 +3985,70 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // We are taking the `self.fork_choice` lock whilst holding the `forkchoice_lock`. This
         // is intentional, since it allows us to ensure a consistent ordering of messages to the
         // execution layer.
-        let forkchoice_update_parameters = self.fork_choice.read().get_forkchoice_update_parameters();
-        let (head_block_root, head_hash, finalized_hash) =
-            if let Some(params) = forkchoice_update_parameters {
-                if let Some(head_hash) = params.head_hash {
-                    (
-                        params.head_root,
-                        head_hash,
-                        params
-                            .finalized_hash
-                            .unwrap_or_else(ExecutionBlockHash::zero),
-                    )
-                } else {
-                    // The head block does not have an execution block hash. We must check to see if we
-                    // happen to be the proposer of the transition block, in which case we still need to
-                    // send forkchoice_updated.
-                    let next_slot = current_slot + 1;
-                    match self.spec.fork_name_at_slot::<T::EthSpec>(next_slot) {
-                        // We are pre-bellatrix; no need to update the EL.
-                        ForkName::Base | ForkName::Altair => return Ok(()),
-                        _ => { // We are post-bellatrix
-                            if execution_layer.payload_attributes(next_slot, params.head_root).await.is_some() {
-                                // We are a proposer, check for terminal_pow_block_hash
-                                if let Some(terminal_pow_block_hash) = execution_layer
-                                    .get_terminal_pow_block_hash(&self.spec)
-                                    .await
-                                    .map_err(Error::ForkchoiceUpdate)? {
-                                    info!(
-                                        self.log,
-                                        "Preparing POS transition block proposer"; "slot" => next_slot
-                                    );
-                                    (
-                                        params.head_root,
-                                        terminal_pow_block_hash,
-                                        params.finalized_hash.unwrap_or_else(ExecutionBlockHash::zero),
-                                    )
-                                } else {
-                                    // TTD hasn't been reached yet, no need to update the EL.
-                                    return Ok(());
-                                }
-                            }
-                            else {
-                                // We are not a proposer, no need to update the EL.
+        let forkchoice_update_parameters =
+            self.fork_choice.read().get_forkchoice_update_parameters();
+        let (head_block_root, head_hash, finalized_hash) = if let Some(params) =
+            forkchoice_update_parameters
+        {
+            if let Some(head_hash) = params.head_hash {
+                (
+                    params.head_root,
+                    head_hash,
+                    params
+                        .finalized_hash
+                        .unwrap_or_else(ExecutionBlockHash::zero),
+                )
+            } else {
+                // The head block does not have an execution block hash. We must check to see if we
+                // happen to be the proposer of the transition block, in which case we still need to
+                // send forkchoice_updated.
+                let next_slot = current_slot + 1;
+                match self.spec.fork_name_at_slot::<T::EthSpec>(next_slot) {
+                    // We are pre-bellatrix; no need to update the EL.
+                    ForkName::Base | ForkName::Altair => return Ok(()),
+                    _ => {
+                        // We are post-bellatrix
+                        if execution_layer
+                            .payload_attributes(next_slot, params.head_root)
+                            .await
+                            .is_some()
+                        {
+                            // We are a proposer, check for terminal_pow_block_hash
+                            if let Some(terminal_pow_block_hash) = execution_layer
+                                .get_terminal_pow_block_hash(&self.spec)
+                                .await
+                                .map_err(Error::ForkchoiceUpdate)?
+                            {
+                                info!(
+                                    self.log,
+                                    "Prepared POS transition block proposer"; "slot" => next_slot
+                                );
+                                (
+                                    params.head_root,
+                                    terminal_pow_block_hash,
+                                    params
+                                        .finalized_hash
+                                        .unwrap_or_else(ExecutionBlockHash::zero),
+                                )
+                            } else {
+                                // TTD hasn't been reached yet, no need to update the EL.
                                 return Ok(());
                             }
+                        } else {
+                            // We are not a proposer, no need to update the EL.
+                            return Ok(());
                         }
                     }
                 }
-            } else {
-                warn!(
-                    self.log,
-                    "Missing forkchoice params";
-                    "msg" => "please report this non-critical bug"
-                );
-                return Ok(());
-            };
+            }
+        } else {
+            warn!(
+                self.log,
+                "Missing forkchoice params";
+                "msg" => "please report this non-critical bug"
+            );
+            return Ok(());
+        };
 
         let forkchoice_updated_response = self
             .execution_layer
