@@ -44,6 +44,7 @@ pub enum Error {
         computed: Hash256,
     },
     MissingStateRoot(Slot),
+    MissingState(Hash256),
     BlockReplayError(BlockReplayError),
     #[cfg(feature = "milhouse")]
     MilhouseError(milhouse::Error),

@@ -188,8 +188,7 @@ pub fn migrate_schema<T: BeaconChainTypes>(
         (SchemaVersion(9), SchemaVersion(10)) => migration_schema_v10::upgrade_to_v10::<T>(db, log),
         // Downgrade for tree-states database changes.
         (SchemaVersion(10), SchemaVersion(8)) => {
-            // FIXME(sproul): implement downgrade
-            panic!("downgrade not implemented yet")
+            migration_schema_v10::downgrade_from_v10::<T>(db, log)
         }
         // Anything else is an error.
         (_, _) => Err(HotColdDBError::UnsupportedSchemaVersion {

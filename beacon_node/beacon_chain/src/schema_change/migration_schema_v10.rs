@@ -2,7 +2,7 @@ use crate::{
     beacon_chain::{BeaconChainTypes, BEACON_CHAIN_DB_KEY},
     persisted_beacon_chain::PersistedBeaconChain,
 };
-use slog::{debug, Logger};
+use slog::{debug, info, Logger};
 use std::collections::HashMap;
 use std::sync::Arc;
 use store::{
@@ -190,4 +190,71 @@ pub fn upgrade_to_v10<T: BeaconChainTypes>(
     }
 
     db.store_schema_version_atomically(SchemaVersion(10), ops)
+}
+
+pub fn downgrade_from_v10<T: BeaconChainTypes>(
+    db: Arc<HotColdDB<T::EthSpec, T::HotStore, T::ColdStore>>,
+    log: Logger,
+) -> Result<(), Error> {
+    let slots_per_epoch = T::EthSpec::slots_per_epoch();
+
+    // Iterate hot state summaries and re-write them so that:
+    //
+    // - The previous state root is removed.
+    // - The epoch boundary root points to the most recent epoch boundary root rather than the
+    //   previous epoch boundary root. We exploit the fact that they are the same except when the slot
+    //   of the summary itself lies on an epoch boundary.
+    let mut summaries = db
+        .iter_hot_state_summaries()
+        .collect::<Result<Vec<_>, _>>()?;
+
+    // Sort by slot ascending so that the state cache has a better chance of hitting.
+    summaries.sort_unstable_by(|(_, summ1), (_, summ2)| summ1.slot.cmp(&summ2.slot));
+
+    info!(log, "Rewriting {} state summaries", summaries.len());
+
+    let mut ops = Vec::with_capacity(summaries.len());
+
+    for (state_root, summary) in summaries {
+        let epoch_boundary_state_root = if summary.slot % slots_per_epoch == 0 {
+            info!(
+                log,
+                "Ensuring state is stored as full state";
+                "state_root" => ?state_root,
+                "slot" => summary.slot
+            );
+            let state = db
+                .get_hot_state(&state_root)?
+                .ok_or(Error::MissingState(state_root))?;
+
+            // Delete state diff.
+            let state_key =
+                get_key_for_col(DBColumn::BeaconStateDiff.into(), state_root.as_bytes());
+            ops.push(KeyValueStoreOp::DeleteKey(state_key));
+
+            // Store full state.
+            db.store_full_state_in_batch(&state_root, &state, &mut ops)?;
+
+            // This state root is its own most recent epoch boundary root.
+            state_root
+        } else {
+            summary.epoch_boundary_state_root
+        };
+        let summary_v1 = HotStateSummaryV1 {
+            slot: summary.slot,
+            latest_block_root: summary.latest_block_root,
+            epoch_boundary_state_root,
+        };
+        debug!(
+            log,
+            "Rewriting state summary";
+            "slot" => summary_v1.slot,
+            "latest_block_root" => ?summary_v1.latest_block_root,
+            "epoch_boundary_state_root" => ?summary_v1.epoch_boundary_state_root,
+        );
+
+        ops.push(summary_v1.as_kv_store_op(state_root)?);
+    }
+
+    db.store_schema_version_atomically(SchemaVersion(8), ops)
 }
