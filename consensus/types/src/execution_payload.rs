@@ -39,6 +39,7 @@ pub struct ExecutionPayload<T: EthSpec, Txns: Transactions<T> = ExecTransactions
     #[serde(with = "eth2_serde_utils::quoted_u256")]
     pub base_fee_per_gas: Uint256,
     pub block_hash: ExecutionBlockHash,
+    #[serde(alias = "transactions_root")]
     pub transactions: Txns,
 }
 

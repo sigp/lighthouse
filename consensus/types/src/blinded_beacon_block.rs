@@ -33,3 +33,70 @@ pub struct BlindedBeaconBlock<T: EthSpec> {
     #[superstruct(only(Merge), partial_getter(rename = "body_merge"))]
     pub body: BlindedBeaconBlockBodyMerge<T>,
 }
+
+impl<E: EthSpec> From<BeaconBlock<E, BlindedTransactions>> for BlindedBeaconBlock<E> {
+    fn from(block: BeaconBlock<E, BlindedTransactions>) -> Self {
+        match block {
+            BeaconBlock::Base(b) => BlindedBeaconBlock::Base(b.into()),
+            BeaconBlock::Altair(b) => BlindedBeaconBlock::Altair(b.into()),
+            BeaconBlock::Merge(b) => BlindedBeaconBlock::Merge(b.into()),
+        }
+    }
+}
+
+impl<E: EthSpec> From<BeaconBlockBase<E, BlindedTransactions>> for BlindedBeaconBlockBase<E> {
+    fn from(block: BeaconBlockBase<E, BlindedTransactions>) -> Self {
+        let BeaconBlockBase {
+            slot,
+            proposer_index,
+            parent_root,
+            state_root,
+            body,
+        } = block;
+        BlindedBeaconBlockBase {
+            slot,
+            proposer_index,
+            parent_root,
+            state_root,
+            body: body.into(),
+        }
+    }
+}
+
+impl<E: EthSpec> From<BeaconBlockAltair<E, BlindedTransactions>> for BlindedBeaconBlockAltair<E> {
+    fn from(block: BeaconBlockAltair<E, BlindedTransactions>) -> Self {
+        let BeaconBlockAltair {
+            slot,
+            proposer_index,
+            parent_root,
+            state_root,
+            body,
+        } = block;
+        BlindedBeaconBlockAltair {
+            slot,
+            proposer_index,
+            parent_root,
+            state_root,
+            body: body.into(),
+        }
+    }
+}
+
+impl<E: EthSpec> From<BeaconBlockMerge<E, BlindedTransactions>> for BlindedBeaconBlockMerge<E> {
+    fn from(block: BeaconBlockMerge<E, BlindedTransactions>) -> Self {
+        let BeaconBlockMerge {
+            slot,
+            proposer_index,
+            parent_root,
+            state_root,
+            body,
+        } = block;
+        BlindedBeaconBlockMerge {
+            slot,
+            proposer_index,
+            parent_root,
+            state_root,
+            body: body.into(),
+        }
+    }
+}
