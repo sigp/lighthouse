@@ -1,6 +1,5 @@
 #![cfg(not(debug_assertions))]
 
-use std::marker::PhantomData;
 use beacon_chain::test_utils::{
     AttestationStrategy, BeaconChainHarness, BlockStrategy, EphemeralHarnessType,
 };
@@ -13,6 +12,7 @@ use state_processing::{
     per_block_processing::{per_block_processing, BlockSignatureStrategy},
     per_slot_processing, BlockProcessingError, VerifyBlockRoot,
 };
+use std::marker::PhantomData;
 use std::sync::Arc;
 use tempfile::tempdir;
 use types::{test_utils::generate_deterministic_keypair, *};
