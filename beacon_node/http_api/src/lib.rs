@@ -1044,7 +1044,6 @@ pub fn serve<T: BeaconChainTypes>(
              _log: Logger| {
                 blocking_json_task(move || {
                     if let Some(el) = chain.execution_layer.as_ref() {
-                        let block_clone = block.clone();
 
                         //TODO(sean): we may not always receive the payload in this response because it
                         // should be the relay's job to propogate the block. However, since this block is
@@ -1060,40 +1059,40 @@ pub fn serve<T: BeaconChainTypes>(
                             })?;
                         let new_block = SignedBeaconBlock::Merge(SignedBeaconBlockMerge {
                             message: BeaconBlockMerge {
-                                slot: block_clone.message().slot(),
-                                proposer_index: block_clone.message().proposer_index(),
-                                parent_root: block_clone.message().parent_root(),
-                                state_root: block_clone.message().state_root(),
+                                slot: block.message().slot(),
+                                proposer_index: block.message().proposer_index(),
+                                parent_root: block.message().parent_root(),
+                                state_root: block.message().state_root(),
                                 body: BeaconBlockBodyMerge {
-                                    randao_reveal: block_clone
+                                    randao_reveal: block
                                         .message()
                                         .body()
                                         .randao_reveal()
                                         .clone(),
-                                    eth1_data: block_clone.message().body().eth1_data().clone(),
-                                    graffiti: *block_clone.message().body().graffiti(),
-                                    proposer_slashings: block_clone
+                                    eth1_data: block.message().body().eth1_data().clone(),
+                                    graffiti: *block.message().body().graffiti(),
+                                    proposer_slashings: block
                                         .message()
                                         .body()
                                         .proposer_slashings()
                                         .clone(),
-                                    attester_slashings: block_clone
+                                    attester_slashings: block
                                         .message()
                                         .body()
                                         .attester_slashings()
                                         .clone(),
-                                    attestations: block_clone
+                                    attestations: block
                                         .message()
                                         .body()
                                         .attestations()
                                         .clone(),
-                                    deposits: block_clone.message().body().deposits().clone(),
-                                    voluntary_exits: block_clone
+                                    deposits: block.message().body().deposits().clone(),
+                                    voluntary_exits: block
                                         .message()
                                         .body()
                                         .voluntary_exits()
                                         .clone(),
-                                    sync_aggregate: block_clone
+                                    sync_aggregate: block
                                         .message()
                                         .body()
                                         .sync_aggregate()
@@ -1102,7 +1101,7 @@ pub fn serve<T: BeaconChainTypes>(
                                     execution_payload: payload,
                                 },
                             },
-                            signature: block_clone.signature().clone(),
+                            signature: block.signature().clone(),
                         });
 
                         // Send the block, regardless of whether or not it is valid. The API
