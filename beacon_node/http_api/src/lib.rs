@@ -1044,7 +1044,6 @@ pub fn serve<T: BeaconChainTypes>(
              _log: Logger| {
                 blocking_json_task(move || {
                     if let Some(el) = chain.execution_layer.as_ref() {
-
                         //TODO(sean): we may not always receive the payload in this response because it
                         // should be the relay's job to propogate the block. However, since this block is
                         // already signed and sent this might be ok (so long as the relay validates
@@ -1064,11 +1063,7 @@ pub fn serve<T: BeaconChainTypes>(
                                 parent_root: block.message().parent_root(),
                                 state_root: block.message().state_root(),
                                 body: BeaconBlockBodyMerge {
-                                    randao_reveal: block
-                                        .message()
-                                        .body()
-                                        .randao_reveal()
-                                        .clone(),
+                                    randao_reveal: block.message().body().randao_reveal().clone(),
                                     eth1_data: block.message().body().eth1_data().clone(),
                                     graffiti: *block.message().body().graffiti(),
                                     proposer_slashings: block
@@ -1081,11 +1076,7 @@ pub fn serve<T: BeaconChainTypes>(
                                         .body()
                                         .attester_slashings()
                                         .clone(),
-                                    attestations: block
-                                        .message()
-                                        .body()
-                                        .attestations()
-                                        .clone(),
+                                    attestations: block.message().body().attestations().clone(),
                                     deposits: block.message().body().deposits().clone(),
                                     voluntary_exits: block
                                         .message()
