@@ -662,56 +662,56 @@ where
             );
 
             if let Some(execution_layer) = beacon_chain.execution_layer.as_ref() {
-                let head = beacon_chain
-                    .head_info()
-                    .map_err(|e| format!("Unable to read beacon chain head: {:?}", e))?;
+                // Only send a head update *after* genesis.
+                if let Ok(current_slot) = beacon_chain.slot() {
+                    let head = beacon_chain
+                        .head_info()
+                        .map_err(|e| format!("Unable to read beacon chain head: {:?}", e))?;
 
-                let current_slot = beacon_chain
-                    .slot()
-                    .map_err(|e| format!("Unable to read slot: {:?}", e))?;
+                    // Issue the head to the execution engine on startup. This ensures it can start
+                    // syncing.
+                    if head
+                        .execution_payload_block_hash
+                        .map_or(false, |h| h != ExecutionBlockHash::zero())
+                    {
+                        // Spawn a new task using the "async" fork choice update method, rather than
+                        // using the "blocking" method.
+                        //
+                        // Using the blocking method may cause a panic if this code is run inside an
+                        // async context.
+                        let inner_chain = beacon_chain.clone();
+                        runtime_context.executor.spawn(
+                            async move {
+                                let result = inner_chain
+                                    .update_execution_engine_forkchoice_async(current_slot)
+                                    .await;
 
-                // Issue the head to the execution engine on startup. This ensures it can start
-                // syncing.
-                if head
-                    .execution_payload_block_hash
-                    .map_or(false, |h| h != ExecutionBlockHash::zero())
-                {
-                    // Spawn a new task using the "async" fork choice update method, rather than
-                    // using the "blocking" method.
-                    //
-                    // Using the blocking method may cause a panic if this code is run inside an
-                    // async context.
-                    let inner_chain = beacon_chain.clone();
-                    runtime_context.executor.spawn(
-                        async move {
-                            let result = inner_chain
-                                .update_execution_engine_forkchoice_async(current_slot)
-                                .await;
+                                // No need to exit early if setting the head fails. It will be set again if/when the
+                                // node comes online.
+                                if let Err(e) = result {
+                                    warn!(
+                                        log,
+                                        "Failed to update head on execution engines";
+                                        "error" => ?e
+                                    );
+                                }
+                            },
+                            "el_fork_choice_update",
+                        );
+                    }
 
-                            // No need to exit early if setting the head fails. It will be set again if/when the
-                            // node comes online.
-                            if let Err(e) = result {
-                                warn!(
-                                    log,
-                                    "Failed to update head on execution engines";
-                                    "error" => ?e
-                                );
-                            }
-                        },
-                        "el_fork_choice_update",
-                    );
+                    // Spawn a routine that tracks the status of the execution engines.
+                    execution_layer.spawn_watchdog_routine(beacon_chain.slot_clock.clone());
+
+                    // Spawn a routine that removes expired proposer preparations.
+                    execution_layer
+                        .spawn_clean_proposer_preparation_routine::<TSlotClock, TEthSpec>(
+                            beacon_chain.slot_clock.clone(),
+                        );
+
+                    // Spawns a routine that polls the `exchange_transition_configuration` endpoint.
+                    execution_layer.spawn_transition_configuration_poll(beacon_chain.spec.clone());
                 }
-
-                // Spawn a routine that tracks the status of the execution engines.
-                execution_layer.spawn_watchdog_routine(beacon_chain.slot_clock.clone());
-
-                // Spawn a routine that removes expired proposer preparations.
-                execution_layer.spawn_clean_proposer_preparation_routine::<TSlotClock, TEthSpec>(
-                    beacon_chain.slot_clock.clone(),
-                );
-
-                // Spawns a routine that polls the `exchange_transition_configuration` endpoint.
-                execution_layer.spawn_transition_configuration_poll(beacon_chain.spec.clone());
             }
 
             start_proposer_prep_service(runtime_context.executor.clone(), beacon_chain.clone());
