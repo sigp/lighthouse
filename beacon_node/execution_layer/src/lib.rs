@@ -587,7 +587,7 @@ impl ExecutionLayer {
             BlockType::Blinded => {
                 debug!(
                     self.log(),
-                    "Issuing engine_getPayloadHeader";
+                    "Issuing builder_getPayloadHeader";
                     "suggested_fee_recipient" => ?suggested_fee_recipient,
                     "prev_randao" => ?prev_randao,
                     "timestamp" => timestamp,
@@ -643,6 +643,14 @@ impl ExecutionLayer {
                     .map_err(Error::EngineErrors)
             }
             BlockType::Full => {
+                debug!(
+                    self.log(),
+                    "Issuing engine_getPayload";
+                    "suggested_fee_recipient" => ?suggested_fee_recipient,
+                    "prev_randao" => ?prev_randao,
+                    "timestamp" => timestamp,
+                    "parent_hash" => ?parent_hash,
+                );
                 self.engines()
                     .first_success(|engine| async move {
                         let payload_id = if let Some(id) = engine

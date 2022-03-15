@@ -5,7 +5,6 @@ use crate::{
     signing_method::{Error as SigningError, SignableMessage, SigningContext, SigningMethod},
 };
 use account_utils::{validator_definitions::ValidatorDefinition, ZeroizeString};
-use eth2::types::Transactions;
 use parking_lot::{Mutex, RwLock};
 use slashing_protection::{
     interchange::Interchange, InterchangeError, NotSafe, Safe, SlashingDatabase,
@@ -23,7 +22,7 @@ use types::{
     EthSpec, Fork, Graffiti, Hash256, Keypair, PublicKeyBytes, SelectionProof, Signature,
     SignedAggregateAndProof, SignedBeaconBlock, SignedContributionAndProof, Slot,
     SyncAggregatorSelectionData, SyncCommitteeContribution, SyncCommitteeMessage,
-    SyncSelectionProof, SyncSubnetId,
+    SyncSelectionProof, SyncSubnetId, Transactions,
 };
 use validator_dir::ValidatorDir;
 

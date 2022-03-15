@@ -243,14 +243,12 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
             .bellatrix_fork_epoch
             .unwrap_or_else(Epoch::max_value)
             .start_slot(E::slots_per_epoch());
-        let now = self.slot_clock.now().unwrap();
         for validator_pubkey in proposers {
             let service = self.clone();
             let log = log.clone();
             self.inner.context.executor.spawn(
                 async move {
-                    //TODO(sean): how should pre-transition and the transition be handled?
-                    let publish_result = if private_tx_proposals && now > merge_slot {
+                    let publish_result = if private_tx_proposals && slot >= merge_slot {
                         let mut result = service.clone()
                             .publish_block::<BlindedTransactions>(slot, validator_pubkey)
                             .await;
