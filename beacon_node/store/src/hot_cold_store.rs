@@ -791,6 +791,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
 
             let mut state = self.replay_blocks(prev_state, blocks, slot, state_root_iter)?;
             state.update_tree_hash_cache()?;
+            state.build_all_caches(&self.spec)?;
 
             Ok(Some((state, latest_block_root)))
         } else {
@@ -825,6 +826,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
 
         // Do a tree hash here so that the cache is fully built.
         state.update_tree_hash_cache()?;
+        state.build_all_caches(&self.spec)?;
 
         let latest_block_root = state.get_latest_block_root(*state_root);
         Ok((state, latest_block_root))
@@ -843,6 +845,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
 
         // Do a tree hash here so that the cache is fully built.
         state.update_tree_hash_cache()?;
+        state.build_all_caches(&self.spec)?;
 
         let latest_block_root = state.get_latest_block_root(state_root);
         Ok((state, latest_block_root))

@@ -150,7 +150,7 @@ pub fn upgrade_to_v10<T: BeaconChainTypes>(
                         "Converting full state to diff";
                         "prev_state_root" => ?state_root,
                         "state_root" => ?current_state_root,
-                        "slot" => slot,
+                        "slot" => current_state.slot(),
                     );
 
                     let diff = BeaconStateDiff::compute_diff(&backtrack_state, &current_state)?;

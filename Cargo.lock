@@ -332,7 +332,7 @@ dependencies = [
  "smallvec",
  "state_processing",
  "store",
- "strum",
+ "strum 0.21.0",
  "superstruct",
  "task_executor",
  "tempfile",
@@ -1118,6 +1118,24 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3ee2393c4a91429dffb4bedf19f4d6abf27d8a732c8ce4980305d782e5426d57"
 
 [[package]]
+name = "database_manager"
+version = "0.1.0"
+dependencies = [
+ "beacon_chain",
+ "beacon_node",
+ "clap",
+ "clap_utils",
+ "environment",
+ "logging",
+ "slog",
+ "sloggers",
+ "store",
+ "strum 0.24.0",
+ "tempfile",
+ "types",
+]
+
+[[package]]
 name = "db-key"
 version = "0.0.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1416,7 +1434,7 @@ version = "0.3.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7c5f0096a91d210159eceb2ff5e1c4da18388a170e1e3ce948aac9c8fdbbf595"
 dependencies = [
- "heck",
+ "heck 0.3.3",
  "proc-macro2",
  "quote",
  "syn",
@@ -2350,6 +2368,12 @@ checksum = "6d621efb26863f0e9924c6ac577e8275e5e6b77455db64ffa6c65c904e9e132c"
 dependencies = [
  "unicode-segmentation",
 ]
+
+[[package]]
+name = "heck"
+version = "0.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2540771e65fc8cb83cd6e8a237f70c319bd5c29f78ed1084ba5d50eeac86f7f9"
 
 [[package]]
 name = "hermit-abi"
@@ -3380,6 +3404,7 @@ dependencies = [
  "boot_node",
  "clap",
  "clap_utils",
+ "database_manager",
  "directory",
  "env_logger 0.9.0",
  "environment",
@@ -3446,7 +3471,7 @@ dependencies = [
  "slog-term",
  "smallvec",
  "snap",
- "strum",
+ "strum 0.21.0",
  "superstruct",
  "task_executor",
  "tempfile",
@@ -3550,6 +3575,7 @@ dependencies = [
 name = "malloc_utils"
 version = "0.1.0"
 dependencies = [
+ "jemalloc-sys",
  "jemallocator",
  "lazy_static",
  "libc",
@@ -3937,7 +3963,7 @@ dependencies = [
  "slot_clock",
  "smallvec",
  "store",
- "strum",
+ "strum 0.21.0",
  "task_executor",
  "tokio",
  "tokio-stream",
@@ -4605,7 +4631,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "62941722fb675d463659e49c4f3fe1fe792ff24fe5bbaa9c08cd3b98a1c354f5"
 dependencies = [
  "bytes",
- "heck",
+ "heck 0.3.3",
  "itertools",
  "lazy_static",
  "log",
@@ -5869,6 +5895,7 @@ dependencies = [
  "slog",
  "sloggers",
  "state_processing",
+ "strum 0.24.0",
  "take-until",
  "tempfile",
  "tree_hash",
@@ -5894,7 +5921,16 @@ version = "0.21.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "aaf86bbcfd1fa9670b7a129f64fc0c9fcbbfe4f1bc4210e9e98fe71ffc12cde2"
 dependencies = [
- "strum_macros",
+ "strum_macros 0.21.1",
+]
+
+[[package]]
+name = "strum"
+version = "0.24.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e96acfc1b70604b8b2f1ffa4c57e59176c7dbb05d556c71ecd2f5498a1dee7f8"
+dependencies = [
+ "strum_macros 0.24.0",
 ]
 
 [[package]]
@@ -5903,9 +5939,22 @@ version = "0.21.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d06aaeeee809dbc59eb4556183dd927df67db1540de5be8d3ec0b6636358a5ec"
 dependencies = [
- "heck",
+ "heck 0.3.3",
  "proc-macro2",
  "quote",
+ "syn",
+]
+
+[[package]]
+name = "strum_macros"
+version = "0.24.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6878079b17446e4d3eba6192bb0a2950d5b14f0ed8424b852310e5a94345d0ef"
+dependencies = [
+ "heck 0.4.0",
+ "proc-macro2",
+ "quote",
+ "rustversion",
  "syn",
 ]
 

@@ -1158,8 +1158,7 @@ impl<'a, T: BeaconChainTypes> FullyVerifiedBlock<'a, T> {
 
         let committee_timer = metrics::start_timer(&metrics::BLOCK_PROCESSING_COMMITTEE);
 
-        state.build_committee_cache(RelativeEpoch::Previous, &chain.spec)?;
-        state.build_committee_cache(RelativeEpoch::Current, &chain.spec)?;
+        state.build_all_committee_caches(&chain.spec)?;
 
         metrics::stop_timer(committee_timer);
 

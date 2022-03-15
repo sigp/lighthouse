@@ -136,6 +136,13 @@ pub enum Error {
     },
     #[cfg(feature = "milhouse")]
     MilhouseError(milhouse::Error),
+    CommitteeCacheDiffInvalidEpoch {
+        prev_current_epoch: Epoch,
+        current_epoch: Epoch,
+    },
+    CommitteeCacheDiffUninitialized {
+        expected_epoch: Epoch,
+    },
 }
 
 /// Control whether an epoch-indexed field can be indexed at the next epoch or not.
@@ -1488,7 +1495,7 @@ impl<T: EthSpec> BeaconState<T> {
         Ok(())
     }
 
-    fn committee_cache_index(relative_epoch: RelativeEpoch) -> usize {
+    pub(crate) fn committee_cache_index(relative_epoch: RelativeEpoch) -> usize {
         match relative_epoch {
             RelativeEpoch::Previous => 0,
             RelativeEpoch::Current => 1,
