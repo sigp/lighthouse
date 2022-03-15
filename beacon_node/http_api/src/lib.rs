@@ -1044,10 +1044,17 @@ pub fn serve<T: BeaconChainTypes>(
              _log: Logger| {
                 blocking_json_task(move || {
                     if let Some(el) = chain.execution_layer.as_ref() {
-                        //TODO(sean): we may not always receive the payload in this response because it
+                        //FIXME(sean): we may not always receive the payload in this response because it
                         // should be the relay's job to propogate the block. However, since this block is
                         // already signed and sent this might be ok (so long as the relay validates
                         // the block before revealing the payload).
+
+                        //FIXME(sean) additionally, this endpoint should serve blocks prior to Bellatrix, and should
+                        // be able to support the normal block proposal flow, because at some point full block endpoints
+                        // will be deprecated from the beacon API. This will entail creating full blocks in
+                        // `validator/blinded_blocks`, caching their payloads, and transforming them into blinded
+                        // blocks. We will access the payload of those blocks here. This flow should happen if the
+                        // execution layer has no payload builders or if we have not yet finalized post-merge transition.
                         let payload = el
                             .block_on(|el| el.propose_blinded_beacon_block(&block))
                             .map_err(|e| {

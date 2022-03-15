@@ -225,7 +225,7 @@ impl ExecutionLayer {
             })
             .collect::<Result<_, ApiError>>()?;
 
-        //TODO: auth?
+        //FIXME(sean): I think this will need JWT support but it hasn't been implemented in MEV-boost.
         let builders: Vec<Engine<BuilderHttpJsonRpc>> = builder_urls
             .into_iter()
             .map(|url| {
