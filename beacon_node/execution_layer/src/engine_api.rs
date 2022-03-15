@@ -4,8 +4,11 @@ use eth1::http::RpcError;
 pub use json_structures::TransitionConfigurationV1;
 use reqwest::StatusCode;
 use serde::{Deserialize, Serialize};
-pub use types::{Address, EthSpec, ExecutionBlockHash, ExecutionPayload, Hash256, Uint256};
-use types::{BlindedTransactions, SignedBeaconBlock, Transactions};
+pub use types::{
+    Address, EthSpec, ExecutionBlockHash, ExecutionPayload, ExecutionPayloadHeader, Hash256,
+    Uint256,
+};
+use types::{BlindedPayload, SignedBeaconBlock};
 
 pub mod auth;
 pub mod http;
@@ -32,6 +35,7 @@ pub enum Error {
     ParentHashEqualsBlockHash(ExecutionBlockHash),
     PayloadIdUnavailable,
     TransitionConfigurationMismatch,
+    PayloadConversionLogicFlaw,
 }
 
 impl From<reqwest::Error> for Error {
@@ -79,10 +83,10 @@ pub trait EngineApi {
         execution_payload: ExecutionPayload<T>,
     ) -> Result<PayloadStatusV1, Error>;
 
-    async fn get_payload_v1<T: EthSpec, Txns: Transactions<T>>(
+    async fn get_payload_v1<T: EthSpec>(
         &self,
         payload_id: PayloadId,
-    ) -> Result<ExecutionPayload<T, Txns>, Error>;
+    ) -> Result<ExecutionPayload<T>, Error>;
 
     async fn forkchoice_updated_v1(
         &self,
@@ -98,14 +102,14 @@ pub trait EngineApi {
 
 #[async_trait]
 pub trait BuilderApi: EngineApi {
-    async fn get_payload_header_v1<T: EthSpec, Txns: Transactions<T>>(
+    async fn get_payload_header_v1<T: EthSpec>(
         &self,
         payload_id: PayloadId,
-    ) -> Result<ExecutionPayload<T, Txns>, Error>;
+    ) -> Result<ExecutionPayloadHeader<T>, Error>;
 
     async fn propose_blinded_block_v1<T: EthSpec>(
         &self,
-        block: SignedBeaconBlock<T, BlindedTransactions>,
+        block: SignedBeaconBlock<T, BlindedPayload<T>>,
     ) -> Result<ExecutionPayload<T>, Error>;
 }
 

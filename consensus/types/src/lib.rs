@@ -70,6 +70,7 @@ pub mod config_and_preset;
 pub mod fork_context;
 pub mod participation_flags;
 pub mod participation_list;
+pub mod payload;
 pub mod preset;
 pub mod slot_epoch;
 pub mod subnet_id;
@@ -85,11 +86,6 @@ mod tree_hash_impls;
 pub mod slot_data;
 #[cfg(feature = "sqlite")]
 pub mod sqlite;
-
-pub mod blinded_beacon_block;
-pub mod blinded_beacon_block_body;
-pub mod signed_blinded_beacon_block;
-pub mod transactions;
 
 use ethereum_types::{H160, H256};
 
@@ -109,13 +105,6 @@ pub use crate::beacon_block_body::{
 pub use crate::beacon_block_header::BeaconBlockHeader;
 pub use crate::beacon_committee::{BeaconCommittee, OwnedBeaconCommittee};
 pub use crate::beacon_state::{BeaconTreeHashCache, Error as BeaconStateError, *};
-pub use crate::blinded_beacon_block::{
-    BlindedBeaconBlock, BlindedBeaconBlockAltair, BlindedBeaconBlockBase, BlindedBeaconBlockMerge,
-};
-pub use crate::blinded_beacon_block_body::{
-    BlindedBeaconBlockBody, BlindedBeaconBlockBodyAltair, BlindedBeaconBlockBodyBase,
-    BlindedBeaconBlockBodyMerge, BlindedBeaconBlockBodyRef, BlindedBeaconBlockBodyRefMut,
-};
 pub use crate::chain_spec::{ChainSpec, Config, Domain};
 pub use crate::checkpoint::Checkpoint;
 pub use crate::config_and_preset::ConfigAndPreset;
@@ -127,7 +116,7 @@ pub use crate::enr_fork_id::EnrForkId;
 pub use crate::eth1_data::Eth1Data;
 pub use crate::eth_spec::EthSpecId;
 pub use crate::execution_block_hash::ExecutionBlockHash;
-pub use crate::execution_payload::{BlockType, ExecutionPayload};
+pub use crate::execution_payload::{ExecutionPayload, Transaction, Transactions};
 pub use crate::execution_payload_header::ExecutionPayloadHeader;
 pub use crate::fork::Fork;
 pub use crate::fork_context::ForkContext;
@@ -139,6 +128,7 @@ pub use crate::historical_batch::HistoricalBatch;
 pub use crate::indexed_attestation::IndexedAttestation;
 pub use crate::participation_flags::ParticipationFlags;
 pub use crate::participation_list::ParticipationList;
+pub use crate::payload::{BlindedPayload, BlockType, ExecPayload, FullPayload};
 pub use crate::pending_attestation::PendingAttestation;
 pub use crate::preset::{AltairPreset, BasePreset, BellatrixPreset};
 pub use crate::proposer_preparation_data::ProposerPreparationData;
@@ -152,10 +142,6 @@ pub use crate::signed_beacon_block::{
     SignedBeaconBlockMerge,
 };
 pub use crate::signed_beacon_block_header::SignedBeaconBlockHeader;
-pub use crate::signed_blinded_beacon_block::{
-    SignedBlindedBeaconBlock, SignedBlindedBeaconBlockAltair, SignedBlindedBeaconBlockBase,
-    SignedBlindedBeaconBlockMerge,
-};
 pub use crate::signed_contribution_and_proof::SignedContributionAndProof;
 pub use crate::signed_voluntary_exit::SignedVoluntaryExit;
 pub use crate::signing_data::{SignedRoot, SigningData};
@@ -170,7 +156,6 @@ pub use crate::sync_committee_subscription::SyncCommitteeSubscription;
 pub use crate::sync_duty::SyncDuty;
 pub use crate::sync_selection_proof::SyncSelectionProof;
 pub use crate::sync_subnet_id::SyncSubnetId;
-pub use crate::transactions::{BlindedTransactions, ExecTransactions, Transaction, Transactions};
 pub use crate::validator::Validator;
 pub use crate::validator_subscription::ValidatorSubscription;
 pub use crate::voluntary_exit::VoluntaryExit;

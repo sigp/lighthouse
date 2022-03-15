@@ -18,11 +18,11 @@ use std::sync::Arc;
 use task_executor::TaskExecutor;
 use types::{
     attestation::Error as AttestationError, graffiti::GraffitiString, Address, AggregateAndProof,
-    Attestation, BeaconBlock, BlindedTransactions, ChainSpec, ContributionAndProof, Domain, Epoch,
-    EthSpec, Fork, Graffiti, Hash256, Keypair, PublicKeyBytes, SelectionProof, Signature,
-    SignedAggregateAndProof, SignedBeaconBlock, SignedContributionAndProof, Slot,
+    Attestation, BeaconBlock, BlindedPayload, ChainSpec, ContributionAndProof, Domain, Epoch,
+    EthSpec, ExecPayload, Fork, Graffiti, Hash256, Keypair, PublicKeyBytes, SelectionProof,
+    Signature, SignedAggregateAndProof, SignedBeaconBlock, SignedContributionAndProof, Slot,
     SyncAggregatorSelectionData, SyncCommitteeContribution, SyncCommitteeMessage,
-    SyncSelectionProof, SyncSubnetId, Transactions,
+    SyncSelectionProof, SyncSubnetId,
 };
 use validator_dir::ValidatorDir;
 
@@ -339,7 +339,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
         let signing_context = self.signing_context(Domain::Randao, signing_epoch);
 
         let signature = signing_method
-            .get_signature::<E, BlindedTransactions>(
+            .get_signature::<E, BlindedPayload<E>>(
                 SignableMessage::RandaoReveal(signing_epoch),
                 signing_context,
                 &self.spec,
@@ -360,12 +360,12 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
             .suggested_fee_recipient(validator_pubkey)
     }
 
-    pub async fn sign_block<Txns: Transactions<E>>(
+    pub async fn sign_block<Payload: ExecPayload<E>>(
         &self,
         validator_pubkey: PublicKeyBytes,
-        block: BeaconBlock<E, Txns>,
+        block: BeaconBlock<E, Payload>,
         current_slot: Slot,
-    ) -> Result<SignedBeaconBlock<E, Txns>, Error> {
+    ) -> Result<SignedBeaconBlock<E, Payload>, Error> {
         // Make sure the block slot is not higher than the current slot to avoid potential attacks.
         if block.slot() > current_slot {
             warn!(
@@ -398,7 +398,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
 
                 let signing_method = self.doppelganger_checked_signing_method(validator_pubkey)?;
                 let signature = signing_method
-                    .get_signature::<E, Txns>(
+                    .get_signature::<E, Payload>(
                         SignableMessage::BeaconBlock(&block),
                         signing_context,
                         &self.spec,
@@ -467,7 +467,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
             Ok(Safe::Valid) => {
                 let signing_method = self.doppelganger_checked_signing_method(validator_pubkey)?;
                 let signature = signing_method
-                    .get_signature::<E, BlindedTransactions>(
+                    .get_signature::<E, BlindedPayload<E>>(
                         SignableMessage::AttestationData(&attestation.data),
                         signing_context,
                         &self.spec,
@@ -544,7 +544,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
 
         let signing_method = self.doppelganger_checked_signing_method(validator_pubkey)?;
         let signature = signing_method
-            .get_signature::<E, BlindedTransactions>(
+            .get_signature::<E, BlindedPayload<E>>(
                 SignableMessage::SignedAggregateAndProof(&message),
                 signing_context,
                 &self.spec,
@@ -577,7 +577,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
         let signing_method = self.doppelganger_bypassed_signing_method(validator_pubkey)?;
 
         let signature = signing_method
-            .get_signature::<E, BlindedTransactions>(
+            .get_signature::<E, BlindedPayload<E>>(
                 SignableMessage::SelectionProof(slot),
                 signing_context,
                 &self.spec,
@@ -616,7 +616,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
         };
 
         let signature = signing_method
-            .get_signature::<E, BlindedTransactions>(
+            .get_signature::<E, BlindedPayload<E>>(
                 SignableMessage::SyncSelectionProof(&message),
                 signing_context,
                 &self.spec,
@@ -642,7 +642,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
         let signing_method = self.doppelganger_bypassed_signing_method(*validator_pubkey)?;
 
         let signature = signing_method
-            .get_signature::<E, BlindedTransactions>(
+            .get_signature::<E, BlindedPayload<E>>(
                 SignableMessage::SyncCommitteeSignature {
                     beacon_block_root,
                     slot,
@@ -687,7 +687,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
         };
 
         let signature = signing_method
-            .get_signature::<E, BlindedTransactions>(
+            .get_signature::<E, BlindedPayload<E>>(
                 SignableMessage::SignedContributionAndProof(&message),
                 signing_context,
                 &self.spec,

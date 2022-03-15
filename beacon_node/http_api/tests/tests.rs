@@ -1902,7 +1902,7 @@ impl ApiTester {
 
             let block = self
                 .client
-                .get_validator_blocks::<E, ExecTransactions<E>>(slot, &randao_reveal, None)
+                .get_validator_blocks::<E, FullPayload<E>>(slot, &randao_reveal, None)
                 .await
                 .unwrap()
                 .data;

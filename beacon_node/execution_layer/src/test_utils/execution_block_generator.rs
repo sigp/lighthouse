@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use tree_hash::TreeHash;
 use tree_hash_derive::TreeHash;
-use types::{EthSpec, ExecTransactions, ExecutionBlockHash, ExecutionPayload, Hash256, Uint256};
+use types::{EthSpec, ExecutionBlockHash, ExecutionPayload, Hash256, Uint256};
 
 const GAS_LIMIT: u64 = 16384;
 const GAS_USED: u64 = GAS_LIMIT - 1;
@@ -334,7 +334,7 @@ impl<T: EthSpec> ExecutionBlockGenerator<T> {
                     extra_data: "block gen was here".as_bytes().to_vec().into(),
                     base_fee_per_gas: Uint256::one(),
                     block_hash: ExecutionBlockHash::zero(),
-                    transactions: ExecTransactions(vec![].into()),
+                    transactions: vec![].into(),
                 };
 
                 execution_payload.block_hash =

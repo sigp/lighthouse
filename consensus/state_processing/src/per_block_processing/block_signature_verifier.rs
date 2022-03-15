@@ -7,8 +7,8 @@ use bls::{verify_signature_sets, PublicKey, PublicKeyBytes, SignatureSet};
 use rayon::prelude::*;
 use std::borrow::Cow;
 use types::{
-    BeaconState, BeaconStateError, ChainSpec, EthSpec, Hash256, IndexedAttestation,
-    SignedBeaconBlock, Transactions,
+    BeaconState, BeaconStateError, ChainSpec, EthSpec, ExecPayload, Hash256, IndexedAttestation,
+    SignedBeaconBlock,
 };
 
 pub type Result<T> = std::result::Result<T, Error>;
@@ -117,11 +117,11 @@ where
     /// contains invalid signatures on deposits._
     ///
     /// See `Self::verify` for more detail.
-    pub fn verify_entire_block<Txns: Transactions<T>>(
+    pub fn verify_entire_block<Payload: ExecPayload<T>>(
         state: &'a BeaconState<T>,
         get_pubkey: F,
         decompressor: D,
-        block: &'a SignedBeaconBlock<T, Txns>,
+        block: &'a SignedBeaconBlock<T, Payload>,
         block_root: Option<Hash256>,
         spec: &'a ChainSpec,
     ) -> Result<()> {
@@ -131,9 +131,9 @@ where
     }
 
     /// Includes all signatures on the block (except the deposit signatures) for verification.
-    pub fn include_all_signatures<Txns: Transactions<T>>(
+    pub fn include_all_signatures<Payload: ExecPayload<T>>(
         &mut self,
-        block: &'a SignedBeaconBlock<T, Txns>,
+        block: &'a SignedBeaconBlock<T, Payload>,
         block_root: Option<Hash256>,
     ) -> Result<()> {
         self.include_block_proposal(block, block_root)?;
@@ -144,9 +144,9 @@ where
 
     /// Includes all signatures on the block (except the deposit signatures and the proposal
     /// signature) for verification.
-    pub fn include_all_signatures_except_proposal<Txns: Transactions<T>>(
+    pub fn include_all_signatures_except_proposal<Payload: ExecPayload<T>>(
         &mut self,
-        block: &'a SignedBeaconBlock<T, Txns>,
+        block: &'a SignedBeaconBlock<T, Payload>,
     ) -> Result<()> {
         self.include_randao_reveal(block)?;
         self.include_proposer_slashings(block)?;
@@ -160,9 +160,9 @@ where
     }
 
     /// Includes the block signature for `self.block` for verification.
-    pub fn include_block_proposal<Txns: Transactions<T>>(
+    pub fn include_block_proposal<Payload: ExecPayload<T>>(
         &mut self,
-        block: &'a SignedBeaconBlock<T, Txns>,
+        block: &'a SignedBeaconBlock<T, Payload>,
         block_root: Option<Hash256>,
     ) -> Result<()> {
         let set = block_proposal_signature_set(
@@ -177,9 +177,9 @@ where
     }
 
     /// Includes the randao signature for `self.block` for verification.
-    pub fn include_randao_reveal<Txns: Transactions<T>>(
+    pub fn include_randao_reveal<Payload: ExecPayload<T>>(
         &mut self,
-        block: &'a SignedBeaconBlock<T, Txns>,
+        block: &'a SignedBeaconBlock<T, Payload>,
     ) -> Result<()> {
         let set = randao_signature_set(
             self.state,
@@ -192,9 +192,9 @@ where
     }
 
     /// Includes all signatures in `self.block.body.proposer_slashings` for verification.
-    pub fn include_proposer_slashings<Txns: Transactions<T>>(
+    pub fn include_proposer_slashings<Payload: ExecPayload<T>>(
         &mut self,
-        block: &'a SignedBeaconBlock<T, Txns>,
+        block: &'a SignedBeaconBlock<T, Payload>,
     ) -> Result<()> {
         self.sets
             .sets
@@ -221,9 +221,9 @@ where
     }
 
     /// Includes all signatures in `self.block.body.attester_slashings` for verification.
-    pub fn include_attester_slashings<Txns: Transactions<T>>(
+    pub fn include_attester_slashings<Payload: ExecPayload<T>>(
         &mut self,
-        block: &'a SignedBeaconBlock<T, Txns>,
+        block: &'a SignedBeaconBlock<T, Payload>,
     ) -> Result<()> {
         self.sets
             .sets
@@ -250,9 +250,9 @@ where
     }
 
     /// Includes all signatures in `self.block.body.attestations` for verification.
-    pub fn include_attestations<Txns: Transactions<T>>(
+    pub fn include_attestations<Payload: ExecPayload<T>>(
         &mut self,
-        block: &'a SignedBeaconBlock<T, Txns>,
+        block: &'a SignedBeaconBlock<T, Payload>,
     ) -> Result<Vec<IndexedAttestation<T>>> {
         self.sets
             .sets
@@ -289,9 +289,9 @@ where
     }
 
     /// Includes all signatures in `self.block.body.voluntary_exits` for verification.
-    pub fn include_exits<Txns: Transactions<T>>(
+    pub fn include_exits<Payload: ExecPayload<T>>(
         &mut self,
-        block: &'a SignedBeaconBlock<T, Txns>,
+        block: &'a SignedBeaconBlock<T, Payload>,
     ) -> Result<()> {
         self.sets
             .sets
@@ -313,9 +313,9 @@ where
     }
 
     /// Include the signature of the block's sync aggregate (if it exists) for verification.
-    pub fn include_sync_aggregate<Txns: Transactions<T>>(
+    pub fn include_sync_aggregate<Payload: ExecPayload<T>>(
         &mut self,
-        block: &'a SignedBeaconBlock<T, Txns>,
+        block: &'a SignedBeaconBlock<T, Payload>,
     ) -> Result<()> {
         if let Ok(sync_aggregate) = block.message().body().sync_aggregate() {
             if let Some(signature_set) = sync_aggregate_signature_set(

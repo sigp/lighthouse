@@ -3,22 +3,22 @@ use derivative::Derivative;
 use serde_derive::{Deserialize, Serialize};
 use ssz::Encode;
 use ssz_derive::{Decode, Encode};
-use std::fmt::Debug;
 use test_random_derive::TestRandom;
 use tree_hash_derive::TreeHash;
 
-pub enum BlockType {
-    Full,
-    Blinded,
-}
+pub type Transaction<N> = VariableList<u8, N>;
+pub type Transactions<T> = VariableList<
+    Transaction<<T as EthSpec>::MaxBytesPerTransaction>,
+    <T as EthSpec>::MaxTransactionsPerPayload,
+>;
 
 #[cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary))]
 #[derive(
     Default, Debug, Clone, Serialize, Deserialize, Encode, Decode, TreeHash, TestRandom, Derivative,
 )]
-#[derivative(PartialEq, Hash(bound = "T: EthSpec, Txns: Transactions<T>"))]
-#[serde(bound = "T: EthSpec, Txns: Transactions<T>")]
-pub struct ExecutionPayload<T: EthSpec, Txns: Transactions<T> = ExecTransactions<T>> {
+#[derivative(PartialEq, Hash(bound = "T: EthSpec"))]
+#[serde(bound = "T: EthSpec")]
+pub struct ExecutionPayload<T: EthSpec> {
     pub parent_hash: ExecutionBlockHash,
     pub fee_recipient: Address,
     pub state_root: Hash256,
@@ -39,11 +39,11 @@ pub struct ExecutionPayload<T: EthSpec, Txns: Transactions<T> = ExecTransactions
     #[serde(with = "eth2_serde_utils::quoted_u256")]
     pub base_fee_per_gas: Uint256,
     pub block_hash: ExecutionBlockHash,
-    #[serde(alias = "transactions_root")]
-    pub transactions: Txns,
+    #[serde(with = "ssz_types::serde_utils::list_of_hex_var_list")]
+    pub transactions: Transactions<T>,
 }
 
-impl<T: EthSpec, Txns: Transactions<T>> ExecutionPayload<T, Txns> {
+impl<T: EthSpec> ExecutionPayload<T> {
     pub fn empty() -> Self {
         Self::default()
     }

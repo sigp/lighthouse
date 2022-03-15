@@ -579,9 +579,9 @@ impl BeaconNodeHttpClient {
     /// `POST beacon/blocks`
     ///
     /// Returns `Ok(None)` on a 404 error.
-    pub async fn post_beacon_blocks<T: EthSpec, Txns: Transactions<T>>(
+    pub async fn post_beacon_blocks<T: EthSpec, Payload: ExecPayload<T>>(
         &self,
-        block: &SignedBeaconBlock<T, Txns>,
+        block: &SignedBeaconBlock<T, Payload>,
     ) -> Result<(), Error> {
         let mut path = self.eth_path(V1)?;
 
@@ -599,9 +599,9 @@ impl BeaconNodeHttpClient {
     /// `POST beacon/blinded_blocks`
     ///
     /// Returns `Ok(None)` on a 404 error.
-    pub async fn post_beacon_blinded_blocks<T: EthSpec, Txns: Transactions<T>>(
+    pub async fn post_beacon_blinded_blocks<T: EthSpec, Payload: ExecPayload<T>>(
         &self,
-        block: &SignedBeaconBlock<T, Txns>,
+        block: &SignedBeaconBlock<T, Payload>,
     ) -> Result<(), Error> {
         let mut path = self.eth_path(V1)?;
 
@@ -1170,12 +1170,12 @@ impl BeaconNodeHttpClient {
     }
 
     /// `GET v2/validator/blocks/{slot}`
-    pub async fn get_validator_blocks<T: EthSpec, Txns: Transactions<T>>(
+    pub async fn get_validator_blocks<T: EthSpec, Payload: ExecPayload<T>>(
         &self,
         slot: Slot,
         randao_reveal: &SignatureBytes,
         graffiti: Option<&Graffiti>,
-    ) -> Result<ForkVersionedResponse<BeaconBlock<T, Txns>>, Error> {
+    ) -> Result<ForkVersionedResponse<BeaconBlock<T, Payload>>, Error> {
         let mut path = self.eth_path(V2)?;
 
         path.path_segments_mut()
@@ -1196,12 +1196,12 @@ impl BeaconNodeHttpClient {
     }
 
     /// `GET v2/validator/blinded_blocks/{slot}`
-    pub async fn get_validator_blinded_blocks<T: EthSpec, Txns: Transactions<T>>(
+    pub async fn get_validator_blinded_blocks<T: EthSpec, Payload: ExecPayload<T>>(
         &self,
         slot: Slot,
         randao_reveal: &SignatureBytes,
         graffiti: Option<&Graffiti>,
-    ) -> Result<GenericResponse<BeaconBlock<T, Txns>>, Error> {
+    ) -> Result<GenericResponse<BeaconBlock<T, Payload>>, Error> {
         let mut path = self.eth_path(V2)?;
 
         path.path_segments_mut()
