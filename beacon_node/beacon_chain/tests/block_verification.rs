@@ -1,5 +1,6 @@
 #![cfg(not(debug_assertions))]
 
+use std::marker::PhantomData;
 use beacon_chain::test_utils::{
     AttestationStrategy, BeaconChainHarness, BlockStrategy, EphemeralHarnessType,
 };
@@ -962,6 +963,7 @@ fn add_base_block_to_altair_chain() {
                 attestations: altair_body.attestations.clone(),
                 deposits: altair_body.deposits.clone(),
                 voluntary_exits: altair_body.voluntary_exits.clone(),
+                _phantom: PhantomData,
             },
         },
         signature: Signature::empty(),
@@ -1082,6 +1084,7 @@ fn add_altair_block_to_base_chain() {
                 deposits: base_body.deposits.clone(),
                 voluntary_exits: base_body.voluntary_exits.clone(),
                 sync_aggregate: SyncAggregate::empty(),
+                _phantom: PhantomData,
             },
         },
         signature: Signature::empty(),
