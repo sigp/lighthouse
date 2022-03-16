@@ -435,7 +435,6 @@ impl Engines {
         let func = &func;
         let futures = self.engines.iter().map(|engine| async move {
             let state = *engine.state.read().await;
-            debug!(self.log, "Engine state"; "state" => ?state);
             let is_offline = state == EngineState::Offline;
             if !is_offline {
                 match func(engine).await {

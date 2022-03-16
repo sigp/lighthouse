@@ -1,7 +1,7 @@
 use std::collections::hash_map::Entry;
 use std::time::Duration;
 
-use beacon_chain::{BeaconChainTypes, BlockError};
+use beacon_chain::{BeaconChainTypes, BlockError, ExecutionPayloadError};
 use fnv::FnvHashMap;
 use lighthouse_network::{PeerAction, PeerId};
 use lru_cache::LRUCache;
@@ -418,6 +418,32 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                 BlockError::ParentUnknown(block) => {
                     self.search_parent(block, peer_id, cx);
                 }
+                BlockError::ExecutionPayloadError(e) => match &e {
+                    ExecutionPayloadError::NoExecutionConnection
+                    | ExecutionPayloadError::UnverifiedNonOptimisticCandidate
+                    | ExecutionPayloadError::RequestFailed(_) => {
+                        // These errors indicate an issue with the EL and not the block.
+                        warn!(self.log,
+                            "Single block lookup failed. Execution layer is stalled";
+                            "root" => %root,
+                            "err" => ?e
+                        );
+                    }
+                    err => {
+                        debug!(self.log,
+                            "Single block lookup failed. Invalid execution payload";
+                            "root" => %root,
+                            "peer_id" => %peer_id,
+                            "error" => ?err
+                        );
+                        cx.report_peer(
+                            peer_id,
+                            PeerAction::LowToleranceError,
+                            "single_block_lookup_failed_invalid_payload",
+                        );
+                        req.register_failure();
+                    }
+                },
                 other => {
                     warn!(self.log, "Peer sent invalid block in single block lookup"; "root" => %root, "error" => ?other, "peer_id" => %peer_id);
                     cx.report_peer(
@@ -504,6 +530,32 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                     }
                 }
             }
+            Err(BlockError::ExecutionPayloadError(e)) => match &e {
+                ExecutionPayloadError::NoExecutionConnection
+                | ExecutionPayloadError::UnverifiedNonOptimisticCandidate
+                | ExecutionPayloadError::RequestFailed(_) => {
+                    // These errors indicate an issue with the EL and not the block.
+                    warn!(self.log,
+                        "Parent request failed. Execution layer is stalled";
+                        "err" => ?e
+                    );
+                }
+                err => {
+                    debug!(self.log,
+                        "Parent request failed. Invalid execution payload";
+                        "error" => ?err
+                    );
+
+                    // An invalid execution payload is an invalid block
+                    self.failed_chains.insert(chain_hash);
+
+                    cx.report_peer(
+                        peer_id,
+                        PeerAction::LowToleranceError,
+                        "parent_request_err_invalid_payload",
+                    );
+                }
+            },
             Err(outcome) => {
                 // all else we consider the chain a failure and downvote the peer that sent
                 // us the last block
