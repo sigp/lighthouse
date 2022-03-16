@@ -17,8 +17,8 @@ use state_processing::per_block_processing::{
 use std::fmt::Debug;
 use std::path::Path;
 use types::{
-    Attestation, AttesterSlashing, BeaconBlock, BeaconState, ChainSpec, Deposit, EthSpec,
-    ExecutionPayload, ForkName, ProposerSlashing, SignedVoluntaryExit, SyncAggregate,
+    Attestation, AttesterSlashing, BeaconBlock, BeaconState, ChainSpec, Deposit, EthSpec, ForkName,
+    FullPayload, ProposerSlashing, SignedVoluntaryExit, SyncAggregate,
 };
 
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -221,7 +221,7 @@ impl<E: EthSpec> Operation<E> for SyncAggregate<E> {
     }
 }
 
-impl<E: EthSpec> Operation<E> for ExecutionPayload<E> {
+impl<E: EthSpec> Operation<E> for FullPayload<E> {
     fn handler_name() -> String {
         "execution_payload".into()
     }

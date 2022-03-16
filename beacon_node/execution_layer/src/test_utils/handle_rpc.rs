@@ -4,7 +4,7 @@ use crate::json_structures::*;
 use serde::de::DeserializeOwned;
 use serde_json::Value as JsonValue;
 use std::sync::Arc;
-use types::{EthSpec, ExecTransactions};
+use types::EthSpec;
 
 pub async fn handle_rpc<T: EthSpec>(
     body: JsonValue,
@@ -57,7 +57,7 @@ pub async fn handle_rpc<T: EthSpec>(
             .unwrap())
         }
         ENGINE_NEW_PAYLOAD_V1 => {
-            let request: JsonExecutionPayloadV1<T, ExecTransactions<T>> = get_param(params, 0)?;
+            let request: JsonExecutionPayloadV1<T> = get_param(params, 0)?;
 
             let (static_response, should_import) =
                 if let Some(mut response) = ctx.static_new_payload_response.lock().clone() {

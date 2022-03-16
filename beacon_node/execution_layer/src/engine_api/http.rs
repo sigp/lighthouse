@@ -10,9 +10,7 @@ use sensitive_url::SensitiveUrl;
 use serde::de::DeserializeOwned;
 use serde_json::json;
 use std::time::Duration;
-use types::{
-    BlindedTransactions, EthSpec, SignedBeaconBlock, SignedBlindedBeaconBlock, Transactions,
-};
+use types::{BlindedPayload, EthSpec, ExecutionPayloadHeader, SignedBeaconBlock};
 
 pub use reqwest::Client;
 
@@ -172,13 +170,13 @@ impl EngineApi for HttpJsonRpc {
         Ok(response.into())
     }
 
-    async fn get_payload_v1<T: EthSpec, Txns: Transactions<T>>(
+    async fn get_payload_v1<T: EthSpec>(
         &self,
         payload_id: PayloadId,
-    ) -> Result<ExecutionPayload<T, Txns>, Error> {
+    ) -> Result<ExecutionPayload<T>, Error> {
         let params = json!([JsonPayloadIdRequest::from(payload_id)]);
 
-        let response: JsonExecutionPayloadV1<T, Txns> = self
+        let response: JsonExecutionPayloadV1<T> = self
             .rpc_request(ENGINE_GET_PAYLOAD_V1, params, ENGINE_GET_PAYLOAD_TIMEOUT)
             .await?;
 
@@ -268,10 +266,10 @@ impl EngineApi for BuilderHttpJsonRpc {
         self.0.new_payload_v1(execution_payload).await
     }
 
-    async fn get_payload_v1<T: EthSpec, Txns: Transactions<T>>(
+    async fn get_payload_v1<T: EthSpec>(
         &self,
         payload_id: PayloadId,
-    ) -> Result<ExecutionPayload<T, Txns>, Error> {
+    ) -> Result<ExecutionPayload<T>, Error> {
         self.0.get_payload_v1(payload_id).await
     }
 
@@ -297,13 +295,13 @@ impl EngineApi for BuilderHttpJsonRpc {
 
 #[async_trait]
 impl BuilderApi for BuilderHttpJsonRpc {
-    async fn get_payload_header_v1<T: EthSpec, Txns: Transactions<T>>(
+    async fn get_payload_header_v1<T: EthSpec>(
         &self,
         payload_id: PayloadId,
-    ) -> Result<ExecutionPayload<T, Txns>, Error> {
+    ) -> Result<ExecutionPayloadHeader<T>, Error> {
         let params = json!([JsonPayloadIdRequest::from(payload_id)]);
 
-        let response: JsonExecutionPayloadHeaderV1<T, Txns> = self
+        let response: JsonExecutionPayloadHeaderV1<T> = self
             .rpc_request(
                 BUILDER_GET_PAYLOAD_HEADER_V1,
                 params,
@@ -316,11 +314,9 @@ impl BuilderApi for BuilderHttpJsonRpc {
 
     async fn propose_blinded_block_v1<T: EthSpec>(
         &self,
-        block: SignedBeaconBlock<T, BlindedTransactions>,
+        block: SignedBeaconBlock<T, BlindedPayload<T>>,
     ) -> Result<ExecutionPayload<T>, Error> {
-        let blinded_block = SignedBlindedBeaconBlock::from(block);
-
-        let params = json!([blinded_block]);
+        let params = json!([block]);
 
         let response: JsonExecutionPayloadV1<T> = self
             .rpc_request(
@@ -341,7 +337,7 @@ mod test {
     use std::future::Future;
     use std::str::FromStr;
     use std::sync::Arc;
-    use types::{ExecTransactions, MainnetEthSpec, Unsigned, VariableList};
+    use types::{MainnetEthSpec, Transactions, Unsigned, VariableList};
 
     struct Tester {
         server: MockServer<MainnetEthSpec>,
@@ -443,9 +439,9 @@ mod test {
     const LOGS_BLOOM_01: &str = "0x01010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101";
 
     fn encode_transactions<E: EthSpec>(
-        transactions: ExecTransactions<E>,
+        transactions: Transactions<E>,
     ) -> Result<serde_json::Value, serde_json::Error> {
-        let ep: JsonExecutionPayloadV1<E, ExecTransactions<E>> = JsonExecutionPayloadV1 {
+        let ep: JsonExecutionPayloadV1<E> = JsonExecutionPayloadV1 {
             transactions,
             ..<_>::default()
         };
@@ -455,7 +451,7 @@ mod test {
 
     fn decode_transactions<E: EthSpec>(
         transactions: serde_json::Value,
-    ) -> Result<ExecTransactions<E>, serde_json::Error> {
+    ) -> Result<Transactions<E>, serde_json::Error> {
         let mut json = json!({
             "parentHash": HASH_00,
             "feeRecipient": ADDRESS_01,
@@ -481,7 +477,7 @@ mod test {
 
     fn assert_transactions_serde<E: EthSpec>(
         name: &str,
-        as_obj: ExecTransactions<E>,
+        as_obj: Transactions<E>,
         as_json: serde_json::Value,
     ) {
         assert_eq!(
@@ -499,7 +495,7 @@ mod test {
     }
 
     /// Example: if `spec == &[1, 1]`, then two one-byte transactions will be created.
-    fn generate_transactions<E: EthSpec>(spec: &[usize]) -> ExecTransactions<E> {
+    fn generate_transactions<E: EthSpec>(spec: &[usize]) -> Transactions<E> {
         let mut txs = VariableList::default();
 
         for &num_bytes in spec {
@@ -510,7 +506,7 @@ mod test {
             txs.push(tx).unwrap();
         }
 
-        ExecTransactions(txs)
+        txs
     }
 
     #[test]
@@ -678,9 +674,7 @@ mod test {
         Tester::new(true)
             .assert_request_equals(
                 |client| async move {
-                    let _ = client
-                        .get_payload_v1::<MainnetEthSpec, ExecTransactions<MainnetEthSpec>>([42; 8])
-                        .await;
+                    let _ = client.get_payload_v1::<MainnetEthSpec>([42; 8]).await;
                 },
                 json!({
                     "id": STATIC_ID,
@@ -693,9 +687,7 @@ mod test {
 
         Tester::new(false)
             .assert_auth_failure(|client| async move {
-                client
-                    .get_payload_v1::<MainnetEthSpec, ExecTransactions<MainnetEthSpec>>([42; 8])
-                    .await
+                client.get_payload_v1::<MainnetEthSpec>([42; 8]).await
             })
             .await;
     }
@@ -720,7 +712,7 @@ mod test {
                             extra_data: vec![].into(),
                             base_fee_per_gas: Uint256::from(1),
                             block_hash: ExecutionBlockHash::repeat_byte(1),
-                            transactions: ExecTransactions(vec![].into()),
+                            transactions: vec![].into(),
                         })
                         .await;
                 },
@@ -765,7 +757,7 @@ mod test {
                         extra_data: vec![].into(),
                         base_fee_per_gas: Uint256::from(1),
                         block_hash: ExecutionBlockHash::repeat_byte(1),
-                        transactions: ExecTransactions(vec![].into()),
+                        transactions: vec![].into(),
                     })
                     .await
             })
@@ -920,7 +912,7 @@ mod test {
                 // engine_getPayloadV1 REQUEST validation
                 |client| async move {
                     let _ = client
-                        .get_payload_v1::<MainnetEthSpec, ExecTransactions<MainnetEthSpec>>(str_to_payload_id("0xa247243752eb10b4"))
+                        .get_payload_v1::<MainnetEthSpec>(str_to_payload_id("0xa247243752eb10b4"))
                         .await;
                 },
                 json!({
@@ -955,7 +947,7 @@ mod test {
                 })],
                 |client| async move {
                     let payload = client
-                        .get_payload_v1::<MainnetEthSpec, ExecTransactions<MainnetEthSpec>>(str_to_payload_id("0xa247243752eb10b4"))
+                        .get_payload_v1::<MainnetEthSpec>(str_to_payload_id("0xa247243752eb10b4"))
                         .await
                         .unwrap();
 
@@ -973,7 +965,7 @@ mod test {
                             extra_data: vec![].into(),
                             base_fee_per_gas: Uint256::from(7),
                             block_hash: ExecutionBlockHash::from_str("0x6359b8381a370e2f54072a5784ddd78b6ed024991558c511d4452eb4f6ac898c").unwrap(),
-                        transactions: ExecTransactions(vec![].into()),
+                        transactions: vec![].into(),
                         };
 
                     assert_eq!(payload, expected);
@@ -998,7 +990,7 @@ mod test {
                             extra_data: vec![].into(),
                             base_fee_per_gas: Uint256::from(7),
                             block_hash: ExecutionBlockHash::from_str("0x3559e851470f6e7bbed1db474980683e8c315bfce99b2a6ef47c057c04de7858").unwrap(),
-                            transactions: ExecTransactions(vec![].into()),
+                            transactions: vec![].into(),
                         })
                         .await;
                 },

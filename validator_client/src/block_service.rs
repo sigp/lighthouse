@@ -5,14 +5,14 @@ use crate::{
 };
 use crate::{http_metrics::metrics, validator_store::ValidatorStore};
 use environment::RuntimeContext;
-use eth2::types::{Graffiti, Transactions};
+use eth2::types::Graffiti;
 use slog::{crit, debug, error, info, trace, warn};
 use slot_clock::SlotClock;
 use std::ops::Deref;
 use std::sync::Arc;
 use tokio::sync::mpsc;
 use types::{
-    BlindedTransactions, BlockType, Epoch, EthSpec, ExecTransactions, PublicKeyBytes, Slot,
+    BlindedPayload, BlockType, Epoch, EthSpec, ExecPayload, FullPayload, PublicKeyBytes, Slot,
 };
 
 #[derive(Debug)]
@@ -250,13 +250,13 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
                 async move {
                     let publish_result = if private_tx_proposals && slot >= merge_slot {
                         let mut result = service.clone()
-                            .publish_block::<BlindedTransactions>(slot, validator_pubkey)
+                            .publish_block::<BlindedPayload<E>>(slot, validator_pubkey)
                             .await;
                         match result.as_ref() {
                             Err(BlockError::Recoverable(e)) => {
                                 error!(log, "Error whilst producing a blinded block, attempting to publish full block"; "error" => ?e);
                                 result = service
-                                    .publish_block::<ExecTransactions<E>>(slot, validator_pubkey)
+                                    .publish_block::<FullPayload<E>>(slot, validator_pubkey)
                                     .await;
                             },
                             Err(BlockError::Irrecoverable(e))  => {
@@ -267,7 +267,7 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
                         result
                     } else {
                         service
-                            .publish_block::<ExecTransactions<E>>(slot, validator_pubkey)
+                            .publish_block::<FullPayload<E>>(slot, validator_pubkey)
                             .await
                     };
                     if let Err(e) = publish_result {
@@ -286,7 +286,7 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
     }
 
     /// Produce a block at the given slot for validator_pubkey
-    async fn publish_block<Txns: Transactions<E>>(
+    async fn publish_block<Payload: ExecPayload<E>>(
         self,
         slot: Slot,
         validator_pubkey: PublicKeyBytes,
@@ -335,10 +335,10 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
                     &metrics::BLOCK_SERVICE_TIMES,
                     &[metrics::BEACON_BLOCK_HTTP_GET],
                 );
-                let block = match Txns::block_type() {
+                let block = match Payload::block_type() {
                     BlockType::Full => {
                         beacon_node
-                            .get_validator_blocks::<E, Txns>(
+                            .get_validator_blocks::<E, Payload>(
                                 slot,
                                 randao_reveal_ref,
                                 graffiti.as_ref(),
@@ -354,7 +354,7 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
                     }
                     BlockType::Blinded => {
                         beacon_node
-                            .get_validator_blinded_blocks::<E, Txns>(
+                            .get_validator_blinded_blocks::<E, Payload>(
                                 slot,
                                 randao_reveal_ref,
                                 graffiti.as_ref(),
@@ -380,7 +380,7 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
 
                 let signed_block = self_ref
                     .validator_store
-                    .sign_block::<Txns>(*validator_pubkey_ref, block, current_slot)
+                    .sign_block::<Payload>(*validator_pubkey_ref, block, current_slot)
                     .await
                     .map_err(|e| {
                         BlockError::Recoverable(format!("Unable to sign block: {:?}", e))
@@ -391,7 +391,7 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
                     &[metrics::BEACON_BLOCK_HTTP_POST],
                 );
 
-                match Txns::block_type() {
+                match Payload::block_type() {
                     BlockType::Full => beacon_node
                         .post_beacon_blocks(&signed_block)
                         .await

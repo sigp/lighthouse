@@ -46,10 +46,10 @@ use tokio::sync::mpsc::UnboundedSender;
 use tokio_stream::{wrappers::BroadcastStream, StreamExt};
 use types::{
     Attestation, AttesterSlashing, BeaconBlockBodyMerge, BeaconBlockMerge, BeaconStateError,
-    BlindedBeaconBlock, BlindedTransactions, CommitteeCache, ConfigAndPreset, Epoch, EthSpec,
-    ExecTransactions, ForkName, ProposerPreparationData, ProposerSlashing, RelativeEpoch,
-    SignedAggregateAndProof, SignedBeaconBlock, SignedBeaconBlockMerge, SignedContributionAndProof,
-    SignedVoluntaryExit, Slot, SyncCommitteeMessage, SyncContributionData,
+    BlindedPayload, CommitteeCache, ConfigAndPreset, Epoch, EthSpec, ForkName, FullPayload,
+    ProposerPreparationData, ProposerSlashing, RelativeEpoch, SignedAggregateAndProof,
+    SignedBeaconBlock, SignedBeaconBlockMerge, SignedContributionAndProof, SignedVoluntaryExit,
+    Slot, SyncCommitteeMessage, SyncContributionData,
 };
 use version::{
     add_consensus_version_header, fork_versioned_response, inconsistent_fork_rejection,
@@ -1038,7 +1038,7 @@ pub fn serve<T: BeaconChainTypes>(
         .and(network_tx_filter.clone())
         .and(log_filter.clone())
         .and_then(
-            |block: SignedBeaconBlock<T::EthSpec, BlindedTransactions>,
+            |block: SignedBeaconBlock<T::EthSpec, BlindedPayload<_>>,
              chain: Arc<BeaconChain<T>>,
              network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>,
              _log: Logger| {
@@ -1096,7 +1096,7 @@ pub fn serve<T: BeaconChainTypes>(
                                         .sync_aggregate()
                                         .unwrap()
                                         .clone(),
-                                    execution_payload: payload,
+                                    execution_payload: payload.into(),
                                 },
                             },
                             signature: block.signature().clone(),
@@ -1992,7 +1992,7 @@ pub fn serve<T: BeaconChainTypes>(
                     })?;
 
                     let (block, _) = chain
-                        .produce_block::<ExecTransactions<T::EthSpec>>(
+                        .produce_block::<FullPayload<T::EthSpec>>(
                             randao_reveal,
                             slot,
                             query.graffiti.map(Into::into),
@@ -2034,7 +2034,7 @@ pub fn serve<T: BeaconChainTypes>(
                     })?;
 
                     let (block, _) = chain
-                        .produce_block::<BlindedTransactions>(
+                        .produce_block::<BlindedPayload<T::EthSpec>>(
                             randao_reveal,
                             slot,
                             query.graffiti.map(Into::into),
@@ -2044,7 +2044,6 @@ pub fn serve<T: BeaconChainTypes>(
                         .to_ref()
                         .fork_name(&chain.spec)
                         .map_err(inconsistent_fork_rejection)?;
-                    let block = BlindedBeaconBlock::from(block);
                     fork_versioned_response(endpoint_version, fork_name, block)
                 })
             },

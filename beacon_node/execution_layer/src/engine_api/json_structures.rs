@@ -1,7 +1,7 @@
 use super::*;
 use serde::{Deserialize, Serialize};
 use types::{
-    EthSpec, ExecTransactions, ExecutionBlockHash, FixedVector, Transactions, Unsigned,
+    EthSpec, ExecutionBlockHash, ExecutionPayloadHeader, FixedVector, Transaction, Unsigned,
     VariableList,
 };
 
@@ -60,7 +60,7 @@ pub struct JsonPayloadIdResponse {
 
 #[derive(Debug, PartialEq, Default, Serialize, Deserialize)]
 #[serde(bound = "T: EthSpec", rename_all = "camelCase")]
-pub struct JsonExecutionPayloadHeaderV1<T: EthSpec, Txns: Transactions<T>> {
+pub struct JsonExecutionPayloadHeaderV1<T: EthSpec> {
     pub parent_hash: ExecutionBlockHash,
     pub fee_recipient: Address,
     pub state_root: Hash256,
@@ -80,13 +80,11 @@ pub struct JsonExecutionPayloadHeaderV1<T: EthSpec, Txns: Transactions<T>> {
     pub extra_data: VariableList<u8, T::MaxExtraDataBytes>,
     pub base_fee_per_gas: Uint256,
     pub block_hash: ExecutionBlockHash,
-    pub transactions_root: Txns,
+    pub transactions_root: Hash256,
 }
 
-impl<T: EthSpec, Txns: Transactions<T>> From<JsonExecutionPayloadHeaderV1<T, Txns>>
-    for ExecutionPayload<T, Txns>
-{
-    fn from(e: JsonExecutionPayloadHeaderV1<T, Txns>) -> Self {
+impl<T: EthSpec> From<JsonExecutionPayloadHeaderV1<T>> for ExecutionPayloadHeader<T> {
+    fn from(e: JsonExecutionPayloadHeaderV1<T>) -> Self {
         // Use this verbose deconstruction pattern to ensure no field is left unused.
         let JsonExecutionPayloadHeaderV1 {
             parent_hash,
@@ -119,14 +117,14 @@ impl<T: EthSpec, Txns: Transactions<T>> From<JsonExecutionPayloadHeaderV1<T, Txn
             extra_data,
             base_fee_per_gas,
             block_hash,
-            transactions: transactions_root,
+            transactions_root,
         }
     }
 }
 
 #[derive(Debug, PartialEq, Default, Serialize, Deserialize)]
 #[serde(bound = "T: EthSpec", rename_all = "camelCase")]
-pub struct JsonExecutionPayloadV1<T: EthSpec, Txns: Transactions<T> = ExecTransactions<T>> {
+pub struct JsonExecutionPayloadV1<T: EthSpec> {
     pub parent_hash: ExecutionBlockHash,
     pub fee_recipient: Address,
     pub state_root: Hash256,
@@ -146,13 +144,13 @@ pub struct JsonExecutionPayloadV1<T: EthSpec, Txns: Transactions<T> = ExecTransa
     pub extra_data: VariableList<u8, T::MaxExtraDataBytes>,
     pub base_fee_per_gas: Uint256,
     pub block_hash: ExecutionBlockHash,
-    pub transactions: Txns,
+    #[serde(with = "ssz_types::serde_utils::list_of_hex_var_list")]
+    pub transactions:
+        VariableList<Transaction<T::MaxBytesPerTransaction>, T::MaxTransactionsPerPayload>,
 }
 
-impl<T: EthSpec, Txns: Transactions<T>> From<ExecutionPayload<T, Txns>>
-    for JsonExecutionPayloadV1<T, Txns>
-{
-    fn from(e: ExecutionPayload<T, Txns>) -> Self {
+impl<T: EthSpec> From<ExecutionPayload<T>> for JsonExecutionPayloadV1<T> {
+    fn from(e: ExecutionPayload<T>) -> Self {
         // Use this verbose deconstruction pattern to ensure no field is left unused.
         let ExecutionPayload {
             parent_hash,
@@ -190,10 +188,8 @@ impl<T: EthSpec, Txns: Transactions<T>> From<ExecutionPayload<T, Txns>>
     }
 }
 
-impl<T: EthSpec, Txns: Transactions<T>> From<JsonExecutionPayloadV1<T, Txns>>
-    for ExecutionPayload<T, Txns>
-{
-    fn from(e: JsonExecutionPayloadV1<T, Txns>) -> Self {
+impl<T: EthSpec> From<JsonExecutionPayloadV1<T>> for ExecutionPayload<T> {
+    fn from(e: JsonExecutionPayloadV1<T>) -> Self {
         // Use this verbose deconstruction pattern to ensure no field is left unused.
         let JsonExecutionPayloadV1 {
             parent_hash,

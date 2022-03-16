@@ -15,6 +15,7 @@ use serde::{Deserialize, Serialize};
 use slog::{crit, debug, error, info, trace, Logger};
 use slot_clock::SlotClock;
 use std::collections::HashMap;
+use std::convert::TryInto;
 use std::future::Future;
 use std::io::Write;
 use std::path::PathBuf;
@@ -25,10 +26,9 @@ use tokio::{
     sync::{Mutex, MutexGuard, RwLock},
     time::{sleep, sleep_until, Instant},
 };
-use types::execution_payload::BlockType;
 use types::{
-    BlindedTransactions, ChainSpec, Epoch, ExecutionBlockHash, ProposerPreparationData,
-    SignedBeaconBlock, Slot, Transactions,
+    BlindedPayload, BlockType, ChainSpec, Epoch, ExecPayload, ExecutionBlockHash,
+    ProposerPreparationData, SignedBeaconBlock, Slot,
 };
 
 pub use engine_api::{
@@ -568,14 +568,14 @@ impl ExecutionLayer {
     ///
     /// The result will be returned from the first node that returns successfully. No more nodes
     /// will be contacted.
-    pub async fn get_payload<T: EthSpec, Txns: Transactions<T>>(
+    pub async fn get_payload<T: EthSpec, Payload: ExecPayload<T>>(
         &self,
         parent_hash: ExecutionBlockHash,
         timestamp: u64,
         prev_randao: Hash256,
         finalized_block_hash: ExecutionBlockHash,
         proposer_index: u64,
-    ) -> Result<ExecutionPayload<T, Txns>, Error> {
+    ) -> Result<Payload, Error> {
         let _timer = metrics::start_timer_vec(
             &metrics::EXECUTION_LAYER_REQUEST_TIMES,
             &[metrics::GET_PAYLOAD],
@@ -583,7 +583,7 @@ impl ExecutionLayer {
 
         let suggested_fee_recipient = self.get_suggested_fee_recipient(proposer_index).await;
 
-        match Txns::block_type() {
+        match Payload::block_type() {
             BlockType::Blinded => {
                 debug!(
                     self.log(),
@@ -636,8 +636,10 @@ impl ExecutionLayer {
                         };
                         engine
                             .api
-                            .get_payload_header_v1::<T, Txns>(payload_id)
-                            .await
+                            .get_payload_header_v1::<T>(payload_id)
+                            .await?
+                            .try_into()
+                            .map_err(|_| ApiError::PayloadConversionLogicFlaw)
                     })
                     .await
                     .map_err(Error::EngineErrors)
@@ -691,26 +693,31 @@ impl ExecutionLayer {
                             };
 
                             engine
-                        .notify_forkchoice_updated(
-                            fork_choice_state,
-                            Some(payload_attributes),
-                            self.log(),
-                        )
-                        .await
-                        .map(|response| response.payload_id)?
-                        .ok_or_else(|| {
-                            error!(
-                                self.log(),
-                                "Exec engine unable to produce payload";
-                                "msg" => "No payload ID, the engine is likely syncing. \
-                                          This has the potential to cause a missed block proposal.",
-                            );
+                                .notify_forkchoice_updated(
+                                    fork_choice_state,
+                                    Some(payload_attributes),
+                                    self.log(),
+                                )
+                                .await
+                                .map(|response| response.payload_id)?
+                                .ok_or_else(|| {
+                                    error!(
+                                        self.log(),
+                                        "Exec engine unable to produce payload";
+                                        "msg" => "No payload ID, the engine is likely syncing. \
+                                                  This has the potential to cause a missed block \
+                                                  proposal.",
+                                    );
 
-                            ApiError::PayloadIdUnavailable
-                        })?
+                                    ApiError::PayloadIdUnavailable
+                                })?
                         };
 
-                        engine.api.get_payload_v1::<T, Txns>(payload_id).await
+                        engine
+                            .api
+                            .get_payload_v1::<T>(payload_id)
+                            .await
+                            .map(Into::into)
                     })
                     .await
                     .map_err(Error::EngineErrors)
@@ -1202,7 +1209,7 @@ impl ExecutionLayer {
 
     pub async fn propose_blinded_beacon_block<T: EthSpec>(
         &self,
-        block: &SignedBeaconBlock<T, BlindedTransactions>,
+        block: &SignedBeaconBlock<T, BlindedPayload<T>>,
     ) -> Result<ExecutionPayload<T>, Error> {
         debug!(
             self.log(),

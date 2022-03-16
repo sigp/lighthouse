@@ -34,7 +34,7 @@ pub struct ForkInfo {
 
 #[derive(Debug, PartialEq, Serialize)]
 #[serde(bound = "T: EthSpec", rename_all = "snake_case")]
-pub enum Web3SignerObject<'a, T: EthSpec, Txns: Transactions<T>> {
+pub enum Web3SignerObject<'a, T: EthSpec, Payload: ExecPayload<T>> {
     AggregationSlot {
         slot: Slot,
     },
@@ -42,7 +42,7 @@ pub enum Web3SignerObject<'a, T: EthSpec, Txns: Transactions<T>> {
     Attestation(&'a AttestationData),
     BeaconBlock {
         version: ForkName,
-        block: &'a BeaconBlock<T, Txns>,
+        block: &'a BeaconBlock<T, Payload>,
     },
     #[allow(dead_code)]
     Deposit {
@@ -66,8 +66,8 @@ pub enum Web3SignerObject<'a, T: EthSpec, Txns: Transactions<T>> {
     ContributionAndProof(&'a ContributionAndProof<T>),
 }
 
-impl<'a, T: EthSpec, Txns: Transactions<T>> Web3SignerObject<'a, T, Txns> {
-    pub fn beacon_block(block: &'a BeaconBlock<T, Txns>) -> Result<Self, Error> {
+impl<'a, T: EthSpec, Payload: ExecPayload<T>> Web3SignerObject<'a, T, Payload> {
+    pub fn beacon_block(block: &'a BeaconBlock<T, Payload>) -> Result<Self, Error> {
         let version = match block {
             BeaconBlock::Base(_) => ForkName::Phase0,
             BeaconBlock::Altair(_) => ForkName::Altair,
@@ -99,7 +99,7 @@ impl<'a, T: EthSpec, Txns: Transactions<T>> Web3SignerObject<'a, T, Txns> {
 
 #[derive(Debug, PartialEq, Serialize)]
 #[serde(bound = "T: EthSpec")]
-pub struct SigningRequest<'a, T: EthSpec, Txns: Transactions<T>> {
+pub struct SigningRequest<'a, T: EthSpec, Payload: ExecPayload<T>> {
     #[serde(rename = "type")]
     pub message_type: MessageType,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -107,7 +107,7 @@ pub struct SigningRequest<'a, T: EthSpec, Txns: Transactions<T>> {
     #[serde(rename = "signingRoot")]
     pub signing_root: Hash256,
     #[serde(flatten)]
-    pub object: Web3SignerObject<'a, T, Txns>,
+    pub object: Web3SignerObject<'a, T, Payload>,
 }
 
 #[derive(Debug, PartialEq, Deserialize)]
