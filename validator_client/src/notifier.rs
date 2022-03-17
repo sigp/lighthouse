@@ -89,7 +89,7 @@ async fn notify<T: SlotClock + 'static, E: EthSpec>(
             info!(
                 log,
                 "All validators active";
-                "proposers" => proposing_validators,
+                "current_epoch_proposers" => proposing_validators,
                 "active_validators" => attesting_validators,
                 "total_validators" => total_validators,
                 "epoch" => format!("{}", epoch),
@@ -99,7 +99,7 @@ async fn notify<T: SlotClock + 'static, E: EthSpec>(
             info!(
                 log,
                 "Some validators active";
-                "proposers" => proposing_validators,
+                "current_epoch_proposers" => proposing_validators,
                 "active_validators" => attesting_validators,
                 "total_validators" => total_validators,
                 "epoch" => format!("{}", epoch),
