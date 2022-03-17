@@ -157,7 +157,6 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
             }
         };
 
-
         match request.get_mut().verify_block(block) {
             Ok(Some(block)) => {
                 // This is the correct block, send it for processing
