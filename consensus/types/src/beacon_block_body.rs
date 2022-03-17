@@ -58,6 +58,7 @@ pub struct BeaconBlockBody<T: EthSpec, Payload: ExecPayload<T> = FullPayload<T>>
     #[superstruct(only(Base, Altair))]
     #[ssz(skip_serializing, skip_deserializing)]
     #[tree_hash(skip_hashing)]
+    #[serde(skip)]
     pub _phantom: PhantomData<Payload>,
 }
 
