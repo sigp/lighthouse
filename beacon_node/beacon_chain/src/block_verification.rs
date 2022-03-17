@@ -491,9 +491,11 @@ pub fn signature_verify_chain_segment<T: BeaconChainTypes>(
     let mut signature_verified_blocks = chain_segment
         .into_iter()
         .map(|(block_root, block)| {
-            // FIXME(sproul): safe to include proposer index here?
-            let consensus_context =
-                ConsensusContext::new(block.slot()).set_current_block_root(block_root);
+            // It's safe to include the proposer index here as the signature check also checks that
+            // the block is signed by the correct proposer (see `block_proposal_signature_set`).
+            let consensus_context = ConsensusContext::new(block.slot())
+                .set_current_block_root(block_root)
+                .set_proposer_index(block.message().proposer_index());
             SignatureVerifiedBlock {
                 block,
                 block_root,

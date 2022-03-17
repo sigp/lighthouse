@@ -4,7 +4,6 @@ use ssz_derive::{Decode, Encode};
 use test_random_derive::TestRandom;
 use tree_hash_derive::TreeHash;
 
-// FIXME(sproul): tree-ify the payload types
 use ssz_types::{FixedVector, VariableList};
 
 #[cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary))]

@@ -143,6 +143,11 @@ pub enum Error {
     CommitteeCacheDiffUninitialized {
         expected_epoch: Epoch,
     },
+    DiffAcrossFork {
+        prev_fork: ForkName,
+        current_fork: ForkName,
+    },
+    TotalActiveBalanceDiffUninitialized,
 }
 
 /// Control whether an epoch-indexed field can be indexed at the next epoch or not.
@@ -419,11 +424,7 @@ impl<T: EthSpec> BeaconState<T> {
     /// dictated by `self.slot()`.
     pub fn fork_name(&self, spec: &ChainSpec) -> Result<ForkName, InconsistentFork> {
         let fork_at_slot = spec.fork_name_at_epoch(self.current_epoch());
-        let object_fork = match self {
-            BeaconState::Base { .. } => ForkName::Base,
-            BeaconState::Altair { .. } => ForkName::Altair,
-            BeaconState::Merge { .. } => ForkName::Merge,
-        };
+        let object_fork = self.fork_name_unchecked();
 
         if fork_at_slot == object_fork {
             Ok(object_fork)
@@ -432,6 +433,18 @@ impl<T: EthSpec> BeaconState<T> {
                 fork_at_slot,
                 object_fork,
             })
+        }
+    }
+
+    /// Returns the name of the fork pertaining to `self`.
+    ///
+    /// This is not checked for consistency with respect to the actual fork epochs, see `fork_name`
+    /// for a safer function.
+    pub fn fork_name_unchecked(&self) -> ForkName {
+        match self {
+            BeaconState::Base { .. } => ForkName::Base,
+            BeaconState::Altair { .. } => ForkName::Altair,
+            BeaconState::Merge { .. } => ForkName::Merge,
         }
     }
 

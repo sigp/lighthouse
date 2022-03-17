@@ -6,7 +6,6 @@ use ssz_derive::{Decode, Encode};
 use test_random_derive::TestRandom;
 use tree_hash_derive::TreeHash;
 
-// FIXME(sproul): tree-ify the payload types
 use ssz_types::{FixedVector, VariableList};
 
 pub type Transaction<T> = VariableList<u8, T>;

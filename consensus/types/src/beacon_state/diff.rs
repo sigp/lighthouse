@@ -84,6 +84,8 @@ pub struct BeaconStateDiff<T: EthSpec> {
 
     // Committee caches
     committee_caches: CommitteeCachesDiff,
+    // Total active balance cache
+    total_active_balance: TotalActiveBalanceDiff,
 }
 
 /// Zero to three committee caches which update a `BeaconState`'s stored committee caches.
@@ -94,6 +96,12 @@ pub struct BeaconStateDiff<T: EthSpec> {
 pub struct CommitteeCachesDiff {
     current_epoch: Epoch,
     caches: Vec<Arc<CommitteeCache>>,
+}
+
+#[derive(Debug, PartialEq, Encode, Decode)]
+pub struct TotalActiveBalanceDiff {
+    current_epoch: Epoch,
+    balance: u64,
 }
 
 fn optional_field_diff<
@@ -217,13 +225,39 @@ impl Diff for CommitteeCachesDiff {
     }
 }
 
+impl Diff for TotalActiveBalanceDiff {
+    type Target = Option<(Epoch, u64)>;
+    type Error = Error;
+
+    fn compute_diff(_: &Self::Target, other: &Self::Target) -> Result<Self, Error> {
+        let (current_epoch, balance) = other.ok_or(Error::TotalActiveBalanceDiffUninitialized)?;
+        Ok(Self {
+            current_epoch,
+            balance,
+        })
+    }
+
+    fn apply_diff(self, target: &mut Self::Target) -> Result<(), Error> {
+        *target = Some((self.current_epoch, self.balance));
+        Ok(())
+    }
+}
+
 impl<T: EthSpec> Diff for BeaconStateDiff<T> {
     type Target = BeaconState<T>;
     type Error = Error;
 
-    // FIXME(sproul): proc macro
     fn compute_diff(orig: &Self::Target, other: &Self::Target) -> Result<Self, Error> {
-        // FIXME(sproul): consider cross-variant diffs
+        // We don't support diffs across forks. A full state should be stored on the fork boundary
+        // instead.
+        let prev_fork = orig.fork_name_unchecked();
+        let current_fork = other.fork_name_unchecked();
+        if prev_fork != current_fork {
+            return Err(Error::DiffAcrossFork {
+                prev_fork,
+                current_fork,
+            });
+        }
 
         // Compute committee caches diff.
         let prev_current_epoch = orig.current_epoch();
@@ -314,6 +348,10 @@ impl<T: EthSpec> Diff for BeaconStateDiff<T> {
                 BeaconState::latest_execution_payload_header,
             )?,
             committee_caches,
+            total_active_balance: TotalActiveBalanceDiff::compute_diff(
+                orig.total_active_balance(),
+                other.total_active_balance(),
+            )?,
         })
     }
 
@@ -379,6 +417,10 @@ impl<T: EthSpec> Diff for BeaconStateDiff<T> {
         let mut committee_caches = (prev_current_epoch, target.committee_caches().clone());
         self.committee_caches.apply_diff(&mut committee_caches)?;
         *target.committee_caches_mut() = committee_caches.1;
+
+        // Apply total active balance diff.
+        self.total_active_balance
+            .apply_diff(target.total_active_balance_mut())?;
 
         Ok(())
     }
