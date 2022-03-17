@@ -18,7 +18,8 @@ status = [
     "op-pool-tests",
     "doppelganger-protection-test",
     "execution-engine-integration-ubuntu",
-    "cargo-vendor"
+    "cargo-vendor",
+    "check-msrv"
 ]
 use_squash_merge = true
 timeout_sec = 10800
