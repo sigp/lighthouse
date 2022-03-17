@@ -95,7 +95,7 @@ impl<T: EthSpec> ExecPayload<T> for BlindedPayload<T> {
 
 #[derive(Default, Debug, Clone, TestRandom, Serialize, Deserialize, Derivative)]
 #[derivative(PartialEq, Hash(bound = "T: EthSpec"))]
-#[serde(transparent, bound = "T: EthSpec")]
+#[serde(bound = "T: EthSpec")]
 pub struct BlindedPayload<T: EthSpec> {
     pub execution_payload_header: ExecutionPayloadHeader<T>,
 }
@@ -172,7 +172,7 @@ impl<T: EthSpec> Encode for BlindedPayload<T> {
 
 #[derive(Default, Debug, Clone, Serialize, Deserialize, TestRandom, Derivative)]
 #[derivative(PartialEq, Hash(bound = "T: EthSpec"))]
-#[serde(transparent, bound = "T: EthSpec")]
+#[serde(bound = "T: EthSpec")]
 pub struct FullPayload<T: EthSpec> {
     pub execution_payload: ExecutionPayload<T>,
 }
