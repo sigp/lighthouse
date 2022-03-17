@@ -74,6 +74,15 @@ impl<T> Engine<T> {
         }
     }
 
+    pub fn new_builder(id: String, api: T) -> Self {
+        Self {
+            id,
+            api,
+            payload_id_cache: Mutex::new(LruCache::new(PAYLOAD_ID_LRU_CACHE_SIZE)),
+            state: RwLock::new(EngineState::Synced),
+        }
+    }
+
     pub async fn get_payload_id(
         &self,
         head_block_hash: ExecutionBlockHash,
@@ -308,7 +317,7 @@ impl<T: EngineApi> Engines<T> {
 
     /// Run `func` on all engines, in the order in which they are defined, returning the first
     /// successful result that is found.
-    async fn first_success_without_retry<'a, F, G, H>(
+    pub async fn first_success_without_retry<'a, F, G, H>(
         &'a self,
         func: F,
     ) -> Result<H, Vec<EngineError>>

@@ -225,13 +225,12 @@ impl ExecutionLayer {
             })
             .collect::<Result<_, ApiError>>()?;
 
-        //FIXME(sean): I think this will need JWT support but it hasn't been implemented in MEV-boost.
         let builders: Vec<Engine<BuilderHttpJsonRpc>> = builder_urls
             .into_iter()
             .map(|url| {
                 let id = url.to_string();
                 let api = BuilderHttpJsonRpc::new(url)?;
-                Ok(Engine::new(id, api))
+                Ok(Engine::new_builder(id, api))
             })
             .collect::<Result<_, ApiError>>()?;
 
@@ -371,15 +370,12 @@ impl ExecutionLayer {
 
                     sleep_until(now + first_execution).await;
                     el.engines().upcheck_not_synced(Logging::Disabled).await;
-                    el.builders().upcheck_not_synced(Logging::Disabled).await;
 
                     sleep_until(now + second_execution).await;
                     el.engines().upcheck_not_synced(Logging::Disabled).await;
-                    el.builders().upcheck_not_synced(Logging::Disabled).await;
 
                     sleep_until(now + third_execution).await;
                     el.engines().upcheck_not_synced(Logging::Disabled).await;
-                    el.builders().upcheck_not_synced(Logging::Disabled).await;
                 };
 
             // Start the loop to periodically update.
@@ -404,7 +400,6 @@ impl ExecutionLayer {
     pub async fn watchdog_task(&self) {
         // Disable logging since this runs frequently and may get annoying.
         self.engines().upcheck_not_synced(Logging::Disabled).await;
-        self.builders().upcheck_not_synced(Logging::Disabled).await;
     }
 
     /// Spawns a routine which cleans the cached proposer preparations periodically.
@@ -594,7 +589,7 @@ impl ExecutionLayer {
                     "parent_hash" => ?parent_hash,
                 );
                 self.builders()
-                    .first_success(|engine| async move {
+                    .first_success_without_retry(|engine| async move {
                         let payload_id = if let Some(id) = engine
                             .get_payload_id(
                                 parent_hash,
@@ -906,7 +901,7 @@ impl ExecutionLayer {
 
         let builder_broadcast_results = self
             .builders()
-            .broadcast(|engine| async move {
+            .broadcast_without_retry(|engine| async move {
                 engine
                     .notify_forkchoice_updated(forkchoice_state, payload_attributes, self.log())
                     .await
@@ -1217,7 +1212,7 @@ impl ExecutionLayer {
             "root" => ?block.canonical_root(),
         );
         self.builders()
-            .first_success(|engine| async move {
+            .first_success_without_retry(|engine| async move {
                 engine.api.propose_blinded_block_v1(block.clone()).await
             })
             .await
