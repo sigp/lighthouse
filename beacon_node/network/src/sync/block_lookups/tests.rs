@@ -448,3 +448,14 @@ fn test_parent_lookup_too_deep() {
     rig.expect_penalty();
     assert!(bl.failed_chains.contains(&chain_hash));
 }
+
+#[test]
+fn test_parent_lookup_disconnection() {
+    let (mut bl, mut cx, mut rig) = TestRig::test_setup(None);
+    let peer_id = PeerId::random();
+    let trigger_block = rig.rand_block();
+    let chain_hash = trigger_block.canonical_root();
+    bl.search_parent(Box::new(trigger_block), peer_id, &mut cx);
+    bl.peer_disconnected(&peer_id, &mut cx);
+    assert!(bl.parent_queue.is_empty());
+}

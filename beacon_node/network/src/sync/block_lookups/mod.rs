@@ -311,7 +311,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                     }
                 }
                 Err(e) => {
-                    debug!(self.log, "Single block request failed on peer disconnection";
+                    trace!(self.log, "Single block request failed on peer disconnection";
                         "block_root" => %req.hash, "peer_id" => %peer_id, "reason" => e.as_static());
                 }
             }
@@ -324,7 +324,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
             .position(|req| req.check_peer_disconnected(peer_id).is_err())
         {
             let parent_lookup = self.parent_queue.remove(pos);
-            debug!(self.log, "Parent lookup's peer disconnected"; &parent_lookup);
+            trace!(self.log, "Parent lookup's peer disconnected"; &parent_lookup);
             self.request_parent(parent_lookup, cx);
         }
     }
@@ -342,7 +342,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         {
             let mut parent_lookup = self.parent_queue.remove(pos);
             parent_lookup.download_failed();
-            debug!(self.log, "Parent lookup request failed"; &parent_lookup);
+            trace!(self.log, "Parent lookup request failed"; &parent_lookup);
             self.request_parent(parent_lookup, cx);
         } else {
             return debug!(self.log, "RPC failure for a parent lookup request that was not found"; "peer_id" => %peer_id);
@@ -356,7 +356,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
     pub fn single_block_lookup_failed(&mut self, id: Id, cx: &mut SyncNetworkContext<T::EthSpec>) {
         if let Some(mut request) = self.single_block_lookups.remove(&id) {
             request.register_failure();
-            debug!(self.log, "Single block lookup failed"; "block" => %request.hash);
+            trace!(self.log, "Single block lookup failed"; "block" => %request.hash);
             if let Ok((peer_id, block_request)) = request.request_block() {
                 if let Ok(request_id) = cx.single_block_lookup_request(peer_id, block_request) {
                     self.single_block_lookups.insert(request_id, request);
@@ -398,9 +398,9 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         };
 
         if let Err(e) = &result {
-            debug!(self.log, "Single block processing failed"; "block" => %root, "error" => %e);
+            trace!(self.log, "Single block processing failed"; "block" => %root, "error" => %e);
         } else {
-            debug!(self.log, "Single block processing succeeded"; "block" => %root);
+            trace!(self.log, "Single block processing succeeded"; "block" => %root);
         }
 
         match result {
@@ -471,9 +471,9 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         };
 
         if let Err(e) = &result {
-            debug!(self.log, "Parent block processing failed"; &parent_lookup, "error" => %e);
+            trace!(self.log, "Parent block processing failed"; &parent_lookup, "error" => %e);
         } else {
-            debug!(self.log, "Parent block processing succeeded"; &parent_lookup);
+            trace!(self.log, "Parent block processing succeeded"; &parent_lookup);
         }
 
         match result {
@@ -583,7 +583,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         duration: Duration,
         process_type: BlockProcessType,
     ) -> Result<(), ()> {
-        debug!(self.log, "Sending block for processing"; "block" => %block.canonical_root(), "process" => ?process_type);
+        trace!(self.log, "Sending block for processing"; "block" => %block.canonical_root(), "process" => ?process_type);
         let event = WorkEvent::rpc_beacon_block(block, duration, process_type);
         if let Err(e) = self.beacon_processor_send.try_send(event) {
             error!(
