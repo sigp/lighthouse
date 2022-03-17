@@ -4,6 +4,7 @@ version = "2.1.4"
 authors = ["Sigma Prime <contact@sigmaprime.io>"]
 edition = "2021"
 autotests = false
+rust-version = "1.58"
 
 [features]
 # Writes debugging .ssz files to /tmp during block processing.
