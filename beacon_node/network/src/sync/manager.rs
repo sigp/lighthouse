@@ -490,7 +490,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                                     && unknown_block_slot.sub(head_slot).as_usize()
                                         > SLOT_IMPORT_TOLERANCE)
                             {
-                                return;
+                                continue;
                             }
                         }
                         if self.network_globals.peers.read().is_connected(&peer_id) {
