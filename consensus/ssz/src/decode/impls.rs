@@ -1,6 +1,8 @@
 use super::*;
+use crate::decode::try_from_iter::{TryCollect, TryFromIter};
 use core::num::NonZeroUsize;
 use ethereum_types::{H160, H256, U128, U256};
+use itertools::process_results;
 use smallvec::SmallVec;
 use std::collections::BTreeMap;
 use std::iter::{self, FromIterator};
@@ -397,14 +399,14 @@ macro_rules! impl_for_vec {
 }
 
 impl_for_vec!(Vec<T>, None);
-impl_for_vec!(SmallVec<[T; 1]>, Some(1));
-impl_for_vec!(SmallVec<[T; 2]>, Some(2));
-impl_for_vec!(SmallVec<[T; 3]>, Some(3));
-impl_for_vec!(SmallVec<[T; 4]>, Some(4));
-impl_for_vec!(SmallVec<[T; 5]>, Some(5));
-impl_for_vec!(SmallVec<[T; 6]>, Some(6));
-impl_for_vec!(SmallVec<[T; 7]>, Some(7));
-impl_for_vec!(SmallVec<[T; 8]>, Some(8));
+impl_for_vec!(SmallVec<[T; 1]>, None);
+impl_for_vec!(SmallVec<[T; 2]>, None);
+impl_for_vec!(SmallVec<[T; 3]>, None);
+impl_for_vec!(SmallVec<[T; 4]>, None);
+impl_for_vec!(SmallVec<[T; 5]>, None);
+impl_for_vec!(SmallVec<[T; 6]>, None);
+impl_for_vec!(SmallVec<[T; 7]>, None);
+impl_for_vec!(SmallVec<[T; 8]>, None);
 
 impl<K, V> Decode for BTreeMap<K, V>
 where
@@ -434,12 +436,14 @@ where
 /// The `ssz::SszDecoder` can also perform this functionality, however this function is
 /// significantly faster as it is optimized to read same-typed items whilst `ssz::SszDecoder`
 /// supports reading items of differing types.
-pub fn decode_list_of_variable_length_items<T: Decode, Container: FromIterator<T>>(
+pub fn decode_list_of_variable_length_items<T: Decode, Container: TryFromIter<T>>(
     bytes: &[u8],
     max_len: Option<usize>,
 ) -> Result<Container, DecodeError> {
     if bytes.is_empty() {
-        return Ok(Container::from_iter(iter::empty()));
+        return Container::try_from_iter(iter::empty()).map_err(|e| {
+            DecodeError::BytesInvalid(format!("Error trying to collect empty list: {:?}", e))
+        });
     }
 
     let first_offset = read_offset(bytes)?;
@@ -459,8 +463,8 @@ pub fn decode_list_of_variable_length_items<T: Decode, Container: FromIterator<T
     }
 
     let mut offset = first_offset;
-    (1..=num_items)
-        .map(|i| {
+    process_results(
+        (1..=num_items).map(|i| {
             let slice_option = if i == num_items {
                 bytes.get(offset..)
             } else {
@@ -475,8 +479,10 @@ pub fn decode_list_of_variable_length_items<T: Decode, Container: FromIterator<T
 
             let slice = slice_option.ok_or(DecodeError::OutOfBoundsByte { i: offset })?;
             T::from_ssz_bytes(slice)
-        })
-        .collect()
+        }),
+        |iter| iter.try_collect(),
+    )?
+    .map_err(|e| DecodeError::BytesInvalid(format!("Error collecting into container: {:?}", e)))
 }
 
 #[cfg(test)]

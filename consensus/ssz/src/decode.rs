@@ -5,6 +5,7 @@ use std::cmp::Ordering;
 type SmallVec8<T> = SmallVec<[T; 8]>;
 
 pub mod impls;
+pub mod try_from_iter;
 
 /// Returned when SSZ decoding fails.
 #[derive(Debug, PartialEq, Clone)]
