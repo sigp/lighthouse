@@ -53,6 +53,11 @@ pub enum Error {
     SlotIsBeforeSplit {
         slot: Slot,
     },
+    FinalizedStateDecreasingEpoch,
+    StateForCacheHasPendingUpdates {
+        state_root: Hash256,
+        slot: Slot,
+    },
 }
 
 pub trait HandleUnavailable<T> {

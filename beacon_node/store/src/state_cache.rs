@@ -54,8 +54,7 @@ impl<E: EthSpec> StateCache<E> {
             .as_ref()
             .map_or(false, |finalized_state| epoch < finalized_state.epoch)
         {
-            // FIXME(sproul): panic
-            panic!("decreasing epoch");
+            return Err(Error::FinalizedStateDecreasingEpoch);
         }
 
         let finalized_slot = epoch.start_slot(E::slots_per_epoch());
@@ -97,15 +96,19 @@ impl<E: EthSpec> StateCache<E> {
         {
             return Ok(true);
         }
+
         if self.states.peek(&state_root).is_some() {
             return Ok(true);
         }
 
-        // FIXME(sproul): remove zis
-        assert!(
-            !state.has_pending_mutations(),
-            "what are you doing putting these filthy states in here?"
-        );
+        // Refuse states with pending mutations: we want cached states to be as small as possible
+        // i.e. stored entirely as a binary merkle tree with no updates overlaid.
+        if state.has_pending_mutations() {
+            return Err(Error::StateForCacheHasPendingUpdates {
+                state_root,
+                slot: state.slot(),
+            });
+        }
 
         // Insert the full state into the cache.
         self.states.put(state_root, state.clone());
@@ -187,7 +190,6 @@ impl BlockMap {
         pruned_states
     }
 
-    // FIXME(sproul): slow, make generic
     fn delete(&mut self, state_root_to_delete: &Hash256) {
         self.blocks.retain(|_, slot_map| {
             slot_map
