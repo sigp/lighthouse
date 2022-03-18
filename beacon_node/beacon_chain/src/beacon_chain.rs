@@ -3919,6 +3919,17 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 "head_block_root" => head_block_root.to_string(),
             );
 
+            // If the block's state will be so far ahead of `shuffling_epoch` that even its
+            // previous epoch committee cache will be too new, then error. Callers of this function
+            // shouldn't be requesting such old shufflings for this `head_block_root`.
+            let head_block_epoch = head_block.slot.epoch(T::EthSpec::slots_per_epoch());
+            if head_block_epoch > shuffling_epoch + 1 {
+                return Err(Error::InvalidStateForShuffling {
+                    state_epoch: head_block_epoch,
+                    shuffling_epoch,
+                });
+            }
+
             let state_read_timer =
                 metrics::start_timer(&metrics::ATTESTATION_PROCESSING_STATE_READ_TIMES);
 
@@ -3939,59 +3950,46 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 }
             })?;
 
+            // Compute the `target_slot` to advance the block's state to.
+            //
+            // Since there's a one-epoch look-ahead on the attester shuffling, it suffices to
+            // only advance into the first slot of the epoch prior to `shuffling_epoch`.
+            //
+            // If the `head_block` is already ahead of that slot, then we should load the state
+            // at that slot, as we've determined above that the `shuffling_epoch` cache will
+            // not be too far in the past.
+            let target_slot = std::cmp::max(
+                shuffling_epoch
+                    .saturating_sub(1_u64)
+                    .start_slot(T::EthSpec::slots_per_epoch()),
+                head_block.slot,
+            );
+
             // If the head state is useful for this request, use it. Otherwise, read a state from
-            // disk.
+            // disk that is advanced as close as possible to `target_slot`.
             let (mut state, state_root) = if let Some((state, state_root)) = head_state_opt {
                 (state, state_root)
             } else {
-                let state_root = head_block.state_root;
-                let state = self
+                let (state_root, state) = self
                     .store
-                    .get_inconsistent_state_for_attestation_verification_only(
-                        &state_root,
-                        Some(head_block.slot),
-                    )?
+                    .get_advanced_state(head_block_root, target_slot, head_block.state_root)?
                     .ok_or(Error::MissingBeaconState(head_block.state_root))?;
                 (state, state_root)
             };
-
-            /*
-             * IMPORTANT
-             *
-             * Since it's possible that
-             * `Store::get_inconsistent_state_for_attestation_verification_only` was used to obtain
-             * the state, we cannot rely upon the following fields:
-             *
-             * - `state.state_roots`
-             * - `state.block_roots`
-             *
-             * These fields should not be used for the rest of this function.
-             */
 
             metrics::stop_timer(state_read_timer);
             let state_skip_timer =
                 metrics::start_timer(&metrics::ATTESTATION_PROCESSING_STATE_SKIP_TIMES);
 
-            // If the state is in an earlier epoch, advance it. If it's from a later epoch, reject
-            // it.
+            // If the state is still in an earlier epoch, advance it to the `target_slot` so
+            // that its next epoch committee cache matches the `shuffling_epoch`.
             if state.current_epoch() + 1 < shuffling_epoch {
-                // Since there's a one-epoch look-ahead on the attester shuffling, it suffices to
-                // only advance into the slot prior to the `shuffling_epoch`.
-                let target_slot = shuffling_epoch
-                    .saturating_sub(1_u64)
-                    .start_slot(T::EthSpec::slots_per_epoch());
-
-                // Advance the state into the required slot, using the "partial" method since the state
-                // roots are not relevant for the shuffling.
+                // Advance the state into the required slot, using the "partial" method since the
+                // state roots are not relevant for the shuffling.
                 partial_state_advance(&mut state, Some(state_root), target_slot, &self.spec)?;
-            } else if state.current_epoch() > shuffling_epoch {
-                return Err(Error::InvalidStateForShuffling {
-                    state_epoch: state.current_epoch(),
-                    shuffling_epoch,
-                });
             }
-
             metrics::stop_timer(state_skip_timer);
+
             let committee_building_timer =
                 metrics::start_timer(&metrics::ATTESTATION_PROCESSING_COMMITTEE_BUILDING_TIMES);
 
