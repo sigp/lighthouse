@@ -195,7 +195,7 @@ jobs:
         go-version: '1.17'
     - uses: actions/setup-dotnet@v1
       with:
-        dotnet-version: '6.0.2'
+        dotnet-version: '6.0.201'
     - name: Create libdl.so symlink
       run: sudo ln -s /usr/lib/x86_64-linux-gnu/libdl.so.2 /usr/lib/x86_64-linux-gnu/libdl.so
     - name: Get latest version of stable Rust
