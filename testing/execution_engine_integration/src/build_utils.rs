@@ -48,10 +48,7 @@ pub fn update_branch(repo_dir: &Path, branch_name: &str) -> bool {
         .arg("pull")
         .current_dir(repo_dir)
         .output()
-        .unwrap_or_else(|_| panic!(
-            "failed to update branch at {:?}/{}",
-            repo_dir, branch_name
-        ))
+        .unwrap_or_else(|_| panic!("failed to update branch at {:?}/{}", repo_dir, branch_name))
         .status
         .success()
 }
