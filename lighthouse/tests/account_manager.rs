@@ -30,7 +30,7 @@ use validator_dir::ValidatorDir;
 
 // TODO: create tests for the `lighthouse account validator deposit` command. This involves getting
 // access to an IPC endpoint during testing or adding support for deposit submission via HTTP and
-// using ganache-cli.
+// using ganache.
 
 /// Returns the `lighthouse account` command.
 fn account_cmd() -> Command {
