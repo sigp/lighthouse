@@ -31,9 +31,7 @@ use types::{
     ProposerPreparationData, SignedBeaconBlock, Slot,
 };
 
-pub use engine_api::{
-    http, http::HttpJsonRpc, json_structures, EngineApi, PayloadAttributes, PayloadStatusV1Status,
-};
+pub use engine_api::*;
 pub use payload_status::PayloadStatus;
 
 mod engine_api;
