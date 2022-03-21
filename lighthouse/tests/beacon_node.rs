@@ -4,7 +4,7 @@ use crate::exec::{CommandLineTestExec, CompletedTest};
 use lighthouse_network::PeerId;
 use std::fs::File;
 use std::io::Write;
-use std::net::{IpAddr};
+use std::net::IpAddr;
 use std::path::PathBuf;
 use std::process::Command;
 use std::str::FromStr;
