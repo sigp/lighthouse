@@ -15,7 +15,7 @@ use network::NetworkMessage;
 use sensitive_url::SensitiveUrl;
 use slog::Logger;
 use std::future::Future;
-use std::net::{Ipv4Addr, SocketAddr};
+use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::{mpsc, oneshot};
@@ -128,7 +128,7 @@ pub async fn create_api_server<T: BeaconChainTypes>(
     let context = Arc::new(Context {
         config: Config {
             enabled: true,
-            listen_addr: Ipv4Addr::new(127, 0, 0, 1),
+            listen_addr: IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)),
             listen_port: 0,
             allow_origin: None,
             serve_legacy_spec: true,
