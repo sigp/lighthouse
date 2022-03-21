@@ -1702,7 +1702,7 @@ pub fn serve<T: BeaconChainTypes>(
             },
         );
 
-    // GET v1/debug/beacon/heads
+    // GET debug/beacon/heads
     let get_debug_beacon_heads = any_version
         .and(warp::path("debug"))
         .and(warp::path("beacon"))
