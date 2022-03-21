@@ -32,7 +32,7 @@ use types::{
 };
 
 pub use engine_api::{
-    http, http::HttpJsonRpc, json_structures, PayloadAttributes, PayloadStatusV1Status,
+    http, http::HttpJsonRpc, json_structures, EngineApi, PayloadAttributes, PayloadStatusV1Status,
 };
 pub use payload_status::PayloadStatus;
 
