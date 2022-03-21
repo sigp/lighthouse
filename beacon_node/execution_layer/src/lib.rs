@@ -32,6 +32,7 @@ use types::{
 };
 
 pub use engine_api::*;
+pub use engine_api::{http, http::HttpJsonRpc};
 pub use payload_status::PayloadStatus;
 
 mod engine_api;
