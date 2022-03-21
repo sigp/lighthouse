@@ -93,8 +93,8 @@ pub fn get_config<E: EthSpec>(
 
     if let Some(address) = cli_args.value_of("http-address") {
         client_config.http_api.listen_addr = address
-            .parse::<Ipv4Addr>()
-            .map_err(|_| "http-address is not a valid IPv4 address.")?;
+            .parse::<IpAddr>()
+            .map_err(|_| "http-address is not a valid IP address.")?;
     }
 
     if let Some(port) = cli_args.value_of("http-port") {
@@ -145,8 +145,8 @@ pub fn get_config<E: EthSpec>(
 
     if let Some(address) = cli_args.value_of("metrics-address") {
         client_config.http_metrics.listen_addr = address
-            .parse::<Ipv4Addr>()
-            .map_err(|_| "metrics-address is not a valid IPv4 address.")?;
+            .parse::<IpAddr>()
+            .map_err(|_| "metrics-address is not a valid IP address.")?;
     }
 
     if let Some(port) = cli_args.value_of("metrics-port") {

@@ -1,4 +1,4 @@
-use std::net::Ipv4Addr;
+use std::net::IpAddr;
 use warp::filters::cors::Builder;
 
 /// Configure a `cors::Builder`.
@@ -7,7 +7,7 @@ use warp::filters::cors::Builder;
 pub fn set_builder_origins(
     builder: Builder,
     allow_origin: Option<&str>,
-    default_origin: (Ipv4Addr, u16),
+    default_origin: (IpAddr, u16),
 ) -> Result<Builder, String> {
     if let Some(allow_origin) = allow_origin {
         let origins = allow_origin
@@ -65,6 +65,7 @@ mod test {
         verify_cors_origin_str("http://localhost").unwrap();
         verify_cors_origin_str("http://127.0.0.1:8000").unwrap();
         verify_cors_origin_str("http://localhost:8000").unwrap();
+        // Todo(mac) Add tests here
     }
 
     #[test]
