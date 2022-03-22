@@ -954,7 +954,6 @@ pub fn serve<T: BeaconChainTypes>(
                         delay,
                     );
 
-
                     match chain.process_block(block.clone()) {
                         Ok(root) => {
                             info!(

@@ -374,8 +374,8 @@ impl ExecutionLayer {
         self.engines().upcheck_not_synced(Logging::Disabled).await;
     }
 
-    /// Spawns a routine which cleans the cached proposer preparations periodically.
-    pub fn spawn_clean_proposer_preparation_routine<S: SlotClock + 'static, T: EthSpec>(
+    /// Spawns a routine which cleans the cached proposer data periodically.
+    pub fn spawn_clean_proposer_caches_routine<S: SlotClock + 'static, T: EthSpec>(
         &self,
         slot_clock: S,
     ) {
@@ -393,7 +393,7 @@ impl ExecutionLayer {
                         .map(|slot| slot.epoch(T::slots_per_epoch()))
                     {
                         Some(current_epoch) => el
-                            .clean_proposer_preparation(current_epoch)
+                            .clean_proposer_caches::<T>(current_epoch)
                             .await
                             .map_err(|e| {
                                 error!(
@@ -473,8 +473,8 @@ impl ExecutionLayer {
         }
     }
 
-    /// Removes expired entries from cached proposer preparations
-    async fn clean_proposer_preparation(&self, current_epoch: Epoch) -> Result<(), Error> {
+    /// Removes expired entries from proposer_preparation_data and proposers caches
+    async fn clean_proposer_caches<T: EthSpec>(&self, current_epoch: Epoch) -> Result<(), Error> {
         let mut proposer_preparation_data = self.proposer_preparation_data().await;
 
         // Keep all entries that have been updated in the last 2 epochs
@@ -482,6 +482,13 @@ impl ExecutionLayer {
         proposer_preparation_data.retain(|_validator_index, preparation_entry| {
             preparation_entry.update_epoch >= retain_epoch
         });
+        drop(proposer_preparation_data);
+
+        let retain_slot = retain_epoch.start_slot(T::slots_per_epoch());
+        self.proposers()
+            .write()
+            .await
+            .retain(|proposer_key, _proposer| proposer_key.slot >= retain_slot);
 
         Ok(())
     }
