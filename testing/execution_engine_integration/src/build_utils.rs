@@ -56,7 +56,7 @@ pub fn update_branch(repo_dir: &Path, branch_name: &str) -> bool {
 pub fn check_command_output(output: Output, failure_msg: &'static str) {
     if !output.status.success() {
         if !SUPPRESS_LOGS {
-            dbg!(String::from_utf8_lossy(&output.stderr));
+            dbg!(String::from_utf8_lossy(&output.stdout));
             dbg!(String::from_utf8_lossy(&output.stderr));
         }
         panic!("{}", failure_msg);
