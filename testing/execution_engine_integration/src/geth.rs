@@ -2,13 +2,21 @@ use crate::build_utils;
 use crate::execution_engine::GenericExecutionEngine;
 use crate::genesis_json::geth_genesis_json;
 use std::path::{Path, PathBuf};
-use std::process::{Child, Command};
+use std::process::{Child, Command, Output};
 use std::{env, fs::File};
 use tempfile::TempDir;
 use unused_port::unused_tcp_port;
 
 const GETH_BRANCH: &str = "merge-kiln-v2";
 const GETH_REPO_URL: &str = "https://github.com/MariusVanDerWijden/go-ethereum";
+
+pub fn build_result(repo_dir: &Path) -> Output {
+    Command::new("make")
+        .arg("geth")
+        .current_dir(&repo_dir)
+        .output()
+        .expect("failed to make geth")
+}
 
 pub fn build(execution_clients_dir: &Path) {
     let repo_dir = execution_clients_dir.join("go-ethereum");
@@ -28,13 +36,7 @@ pub fn build(execution_clients_dir: &Path) {
     assert!(build_utils::update_branch(&repo_dir, GETH_BRANCH));
 
     // Build geth
-    let make_result = Command::new("make")
-        .arg("geth")
-        .current_dir(&repo_dir)
-        .output()
-        .expect("failed to make geth");
-
-    build_utils::check_command_output(make_result, "make failed");
+    build_utils::check_command_output(build_result(&repo_dir), "make failed");
 }
 
 /*
