@@ -4,7 +4,7 @@ set -Eeuo pipefail
 
 source ./vars.env
 
-exec ganache-cli \
+exec ganache \
 	--defaultBalanceEther 1000000000 \
 	--gasLimit 1000000000 \
 	--accounts 10 \
@@ -12,4 +12,4 @@ exec ganache-cli \
 	--port 8545 \
 	--blockTime $SECONDS_PER_ETH1_BLOCK \
 	--networkId "$NETWORK_ID" \
-	--chainId "$NETWORK_ID"
+	--chain.chainId "$NETWORK_ID"

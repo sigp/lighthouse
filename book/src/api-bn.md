@@ -137,7 +137,7 @@ However, even when serving the HTTP API server over TLS, it should
 not be exposed publicly without one of the security measures suggested
 in the [Security](#security) section.
 
-Below is an simple example serving the HTTP API over TLS using a
+Below is a simple example serving the HTTP API over TLS using a
 self-signed certificate on Linux:
 
 ### Enabling TLS on a beacon node

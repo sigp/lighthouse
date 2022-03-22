@@ -36,8 +36,8 @@ is 32, and the maximum is 8192.
 The values shown in the table are approximate, calculated using a simple heuristic: each
 `BeaconState` consumes around 18MB of disk space, and each block replayed takes around 5ms.  The
 **Yearly Disk Usage** column shows the approx size of the freezer DB _alone_ (hot DB not included),
-and the **Load Historical State** time is the worst-case load time for a state in the last slot of
-an epoch.
+and the **Load Historical State** time is the worst-case load time for a state in the last slot
+before a restore point.
 
 To configure your Lighthouse node's database with a non-default SPRP, run your Beacon Node with
 the `--slots-per-restore-point` flag:
