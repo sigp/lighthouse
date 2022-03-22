@@ -75,7 +75,7 @@ impl HttpJsonRpc {
             jsonrpc: JSONRPC_VERSION,
             method,
             params,
-            id: STATIC_ID,
+            id: json!(STATIC_ID),
         };
 
         let mut request = self

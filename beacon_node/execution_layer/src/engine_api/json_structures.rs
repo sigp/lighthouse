@@ -8,7 +8,7 @@ pub struct JsonRequestBody<'a> {
     pub jsonrpc: &'a str,
     pub method: &'a str,
     pub params: serde_json::Value,
-    pub id: u32,
+    pub id: serde_json::Value,
 }
 
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
@@ -25,7 +25,7 @@ pub struct JsonResponseBody {
     pub error: Option<JsonError>,
     #[serde(default)]
     pub result: serde_json::Value,
-    pub id: u32,
+    pub id: serde_json::Value,
 }
 
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
