@@ -898,23 +898,33 @@ impl ExecutionLayer {
             })
             .await;
 
-        let builder_broadcast_results = self
-            .builders()
-            .broadcast_without_retry(|engine| async move {
-                engine
-                    .notify_forkchoice_updated(forkchoice_state, payload_attributes, self.log())
-                    .await
-            })
-            .await;
-
-        process_multiple_payload_statuses(
-            head_block_hash,
-            broadcast_results
-                .into_iter()
-                .chain(builder_broadcast_results.into_iter())
-                .map(|result| result.map(|response| response.payload_status)),
-            self.log(),
-        )
+        // Only query builders with payload attributes populated.
+        if payload_attributes.is_some() {
+            let builder_broadcast_results = self
+                .builders()
+                .broadcast_without_retry(|engine| async move {
+                    engine
+                        .notify_forkchoice_updated(forkchoice_state, payload_attributes, self.log())
+                        .await
+                })
+                .await;
+            process_multiple_payload_statuses(
+                head_block_hash,
+                broadcast_results
+                    .into_iter()
+                    .chain(builder_broadcast_results.into_iter())
+                    .map(|result| result.map(|response| response.payload_status)),
+                self.log(),
+            )
+        } else {
+            process_multiple_payload_statuses(
+                head_block_hash,
+                broadcast_results
+                    .into_iter()
+                    .map(|result| result.map(|response| response.payload_status)),
+                self.log(),
+            )
+        }
     }
 
     pub async fn exchange_transition_configuration(&self, spec: &ChainSpec) -> Result<(), Error> {
