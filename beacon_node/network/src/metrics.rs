@@ -286,6 +286,14 @@ lazy_static! {
         "Number of Syncing chains in range, per range type",
         &["range_type"]
     );
+    pub static ref SYNC_SINGLE_BLOCK_LOOKUPS: Result<IntGauge> = try_create_int_gauge(
+        "sync_single_block_lookups",
+        "Number of single block lookups underway"
+    );
+    pub static ref SYNC_PARENT_BLOCK_LOOKUPS: Result<IntGauge> = try_create_int_gauge(
+        "sync_parent_block_lookups",
+        "Number of parent block lookups underway"
+    );
 
     /*
      * Block Delay Metrics
