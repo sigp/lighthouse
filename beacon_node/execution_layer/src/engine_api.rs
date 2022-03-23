@@ -4,11 +4,11 @@ use eth1::http::RpcError;
 pub use json_structures::TransitionConfigurationV1;
 use reqwest::StatusCode;
 use serde::{Deserialize, Serialize};
+use slog::Logger;
 pub use types::{
     Address, EthSpec, ExecutionBlockHash, ExecutionPayload, ExecutionPayloadHeader, Hash256,
     Uint256,
 };
-use types::{BlindedPayload, SignedBeaconBlock};
 
 pub mod auth;
 pub mod http;
@@ -27,7 +27,10 @@ pub enum Error {
     InvalidExecutePayloadResponse(&'static str),
     JsonRpc(RpcError),
     Json(serde_json::Error),
-    ServerMessage { code: i64, message: String },
+    ServerMessage {
+        code: i64,
+        message: String,
+    },
     Eip155Failure,
     IsSyncing,
     ExecutionBlockNotFound(ExecutionBlockHash),
@@ -36,6 +39,13 @@ pub enum Error {
     PayloadIdUnavailable,
     TransitionConfigurationMismatch,
     PayloadConversionLogicFlaw,
+    InvalidBuilderQuery,
+    MissingPayloadId {
+        parent_hash: ExecutionBlockHash,
+        timestamp: u64,
+        prev_randao: Hash256,
+        suggested_fee_recipient: Address,
+    },
 }
 
 impl From<reqwest::Error> for Error {
@@ -63,54 +73,17 @@ impl From<auth::Error> for Error {
     }
 }
 
-/// A generic interface for an execution engine API.
+pub struct EngineApi;
+pub struct BuilderApi;
+
 #[async_trait]
-pub trait EngineApi {
-    async fn upcheck(&self) -> Result<(), Error>;
-
-    async fn get_block_by_number<'a>(
-        &self,
-        block_by_number: BlockByNumberQuery<'a>,
-    ) -> Result<Option<ExecutionBlock>, Error>;
-
-    async fn get_block_by_hash<'a>(
-        &self,
-        block_hash: ExecutionBlockHash,
-    ) -> Result<Option<ExecutionBlock>, Error>;
-
-    async fn new_payload_v1<T: EthSpec>(
-        &self,
-        execution_payload: ExecutionPayload<T>,
-    ) -> Result<PayloadStatusV1, Error>;
-
-    async fn get_payload_v1<T: EthSpec>(
-        &self,
-        payload_id: PayloadId,
-    ) -> Result<ExecutionPayload<T>, Error>;
-
-    async fn forkchoice_updated_v1(
+pub trait Builder {
+    async fn notify_forkchoice_updated(
         &self,
         forkchoice_state: ForkChoiceState,
         payload_attributes: Option<PayloadAttributes>,
+        log: &Logger,
     ) -> Result<ForkchoiceUpdatedResponse, Error>;
-
-    async fn exchange_transition_configuration_v1(
-        &self,
-        transition_configuration: TransitionConfigurationV1,
-    ) -> Result<TransitionConfigurationV1, Error>;
-}
-
-#[async_trait]
-pub trait BuilderApi: EngineApi {
-    async fn get_payload_header_v1<T: EthSpec>(
-        &self,
-        payload_id: PayloadId,
-    ) -> Result<ExecutionPayloadHeader<T>, Error>;
-
-    async fn propose_blinded_block_v1<T: EthSpec>(
-        &self,
-        block: SignedBeaconBlock<T, BlindedPayload<T>>,
-    ) -> Result<ExecutionPayload<T>, Error>;
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
