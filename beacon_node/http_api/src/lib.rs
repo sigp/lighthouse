@@ -38,7 +38,7 @@ use state_id::StateId;
 use std::borrow::Cow;
 use std::convert::TryInto;
 use std::future::Future;
-use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
+use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::path::PathBuf;
 use std::pin::Pin;
 use std::sync::Arc;
@@ -98,7 +98,7 @@ pub struct Context<T: BeaconChainTypes> {
 #[derive(PartialEq, Debug, Clone, Serialize, Deserialize)]
 pub struct Config {
     pub enabled: bool,
-    pub listen_addr: Ipv4Addr,
+    pub listen_addr: IpAddr,
     pub listen_port: u16,
     pub allow_origin: Option<String>,
     pub serve_legacy_spec: bool,
@@ -110,7 +110,7 @@ impl Default for Config {
     fn default() -> Self {
         Self {
             enabled: false,
-            listen_addr: Ipv4Addr::new(127, 0, 0, 1),
+            listen_addr: IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)),
             listen_port: 5052,
             allow_origin: None,
             serve_legacy_spec: true,
@@ -2790,7 +2790,7 @@ pub fn serve<T: BeaconChainTypes>(
         .map(|reply| warp::reply::with_header(reply, "Server", &version_with_platform()))
         .with(cors_builder.build());
 
-    let http_socket: SocketAddrV4 = SocketAddrV4::new(config.listen_addr, config.listen_port);
+    let http_socket: SocketAddr = SocketAddr::new(config.listen_addr, config.listen_port);
     let http_server: HttpServer = match config.tls_config {
         Some(tls_config) => {
             let (socket, server) = warp::serve(routes)

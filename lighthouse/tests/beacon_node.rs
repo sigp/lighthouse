@@ -4,7 +4,7 @@ use crate::exec::{CommandLineTestExec, CompletedTest};
 use lighthouse_network::PeerId;
 use std::fs::File;
 use std::io::Write;
-use std::net::{IpAddr, Ipv4Addr};
+use std::net::IpAddr;
 use std::path::PathBuf;
 use std::process::Command;
 use std::str::FromStr;
@@ -395,7 +395,7 @@ fn network_shutdown_after_sync_disabled_flag() {
 }
 #[test]
 fn network_listen_address_flag() {
-    let addr = "127.0.0.2".parse::<Ipv4Addr>().unwrap();
+    let addr = "127.0.0.2".parse::<IpAddr>().unwrap();
     CommandLineTest::new()
         .flag("listen-address", Some("127.0.0.2"))
         .run_with_zero_port()
@@ -627,9 +627,17 @@ fn http_flag() {
 }
 #[test]
 fn http_address_flag() {
-    let addr = "127.0.0.99".parse::<Ipv4Addr>().unwrap();
+    let addr = "127.0.0.99".parse::<IpAddr>().unwrap();
     CommandLineTest::new()
         .flag("http-address", Some("127.0.0.99"))
+        .run_with_zero_port()
+        .with_config(|config| assert_eq!(config.http_api.listen_addr, addr));
+}
+#[test]
+fn http_address_ipv6_flag() {
+    let addr = "::1".parse::<IpAddr>().unwrap();
+    CommandLineTest::new()
+        .flag("http-address", Some("::1"))
         .run_with_zero_port()
         .with_config(|config| assert_eq!(config.http_api.listen_addr, addr));
 }
@@ -704,10 +712,19 @@ fn metrics_flag() {
 }
 #[test]
 fn metrics_address_flag() {
-    let addr = "127.0.0.99".parse::<Ipv4Addr>().unwrap();
+    let addr = "127.0.0.99".parse::<IpAddr>().unwrap();
     CommandLineTest::new()
         .flag("metrics", None)
         .flag("metrics-address", Some("127.0.0.99"))
+        .run_with_zero_port()
+        .with_config(|config| assert_eq!(config.http_metrics.listen_addr, addr));
+}
+#[test]
+fn metrics_address_ipv6_flag() {
+    let addr = "::1".parse::<IpAddr>().unwrap();
+    CommandLineTest::new()
+        .flag("metrics", None)
+        .flag("metrics-address", Some("::1"))
         .run_with_zero_port()
         .with_config(|config| assert_eq!(config.http_metrics.listen_addr, addr));
 }
