@@ -182,8 +182,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                         BatchProcessResult::Failed {
                             imported_blocks: imported_blocks > 0,
                             peer_action: e.peer_action,
-                            // Fix after rebase
-                            mode: FailureMode::CL,
+                            mode: e.mode,
                         }
                     }
                     (imported_blocks, Ok(_)) => {

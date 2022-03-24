@@ -438,7 +438,7 @@ impl Engines {
             let is_offline = state == EngineState::Offline;
             if !is_offline {
                 match func(engine).await {
-                    Ok(h) => return Ok(h),
+                    Ok(h) => Ok(h),
                     Err(error) => {
                         debug!(
                             self.log,

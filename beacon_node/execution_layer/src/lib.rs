@@ -272,10 +272,6 @@ impl ExecutionLayer {
         &self.inner.executor
     }
 
-    pub async fn any_synced(&self) -> bool {
-        self.engines().any_synced().await
-    }
-
     /// Note: this function returns a mutex guard, be careful to avoid deadlocks.
     async fn execution_blocks(
         &self,
