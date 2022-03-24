@@ -475,7 +475,7 @@ pub enum ConnectionDirection {
 
 /// Connection Status of the peer.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(tag = "type")]
+#[serde(tag = "status")]
 #[serde(rename_all = "lowercase")]
 pub enum PeerConnectionStatus {
     /// The peer is connected.
