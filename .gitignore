@@ -8,3 +8,5 @@ perf.data*
 *.tar.gz
 /bin
 genesis.ssz
+/attestation_packing_problems
+*.tar.zst

@@ -762,6 +762,8 @@ where
             log: log.clone(),
             graffiti: self.graffiti,
             slasher: self.slasher.clone(),
+            // FIXME(sproul): plumb through
+            attestation_collector: Some(Default::default()),
             validator_monitor: RwLock::new(validator_monitor),
         };
 

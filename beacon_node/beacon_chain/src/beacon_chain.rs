@@ -48,6 +48,7 @@ use crate::validator_monitor::{
     HISTORIC_EPOCHS as VALIDATOR_MONITOR_HISTORIC_EPOCHS,
 };
 use crate::validator_pubkey_cache::ValidatorPubkeyCache;
+use crate::AttestationCollector;
 use crate::BeaconForkChoiceStore;
 use crate::BeaconSnapshot;
 use crate::{metrics, BeaconChainError};
@@ -59,7 +60,7 @@ use fork_choice::{AttestationFromBlock, ForkChoice, InvalidationOperation};
 use futures::channel::mpsc::Sender;
 use itertools::process_results;
 use itertools::Itertools;
-use operation_pool::{OperationPool, PersistedOperationPool};
+use operation_pool::{AttestationPackingProblem, OperationPool, PersistedOperationPool};
 use parking_lot::{Mutex, RwLock};
 use proto_array::ExecutionStatus;
 use safe_arith::SafeArith;
@@ -366,6 +367,8 @@ pub struct BeaconChain<T: BeaconChainTypes> {
     pub(crate) graffiti: Graffiti,
     /// Optional slasher.
     pub slasher: Option<Arc<Slasher<T::EthSpec>>>,
+    /// Optional raw attestation collector.
+    pub attestation_collector: Option<AttestationCollector<T::EthSpec>>,
     /// Provides monitoring of a set of explicitly defined validators.
     pub validator_monitor: RwLock<ValidatorMonitor<T::EthSpec>>,
 }
@@ -1871,6 +1874,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         let attestation = unaggregated_attestation.attestation();
 
+        if let Some(collector) = &self.attestation_collector {
+            collector.insert_unaggregated(
+                attestation.clone(),
+                unaggregated_attestation.indexed_attestation().clone(),
+            );
+        }
+
         match self.naive_aggregation_pool.write().insert(attestation) {
             Ok(outcome) => trace!(
                 self.log,
@@ -1977,6 +1987,14 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         verified_attestation: &impl VerifiedAttestation<T>,
     ) -> Result<(), AttestationError> {
         let _timer = metrics::start_timer(&metrics::ATTESTATION_PROCESSING_APPLY_TO_OP_POOL);
+
+        if let Some(collector) = &self.attestation_collector {
+            // FIXME(sproul): differentiate unaggregated from aggregated here?
+            collector.insert_aggregated(
+                verified_attestation.attestation().clone(),
+                verified_attestation.indexed_attestation().clone(),
+            );
+        }
 
         // If there's no eth1 chain then it's impossible to produce blocks and therefore
         // useless to put things in the op pool.
@@ -3080,8 +3098,24 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 curr_attestation_filter,
                 &self.spec,
             )
-            .map_err(BlockProductionError::OpPoolError)?
-            .into();
+            .map_err(BlockProductionError::OpPoolError)?;
+
+        if let Some(collector) = &self.attestation_collector {
+            if attestations.len() == <T::EthSpec as EthSpec>::MaxAttestations::to_usize() {
+                let (unaggregated, aggregated) = collector.dump_attestations(produce_at_slot);
+                let attestation_packing = AttestationPackingProblem::new(
+                    &state,
+                    unaggregated,
+                    aggregated,
+                    &attestations,
+                    &self.spec,
+                )?;
+                attestation_packing
+                    .write_to_dir(std::path::Path::new("attestation_packing_problems"))
+                    .map_err(BlockProductionError::UnableToWriteAttestationPacking)?;
+            }
+        }
+        let attestations = attestations.into();
         drop(attestation_packing_timer);
 
         let slot = state.slot();

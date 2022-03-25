@@ -211,6 +211,7 @@ pub enum BlockProductionError {
     FailedToReadFinalizedBlock(store::Error),
     MissingFinalizedBlock(Hash256),
     BlockTooLarge(usize),
+    UnableToWriteAttestationPacking(std::io::Error),
 }
 
 easy_from_to!(BlockProcessingError, BlockProductionError);

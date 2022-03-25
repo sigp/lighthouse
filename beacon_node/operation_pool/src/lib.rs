@@ -1,3 +1,4 @@
+mod analysis;
 mod attestation;
 mod attestation_id;
 mod attester_slashing;
@@ -6,6 +7,7 @@ mod metrics;
 mod persistence;
 mod sync_aggregate_id;
 
+pub use analysis::AttestationPackingProblem;
 pub use attestation::AttMaxCover;
 pub use max_cover::MaxCover;
 pub use persistence::{

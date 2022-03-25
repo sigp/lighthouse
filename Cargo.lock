@@ -4154,6 +4154,7 @@ version = "0.2.0"
 dependencies = [
  "beacon_chain",
  "derivative",
+ "eth2_serde_utils",
  "eth2_ssz",
  "eth2_ssz_derive 0.3.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "itertools",
@@ -4163,6 +4164,7 @@ dependencies = [
  "rayon",
  "serde",
  "serde_derive",
+ "serde_json",
  "state_processing",
  "store",
  "types",
