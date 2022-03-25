@@ -23,7 +23,7 @@ use beacon_chain::{
     observed_operations::ObservationOutcome,
     validator_monitor::{get_block_delay_ms, timestamp_now},
     AttestationError as AttnError, BeaconChain, BeaconChainError, BeaconChainTypes,
-    HeadSafetyStatus, WhenSlotSkipped,
+    HeadSafetyStatus, ProduceBlockVerification, WhenSlotSkipped,
 };
 use block_id::BlockId;
 use eth2::types::{self as api_types, EndpointVersion, ValidatorId};
@@ -46,7 +46,7 @@ use tokio::sync::mpsc::UnboundedSender;
 use tokio_stream::{wrappers::BroadcastStream, StreamExt};
 use types::{
     Attestation, AttesterSlashing, BeaconStateError, CommitteeCache, ConfigAndPreset, Epoch,
-    EthSpec, ForkName, ProposerPreparationData, ProposerSlashing, RelativeEpoch,
+    EthSpec, ForkName, ProposerPreparationData, ProposerSlashing, RelativeEpoch, Signature,
     SignedAggregateAndProof, SignedBeaconBlock, SignedContributionAndProof, SignedVoluntaryExit,
     Slot, SyncCommitteeMessage, SyncContributionData,
 };
@@ -1872,15 +1872,39 @@ pub fn serve<T: BeaconChainTypes>(
              query: api_types::ValidatorBlocksQuery,
              chain: Arc<BeaconChain<T>>| {
                 blocking_json_task(move || {
-                    let randao_reveal = (&query.randao_reveal).try_into().map_err(|e| {
-                        warp_utils::reject::custom_bad_request(format!(
-                            "randao reveal is not valid BLS signature: {:?}",
-                            e
-                        ))
-                    })?;
+                    let randao_reveal = query.randao_reveal.as_ref().map_or_else(
+                        || {
+                            if query.verify_randao {
+                                Err(warp_utils::reject::custom_bad_request(
+                                    "randao_reveal is mandatory unless verify_randao=false".into(),
+                                ))
+                            } else {
+                                Ok(Signature::empty())
+                            }
+                        },
+                        |sig_bytes| {
+                            sig_bytes.try_into().map_err(|e| {
+                                warp_utils::reject::custom_bad_request(format!(
+                                    "randao reveal is not a valid BLS signature: {:?}",
+                                    e
+                                ))
+                            })
+                        },
+                    )?;
+
+                    let randao_verification = if query.verify_randao {
+                        ProduceBlockVerification::VerifyRandao
+                    } else {
+                        ProduceBlockVerification::NoVerification
+                    };
 
                     let (block, _) = chain
-                        .produce_block(randao_reveal, slot, query.graffiti.map(Into::into))
+                        .produce_block_with_verification(
+                            randao_reveal,
+                            slot,
+                            query.graffiti.map(Into::into),
+                            randao_verification,
+                        )
                         .map_err(warp_utils::reject::block_production_error)?;
                     let fork_name = block
                         .to_ref()
