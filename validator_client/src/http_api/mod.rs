@@ -16,7 +16,7 @@ use slog::{crit, info, warn, Logger};
 use slot_clock::SlotClock;
 use std::future::Future;
 use std::marker::PhantomData;
-use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
+use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::path::PathBuf;
 use std::sync::{Arc, Weak};
 use tokio::runtime::Runtime;
@@ -69,7 +69,7 @@ pub struct Context<T: SlotClock, E: EthSpec> {
 #[derive(PartialEq, Debug, Clone, Serialize, Deserialize)]
 pub struct Config {
     pub enabled: bool,
-    pub listen_addr: Ipv4Addr,
+    pub listen_addr: IpAddr,
     pub listen_port: u16,
     pub allow_origin: Option<String>,
 }
@@ -78,7 +78,7 @@ impl Default for Config {
     fn default() -> Self {
         Self {
             enabled: false,
-            listen_addr: Ipv4Addr::new(127, 0, 0, 1),
+            listen_addr: IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)),
             listen_port: 5062,
             allow_origin: None,
         }
@@ -609,7 +609,7 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
         .with(cors_builder.build());
 
     let (listening_socket, server) = warp::serve(routes).try_bind_with_graceful_shutdown(
-        SocketAddrV4::new(config.listen_addr, config.listen_port),
+        SocketAddr::new(config.listen_addr, config.listen_port),
         async {
             shutdown.await;
         },

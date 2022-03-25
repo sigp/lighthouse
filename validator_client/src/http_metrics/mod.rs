@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 use slog::{crit, info, Logger};
 use slot_clock::SystemTimeSlotClock;
 use std::future::Future;
-use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
+use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::sync::Arc;
 use types::EthSpec;
 use warp::{http::Response, Filter};
@@ -53,7 +53,7 @@ pub struct Context<T: EthSpec> {
 #[derive(PartialEq, Debug, Clone, Serialize, Deserialize)]
 pub struct Config {
     pub enabled: bool,
-    pub listen_addr: Ipv4Addr,
+    pub listen_addr: IpAddr,
     pub listen_port: u16,
     pub allow_origin: Option<String>,
 }
@@ -62,7 +62,7 @@ impl Default for Config {
     fn default() -> Self {
         Self {
             enabled: false,
-            listen_addr: Ipv4Addr::new(127, 0, 0, 1),
+            listen_addr: IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)),
             listen_port: 5064,
             allow_origin: None,
         }
@@ -134,7 +134,7 @@ pub fn serve<T: EthSpec>(
         .with(cors_builder.build());
 
     let (listening_socket, server) = warp::serve(routes).try_bind_with_graceful_shutdown(
-        SocketAddrV4::new(config.listen_addr, config.listen_port),
+        SocketAddr::new(config.listen_addr, config.listen_port),
         async {
             shutdown.await;
         },

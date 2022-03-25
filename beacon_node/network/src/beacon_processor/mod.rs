@@ -38,9 +38,10 @@
 //! checks the queues to see if there are more parcels of work that can be spawned in a new worker
 //! task.
 
+use crate::sync::manager::BlockProcessType;
 use crate::{metrics, service::NetworkMessage, sync::SyncMessage};
 use beacon_chain::parking_lot::Mutex;
-use beacon_chain::{BeaconChain, BeaconChainTypes, BlockError, GossipVerifiedBlock};
+use beacon_chain::{BeaconChain, BeaconChainTypes, GossipVerifiedBlock};
 use futures::stream::{Stream, StreamExt};
 use futures::task::Poll;
 use lighthouse_network::{
@@ -57,7 +58,7 @@ use std::task::Context;
 use std::time::Duration;
 use std::{cmp, collections::HashSet};
 use task_executor::TaskExecutor;
-use tokio::sync::{mpsc, oneshot};
+use tokio::sync::mpsc;
 use types::{
     Attestation, AttesterSlashing, Hash256, ProposerSlashing, SignedAggregateAndProof,
     SignedBeaconBlock, SignedContributionAndProof, SignedVoluntaryExit, SubnetId,
@@ -74,7 +75,7 @@ mod work_reprocessing_queue;
 mod worker;
 
 use crate::beacon_processor::work_reprocessing_queue::QueuedBlock;
-pub use worker::{GossipAggregatePackage, GossipAttestationPackage, ProcessId};
+pub use worker::{ChainSegmentProcessId, GossipAggregatePackage, GossipAttestationPackage};
 
 /// The maximum size of the channel for work events to the `BeaconProcessor`.
 ///
@@ -195,10 +196,6 @@ pub const BLOCKS_BY_RANGE_REQUEST: &str = "blocks_by_range_request";
 pub const BLOCKS_BY_ROOTS_REQUEST: &str = "blocks_by_roots_request";
 pub const UNKNOWN_BLOCK_ATTESTATION: &str = "unknown_block_attestation";
 pub const UNKNOWN_BLOCK_AGGREGATE: &str = "unknown_block_aggregate";
-
-/// Used to send/receive results from a rpc block import in a blocking task.
-pub type BlockResultSender<E> = oneshot::Sender<Result<Hash256, BlockError<E>>>;
-pub type BlockResultReceiver<E> = oneshot::Receiver<Result<Hash256, BlockError<E>>>;
 
 /// A simple first-in-first-out queue with a maximum length.
 struct FifoQueue<T> {
@@ -496,18 +493,22 @@ impl<T: BeaconChainTypes> WorkEvent<T> {
     /// sent to the other side of `result_tx`.
     pub fn rpc_beacon_block(
         block: Box<SignedBeaconBlock<T::EthSpec>>,
-    ) -> (Self, BlockResultReceiver<T::EthSpec>) {
-        let (result_tx, result_rx) = oneshot::channel();
-        let event = Self {
+        seen_timestamp: Duration,
+        process_type: BlockProcessType,
+    ) -> Self {
+        Self {
             drop_during_sync: false,
-            work: Work::RpcBlock { block, result_tx },
-        };
-        (event, result_rx)
+            work: Work::RpcBlock {
+                block,
+                seen_timestamp,
+                process_type,
+            },
+        }
     }
 
     /// Create a new work event to import `blocks` as a beacon chain segment.
     pub fn chain_segment(
-        process_id: ProcessId,
+        process_id: ChainSegmentProcessId,
         blocks: Vec<SignedBeaconBlock<T::EthSpec>>,
     ) -> Self {
         Self {
@@ -692,10 +693,11 @@ pub enum Work<T: BeaconChainTypes> {
     },
     RpcBlock {
         block: Box<SignedBeaconBlock<T::EthSpec>>,
-        result_tx: BlockResultSender<T::EthSpec>,
+        seen_timestamp: Duration,
+        process_type: BlockProcessType,
     },
     ChainSegment {
-        process_id: ProcessId,
+        process_id: ChainSegmentProcessId,
         blocks: Vec<SignedBeaconBlock<T::EthSpec>>,
     },
     Status {
@@ -1488,10 +1490,15 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                     /*
                      * Verification for beacon blocks received during syncing via RPC.
                      */
-                    Work::RpcBlock { block, result_tx } => {
+                    Work::RpcBlock {
+                        block,
+                        seen_timestamp,
+                        process_type,
+                    } => {
                         worker.process_rpc_block(
                             *block,
-                            result_tx,
+                            seen_timestamp,
+                            process_type,
                             work_reprocessing_tx.clone(),
                             duplicate_cache,
                         );
