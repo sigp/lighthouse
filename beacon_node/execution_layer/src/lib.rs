@@ -4,7 +4,6 @@
 //! This crate only provides useful functionality for "The Merge", it does not provide any of the
 //! deposit-contract functionality that the `beacon_node/eth1` crate already provides.
 
-use crate::http::BuilderHttpJsonRpc;
 use auth::{Auth, JwtKey};
 use engine_api::{Error as ApiError, *};
 use engines::{Engine, EngineError, Engines, ForkChoiceState, Logging};
@@ -31,6 +30,8 @@ use types::{
     ProposerPreparationData, SignedBeaconBlock, Slot,
 };
 
+use crate::engine_api::Builder;
+use crate::engines::Builders;
 pub use engine_api::*;
 pub use engine_api::{http, http::HttpJsonRpc};
 pub use payload_status::PayloadStatus;
@@ -99,8 +100,8 @@ pub struct Proposer {
 }
 
 struct Inner {
-    engines: Engines<HttpJsonRpc>,
-    builders: Engines<BuilderHttpJsonRpc>,
+    engines: Engines,
+    builders: Builders,
     execution_engine_forkchoice_lock: Mutex<()>,
     suggested_fee_recipient: Option<Address>,
     proposer_preparation_data: Mutex<HashMap<u64, ProposerPreparationDataEntry>>,
@@ -212,24 +213,24 @@ impl ExecutionLayer {
             .collect::<Result<_, _>>()
             .map_err(Error::InvalidJWTSecret)?;
 
-        let engines: Vec<Engine<_>> = urls
+        let engines: Vec<Engine<EngineApi>> = urls
             .into_iter()
             .zip(secrets.into_iter())
             .map(|(url, (secret, path))| {
                 let id = url.to_string();
                 let auth = Auth::new(secret, jwt_id.clone(), jwt_version.clone());
                 debug!(log, "Loaded execution endpoint"; "endpoint" => %id, "jwt_path" => ?path);
-                let api = HttpJsonRpc::new_with_auth(url, auth)?;
-                Ok(Engine::new(id, api))
+                let api = HttpJsonRpc::<EngineApi>::new_with_auth(url, auth)?;
+                Ok(Engine::<EngineApi>::new(id, api))
             })
             .collect::<Result<_, ApiError>>()?;
 
-        let builders: Vec<Engine<BuilderHttpJsonRpc>> = builder_urls
+        let builders: Vec<Engine<BuilderApi>> = builder_urls
             .into_iter()
             .map(|url| {
                 let id = url.to_string();
-                let api = BuilderHttpJsonRpc::new(url)?;
-                Ok(Engine::new_builder(id, api))
+                let api = HttpJsonRpc::<BuilderApi>::new(url)?;
+                Ok(Engine::<BuilderApi>::new(id, api))
             })
             .collect::<Result<_, ApiError>>()?;
 
@@ -239,9 +240,8 @@ impl ExecutionLayer {
                 latest_forkchoice_state: <_>::default(),
                 log: log.clone(),
             },
-            builders: Engines {
-                engines: builders,
-                latest_forkchoice_state: <_>::default(),
+            builders: Builders {
+                builders,
                 log: log.clone(),
             },
             execution_engine_forkchoice_lock: <_>::default(),
@@ -260,11 +260,11 @@ impl ExecutionLayer {
 }
 
 impl ExecutionLayer {
-    fn engines(&self) -> &Engines<HttpJsonRpc> {
+    fn engines(&self) -> &Engines {
         &self.inner.engines
     }
 
-    fn builders(&self) -> &Engines<BuilderHttpJsonRpc> {
+    fn builders(&self) -> &Builders {
         &self.inner.builders
     }
 
@@ -596,7 +596,7 @@ impl ExecutionLayer {
                 );
                 self.builders()
                     .first_success_without_retry(|engine| async move {
-                        let payload_id = if let Some(id) = engine
+                        let payload_id = engine
                             .get_payload_id(
                                 parent_hash,
                                 timestamp,
@@ -604,37 +604,12 @@ impl ExecutionLayer {
                                 suggested_fee_recipient,
                             )
                             .await
-                        {
-                            // The payload id has been cached for this engine.
-                            id
-                        } else {
-                            // The payload id has *not* been cached for this engine. Trigger an artificial
-                            // fork choice update to retrieve a payload ID.
-                            //
-                            // TODO(merge): a better algorithm might try to favour a node that already had a
-                            // cached payload id, since a payload that has had more time to produce is
-                            // likely to be more profitable.
-                            let fork_choice_state = ForkChoiceState {
-                                head_block_hash: parent_hash,
-                                safe_block_hash: parent_hash,
-                                finalized_block_hash,
-                            };
-                            let payload_attributes = PayloadAttributes {
+                            .ok_or(ApiError::MissingPayloadId {
+                                parent_hash,
                                 timestamp,
                                 prev_randao,
                                 suggested_fee_recipient,
-                            };
-
-                            engine
-                                .notify_forkchoice_updated(
-                                    fork_choice_state,
-                                    Some(payload_attributes),
-                                    self.log(),
-                                )
-                                .await
-                                .map(|response| response.payload_id)?
-                                .ok_or(ApiError::PayloadIdUnavailable)?
-                        };
+                            })?;
                         engine
                             .api
                             .get_payload_header_v1::<T>(payload_id)
@@ -892,9 +867,6 @@ impl ExecutionLayer {
         self.engines()
             .set_latest_forkchoice_state(forkchoice_state)
             .await;
-        self.builders()
-            .set_latest_forkchoice_state(forkchoice_state)
-            .await;
 
         let broadcast_results = self
             .engines()
@@ -906,32 +878,25 @@ impl ExecutionLayer {
             .await;
 
         // Only query builders with payload attributes populated.
-        if payload_attributes.is_some() {
-            let builder_broadcast_results = self
-                .builders()
+        let builder_broadcast_results = if payload_attributes.is_some() {
+            self.builders()
                 .broadcast_without_retry(|engine| async move {
                     engine
                         .notify_forkchoice_updated(forkchoice_state, payload_attributes, self.log())
                         .await
                 })
-                .await;
-            process_multiple_payload_statuses(
-                head_block_hash,
-                broadcast_results
-                    .into_iter()
-                    .chain(builder_broadcast_results.into_iter())
-                    .map(|result| result.map(|response| response.payload_status)),
-                self.log(),
-            )
+                .await
         } else {
-            process_multiple_payload_statuses(
-                head_block_hash,
-                broadcast_results
-                    .into_iter()
-                    .map(|result| result.map(|response| response.payload_status)),
-                self.log(),
-            )
-        }
+            vec![]
+        };
+        process_multiple_payload_statuses(
+            head_block_hash,
+            broadcast_results
+                .into_iter()
+                .chain(builder_broadcast_results.into_iter())
+                .map(|result| result.map(|response| response.payload_status)),
+            self.log(),
+        )
     }
 
     pub async fn exchange_transition_configuration(&self, spec: &ChainSpec) -> Result<(), Error> {
@@ -1055,7 +1020,7 @@ impl ExecutionLayer {
     /// https://github.com/ethereum/consensus-specs/blob/v1.1.5/specs/merge/validator.md
     async fn get_pow_block_hash_at_total_difficulty(
         &self,
-        engine: &Engine<HttpJsonRpc>,
+        engine: &Engine<EngineApi>,
         spec: &ChainSpec,
     ) -> Result<Option<ExecutionBlockHash>, ApiError> {
         let mut block = engine
@@ -1199,7 +1164,7 @@ impl ExecutionLayer {
     /// https://github.com/ethereum/consensus-specs/issues/2636
     async fn get_pow_block(
         &self,
-        engine: &Engine<HttpJsonRpc>,
+        engine: &Engine<EngineApi>,
         hash: ExecutionBlockHash,
     ) -> Result<Option<ExecutionBlock>, ApiError> {
         if let Some(cached) = self.execution_blocks().await.get(&hash).copied() {

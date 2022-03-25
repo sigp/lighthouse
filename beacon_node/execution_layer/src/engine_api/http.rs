@@ -3,12 +3,12 @@
 use super::*;
 use crate::auth::Auth;
 use crate::json_structures::*;
-use async_trait::async_trait;
 use eth1::http::EIP155_ERROR_STR;
 use reqwest::header::CONTENT_TYPE;
 use sensitive_url::SensitiveUrl;
 use serde::de::DeserializeOwned;
 use serde_json::json;
+use std::marker::PhantomData;
 use std::time::Duration;
 use types::{BlindedPayload, EthSpec, ExecutionPayloadHeader, SignedBeaconBlock};
 
@@ -48,18 +48,20 @@ pub const BUILDER_GET_PAYLOAD_HEADER_TIMEOUT: Duration = Duration::from_secs(2);
 pub const BUILDER_PROPOSE_BLINDED_BLOCK_V1: &str = "builder_proposeBlindedBlockV1";
 pub const BUILDER_PROPOSE_BLINDED_BLOCK_TIMEOUT: Duration = Duration::from_secs(2);
 
-pub struct HttpJsonRpc {
+pub struct HttpJsonRpc<T = EngineApi> {
     pub client: Client,
     pub url: SensitiveUrl,
     auth: Option<Auth>,
+    _phantom: PhantomData<T>,
 }
 
-impl HttpJsonRpc {
+impl<T> HttpJsonRpc<T> {
     pub fn new(url: SensitiveUrl) -> Result<Self, Error> {
         Ok(Self {
             client: Client::builder().build()?,
             url,
             auth: None,
+            _phantom: PhantomData,
         })
     }
 
@@ -68,15 +70,16 @@ impl HttpJsonRpc {
             client: Client::builder().build()?,
             url,
             auth: Some(auth),
+            _phantom: PhantomData,
         })
     }
 
-    pub async fn rpc_request<T: DeserializeOwned>(
+    pub async fn rpc_request<D: DeserializeOwned>(
         &self,
         method: &str,
         params: serde_json::Value,
         timeout: Duration,
-    ) -> Result<T, Error> {
+    ) -> Result<D, Error> {
         let body = JsonRequestBody {
             jsonrpc: JSONRPC_VERSION,
             method,
@@ -114,9 +117,8 @@ impl HttpJsonRpc {
     }
 }
 
-#[async_trait]
-impl EngineApi for HttpJsonRpc {
-    async fn upcheck(&self) -> Result<(), Error> {
+impl HttpJsonRpc<EngineApi> {
+    pub async fn upcheck(&self) -> Result<(), Error> {
         let result: serde_json::Value = self
             .rpc_request(ETH_SYNCING, json!([]), ETH_SYNCING_TIMEOUT)
             .await?;
@@ -133,7 +135,7 @@ impl EngineApi for HttpJsonRpc {
         }
     }
 
-    async fn get_block_by_number<'a>(
+    pub async fn get_block_by_number<'a>(
         &self,
         query: BlockByNumberQuery<'a>,
     ) -> Result<Option<ExecutionBlock>, Error> {
@@ -147,7 +149,7 @@ impl EngineApi for HttpJsonRpc {
         .await
     }
 
-    async fn get_block_by_hash<'a>(
+    pub async fn get_block_by_hash<'a>(
         &self,
         block_hash: ExecutionBlockHash,
     ) -> Result<Option<ExecutionBlock>, Error> {
@@ -157,7 +159,7 @@ impl EngineApi for HttpJsonRpc {
             .await
     }
 
-    async fn new_payload_v1<T: EthSpec>(
+    pub async fn new_payload_v1<T: EthSpec>(
         &self,
         execution_payload: ExecutionPayload<T>,
     ) -> Result<PayloadStatusV1, Error> {
@@ -170,7 +172,7 @@ impl EngineApi for HttpJsonRpc {
         Ok(response.into())
     }
 
-    async fn get_payload_v1<T: EthSpec>(
+    pub async fn get_payload_v1<T: EthSpec>(
         &self,
         payload_id: PayloadId,
     ) -> Result<ExecutionPayload<T>, Error> {
@@ -183,7 +185,7 @@ impl EngineApi for HttpJsonRpc {
         Ok(response.into())
     }
 
-    async fn forkchoice_updated_v1(
+    pub async fn forkchoice_updated_v1(
         &self,
         forkchoice_state: ForkChoiceState,
         payload_attributes: Option<PayloadAttributes>,
@@ -204,7 +206,7 @@ impl EngineApi for HttpJsonRpc {
         Ok(response.into())
     }
 
-    async fn exchange_transition_configuration_v1(
+    pub async fn exchange_transition_configuration_v1(
         &self,
         transition_configuration: TransitionConfigurationV1,
     ) -> Result<TransitionConfigurationV1, Error> {
@@ -222,80 +224,8 @@ impl EngineApi for HttpJsonRpc {
     }
 }
 
-pub struct BuilderHttpJsonRpc(HttpJsonRpc);
-
-impl BuilderHttpJsonRpc {
-    pub fn new(url: SensitiveUrl) -> Result<Self, Error> {
-        HttpJsonRpc::new(url).map(Self)
-    }
-
-    pub async fn rpc_request<T: DeserializeOwned>(
-        &self,
-        method: &str,
-        params: serde_json::Value,
-        timeout: Duration,
-    ) -> Result<T, Error> {
-        self.0.rpc_request(method, params, timeout).await
-    }
-}
-
-#[async_trait]
-impl EngineApi for BuilderHttpJsonRpc {
-    async fn upcheck(&self) -> Result<(), Error> {
-        self.0.upcheck().await
-    }
-
-    async fn get_block_by_number<'a>(
-        &self,
-        query: BlockByNumberQuery<'a>,
-    ) -> Result<Option<ExecutionBlock>, Error> {
-        self.0.get_block_by_number(query).await
-    }
-
-    async fn get_block_by_hash<'a>(
-        &self,
-        block_hash: ExecutionBlockHash,
-    ) -> Result<Option<ExecutionBlock>, Error> {
-        self.0.get_block_by_hash(block_hash).await
-    }
-
-    async fn new_payload_v1<T: EthSpec>(
-        &self,
-        execution_payload: ExecutionPayload<T>,
-    ) -> Result<PayloadStatusV1, Error> {
-        self.0.new_payload_v1(execution_payload).await
-    }
-
-    async fn get_payload_v1<T: EthSpec>(
-        &self,
-        payload_id: PayloadId,
-    ) -> Result<ExecutionPayload<T>, Error> {
-        self.0.get_payload_v1(payload_id).await
-    }
-
-    async fn forkchoice_updated_v1(
-        &self,
-        forkchoice_state: ForkChoiceState,
-        payload_attributes: Option<PayloadAttributes>,
-    ) -> Result<ForkchoiceUpdatedResponse, Error> {
-        self.0
-            .forkchoice_updated_v1(forkchoice_state, payload_attributes)
-            .await
-    }
-
-    async fn exchange_transition_configuration_v1(
-        &self,
-        transition_configuration: TransitionConfigurationV1,
-    ) -> Result<TransitionConfigurationV1, Error> {
-        self.0
-            .exchange_transition_configuration_v1(transition_configuration)
-            .await
-    }
-}
-
-#[async_trait]
-impl BuilderApi for BuilderHttpJsonRpc {
-    async fn get_payload_header_v1<T: EthSpec>(
+impl HttpJsonRpc<BuilderApi> {
+    pub async fn get_payload_header_v1<T: EthSpec>(
         &self,
         payload_id: PayloadId,
     ) -> Result<ExecutionPayloadHeader<T>, Error> {
@@ -312,7 +242,28 @@ impl BuilderApi for BuilderHttpJsonRpc {
         Ok(response.into())
     }
 
-    async fn propose_blinded_block_v1<T: EthSpec>(
+    pub async fn forkchoice_updated_v1(
+        &self,
+        forkchoice_state: ForkChoiceState,
+        payload_attributes: Option<PayloadAttributes>,
+    ) -> Result<ForkchoiceUpdatedResponse, Error> {
+        let params = json!([
+            JsonForkChoiceStateV1::from(forkchoice_state),
+            payload_attributes.map(JsonPayloadAttributesV1::from)
+        ]);
+
+        let response: JsonForkchoiceUpdatedV1Response = self
+            .rpc_request(
+                ENGINE_FORKCHOICE_UPDATED_V1,
+                params,
+                ENGINE_FORKCHOICE_UPDATED_TIMEOUT,
+            )
+            .await?;
+
+        Ok(response.into())
+    }
+
+    pub async fn propose_blinded_block_v1<T: EthSpec>(
         &self,
         block: SignedBeaconBlock<T, BlindedPayload<T>>,
     ) -> Result<ExecutionPayload<T>, Error> {
