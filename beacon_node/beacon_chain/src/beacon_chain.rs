@@ -147,6 +147,12 @@ pub enum ChainSegmentResult<T: EthSpec> {
     },
 }
 
+/// Configure the signature verification of produced blocks.
+pub enum ProduceBlockVerification {
+    VerifyRandao,
+    NoVerification,
+}
+
 /// The accepted clock drift for nodes gossiping blocks and attestations. See:
 ///
 /// https://github.com/ethereum/eth2.0-specs/blob/v0.12.1/specs/phase0/p2p-interface.md#configuration
@@ -2892,6 +2898,22 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         slot: Slot,
         validator_graffiti: Option<Graffiti>,
     ) -> Result<BeaconBlockAndState<T::EthSpec>, BlockProductionError> {
+        self.produce_block_with_verification(
+            randao_reveal,
+            slot,
+            validator_graffiti,
+            ProduceBlockVerification::VerifyRandao,
+        )
+    }
+
+    /// Same as `produce_block` but allowing for configuration of RANDAO-verification.
+    pub fn produce_block_with_verification(
+        &self,
+        randao_reveal: Signature,
+        slot: Slot,
+        validator_graffiti: Option<Graffiti>,
+        verification: ProduceBlockVerification,
+    ) -> Result<BeaconBlockAndState<T::EthSpec>, BlockProductionError> {
         metrics::inc_counter(&metrics::BLOCK_PRODUCTION_REQUESTS);
         let _complete_timer = metrics::start_timer(&metrics::BLOCK_PRODUCTION_TIMES);
 
@@ -2948,6 +2970,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             slot,
             randao_reveal,
             validator_graffiti,
+            verification,
         )
     }
 
@@ -2970,6 +2993,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         produce_at_slot: Slot,
         randao_reveal: Signature,
         validator_graffiti: Option<Graffiti>,
+        verification: ProduceBlockVerification,
     ) -> Result<BeaconBlockAndState<T::EthSpec>, BlockProductionError> {
         let eth1_chain = self
             .eth1_chain
@@ -3160,11 +3184,15 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         }
 
         let process_timer = metrics::start_timer(&metrics::BLOCK_PRODUCTION_PROCESS_TIMES);
+        let signature_strategy = match verification {
+            ProduceBlockVerification::VerifyRandao => BlockSignatureStrategy::VerifyRandao,
+            ProduceBlockVerification::NoVerification => BlockSignatureStrategy::NoVerification,
+        };
         per_block_processing(
             &mut state,
             &block,
             None,
-            BlockSignatureStrategy::VerifyRandao,
+            signature_strategy,
             VerifyBlockRoot::True,
             &self.spec,
         )?;

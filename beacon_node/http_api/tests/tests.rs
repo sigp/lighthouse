@@ -1919,6 +1919,104 @@ impl ApiTester {
         self
     }
 
+    pub async fn test_block_production_no_verify_randao(self) -> Self {
+        for _ in 0..E::slots_per_epoch() {
+            let slot = self.chain.slot().unwrap();
+
+            let block = self
+                .client
+                .get_validator_blocks_with_verify_randao::<E>(slot, None, None, Some(false))
+                .await
+                .unwrap()
+                .data;
+            assert_eq!(block.slot(), slot);
+            self.chain.slot_clock.set_slot(slot.as_u64() + 1);
+        }
+
+        self
+    }
+
+    pub async fn test_block_production_verify_randao_invalid(self) -> Self {
+        let fork = self.chain.head_info().unwrap().fork;
+        let genesis_validators_root = self.chain.genesis_validators_root;
+
+        for _ in 0..E::slots_per_epoch() {
+            let slot = self.chain.slot().unwrap();
+            let epoch = self.chain.epoch().unwrap();
+
+            let proposer_pubkey_bytes = self
+                .client
+                .get_validator_duties_proposer(epoch)
+                .await
+                .unwrap()
+                .data
+                .into_iter()
+                .find(|duty| duty.slot == slot)
+                .map(|duty| duty.pubkey)
+                .unwrap();
+            let proposer_pubkey = (&proposer_pubkey_bytes).try_into().unwrap();
+
+            let sk = self
+                .validator_keypairs
+                .iter()
+                .find(|kp| kp.pk == proposer_pubkey)
+                .map(|kp| kp.sk.clone())
+                .unwrap();
+
+            let bad_randao_reveal = {
+                let domain = self.chain.spec.get_domain(
+                    epoch,
+                    Domain::Randao,
+                    &fork,
+                    genesis_validators_root,
+                );
+                let message = (epoch + 1).signing_root(domain);
+                sk.sign(message).into()
+            };
+
+            // Check failure with no `verify_randao` passed.
+            self.client
+                .get_validator_blocks::<E>(slot, &bad_randao_reveal, None)
+                .await
+                .unwrap_err();
+
+            // Check failure with `verify_randao=true`.
+            self.client
+                .get_validator_blocks_with_verify_randao::<E>(
+                    slot,
+                    Some(&bad_randao_reveal),
+                    None,
+                    Some(true),
+                )
+                .await
+                .unwrap_err();
+
+            // Check failure with no randao reveal provided.
+            self.client
+                .get_validator_blocks_with_verify_randao::<E>(slot, None, None, None)
+                .await
+                .unwrap_err();
+
+            // Check success with `verify_randao=false`.
+            let block = self
+                .client
+                .get_validator_blocks_with_verify_randao::<E>(
+                    slot,
+                    Some(&bad_randao_reveal),
+                    None,
+                    Some(false),
+                )
+                .await
+                .unwrap()
+                .data;
+
+            assert_eq!(block.slot(), slot);
+            self.chain.slot_clock.set_slot(slot.as_u64() + 1);
+        }
+
+        self
+    }
+
     pub async fn test_get_validator_attestation_data(self) -> Self {
         let mut state = self.chain.head_beacon_state().unwrap();
         let slot = state.slot();
@@ -2767,6 +2865,22 @@ async fn block_production_with_skip_slots() {
         .await
         .skip_slots(E::slots_per_epoch() * 2)
         .test_block_production()
+        .await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn block_production_no_verify_randao() {
+    ApiTester::new()
+        .await
+        .test_block_production_no_verify_randao()
+        .await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn block_production_verify_randao_invalid() {
+    ApiTester::new()
+        .await
+        .test_block_production_verify_randao_invalid()
         .await;
 }
 

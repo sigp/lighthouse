@@ -2,7 +2,7 @@ pub use crate::persisted_beacon_chain::PersistedBeaconChain;
 pub use crate::{
     beacon_chain::{BEACON_CHAIN_DB_KEY, ETH1_CACHE_DB_KEY, FORK_CHOICE_DB_KEY, OP_POOL_DB_KEY},
     migrate::MigratorConfig,
-    BeaconChainError,
+    BeaconChainError, ProduceBlockVerification,
 };
 use crate::{
     builder::{BeaconChainBuilder, Witness},
@@ -604,7 +604,14 @@ where
 
         let (block, state) = self
             .chain
-            .produce_block_on_state(state, None, slot, randao_reveal, Some(graffiti))
+            .produce_block_on_state(
+                state,
+                None,
+                slot,
+                randao_reveal,
+                Some(graffiti),
+                ProduceBlockVerification::VerifyRandao,
+            )
             .unwrap();
 
         let signed_block = block.sign(
@@ -658,7 +665,14 @@ where
 
         let (block, state) = self
             .chain
-            .produce_block_on_state(state, None, slot, randao_reveal, Some(graffiti))
+            .produce_block_on_state(
+                state,
+                None,
+                slot,
+                randao_reveal,
+                Some(graffiti),
+                ProduceBlockVerification::VerifyRandao,
+            )
             .unwrap();
 
         let signed_block = block.sign(
