@@ -93,7 +93,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
             Arg::with_name("target-peers")
                 .long("target-peers")
                 .help("The target number of peers.")
-                .default_value("50")
+                .default_value("80")
                 .takes_value(true),
         )
         .arg(
@@ -186,6 +186,12 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .value_name("TRUSTED_PEERS")
                 .help("One or more comma-delimited trusted peer ids which always have the highest score according to the peer scoring system.")
                 .takes_value(true),
+        )
+        .arg(
+            Arg::with_name("enable-private-discovery")
+                .long("enable-private-discovery")
+                .help("Lighthouse by default does not discover private IP addresses. Set this flag to enable connection attempts to local addresses.")
+                .takes_value(false),
         )
         /* REST API related arguments */
         .arg(
@@ -390,6 +396,35 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                        given order. Also enables the --merge flag. \
                        If this flag is omitted and the --eth1-endpoints is supplied, those values \
                        will be used. Defaults to http://127.0.0.1:8545.")
+                .takes_value(true)
+        )
+        .arg(
+            Arg::with_name("jwt-secrets")
+                .long("jwt-secrets")
+                .value_name("JWT-SECRETS")
+                .help("One or more comma-delimited file paths which contain the corresponding hex-encoded \
+                       JWT secrets for each execution endpoint provided in the --execution-endpoints flag. \
+                       The number of paths should be in the same order and strictly equal to the number \
+                       of execution endpoints provided.")
+                .takes_value(true)
+                .requires("execution-endpoints")
+        )
+        .arg(
+            Arg::with_name("jwt-id")
+                .long("jwt-id")
+                .value_name("JWT-ID")
+                .help("Used by the beacon node to communicate a unique identifier to execution nodes \
+                       during JWT authentication. It corresponds to the 'id' field in the JWT claims object.\
+                       Set to empty by deafult")
+                .takes_value(true)
+        )
+        .arg(
+            Arg::with_name("jwt-version")
+                .long("jwt-version")
+                .value_name("JWT-VERSION")
+                .help("Used by the beacon node to communicate a client version to execution nodes \
+                       during JWT authentication. It corresponds to the 'clv' field in the JWT claims object.\
+                       Set to empty by deafult")
                 .takes_value(true)
         )
         .arg(

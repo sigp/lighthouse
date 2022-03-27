@@ -7,7 +7,7 @@ use eth2_keystore::{
     json_keystore::{Kdf, Pbkdf2, Prf, Scrypt},
     Error, Keystore, KeystoreBuilder, DKLEN,
 };
-use std::fs::OpenOptions;
+use std::fs::File;
 use tempfile::tempdir;
 
 const GOOD_PASSWORD: &[u8] = &[42, 42, 42];
@@ -55,7 +55,7 @@ fn file() {
     let path = dir.path().join("keystore.json");
 
     let get_file = || {
-        OpenOptions::new()
+        File::options()
             .write(true)
             .read(true)
             .create(true)

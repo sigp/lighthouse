@@ -326,7 +326,7 @@ impl<T: EthSpec> ExecutionBlockGenerator<T> {
                     receipts_root: Hash256::repeat_byte(42),
                     state_root: Hash256::repeat_byte(43),
                     logs_bloom: vec![0; 256].into(),
-                    random: attributes.random,
+                    prev_randao: attributes.prev_randao,
                     block_number: parent.block_number() + 1,
                     gas_limit: GAS_LIMIT,
                     gas_used: GAS_USED,

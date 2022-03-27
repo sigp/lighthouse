@@ -8,12 +8,11 @@
 mod processor;
 
 use crate::error;
-use crate::service::NetworkMessage;
+use crate::service::{NetworkMessage, RequestId};
 use beacon_chain::{BeaconChain, BeaconChainTypes};
 use futures::prelude::*;
 use lighthouse_network::{
-    rpc::RequestId, MessageId, NetworkGlobals, PeerId, PeerRequestId, PubsubMessage, Request,
-    Response,
+    MessageId, NetworkGlobals, PeerId, PeerRequestId, PubsubMessage, Request, Response,
 };
 use processor::Processor;
 use slog::{debug, o, trace};

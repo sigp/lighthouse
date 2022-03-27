@@ -1,4 +1,4 @@
-use crate::sync::RequestId;
+use crate::sync::manager::Id;
 use lighthouse_network::rpc::methods::BlocksByRangeRequest;
 use lighthouse_network::PeerId;
 use std::collections::HashSet;
@@ -93,7 +93,7 @@ pub enum BatchState<T: EthSpec> {
     /// The batch has failed either downloading or processing, but can be requested again.
     AwaitingDownload,
     /// The batch is being downloaded.
-    Downloading(PeerId, Vec<SignedBeaconBlock<T>>, RequestId),
+    Downloading(PeerId, Vec<SignedBeaconBlock<T>>, Id),
     /// The batch has been completely downloaded and is ready for processing.
     AwaitingProcessing(PeerId, Vec<SignedBeaconBlock<T>>),
     /// The batch is being processed.
@@ -167,7 +167,7 @@ impl<T: EthSpec, B: BatchConfig> BatchInfo<T, B> {
     }
 
     /// Verifies if an incomming block belongs to this batch.
-    pub fn is_expecting_block(&self, peer_id: &PeerId, request_id: &RequestId) -> bool {
+    pub fn is_expecting_block(&self, peer_id: &PeerId, request_id: &Id) -> bool {
         if let BatchState::Downloading(expected_peer, _, expected_id) = &self.state {
             return peer_id == expected_peer && expected_id == request_id;
         }
@@ -312,7 +312,7 @@ impl<T: EthSpec, B: BatchConfig> BatchInfo<T, B> {
     pub fn start_downloading_from_peer(
         &mut self,
         peer: PeerId,
-        request_id: RequestId,
+        request_id: Id,
     ) -> Result<(), WrongState> {
         match self.state.poison() {
             BatchState::AwaitingDownload => {

@@ -46,7 +46,7 @@ still function if it is behind a NAT without any port mappings. Although
 Lighthouse still functions, we recommend that some mechanism is used to ensure
 that your Lighthouse node is publicly accessible. This will typically improve
 your peer count, allow the scoring system to find the best/most favourable
-peers for your node and overall improve the eth2 network.
+peers for your node and overall improve the Ethereum consensus network.
 
 Lighthouse currently supports UPnP. If UPnP is enabled on your router,
 Lighthouse will automatically establish the port mappings for you (the beacon
@@ -63,7 +63,7 @@ settings allow you construct your initial ENR. Their primary intention is for
 setting up boot-like nodes and having a contactable ENR on boot. On normal
 operation of a Lighthouse node, none of these flags need to be set. Setting
 these flags incorrectly can lead to your node being incorrectly added to the
-global DHT which will degrades the discovery process for all Eth2 peers.
+global DHT which will degrades the discovery process for all Ethereum consensus peers.
 
 The ENR of a Lighthouse node is initially set to be non-contactable. The
 in-built discovery mechanism can determine if you node is publicly accessible,

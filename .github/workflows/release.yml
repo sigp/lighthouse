@@ -46,9 +46,9 @@ jobs:
                     -   arch: x86_64-apple-darwin-portable
                         platform: macos-latest
                     -   arch: x86_64-windows
-                        platform: windows-latest
+                        platform: windows-2019
                     -   arch: x86_64-windows-portable
-                        platform: windows-latest
+                        platform: windows-2019
 
         runs-on:    ${{ matrix.platform }}
         needs: extract-version

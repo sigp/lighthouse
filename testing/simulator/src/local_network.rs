@@ -55,6 +55,7 @@ impl<E: EthSpec> LocalNetwork<E> {
         beacon_config.network.libp2p_port = BOOTNODE_PORT;
         beacon_config.network.enr_udp_port = Some(BOOTNODE_PORT);
         beacon_config.network.enr_tcp_port = Some(BOOTNODE_PORT);
+        beacon_config.network.discv5_config.table_filter = |_| true;
         let beacon_node =
             LocalBeaconNode::production(context.service_context("boot_node".into()), beacon_config)
                 .await?;
@@ -103,6 +104,7 @@ impl<E: EthSpec> LocalNetwork<E> {
             beacon_config.network.libp2p_port = BOOTNODE_PORT + count;
             beacon_config.network.enr_udp_port = Some(BOOTNODE_PORT + count);
             beacon_config.network.enr_tcp_port = Some(BOOTNODE_PORT + count);
+            beacon_config.network.discv5_config.table_filter = |_| true;
         }
 
         let mut write_lock = self_1.beacon_nodes.write();

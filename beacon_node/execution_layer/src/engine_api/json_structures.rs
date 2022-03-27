@@ -65,7 +65,7 @@ pub struct JsonExecutionPayloadV1<T: EthSpec> {
     pub receipts_root: Hash256,
     #[serde(with = "serde_logs_bloom")]
     pub logs_bloom: FixedVector<u8, T::BytesPerLogsBloom>,
-    pub random: Hash256,
+    pub prev_randao: Hash256,
     #[serde(with = "eth2_serde_utils::u64_hex_be")]
     pub block_number: u64,
     #[serde(with = "eth2_serde_utils::u64_hex_be")]
@@ -92,7 +92,7 @@ impl<T: EthSpec> From<ExecutionPayload<T>> for JsonExecutionPayloadV1<T> {
             state_root,
             receipts_root,
             logs_bloom,
-            random,
+            prev_randao,
             block_number,
             gas_limit,
             gas_used,
@@ -109,7 +109,7 @@ impl<T: EthSpec> From<ExecutionPayload<T>> for JsonExecutionPayloadV1<T> {
             state_root,
             receipts_root,
             logs_bloom,
-            random,
+            prev_randao,
             block_number,
             gas_limit,
             gas_used,
@@ -131,7 +131,7 @@ impl<T: EthSpec> From<JsonExecutionPayloadV1<T>> for ExecutionPayload<T> {
             state_root,
             receipts_root,
             logs_bloom,
-            random,
+            prev_randao,
             block_number,
             gas_limit,
             gas_used,
@@ -148,7 +148,7 @@ impl<T: EthSpec> From<JsonExecutionPayloadV1<T>> for ExecutionPayload<T> {
             state_root,
             receipts_root,
             logs_bloom,
-            random,
+            prev_randao,
             block_number,
             gas_limit,
             gas_used,
@@ -166,7 +166,7 @@ impl<T: EthSpec> From<JsonExecutionPayloadV1<T>> for ExecutionPayload<T> {
 pub struct JsonPayloadAttributesV1 {
     #[serde(with = "eth2_serde_utils::u64_hex_be")]
     pub timestamp: u64,
-    pub random: Hash256,
+    pub prev_randao: Hash256,
     pub suggested_fee_recipient: Address,
 }
 
@@ -175,13 +175,13 @@ impl From<PayloadAttributes> for JsonPayloadAttributesV1 {
         // Use this verbose deconstruction pattern to ensure no field is left unused.
         let PayloadAttributes {
             timestamp,
-            random,
+            prev_randao,
             suggested_fee_recipient,
         } = p;
 
         Self {
             timestamp,
-            random,
+            prev_randao,
             suggested_fee_recipient,
         }
     }
@@ -192,13 +192,13 @@ impl From<JsonPayloadAttributesV1> for PayloadAttributes {
         // Use this verbose deconstruction pattern to ensure no field is left unused.
         let JsonPayloadAttributesV1 {
             timestamp,
-            random,
+            prev_randao,
             suggested_fee_recipient,
         } = j;
 
         Self {
             timestamp,
-            random,
+            prev_randao,
             suggested_fee_recipient,
         }
     }
@@ -362,6 +362,15 @@ impl From<ForkchoiceUpdatedResponse> for JsonForkchoiceUpdatedV1Response {
             payload_id: payload_id.map(Into::into),
         }
     }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TransitionConfigurationV1 {
+    pub terminal_total_difficulty: Uint256,
+    pub terminal_block_hash: ExecutionBlockHash,
+    #[serde(with = "eth2_serde_utils::u64_hex_be")]
+    pub terminal_block_number: u64,
 }
 
 /// Serializes the `logs_bloom` field of an `ExecutionPayload`.

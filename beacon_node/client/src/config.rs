@@ -4,7 +4,7 @@ use sensitive_url::SensitiveUrl;
 use serde_derive::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
-use types::{Address, Graffiti, PublicKeyBytes};
+use types::{Graffiti, PublicKeyBytes};
 
 /// Default directory name for the freezer database under the top-level data dir.
 const DEFAULT_FREEZER_DB_DIR: &str = "freezer_db";
@@ -72,8 +72,7 @@ pub struct Config {
     pub network: network::NetworkConfig,
     pub chain: beacon_chain::ChainConfig,
     pub eth1: eth1::Config,
-    pub execution_endpoints: Option<Vec<SensitiveUrl>>,
-    pub suggested_fee_recipient: Option<Address>,
+    pub execution_layer: Option<execution_layer::Config>,
     pub http_api: http_api::Config,
     pub http_metrics: http_metrics::Config,
     pub monitoring_api: Option<monitoring_api::Config>,
@@ -94,8 +93,7 @@ impl Default for Config {
             dummy_eth1_backend: false,
             sync_eth1_chain: false,
             eth1: <_>::default(),
-            execution_endpoints: None,
-            suggested_fee_recipient: None,
+            execution_layer: None,
             graffiti: Graffiti::default(),
             http_api: <_>::default(),
             http_metrics: <_>::default(),

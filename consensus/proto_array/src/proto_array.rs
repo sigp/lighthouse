@@ -15,6 +15,56 @@ use types::{
 four_byte_option_impl!(four_byte_option_usize, usize);
 four_byte_option_impl!(four_byte_option_checkpoint, Checkpoint);
 
+/// Defines an operation which may invalidate the `execution_status` of some nodes.
+pub enum InvalidationOperation {
+    /// Invalidate only `block_root` and it's descendants. Don't invalidate any ancestors.
+    InvalidateOne { block_root: Hash256 },
+    /// Invalidate blocks between `head_block_root` and `latest_valid_ancestor`.
+    ///
+    /// If the `latest_valid_ancestor` is known to fork choice, invalidate all blocks between
+    /// `head_block_root` and `latest_valid_ancestor`. The `head_block_root` will be invalidated,
+    /// whilst the `latest_valid_ancestor` will not.
+    ///
+    /// If `latest_valid_ancestor` is *not* known to fork choice, only invalidate the
+    /// `head_block_root` if `always_invalidate_head == true`.
+    InvalidateMany {
+        head_block_root: Hash256,
+        always_invalidate_head: bool,
+        latest_valid_ancestor: ExecutionBlockHash,
+    },
+}
+
+impl InvalidationOperation {
+    pub fn block_root(&self) -> Hash256 {
+        match self {
+            InvalidationOperation::InvalidateOne { block_root } => *block_root,
+            InvalidationOperation::InvalidateMany {
+                head_block_root, ..
+            } => *head_block_root,
+        }
+    }
+
+    pub fn latest_valid_ancestor(&self) -> Option<ExecutionBlockHash> {
+        match self {
+            InvalidationOperation::InvalidateOne { .. } => None,
+            InvalidationOperation::InvalidateMany {
+                latest_valid_ancestor,
+                ..
+            } => Some(*latest_valid_ancestor),
+        }
+    }
+
+    pub fn invalidate_block_root(&self) -> bool {
+        match self {
+            InvalidationOperation::InvalidateOne { .. } => true,
+            InvalidationOperation::InvalidateMany {
+                always_invalidate_head,
+                ..
+            } => *always_invalidate_head,
+        }
+    }
+}
+
 #[derive(Clone, PartialEq, Debug, Encode, Decode, Serialize, Deserialize)]
 pub struct ProtoNode {
     /// The `slot` is not necessary for `ProtoArray`, it just exists so external components can
@@ -328,43 +378,15 @@ impl ProtoArray {
         }
     }
 
-    /// Invalidate the relevant ancestors and descendants of a block with an invalid execution
-    /// payload.
+    /// Invalidate zero or more blocks, as specified by the `InvalidationOperation`.
     ///
-    /// The `head_block_root` should be the beacon block root of the block with the invalid
-    /// execution payload, _or_ its parent where the block with the invalid payload has not yet
-    /// been applied to `self`.
-    ///
-    /// The `latest_valid_hash` should be the hash of most recent *valid* execution payload
-    /// contained in an ancestor block of `head_block_root`.
-    ///
-    /// This function will invalidate:
-    ///
-    /// * The block matching `head_block_root` _unless_ that block has a payload matching `latest_valid_hash`.
-    /// * All ancestors of `head_block_root` back to the block with payload matching
-    ///   `latest_valid_hash` (endpoint > exclusive). In the case where the `head_block_root` is the parent
-    ///   of the invalid block and itself matches `latest_valid_hash`, no ancestors will be invalidated.
-    /// * All descendants of `latest_valid_hash` if supplied and consistent with `head_block_root`,
-    ///   or else all descendants of `head_block_root`.
-    ///
-    /// ## Details
-    ///
-    /// If `head_block_root` is not known to fork choice, an error is returned.
-    ///
-    /// If `latest_valid_hash` is `Some(hash)` where `hash` is either not known to fork choice
-    /// (perhaps it's junk or pre-finalization), then only the `head_block_root` block will be
-    /// invalidated (no ancestors). No error will be returned in this case.
-    ///
-    /// If `latest_valid_hash` is `Some(hash)` where `hash` is a known ancestor of
-    /// `head_block_root`, then all blocks between `head_block_root` and `latest_valid_hash` will
-    /// be invalidated. Additionally, all blocks that descend from a newly-invalidated block will
-    /// also be invalidated.
+    /// See the documentation of `InvalidationOperation` for usage.
     pub fn propagate_execution_payload_invalidation(
         &mut self,
-        head_block_root: Hash256,
-        latest_valid_ancestor_hash: Option<ExecutionBlockHash>,
+        op: &InvalidationOperation,
     ) -> Result<(), Error> {
         let mut invalidated_indices: HashSet<usize> = <_>::default();
+        let head_block_root = op.block_root();
 
         /*
          * Step 1:
@@ -379,7 +401,8 @@ impl ProtoArray {
             .ok_or(Error::NodeUnknown(head_block_root))?;
 
         // Try to map the ancestor payload *hash* to an ancestor beacon block *root*.
-        let latest_valid_ancestor_root = latest_valid_ancestor_hash
+        let latest_valid_ancestor_root = op
+            .latest_valid_ancestor()
             .and_then(|hash| self.execution_block_hash_to_beacon_block_root(&hash));
 
         // Set to `true` if both conditions are satisfied:
@@ -414,7 +437,7 @@ impl ProtoArray {
                     // an invalid justified checkpoint.
                     if !latest_valid_ancestor_is_descendant && node.root != head_block_root {
                         break;
-                    } else if Some(hash) == latest_valid_ancestor_hash {
+                    } else if op.latest_valid_ancestor() == Some(hash) {
                         // If the `best_child` or `best_descendant` of the latest valid hash was
                         // invalidated, set those fields to `None`.
                         //
@@ -444,35 +467,43 @@ impl ProtoArray {
                 ExecutionStatus::Irrelevant(_) => break,
             }
 
-            match &node.execution_status {
-                // It's illegal for an execution client to declare that some previously-valid block
-                // is now invalid. This is a consensus failure on their behalf.
-                ExecutionStatus::Valid(hash) => {
-                    return Err(Error::ValidExecutionStatusBecameInvalid {
-                        block_root: node.root,
-                        payload_block_hash: *hash,
-                    })
-                }
-                ExecutionStatus::Unknown(hash) => {
-                    node.execution_status = ExecutionStatus::Invalid(*hash);
+            // Only invalidate the head block if either:
+            //
+            // - The head block was specifically indicated to be invalidated.
+            // - The latest valid hash is a known ancestor.
+            if node.root != head_block_root
+                || op.invalidate_block_root()
+                || latest_valid_ancestor_is_descendant
+            {
+                match &node.execution_status {
+                    // It's illegal for an execution client to declare that some previously-valid block
+                    // is now invalid. This is a consensus failure on their behalf.
+                    ExecutionStatus::Valid(hash) => {
+                        return Err(Error::ValidExecutionStatusBecameInvalid {
+                            block_root: node.root,
+                            payload_block_hash: *hash,
+                        })
+                    }
+                    ExecutionStatus::Unknown(hash) => {
+                        invalidated_indices.insert(index);
+                        node.execution_status = ExecutionStatus::Invalid(*hash);
 
-                    // It's impossible for an invalid block to lead to a "best" block, so set these
-                    // fields to `None`.
-                    //
-                    // Failing to set these values will result in `Self::node_leads_to_viable_head`
-                    // returning `false` for *valid* ancestors of invalid blocks.
-                    node.best_child = None;
-                    node.best_descendant = None;
+                        // It's impossible for an invalid block to lead to a "best" block, so set these
+                        // fields to `None`.
+                        //
+                        // Failing to set these values will result in `Self::node_leads_to_viable_head`
+                        // returning `false` for *valid* ancestors of invalid blocks.
+                        node.best_child = None;
+                        node.best_descendant = None;
+                    }
+                    // The block is already invalid, but keep going backwards to ensure all ancestors
+                    // are updated.
+                    ExecutionStatus::Invalid(_) => (),
+                    // This block is pre-merge, therefore it has no execution status. Nor do its
+                    // ancestors.
+                    ExecutionStatus::Irrelevant(_) => break,
                 }
-                // The block is already invalid, but keep going backwards to ensure all ancestors
-                // are updated.
-                ExecutionStatus::Invalid(_) => (),
-                // This block is pre-merge, therefore it has no execution status. Nor do its
-                // ancestors.
-                ExecutionStatus::Irrelevant(_) => break,
             }
-
-            invalidated_indices.insert(index);
 
             if let Some(parent_index) = node.parent {
                 index = parent_index

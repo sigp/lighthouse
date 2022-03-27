@@ -1,5 +1,5 @@
 use crate::error::Error;
-use crate::proto_array::{ProposerBoost, ProtoArray};
+use crate::proto_array::{InvalidationOperation, Iter, ProposerBoost, ProtoArray};
 use crate::ssz_container::SszContainer;
 use serde_derive::{Deserialize, Serialize};
 use ssz::{Decode, Encode};
@@ -40,6 +40,10 @@ pub enum ExecutionStatus {
 }
 
 impl ExecutionStatus {
+    pub fn is_execution_enabled(&self) -> bool {
+        !matches!(self, ExecutionStatus::Irrelevant(_))
+    }
+
     pub fn irrelevant() -> Self {
         ExecutionStatus::Irrelevant(false)
     }
@@ -187,11 +191,10 @@ impl ProtoArrayForkChoice {
     /// See `ProtoArray::propagate_execution_payload_invalidation` for documentation.
     pub fn process_execution_payload_invalidation(
         &mut self,
-        head_block_root: Hash256,
-        latest_valid_ancestor_root: Option<ExecutionBlockHash>,
+        op: &InvalidationOperation,
     ) -> Result<(), String> {
         self.proto_array
-            .propagate_execution_payload_invalidation(head_block_root, latest_valid_ancestor_root)
+            .propagate_execution_payload_invalidation(op)
             .map_err(|e| format!("Failed to process invalid payload: {:?}", e))
     }
 
@@ -339,6 +342,11 @@ impl ProtoArrayForkChoice {
         } else {
             None
         }
+    }
+
+    /// See `ProtoArray::iter_nodes`
+    pub fn iter_nodes<'a>(&'a self, block_root: &Hash256) -> Iter<'a> {
+        self.proto_array.iter_nodes(block_root)
     }
 
     pub fn as_bytes(&self) -> Vec<u8> {

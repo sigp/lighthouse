@@ -4,13 +4,13 @@ use crate::exec::{CommandLineTestExec, CompletedTest};
 use lighthouse_network::PeerId;
 use std::fs::File;
 use std::io::Write;
-use std::net::{IpAddr, Ipv4Addr};
+use std::net::IpAddr;
 use std::path::PathBuf;
 use std::process::Command;
 use std::str::FromStr;
 use std::string::ToString;
 use tempfile::TempDir;
-use types::{Address, Checkpoint, Epoch, Hash256};
+use types::{Address, Checkpoint, Epoch, ExecutionBlockHash, Hash256, MainnetEthSpec};
 use unused_port::{unused_tcp_port, unused_udp_port};
 
 const DEFAULT_ETH1_ENDPOINT: &str = "http://localhost:8545/";
@@ -206,7 +206,61 @@ fn eth1_purge_cache_flag() {
         .with_config(|config| assert!(config.eth1.purge_cache));
 }
 
-// Tests for Merge flags.
+// Tests for Bellatrix flags.
+#[test]
+fn merge_flag() {
+    CommandLineTest::new()
+        .flag("merge", None)
+        .run_with_zero_port()
+        .with_config(|config| assert!(config.execution_layer.is_some()));
+}
+#[test]
+fn merge_execution_endpoints_flag() {
+    use sensitive_url::SensitiveUrl;
+    let urls = vec!["http://sigp.io/no-way:1337", "http://infura.not_real:4242"];
+    let endpoints = urls
+        .iter()
+        .map(|s| SensitiveUrl::parse(s).unwrap())
+        .collect::<Vec<_>>();
+    let mut endpoint_arg = urls[0].to_string();
+    for url in urls.into_iter().skip(1) {
+        endpoint_arg.push(',');
+        endpoint_arg.push_str(url);
+    }
+    // this is way better but intersperse is still a nightly feature :/
+    // let endpoint_arg: String = urls.into_iter().intersperse(",").collect();
+    CommandLineTest::new()
+        .flag("merge", None)
+        .flag("execution-endpoints", Some(&endpoint_arg))
+        .run_with_zero_port()
+        .with_config(|config| {
+            let config = config.execution_layer.as_ref().unwrap();
+            assert_eq!(config.execution_endpoints, endpoints)
+        });
+}
+#[test]
+fn merge_jwt_secrets_flag() {
+    let dir = TempDir::new().expect("Unable to create temporary directory");
+    let mut file = File::create(dir.path().join("jwtsecrets")).expect("Unable to create file");
+    file.write_all(b"0x3cbc11b0d8fa16f3344eacfd6ff6430b9d30734450e8adcf5400f88d327dcb33")
+        .expect("Unable to write to file");
+    CommandLineTest::new()
+        .flag("merge", None)
+        .flag("execution-endpoints", Some("http://localhost:8551/"))
+        .flag(
+            "jwt-secrets",
+            dir.path().join("jwt-file").as_os_str().to_str(),
+        )
+        .run_with_zero_port()
+        .with_config(|config| {
+            let config = config.execution_layer.as_ref().unwrap();
+            assert_eq!(
+                config.execution_endpoints[0].full.to_string(),
+                "http://localhost:8551/"
+            );
+            assert_eq!(config.secret_files[0], dir.path().join("jwt-file"));
+        });
+}
 #[test]
 fn merge_fee_recipient_flag() {
     CommandLineTest::new()
@@ -217,10 +271,80 @@ fn merge_fee_recipient_flag() {
         )
         .run_with_zero_port()
         .with_config(|config| {
+            let config = config.execution_layer.as_ref().unwrap();
             assert_eq!(
                 config.suggested_fee_recipient,
                 Some(Address::from_str("0x00000000219ab540356cbb839cbe05303d7705fa").unwrap())
-            )
+            );
+        });
+}
+#[test]
+fn jwt_optional_flags() {
+    CommandLineTest::new()
+        .flag("merge", None)
+        .flag("jwt-id", Some("bn-1"))
+        .flag("jwt-version", Some("Lighthouse-v2.1.3"))
+        .run_with_zero_port()
+        .with_config(|config| {
+            let config = config.execution_layer.as_ref().unwrap();
+            assert_eq!(config.jwt_id, Some("bn-1".to_string()));
+            assert_eq!(config.jwt_version, Some("Lighthouse-v2.1.3".to_string()));
+        });
+}
+#[test]
+fn terminal_total_difficulty_override_flag() {
+    use beacon_node::beacon_chain::types::Uint256;
+    CommandLineTest::new()
+        .flag("terminal-total-difficulty-override", Some("1337424242"))
+        .run_with_zero_port()
+        .with_spec::<MainnetEthSpec, _>(|spec| {
+            assert_eq!(spec.terminal_total_difficulty, Uint256::from(1337424242))
+        });
+}
+#[test]
+fn terminal_block_hash_and_activation_epoch_override_flags() {
+    CommandLineTest::new()
+        .flag("terminal-block-hash-epoch-override", Some("1337"))
+        .flag(
+            "terminal-block-hash-override",
+            Some("0x4242424242424242424242424242424242424242424242424242424242424242"),
+        )
+        .run_with_zero_port()
+        .with_spec::<MainnetEthSpec, _>(|spec| {
+            assert_eq!(
+                spec.terminal_block_hash,
+                ExecutionBlockHash::from_str(
+                    "0x4242424242424242424242424242424242424242424242424242424242424242"
+                )
+                .unwrap()
+            );
+            assert_eq!(spec.terminal_block_hash_activation_epoch, 1337);
+        });
+}
+#[test]
+#[should_panic]
+fn terminal_block_hash_missing_activation_epoch() {
+    CommandLineTest::new()
+        .flag(
+            "terminal-block-hash-override",
+            Some("0x4242424242424242424242424242424242424242424242424242424242424242"),
+        )
+        .run_with_zero_port();
+}
+#[test]
+#[should_panic]
+fn epoch_override_missing_terminal_block_hash() {
+    CommandLineTest::new()
+        .flag("terminal-block-hash-epoch-override", Some("1337"))
+        .run_with_zero_port();
+}
+#[test]
+fn safe_slots_to_import_optimistically_flag() {
+    CommandLineTest::new()
+        .flag("safe-slots-to-import-optimistically", Some("421337"))
+        .run_with_zero_port()
+        .with_spec::<MainnetEthSpec, _>(|spec| {
+            assert_eq!(spec.safe_slots_to_import_optimistically, 421337)
         });
 }
 
@@ -271,7 +395,7 @@ fn network_shutdown_after_sync_disabled_flag() {
 }
 #[test]
 fn network_listen_address_flag() {
-    let addr = "127.0.0.2".parse::<Ipv4Addr>().unwrap();
+    let addr = "127.0.0.2".parse::<IpAddr>().unwrap();
     CommandLineTest::new()
         .flag("listen-address", Some("127.0.0.2"))
         .run_with_zero_port()
@@ -410,6 +534,15 @@ fn zero_ports_flag() {
             assert_eq!(config.http_metrics.listen_port, 0);
         });
 }
+#[test]
+fn network_load_flag() {
+    CommandLineTest::new()
+        .flag("network-load", Some("4"))
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert_eq!(config.network.network_load, 4);
+        });
+}
 
 // Tests for ENR flags.
 #[test]
@@ -494,9 +627,17 @@ fn http_flag() {
 }
 #[test]
 fn http_address_flag() {
-    let addr = "127.0.0.99".parse::<Ipv4Addr>().unwrap();
+    let addr = "127.0.0.99".parse::<IpAddr>().unwrap();
     CommandLineTest::new()
         .flag("http-address", Some("127.0.0.99"))
+        .run_with_zero_port()
+        .with_config(|config| assert_eq!(config.http_api.listen_addr, addr));
+}
+#[test]
+fn http_address_ipv6_flag() {
+    let addr = "::1".parse::<IpAddr>().unwrap();
+    CommandLineTest::new()
+        .flag("http-address", Some("::1"))
         .run_with_zero_port()
         .with_config(|config| assert_eq!(config.http_api.listen_addr, addr));
 }
@@ -525,6 +666,13 @@ fn http_allow_origin_all_flag() {
         .flag("http-allow-origin", Some("*"))
         .run_with_zero_port()
         .with_config(|config| assert_eq!(config.http_api.allow_origin, Some("*".to_string())));
+}
+#[test]
+fn http_allow_sync_stalled_flag() {
+    CommandLineTest::new()
+        .flag("http-allow-sync-stalled", None)
+        .run_with_zero_port()
+        .with_config(|config| assert_eq!(config.http_api.allow_sync_stalled, true));
 }
 #[test]
 fn http_tls_flags() {
@@ -564,10 +712,19 @@ fn metrics_flag() {
 }
 #[test]
 fn metrics_address_flag() {
-    let addr = "127.0.0.99".parse::<Ipv4Addr>().unwrap();
+    let addr = "127.0.0.99".parse::<IpAddr>().unwrap();
     CommandLineTest::new()
         .flag("metrics", None)
         .flag("metrics-address", Some("127.0.0.99"))
+        .run_with_zero_port()
+        .with_config(|config| assert_eq!(config.http_metrics.listen_addr, addr));
+}
+#[test]
+fn metrics_address_ipv6_flag() {
+    let addr = "::1".parse::<IpAddr>().unwrap();
+    CommandLineTest::new()
+        .flag("metrics", None)
+        .flag("metrics-address", Some("::1"))
         .run_with_zero_port()
         .with_config(|config| assert_eq!(config.http_metrics.listen_addr, addr));
 }

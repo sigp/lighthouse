@@ -1,7 +1,7 @@
 use super::batch::{BatchInfo, BatchState};
-use crate::beacon_processor::ProcessId;
+use crate::beacon_processor::ChainSegmentProcessId;
 use crate::beacon_processor::WorkEvent as BeaconWorkEvent;
-use crate::sync::{network_context::SyncNetworkContext, BatchProcessResult, RequestId};
+use crate::sync::{manager::Id, network_context::SyncNetworkContext, BatchProcessResult};
 use beacon_chain::BeaconChainTypes;
 use fnv::FnvHashMap;
 use lighthouse_network::{PeerAction, PeerId};
@@ -214,7 +214,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
         network: &mut SyncNetworkContext<T::EthSpec>,
         batch_id: BatchId,
         peer_id: &PeerId,
-        request_id: RequestId,
+        request_id: Id,
         beacon_block: Option<SignedBeaconBlock<T::EthSpec>>,
     ) -> ProcessingResult {
         // check if we have this batch
@@ -300,7 +300,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
         // for removing chains and checking completion is in the callback.
 
         let blocks = batch.start_processing()?;
-        let process_id = ProcessId::RangeBatchId(self.id, batch_id);
+        let process_id = ChainSegmentProcessId::RangeBatchId(self.id, batch_id);
         self.current_processing_batch = Some(batch_id);
 
         if let Err(e) = self
@@ -807,7 +807,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
         network: &mut SyncNetworkContext<T::EthSpec>,
         batch_id: BatchId,
         peer_id: &PeerId,
-        request_id: RequestId,
+        request_id: Id,
     ) -> ProcessingResult {
         if let Some(batch) = self.batches.get_mut(&batch_id) {
             // A batch could be retried without the peer failing the request (disconnecting/

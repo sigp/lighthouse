@@ -12,7 +12,7 @@ There is no guarantee that an execution node will use the `suggested_fee_recipie
 it may use any address it chooses. It is assumed that an honest execution node *will* use the
 `suggested_fee_recipient`, but users should note this trust assumption.
 
-The `suggested_fee_recipient` can be provided to the VC, who will transmit it to the BN. The also BN
+The `suggested_fee_recipient` can be provided to the VC, who will transmit it to the BN. The BN also
 has a choice regarding the fee recipient it passes to the execution node, creating another
 noteworthy trust assumption.
 

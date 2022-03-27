@@ -19,7 +19,7 @@ jobs:
       - uses: actions/checkout@v1
 
       - name: Install ganache
-        run: npm install ganache-cli@latest --global
+        run: npm install ganache@latest --global
 
       # https://github.com/actions/cache/blob/main/examples.md#rust---cargo
       - uses: actions/cache@v2

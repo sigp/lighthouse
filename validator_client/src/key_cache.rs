@@ -11,7 +11,7 @@ use eth2_keystore::{
 use rand::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::fs::OpenOptions;
+use std::fs::File;
 use std::io;
 use std::path::{Path, PathBuf};
 
@@ -101,7 +101,7 @@ impl KeyCache {
     /// Open an existing file, returning an error if the file does not exist.
     pub fn open<P: AsRef<Path>>(validators_dir: P) -> Result<Self, Error> {
         let cache_path = validators_dir.as_ref().join(CACHE_FILENAME);
-        let file = OpenOptions::new()
+        let file = File::options()
             .read(true)
             .create_new(false)
             .open(&cache_path)

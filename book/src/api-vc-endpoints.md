@@ -6,7 +6,7 @@ HTTP Path | Description |
 | --- | -- |
 [`GET /lighthouse/version`](#get-lighthouseversion) | Get the Lighthouse software version.
 [`GET /lighthouse/health`](#get-lighthousehealth) | Get information about the host machine.
-[`GET /lighthouse/spec`](#get-lighthousespec) | Get the Eth2 specification used by the validator.
+[`GET /lighthouse/spec`](#get-lighthousespec) | Get the Ethereum proof-of-stake consensus specification used by the validator.
 [`GET /lighthouse/auth`](#get-lighthouseauth) | Get the location of the authorization token.
 [`GET /lighthouse/validators`](#get-lighthousevalidators) | List all validators.
 [`GET /lighthouse/validators/:voting_pubkey`](#get-lighthousevalidatorsvoting_pubkey) | Get a specific validator.
@@ -79,7 +79,7 @@ Typical Responses | 200
 
 ## `GET /lighthouse/spec`
 
-Returns the Eth2 specification loaded for this validator.
+Returns the Ethereum proof-of-stake consensus specification loaded for this validator.
 
 ### HTTP Specification
 

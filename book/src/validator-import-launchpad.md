@@ -1,9 +1,9 @@
-# Importing from the Ethereum 2.0 Launch pad
+# Importing from the Ethereum Staking Launch pad
 
-The [Eth2 Lauchpad](https://github.com/ethereum/eth2.0-deposit) is a website
+The [Staking Lauchpad](https://github.com/ethereum/eth2.0-deposit) is a website
 from the Ethereum Foundation which guides users how to use the
 [`eth2.0-deposit-cli`](https://github.com/ethereum/eth2.0-deposit-cli)
-command-line program to generate Eth2 validator keys.
+command-line program to generate consensus validator keys.
 
 The keys that are generated from `eth2.0-deposit-cli` can be easily loaded into
 a Lighthouse validator client (`lighthouse vc`). In fact, both of these
@@ -20,7 +20,7 @@ Whilst following the steps on the website, users are instructed to download the
 repository. This `eth2-deposit-cli` script will generate the validator BLS keys
 into a `validator_keys` directory. We assume that the user's
 present-working-directory is the `eth2-deposit-cli` repository (this is where
-you will be if you just ran the `./deposit.sh` script from the Eth2 Launch pad
+you will be if you just ran the `./deposit.sh` script from the Staking Launch pad
 website). If this is not the case, simply change the `--directory` to point to
 the `validator_keys` directory.
 
@@ -38,7 +38,7 @@ section, all other users can use:
 lighthouse --network mainnet account validator import --directory validator_keys
 ```
 
-Note: The user must specify the Eth2 network that they are importing the keys for using the `--network` flag.
+Note: The user must specify the consensus client network that they are importing the keys for using the `--network` flag.
 
 
 After which they will be prompted for a password for each keystore discovered:

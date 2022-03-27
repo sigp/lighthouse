@@ -35,16 +35,14 @@ tiny-keccak = "2.0.2"
 task_executor = { path = "../../common/task_executor" }
 rand = "0.7.3"
 directory = { path = "../../common/directory" }
-regex = "1.3.9"
+regex = "1.5.5"
 strum = { version = "0.21.0", features = ["derive"] }
 superstruct = "0.4.0"
 prometheus-client = "0.15.0"
 unused_port = { path = "../../common/unused_port" }
 
 [dependencies.libp2p]
-git = "https://github.com/sigp/rust-libp2p"
-# branch libp2p-gossipsub-interval-hotfix
-rev = "e213703e616eaba3c482d7714775e0d37c4ae8e5"
+version = "0.43.0"
 default-features = false
 features = ["websocket", "identify", "mplex", "yamux", "noise", "gossipsub", "dns-tokio", "tcp-tokio", "plaintext", "secp256k1"]
 

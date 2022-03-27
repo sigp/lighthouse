@@ -1,4 +1,4 @@
-//! NOTE: These tests will not pass unless ganache-cli is running on `ENDPOINT` (see below).
+//! NOTE: These tests will not pass unless ganache is running on `ENDPOINT` (see below).
 //!
 //! You can start a suitable instance using the `ganache_test_node.sh` script in the `scripts`
 //! dir in the root of the `lighthouse` repo.

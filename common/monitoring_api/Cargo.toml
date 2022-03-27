@@ -19,5 +19,5 @@ lighthouse_metrics = { path = "../lighthouse_metrics" }
 slog = "2.5.2"
 store = { path = "../../beacon_node/store" }
 lazy_static = "1.4.0"
-regex = "1"
+regex = "1.5.5"
 sensitive_url = { path = "../sensitive_url" }
