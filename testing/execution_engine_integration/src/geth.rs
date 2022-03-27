@@ -7,8 +7,8 @@ use std::{env, fs::File};
 use tempfile::TempDir;
 use unused_port::unused_tcp_port;
 
-const GETH_BRANCH: &str = "merge-kiln-v2";
-const GETH_REPO_URL: &str = "https://github.com/MariusVanDerWijden/go-ethereum";
+const GETH_BRANCH: &str = "master";
+const GETH_REPO_URL: &str = "https://github.com/ethereum/go-ethereum";
 
 pub fn build_result(repo_dir: &Path) -> Output {
     Command::new("make")
