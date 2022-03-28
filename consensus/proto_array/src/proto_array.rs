@@ -315,6 +315,21 @@ impl ProtoArray {
             execution_status: block.execution_status,
         };
 
+        // If the parent has an invalid execution status, return an error before adding the block to
+        // `self`.
+        if let Some(parent_index) = node.parent {
+            let parent = self
+                .nodes
+                .get(parent_index)
+                .ok_or(Error::InvalidNodeIndex(parent_index))?;
+            if parent.execution_status.is_invalid() {
+                return Err(Error::ParentExecutionStatusIsInvalid {
+                    block_root: block.root,
+                    parent_root: parent.root,
+                });
+            }
+        }
+
         self.indices.insert(node.root, node_index);
         self.nodes.push(node.clone());
 
