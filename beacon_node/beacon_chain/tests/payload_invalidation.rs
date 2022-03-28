@@ -8,6 +8,7 @@ use beacon_chain::{
 use execution_layer::{
     json_structures::JsonPayloadAttributesV1, ExecutionLayer, PayloadAttributes,
 };
+use fork_choice::InvalidationOperation;
 use proto_array::ExecutionStatus;
 use slot_clock::SlotClock;
 use task_executor::ShutdownReason;
@@ -232,6 +233,13 @@ impl InvalidPayloadRig {
         }
 
         block_root
+    }
+
+    fn invalidate_manually(&self, block_root: Hash256) {
+        self.harness
+            .chain
+            .process_invalid_execution_payload(&InvalidationOperation::InvalidateOne { block_root })
+            .unwrap();
     }
 }
 
@@ -692,4 +700,44 @@ fn payload_preparation() {
         suggested_fee_recipient: fee_recipient,
     };
     assert_eq!(rig.previous_payload_attributes(), payload_attributes);
+}
+
+#[test]
+fn invalid_parent() {
+    let mut rig = InvalidPayloadRig::new();
+    rig.move_to_terminal_block();
+    rig.import_block(Payload::Valid); // Import a valid transition block.
+
+    // Import a syncing block atop the transition block (we'll call this the "parent block" since we
+    // build another block on it later).
+    let parent_root = rig.import_block(Payload::Syncing);
+    let parent_block = rig.harness.get_block(parent_root.into()).unwrap();
+    let parent_state = rig
+        .harness
+        .get_hot_state(parent_block.state_root().into())
+        .unwrap();
+
+    // Produce another block atop the parent, but don't import yet.
+    let slot = parent_block.slot() + 1;
+    rig.harness.set_current_slot(slot);
+    let (block, _state) = rig.harness.make_block(parent_state, slot);
+    assert_eq!(block.parent_root(), parent_root);
+
+    // Invalidate the parent block.
+    rig.invalidate_manually(parent_root);
+    assert!(rig.execution_status(parent_root).is_invalid());
+
+    // Ensure the block built atop an invalid payload is invalid for gossip.
+    assert!(matches!(
+        rig.harness.chain.verify_block_for_gossip(block.clone()),
+        Err(BlockError::ParentExecutionPayloadInvalid { parent_root: invalid_root })
+        if invalid_root == parent_root
+    ));
+
+    // Ensure the block built atop an invalid payload is invalid for import.
+    assert!(matches!(
+        rig.harness.chain.process_block(block.clone()),
+        Err(BlockError::ParentExecutionPayloadInvalid { parent_root: invalid_root })
+        if invalid_root == parent_root
+    ));
 }
