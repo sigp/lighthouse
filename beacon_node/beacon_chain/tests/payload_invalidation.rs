@@ -8,9 +8,10 @@ use beacon_chain::{
 use execution_layer::{
     json_structures::JsonPayloadAttributesV1, ExecutionLayer, PayloadAttributes,
 };
-use fork_choice::InvalidationOperation;
-use proto_array::ExecutionStatus;
+use fork_choice::{Error as ForkChoiceError, InvalidationOperation, PayloadVerificationStatus};
+use proto_array::{Error as ProtoArrayError, ExecutionStatus};
 use slot_clock::SlotClock;
+use std::time::Duration;
 use task_executor::ShutdownReason;
 use types::*;
 
@@ -720,7 +721,8 @@ fn invalid_parent() {
     // Produce another block atop the parent, but don't import yet.
     let slot = parent_block.slot() + 1;
     rig.harness.set_current_slot(slot);
-    let (block, _state) = rig.harness.make_block(parent_state, slot);
+    let (block, state) = rig.harness.make_block(parent_state, slot);
+    let block_root = block.canonical_root();
     assert_eq!(block.parent_root(), parent_root);
 
     // Invalidate the parent block.
@@ -736,8 +738,30 @@ fn invalid_parent() {
 
     // Ensure the block built atop an invalid payload is invalid for import.
     assert!(matches!(
-        rig.harness.chain.process_block(block),
+        rig.harness.chain.process_block(block.clone()),
         Err(BlockError::ParentExecutionPayloadInvalid { parent_root: invalid_root })
         if invalid_root == parent_root
+    ));
+
+    // Ensure the block built atop an invalid payload cannot be imported to fork choice.
+    let (block, _block_signature) = block.deconstruct();
+    assert!(matches!(
+        rig.harness.chain.fork_choice.write().on_block(
+            slot,
+            &block,
+            block_root,
+            Duration::from_secs(0),
+            &state,
+            PayloadVerificationStatus::NotVerified,
+            &rig.harness.chain.spec
+        ),
+        Err(ForkChoiceError::ProtoArrayError(message))
+        if message.contains(&format!(
+            "{:?}",
+            ProtoArrayError::ParentExecutionStatusIsInvalid {
+                block_root,
+                parent_root
+            }
+        ))
     ));
 }
