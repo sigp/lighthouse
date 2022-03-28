@@ -158,7 +158,7 @@ pub fn cli_run<T: EthSpec>(
                             InterchangeImportOutcome::Success { pubkey, summary } => {
                                 eprintln!("- {:?}", pubkey);
                                 eprintln!(
-                                    "    - latest block: {}",
+                                    "    - latest proposed block: {}",
                                     display_slot(summary.max_block_slot)
                                 );
                                 eprintln!(
