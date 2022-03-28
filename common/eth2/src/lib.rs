@@ -1156,6 +1156,18 @@ impl BeaconNodeHttpClient {
         randao_reveal: &SignatureBytes,
         graffiti: Option<&Graffiti>,
     ) -> Result<ForkVersionedResponse<BeaconBlock<T>>, Error> {
+        self.get_validator_blocks_with_verify_randao(slot, Some(randao_reveal), graffiti, None)
+            .await
+    }
+
+    /// `GET v2/validator/blocks/{slot}`
+    pub async fn get_validator_blocks_with_verify_randao<T: EthSpec>(
+        &self,
+        slot: Slot,
+        randao_reveal: Option<&SignatureBytes>,
+        graffiti: Option<&Graffiti>,
+        verify_randao: Option<bool>,
+    ) -> Result<ForkVersionedResponse<BeaconBlock<T>>, Error> {
         let mut path = self.eth_path(V2)?;
 
         path.path_segments_mut()
@@ -1164,12 +1176,19 @@ impl BeaconNodeHttpClient {
             .push("blocks")
             .push(&slot.to_string());
 
-        path.query_pairs_mut()
-            .append_pair("randao_reveal", &randao_reveal.to_string());
+        if let Some(randao_reveal) = randao_reveal {
+            path.query_pairs_mut()
+                .append_pair("randao_reveal", &randao_reveal.to_string());
+        }
 
         if let Some(graffiti) = graffiti {
             path.query_pairs_mut()
                 .append_pair("graffiti", &graffiti.to_string());
+        }
+
+        if let Some(verify_randao) = verify_randao {
+            path.query_pairs_mut()
+                .append_pair("verify_randao", &verify_randao.to_string());
         }
 
         self.get(path).await
