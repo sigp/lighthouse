@@ -399,18 +399,22 @@ impl<T: EngineApi> Engines<T> {
         let futures = self.engines.iter().map(|engine| async move {
             let is_offline = *engine.state.read().await == EngineState::Offline;
             if !is_offline {
-                func(engine).await.map_err(|error| {
-                    debug!(
-                        self.log,
-                        "Execution engine call failed";
-                        "error" => ?error,
-                        "id" => &engine.id
-                    );
-                    EngineError::Api {
-                        id: engine.id.clone(),
-                        error,
+                match func(engine).await {
+                    Ok(res) => Ok(res),
+                    Err(error) => {
+                        debug!(
+                            self.log,
+                            "Execution engine call failed";
+                            "error" => ?error,
+                            "id" => &engine.id
+                        );
+                        *engine.state.write().await = EngineState::Offline;
+                        Err(EngineError::Api {
+                            id: engine.id.clone(),
+                            error,
+                        })
                     }
-                })
+                }
             } else {
                 Err(EngineError::Offline {
                     id: engine.id.clone(),
