@@ -120,6 +120,7 @@ impl<T: EthSpec> PersistedOperationPool<T> {
                 attester_slashings,
                 proposer_slashings,
                 voluntary_exits,
+                reward_cache: Default::default(),
                 _phantom: Default::default(),
             },
             PersistedOperationPool::Altair(_) => {
@@ -132,6 +133,7 @@ impl<T: EthSpec> PersistedOperationPool<T> {
                     attester_slashings,
                     proposer_slashings,
                     voluntary_exits,
+                    reward_cache: Default::default(),
                     _phantom: Default::default(),
                 }
             }

@@ -1,4 +1,5 @@
 use crate::max_cover::MaxCover;
+use crate::RewardCache;
 use state_processing::common::{
     altair, base, get_attestation_participation_flag_indices, get_attesting_indices,
 };
@@ -21,13 +22,14 @@ impl<'a, T: EthSpec> AttMaxCover<'a, T> {
     pub fn new(
         att: &'a Attestation<T>,
         state: &BeaconState<T>,
+        reward_cache: &'a RewardCache,
         total_active_balance: u64,
         spec: &ChainSpec,
     ) -> Option<Self> {
         if let BeaconState::Base(ref base_state) = state {
             Self::new_for_base(att, state, base_state, total_active_balance, spec)
         } else {
-            Self::new_for_altair(att, state, total_active_balance, spec)
+            Self::new_for_altair(att, state, reward_cache, total_active_balance, spec)
         }
     }
 
@@ -69,22 +71,17 @@ impl<'a, T: EthSpec> AttMaxCover<'a, T> {
     pub fn new_for_altair(
         att: &'a Attestation<T>,
         state: &BeaconState<T>,
+        reward_cache: &'a RewardCache,
         total_active_balance: u64,
         spec: &ChainSpec,
     ) -> Option<Self> {
+        // FIXME(sproul): could optimise out `get_attesting_indices` and allocations by storing
+        // these.
         let committee = state
             .get_beacon_committee(att.data.slot, att.data.index)
             .ok()?;
         let attesting_indices =
             get_attesting_indices::<T>(committee.committee, &att.aggregation_bits).ok()?;
-
-        let participation_list = if att.data.target.epoch == state.current_epoch() {
-            state.current_epoch_participation().ok()?
-        } else if att.data.target.epoch == state.previous_epoch() {
-            state.previous_epoch_participation().ok()?
-        } else {
-            return None;
-        };
 
         let inclusion_delay = state.slot().as_u64().checked_sub(att.data.slot.as_u64())?;
         let att_participation_flags =
@@ -95,9 +92,11 @@ impl<'a, T: EthSpec> AttMaxCover<'a, T> {
             .iter()
             .filter_map(|&index| {
                 let mut proposer_reward_numerator = 0;
-                let participation = participation_list.get(index)?;
+                let participation = reward_cache
+                    .get_epoch_participation(index, att.data.target.epoch)
+                    .ok()??;
 
-                let effective_balance = state.get_effective_balance(index).ok()?;
+                let effective_balance = reward_cache.get_effective_balance(index)?;
                 let base_reward =
                     altair::get_base_reward(effective_balance, total_active_balance, spec).ok()?;
 

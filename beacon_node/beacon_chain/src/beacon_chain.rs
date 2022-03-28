@@ -2873,21 +2873,19 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         metrics::inc_counter(&metrics::BLOCK_PRODUCTION_REQUESTS);
         let _complete_timer = metrics::start_timer(&metrics::BLOCK_PRODUCTION_TIMES);
 
-        // Producing a block requires the tree hash cache, so clone a full state corresponding to
-        // the head from the snapshot cache. Unfortunately we can't move the snapshot out of the
-        // cache (which would be fast), because we need to re-process the block after it has been
-        // signed. If we miss the cache or we're producing a block that conflicts with the head,
-        // fall back to getting the head from `slot - 1`.
         let state_load_timer = metrics::start_timer(&metrics::BLOCK_PRODUCTION_STATE_LOAD_TIMES);
         let head_info = self
             .head_info()
             .map_err(BlockProductionError::UnableToGetHeadInfo)?;
-        let (state, state_root_opt) = if head_info.slot < slot {
-            let state = self
-                .state_at_slot(slot - 1, StateSkipConfig::WithStateRoots)
-                .map_err(|_| BlockProductionError::UnableToProduceAtSlot(slot))?;
-
-            (state, None)
+        let (state, state_root_opt) = if head_info.slot <= slot {
+            // Fetch the head state advanced through to `slot`, which should be present in the state
+            // cache thanks to the state advance timer.
+            let (state_root, state) = self
+                .store
+                .get_advanced_state(head_info.block_root, slot, head_info.state_root)
+                .map_err(BlockProductionError::FailedToLoadState)?
+                .ok_or(BlockProductionError::UnableToProduceAtSlot(slot))?;
+            (state, Some(state_root))
         } else {
             warn!(
                 self.log,

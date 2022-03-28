@@ -4,6 +4,7 @@ mod attester_slashing;
 mod max_cover;
 mod metrics;
 mod persistence;
+mod reward_cache;
 mod sync_aggregate_id;
 
 pub use attestation::AttMaxCover;
@@ -11,12 +12,13 @@ pub use max_cover::MaxCover;
 pub use persistence::{
     PersistedOperationPool, PersistedOperationPoolAltair, PersistedOperationPoolBase,
 };
+pub use reward_cache::RewardCache;
 
 use crate::sync_aggregate_id::SyncAggregateId;
 use attestation_id::AttestationId;
 use attester_slashing::AttesterSlashingMaxCover;
 use max_cover::maximum_cover;
-use parking_lot::RwLock;
+use parking_lot::{RwLock, RwLockWriteGuard};
 use state_processing::per_block_processing::errors::AttestationValidationError;
 use state_processing::per_block_processing::{
     get_slashable_indices_modular, verify_attestation_for_block_inclusion, verify_exit,
@@ -47,6 +49,8 @@ pub struct OperationPool<T: EthSpec + Default> {
     proposer_slashings: RwLock<HashMap<u64, ProposerSlashing>>,
     /// Map from exiting validator to their exit data.
     voluntary_exits: RwLock<HashMap<u64, SignedVoluntaryExit>>,
+    /// Reward cache for accelerating attestation packing.
+    reward_cache: RwLock<RewardCache>,
     _phantom: PhantomData<T>,
 }
 
@@ -55,6 +59,11 @@ pub enum OpPoolError {
     GetAttestationsTotalBalanceError(BeaconStateError),
     GetBlockRootError(BeaconStateError),
     SyncAggregateError(SyncAggregateError),
+    RewardCacheUpdatePrevEpoch(BeaconStateError),
+    RewardCacheUpdateCurrEpoch(BeaconStateError),
+    RewardCacheGetBlockRoot(BeaconStateError),
+    RewardCacheWrongEpoch,
+    RewardCacheValidatorUnknown(BeaconStateError),
     IncorrectOpPoolVariant,
 }
 
@@ -240,6 +249,7 @@ impl<T: EthSpec> OperationPool<T> {
         epoch: Epoch,
         all_attestations: &'a HashMap<AttestationId, Vec<Attestation<T>>>,
         state: &'a BeaconState<T>,
+        reward_cache: &'a RewardCache,
         total_active_balance: u64,
         validity_filter: impl FnMut(&&Attestation<T>) -> bool + Send,
         spec: &'a ChainSpec,
@@ -266,7 +276,9 @@ impl<T: EthSpec> OperationPool<T> {
                 .is_ok()
             })
             .filter(validity_filter)
-            .filter_map(move |att| AttMaxCover::new(att, state, total_active_balance, spec))
+            .filter_map(move |att| {
+                AttMaxCover::new(att, state, reward_cache, total_active_balance, spec)
+            })
     }
 
     /// Get a list of attestations for inclusion in a block.
@@ -290,6 +302,11 @@ impl<T: EthSpec> OperationPool<T> {
             .get_total_active_balance()
             .map_err(OpPoolError::GetAttestationsTotalBalanceError)?;
 
+        // Update the reward cache.
+        let mut reward_cache = self.reward_cache.write();
+        reward_cache.update(state)?;
+        let reward_cache = RwLockWriteGuard::downgrade(reward_cache);
+
         // Split attestations for the previous & current epochs, so that we
         // can optimise them individually in parallel.
         let mut num_prev_valid = 0_i64;
@@ -300,6 +317,7 @@ impl<T: EthSpec> OperationPool<T> {
                 prev_epoch,
                 &*all_attestations,
                 state,
+                &reward_cache,
                 total_active_balance,
                 prev_epoch_validity_filter,
                 spec,
@@ -310,6 +328,7 @@ impl<T: EthSpec> OperationPool<T> {
                 current_epoch,
                 &*all_attestations,
                 state,
+                &reward_cache,
                 total_active_balance,
                 curr_epoch_validity_filter,
                 spec,

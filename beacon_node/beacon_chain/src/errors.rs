@@ -209,6 +209,7 @@ pub enum BlockProductionError {
     TerminalPoWBlockLookupFailed(execution_layer::Error),
     GetPayloadFailed(execution_layer::Error),
     FailedToReadFinalizedBlock(store::Error),
+    FailedToLoadState(store::Error),
     MissingFinalizedBlock(Hash256),
     BlockTooLarge(usize),
 }
