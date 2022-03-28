@@ -217,15 +217,11 @@ where
                 pre_block_hook(&mut self.state, block)?;
             }
 
-            let verify_block_root = self.verify_block_root.unwrap_or_else(|| {
-                // If no explicit policy is set, verify only the first 1 or 2 block roots if using
-                // accurate state roots. Inaccurate state roots require block root verification to
-                // be off.
-                if i <= 1 {
-                    VerifyBlockRoot::True
-                } else {
-                    VerifyBlockRoot::False
-                }
+            // If no explicit policy is set, verify only the first 1 or 2 block roots.
+            let verify_block_root = self.verify_block_root.unwrap_or(if i <= 1 {
+                VerifyBlockRoot::True
+            } else {
+                VerifyBlockRoot::False
             });
             let mut ctxt = ConsensusContext::new(block.slot());
             per_block_processing(

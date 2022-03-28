@@ -36,6 +36,14 @@ impl Validator {
         &self.immutable.pubkey
     }
 
+    /// Replace the validator's pubkey (should only be used during testing).
+    pub fn replace_pubkey(&mut self, pubkey: PublicKeyBytes) {
+        self.immutable = Arc::new(ValidatorImmutable {
+            pubkey,
+            withdrawal_credentials: self.immutable.withdrawal_credentials,
+        });
+    }
+
     pub fn withdrawal_credentials(&self) -> Hash256 {
         self.immutable.withdrawal_credentials
     }

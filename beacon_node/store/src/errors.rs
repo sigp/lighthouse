@@ -3,10 +3,7 @@ use crate::config::StoreConfigError;
 use crate::hot_cold_store::HotColdDBError;
 use ssz::DecodeError;
 use state_processing::BlockReplayError;
-use types::{BeaconStateError, Hash256, Slot};
-
-#[cfg(feature = "milhouse")]
-use types::milhouse;
+use types::{milhouse, BeaconStateError, Hash256, Slot};
 
 pub type Result<T> = std::result::Result<T, Error>;
 
@@ -46,7 +43,6 @@ pub enum Error {
     MissingStateRoot(Slot),
     MissingState(Hash256),
     BlockReplayError(BlockReplayError),
-    #[cfg(feature = "milhouse")]
     MilhouseError(milhouse::Error),
     Compression(std::io::Error),
     MissingPersistedBeaconChain,
@@ -110,7 +106,6 @@ impl From<StoreConfigError> for Error {
     }
 }
 
-#[cfg(feature = "milhouse")]
 impl From<milhouse::Error> for Error {
     fn from(e: milhouse::Error) -> Self {
         Self::MilhouseError(e)

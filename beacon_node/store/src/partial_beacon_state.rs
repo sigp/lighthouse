@@ -318,8 +318,6 @@ macro_rules! impl_try_into_beacon_state {
             committee_caches: <_>::default(),
             pubkey_cache: <_>::default(),
             exit_cache: <_>::default(),
-            #[cfg(not(feature = "milhouse"))]
-            tree_hash_cache: <_>::default(),
 
             // Variant-specific fields
             $(

@@ -8,7 +8,6 @@ edition = "2021"
 [features]
 portable = ["bls/supranational-portable"]
 fake_crypto = ['bls/fake_crypto']
-tree-states = ["store/milhouse"]
 
 [dependencies]
 bls = { path = "../crypto/bls" }

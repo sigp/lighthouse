@@ -138,7 +138,7 @@ test-full: cargo-fmt test-release test-debug test-ef test-exec-engine
 # Lints the code for bad style and potentially unsafe arithmetic using Clippy.
 # Clippy lints are opt-in per-crate for now. By default, everything is allowed except for performance and correctness lints.
 lint:
-	cargo clippy --workspace --tests --features lighthouse/tree-states -- \
+	cargo clippy --workspace --tests -- \
 		-D clippy::fn_to_numeric_cast_any \
 		-D warnings \
 		-A clippy::from-over-into \

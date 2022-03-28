@@ -175,8 +175,8 @@ impl Diff for CommitteeCachesDiff {
         let (current_epoch, caches) = other;
 
         // Sanity check the inputs to ensure we can compute a sensible diff.
-        check_committee_caches(&prev_caches, *prev_current_epoch)?;
-        check_committee_caches(&caches, *current_epoch)?;
+        check_committee_caches(prev_caches, *prev_current_epoch)?;
+        check_committee_caches(caches, *current_epoch)?;
 
         let dist = compute_committee_cache_dist(*current_epoch, *prev_current_epoch)?;
 

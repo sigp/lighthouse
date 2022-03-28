@@ -72,7 +72,6 @@ pub enum BlockProcessingError {
     },
     ExecutionInvalid,
     ConsensusContext(ContextError),
-    #[cfg(feature = "milhouse")]
     MilhouseError(milhouse::Error),
 }
 
@@ -112,7 +111,6 @@ impl From<ContextError> for BlockProcessingError {
     }
 }
 
-#[cfg(feature = "milhouse")]
 impl From<milhouse::Error> for BlockProcessingError {
     fn from(e: milhouse::Error) -> Self {
         Self::MilhouseError(e)

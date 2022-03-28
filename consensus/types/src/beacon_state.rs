@@ -4,7 +4,6 @@ use crate::test_utils::TestRandom;
 use crate::*;
 use compare_fields::CompareFields;
 use compare_fields_derive::CompareFields;
-use derivative::Derivative;
 use eth2_hashing::hash;
 use int_to_bytes::{int_to_bytes4, int_to_bytes8};
 pub use pubkey_cache::PubkeyCache;
@@ -25,32 +24,24 @@ pub use self::committee_cache::{
     compute_committee_index_in_epoch, compute_committee_range_in_epoch, epoch_committee_count,
     CommitteeCache,
 };
-pub use clone_config::CloneConfig;
 pub use diff::BeaconStateDiff;
 pub use eth_spec::*;
 pub use iter::BlockRootsIter;
-
-#[cfg(feature = "milhouse")]
 pub use milhouse::{interface::Interface, List as VList, List, Vector as FixedVector};
-
-#[cfg(not(feature = "milhouse"))]
-pub use {
-    ssz_types::FixedVector, ssz_types::VariableList as VList, tree_hash_cache::BeaconTreeHashCache,
-};
 
 #[macro_use]
 mod committee_cache;
-mod clone_config;
 mod diff;
 mod exit_cache;
 mod iter;
 mod pubkey_cache;
 mod tests;
-#[cfg(not(feature = "milhouse"))]
-mod tree_hash_cache;
 
 pub const CACHED_EPOCHS: usize = 3;
 const MAX_RANDOM_BYTE: u64 = (1 << 8) - 1;
+
+pub type Validators<T> = VList<Validator, <T as EthSpec>::ValidatorRegistryLimit>;
+pub type Balances<T> = VList<u64, <T as EthSpec>::ValidatorRegistryLimit>;
 
 #[derive(Debug, PartialEq, Clone)]
 pub enum Error {
@@ -134,7 +125,6 @@ pub enum Error {
         current_epoch: Epoch,
         epoch: Epoch,
     },
-    #[cfg(feature = "milhouse")]
     MilhouseError(milhouse::Error),
     CommitteeCacheDiffInvalidEpoch {
         prev_current_epoch: Epoch,
@@ -199,9 +189,9 @@ impl From<BeaconStateHash> for Hash256 {
     variants(Base, Altair, Merge),
     variant_attributes(
         derive(
-            Derivative,
             Debug,
             PartialEq,
+            Clone,
             Serialize,
             Deserialize,
             Encode,
@@ -211,13 +201,12 @@ impl From<BeaconStateHash> for Hash256 {
             CompareFields,
         ),
         serde(bound = "T: EthSpec", deny_unknown_fields),
-        derivative(Clone),
         cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary))
     ),
     cast_error(ty = "Error", expr = "Error::IncorrectStateVariant"),
     partial_getter_error(ty = "Error", expr = "Error::IncorrectStateVariant")
 )]
-#[derive(Debug, PartialEq, Serialize, Deserialize, Encode, TreeHash)]
+#[derive(Debug, PartialEq, Clone, Serialize, Deserialize, Encode, TreeHash)]
 #[serde(untagged)]
 #[serde(bound = "T: EthSpec")]
 #[cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary))]
@@ -321,39 +310,22 @@ where
     #[ssz(skip_serializing, skip_deserializing)]
     #[tree_hash(skip_hashing)]
     #[test_random(default)]
-    #[derivative(Clone(clone_with = "clone_default"))]
     pub total_active_balance: Option<(Epoch, u64)>,
     #[serde(skip_serializing, skip_deserializing)]
     #[ssz(skip_serializing, skip_deserializing)]
     #[tree_hash(skip_hashing)]
     #[test_random(default)]
-    #[derivative(Clone(clone_with = "clone_default"))]
     pub committee_caches: [Arc<CommitteeCache>; CACHED_EPOCHS],
     #[serde(skip_serializing, skip_deserializing)]
     #[ssz(skip_serializing, skip_deserializing)]
     #[tree_hash(skip_hashing)]
     #[test_random(default)]
-    #[derivative(Clone(clone_with = "clone_default"))]
     pub pubkey_cache: PubkeyCache,
     #[serde(skip_serializing, skip_deserializing)]
     #[ssz(skip_serializing, skip_deserializing)]
     #[tree_hash(skip_hashing)]
     #[test_random(default)]
-    #[derivative(Clone(clone_with = "clone_default"))]
     pub exit_cache: ExitCache,
-    #[serde(skip_serializing, skip_deserializing)]
-    #[ssz(skip_serializing, skip_deserializing)]
-    #[tree_hash(skip_hashing)]
-    #[test_random(default)]
-    #[derivative(Clone(clone_with = "clone_default"))]
-    #[cfg(not(feature = "milhouse"))]
-    pub tree_hash_cache: BeaconTreeHashCache<T>,
-}
-
-impl<T: EthSpec> Clone for BeaconState<T> {
-    fn clone(&self) -> Self {
-        self.clone_with(CloneConfig::all())
-    }
 }
 
 impl<T: EthSpec> BeaconState<T> {
@@ -413,8 +385,6 @@ impl<T: EthSpec> BeaconState<T> {
             ],
             pubkey_cache: PubkeyCache::default(),
             exit_cache: ExitCache::default(),
-            #[cfg(not(feature = "milhouse"))]
-            tree_hash_cache: <_>::default(),
         })
     }
 
@@ -1142,12 +1112,7 @@ impl<T: EthSpec> BeaconState<T> {
     }
 
     /// Convenience accessor for validators and balances simultaneously.
-    pub fn validators_and_balances_mut(
-        &mut self,
-    ) -> (
-        &mut VList<Validator, T::ValidatorRegistryLimit>,
-        &mut VList<u64, T::ValidatorRegistryLimit>,
-    ) {
+    pub fn validators_and_balances_mut(&mut self) -> (&mut Validators<T>, &mut Balances<T>) {
         match self {
             BeaconState::Base(state) => (&mut state.validators, &mut state.balances),
             BeaconState::Altair(state) => (&mut state.validators, &mut state.balances),
@@ -1434,7 +1399,6 @@ impl<T: EthSpec> BeaconState<T> {
         self.drop_committee_cache(RelativeEpoch::Current)?;
         self.drop_committee_cache(RelativeEpoch::Next)?;
         self.drop_pubkey_cache();
-        self.drop_tree_hash_cache();
         *self.exit_cache_mut() = ExitCache::default();
         Ok(())
     }
@@ -1645,100 +1609,20 @@ impl<T: EthSpec> BeaconState<T> {
         Ok(())
     }
 
-    /// Initialize but don't fill the tree hash cache, if it isn't already initialized.
-    pub fn initialize_tree_hash_cache(&mut self) {
-        #[cfg(not(feature = "milhouse"))]
-        if !self.tree_hash_cache().is_initialized() {
-            *self.tree_hash_cache_mut() = BeaconTreeHashCache::new(self)
-        }
-    }
-
     /// Compute the tree hash root of the state using the tree hash cache.
     ///
     /// Initialize the tree hash cache if it isn't already initialized.
     pub fn update_tree_hash_cache(&mut self) -> Result<Hash256, Error> {
-        #[cfg(not(feature = "milhouse"))]
-        {
-            self.initialize_tree_hash_cache();
-
-            let cache = self.tree_hash_cache_mut().take();
-
-            if let Some(mut cache) = cache {
-                // Note: we return early if the tree hash fails, leaving `self.tree_hash_cache` as
-                // None. There's no need to keep a cache that fails.
-                let root = cache.recalculate_tree_hash_root(self)?;
-                self.tree_hash_cache_mut().restore(cache);
-                Ok(root)
-            } else {
-                Err(Error::TreeHashCacheNotInitialized)
-            }
-        }
-        #[cfg(feature = "milhouse")]
-        {
-            self.apply_pending_mutations()?;
-            Ok(self.tree_hash_root())
-        }
+        self.apply_pending_mutations()?;
+        Ok(self.tree_hash_root())
     }
 
     /// Compute the tree hash root of the validators using the tree hash cache.
     ///
     /// Initialize the tree hash cache if it isn't already initialized.
     pub fn update_validators_tree_hash_cache(&mut self) -> Result<Hash256, Error> {
-        #[cfg(not(feature = "milhouse"))]
-        {
-            self.initialize_tree_hash_cache();
-
-            let cache = self.tree_hash_cache_mut().take();
-
-            if let Some(mut cache) = cache {
-                // Note: we return early if the tree hash fails, leaving `self.tree_hash_cache` as
-                // None. There's no need to keep a cache that fails.
-                let root = cache.recalculate_validators_tree_hash_root(self.validators())?;
-                self.tree_hash_cache_mut().restore(cache);
-                Ok(root)
-            } else {
-                Err(Error::TreeHashCacheNotInitialized)
-            }
-        }
-        #[cfg(feature = "milhouse")]
-        {
-            self.validators_mut().apply_updates()?;
-            Ok(self.validators().tree_hash_root())
-        }
-    }
-
-    /// Completely drops the tree hash cache, replacing it with a new, empty cache.
-    pub fn drop_tree_hash_cache(&mut self) {
-        #[cfg(not(feature = "milhouse"))]
-        self.tree_hash_cache_mut().uninitialize();
-    }
-
-    /// Clone the state whilst preserving only the selected caches.
-    pub fn clone_with(&self, config: CloneConfig) -> Self {
-        let mut res = match self {
-            BeaconState::Base(inner) => BeaconState::Base(inner.clone()),
-            BeaconState::Altair(inner) => BeaconState::Altair(inner.clone()),
-            BeaconState::Merge(inner) => BeaconState::Merge(inner.clone()),
-        };
-        if config.committee_caches {
-            *res.committee_caches_mut() = self.committee_caches().clone();
-            *res.total_active_balance_mut() = *self.total_active_balance();
-        }
-        if config.pubkey_cache {
-            *res.pubkey_cache_mut() = self.pubkey_cache().clone();
-        }
-        if config.exit_cache {
-            *res.exit_cache_mut() = self.exit_cache().clone();
-        }
-        #[cfg(not(feature = "milhouse"))]
-        if config.tree_hash_cache {
-            *res.tree_hash_cache_mut() = self.tree_hash_cache().clone();
-        }
-        res
-    }
-
-    pub fn clone_with_only_committee_caches(&self) -> Self {
-        self.clone_with(CloneConfig::committee_caches_only())
+        self.validators_mut().apply_updates()?;
+        Ok(self.validators().tree_hash_root())
     }
 
     pub fn is_eligible_validator(&self, val: &Validator) -> bool {
@@ -1811,16 +1695,10 @@ impl From<ArithError> for Error {
     }
 }
 
-#[cfg(feature = "milhouse")]
 impl From<milhouse::Error> for Error {
     fn from(e: milhouse::Error) -> Self {
         Self::MilhouseError(e)
     }
-}
-
-/// Helper function for "cloning" a field by using its default value.
-fn clone_default<T: Default>(_value: &T) -> T {
-    T::default()
 }
 
 impl<T: EthSpec> CompareFields for BeaconState<T> {

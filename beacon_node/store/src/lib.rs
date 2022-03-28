@@ -44,6 +44,8 @@ use parking_lot::MutexGuard;
 use strum::{EnumString, IntoStaticStr};
 pub use types::*;
 
+pub type ColumnIter<'a> = Box<dyn Iterator<Item = Result<(Hash256, Vec<u8>), Error>> + 'a>;
+
 pub trait KeyValueStore<E: EthSpec>: Sync + Send + Sized + 'static {
     /// Retrieve some bytes in `column` with `key`.
     fn get_bytes(&self, column: &str, key: &[u8]) -> Result<Option<Vec<u8>>, Error>;
@@ -78,10 +80,7 @@ pub trait KeyValueStore<E: EthSpec>: Sync + Send + Sized + 'static {
     fn compact(&self) -> Result<(), Error>;
 
     /// Iterate through all values in a particular column.
-    fn iter_column<'a>(
-        &'a self,
-        _column: DBColumn,
-    ) -> Box<dyn Iterator<Item = Result<(Hash256, Vec<u8>), Error>> + 'a> {
+    fn iter_column(&self, _column: DBColumn) -> ColumnIter {
         // Default impl for non LevelDB databases
         Box::new(std::iter::empty())
     }

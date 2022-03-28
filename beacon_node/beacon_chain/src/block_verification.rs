@@ -73,9 +73,9 @@ use std::io::Write;
 use store::{Error as DBError, HotColdDB, KeyValueStore, StoreOp};
 use tree_hash::TreeHash;
 use types::{
-    BeaconBlockRef, BeaconState, BeaconStateError, ChainSpec, CloneConfig, Epoch, EthSpec,
-    ExecutionBlockHash, Hash256, InconsistentFork, PublicKey, PublicKeyBytes, RelativeEpoch,
-    SignedBeaconBlock, SignedBeaconBlockHeader, Slot,
+    BeaconBlockRef, BeaconState, BeaconStateError, ChainSpec, Epoch, EthSpec, ExecutionBlockHash,
+    Hash256, InconsistentFork, PublicKey, PublicKeyBytes, RelativeEpoch, SignedBeaconBlock,
+    SignedBeaconBlockHeader, Slot,
 };
 
 const POS_PANDA_BANNER: &str = r#"
@@ -1604,7 +1604,7 @@ fn cheap_state_advance_to_obtain_committees<'a, E: EthSpec>(
             parent_slot: state.slot(),
         })
     } else {
-        let mut state = state.clone_with(CloneConfig::committee_caches_only());
+        let mut state = state.clone();
         let target_slot = block_epoch.start_slot(E::slots_per_epoch());
 
         // Advance the state into the same epoch as the block. Use the "partial" method since state

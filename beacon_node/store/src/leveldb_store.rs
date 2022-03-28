@@ -191,11 +191,12 @@ impl<E: EthSpec> KeyValueStore<E> for LevelDB<E> {
         Box::new(
             iter.take_while(move |(key, _)| key.matches_column(column))
                 .map(move |(bytes_key, value)| {
-                    let key = bytes_key.remove_column(column).ok_or_else(|| {
-                        HotColdDBError::IterationError {
-                            unexpected_key: bytes_key,
-                        }
-                    })?;
+                    let key =
+                        bytes_key
+                            .remove_column(column)
+                            .ok_or(HotColdDBError::IterationError {
+                                unexpected_key: bytes_key,
+                            })?;
                     Ok((key, value))
                 }),
         )

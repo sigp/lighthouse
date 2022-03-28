@@ -84,11 +84,10 @@ fn shuffles_for_the_right_epoch() {
     let mut state = new_state::<MinimalEthSpec>(num_validators, slot);
     let spec = &MinimalEthSpec::default_spec();
 
-    let distinct_hashes: Vec<Hash256> = (0..MinimalEthSpec::epochs_per_historical_vector())
-        .map(|i| Hash256::from_low_u64_be(i as u64))
-        .collect();
+    let distinct_hashes = (0..MinimalEthSpec::epochs_per_historical_vector())
+        .map(|i| Hash256::from_low_u64_be(i as u64));
 
-    *state.randao_mixes_mut() = FixedVector::from(distinct_hashes);
+    *state.randao_mixes_mut() = FixedVector::try_from_iter(distinct_hashes).unwrap();
 
     let previous_seed = state
         .get_seed(state.previous_epoch(), Domain::BeaconAttester, spec)

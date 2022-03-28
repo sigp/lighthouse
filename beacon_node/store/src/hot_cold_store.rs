@@ -1037,13 +1037,14 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             .minimal_block_root_verification()
             .state_root_iter(state_root_iter)
             .apply_blocks(blocks, Some(target_slot))
-            .and_then(|block_replayer| {
+            .map(|block_replayer| {
                 // FIXME(sproul): tweak state miss condition
-                if block_replayer.state_root_miss() && false {
+                /*
+                if block_replayer.state_root_miss() {
                     Err(Error::MissingStateRoot(target_slot))
-                } else {
-                    Ok(block_replayer.into_state())
                 }
+                */
+                block_replayer.into_state()
             })
     }
 

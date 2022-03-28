@@ -3,7 +3,7 @@ use ssz::{DecodeError, Encode};
 use ssz_derive::Encode;
 use std::convert::TryInto;
 use std::sync::Arc;
-use types::beacon_state::{CloneConfig, CommitteeCache, CACHED_EPOCHS};
+use types::beacon_state::{CommitteeCache, CACHED_EPOCHS};
 
 pub fn store_full_state<E: EthSpec>(
     state_root: &Hash256,
@@ -56,7 +56,7 @@ impl<T: EthSpec> StorageContainer<T> {
     /// Create a new instance for storing a `BeaconState`.
     pub fn new(state: &BeaconState<T>) -> Self {
         Self {
-            state: state.clone_with(CloneConfig::none()),
+            state: state.clone(),
             committee_caches: state.committee_caches().to_vec(),
         }
     }

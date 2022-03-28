@@ -14,6 +14,7 @@ pub struct PubkeyCache {
 
 impl PubkeyCache {
     /// Returns the number of validator indices added to the map so far.
+    #[allow(clippy::len_without_is_empty)]
     pub fn len(&self) -> ValidatorIndex {
         self.len
     }

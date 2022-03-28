@@ -84,7 +84,6 @@ use std::time::{Duration, Instant};
 use store::iter::{BlockRootsIterator, ParentRootBlockIterator, StateRootsIterator};
 use store::{Error as DBError, HotColdDB, KeyValueStore, KeyValueStoreOp, StoreItem, StoreOp};
 use task_executor::ShutdownReason;
-use types::beacon_state::CloneConfig;
 use types::*;
 
 pub type ForkChoiceError = fork_choice::Error<crate::ForkChoiceStoreError>;
@@ -545,12 +544,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             let iter = self.store.forwards_block_roots_iterator_until(
                 start_slot,
                 end_slot,
-                || {
-                    (
-                        head.beacon_state.clone_with_only_committee_caches(),
-                        head.beacon_block_root,
-                    )
-                },
+                || (head.beacon_state.clone(), head.beacon_block_root),
                 &self.spec,
             )?;
             Ok(iter
@@ -713,12 +707,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             let iter = self.store.forwards_state_roots_iterator_until(
                 start_slot,
                 end_slot,
-                || {
-                    (
-                        head.beacon_state.clone_with_only_committee_caches(),
-                        head.beacon_state_root(),
-                    )
-                },
+                || (head.beacon_state.clone(), head.beacon_state_root()),
                 &self.spec,
             )?;
             Ok(iter
@@ -993,7 +982,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// is the state as it was when the head block was received, which could be some slots prior to
     /// now.
     pub fn head(&self) -> Result<BeaconSnapshot<T::EthSpec>, Error> {
-        self.with_head(|head| Ok(head.clone_with(CloneConfig::committee_caches_only())))
+        self.with_head(|head| Ok(head.clone()))
     }
 
     /// Apply a function to the canonical head without cloning it.
@@ -1029,10 +1018,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     ///
     /// See `Self::head` for more information.
     pub fn head_beacon_state(&self) -> Result<BeaconState<T::EthSpec>, Error> {
-        self.with_head(|s| {
-            Ok(s.beacon_state
-                .clone_with(CloneConfig::committee_caches_only()))
-        })
+        self.with_head(|s| Ok(s.beacon_state.clone()))
     }
 
     /// Return the sync committee at `slot + 1` from the canonical chain.
@@ -4209,11 +4195,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             // to copy the head is liable to race-conditions.
             let head_state_opt = self.with_head(|head| {
                 if head.beacon_block_root == head_block_root {
-                    Ok(Some((
-                        head.beacon_state
-                            .clone_with(CloneConfig::committee_caches_only()),
-                        head.beacon_state_root(),
-                    )))
+                    Ok(Some((head.beacon_state.clone(), head.beacon_state_root())))
                 } else {
                     Ok::<_, Error>(None)
                 }

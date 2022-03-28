@@ -18,7 +18,7 @@ fn get_summary_v1<T: BeaconChainTypes>(
     state_root: Hash256,
 ) -> Result<HotStateSummaryV1, Error> {
     db.get_item(&state_root)?
-        .ok_or(HotColdDBError::MissingHotStateSummary(state_root).into())
+        .ok_or_else(|| HotColdDBError::MissingHotStateSummary(state_root).into())
 }
 
 fn get_state_by_replay<T: BeaconChainTypes>(
@@ -30,7 +30,7 @@ fn get_state_by_replay<T: BeaconChainTypes>(
         slot,
         latest_block_root,
         epoch_boundary_state_root,
-    } = get_summary_v1::<T>(&db, state_root)?;
+    } = get_summary_v1::<T>(db, state_root)?;
 
     // Load full state from the epoch boundary.
     let (epoch_boundary_state, _) = db.load_hot_state_full(&epoch_boundary_state_root)?;

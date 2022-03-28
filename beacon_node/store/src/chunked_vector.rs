@@ -558,17 +558,6 @@ pub fn load_variable_list_from_db<F: VariableLengthField<E>, E: EthSpec, S: KeyV
     Ok(result)
 }
 
-/// Index into a field of the state, avoiding out of bounds and division by 0.
-#[cfg(not(feature = "milhouse"))]
-fn safe_modulo_index<T: Copy>(values: &[T], index: u64) -> Result<T, ChunkError> {
-    if values.is_empty() {
-        Err(ChunkError::ZeroLengthVector)
-    } else {
-        Ok(values[index as usize % values.len()])
-    }
-}
-
-#[cfg(feature = "milhouse")]
 fn safe_modulo_index_list<T: TreeHash + Copy, N: Unsigned>(
     values: &VList<T, N>,
     index: u64,
@@ -583,7 +572,6 @@ fn safe_modulo_index_list<T: TreeHash + Copy, N: Unsigned>(
     }
 }
 
-#[cfg(feature = "milhouse")]
 fn safe_modulo_index_vect<T: TreeHash + Copy, N: Unsigned>(
     values: &FixedVector<T, N>,
     index: u64,

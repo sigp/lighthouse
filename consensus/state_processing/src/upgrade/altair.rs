@@ -104,8 +104,6 @@ pub fn upgrade_to_altair<E: EthSpec>(
         committee_caches: mem::take(&mut pre.committee_caches),
         pubkey_cache: mem::take(&mut pre.pubkey_cache),
         exit_cache: mem::take(&mut pre.exit_cache),
-        #[cfg(not(feature = "milhouse"))]
-        tree_hash_cache: mem::take(&mut pre.tree_hash_cache),
     });
 
     // Fill in previous epoch participation from the pre state's pending attestations.

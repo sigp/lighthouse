@@ -2,7 +2,7 @@ use super::*;
 use beacon_chain::test_utils::{BeaconChainHarness, EphemeralHarnessType};
 use state_processing::{
     per_block_processing, per_block_processing::errors::ExitInvalid, BlockProcessingError,
-    BlockSignatureStrategy, VerifyBlockRoot,
+    BlockSignatureStrategy, ConsensusContext, VerifyBlockRoot,
 };
 use types::{BeaconBlock, BeaconState, Epoch, EthSpec, SignedBeaconBlock};
 
@@ -61,12 +61,13 @@ impl ExitTest {
         block: &SignedBeaconBlock<E>,
         state: &mut BeaconState<E>,
     ) -> Result<(), BlockProcessingError> {
+        let mut ctxt = ConsensusContext::new(block.slot());
         per_block_processing(
             state,
             block,
-            None,
             BlockSignatureStrategy::VerifyIndividual,
             VerifyBlockRoot::True,
+            &mut ctxt,
             &E::default_spec(),
         )
     }
@@ -122,7 +123,7 @@ vectors_and_tests!(
     ExitTest {
         block_modifier: Box::new(|_, block| {
             // Duplicate the exit
-            let exit = block.body().voluntary_exits()[0].clone();
+            let exit = block.body().voluntary_exits().get(0).unwrap().clone();
             block.body_mut().voluntary_exits_mut().push(exit).unwrap();
         }),
         expected: Err(BlockProcessingError::ExitInvalid {
@@ -141,7 +142,11 @@ vectors_and_tests!(
     invalid_validator_unknown,
     ExitTest {
         block_modifier: Box::new(|_, block| {
-            block.body_mut().voluntary_exits_mut()[0]
+            block
+                .body_mut()
+                .voluntary_exits_mut()
+                .get_mut(0)
+                .unwrap()
                 .message
                 .validator_index = VALIDATOR_COUNT as u64;
         }),
@@ -162,7 +167,7 @@ vectors_and_tests!(
     invalid_exit_already_initiated,
     ExitTest {
         state_modifier: Box::new(|state| {
-            state.validators_mut()[0].exit_epoch = STATE_EPOCH + 1;
+            state.validators_mut().get_mut(0).unwrap().exit_epoch = STATE_EPOCH + 1;
         }),
         expected: Err(BlockProcessingError::ExitInvalid {
             index: 0,
@@ -181,7 +186,8 @@ vectors_and_tests!(
     invalid_not_active_before_activation_epoch,
     ExitTest {
         state_modifier: Box::new(|state| {
-            state.validators_mut()[0].activation_epoch = E::default_spec().far_future_epoch;
+            state.validators_mut().get_mut(0).unwrap().activation_epoch =
+                E::default_spec().far_future_epoch;
         }),
         expected: Err(BlockProcessingError::ExitInvalid {
             index: 0,
@@ -200,7 +206,7 @@ vectors_and_tests!(
     invalid_not_active_after_exit_epoch,
     ExitTest {
         state_modifier: Box::new(|state| {
-            state.validators_mut()[0].exit_epoch = STATE_EPOCH;
+            state.validators_mut().get_mut(0).unwrap().exit_epoch = STATE_EPOCH;
         }),
         expected: Err(BlockProcessingError::ExitInvalid {
             index: 0,
@@ -300,7 +306,11 @@ vectors_and_tests!(
         block_modifier: Box::new(|_, block| {
             // Shift the validator index by 1 so that it's mismatched from the key that was
             // used to sign.
-            block.body_mut().voluntary_exits_mut()[0]
+            block
+                .body_mut()
+                .voluntary_exits_mut()
+                .get_mut(0)
+                .unwrap()
                 .message
                 .validator_index = VALIDATOR_INDEX + 1;
         }),
