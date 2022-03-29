@@ -303,9 +303,11 @@ impl<T: EthSpec> OperationPool<T> {
             .map_err(OpPoolError::GetAttestationsTotalBalanceError)?;
 
         // Update the reward cache.
+        let reward_timer = metrics::start_timer(&metrics::BUILD_REWARD_CACHE_TIME);
         let mut reward_cache = self.reward_cache.write();
         reward_cache.update(state)?;
         let reward_cache = RwLockWriteGuard::downgrade(reward_cache);
+        drop(reward_timer);
 
         // Split attestations for the previous & current epochs, so that we
         // can optimise them individually in parallel.
