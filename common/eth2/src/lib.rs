@@ -1181,7 +1181,7 @@ impl BeaconNodeHttpClient {
     }
 
     /// `GET v2/validator/blocks/{slot}`
-    pub async fn get_validator_blocks_with_verify_randao<T: EthSpec>(
+    pub async fn get_validator_blocks_with_verify_randao<T: EthSpec, Payload: ExecPayload<T>>(
         &self,
         slot: Slot,
         randao_reveal: Option<&SignatureBytes>,
@@ -1221,12 +1221,20 @@ impl BeaconNodeHttpClient {
         randao_reveal: &SignatureBytes,
         graffiti: Option<&Graffiti>,
     ) -> Result<ForkVersionedResponse<BeaconBlock<T, Payload>>, Error> {
-        self.get_validator_blinded_blocks_with_verify_randao(slot, Some(randao_reveal), graffiti, None)
-            .await
+        self.get_validator_blinded_blocks_with_verify_randao(
+            slot,
+            Some(randao_reveal),
+            graffiti,
+            None,
+        )
+        .await
     }
 
     /// `GET v2/validator/blocks/{slot}`
-    pub async fn get_validator_blinded_blocks_with_verify_randao<T: EthSpec>(
+    pub async fn get_validator_blinded_blocks_with_verify_randao<
+        T: EthSpec,
+        Payload: ExecPayload<T>,
+    >(
         &self,
         slot: Slot,
         randao_reveal: Option<&SignatureBytes>,

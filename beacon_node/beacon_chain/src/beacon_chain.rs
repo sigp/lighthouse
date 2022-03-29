@@ -2908,13 +2908,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     }
 
     /// Same as `produce_block` but allowing for configuration of RANDAO-verification.
-    pub fn produce_block_with_verification(
+    pub fn produce_block_with_verification<Payload: ExecPayload<T::EthSpec>>(
         &self,
         randao_reveal: Signature,
         slot: Slot,
         validator_graffiti: Option<Graffiti>,
         verification: ProduceBlockVerification,
-    ) -> Result<BeaconBlockAndState<T::EthSpec>, BlockProductionError> {
+    ) -> Result<BeaconBlockAndState<T::EthSpec, Payload>, BlockProductionError> {
         metrics::inc_counter(&metrics::BLOCK_PRODUCTION_REQUESTS);
         let _complete_timer = metrics::start_timer(&metrics::BLOCK_PRODUCTION_TIMES);
 

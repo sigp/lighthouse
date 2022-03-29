@@ -45,10 +45,9 @@ use std::sync::Arc;
 use tokio::sync::mpsc::UnboundedSender;
 use tokio_stream::{wrappers::BroadcastStream, StreamExt};
 use types::{
-    Attestation, AttesterSlashing, BeaconStateError, CommitteeCache, ConfigAndPreset, Epoch,
-    EthSpec, ForkName, ProposerPreparationData, ProposerSlashing, RelativeEpoch, Signature,
-    SignedAggregateAndProof, BeaconBlockBodyMerge, BeaconBlockMerge,
-    BlindedPayload, FullPayload,
+    Attestation, AttesterSlashing, BeaconBlockBodyMerge, BeaconBlockMerge, BeaconStateError,
+    BlindedPayload, CommitteeCache, ConfigAndPreset, Epoch, EthSpec, ForkName, FullPayload,
+    ProposerPreparationData, ProposerSlashing, RelativeEpoch, Signature, SignedAggregateAndProof,
     SignedBeaconBlock, SignedBeaconBlockMerge, SignedContributionAndProof, SignedVoluntaryExit,
     Slot, SyncCommitteeMessage, SyncContributionData,
 };
@@ -2065,6 +2064,12 @@ pub fn serve<T: BeaconChainTypes>(
                             })
                         },
                     )?;
+
+                    let randao_verification = if query.verify_randao {
+                        ProduceBlockVerification::VerifyRandao
+                    } else {
+                        ProduceBlockVerification::NoVerification
+                    };
 
                     let (block, _) = chain
                         .produce_block_with_verification::<BlindedPayload<T::EthSpec>>(
