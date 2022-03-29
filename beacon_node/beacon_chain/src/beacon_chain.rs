@@ -3481,9 +3481,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .beacon_state
             .attester_shuffling_decision_root(self.genesis_block_root, RelativeEpoch::Current);
 
-        // Used later for the execution engine.
-        let is_merge_transition_complete = is_merge_transition_complete(&new_head.beacon_state);
-
         drop(lag_timer);
 
         // Clear the early attester cache in case it conflicts with `self.canonical_head`.
@@ -3690,32 +3687,28 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             }
         }
 
-        // If this is a post-merge block, update the execution layer.
-        if is_merge_transition_complete {
-            let current_slot = self.slot()?;
+        // Update the execution layer.
+        if let Err(e) = self.update_execution_engine_forkchoice_blocking(self.slot()?) {
+            crit!(
+                self.log,
+                "Failed to update execution head";
+                "error" => ?e
+            );
+        }
 
-            if let Err(e) = self.update_execution_engine_forkchoice_blocking(current_slot) {
-                crit!(
-                    self.log,
-                    "Failed to update execution head";
-                    "error" => ?e
-                );
-            }
-
-            // Performing this call immediately after
-            // `update_execution_engine_forkchoice_blocking` might result in two calls to fork
-            // choice updated, one *without* payload attributes and then a second *with*
-            // payload attributes.
-            //
-            // This seems OK. It's not a significant waste of EL<>CL bandwidth or resources, as
-            // far as I know.
-            if let Err(e) = self.prepare_beacon_proposer_blocking() {
-                crit!(
-                    self.log,
-                    "Failed to prepare proposers after fork choice";
-                    "error" => ?e
-                );
-            }
+        // Performing this call immediately after
+        // `update_execution_engine_forkchoice_blocking` might result in two calls to fork
+        // choice updated, one *without* payload attributes and then a second *with*
+        // payload attributes.
+        //
+        // This seems OK. It's not a significant waste of EL<>CL bandwidth or resources, as
+        // far as I know.
+        if let Err(e) = self.prepare_beacon_proposer_blocking() {
+            crit!(
+                self.log,
+                "Failed to prepare proposers after fork choice";
+                "error" => ?e
+            );
         }
 
         Ok(())
@@ -3750,6 +3743,19 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .clone()
             .ok_or(Error::ExecutionLayerMissing)?;
 
+        let current_slot = self.slot()?;
+        let prepare_slot = current_slot + 1;
+        let prepare_epoch = prepare_slot.epoch(T::EthSpec::slots_per_epoch());
+
+        // There's no need to run the proposer preparation routine before the bellatrix fork.
+        if self
+            .spec
+            .bellatrix_fork_epoch
+            .map_or(true, |bellatrix| prepare_epoch < bellatrix)
+        {
+            return Ok(());
+        }
+
         // Nothing to do if there are no proposers registered with the EL, exit early to avoid
         // wasting cycles.
         if !execution_layer.has_any_proposer_preparation_data().await {
@@ -3757,7 +3763,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         }
 
         let head = self.head_info()?;
-        let current_slot = self.slot()?;
+        let head_epoch = head.slot.epoch(T::EthSpec::slots_per_epoch());
 
         // Don't bother with proposer prep if the head is more than
         // `PREPARE_PROPOSER_HISTORIC_EPOCHS` prior to the current slot.
@@ -3774,10 +3780,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             );
             return Ok(());
         }
-
-        let head_epoch = head.slot.epoch(T::EthSpec::slots_per_epoch());
-        let prepare_slot = current_slot + 1;
-        let prepare_epoch = prepare_slot.epoch(T::EthSpec::slots_per_epoch());
 
         // Ensure that the shuffling decision root is correct relative to the epoch we wish to
         // query.
@@ -3964,6 +3966,23 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .as_ref()
             .ok_or(Error::ExecutionLayerMissing)?;
 
+        let next_slot = current_slot + 1;
+
+        // There is no need to issue a `forkchoiceUpdated` (fcU) message unless the Bellatrix fork
+        // has:
+        //
+        // 1. Already happened.
+        // 2. Will happen in the next slot.
+        //
+        // The reason for a fcU message in the slot prior to the Bellatrix fork is in case the
+        // terminal difficulty has already been reached and a payload preparation message needs to
+        // be issued.
+        if self.spec.bellatrix_fork_epoch.map_or(true, |bellatrix| {
+            next_slot.epoch(T::EthSpec::slots_per_epoch()) < bellatrix
+        }) {
+            return Ok(());
+        }
+
         // Take the global lock for updating the execution engine fork choice.
         //
         // Whilst holding this lock we must:
@@ -4002,7 +4021,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 // The head block does not have an execution block hash. We must check to see if we
                 // happen to be the proposer of the transition block, in which case we still need to
                 // send forkchoice_updated.
-                let next_slot = current_slot + 1;
                 match self.spec.fork_name_at_slot::<T::EthSpec>(next_slot) {
                     // We are pre-bellatrix; no need to update the EL.
                     ForkName::Base | ForkName::Altair => return Ok(()),
