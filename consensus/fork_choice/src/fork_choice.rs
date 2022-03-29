@@ -18,6 +18,7 @@ pub enum Error<T> {
     InvalidProtoArrayBytes(String),
     InvalidLegacyProtoArrayBytes(String),
     FailedToProcessInvalidExecutionPayload(String),
+    FailedToProcessValidExecutionPayload(String),
     MissingProtoArrayBlock(Hash256),
     UnknownAncestor {
         ancestor_slot: Slot,
@@ -510,6 +511,16 @@ where
         }
 
         Ok(true)
+    }
+
+    /// See `ProtoArrayForkChoice::process_execution_payload_validation` for documentation.
+    pub fn on_valid_execution_payload(
+        &mut self,
+        block_root: Hash256,
+    ) -> Result<(), Error<T::Error>> {
+        self.proto_array
+            .process_execution_payload_validation(block_root)
+            .map_err(Error::FailedToProcessValidExecutionPayload)
     }
 
     /// See `ProtoArrayForkChoice::process_execution_payload_invalidation` for documentation.
