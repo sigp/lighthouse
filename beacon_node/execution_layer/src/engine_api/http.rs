@@ -29,13 +29,13 @@ pub const ETH_SYNCING: &str = "eth_syncing";
 pub const ETH_SYNCING_TIMEOUT: Duration = Duration::from_millis(250);
 
 pub const ENGINE_NEW_PAYLOAD_V1: &str = "engine_newPayloadV1";
-pub const ENGINE_NEW_PAYLOAD_TIMEOUT: Duration = Duration::from_secs(2);
+pub const ENGINE_NEW_PAYLOAD_TIMEOUT: Duration = Duration::from_secs(6);
 
 pub const ENGINE_GET_PAYLOAD_V1: &str = "engine_getPayloadV1";
 pub const ENGINE_GET_PAYLOAD_TIMEOUT: Duration = Duration::from_secs(2);
 
 pub const ENGINE_FORKCHOICE_UPDATED_V1: &str = "engine_forkchoiceUpdatedV1";
-pub const ENGINE_FORKCHOICE_UPDATED_TIMEOUT: Duration = Duration::from_millis(500);
+pub const ENGINE_FORKCHOICE_UPDATED_TIMEOUT: Duration = Duration::from_secs(6);
 
 pub const ENGINE_EXCHANGE_TRANSITION_CONFIGURATION_V1: &str =
     "engine_exchangeTransitionConfigurationV1";
