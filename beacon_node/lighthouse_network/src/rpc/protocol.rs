@@ -63,10 +63,18 @@ lazy_static! {
 
     /// The `BeaconBlockMerge` block has an `ExecutionPayload` field which has a max size ~16 GiB for future proofing.
     /// We calculate the value from its fields instead of constructing the block and checking the length.
+    /// Note: This is only the theoretical upper bound. We further bound the max size we receive over the network
+    /// with `MAX_RPC_SIZE_POST_MERGE`.
     pub static ref SIGNED_BEACON_BLOCK_MERGE_MAX: usize =
-        *SIGNED_BEACON_BLOCK_MERGE_MIN
-        + types::ExecutionPayload::<MainnetEthSpec>::max_execution_payload_size()
-        - types::ExecutionPayload::<MainnetEthSpec>::empty().as_ssz_bytes().len();
+    // Size of a full merge block with an empty execution payload
+    SignedBeaconBlock::<MainnetEthSpec>::from_block(
+        BeaconBlock::Merge(BeaconBlockMerge::<MainnetEthSpec>::full(&MainnetEthSpec::default_spec())),
+        Signature::empty(),
+    )
+    .as_ssz_bytes()
+    .len()
+    - types::ExecutionPayload::<MainnetEthSpec>::empty().as_ssz_bytes().len() // subtracting size of empty execution payload included above
+    + types::ExecutionPayload::<MainnetEthSpec>::max_execution_payload_size(); // adding max size of execution payload (~16gb)
 
     pub static ref BLOCKS_BY_ROOT_REQUEST_MIN: usize =
         VariableList::<Hash256, MaxRequestBlocks>::from(Vec::<Hash256>::new())
@@ -111,7 +119,7 @@ const REQUEST_TIMEOUT: u64 = 15;
 pub fn max_rpc_size(fork_context: &ForkContext) -> usize {
     match fork_context.current_fork() {
         ForkName::Merge => MAX_RPC_SIZE_POST_MERGE,
-        _ => MAX_RPC_SIZE,
+        ForkName::Altair | ForkName::Base => MAX_RPC_SIZE,
     }
 }
 
