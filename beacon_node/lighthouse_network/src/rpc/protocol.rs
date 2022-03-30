@@ -63,7 +63,10 @@ lazy_static! {
 
     /// The `BeaconBlockMerge` block has an `ExecutionPayload` field which has a max size ~16 GiB for future proofing.
     /// We calculate the value from its fields instead of constructing the block and checking the length.
-    pub static ref SIGNED_BEACON_BLOCK_MERGE_MAX: usize = types::ExecutionPayload::<MainnetEthSpec>::max_execution_payload_size();
+    pub static ref SIGNED_BEACON_BLOCK_MERGE_MAX: usize =
+        *SIGNED_BEACON_BLOCK_MERGE_MIN
+        + types::ExecutionPayload::<MainnetEthSpec>::max_execution_payload_size()
+        - types::ExecutionPayload::<MainnetEthSpec>::empty().as_ssz_bytes().len();
 
     pub static ref BLOCKS_BY_ROOT_REQUEST_MIN: usize =
         VariableList::<Hash256, MaxRequestBlocks>::from(Vec::<Hash256>::new())
@@ -294,12 +297,18 @@ impl ProtocolId {
             ),
             Protocol::BlocksByRoot => RpcLimits::new(
                 std::cmp::min(
-                    *SIGNED_BEACON_BLOCK_ALTAIR_MIN,
-                    *SIGNED_BEACON_BLOCK_BASE_MIN,
+                    std::cmp::min(
+                        *SIGNED_BEACON_BLOCK_ALTAIR_MIN,
+                        *SIGNED_BEACON_BLOCK_BASE_MIN,
+                    ),
+                    *SIGNED_BEACON_BLOCK_MERGE_MIN,
                 ),
                 std::cmp::max(
-                    *SIGNED_BEACON_BLOCK_ALTAIR_MAX,
-                    *SIGNED_BEACON_BLOCK_BASE_MAX,
+                    std::cmp::max(
+                        *SIGNED_BEACON_BLOCK_ALTAIR_MAX,
+                        *SIGNED_BEACON_BLOCK_BASE_MAX,
+                    ),
+                    *SIGNED_BEACON_BLOCK_MERGE_MAX,
                 ),
             ),
 
