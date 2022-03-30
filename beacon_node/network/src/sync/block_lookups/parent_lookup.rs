@@ -94,6 +94,26 @@ impl<T: EthSpec> ParentLookup<T> {
         self.current_parent_request_id = None;
     }
 
+    /// Insert the block into the head of the downloaded_blocks updating the `chain_hash` to `block.canonical_root()`.
+    /// Note: this function does not check that current chain_hash is parent of block to be inserted.
+    pub fn insert_block(&mut self, block: SignedBeaconBlock<T>) {
+        let _old_hash = self.chain_hash;
+        let root = block.canonical_root();
+        self.chain_hash = root;
+        // Change to deque
+        self.downloaded_blocks.insert(0, block);
+        self.current_parent_request.hash = root;
+
+        // What should this be???
+        // self.current_parent_request.hash = next_parent;
+
+        // Check if this needs to be done
+        // self.current_parent_request.state = single_block_lookup::State::Processing {
+        //     peer_id: self.get_processing_peer(chain_hash),
+        // };
+        self.current_parent_request_id = None;
+    }
+
     pub fn pending_response(&self, req_id: Id) -> bool {
         self.current_parent_request_id == Some(req_id)
     }
@@ -110,6 +130,10 @@ impl<T: EthSpec> ParentLookup<T> {
 
     pub fn chain_blocks(&mut self) -> Vec<SignedBeaconBlock<T>> {
         std::mem::take(&mut self.downloaded_blocks)
+    }
+
+    pub fn chain_blocks_clone(&mut self) -> Vec<SignedBeaconBlock<T>> {
+        self.downloaded_blocks.clone()
     }
 
     /// Verifies that the received block is what we requested. If so, parent lookup now waits for

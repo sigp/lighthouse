@@ -1,4 +1,5 @@
 use std::collections::hash_map::Entry;
+use std::collections::HashMap;
 use std::time::Duration;
 
 use beacon_chain::{BeaconChainTypes, BlockError, ExecutionPayloadError};
@@ -20,7 +21,7 @@ use self::{
 
 use super::BatchProcessResult;
 use super::{
-    manager::{BlockProcessType, Id},
+    manager::{BlockProcessType, FailureMode, Id},
     network_context::SyncNetworkContext,
 };
 
@@ -48,6 +49,9 @@ pub(crate) struct BlockLookups<T: BeaconChainTypes> {
     /// A multi-threaded, non-blocking processor for applying messages to the beacon chain.
     beacon_processor_send: mpsc::Sender<WorkEvent<T>>,
 
+    /// A hashmap of blocks that are waiting on execution.
+    waiting_execution: HashMap<Hash256, SignedBeaconBlock<T::EthSpec>>,
+
     /// The logger for the import manager.
     log: Logger,
 }
@@ -59,6 +63,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
             failed_chains: LRUCache::new(FAILED_CHAINS_CACHE_SIZE),
             single_block_lookups: Default::default(),
             beacon_processor_send,
+            waiting_execution: Default::default(),
             log,
         }
     }
@@ -158,6 +163,22 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
 
         match request.get_mut().verify_block(block) {
             Ok(Some(block)) => {
+                // If this block's parent already exists in a parent_lookup, add the block to
+                // the waiting_execution list.
+                if self
+                    .parent_queue
+                    .iter()
+                    .any(|request| request.chain_hash() == block.parent_root())
+                {
+                    let block_hash = block.canonical_root();
+                    debug!(
+                        self.log,
+                        "Single block request is waiting on execution";
+                        "block_hash" => %block_hash,
+                        "parent_hash" => %block.parent_root(),
+                    );
+                    self.waiting_execution.insert(block_hash, *block.clone());
+                }
                 // This is the correct block, send it for processing
                 if self
                     .send_block_for_processing(
@@ -428,6 +449,44 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                             "root" => %root,
                             "err" => ?e
                         );
+
+                        // Add this to the existing parent request and send the chain segment
+                        // for processing.
+                        if let Some(block) = self.waiting_execution.remove(&root) {
+                            if let Some(pos) = self
+                                .parent_queue
+                                .iter()
+                                .position(|req| req.chain_hash() == block.parent_root())
+                            {
+                                debug!(
+                                    self.log,
+                                    "Single block lookup processed, parent exists in parent queue";
+                                    "block_root" => %block.canonical_root(),
+                                    "parent_root" => %block.parent_root(),
+                                );
+                                let mut parent_lookup = self.parent_queue.remove(pos);
+                                parent_lookup.insert_block(block);
+
+                                let chain_hash = parent_lookup.chain_hash();
+                                let blocks = parent_lookup.chain_blocks_clone();
+                                let process_id = ChainSegmentProcessId::ParentLookup(chain_hash);
+                                match self
+                                    .beacon_processor_send
+                                    .try_send(WorkEvent::chain_segment(process_id, blocks))
+                                {
+                                    Ok(_) => {
+                                        self.parent_queue.push(parent_lookup);
+                                    }
+                                    Err(e) => {
+                                        error!(
+                                            self.log,
+                                            "Failed to send chain segment to processor";
+                                            "error" => ?e
+                                        );
+                                    }
+                                }
+                            }
+                        }
                     }
                     err => {
                         debug!(self.log,
@@ -539,6 +598,8 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                         "Parent request failed. Execution layer is stalled";
                         "err" => ?e
                     );
+                    // Push the parent_lookup object back into the list
+                    self.parent_queue.push(parent_lookup);
                 }
                 err => {
                     debug!(self.log,
@@ -611,17 +672,33 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
             BatchProcessResult::Failed {
                 imported_blocks: _,
                 peer_action,
-                mode: _mode,
+                mode,
             } => {
-                self.failed_chains.insert(parent_lookup.chain_hash());
-                if let Some(peer_action) = peer_action {
-                    for &peer_id in parent_lookup.used_peers() {
-                        cx.report_peer(peer_id, peer_action, "parent_chain_failure")
+                debug!(
+                    self.log,
+                    "Batch processing failed";
+                    "mode" => ?mode,
+                );
+                if let FailureMode::EL { pause_sync } = mode {
+                    debug!(self.log, "Execution layer offline");
+                    if pause_sync {
+                        self.parent_queue.push(parent_lookup);
+                        metrics::set_gauge(
+                            &metrics::SYNC_PARENT_BLOCK_LOOKUPS,
+                            self.parent_queue.len() as i64,
+                        );
+                        return;
+                    }
+                } else {
+                    self.failed_chains.insert(parent_lookup.chain_hash());
+                    if let Some(peer_action) = peer_action {
+                        for &peer_id in parent_lookup.used_peers() {
+                            cx.report_peer(peer_id, peer_action, "parent_chain_failure")
+                        }
                     }
                 }
             }
         }
-
         metrics::set_gauge(
             &metrics::SYNC_PARENT_BLOCK_LOOKUPS,
             self.parent_queue.len() as i64,

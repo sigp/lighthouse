@@ -468,8 +468,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                             "Peer sent a block containing invalid execution payload. Reason: {:?}",
                             err
                         ),
-                        // Do not penalize peers for internal errors.
-                        peer_action: None,
+                        peer_action: Some(PeerAction::LowToleranceError),
                         mode: FailureMode::EL { pause_sync: false },
                     })
                 }

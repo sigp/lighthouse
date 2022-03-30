@@ -11,6 +11,7 @@ use strum::IntoStaticStr;
 pub struct SingleBlockRequest<const MAX_ATTEMPTS: u8> {
     /// The hash of the requested block.
     pub hash: Hash256,
+    pub parent_hash: Option<Hash256>,
     /// State of this request.
     pub state: State,
     /// Peers that should have this block.
@@ -45,6 +46,7 @@ impl<const MAX_ATTEMPTS: u8> SingleBlockRequest<MAX_ATTEMPTS> {
     pub fn new(hash: Hash256, peer_id: PeerId) -> Self {
         Self {
             hash,
+            parent_hash: None,
             state: State::AwaitingDownload,
             available_peers: HashSet::from([peer_id]),
             used_peers: HashSet::default(),
@@ -98,6 +100,8 @@ impl<const MAX_ATTEMPTS: u8> SingleBlockRequest<MAX_ATTEMPTS> {
                     } else {
                         // Return the block for processing.
                         self.state = State::Processing { peer_id };
+                        // Update the parent hash for this block.
+                        self.parent_hash = Some(block.parent_root());
                         Ok(Some(block))
                     }
                 }
