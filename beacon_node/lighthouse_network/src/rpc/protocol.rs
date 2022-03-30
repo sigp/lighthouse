@@ -14,7 +14,7 @@ use std::io;
 use std::marker::PhantomData;
 use std::sync::Arc;
 use std::time::Duration;
-use strum::{AsStaticRef, AsStaticStr};
+use strum::IntoStaticStr;
 use tokio_io_timeout::TimeoutStream;
 use tokio_util::{
     codec::Framed,
@@ -510,7 +510,7 @@ impl<TSpec: EthSpec> InboundRequest<TSpec> {
 }
 
 /// Error in RPC Encoding/Decoding.
-#[derive(Debug, Clone, PartialEq, AsStaticStr)]
+#[derive(Debug, Clone, PartialEq, IntoStaticStr)]
 #[strum(serialize_all = "snake_case")]
 pub enum RPCError {
     /// Error when decoding the raw buffer from ssz.
@@ -617,8 +617,8 @@ impl RPCError {
     /// Used for metrics.
     pub fn as_static_str(&self) -> &'static str {
         match self {
-            RPCError::ErrorResponse(ref code, ..) => code.as_static(),
-            e => e.as_static(),
+            RPCError::ErrorResponse(ref code, ..) => code.into(),
+            e => e.into(),
         }
     }
 }

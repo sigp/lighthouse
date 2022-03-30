@@ -8,7 +8,6 @@ use lru_cache::LRUCache;
 use slog::{crit, debug, error, trace, warn, Logger};
 use smallvec::SmallVec;
 use store::{Hash256, SignedBeaconBlock};
-use strum::AsStaticRef;
 use tokio::sync::mpsc;
 
 use crate::beacon_processor::{ChainSegmentProcessId, WorkEvent};
@@ -176,7 +175,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                 // request finished correctly, it will be removed after the block is processed.
             }
             Err(error) => {
-                let msg: &str = error.as_static();
+                let msg: &str = error.into();
                 cx.report_peer(peer_id, PeerAction::LowToleranceError, msg);
                 // Remove the request, if it can be retried it will be added with a new id.
                 let mut req = request.remove();
@@ -243,7 +242,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                 VerifyError::RootMismatch
                 | VerifyError::NoBlockReturned
                 | VerifyError::ExtraBlocksReturned => {
-                    let e = e.as_static();
+                    let e = e.into();
                     warn!(self.log, "Peer sent invalid response to parent request.";
                         "peer_id" => %peer_id, "reason" => e);
 
@@ -310,8 +309,13 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                     }
                 }
                 Err(e) => {
-                    trace!(self.log, "Single block request failed on peer disconnection";
-                        "block_root" => %req.hash, "peer_id" => %peer_id, "reason" => e.as_static());
+                    trace!(
+                        self.log,
+                        "Single block request failed on peer disconnection";
+                        "block_root" => %req.hash,
+                        "peer_id" => %peer_id,
+                        "reason" => <&str>::from(e),
+                    );
                 }
             }
         }

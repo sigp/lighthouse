@@ -9,7 +9,7 @@ use ssz_types::{
     VariableList,
 };
 use std::ops::Deref;
-use strum::AsStaticStr;
+use strum::IntoStaticStr;
 use superstruct::superstruct;
 use types::{Epoch, EthSpec, Hash256, SignedBeaconBlock, Slot};
 
@@ -263,7 +263,7 @@ pub enum RPCCodedResponse<T: EthSpec> {
 }
 
 /// The code assigned to an erroneous `RPCResponse`.
-#[derive(Debug, Clone, Copy, PartialEq, AsStaticStr)]
+#[derive(Debug, Clone, Copy, PartialEq, IntoStaticStr)]
 #[strum(serialize_all = "snake_case")]
 pub enum RPCResponseErrorCode {
     RateLimited,

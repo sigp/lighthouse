@@ -1,6 +1,6 @@
 use lighthouse_network::PeerId;
 use store::{EthSpec, Hash256, SignedBeaconBlock};
-use strum::AsStaticStr;
+use strum::IntoStaticStr;
 
 use crate::sync::{
     manager::{Id, SLOT_IMPORT_TOLERANCE},
@@ -28,7 +28,7 @@ pub(crate) struct ParentLookup<T: EthSpec> {
     current_parent_request_id: Option<Id>,
 }
 
-#[derive(Debug, PartialEq, Eq, AsStaticStr)]
+#[derive(Debug, PartialEq, Eq, IntoStaticStr)]
 pub enum VerifyError {
     RootMismatch,
     NoBlockReturned,
