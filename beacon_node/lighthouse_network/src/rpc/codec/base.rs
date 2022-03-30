@@ -260,9 +260,9 @@ mod tests {
             ProtocolId::new(Protocol::BlocksByRange, Version::V1, Encoding::SSZSnappy);
 
         // Response limits
-        let limit = protocol_id.rpc_response_limits::<Spec>();
-        let mut max = encode_len(limit.max + 1);
         let fork_context = Arc::new(fork_context());
+        let limit = protocol_id.rpc_response_limits::<Spec>(&fork_context);
+        let mut max = encode_len(limit.max + 1);
         let mut codec = SSZSnappyOutboundCodec::<Spec>::new(
             protocol_id.clone(),
             1_048_576,

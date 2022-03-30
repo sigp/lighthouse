@@ -109,10 +109,9 @@ const REQUEST_TIMEOUT: u64 = 15;
 
 /// Returns the maximum bytes that can be sent across the RPC.
 pub fn max_rpc_size(fork_context: &ForkContext) -> usize {
-    if fork_context.fork_exists(ForkName::Merge) {
-        MAX_RPC_SIZE_POST_MERGE
-    } else {
-        MAX_RPC_SIZE
+    match fork_context.current_fork() {
+        ForkName::Merge => MAX_RPC_SIZE_POST_MERGE,
+        _ => MAX_RPC_SIZE,
     }
 }
 
@@ -272,45 +271,39 @@ impl ProtocolId {
     }
 
     /// Returns min and max size for messages of given protocol id responses.
-    pub fn rpc_response_limits<T: EthSpec>(&self) -> RpcLimits {
+    pub fn rpc_response_limits<T: EthSpec>(&self, fork_context: &ForkContext) -> RpcLimits {
         match self.message_name {
             Protocol::Status => RpcLimits::new(
                 <StatusMessage as Encode>::ssz_fixed_len(),
                 <StatusMessage as Encode>::ssz_fixed_len(),
             ),
             Protocol::Goodbye => RpcLimits::new(0, 0), // Goodbye request has no response
-            Protocol::BlocksByRange => RpcLimits::new(
-                std::cmp::min(
-                    std::cmp::min(
-                        *SIGNED_BEACON_BLOCK_ALTAIR_MIN,
-                        *SIGNED_BEACON_BLOCK_BASE_MIN,
-                    ),
-                    *SIGNED_BEACON_BLOCK_MERGE_MIN,
+            Protocol::BlocksByRange => match fork_context.current_fork() {
+                ForkName::Base => {
+                    RpcLimits::new(*SIGNED_BEACON_BLOCK_BASE_MIN, *SIGNED_BEACON_BLOCK_BASE_MAX)
+                }
+                ForkName::Altair => RpcLimits::new(
+                    *SIGNED_BEACON_BLOCK_ALTAIR_MIN,
+                    *SIGNED_BEACON_BLOCK_ALTAIR_MAX,
                 ),
-                std::cmp::max(
-                    std::cmp::max(
-                        *SIGNED_BEACON_BLOCK_ALTAIR_MAX,
-                        *SIGNED_BEACON_BLOCK_BASE_MAX,
-                    ),
+                ForkName::Merge => RpcLimits::new(
+                    *SIGNED_BEACON_BLOCK_MERGE_MIN,
                     *SIGNED_BEACON_BLOCK_MERGE_MAX,
                 ),
-            ),
-            Protocol::BlocksByRoot => RpcLimits::new(
-                std::cmp::min(
-                    std::cmp::min(
-                        *SIGNED_BEACON_BLOCK_ALTAIR_MIN,
-                        *SIGNED_BEACON_BLOCK_BASE_MIN,
-                    ),
-                    *SIGNED_BEACON_BLOCK_MERGE_MIN,
+            },
+            Protocol::BlocksByRoot => match fork_context.current_fork() {
+                ForkName::Base => {
+                    RpcLimits::new(*SIGNED_BEACON_BLOCK_BASE_MIN, *SIGNED_BEACON_BLOCK_BASE_MAX)
+                }
+                ForkName::Altair => RpcLimits::new(
+                    *SIGNED_BEACON_BLOCK_ALTAIR_MIN,
+                    *SIGNED_BEACON_BLOCK_ALTAIR_MAX,
                 ),
-                std::cmp::max(
-                    std::cmp::max(
-                        *SIGNED_BEACON_BLOCK_ALTAIR_MAX,
-                        *SIGNED_BEACON_BLOCK_BASE_MAX,
-                    ),
+                ForkName::Merge => RpcLimits::new(
+                    *SIGNED_BEACON_BLOCK_MERGE_MIN,
                     *SIGNED_BEACON_BLOCK_MERGE_MAX,
                 ),
-            ),
+            },
 
             Protocol::Ping => RpcLimits::new(
                 <Ping as Encode>::ssz_fixed_len(),
