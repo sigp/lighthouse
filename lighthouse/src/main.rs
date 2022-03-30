@@ -489,7 +489,7 @@ fn run<E: EthSpec>(
     }
 
     if let Some(sub_matches) = matches.subcommand_matches("database_manager") {
-        eprintln!("Running database manager for {} network", network_name);
+        info!(log, "Running database manager for {} network", network_name);
         // Pass the entire `environment` to the database manager so it can run blocking operations.
         database_manager::run(sub_matches, environment)?;
 

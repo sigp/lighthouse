@@ -124,10 +124,10 @@ pub fn display_db_version<E: EthSpec>(
         },
         client_config.store,
         spec,
-        log,
+        log.clone(),
     )?;
 
-    println!("Database version: {}", version.as_u64());
+    info!(log, "Database version: {}", version.as_u64());
 
     Ok(())
 }

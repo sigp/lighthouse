@@ -191,9 +191,8 @@ impl<E: EthSpec> HotColdDB<E, LevelDB<E>, LevelDB<E>> {
             info!(
                 db.log,
                 "Hot-Cold DB initialized";
-                "version" => CURRENT_SCHEMA_VERSION.as_u64(),
                 "split_slot" => split.slot,
-                "split_state" => format!("{:?}", split.state_root)
+                "split_state" => ?split.state_root
             );
         }
 
