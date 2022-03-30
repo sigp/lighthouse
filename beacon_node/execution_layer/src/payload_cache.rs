@@ -1,10 +1,7 @@
 use lru::LruCache;
 use parking_lot::Mutex;
-use std::sync::Arc;
 use tree_hash::TreeHash;
-use types::{
-    BeaconBlock, BlindedPayload, EthSpec, ExecutionPayload, FullPayload, Hash256, SignedBeaconBlock,
-};
+use types::{EthSpec, ExecutionPayload, Hash256};
 
 pub const DEFAULT_PAYLOAD_CACHE_SIZE: usize = 10;
 

@@ -20,19 +20,15 @@ mod validator_inclusion;
 mod version;
 
 use beacon_chain::{
-    attestation_verification::VerifiedAttestation,
-    observed_operations::ObservationOutcome,
-    validator_monitor::{get_block_delay_ms, timestamp_now},
-    AttestationError as AttnError, BeaconChain, BeaconChainError, BeaconChainTypes,
-    HeadSafetyStatus, ProduceBlockVerification, WhenSlotSkipped,
+    attestation_verification::VerifiedAttestation, observed_operations::ObservationOutcome,
+    validator_monitor::timestamp_now, AttestationError as AttnError, BeaconChain, BeaconChainError,
+    BeaconChainTypes, HeadSafetyStatus, ProduceBlockVerification, WhenSlotSkipped,
 };
 use block_id::BlockId;
 use eth2::types::{self as api_types, EndpointVersion, ValidatorId};
 use lighthouse_network::{types::SyncState, EnrExt, NetworkGlobals, PeerId, PubsubMessage};
 use lighthouse_version::version_with_platform;
 use network::NetworkMessage;
-use parking_lot::lock_api::RwLock;
-use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
 use slog::{crit, debug, error, info, warn, Logger};
 use slot_clock::SlotClock;
@@ -41,7 +37,6 @@ use state_id::StateId;
 use std::borrow::Cow;
 use std::convert::TryInto;
 use std::future::Future;
-use std::hash::Hash;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::path::PathBuf;
 use std::pin::Pin;
@@ -49,11 +44,11 @@ use std::sync::Arc;
 use tokio::sync::mpsc::UnboundedSender;
 use tokio_stream::{wrappers::BroadcastStream, StreamExt};
 use types::{
-    Attestation, AttesterSlashing, BeaconBlockBodyMerge, BeaconBlockMerge, BeaconStateError,
-    BlindedPayload, CommitteeCache, ConfigAndPreset, Epoch, EthSpec, ExecutionPayload, ForkName,
-    FullPayload, Hash256, ProposerPreparationData, ProposerSlashing, RelativeEpoch, Signature,
-    SignedAggregateAndProof, SignedBeaconBlock, SignedBeaconBlockMerge, SignedContributionAndProof,
-    SignedVoluntaryExit, Slot, SyncCommitteeMessage, SyncContributionData,
+    Attestation, AttesterSlashing, BeaconStateError, BlindedPayload, CommitteeCache,
+    ConfigAndPreset, Epoch, EthSpec, ForkName, FullPayload, ProposerPreparationData,
+    ProposerSlashing, RelativeEpoch, Signature, SignedAggregateAndProof, SignedBeaconBlock,
+    SignedContributionAndProof, SignedVoluntaryExit, Slot, SyncCommitteeMessage,
+    SyncContributionData,
 };
 use version::{
     add_consensus_version_header, fork_versioned_response, inconsistent_fork_rejection,

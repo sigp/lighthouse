@@ -8,14 +8,11 @@ use slot_clock::SlotClock;
 use std::marker::PhantomData;
 use std::sync::Arc;
 use tokio::sync::mpsc::UnboundedSender;
-use types::BlockType::Full;
 use types::{
-    map_fork_name, BeaconBlockAltair, BeaconBlockBase, BeaconBlockBodyAltair, BeaconBlockBodyBase,
-    BeaconBlockBodyMerge, BeaconBlockMerge, BlindedPayload, EthSpec, ExecPayload, ExecutionPayload,
-    ExecutionPayloadHeader, ForkName, FullPayload, SignedBeaconBlock, SignedBeaconBlockAltair,
-    SignedBeaconBlockBase, SignedBeaconBlockMerge,
+    BeaconBlockAltair, BeaconBlockBase, BeaconBlockBodyAltair, BeaconBlockBodyBase,
+    BeaconBlockBodyMerge, BeaconBlockMerge, BlindedPayload, FullPayload, SignedBeaconBlock,
+    SignedBeaconBlockAltair, SignedBeaconBlockBase, SignedBeaconBlockMerge,
 };
-use warp::path::full;
 use warp::Rejection;
 
 pub fn publish_block<T: BeaconChainTypes>(
@@ -29,7 +26,7 @@ pub fn publish_block<T: BeaconChainTypes>(
     // Send the block, regardless of whether or not it is valid. The API
     // specification is very clear that this is the desired behaviour.
     crate::publish_pubsub_message(
-        &network_tx,
+        network_tx,
         PubsubMessage::BeaconBlock(Box::new(block.clone())),
     )?;
 
@@ -235,22 +232,19 @@ fn reconstruct_block<T: BeaconChainTypes>(
                 execution_payload,
             } = body;
 
-            let el = chain
-                .execution_layer
-                .as_ref().ok_or(warp_utils::reject::custom_server_error("Missing execution layer".to_string()))?;
+            let el = chain.execution_layer.as_ref().ok_or_else(|| {
+                warp_utils::reject::custom_server_error("Missing execution layer".to_string())
+            })?;
 
             let full_payload = if let Some(cached_payload) = el.get_payload_by_tx_root(
-                    &execution_payload
-                        .execution_payload_header
-                        .transactions_root){
+                &execution_payload.execution_payload_header.transactions_root,
+            ) {
                 cached_payload
-            }else {
-                el.block_on(|el| el.propose_blinded_beacon_block(&block_clone)).map_err(|e| {
-                    warp_utils::reject::custom_server_error(format!(
-                        "proposal failed: {:?}",
-                        e
-                    ))
-                })?
+            } else {
+                el.block_on(|el| el.propose_blinded_beacon_block(&block_clone))
+                    .map_err(|e| {
+                        warp_utils::reject::custom_server_error(format!("proposal failed: {:?}", e))
+                    })?
             };
 
             SignedBeaconBlock::Merge(SignedBeaconBlockMerge {

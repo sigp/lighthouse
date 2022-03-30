@@ -11,7 +11,7 @@ use lru::LruCache;
 use payload_status::process_multiple_payload_statuses;
 use sensitive_url::SensitiveUrl;
 use serde::{Deserialize, Serialize};
-use slog::{crit, debug, error, info, trace, Logger, warn};
+use slog::{crit, debug, error, info, trace, warn, Logger};
 use slot_clock::SlotClock;
 use std::collections::HashMap;
 use std::convert::TryInto;
@@ -26,7 +26,7 @@ use tokio::{
     time::{sleep, sleep_until, Instant},
 };
 use types::{
-    BlindedPayload, BlockType, ChainSpec, Epoch, ExecPayload, ExecutionBlockHash, FullPayload,
+    BlindedPayload, BlockType, ChainSpec, Epoch, ExecPayload, ExecutionBlockHash,
     ProposerPreparationData, SignedBeaconBlock, Slot,
 };
 
@@ -806,7 +806,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
                     .get_payload_v1::<T>(payload_id)
                     .await
                     .map(|full_payload| {
-                        if let Some(evicted_payload) = f(self, &full_payload) {
+                        if let Some(_evicted_payload) = f(self, &full_payload) {
                             warn!(self.log(), "Evicted a payload from the cache, this might indicate redundant proposal attempts.");
                         }
                         full_payload.into()
