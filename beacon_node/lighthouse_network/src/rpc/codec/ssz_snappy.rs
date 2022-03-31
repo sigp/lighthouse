@@ -618,7 +618,7 @@ mod tests {
     use std::sync::Arc;
     use types::{
         BeaconBlock, BeaconBlockAltair, BeaconBlockBase, BeaconBlockMerge, Epoch, ForkContext,
-        Hash256, Signature, SignedBeaconBlock, Slot,
+        FullPayload, Hash256, Signature, SignedBeaconBlock, Slot,
     };
 
     use snap::write::FrameEncoder;
@@ -656,11 +656,12 @@ mod tests {
 
     /// Merge block with length < max_rpc_size.
     fn merge_block_small(fork_context: &ForkContext) -> SignedBeaconBlock<Spec> {
-        let mut block = BeaconBlockMerge::empty(&Spec::default_spec());
+        let mut block: BeaconBlockMerge<_, FullPayload<Spec>> =
+            BeaconBlockMerge::empty(&Spec::default_spec());
         let tx = VariableList::from(vec![0; 1024]);
         let txs = VariableList::from(std::iter::repeat(tx).take(100).collect::<Vec<_>>());
 
-        block.body.execution_payload.transactions = txs;
+        block.body.execution_payload.execution_payload.transactions = txs;
 
         let block = BeaconBlock::Merge(block);
         assert!(block.ssz_bytes_len() <= max_rpc_size(fork_context));
@@ -671,11 +672,12 @@ mod tests {
     /// The max limit for a merge block is in the order of ~16GiB which wouldn't fit in memory.
     /// Hence, we generate a merge block just greater than `MAX_RPC_SIZE` to test rejection on the rpc layer.
     fn merge_block_large(fork_context: &ForkContext) -> SignedBeaconBlock<Spec> {
-        let mut block = BeaconBlockMerge::empty(&Spec::default_spec());
+        let mut block: BeaconBlockMerge<_, FullPayload<Spec>> =
+            BeaconBlockMerge::empty(&Spec::default_spec());
         let tx = VariableList::from(vec![0; 1024]);
         let txs = VariableList::from(std::iter::repeat(tx).take(100000).collect::<Vec<_>>());
 
-        block.body.execution_payload.transactions = txs;
+        block.body.execution_payload.execution_payload.transactions = txs;
 
         let block = BeaconBlock::Merge(block);
         assert!(block.ssz_bytes_len() > max_rpc_size(fork_context));
