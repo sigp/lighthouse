@@ -454,6 +454,13 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .requires("merge")
                 .takes_value(true)
         )
+        .arg(
+            Arg::with_name("payload-builders")
+                .long("payload-builders")
+                .help("The URL of a service compatible with the MEV-boost API.")
+                .requires("merge")
+                .takes_value(true)
+        )
 
         /*
          * Database purging and compaction.

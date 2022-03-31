@@ -75,6 +75,7 @@ use std::io::Write;
 use std::time::Duration;
 use store::{Error as DBError, HotColdDB, HotStateSummary, KeyValueStore, StoreOp};
 use tree_hash::TreeHash;
+use types::ExecPayload;
 use types::{
     BeaconBlockRef, BeaconState, BeaconStateError, ChainSpec, CloneConfig, Epoch, EthSpec,
     ExecutionBlockHash, Hash256, InconsistentFork, PublicKey, PublicKeyBytes, RelativeEpoch,
@@ -1295,9 +1296,9 @@ impl<'a, T: BeaconChainTypes> FullyVerifiedBlock<'a, T> {
         if valid_merge_transition_block {
             info!(chain.log, "{}", POS_PANDA_BANNER);
             info!(chain.log, "Proof of Stake Activated"; "slot" => block.slot());
-            info!(chain.log, ""; "Terminal POW Block Hash" => ?block.message().execution_payload()?.parent_hash.into_root());
+            info!(chain.log, ""; "Terminal POW Block Hash" => ?block.message().execution_payload()?.parent_hash().into_root());
             info!(chain.log, ""; "Merge Transition Block Root" => ?block.message().tree_hash_root());
-            info!(chain.log, ""; "Merge Transition Execution Hash" => ?block.message().execution_payload()?.block_hash.into_root());
+            info!(chain.log, ""; "Merge Transition Execution Hash" => ?block.message().execution_payload()?.block_hash().into_root());
         }
 
         Ok(Self {

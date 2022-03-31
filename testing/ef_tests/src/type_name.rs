@@ -54,6 +54,7 @@ type_name!(DepositData);
 type_name!(DepositMessage);
 type_name!(Eth1Data);
 type_name_generic!(ExecutionPayload);
+type_name_generic!(FullPayload, "ExecutionPayload");
 type_name_generic!(ExecutionPayloadHeader);
 type_name!(Fork);
 type_name!(ForkData);

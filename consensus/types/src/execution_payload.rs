@@ -6,7 +6,11 @@ use ssz_derive::{Decode, Encode};
 use test_random_derive::TestRandom;
 use tree_hash_derive::TreeHash;
 
-pub type Transaction<T> = VariableList<u8, T>;
+pub type Transaction<N> = VariableList<u8, N>;
+pub type Transactions<T> = VariableList<
+    Transaction<<T as EthSpec>::MaxBytesPerTransaction>,
+    <T as EthSpec>::MaxTransactionsPerPayload,
+>;
 
 #[cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary))]
 #[derive(
@@ -36,8 +40,7 @@ pub struct ExecutionPayload<T: EthSpec> {
     pub base_fee_per_gas: Uint256,
     pub block_hash: ExecutionBlockHash,
     #[serde(with = "ssz_types::serde_utils::list_of_hex_var_list")]
-    pub transactions:
-        VariableList<Transaction<T::MaxBytesPerTransaction>, T::MaxTransactionsPerPayload>,
+    pub transactions: Transactions<T>,
 }
 
 impl<T: EthSpec> ExecutionPayload<T> {
@@ -50,9 +53,9 @@ impl<T: EthSpec> ExecutionPayload<T> {
     pub fn max_execution_payload_size() -> usize {
         // Fixed part
         Self::empty().as_ssz_bytes().len()
-        // Max size of variable length `extra_data` field
-        + (T::max_extra_data_bytes() * <u8 as Encode>::ssz_fixed_len())
-        // Max size of variable length `transactions` field
-        + (T::max_transactions_per_payload() * (ssz::BYTES_PER_LENGTH_OFFSET + T::max_bytes_per_transaction()))
+            // Max size of variable length `extra_data` field
+            + (T::max_extra_data_bytes() * <u8 as Encode>::ssz_fixed_len())
+            // Max size of variable length `transactions` field
+            + (T::max_transactions_per_payload() * (ssz::BYTES_PER_LENGTH_OFFSET + T::max_bytes_per_transaction()))
     }
 }

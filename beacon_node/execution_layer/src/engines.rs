@@ -1,8 +1,11 @@
 //! Provides generic behaviour for multiple execution engines, specifically fallback behaviour.
 
 use crate::engine_api::{
-    EngineApi, Error as EngineApiError, ForkchoiceUpdatedResponse, PayloadAttributes, PayloadId,
+    Builder, EngineApi, Error as EngineApiError, ForkchoiceUpdatedResponse, PayloadAttributes,
+    PayloadId,
 };
+use crate::{BuilderApi, HttpJsonRpc};
+use async_trait::async_trait;
 use futures::future::join_all;
 use lru::LruCache;
 use slog::{crit, debug, info, warn, Logger};
@@ -58,14 +61,14 @@ struct PayloadIdCacheKey {
 /// An execution engine.
 pub struct Engine<T> {
     pub id: String,
-    pub api: T,
+    pub api: HttpJsonRpc<T>,
     payload_id_cache: Mutex<LruCache<PayloadIdCacheKey, PayloadId>>,
     state: RwLock<EngineState>,
 }
 
 impl<T> Engine<T> {
     /// Creates a new, offline engine.
-    pub fn new(id: String, api: T) -> Self {
+    pub fn new(id: String, api: HttpJsonRpc<T>) -> Self {
         Self {
             id,
             api,
@@ -94,8 +97,9 @@ impl<T> Engine<T> {
     }
 }
 
-impl<T: EngineApi> Engine<T> {
-    pub async fn notify_forkchoice_updated(
+#[async_trait]
+impl Builder for Engine<EngineApi> {
+    async fn notify_forkchoice_updated(
         &self,
         forkchoice_state: ForkChoiceState,
         payload_attributes: Option<PayloadAttributes>,
@@ -124,11 +128,44 @@ impl<T: EngineApi> Engine<T> {
     }
 }
 
+#[async_trait]
+impl Builder for Engine<BuilderApi> {
+    async fn notify_forkchoice_updated(
+        &self,
+        forkchoice_state: ForkChoiceState,
+        pa: Option<PayloadAttributes>,
+        log: &Logger,
+    ) -> Result<ForkchoiceUpdatedResponse, EngineApiError> {
+        let payload_attributes = pa.ok_or(EngineApiError::InvalidBuilderQuery)?;
+        let response = self
+            .api
+            .forkchoice_updated_v1(forkchoice_state, Some(payload_attributes))
+            .await?;
+
+        if let Some(payload_id) = response.payload_id {
+            let key = PayloadIdCacheKey::new(&forkchoice_state, &payload_attributes);
+            self.payload_id_cache.lock().await.put(key, payload_id);
+        } else {
+            warn!(
+                log,
+                "Builder should have returned a payload_id for attributes {:?}", payload_attributes
+            );
+        }
+
+        Ok(response)
+    }
+}
+
 /// Holds multiple execution engines and provides functionality for managing them in a fallback
 /// manner.
-pub struct Engines<T> {
-    pub engines: Vec<Engine<T>>,
+pub struct Engines {
+    pub engines: Vec<Engine<EngineApi>>,
     pub latest_forkchoice_state: RwLock<Option<ForkChoiceState>>,
+    pub log: Logger,
+}
+
+pub struct Builders {
+    pub builders: Vec<Engine<BuilderApi>>,
     pub log: Logger,
 }
 
@@ -139,7 +176,7 @@ pub enum EngineError {
     Auth { id: String },
 }
 
-impl<T: EngineApi> Engines<T> {
+impl Engines {
     async fn get_latest_forkchoice_state(&self) -> Option<ForkChoiceState> {
         *self.latest_forkchoice_state.read().await
     }
@@ -148,7 +185,7 @@ impl<T: EngineApi> Engines<T> {
         *self.latest_forkchoice_state.write().await = Some(state);
     }
 
-    async fn send_latest_forkchoice_state(&self, engine: &Engine<T>) {
+    async fn send_latest_forkchoice_state(&self, engine: &Engine<EngineApi>) {
         let latest_forkchoice_state = self.get_latest_forkchoice_state().await;
 
         if let Some(forkchoice_state) = latest_forkchoice_state {
@@ -286,7 +323,7 @@ impl<T: EngineApi> Engines<T> {
     /// it runs, it will try to upcheck all offline nodes and then run the function again.
     pub async fn first_success<'a, F, G, H>(&'a self, func: F) -> Result<H, Vec<EngineError>>
     where
-        F: Fn(&'a Engine<T>) -> G + Copy,
+        F: Fn(&'a Engine<EngineApi>) -> G + Copy,
         G: Future<Output = Result<H, EngineApiError>>,
     {
         match self.first_success_without_retry(func).await {
@@ -308,12 +345,12 @@ impl<T: EngineApi> Engines<T> {
 
     /// Run `func` on all engines, in the order in which they are defined, returning the first
     /// successful result that is found.
-    async fn first_success_without_retry<'a, F, G, H>(
+    pub async fn first_success_without_retry<'a, F, G, H>(
         &'a self,
         func: F,
     ) -> Result<H, Vec<EngineError>>
     where
-        F: Fn(&'a Engine<T>) -> G,
+        F: Fn(&'a Engine<EngineApi>) -> G,
         G: Future<Output = Result<H, EngineApiError>>,
     {
         let mut errors = vec![];
@@ -364,7 +401,7 @@ impl<T: EngineApi> Engines<T> {
     /// it runs, it will try to upcheck all offline nodes and then run the function again.
     pub async fn broadcast<'a, F, G, H>(&'a self, func: F) -> Vec<Result<H, EngineError>>
     where
-        F: Fn(&'a Engine<T>) -> G + Copy,
+        F: Fn(&'a Engine<EngineApi>) -> G + Copy,
         G: Future<Output = Result<H, EngineApiError>>,
     {
         let first_results = self.broadcast_without_retry(func).await;
@@ -392,7 +429,7 @@ impl<T: EngineApi> Engines<T> {
         func: F,
     ) -> Vec<Result<H, EngineError>>
     where
-        F: Fn(&'a Engine<T>) -> G,
+        F: Fn(&'a Engine<EngineApi>) -> G,
         G: Future<Output = Result<H, EngineApiError>>,
     {
         let func = &func;
@@ -420,6 +457,66 @@ impl<T: EngineApi> Engines<T> {
                     id: engine.id.clone(),
                 })
             }
+        });
+
+        join_all(futures).await
+    }
+}
+
+impl Builders {
+    pub async fn first_success_without_retry<'a, F, G, H>(
+        &'a self,
+        func: F,
+    ) -> Result<H, Vec<EngineError>>
+    where
+        F: Fn(&'a Engine<BuilderApi>) -> G,
+        G: Future<Output = Result<H, EngineApiError>>,
+    {
+        let mut errors = vec![];
+
+        for builder in &self.builders {
+            match func(builder).await {
+                Ok(result) => return Ok(result),
+                Err(error) => {
+                    debug!(
+                        self.log,
+                        "Builder call failed";
+                        "error" => ?error,
+                        "id" => &builder.id
+                    );
+                    errors.push(EngineError::Api {
+                        id: builder.id.clone(),
+                        error,
+                    })
+                }
+            }
+        }
+
+        Err(errors)
+    }
+
+    pub async fn broadcast_without_retry<'a, F, G, H>(
+        &'a self,
+        func: F,
+    ) -> Vec<Result<H, EngineError>>
+    where
+        F: Fn(&'a Engine<BuilderApi>) -> G,
+        G: Future<Output = Result<H, EngineApiError>>,
+    {
+        let func = &func;
+        let futures = self.builders.iter().map(|engine| async move {
+            func(engine).await.map_err(|error| {
+                debug!(
+                    self.log,
+                    "Builder call failed";
+                    "error" => ?error,
+                    "id" => &engine.id
+                );
+                EngineError::Api {
+                    id: engine.id.clone(),
+                    error,
+                }
+            })
         });
 
         join_all(futures).await

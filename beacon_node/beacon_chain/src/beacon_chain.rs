@@ -80,6 +80,7 @@ use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::io::prelude::*;
+use std::marker::PhantomData;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use store::iter::{BlockRootsIterator, ParentRootBlockIterator, StateRootsIterator};
@@ -370,7 +371,7 @@ pub struct BeaconChain<T: BeaconChainTypes> {
     pub validator_monitor: RwLock<ValidatorMonitor<T::EthSpec>>,
 }
 
-type BeaconBlockAndState<T> = (BeaconBlock<T>, BeaconState<T>);
+type BeaconBlockAndState<T, Payload> = (BeaconBlock<T, Payload>, BeaconState<T>);
 
 impl<T: BeaconChainTypes> BeaconChain<T> {
     /// Persists the head tracker and fork choice.
@@ -1151,7 +1152,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     .body()
                     .execution_payload()
                     .ok()
-                    .map(|ep| ep.block_hash),
+                    .map(|ep| ep.block_hash()),
                 random,
             })
         })
@@ -2892,12 +2893,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     ///
     /// The produced block will not be inherently valid, it must be signed by a block producer.
     /// Block signing is out of the scope of this function and should be done by a separate program.
-    pub fn produce_block(
+    pub fn produce_block<Payload: ExecPayload<T::EthSpec>>(
         &self,
         randao_reveal: Signature,
         slot: Slot,
         validator_graffiti: Option<Graffiti>,
-    ) -> Result<BeaconBlockAndState<T::EthSpec>, BlockProductionError> {
+    ) -> Result<BeaconBlockAndState<T::EthSpec, Payload>, BlockProductionError> {
         self.produce_block_with_verification(
             randao_reveal,
             slot,
@@ -2907,13 +2908,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     }
 
     /// Same as `produce_block` but allowing for configuration of RANDAO-verification.
-    pub fn produce_block_with_verification(
+    pub fn produce_block_with_verification<Payload: ExecPayload<T::EthSpec>>(
         &self,
         randao_reveal: Signature,
         slot: Slot,
         validator_graffiti: Option<Graffiti>,
         verification: ProduceBlockVerification,
-    ) -> Result<BeaconBlockAndState<T::EthSpec>, BlockProductionError> {
+    ) -> Result<BeaconBlockAndState<T::EthSpec, Payload>, BlockProductionError> {
         metrics::inc_counter(&metrics::BLOCK_PRODUCTION_REQUESTS);
         let _complete_timer = metrics::start_timer(&metrics::BLOCK_PRODUCTION_TIMES);
 
@@ -2964,7 +2965,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         };
         drop(state_load_timer);
 
-        self.produce_block_on_state(
+        self.produce_block_on_state::<Payload>(
             state,
             state_root_opt,
             slot,
@@ -2986,7 +2987,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// The provided `state_root_opt` should only ever be set to `Some` if the contained value is
     /// equal to the root of `state`. Providing this value will serve as an optimization to avoid
     /// performing a tree hash in some scenarios.
-    pub fn produce_block_on_state(
+    pub fn produce_block_on_state<Payload: ExecPayload<T::EthSpec>>(
         &self,
         mut state: BeaconState<T::EthSpec>,
         state_root_opt: Option<Hash256>,
@@ -2994,7 +2995,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         randao_reveal: Signature,
         validator_graffiti: Option<Graffiti>,
         verification: ProduceBlockVerification,
-    ) -> Result<BeaconBlockAndState<T::EthSpec>, BlockProductionError> {
+    ) -> Result<BeaconBlockAndState<T::EthSpec, Payload>, BlockProductionError> {
         let eth1_chain = self
             .eth1_chain
             .as_ref()
@@ -3118,6 +3119,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     attestations,
                     deposits,
                     voluntary_exits: voluntary_exits.into(),
+                    _phantom: PhantomData,
                 },
             }),
             BeaconState::Altair(_) => {
@@ -3137,12 +3139,14 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         deposits,
                         voluntary_exits: voluntary_exits.into(),
                         sync_aggregate,
+                        _phantom: PhantomData,
                     },
                 })
             }
             BeaconState::Merge(_) => {
                 let sync_aggregate = get_sync_aggregate()?;
-                let execution_payload = get_execution_payload(self, &state, proposer_index)?;
+                let execution_payload =
+                    get_execution_payload::<T, Payload>(self, &state, proposer_index)?;
                 BeaconBlock::Merge(BeaconBlockMerge {
                     slot,
                     proposer_index,

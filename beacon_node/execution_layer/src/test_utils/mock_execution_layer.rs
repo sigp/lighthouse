@@ -7,7 +7,7 @@ use sensitive_url::SensitiveUrl;
 use std::sync::Arc;
 use task_executor::TaskExecutor;
 use tempfile::NamedTempFile;
-use types::{Address, ChainSpec, Epoch, EthSpec, Hash256, Uint256};
+use types::{Address, ChainSpec, Epoch, EthSpec, FullPayload, Hash256, Uint256};
 
 pub struct ExecutionLayerRuntime {
     pub runtime: Option<Arc<tokio::runtime::Runtime>>,
@@ -154,7 +154,7 @@ impl<T: EthSpec> MockExecutionLayer<T> {
         let validator_index = 0;
         let payload = self
             .el
-            .get_payload::<T>(
+            .get_payload::<T, FullPayload<T>>(
                 parent_hash,
                 timestamp,
                 prev_randao,
@@ -162,7 +162,8 @@ impl<T: EthSpec> MockExecutionLayer<T> {
                 validator_index,
             )
             .await
-            .unwrap();
+            .unwrap()
+            .execution_payload;
         let block_hash = payload.block_hash;
         assert_eq!(payload.parent_hash, parent_hash);
         assert_eq!(payload.block_number, block_number);
