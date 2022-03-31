@@ -22,7 +22,7 @@ use lighthouse_network::PeerId;
 pub use reqwest;
 use reqwest::{IntoUrl, RequestBuilder, Response};
 pub use reqwest::{StatusCode, Url};
-pub use sensitive_url::SensitiveUrl;
+pub use sensitive_url::{SensitiveError, SensitiveUrl};
 use serde::{de::DeserializeOwned, Serialize};
 use std::convert::TryFrom;
 use std::fmt;
