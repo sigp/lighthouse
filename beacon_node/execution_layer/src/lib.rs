@@ -7,14 +7,8 @@
 use crate::engine_api::Builder;
 use crate::engines::Builders;
 use auth::{Auth, JwtKey};
-use engine_api::Error as ApiError;
-pub use engine_api::*;
-pub use engine_api::{http, http::HttpJsonRpc};
-pub use engines::ForkChoiceState;
-use engines::{Engine, EngineError, Engines, Logging};
+use engine_api::{Error as ApiError, *};
 use lru::LruCache;
-use payload_status::process_multiple_payload_statuses;
-pub use payload_status::PayloadStatus;
 use sensitive_url::SensitiveUrl;
 use serde::{Deserialize, Serialize};
 use slog::{crit, debug, error, info, trace, Logger};
@@ -29,15 +23,18 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use task_executor::TaskExecutor;
 use tokio::{
     sync::{Mutex, MutexGuard, RwLock},
-    time::{sleep, sleep_until, Instant},
+    time::sleep,
 };
 use types::{
     BlindedPayload, BlockType, ChainSpec, Epoch, ExecPayload, ExecutionBlockHash,
     ProposerPreparationData, SignedBeaconBlock, Slot,
 };
 
+pub use engine_api::*;
+pub use engine_api::{http, http::HttpJsonRpc};
+pub use payload_status::PayloadStatus;
+
 mod engine_api;
-mod engines;
 mod metrics;
 mod payload_status;
 pub mod test_utils;
@@ -59,6 +56,11 @@ const EXECUTION_BLOCKS_LRU_CACHE_SIZE: usize = 128;
 const DEFAULT_SUGGESTED_FEE_RECIPIENT: [u8; 20] =
     [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1];
 
+/// The number of payload IDs that will be stored for each `Engine`.
+///
+/// Since the size of each value is small (~100 bytes) a large number is used for safety.
+const PAYLOAD_ID_LRU_CACHE_SIZE: usize = 512;
+
 const CONFIG_POLL_INTERVAL: Duration = Duration::from_secs(60);
 
 #[derive(Debug)]
@@ -66,6 +68,7 @@ pub enum Error {
     NoEngines,
     NoPayloadBuilder,
     ApiError(ApiError),
+    TransitionConfigurationMismatch,
     EngineErrors(Vec<EngineError>),
     NotSynced,
     ShuttingDown,
@@ -73,6 +76,7 @@ pub enum Error {
     ConsensusFailure,
     MissingLatestValidHash,
     InvalidJWTSecret(String),
+    NoBuilder,
 }
 
 impl From<ApiError> for Error {
@@ -99,11 +103,90 @@ pub struct Proposer {
     payload_attributes: PayloadAttributes,
 }
 
+#[derive(Copy, Clone, PartialEq, Debug)]
+pub struct ForkChoiceState {
+    pub head_block_hash: ExecutionBlockHash,
+    pub safe_block_hash: ExecutionBlockHash,
+    pub finalized_block_hash: ExecutionBlockHash,
+}
+
+impl PayloadIdCacheKey {
+    fn new(state: &ForkChoiceState, attributes: &PayloadAttributes) -> Self {
+        Self {
+            head_block_hash: state.head_block_hash,
+            timestamp: attributes.timestamp,
+            prev_randao: attributes.prev_randao,
+            suggested_fee_recipient: attributes.suggested_fee_recipient,
+        }
+    }
+}
+
+#[derive(Hash, PartialEq, std::cmp::Eq)]
+struct PayloadIdCacheKey {
+    pub head_block_hash: ExecutionBlockHash,
+    pub timestamp: u64,
+    pub prev_randao: Hash256,
+    pub suggested_fee_recipient: Address,
+}
+
+/// An execution engine.
+pub struct Engine<T> {
+    api: HttpJsonRpc<T>,
+    payload_id_cache: Mutex<LruCache<PayloadIdCacheKey, PayloadId>>,
+    // TODO(paul): ensure this is set/unset.
+    is_online: RwLock<bool>,
+}
+
+impl<T> Engine<T> {
+    /// Creates a new, offline engine.
+    pub fn new(api: HttpJsonRpc<T>) -> Self {
+        Self {
+            api,
+            payload_id_cache: Mutex::new(LruCache::new(PAYLOAD_ID_LRU_CACHE_SIZE)),
+            is_online: RwLock::new(false),
+        }
+    }
+
+    pub async fn get_payload_id(
+        &self,
+        head_block_hash: ExecutionBlockHash,
+        timestamp: u64,
+        prev_randao: Hash256,
+        suggested_fee_recipient: Address,
+    ) -> Option<PayloadId> {
+        self.payload_id_cache
+            .lock()
+            .await
+            .get(&PayloadIdCacheKey {
+                head_block_hash,
+                timestamp,
+                prev_randao,
+                suggested_fee_recipient,
+            })
+            .cloned()
+    }
+}
+
+#[derive(Debug)]
+pub enum EngineError {
+    Offline { id: String },
+    Api { id: String, error: ApiError },
+    Auth { id: String },
+}
+
+/// Used to enable/disable logging on some tasks.
+#[derive(Copy, Clone, PartialEq)]
+pub enum Logging {
+    Enabled,
+    Disabled,
+}
+
 struct Inner {
-    engines: Engines,
-    builders: Builders,
+    engine: Engine<EngineApi>,
+    builder: Option<Engine<BuilderApi>>,
     execution_engine_forkchoice_lock: Mutex<()>,
     suggested_fee_recipient: Option<Address>,
+    latest_forkchoice_state: RwLock<Option<ForkChoiceState>>,
     proposer_preparation_data: Mutex<HashMap<u64, ProposerPreparationDataEntry>>,
     execution_blocks: Mutex<LruCache<ExecutionBlockHash, ExecutionBlock>>,
     proposers: RwLock<HashMap<ProposerKey, Proposer>>,
@@ -111,14 +194,14 @@ struct Inner {
     log: Logger,
 }
 
-#[derive(Debug, Default, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Config {
-    /// Endpoint urls for EL nodes that are running the engine api.
-    pub execution_endpoints: Vec<SensitiveUrl>,
-    /// Endpoint urls for services providing the builder api.
-    pub builder_endpoints: Vec<SensitiveUrl>,
+    /// Endpoint url for EL nodes that are running the engine api.
+    pub execution_endpoint: SensitiveUrl,
+    /// Endpoint url for services providing the builder api.
+    pub builder_endpoint: Option<SensitiveUrl>,
     /// JWT secrets for the above endpoints running the engine api.
-    pub secret_files: Vec<PathBuf>,
+    pub secret_file: PathBuf,
     /// The default fee recipient to use on the beacon node if none if provided from
     /// the validator client during block preparation.
     pub suggested_fee_recipient: Option<Address>,
@@ -126,8 +209,20 @@ pub struct Config {
     pub jwt_id: Option<String>,
     /// An optional client version for the beacon node that will be passed to the EL in the JWT token claim.
     pub jwt_version: Option<String>,
-    /// Default directory for the jwt secret if not provided through cli.
-    pub default_datadir: PathBuf,
+}
+
+impl Default for Config {
+    fn default() -> Self {
+        Self {
+            execution_endpoint: SensitiveUrl::parse("http://127.0.0.1:8551")
+                .expect("localhost address is valid"),
+            builder_endpoint: <_>::default(),
+            secret_file: <_>::default(),
+            suggested_fee_recipient: <_>::default(),
+            jwt_id: <_>::default(),
+            jwt_version: <_>::default(),
+        }
+    }
 }
 
 fn strip_prefix(s: &str) -> &str {
@@ -156,96 +251,76 @@ impl ExecutionLayer {
     /// Instantiate `Self` with Execution engines specified using `Config`, all using the JSON-RPC via HTTP.
     pub fn from_config(config: Config, executor: TaskExecutor, log: Logger) -> Result<Self, Error> {
         let Config {
-            execution_endpoints: urls,
-            builder_endpoints: builder_urls,
-            mut secret_files,
+            execution_endpoint: engine_url,
+            builder_endpoint: builder_url,
+            secret_file,
             suggested_fee_recipient,
             jwt_id,
             jwt_version,
-            default_datadir,
         } = config;
 
-        if urls.is_empty() {
-            return Err(Error::NoEngines);
-        }
+        // Read secret from file if it already exists
+        let (secret, secret_path) = if secret_file.exists() {
+            std::fs::read_to_string(&secret_file)
+                .map_err(|e| {
+                    format!(
+                        "Failed to read JWT secret file {:?}, error: {:?}",
+                        secret_file, e
+                    )
+                })
+                .and_then(|ref s| {
+                    let secret = JwtKey::from_slice(
+                        &hex::decode(strip_prefix(s))
+                            .map_err(|e| format!("Invalid hex string: {:?}", e))?,
+                    )?;
+                    Ok((secret, secret_file.to_path_buf()))
+                })
+                .map_err(Error::InvalidJWTSecret)?
+        } else {
+            // Create a new file and write a randomly generated secret to it if file does not exist
+            std::fs::File::options()
+                .write(true)
+                .create_new(true)
+                .open(&secret_file)
+                .map_err(|e| {
+                    format!(
+                        "Failed to open JWT secret file {:?}, error: {:?}",
+                        secret_file, e
+                    )
+                })
+                .and_then(|mut f| {
+                    let secret = auth::JwtKey::random();
+                    f.write_all(secret.hex_string().as_bytes())
+                        .map_err(|e| format!("Failed to write to JWT secret file: {:?}", e))?;
+                    Ok((secret, secret_file.to_path_buf()))
+                })
+                .map_err(Error::InvalidJWTSecret)?
+        };
 
-        // Extend the jwt secret files with the default jwt secret path if not provided via cli.
-        // This ensures that we have a jwt secret for every EL.
-        secret_files.extend(vec![
-            default_datadir.join(DEFAULT_JWT_FILE);
-            urls.len().saturating_sub(secret_files.len())
-        ]);
+        let engine = {
+            let auth = Auth::new(secret, jwt_id, jwt_version);
+            debug!(
+                log,
+                "Loaded execution endpoint";
+                "jwt_path" => ?secret_path
+            );
+            let api = HttpJsonRpc::<EngineApi>::new_with_auth(engine_url, auth)?;
+            Engine::<EngineApi>::new(api)
+        };
 
-        let secrets: Vec<(JwtKey, PathBuf)> = secret_files
-            .iter()
-            .map(|p| {
-                // Read secret from file if it already exists
-                if p.exists() {
-                    std::fs::read_to_string(p)
-                        .map_err(|e| {
-                            format!("Failed to read JWT secret file {:?}, error: {:?}", p, e)
-                        })
-                        .and_then(|ref s| {
-                            let secret = JwtKey::from_slice(
-                                &hex::decode(strip_prefix(s.trim_end()))
-                                    .map_err(|e| format!("Invalid hex string: {:?}", e))?,
-                            )?;
-                            Ok((secret, p.to_path_buf()))
-                        })
-                } else {
-                    // Create a new file and write a randomly generated secret to it if file does not exist
-                    std::fs::File::options()
-                        .write(true)
-                        .create_new(true)
-                        .open(p)
-                        .map_err(|e| {
-                            format!("Failed to open JWT secret file {:?}, error: {:?}", p, e)
-                        })
-                        .and_then(|mut f| {
-                            let secret = auth::JwtKey::random();
-                            f.write_all(secret.hex_string().as_bytes()).map_err(|e| {
-                                format!("Failed to write to JWT secret file: {:?}", e)
-                            })?;
-                            Ok((secret, p.to_path_buf()))
-                        })
-                }
+        let builder = builder_url
+            .map(|builder_url| {
+                let api = HttpJsonRpc::<BuilderApi>::new(builder_url).map_err(Error::ApiError)?;
+                Ok::<_, Error>(Engine::<BuilderApi>::new(api))
             })
-            .collect::<Result<_, _>>()
-            .map_err(Error::InvalidJWTSecret)?;
-
-        let engines: Vec<Engine<EngineApi>> = urls
-            .into_iter()
-            .zip(secrets.into_iter())
-            .map(|(url, (secret, path))| {
-                let id = url.to_string();
-                let auth = Auth::new(secret, jwt_id.clone(), jwt_version.clone());
-                debug!(log, "Loaded execution endpoint"; "endpoint" => %id, "jwt_path" => ?path);
-                let api = HttpJsonRpc::<EngineApi>::new_with_auth(url, auth)?;
-                Ok(Engine::<EngineApi>::new(id, api))
-            })
-            .collect::<Result<_, ApiError>>()?;
-
-        let builders: Vec<Engine<BuilderApi>> = builder_urls
-            .into_iter()
-            .map(|url| {
-                let id = url.to_string();
-                let api = HttpJsonRpc::<BuilderApi>::new(url)?;
-                Ok(Engine::<BuilderApi>::new(id, api))
-            })
-            .collect::<Result<_, ApiError>>()?;
+            .transpose()?;
 
         let inner = Inner {
-            engines: Engines {
-                engines,
-                latest_forkchoice_state: <_>::default(),
-                log: log.clone(),
-            },
-            builders: Builders {
-                builders,
-                log: log.clone(),
-            },
+            engine,
+            builder,
             execution_engine_forkchoice_lock: <_>::default(),
             suggested_fee_recipient,
+            latest_forkchoice_state: <_>::default(),
             proposer_preparation_data: Mutex::new(HashMap::new()),
             proposers: RwLock::new(HashMap::new()),
             execution_blocks: Mutex::new(LruCache::new(EXECUTION_BLOCKS_LRU_CACHE_SIZE)),
@@ -260,12 +335,12 @@ impl ExecutionLayer {
 }
 
 impl ExecutionLayer {
-    fn engines(&self) -> &Engines {
-        &self.inner.engines
+    fn engine(&self) -> &Engine<EngineApi> {
+        &self.inner.engine
     }
 
-    fn builders(&self) -> &Builders {
-        &self.inner.builders
+    fn builder(&self) -> Result<&Engine<BuilderApi>, Error> {
+        self.inner.builder.as_ref().ok_or(Error::NoBuilder)
     }
 
     fn executor(&self) -> &TaskExecutor {
@@ -340,67 +415,6 @@ impl ExecutionLayer {
         self.executor().spawn(generate_future(self.clone()), name);
     }
 
-    /// Spawns a routine which attempts to keep the execution engines online.
-    pub fn spawn_watchdog_routine<S: SlotClock + 'static>(&self, slot_clock: S) {
-        let watchdog = |el: ExecutionLayer| async move {
-            // Run one task immediately.
-            el.watchdog_task().await;
-
-            let recurring_task =
-                |el: ExecutionLayer, now: Instant, duration_to_next_slot: Duration| async move {
-                    // We run the task three times per slot.
-                    //
-                    // The interval between each task is 1/3rd of the slot duration. This matches nicely
-                    // with the attestation production times (unagg. at 1/3rd, agg at 2/3rd).
-                    //
-                    // Each task is offset by 3/4ths of the interval.
-                    //
-                    // On mainnet, this means we will run tasks at:
-                    //
-                    // - 3s after slot start: 1s before publishing unaggregated attestations.
-                    // - 7s after slot start: 1s before publishing aggregated attestations.
-                    // - 11s after slot start: 1s before the next slot starts.
-                    let interval = duration_to_next_slot / 3;
-                    let offset = (interval / 4) * 3;
-
-                    let first_execution = duration_to_next_slot + offset;
-                    let second_execution = first_execution + interval;
-                    let third_execution = second_execution + interval;
-
-                    sleep_until(now + first_execution).await;
-                    el.engines().upcheck_not_synced(Logging::Disabled).await;
-
-                    sleep_until(now + second_execution).await;
-                    el.engines().upcheck_not_synced(Logging::Disabled).await;
-
-                    sleep_until(now + third_execution).await;
-                    el.engines().upcheck_not_synced(Logging::Disabled).await;
-                };
-
-            // Start the loop to periodically update.
-            loop {
-                if let Some(duration) = slot_clock.duration_to_next_slot() {
-                    let now = Instant::now();
-
-                    // Spawn a new task rather than waiting for this to finish. This ensure that a
-                    // slow run doesn't prevent the next run from starting.
-                    el.spawn(|el| recurring_task(el, now, duration), "exec_watchdog_task");
-                } else {
-                    error!(el.log(), "Failed to spawn watchdog task");
-                }
-                sleep(slot_clock.slot_duration()).await;
-            }
-        };
-
-        self.spawn(watchdog, "exec_watchdog");
-    }
-
-    /// Performs a single execution of the watchdog routine.
-    pub async fn watchdog_task(&self) {
-        // Disable logging since this runs frequently and may get annoying.
-        self.engines().upcheck_not_synced(Logging::Disabled).await;
-    }
-
     /// Spawns a routine which cleans the cached proposer data periodically.
     pub fn spawn_clean_proposer_caches_routine<S: SlotClock + 'static, T: EthSpec>(
         &self,
@@ -463,7 +477,7 @@ impl ExecutionLayer {
 
     /// Returns `true` if there is at least one synced and reachable engine.
     pub async fn is_synced(&self) -> bool {
-        self.engines().any_synced().await
+        *self.engine().is_online.read().await
     }
 
     /// Updates the proposer preparation data provided by validators
@@ -560,6 +574,35 @@ impl ExecutionLayer {
         }
     }
 
+    async fn engine_notify_forkchoice_updated(
+        &self,
+        forkchoice_state: ForkChoiceState,
+        payload_attributes: Option<PayloadAttributes>,
+    ) -> Result<ForkchoiceUpdatedResponse, Error> {
+        let engine = self.engine();
+        let response = engine
+            .api
+            .forkchoice_updated_v1(forkchoice_state, payload_attributes)
+            .await
+            .map_err(Error::ApiError)?;
+
+        if let Some(payload_id) = response.payload_id {
+            if let Some(key) =
+                payload_attributes.map(|pa| PayloadIdCacheKey::new(&forkchoice_state, &pa))
+            {
+                engine.payload_id_cache.lock().await.put(key, payload_id);
+            } else {
+                debug!(
+                    self.log(),
+                    "Engine returned unexpected payload_id";
+                    "payload_id" => ?payload_id
+                );
+            }
+        }
+
+        Ok(response)
+    }
+
     /// Maps to the `engine_getPayload` JSON-RPC call.
     ///
     /// However, it will attempt to call `self.prepare_payload` if it cannot find an existing
@@ -594,31 +637,24 @@ impl ExecutionLayer {
                     "timestamp" => timestamp,
                     "parent_hash" => ?parent_hash,
                 );
-                self.builders()
-                    .first_success_without_retry(|engine| async move {
-                        let payload_id = engine
-                            .get_payload_id(
-                                parent_hash,
-                                timestamp,
-                                prev_randao,
-                                suggested_fee_recipient,
-                            )
-                            .await
-                            .ok_or(ApiError::MissingPayloadId {
-                                parent_hash,
-                                timestamp,
-                                prev_randao,
-                                suggested_fee_recipient,
-                            })?;
-                        engine
-                            .api
-                            .get_payload_header_v1::<T>(payload_id)
-                            .await?
-                            .try_into()
-                            .map_err(|_| ApiError::PayloadConversionLogicFlaw)
-                    })
+                let builder = self.builder()?;
+                let payload_id = builder
+                    .get_payload_id(parent_hash, timestamp, prev_randao, suggested_fee_recipient)
                     .await
-                    .map_err(Error::EngineErrors)
+                    .ok_or(ApiError::MissingPayloadId {
+                        parent_hash,
+                        timestamp,
+                        prev_randao,
+                        suggested_fee_recipient,
+                    })?;
+
+                builder
+                    .api
+                    .get_payload_header_v1::<T>(payload_id)
+                    .await?
+                    .try_into()
+                    .map_err(|_| ApiError::PayloadConversionLogicFlaw)
+                    .map_err(Error::ApiError)
             }
             BlockType::Full => {
                 debug!(
@@ -629,74 +665,65 @@ impl ExecutionLayer {
                     "timestamp" => timestamp,
                     "parent_hash" => ?parent_hash,
                 );
-                self.engines()
-                    .first_success(|engine| async move {
-                        let payload_id = if let Some(id) = engine
-                            .get_payload_id(
-                                parent_hash,
-                                timestamp,
-                                prev_randao,
-                                suggested_fee_recipient,
-                            )
-                            .await
-                        {
-                            // The payload id has been cached for this engine.
-                            metrics::inc_counter_vec(
-                                &metrics::EXECUTION_LAYER_PRE_PREPARED_PAYLOAD_ID,
-                                &[metrics::HIT],
-                            );
-                            id
-                        } else {
-                            // The payload id has *not* been cached for this engine. Trigger an artificial
-                            // fork choice update to retrieve a payload ID.
-                            //
-                            // TODO(merge): a better algorithm might try to favour a node that already had a
-                            // cached payload id, since a payload that has had more time to produce is
-                            // likely to be more profitable.
-                            metrics::inc_counter_vec(
-                                &metrics::EXECUTION_LAYER_PRE_PREPARED_PAYLOAD_ID,
-                                &[metrics::MISS],
-                            );
-                            let fork_choice_state = ForkChoiceState {
-                                head_block_hash: parent_hash,
-                                safe_block_hash: parent_hash,
-                                finalized_block_hash,
-                            };
-                            let payload_attributes = PayloadAttributes {
-                                timestamp,
-                                prev_randao,
-                                suggested_fee_recipient,
-                            };
-
-                            engine
-                                .notify_forkchoice_updated(
-                                    fork_choice_state,
-                                    Some(payload_attributes),
-                                    self.log(),
-                                )
-                                .await
-                                .map(|response| response.payload_id)?
-                                .ok_or_else(|| {
-                                    error!(
-                                        self.log(),
-                                        "Exec engine unable to produce payload";
-                                        "msg" => "No payload ID, the engine is likely syncing. \
-                                                  This has the potential to cause a missed block \
-                                                  proposal.",
-                                    );
-
-                                    ApiError::PayloadIdUnavailable
-                                })?
-                        };
-
-                        engine
-                            .api
-                            .get_payload_v1::<T>(payload_id)
-                            .await
-                            .map(Into::into)
-                    })
+                let engine = self.engine();
+                let payload_id = if let Some(id) = engine
+                    .get_payload_id(parent_hash, timestamp, prev_randao, suggested_fee_recipient)
                     .await
-                    .map_err(Error::EngineErrors)
+                {
+                    // The payload id has been cached for this engine.
+                    metrics::inc_counter_vec(
+                        &metrics::EXECUTION_LAYER_PRE_PREPARED_PAYLOAD_ID,
+                        &[metrics::HIT],
+                    );
+                    id
+                } else {
+                    // The payload id has *not* been cached for this engine. Trigger an artificial
+                    // fork choice update to retrieve a payload ID.
+                    //
+                    // TODO(merge): a better algorithm might try to favour a node that already had a
+                    // cached payload id, since a payload that has had more time to produce is
+                    // likely to be more profitable.
+                    metrics::inc_counter_vec(
+                        &metrics::EXECUTION_LAYER_PRE_PREPARED_PAYLOAD_ID,
+                        &[metrics::MISS],
+                    );
+                    let fork_choice_state = ForkChoiceState {
+                        head_block_hash: parent_hash,
+                        safe_block_hash: parent_hash,
+                        finalized_block_hash,
+                    };
+                    let payload_attributes = PayloadAttributes {
+                        timestamp,
+                        prev_randao,
+                        suggested_fee_recipient,
+                    };
+
+                    self.engine_notify_forkchoice_updated(
+                        fork_choice_state,
+                        Some(payload_attributes),
+                    )
+                    .await
+                    .map(|response| response.payload_id)?
+                    .ok_or_else(|| {
+                        error!(
+                            self.log(),
+                            "Exec engine unable to produce payload";
+                            "msg" => "No payload ID, the engine is likely syncing. \
+                                      This has the potential to cause a missed block \
+                                      proposal.",
+                        );
+
+                        ApiError::PayloadIdUnavailable
+                    })
+                    .map_err(Error::ApiError)?
+                };
+
+                engine
+                    .api
+                    .get_payload_v1::<T>(payload_id)
+                    .await
+                    .map(Into::into)
+                    .map_err(Error::ApiError)
             }
         }
     }
@@ -731,16 +758,15 @@ impl ExecutionLayer {
             "block_number" => execution_payload.block_number,
         );
 
-        let broadcast_results = self
-            .engines()
-            .broadcast(|engine| engine.api.new_payload_v1(execution_payload.clone()))
-            .await;
+        let response = self
+            .engine()
+            .api
+            .new_payload_v1(execution_payload.clone())
+            .await
+            .map_err(Error::ApiError)?;
 
-        process_multiple_payload_statuses(
-            execution_payload.block_hash,
-            broadcast_results.into_iter(),
-            self.log(),
-        )
+        PayloadStatus::new(execution_payload.block_hash, response, self.log())
+            .map_err(Error::ApiError)
     }
 
     /// Register that the given `validator_index` is going to produce a block at `slot`.
@@ -864,39 +890,46 @@ impl ExecutionLayer {
             finalized_block_hash,
         };
 
-        self.engines()
-            .set_latest_forkchoice_state(forkchoice_state)
-            .await;
+        *self.inner.latest_forkchoice_state.write().await = Some(forkchoice_state);
 
-        let broadcast_results = self
-            .engines()
-            .broadcast(|engine| async move {
-                engine
-                    .notify_forkchoice_updated(forkchoice_state, payload_attributes, self.log())
+        let response = self
+            .engine_notify_forkchoice_updated(forkchoice_state, payload_attributes)
+            .await?;
+
+        if let Some(payload_id) = response.payload_id {
+            if let Some(key) =
+                payload_attributes.map(|pa| PayloadIdCacheKey::new(&forkchoice_state, &pa))
+            {
+                self.engine()
+                    .payload_id_cache
+                    .lock()
                     .await
-            })
-            .await;
+                    .put(key, payload_id);
+            } else {
+                debug!(
+                    self.log(),
+                    "Engine returned unexpected payload_id";
+                    "payload_id" => ?payload_id
+                );
+            }
+        }
 
-        // Only query builders with payload attributes populated.
-        let builder_broadcast_results = if payload_attributes.is_some() {
-            self.builders()
-                .broadcast_without_retry(|engine| async move {
-                    engine
-                        .notify_forkchoice_updated(forkchoice_state, payload_attributes, self.log())
-                        .await
-                })
-                .await
-        } else {
-            vec![]
-        };
-        process_multiple_payload_statuses(
-            head_block_hash,
-            broadcast_results
-                .into_iter()
-                .chain(builder_broadcast_results.into_iter())
-                .map(|result| result.map(|response| response.payload_status)),
-            self.log(),
-        )
+        if let Err(e) = self
+            .builder()?
+            .api
+            .forkchoice_updated_v1(forkchoice_state, payload_attributes)
+            .await
+        {
+            // Don't return an error if the builder fails to accept this update, just log it.
+            error!(
+                self.log(),
+                "Forkchoice update to builder failed";
+                "error" => ?e
+            );
+        }
+
+        PayloadStatus::new(head_block_hash, response.payload_status, self.log())
+            .map_err(Error::ApiError)
     }
 
     pub async fn exchange_transition_configuration(&self, spec: &ChainSpec) -> Result<(), Error> {
@@ -906,55 +939,41 @@ impl ExecutionLayer {
             terminal_block_number: 0,
         };
 
-        let broadcast_results = self
-            .engines()
-            .broadcast(|engine| engine.api.exchange_transition_configuration_v1(local))
-            .await;
-
-        let mut errors = vec![];
-        for (i, result) in broadcast_results.into_iter().enumerate() {
-            match result {
-                Ok(remote) => {
-                    if local.terminal_total_difficulty != remote.terminal_total_difficulty
-                        || local.terminal_block_hash != remote.terminal_block_hash
-                    {
-                        error!(
-                            self.log(),
-                            "Execution client config mismatch";
-                            "msg" => "ensure lighthouse and the execution client are up-to-date and \
-                                      configured consistently",
-                            "execution_endpoint" => i,
-                            "remote" => ?remote,
-                            "local" => ?local,
-                        );
-                        errors.push(EngineError::Api {
-                            id: i.to_string(),
-                            error: ApiError::TransitionConfigurationMismatch,
-                        });
-                    } else {
-                        debug!(
-                            self.log(),
-                            "Execution client config is OK";
-                            "execution_endpoint" => i
-                        );
-                    }
-                }
-                Err(e) => {
+        match self
+            .engine()
+            .api
+            .exchange_transition_configuration_v1(local)
+            .await
+        {
+            Ok(remote) => {
+                if local.terminal_total_difficulty != remote.terminal_total_difficulty
+                    || local.terminal_block_hash != remote.terminal_block_hash
+                {
                     error!(
                         self.log(),
-                        "Unable to get transition config";
-                        "error" => ?e,
-                        "execution_endpoint" => i,
+                        "Execution client config mismatch";
+                        "msg" => "ensure lighthouse and the execution client are up-to-date and \
+                                  configured consistently",
+                        "remote" => ?remote,
+                        "local" => ?local,
                     );
-                    errors.push(e);
+                    Err(Error::TransitionConfigurationMismatch)
+                } else {
+                    debug!(
+                        self.log(),
+                        "Execution client config is OK";
+                    );
+                    Ok(())
                 }
             }
-        }
-
-        if errors.is_empty() {
-            Ok(())
-        } else {
-            Err(Error::EngineErrors(errors))
+            Err(e) => {
+                error!(
+                    self.log(),
+                    "Unable to get transition config";
+                    "error" => ?e,
+                );
+                Err(Error::ApiError(e))
+            }
         }
     }
 
@@ -974,27 +993,25 @@ impl ExecutionLayer {
             &[metrics::GET_TERMINAL_POW_BLOCK_HASH],
         );
 
-        let hash_opt = self
-            .engines()
-            .first_success(|engine| async move {
-                let terminal_block_hash = spec.terminal_block_hash;
-                if terminal_block_hash != ExecutionBlockHash::zero() {
-                    if self
-                        .get_pow_block(engine, terminal_block_hash)
-                        .await?
-                        .is_some()
-                    {
-                        return Ok(Some(terminal_block_hash));
-                    } else {
-                        return Ok(None);
-                    }
-                }
+        let engine = self.engine();
 
+        let hash_opt = {
+            let terminal_block_hash = spec.terminal_block_hash;
+            if terminal_block_hash != ExecutionBlockHash::zero() {
+                if self
+                    .get_pow_block(engine, terminal_block_hash)
+                    .await?
+                    .is_some()
+                {
+                    Ok(Some(terminal_block_hash))
+                } else {
+                    Ok(None)
+                }
+            } else {
                 self.get_pow_block_hash_at_total_difficulty(engine, spec)
                     .await
-            })
-            .await
-            .map_err(Error::EngineErrors)?;
+            }
+        }?;
 
         if let Some(hash) = &hash_opt {
             info!(
@@ -1090,52 +1107,16 @@ impl ExecutionLayer {
             &[metrics::IS_VALID_TERMINAL_POW_BLOCK_HASH],
         );
 
-        let broadcast_results = self
-            .engines()
-            .broadcast(|engine| async move {
-                if let Some(pow_block) = self.get_pow_block(engine, block_hash).await? {
-                    if let Some(pow_parent) =
-                        self.get_pow_block(engine, pow_block.parent_hash).await?
-                    {
-                        return Ok(Some(
-                            self.is_valid_terminal_pow_block(pow_block, pow_parent, spec),
-                        ));
-                    }
-                }
-                Ok(None)
-            })
-            .await;
+        let engine = self.engine();
 
-        let mut errors = vec![];
-        let mut terminal = 0;
-        let mut not_terminal = 0;
-        let mut block_missing = 0;
-        for result in broadcast_results {
-            match result {
-                Ok(Some(true)) => terminal += 1,
-                Ok(Some(false)) => not_terminal += 1,
-                Ok(None) => block_missing += 1,
-                Err(e) => errors.push(e),
+        if let Some(pow_block) = self.get_pow_block(engine, block_hash).await? {
+            if let Some(pow_parent) = self.get_pow_block(engine, pow_block.parent_hash).await? {
+                return Ok(Some(
+                    self.is_valid_terminal_pow_block(pow_block, pow_parent, spec),
+                ));
             }
         }
-
-        if terminal > 0 && not_terminal > 0 {
-            crit!(
-                self.log(),
-                "Consensus failure between execution nodes";
-                "method" => "is_valid_terminal_pow_block_hash"
-            );
-        }
-
-        if terminal > 0 {
-            Ok(Some(true))
-        } else if not_terminal > 0 {
-            Ok(Some(false))
-        } else if block_missing > 0 {
-            Ok(None)
-        } else {
-            Err(Error::EngineErrors(errors))
-        }
+        Ok(None)
     }
 
     /// This function should remain internal.
@@ -1192,12 +1173,12 @@ impl ExecutionLayer {
             "Issuing builder_proposeBlindedBlock";
             "root" => ?block.canonical_root(),
         );
-        self.builders()
-            .first_success_without_retry(|engine| async move {
-                engine.api.propose_blinded_block_v1(block.clone()).await
-            })
+        let builder = self.builder()?;
+        builder
+            .api
+            .propose_blinded_block_v1(block.clone())
             .await
-            .map_err(Error::EngineErrors)
+            .map_err(Error::ApiError)
     }
 }
 
@@ -1226,7 +1207,6 @@ mod test {
         MockExecutionLayer::default_params()
             .move_to_block_prior_to_terminal_block()
             .with_terminal_block(|spec, el, _| async move {
-                el.engines().upcheck_not_synced(Logging::Disabled).await;
                 assert_eq!(el.get_terminal_pow_block_hash(&spec).await.unwrap(), None)
             })
             .await
@@ -1245,7 +1225,6 @@ mod test {
         MockExecutionLayer::default_params()
             .move_to_terminal_block()
             .with_terminal_block(|spec, el, terminal_block| async move {
-                el.engines().upcheck_not_synced(Logging::Disabled).await;
                 assert_eq!(
                     el.is_valid_terminal_pow_block_hash(terminal_block.unwrap().block_hash, &spec)
                         .await
@@ -1261,7 +1240,6 @@ mod test {
         MockExecutionLayer::default_params()
             .move_to_terminal_block()
             .with_terminal_block(|spec, el, terminal_block| async move {
-                el.engines().upcheck_not_synced(Logging::Disabled).await;
                 let invalid_terminal_block = terminal_block.unwrap().parent_hash;
 
                 assert_eq!(
@@ -1279,7 +1257,6 @@ mod test {
         MockExecutionLayer::default_params()
             .move_to_terminal_block()
             .with_terminal_block(|spec, el, _| async move {
-                el.engines().upcheck_not_synced(Logging::Disabled).await;
                 let missing_terminal_block = ExecutionBlockHash::repeat_byte(42);
 
                 assert_eq!(

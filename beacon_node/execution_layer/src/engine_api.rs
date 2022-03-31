@@ -1,4 +1,4 @@
-use crate::engines::ForkChoiceState;
+use crate::ForkChoiceState;
 use async_trait::async_trait;
 use eth1::http::RpcError;
 pub use json_structures::TransitionConfigurationV1;

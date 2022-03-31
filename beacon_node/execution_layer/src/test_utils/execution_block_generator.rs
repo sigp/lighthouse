@@ -4,7 +4,7 @@ use crate::engine_api::{
     },
     ExecutionBlock, PayloadAttributes, PayloadId, PayloadStatusV1, PayloadStatusV1Status,
 };
-use crate::engines::ForkChoiceState;
+use crate::ForkChoiceState;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use tree_hash::TreeHash;
