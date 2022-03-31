@@ -72,7 +72,7 @@ impl InvalidPayloadRig {
             .body()
             .execution_payload()
             .unwrap()
-            .block_hash
+            .block_hash()
     }
 
     fn execution_status(&self, block_root: Hash256) -> ExecutionStatus {

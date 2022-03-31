@@ -37,7 +37,7 @@ rand = "0.7.3"
 directory = { path = "../../common/directory" }
 regex = "1.5.5"
 strum = { version = "0.21.0", features = ["derive"] }
-superstruct = "0.4.0"
+superstruct = "0.4.1"
 prometheus-client = "0.15.0"
 unused_port = { path = "../../common/unused_port" }
 

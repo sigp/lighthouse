@@ -14,6 +14,7 @@ use serde::{Deserialize, Serialize};
 use slog::{crit, debug, error, info, trace, Logger};
 use slot_clock::SlotClock;
 use std::collections::HashMap;
+use std::convert::TryInto;
 use std::future::Future;
 use std::io::Write;
 use std::path::PathBuf;
@@ -24,11 +25,15 @@ use tokio::{
     sync::{Mutex, MutexGuard, RwLock},
     time::{sleep, sleep_until, Instant},
 };
-use types::{ChainSpec, Epoch, ExecutionBlockHash, ProposerPreparationData, Slot};
-
-pub use engine_api::{
-    http::HttpJsonRpc, json_structures, PayloadAttributes, PayloadStatusV1Status,
+use types::{
+    BlindedPayload, BlockType, ChainSpec, Epoch, ExecPayload, ExecutionBlockHash,
+    ProposerPreparationData, SignedBeaconBlock, Slot,
 };
+
+use crate::engine_api::Builder;
+use crate::engines::Builders;
+pub use engine_api::*;
+pub use engine_api::{http, http::HttpJsonRpc};
 pub use payload_status::PayloadStatus;
 
 mod engine_api;
@@ -59,6 +64,7 @@ const CONFIG_POLL_INTERVAL: Duration = Duration::from_secs(60);
 #[derive(Debug)]
 pub enum Error {
     NoEngines,
+    NoPayloadBuilder,
     ApiError(ApiError),
     EngineErrors(Vec<EngineError>),
     NotSynced,
@@ -94,7 +100,8 @@ pub struct Proposer {
 }
 
 struct Inner {
-    engines: Engines<HttpJsonRpc>,
+    engines: Engines,
+    builders: Builders,
     execution_engine_forkchoice_lock: Mutex<()>,
     suggested_fee_recipient: Option<Address>,
     proposer_preparation_data: Mutex<HashMap<u64, ProposerPreparationDataEntry>>,
@@ -108,6 +115,8 @@ struct Inner {
 pub struct Config {
     /// Endpoint urls for EL nodes that are running the engine api.
     pub execution_endpoints: Vec<SensitiveUrl>,
+    /// Endpoint urls for services providing the builder api.
+    pub builder_endpoints: Vec<SensitiveUrl>,
     /// JWT secrets for the above endpoints running the engine api.
     pub secret_files: Vec<PathBuf>,
     /// The default fee recipient to use on the beacon node if none if provided from
@@ -148,6 +157,7 @@ impl ExecutionLayer {
     pub fn from_config(config: Config, executor: TaskExecutor, log: Logger) -> Result<Self, Error> {
         let Config {
             execution_endpoints: urls,
+            builder_endpoints: builder_urls,
             mut secret_files,
             suggested_fee_recipient,
             jwt_id,
@@ -203,15 +213,24 @@ impl ExecutionLayer {
             .collect::<Result<_, _>>()
             .map_err(Error::InvalidJWTSecret)?;
 
-        let engines: Vec<Engine<_>> = urls
+        let engines: Vec<Engine<EngineApi>> = urls
             .into_iter()
             .zip(secrets.into_iter())
             .map(|(url, (secret, path))| {
                 let id = url.to_string();
                 let auth = Auth::new(secret, jwt_id.clone(), jwt_version.clone());
                 debug!(log, "Loaded execution endpoint"; "endpoint" => %id, "jwt_path" => ?path);
-                let api = HttpJsonRpc::new_with_auth(url, auth)?;
-                Ok(Engine::new(id, api))
+                let api = HttpJsonRpc::<EngineApi>::new_with_auth(url, auth)?;
+                Ok(Engine::<EngineApi>::new(id, api))
+            })
+            .collect::<Result<_, ApiError>>()?;
+
+        let builders: Vec<Engine<BuilderApi>> = builder_urls
+            .into_iter()
+            .map(|url| {
+                let id = url.to_string();
+                let api = HttpJsonRpc::<BuilderApi>::new(url)?;
+                Ok(Engine::<BuilderApi>::new(id, api))
             })
             .collect::<Result<_, ApiError>>()?;
 
@@ -219,6 +238,10 @@ impl ExecutionLayer {
             engines: Engines {
                 engines,
                 latest_forkchoice_state: <_>::default(),
+                log: log.clone(),
+            },
+            builders: Builders {
+                builders,
                 log: log.clone(),
             },
             execution_engine_forkchoice_lock: <_>::default(),
@@ -237,8 +260,12 @@ impl ExecutionLayer {
 }
 
 impl ExecutionLayer {
-    fn engines(&self) -> &Engines<HttpJsonRpc> {
+    fn engines(&self) -> &Engines {
         &self.inner.engines
+    }
+
+    fn builders(&self) -> &Builders {
+        &self.inner.builders
     }
 
     fn executor(&self) -> &TaskExecutor {
@@ -542,14 +569,14 @@ impl ExecutionLayer {
     ///
     /// The result will be returned from the first node that returns successfully. No more nodes
     /// will be contacted.
-    pub async fn get_payload<T: EthSpec>(
+    pub async fn get_payload<T: EthSpec, Payload: ExecPayload<T>>(
         &self,
         parent_hash: ExecutionBlockHash,
         timestamp: u64,
         prev_randao: Hash256,
         finalized_block_hash: ExecutionBlockHash,
         proposer_index: u64,
-    ) -> Result<ExecutionPayload<T>, Error> {
+    ) -> Result<Payload, Error> {
         let _timer = metrics::start_timer_vec(
             &metrics::EXECUTION_LAYER_REQUEST_TIMES,
             &[metrics::GET_PAYLOAD],
@@ -557,72 +584,121 @@ impl ExecutionLayer {
 
         let suggested_fee_recipient = self.get_suggested_fee_recipient(proposer_index).await;
 
-        debug!(
-            self.log(),
-            "Issuing engine_getPayload";
-            "suggested_fee_recipient" => ?suggested_fee_recipient,
-            "prev_randao" => ?prev_randao,
-            "timestamp" => timestamp,
-            "parent_hash" => ?parent_hash,
-        );
-        self.engines()
-            .first_success(|engine| async move {
-                let payload_id = if let Some(id) = engine
-                    .get_payload_id(parent_hash, timestamp, prev_randao, suggested_fee_recipient)
+        match Payload::block_type() {
+            BlockType::Blinded => {
+                debug!(
+                    self.log(),
+                    "Issuing builder_getPayloadHeader";
+                    "suggested_fee_recipient" => ?suggested_fee_recipient,
+                    "prev_randao" => ?prev_randao,
+                    "timestamp" => timestamp,
+                    "parent_hash" => ?parent_hash,
+                );
+                self.builders()
+                    .first_success_without_retry(|engine| async move {
+                        let payload_id = engine
+                            .get_payload_id(
+                                parent_hash,
+                                timestamp,
+                                prev_randao,
+                                suggested_fee_recipient,
+                            )
+                            .await
+                            .ok_or(ApiError::MissingPayloadId {
+                                parent_hash,
+                                timestamp,
+                                prev_randao,
+                                suggested_fee_recipient,
+                            })?;
+                        engine
+                            .api
+                            .get_payload_header_v1::<T>(payload_id)
+                            .await?
+                            .try_into()
+                            .map_err(|_| ApiError::PayloadConversionLogicFlaw)
+                    })
                     .await
-                {
-                    // The payload id has been cached for this engine.
-                    metrics::inc_counter_vec(
-                        &metrics::EXECUTION_LAYER_PRE_PREPARED_PAYLOAD_ID,
-                        &[metrics::HIT],
-                    );
-                    id
-                } else {
-                    // The payload id has *not* been cached for this engine. Trigger an artificial
-                    // fork choice update to retrieve a payload ID.
-                    //
-                    // TODO(merge): a better algorithm might try to favour a node that already had a
-                    // cached payload id, since a payload that has had more time to produce is
-                    // likely to be more profitable.
-                    metrics::inc_counter_vec(
-                        &metrics::EXECUTION_LAYER_PRE_PREPARED_PAYLOAD_ID,
-                        &[metrics::MISS],
-                    );
-                    let fork_choice_state = ForkChoiceState {
-                        head_block_hash: parent_hash,
-                        safe_block_hash: parent_hash,
-                        finalized_block_hash,
-                    };
-                    let payload_attributes = PayloadAttributes {
-                        timestamp,
-                        prev_randao,
-                        suggested_fee_recipient,
-                    };
-
-                    engine
-                        .notify_forkchoice_updated(
-                            fork_choice_state,
-                            Some(payload_attributes),
-                            self.log(),
-                        )
-                        .await
-                        .map(|response| response.payload_id)?
-                        .ok_or_else(|| {
-                            error!(
-                                self.log(),
-                                "Exec engine unable to produce payload";
-                                "msg" => "No payload ID, the engine is likely syncing. \
-                                          This has the potential to cause a missed block proposal.",
+                    .map_err(Error::EngineErrors)
+            }
+            BlockType::Full => {
+                debug!(
+                    self.log(),
+                    "Issuing engine_getPayload";
+                    "suggested_fee_recipient" => ?suggested_fee_recipient,
+                    "prev_randao" => ?prev_randao,
+                    "timestamp" => timestamp,
+                    "parent_hash" => ?parent_hash,
+                );
+                self.engines()
+                    .first_success(|engine| async move {
+                        let payload_id = if let Some(id) = engine
+                            .get_payload_id(
+                                parent_hash,
+                                timestamp,
+                                prev_randao,
+                                suggested_fee_recipient,
+                            )
+                            .await
+                        {
+                            // The payload id has been cached for this engine.
+                            metrics::inc_counter_vec(
+                                &metrics::EXECUTION_LAYER_PRE_PREPARED_PAYLOAD_ID,
+                                &[metrics::HIT],
                             );
+                            id
+                        } else {
+                            // The payload id has *not* been cached for this engine. Trigger an artificial
+                            // fork choice update to retrieve a payload ID.
+                            //
+                            // TODO(merge): a better algorithm might try to favour a node that already had a
+                            // cached payload id, since a payload that has had more time to produce is
+                            // likely to be more profitable.
+                            metrics::inc_counter_vec(
+                                &metrics::EXECUTION_LAYER_PRE_PREPARED_PAYLOAD_ID,
+                                &[metrics::MISS],
+                            );
+                            let fork_choice_state = ForkChoiceState {
+                                head_block_hash: parent_hash,
+                                safe_block_hash: parent_hash,
+                                finalized_block_hash,
+                            };
+                            let payload_attributes = PayloadAttributes {
+                                timestamp,
+                                prev_randao,
+                                suggested_fee_recipient,
+                            };
 
-                            ApiError::PayloadIdUnavailable
-                        })?
-                };
+                            engine
+                                .notify_forkchoice_updated(
+                                    fork_choice_state,
+                                    Some(payload_attributes),
+                                    self.log(),
+                                )
+                                .await
+                                .map(|response| response.payload_id)?
+                                .ok_or_else(|| {
+                                    error!(
+                                        self.log(),
+                                        "Exec engine unable to produce payload";
+                                        "msg" => "No payload ID, the engine is likely syncing. \
+                                                  This has the potential to cause a missed block \
+                                                  proposal.",
+                                    );
 
-                engine.api.get_payload_v1(payload_id).await
-            })
-            .await
-            .map_err(Error::EngineErrors)
+                                    ApiError::PayloadIdUnavailable
+                                })?
+                        };
+
+                        engine
+                            .api
+                            .get_payload_v1::<T>(payload_id)
+                            .await
+                            .map(Into::into)
+                    })
+                    .await
+                    .map_err(Error::EngineErrors)
+            }
+        }
     }
 
     /// Maps to the `engine_newPayload` JSON-RPC call.
@@ -801,10 +877,23 @@ impl ExecutionLayer {
             })
             .await;
 
+        // Only query builders with payload attributes populated.
+        let builder_broadcast_results = if payload_attributes.is_some() {
+            self.builders()
+                .broadcast_without_retry(|engine| async move {
+                    engine
+                        .notify_forkchoice_updated(forkchoice_state, payload_attributes, self.log())
+                        .await
+                })
+                .await
+        } else {
+            vec![]
+        };
         process_multiple_payload_statuses(
             head_block_hash,
             broadcast_results
                 .into_iter()
+                .chain(builder_broadcast_results.into_iter())
                 .map(|result| result.map(|response| response.payload_status)),
             self.log(),
         )
@@ -931,7 +1020,7 @@ impl ExecutionLayer {
     /// https://github.com/ethereum/consensus-specs/blob/v1.1.5/specs/merge/validator.md
     async fn get_pow_block_hash_at_total_difficulty(
         &self,
-        engine: &Engine<HttpJsonRpc>,
+        engine: &Engine<EngineApi>,
         spec: &ChainSpec,
     ) -> Result<Option<ExecutionBlockHash>, ApiError> {
         let mut block = engine
@@ -1013,7 +1102,6 @@ impl ExecutionLayer {
                         ));
                     }
                 }
-
                 Ok(None)
             })
             .await;
@@ -1076,7 +1164,7 @@ impl ExecutionLayer {
     /// https://github.com/ethereum/consensus-specs/issues/2636
     async fn get_pow_block(
         &self,
-        engine: &Engine<HttpJsonRpc>,
+        engine: &Engine<EngineApi>,
         hash: ExecutionBlockHash,
     ) -> Result<Option<ExecutionBlock>, ApiError> {
         if let Some(cached) = self.execution_blocks().await.get(&hash).copied() {
@@ -1093,6 +1181,23 @@ impl ExecutionLayer {
         } else {
             Ok(None)
         }
+    }
+
+    pub async fn propose_blinded_beacon_block<T: EthSpec>(
+        &self,
+        block: &SignedBeaconBlock<T, BlindedPayload<T>>,
+    ) -> Result<ExecutionPayload<T>, Error> {
+        debug!(
+            self.log(),
+            "Issuing builder_proposeBlindedBlock";
+            "root" => ?block.canonical_root(),
+        );
+        self.builders()
+            .first_success_without_retry(|engine| async move {
+                engine.api.propose_blinded_block_v1(block.clone()).await
+            })
+            .await
+            .map_err(Error::EngineErrors)
     }
 }
 

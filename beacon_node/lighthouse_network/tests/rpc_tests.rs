@@ -21,11 +21,11 @@ type E = MinimalEthSpec;
 
 /// Merge block with length < max_rpc_size.
 fn merge_block_small(fork_context: &ForkContext) -> BeaconBlock<E> {
-    let mut block = BeaconBlockMerge::empty(&E::default_spec());
+    let mut block = BeaconBlockMerge::<E>::empty(&E::default_spec());
     let tx = VariableList::from(vec![0; 1024]);
     let txs = VariableList::from(std::iter::repeat(tx).take(100).collect::<Vec<_>>());
 
-    block.body.execution_payload.transactions = txs;
+    block.body.execution_payload.execution_payload.transactions = txs;
 
     let block = BeaconBlock::Merge(block);
     assert!(block.ssz_bytes_len() <= max_rpc_size(fork_context));
@@ -36,11 +36,11 @@ fn merge_block_small(fork_context: &ForkContext) -> BeaconBlock<E> {
 /// The max limit for a merge block is in the order of ~16GiB which wouldn't fit in memory.
 /// Hence, we generate a merge block just greater than `MAX_RPC_SIZE` to test rejection on the rpc layer.
 fn merge_block_large(fork_context: &ForkContext) -> BeaconBlock<E> {
-    let mut block = BeaconBlockMerge::empty(&E::default_spec());
+    let mut block = BeaconBlockMerge::<E>::empty(&E::default_spec());
     let tx = VariableList::from(vec![0; 1024]);
     let txs = VariableList::from(std::iter::repeat(tx).take(100000).collect::<Vec<_>>());
 
-    block.body.execution_payload.transactions = txs;
+    block.body.execution_payload.execution_payload.transactions = txs;
 
     let block = BeaconBlock::Merge(block);
     assert!(block.ssz_bytes_len() > max_rpc_size(fork_context));

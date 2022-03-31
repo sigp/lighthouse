@@ -53,8 +53,9 @@ pub fn notify_new_payload<T: BeaconChainTypes>(
         .execution_layer
         .as_ref()
         .ok_or(ExecutionPayloadError::NoExecutionConnection)?;
-    let new_payload_response = execution_layer
-        .block_on(|execution_layer| execution_layer.notify_new_payload(execution_payload));
+    let new_payload_response = execution_layer.block_on(|execution_layer| {
+        execution_layer.notify_new_payload(&execution_payload.execution_payload)
+    });
 
     match new_payload_response {
         Ok(status) => match status {
@@ -118,10 +119,10 @@ pub fn validate_merge_block<T: BeaconChainTypes>(
             .into());
         }
 
-        if execution_payload.parent_hash != spec.terminal_block_hash {
+        if execution_payload.parent_hash() != spec.terminal_block_hash {
             return Err(ExecutionPayloadError::InvalidTerminalBlockHash {
                 terminal_block_hash: spec.terminal_block_hash,
-                payload_parent_hash: execution_payload.parent_hash,
+                payload_parent_hash: execution_payload.parent_hash(),
             }
             .into());
         }
@@ -136,14 +137,14 @@ pub fn validate_merge_block<T: BeaconChainTypes>(
 
     let is_valid_terminal_pow_block = execution_layer
         .block_on(|execution_layer| {
-            execution_layer.is_valid_terminal_pow_block_hash(execution_payload.parent_hash, spec)
+            execution_layer.is_valid_terminal_pow_block_hash(execution_payload.parent_hash(), spec)
         })
         .map_err(ExecutionPayloadError::from)?;
 
     match is_valid_terminal_pow_block {
         Some(true) => Ok(()),
         Some(false) => Err(ExecutionPayloadError::InvalidTerminalPoWBlock {
-            parent_hash: execution_payload.parent_hash,
+            parent_hash: execution_payload.parent_hash(),
         }
         .into()),
         None => {
@@ -167,7 +168,7 @@ pub fn validate_merge_block<T: BeaconChainTypes>(
                 debug!(
                     chain.log,
                     "Optimistically accepting terminal block";
-                    "block_hash" => ?execution_payload.parent_hash,
+                    "block_hash" => ?execution_payload.parent_hash(),
                     "msg" => "the terminal block/parent was unavailable"
                 );
                 Ok(())
@@ -215,11 +216,11 @@ pub fn validate_execution_payload_for_gossip<T: BeaconChainTypes>(
                 ))?;
 
             // The block's execution payload timestamp is correct with respect to the slot
-            if execution_payload.timestamp != expected_timestamp {
+            if execution_payload.timestamp() != expected_timestamp {
                 return Err(BlockError::ExecutionPayloadError(
                     ExecutionPayloadError::InvalidPayloadTimestamp {
                         expected: expected_timestamp,
-                        found: execution_payload.timestamp,
+                        found: execution_payload.timestamp(),
                     },
                 ));
             }
@@ -241,20 +242,23 @@ pub fn validate_execution_payload_for_gossip<T: BeaconChainTypes>(
 /// Equivalent to the `get_execution_payload` function in the Validator Guide:
 ///
 /// https://github.com/ethereum/consensus-specs/blob/v1.1.5/specs/merge/validator.md#block-proposal
-pub fn get_execution_payload<T: BeaconChainTypes>(
+pub fn get_execution_payload<T: BeaconChainTypes, Payload: ExecPayload<T::EthSpec>>(
     chain: &BeaconChain<T>,
     state: &BeaconState<T::EthSpec>,
     proposer_index: u64,
-) -> Result<ExecutionPayload<T::EthSpec>, BlockProductionError> {
-    Ok(prepare_execution_payload_blocking(chain, state, proposer_index)?.unwrap_or_default())
+) -> Result<Payload, BlockProductionError> {
+    Ok(
+        prepare_execution_payload_blocking::<T, Payload>(chain, state, proposer_index)?
+            .unwrap_or_default(),
+    )
 }
 
 /// Wraps the async `prepare_execution_payload` function as a blocking task.
-pub fn prepare_execution_payload_blocking<T: BeaconChainTypes>(
+pub fn prepare_execution_payload_blocking<T: BeaconChainTypes, Payload: ExecPayload<T::EthSpec>>(
     chain: &BeaconChain<T>,
     state: &BeaconState<T::EthSpec>,
     proposer_index: u64,
-) -> Result<Option<ExecutionPayload<T::EthSpec>>, BlockProductionError> {
+) -> Result<Option<Payload>, BlockProductionError> {
     let execution_layer = chain
         .execution_layer
         .as_ref()
@@ -262,7 +266,7 @@ pub fn prepare_execution_payload_blocking<T: BeaconChainTypes>(
 
     execution_layer
         .block_on_generic(|_| async {
-            prepare_execution_payload(chain, state, proposer_index).await
+            prepare_execution_payload::<T, Payload>(chain, state, proposer_index).await
         })
         .map_err(BlockProductionError::BlockingFailed)?
 }
@@ -281,11 +285,11 @@ pub fn prepare_execution_payload_blocking<T: BeaconChainTypes>(
 /// Equivalent to the `prepare_execution_payload` function in the Validator Guide:
 ///
 /// https://github.com/ethereum/consensus-specs/blob/v1.1.5/specs/merge/validator.md#block-proposal
-pub async fn prepare_execution_payload<T: BeaconChainTypes>(
+pub async fn prepare_execution_payload<T: BeaconChainTypes, Payload: ExecPayload<T::EthSpec>>(
     chain: &BeaconChain<T>,
     state: &BeaconState<T::EthSpec>,
     proposer_index: u64,
-) -> Result<Option<ExecutionPayload<T::EthSpec>>, BlockProductionError> {
+) -> Result<Option<Payload>, BlockProductionError> {
     let spec = &chain.spec;
     let execution_layer = chain
         .execution_layer
@@ -335,12 +339,12 @@ pub async fn prepare_execution_payload<T: BeaconChainTypes>(
                 .body()
                 .execution_payload()
                 .ok()
-                .map(|ep| ep.block_hash)
+                .map(|ep| ep.block_hash())
         };
 
     // Note: the suggested_fee_recipient is stored in the `execution_layer`, it will add this parameter.
     let execution_payload = execution_layer
-        .get_payload(
+        .get_payload::<T::EthSpec, Payload>(
             parent_hash,
             timestamp,
             random,

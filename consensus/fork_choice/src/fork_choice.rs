@@ -6,8 +6,8 @@ use std::marker::PhantomData;
 use std::time::Duration;
 use types::{
     consts::merge::INTERVALS_PER_SLOT, AttestationShufflingId, BeaconBlock, BeaconState,
-    BeaconStateError, ChainSpec, Checkpoint, Epoch, EthSpec, ExecutionBlockHash, Hash256,
-    IndexedAttestation, RelativeEpoch, SignedBeaconBlock, Slot,
+    BeaconStateError, ChainSpec, Checkpoint, Epoch, EthSpec, ExecPayload, ExecutionBlockHash,
+    Hash256, IndexedAttestation, RelativeEpoch, SignedBeaconBlock, Slot,
 };
 
 #[derive(Debug)]
@@ -323,7 +323,7 @@ where
                 } else {
                     // Assume that this payload is valid, since the anchor should be a trusted block and
                     // state.
-                    ExecutionStatus::Valid(message.body.execution_payload.block_hash)
+                    ExecutionStatus::Valid(message.body.execution_payload.block_hash())
                 }
             },
         );
@@ -648,7 +648,7 @@ where
             .map_err(Error::AfterBlockFailed)?;
 
         let execution_status = if let Ok(execution_payload) = block.body().execution_payload() {
-            let block_hash = execution_payload.block_hash;
+            let block_hash = execution_payload.block_hash();
 
             if block_hash == ExecutionBlockHash::zero() {
                 // The block is post-merge-fork, but pre-terminal-PoW block. We don't need to verify

@@ -3,14 +3,14 @@
 use super::*;
 use crate::auth::Auth;
 use crate::json_structures::*;
-use async_trait::async_trait;
 use eth1::http::EIP155_ERROR_STR;
 use reqwest::header::CONTENT_TYPE;
 use sensitive_url::SensitiveUrl;
 use serde::de::DeserializeOwned;
 use serde_json::json;
+use std::marker::PhantomData;
 use std::time::Duration;
-use types::EthSpec;
+use types::{BlindedPayload, EthSpec, ExecutionPayloadHeader, SignedBeaconBlock};
 
 pub use reqwest::Client;
 
@@ -42,18 +42,26 @@ pub const ENGINE_EXCHANGE_TRANSITION_CONFIGURATION_V1: &str =
 pub const ENGINE_EXCHANGE_TRANSITION_CONFIGURATION_V1_TIMEOUT: Duration =
     Duration::from_millis(500);
 
-pub struct HttpJsonRpc {
+pub const BUILDER_GET_PAYLOAD_HEADER_V1: &str = "builder_getPayloadHeaderV1";
+pub const BUILDER_GET_PAYLOAD_HEADER_TIMEOUT: Duration = Duration::from_secs(2);
+
+pub const BUILDER_PROPOSE_BLINDED_BLOCK_V1: &str = "builder_proposeBlindedBlockV1";
+pub const BUILDER_PROPOSE_BLINDED_BLOCK_TIMEOUT: Duration = Duration::from_secs(2);
+
+pub struct HttpJsonRpc<T = EngineApi> {
     pub client: Client,
     pub url: SensitiveUrl,
     auth: Option<Auth>,
+    _phantom: PhantomData<T>,
 }
 
-impl HttpJsonRpc {
+impl<T> HttpJsonRpc<T> {
     pub fn new(url: SensitiveUrl) -> Result<Self, Error> {
         Ok(Self {
             client: Client::builder().build()?,
             url,
             auth: None,
+            _phantom: PhantomData,
         })
     }
 
@@ -62,15 +70,16 @@ impl HttpJsonRpc {
             client: Client::builder().build()?,
             url,
             auth: Some(auth),
+            _phantom: PhantomData,
         })
     }
 
-    pub async fn rpc_request<T: DeserializeOwned>(
+    pub async fn rpc_request<D: DeserializeOwned>(
         &self,
         method: &str,
         params: serde_json::Value,
         timeout: Duration,
-    ) -> Result<T, Error> {
+    ) -> Result<D, Error> {
         let body = JsonRequestBody {
             jsonrpc: JSONRPC_VERSION,
             method,
@@ -108,9 +117,8 @@ impl HttpJsonRpc {
     }
 }
 
-#[async_trait]
-impl EngineApi for HttpJsonRpc {
-    async fn upcheck(&self) -> Result<(), Error> {
+impl HttpJsonRpc<EngineApi> {
+    pub async fn upcheck(&self) -> Result<(), Error> {
         let result: serde_json::Value = self
             .rpc_request(ETH_SYNCING, json!([]), ETH_SYNCING_TIMEOUT)
             .await?;
@@ -127,7 +135,7 @@ impl EngineApi for HttpJsonRpc {
         }
     }
 
-    async fn get_block_by_number<'a>(
+    pub async fn get_block_by_number<'a>(
         &self,
         query: BlockByNumberQuery<'a>,
     ) -> Result<Option<ExecutionBlock>, Error> {
@@ -141,7 +149,7 @@ impl EngineApi for HttpJsonRpc {
         .await
     }
 
-    async fn get_block_by_hash<'a>(
+    pub async fn get_block_by_hash<'a>(
         &self,
         block_hash: ExecutionBlockHash,
     ) -> Result<Option<ExecutionBlock>, Error> {
@@ -151,7 +159,7 @@ impl EngineApi for HttpJsonRpc {
             .await
     }
 
-    async fn new_payload_v1<T: EthSpec>(
+    pub async fn new_payload_v1<T: EthSpec>(
         &self,
         execution_payload: ExecutionPayload<T>,
     ) -> Result<PayloadStatusV1, Error> {
@@ -164,7 +172,7 @@ impl EngineApi for HttpJsonRpc {
         Ok(response.into())
     }
 
-    async fn get_payload_v1<T: EthSpec>(
+    pub async fn get_payload_v1<T: EthSpec>(
         &self,
         payload_id: PayloadId,
     ) -> Result<ExecutionPayload<T>, Error> {
@@ -177,7 +185,7 @@ impl EngineApi for HttpJsonRpc {
         Ok(response.into())
     }
 
-    async fn forkchoice_updated_v1(
+    pub async fn forkchoice_updated_v1(
         &self,
         forkchoice_state: ForkChoiceState,
         payload_attributes: Option<PayloadAttributes>,
@@ -198,7 +206,7 @@ impl EngineApi for HttpJsonRpc {
         Ok(response.into())
     }
 
-    async fn exchange_transition_configuration_v1(
+    pub async fn exchange_transition_configuration_v1(
         &self,
         transition_configuration: TransitionConfigurationV1,
     ) -> Result<TransitionConfigurationV1, Error> {
@@ -216,6 +224,62 @@ impl EngineApi for HttpJsonRpc {
     }
 }
 
+impl HttpJsonRpc<BuilderApi> {
+    pub async fn get_payload_header_v1<T: EthSpec>(
+        &self,
+        payload_id: PayloadId,
+    ) -> Result<ExecutionPayloadHeader<T>, Error> {
+        let params = json!([JsonPayloadIdRequest::from(payload_id)]);
+
+        let response: JsonExecutionPayloadHeaderV1<T> = self
+            .rpc_request(
+                BUILDER_GET_PAYLOAD_HEADER_V1,
+                params,
+                BUILDER_GET_PAYLOAD_HEADER_TIMEOUT,
+            )
+            .await?;
+
+        Ok(response.into())
+    }
+
+    pub async fn forkchoice_updated_v1(
+        &self,
+        forkchoice_state: ForkChoiceState,
+        payload_attributes: Option<PayloadAttributes>,
+    ) -> Result<ForkchoiceUpdatedResponse, Error> {
+        let params = json!([
+            JsonForkChoiceStateV1::from(forkchoice_state),
+            payload_attributes.map(JsonPayloadAttributesV1::from)
+        ]);
+
+        let response: JsonForkchoiceUpdatedV1Response = self
+            .rpc_request(
+                ENGINE_FORKCHOICE_UPDATED_V1,
+                params,
+                ENGINE_FORKCHOICE_UPDATED_TIMEOUT,
+            )
+            .await?;
+
+        Ok(response.into())
+    }
+
+    pub async fn propose_blinded_block_v1<T: EthSpec>(
+        &self,
+        block: SignedBeaconBlock<T, BlindedPayload<T>>,
+    ) -> Result<ExecutionPayload<T>, Error> {
+        let params = json!([block]);
+
+        let response: JsonExecutionPayloadV1<T> = self
+            .rpc_request(
+                BUILDER_PROPOSE_BLINDED_BLOCK_V1,
+                params,
+                BUILDER_PROPOSE_BLINDED_BLOCK_TIMEOUT,
+            )
+            .await?;
+
+        Ok(response.into())
+    }
+}
 #[cfg(test)]
 mod test {
     use super::auth::JwtKey;
@@ -224,7 +288,7 @@ mod test {
     use std::future::Future;
     use std::str::FromStr;
     use std::sync::Arc;
-    use types::{MainnetEthSpec, Transaction, Unsigned, VariableList};
+    use types::{MainnetEthSpec, Transactions, Unsigned, VariableList};
 
     struct Tester {
         server: MockServer<MainnetEthSpec>,
@@ -326,10 +390,7 @@ mod test {
     const LOGS_BLOOM_01: &str = "0x01010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101";
 
     fn encode_transactions<E: EthSpec>(
-        transactions: VariableList<
-            Transaction<E::MaxBytesPerTransaction>,
-            E::MaxTransactionsPerPayload,
-        >,
+        transactions: Transactions<E>,
     ) -> Result<serde_json::Value, serde_json::Error> {
         let ep: JsonExecutionPayloadV1<E> = JsonExecutionPayloadV1 {
             transactions,
@@ -341,10 +402,7 @@ mod test {
 
     fn decode_transactions<E: EthSpec>(
         transactions: serde_json::Value,
-    ) -> Result<
-        VariableList<Transaction<E::MaxBytesPerTransaction>, E::MaxTransactionsPerPayload>,
-        serde_json::Error,
-    > {
+    ) -> Result<Transactions<E>, serde_json::Error> {
         let mut json = json!({
             "parentHash": HASH_00,
             "feeRecipient": ADDRESS_01,
@@ -370,7 +428,7 @@ mod test {
 
     fn assert_transactions_serde<E: EthSpec>(
         name: &str,
-        as_obj: VariableList<Transaction<E::MaxBytesPerTransaction>, E::MaxTransactionsPerPayload>,
+        as_obj: Transactions<E>,
         as_json: serde_json::Value,
     ) {
         assert_eq!(
@@ -388,9 +446,7 @@ mod test {
     }
 
     /// Example: if `spec == &[1, 1]`, then two one-byte transactions will be created.
-    fn generate_transactions<E: EthSpec>(
-        spec: &[usize],
-    ) -> VariableList<Transaction<E::MaxBytesPerTransaction>, E::MaxTransactionsPerPayload> {
+    fn generate_transactions<E: EthSpec>(spec: &[usize]) -> Transactions<E> {
         let mut txs = VariableList::default();
 
         for &num_bytes in spec {
@@ -860,7 +916,7 @@ mod test {
                             extra_data: vec![].into(),
                             base_fee_per_gas: Uint256::from(7),
                             block_hash: ExecutionBlockHash::from_str("0x6359b8381a370e2f54072a5784ddd78b6ed024991558c511d4452eb4f6ac898c").unwrap(),
-                            transactions: vec![].into(),
+                        transactions: vec![].into(),
                         };
 
                     assert_eq!(payload, expected);
