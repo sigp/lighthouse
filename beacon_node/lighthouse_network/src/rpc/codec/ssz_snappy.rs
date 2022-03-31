@@ -675,7 +675,7 @@ mod tests {
         let mut block: BeaconBlockMerge<_, FullPayload<Spec>> =
             BeaconBlockMerge::empty(&Spec::default_spec());
         let tx = VariableList::from(vec![0; 1024]);
-        let txs = VariableList::from(std::iter::repeat(tx).take(10000).collect::<Vec<_>>());
+        let txs = VariableList::from(std::iter::repeat(tx).take(5000).collect::<Vec<_>>());
 
         block.body.execution_payload.execution_payload.transactions = txs;
 

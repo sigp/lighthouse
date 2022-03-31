@@ -23,7 +23,7 @@ type E = MinimalEthSpec;
 fn merge_block_small(fork_context: &ForkContext) -> BeaconBlock<E> {
     let mut block = BeaconBlockMerge::<E>::empty(&E::default_spec());
     let tx = VariableList::from(vec![0; 1024]);
-    let txs = VariableList::from(std::iter::repeat(tx).take(100).collect::<Vec<_>>());
+    let txs = VariableList::from(std::iter::repeat(tx).take(5000).collect::<Vec<_>>());
 
     block.body.execution_payload.execution_payload.transactions = txs;
 
