@@ -3738,11 +3738,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// 2. The head block is one slot (or less) behind the prepare slot (e.g., we're preparing for
     ///    the next slot and the block at the current slot is already known).
     pub async fn prepare_beacon_proposer_async(&self) -> Result<(), Error> {
-        let execution_layer = self
-            .execution_layer
-            .clone()
-            .ok_or(Error::ExecutionLayerMissing)?;
-
         let current_slot = self.slot()?;
         let prepare_slot = current_slot + 1;
         let prepare_epoch = prepare_slot.epoch(T::EthSpec::slots_per_epoch());
@@ -3755,6 +3750,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         {
             return Ok(());
         }
+
+        let execution_layer = self
+            .execution_layer
+            .clone()
+            .ok_or(Error::ExecutionLayerMissing)?;
 
         // Nothing to do if there are no proposers registered with the EL, exit early to avoid
         // wasting cycles.
@@ -3961,11 +3961,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         &self,
         current_slot: Slot,
     ) -> Result<(), Error> {
-        let execution_layer = self
-            .execution_layer
-            .as_ref()
-            .ok_or(Error::ExecutionLayerMissing)?;
-
         let next_slot = current_slot + 1;
 
         // There is no need to issue a `forkchoiceUpdated` (fcU) message unless the Bellatrix fork
@@ -3982,6 +3977,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         }) {
             return Ok(());
         }
+
+        let execution_layer = self
+            .execution_layer
+            .as_ref()
+            .ok_or(Error::ExecutionLayerMissing)?;
 
         // Take the global lock for updating the execution engine fork choice.
         //
