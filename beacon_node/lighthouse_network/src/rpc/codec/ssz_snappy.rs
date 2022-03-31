@@ -730,6 +730,34 @@ mod tests {
         Ok(buf)
     }
 
+    fn encode_without_length_checks(
+        bytes: Vec<u8>,
+        fork_name: ForkName,
+    ) -> Result<BytesMut, RPCError> {
+        let fork_context = fork_context(fork_name);
+        let mut dst = BytesMut::new();
+
+        // Add context bytes if required
+        dst.extend_from_slice(&fork_context.to_context_bytes(fork_name).unwrap());
+
+        let mut uvi_codec: Uvi<usize> = Uvi::default();
+
+        // Inserts the length prefix of the uncompressed bytes into dst
+        // encoded as a unsigned varint
+        uvi_codec
+            .encode(bytes.len(), &mut dst)
+            .map_err(RPCError::from)?;
+
+        let mut writer = FrameEncoder::new(Vec::new());
+        writer.write_all(&bytes).map_err(RPCError::from)?;
+        writer.flush().map_err(RPCError::from)?;
+
+        // Write compressed bytes to `dst`
+        dst.extend_from_slice(writer.get_ref());
+
+        Ok(dst)
+    }
+
     /// Attempts to decode the given protocol bytes as an rpc response
     fn decode(
         protocol: Protocol,
@@ -928,13 +956,15 @@ mod tests {
             ))))
         );
 
+        let mut encoded =
+            encode_without_length_checks(merge_block_large.as_ssz_bytes(), ForkName::Merge)
+                .unwrap();
+
         assert_eq!(
-            encode_then_decode(
+            decode(
                 Protocol::BlocksByRange,
                 Version::V2,
-                RPCCodedResponse::Success(RPCResponse::BlocksByRange(Box::new(
-                    merge_block_large.clone()
-                ))),
+                &mut encoded,
                 ForkName::Merge,
             )
             .unwrap_err(),
@@ -976,13 +1006,15 @@ mod tests {
             ))))
         );
 
+        let mut encoded =
+            encode_without_length_checks(merge_block_large.as_ssz_bytes(), ForkName::Merge)
+                .unwrap();
+
         assert_eq!(
-            encode_then_decode(
+            decode(
                 Protocol::BlocksByRoot,
                 Version::V2,
-                RPCCodedResponse::Success(RPCResponse::BlocksByRoot(Box::new(
-                    merge_block_large.clone()
-                ))),
+                &mut encoded,
                 ForkName::Merge,
             )
             .unwrap_err(),
