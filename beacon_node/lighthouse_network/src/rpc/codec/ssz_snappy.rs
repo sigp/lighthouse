@@ -146,7 +146,10 @@ impl<TSpec: EthSpec> Decoder for SSZSnappyInboundCodec<TSpec> {
         // packet size for ssz container corresponding to `self.protocol`.
         let ssz_limits = self.protocol.rpc_request_limits();
         if ssz_limits.is_out_of_bounds(length, self.max_packet_size) {
-            return Err(RPCError::InvalidData);
+            return Err(RPCError::InvalidData(format!(
+                "RPC request length is out of bounds, length {}",
+                length
+            )));
         }
         // Calculate worst case compression length for given uncompressed length
         let max_compressed_len = snap::raw::max_compress_len(length) as u64;
@@ -283,7 +286,10 @@ impl<TSpec: EthSpec> Decoder for SSZSnappyOutboundCodec<TSpec> {
             .protocol
             .rpc_response_limits::<TSpec>(&self.fork_context);
         if ssz_limits.is_out_of_bounds(length, self.max_packet_size) {
-            return Err(RPCError::InvalidData);
+            return Err(RPCError::InvalidData(format!(
+                "RPC response length is out of bounds, length {}",
+                length
+            )));
         }
         // Calculate worst case compression length for given uncompressed length
         let max_compressed_len = snap::raw::max_compress_len(length) as u64;
@@ -329,7 +335,10 @@ impl<TSpec: EthSpec> OutboundCodec<OutboundRequest<TSpec>> for SSZSnappyOutbound
         // Should not attempt to decode rpc chunks with `length > max_packet_size` or not within bounds of
         // packet size for ssz container corresponding to `ErrorType`.
         if length > self.max_packet_size || length > *ERROR_TYPE_MAX || length < *ERROR_TYPE_MIN {
-            return Err(RPCError::InvalidData);
+            return Err(RPCError::InvalidData(format!(
+                "RPC Error length is out of bounds, length {}",
+                length
+            )));
         }
 
         // Calculate worst case compression length for given uncompressed length
@@ -366,7 +375,10 @@ fn handle_error<T>(
             // If snappy has read `max_compressed_len` from underlying stream and still can't fill buffer, we have a malicious message.
             // Report as `InvalidData` so that malicious peer gets banned.
             if num_bytes >= max_compressed_len {
-                Err(RPCError::InvalidData)
+                Err(RPCError::InvalidData(format!(
+                    "Received malicious snappy message, num_bytes {}, max_compressed_len {}",
+                    num_bytes, max_compressed_len
+                )))
             } else {
                 // Haven't received enough bytes to decode yet, wait for more
                 Ok(None)
@@ -462,7 +474,9 @@ fn handle_v1_request<T: EthSpec>(
         // Handle this case just for completeness.
         Protocol::MetaData => {
             if !decoded_buffer.is_empty() {
-                Err(RPCError::InvalidData)
+                Err(RPCError::InternalError(
+                    "Metadata requests shouldn't reach decoder",
+                ))
             } else {
                 Ok(Some(InboundRequest::MetaData(PhantomData)))
             }
@@ -488,7 +502,7 @@ fn handle_v2_request<T: EthSpec>(
         // Handle this case just for completeness.
         Protocol::MetaData => {
             if !decoded_buffer.is_empty() {
-                Err(RPCError::InvalidData)
+                Err(RPCError::InvalidData("Metadata request".to_string()))
             } else {
                 Ok(Some(InboundRequest::MetaData(PhantomData)))
             }
@@ -512,7 +526,9 @@ fn handle_v1_response<T: EthSpec>(
             decoded_buffer,
         )?))),
         // This case should be unreachable as `Goodbye` has no response.
-        Protocol::Goodbye => Err(RPCError::InvalidData),
+        Protocol::Goodbye => Err(RPCError::InvalidData(
+            "Goodbye RPC message has no valid response".to_string(),
+        )),
         Protocol::BlocksByRange => Ok(Some(RPCResponse::BlocksByRange(Box::new(
             SignedBeaconBlock::Base(SignedBeaconBlockBase::from_ssz_bytes(decoded_buffer)?),
         )))),
@@ -659,7 +675,7 @@ mod tests {
         let mut block: BeaconBlockMerge<_, FullPayload<Spec>> =
             BeaconBlockMerge::empty(&Spec::default_spec());
         let tx = VariableList::from(vec![0; 1024]);
-        let txs = VariableList::from(std::iter::repeat(tx).take(100).collect::<Vec<_>>());
+        let txs = VariableList::from(std::iter::repeat(tx).take(10000).collect::<Vec<_>>());
 
         block.body.execution_payload.execution_payload.transactions = txs;
 
@@ -962,15 +978,17 @@ mod tests {
             encode_without_length_checks(merge_block_large.as_ssz_bytes(), ForkName::Merge)
                 .unwrap();
 
-        assert_eq!(
-            decode(
-                Protocol::BlocksByRange,
-                Version::V2,
-                &mut encoded,
-                ForkName::Merge,
-            )
-            .unwrap_err(),
-            RPCError::InvalidData,
+        assert!(
+            matches!(
+                decode(
+                    Protocol::BlocksByRange,
+                    Version::V2,
+                    &mut encoded,
+                    ForkName::Merge,
+                )
+                .unwrap_err(),
+                RPCError::InvalidData(_)
+            ),
             "Decoding a block larger than max_rpc_size should fail"
         );
 
@@ -1010,15 +1028,17 @@ mod tests {
             encode_without_length_checks(merge_block_large.as_ssz_bytes(), ForkName::Merge)
                 .unwrap();
 
-        assert_eq!(
-            decode(
-                Protocol::BlocksByRoot,
-                Version::V2,
-                &mut encoded,
-                ForkName::Merge,
-            )
-            .unwrap_err(),
-            RPCError::InvalidData,
+        assert!(
+            matches!(
+                decode(
+                    Protocol::BlocksByRoot,
+                    Version::V2,
+                    &mut encoded,
+                    ForkName::Merge,
+                )
+                .unwrap_err(),
+                RPCError::InvalidData(_)
+            ),
             "Decoding a block larger than max_rpc_size should fail"
         );
 
@@ -1258,10 +1278,10 @@ mod tests {
         dst.extend_from_slice(writer.get_ref());
 
         // 10 (for stream identifier) + 80 + 42 = 132 > `max_compressed_len`. Hence, decoding should fail with `InvalidData`.
-        assert_eq!(
+        assert!(matches!(
             decode(Protocol::Status, Version::V1, &mut dst, ForkName::Base).unwrap_err(),
-            RPCError::InvalidData
-        );
+            RPCError::InvalidData(_)
+        ));
     }
 
     /// Test a malicious snappy encoding for a V2 `BlocksByRange` message where the attacker
@@ -1315,7 +1335,7 @@ mod tests {
         dst.extend_from_slice(writer.get_ref());
 
         // 10 (for stream identifier) + 176156 + 8103 = 184269 > `max_compressed_len`. Hence, decoding should fail with `InvalidData`.
-        assert_eq!(
+        assert!(matches!(
             decode(
                 Protocol::BlocksByRange,
                 Version::V2,
@@ -1323,8 +1343,8 @@ mod tests {
                 ForkName::Altair
             )
             .unwrap_err(),
-            RPCError::InvalidData
-        );
+            RPCError::InvalidData(_)
+        ));
     }
 
     /// Test sending a message with encoded length prefix > max_rpc_size.
@@ -1360,9 +1380,9 @@ mod tests {
         writer.flush().unwrap();
         dst.extend_from_slice(writer.get_ref());
 
-        assert_eq!(
+        assert!(matches!(
             decode(Protocol::Status, Version::V1, &mut dst, ForkName::Base).unwrap_err(),
-            RPCError::InvalidData
-        );
+            RPCError::InvalidData(_)
+        ));
     }
 }

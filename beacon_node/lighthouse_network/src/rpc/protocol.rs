@@ -533,7 +533,7 @@ pub enum RPCError {
     /// Stream ended unexpectedly.
     IncompleteStream,
     /// Peer sent invalid data.
-    InvalidData,
+    InvalidData(String),
     /// An error occurred due to internal reasons. Ex: timer failure.
     InternalError(&'static str),
     /// Negotiation with this peer timed out.
@@ -567,7 +567,7 @@ impl std::fmt::Display for RPCError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match *self {
             RPCError::SSZDecodeError(ref err) => write!(f, "Error while decoding ssz: {:?}", err),
-            RPCError::InvalidData => write!(f, "Peer sent unexpected data"),
+            RPCError::InvalidData(ref err) => write!(f, "Peer sent unexpected data: {}", err),
             RPCError::IoError(ref err) => write!(f, "IO Error: {}", err),
             RPCError::ErrorResponse(ref code, ref reason) => write!(
                 f,
@@ -594,7 +594,7 @@ impl std::error::Error for RPCError {
             RPCError::StreamTimeout => None,
             RPCError::UnsupportedProtocol => None,
             RPCError::IncompleteStream => None,
-            RPCError::InvalidData => None,
+            RPCError::InvalidData(_) => None,
             RPCError::InternalError(_) => None,
             RPCError::ErrorResponse(_, _) => None,
             RPCError::NegotiationTimeout => None,

@@ -287,7 +287,10 @@ mod tests {
             max_rpc_size,
             fork_context.clone(),
         );
-        assert_eq!(codec.decode(&mut max).unwrap_err(), RPCError::InvalidData);
+        assert!(matches!(
+            codec.decode(&mut max).unwrap_err(),
+            RPCError::InvalidData(_)
+        ));
 
         let mut min = encode_len(limit.min - 1);
         let mut codec = SSZSnappyOutboundCodec::<Spec>::new(
@@ -295,7 +298,10 @@ mod tests {
             max_rpc_size,
             fork_context.clone(),
         );
-        assert_eq!(codec.decode(&mut min).unwrap_err(), RPCError::InvalidData);
+        assert!(matches!(
+            codec.decode(&mut min).unwrap_err(),
+            RPCError::InvalidData(_)
+        ));
 
         // Request limits
         let limit = protocol_id.rpc_request_limits();
@@ -305,11 +311,17 @@ mod tests {
             max_rpc_size,
             fork_context.clone(),
         );
-        assert_eq!(codec.decode(&mut max).unwrap_err(), RPCError::InvalidData);
+        assert!(matches!(
+            codec.decode(&mut max).unwrap_err(),
+            RPCError::InvalidData(_)
+        ));
 
         let mut min = encode_len(limit.min - 1);
         let mut codec =
             SSZSnappyOutboundCodec::<Spec>::new(protocol_id, max_rpc_size, fork_context);
-        assert_eq!(codec.decode(&mut min).unwrap_err(), RPCError::InvalidData);
+        assert!(matches!(
+            codec.decode(&mut min).unwrap_err(),
+            RPCError::InvalidData(_)
+        ));
     }
 }
