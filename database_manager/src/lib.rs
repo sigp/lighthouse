@@ -63,7 +63,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
     App::new(CMD)
         .visible_aliases(&["db"])
         .setting(clap::AppSettings::ColoredHelp)
-        .about("")
+        .about("Manage a beacon node database")
         .arg(
             Arg::with_name("slots-per-restore-point")
                 .long("slots-per-restore-point")
@@ -128,6 +128,14 @@ pub fn display_db_version<E: EthSpec>(
     )?;
 
     info!(log, "Database version: {}", version.as_u64());
+
+    if version != CURRENT_SCHEMA_VERSION {
+        info!(
+            log,
+            "Latest schema version: {}",
+            CURRENT_SCHEMA_VERSION.as_u64(),
+        );
+    }
 
     Ok(())
 }
