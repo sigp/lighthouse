@@ -28,7 +28,7 @@ eth2_ssz = "0.4.1"
 bs58 = "0.4.0"
 futures = "0.3.8"
 execution_layer = {path = "../execution_layer"}
-parking_lot = "0.11.0"
+parking_lot = "0.12.0"
 safe_arith = {path = "../../consensus/safe_arith"}
 
 

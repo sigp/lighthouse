@@ -19,7 +19,7 @@ serde_json = "1.0.58"
 [dependencies]
 merkle_proof = { path = "../../consensus/merkle_proof" }
 store = { path = "../store" }
-parking_lot = "0.11.0"
+parking_lot = "0.12.0"
 lazy_static = "1.4.0"
 smallvec = "1.6.1"
 lighthouse_metrics = { path = "../../common/lighthouse_metrics" }
@@ -30,7 +30,7 @@ serde_derive = "1.0.116"
 slog = { version = "2.5.2", features = ["max_level_trace"] }
 sloggers = { version = "2.1.1", features = ["json"] }
 slot_clock = { path = "../../common/slot_clock" }
-eth2_hashing = "0.2.0"
+eth2_hashing = "0.3.0"
 eth2_ssz = "0.4.1"
 eth2_ssz_types = "0.2.2"
 eth2_ssz_derive = "0.3.0"
@@ -42,11 +42,11 @@ eth1 = { path = "../eth1" }
 futures = "0.3.7"
 genesis = { path = "../genesis" }
 int_to_bytes = { path = "../../consensus/int_to_bytes" }
-rand = "0.7.3"
+rand = "0.8.5"
 proto_array = { path = "../../consensus/proto_array" }
 lru = "0.7.1"
 tempfile = "3.1.0"
-bitvec = "0.19.3"
+bitvec = "0.20.4"
 bls = { path = "../../crypto/bls" }
 safe_arith = { path = "../../consensus/safe_arith" }
 fork_choice = { path = "../../consensus/fork_choice" }
