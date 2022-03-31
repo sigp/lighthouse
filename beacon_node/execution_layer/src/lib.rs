@@ -806,7 +806,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
                     .get_payload_v1::<T>(payload_id)
                     .await
                     .map(|full_payload| {
-                        if let Some(_) = f(self, &full_payload) {
+                        if f(self, &full_payload).is_some() {
                             warn!(self.log(), "Duplicate payload cached, this might indicate redundant proposal attempts.");
                         }
                         full_payload.into()
