@@ -1001,9 +1001,7 @@ mod tests {
                 ))),
                 ForkName::Merge,
             ),
-            Ok(Some(RPCResponse::BlocksByRoot(Box::new(
-                merge_block_small.clone()
-            ))))
+            Ok(Some(RPCResponse::BlocksByRoot(Box::new(merge_block_small))))
         );
 
         let mut encoded =
