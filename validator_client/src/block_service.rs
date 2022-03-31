@@ -11,9 +11,7 @@ use slot_clock::SlotClock;
 use std::ops::Deref;
 use std::sync::Arc;
 use tokio::sync::mpsc;
-use types::{
-    BlindedPayload, BlockType, EthSpec, ExecPayload, FullPayload, PublicKeyBytes, Slot,
-};
+use types::{BlindedPayload, BlockType, EthSpec, ExecPayload, FullPayload, PublicKeyBytes, Slot};
 
 #[derive(Debug)]
 pub enum BlockError {

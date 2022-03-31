@@ -629,7 +629,9 @@ impl<T: EthSpec> ExecutionLayer<T> {
         finalized_block_hash: ExecutionBlockHash,
         suggested_fee_recipient: Address,
     ) -> Result<Payload, Error> {
-        if self.has_builders() {
+        // Don't attempt to outsource payload construction until after the merge transition has been
+        // finalized. We want to be conservative with payload construction until then.
+        if self.has_builders() && finalized_block_hash != ExecutionBlockHash::default() {
             debug!(
                 self.log(),
                 "Issuing builder_getPayloadHeader";
