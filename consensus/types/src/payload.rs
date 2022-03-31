@@ -15,7 +15,9 @@ pub enum BlockType {
 }
 
 pub trait ExecPayload<T: EthSpec>:
-    Encode
+    Debug
+    + Clone
+    + Encode
     + Decode
     + TestRandom
     + TreeHash
