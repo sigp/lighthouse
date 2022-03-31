@@ -12,7 +12,7 @@ use std::ops::Deref;
 use std::sync::Arc;
 use tokio::sync::mpsc;
 use types::{
-    BlindedPayload, BlockType, Epoch, EthSpec, ExecPayload, FullPayload, PublicKeyBytes, Slot,
+    BlindedPayload, BlockType, EthSpec, ExecPayload, FullPayload, PublicKeyBytes, Slot,
 };
 
 #[derive(Debug)]
@@ -236,19 +236,12 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
         }
 
         let private_tx_proposals = self.private_tx_proposals;
-        let merge_slot = self
-            .context
-            .eth2_config
-            .spec
-            .bellatrix_fork_epoch
-            .unwrap_or_else(Epoch::max_value)
-            .start_slot(E::slots_per_epoch());
         for validator_pubkey in proposers {
             let service = self.clone();
             let log = log.clone();
             self.inner.context.executor.spawn(
                 async move {
-                    let publish_result = if private_tx_proposals && slot >= merge_slot {
+                    let publish_result = if private_tx_proposals {
                         let mut result = service.clone()
                             .publish_block::<BlindedPayload<E>>(slot, validator_pubkey)
                             .await;
@@ -260,7 +253,7 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
                                     .await;
                             },
                             Err(BlockError::Irrecoverable(e))  => {
-                                error!(log, "Error whilst producing a blinded block, cannot fallback because block was signed"; "error" => ?e);
+                                error!(log, "Error whilst producing a blinded block, cannot fallback because the block was signed"; "error" => ?e);
                             },
                             _ => {},
                         };
