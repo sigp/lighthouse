@@ -446,7 +446,7 @@ dependencies = [
  "ethereum-types",
  "hex",
  "milagro_bls",
- "rand 0.8.5",
+ "rand 0.7.3",
  "serde",
  "serde_derive",
  "tree_hash",

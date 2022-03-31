@@ -8,7 +8,7 @@ edition = "2021"
 eth2_ssz = "0.4.1"
 tree_hash = "0.4.1"
 milagro_bls = { git = "https://github.com/sigp/milagro_bls", tag = "v1.4.2", optional = true }
-rand = "0.8.5"
+rand = "0.7.3"
 serde = "1.0.116"
 serde_derive = "1.0.116"
 eth2_serde_utils = "0.1.1"
