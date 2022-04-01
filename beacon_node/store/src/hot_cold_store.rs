@@ -1,7 +1,10 @@
 use crate::chunked_vector::{
     store_updated_vector, BlockRoots, HistoricalRoots, RandaoMixes, StateRoots,
 };
-use crate::config::{OnDiskStoreConfig, StoreConfig};
+use crate::config::{
+    OnDiskStoreConfig, StoreConfig, DEFAULT_SLOTS_PER_RESTORE_POINT,
+    PREV_DEFAULT_SLOTS_PER_RESTORE_POINT,
+};
 use crate::forwards_iter::{HybridForwardsBlockRootsIterator, HybridForwardsStateRootsIterator};
 use crate::impls::beacon_state::{get_full_state, store_full_state};
 use crate::iter::{ParentRootBlockIterator, StateRootsIterator};
@@ -150,7 +153,7 @@ impl<E: EthSpec> HotColdDB<E, LevelDB<E>, LevelDB<E>> {
     ) -> Result<Arc<Self>, Error> {
         Self::verify_slots_per_restore_point(config.slots_per_restore_point)?;
 
-        let db = Arc::new(HotColdDB {
+        let mut db = HotColdDB {
             split: RwLock::new(Split::default()),
             anchor_info: RwLock::new(None),
             cold_db: LevelDB::open(cold_path)?,
@@ -160,10 +163,31 @@ impl<E: EthSpec> HotColdDB<E, LevelDB<E>, LevelDB<E>> {
             spec,
             log,
             _phantom: PhantomData,
-        });
+        };
+
+        // Allow the slots-per-restore-point value to stay at the previous default if the config
+        // uses the new default. Don't error on a failed read because the config itself may need
+        // migrating.
+        if let Ok(Some(disk_config)) = db.load_config() {
+            if !db.config.slots_per_restore_point_set_explicitly
+                && disk_config.slots_per_restore_point == PREV_DEFAULT_SLOTS_PER_RESTORE_POINT
+                && db.config.slots_per_restore_point == DEFAULT_SLOTS_PER_RESTORE_POINT
+            {
+                debug!(
+                    db.log,
+                    "Ignoring slots-per-restore-point config in favour of on-disk value";
+                    "config" => db.config.slots_per_restore_point,
+                    "on_disk" => disk_config.slots_per_restore_point,
+                );
+
+                // Mutate the in-memory config so that it's compatible.
+                db.config.slots_per_restore_point = PREV_DEFAULT_SLOTS_PER_RESTORE_POINT;
+            }
+        }
 
         // Ensure that the schema version of the on-disk database matches the software.
         // If the version is mismatched, an automatic migration will be attempted.
+        let db = Arc::new(db);
         if let Some(schema_version) = db.load_schema_version()? {
             debug!(
                 db.log,
@@ -1106,6 +1130,11 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             .read_recursive()
             .as_ref()
             .map_or(self.spec.genesis_slot, |anchor| anchor.oldest_block_slot)
+    }
+
+    /// Return the in-memory configuration used by the database.
+    pub fn get_config(&self) -> &StoreConfig {
+        &self.config
     }
 
     /// Load previously-stored config from disk.

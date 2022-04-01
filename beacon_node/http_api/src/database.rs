@@ -9,10 +9,12 @@ pub fn info<T: BeaconChainTypes>(
 ) -> Result<DatabaseInfo, warp::Rejection> {
     let store = &chain.store;
     let split = store.get_split_info();
+    let config = store.get_config().clone();
     let anchor = store.get_anchor_info();
 
     Ok(DatabaseInfo {
         schema_version: CURRENT_SCHEMA_VERSION.as_u64(),
+        config,
         split,
         anchor,
     })

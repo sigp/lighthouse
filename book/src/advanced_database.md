@@ -23,15 +23,18 @@ states to slow down dramatically. A lower _slots per restore point_ value (SPRP)
 frequent restore points, while a higher SPRP corresponds to less frequent. The table below shows
 some example values.
 
-| Use Case                | SPRP           | Yearly Disk Usage | Load Historical State |
-| ----------------------  | -------------- | ----------------- | --------------------- |
-| Block explorer/analysis | 32             | 1.4 TB            | 155 ms                |
-| Default                 | 2048           | 23.1 GB           | 10.2 s                |
-| Validator only          | 8192           | 5.7 GB            | 41 s                  |
+| Use Case                 | SPRP           | Yearly Disk Usage | Load Historical State |
+| ----------------------   | -------------- | ----------------- | --------------------- |
+| Block explorer/analysis  | 32             | 1.4 TB            | 155 ms                |
+| Hobbyist (prev. default) | 2048           | 23.1 GB           | 10.2 s                |
+| Validator only (default) | 8192           | 5.7 GB            | 41 s                  |
 
 As you can see, it's a high-stakes trade-off! The relationships to disk usage and historical state
 load time are both linear – doubling SPRP halves disk usage and doubles load time. The minimum SPRP
 is 32, and the maximum is 8192.
+
+The default value is 8192 for databases synced from scratch using Lighthouse v2.2.0 or later, or
+2048 for prior versions. Please see the section on [Defaults](#defaults) below.
 
 The values shown in the table are approximate, calculated using a simple heuristic: each
 `BeaconState` consumes around 18MB of disk space, and each block replayed takes around 5ms.  The
@@ -39,11 +42,20 @@ The values shown in the table are approximate, calculated using a simple heurist
 and the **Load Historical State** time is the worst-case load time for a state in the last slot
 before a restore point.
 
+### Defaults
+
+As of Lighthouse v2.2.0, the default slots-per-restore-point value has been increased from 2048
+to 8192 in order to conserve disk space. Existing nodes will continue to use SPRP=2048 unless
+re-synced. Note that it is currently not possible to change the SPRP without re-syncing, although
+fast re-syncing may be achieved with [Checkpoint Sync](./checkpoint-sync.md).
+
+### CLI Configuration
+
 To configure your Lighthouse node's database with a non-default SPRP, run your Beacon Node with
 the `--slots-per-restore-point` flag:
 
 ```bash
-lighthouse beacon_node --slots-per-restore-point 8192
+lighthouse beacon_node --slots-per-restore-point 32
 ```
 
 ## Glossary
