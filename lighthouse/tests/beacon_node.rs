@@ -823,7 +823,6 @@ fn slots_per_restore_point_update_prev_default() {
             // Restart the BN with the same datadir and the new default SPRP. It should
             // allow this.
             CommandLineTest::new()
-                .flag("slots-per-restore-point", Some("8192"))
                 .flag("datadir", Some(&dir.path().display().to_string()))
                 .flag("zero-ports", None)
                 .run_with_no_datadir()

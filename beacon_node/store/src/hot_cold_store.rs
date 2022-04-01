@@ -169,7 +169,8 @@ impl<E: EthSpec> HotColdDB<E, LevelDB<E>, LevelDB<E>> {
         // uses the new default. Don't error on a failed read because the config itself may need
         // migrating.
         if let Ok(Some(disk_config)) = db.load_config() {
-            if disk_config.slots_per_restore_point == PREV_DEFAULT_SLOTS_PER_RESTORE_POINT
+            if !db.config.slots_per_restore_point_set_explicitly
+                && disk_config.slots_per_restore_point == PREV_DEFAULT_SLOTS_PER_RESTORE_POINT
                 && db.config.slots_per_restore_point == DEFAULT_SLOTS_PER_RESTORE_POINT
             {
                 debug!(

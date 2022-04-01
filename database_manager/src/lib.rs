@@ -100,7 +100,9 @@ fn parse_client_config<E: EthSpec>(
         client_config.freezer_db_path = Some(freezer_dir);
     }
 
-    client_config.store.slots_per_restore_point = get_slots_per_restore_point::<E>(cli_args)?;
+    let (sprp, sprp_explicit) = get_slots_per_restore_point::<E>(cli_args)?;
+    client_config.store.slots_per_restore_point = sprp;
+    client_config.store.slots_per_restore_point_set_explicitly = sprp_explicit;
 
     Ok(client_config)
 }
