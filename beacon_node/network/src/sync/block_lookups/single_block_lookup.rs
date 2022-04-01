@@ -4,7 +4,7 @@ use lighthouse_network::{rpc::BlocksByRootRequest, PeerId};
 use rand::seq::IteratorRandom;
 use ssz_types::VariableList;
 use store::{EthSpec, Hash256, SignedBeaconBlock};
-use strum::AsStaticStr;
+use strum::IntoStaticStr;
 
 /// Object representing a single block lookup request.
 #[derive(PartialEq, Eq)]
@@ -28,14 +28,14 @@ pub enum State {
     Processing { peer_id: PeerId },
 }
 
-#[derive(Debug, PartialEq, Eq, AsStaticStr)]
+#[derive(Debug, PartialEq, Eq, IntoStaticStr)]
 pub enum VerifyError {
     RootMismatch,
     NoBlockReturned,
     ExtraBlocksReturned,
 }
 
-#[derive(Debug, PartialEq, Eq, AsStaticStr)]
+#[derive(Debug, PartialEq, Eq, IntoStaticStr)]
 pub enum LookupRequestError {
     TooManyAttempts,
     NoPeers,

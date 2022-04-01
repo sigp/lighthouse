@@ -41,5 +41,5 @@ itertools = "0.10.0"
 num_cpus = "1.13.0"
 lru_cache = { path = "../../common/lru_cache" }
 if-addrs = "0.6.4"
-strum = "0.21.0"
+strum = "0.24.0"
 tokio-util = { version = "0.6.3", features = ["time"] }

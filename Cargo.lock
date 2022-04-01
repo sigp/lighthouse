@@ -1115,6 +1115,24 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3ee2393c4a91429dffb4bedf19f4d6abf27d8a732c8ce4980305d782e5426d57"
 
 [[package]]
+name = "database_manager"
+version = "0.1.0"
+dependencies = [
+ "beacon_chain",
+ "beacon_node",
+ "clap",
+ "clap_utils",
+ "environment",
+ "logging",
+ "slog",
+ "sloggers",
+ "store",
+ "strum",
+ "tempfile",
+ "types",
+]
+
+[[package]]
 name = "db-key"
 version = "0.0.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3368,6 +3386,7 @@ dependencies = [
  "boot_node",
  "clap",
  "clap_utils",
+ "database_manager",
  "directory",
  "env_logger 0.9.0",
  "environment",
@@ -5885,6 +5904,7 @@ dependencies = [
  "slog",
  "sloggers",
  "state_processing",
+ "strum",
  "tempfile",
  "types",
 ]
@@ -5903,22 +5923,23 @@ checksum = "73473c0e59e6d5812c5dfe2a064a6444949f089e20eec9a2e5506596494e4623"
 
 [[package]]
 name = "strum"
-version = "0.21.0"
+version = "0.24.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "aaf86bbcfd1fa9670b7a129f64fc0c9fcbbfe4f1bc4210e9e98fe71ffc12cde2"
+checksum = "e96acfc1b70604b8b2f1ffa4c57e59176c7dbb05d556c71ecd2f5498a1dee7f8"
 dependencies = [
  "strum_macros",
 ]
 
 [[package]]
 name = "strum_macros"
-version = "0.21.1"
+version = "0.24.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d06aaeeee809dbc59eb4556183dd927df67db1540de5be8d3ec0b6636358a5ec"
+checksum = "6878079b17446e4d3eba6192bb0a2950d5b14f0ed8424b852310e5a94345d0ef"
 dependencies = [
- "heck 0.3.3",
+ "heck 0.4.0",
  "proc-macro2",
  "quote",
+ "rustversion",
  "syn",
 ]
 

@@ -14,7 +14,7 @@ members = [
     "beacon_node/store",
     "beacon_node/timer",
 
-	"boot_node",
+    "boot_node",
 
     "common/account_utils",
     "common/clap_utils",
@@ -44,6 +44,8 @@ members = [
     "common/warp_utils",
     "common/fallback",
     "common/monitoring_api",
+
+    "database_manager",
 
     "consensus/cached_tree_hash",
     "consensus/int_to_bytes",

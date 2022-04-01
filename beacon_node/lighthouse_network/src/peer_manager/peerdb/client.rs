@@ -4,7 +4,7 @@
 
 use libp2p::identify::IdentifyInfo;
 use serde::Serialize;
-use strum::{AsRefStr, AsStaticStr, EnumIter};
+use strum::{AsRefStr, EnumIter, IntoStaticStr};
 
 /// Various client and protocol information related to a node.
 #[derive(Clone, Debug, Serialize)]
@@ -21,7 +21,7 @@ pub struct Client {
     pub agent_string: Option<String>,
 }
 
-#[derive(Clone, Debug, Serialize, PartialEq, AsRefStr, AsStaticStr, EnumIter)]
+#[derive(Clone, Copy, Debug, Serialize, PartialEq, AsRefStr, IntoStaticStr, EnumIter)]
 pub enum ClientKind {
     /// A lighthouse node (the best kind).
     Lighthouse,

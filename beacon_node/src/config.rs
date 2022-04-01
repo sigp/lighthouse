@@ -284,16 +284,7 @@ pub fn get_config<E: EthSpec>(
         client_config.freezer_db_path = Some(PathBuf::from(freezer_dir));
     }
 
-    if let Some(slots_per_restore_point) = cli_args.value_of("slots-per-restore-point") {
-        client_config.store.slots_per_restore_point = slots_per_restore_point
-            .parse()
-            .map_err(|_| "slots-per-restore-point is not a valid integer".to_string())?;
-    } else {
-        client_config.store.slots_per_restore_point = std::cmp::min(
-            E::slots_per_historical_root() as u64,
-            store::config::DEFAULT_SLOTS_PER_RESTORE_POINT,
-        );
-    }
+    client_config.store.slots_per_restore_point = get_slots_per_restore_point::<E>(cli_args)?;
 
     if let Some(block_cache_size) = cli_args.value_of("block-cache-size") {
         client_config.store.block_cache_size = block_cache_size
@@ -819,4 +810,18 @@ pub fn get_data_dir(cli_args: &ArgMatches) -> PathBuf {
             })
         })
         .unwrap_or_else(|| PathBuf::from("."))
+}
+
+/// Get the `slots_per_restore_point` value to use for the database.
+pub fn get_slots_per_restore_point<E: EthSpec>(cli_args: &ArgMatches) -> Result<u64, String> {
+    if let Some(slots_per_restore_point) =
+        clap_utils::parse_optional(cli_args, "slots-per-restore-point")?
+    {
+        Ok(slots_per_restore_point)
+    } else {
+        Ok(std::cmp::min(
+            E::slots_per_historical_root() as u64,
+            store::config::DEFAULT_SLOTS_PER_RESTORE_POINT,
+        ))
+    }
 }
