@@ -187,7 +187,7 @@ impl ExecutionLayer {
                         })
                         .and_then(|ref s| {
                             let secret = JwtKey::from_slice(
-                                &hex::decode(strip_prefix(s))
+                                &hex::decode(strip_prefix(s.trim_end()))
                                     .map_err(|e| format!("Invalid hex string: {:?}", e))?,
                             )?;
                             Ok((secret, p.to_path_buf()))
