@@ -500,7 +500,7 @@ impl ChainSpec {
              * Fork choice
              */
             safe_slots_to_update_justified: 8,
-            proposer_score_boost: None,
+            proposer_score_boost: Some(70),
 
             /*
              * Eth1
@@ -698,7 +698,7 @@ impl ChainSpec {
              * Fork choice
              */
             safe_slots_to_update_justified: 8,
-            proposer_score_boost: None,
+            proposer_score_boost: Some(70),
 
             /*
              * Eth1
