@@ -4,7 +4,8 @@ use ssz::{Decode, Encode};
 use ssz_derive::{Decode, Encode};
 use types::{EthSpec, MinimalEthSpec};
 
-pub const DEFAULT_SLOTS_PER_RESTORE_POINT: u64 = 2048;
+pub const PREV_DEFAULT_SLOTS_PER_RESTORE_POINT: u64 = 2048;
+pub const DEFAULT_SLOTS_PER_RESTORE_POINT: u64 = 8192;
 pub const DEFAULT_BLOCK_CACHE_SIZE: usize = 5;
 
 /// Database configuration parameters.
