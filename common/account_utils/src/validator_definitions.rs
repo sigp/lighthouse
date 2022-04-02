@@ -6,6 +6,7 @@
 use crate::{default_keystore_password_path, write_file_via_temporary, ZeroizeString};
 use directory::ensure_dir_exists;
 use eth2_keystore::Keystore;
+use lockfile::{Lockfile, LockfileError};
 use regex::Regex;
 use serde_derive::{Deserialize, Serialize};
 use slog::{error, Logger};
@@ -18,6 +19,10 @@ use validator_dir::VOTING_KEYSTORE_FILE;
 
 /// The file name for the serialized `ValidatorDefinitions` struct.
 pub const CONFIG_FILENAME: &str = "validator_definitions.yml";
+
+/// The file extension for the lockfile associated with the YAML configuration
+/// file (see `CONFIG_FILENAME`).
+pub const LOCK_FILE: &str = ".validator_definitions.yml.tmp";
 
 /// The temporary file name for the serialized `ValidatorDefinitions` struct.
 ///
@@ -43,6 +48,16 @@ pub enum Error {
     UnableToOpenKeystore(eth2_keystore::Error),
     /// The validator directory could not be created.
     UnableToCreateValidatorDir(PathBuf),
+    /// The (empty) validator file could not be created
+    UnableToCreateValidatorFile,
+    /// The validator definitions lockfile could not be created.
+    UnableToAcquireLock(LockfileError),
+}
+
+impl From<LockfileError> for Error {
+    fn from(value: LockfileError) -> Self {
+        Self::UnableToAcquireLock(value)
+    }
 }
 
 /// Defines how the validator client should attempt to sign messages for this validator.
@@ -136,8 +151,10 @@ impl ValidatorDefinition {
 
 /// A list of `ValidatorDefinition` that serves as a serde-able configuration file which defines a
 /// list of validators to be initialized by this validator client.
-#[derive(Default, Serialize, Deserialize)]
-pub struct ValidatorDefinitions(Vec<ValidatorDefinition>);
+pub struct ValidatorDefinitions {
+    definitions: Vec<ValidatorDefinition>,
+    _lockfile: Lockfile,
+}
 
 impl From<Vec<ValidatorDefinition>> for ValidatorDefinitions {
     fn from(vec: Vec<ValidatorDefinition>) -> Self {
@@ -146,6 +163,13 @@ impl From<Vec<ValidatorDefinition>> for ValidatorDefinitions {
 }
 
 impl ValidatorDefinitions {
+    pub fn create<P: AsRef<Path>>(validators_dir: P) -> Result<Self, Error> {
+        Ok(Self {
+            definitions: vec![],
+            _lockfile: Lockfile::new(validators_dir.as_ref().join(LOCK_FILE))?,
+        })
+    }
+
     /// Open an existing file or create a new, empty one if it does not exist.
     pub fn open_or_create<P: AsRef<Path>>(validators_dir: P) -> Result<Self, Error> {
         ensure_dir_exists(validators_dir.as_ref()).map_err(|_| {
@@ -153,7 +177,7 @@ impl ValidatorDefinitions {
         })?;
         let config_path = validators_dir.as_ref().join(CONFIG_FILENAME);
         if !config_path.exists() {
-            let this = Self::default();
+            let this: Self = Self::create(&validators_dir)?;
             this.save(&validators_dir)?;
         }
         Self::open(validators_dir)
@@ -168,7 +192,14 @@ impl ValidatorDefinitions {
             .create_new(false)
             .open(&config_path)
             .map_err(Error::UnableToOpenFile)?;
-        serde_yaml::from_reader(file).map_err(Error::UnableToParseFile)
+        let definitions: Vec<ValidatorDefinition> =
+            serde_yaml::from_reader(file).map_err(Error::UnableToParseFile)?;
+        let _lockfile: Lockfile = Lockfile::new(validators_dir.as_ref().join(LOCK_FILE))?;
+
+        Ok(Self {
+            definitions,
+            _lockfile,
+        })
     }
 
     /// Perform a recursive, exhaustive search through `validators_dir` and add any keystores
@@ -194,7 +225,7 @@ impl ValidatorDefinitions {
             .map_err(Error::UnableToSearchForKeystores)?;
 
         let known_paths: HashSet<&PathBuf> = self
-            .0
+            .definitions
             .iter()
             .filter_map(|def| match &def.signing_definition {
                 SigningDefinition::LocalKeystore {
@@ -207,7 +238,7 @@ impl ValidatorDefinitions {
             .collect();
 
         let known_pubkeys: HashSet<PublicKey> = self
-            .0
+            .definitions
             .iter()
             .map(|def| def.voting_public_key.clone())
             .collect();
@@ -282,7 +313,7 @@ impl ValidatorDefinitions {
 
         let new_defs_count = new_defs.len();
 
-        self.0.append(&mut new_defs);
+        self.definitions.append(&mut new_defs);
 
         Ok(new_defs_count)
     }
@@ -294,7 +325,7 @@ impl ValidatorDefinitions {
     pub fn save<P: AsRef<Path>>(&self, validators_dir: P) -> Result<(), Error> {
         let config_path = validators_dir.as_ref().join(CONFIG_FILENAME);
         let temp_path = validators_dir.as_ref().join(CONFIG_TEMP_FILENAME);
-        let bytes = serde_yaml::to_vec(self).map_err(Error::UnableToEncodeFile)?;
+        let bytes = serde_yaml::to_vec(&self.definitions).map_err(Error::UnableToEncodeFile)?;
 
         write_file_via_temporary(&config_path, &temp_path, &bytes)
             .map_err(Error::UnableToWriteFile)?;
@@ -309,17 +340,17 @@ impl ValidatorDefinitions {
 
     /// Adds a new `ValidatorDefinition` to `self`.
     pub fn push(&mut self, def: ValidatorDefinition) {
-        self.0.push(def)
+        self.definitions.push(def)
     }
 
     /// Returns a slice of all `ValidatorDefinition` in `self`.
     pub fn as_slice(&self) -> &[ValidatorDefinition] {
-        self.0.as_slice()
+        self.definitions.as_slice()
     }
 
     /// Returns a mutable slice of all `ValidatorDefinition` in `self`.
     pub fn as_mut_slice(&mut self) -> &mut [ValidatorDefinition] {
-        self.0.as_mut_slice()
+        self.definitions.as_mut_slice()
     }
 }
 
@@ -397,6 +428,30 @@ pub fn is_voting_keystore(file_name: &str) -> bool {
 mod tests {
     use super::*;
     use std::str::FromStr;
+
+    #[test]
+    fn validator_definitions_file_locks() {
+        let validators_dir: PathBuf = ".".into();
+
+        /* create validator definitions file */
+        let blank_validators: ValidatorDefinitions = ValidatorDefinitions::create(&validators_dir)
+            .expect("Failed to create empty validator definitions type");
+        blank_validators
+            .save(&validators_dir)
+            .expect("Failed to save validator definitions file");
+
+        let _some_validators: ValidatorDefinitions = ValidatorDefinitions::open(&validators_dir)
+            .expect("Failed to open validator definitions file");
+
+        let second_open_result: Result<ValidatorDefinitions, Error> =
+            ValidatorDefinitions::open(&validators_dir);
+
+        assert!(second_open_result.is_err());
+        assert!(matches!(
+            second_open_result,
+            Err(Error::UnableToAcquireLock(_))
+        ));
+    }
 
     #[test]
     fn voting_keystore_filename_lighthouse() {
