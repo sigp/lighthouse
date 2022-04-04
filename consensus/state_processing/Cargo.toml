@@ -19,7 +19,7 @@ safe_arith = { path = "../safe_arith" }
 tree_hash = "0.4.1"
 types = { path = "../types", default-features = false }
 rayon = "1.4.1"
-eth2_hashing = "0.2.0"
+eth2_hashing = "0.3.0"
 int_to_bytes = { path = "../int_to_bytes" }
 smallvec = "1.6.1"
 arbitrary = { version = "1.0", features = ["derive"], optional = true }

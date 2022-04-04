@@ -7,7 +7,7 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-rand = "0.7.3"
+rand = "0.8.5"
 hmac = "0.11.0"
 pbkdf2 = { version = "0.8.0", default-features = false }
 scrypt = { version = "0.7.0", default-features = false }
