@@ -162,6 +162,9 @@ pub enum BeaconChainError {
         fork_choice: Hash256,
     },
     InvalidSlot(Slot),
+    CannotAttestToOptimisticHead {
+        beacon_block_root: Hash256,
+    },
 }
 
 easy_from_to!(SlotProcessingError, BeaconChainError);

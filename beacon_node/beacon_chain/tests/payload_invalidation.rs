@@ -11,8 +11,10 @@ use execution_layer::{
 use fork_choice::{Error as ForkChoiceError, InvalidationOperation, PayloadVerificationStatus};
 use proto_array::{Error as ProtoArrayError, ExecutionStatus};
 use slot_clock::SlotClock;
+use std::borrow::Cow;
 use std::time::Duration;
 use task_executor::ShutdownReason;
+use tree_hash::TreeHash;
 use types::*;
 
 const VALIDATOR_COUNT: usize = 32;
@@ -809,4 +811,119 @@ fn invalid_parent() {
             }
         ))
     ));
+}
+
+#[test]
+fn attesting_to_optimistic_head() {
+    let mut rig = InvalidPayloadRig::new();
+    rig.move_to_terminal_block();
+    rig.import_block(Payload::Valid); // Import a valid transition block.
+
+    let root = rig.import_block(Payload::Syncing);
+
+    let head = rig.harness.chain.head().unwrap();
+    let slot = head.beacon_block.slot();
+    assert_eq!(
+        head.beacon_block_root, root,
+        "the head should be the latest imported block"
+    );
+    assert!(
+        rig.execution_status(root).is_not_verified(),
+        "the head should be optimistic"
+    );
+
+    /*
+     * Define some closures to produce attestations.
+     */
+
+    let produce_unaggregated = || rig.harness.chain.produce_unaggregated_attestation(slot, 0);
+
+    let produce_unaggregated_for_block = || {
+        rig.harness
+            .chain
+            .produce_unaggregated_attestation_for_block(
+                slot,
+                0,
+                root,
+                Cow::Owned(head.beacon_state.clone()),
+                head.beacon_state_root(),
+            )
+    };
+
+    let attestation = {
+        let mut attestation = rig
+            .harness
+            .chain
+            .produce_unaggregated_attestation(Slot::new(0), 0)
+            .unwrap();
+
+        attestation.aggregation_bits.set(0, true).unwrap();
+        attestation.data.slot = slot;
+        attestation.data.beacon_block_root = root;
+
+        rig.harness
+            .chain
+            .naive_aggregation_pool
+            .write()
+            .insert(&attestation)
+            .unwrap();
+
+        attestation
+    };
+
+    let get_aggregated = || {
+        rig.harness
+            .chain
+            .get_aggregated_attestation(&attestation.data)
+    };
+
+    let get_aggregated_by_slot_and_root = || {
+        rig.harness
+            .chain
+            .get_aggregated_attestation_by_slot_and_root(
+                attestation.data.slot,
+                &attestation.data.tree_hash_root(),
+            )
+    };
+
+    /*
+     * Ensure attestation production fails with an optimistic head.
+     */
+
+    assert!(matches!(
+        produce_unaggregated(),
+        Err(BeaconChainError::CannotAttestToOptimisticHead {
+            beacon_block_root
+        })
+        if beacon_block_root == root
+    ));
+
+    assert!(matches!(
+        produce_unaggregated_for_block(),
+        Err(BeaconChainError::CannotAttestToOptimisticHead {
+            beacon_block_root
+        })
+        if beacon_block_root == root
+    ));
+
+    assert_eq!(get_aggregated(), None);
+
+    assert_eq!(get_aggregated_by_slot_and_root(), None);
+
+    /*
+     * Ensure attestation production succeeds once the head is verified.
+     *
+     * This is effectively a control for the previous tests.
+     */
+
+    rig.validate_manually(root);
+    assert!(
+        rig.execution_status(root).is_valid(),
+        "the head should no longer be optimistic"
+    );
+
+    produce_unaggregated().unwrap();
+    produce_unaggregated_for_block().unwrap();
+    get_aggregated().unwrap();
+    get_aggregated_by_slot_and_root().unwrap();
 }

@@ -1431,7 +1431,26 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         &self,
         data: &AttestationData,
     ) -> Option<Attestation<T::EthSpec>> {
-        self.naive_aggregation_pool.read().get(data)
+        let attestation = self.naive_aggregation_pool.read().get(data)?;
+
+        // Only return an aggregate for a block if it is fully verified (i.e. not optimistic).
+        //
+        // If the head *is* optimistic, return an error without producing an aggregate.
+        //
+        // Since we read the execution status from fork choice, we will not return an aggregate if
+        // it attests to a finalized block. Aggregates that attest to pre-finalized blocks are not
+        // useful to the network and should very rarely occur.
+        let beacon_block_root = attestation.data.beacon_block_root;
+        if self
+            .fork_choice
+            .read()
+            .get_block_execution_status(&beacon_block_root)
+            .map_or(true, |execution_status| execution_status.is_not_verified())
+        {
+            None
+        } else {
+            Some(attestation)
+        }
     }
 
     /// Returns an aggregated `Attestation`, if any, that has a matching
@@ -1443,9 +1462,29 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         slot: Slot,
         attestation_data_root: &Hash256,
     ) -> Option<Attestation<T::EthSpec>> {
-        self.naive_aggregation_pool
+        let attestation = self
+            .naive_aggregation_pool
             .read()
-            .get_by_slot_and_root(slot, attestation_data_root)
+            .get_by_slot_and_root(slot, attestation_data_root)?;
+
+        // Only return an aggregate for a block if it is fully verified (i.e. not optimistic).
+        //
+        // If the head *is* optimistic, return an error without producing an aggregate.
+        //
+        // Since we read the execution status from fork choice, we will not return an aggregate if
+        // it attests to a finalized block. Aggregates that attest to pre-finalized blocks are not
+        // useful to the network and should very rarely occur.
+        let beacon_block_root = attestation.data.beacon_block_root;
+        if self
+            .fork_choice
+            .read()
+            .get_block_execution_status(&beacon_block_root)
+            .map_or(true, |execution_status| execution_status.is_not_verified())
+        {
+            None
+        } else {
+            Some(attestation)
+        }
     }
 
     /// Return an aggregated `SyncCommitteeContribution` matching the given `root`.
@@ -1481,6 +1520,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         //
         // In effect, the early attester cache prevents slow database IO from causing missed
         // head/target votes.
+        //
+        // The early attester cache should never contain an optimistically imported block.
         match self
             .early_attester_cache
             .try_attest(request_slot, request_index, &self.spec)
@@ -1597,6 +1638,19 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         }
         drop(head_timer);
 
+        // Only attest to a block if it is fully verified (i.e. not optimistic).
+        //
+        // If the head *is* optimistic, return an error without producing an attestation.
+        if self
+            .fork_choice
+            .read()
+            .get_block_execution_status(&beacon_block_root)
+            .ok_or(Error::HeadMissingFromForkChoice(beacon_block_root))?
+            .is_not_verified()
+        {
+            return Err(Error::CannotAttestToOptimisticHead { beacon_block_root });
+        }
+
         /*
          *  Phase 2/2:
          *
@@ -1673,6 +1727,19 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         mut state: Cow<BeaconState<T::EthSpec>>,
         state_root: Hash256,
     ) -> Result<Attestation<T::EthSpec>, Error> {
+        // Only attest to a block if it is fully verified (i.e. not optimistic).
+        //
+        // If the head *is* optimistic, return an error without producing an attestation.
+        if self
+            .fork_choice
+            .read()
+            .get_block_execution_status(&beacon_block_root)
+            .ok_or(Error::HeadMissingFromForkChoice(beacon_block_root))?
+            .is_not_verified()
+        {
+            return Err(Error::CannotAttestToOptimisticHead { beacon_block_root });
+        }
+
         let epoch = slot.epoch(T::EthSpec::slots_per_epoch());
 
         if state.slot() > slot {
@@ -2678,13 +2745,20 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             }
         }
 
-        // If the block is recent enough, check to see if it becomes the head block. If so, apply it
-        // to the early attester cache. This will allow attestations to the block without waiting
-        // for the block and state to be inserted to the database.
+        // If the block is recent enough and it was not optimistically imported, check to see if it
+        // becomes the head block. If so, apply it to the early attester cache. This will allow
+        // attestations to the block without waiting for the block and state to be inserted to the
+        // database.
         //
         // Only performing this check on recent blocks avoids slowing down sync with lots of calls
         // to fork choice `get_head`.
-        if block.slot() + EARLY_ATTESTER_CACHE_HISTORIC_SLOTS >= current_slot {
+        //
+        // Optimistically imported blocks are not added to the cache since the cache is only useful
+        // for a small window of time and the complexity of keeping track of the optimistic status
+        // is not worth it.
+        if !payload_verification_status.is_optimistic()
+            && block.slot() + EARLY_ATTESTER_CACHE_HISTORIC_SLOTS >= current_slot
+        {
             let new_head_root = fork_choice
                 .get_head(current_slot, &self.spec)
                 .map_err(BeaconChainError::from)?;

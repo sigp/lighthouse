@@ -1,5 +1,5 @@
 use crate::error::Error;
-use crate::proto_array::{InvalidationOperation, Iter, ProposerBoost, ProtoArray};
+use crate::proto_array::{InvalidationOperation, Iter, ProposerBoost, ProtoArray, ProtoNode};
 use crate::ssz_container::SszContainer;
 use serde_derive::{Deserialize, Serialize};
 use ssz::{Decode, Encode};
@@ -294,9 +294,13 @@ impl ProtoArrayForkChoice {
         self.proto_array.indices.contains_key(block_root)
     }
 
-    pub fn get_block(&self, block_root: &Hash256) -> Option<Block> {
+    fn get_proto_node(&self, block_root: &Hash256) -> Option<&ProtoNode> {
         let block_index = self.proto_array.indices.get(block_root)?;
-        let block = self.proto_array.nodes.get(*block_index)?;
+        self.proto_array.nodes.get(*block_index)
+    }
+
+    pub fn get_block(&self, block_root: &Hash256) -> Option<Block> {
+        let block = self.get_proto_node(block_root)?;
         let parent_root = block
             .parent
             .and_then(|i| self.proto_array.nodes.get(i))
@@ -323,6 +327,12 @@ impl ProtoArrayForkChoice {
         } else {
             None
         }
+    }
+
+    /// Returns the `block.execution_status` field, if the block is present.
+    pub fn get_block_execution_status(&self, block_root: &Hash256) -> Option<ExecutionStatus> {
+        let block = self.get_proto_node(block_root)?;
+        Some(block.execution_status)
     }
 
     /// Returns the weight of a given block.
