@@ -406,8 +406,8 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
             trace!(self.log, "Single block processing succeeded"; "block" => %root);
         }
 
-        match result {
-            Err(e) => match e {
+        if let Err(e) = result {
+            match e {
                 BlockError::BlockIsAlreadyKnown => {
                     // No error here
                 }
@@ -435,9 +435,6 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                         }
                     }
                 }
-            },
-            Ok(()) => {
-                // No error here
             }
         }
 

@@ -16,7 +16,7 @@ pub const VERSION: &str = git_version!(
         // NOTE: using --match instead of --exclude for compatibility with old Git
         "--match=thiswillnevermatchlol"
     ],
-    prefix = "Lighthouse/v2.1.5-",
+    prefix = "Lighthouse/v2.2.0-",
     fallback = "unknown"
 );
 

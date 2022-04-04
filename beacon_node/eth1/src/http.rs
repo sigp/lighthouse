@@ -358,7 +358,7 @@ pub async fn get_deposit_logs_in_range(
     }]);
 
     let response_body = send_rpc_request(endpoint, "eth_getLogs", params, timeout).await?;
-    Ok(response_result_or_error(&response_body)
+    response_result_or_error(&response_body)
         .map_err(|e| format!("eth_getLogs failed: {}", e))?
         .as_array()
         .cloned()
@@ -383,7 +383,7 @@ pub async fn get_deposit_logs_in_range(
             })
         })
         .collect::<Result<Vec<Log>, String>>()
-        .map_err(|e| format!("Failed to get logs in range: {}", e))?)
+        .map_err(|e| format!("Failed to get logs in range: {}", e))
 }
 
 /// Sends an RPC request to `endpoint`, using a POST with the given `body`.
