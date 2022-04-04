@@ -12,7 +12,7 @@ use tokio::runtime::Runtime;
 use tokio::time::sleep;
 use types::{
     BeaconBlock, BeaconBlockAltair, BeaconBlockBase, BeaconBlockMerge, Epoch, EthSpec, ForkContext,
-    Hash256, MinimalEthSpec, Signature, SignedBeaconBlock, Slot,
+    ForkName, Hash256, MinimalEthSpec, Signature, SignedBeaconBlock, Slot,
 };
 
 mod common;
@@ -23,7 +23,7 @@ type E = MinimalEthSpec;
 fn merge_block_small(fork_context: &ForkContext) -> BeaconBlock<E> {
     let mut block = BeaconBlockMerge::<E>::empty(&E::default_spec());
     let tx = VariableList::from(vec![0; 1024]);
-    let txs = VariableList::from(std::iter::repeat(tx).take(100).collect::<Vec<_>>());
+    let txs = VariableList::from(std::iter::repeat(tx).take(5000).collect::<Vec<_>>());
 
     block.body.execution_payload.execution_payload.transactions = txs;
 
@@ -61,7 +61,8 @@ fn test_status_rpc() {
 
     rt.block_on(async {
         // get sender/receiver
-        let (mut sender, mut receiver) = common::build_node_pair(Arc::downgrade(&rt), &log).await;
+        let (mut sender, mut receiver) =
+            common::build_node_pair(Arc::downgrade(&rt), &log, ForkName::Base).await;
 
         // Dummy STATUS RPC message
         let rpc_request = Request::Status(StatusMessage {
@@ -159,7 +160,8 @@ fn test_blocks_by_range_chunked_rpc() {
 
     rt.block_on(async {
         // get sender/receiver
-        let (mut sender, mut receiver) = common::build_node_pair(Arc::downgrade(&rt), &log).await;
+        let (mut sender, mut receiver) =
+            common::build_node_pair(Arc::downgrade(&rt), &log, ForkName::Merge).await;
 
         // BlocksByRange Request
         let rpc_request = Request::BlocksByRange(BlocksByRangeRequest {
@@ -179,7 +181,7 @@ fn test_blocks_by_range_chunked_rpc() {
         let signed_full_block = SignedBeaconBlock::from_block(full_block, Signature::empty());
         let rpc_response_altair = Response::BlocksByRange(Some(Box::new(signed_full_block)));
 
-        let full_block = merge_block_small(&common::fork_context());
+        let full_block = merge_block_small(&common::fork_context(ForkName::Merge));
         let signed_full_block = SignedBeaconBlock::from_block(full_block, Signature::empty());
         let rpc_response_merge_small = Response::BlocksByRange(Some(Box::new(signed_full_block)));
 
@@ -298,7 +300,8 @@ fn test_blocks_by_range_over_limit() {
 
     rt.block_on(async {
         // get sender/receiver
-        let (mut sender, mut receiver) = common::build_node_pair(Arc::downgrade(&rt), &log).await;
+        let (mut sender, mut receiver) =
+            common::build_node_pair(Arc::downgrade(&rt), &log, ForkName::Merge).await;
 
         // BlocksByRange Request
         let rpc_request = Request::BlocksByRange(BlocksByRangeRequest {
@@ -308,7 +311,7 @@ fn test_blocks_by_range_over_limit() {
         });
 
         // BlocksByRange Response
-        let full_block = merge_block_large(&common::fork_context());
+        let full_block = merge_block_large(&common::fork_context(ForkName::Merge));
         let signed_full_block = SignedBeaconBlock::from_block(full_block, Signature::empty());
         let rpc_response_merge_large = Response::BlocksByRange(Some(Box::new(signed_full_block)));
 
@@ -395,7 +398,8 @@ fn test_blocks_by_range_chunked_rpc_terminates_correctly() {
 
     rt.block_on(async {
         // get sender/receiver
-        let (mut sender, mut receiver) = common::build_node_pair(Arc::downgrade(&rt), &log).await;
+        let (mut sender, mut receiver) =
+            common::build_node_pair(Arc::downgrade(&rt), &log, ForkName::Base).await;
 
         // BlocksByRange Request
         let rpc_request = Request::BlocksByRange(BlocksByRangeRequest {
@@ -526,7 +530,8 @@ fn test_blocks_by_range_single_empty_rpc() {
 
     rt.block_on(async {
         // get sender/receiver
-        let (mut sender, mut receiver) = common::build_node_pair(Arc::downgrade(&rt), &log).await;
+        let (mut sender, mut receiver) =
+            common::build_node_pair(Arc::downgrade(&rt), &log, ForkName::Base).await;
 
         // BlocksByRange Request
         let rpc_request = Request::BlocksByRange(BlocksByRangeRequest {
@@ -641,7 +646,8 @@ fn test_blocks_by_root_chunked_rpc() {
     let rt = Arc::new(Runtime::new().unwrap());
     // get sender/receiver
     rt.block_on(async {
-        let (mut sender, mut receiver) = common::build_node_pair(Arc::downgrade(&rt), &log).await;
+        let (mut sender, mut receiver) =
+            common::build_node_pair(Arc::downgrade(&rt), &log, ForkName::Merge).await;
 
         // BlocksByRoot Request
         let rpc_request = Request::BlocksByRoot(BlocksByRootRequest {
@@ -664,7 +670,7 @@ fn test_blocks_by_root_chunked_rpc() {
         let signed_full_block = SignedBeaconBlock::from_block(full_block, Signature::empty());
         let rpc_response_altair = Response::BlocksByRoot(Some(Box::new(signed_full_block)));
 
-        let full_block = merge_block_small(&common::fork_context());
+        let full_block = merge_block_small(&common::fork_context(ForkName::Merge));
         let signed_full_block = SignedBeaconBlock::from_block(full_block, Signature::empty());
         let rpc_response_merge_small = Response::BlocksByRoot(Some(Box::new(signed_full_block)));
 
@@ -779,7 +785,8 @@ fn test_blocks_by_root_chunked_rpc_terminates_correctly() {
     let rt = Arc::new(Runtime::new().unwrap());
     // get sender/receiver
     rt.block_on(async {
-        let (mut sender, mut receiver) = common::build_node_pair(Arc::downgrade(&rt), &log).await;
+        let (mut sender, mut receiver) =
+            common::build_node_pair(Arc::downgrade(&rt), &log, ForkName::Base).await;
 
         // BlocksByRoot Request
         let rpc_request = Request::BlocksByRoot(BlocksByRootRequest {
@@ -916,7 +923,8 @@ fn test_goodbye_rpc() {
     let rt = Arc::new(Runtime::new().unwrap());
     // get sender/receiver
     rt.block_on(async {
-        let (mut sender, mut receiver) = common::build_node_pair(Arc::downgrade(&rt), &log).await;
+        let (mut sender, mut receiver) =
+            common::build_node_pair(Arc::downgrade(&rt), &log, ForkName::Base).await;
 
         // build the sender future
         let sender_future = async {

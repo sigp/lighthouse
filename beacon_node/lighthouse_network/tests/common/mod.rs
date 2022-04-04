@@ -10,7 +10,9 @@ use std::sync::Arc;
 use std::sync::Weak;
 use std::time::Duration;
 use tokio::runtime::Runtime;
-use types::{ChainSpec, EnrForkId, EthSpec, ForkContext, Hash256, MinimalEthSpec};
+use types::{
+    ChainSpec, EnrForkId, Epoch, EthSpec, ForkContext, ForkName, Hash256, MinimalEthSpec, Slot,
+};
 use unused_port::unused_tcp_port;
 
 #[allow(clippy::type_complexity)]
@@ -26,13 +28,20 @@ type ReqId = usize;
 use tempfile::Builder as TempBuilder;
 
 /// Returns a dummy fork context
-pub fn fork_context() -> ForkContext {
+pub fn fork_context(fork_name: ForkName) -> ForkContext {
     let mut chain_spec = E::default_spec();
-    // Set fork_epoch to `Some` to ensure that the `ForkContext` object
-    // includes altair in the list of forks
-    chain_spec.altair_fork_epoch = Some(types::Epoch::new(42));
-    chain_spec.bellatrix_fork_epoch = Some(types::Epoch::new(84));
-    ForkContext::new::<E>(types::Slot::new(0), Hash256::zero(), &chain_spec)
+    let altair_fork_epoch = Epoch::new(1);
+    let merge_fork_epoch = Epoch::new(2);
+
+    chain_spec.altair_fork_epoch = Some(altair_fork_epoch);
+    chain_spec.bellatrix_fork_epoch = Some(merge_fork_epoch);
+
+    let current_slot = match fork_name {
+        ForkName::Base => Slot::new(0),
+        ForkName::Altair => altair_fork_epoch.start_slot(E::slots_per_epoch()),
+        ForkName::Merge => merge_fork_epoch.start_slot(E::slots_per_epoch()),
+    };
+    ForkContext::new::<E>(current_slot, Hash256::zero(), &chain_spec)
 }
 
 pub struct Libp2pInstance(LibP2PService<ReqId, E>, exit_future::Signal);
@@ -90,6 +99,7 @@ pub async fn build_libp2p_instance(
     rt: Weak<Runtime>,
     boot_nodes: Vec<Enr>,
     log: slog::Logger,
+    fork_name: ForkName,
 ) -> Libp2pInstance {
     let port = unused_tcp_port().unwrap();
     let config = build_config(port, boot_nodes);
@@ -101,7 +111,7 @@ pub async fn build_libp2p_instance(
     let libp2p_context = lighthouse_network::Context {
         config: &config,
         enr_fork_id: EnrForkId::default(),
-        fork_context: Arc::new(fork_context()),
+        fork_context: Arc::new(fork_context(fork_name)),
         chain_spec: &ChainSpec::minimal(),
         gossipsub_registry: None,
     };
@@ -125,10 +135,11 @@ pub async fn build_full_mesh(
     rt: Weak<Runtime>,
     log: slog::Logger,
     n: usize,
+    fork_name: ForkName,
 ) -> Vec<Libp2pInstance> {
     let mut nodes = Vec::with_capacity(n);
     for _ in 0..n {
-        nodes.push(build_libp2p_instance(rt.clone(), vec![], log.clone()).await);
+        nodes.push(build_libp2p_instance(rt.clone(), vec![], log.clone(), fork_name).await);
     }
     let multiaddrs: Vec<Multiaddr> = nodes
         .iter()
@@ -154,12 +165,13 @@ pub async fn build_full_mesh(
 pub async fn build_node_pair(
     rt: Weak<Runtime>,
     log: &slog::Logger,
+    fork_name: ForkName,
 ) -> (Libp2pInstance, Libp2pInstance) {
     let sender_log = log.new(o!("who" => "sender"));
     let receiver_log = log.new(o!("who" => "receiver"));
 
-    let mut sender = build_libp2p_instance(rt.clone(), vec![], sender_log).await;
-    let mut receiver = build_libp2p_instance(rt, vec![], receiver_log).await;
+    let mut sender = build_libp2p_instance(rt.clone(), vec![], sender_log, fork_name).await;
+    let mut receiver = build_libp2p_instance(rt, vec![], receiver_log, fork_name).await;
 
     let receiver_multiaddr = receiver.swarm.behaviour_mut().local_enr().multiaddr()[1].clone();
 
@@ -198,10 +210,15 @@ pub async fn build_node_pair(
 
 // Returns `n` peers in a linear topology
 #[allow(dead_code)]
-pub async fn build_linear(rt: Weak<Runtime>, log: slog::Logger, n: usize) -> Vec<Libp2pInstance> {
+pub async fn build_linear(
+    rt: Weak<Runtime>,
+    log: slog::Logger,
+    n: usize,
+    fork_name: ForkName,
+) -> Vec<Libp2pInstance> {
     let mut nodes = Vec::with_capacity(n);
     for _ in 0..n {
-        nodes.push(build_libp2p_instance(rt.clone(), vec![], log.clone()).await);
+        nodes.push(build_libp2p_instance(rt.clone(), vec![], log.clone(), fork_name).await);
     }
 
     let multiaddrs: Vec<Multiaddr> = nodes

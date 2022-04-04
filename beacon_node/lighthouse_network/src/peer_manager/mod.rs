@@ -459,7 +459,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
                 // Our fault. Do nothing
                 return;
             }
-            RPCError::InvalidData => {
+            RPCError::InvalidData(_) => {
                 // Peer is not complying with the protocol. This is considered a malicious action
                 PeerAction::Fatal
             }
