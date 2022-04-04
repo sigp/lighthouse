@@ -78,6 +78,10 @@ where
 
     /// Removes any expired elements from the cache.
     pub fn update(&mut self) {
+        if self.list.is_empty() {
+            return;
+        }
+
         let now = Instant::now();
         // remove any expired results
         while let Some(element) = self.list.pop_front() {
@@ -87,6 +91,12 @@ where
             }
             self.map.remove(&element.key);
         }
+    }
+
+    /// Returns if the key is present after removing expired elements.
+    pub fn contains(&mut self, key: &Key) -> bool {
+        self.update();
+        self.map.contains(key)
     }
 }
 
