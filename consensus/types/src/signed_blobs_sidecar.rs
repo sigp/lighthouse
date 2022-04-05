@@ -1,9 +1,8 @@
-use crate::{Blob, BlobsSidecar, EthSpec, Hash256, Slot};
+use crate::{BlobsSidecar, EthSpec};
 use bls::Signature;
 use serde_derive::{Deserialize, Serialize};
 use ssz::Encode;
 use ssz_derive::{Decode, Encode};
-use ssz_types::VariableList;
 use tree_hash::TreeHash;
 use tree_hash_derive::TreeHash;
 

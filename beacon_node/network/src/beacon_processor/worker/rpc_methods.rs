@@ -125,9 +125,9 @@ impl<T: BeaconChainTypes> Worker<T> {
 
     pub fn handle_tx_blobs_by_range_request(
         &self,
-        peer_id: PeerId,
-        request_id: PeerRequestId,
-        mut req: TxBlobsByRangeRequest,
+        _peer_id: PeerId,
+        _request_id: PeerRequestId,
+        _req: TxBlobsByRangeRequest,
     ) {
         //FIXME(sean)
     }

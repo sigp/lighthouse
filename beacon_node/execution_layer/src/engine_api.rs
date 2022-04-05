@@ -9,7 +9,7 @@ pub use types::{
     Address, EthSpec, ExecutionBlockHash, ExecutionPayload, ExecutionPayloadHeader, FixedVector,
     Hash256, Uint256, VariableList,
 };
-use types::{Blob, KZGCommitment};
+use types::{KZGCommitment};
 
 pub mod auth;
 pub mod http;

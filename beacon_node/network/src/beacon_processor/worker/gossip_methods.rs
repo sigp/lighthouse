@@ -695,13 +695,13 @@ impl<T: BeaconChainTypes> Worker<T> {
     #[allow(clippy::too_many_arguments)]
     pub fn process_gossip_blob(
         self,
-        message_id: MessageId,
-        peer_id: PeerId,
-        peer_client: Client,
-        blob: BlobsSidecar<T::EthSpec>,
-        reprocess_tx: mpsc::Sender<ReprocessQueueMessage<T>>,
-        duplicate_cache: DuplicateCache,
-        seen_duration: Duration,
+        _message_id: MessageId,
+        _peer_id: PeerId,
+        _peer_client: Client,
+        _blob: BlobsSidecar<T::EthSpec>,
+        _reprocess_tx: mpsc::Sender<ReprocessQueueMessage<T>>,
+        _duplicate_cache: DuplicateCache,
+        _seen_duration: Duration,
     ) {
         //FIXME(sean)
     }

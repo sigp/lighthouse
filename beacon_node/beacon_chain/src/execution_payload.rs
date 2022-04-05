@@ -520,9 +520,9 @@ pub async fn prepare_execution_payload_and_blobs<
     T: BeaconChainTypes,
     Payload: ExecPayload<T::EthSpec>,
 >(
-    chain: &BeaconChain<T>,
-    state: &BeaconState<T::EthSpec>,
-    proposer_index: u64,
+    _chain: &BeaconChain<T>,
+    _state: &BeaconState<T::EthSpec>,
+    _proposer_index: u64,
 ) -> Result<
     Option<(
         Payload,

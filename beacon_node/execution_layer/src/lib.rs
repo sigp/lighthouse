@@ -890,12 +890,12 @@ impl<T: EthSpec> ExecutionLayer<T> {
 
     pub async fn get_blob<T: EthSpec>(
         &self,
-        parent_hash: Hash256,
-        timestamp: u64,
-        random: Hash256,
-        finalized_block_hash: Hash256,
-        proposer_index: u64,
-        versioned_hash: Hash256,
+        _parent_hash: Hash256,
+        _timestamp: u64,
+        _random: Hash256,
+        _finalized_block_hash: Hash256,
+        _proposer_index: u64,
+        _versioned_hash: Hash256,
     ) -> Result<BlobDetailsV1, Error> {
         todo!()
     }

@@ -3622,7 +3622,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             }),
             BeaconState::Capella(_) => {
                 let sync_aggregate = get_sync_aggregate()?;
-                let (execution_payload, blobs) =
+                let (execution_payload, _blobs) =
                     get_execution_payload_and_blobs(self, &state, proposer_index)?;
                 //FIXME(sean) get blobs
                 BeaconBlock::Capella(BeaconBlockCapella {
