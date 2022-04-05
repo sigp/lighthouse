@@ -119,7 +119,7 @@ impl StateId {
             | CoreStateId::Justified
             | CoreStateId::Finalized
             | CoreStateId::Root(_) => chain
-                .is_optimistic_head(None)
+                .is_optimistic_head()
                 .map_err(warp_utils::reject::beacon_chain_error),
         }
     }
