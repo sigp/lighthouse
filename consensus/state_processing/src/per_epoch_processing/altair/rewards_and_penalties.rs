@@ -52,7 +52,7 @@ pub fn process_rewards_and_penalties<T: EthSpec>(
 ///
 /// Spec v1.1.0
 pub fn get_flag_index_deltas<T: EthSpec>(
-    deltas: &mut Vec<Delta>,
+    deltas: &mut [Delta],
     state: &BeaconState<T>,
     flag_index: usize,
     total_active_balance: u64,
@@ -101,7 +101,7 @@ pub fn get_flag_weight(flag_index: usize) -> Result<u64, Error> {
 }
 
 pub fn get_inactivity_penalty_deltas<T: EthSpec>(
-    deltas: &mut Vec<Delta>,
+    deltas: &mut [Delta],
     state: &BeaconState<T>,
     participation_cache: &ParticipationCache,
     spec: &ChainSpec,
