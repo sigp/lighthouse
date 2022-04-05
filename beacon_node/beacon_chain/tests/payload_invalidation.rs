@@ -833,10 +833,9 @@ fn attesting_to_optimistic_head() {
     );
 
     /*
-     * Define some closures to produce attestations.
+     * Define an attestation for use during testing. It doesn't have a valid signature, but that's
+     * not necessary here.
      */
-
-    let produce_unaggregated = || rig.harness.chain.produce_unaggregated_attestation(slot, 0);
 
     let attestation = {
         let mut attestation = rig
@@ -858,6 +857,12 @@ fn attesting_to_optimistic_head() {
 
         attestation
     };
+
+    /*
+     * Define some closures to produce attestations.
+     */
+
+    let produce_unaggregated = || rig.harness.chain.produce_unaggregated_attestation(slot, 0);
 
     let get_aggregated = || {
         rig.harness
