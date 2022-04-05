@@ -118,12 +118,6 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         let block_root = block.canonical_root();
         let parent_root = block.parent_root();
 
-        debug!(
-            self.log,
-            "Searching for parent";
-            "block_root" => %block_root,
-            "parent_root" => %parent_root,
-        );
         // If this block or it's parent is part of a known failed chain, ignore it.
         if self.failed_chains.contains(&parent_root) || self.failed_chains.contains(&block_root) {
             debug!(self.log, "Block is from a past failed chain. Dropping";
@@ -142,8 +136,49 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
             return;
         }
 
-        let parent_lookup = ParentLookup::new(*block, peer_id);
-        self.request_parent(parent_lookup, cx);
+        debug!(
+            self.log,
+            "Searching for parent";
+            "block_root" => %block_root,
+            "parent_root" => %parent_root,
+        );
+
+        if let Some(pos) = self
+            .parent_queue
+            .iter()
+            .position(|request| request.chain_hash() == parent_root)
+        {
+            let mut parent_lookup = self.parent_queue.remove(pos);
+            parent_lookup.insert_block(*block);
+
+            debug!(
+                self.log,
+                "Inserting block into existing parent chain";
+                "new_chain_hash" => %parent_lookup.chain_hash(),
+                "old_chain_hash" => %parent_root,
+            );
+            let chain_hash = parent_lookup.chain_hash();
+            let blocks = parent_lookup.chain_blocks_clone();
+            let process_id = ChainSegmentProcessId::ParentLookup(chain_hash);
+            match self
+                .beacon_processor_send
+                .try_send(WorkEvent::chain_segment(process_id, blocks))
+            {
+                Ok(_) => {
+                    self.parent_queue.push(parent_lookup);
+                }
+                Err(e) => {
+                    error!(
+                        self.log,
+                        "Failed to send chain segment to processor";
+                        "error" => ?e
+                    );
+                }
+            }
+        } else {
+            let parent_lookup = ParentLookup::new(*block, peer_id);
+            self.request_parent(parent_lookup, cx);
+        }
     }
 
     /* Lookup responses */
