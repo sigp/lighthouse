@@ -1419,7 +1419,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 })
                 .collect();
 
-            let execution_optimistic = self.is_optimistic_head(Some(head_block_root))?;
+            let execution_optimistic = self.is_optimistic_head()?;
 
             Ok((duties, dependent_root, execution_optimistic))
         })
@@ -2823,7 +2823,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 snapshot_cache.insert(
                     BeaconSnapshot {
                         beacon_state: state,
-                        beacon_block: signed_block,
+                        beacon_block: signed_block.clone(),
                         beacon_block_root: block_root,
                     },
                     None,
@@ -2848,7 +2848,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 event_handler.register(EventKind::Block(SseBlock {
                     slot,
                     block: block_root,
-                    execution_optimistic: self.is_optimistic_block(&block_root)?,
+                    execution_optimistic: self.is_optimistic_block(&signed_block)?,
                 }));
             }
         }
@@ -3644,8 +3644,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                             current_duty_dependent_root,
                             previous_duty_dependent_root,
                             epoch_transition: is_epoch_transition,
-                            execution_optimistic: self
-                                .is_optimistic_head(Some(beacon_block_root))?,
+                            execution_optimistic: self.is_optimistic_head()?,
                         }));
                     }
                     (Err(e), _) | (_, Err(e)) => {
@@ -3667,7 +3666,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     new_head_block: beacon_block_root,
                     new_head_state: state_root,
                     epoch: head_slot.epoch(T::EthSpec::slots_per_epoch()),
-                    execution_optimistic: self.is_optimistic_head(Some(current_head.block_root))?,
+                    execution_optimistic: self.is_optimistic_head()?,
                 }));
             }
 
@@ -3693,7 +3692,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     observed_delay: block_delays.observed,
                     imported_delay: block_delays.imported,
                     set_as_head_delay: block_delays.set_as_head,
-                    execution_optimistic: self.is_optimistic_head(Some(beacon_block_root))?,
+                    execution_optimistic: self.is_optimistic_head()?,
                 }));
             }
         }
@@ -4208,48 +4207,40 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         })
     }
 
-    /// Returns the value of `execution_optimistic` for `block_root`.
+    /// Returns the value of `execution_optimistic` for `block`.
     ///
     /// Returns `Ok(false)` if the block is pre-Bellatrix, or has `ExecutionStatus::Valid`.
     /// Returns `Ok(true)` if the block has `ExecutionStatus::Unknown`.
-    pub fn is_optimistic_block(&self, block_root: &Hash256) -> Result<bool, BeaconChainError> {
-        if let Some(block) = self.get_block(block_root)? {
-            // Check if the block is pre-Bellatrix.
-            if block.message().execution_payload().is_err() {
-                Ok(false)
-            } else {
-                self.fork_choice
-                    .read()
-                    .is_optimistic_block(block_root)
-                    .map_err(BeaconChainError::ForkChoiceError)
-            }
+    pub fn is_optimistic_block(
+        &self,
+        block: &SignedBeaconBlock<T::EthSpec>,
+    ) -> Result<bool, BeaconChainError> {
+        // Check if the block is pre-Bellatrix.
+        if block.message().execution_payload().is_err() {
+            Ok(false)
         } else {
-            Err(BeaconChainError::MissingBeaconBlock(*block_root))
+            self.fork_choice
+                .read()
+                .is_optimistic_block(&block.canonical_root())
+                .map_err(BeaconChainError::ForkChoiceError)
         }
     }
 
-    /// Returns the value of `execution_optimistic` for `head_block_root` which can be provided
-    /// optionally if available.
+    /// Returns the value of `execution_optimistic` for the current head block.
     ///
     /// Returns `Ok(false)` if the head block is pre-Bellatrix, or has `ExecutionStatus::Valid`.
     /// Returns `Ok(true)` if the head block has `ExecutionStatus::Unknown`.
-    pub fn is_optimistic_head(
-        &self,
-        head_block_root: Option<Hash256>,
-    ) -> Result<bool, BeaconChainError> {
-        let head_block_root = head_block_root.unwrap_or(self.head_info()?.block_root);
-        if let Some(block) = self.get_block(&head_block_root)? {
-            // Check if the block is pre-Bellatrix.
-            if block.message().execution_payload().is_err() {
-                Ok(false)
-            } else {
-                self.fork_choice
-                    .read()
-                    .is_optimistic_block_no_fallback(&head_block_root)
-                    .map_err(BeaconChainError::ForkChoiceError)
-            }
+    pub fn is_optimistic_head(&self) -> Result<bool, BeaconChainError> {
+        let head_info = self.head_info()?;
+        let head_block_root = head_info.block_root;
+        // Check if the block is pre-Bellatrix.
+        if head_info.execution_payload_block_hash.is_none() {
+            Ok(false)
         } else {
-            Err(BeaconChainError::MissingBeaconBlock(head_block_root))
+            self.fork_choice
+                .read()
+                .is_optimistic_block_no_fallback(&head_block_root)
+                .map_err(BeaconChainError::ForkChoiceError)
         }
     }
 
@@ -4392,7 +4383,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     epoch: new_finalized_checkpoint.epoch,
                     block: new_finalized_checkpoint.root,
                     state: new_finalized_state_root,
-                    execution_optimistic: self.is_optimistic_head(None)?,
+                    execution_optimistic: self.is_optimistic_head()?,
                 }));
             }
         }

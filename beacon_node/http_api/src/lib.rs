@@ -897,8 +897,8 @@ pub fn serve<T: BeaconChainTypes>(
                     // The value of `execution_optimistic` depends on whether the method used to
                     // compute the response is dependent on the head block.
                     let execution_optimistic = match uses_head {
-                        false => chain.is_optimistic_block(&root),
-                        true => chain.is_optimistic_head(Some(root)),
+                        false => chain.is_optimistic_block(&block),
+                        true => chain.is_optimistic_head(),
                     }
                     .map_err(warp_utils::reject::beacon_chain_error)?;
 
@@ -931,14 +931,13 @@ pub fn serve<T: BeaconChainTypes>(
         .and_then(|block_id: BlockId, chain: Arc<BeaconChain<T>>| {
             blocking_json_task(move || {
                 let root = block_id.root(&chain)?;
-                let block = BlockId::from_root(root).block(&chain)?;
+                let (block, execution_optimistic) =
+                    BlockId::from_root(root).block_and_is_execution_optimistic(&chain)?;
 
                 let canonical = chain
                     .block_root_at_slot(block.slot(), WhenSlotSkipped::None)
                     .map_err(warp_utils::reject::beacon_chain_error)?
                     .map_or(false, |canonical| root == canonical);
-
-                let execution_optimistic = block_id.is_execution_optimistic(&chain)?;
 
                 let data = api_types::BlockHeaderData {
                     root,
@@ -1199,11 +1198,12 @@ pub fn serve<T: BeaconChainTypes>(
              chain: Arc<BeaconChain<T>>,
              accept_header: Option<api_types::Accept>| {
                 blocking_task(move || {
-                    let block = block_id.block(&chain)?;
+                    let (block, execution_optimistic) =
+                        block_id.block_and_is_execution_optimistic(&chain)?;
                     let fork_name = block
                         .fork_name(&chain.spec)
                         .map_err(inconsistent_fork_rejection)?;
-                    let execution_optimistic = block_id.is_execution_optimistic(&chain)?;
+
                     match accept_header {
                         Some(api_types::Accept::Ssz) => Response::builder()
                             .status(200)
@@ -1235,12 +1235,13 @@ pub fn serve<T: BeaconChainTypes>(
         .and(warp::path::end())
         .and_then(|block_id: BlockId, chain: Arc<BeaconChain<T>>| {
             blocking_json_task(move || {
-                let execution_optimistic = block_id.is_execution_optimistic(&chain)?;
-                block_id
-                    .root(&chain)
-                    .map(api_types::RootData::from)
-                    .map(api_types::GenericResponse::from)
-                    .map(|resp| resp.add_execution_optimistic(execution_optimistic))
+                let (block, execution_optimistic) =
+                    block_id.block_and_is_execution_optimistic(&chain)?;
+
+                Ok(api_types::GenericResponse::from(api_types::RootData::from(
+                    block.canonical_root(),
+                ))
+                .add_execution_optimistic(execution_optimistic))
             })
         });
 
@@ -1251,12 +1252,13 @@ pub fn serve<T: BeaconChainTypes>(
         .and(warp::path::end())
         .and_then(|block_id: BlockId, chain: Arc<BeaconChain<T>>| {
             blocking_json_task(move || {
-                let execution_optimistic = block_id.is_execution_optimistic(&chain)?;
-                block_id
-                    .block(&chain)
-                    .map(|block| block.message().body().attestations().clone())
-                    .map(api_types::GenericResponse::from)
-                    .map(|resp| resp.add_execution_optimistic(execution_optimistic))
+                let (block, execution_optimistic) =
+                    block_id.block_and_is_execution_optimistic(&chain)?;
+
+                Ok(
+                    api_types::GenericResponse::from(block.message().body().attestations().clone())
+                        .add_execution_optimistic(execution_optimistic),
+                )
             })
         });
 
@@ -1720,7 +1722,8 @@ pub fn serve<T: BeaconChainTypes>(
                                 None
                             } else if endpoint_version == V2 {
                                 BlockId::from_root(root)
-                                    .is_execution_optimistic(&chain)
+                                    .block_and_is_execution_optimistic(&chain)
+                                    .map(|(_, execution_optimistic)| execution_optimistic)
                                     .ok()
                             } else {
                                 return Err(unsupported_version_rejection(endpoint_version));
