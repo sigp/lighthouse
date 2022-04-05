@@ -75,7 +75,6 @@ use state_processing::{
     state_advance::{complete_state_advance, partial_state_advance},
     BlockSignatureStrategy, SigVerifiedOp, VerifyBlockRoot,
 };
-use std::borrow::Cow;
 use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::collections::HashSet;
@@ -1706,77 +1705,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 beacon_block_root,
                 source: justified_checkpoint,
                 target,
-            },
-            signature: AggregateSignature::empty(),
-        })
-    }
-
-    /// Produces an "unaggregated" attestation for the given `slot` and `index` that attests to
-    /// `beacon_block_root`. The provided `state` should match the `block.state_root` for the
-    /// `block` identified by `beacon_block_root`.
-    ///
-    /// The attestation doesn't _really_ have anything about it that makes it unaggregated per say,
-    /// however this function is only required in the context of forming an unaggregated
-    /// attestation. It would be an (undetectable) violation of the protocol to create a
-    /// `SignedAggregateAndProof` based upon the output of this function.
-    pub fn produce_unaggregated_attestation_for_block(
-        &self,
-        slot: Slot,
-        index: CommitteeIndex,
-        beacon_block_root: Hash256,
-        mut state: Cow<BeaconState<T::EthSpec>>,
-        state_root: Hash256,
-    ) -> Result<Attestation<T::EthSpec>, Error> {
-        // Only attest to a block if it is fully verified (i.e. not optimistic).
-        //
-        // If the head *is* optimistic, return an error without producing an attestation.
-        if self
-            .fork_choice
-            .read()
-            .get_block_execution_status(&beacon_block_root)
-            .ok_or(Error::HeadMissingFromForkChoice(beacon_block_root))?
-            .is_not_verified()
-        {
-            return Err(Error::CannotAttestToOptimisticHead { beacon_block_root });
-        }
-
-        let epoch = slot.epoch(T::EthSpec::slots_per_epoch());
-
-        if state.slot() > slot {
-            return Err(Error::CannotAttestToFutureState);
-        } else if state.current_epoch() < epoch {
-            let mut_state = state.to_mut();
-            // Only perform a "partial" state advance since we do not require the state roots to be
-            // accurate.
-            partial_state_advance(
-                mut_state,
-                Some(state_root),
-                epoch.start_slot(T::EthSpec::slots_per_epoch()),
-                &self.spec,
-            )?;
-            mut_state.build_committee_cache(RelativeEpoch::Current, &self.spec)?;
-        }
-
-        let committee_len = state.get_beacon_committee(slot, index)?.committee.len();
-
-        let target_slot = epoch.start_slot(T::EthSpec::slots_per_epoch());
-        let target_root = if state.slot() <= target_slot {
-            beacon_block_root
-        } else {
-            *state.get_block_root(target_slot)?
-        };
-
-        Ok(Attestation {
-            aggregation_bits: BitList::with_capacity(committee_len)?,
-            data: AttestationData {
-                slot,
-                index,
-                beacon_block_root,
-                source: state.current_justified_checkpoint(),
-                target: Checkpoint {
-                    epoch,
-                    root: target_root,
-                },
             },
             signature: AggregateSignature::empty(),
         })

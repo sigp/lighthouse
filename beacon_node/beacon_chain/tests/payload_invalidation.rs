@@ -838,18 +838,6 @@ fn attesting_to_optimistic_head() {
 
     let produce_unaggregated = || rig.harness.chain.produce_unaggregated_attestation(slot, 0);
 
-    let produce_unaggregated_for_block = || {
-        rig.harness
-            .chain
-            .produce_unaggregated_attestation_for_block(
-                slot,
-                0,
-                root,
-                Cow::Owned(head.beacon_state.clone()),
-                head.beacon_state_root(),
-            )
-    };
-
     let attestation = {
         let mut attestation = rig
             .harness
@@ -898,14 +886,6 @@ fn attesting_to_optimistic_head() {
         if beacon_block_root == root
     ));
 
-    assert!(matches!(
-        produce_unaggregated_for_block(),
-        Err(BeaconChainError::CannotAttestToOptimisticHead {
-            beacon_block_root
-        })
-        if beacon_block_root == root
-    ));
-
     assert_eq!(get_aggregated(), None);
 
     assert_eq!(get_aggregated_by_slot_and_root(), None);
@@ -923,7 +903,6 @@ fn attesting_to_optimistic_head() {
     );
 
     produce_unaggregated().unwrap();
-    produce_unaggregated_for_block().unwrap();
     get_aggregated().unwrap();
     get_aggregated_by_slot_and_root().unwrap();
 }
