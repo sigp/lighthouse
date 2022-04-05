@@ -4032,7 +4032,25 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         match forkchoice_updated_response {
             Ok(status) => match &status {
-                PayloadStatus::Valid | PayloadStatus::Syncing => Ok(()),
+                PayloadStatus::Valid => {
+                    // Ensure that fork choice knows that the block is no longer optimistic.
+                    if let Err(e) = self
+                        .fork_choice
+                        .write()
+                        .on_valid_execution_payload(head_block_root)
+                    {
+                        error!(
+                            self.log,
+                            "Failed to validate payload";
+                            "error" => ?e
+                        )
+                    };
+                    Ok(())
+                }
+                // There's nothing to be done for a syncing response. If the block is already
+                // `SYNCING` in fork choice, there's nothing to do. If already known to be `VALID`
+                // or `INVALID` then we don't want to change it to syncing.
+                PayloadStatus::Syncing => Ok(()),
                 // The specification doesn't list `ACCEPTED` as a valid response to a fork choice
                 // update. This response *seems* innocent enough, so we won't return early with an
                 // error. However, we create a log to bring attention to the issue.

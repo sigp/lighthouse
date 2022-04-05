@@ -149,6 +149,15 @@ impl InvalidPayloadRig {
             .unwrap()
     }
 
+    fn validate_manually(&self, block_root: Hash256) {
+        self.harness
+            .chain
+            .fork_choice
+            .write()
+            .on_valid_execution_payload(block_root)
+            .unwrap();
+    }
+
     fn import_block_parametric<F: Fn(&BlockError<E>) -> bool>(
         &mut self,
         is_valid: Payload,
@@ -649,6 +658,42 @@ fn invalid_after_optimistic_sync() {
     // 1 should be the head, since 2 was invalidated.
     let head = rig.harness.chain.head_info().unwrap();
     assert_eq!(head.block_root, roots[1]);
+}
+
+#[test]
+fn manually_validate_child() {
+    let mut rig = InvalidPayloadRig::new().enable_attestations();
+    rig.move_to_terminal_block();
+    rig.import_block(Payload::Valid); // Import a valid transition block.
+
+    let parent = rig.import_block(Payload::Syncing);
+    let child = rig.import_block(Payload::Syncing);
+
+    assert!(rig.execution_status(parent).is_not_verified());
+    assert!(rig.execution_status(child).is_not_verified());
+
+    rig.validate_manually(child);
+
+    assert!(rig.execution_status(parent).is_valid());
+    assert!(rig.execution_status(child).is_valid());
+}
+
+#[test]
+fn manually_validate_parent() {
+    let mut rig = InvalidPayloadRig::new().enable_attestations();
+    rig.move_to_terminal_block();
+    rig.import_block(Payload::Valid); // Import a valid transition block.
+
+    let parent = rig.import_block(Payload::Syncing);
+    let child = rig.import_block(Payload::Syncing);
+
+    assert!(rig.execution_status(parent).is_not_verified());
+    assert!(rig.execution_status(child).is_not_verified());
+
+    rig.validate_manually(parent);
+
+    assert!(rig.execution_status(parent).is_valid());
+    assert!(rig.execution_status(child).is_not_verified());
 }
 
 #[test]
