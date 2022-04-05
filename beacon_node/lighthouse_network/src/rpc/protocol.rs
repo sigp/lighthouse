@@ -21,7 +21,7 @@ use tokio_util::{
     compat::{Compat, FuturesAsyncReadCompatExt},
 };
 use types::{
-    BeaconBlock, BeaconBlockAltair, BeaconBlockBase, BeaconBlockMerge, BlobWrapper, EthSpec,
+    BeaconBlock, BeaconBlockAltair, BeaconBlockBase, BeaconBlockMerge, BlobsSidecar, EthSpec,
     ForkContext, ForkName, Hash256, MainnetEthSpec, Signature, SignedBeaconBlock,
 };
 
@@ -71,11 +71,11 @@ lazy_static! {
     + types::ExecutionPayload::<MainnetEthSpec>::max_execution_payload_size() // adding max size of execution payload (~16gb)
     + ssz::BYTES_PER_LENGTH_OFFSET; // Adding the additional ssz offset for the `ExecutionPayload` field
 
-    pub static ref BLOB_MIN: usize = BlobWrapper::<MainnetEthSpec>::empty()
+    pub static ref BLOB_MIN: usize = BlobsSidecar::<MainnetEthSpec>::empty()
     .as_ssz_bytes()
     .len();
 
-    pub static ref BLOB_MAX: usize = BlobWrapper::<MainnetEthSpec>::max_size();
+    pub static ref BLOB_MAX: usize = BlobsSidecar::<MainnetEthSpec>::max_size();
 
     pub static ref BLOCKS_BY_ROOT_REQUEST_MIN: usize =
         VariableList::<Hash256, MaxRequestBlocks>::from(Vec::<Hash256>::new())
@@ -120,7 +120,8 @@ const REQUEST_TIMEOUT: u64 = 15;
 pub fn max_rpc_size(fork_context: &ForkContext) -> usize {
     match fork_context.current_fork() {
         ForkName::Merge => MAX_RPC_SIZE_POST_MERGE,
-        ForkName::Altair | ForkName::Base => MAX_RPC_SIZE,
+        //FIXME(sean) check this
+        ForkName::Altair | ForkName::Base | ForkName::Capella => MAX_RPC_SIZE,
     }
 }
 

@@ -21,6 +21,9 @@ const GOSSIP_MAX_SIZE: usize = 1_048_576; // 1M
 /// The maximum transmit size of gossip messages in bytes post-merge.
 const GOSSIP_MAX_SIZE_POST_MERGE: usize = 10 * 1_048_576; // 10M
 
+const MAX_REQUEST_BLOBS_SIDECARS: usize = 128;
+const MIN_EPOCHS_FOR_BLOBS_SIDECARS_REQUESTS: usize = 128;
+
 /// The cache time is set to accommodate the circulation time of an attestation.
 ///
 /// The p2p spec declares that we accept attestations within the following range:
@@ -297,7 +300,7 @@ pub fn gossipsub_config(network_load: u8, fork_context: Arc<ForkContext>) -> Gos
             // according to: https://github.com/ethereum/consensus-specs/blob/dev/specs/merge/p2p-interface.md#the-gossip-domain-gossipsub
             // the derivation of the message-id remains the same in the merge
             //TODO(sean): figure this out
-            ForkName::Altair | ForkName::Merge | ForkName::Shanghai => {
+            ForkName::Altair | ForkName::Merge | ForkName::Capella => {
                 let topic_len_bytes = topic_bytes.len().to_le_bytes();
                 let mut vec = Vec::with_capacity(
                     prefix.len() + topic_len_bytes.len() + topic_bytes.len() + message.data.len(),

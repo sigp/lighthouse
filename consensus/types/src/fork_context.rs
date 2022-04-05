@@ -47,10 +47,10 @@ impl ForkContext {
             ));
         }
 
-        if spec.shanghai_fork_epoch.is_some() {
+        if spec.capella_fork_epoch.is_some() {
             fork_to_digest.push((
-                ForkName::Shanghai,
-                ChainSpec::compute_fork_digest(spec.shanghai_fork_version, genesis_validators_root),
+                ForkName::Capella,
+                ChainSpec::compute_fork_digest(spec.capella_fork_version, genesis_validators_root),
             ));
         }
 

@@ -96,10 +96,10 @@ pub trait EthSpec: 'static + Default + Sync + Send + Clone + Debug + PartialEq +
     type MinGasLimit: Unsigned + Clone + Sync + Send + Debug + PartialEq;
     type MaxExtraDataBytes: Unsigned + Clone + Sync + Send + Debug + PartialEq;
     /*
-     * New in Shanghaisharding
+     * New in Capella
      */
-    type MaxObjectListSize: Unsigned + Clone + Sync + Send + Debug + PartialEq;
-    type ChunksPerBlob: Unsigned + Clone + Sync + Send + Debug + PartialEq;
+    type MaxBlobsPerBlock: Unsigned + Clone + Sync + Send + Debug + PartialEq;
+    type FieldElementsPerBlob: Unsigned + Clone + Sync + Send + Debug + PartialEq;
     /*
      * Derived values (set these CAREFULLY)
      */
@@ -229,11 +229,11 @@ pub trait EthSpec: 'static + Default + Sync + Send + Clone + Debug + PartialEq +
     }
 
     fn max_object_list_size() -> usize {
-        Self::MaxObjectListSize::to_usize()
+        Self::MaxBlobsPerBlock::to_usize()
     }
 
     fn chunks_per_blob() -> usize {
-        Self::ChunksPerBlob::to_usize()
+        Self::FieldElementsPerBlob::to_usize()
     }
 }
 
@@ -275,8 +275,8 @@ impl EthSpec for MainnetEthSpec {
     type GasLimitDenominator = U1024;
     type MinGasLimit = U5000;
     type MaxExtraDataBytes = U32;
-    type MaxObjectListSize = U16777216; // 2**24
-    type ChunksPerBlob = U4096;
+    type MaxBlobsPerBlock = U16777216; // 2**24
+    type FieldElementsPerBlob = U4096;
     type SyncSubcommitteeSize = U128; // 512 committee size / 4 sync committee subnet count
     type MaxPendingAttestations = U4096; // 128 max attestations * 32 slots per epoch
     type SlotsPerEth1VotingPeriod = U2048; // 64 epochs * 32 slots per epoch
@@ -325,8 +325,8 @@ impl EthSpec for MinimalEthSpec {
         GasLimitDenominator,
         MinGasLimit,
         MaxExtraDataBytes,
-        MaxObjectListSize,
-        ChunksPerBlob
+        MaxBlobsPerBlock,
+        FieldElementsPerBlob
     });
 
     fn default_spec() -> ChainSpec {
@@ -371,8 +371,8 @@ impl EthSpec for GnosisEthSpec {
     type SyncSubcommitteeSize = U128; // 512 committee size / 4 sync committee subnet count
     type MaxPendingAttestations = U2048; // 128 max attestations * 16 slots per epoch
     type SlotsPerEth1VotingPeriod = U1024; // 64 epochs * 16 slots per epoch
-    type MaxObjectListSize = U16777216; // 2**24
-    type ChunksPerBlob = U4096;
+    type MaxBlobsPerBlock = U16777216; // 2**24
+    type FieldElementsPerBlob = U4096;
 
     fn default_spec() -> ChainSpec {
         ChainSpec::gnosis()

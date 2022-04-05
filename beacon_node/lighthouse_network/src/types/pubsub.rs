@@ -9,9 +9,9 @@ use std::boxed::Box;
 use std::io::{Error, ErrorKind};
 use std::sync::Arc;
 use types::{
-    Attestation, AttesterSlashing, BlobWrapper, EthSpec, ForkContext, ForkName, ProposerSlashing,
+    Attestation, AttesterSlashing, BlobsSidecar, EthSpec, ForkContext, ForkName, ProposerSlashing,
     SignedAggregateAndProof, SignedBeaconBlock, SignedBeaconBlockAltair, SignedBeaconBlockBase,
-    SignedBeaconBlockMerge, SignedBeaconBlockShanghai, SignedContributionAndProof,
+    SignedBeaconBlockCapella, SignedBeaconBlockMerge, SignedContributionAndProof,
     SignedVoluntaryExit, SubnetId, SyncCommitteeMessage, SyncSubnetId,
 };
 
@@ -168,8 +168,8 @@ impl<T: EthSpec> PubsubMessage<T> {
                                     SignedBeaconBlockMerge::from_ssz_bytes(data)
                                         .map_err(|e| format!("{:?}", e))?,
                                 ),
-                                Some(ForkName::Shanghai) => SignedBeaconBlock::<T>::Shanghai(
-                                    SignedBeaconBlockShanghai::from_ssz_bytes(data)
+                                Some(ForkName::Capella) => SignedBeaconBlock::<T>::Capella(
+                                    SignedBeaconBlockCapella::from_ssz_bytes(data)
                                         .map_err(|e| format!("{:?}", e))?,
                                 ),
                                 None => {
@@ -184,7 +184,7 @@ impl<T: EthSpec> PubsubMessage<T> {
                     GossipKind::Blob => {
                         //FIXME(sean) verify against fork context
                         let blob =
-                            BlobWrapper::from_ssz_bytes(data).map_err(|e| format!("{:?}", e))?;
+                            BlobsSidecar::from_ssz_bytes(data).map_err(|e| format!("{:?}", e))?;
                         Ok(PubsubMessage::Blob(Box::new(blob)))
                     }
                     GossipKind::VoluntaryExit => {

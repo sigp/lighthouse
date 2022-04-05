@@ -16,8 +16,8 @@ use std::marker::PhantomData;
 use std::sync::Arc;
 use tokio_util::codec::{Decoder, Encoder};
 use types::{
-    BlobWrapper, EthSpec, ForkContext, ForkName, SignedBeaconBlock, SignedBeaconBlockAltair,
-    SignedBeaconBlockBase, SignedBeaconBlockMerge, SignedBeaconBlockShanghai,
+    BlobsSidecar, EthSpec, ForkContext, ForkName, SignedBeaconBlock, SignedBeaconBlockAltair,
+    SignedBeaconBlockBase, SignedBeaconBlockCapella, SignedBeaconBlockMerge,
 };
 use unsigned_varint::codec::Uvi;
 
@@ -409,8 +409,8 @@ fn context_bytes<T: EthSpec>(
                 return match **ref_box_block {
                     // NOTE: If you are adding another fork type here, be sure to modify the
                     //       `fork_context.to_context_bytes()` function to support it as well!
-                    SignedBeaconBlock::Shanghai { .. } => {
-                        fork_context.to_context_bytes(ForkName::Shanghai)
+                    SignedBeaconBlock::Capella { .. } => {
+                        fork_context.to_context_bytes(ForkName::Capella)
                     }
                     SignedBeaconBlock::Merge { .. } => {
                         // Merge context being `None` implies that "merge never happened".
@@ -547,7 +547,7 @@ fn handle_v1_response<T: EthSpec>(
             SignedBeaconBlock::Base(SignedBeaconBlockBase::from_ssz_bytes(decoded_buffer)?),
         )))),
         Protocol::TxBlobsByRange => Ok(Some(RPCResponse::TxBlobsByRange(Arc::new(
-            BlobWrapper::from_ssz_bytes(decoded_buffer)?),
+            BlobsSidecar::from_ssz_bytes(decoded_buffer)?),
         ))),
         Protocol::BlocksByRoot => Ok(Some(RPCResponse::BlocksByRoot(Arc::new(
             SignedBeaconBlock::Base(SignedBeaconBlockBase::from_ssz_bytes(decoded_buffer)?),
@@ -600,14 +600,14 @@ fn handle_v2_response<T: EthSpec>(
                         decoded_buffer,
                     )?),
                 )))),
-                ForkName::Shanghai => Ok(Some(RPCResponse::BlocksByRange(Box::new(
-                    SignedBeaconBlock::Shanghai(SignedBeaconBlockShanghai::from_ssz_bytes(
+                ForkName::Capella => Ok(Some(RPCResponse::BlocksByRange(Box::new(
+                    SignedBeaconBlock::Capella(SignedBeaconBlockCapella::from_ssz_bytes(
                         decoded_buffer,
                     )?),
                 )))),
             },
             Protocol::TxBlobsByRange => Ok(Some(RPCResponse::TxBlobsByRange(Box::new(
-                BlobWrapper::from_ssz_bytes(decoded_buffer)?,
+                BlobsSidecar::from_ssz_bytes(decoded_buffer)?,
             )))),
             Protocol::BlocksByRoot => match fork_name {
                 ForkName::Altair => Ok(Some(RPCResponse::BlocksByRoot(Arc::new(
@@ -623,8 +623,8 @@ fn handle_v2_response<T: EthSpec>(
                         decoded_buffer,
                     )?),
                 )))),
-                ForkName::Shanghai => Ok(Some(RPCResponse::BlocksByRoot(Box::new(
-                    SignedBeaconBlock::Shanghai(SignedBeaconBlockShanghai::from_ssz_bytes(
+                ForkName::Capella => Ok(Some(RPCResponse::BlocksByRoot(Box::new(
+                    SignedBeaconBlock::Capella(SignedBeaconBlockCapella::from_ssz_bytes(
                         decoded_buffer,
                     )?),
                 )))),

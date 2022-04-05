@@ -41,7 +41,7 @@ use std::sync::Arc;
 use std::task::{Context, Poll};
 use types::{
     consts::altair::SYNC_COMMITTEE_SUBNET_COUNT, EnrForkId, EthSpec, ForkContext, Slot, SubnetId,
-    BlobWrapper, SignedBeaconBlock, SyncSubnetId
+    BlobsSidecar, SignedBeaconBlock, SyncSubnetId
 };
 use crate::rpc::methods::TxBlobsByRangeRequest;
 use utils::{build_transport, strip_peer_id, MAX_CONNECTIONS_PER_PEER};

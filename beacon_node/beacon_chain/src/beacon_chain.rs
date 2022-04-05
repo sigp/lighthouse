@@ -3620,17 +3620,17 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         .ok_or(BlockProductionError::MissingExecutionPayload)?,
                 },
             }),
-            BeaconState::Shanghai(_) => {
+            BeaconState::Capella(_) => {
                 let sync_aggregate = get_sync_aggregate()?;
                 let (execution_payload, blobs) =
                     get_execution_payload_and_blobs(self, &state, proposer_index)?;
                 //FIXME(sean) get blobs
-                BeaconBlock::Shanghai(BeaconBlockShanghai {
+                BeaconBlock::Capella(BeaconBlockCapella {
                     slot,
                     proposer_index,
                     parent_root,
                     state_root: Hash256::zero(),
-                    body: BeaconBlockBodyShanghai {
+                    body: BeaconBlockBodyCapella {
                         randao_reveal,
                         eth1_data,
                         graffiti,

@@ -388,16 +388,19 @@ pub fn get_execution_payload<
 }
 
 /// Wraps the async `prepare_execution_payload` function as a blocking task.
-pub fn prepare_execution_payload_and_blobs_blocking<T: BeaconChainTypes>(
+pub fn prepare_execution_payload_and_blobs_blocking<
+    T: BeaconChainTypes,
+    Payload: ExecPayload<T::EthSpec>,
+>(
     chain: &BeaconChain<T>,
     state: &BeaconState<T::EthSpec>,
     proposer_index: u64,
 ) -> Result<
     Option<(
-        ExecutionPayload<T::EthSpec>,
+        Payload,
         VariableList<
             KZGCommitment,
-            <<T as BeaconChainTypes>::EthSpec as EthSpec>::MaxObjectListSize,
+            <<T as BeaconChainTypes>::EthSpec as EthSpec>::MaxBlobsPerBlock,
         >,
     )>,
     BlockProductionError,
@@ -409,7 +412,7 @@ pub fn prepare_execution_payload_and_blobs_blocking<T: BeaconChainTypes>(
 
     execution_layer
         .block_on_generic(|_| async {
-            prepare_execution_payload_and_blobs(chain, state, proposer_index).await
+            prepare_execution_payload_and_blobs::<T, Payload>(chain, state, proposer_index).await
         })
         .map_err(BlockProductionError::BlockingFailed)?
 }
@@ -513,100 +516,22 @@ where
     Ok(execution_payload)
 }
 
-pub async fn prepare_execution_payload_and_blobs<T: BeaconChainTypes>(
+pub async fn prepare_execution_payload_and_blobs<
+    T: BeaconChainTypes,
+    Payload: ExecPayload<T::EthSpec>,
+>(
     chain: &BeaconChain<T>,
     state: &BeaconState<T::EthSpec>,
     proposer_index: u64,
 ) -> Result<
     Option<(
-        ExecutionPayload<T::EthSpec>,
+        Payload,
         VariableList<
             KZGCommitment,
-            <<T as BeaconChainTypes>::EthSpec as EthSpec>::MaxObjectListSize,
+            <<T as BeaconChainTypes>::EthSpec as EthSpec>::MaxBlobsPerBlock,
         >,
     )>,
     BlockProductionError,
 > {
-    let spec = &chain.spec;
-    let execution_layer = chain
-        .execution_layer
-        .as_ref()
-        .ok_or(BlockProductionError::ExecutionLayerMissing)?;
-
-    let parent_hash = if !is_merge_transition_complete(state) {
-        let is_terminal_block_hash_set = spec.terminal_block_hash != Hash256::zero();
-        let is_activation_epoch_reached =
-            state.current_epoch() >= spec.terminal_block_hash_activation_epoch;
-
-        if is_terminal_block_hash_set && !is_activation_epoch_reached {
-            return Ok(None);
-        }
-
-        let terminal_pow_block_hash = execution_layer
-            .get_terminal_pow_block_hash(spec)
-            .await
-            .map_err(BlockProductionError::TerminalPoWBlockLookupFailed)?;
-
-        if let Some(terminal_pow_block_hash) = terminal_pow_block_hash {
-            terminal_pow_block_hash
-        } else {
-            return Ok(None);
-        }
-    } else {
-        state.latest_execution_payload_header()?.block_hash
-    };
-
-    let timestamp = compute_timestamp_at_slot(state, spec).map_err(BeaconStateError::from)?;
-    let random = *state.get_randao_mix(state.current_epoch())?;
-    let finalized_root = state.finalized_checkpoint().root;
-
-    // The finalized block hash is not included in the specification, however we provide this
-    // parameter so that the execution layer can produce a payload id if one is not already known
-    // (e.g., due to a recent reorg).
-    let finalized_block_hash =
-        if let Some(block) = chain.fork_choice.read().get_block(&finalized_root) {
-            block.execution_status.block_hash()
-        } else {
-            chain
-                .store
-                .get_block(&finalized_root)
-                .map_err(BlockProductionError::FailedToReadFinalizedBlock)?
-                .ok_or(BlockProductionError::MissingFinalizedBlock(finalized_root))?
-                .message()
-                .body()
-                .execution_payload()
-                .ok()
-                .map(|ep| ep.block_hash)
-        };
-
-    // Note: the suggested_fee_recipient is stored in the `execution_layer`, it will add this parameter.
-    let execution_payload = execution_layer
-        .get_payload(
-            parent_hash,
-            timestamp,
-            random,
-            finalized_block_hash.unwrap_or_else(Hash256::zero),
-            proposer_index,
-        )
-        .await
-        .map_err(BlockProductionError::GetPayloadFailed)?;
-
-    //FIXME(sean)
-    for tx in execution_payload.blob_txns_iter() {
-        let versioned_hash = Hash256::zero();
-        // get versioned hash
-        let blob = execution_layer
-            .get_blob::<T::EthSpec>(
-                parent_hash,
-                timestamp,
-                random,
-                finalized_root,
-                proposer_index,
-                versioned_hash,
-            )
-            .await
-            .map_err(BlockProductionError::GetPayloadFailed)?;
-    }
-
-    Ok(Some((execution_payload, VariableList::empty())))
+    todo!()
 }

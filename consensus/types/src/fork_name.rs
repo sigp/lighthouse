@@ -11,7 +11,7 @@ pub enum ForkName {
     Base,
     Altair,
     Merge,
-    Shanghai,
+    Capella,
 }
 
 impl ForkName {
@@ -39,9 +39,9 @@ impl ForkName {
                 spec.bellatrix_fork_epoch = Some(Epoch::new(0));
                 spec
             }
-            ForkName::Shanghai => {
+            ForkName::Capella => {
                 spec.bellatrix_fork_epoch = Some(Epoch::new(0));
-                spec.shanghai_fork_epoch = Some(Epoch::new(0));
+                spec.capella_fork_epoch = Some(Epoch::new(0));
                 spec
             }
         }
@@ -55,7 +55,7 @@ impl ForkName {
             ForkName::Base => None,
             ForkName::Altair => Some(ForkName::Base),
             ForkName::Merge => Some(ForkName::Altair),
-            ForkName::Shanghai => Some(ForkName::Merge),
+            ForkName::Capella => Some(ForkName::Merge),
         }
     }
 
@@ -66,8 +66,8 @@ impl ForkName {
         match self {
             ForkName::Base => Some(ForkName::Altair),
             ForkName::Altair => Some(ForkName::Merge),
-            ForkName::Merge => Some(ForkName::Shanghai),
-            ForkName::Shanghai => None,
+            ForkName::Merge => Some(ForkName::Capella),
+            ForkName::Capella => None,
         }
     }
 }
@@ -110,7 +110,7 @@ macro_rules! map_fork_name_with {
                 ($t::Merge(value), extra_data)
             }
             //TODO: don't have a beacon state variant for the new fork yet
-            ForkName::Shanghai => {
+            ForkName::Capella => {
                 let (value, extra_data) = $body;
                 ($t::Merge(value), extra_data)
             }
@@ -137,7 +137,7 @@ impl Display for ForkName {
             ForkName::Base => "phase0".fmt(f),
             ForkName::Altair => "altair".fmt(f),
             ForkName::Merge => "bellatrix".fmt(f),
-            ForkName::Shanghai => "shanghai".fmt(f),
+            ForkName::Capella => "capella".fmt(f),
         }
     }
 }

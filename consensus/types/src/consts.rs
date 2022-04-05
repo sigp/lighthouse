@@ -22,3 +22,16 @@ pub mod altair {
 pub mod merge {
     pub const INTERVALS_PER_SLOT: u64 = 3;
 }
+pub mod cappella {
+    use crate::Uint256;
+
+    use lazy_static::lazy_static;
+
+    lazy_static! {
+        pub static ref BLS_MODULUS: Uint256 = Uint256::from_dec_str(
+            "52435875175126190479447740508185965837690552500527637822603658699938581184513"
+        )
+        .expect("should initialize BLS_MODULUS");
+    }
+    pub const BLOB_TX_TYPE: u8 = 5;
+}

@@ -13,7 +13,7 @@ use tree_hash_derive::TreeHash;
 ///
 /// This *superstruct* abstracts over the hard-fork.
 #[superstruct(
-    variants(Base, Altair, Merge, Shanghai),
+    variants(Base, Altair, Merge, Capella),
     variant_attributes(
         derive(
             Debug,
@@ -47,16 +47,16 @@ pub struct BeaconBlockBody<T: EthSpec, Payload: ExecPayload<T> = FullPayload<T>>
     pub attestations: VariableList<Attestation<T>, T::MaxAttestations>,
     pub deposits: VariableList<Deposit, T::MaxDeposits>,
     pub voluntary_exits: VariableList<SignedVoluntaryExit, T::MaxVoluntaryExits>,
-    #[superstruct(only(Altair, Merge, Shanghai))]
+    #[superstruct(only(Altair, Merge, Capella))]
     pub sync_aggregate: SyncAggregate<T>,
     // We flatten the execution payload so that serde can use the name of the inner type,
     // either `execution_payload` for full payloads, or `execution_payload_header` for blinded
     // payloads.
-    #[superstruct(only(Merge, Shanghai))]
+    #[superstruct(only(Merge, Capella))]
     #[serde(flatten)]
     pub execution_payload: Payload,
-    #[superstruct(only(Shanghai))]
-    pub blob_kzgs: VariableList<KZGCommitment, T::MaxObjectListSize>,
+    #[superstruct(only(Capella))]
+    pub blob_kzgs: VariableList<KZGCommitment, T::MaxBlobsPerBlock>,
     #[superstruct(only(Base, Altair))]
     #[ssz(skip_serializing, skip_deserializing)]
     #[tree_hash(skip_hashing)]
@@ -71,7 +71,7 @@ impl<'a, T: EthSpec> BeaconBlockBodyRef<'a, T> {
             BeaconBlockBodyRef::Base { .. } => ForkName::Base,
             BeaconBlockBodyRef::Altair { .. } => ForkName::Altair,
             BeaconBlockBodyRef::Merge { .. } => ForkName::Merge,
-            BeaconBlockBodyRef::Shanghai { .. } => ForkName::Shanghai,
+            BeaconBlockBodyRef::Capella { .. } => ForkName::Capella,
         }
     }
 }

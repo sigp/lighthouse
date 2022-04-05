@@ -62,9 +62,9 @@ use std::{cmp, collections::HashSet};
 use task_executor::TaskExecutor;
 use tokio::sync::{mpsc, oneshot};
 use types::{
-    Attestation, AttesterSlashing, BlobWrapper, Hash256, ProposerSlashing, SignedAggregateAndProof,
-    SignedBeaconBlock, SignedContributionAndProof, SignedVoluntaryExit, SubnetId,
-    SyncCommitteeMessage, SyncSubnetId,
+    Attestation, AttesterSlashing, BlobsSidecar, Hash256, ProposerSlashing,
+    SignedAggregateAndProof, SignedBeaconBlock, SignedContributionAndProof, SignedVoluntaryExit,
+    SubnetId, SyncCommitteeMessage, SyncSubnetId,
 };
 use work_reprocessing_queue::{
     spawn_reprocess_scheduler, QueuedAggregate, QueuedRpcBlock, QueuedUnaggregate, ReadyWork,
@@ -412,7 +412,7 @@ impl<T: BeaconChainTypes> WorkEvent<T> {
         message_id: MessageId,
         peer_id: PeerId,
         peer_client: Client,
-        blob: Box<BlobWrapper<T::EthSpec>>,
+        blob: Box<BlobsSidecar<T::EthSpec>>,
         seen_timestamp: Duration,
     ) -> Self {
         Self {
@@ -721,7 +721,7 @@ pub enum Work<T: BeaconChainTypes> {
         message_id: MessageId,
         peer_id: PeerId,
         peer_client: Client,
-        blob: Box<BlobWrapper<T::EthSpec>>,
+        blob: Box<BlobsSidecar<T::EthSpec>>,
         seen_timestamp: Duration,
     },
     DelayedImportBlock {

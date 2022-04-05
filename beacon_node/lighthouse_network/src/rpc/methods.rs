@@ -12,7 +12,7 @@ use std::ops::Deref;
 use std::sync::Arc;
 use strum::IntoStaticStr;
 use superstruct::superstruct;
-use types::{BlobWrapper, Epoch, EthSpec, Hash256, SignedBeaconBlock, Slot};
+use types::{BlobsSidecar, Epoch, EthSpec, Hash256, SignedBeaconBlock, Slot};
 
 /// Maximum number of blocks in a single request.
 pub type MaxRequestBlocks = U1024;
@@ -246,7 +246,7 @@ pub enum RPCResponse<T: EthSpec> {
     /// batch.
     BlocksByRange(Arc<SignedBeaconBlock<T>>),
 
-    TxBlobsByRange(Box<BlobWrapper<T>>),
+    TxBlobsByRange(Box<BlobsSidecar<T>>),
 
     /// A response to a get BLOCKS_BY_ROOT request.
     BlocksByRoot(Arc<SignedBeaconBlock<T>>),

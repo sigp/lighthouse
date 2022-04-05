@@ -8,13 +8,13 @@ use tree_hash_derive::TreeHash;
 
 #[cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary))]
 #[derive(Debug, Clone, Serialize, Deserialize, Encode, Decode, TreeHash, PartialEq, Default)]
-pub struct BlobWrapper<E: EthSpec> {
+pub struct BlobsSidecar<E: EthSpec> {
     pub beacon_block_root: Hash256,
     pub beacon_block_slot: Slot,
-    pub blobs: VariableList<Blob<E::ChunksPerBlob>, E::MaxObjectListSize>,
+    pub blobs: VariableList<Blob<E::FieldElementsPerBlob>, E::MaxBlobsPerBlock>,
 }
 
-impl<E: EthSpec> BlobWrapper<E> {
+impl<E: EthSpec> BlobsSidecar<E> {
     pub fn empty() -> Self {
         Self::default()
     }
@@ -22,6 +22,6 @@ impl<E: EthSpec> BlobWrapper<E> {
         // Fixed part
         Self::empty().as_ssz_bytes().len()
             // Max size of variable length `blobs` field
-            + (E::max_object_list_size() * <Blob<E::ChunksPerBlob> as Encode>::ssz_fixed_len())
+            + (E::max_object_list_size() * <Blob<E::FieldElementsPerBlob> as Encode>::ssz_fixed_len())
     }
 }

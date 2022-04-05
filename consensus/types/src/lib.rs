@@ -86,11 +86,13 @@ pub mod sync_subnet_id;
 mod tree_hash_impls;
 pub mod validator_registration_data;
 
-mod blob_wrapper;
+mod blobs_sidecar;
 mod kzg_commitment;
+mod signed_blobs_sidecar;
 pub mod slot_data;
 #[cfg(feature = "sqlite")]
 pub mod sqlite;
+
 pub use kzg_commitment::KZGCommitment;
 
 use ethereum_types::{H160, H256};
@@ -101,17 +103,17 @@ pub use crate::attestation_data::AttestationData;
 pub use crate::attestation_duty::AttestationDuty;
 pub use crate::attester_slashing::AttesterSlashing;
 pub use crate::beacon_block::{
-    BeaconBlock, BeaconBlockAltair, BeaconBlockBase, BeaconBlockShanghai, BeaconBlockMerge, BeaconBlockRef,
+    BeaconBlock, BeaconBlockAltair, BeaconBlockBase, BeaconBlockCapella, BeaconBlockMerge, BeaconBlockRef,
     BeaconBlockRefMut, BlindedBeaconBlock,
 };
 pub use crate::beacon_block_body::{
-    BeaconBlockBody, BeaconBlockBodyAltair, BeaconBlockBodyBase, BeaconBlockBodyMerge,
-    BeaconBlockBodyRef, BeaconBlockBodyRefMut, BeaconBlockBodyShanghai,
+    BeaconBlockBody, BeaconBlockBodyAltair, BeaconBlockBodyBase, BeaconBlockBodyCapella,
+    BeaconBlockBodyMerge, BeaconBlockBodyRef, BeaconBlockBodyRefMut,
 };
 pub use crate::beacon_block_header::BeaconBlockHeader;
 pub use crate::beacon_committee::{BeaconCommittee, OwnedBeaconCommittee};
 pub use crate::beacon_state::{BeaconTreeHashCache, Error as BeaconStateError, *};
-pub use crate::blob_wrapper::BlobWrapper;
+pub use crate::blobs_sidecar::BlobsSidecar;
 pub use crate::chain_spec::{ChainSpec, Config, Domain};
 pub use crate::checkpoint::Checkpoint;
 pub use crate::config_and_preset::{
@@ -148,7 +150,7 @@ pub use crate::shuffling_id::AttestationShufflingId;
 pub use crate::signed_aggregate_and_proof::SignedAggregateAndProof;
 pub use crate::signed_beacon_block::{
     SignedBeaconBlock, SignedBeaconBlockAltair, SignedBeaconBlockBase, SignedBeaconBlockHash,
-    SignedBeaconBlockMerge, SignedBlindedBeaconBlock,SignedBeaconBlockShanghai
+    SignedBeaconBlockMerge, SignedBlindedBeaconBlock,SignedBeaconBlockCapella
 };
 pub use crate::signed_beacon_block_header::SignedBeaconBlockHeader;
 pub use crate::signed_contribution_and_proof::SignedContributionAndProof;

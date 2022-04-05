@@ -18,8 +18,9 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use store::SyncCommitteeMessage;
 use tokio::sync::mpsc;
 use types::{
-    Attestation, AttesterSlashing, BlobWrapper, EthSpec, ProposerSlashing, SignedAggregateAndProof,
-    SignedBeaconBlock, SignedContributionAndProof, SignedVoluntaryExit, SubnetId, SyncSubnetId,
+    Attestation, AttesterSlashing, BlobsSidecar, EthSpec, ProposerSlashing,
+    SignedAggregateAndProof, SignedBeaconBlock, SignedContributionAndProof, SignedVoluntaryExit,
+    SubnetId, SyncSubnetId,
 };
 
 /// Processes validated messages from the network. It relays necessary data to the syncing thread
@@ -221,7 +222,7 @@ impl<T: BeaconChainTypes> Processor<T> {
         &mut self,
         peer_id: PeerId,
         request_id: RequestId,
-        blob_wrapper: Option<Box<BlobWrapper<T::EthSpec>>>,
+        blob_wrapper: Option<Box<BlobsSidecar<T::EthSpec>>>,
     ) {
         trace!(
             self.log,
@@ -299,7 +300,7 @@ impl<T: BeaconChainTypes> Processor<T> {
         message_id: MessageId,
         peer_id: PeerId,
         peer_client: Client,
-        blob: Box<BlobWrapper<T::EthSpec>>,
+        blob: Box<BlobsSidecar<T::EthSpec>>,
     ) {
         self.send_beacon_processor_work(BeaconWorkEvent::gossip_tx_blob_block(
             message_id,

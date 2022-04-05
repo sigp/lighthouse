@@ -14,7 +14,7 @@ use types::*;
 ///
 /// Utilises lazy-loading from separate storage for its vector fields.
 #[superstruct(
-    variants(Base, Altair, Merge, Shanghai),
+    variants(Base, Altair, Merge, Capella),
     variant_attributes(derive(Debug, PartialEq, Clone, Encode, Decode))
 )]
 #[derive(Debug, PartialEq, Clone, Encode)]
@@ -66,9 +66,9 @@ where
     pub current_epoch_attestations: VariableList<PendingAttestation<T>, T::MaxPendingAttestations>,
 
     // Participation (Altair and later)
-    #[superstruct(only(Altair, Merge, Shanghai))]
+    #[superstruct(only(Altair, Merge, Capella))]
     pub previous_epoch_participation: VariableList<ParticipationFlags, T::ValidatorRegistryLimit>,
-    #[superstruct(only(Altair, Merge, Shanghai))]
+    #[superstruct(only(Altair, Merge, Capella))]
     pub current_epoch_participation: VariableList<ParticipationFlags, T::ValidatorRegistryLimit>,
 
     // Finality
@@ -78,17 +78,17 @@ where
     pub finalized_checkpoint: Checkpoint,
 
     // Inactivity
-    #[superstruct(only(Altair, Merge, Shanghai))]
+    #[superstruct(only(Altair, Merge, Capella))]
     pub inactivity_scores: VariableList<u64, T::ValidatorRegistryLimit>,
 
     // Light-client sync committees
-    #[superstruct(only(Altair, Merge, Shanghai))]
+    #[superstruct(only(Altair, Merge, Capella))]
     pub current_sync_committee: Arc<SyncCommittee<T>>,
-    #[superstruct(only(Altair, Merge, Shanghai))]
+    #[superstruct(only(Altair, Merge, Capella))]
     pub next_sync_committee: Arc<SyncCommittee<T>>,
 
     // Execution
-    #[superstruct(only(Merge, Shanghai))]
+    #[superstruct(only(Merge, Capella))]
     pub latest_execution_payload_header: ExecutionPayloadHeader<T>,
 }
 
@@ -178,11 +178,11 @@ impl<T: EthSpec> PartialBeaconState<T> {
                     latest_execution_payload_header
                 ]
             ),
-            BeaconState::Shanghai(s) => impl_from_state_forgetful!(
+            BeaconState::Capella(s) => impl_from_state_forgetful!(
                 s,
                 outer,
-                Shanghai,
-                PartialBeaconStateShanghai,
+                Capella,
+                PartialBeaconStateCapella,
                 [
                     previous_epoch_participation,
                     current_epoch_participation,
@@ -379,10 +379,10 @@ impl<E: EthSpec> TryInto<BeaconState<E>> for PartialBeaconState<E> {
                     latest_execution_payload_header
                 ]
             ),
-            PartialBeaconState::Shanghai(inner) => impl_try_into_beacon_state!(
+            PartialBeaconState::Capella(inner) => impl_try_into_beacon_state!(
                 inner,
-                Shanghai,
-                BeaconStateShanghai,
+                Capella,
+                BeaconStateCapella,
                 [
                     previous_epoch_participation,
                     current_epoch_participation,

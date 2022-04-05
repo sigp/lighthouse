@@ -667,10 +667,10 @@ impl HttpJsonRpc {
         Ok(response.into())
     }
 
-    async fn get_blob_v1<T: EthSpec>(
+    pub async fn get_blob_v1<T: EthSpec>(
         &self,
         payload_id: PayloadId,
-        versioned_hash: Hash256,
+        versioned_hash: ExecutionBlockHash,
     ) -> Result<BlobDetailsV1, Error> {
         let params = json!([JsonPayloadIdRequest::from(payload_id), versioned_hash]);
 

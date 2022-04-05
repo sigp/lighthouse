@@ -9,12 +9,9 @@ pub use types::{
     Address, EthSpec, ExecutionBlockHash, ExecutionPayload, ExecutionPayloadHeader, FixedVector,
     Hash256, Uint256, VariableList,
 };
-
-pub mod auth;
-use crate::engines::ForkChoiceState;
-pub use types::{Address, EthSpec, ExecutionPayload, Hash256, Uint256};
 use types::{Blob, KZGCommitment};
 
+pub mod auth;
 pub mod http;
 pub mod json_structures;
 
