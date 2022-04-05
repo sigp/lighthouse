@@ -1065,7 +1065,7 @@ pub fn serve<T: BeaconChainTypes>(
      */
 
     // POST beacon/blocks
-    let post_beacon_blinded_blocks = eth1_v1
+    let post_beacon_blinded_blocks = eth_v1
         .and(warp::path("beacon"))
         .and(warp::path("blinded_blocks"))
         .and(warp::path::end())
