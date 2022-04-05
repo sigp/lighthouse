@@ -165,6 +165,10 @@ impl<T: EthSpec> ParentLookup<T> {
         None
     }
 
+    pub fn current_request_hash(&self) -> Hash256 {
+        self.current_parent_request.hash
+    }
+
     #[cfg(test)]
     pub fn failed_attempts(&self) -> u8 {
         self.current_parent_request.failed_attempts

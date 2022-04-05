@@ -52,6 +52,8 @@ pub(crate) struct BlockLookups<T: BeaconChainTypes> {
     /// A hashmap of blocks that are waiting on execution.
     waiting_execution: HashMap<Hash256, SignedBeaconBlock<T::EthSpec>>,
 
+    waiting_blocks: HashMap<Hash256, SignedBeaconBlock<T::EthSpec>>,
+
     /// The logger for the import manager.
     log: Logger,
 }
@@ -64,6 +66,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
             single_block_lookups: Default::default(),
             beacon_processor_send,
             waiting_execution: Default::default(),
+            waiting_blocks: Default::default(),
             log,
         }
     }
@@ -114,6 +117,13 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
     ) {
         let block_root = block.canonical_root();
         let parent_root = block.parent_root();
+
+        debug!(
+            self.log,
+            "Searching for parent";
+            "block_root" => %block_root,
+            "parent_root" => %parent_root,
+        );
         // If this block or it's parent is part of a known failed chain, ignore it.
         if self.failed_chains.contains(&parent_root) || self.failed_chains.contains(&block_root) {
             debug!(self.log, "Block is from a past failed chain. Dropping";
@@ -243,6 +253,8 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
             Ok(Some(block)) => {
                 // Block is correct, send to the beacon processor.
                 let chain_hash = parent_lookup.chain_hash();
+                self.waiting_blocks
+                    .insert(block.canonical_root(), *block.clone());
                 if self
                     .send_block_for_processing(
                         block,
@@ -348,7 +360,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
             .position(|req| req.check_peer_disconnected(peer_id).is_err())
         {
             let parent_lookup = self.parent_queue.remove(pos);
-            trace!(self.log, "Parent lookup's peer disconnected"; &parent_lookup);
+            debug!(self.log, "Parent lookup's peer disconnected"; &parent_lookup);
             self.request_parent(parent_lookup, cx);
         }
     }
@@ -366,7 +378,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         {
             let mut parent_lookup = self.parent_queue.remove(pos);
             parent_lookup.download_failed();
-            trace!(self.log, "Parent lookup request failed"; &parent_lookup);
+            debug!(self.log, "Parent lookup request failed"; &parent_lookup);
             self.request_parent(parent_lookup, cx);
         } else {
             return debug!(self.log, "RPC failure for a parent lookup request that was not found"; "peer_id" => %peer_id);
@@ -565,6 +577,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
             Err(BlockError::ParentUnknown(block)) => {
                 // need to keep looking for parents
                 // add the block back to the queue and continue the search
+                debug!(self.log, "Making recursive parent request"; "block_hash" => %block.canonical_root());
                 parent_lookup.add_block(*block);
                 self.request_parent(parent_lookup, cx);
             }
@@ -598,8 +611,33 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                         "Parent request failed. Execution layer is stalled";
                         "err" => ?e
                     );
-                    // Push the parent_lookup object back into the list
-                    self.parent_queue.push(parent_lookup);
+                    if let Some(block) = self
+                        .waiting_blocks
+                        .remove(&parent_lookup.current_request_hash())
+                    {
+                        parent_lookup.add_block(block);
+                        let chain_hash = parent_lookup.chain_hash();
+                        let blocks = parent_lookup.chain_blocks_clone();
+                        let process_id = ChainSegmentProcessId::ParentLookup(chain_hash);
+
+                        match self
+                            .beacon_processor_send
+                            .try_send(WorkEvent::chain_segment(process_id, blocks))
+                        {
+                            Ok(_) => {
+                                self.parent_queue.push(parent_lookup);
+                            }
+                            Err(e) => {
+                                error!(
+                                    self.log,
+                                    "Failed to send chain segment to processor";
+                                    "error" => ?e
+                                );
+                            }
+                        }
+                    } else {
+                        debug!(self.log, "No processed parent");
+                    }
                 }
                 err => {
                     debug!(self.log,
