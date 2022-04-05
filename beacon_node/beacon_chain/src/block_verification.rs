@@ -1006,21 +1006,25 @@ impl<'a, T: BeaconChainTypes> FullyVerifiedBlock<'a, T> {
         parent: PreProcessingSnapshot<T::EthSpec>,
         chain: &BeaconChain<T>,
     ) -> Result<Self, BlockError<T::EthSpec>> {
-        // Reject any block if its parent is not known to fork choice.
-        //
-        // A block that is not in fork choice is either:
-        //
-        //  - Not yet imported: we should reject this block because we should only import a child
-        //  after its parent has been fully imported.
-        //  - Pre-finalized: if the parent block is _prior_ to finalization, we should ignore it
-        //  because it will revert finalization. Note that the finalized block is stored in fork
-        //  choice, so we will not reject any child of the finalized block (this is relevant during
-        //  genesis).
-        if !chain
-            .fork_choice
-            .read()
-            .contains_block(&block.parent_root())
-        {
+        if let Some(parent) = chain.fork_choice.read().get_block(&block.parent_root()) {
+            // Reject any block where the parent has an invalid payload. It's impossible for a valid
+            // block to descend from an invalid parent.
+            if parent.execution_status.is_invalid() {
+                return Err(BlockError::ParentExecutionPayloadInvalid {
+                    parent_root: block.parent_root(),
+                });
+            }
+        } else {
+            // Reject any block if its parent is not known to fork choice.
+            //
+            // A block that is not in fork choice is either:
+            //
+            //  - Not yet imported: we should reject this block because we should only import a child
+            //  after its parent has been fully imported.
+            //  - Pre-finalized: if the parent block is _prior_ to finalization, we should ignore it
+            //  because it will revert finalization. Note that the finalized block is stored in fork
+            //  choice, so we will not reject any child of the finalized block (this is relevant during
+            //  genesis).
             return Err(BlockError::ParentUnknown(Box::new(block)));
         }
 
