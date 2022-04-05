@@ -47,3 +47,19 @@ jobs:
       - name: Stop local testnet
         run: ./stop_local_testnet.sh
         working-directory: scripts/local_testnet
+
+      - name: Clean-up testnet
+        run: ./clean.sh
+        working-directory: scripts/local_testnet
+
+      - name: Start local testnet with blinded block production
+        run: ./start_local_testnet.sh -p
+        working-directory: scripts/local_testnet
+
+      - name: Print logs for blinded block testnet
+        run: ./print_logs.sh
+        working-directory: scripts/local_testnet
+
+      - name: Stop local testnet with blinded block production
+        run: ./stop_local_testnet.sh
+        working-directory: scripts/local_testnet
