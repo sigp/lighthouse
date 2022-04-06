@@ -1110,7 +1110,7 @@ impl BeaconNodeHttpClient {
     pub async fn get_debug_beacon_states<T: EthSpec>(
         &self,
         state_id: StateId,
-    ) -> Result<Option<ForkVersionedResponse<BeaconState<T>>>, Error> {
+    ) -> Result<Option<ExecutionOptimisticForkVersionedResponse<BeaconState<T>>>, Error> {
         let path = self.get_debug_beacon_states_path(state_id)?;
         self.get_opt(path).await
     }
@@ -1119,7 +1119,7 @@ impl BeaconNodeHttpClient {
     pub async fn get_debug_beacon_states_v1<T: EthSpec>(
         &self,
         state_id: StateId,
-    ) -> Result<Option<ForkVersionedResponse<BeaconState<T>>>, Error> {
+    ) -> Result<Option<ExecutionOptimisticForkVersionedResponse<BeaconState<T>>>, Error> {
         let mut path = self.eth_path(V1)?;
 
         path.path_segments_mut()
@@ -1147,8 +1147,23 @@ impl BeaconNodeHttpClient {
             .transpose()
     }
 
-    /// `GET debug/beacon/heads`
+    /// `GET v2/debug/beacon/heads`
     pub async fn get_debug_beacon_heads(
+        &self,
+    ) -> Result<ExecutionOptimisticResponse<Vec<ChainHeadData>>, Error> {
+        let mut path = self.eth_path(V2)?;
+
+        path.path_segments_mut()
+            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
+            .push("debug")
+            .push("beacon")
+            .push("heads");
+
+        self.get(path).await
+    }
+
+    /// `GET v1/debug/beacon/heads` (LEGACY)
+    pub async fn get_debug_beacon_heads_v1(
         &self,
     ) -> Result<GenericResponse<Vec<ChainHeadData>>, Error> {
         let mut path = self.eth_path(V1)?;
