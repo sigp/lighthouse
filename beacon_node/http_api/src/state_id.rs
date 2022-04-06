@@ -49,11 +49,14 @@ impl StateId {
     }
 
     /// Return the `fork` field of the state identified by `self`.
+    /// Also returns the `execution_optimistic` value of the state.
     pub fn fork<T: BeaconChainTypes>(
         &self,
         chain: &BeaconChain<T>,
-    ) -> Result<Fork, warp::Rejection> {
-        self.map_state(chain, |state| Ok(state.fork()))
+    ) -> Result<(Fork, bool), warp::Rejection> {
+        self.map_state_and_execution_optimistic(chain, |state, execution_optimistic| {
+            Ok((state.fork(), execution_optimistic))
+        })
     }
 
     /// Return the `BeaconState` identified by `self`.
@@ -88,6 +91,7 @@ impl StateId {
     ///
     /// This function will avoid instantiating/copying a new state when `self` points to the head
     /// of the chain.
+    #[allow(dead_code)]
     pub fn map_state<T: BeaconChainTypes, F, U>(
         &self,
         chain: &BeaconChain<T>,
@@ -104,24 +108,65 @@ impl StateId {
         }
     }
 
-    /// Return the `execution_optimistic` value identified by `self`.
+    /// Functions the same as `map_state` but additionally computes the value of
+    /// `execution_optimistic` of the state identified by `self`.
     ///
-    /// Currently, for all operations dependent on the state, the value is determined by the
-    /// optimistic status of the head block.
+    /// This is to avoid re-instantiating `state` unnecessarily.
+    pub fn map_state_and_execution_optimistic<T: BeaconChainTypes, F, U>(
+        &self,
+        chain: &BeaconChain<T>,
+        func: F,
+    ) -> Result<U, warp::Rejection>
+    where
+        F: Fn(&BeaconState<T::EthSpec>, bool) -> Result<U, warp::Rejection>,
+    {
+        let state = match &self.0 {
+            CoreStateId::Head => {
+                chain
+                    .head()
+                    .map_err(warp_utils::reject::beacon_chain_error)?
+                    .beacon_state
+            }
+            _ => self.state(chain)?,
+        };
+
+        let execution_optimistic = match &self.0 {
+            CoreStateId::Genesis => false,
+            CoreStateId::Head
+            | CoreStateId::Slot(_)
+            | CoreStateId::Finalized
+            | CoreStateId::Justified => chain
+                .is_optimistic_head()
+                .map_err(warp_utils::reject::beacon_chain_error)?,
+            CoreStateId::Root(_) => {
+                let state_root = self.root(chain)?;
+                chain
+                    .is_optimistic_block(
+                        &chain
+                            .get_block(&state.get_latest_block_root(state_root))
+                            .map_err(warp_utils::reject::beacon_chain_error)?
+                            .ok_or_else(|| {
+                                warp_utils::reject::custom_not_found(format!(
+                                    "latest block root not found for beacon state at root {}",
+                                    state_root
+                                ))
+                            })?,
+                    )
+                    .map_err(warp_utils::reject::beacon_chain_error)?
+            }
+        };
+
+        func(&state, execution_optimistic)
+    }
+
+    /// Convienience function to compute `execution_optimistic` when `state` is not desired.
     pub fn is_execution_optimistic<T: BeaconChainTypes>(
         &self,
         chain: &BeaconChain<T>,
     ) -> Result<bool, warp::Rejection> {
-        match &self.0 {
-            CoreStateId::Genesis => Ok(false),
-            CoreStateId::Head
-            | CoreStateId::Slot(_)
-            | CoreStateId::Justified
-            | CoreStateId::Finalized
-            | CoreStateId::Root(_) => chain
-                .is_optimistic_head()
-                .map_err(warp_utils::reject::beacon_chain_error),
-        }
+        self.map_state_and_execution_optimistic(chain, |_, execution_optimistic| {
+            Ok(execution_optimistic)
+        })
     }
 }
 
