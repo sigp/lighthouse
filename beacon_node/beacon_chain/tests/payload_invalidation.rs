@@ -11,7 +11,6 @@ use execution_layer::{
 use fork_choice::{Error as ForkChoiceError, InvalidationOperation, PayloadVerificationStatus};
 use proto_array::{Error as ProtoArrayError, ExecutionStatus};
 use slot_clock::SlotClock;
-use std::borrow::Cow;
 use std::time::Duration;
 use task_executor::ShutdownReason;
 use tree_hash::TreeHash;
