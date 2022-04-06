@@ -17,8 +17,9 @@ use state_processing::per_block_processing::{
 use std::fmt::Debug;
 use std::path::Path;
 use types::{
-    Attestation, AttesterSlashing, BeaconBlock, BeaconState, ChainSpec, Deposit, EthSpec, ForkName,
-    FullPayload, ProposerSlashing, SignedVoluntaryExit, SyncAggregate,
+    Attestation, AttesterSlashing, BeaconBlock, BeaconState, BlindedPayload, ChainSpec, Deposit,
+    EthSpec, ExecutionPayload, ForkName, FullPayload, ProposerSlashing, SignedVoluntaryExit,
+    SyncAggregate,
 };
 
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -236,6 +237,40 @@ impl<E: EthSpec> Operation<E> for FullPayload<E> {
 
     fn decode(path: &Path, _spec: &ChainSpec) -> Result<Self, Error> {
         ssz_decode_file(path)
+    }
+
+    fn apply_to(
+        &self,
+        state: &mut BeaconState<E>,
+        spec: &ChainSpec,
+        extra: &Operations<E, Self>,
+    ) -> Result<(), BlockProcessingError> {
+        let valid = extra
+            .execution_metadata
+            .as_ref()
+            .map_or(false, |e| e.execution_valid);
+        if valid {
+            process_execution_payload(state, self, spec)
+        } else {
+            Err(BlockProcessingError::ExecutionInvalid)
+        }
+    }
+}
+impl<E: EthSpec> Operation<E> for BlindedPayload<E> {
+    fn handler_name() -> String {
+        "execution_payload".into()
+    }
+
+    fn filename() -> String {
+        "execution_payload.ssz_snappy".into()
+    }
+
+    fn is_enabled_for_fork(fork_name: ForkName) -> bool {
+        fork_name != ForkName::Base && fork_name != ForkName::Altair
+    }
+
+    fn decode(path: &Path, _spec: &ChainSpec) -> Result<Self, Error> {
+        ssz_decode_file::<ExecutionPayload<E>>(path).map(Into::into)
     }
 
     fn apply_to(
