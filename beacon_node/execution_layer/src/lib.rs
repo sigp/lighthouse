@@ -4,11 +4,18 @@
 //! This crate only provides useful functionality for "The Merge", it does not provide any of the
 //! deposit-contract functionality that the `beacon_node/eth1` crate already provides.
 
+use crate::engine_api::Builder;
+use crate::engines::Builders;
+use crate::payload_cache::PayloadCache;
 use auth::{Auth, JwtKey};
-use engine_api::{Error as ApiError, *};
-use engines::{Engine, EngineError, Engines, ForkChoiceState, Logging};
+use engine_api::Error as ApiError;
+pub use engine_api::*;
+pub use engine_api::{http, http::HttpJsonRpc};
+pub use engines::ForkChoiceState;
+use engines::{Engine, EngineError, Engines, Logging};
 use lru::LruCache;
 use payload_status::process_multiple_payload_statuses;
+pub use payload_status::PayloadStatus;
 use sensitive_url::SensitiveUrl;
 use serde::{Deserialize, Serialize};
 use slog::{crit, debug, error, info, trace, warn, Logger};
@@ -29,13 +36,6 @@ use types::{
     BlindedPayload, BlockType, ChainSpec, Epoch, ExecPayload, ExecutionBlockHash,
     ProposerPreparationData, SignedBeaconBlock, Slot,
 };
-
-use crate::engine_api::Builder;
-use crate::engines::Builders;
-use crate::payload_cache::PayloadCache;
-pub use engine_api::*;
-pub use engine_api::{http, http::HttpJsonRpc};
-pub use payload_status::PayloadStatus;
 
 mod engine_api;
 mod engines;
@@ -190,7 +190,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
                         })
                         .and_then(|ref s| {
                             let secret = JwtKey::from_slice(
-                                &hex::decode(strip_prefix(s))
+                                &hex::decode(strip_prefix(s.trim_end()))
                                     .map_err(|e| format!("Invalid hex string: {:?}", e))?,
                             )?;
                             Ok((secret, p.to_path_buf()))

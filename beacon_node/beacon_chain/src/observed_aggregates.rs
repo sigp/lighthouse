@@ -203,6 +203,7 @@ impl<T: TreeHash + SlotData + Consts, E: EthSpec> ObservedAggregates<T, E> {
     /// Check to see if the `root` of `item` is in self.
     ///
     /// `root` must equal `a.tree_hash_root()`.
+    #[allow(clippy::wrong_self_convention)]
     pub fn is_known(&mut self, item: &T, root: Hash256) -> Result<bool, Error> {
         let index = self.get_set_index(item.get_slot())?;
 

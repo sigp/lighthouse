@@ -315,6 +315,21 @@ impl ProtoArray {
             execution_status: block.execution_status,
         };
 
+        // If the parent has an invalid execution status, return an error before adding the block to
+        // `self`.
+        if let Some(parent_index) = node.parent {
+            let parent = self
+                .nodes
+                .get(parent_index)
+                .ok_or(Error::InvalidNodeIndex(parent_index))?;
+            if parent.execution_status.is_invalid() {
+                return Err(Error::ParentExecutionStatusIsInvalid {
+                    block_root: block.root,
+                    parent_root: parent.root,
+                });
+            }
+        }
+
         self.indices.insert(node.root, node_index);
         self.nodes.push(node.clone());
 
@@ -322,11 +337,28 @@ impl ProtoArray {
             self.maybe_update_best_child_and_descendant(parent_index, node_index)?;
 
             if matches!(block.execution_status, ExecutionStatus::Valid(_)) {
-                self.propagate_execution_payload_validation(parent_index)?;
+                self.propagate_execution_payload_validation_by_index(parent_index)?;
             }
         }
 
         Ok(())
+    }
+
+    /// Updates the `block_root` and all ancestors to have validated execution payloads.
+    ///
+    /// Returns an error if:
+    ///
+    /// - The `block-root` is unknown.
+    /// - Any of the to-be-validated payloads are already invalid.
+    pub fn propagate_execution_payload_validation(
+        &mut self,
+        block_root: Hash256,
+    ) -> Result<(), Error> {
+        let index = *self
+            .indices
+            .get(&block_root)
+            .ok_or(Error::NodeUnknown(block_root))?;
+        self.propagate_execution_payload_validation_by_index(index)
     }
 
     /// Updates the `verified_node_index` and all ancestors to have validated execution payloads.
@@ -335,7 +367,7 @@ impl ProtoArray {
     ///
     /// - The `verified_node_index` is unknown.
     /// - Any of the to-be-validated payloads are already invalid.
-    pub fn propagate_execution_payload_validation(
+    fn propagate_execution_payload_validation_by_index(
         &mut self,
         verified_node_index: usize,
     ) -> Result<(), Error> {
@@ -460,7 +492,7 @@ impl ProtoArray {
 
                         // It might be new knowledge that this block is valid, ensure that it and all
                         // ancestors are marked as valid.
-                        self.propagate_execution_payload_validation(index)?;
+                        self.propagate_execution_payload_validation_by_index(index)?;
                         break;
                     }
                 }

@@ -1,7 +1,7 @@
 [package]
 name = "lcli"
 description = "Lighthouse CLI (modeled after zcli)"
-version = "2.1.5"
+version = "2.2.0"
 authors = ["Paul Hauner <paul@paulhauner.com>"]
 edition = "2021"
 
@@ -33,7 +33,7 @@ lighthouse_version = { path = "../common/lighthouse_version" }
 directory = { path = "../common/directory" }
 account_utils = { path = "../common/account_utils" }
 eth2_wallet = { path = "../crypto/eth2_wallet" }
-web3 = { version = "0.17.0", default-features = false, features = ["http-tls", "signing", "ws-tls-tokio"] }
+web3 = { version = "0.18.0", default-features = false, features = ["http-tls", "signing", "ws-tls-tokio"] }
 eth1_test_rig = { path = "../testing/eth1_test_rig" }
 sensitive_url = { path = "../common/sensitive_url" }
 eth2 = { path = "../common/eth2" }

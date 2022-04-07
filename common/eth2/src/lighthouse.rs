@@ -14,7 +14,7 @@ use reqwest::IntoUrl;
 use serde::{Deserialize, Serialize};
 use ssz::four_byte_option_impl;
 use ssz_derive::{Decode, Encode};
-use store::{AnchorInfo, Split};
+use store::{AnchorInfo, Split, StoreConfig};
 
 pub use attestation_performance::{
     AttestationPerformance, AttestationPerformanceQuery, AttestationPerformanceStatistics,
@@ -334,6 +334,7 @@ impl Eth1Block {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct DatabaseInfo {
     pub schema_version: u64,
+    pub config: StoreConfig,
     pub split: Split,
     pub anchor: Option<AnchorInfo>,
 }

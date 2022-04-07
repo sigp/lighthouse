@@ -9,7 +9,6 @@ use lighthouse_network::{
     Gossipsub, NetworkGlobals,
 };
 use std::sync::Arc;
-use strum::AsStaticRef;
 use strum::IntoEnumIterator;
 use types::EthSpec;
 
@@ -357,12 +356,12 @@ pub fn update_gossip_metrics<T: EthSpec>(
     for client_kind in ClientKind::iter() {
         set_gauge_vec(
             &BEACON_BLOCK_MESH_PEERS_PER_CLIENT,
-            &[&client_kind.to_string()],
+            &[client_kind.as_ref()],
             0_i64,
         );
         set_gauge_vec(
             &BEACON_AGGREGATE_AND_PROOF_MESH_PEERS_PER_CLIENT,
-            &[&client_kind.to_string()],
+            &[client_kind.as_ref()],
             0_i64,
         );
     }
@@ -377,7 +376,7 @@ pub fn update_gossip_metrics<T: EthSpec>(
                             .peers
                             .read()
                             .peer_info(peer_id)
-                            .map(|peer_info| peer_info.client().kind.as_static())
+                            .map(|peer_info| peer_info.client().kind.into())
                             .unwrap_or_else(|| "Unknown");
                         if let Some(v) =
                             get_int_gauge(&BEACON_BLOCK_MESH_PEERS_PER_CLIENT, &[client])
@@ -392,7 +391,7 @@ pub fn update_gossip_metrics<T: EthSpec>(
                             .peers
                             .read()
                             .peer_info(peer_id)
-                            .map(|peer_info| peer_info.client().kind.as_static())
+                            .map(|peer_info| peer_info.client().kind.into())
                             .unwrap_or_else(|| "Unknown");
                         if let Some(v) = get_int_gauge(
                             &BEACON_AGGREGATE_AND_PROOF_MESH_PEERS_PER_CLIENT,

@@ -169,7 +169,7 @@ impl Config {
     /// For more information, see:
     ///
     /// https://github.com/sigp/lighthouse/pull/2843
-    fn get_data_dir(&self) -> PathBuf {
+    pub fn get_data_dir(&self) -> PathBuf {
         let existing_legacy_dir = self.get_existing_legacy_data_dir();
 
         if let Some(legacy_dir) = existing_legacy_dir {

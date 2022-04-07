@@ -68,6 +68,7 @@ impl<T: EthSpec> MockServer<T> {
             previous_request: <_>::default(),
             preloaded_responses,
             static_new_payload_response: <_>::default(),
+            static_forkchoice_updated_response: <_>::default(),
             _phantom: PhantomData,
         });
 
@@ -134,6 +135,7 @@ impl<T: EthSpec> MockServer<T> {
             },
             should_import: true,
         };
+        *self.ctx.static_forkchoice_updated_response.lock() = Some(response.status.clone());
         *self.ctx.static_new_payload_response.lock() = Some(response)
     }
 
@@ -148,6 +150,7 @@ impl<T: EthSpec> MockServer<T> {
             },
             should_import,
         };
+        *self.ctx.static_forkchoice_updated_response.lock() = Some(response.status.clone());
         *self.ctx.static_new_payload_response.lock() = Some(response)
     }
 
@@ -160,6 +163,7 @@ impl<T: EthSpec> MockServer<T> {
             },
             should_import: true,
         };
+        *self.ctx.static_forkchoice_updated_response.lock() = Some(response.status.clone());
         *self.ctx.static_new_payload_response.lock() = Some(response)
     }
 
@@ -248,6 +252,7 @@ pub struct Context<T: EthSpec> {
     pub preloaded_responses: Arc<Mutex<Vec<serde_json::Value>>>,
     pub previous_request: Arc<Mutex<Option<serde_json::Value>>>,
     pub static_new_payload_response: Arc<Mutex<Option<StaticNewPayloadResponse>>>,
+    pub static_forkchoice_updated_response: Arc<Mutex<Option<PayloadStatusV1>>>,
     pub _phantom: PhantomData<T>,
 }
 

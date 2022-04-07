@@ -42,23 +42,23 @@ fn random_test(seed: u64, test_config: TestConfig) {
     let tempdir = tempdir().unwrap();
 
     let mut config = Config::new(tempdir.path().into());
-    config.validator_chunk_size = 1 << rng.gen_range(1, 4);
+    config.validator_chunk_size = 1 << rng.gen_range(1..4);
 
-    let chunk_size_exponent = rng.gen_range(1, 4);
+    let chunk_size_exponent = rng.gen_range(1..4);
     config.chunk_size = 1 << chunk_size_exponent;
-    config.history_length = 1 << rng.gen_range(chunk_size_exponent, chunk_size_exponent + 3);
+    config.history_length = 1 << rng.gen_range(chunk_size_exponent..chunk_size_exponent + 3);
 
     let slasher = Slasher::<E>::open(config.clone(), test_logger()).unwrap();
 
     let validators = (0..num_validators as u64).collect::<Vec<u64>>();
 
-    let num_attestations = rng.gen_range(2, max_attestations + 1);
+    let num_attestations = rng.gen_range(2..max_attestations + 1);
 
     let mut current_epoch = Epoch::new(0);
     let mut attestations = vec![];
 
     for _ in 0..num_attestations {
-        let num_attesters = rng.gen_range(1, num_validators);
+        let num_attesters = rng.gen_range(1..num_validators);
         let mut attesting_indices = validators
             .choose_multiple(&mut rng, num_attesters)
             .copied()
@@ -70,17 +70,17 @@ fn random_test(seed: u64, test_config: TestConfig) {
             let source = rng.gen_range(
                 current_epoch
                     .as_u64()
-                    .saturating_sub(config.history_length as u64 - 1),
-                current_epoch.as_u64() + 1,
+                    .saturating_sub(config.history_length as u64 - 1)
+                    ..current_epoch.as_u64() + 1,
             );
-            let target = rng.gen_range(source, current_epoch.as_u64() + 1);
+            let target = rng.gen_range(source..current_epoch.as_u64() + 1);
             (source, target)
         } else {
-            let source = rng.gen_range(0, max(3 * current_epoch.as_u64(), 1));
-            let target = rng.gen_range(source, max(3 * current_epoch.as_u64(), source + 1));
+            let source = rng.gen_range(0..max(3 * current_epoch.as_u64(), 1));
+            let target = rng.gen_range(source..max(3 * current_epoch.as_u64(), source + 1));
             (source, target)
         };
-        let target_root = rng.gen_range(0, 3);
+        let target_root = rng.gen_range(0..3);
         let attestation = indexed_att(&attesting_indices, source, target, target_root);
 
         if check_slashings {
@@ -92,9 +92,9 @@ fn random_test(seed: u64, test_config: TestConfig) {
 
         // Maybe add a random block too
         if test_config.add_blocks && rng.gen_bool(0.1) {
-            let slot = rng.gen_range(0, 1 + 3 * current_epoch.as_u64() * E::slots_per_epoch() / 2);
-            let proposer = rng.gen_range(0, num_validators as u64);
-            let block_root = rng.gen_range(0, 2);
+            let slot = rng.gen_range(0..1 + 3 * current_epoch.as_u64() * E::slots_per_epoch() / 2);
+            let proposer = rng.gen_range(0..num_validators as u64);
+            let block_root = rng.gen_range(0..2);
             slasher.accept_block_header(block(slot, proposer, block_root));
         }
 
