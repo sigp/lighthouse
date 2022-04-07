@@ -10,7 +10,7 @@ DEBUG_LEVEL=${DEBUG_LEVEL:-info}
 PRIVATE_TX_PROPOSALS=
 
 # Get options
-while getopts "v:d:p:h" flag; do
+while getopts "v:d:ph" flag; do
   case "${flag}" in
     v) VC_COUNT=${OPTARG};;
     d) DEBUG_LEVEL=${OPTARG};;
