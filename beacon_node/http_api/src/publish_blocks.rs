@@ -15,6 +15,7 @@ use types::{
 };
 use warp::Rejection;
 
+/// Handles a request from the HTTP API for full blocks.
 pub fn publish_block<T: BeaconChainTypes>(
     block: SignedBeaconBlock<T::EthSpec>,
     chain: Arc<BeaconChain<T>>,
@@ -100,6 +101,8 @@ pub fn publish_block<T: BeaconChainTypes>(
     }
 }
 
+/// Handles a request from the HTTP API for blinded blocks. This converts blinded blocks into full
+/// blocks before publishing.
 pub fn publish_blinded_block<T: BeaconChainTypes>(
     block: SignedBeaconBlock<T::EthSpec, BlindedPayload<T::EthSpec>>,
     chain: Arc<BeaconChain<T>>,
@@ -110,6 +113,9 @@ pub fn publish_blinded_block<T: BeaconChainTypes>(
     publish_block::<T>(full_block, chain, network_tx, log)
 }
 
+/// Deconstruct the given blinded block, and construct a full block. This attempts to use the
+/// execution layer's payload cache, and if that misses, attempts a blind block proposal to retrieve
+/// the full payload.
 fn reconstruct_block<T: BeaconChainTypes>(
     chain: Arc<BeaconChain<T>>,
     block: SignedBeaconBlock<T::EthSpec, BlindedPayload<T::EthSpec>>,
@@ -236,14 +242,19 @@ fn reconstruct_block<T: BeaconChainTypes>(
                 warp_utils::reject::custom_server_error("Missing execution layer".to_string())
             })?;
 
+            // If we already have an execution payload with this transactions root cached, use it.
             let full_payload = if let Some(cached_payload) = el.get_payload_by_tx_root(
                 &execution_payload.execution_payload_header.transactions_root,
             ) {
                 cached_payload
             } else {
+                // Otherwise, this likely means we are attempting a blind block proposal.
                 el.block_on(|el| el.propose_blinded_beacon_block(&block_clone))
                     .map_err(|e| {
-                        warp_utils::reject::custom_server_error(format!("proposal failed: {:?}", e))
+                        warp_utils::reject::custom_server_error(format!(
+                            "Blind block proposal failed: {:?}",
+                            e
+                        ))
                     })?
             };
 

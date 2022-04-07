@@ -276,10 +276,12 @@ impl<T: EthSpec> ExecutionLayer<T> {
         !self.inner.builders.builders.is_empty()
     }
 
+    /// Cache a full payload, keyed on the `tree_hash_root` of its `transactions` field.
     fn cache_payload(&self, payload: &ExecutionPayload<T>) -> Option<ExecutionPayload<T>> {
         self.inner.payload_cache.put(payload.clone())
     }
 
+    /// Attempt to retrieve a full payload from the payload cache by the `transactions_root`.
     pub fn get_payload_by_tx_root(&self, tx_root: &Hash256) -> Option<ExecutionPayload<T>> {
         self.inner.payload_cache.pop(tx_root)
     }
@@ -590,15 +592,14 @@ impl<T: EthSpec> ExecutionLayer<T> {
         finalized_block_hash: ExecutionBlockHash,
         proposer_index: u64,
     ) -> Result<Payload, Error> {
-        let _timer = metrics::start_timer_vec(
-            &metrics::EXECUTION_LAYER_REQUEST_TIMES,
-            &[metrics::GET_PAYLOAD],
-        );
-
         let suggested_fee_recipient = self.get_suggested_fee_recipient(proposer_index).await;
 
         match Payload::block_type() {
             BlockType::Blinded => {
+                let _timer = metrics::start_timer_vec(
+                    &metrics::EXECUTION_LAYER_REQUEST_TIMES,
+                    &[metrics::GET_BLINDED_PAYLOAD],
+                );
                 self.get_blinded_payload(
                     parent_hash,
                     timestamp,
@@ -609,6 +610,10 @@ impl<T: EthSpec> ExecutionLayer<T> {
                 .await
             }
             BlockType::Full => {
+                let _timer = metrics::start_timer_vec(
+                    &metrics::EXECUTION_LAYER_REQUEST_TIMES,
+                    &[metrics::GET_PAYLOAD],
+                );
                 self.get_full_payload(
                     parent_hash,
                     timestamp,
@@ -693,6 +698,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
         }
     }
 
+    /// Get a full payload without caching its result in the execution layer's payload cache.
     async fn get_full_payload<Payload: ExecPayload<T>>(
         &self,
         parent_hash: ExecutionBlockHash,
@@ -712,6 +718,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
         .await
     }
 
+    /// Get a full payload and cache its result in the execution layer's payload cache.
     async fn get_full_payload_caching<Payload: ExecPayload<T>>(
         &self,
         parent_hash: ExecutionBlockHash,
