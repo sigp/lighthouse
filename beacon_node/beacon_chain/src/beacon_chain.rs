@@ -1459,6 +1459,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         }
     }
 
+    /// Returns `Ok(attestation)` if the supplied `attestation` references a valid
+    /// `beacon_block_root`.
     fn filter_optimistic_attestation(
         &self,
         attestation: Attestation<T::EthSpec>,
