@@ -118,6 +118,26 @@ pub fn max_rpc_size(fork_context: &ForkContext) -> usize {
     }
 }
 
+/// Returns the rpc limits for beacon_block_by_range and beacon_block_by_root responses.
+///
+/// Note: This function should take care to return the min/max limits accounting for all
+/// previous valid forks when adding a new fork variant.
+pub fn rpc_block_limits_by_fork(current_fork: ForkName) -> RpcLimits {
+    match &current_fork {
+        ForkName::Base => {
+            RpcLimits::new(*SIGNED_BEACON_BLOCK_BASE_MIN, *SIGNED_BEACON_BLOCK_BASE_MAX)
+        }
+        ForkName::Altair => RpcLimits::new(
+            *SIGNED_BEACON_BLOCK_BASE_MIN, // Base block is smaller than altair blocks
+            *SIGNED_BEACON_BLOCK_ALTAIR_MAX, // Altair block is larger than base blocks
+        ),
+        ForkName::Merge => RpcLimits::new(
+            *SIGNED_BEACON_BLOCK_BASE_MIN, // Base block is smaller than altair and merge blocks
+            *SIGNED_BEACON_BLOCK_MERGE_MAX, // Merge block is larger than base and altair blocks
+        ),
+    }
+}
+
 /// Protocol names to be used.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Protocol {
@@ -281,32 +301,8 @@ impl ProtocolId {
                 <StatusMessage as Encode>::ssz_fixed_len(),
             ),
             Protocol::Goodbye => RpcLimits::new(0, 0), // Goodbye request has no response
-            Protocol::BlocksByRange => match fork_context.current_fork() {
-                ForkName::Base => {
-                    RpcLimits::new(*SIGNED_BEACON_BLOCK_BASE_MIN, *SIGNED_BEACON_BLOCK_BASE_MAX)
-                }
-                ForkName::Altair => RpcLimits::new(
-                    *SIGNED_BEACON_BLOCK_ALTAIR_MIN,
-                    *SIGNED_BEACON_BLOCK_ALTAIR_MAX,
-                ),
-                ForkName::Merge => RpcLimits::new(
-                    *SIGNED_BEACON_BLOCK_MERGE_MIN,
-                    *SIGNED_BEACON_BLOCK_MERGE_MAX,
-                ),
-            },
-            Protocol::BlocksByRoot => match fork_context.current_fork() {
-                ForkName::Base => {
-                    RpcLimits::new(*SIGNED_BEACON_BLOCK_BASE_MIN, *SIGNED_BEACON_BLOCK_BASE_MAX)
-                }
-                ForkName::Altair => RpcLimits::new(
-                    *SIGNED_BEACON_BLOCK_ALTAIR_MIN,
-                    *SIGNED_BEACON_BLOCK_ALTAIR_MAX,
-                ),
-                ForkName::Merge => RpcLimits::new(
-                    *SIGNED_BEACON_BLOCK_MERGE_MIN,
-                    *SIGNED_BEACON_BLOCK_MERGE_MAX,
-                ),
-            },
+            Protocol::BlocksByRange => rpc_block_limits_by_fork(fork_context.current_fork()),
+            Protocol::BlocksByRoot => rpc_block_limits_by_fork(fork_context.current_fork()),
 
             Protocol::Ping => RpcLimits::new(
                 <Ping as Encode>::ssz_fixed_len(),
