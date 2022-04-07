@@ -4,11 +4,17 @@
 //! This crate only provides useful functionality for "The Merge", it does not provide any of the
 //! deposit-contract functionality that the `beacon_node/eth1` crate already provides.
 
+use crate::engine_api::Builder;
+use crate::engines::Builders;
 use auth::{Auth, JwtKey};
-use engine_api::{Error as ApiError, *};
-use engines::{Engine, EngineError, Engines, ForkChoiceState, Logging};
+use engine_api::Error as ApiError;
+pub use engine_api::*;
+pub use engine_api::{http, http::HttpJsonRpc};
+pub use engines::ForkChoiceState;
+use engines::{Engine, EngineError, Engines, Logging};
 use lru::LruCache;
 use payload_status::process_multiple_payload_statuses;
+pub use payload_status::PayloadStatus;
 use sensitive_url::SensitiveUrl;
 use serde::{Deserialize, Serialize};
 use slog::{crit, debug, error, info, trace, Logger};
@@ -29,12 +35,6 @@ use types::{
     BlindedPayload, BlockType, ChainSpec, Epoch, ExecPayload, ExecutionBlockHash,
     ProposerPreparationData, SignedBeaconBlock, Slot,
 };
-
-use crate::engine_api::Builder;
-use crate::engines::Builders;
-pub use engine_api::*;
-pub use engine_api::{http, http::HttpJsonRpc};
-pub use payload_status::PayloadStatus;
 
 mod engine_api;
 mod engines;

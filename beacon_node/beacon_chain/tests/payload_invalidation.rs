@@ -6,7 +6,8 @@ use beacon_chain::{
     WhenSlotSkipped, INVALID_JUSTIFIED_PAYLOAD_SHUTDOWN_REASON,
 };
 use execution_layer::{
-    json_structures::JsonPayloadAttributesV1, ExecutionLayer, PayloadAttributes,
+    json_structures::{JsonForkChoiceStateV1, JsonPayloadAttributesV1},
+    ExecutionLayer, ForkChoiceState, PayloadAttributes,
 };
 use fork_choice::{Error as ForkChoiceError, InvalidationOperation, PayloadVerificationStatus};
 use proto_array::{Error as ProtoArrayError, ExecutionStatus};
@@ -95,17 +96,28 @@ impl InvalidPayloadRig {
         self.harness.chain.head_info().unwrap()
     }
 
-    fn previous_payload_attributes(&self) -> PayloadAttributes {
+    fn previous_forkchoice_update_params(&self) -> (ForkChoiceState, PayloadAttributes) {
         let mock_execution_layer = self.harness.mock_execution_layer.as_ref().unwrap();
         let json = mock_execution_layer
             .server
             .take_previous_request()
             .expect("no previous request");
         let params = json.get("params").expect("no params");
+
+        let fork_choice_state_json = params.get(0).expect("no payload param");
+        let fork_choice_state: JsonForkChoiceStateV1 =
+            serde_json::from_value(fork_choice_state_json.clone()).unwrap();
+
         let payload_param_json = params.get(1).expect("no payload param");
         let attributes: JsonPayloadAttributesV1 =
             serde_json::from_value(payload_param_json.clone()).unwrap();
-        attributes.into()
+
+        (fork_choice_state.into(), attributes.into())
+    }
+
+    fn previous_payload_attributes(&self) -> PayloadAttributes {
+        let (_, payload_attributes) = self.previous_forkchoice_update_params();
+        payload_attributes
     }
 
     fn move_to_terminal_block(&self) {
@@ -115,6 +127,16 @@ impl InvalidPayloadRig {
             .execution_block_generator()
             .move_to_terminal_block()
             .unwrap();
+    }
+
+    fn latest_execution_block_hash(&self) -> ExecutionBlockHash {
+        let mock_execution_layer = self.harness.mock_execution_layer.as_ref().unwrap();
+        mock_execution_layer
+            .server
+            .execution_block_generator()
+            .latest_execution_block()
+            .unwrap()
+            .block_hash
     }
 
     fn build_blocks(&mut self, num_blocks: u64, is_valid: Payload) -> Vec<Hash256> {
@@ -809,4 +831,57 @@ fn invalid_parent() {
             }
         ))
     ));
+}
+
+/// Tests to ensure that we will still send a proposer preparation
+#[test]
+fn payload_preparation_before_transition_block() {
+    let rig = InvalidPayloadRig::new();
+    let el = rig.execution_layer();
+
+    let head = rig.harness.chain.head().unwrap();
+    let head_info = rig.head_info();
+    assert!(
+        !head_info.is_merge_transition_complete,
+        "the head block is pre-transition"
+    );
+    assert_eq!(
+        head_info.execution_payload_block_hash,
+        Some(ExecutionBlockHash::zero()),
+        "the head block is post-bellatrix"
+    );
+
+    let current_slot = rig.harness.chain.slot().unwrap();
+    let next_slot = current_slot + 1;
+    let proposer = head
+        .beacon_state
+        .get_beacon_proposer_index(next_slot, &rig.harness.chain.spec)
+        .unwrap();
+    let fee_recipient = Address::repeat_byte(99);
+
+    // Provide preparation data to the EL for `proposer`.
+    el.update_proposer_preparation_blocking(
+        Epoch::new(0),
+        &[ProposerPreparationData {
+            validator_index: proposer as u64,
+            fee_recipient,
+        }],
+    )
+    .unwrap();
+
+    rig.move_to_terminal_block();
+
+    rig.harness
+        .chain
+        .prepare_beacon_proposer_blocking()
+        .unwrap();
+    rig.harness
+        .chain
+        .update_execution_engine_forkchoice_blocking(current_slot)
+        .unwrap();
+
+    let (fork_choice_state, payload_attributes) = rig.previous_forkchoice_update_params();
+    let latest_block_hash = rig.latest_execution_block_hash();
+    assert_eq!(payload_attributes.suggested_fee_recipient, fee_recipient);
+    assert_eq!(fork_choice_state.head_block_hash, latest_block_hash);
 }

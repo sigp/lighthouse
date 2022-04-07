@@ -3481,9 +3481,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .beacon_state
             .attester_shuffling_decision_root(self.genesis_block_root, RelativeEpoch::Current);
 
-        // Used later for the execution engine.
-        let is_merge_transition_complete = is_merge_transition_complete(&new_head.beacon_state);
-
         drop(lag_timer);
 
         // Clear the early attester cache in case it conflicts with `self.canonical_head`.
@@ -3690,32 +3687,28 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             }
         }
 
-        // If this is a post-merge block, update the execution layer.
-        if is_merge_transition_complete {
-            let current_slot = self.slot()?;
+        // Update the execution layer.
+        if let Err(e) = self.update_execution_engine_forkchoice_blocking(self.slot()?) {
+            crit!(
+                self.log,
+                "Failed to update execution head";
+                "error" => ?e
+            );
+        }
 
-            if let Err(e) = self.update_execution_engine_forkchoice_blocking(current_slot) {
-                crit!(
-                    self.log,
-                    "Failed to update execution head";
-                    "error" => ?e
-                );
-            }
-
-            // Performing this call immediately after
-            // `update_execution_engine_forkchoice_blocking` might result in two calls to fork
-            // choice updated, one *without* payload attributes and then a second *with*
-            // payload attributes.
-            //
-            // This seems OK. It's not a significant waste of EL<>CL bandwidth or resources, as
-            // far as I know.
-            if let Err(e) = self.prepare_beacon_proposer_blocking() {
-                crit!(
-                    self.log,
-                    "Failed to prepare proposers after fork choice";
-                    "error" => ?e
-                );
-            }
+        // Performing this call immediately after
+        // `update_execution_engine_forkchoice_blocking` might result in two calls to fork
+        // choice updated, one *without* payload attributes and then a second *with*
+        // payload attributes.
+        //
+        // This seems OK. It's not a significant waste of EL<>CL bandwidth or resources, as
+        // far as I know.
+        if let Err(e) = self.prepare_beacon_proposer_blocking() {
+            crit!(
+                self.log,
+                "Failed to prepare proposers after fork choice";
+                "error" => ?e
+            );
         }
 
         Ok(())
@@ -3745,6 +3738,19 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// 2. The head block is one slot (or less) behind the prepare slot (e.g., we're preparing for
     ///    the next slot and the block at the current slot is already known).
     pub async fn prepare_beacon_proposer_async(&self) -> Result<(), Error> {
+        let current_slot = self.slot()?;
+        let prepare_slot = current_slot + 1;
+        let prepare_epoch = prepare_slot.epoch(T::EthSpec::slots_per_epoch());
+
+        // There's no need to run the proposer preparation routine before the bellatrix fork.
+        if self
+            .spec
+            .bellatrix_fork_epoch
+            .map_or(true, |bellatrix| prepare_epoch < bellatrix)
+        {
+            return Ok(());
+        }
+
         let execution_layer = self
             .execution_layer
             .clone()
@@ -3757,7 +3763,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         }
 
         let head = self.head_info()?;
-        let current_slot = self.slot()?;
+        let head_epoch = head.slot.epoch(T::EthSpec::slots_per_epoch());
 
         // Don't bother with proposer prep if the head is more than
         // `PREPARE_PROPOSER_HISTORIC_EPOCHS` prior to the current slot.
@@ -3774,19 +3780,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             );
             return Ok(());
         }
-
-        // We only start to push preparation data for some chain *after* the transition block
-        // has been imported.
-        //
-        // There is no payload preparation for the transition block (i.e., the first block with
-        // execution enabled in some chain).
-        if head.execution_payload_block_hash.is_none() {
-            return Ok(());
-        };
-
-        let head_epoch = head.slot.epoch(T::EthSpec::slots_per_epoch());
-        let prepare_slot = current_slot + 1;
-        let prepare_epoch = prepare_slot.epoch(T::EthSpec::slots_per_epoch());
 
         // Ensure that the shuffling decision root is correct relative to the epoch we wish to
         // query.
@@ -3968,6 +3961,23 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         &self,
         current_slot: Slot,
     ) -> Result<(), Error> {
+        let next_slot = current_slot + 1;
+
+        // There is no need to issue a `forkchoiceUpdated` (fcU) message unless the Bellatrix fork
+        // has:
+        //
+        // 1. Already happened.
+        // 2. Will happen in the next slot.
+        //
+        // The reason for a fcU message in the slot prior to the Bellatrix fork is in case the
+        // terminal difficulty has already been reached and a payload preparation message needs to
+        // be issued.
+        if self.spec.bellatrix_fork_epoch.map_or(true, |bellatrix| {
+            next_slot.epoch(T::EthSpec::slots_per_epoch()) < bellatrix
+        }) {
+            return Ok(());
+        }
+
         let execution_layer = self
             .execution_layer
             .as_ref()
@@ -3994,29 +4004,69 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // We are taking the `self.fork_choice` lock whilst holding the `forkchoice_lock`. This
         // is intentional, since it allows us to ensure a consistent ordering of messages to the
         // execution layer.
-        let (head_block_root, head_hash, finalized_hash) =
-            if let Some(params) = self.fork_choice.read().get_forkchoice_update_parameters() {
-                if let Some(head_hash) = params.head_hash {
-                    (
-                        params.head_root,
-                        head_hash,
-                        params
-                            .finalized_hash
-                            .unwrap_or_else(ExecutionBlockHash::zero),
-                    )
-                } else {
-                    // The head block does not have an execution block hash, there is no need to
-                    // send an update to the EL.
-                    return Ok(());
-                }
+        let forkchoice_update_parameters =
+            self.fork_choice.read().get_forkchoice_update_parameters();
+        let (head_block_root, head_hash, finalized_hash) = if let Some(params) =
+            forkchoice_update_parameters
+        {
+            if let Some(head_hash) = params.head_hash {
+                (
+                    params.head_root,
+                    head_hash,
+                    params
+                        .finalized_hash
+                        .unwrap_or_else(ExecutionBlockHash::zero),
+                )
             } else {
-                warn!(
-                    self.log,
-                    "Missing forkchoice params";
-                    "msg" => "please report this non-critical bug"
-                );
-                return Ok(());
-            };
+                // The head block does not have an execution block hash. We must check to see if we
+                // happen to be the proposer of the transition block, in which case we still need to
+                // send forkchoice_updated.
+                match self.spec.fork_name_at_slot::<T::EthSpec>(next_slot) {
+                    // We are pre-bellatrix; no need to update the EL.
+                    ForkName::Base | ForkName::Altair => return Ok(()),
+                    _ => {
+                        // We are post-bellatrix
+                        if execution_layer
+                            .payload_attributes(next_slot, params.head_root)
+                            .await
+                            .is_some()
+                        {
+                            // We are a proposer, check for terminal_pow_block_hash
+                            if let Some(terminal_pow_block_hash) = execution_layer
+                                .get_terminal_pow_block_hash(&self.spec)
+                                .await
+                                .map_err(Error::ForkchoiceUpdate)?
+                            {
+                                info!(
+                                    self.log,
+                                    "Prepared POS transition block proposer"; "slot" => next_slot
+                                );
+                                (
+                                    params.head_root,
+                                    terminal_pow_block_hash,
+                                    params
+                                        .finalized_hash
+                                        .unwrap_or_else(ExecutionBlockHash::zero),
+                                )
+                            } else {
+                                // TTD hasn't been reached yet, no need to update the EL.
+                                return Ok(());
+                            }
+                        } else {
+                            // We are not a proposer, no need to update the EL.
+                            return Ok(());
+                        }
+                    }
+                }
+            }
+        } else {
+            warn!(
+                self.log,
+                "Missing forkchoice params";
+                "msg" => "please report this non-critical bug"
+            );
+            return Ok(());
+        };
 
         let forkchoice_updated_response = self
             .execution_layer
