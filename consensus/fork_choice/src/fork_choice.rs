@@ -679,7 +679,9 @@ where
             } else {
                 match payload_verification_status {
                     PayloadVerificationStatus::Verified => ExecutionStatus::Valid(block_hash),
-                    PayloadVerificationStatus::NotVerified => ExecutionStatus::Unknown(block_hash),
+                    PayloadVerificationStatus::NotVerified => {
+                        ExecutionStatus::Optimistic(block_hash)
+                    }
                     // It would be a logic error to declare a block irrelevant if it has an
                     // execution payload with a non-zero block hash.
                     PayloadVerificationStatus::Irrelevant => {

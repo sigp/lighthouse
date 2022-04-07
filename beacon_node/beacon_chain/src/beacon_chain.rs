@@ -1429,26 +1429,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     pub fn get_aggregated_attestation(
         &self,
         data: &AttestationData,
-    ) -> Option<Attestation<T::EthSpec>> {
-        let attestation = self.naive_aggregation_pool.read().get(data)?;
-
-        // Only return an aggregate for a block if it is fully verified (i.e. not optimistic).
-        //
-        // If the head *is* optimistic, return an error without producing an aggregate.
-        //
-        // Since we read the execution status from fork choice, we will not return an aggregate if
-        // it attests to a finalized block. Aggregates that attest to pre-finalized blocks are not
-        // useful to the network and should very rarely occur.
-        let beacon_block_root = attestation.data.beacon_block_root;
-        if self
-            .fork_choice
-            .read()
-            .get_block_execution_status(&beacon_block_root)
-            .map_or(true, |execution_status| execution_status.is_not_verified())
-        {
-            None
+    ) -> Result<Option<Attestation<T::EthSpec>>, Error> {
+        if let Some(attestation) = self.naive_aggregation_pool.read().get(data) {
+            self.filter_optimistic_attestation(attestation)
+                .map(Option::Some)
         } else {
-            Some(attestation)
+            Ok(None)
         }
     }
 
@@ -1460,29 +1446,40 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         &self,
         slot: Slot,
         attestation_data_root: &Hash256,
-    ) -> Option<Attestation<T::EthSpec>> {
-        let attestation = self
+    ) -> Result<Option<Attestation<T::EthSpec>>, Error> {
+        if let Some(attestation) = self
             .naive_aggregation_pool
             .read()
-            .get_by_slot_and_root(slot, attestation_data_root)?;
+            .get_by_slot_and_root(slot, attestation_data_root)
+        {
+            self.filter_optimistic_attestation(attestation)
+                .map(Option::Some)
+        } else {
+            Ok(None)
+        }
+    }
 
-        // Only return an aggregate for a block if it is fully verified (i.e. not optimistic).
-        //
-        // If the head *is* optimistic, return an error without producing an aggregate.
-        //
-        // Since we read the execution status from fork choice, we will not return an aggregate if
-        // it attests to a finalized block. Aggregates that attest to pre-finalized blocks are not
-        // useful to the network and should very rarely occur.
+    fn filter_optimistic_attestation(
+        &self,
+        attestation: Attestation<T::EthSpec>,
+    ) -> Result<Attestation<T::EthSpec>, Error> {
         let beacon_block_root = attestation.data.beacon_block_root;
-        if self
+        match self
             .fork_choice
             .read()
             .get_block_execution_status(&beacon_block_root)
-            .map_or(true, |execution_status| execution_status.is_not_verified())
         {
-            None
-        } else {
-            Some(attestation)
+            // The attestation references a block that is not in fork choice, it must be
+            // pre-finalization.
+            None => Err(Error::CannotAttestToFinalizedBlock { beacon_block_root }),
+            // The attestation references a fully valid `beacon_block_root`.
+            Some(execution_status) if execution_status.is_valid_or_irrelevant() => Ok(attestation),
+            // The attestation references a block that has not been verified by an EL (i.e. it
+            // is optimistic or invalid). Don't return the block, return an error instead.
+            Some(execution_status) => Err(Error::HeadBlockNotFullyVerified {
+                beacon_block_root,
+                execution_status,
+            }),
         }
     }
 
@@ -1637,18 +1634,21 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         }
         drop(head_timer);
 
-        // Only attest to a block if it is fully verified (i.e. not optimistic).
-        //
-        // If the head *is* optimistic, return an error without producing an attestation.
-        if self
+        // Only attest to a block if it is fully verified (i.e. not optimistic or invalid).
+        match self
             .fork_choice
             .read()
             .get_block_execution_status(&beacon_block_root)
-            .ok_or(Error::HeadMissingFromForkChoice(beacon_block_root))?
-            .is_not_verified()
         {
-            return Err(Error::CannotAttestToOptimisticHead { beacon_block_root });
-        }
+            Some(execution_status) if execution_status.is_valid_or_irrelevant() => (),
+            Some(execution_status) => {
+                return Err(Error::HeadBlockNotFullyVerified {
+                    beacon_block_root,
+                    execution_status,
+                })
+            }
+            None => return Err(Error::HeadMissingFromForkChoice(beacon_block_root)),
+        };
 
         /*
          *  Phase 2/2:
@@ -4124,7 +4124,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let status = match head_block.execution_status {
             ExecutionStatus::Valid(block_hash) => HeadSafetyStatus::Safe(Some(block_hash)),
             ExecutionStatus::Invalid(block_hash) => HeadSafetyStatus::Invalid(block_hash),
-            ExecutionStatus::Unknown(block_hash) => HeadSafetyStatus::Unsafe(block_hash),
+            ExecutionStatus::Optimistic(block_hash) => HeadSafetyStatus::Unsafe(block_hash),
             ExecutionStatus::Irrelevant(_) => HeadSafetyStatus::Safe(None),
         };
 
