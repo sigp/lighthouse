@@ -410,6 +410,7 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
         info!(
             log,
             "Successfully published block";
+            "block_type" => ?Payload::block_type(),
             "deposits" => signed_block.message().body().deposits().len(),
             "attestations" => signed_block.message().body().attestations().len(),
             "graffiti" => ?graffiti.map(|g| g.as_utf8_lossy()),

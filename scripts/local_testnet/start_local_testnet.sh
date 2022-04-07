@@ -14,7 +14,7 @@ while getopts "v:d:ph" flag; do
   case "${flag}" in
     v) VC_COUNT=${OPTARG};;
     d) DEBUG_LEVEL=${OPTARG};;
-    d) PRIVATE_TX_PROPOSALS="-p";;
+    p) PRIVATE_TX_PROPOSALS="-p";;
     h)
         validators=$(( $VALIDATOR_COUNT / $BN_COUNT ))
         echo "Start local testnet, defaults: 1 eth1 node, $BN_COUNT beacon nodes,"
@@ -116,7 +116,7 @@ done
 
 # Start requested number of validator clients
 for (( vc=1; vc<=$VC_COUNT; vc++ )); do
-    execute_command_add_PID validator_node_$vc.log ./validator_client.sh $PRIVATE_TX_PROPOSALS $DATADIR/node_$vc http://localhost:$((BN_http_port_base + $vc)) $DEBUG_LEVEL
+    execute_command_add_PID validator_node_$vc.log ./validator_client.sh $PRIVATE_TX_PROPOSALS -d $DEBUG_LEVEL $DATADIR/node_$vc http://localhost:$((BN_http_port_base + $vc))
 done
 
 echo "Started!"

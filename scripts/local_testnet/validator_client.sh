@@ -10,14 +10,15 @@ set -Eeuo pipefail
 
 source ./vars.env
 
-DEBUG_LEVEL=${3:-info}
+DEBUG_LEVEL=info
 
 PRIVATE_TX_PROPOSALS=
 
 # Get options
-while getopts "p" flag; do
+while getopts "pd:" flag; do
   case "${flag}" in
     p) PRIVATE_TX_PROPOSALS="--private-tx-proposals";;
+    d) DEBUG_LEVEL=${OPTARG};;
   esac
 done
 
@@ -25,8 +26,8 @@ exec lighthouse \
 	--debug-level $DEBUG_LEVEL \
 	vc \
 	$PRIVATE_TX_PROPOSALS \
-	--datadir $1 \
+	--datadir ${@:$OPTIND:1} \
 	--testnet-dir $TESTNET_DIR \
 	--init-slashing-protection \
-	--beacon-nodes $2 \
+	--beacon-nodes ${@:$OPTIND+1:1} \
 	$VC_ARGS

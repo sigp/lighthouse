@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Print the tail of all the logs output from local testnet
+# Print all the logs output from local testnet
 
 set -Eeuo pipefail
 
@@ -12,6 +12,6 @@ do
   echo "============================================================================="
   echo "$f"
   echo "============================================================================="
-  tail "$f"
+  cat "$f"
   echo ""
 done
