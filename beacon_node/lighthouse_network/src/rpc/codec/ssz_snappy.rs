@@ -662,8 +662,8 @@ mod tests {
     /// Smallest sized block across all current forks. Useful for testing
     /// min length check conditions.
     fn base_block() -> SignedBeaconBlock<Spec> {
-        let full_block = BeaconBlock::Base(BeaconBlockBase::<Spec>::empty(&Spec::default_spec()));
-        SignedBeaconBlock::from_block(full_block, Signature::empty())
+        let empty_block = BeaconBlock::Base(BeaconBlockBase::<Spec>::empty(&Spec::default_spec()));
+        SignedBeaconBlock::from_block(empty_block, Signature::empty())
     }
 
     fn altair_block() -> SignedBeaconBlock<Spec> {
