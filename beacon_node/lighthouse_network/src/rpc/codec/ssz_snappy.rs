@@ -659,8 +659,10 @@ mod tests {
         ForkContext::new::<Spec>(current_slot, Hash256::zero(), &chain_spec)
     }
 
+    /// Smallest sized block across all current forks. Useful for testing
+    /// min length check conditions.
     fn base_block() -> SignedBeaconBlock<Spec> {
-        let full_block = BeaconBlock::Base(BeaconBlockBase::<Spec>::full(&Spec::default_spec()));
+        let full_block = BeaconBlock::Base(BeaconBlockBase::<Spec>::empty(&Spec::default_spec()));
         SignedBeaconBlock::from_block(full_block, Signature::empty())
     }
 
@@ -947,6 +949,19 @@ mod tests {
             Ok(Some(RPCResponse::BlocksByRange(Box::new(base_block()))))
         );
 
+        // Decode the smallest possible base block when current fork is altair
+        // This is useful for checking that we allow for blocks smaller than
+        // the current_fork's rpc limit
+        assert_eq!(
+            encode_then_decode(
+                Protocol::BlocksByRange,
+                Version::V2,
+                RPCCodedResponse::Success(RPCResponse::BlocksByRange(Box::new(base_block()))),
+                ForkName::Altair,
+            ),
+            Ok(Some(RPCResponse::BlocksByRange(Box::new(base_block()))))
+        );
+
         assert_eq!(
             encode_then_decode(
                 Protocol::BlocksByRange,
@@ -1000,6 +1015,19 @@ mod tests {
                 ForkName::Base,
             ),
             Ok(Some(RPCResponse::BlocksByRoot(Box::new(base_block())))),
+        );
+
+        // Decode the smallest possible base block when current fork is altair
+        // This is useful for checking that we allow for blocks smaller than
+        // the current_fork's rpc limit
+        assert_eq!(
+            encode_then_decode(
+                Protocol::BlocksByRoot,
+                Version::V2,
+                RPCCodedResponse::Success(RPCResponse::BlocksByRoot(Box::new(base_block()))),
+                ForkName::Altair,
+            ),
+            Ok(Some(RPCResponse::BlocksByRoot(Box::new(base_block()))))
         );
 
         assert_eq!(
