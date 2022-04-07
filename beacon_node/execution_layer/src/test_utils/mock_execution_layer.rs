@@ -7,6 +7,7 @@ use sensitive_url::SensitiveUrl;
 use std::sync::Arc;
 use task_executor::TaskExecutor;
 use tempfile::NamedTempFile;
+use tree_hash::TreeHash;
 use types::{Address, ChainSpec, Epoch, EthSpec, FullPayload, Hash256, Uint256};
 
 pub struct ExecutionLayerRuntime {
@@ -169,6 +170,37 @@ impl<T: EthSpec> MockExecutionLayer<T> {
         assert_eq!(payload.block_number, block_number);
         assert_eq!(payload.timestamp, timestamp);
         assert_eq!(payload.prev_randao, prev_randao);
+
+        // Ensure the payload cache is empty.
+        assert!(self
+            .el
+            .get_payload_by_tx_root(&payload.transactions.tree_hash_root())
+            .is_none());
+
+        let payload_header = self
+            .el
+            .get_payload::<BlindedPayload<T>>(
+                parent_hash,
+                timestamp,
+                prev_randao,
+                finalized_block_hash,
+                validator_index,
+            )
+            .await
+            .unwrap()
+            .execution_payload_header;
+        assert_eq!(payload_header.block_hash, block_hash);
+        assert_eq!(payload_header.parent_hash, parent_hash);
+        assert_eq!(payload_header.block_number, block_number);
+        assert_eq!(payload_header.timestamp, timestamp);
+        assert_eq!(payload_header.prev_randao, prev_randao);
+
+        // Ensure the payload cache has the correct payload.
+        assert_eq!(
+            self.el
+                .get_payload_by_tx_root(&payload_header.transactions_root),
+            Some(payload.clone())
+        );
 
         let status = self.el.notify_new_payload(&payload).await.unwrap();
         assert_eq!(status, PayloadStatus::Valid);
