@@ -122,7 +122,7 @@ pub enum PayloadVerificationStatus {
     /// An EL has declared the execution payload to be valid.
     Verified,
     /// An EL has not yet made a determination about the execution payload.
-    NotVerified,
+    Optimistic,
     /// The block is either pre-merge-fork, or prior to the terminal PoW block.
     Irrelevant,
 }
@@ -132,7 +132,7 @@ impl PayloadVerificationStatus {
     pub fn is_optimistic(&self) -> bool {
         match self {
             PayloadVerificationStatus::Verified => false,
-            PayloadVerificationStatus::NotVerified => true,
+            PayloadVerificationStatus::Optimistic => true,
             PayloadVerificationStatus::Irrelevant => false,
         }
     }
@@ -679,7 +679,7 @@ where
             } else {
                 match payload_verification_status {
                     PayloadVerificationStatus::Verified => ExecutionStatus::Valid(block_hash),
-                    PayloadVerificationStatus::NotVerified => {
+                    PayloadVerificationStatus::Optimistic => {
                         ExecutionStatus::Optimistic(block_hash)
                     }
                     // It would be a logic error to declare a block irrelevant if it has an

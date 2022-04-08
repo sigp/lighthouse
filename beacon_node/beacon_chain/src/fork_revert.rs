@@ -172,7 +172,7 @@ pub fn reset_fork_choice_to_finalization<E: EthSpec, Hot: ItemStore<E>, Cold: It
         // retro-actively determine if they were valid or not.
         //
         // This scenario is so rare that it seems OK to double-verify some blocks.
-        let payload_verification_status = PayloadVerificationStatus::NotVerified;
+        let payload_verification_status = PayloadVerificationStatus::Optimistic;
 
         let (block, _) = block.deconstruct();
         fork_choice

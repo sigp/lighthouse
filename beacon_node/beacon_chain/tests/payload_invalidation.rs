@@ -798,7 +798,7 @@ fn invalid_parent() {
             block_root,
             Duration::from_secs(0),
             &state,
-            PayloadVerificationStatus::NotVerified,
+            PayloadVerificationStatus::Optimistic,
             &rig.harness.chain.spec
         ),
         Err(ForkChoiceError::ProtoArrayError(message))

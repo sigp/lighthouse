@@ -61,7 +61,7 @@ pub fn notify_new_payload<T: BeaconChainTypes>(
         Ok(status) => match status {
             PayloadStatus::Valid => Ok(PayloadVerificationStatus::Verified),
             PayloadStatus::Syncing | PayloadStatus::Accepted => {
-                Ok(PayloadVerificationStatus::NotVerified)
+                Ok(PayloadVerificationStatus::Optimistic)
             }
             PayloadStatus::Invalid {
                 latest_valid_hash, ..
