@@ -48,13 +48,24 @@ impl BlockId {
                         ))
                     })
                 }),
-            CoreBlockId::Root(root) => chain
-                .get_block(root)
-                .map_err(warp_utils::reject::beacon_chain_error)?
-                .map(|block| block.canonical_root())
-                .ok_or_else(|| {
-                    warp_utils::reject::custom_not_found(format!("beacon block with root {}", root))
-                }),
+            CoreBlockId::Root(root) => {
+                if root == &Hash256::zero() {
+                    return Err(warp_utils::reject::custom_not_found(format!(
+                        "beacon block with root {}",
+                        root
+                    )));
+                };
+                chain
+                    .get_block(root)
+                    .map_err(warp_utils::reject::beacon_chain_error)?
+                    .map(|block| block.canonical_root())
+                    .ok_or_else(|| {
+                        warp_utils::reject::custom_not_found(format!(
+                            "beacon block with root {}",
+                            root
+                        ))
+                    })
+            }
         }
     }
 
