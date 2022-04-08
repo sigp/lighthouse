@@ -23,7 +23,7 @@ use beacon_chain::{
     observed_operations::ObservationOutcome,
     validator_monitor::{get_block_delay_ms, timestamp_now},
     AttestationError as AttnError, BeaconChain, BeaconChainError, BeaconChainTypes,
-    ExecutionStatus, ProduceBlockVerification, WhenSlotSkipped,
+    ProduceBlockVerification, WhenSlotSkipped,
 };
 use block_id::BlockId;
 use eth2::types::{self as api_types, EndpointVersion, ValidatorId};
@@ -391,35 +391,6 @@ pub fn serve<T: BeaconChainTypes>(
                 },
             )
             .untuple_one();
-
-    // Create a `warp` filter that rejects requests unless the head has been verified by the
-    // execution layer.
-    let not_while_optimistic_filter = warp::any()
-        .and(chain_filter.clone())
-        .and_then(move |chain: Arc<BeaconChain<T>>| async move {
-            let status = chain.head_execution_status().map_err(|e| {
-                warp_utils::reject::custom_server_error(format!(
-                    "failed to read head execution status: {:?}",
-                    e
-                ))
-            })?;
-            match status {
-                ExecutionStatus::Valid(_) | ExecutionStatus::Irrelevant(_) => Ok(()),
-                ExecutionStatus::Optimistic(hash) => {
-                    Err(warp_utils::reject::custom_server_error(format!(
-                        "optimistic head hash {:?} has not been verified by the execution layer",
-                        hash
-                    )))
-                }
-                ExecutionStatus::Invalid(hash) => {
-                    Err(warp_utils::reject::custom_server_error(format!(
-                        "the head block has an invalid payload {:?}, this may be unrecoverable",
-                        hash
-                    )))
-                }
-            }
-        })
-        .untuple_one();
 
     // Create a `warp` filter that provides access to the logger.
     let inner_ctx = ctx.clone();
@@ -2095,7 +2066,6 @@ pub fn serve<T: BeaconChainTypes>(
         .and(warp::path::end())
         .and(warp::query::<api_types::ValidatorAttestationDataQuery>())
         .and(not_while_syncing_filter.clone())
-        .and(not_while_optimistic_filter.clone())
         .and(chain_filter.clone())
         .and_then(
             |query: api_types::ValidatorAttestationDataQuery, chain: Arc<BeaconChain<T>>| {
@@ -2128,7 +2098,6 @@ pub fn serve<T: BeaconChainTypes>(
         .and(warp::path::end())
         .and(warp::query::<api_types::ValidatorAggregateAttestationQuery>())
         .and(not_while_syncing_filter.clone())
-        .and(not_while_optimistic_filter.clone())
         .and(chain_filter.clone())
         .and_then(
             |query: api_types::ValidatorAggregateAttestationQuery, chain: Arc<BeaconChain<T>>| {
@@ -2205,7 +2174,6 @@ pub fn serve<T: BeaconChainTypes>(
         .and(warp::path::end())
         .and(warp::query::<SyncContributionData>())
         .and(not_while_syncing_filter.clone())
-        .and(not_while_optimistic_filter)
         .and(chain_filter.clone())
         .and_then(
             |sync_committee_data: SyncContributionData, chain: Arc<BeaconChain<T>>| {
