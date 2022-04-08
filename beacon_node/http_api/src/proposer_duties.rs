@@ -199,7 +199,7 @@ fn compute_historic_proposer_duties<T: BeaconChainTypes>(
             .map_err(warp_utils::reject::beacon_chain_error)?;
         state
     } else {
-        StateId::slot(epoch.start_slot(T::EthSpec::slots_per_epoch())).state(chain)?
+        StateId::from_slot(epoch.start_slot(T::EthSpec::slots_per_epoch())).state(chain)?
     };
 
     // Ensure the state lookup was correct.
@@ -223,7 +223,7 @@ fn compute_historic_proposer_duties<T: BeaconChainTypes>(
         .map_err(BeaconChainError::from)
         .map_err(warp_utils::reject::beacon_chain_error)?;
 
-    let execution_optimistic = StateId::slot(epoch.start_slot(T::EthSpec::slots_per_epoch()))
+    let execution_optimistic = StateId::from_slot(epoch.start_slot(T::EthSpec::slots_per_epoch()))
         .is_execution_optimistic(chain)?;
 
     convert_to_api_response(chain, epoch, dependent_root, execution_optimistic, indices)

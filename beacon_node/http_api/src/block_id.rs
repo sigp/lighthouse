@@ -1,5 +1,6 @@
 use beacon_chain::{BeaconChain, BeaconChainTypes, WhenSlotSkipped};
 use eth2::types::BlockId as CoreBlockId;
+use std::fmt;
 use std::str::FromStr;
 use types::{Hash256, SignedBeaconBlock, Slot};
 
@@ -47,7 +48,13 @@ impl BlockId {
                         ))
                     })
                 }),
-            CoreBlockId::Root(root) => Ok(*root),
+            CoreBlockId::Root(root) => chain
+                .get_block(root)
+                .map_err(warp_utils::reject::beacon_chain_error)?
+                .map(|block| block.canonical_root())
+                .ok_or_else(|| {
+                    warp_utils::reject::custom_not_found(format!("beacon block with root {}", root))
+                }),
         }
     }
 
@@ -128,5 +135,11 @@ impl FromStr for BlockId {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         CoreBlockId::from_str(s).map(Self)
+    }
+}
+
+impl fmt::Display for BlockId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.0)
     }
 }

@@ -16,7 +16,7 @@ fn end_of_epoch_state<T: BeaconChainTypes>(
     chain: &BeaconChain<T>,
 ) -> Result<BeaconState<T::EthSpec>, warp::reject::Rejection> {
     let target_slot = epoch.end_slot(T::EthSpec::slots_per_epoch());
-    StateId::slot(target_slot).state(chain)
+    StateId::from_slot(target_slot).state(chain)
 }
 
 /// Generate an `EpochProcessingSummary` for `state`.
