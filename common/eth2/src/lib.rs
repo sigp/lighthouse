@@ -1150,7 +1150,7 @@ impl BeaconNodeHttpClient {
     /// `GET v2/debug/beacon/heads`
     pub async fn get_debug_beacon_heads(
         &self,
-    ) -> Result<ExecutionOptimisticResponse<Vec<ChainHeadData>>, Error> {
+    ) -> Result<GenericResponse<Vec<ChainHeadData>>, Error> {
         let mut path = self.eth_path(V2)?;
 
         path.path_segments_mut()

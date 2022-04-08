@@ -110,7 +110,7 @@ fn compute_historic_attester_duties<T: BeaconChainTypes>(
         )?;
         state
     } else {
-        StateId::slot(request_epoch.start_slot(T::EthSpec::slots_per_epoch())).state(chain)?
+        StateId::from_slot(request_epoch.start_slot(T::EthSpec::slots_per_epoch())).state(chain)?
     };
 
     // Sanity-check the state lookup.
@@ -149,7 +149,7 @@ fn compute_historic_attester_duties<T: BeaconChainTypes>(
         .map_err(warp_utils::reject::beacon_chain_error)?;
 
     let execution_optimistic =
-        StateId::slot(request_epoch.start_slot(T::EthSpec::slots_per_epoch()))
+        StateId::from_slot(request_epoch.start_slot(T::EthSpec::slots_per_epoch()))
             .is_execution_optimistic(chain)?;
 
     convert_to_api_response(

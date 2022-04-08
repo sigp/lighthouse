@@ -8,11 +8,12 @@ use environment::null_logger;
 use eth2::{
     mixin::{RequestAccept, ResponseForkName, ResponseOptional},
     reqwest::RequestBuilder,
-    types::*,
+    types::{BlockId as CoreBlockId, StateId as CoreStateId, *},
     BeaconNodeHttpClient, Error, StatusCode, Timeouts,
 };
 use futures::stream::{Stream, StreamExt};
 use futures::FutureExt;
+use http_api::{BlockId, StateId};
 use lighthouse_network::{Enr, EnrExt, PeerId};
 use network::NetworkMessage;
 use sensitive_url::SensitiveUrl;
@@ -25,8 +26,8 @@ use tokio::sync::{mpsc, oneshot};
 use tokio::time::Duration;
 use tree_hash::TreeHash;
 use types::{
-    AggregateSignature, BeaconState, BitList, Domain, EthSpec, Hash256, Keypair, MainnetEthSpec,
-    RelativeEpoch, SelectionProof, SignedRoot, Slot,
+    AggregateSignature, BitList, Domain, EthSpec, Hash256, Keypair, MainnetEthSpec, RelativeEpoch,
+    SelectionProof, SignedRoot, Slot,
 };
 
 type E = MainnetEthSpec;
@@ -309,88 +310,42 @@ impl ApiTester {
 
     fn interesting_state_ids(&self) -> Vec<StateId> {
         let mut ids = vec![
-            StateId::Head,
-            StateId::Genesis,
-            StateId::Finalized,
-            StateId::Justified,
-            StateId::Slot(Slot::new(0)),
-            StateId::Slot(Slot::new(32)),
-            StateId::Slot(Slot::from(SKIPPED_SLOTS[0])),
-            StateId::Slot(Slot::from(SKIPPED_SLOTS[1])),
-            StateId::Slot(Slot::from(SKIPPED_SLOTS[2])),
-            StateId::Slot(Slot::from(SKIPPED_SLOTS[3])),
-            StateId::Root(Hash256::zero()),
+            StateId(CoreStateId::Head),
+            StateId(CoreStateId::Genesis),
+            StateId(CoreStateId::Finalized),
+            StateId(CoreStateId::Justified),
+            StateId(CoreStateId::Slot(Slot::new(0))),
+            StateId(CoreStateId::Slot(Slot::new(32))),
+            StateId(CoreStateId::Slot(Slot::from(SKIPPED_SLOTS[0]))),
+            StateId(CoreStateId::Slot(Slot::from(SKIPPED_SLOTS[1]))),
+            StateId(CoreStateId::Slot(Slot::from(SKIPPED_SLOTS[2]))),
+            StateId(CoreStateId::Slot(Slot::from(SKIPPED_SLOTS[3]))),
+            StateId(CoreStateId::Root(Hash256::zero())),
         ];
-        ids.push(StateId::Root(self.chain.head_info().unwrap().state_root));
+        ids.push(StateId(CoreStateId::Root(
+            self.chain.head_info().unwrap().state_root,
+        )));
         ids
     }
 
     fn interesting_block_ids(&self) -> Vec<BlockId> {
         let mut ids = vec![
-            BlockId::Head,
-            BlockId::Genesis,
-            BlockId::Finalized,
-            BlockId::Justified,
-            BlockId::Slot(Slot::new(0)),
-            BlockId::Slot(Slot::new(32)),
-            BlockId::Slot(Slot::from(SKIPPED_SLOTS[0])),
-            BlockId::Slot(Slot::from(SKIPPED_SLOTS[1])),
-            BlockId::Slot(Slot::from(SKIPPED_SLOTS[2])),
-            BlockId::Slot(Slot::from(SKIPPED_SLOTS[3])),
-            BlockId::Root(Hash256::zero()),
+            BlockId(CoreBlockId::Head),
+            BlockId(CoreBlockId::Genesis),
+            BlockId(CoreBlockId::Finalized),
+            BlockId(CoreBlockId::Justified),
+            BlockId(CoreBlockId::Slot(Slot::new(0))),
+            BlockId(CoreBlockId::Slot(Slot::new(32))),
+            BlockId(CoreBlockId::Slot(Slot::from(SKIPPED_SLOTS[0]))),
+            BlockId(CoreBlockId::Slot(Slot::from(SKIPPED_SLOTS[1]))),
+            BlockId(CoreBlockId::Slot(Slot::from(SKIPPED_SLOTS[2]))),
+            BlockId(CoreBlockId::Slot(Slot::from(SKIPPED_SLOTS[3]))),
+            BlockId(CoreBlockId::Root(Hash256::zero())),
         ];
-        ids.push(BlockId::Root(self.chain.head_info().unwrap().block_root));
+        ids.push(BlockId(CoreBlockId::Root(
+            self.chain.head_info().unwrap().block_root,
+        )));
         ids
-    }
-
-    fn get_state(&self, state_id: StateId) -> Option<BeaconState<E>> {
-        match state_id {
-            StateId::Head => Some(self.chain.head().unwrap().beacon_state),
-            StateId::Genesis => self
-                .chain
-                .get_state(&self.chain.genesis_state_root, None)
-                .unwrap(),
-            StateId::Finalized => {
-                let finalized_slot = self
-                    .chain
-                    .head_info()
-                    .unwrap()
-                    .finalized_checkpoint
-                    .epoch
-                    .start_slot(E::slots_per_epoch());
-
-                let root = self
-                    .chain
-                    .state_root_at_slot(finalized_slot)
-                    .unwrap()
-                    .unwrap();
-
-                self.chain.get_state(&root, Some(finalized_slot)).unwrap()
-            }
-            StateId::Justified => {
-                let justified_slot = self
-                    .chain
-                    .head_info()
-                    .unwrap()
-                    .current_justified_checkpoint
-                    .epoch
-                    .start_slot(E::slots_per_epoch());
-
-                let root = self
-                    .chain
-                    .state_root_at_slot(justified_slot)
-                    .unwrap()
-                    .unwrap();
-
-                self.chain.get_state(&root, Some(justified_slot)).unwrap()
-            }
-            StateId::Slot(slot) => {
-                let root = self.chain.state_root_at_slot(slot).unwrap().unwrap();
-
-                self.chain.get_state(&root, Some(slot)).unwrap()
-            }
-            StateId::Root(root) => self.chain.get_state(&root, None).unwrap(),
-        }
     }
 
     pub async fn test_beacon_genesis(self) -> Self {
@@ -412,39 +367,12 @@ impl ApiTester {
         for state_id in self.interesting_state_ids() {
             let result = self
                 .client
-                .get_beacon_states_root(state_id)
+                .get_beacon_states_root(state_id.0)
                 .await
                 .unwrap()
                 .map(|res| res.data.root);
 
-            let expected = match state_id {
-                StateId::Head => Some(self.chain.head_info().unwrap().state_root),
-                StateId::Genesis => Some(self.chain.genesis_state_root),
-                StateId::Finalized => {
-                    let finalized_slot = self
-                        .chain
-                        .head_info()
-                        .unwrap()
-                        .finalized_checkpoint
-                        .epoch
-                        .start_slot(E::slots_per_epoch());
-
-                    self.chain.state_root_at_slot(finalized_slot).unwrap()
-                }
-                StateId::Justified => {
-                    let justified_slot = self
-                        .chain
-                        .head_info()
-                        .unwrap()
-                        .current_justified_checkpoint
-                        .epoch
-                        .start_slot(E::slots_per_epoch());
-
-                    self.chain.state_root_at_slot(justified_slot).unwrap()
-                }
-                StateId::Slot(slot) => self.chain.state_root_at_slot(slot).unwrap(),
-                StateId::Root(root) => Some(root),
-            };
+            let expected = state_id.root(&self.chain).ok();
 
             assert_eq!(result, expected, "{:?}", state_id);
         }
@@ -456,12 +384,12 @@ impl ApiTester {
         for state_id in self.interesting_state_ids() {
             let result = self
                 .client
-                .get_beacon_states_fork(state_id)
+                .get_beacon_states_fork(state_id.0)
                 .await
                 .unwrap()
                 .map(|res| res.data);
 
-            let expected = self.get_state(state_id).map(|state| state.fork());
+            let expected = state_id.fork(&self.chain).ok();
 
             assert_eq!(result, expected, "{:?}", state_id);
         }
@@ -473,13 +401,14 @@ impl ApiTester {
         for state_id in self.interesting_state_ids() {
             let result = self
                 .client
-                .get_beacon_states_finality_checkpoints(state_id)
+                .get_beacon_states_finality_checkpoints(state_id.0)
                 .await
                 .unwrap()
                 .map(|res| res.data);
 
-            let expected = self
-                .get_state(state_id)
+            let expected = state_id
+                .state(&self.chain)
+                .ok()
                 .map(|state| FinalityCheckpointsData {
                     previous_justified: state.previous_justified_checkpoint(),
                     current_justified: state.current_justified_checkpoint(),
@@ -495,7 +424,7 @@ impl ApiTester {
     pub async fn test_beacon_states_validator_balances(self) -> Self {
         for state_id in self.interesting_state_ids() {
             for validator_indices in self.interesting_validator_indices() {
-                let state_opt = self.get_state(state_id);
+                let state_opt = state_id.state(&self.chain).ok();
                 let validators: Vec<Validator> = match state_opt.as_ref() {
                     Some(state) => state.validators().clone().into(),
                     None => vec![],
@@ -520,7 +449,7 @@ impl ApiTester {
                 let result_index_ids = self
                     .client
                     .get_beacon_states_validator_balances(
-                        state_id,
+                        state_id.0,
                         Some(validator_index_ids.as_slice()),
                     )
                     .await
@@ -529,7 +458,7 @@ impl ApiTester {
                 let result_pubkey_ids = self
                     .client
                     .get_beacon_states_validator_balances(
-                        state_id,
+                        state_id.0,
                         Some(validator_pubkey_ids.as_slice()),
                     )
                     .await
@@ -563,7 +492,7 @@ impl ApiTester {
         for state_id in self.interesting_state_ids() {
             for statuses in self.interesting_validator_statuses() {
                 for validator_indices in self.interesting_validator_indices() {
-                    let state_opt = self.get_state(state_id);
+                    let state_opt = state_id.state(&self.chain).ok();
                     let validators: Vec<Validator> = match state_opt.as_ref() {
                         Some(state) => state.validators().clone().into(),
                         None => vec![],
@@ -588,7 +517,7 @@ impl ApiTester {
                     let result_index_ids = self
                         .client
                         .get_beacon_states_validators(
-                            state_id,
+                            state_id.0,
                             Some(validator_index_ids.as_slice()),
                             None,
                         )
@@ -599,7 +528,7 @@ impl ApiTester {
                     let result_pubkey_ids = self
                         .client
                         .get_beacon_states_validators(
-                            state_id,
+                            state_id.0,
                             Some(validator_pubkey_ids.as_slice()),
                             None,
                         )
@@ -650,7 +579,7 @@ impl ApiTester {
 
     pub async fn test_beacon_states_validator_id(self) -> Self {
         for state_id in self.interesting_state_ids() {
-            let state_opt = self.get_state(state_id);
+            let state_opt = state_id.state(&self.chain).ok();
             let validators = match state_opt.as_ref() {
                 Some(state) => state.validators().clone().into(),
                 None => vec![],
@@ -665,7 +594,7 @@ impl ApiTester {
                 for validator_id in validator_ids {
                     let result = self
                         .client
-                        .get_beacon_states_validator_id(state_id, validator_id)
+                        .get_beacon_states_validator_id(state_id.0, validator_id)
                         .await
                         .unwrap()
                         .map(|res| res.data);
@@ -702,12 +631,12 @@ impl ApiTester {
 
     pub async fn test_beacon_states_committees(self) -> Self {
         for state_id in self.interesting_state_ids() {
-            let mut state_opt = self.get_state(state_id);
+            let mut state_opt = state_id.state(&self.chain).ok();
 
             let epoch_opt = state_opt.as_ref().map(|state| state.current_epoch());
             let results = self
                 .client
-                .get_beacon_states_committees(state_id, None, None, epoch_opt)
+                .get_beacon_states_committees(state_id.0, None, None, epoch_opt)
                 .await
                 .unwrap()
                 .map(|res| res.data);
@@ -846,14 +775,14 @@ impl ApiTester {
         for block_id in self.interesting_block_ids() {
             let result = self
                 .client
-                .get_beacon_headers_block_id(block_id)
+                .get_beacon_headers_block_id(block_id.0)
                 .await
                 .unwrap()
                 .map(|res| res.data);
 
-            let block_root_opt = self.get_block_root(block_id);
+            let block_root_opt = block_id.root(&self.chain).ok();
 
-            if let BlockId::Slot(slot) = block_id {
+            if let CoreBlockId::Slot(slot) = block_id.0 {
                 if block_root_opt.is_none() {
                     assert!(SKIPPED_SLOTS.contains(&slot.as_u64()));
                 } else {
@@ -903,13 +832,13 @@ impl ApiTester {
         for block_id in self.interesting_block_ids() {
             let result = self
                 .client
-                .get_beacon_blocks_root(block_id)
+                .get_beacon_blocks_root(block_id.0)
                 .await
                 .unwrap()
                 .map(|res| res.data.root);
 
-            let expected = self.get_block_root(block_id);
-            if let BlockId::Slot(slot) = block_id {
+            let expected = block_id.root(&self.chain).ok();
+            if let CoreBlockId::Slot(slot) = block_id.0 {
                 if expected.is_none() {
                     assert!(SKIPPED_SLOTS.contains(&slot.as_u64()));
                 } else {
@@ -951,9 +880,9 @@ impl ApiTester {
 
     pub async fn test_beacon_blocks(self) -> Self {
         for block_id in self.interesting_block_ids() {
-            let expected = self.get_block(block_id).await;
+            let expected = block_id.block(&self.chain).ok();
 
-            if let BlockId::Slot(slot) = block_id {
+            if let CoreBlockId::Slot(slot) = block_id.0 {
                 if expected.is_none() {
                     assert!(SKIPPED_SLOTS.contains(&slot.as_u64()));
                 } else {
@@ -962,7 +891,7 @@ impl ApiTester {
             }
 
             // Check the JSON endpoint.
-            let json_result = self.client.get_beacon_blocks(block_id).await.unwrap();
+            let json_result = self.client.get_beacon_blocks(block_id.0).await.unwrap();
 
             if let (Some(json), Some(expected)) = (&json_result, &expected) {
                 assert_eq!(json.data, *expected, "{:?}", block_id);
@@ -978,13 +907,13 @@ impl ApiTester {
             // Check the SSZ endpoint.
             let ssz_result = self
                 .client
-                .get_beacon_blocks_ssz(block_id, &self.chain.spec)
+                .get_beacon_blocks_ssz(block_id.0, &self.chain.spec)
                 .await
                 .unwrap();
             assert_eq!(ssz_result, expected, "{:?}", block_id);
 
             // Check that the legacy v1 API still works but doesn't return a version field.
-            let v1_result = self.client.get_beacon_blocks_v1(block_id).await.unwrap();
+            let v1_result = self.client.get_beacon_blocks_v1(block_id.0).await.unwrap();
             if let (Some(v1_result), Some(expected)) = (&v1_result, &expected) {
                 assert_eq!(v1_result.version, None);
                 assert_eq!(v1_result.data, *expected);
@@ -994,7 +923,7 @@ impl ApiTester {
             }
 
             // Check that version headers are provided.
-            let url = self.client.get_beacon_blocks_path(block_id).unwrap();
+            let url = self.client.get_beacon_blocks_path(block_id.0).unwrap();
 
             let builders: Vec<fn(RequestBuilder) -> RequestBuilder> = vec![
                 |b| b,
@@ -1029,17 +958,17 @@ impl ApiTester {
         for block_id in self.interesting_block_ids() {
             let result = self
                 .client
-                .get_beacon_blocks_attestations(block_id)
+                .get_beacon_blocks_attestations(block_id.0)
                 .await
                 .unwrap()
                 .map(|res| res.data);
 
-            let expected = self
-                .get_block(block_id)
-                .await
+            let expected = block_id
+                .block(&self.chain)
+                .ok()
                 .map(|block| block.message().body().attestations().clone().into());
 
-            if let BlockId::Slot(slot) = block_id {
+            if let CoreBlockId::Slot(slot) = block_id.0 {
                 if expected.is_none() {
                     assert!(SKIPPED_SLOTS.contains(&slot.as_u64()));
                 } else {
@@ -1442,9 +1371,13 @@ impl ApiTester {
 
     pub async fn test_get_debug_beacon_states(self) -> Self {
         for state_id in self.interesting_state_ids() {
-            let result_json = self.client.get_debug_beacon_states(state_id).await.unwrap();
+            let result_json = self
+                .client
+                .get_debug_beacon_states(state_id.0)
+                .await
+                .unwrap();
 
-            let mut expected = self.get_state(state_id);
+            let mut expected = state_id.state(&self.chain).ok();
             expected.as_mut().map(|state| state.drop_all_caches());
 
             if let (Some(json), Some(expected)) = (&result_json, &expected) {
@@ -1461,7 +1394,7 @@ impl ApiTester {
             // Check SSZ API.
             let result_ssz = self
                 .client
-                .get_debug_beacon_states_ssz(state_id, &self.chain.spec)
+                .get_debug_beacon_states_ssz(state_id.0, &self.chain.spec)
                 .await
                 .unwrap();
             assert_eq!(result_ssz, expected, "{:?}", state_id);
@@ -1469,7 +1402,7 @@ impl ApiTester {
             // Check legacy v1 API.
             let result_v1 = self
                 .client
-                .get_debug_beacon_states_v1(state_id)
+                .get_debug_beacon_states_v1(state_id.0)
                 .await
                 .unwrap();
 
@@ -1482,7 +1415,10 @@ impl ApiTester {
             }
 
             // Check that version headers are provided.
-            let url = self.client.get_debug_beacon_states_path(state_id).unwrap();
+            let url = self
+                .client
+                .get_debug_beacon_states_path(state_id.0)
+                .unwrap();
 
             let builders: Vec<fn(RequestBuilder) -> RequestBuilder> =
                 vec![|b| b, |b| b.accept(Accept::Ssz)];
@@ -2303,11 +2239,11 @@ impl ApiTester {
         for state_id in self.interesting_state_ids() {
             let result = self
                 .client
-                .get_lighthouse_beacon_states_ssz(&state_id, &self.chain.spec)
+                .get_lighthouse_beacon_states_ssz(&state_id.0, &self.chain.spec)
                 .await
                 .unwrap();
 
-            let mut expected = self.get_state(state_id);
+            let mut expected = state_id.state(&self.chain).ok();
             expected.as_mut().map(|state| state.drop_all_caches());
 
             assert_eq!(result, expected, "{:?}", state_id);

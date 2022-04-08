@@ -25,7 +25,7 @@ use beacon_chain::{
     AttestationError as AttnError, BeaconChain, BeaconChainError, BeaconChainTypes,
     HeadSafetyStatus, ProduceBlockVerification, WhenSlotSkipped,
 };
-use block_id::BlockId;
+pub use block_id::BlockId;
 use eth2::types::{self as api_types, EndpointVersion, ValidatorId};
 use lighthouse_network::{types::SyncState, EnrExt, NetworkGlobals, PeerId, PubsubMessage};
 use lighthouse_version::version_with_platform;
@@ -34,7 +34,7 @@ use serde::{Deserialize, Serialize};
 use slog::{crit, debug, error, info, warn, Logger};
 use slot_clock::SlotClock;
 use ssz::Encode;
-use state_id::StateId;
+pub use state_id::StateId;
 use std::borrow::Cow;
 use std::convert::TryInto;
 use std::future::Future;
@@ -489,7 +489,8 @@ pub fn serve<T: BeaconChainTypes>(
         .and(warp::path::end())
         .and_then(|state_id: StateId, chain: Arc<BeaconChain<T>>| {
             blocking_json_task(move || {
-                let (fork, execution_optimistic) = state_id.fork(&chain)?;
+                let (fork, execution_optimistic) =
+                    state_id.fork_and_execution_optimistic(&chain)?;
                 Ok(api_types::ExecutionOptimisticResponse {
                     data: fork,
                     execution_optimistic,
@@ -729,7 +730,7 @@ pub fn serve<T: BeaconChainTypes>(
             |state_id: StateId, chain: Arc<BeaconChain<T>>, query: api_types::CommitteesQuery| {
                 // the api spec says if the epoch is not present then the epoch of the state should be used
                 let query_state_id = query.epoch.map_or(state_id, |epoch| {
-                    StateId::slot(epoch.start_slot(T::EthSpec::slots_per_epoch()))
+                    StateId::from_slot(epoch.start_slot(T::EthSpec::slots_per_epoch()))
                 });
 
                 blocking_json_task(move || {
