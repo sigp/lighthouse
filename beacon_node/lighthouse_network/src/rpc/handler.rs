@@ -544,9 +544,7 @@ where
                 Poll::Ready(_) => {
                     self.state = HandlerState::Deactivated;
                     debug!(self.log, "Handler deactivated");
-                    return Poll::Ready(ConnectionHandlerEvent::Close(RPCError::InternalError(
-                        "Shutdown timeout",
-                    )));
+                    return Poll::Ready(ConnectionHandlerEvent::Close(RPCError::Disconnected));
                 }
                 Poll::Pending => {}
             };
