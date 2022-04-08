@@ -41,8 +41,8 @@ mod validator_pubkey_cache;
 
 pub use self::beacon_chain::{
     AttestationProcessingOutcome, BeaconChain, BeaconChainTypes, BeaconStore, ChainSegmentResult,
-    ForkChoiceError, HeadInfo, HeadSafetyStatus, ProduceBlockVerification, StateSkipConfig,
-    WhenSlotSkipped, INVALID_JUSTIFIED_PAYLOAD_SHUTDOWN_REASON, MAXIMUM_GOSSIP_CLOCK_DISPARITY,
+    ForkChoiceError, HeadInfo, ProduceBlockVerification, StateSkipConfig, WhenSlotSkipped,
+    INVALID_JUSTIFIED_PAYLOAD_SHUTDOWN_REASON, MAXIMUM_GOSSIP_CLOCK_DISPARITY,
 };
 pub use self::beacon_snapshot::BeaconSnapshot;
 pub use self::chain_config::ChainConfig;
@@ -53,6 +53,7 @@ pub use beacon_fork_choice_store::{BeaconForkChoiceStore, Error as ForkChoiceSto
 pub use block_verification::{BlockError, ExecutionPayloadError, GossipVerifiedBlock};
 pub use eth1_chain::{Eth1Chain, Eth1ChainBackend};
 pub use events::ServerSentEventHandler;
+pub use fork_choice::ExecutionStatus;
 pub use metrics::scrape_for_metrics;
 pub use parking_lot;
 pub use slot_clock;

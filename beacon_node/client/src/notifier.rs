@@ -1,5 +1,5 @@
 use crate::metrics;
-use beacon_chain::{BeaconChain, BeaconChainTypes, HeadSafetyStatus};
+use beacon_chain::{BeaconChain, BeaconChainTypes, ExecutionStatus};
 use lighthouse_network::{types::SyncState, NetworkGlobals};
 use parking_lot::Mutex;
 use slog::{crit, debug, error, info, warn, Logger};
@@ -264,11 +264,9 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
                     head_root.to_string()
                 };
 
-                let block_hash = match beacon_chain.head_safety_status() {
-                    Ok(HeadSafetyStatus::Safe(hash_opt)) => hash_opt
-                        .map(|hash| format!("{} (verified)", hash))
-                        .unwrap_or_else(|| "n/a".to_string()),
-                    Ok(HeadSafetyStatus::Unsafe(block_hash)) => {
+                let block_hash = match beacon_chain.head_execution_status() {
+                    Ok(ExecutionStatus::Valid(block_hash)) => format!("{} (verified)", block_hash),
+                    Ok(ExecutionStatus::Optimistic(block_hash)) => {
                         warn!(
                             log,
                             "Head execution payload is unverified";
@@ -276,7 +274,7 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
                         );
                         format!("{} (unverified)", block_hash)
                     }
-                    Ok(HeadSafetyStatus::Invalid(block_hash)) => {
+                    Ok(ExecutionStatus::Invalid(block_hash)) => {
                         crit!(
                             log,
                             "Head execution payload is invalid";
@@ -285,6 +283,7 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
                         );
                         format!("{} (invalid)", block_hash)
                     }
+                    Ok(ExecutionStatus::Irrelevant(_)) => "n/a".to_string(),
                     Err(e) => {
                         error!(
                             log,

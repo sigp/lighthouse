@@ -230,25 +230,6 @@ pub trait BeaconChainTypes: Send + Sync + 'static {
     type EthSpec: types::EthSpec;
 }
 
-/// Indicates the EL payload verification status of the head beacon block.
-#[derive(Debug, PartialEq)]
-pub enum HeadSafetyStatus {
-    /// The head block has either been verified by an EL or is does not require EL verification
-    /// (e.g., it is pre-merge or pre-terminal-block).
-    ///
-    /// If the block is post-terminal-block, `Some(execution_payload.block_hash)` is included with
-    /// the variant.
-    Safe(Option<ExecutionBlockHash>),
-    /// The head block execution payload has not yet been verified by an EL.
-    ///
-    /// The `execution_payload.block_hash` of the head block is returned.
-    Unsafe(ExecutionBlockHash),
-    /// The head block execution payload was deemed to be invalid by an EL.
-    ///
-    /// The `execution_payload.block_hash` of the head block is returned.
-    Invalid(ExecutionBlockHash),
-}
-
 pub type BeaconForkChoice<T> = ForkChoice<
     BeaconForkChoiceStore<
         <T as BeaconChainTypes>::EthSpec,
@@ -4163,24 +4144,15 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         }
     }
 
-    /// Returns the status of the current head block, regarding the validity of the execution
-    /// payload.
-    pub fn head_safety_status(&self) -> Result<HeadSafetyStatus, BeaconChainError> {
+    /// Returns the execution status of the head block.
+    pub fn head_execution_status(&self) -> Result<ExecutionStatus, BeaconChainError> {
         let head = self.head_info()?;
         let head_block = self
             .fork_choice
             .read()
             .get_block(&head.block_root)
             .ok_or(BeaconChainError::HeadMissingFromForkChoice(head.block_root))?;
-
-        let status = match head_block.execution_status {
-            ExecutionStatus::Valid(block_hash) => HeadSafetyStatus::Safe(Some(block_hash)),
-            ExecutionStatus::Invalid(block_hash) => HeadSafetyStatus::Invalid(block_hash),
-            ExecutionStatus::Optimistic(block_hash) => HeadSafetyStatus::Unsafe(block_hash),
-            ExecutionStatus::Irrelevant(_) => HeadSafetyStatus::Safe(None),
-        };
-
-        Ok(status)
+        Ok(head_block.execution_status)
     }
 
     /// This function takes a configured weak subjectivity `Checkpoint` and the latest finalized `Checkpoint`.
