@@ -73,7 +73,7 @@ impl ExecutionStatus {
     /// Returns `true` if the block:
     ///
     /// - Has execution enabled, AND
-    /// - Hash a valid payload
+    /// - Has a valid payload
     ///
     /// This function will return `false` for any block from a slot prior to the Bellatrix fork.
     /// This means that some blocks that are perfectly valid will still receive a `false` response.
