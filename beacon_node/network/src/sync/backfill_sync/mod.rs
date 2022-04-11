@@ -608,7 +608,7 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
                     }
                 };
 
-                if let Err(e) = batch.processing_completed(true) {
+                if let Err(e) = batch.processing_completed(true, false) {
                     self.fail_sync(BackFillError::BatchInvalidState(batch_id, e.0))?;
                 }
                 // If the processed batch was not empty, we can validate previous unvalidated
@@ -667,7 +667,7 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
                 };
                 debug!(self.log, "Batch processing failed"; "imported_blocks" => imported_blocks,
                     "batch_epoch" => batch_id, "peer" => %peer, "client" => %network.client_type(&peer));
-                match batch.processing_completed(false) {
+                match batch.processing_completed(false, false) {
                     Err(e) => {
                         // Batch was in the wrong state
                         self.fail_sync(BackFillError::BatchInvalidState(batch_id, e.0))
@@ -739,7 +739,7 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
                 BatchState::Failed
                 | BatchState::AwaitingDownload
                 | BatchState::Processing(_)
-                | BatchState::WaitingOnExecution => {
+                | BatchState::WaitingOnExecution(_) => {
                     // these are all inconsistent states:
                     // - Failed -> non recoverable batch. Chain should have been removed
                     // - AwaitingDownload -> A recoverable failed batch should have been
@@ -851,7 +851,7 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
                         "batch indicates inconsistent chain state while advancing chain"
                     )
                 }
-                BatchState::WaitingOnExecution => {
+                BatchState::WaitingOnExecution(_) => {
                     crit!(
                         self.log,
                         "Batch failed with execution error while backfilling. Inconsistent state"

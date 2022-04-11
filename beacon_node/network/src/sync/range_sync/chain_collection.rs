@@ -235,7 +235,7 @@ impl<T: BeaconChainTypes, C: BlockStorage> ChainCollection<T, C> {
                     .finalized_chains
                     .get(syncing_id)
                     .ok_or("Finalized syncing chain not found")?;
-                if chain.state == ChainSyncingState::ExecutionStalled {
+                if let ChainSyncingState::ExecutionStalled = chain.state {
                     Ok(ChainState::WaitingOnExecution)
                 } else {
                     Ok(ChainState::Range {
@@ -254,7 +254,7 @@ impl<T: BeaconChainTypes, C: BlockStorage> ChainCollection<T, C> {
                         .head_chains
                         .get(id)
                         .ok_or("Head syncing chain not found")?;
-                    if chain.state == ChainSyncingState::ExecutionStalled {
+                    if let ChainSyncingState::ExecutionStalled = chain.state {
                         stalled += 1;
                     }
                     let start = chain.start_epoch.start_slot(T::EthSpec::slots_per_epoch());

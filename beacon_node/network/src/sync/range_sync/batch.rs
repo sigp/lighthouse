@@ -108,7 +108,7 @@ pub enum BatchState<T: EthSpec> {
     Poisoned,
     /// The batch is waiting for the execution layer to resume validation.
     /// Execution layer is paused either because it is syncing or offline.
-    WaitingOnExecution,
+    WaitingOnExecution(Attempt),
     /// The batch has maxed out the allowed attempts for either downloading or processing. It
     /// cannot be recovered.
     Failed,
@@ -180,12 +180,11 @@ impl<T: EthSpec, B: BatchConfig> BatchInfo<T, B> {
     /// Returns the peer that is currently responsible for progressing the state of the batch.
     pub fn current_peer(&self) -> Option<&PeerId> {
         match &self.state {
-            BatchState::AwaitingDownload | BatchState::Failed | BatchState::WaitingOnExecution => {
-                None
-            }
+            BatchState::AwaitingDownload | BatchState::Failed => None,
             BatchState::Downloading(peer_id, _, _)
             | BatchState::AwaitingProcessing(peer_id, _)
             | BatchState::Processing(Attempt { peer_id, .. })
+            | BatchState::WaitingOnExecution(Attempt { peer_id, .. })
             | BatchState::AwaitingValidation(Attempt { peer_id, .. }) => Some(peer_id),
             BatchState::Poisoned => unreachable!("Poisoned batch"),
         }
@@ -353,10 +352,16 @@ impl<T: EthSpec, B: BatchConfig> BatchInfo<T, B> {
     }
 
     #[must_use = "Batch may have failed"]
-    pub fn processing_completed(&mut self, was_sucessful: bool) -> Result<IsFailed, WrongState> {
+    pub fn processing_completed(
+        &mut self,
+        was_sucessful: bool,
+        stall_execution: bool,
+    ) -> Result<IsFailed, WrongState> {
         match self.state.poison() {
             BatchState::Processing(attempt) => {
-                self.state = if !was_sucessful {
+                self.state = if stall_execution {
+                    BatchState::AwaitingDownload
+                } else if !was_sucessful {
                     // register the failed attempt
                     self.failed_processing_attempts.push(attempt);
 
@@ -484,9 +489,10 @@ impl<T: EthSpec> std::fmt::Debug for BatchState<T> {
                 blocks.len(),
                 request_id
             ),
-            BatchState::WaitingOnExecution => {
-                f.write_str("Waiting on execution layer, sync paused")
-            }
+            BatchState::WaitingOnExecution(Attempt {
+                ref peer_id,
+                hash: _,
+            }) => write!(f, "Waiting on execution layer, sync paused({})", peer_id),
             BatchState::Poisoned => f.write_str("Poisoned"),
         }
     }

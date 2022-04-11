@@ -350,7 +350,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                 let state = batch.state();
                 match state {
                     // Return early here without any additional processing.
-                    BatchState::WaitingOnExecution => return Ok(KeepChain),
+                    BatchState::WaitingOnExecution(_) => return Ok(KeepChain),
                     BatchState::AwaitingProcessing(..) => {
                         // this batch is ready
                         debug!(self.log, "Processing optimistic start"; "epoch" => epoch);
@@ -392,7 +392,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
         if let Some(batch) = self.batches.get(&self.processing_target) {
             let state = batch.state();
             match state {
-                BatchState::WaitingOnExecution => return Ok(KeepChain),
+                BatchState::WaitingOnExecution(_) => return Ok(KeepChain),
                 BatchState::AwaitingProcessing(..) => {
                     return self.process_batch(network, self.processing_target);
                 }
@@ -470,7 +470,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                     ))
                 })?;
 
-                batch.processing_completed(true)?;
+                batch.processing_completed(true, false)?;
                 // If the processed batch was not empty, we can validate previous unvalidated
                 // blocks.
                 if *was_non_empty {
@@ -523,17 +523,16 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                 debug!(self.log, "Batch processing failed"; "imported_blocks" => imported_blocks,
                     "batch_epoch" => batch_id, "peer" => %peer, "client" => %network.client_type(&peer));
 
-                // The batch failed because of an EL error.
-                // Potentially stop syncing until the EL recovers.
-                if let FailureMode::EL { pause_sync } = mode {
+                // The batch failed because of an EL error. Stop syncing until the EL recovers.
+                let stall_execution = if let FailureMode::EL { pause_sync } = mode {
                     if *pause_sync {
-                        self.execution_stalled();
-                        // Shouldn't need to do anything to the specific batch state
-                        // batch.state()
-                        return Ok(KeepChain);
+                        self.state = ChainSyncingState::ExecutionStalled;
                     }
-                }
-                if batch.processing_completed(false)? {
+                    *pause_sync
+                } else {
+                    false
+                };
+                if batch.processing_completed(false, stall_execution)? {
                     // check that we have not exceeded the re-process retry counter
                     // If a batch has exceeded the invalid batch lookup attempts limit, it means
                     // that it is likely all peers in this chain are are sending invalid batches
@@ -631,7 +630,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
             // only for batches awaiting validation can we be sure the last attempt is
             // right, and thus, that any different attempt is wrong
             match batch.state() {
-                BatchState::WaitingOnExecution => return,
+                BatchState::WaitingOnExecution(_) => return,
                 BatchState::AwaitingValidation(ref processed_attempt) => {
                     for attempt in batch.attempts() {
                         // The validated batch has been re-processed
@@ -772,12 +771,11 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
         &mut self,
         network: &mut SyncNetworkContext<T::EthSpec>,
     ) -> ProcessingResult {
-        if self.state == ChainSyncingState::ExecutionStalled {
+        if let ChainSyncingState::ExecutionStalled = self.state {
             self.state = ChainSyncingState::Syncing;
-            self.process_completed_batches(network)
-        } else {
-            Ok(KeepChain)
+            return self.request_batches(network);
         }
+        Err(RemoveChain::WrongBatchState(format!("Invalid batch state")))
     }
 
     /// Either a new chain, or an old one with a peer list
@@ -790,7 +788,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
         local_finalized_epoch: Epoch,
         optimistic_start_epoch: Epoch,
     ) -> ProcessingResult {
-        if self.state == ChainSyncingState::ExecutionStalled {
+        if let ChainSyncingState::ExecutionStalled = self.state {
             return Ok(KeepChain);
         }
         // to avoid dropping local progress, we advance the chain wrt its batch boundaries. This
