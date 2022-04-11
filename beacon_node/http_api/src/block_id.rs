@@ -167,7 +167,7 @@ impl BlockId {
     }
 
     /// Returns the `block` along with the `execution_optimistic` value identified by `self`.
-    pub fn block_and_is_execution_optimistic<T: BeaconChainTypes>(
+    pub fn block_and_execution_optimistic<T: BeaconChainTypes>(
         &self,
         chain: &BeaconChain<T>,
     ) -> Result<(SignedBeaconBlock<T::EthSpec>, bool), warp::Rejection> {
@@ -188,6 +188,15 @@ impl BlockId {
                 .map_err(warp_utils::reject::beacon_chain_error)?,
         };
         Ok((block, execution_optimistic))
+    }
+
+    /// Convenience function to compute `execution_optimistic` when `block` is not desired.
+    pub fn is_execution_optimistic<T: BeaconChainTypes>(
+        &self,
+        chain: &BeaconChain<T>,
+    ) -> Result<bool, warp::Rejection> {
+        self.block_and_execution_optimistic(chain)
+            .map(|(_, execution_optimistic)| execution_optimistic)
     }
 }
 

@@ -979,7 +979,7 @@ pub fn serve<T: BeaconChainTypes>(
             blocking_json_task(move || {
                 let root = block_id.root(&chain)?;
                 let (block, execution_optimistic) =
-                    BlockId::from_root(root).block_and_is_execution_optimistic(&chain)?;
+                    BlockId::from_root(root).block_and_execution_optimistic(&chain)?;
 
                 let canonical = chain
                     .block_root_at_slot(block.slot(), WhenSlotSkipped::None)
@@ -1246,7 +1246,7 @@ pub fn serve<T: BeaconChainTypes>(
              accept_header: Option<api_types::Accept>| {
                 async move {
                     let (block, execution_optimistic) =
-                        block_id.block_and_is_execution_optimistic(&chain).await?;
+                        block_id.block_and_execution_optimistic(&chain).await?;
                     let fork_name = block
                         .fork_name(&chain.spec)
                         .map_err(inconsistent_fork_rejection)?;
@@ -1283,7 +1283,7 @@ pub fn serve<T: BeaconChainTypes>(
         .and_then(|block_id: BlockId, chain: Arc<BeaconChain<T>>| {
             blocking_json_task(move || {
                 let (block, execution_optimistic) =
-                    block_id.block_and_is_execution_optimistic(&chain)?;
+                    block_id.block_and_execution_optimistic(&chain)?;
 
                 Ok(api_types::GenericResponse::from(api_types::RootData::from(
                     block.canonical_root(),
@@ -1300,7 +1300,7 @@ pub fn serve<T: BeaconChainTypes>(
         .and_then(|block_id: BlockId, chain: Arc<BeaconChain<T>>| {
             blocking_json_task(move || {
                 let (block, execution_optimistic) =
-                    block_id.block_and_is_execution_optimistic(&chain)?;
+                    block_id.block_and_execution_optimistic(&chain)?;
 
                 Ok(
                     api_types::GenericResponse::from(block.message().body().attestations().clone())
@@ -1771,8 +1771,7 @@ pub fn serve<T: BeaconChainTypes>(
                                 None
                             } else if endpoint_version == V2 {
                                 BlockId::from_root(root)
-                                    .block_and_is_execution_optimistic(&chain)
-                                    .map(|(_, execution_optimistic)| execution_optimistic)
+                                    .is_execution_optimistic(&chain)
                                     .ok()
                             } else {
                                 return Err(unsupported_version_rejection(endpoint_version));

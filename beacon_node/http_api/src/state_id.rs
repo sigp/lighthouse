@@ -181,7 +181,7 @@ impl StateId {
         func(&state, execution_optimistic)
     }
 
-    /// Convienience function to compute `execution_optimistic` when `state` is not desired.
+    /// Convenience function to compute `execution_optimistic` when `state` is not desired.
     pub fn is_execution_optimistic<T: BeaconChainTypes>(
         &self,
         chain: &BeaconChain<T>,
