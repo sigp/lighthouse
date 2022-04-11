@@ -3715,13 +3715,22 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     }
 
     pub fn prepare_beacon_proposer_blocking(&self) -> Result<(), Error> {
+        let current_slot = self.slot()?;
+
+        // Avoids raising an error before Bellatrix.
+        //
+        // See `Self::prepare_beacon_proposer_async` for more detail.
+        if self.slot_is_prior_to_bellatrix(current_slot + 1) {
+            return Ok(());
+        }
+
         let execution_layer = self
             .execution_layer
             .as_ref()
             .ok_or(Error::ExecutionLayerMissing)?;
 
         execution_layer
-            .block_on_generic(|_| self.prepare_beacon_proposer_async())
+            .block_on_generic(|_| self.prepare_beacon_proposer_async(current_slot))
             .map_err(Error::PrepareProposerBlockingFailed)?
     }
 
@@ -3737,17 +3746,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// 1. We're in the tail-end of the slot (as defined by PAYLOAD_PREPARATION_LOOKAHEAD_FACTOR)
     /// 2. The head block is one slot (or less) behind the prepare slot (e.g., we're preparing for
     ///    the next slot and the block at the current slot is already known).
-    pub async fn prepare_beacon_proposer_async(&self) -> Result<(), Error> {
-        let current_slot = self.slot()?;
+    pub async fn prepare_beacon_proposer_async(&self, current_slot: Slot) -> Result<(), Error> {
         let prepare_slot = current_slot + 1;
         let prepare_epoch = prepare_slot.epoch(T::EthSpec::slots_per_epoch());
 
         // There's no need to run the proposer preparation routine before the bellatrix fork.
-        if self
-            .spec
-            .bellatrix_fork_epoch
-            .map_or(true, |bellatrix| prepare_epoch < bellatrix)
-        {
+        if self.slot_is_prior_to_bellatrix(prepare_slot) {
             return Ok(());
         }
 
@@ -3947,6 +3951,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         &self,
         current_slot: Slot,
     ) -> Result<(), Error> {
+        // Avoids raising an error before Bellatrix.
+        //
+        // See `Self::update_execution_engine_forkchoice_async` for more detail.
+        if self.slot_is_prior_to_bellatrix(current_slot + 1) {
+            return Ok(());
+        }
+
         let execution_layer = self
             .execution_layer
             .as_ref()
@@ -3972,9 +3983,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // The reason for a fcU message in the slot prior to the Bellatrix fork is in case the
         // terminal difficulty has already been reached and a payload preparation message needs to
         // be issued.
-        if self.spec.bellatrix_fork_epoch.map_or(true, |bellatrix| {
-            next_slot.epoch(T::EthSpec::slots_per_epoch()) < bellatrix
-        }) {
+        if self.slot_is_prior_to_bellatrix(next_slot) {
             return Ok(());
         }
 
@@ -4068,10 +4077,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             return Ok(());
         };
 
-        let forkchoice_updated_response = self
-            .execution_layer
-            .as_ref()
-            .ok_or(Error::ExecutionLayerMissing)?
+        let forkchoice_updated_response = execution_layer
             .notify_forkchoice_updated(head_hash, finalized_hash, current_slot, head_block_root)
             .await
             .map_err(Error::ExecutionForkChoiceUpdateFailed);
@@ -4157,6 +4163,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             },
             Err(e) => Err(e),
         }
+    }
+
+    /// Returns `true` if the given slot is prior to the `bellatrix_fork_epoch`.
+    fn slot_is_prior_to_bellatrix(&self, slot: Slot) -> bool {
+        self.spec.bellatrix_fork_epoch.map_or(true, |bellatrix| {
+            slot.epoch(T::EthSpec::slots_per_epoch()) < bellatrix
+        })
     }
 
     /// Returns the status of the current head block, regarding the validity of the execution
