@@ -11,7 +11,7 @@ use crate::{
     BeaconChain, BeaconChainError, BeaconChainTypes, BlockError, BlockProductionError,
     ExecutionPayloadError,
 };
-use execution_layer::{ExecutionLayer, PayloadStatus};
+use execution_layer::{PayloadStatus};
 use fork_choice::{InvalidationOperation, PayloadVerificationStatus};
 use proto_array::{Block as ProtoBlock, ExecutionStatus};
 use slog::debug;

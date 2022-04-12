@@ -25,14 +25,13 @@ use std::collections::HashMap;
 use std::convert::TryInto;
 use std::future::Future;
 use std::io::Write;
-use std::ops::Deref;
 use std::path::PathBuf;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use task_executor::TaskExecutor;
 use tokio::sync::mpsc;
-use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
+use tokio::sync::mpsc::{UnboundedSender};
 use tokio::{
     sync::{Mutex, MutexGuard, RwLock},
     time::{sleep, sleep_until, Instant},
@@ -262,7 +261,7 @@ impl ExecutionLayer {
 
         let (tx, mut rx) = mpsc::unbounded_channel::<ExecutionLayerRequest>();
         tokio::spawn(async move {
-            while let Some(mut request) = rx.recv().await {
+            while let Some(request) = rx.recv().await {
                 request.responder.send(request.future.await).unwrap();
             }
         });
