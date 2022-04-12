@@ -473,19 +473,23 @@ mod tests {
 
     impl RangeSync<TestBeaconChainType, FakeStorage> {
         fn assert_state(&self, expected_state: RangeSyncType) {
-            assert_eq!(
-                self.state()
-                    .expect("State is ok")
-                    .expect("Range is syncing")
-                    .0,
-                expected_state
-            )
+            if let ChainState::Range {
+                range_type,
+                from: _,
+                to: _,
+            } = self.state().expect("State is ok")
+            {
+                assert_eq!(range_type, expected_state)
+            } else {
+                panic!("Range is syncing")
+            }
         }
 
         #[allow(dead_code)]
         fn assert_not_syncing(&self) {
-            assert!(
-                self.state().expect("State is ok").is_none(),
+            assert_ne!(
+                self.state().expect("State is ok"),
+                ChainState::Idle,
                 "Range should not be syncing."
             );
         }

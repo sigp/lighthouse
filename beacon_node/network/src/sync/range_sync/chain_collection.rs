@@ -39,7 +39,7 @@ pub enum RangeSyncState {
     Idle,
 }
 
-#[derive(Clone)]
+#[derive(Clone, PartialEq, Debug)]
 pub enum ChainState {
     Range {
         range_type: RangeSyncType,
