@@ -12,6 +12,8 @@ pub use engine_api::*;
 pub use engine_api::{http, http::HttpJsonRpc};
 pub use engines::ForkChoiceState;
 use engines::{Engine, EngineError, Engines, Logging};
+use futures::task::SpawnExt;
+use futures::{FutureExt, TryFutureExt};
 use lru::LruCache;
 use payload_status::process_multiple_payload_statuses;
 pub use payload_status::PayloadStatus;
@@ -23,10 +25,14 @@ use std::collections::HashMap;
 use std::convert::TryInto;
 use std::future::Future;
 use std::io::Write;
+use std::ops::Deref;
 use std::path::PathBuf;
+use std::pin::Pin;
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use task_executor::TaskExecutor;
+use tokio::sync::mpsc;
+use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 use tokio::{
     sync::{Mutex, MutexGuard, RwLock},
     time::{sleep, sleep_until, Instant},
@@ -150,6 +156,7 @@ fn strip_prefix(s: &str) -> &str {
 #[derive(Clone)]
 pub struct ExecutionLayer {
     inner: Arc<Inner>,
+    tx: UnboundedSender<ExecutionLayerRequest>,
 }
 
 impl ExecutionLayer {
@@ -253,9 +260,46 @@ impl ExecutionLayer {
             log,
         };
 
+        let (tx, mut rx) = mpsc::unbounded_channel::<ExecutionLayerRequest>();
+        tokio::spawn(async move {
+            while let Some(mut request) = rx.recv().await {
+                request.responder.send(request.future.await).unwrap();
+            }
+        });
+
         Ok(Self {
             inner: Arc::new(inner),
+            tx,
         })
+    }
+}
+
+#[derive(derivative::Derivative)]
+#[derivative(Debug)]
+pub struct ExecutionLayerRequest {
+    #[derivative(Debug = "ignore")]
+    future: Pin<Box<dyn Future<Output = Result<ExecutionLayerResponse, Error>> + Send>>,
+    responder: crossbeam_channel::Sender<Result<ExecutionLayerResponse, Error>>,
+}
+
+#[derive(Debug)]
+pub enum ExecutionLayerResponse {
+    NotifyNewPayload(PayloadStatus),
+    IsValidTerminalPowBlockHash(Option<bool>),
+}
+
+impl From<Option<bool>> for ExecutionLayerResponse {
+    fn from(b: Option<bool>) -> Self {
+        ExecutionLayerResponse::IsValidTerminalPowBlockHash(b)
+    }
+}
+
+impl From<ExecutionLayerResponse> for Option<bool> {
+    fn from(b: ExecutionLayerResponse) -> Option<bool> {
+        match b {
+            ExecutionLayerResponse::IsValidTerminalPowBlockHash(b) => b,
+            _ => panic!(),
+        }
     }
 }
 
@@ -299,18 +343,23 @@ impl ExecutionLayer {
     }
 
     /// Convenience function to allow calling async functions in a non-async context.
-    pub fn block_on<'a, T, U, V>(&'a self, generate_future: T) -> Result<V, Error>
+    pub fn block_on<T, U, V>(&self, generate_future: T) -> Result<V, Error>
     where
-        T: Fn(&'a Self) -> U,
-        U: Future<Output = Result<V, Error>>,
+        T: FnOnce(Self) -> U + Send + 'static,
+        U: Future<Output = Result<V, Error>> + Send,
+        V: From<ExecutionLayerResponse> + Into<ExecutionLayerResponse>,
     {
-        let runtime = self
-            .executor()
-            .runtime()
-            .upgrade()
-            .ok_or(Error::ShuttingDown)?;
-        // TODO(merge): respect the shutdown signal.
-        runtime.block_on(generate_future(self))
+        let cloned = self.clone();
+        let (tx, rx) = crossbeam_channel::bounded(1);
+        let future = Box::pin(async move { generate_future(cloned).await.map(Into::into) });
+
+        let request = ExecutionLayerRequest {
+            future,
+            responder: tx,
+        };
+        self.tx.send(request).unwrap();
+        let b = rx.recv().unwrap();
+        b.map(V::from)
     }
 
     /// Convenience function to allow calling async functions in a non-async context.

@@ -11,7 +11,7 @@ use crate::{
     BeaconChain, BeaconChainError, BeaconChainTypes, BlockError, BlockProductionError,
     ExecutionPayloadError,
 };
-use execution_layer::PayloadStatus;
+use execution_layer::{ExecutionLayer, PayloadStatus};
 use fork_choice::{InvalidationOperation, PayloadVerificationStatus};
 use proto_array::{Block as ProtoBlock, ExecutionStatus};
 use slog::debug;
@@ -53,8 +53,11 @@ pub fn notify_new_payload<T: BeaconChainTypes>(
         .execution_layer
         .as_ref()
         .ok_or(ExecutionPayloadError::NoExecutionConnection)?;
-    let new_payload_response = execution_layer.block_on(|execution_layer| {
-        execution_layer.notify_new_payload(&execution_payload.execution_payload)
+    let execution_payload_clone = execution_payload.execution_payload.clone();
+    let new_payload_response = execution_layer.block_on(|execution_layer| async move {
+        execution_layer
+            .notify_new_payload(&execution_payload_clone)
+            .await
     });
 
     match new_payload_response {
@@ -135,9 +138,13 @@ pub fn validate_merge_block<T: BeaconChainTypes>(
         .as_ref()
         .ok_or(ExecutionPayloadError::NoExecutionConnection)?;
 
-    let is_valid_terminal_pow_block = execution_layer
-        .block_on(|execution_layer| {
-            execution_layer.is_valid_terminal_pow_block_hash(execution_payload.parent_hash(), spec)
+    let spec_clone = spec.clone();
+    let parent_hash = execution_payload.parent_hash();
+    let is_valid_terminal_pow_block: Option<bool> = execution_layer
+        .block_on(move |execution_layer| async move {
+            execution_layer
+                .is_valid_terminal_pow_block_hash(parent_hash, &spec_clone)
+                .await
         })
         .map_err(ExecutionPayloadError::from)?;
 

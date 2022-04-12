@@ -1,6 +1,6 @@
 use crate::engine_api::{Error as ApiError, PayloadStatusV1, PayloadStatusV1Status};
 use crate::engines::EngineError;
-use crate::Error;
+use crate::{Error, ExecutionLayerResponse};
 use slog::{crit, warn, Logger};
 use types::ExecutionBlockHash;
 
@@ -22,6 +22,20 @@ pub enum PayloadStatus {
     InvalidTerminalBlock {
         validation_error: Option<String>,
     },
+}
+
+impl From<ExecutionLayerResponse> for PayloadStatus {
+    fn from(r: ExecutionLayerResponse) -> Self {
+        match r {
+            ExecutionLayerResponse::NotifyNewPayload(p) => p,
+            _ => panic!(),
+        }
+    }
+}
+impl Into<ExecutionLayerResponse> for PayloadStatus {
+    fn into(self) -> ExecutionLayerResponse {
+        ExecutionLayerResponse::NotifyNewPayload(self)
+    }
 }
 
 /// Processes the responses from multiple execution engines, finding the "best" status and returning

@@ -35,3 +35,5 @@ rand = "0.8.5"
 zeroize = { version = "1.4.2", features = ["zeroize_derive"] }
 lighthouse_metrics = { path = "../../common/lighthouse_metrics" }
 lazy_static = "1.4.0"
+crossbeam-channel = "0.5.4"
+derivative = "2.1.1"

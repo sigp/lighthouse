@@ -1732,6 +1732,8 @@ version = "0.1.0"
 dependencies = [
  "async-trait",
  "bytes",
+ "crossbeam-channel",
+ "derivative",
  "environment",
  "eth1",
  "eth2_serde_utils",
