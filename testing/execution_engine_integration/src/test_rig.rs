@@ -5,7 +5,8 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use task_executor::TaskExecutor;
 use tokio::time::sleep;
 use types::{
-    Address, ChainSpec, EthSpec, ExecutionBlockHash, Hash256, MainnetEthSpec, Slot, Uint256,
+    Address, ChainSpec, EthSpec, ExecutionBlockHash, FullPayload, Hash256, MainnetEthSpec, Slot,
+    Uint256,
 };
 
 const EXECUTION_ENGINE_START_TIMEOUT: Duration = Duration::from_secs(10);
@@ -171,7 +172,7 @@ impl<E: GenericExecutionEngine> TestRig<E> {
         let valid_payload = self
             .ee_a
             .execution_layer
-            .get_payload::<MainnetEthSpec>(
+            .get_payload::<MainnetEthSpec, FullPayload<MainnetEthSpec>>(
                 parent_hash,
                 timestamp,
                 prev_randao,
@@ -179,7 +180,8 @@ impl<E: GenericExecutionEngine> TestRig<E> {
                 proposer_index,
             )
             .await
-            .unwrap();
+            .unwrap()
+            .execution_payload;
 
         /*
          * Execution Engine A:
@@ -262,7 +264,7 @@ impl<E: GenericExecutionEngine> TestRig<E> {
         let second_payload = self
             .ee_a
             .execution_layer
-            .get_payload::<MainnetEthSpec>(
+            .get_payload::<MainnetEthSpec, FullPayload<MainnetEthSpec>>(
                 parent_hash,
                 timestamp,
                 prev_randao,
@@ -270,7 +272,8 @@ impl<E: GenericExecutionEngine> TestRig<E> {
                 proposer_index,
             )
             .await
-            .unwrap();
+            .unwrap()
+            .execution_payload;
 
         /*
          * Execution Engine A:

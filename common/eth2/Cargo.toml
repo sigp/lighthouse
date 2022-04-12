@@ -15,7 +15,7 @@ lighthouse_network = { path = "../../beacon_node/lighthouse_network" }
 proto_array = { path = "../../consensus/proto_array", optional = true }
 eth2_serde_utils = "0.1.1"
 eth2_keystore = { path = "../../crypto/eth2_keystore" }
-libsecp256k1 = "0.6.0"
+libsecp256k1 = "0.7.0"
 ring = "0.16.19"
 bytes = "1.0.1"
 account_utils = { path = "../../common/account_utils" }
@@ -28,10 +28,7 @@ store = { path = "../../beacon_node/store", optional = true }
 slashing_protection = { path = "../../validator_client/slashing_protection", optional = true }
 
 [target.'cfg(target_os = "linux")'.dependencies]
-# TODO: update psutil once fix is merged: https://github.com/rust-psutil/rust-psutil/pull/93
-# TODO: Even once the above PR is corrected, there are sub-dependencies that need to be updated.
-# psutil = { version = "3.2.0", optional = true }
-psutil = { git = "https://github.com/sigp/rust-psutil", rev = "b3e44bc7ec5d545b8cb8ad4e3dffe074b6e6336b", optional = true }
+psutil = { version = "3.2.2", optional = true }
 procinfo = { version = "0.4.2", optional = true }
 
 [features]

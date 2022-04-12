@@ -8,4 +8,4 @@ edition = "2021"
 types = { path = "../../consensus/types" }
 lazy_static = "1.4.0"
 lighthouse_metrics = { path = "../lighthouse_metrics" }
-parking_lot = "0.11.0"
+parking_lot = "0.12.0"

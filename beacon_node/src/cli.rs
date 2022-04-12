@@ -383,7 +383,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .value_name("SLOT_COUNT")
                 .help("Specifies how often a freezer DB restore point should be stored. \
                        Cannot be changed after initialization. \
-                       [default: 2048 (mainnet) or 64 (minimal)]")
+                       [default: 8192 (mainnet) or 64 (minimal)]")
                 .takes_value(true)
         )
         .arg(
@@ -451,6 +451,13 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                        collected from any blocks produced by this node. Defaults to a junk \
                        address whilst the merge is in development stages. THE DEFAULT VALUE \
                        WILL BE REMOVED BEFORE THE MERGE ENTERS PRODUCTION")
+                .requires("merge")
+                .takes_value(true)
+        )
+        .arg(
+            Arg::with_name("payload-builders")
+                .long("payload-builders")
+                .help("The URL of a service compatible with the MEV-boost API.")
                 .requires("merge")
                 .takes_value(true)
         )

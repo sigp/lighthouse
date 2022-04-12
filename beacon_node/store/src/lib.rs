@@ -39,7 +39,10 @@ pub use impls::beacon_state::StorageContainer as BeaconStateStorageContainer;
 pub use metadata::AnchorInfo;
 pub use metrics::scrape_for_metrics;
 use parking_lot::MutexGuard;
+use strum::{EnumString, IntoStaticStr};
 pub use types::*;
+
+pub type ColumnIter<'a> = Box<dyn Iterator<Item = Result<(Hash256, Vec<u8>), Error>> + 'a>;
 
 pub trait KeyValueStore<E: EthSpec>: Sync + Send + Sized + 'static {
     /// Retrieve some bytes in `column` with `key`.
@@ -73,6 +76,12 @@ pub trait KeyValueStore<E: EthSpec>: Sync + Send + Sized + 'static {
 
     /// Compact the database, freeing space used by deleted items.
     fn compact(&self) -> Result<(), Error>;
+
+    /// Iterate through all values in a particular column.
+    fn iter_column(&self, _column: DBColumn) -> ColumnIter {
+        // Default impl for non LevelDB databases
+        Box::new(std::iter::empty())
+    }
 }
 
 pub fn get_key_for_col(column: &str, key: &[u8]) -> Vec<u8> {
@@ -146,54 +155,47 @@ pub enum StoreOp<'a, E: EthSpec> {
 }
 
 /// A unique column identifier.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, IntoStaticStr, EnumString)]
 pub enum DBColumn {
     /// For data related to the database itself.
+    #[strum(serialize = "bma")]
     BeaconMeta,
+    #[strum(serialize = "blk")]
     BeaconBlock,
+    /// For full `BeaconState`s in the hot database (finalized or fork-boundary states).
+    #[strum(serialize = "ste")]
     BeaconState,
-    /// For persisting in-memory state to the database.
-    BeaconChain,
-    OpPool,
-    Eth1Cache,
-    ForkChoice,
-    PubkeyCache,
-    /// For the table mapping restore point numbers to state roots.
-    BeaconRestorePoint,
     /// For the mapping from state roots to their slots or summaries.
+    #[strum(serialize = "bss")]
     BeaconStateSummary,
     /// For the list of temporary states stored during block import,
     /// and then made non-temporary by the deletion of their state root from this column.
+    #[strum(serialize = "bst")]
     BeaconStateTemporary,
+    /// For persisting in-memory state to the database.
+    #[strum(serialize = "bch")]
+    BeaconChain,
+    #[strum(serialize = "opo")]
+    OpPool,
+    #[strum(serialize = "etc")]
+    Eth1Cache,
+    #[strum(serialize = "frk")]
+    ForkChoice,
+    #[strum(serialize = "pkc")]
+    PubkeyCache,
+    /// For the table mapping restore point numbers to state roots.
+    #[strum(serialize = "brp")]
+    BeaconRestorePoint,
+    #[strum(serialize = "bbr")]
     BeaconBlockRoots,
+    #[strum(serialize = "bsr")]
     BeaconStateRoots,
+    #[strum(serialize = "bhr")]
     BeaconHistoricalRoots,
+    #[strum(serialize = "brm")]
     BeaconRandaoMixes,
+    #[strum(serialize = "dht")]
     DhtEnrs,
-}
-
-impl Into<&'static str> for DBColumn {
-    /// Returns a `&str` prefix to be added to keys before they hit the key-value database.
-    fn into(self) -> &'static str {
-        match self {
-            DBColumn::BeaconMeta => "bma",
-            DBColumn::BeaconBlock => "blk",
-            DBColumn::BeaconState => "ste",
-            DBColumn::BeaconChain => "bch",
-            DBColumn::OpPool => "opo",
-            DBColumn::Eth1Cache => "etc",
-            DBColumn::ForkChoice => "frk",
-            DBColumn::PubkeyCache => "pkc",
-            DBColumn::BeaconRestorePoint => "brp",
-            DBColumn::BeaconStateSummary => "bss",
-            DBColumn::BeaconStateTemporary => "bst",
-            DBColumn::BeaconBlockRoots => "bbr",
-            DBColumn::BeaconStateRoots => "bsr",
-            DBColumn::BeaconHistoricalRoots => "bhr",
-            DBColumn::BeaconRandaoMixes => "brm",
-            DBColumn::DhtEnrs => "dht",
-        }
-    }
 }
 
 impl DBColumn {

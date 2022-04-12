@@ -1,13 +1,16 @@
 use crate::{test_utils::TestRandom, *};
+use derivative::Derivative;
 use serde_derive::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
 use test_random_derive::TestRandom;
+use tree_hash::TreeHash;
 use tree_hash_derive::TreeHash;
 
 #[cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary))]
 #[derive(
-    Default, Debug, Clone, PartialEq, Serialize, Deserialize, Encode, Decode, TreeHash, TestRandom,
+    Default, Debug, Clone, Serialize, Deserialize, Derivative, Encode, Decode, TreeHash, TestRandom,
 )]
+#[derivative(PartialEq, Hash(bound = "T: EthSpec"))]
 pub struct ExecutionPayloadHeader<T: EthSpec> {
     pub parent_hash: ExecutionBlockHash,
     pub fee_recipient: Address,
@@ -35,5 +38,26 @@ pub struct ExecutionPayloadHeader<T: EthSpec> {
 impl<T: EthSpec> ExecutionPayloadHeader<T> {
     pub fn empty() -> Self {
         Self::default()
+    }
+}
+
+impl<'a, T: EthSpec> From<&'a ExecutionPayload<T>> for ExecutionPayloadHeader<T> {
+    fn from(payload: &'a ExecutionPayload<T>) -> Self {
+        ExecutionPayloadHeader {
+            parent_hash: payload.parent_hash,
+            fee_recipient: payload.fee_recipient,
+            state_root: payload.state_root,
+            receipts_root: payload.receipts_root,
+            logs_bloom: payload.logs_bloom.clone(),
+            prev_randao: payload.prev_randao,
+            block_number: payload.block_number,
+            gas_limit: payload.gas_limit,
+            gas_used: payload.gas_used,
+            timestamp: payload.timestamp,
+            extra_data: payload.extra_data.clone(),
+            base_fee_per_gas: payload.base_fee_per_gas,
+            block_hash: payload.block_hash,
+            transactions_root: payload.transactions.tree_hash_root(),
+        }
     }
 }

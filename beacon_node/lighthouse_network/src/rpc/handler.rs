@@ -477,7 +477,7 @@ where
                 ProtocolError::InvalidMessage | ProtocolError::TooManyProtocols => {
                     // Peer is sending invalid data during the negotiation phase, not
                     // participating in the protocol
-                    RPCError::InvalidData
+                    RPCError::InvalidData("Invalid message during negotiation".to_string())
                 }
             },
         };

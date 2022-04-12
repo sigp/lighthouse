@@ -50,12 +50,19 @@ async fn proposer_prep_service<T: BeaconChainTypes>(
                 let inner_chain = chain.clone();
                 executor.spawn(
                     async move {
-                        if let Err(e) = inner_chain.prepare_beacon_proposer_async().await {
-                            error!(
-                                inner_chain.log,
-                                "Proposer prepare routine failed";
-                                "error" => ?e
-                            );
+                        if let Ok(current_slot) = inner_chain.slot() {
+                            if let Err(e) = inner_chain
+                                .prepare_beacon_proposer_async(current_slot)
+                                .await
+                            {
+                                error!(
+                                    inner_chain.log,
+                                    "Proposer prepare routine failed";
+                                    "error" => ?e
+                                );
+                            }
+                        } else {
+                            debug!(inner_chain.log, "No slot for proposer prepare routine");
                         }
                     },
                     "proposer_prep_update",

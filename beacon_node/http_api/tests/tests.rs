@@ -1902,7 +1902,7 @@ impl ApiTester {
 
             let block = self
                 .client
-                .get_validator_blocks::<E>(slot, &randao_reveal, None)
+                .get_validator_blocks::<E, FullPayload<E>>(slot, &randao_reveal, None)
                 .await
                 .unwrap()
                 .data;
@@ -1925,7 +1925,12 @@ impl ApiTester {
 
             let block = self
                 .client
-                .get_validator_blocks_with_verify_randao::<E>(slot, None, None, Some(false))
+                .get_validator_blocks_with_verify_randao::<E, FullPayload<E>>(
+                    slot,
+                    None,
+                    None,
+                    Some(false),
+                )
                 .await
                 .unwrap()
                 .data;
@@ -1976,13 +1981,13 @@ impl ApiTester {
 
             // Check failure with no `verify_randao` passed.
             self.client
-                .get_validator_blocks::<E>(slot, &bad_randao_reveal, None)
+                .get_validator_blocks::<E, FullPayload<E>>(slot, &bad_randao_reveal, None)
                 .await
                 .unwrap_err();
 
             // Check failure with `verify_randao=true`.
             self.client
-                .get_validator_blocks_with_verify_randao::<E>(
+                .get_validator_blocks_with_verify_randao::<E, FullPayload<E>>(
                     slot,
                     Some(&bad_randao_reveal),
                     None,
@@ -1993,14 +1998,16 @@ impl ApiTester {
 
             // Check failure with no randao reveal provided.
             self.client
-                .get_validator_blocks_with_verify_randao::<E>(slot, None, None, None)
+                .get_validator_blocks_with_verify_randao::<E, FullPayload<E>>(
+                    slot, None, None, None,
+                )
                 .await
                 .unwrap_err();
 
             // Check success with `verify_randao=false`.
             let block = self
                 .client
-                .get_validator_blocks_with_verify_randao::<E>(
+                .get_validator_blocks_with_verify_randao::<E, FullPayload<E>>(
                     slot,
                     Some(&bad_randao_reveal),
                     None,

@@ -100,13 +100,23 @@ pub async fn handle_rpc<T: EthSpec>(
             let forkchoice_state: JsonForkChoiceStateV1 = get_param(params, 0)?;
             let payload_attributes: Option<JsonPayloadAttributesV1> = get_param(params, 1)?;
 
-            let response = ctx
+            let head_block_hash = forkchoice_state.head_block_hash;
+
+            let mut response = ctx
                 .execution_block_generator
                 .write()
                 .forkchoice_updated_v1(
                     forkchoice_state.into(),
                     payload_attributes.map(|json| json.into()),
                 )?;
+
+            if let Some(mut status) = ctx.static_forkchoice_updated_response.lock().clone() {
+                if status.status == PayloadStatusV1Status::Valid {
+                    status.latest_valid_hash = Some(head_block_hash)
+                }
+
+                response.payload_status = status.into();
+            }
 
             Ok(serde_json::to_value(response).unwrap())
         }

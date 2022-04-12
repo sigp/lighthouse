@@ -275,6 +275,7 @@ fn main() {
         .subcommand(boot_node::cli_app())
         .subcommand(validator_client::cli_app())
         .subcommand(account_manager::cli_app())
+        .subcommand(database_manager::cli_app())
         .get_matches();
 
     // Configure the allocator early in the process, before it has the chance to use the default values for
@@ -485,7 +486,16 @@ fn run<E: EthSpec>(
 
         // Exit as soon as account manager returns control.
         return Ok(());
-    };
+    }
+
+    if let Some(sub_matches) = matches.subcommand_matches(database_manager::CMD) {
+        info!(log, "Running database manager for {} network", network_name);
+        // Pass the entire `environment` to the database manager so it can run blocking operations.
+        database_manager::run(sub_matches, environment)?;
+
+        // Exit as soon as database manager returns control.
+        return Ok(());
+    }
 
     info!(log, "Lighthouse started"; "version" => VERSION);
     info!(

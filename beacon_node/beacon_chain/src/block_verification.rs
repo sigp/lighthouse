@@ -75,6 +75,7 @@ use std::io::Write;
 use std::time::Duration;
 use store::{Error as DBError, HotColdDB, HotStateSummary, KeyValueStore, StoreOp};
 use tree_hash::TreeHash;
+use types::ExecPayload;
 use types::{
     BeaconBlockRef, BeaconState, BeaconStateError, ChainSpec, CloneConfig, Epoch, EthSpec,
     ExecutionBlockHash, Hash256, InconsistentFork, PublicKey, PublicKeyBytes, RelativeEpoch,
@@ -1005,21 +1006,25 @@ impl<'a, T: BeaconChainTypes> FullyVerifiedBlock<'a, T> {
         parent: PreProcessingSnapshot<T::EthSpec>,
         chain: &BeaconChain<T>,
     ) -> Result<Self, BlockError<T::EthSpec>> {
-        // Reject any block if its parent is not known to fork choice.
-        //
-        // A block that is not in fork choice is either:
-        //
-        //  - Not yet imported: we should reject this block because we should only import a child
-        //  after its parent has been fully imported.
-        //  - Pre-finalized: if the parent block is _prior_ to finalization, we should ignore it
-        //  because it will revert finalization. Note that the finalized block is stored in fork
-        //  choice, so we will not reject any child of the finalized block (this is relevant during
-        //  genesis).
-        if !chain
-            .fork_choice
-            .read()
-            .contains_block(&block.parent_root())
-        {
+        if let Some(parent) = chain.fork_choice.read().get_block(&block.parent_root()) {
+            // Reject any block where the parent has an invalid payload. It's impossible for a valid
+            // block to descend from an invalid parent.
+            if parent.execution_status.is_invalid() {
+                return Err(BlockError::ParentExecutionPayloadInvalid {
+                    parent_root: block.parent_root(),
+                });
+            }
+        } else {
+            // Reject any block if its parent is not known to fork choice.
+            //
+            // A block that is not in fork choice is either:
+            //
+            //  - Not yet imported: we should reject this block because we should only import a child
+            //  after its parent has been fully imported.
+            //  - Pre-finalized: if the parent block is _prior_ to finalization, we should ignore it
+            //  because it will revert finalization. Note that the finalized block is stored in fork
+            //  choice, so we will not reject any child of the finalized block (this is relevant during
+            //  genesis).
             return Err(BlockError::ParentUnknown(Box::new(block)));
         }
 
@@ -1295,9 +1300,9 @@ impl<'a, T: BeaconChainTypes> FullyVerifiedBlock<'a, T> {
         if valid_merge_transition_block {
             info!(chain.log, "{}", POS_PANDA_BANNER);
             info!(chain.log, "Proof of Stake Activated"; "slot" => block.slot());
-            info!(chain.log, ""; "Terminal POW Block Hash" => ?block.message().execution_payload()?.parent_hash.into_root());
+            info!(chain.log, ""; "Terminal POW Block Hash" => ?block.message().execution_payload()?.parent_hash().into_root());
             info!(chain.log, ""; "Merge Transition Block Root" => ?block.message().tree_hash_root());
-            info!(chain.log, ""; "Merge Transition Execution Hash" => ?block.message().execution_payload()?.block_hash.into_root());
+            info!(chain.log, ""; "Merge Transition Execution Hash" => ?block.message().execution_payload()?.block_hash().into_root());
         }
 
         Ok(Self {

@@ -400,6 +400,7 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
             .runtime_context(context.service_context("block".into()))
             .graffiti(config.graffiti)
             .graffiti_file(config.graffiti_file.clone())
+            .private_tx_proposals(config.private_tx_proposals)
             .build()?;
 
         let attestation_service = AttestationServiceBuilder::new()

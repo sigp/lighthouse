@@ -6,8 +6,8 @@ use std::marker::PhantomData;
 use std::time::Duration;
 use types::{
     consts::merge::INTERVALS_PER_SLOT, AttestationShufflingId, BeaconBlock, BeaconState,
-    BeaconStateError, ChainSpec, Checkpoint, Epoch, EthSpec, ExecutionBlockHash, Hash256,
-    IndexedAttestation, RelativeEpoch, SignedBeaconBlock, Slot,
+    BeaconStateError, ChainSpec, Checkpoint, Epoch, EthSpec, ExecPayload, ExecutionBlockHash,
+    Hash256, IndexedAttestation, RelativeEpoch, SignedBeaconBlock, Slot,
 };
 
 #[derive(Debug)]
@@ -18,6 +18,7 @@ pub enum Error<T> {
     InvalidProtoArrayBytes(String),
     InvalidLegacyProtoArrayBytes(String),
     FailedToProcessInvalidExecutionPayload(String),
+    FailedToProcessValidExecutionPayload(String),
     MissingProtoArrayBlock(Hash256),
     UnknownAncestor {
         ancestor_slot: Slot,
@@ -323,7 +324,7 @@ where
                 } else {
                     // Assume that this payload is valid, since the anchor should be a trusted block and
                     // state.
-                    ExecutionStatus::Valid(message.body.execution_payload.block_hash)
+                    ExecutionStatus::Valid(message.body.execution_payload.block_hash())
                 }
             },
         );
@@ -512,6 +513,16 @@ where
         Ok(true)
     }
 
+    /// See `ProtoArrayForkChoice::process_execution_payload_validation` for documentation.
+    pub fn on_valid_execution_payload(
+        &mut self,
+        block_root: Hash256,
+    ) -> Result<(), Error<T::Error>> {
+        self.proto_array
+            .process_execution_payload_validation(block_root)
+            .map_err(Error::FailedToProcessValidExecutionPayload)
+    }
+
     /// See `ProtoArrayForkChoice::process_execution_payload_invalidation` for documentation.
     pub fn on_invalid_execution_payload(
         &mut self,
@@ -648,7 +659,7 @@ where
             .map_err(Error::AfterBlockFailed)?;
 
         let execution_status = if let Ok(execution_payload) = block.body().execution_payload() {
-            let block_hash = execution_payload.block_hash;
+            let block_hash = execution_payload.block_hash();
 
             if block_hash == ExecutionBlockHash::zero() {
                 // The block is post-merge-fork, but pre-terminal-PoW block. We don't need to verify

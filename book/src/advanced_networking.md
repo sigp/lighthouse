@@ -20,11 +20,11 @@ sync.
 
 Having a large peer count means that your node must act as an honest RPC server
 to all your connected peers. If there are many that are syncing, they will
-often be requesting a large number of blocks from your node. This means you
-node must perform a lot of work reading and responding to these peers. If you
+often be requesting a large number of blocks from your node. This means your
+node must perform a lot of work reading and responding to these peers. If your
 node is over-loaded with peers and cannot respond in time, other Lighthouse
 peers will consider you non-performant and disfavour you from their peer
-stores. You node will also have to handle and manage the gossip and extra
+stores. Your node will also have to handle and manage the gossip and extra
 bandwidth that comes from having these extra peers. Having a non-responsive
 node (due to overloading of connected peers), degrades the network as a whole.
 
@@ -66,7 +66,7 @@ these flags incorrectly can lead to your node being incorrectly added to the
 global DHT which will degrades the discovery process for all Ethereum consensus peers.
 
 The ENR of a Lighthouse node is initially set to be non-contactable. The
-in-built discovery mechanism can determine if you node is publicly accessible,
+in-built discovery mechanism can determine if your node is publicly accessible,
 and if it is, it will update your ENR to the correct public IP and port address
 (meaning you do not need to set it manually). Lighthouse persists its ENR, so
 on reboot it will re-load the settings it had discovered previously.

@@ -250,6 +250,14 @@ pub fn get_config<E: EthSpec>(
             el_config.execution_endpoints = client_config.eth1.endpoints.clone();
         }
 
+        if let Some(endpoints) = cli_args.value_of("payload-builders") {
+            el_config.builder_endpoints = endpoints
+                .split(',')
+                .map(SensitiveUrl::parse)
+                .collect::<Result<_, _>>()
+                .map_err(|e| format!("payload-builders contains an invalid URL {:?}", e))?;
+        }
+
         if let Some(secrets) = cli_args.value_of("jwt-secrets") {
             let secret_files: Vec<_> = secrets.split(',').map(PathBuf::from).collect();
             if !secret_files.is_empty() && secret_files.len() != el_config.execution_endpoints.len()
@@ -276,16 +284,9 @@ pub fn get_config<E: EthSpec>(
         client_config.freezer_db_path = Some(PathBuf::from(freezer_dir));
     }
 
-    if let Some(slots_per_restore_point) = cli_args.value_of("slots-per-restore-point") {
-        client_config.store.slots_per_restore_point = slots_per_restore_point
-            .parse()
-            .map_err(|_| "slots-per-restore-point is not a valid integer".to_string())?;
-    } else {
-        client_config.store.slots_per_restore_point = std::cmp::min(
-            E::slots_per_historical_root() as u64,
-            store::config::DEFAULT_SLOTS_PER_RESTORE_POINT,
-        );
-    }
+    let (sprp, sprp_explicit) = get_slots_per_restore_point::<E>(cli_args)?;
+    client_config.store.slots_per_restore_point = sprp;
+    client_config.store.slots_per_restore_point_set_explicitly = sprp_explicit;
 
     if let Some(block_cache_size) = cli_args.value_of("block-cache-size") {
         client_config.store.block_cache_size = block_cache_size
@@ -811,4 +812,23 @@ pub fn get_data_dir(cli_args: &ArgMatches) -> PathBuf {
             })
         })
         .unwrap_or_else(|| PathBuf::from("."))
+}
+
+/// Get the `slots_per_restore_point` value to use for the database.
+///
+/// Return `(sprp, set_explicitly)` where `set_explicitly` is `true` if the user provided the value.
+pub fn get_slots_per_restore_point<E: EthSpec>(
+    cli_args: &ArgMatches,
+) -> Result<(u64, bool), String> {
+    if let Some(slots_per_restore_point) =
+        clap_utils::parse_optional(cli_args, "slots-per-restore-point")?
+    {
+        Ok((slots_per_restore_point, true))
+    } else {
+        let default = std::cmp::min(
+            E::slots_per_historical_root() as u64,
+            store::config::DEFAULT_SLOTS_PER_RESTORE_POINT,
+        );
+        Ok((default, false))
+    }
 }

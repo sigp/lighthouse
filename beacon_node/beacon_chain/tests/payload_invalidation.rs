@@ -6,10 +6,13 @@ use beacon_chain::{
     WhenSlotSkipped, INVALID_JUSTIFIED_PAYLOAD_SHUTDOWN_REASON,
 };
 use execution_layer::{
-    json_structures::JsonPayloadAttributesV1, ExecutionLayer, PayloadAttributes,
+    json_structures::{JsonForkChoiceStateV1, JsonPayloadAttributesV1},
+    ExecutionLayer, ForkChoiceState, PayloadAttributes,
 };
-use proto_array::ExecutionStatus;
+use fork_choice::{Error as ForkChoiceError, InvalidationOperation, PayloadVerificationStatus};
+use proto_array::{Error as ProtoArrayError, ExecutionStatus};
 use slot_clock::SlotClock;
+use std::time::Duration;
 use task_executor::ShutdownReason;
 use types::*;
 
@@ -72,7 +75,7 @@ impl InvalidPayloadRig {
             .body()
             .execution_payload()
             .unwrap()
-            .block_hash
+            .block_hash()
     }
 
     fn execution_status(&self, block_root: Hash256) -> ExecutionStatus {
@@ -93,17 +96,28 @@ impl InvalidPayloadRig {
         self.harness.chain.head_info().unwrap()
     }
 
-    fn previous_payload_attributes(&self) -> PayloadAttributes {
+    fn previous_forkchoice_update_params(&self) -> (ForkChoiceState, PayloadAttributes) {
         let mock_execution_layer = self.harness.mock_execution_layer.as_ref().unwrap();
         let json = mock_execution_layer
             .server
             .take_previous_request()
             .expect("no previous request");
         let params = json.get("params").expect("no params");
+
+        let fork_choice_state_json = params.get(0).expect("no payload param");
+        let fork_choice_state: JsonForkChoiceStateV1 =
+            serde_json::from_value(fork_choice_state_json.clone()).unwrap();
+
         let payload_param_json = params.get(1).expect("no payload param");
         let attributes: JsonPayloadAttributesV1 =
             serde_json::from_value(payload_param_json.clone()).unwrap();
-        attributes.into()
+
+        (fork_choice_state.into(), attributes.into())
+    }
+
+    fn previous_payload_attributes(&self) -> PayloadAttributes {
+        let (_, payload_attributes) = self.previous_forkchoice_update_params();
+        payload_attributes
     }
 
     fn move_to_terminal_block(&self) {
@@ -113,6 +127,16 @@ impl InvalidPayloadRig {
             .execution_block_generator()
             .move_to_terminal_block()
             .unwrap();
+    }
+
+    fn latest_execution_block_hash(&self) -> ExecutionBlockHash {
+        let mock_execution_layer = self.harness.mock_execution_layer.as_ref().unwrap();
+        mock_execution_layer
+            .server
+            .execution_block_generator()
+            .latest_execution_block()
+            .unwrap()
+            .block_hash
     }
 
     fn build_blocks(&mut self, num_blocks: u64, is_valid: Payload) -> Vec<Hash256> {
@@ -145,6 +169,15 @@ impl InvalidPayloadRig {
             .chain
             .block_root_at_slot(slot, WhenSlotSkipped::None)
             .unwrap()
+    }
+
+    fn validate_manually(&self, block_root: Hash256) {
+        self.harness
+            .chain
+            .fork_choice
+            .write()
+            .on_valid_execution_payload(block_root)
+            .unwrap();
     }
 
     fn import_block_parametric<F: Fn(&BlockError<E>) -> bool>(
@@ -232,6 +265,13 @@ impl InvalidPayloadRig {
         }
 
         block_root
+    }
+
+    fn invalidate_manually(&self, block_root: Hash256) {
+        self.harness
+            .chain
+            .process_invalid_execution_payload(&InvalidationOperation::InvalidateOne { block_root })
+            .unwrap();
     }
 }
 
@@ -643,6 +683,42 @@ fn invalid_after_optimistic_sync() {
 }
 
 #[test]
+fn manually_validate_child() {
+    let mut rig = InvalidPayloadRig::new().enable_attestations();
+    rig.move_to_terminal_block();
+    rig.import_block(Payload::Valid); // Import a valid transition block.
+
+    let parent = rig.import_block(Payload::Syncing);
+    let child = rig.import_block(Payload::Syncing);
+
+    assert!(rig.execution_status(parent).is_not_verified());
+    assert!(rig.execution_status(child).is_not_verified());
+
+    rig.validate_manually(child);
+
+    assert!(rig.execution_status(parent).is_valid());
+    assert!(rig.execution_status(child).is_valid());
+}
+
+#[test]
+fn manually_validate_parent() {
+    let mut rig = InvalidPayloadRig::new().enable_attestations();
+    rig.move_to_terminal_block();
+    rig.import_block(Payload::Valid); // Import a valid transition block.
+
+    let parent = rig.import_block(Payload::Syncing);
+    let child = rig.import_block(Payload::Syncing);
+
+    assert!(rig.execution_status(parent).is_not_verified());
+    assert!(rig.execution_status(child).is_not_verified());
+
+    rig.validate_manually(parent);
+
+    assert!(rig.execution_status(parent).is_valid());
+    assert!(rig.execution_status(child).is_not_verified());
+}
+
+#[test]
 fn payload_preparation() {
     let mut rig = InvalidPayloadRig::new();
     rig.move_to_terminal_block();
@@ -692,4 +768,120 @@ fn payload_preparation() {
         suggested_fee_recipient: fee_recipient,
     };
     assert_eq!(rig.previous_payload_attributes(), payload_attributes);
+}
+
+#[test]
+fn invalid_parent() {
+    let mut rig = InvalidPayloadRig::new();
+    rig.move_to_terminal_block();
+    rig.import_block(Payload::Valid); // Import a valid transition block.
+
+    // Import a syncing block atop the transition block (we'll call this the "parent block" since we
+    // build another block on it later).
+    let parent_root = rig.import_block(Payload::Syncing);
+    let parent_block = rig.harness.get_block(parent_root.into()).unwrap();
+    let parent_state = rig
+        .harness
+        .get_hot_state(parent_block.state_root().into())
+        .unwrap();
+
+    // Produce another block atop the parent, but don't import yet.
+    let slot = parent_block.slot() + 1;
+    rig.harness.set_current_slot(slot);
+    let (block, state) = rig.harness.make_block(parent_state, slot);
+    let block_root = block.canonical_root();
+    assert_eq!(block.parent_root(), parent_root);
+
+    // Invalidate the parent block.
+    rig.invalidate_manually(parent_root);
+    assert!(rig.execution_status(parent_root).is_invalid());
+
+    // Ensure the block built atop an invalid payload is invalid for gossip.
+    assert!(matches!(
+        rig.harness.chain.verify_block_for_gossip(block.clone()),
+        Err(BlockError::ParentExecutionPayloadInvalid { parent_root: invalid_root })
+        if invalid_root == parent_root
+    ));
+
+    // Ensure the block built atop an invalid payload is invalid for import.
+    assert!(matches!(
+        rig.harness.chain.process_block(block.clone()),
+        Err(BlockError::ParentExecutionPayloadInvalid { parent_root: invalid_root })
+        if invalid_root == parent_root
+    ));
+
+    // Ensure the block built atop an invalid payload cannot be imported to fork choice.
+    let (block, _block_signature) = block.deconstruct();
+    assert!(matches!(
+        rig.harness.chain.fork_choice.write().on_block(
+            slot,
+            &block,
+            block_root,
+            Duration::from_secs(0),
+            &state,
+            PayloadVerificationStatus::NotVerified,
+            &rig.harness.chain.spec
+        ),
+        Err(ForkChoiceError::ProtoArrayError(message))
+        if message.contains(&format!(
+            "{:?}",
+            ProtoArrayError::ParentExecutionStatusIsInvalid {
+                block_root,
+                parent_root
+            }
+        ))
+    ));
+}
+
+/// Tests to ensure that we will still send a proposer preparation
+#[test]
+fn payload_preparation_before_transition_block() {
+    let rig = InvalidPayloadRig::new();
+    let el = rig.execution_layer();
+
+    let head = rig.harness.chain.head().unwrap();
+    let head_info = rig.head_info();
+    assert!(
+        !head_info.is_merge_transition_complete,
+        "the head block is pre-transition"
+    );
+    assert_eq!(
+        head_info.execution_payload_block_hash,
+        Some(ExecutionBlockHash::zero()),
+        "the head block is post-bellatrix"
+    );
+
+    let current_slot = rig.harness.chain.slot().unwrap();
+    let next_slot = current_slot + 1;
+    let proposer = head
+        .beacon_state
+        .get_beacon_proposer_index(next_slot, &rig.harness.chain.spec)
+        .unwrap();
+    let fee_recipient = Address::repeat_byte(99);
+
+    // Provide preparation data to the EL for `proposer`.
+    el.update_proposer_preparation_blocking(
+        Epoch::new(0),
+        &[ProposerPreparationData {
+            validator_index: proposer as u64,
+            fee_recipient,
+        }],
+    )
+    .unwrap();
+
+    rig.move_to_terminal_block();
+
+    rig.harness
+        .chain
+        .prepare_beacon_proposer_blocking()
+        .unwrap();
+    rig.harness
+        .chain
+        .update_execution_engine_forkchoice_blocking(current_slot)
+        .unwrap();
+
+    let (fork_choice_state, payload_attributes) = rig.previous_forkchoice_update_params();
+    let latest_block_hash = rig.latest_execution_block_hash();
+    assert_eq!(payload_attributes.suggested_fee_recipient, fee_recipient);
+    assert_eq!(fork_choice_state.head_block_hash, latest_block_hash);
 }
