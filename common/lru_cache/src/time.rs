@@ -31,7 +31,7 @@ where
         }
     }
 
-    // Inserts a new key. It purges first expired elements to do so.
+    // Inserts a new key. It first purges expired elements to do so.
     //
     // If the key was not present this returns `true`. If the value was already present this
     // returns `false` and updates the insertion time of the key.
