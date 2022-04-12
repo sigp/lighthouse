@@ -11,7 +11,7 @@ use smallvec::SmallVec;
 use store::{Hash256, SignedBeaconBlock};
 use tokio::sync::mpsc;
 
-use crate::beacon_processor::{ChainSegmentProcessId, WorkEvent};
+use crate::beacon_processor::{ChainSegmentProcessId, FailureMode, WorkEvent};
 use crate::metrics;
 
 use self::{
@@ -21,7 +21,7 @@ use self::{
 
 use super::BatchProcessResult;
 use super::{
-    manager::{BlockProcessType, FailureMode, Id},
+    manager::{BlockProcessType, Id},
     network_context::SyncNetworkContext,
 };
 
@@ -752,7 +752,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                     "Batch processing failed";
                     "mode" => ?mode,
                 );
-                if let FailureMode::EL { pause_sync } = mode {
+                if let FailureMode::ExecutionLayer { pause_sync } = mode {
                     debug!(self.log, "Execution layer offline");
                     if pause_sync {
                         self.parent_queue.push(parent_lookup);

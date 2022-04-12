@@ -1,7 +1,6 @@
 use super::batch::{BatchInfo, BatchState};
-use crate::beacon_processor::ChainSegmentProcessId;
 use crate::beacon_processor::WorkEvent as BeaconWorkEvent;
-use crate::sync::FailureMode;
+use crate::beacon_processor::{ChainSegmentProcessId, FailureMode};
 use crate::sync::{manager::Id, network_context::SyncNetworkContext, BatchProcessResult};
 use beacon_chain::BeaconChainTypes;
 use fnv::FnvHashMap;
@@ -323,7 +322,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                     imported_blocks: false,
                     peer_action: None,
                     // TODO(pawan): check if this is correct failure mode for all cases
-                    mode: FailureMode::CL,
+                    mode: FailureMode::ConsensusLayer,
                 },
             )
         } else {
@@ -524,7 +523,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                     "batch_epoch" => batch_id, "peer" => %peer, "client" => %network.client_type(&peer));
 
                 // The batch failed because of an EL error. Stop syncing until the EL recovers.
-                let stall_execution = if let FailureMode::EL { pause_sync } = mode {
+                let stall_execution = if let FailureMode::ExecutionLayer { pause_sync } = mode {
                     if *pause_sync {
                         self.state = ChainSyncingState::ExecutionStalled;
                     }

@@ -38,7 +38,7 @@ use super::block_lookups::BlockLookups;
 use super::network_context::SyncNetworkContext;
 use super::peer_sync_info::{remote_sync_type, PeerSyncType};
 use super::range_sync::{ChainState, RangeSync, RangeSyncType, EPOCHS_PER_BATCH};
-use crate::beacon_processor::{ChainSegmentProcessId, WorkEvent as BeaconWorkEvent};
+use crate::beacon_processor::{ChainSegmentProcessId, FailureMode, WorkEvent as BeaconWorkEvent};
 use crate::service::NetworkMessage;
 use crate::status::ToStatusMessage;
 use beacon_chain::{BeaconChain, BeaconChainTypes, BlockError};
@@ -69,13 +69,6 @@ pub const SLOT_IMPORT_TOLERANCE: usize = 32;
 const EXECTION_LAYER_POLLING_DELAY: u64 = 5;
 
 pub type Id = u32;
-
-/// Represents if the failure was on the CL or EL side.
-#[derive(Debug)]
-pub enum FailureMode {
-    EL { pause_sync: bool },
-    CL,
-}
 
 /// Id of rpc requests sent by sync to the network.
 #[derive(Debug, Hash, PartialEq, Eq, Clone, Copy)]
@@ -178,6 +171,7 @@ pub struct SyncManager<T: BeaconChainTypes> {
 
     block_lookups: BlockLookups<T>,
     poll_execution: Pin<Box<OptionFuture<tokio::time::Sleep>>>,
+    waiting_on_execution: bool,
 
     /// The logger for the import manager.
     log: Logger,
@@ -220,6 +214,7 @@ pub fn spawn<T: BeaconChainTypes>(
         ),
         block_lookups: BlockLookups::new(beacon_processor_send, log.clone()),
         poll_execution: Box::pin(None.into()),
+        waiting_on_execution: false,
         log: log.clone(),
     };
 
@@ -461,13 +456,16 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                 ChainState::WaitingOnExecution => {
                     // Start the timer to poll
                     // Reset the timer to poll the EL again after the delay
-                    debug!(self.log, "Sync is waiting on execution layer");
-                    self.poll_execution = Box::pin(
-                        Some(tokio::time::sleep(Duration::from_secs(
-                            EXECTION_LAYER_POLLING_DELAY,
-                        )))
-                        .into(),
-                    );
+                    if !self.waiting_on_execution {
+                        debug!(self.log, "Sync is waiting on execution layer");
+                        self.poll_execution = Box::pin(
+                            Some(tokio::time::sleep(Duration::from_secs(
+                                EXECTION_LAYER_POLLING_DELAY,
+                            )))
+                            .into(),
+                        );
+                        self.waiting_on_execution = true;
+                    }
                     SyncState::WaitingOnExecution
                 }
             },
@@ -503,6 +501,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                             self.range_sync.execution_ready(&mut self.network);
                             // Stop polling execution layer
                             self.poll_execution = Box::pin(None.into());
+                            self.waiting_on_execution = false;
                             self.update_sync_state();
                         }
                         else {

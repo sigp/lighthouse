@@ -200,7 +200,7 @@ where
                 sync_type,
                 remove_reason,
                 network,
-                "peer removed",
+                "execution resumed",
             );
         }
     }
