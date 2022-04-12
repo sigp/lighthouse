@@ -176,11 +176,11 @@ impl BlockId {
             // Genesis block is inherently verified.
             CoreBlockId::Genesis => false,
             CoreBlockId::Head => chain
-                .is_optimistic_head()
+                .is_optimistic_head_block(&block)
                 .map_err(warp_utils::reject::beacon_chain_error)?,
             // Slot, Finalized and Justified are determined based on the current head.
             CoreBlockId::Slot(_) | CoreBlockId::Finalized | CoreBlockId::Justified => chain
-                .is_optimistic_head()
+                .is_optimistic_head_block(&block)
                 .map_err(warp_utils::reject::beacon_chain_error)?,
             // If the root is explicitly given, we can determine based on fork-choice.
             CoreBlockId::Root(_) => chain
