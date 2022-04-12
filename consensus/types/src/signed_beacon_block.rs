@@ -72,6 +72,8 @@ pub struct SignedBeaconBlock<E: EthSpec, Payload: ExecPayload<E> = FullPayload<E
     pub signature: Signature,
 }
 
+pub type SignedBlindedBeaconBlock<E> = SignedBeaconBlock<E, BlindedPayload<E>>;
+
 impl<E: EthSpec, Payload: ExecPayload<E>> SignedBeaconBlock<E, Payload> {
     /// Returns the name of the fork pertaining to `self`.
     ///
@@ -223,5 +225,111 @@ impl<E: EthSpec, Payload: ExecPayload<E>> SignedBeaconBlock<E, Payload> {
     /// Returns the `tree_hash_root` of the block.
     pub fn canonical_root(&self) -> Hash256 {
         self.message().tree_hash_root()
+    }
+}
+
+// We can convert pre-Bellatrix blocks without payloads into blocks with payloads.
+impl<E: EthSpec> From<SignedBeaconBlockBase<E, BlindedPayload<E>>>
+    for SignedBeaconBlockBase<E, FullPayload<E>>
+{
+    fn from(signed_block: SignedBeaconBlockBase<E, BlindedPayload<E>>) -> Self {
+        let SignedBeaconBlockBase { message, signature } = signed_block;
+        SignedBeaconBlockBase {
+            message: message.into(),
+            signature,
+        }
+    }
+}
+
+impl<E: EthSpec> From<SignedBeaconBlockAltair<E, BlindedPayload<E>>>
+    for SignedBeaconBlockAltair<E, FullPayload<E>>
+{
+    fn from(signed_block: SignedBeaconBlockAltair<E, BlindedPayload<E>>) -> Self {
+        let SignedBeaconBlockAltair { message, signature } = signed_block;
+        SignedBeaconBlockAltair {
+            message: message.into(),
+            signature,
+        }
+    }
+}
+
+// Post-Bellatrix blocks can be "unblinded" by adding the full payload.
+// NOTE: It might be nice to come up with a `superstruct` pattern to abstract over this before
+// the first fork after Bellatrix.
+impl<E: EthSpec> SignedBeaconBlockMerge<E, BlindedPayload<E>> {
+    pub fn into_full_block(
+        self,
+        execution_payload: ExecutionPayload<E>,
+    ) -> SignedBeaconBlockMerge<E, FullPayload<E>> {
+        let SignedBeaconBlockMerge {
+            message:
+                BeaconBlockMerge {
+                    slot,
+                    proposer_index,
+                    parent_root,
+                    state_root,
+                    body:
+                        BeaconBlockBodyMerge {
+                            randao_reveal,
+                            eth1_data,
+                            graffiti,
+                            proposer_slashings,
+                            attester_slashings,
+                            attestations,
+                            deposits,
+                            voluntary_exits,
+                            sync_aggregate,
+                            execution_payload: BlindedPayload { .. },
+                        },
+                },
+            signature,
+        } = self;
+        SignedBeaconBlockMerge {
+            message: BeaconBlockMerge {
+                slot,
+                proposer_index,
+                parent_root,
+                state_root,
+                body: BeaconBlockBodyMerge {
+                    randao_reveal,
+                    eth1_data,
+                    graffiti,
+                    proposer_slashings,
+                    attester_slashings,
+                    attestations,
+                    deposits,
+                    voluntary_exits,
+                    sync_aggregate,
+                    execution_payload: FullPayload { execution_payload },
+                },
+            },
+            signature,
+        }
+    }
+}
+
+impl<E: EthSpec> SignedBeaconBlock<E, BlindedPayload<E>> {
+    pub fn try_into_full_block(
+        self,
+        execution_payload: Option<ExecutionPayload<E>>,
+    ) -> Option<SignedBeaconBlock<E, FullPayload<E>>> {
+        let full_block = match self {
+            SignedBeaconBlock::Base(block) => SignedBeaconBlock::Base(block.into()),
+            SignedBeaconBlock::Altair(block) => SignedBeaconBlock::Altair(block.into()),
+            SignedBeaconBlock::Merge(block) => {
+                SignedBeaconBlock::Merge(block.into_full_block(execution_payload?))
+            }
+        };
+        Some(full_block)
+    }
+}
+
+// We can blind blocks with payloads by converting the payload into a header.
+impl<E: EthSpec> From<SignedBeaconBlock<E, FullPayload<E>>>
+    for SignedBeaconBlock<E, BlindedPayload<E>>
+{
+    fn from(signed_block: SignedBeaconBlock<E, FullPayload<E>>) -> Self {
+        let (block, signature) = signed_block.deconstruct();
+        Self::from_block(block.into(), signature)
     }
 }

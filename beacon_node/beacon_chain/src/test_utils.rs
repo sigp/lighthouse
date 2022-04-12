@@ -44,11 +44,11 @@ use types::sync_selection_proof::SyncSelectionProof;
 pub use types::test_utils::generate_deterministic_keypairs;
 use types::{
     typenum::U4294967296, Address, AggregateSignature, Attestation, AttestationData,
-    AttesterSlashing, BeaconBlock, BeaconState, BeaconStateHash, ChainSpec, Checkpoint, Deposit,
-    DepositData, Domain, Epoch, EthSpec, ForkName, Graffiti, Hash256, IndexedAttestation, Keypair,
-    ProposerSlashing, PublicKeyBytes, SelectionProof, SignatureBytes, SignedAggregateAndProof,
-    SignedBeaconBlock, SignedBeaconBlockHash, SignedContributionAndProof, SignedRoot,
-    SignedVoluntaryExit, Slot, SubnetId, SyncCommittee, SyncCommitteeContribution,
+    AttesterSlashing, BeaconBlock, BeaconState, BeaconStateHash, BlindedPayload, ChainSpec,
+    Checkpoint, Deposit, DepositData, Domain, Epoch, EthSpec, ForkName, Graffiti, Hash256,
+    IndexedAttestation, Keypair, ProposerSlashing, PublicKeyBytes, SelectionProof, SignatureBytes,
+    SignedAggregateAndProof, SignedBeaconBlock, SignedBeaconBlockHash, SignedContributionAndProof,
+    SignedRoot, SignedVoluntaryExit, Slot, SubnetId, SyncCommittee, SyncCommitteeContribution,
     SyncCommitteeMessage, VariableList, VoluntaryExit,
 };
 
@@ -533,8 +533,11 @@ where
         self.chain.slot().unwrap()
     }
 
-    pub fn get_block(&self, block_hash: SignedBeaconBlockHash) -> Option<SignedBeaconBlock<E>> {
-        self.chain.get_block(&block_hash.into()).unwrap()
+    pub fn get_block(
+        &self,
+        block_hash: SignedBeaconBlockHash,
+    ) -> Option<SignedBeaconBlock<E, BlindedPayload<E>>> {
+        self.chain.get_blinded_block(&block_hash.into()).unwrap()
     }
 
     pub fn block_exists(&self, block_hash: SignedBeaconBlockHash) -> bool {

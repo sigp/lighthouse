@@ -35,3 +35,4 @@ rand = "0.8.5"
 zeroize = { version = "1.4.2", features = ["zeroize_derive"] }
 lighthouse_metrics = { path = "../../common/lighthouse_metrics" }
 lazy_static = "1.4.0"
+ethers-core = { git = "https://github.com/gakonst/ethers-rs", rev = "3d4356f53173577caf989218a01809f6e84623d4" }

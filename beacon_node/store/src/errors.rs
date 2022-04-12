@@ -41,6 +41,8 @@ pub enum Error {
         computed: Hash256,
     },
     BlockReplayError(BlockReplayError),
+    AddPayloadLogicError,
+    ResyncRequiredForExecutionPayloadSeparation,
 }
 
 pub trait HandleUnavailable<T> {

@@ -338,7 +338,11 @@ impl<E: EthSpec> Tester<E> {
         // function.
         if !valid {
             // A missing parent block whilst `valid == false` means the test should pass.
-            if let Some(parent_block) = self.harness.chain.get_block(&block.parent_root()).unwrap()
+            if let Some(parent_block) = self
+                .harness
+                .chain
+                .get_blinded_block(&block.parent_root())
+                .unwrap()
             {
                 let parent_state_root = parent_block.state_root();
                 let mut state = self

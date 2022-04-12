@@ -106,8 +106,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 .into());
             }
 
-            // Store block in the hot database.
-            hot_batch.push(self.store.block_as_kv_store_op(&block_root, block));
+            // Store block in the hot database without payload.
+            self.store.blinded_block_as_kv_store_ops(
+                &block_root,
+                &block.clone().into(),
+                &mut hot_batch,
+            );
 
             // Store block roots, including at all skip slots in the freezer DB.
             for slot in (block.slot().as_usize()..prev_block_slot.as_usize()).rev() {

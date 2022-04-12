@@ -152,6 +152,7 @@ pub enum StoreOp<'a, E: EthSpec> {
     DeleteStateTemporaryFlag(Hash256),
     DeleteBlock(Hash256),
     DeleteState(Hash256, Option<Slot>),
+    DeleteExecutionPayload(Hash256),
 }
 
 /// A unique column identifier.
@@ -172,6 +173,9 @@ pub enum DBColumn {
     /// and then made non-temporary by the deletion of their state root from this column.
     #[strum(serialize = "bst")]
     BeaconStateTemporary,
+    /// Execution payloads for blocks more recent than the finalized checkpoint.
+    #[strum(serialize = "exp")]
+    ExecPayload,
     /// For persisting in-memory state to the database.
     #[strum(serialize = "bch")]
     BeaconChain,
@@ -196,6 +200,12 @@ pub enum DBColumn {
     BeaconRandaoMixes,
     #[strum(serialize = "dht")]
     DhtEnrs,
+}
+
+/// A block from the database, which might have an execution payload or not.
+pub enum DatabaseBlock<E: EthSpec> {
+    Full(SignedBeaconBlock<E>),
+    Blinded(SignedBeaconBlock<E, BlindedPayload<E>>),
 }
 
 impl DBColumn {
