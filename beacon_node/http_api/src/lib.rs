@@ -944,7 +944,7 @@ pub fn serve<T: BeaconChainTypes>(
                     // compute the response is dependent on the head block.
                     let execution_optimistic = match uses_head {
                         false => chain.is_optimistic_block(&block),
-                        true => chain.is_optimistic_head(),
+                        true => chain.is_optimistic_head(None),
                     }
                     .map_err(warp_utils::reject::beacon_chain_error)?;
 

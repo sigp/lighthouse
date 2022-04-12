@@ -72,7 +72,7 @@ impl StateId {
         })
     }
 
-    /// Convienience function to compute `fork` when `execution_optimistic` isn't desired.
+    /// Convenience function to compute `fork` when `execution_optimistic` isn't desired.
     pub fn fork<T: BeaconChainTypes>(
         &self,
         chain: &BeaconChain<T>,
@@ -158,7 +158,7 @@ impl StateId {
             | CoreStateId::Slot(_)
             | CoreStateId::Finalized
             | CoreStateId::Justified => chain
-                .is_optimistic_head()
+                .is_optimistic_head(None)
                 .map_err(warp_utils::reject::beacon_chain_error)?,
             CoreStateId::Root(_) => {
                 let state_root = self.root(chain)?;

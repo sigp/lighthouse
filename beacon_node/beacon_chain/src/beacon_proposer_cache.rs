@@ -153,7 +153,7 @@ pub fn compute_proposer_duties_from_head<T: BeaconChainTypes>(
         .proposer_shuffling_decision_root(chain.genesis_block_root)
         .map_err(BeaconChainError::from)?;
 
-    let execution_optimistic = chain.is_optimistic_head()?;
+    let execution_optimistic = chain.is_optimistic_head(None)?;
 
     Ok((indices, dependent_root, execution_optimistic, state.fork()))
 }
