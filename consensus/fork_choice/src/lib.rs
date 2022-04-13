@@ -6,4 +6,4 @@ pub use crate::fork_choice::{
     PayloadVerificationStatus, PersistedForkChoice, QueuedAttestation,
 };
 pub use fork_choice_store::ForkChoiceStore;
-pub use proto_array::{Block as ProtoBlock, InvalidationOperation};
+pub use proto_array::{Block as ProtoBlock, ExecutionStatus, InvalidationOperation};

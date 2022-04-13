@@ -387,7 +387,7 @@ impl ProtoArray {
                 ExecutionStatus::Irrelevant(_) => return Ok(()),
                 // The block has an unknown status, set it to valid since any ancestor of a valid
                 // payload can be considered valid.
-                ExecutionStatus::Unknown(payload_block_hash) => {
+                ExecutionStatus::Optimistic(payload_block_hash) => {
                     node.execution_status = ExecutionStatus::Valid(payload_block_hash);
                     if let Some(parent_index) = node.parent {
                         parent_index
@@ -458,7 +458,7 @@ impl ProtoArray {
             match node.execution_status {
                 ExecutionStatus::Valid(hash)
                 | ExecutionStatus::Invalid(hash)
-                | ExecutionStatus::Unknown(hash) => {
+                | ExecutionStatus::Optimistic(hash) => {
                     // If we're no longer processing the `head_block_root` and the last valid
                     // ancestor is unknown, exit this loop and proceed to invalidate and
                     // descendants of `head_block_root`/`latest_valid_ancestor_root`.
@@ -516,7 +516,7 @@ impl ProtoArray {
                             payload_block_hash: *hash,
                         })
                     }
-                    ExecutionStatus::Unknown(hash) => {
+                    ExecutionStatus::Optimistic(hash) => {
                         invalidated_indices.insert(index);
                         node.execution_status = ExecutionStatus::Invalid(*hash);
 
@@ -580,7 +580,7 @@ impl ProtoArray {
                                 payload_block_hash: *hash,
                             })
                         }
-                        ExecutionStatus::Unknown(hash) | ExecutionStatus::Invalid(hash) => {
+                        ExecutionStatus::Optimistic(hash) | ExecutionStatus::Invalid(hash) => {
                             node.execution_status = ExecutionStatus::Invalid(*hash)
                         }
                         ExecutionStatus::Irrelevant(_) => {

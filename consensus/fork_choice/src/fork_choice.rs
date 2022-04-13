@@ -122,9 +122,20 @@ pub enum PayloadVerificationStatus {
     /// An EL has declared the execution payload to be valid.
     Verified,
     /// An EL has not yet made a determination about the execution payload.
-    NotVerified,
+    Optimistic,
     /// The block is either pre-merge-fork, or prior to the terminal PoW block.
     Irrelevant,
+}
+
+impl PayloadVerificationStatus {
+    /// Returns `true` if the payload was optimistically imported.
+    pub fn is_optimistic(&self) -> bool {
+        match self {
+            PayloadVerificationStatus::Verified => false,
+            PayloadVerificationStatus::Optimistic => true,
+            PayloadVerificationStatus::Irrelevant => false,
+        }
+    }
 }
 
 /// Calculate how far `slot` lies from the start of its epoch.
@@ -668,7 +679,9 @@ where
             } else {
                 match payload_verification_status {
                     PayloadVerificationStatus::Verified => ExecutionStatus::Valid(block_hash),
-                    PayloadVerificationStatus::NotVerified => ExecutionStatus::Unknown(block_hash),
+                    PayloadVerificationStatus::Optimistic => {
+                        ExecutionStatus::Optimistic(block_hash)
+                    }
                     // It would be a logic error to declare a block irrelevant if it has an
                     // execution payload with a non-zero block hash.
                     PayloadVerificationStatus::Irrelevant => {
@@ -939,6 +952,15 @@ where
     pub fn get_block(&self, block_root: &Hash256) -> Option<ProtoBlock> {
         if self.is_descendant_of_finalized(*block_root) {
             self.proto_array.get_block(block_root)
+        } else {
+            None
+        }
+    }
+
+    /// Returns an `ExecutionStatus` if the block is known **and** a descendant of the finalized root.
+    pub fn get_block_execution_status(&self, block_root: &Hash256) -> Option<ExecutionStatus> {
+        if self.is_descendant_of_finalized(*block_root) {
+            self.proto_array.get_block_execution_status(block_root)
         } else {
             None
         }

@@ -1165,7 +1165,7 @@ impl<'a, T: BeaconChainTypes> FullyVerifiedBlock<'a, T> {
 
         // If the payload did not validate or invalidate the block, check to see if this block is
         // valid for optimistic import.
-        if payload_verification_status == PayloadVerificationStatus::NotVerified {
+        if payload_verification_status.is_optimistic() {
             let current_slot = chain
                 .slot_clock
                 .now()
