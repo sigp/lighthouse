@@ -771,9 +771,9 @@ impl<T: BeaconChainTypes> Worker<T> {
                 return None;
             }
             // TODO(merge): reconsider peer scoring for this event.
-            Err(e @BlockError::ExecutionPayloadError(ExecutionPayloadError::RequestFailed(_)))
+            Err(e @BlockError::ExecutionPayloadError(ExecutionPayloadError::RequestFailed{..}))
             | Err(e @ BlockError::ExecutionPayloadError(ExecutionPayloadError::UnverifiedNonOptimisticCandidate))
-            | Err(e @BlockError::ExecutionPayloadError(ExecutionPayloadError::NoExecutionConnection)) => {
+            | Err(e @BlockError::ExecutionPayloadError(ExecutionPayloadError::NoExecutionConnection{..})) => {
                 debug!(self.log, "Could not verify block for gossip, ignoring the block";
                             "error" => %e);
                 self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);

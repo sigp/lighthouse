@@ -53,6 +53,7 @@ use crate::{
     },
     metrics, BeaconChain, BeaconChainError, BeaconChainTypes,
 };
+use derivative::Derivative;
 use eth2::types::EventKind;
 use execution_layer::PayloadStatus;
 use fork_choice::{ForkChoice, ForkChoiceStore, PayloadVerificationStatus};
@@ -261,7 +262,7 @@ pub enum BlockError<T: EthSpec> {
     /// ## Peer scoring
     ///
     /// See `ExecutionPayloadError` for scoring information
-    ExecutionPayloadError(ExecutionPayloadError),
+    ExecutionPayloadError(ExecutionPayloadError<T>),
     /// The block references an parent block which has an execution payload which was found to be
     /// invalid.
     ///
@@ -276,20 +277,28 @@ pub enum BlockError<T: EthSpec> {
 
 /// Returned when block validation failed due to some issue verifying
 /// the execution payload.
-#[derive(Debug)]
-pub enum ExecutionPayloadError {
+#[derive(Derivative)]
+#[derivative(Debug)]
+pub enum ExecutionPayloadError<T: EthSpec> {
     /// There's no eth1 connection (mandatory after merge)
     ///
     /// ## Peer scoring
     ///
     /// As this is our fault, do not penalize the peer
-    NoExecutionConnection,
+    NoExecutionConnection {
+        #[derivative(Debug = "ignore")]
+        block: Box<SignedBeaconBlock<T>>,
+    },
     /// Error occurred during engine_executePayload
     ///
     /// ## Peer scoring
     ///
     /// Some issue with our configuration, do not penalize peer
-    RequestFailed(execution_layer::Error),
+    RequestFailed {
+        err: execution_layer::Error,
+        #[derivative(Debug = "ignore")]
+        block: Box<SignedBeaconBlock<T>>,
+    },
     /// The execution engine returned INVALID for the payload
     ///
     /// ## Peer scoring
@@ -341,14 +350,14 @@ pub enum ExecutionPayloadError {
     UnverifiedNonOptimisticCandidate,
 }
 
-impl From<execution_layer::Error> for ExecutionPayloadError {
-    fn from(e: execution_layer::Error) -> Self {
-        ExecutionPayloadError::RequestFailed(e)
-    }
-}
+// impl<T: EthSpec> From<execution_layer::Error> for ExecutionPayloadError<T> {
+//     fn from(e: execution_layer::Error) -> Self {
+//         ExecutionPayloadError::RequestFailed(e)
+//     }
+// }
 
-impl<T: EthSpec> From<ExecutionPayloadError> for BlockError<T> {
-    fn from(e: ExecutionPayloadError) -> Self {
+impl<T: EthSpec> From<ExecutionPayloadError<T>> for BlockError<T> {
+    fn from(e: ExecutionPayloadError<T>) -> Self {
         BlockError::ExecutionPayloadError(e)
     }
 }
@@ -1149,7 +1158,7 @@ impl<'a, T: BeaconChainTypes> FullyVerifiedBlock<'a, T> {
         //   calls to remote servers.
         let valid_merge_transition_block =
             if is_merge_transition_block(&state, block.message().body()) {
-                validate_merge_block(chain, block.message())?;
+                validate_merge_block(chain, &block)?;
                 true
             } else {
                 false
@@ -1161,7 +1170,7 @@ impl<'a, T: BeaconChainTypes> FullyVerifiedBlock<'a, T> {
         //
         // It is important that this function is called *after* `per_slot_processing`, since the
         // `randao` may change.
-        let payload_verification_status = notify_new_payload(chain, &state, block.message())?;
+        let payload_verification_status = notify_new_payload(chain, &state, &block)?;
 
         // If the payload did not validate or invalidate the block, check to see if this block is
         // valid for optimistic import.

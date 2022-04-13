@@ -34,13 +34,15 @@ use types::*;
 pub fn notify_new_payload<T: BeaconChainTypes>(
     chain: &BeaconChain<T>,
     state: &BeaconState<T::EthSpec>,
-    block: BeaconBlockRef<T::EthSpec>,
+    block: &SignedBeaconBlock<T::EthSpec>,
 ) -> Result<PayloadVerificationStatus, BlockError<T::EthSpec>> {
-    if !is_execution_enabled(state, block.body()) {
+    let message = block.message();
+
+    if !is_execution_enabled(state, message.body()) {
         return Ok(PayloadVerificationStatus::Irrelevant);
     }
 
-    let execution_payload = block.execution_payload()?;
+    let execution_payload = message.execution_payload()?;
 
     // Perform the initial stages of payload verification.
     //
@@ -49,10 +51,13 @@ pub fn notify_new_payload<T: BeaconChainTypes>(
     partially_verify_execution_payload(state, execution_payload, &chain.spec)
         .map_err(BlockError::PerBlockProcessingError)?;
 
-    let execution_layer = chain
-        .execution_layer
-        .as_ref()
-        .ok_or(ExecutionPayloadError::NoExecutionConnection)?;
+    let execution_layer =
+        chain
+            .execution_layer
+            .as_ref()
+            .ok_or(ExecutionPayloadError::NoExecutionConnection {
+                block: Box::new(block.clone()),
+            })?;
     let new_payload_response = execution_layer.block_on(|execution_layer| {
         execution_layer.notify_new_payload(&execution_payload.execution_payload)
     });
@@ -86,7 +91,12 @@ pub fn notify_new_payload<T: BeaconChainTypes>(
                 Err(ExecutionPayloadError::RejectedByExecutionEngine { status }.into())
             }
         },
-        Err(e) => Err(ExecutionPayloadError::RequestFailed(e).into()),
+        Err(e) => Err(BlockError::ExecutionPayloadError(
+            ExecutionPayloadError::RequestFailed {
+                err: e,
+                block: Box::new(block.clone()),
+            },
+        )),
     }
 }
 
@@ -104,11 +114,12 @@ pub fn notify_new_payload<T: BeaconChainTypes>(
 /// https://github.com/ethereum/consensus-specs/blob/v1.1.5/specs/merge/fork-choice.md#validate_merge_block
 pub fn validate_merge_block<T: BeaconChainTypes>(
     chain: &BeaconChain<T>,
-    block: BeaconBlockRef<T::EthSpec>,
+    block: &SignedBeaconBlock<T::EthSpec>,
 ) -> Result<(), BlockError<T::EthSpec>> {
+    let block_ref = block.message();
     let spec = &chain.spec;
-    let block_epoch = block.slot().epoch(T::EthSpec::slots_per_epoch());
-    let execution_payload = block.execution_payload()?;
+    let block_epoch = block_ref.slot().epoch(T::EthSpec::slots_per_epoch());
+    let execution_payload = block_ref.execution_payload()?;
 
     if spec.terminal_block_hash != ExecutionBlockHash::zero() {
         if block_epoch < spec.terminal_block_hash_activation_epoch {
@@ -130,16 +141,22 @@ pub fn validate_merge_block<T: BeaconChainTypes>(
         return Ok(());
     }
 
-    let execution_layer = chain
-        .execution_layer
-        .as_ref()
-        .ok_or(ExecutionPayloadError::NoExecutionConnection)?;
+    let execution_layer =
+        chain
+            .execution_layer
+            .as_ref()
+            .ok_or(ExecutionPayloadError::NoExecutionConnection {
+                block: Box::new(block.clone()),
+            })?;
 
     let is_valid_terminal_pow_block = execution_layer
         .block_on(|execution_layer| {
             execution_layer.is_valid_terminal_pow_block_hash(execution_payload.parent_hash(), spec)
         })
-        .map_err(ExecutionPayloadError::from)?;
+        .map_err(|e| ExecutionPayloadError::RequestFailed {
+            err: e,
+            block: Box::new(block.clone()),
+        })?;
 
     match is_valid_terminal_pow_block {
         Some(true) => Ok(()),

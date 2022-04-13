@@ -1,5 +1,5 @@
 use std::collections::hash_map::Entry;
-use std::collections::HashMap;
+use std::collections::HashSet;
 use std::time::Duration;
 
 use beacon_chain::{BeaconChainTypes, BlockError, ExecutionPayloadError};
@@ -50,9 +50,7 @@ pub(crate) struct BlockLookups<T: BeaconChainTypes> {
     beacon_processor_send: mpsc::Sender<WorkEvent<T>>,
 
     /// A hashmap of blocks that are waiting on execution.
-    waiting_execution: HashMap<Hash256, SignedBeaconBlock<T::EthSpec>>,
-
-    waiting_blocks: HashMap<Hash256, SignedBeaconBlock<T::EthSpec>>,
+    waiting_execution: HashSet<Hash256>,
 
     /// The logger for the import manager.
     log: Logger,
@@ -66,7 +64,6 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
             single_block_lookups: Default::default(),
             beacon_processor_send,
             waiting_execution: Default::default(),
-            waiting_blocks: Default::default(),
             log,
         }
     }
@@ -222,7 +219,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                         "block_hash" => %block_hash,
                         "parent_hash" => %block.parent_root(),
                     );
-                    self.waiting_execution.insert(block_hash, *block.clone());
+                    self.waiting_execution.insert(block_hash);
                 }
                 // This is the correct block, send it for processing
                 if self
@@ -288,8 +285,6 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
             Ok(Some(block)) => {
                 // Block is correct, send to the beacon processor.
                 let chain_hash = parent_lookup.chain_hash();
-                self.waiting_blocks
-                    .insert(block.canonical_root(), *block.clone());
                 if self
                     .send_block_for_processing(
                         block,
@@ -486,20 +481,18 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                 BlockError::ParentUnknown(block) => {
                     self.search_parent(block, peer_id, cx);
                 }
-                BlockError::ExecutionPayloadError(e) => match &e {
-                    ExecutionPayloadError::NoExecutionConnection
-                    | ExecutionPayloadError::UnverifiedNonOptimisticCandidate
-                    | ExecutionPayloadError::RequestFailed(_) => {
+                BlockError::ExecutionPayloadError(e) => match e {
+                    ExecutionPayloadError::NoExecutionConnection { block }
+                    | ExecutionPayloadError::RequestFailed { err: _, block } => {
                         // These errors indicate an issue with the EL and not the block.
                         warn!(self.log,
                             "Single block lookup failed. Execution layer is stalled";
                             "root" => %root,
-                            "err" => ?e
                         );
 
                         // Add this to the existing parent request and send the chain segment
                         // for processing.
-                        if let Some(block) = self.waiting_execution.remove(&root) {
+                        if self.waiting_execution.remove(&root) {
                             if let Some(pos) = self
                                 .parent_queue
                                 .iter()
@@ -512,7 +505,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                                     "parent_root" => %block.parent_root(),
                                 );
                                 let mut parent_lookup = self.parent_queue.remove(pos);
-                                parent_lookup.insert_block(block);
+                                parent_lookup.insert_block(*block);
 
                                 let chain_hash = parent_lookup.chain_hash();
                                 let blocks = parent_lookup.chain_blocks_clone();
@@ -637,41 +630,32 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                     }
                 }
             }
-            Err(BlockError::ExecutionPayloadError(e)) => match &e {
-                ExecutionPayloadError::NoExecutionConnection
-                | ExecutionPayloadError::UnverifiedNonOptimisticCandidate
-                | ExecutionPayloadError::RequestFailed(_) => {
+            Err(BlockError::ExecutionPayloadError(e)) => match e {
+                ExecutionPayloadError::NoExecutionConnection { block }
+                | ExecutionPayloadError::RequestFailed { err: _, block } => {
                     // These errors indicate an issue with the EL and not the block.
                     warn!(self.log,
                         "Parent request failed. Execution layer is stalled";
-                        "err" => ?e
                     );
-                    if let Some(block) = self
-                        .waiting_blocks
-                        .remove(&parent_lookup.current_request_hash())
-                    {
-                        parent_lookup.add_block(block);
-                        let chain_hash = parent_lookup.chain_hash();
-                        let blocks = parent_lookup.chain_blocks_clone();
-                        let process_id = ChainSegmentProcessId::ParentLookup(chain_hash);
+                    parent_lookup.add_block(*block);
+                    let chain_hash = parent_lookup.chain_hash();
+                    let blocks = parent_lookup.chain_blocks_clone();
+                    let process_id = ChainSegmentProcessId::ParentLookup(chain_hash);
 
-                        match self
-                            .beacon_processor_send
-                            .try_send(WorkEvent::chain_segment(process_id, blocks))
-                        {
-                            Ok(_) => {
-                                self.parent_queue.push(parent_lookup);
-                            }
-                            Err(e) => {
-                                error!(
-                                    self.log,
-                                    "Failed to send chain segment to processor";
-                                    "error" => ?e
-                                );
-                            }
+                    match self
+                        .beacon_processor_send
+                        .try_send(WorkEvent::chain_segment(process_id, blocks))
+                    {
+                        Ok(_) => {
+                            self.parent_queue.push(parent_lookup);
                         }
-                    } else {
-                        debug!(self.log, "No processed parent");
+                        Err(e) => {
+                            error!(
+                                self.log,
+                                "Failed to send chain segment to processor";
+                                "error" => ?e
+                            );
+                        }
                     }
                 }
                 err => {

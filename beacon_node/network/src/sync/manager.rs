@@ -170,7 +170,11 @@ pub struct SyncManager<T: BeaconChainTypes> {
     backfill_sync: BackFillSync<T>,
 
     block_lookups: BlockLookups<T>,
+
+    /// Optional timer for polling execution layer for sync status.
     poll_execution: Pin<Box<OptionFuture<tokio::time::Sleep>>>,
+
+    /// bool that indicates if RangeSync is waiting on the execution layer.
     waiting_on_execution: bool,
 
     /// The logger for the import manager.

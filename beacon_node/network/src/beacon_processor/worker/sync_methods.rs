@@ -448,9 +448,9 @@ impl<T: BeaconChainTypes> Worker<T> {
                 })
             }
             BlockError::ExecutionPayloadError(e) => match &e {
-                ExecutionPayloadError::NoExecutionConnection
+                ExecutionPayloadError::NoExecutionConnection { .. }
                 | ExecutionPayloadError::UnverifiedNonOptimisticCandidate
-                | ExecutionPayloadError::RequestFailed(_) => {
+                | ExecutionPayloadError::RequestFailed { .. } => {
                     // These errors indicate an issue with the EL and not the `ChainSegment`.
                     // Pause the syncing while the EL recovers
                     debug!(self.log,
