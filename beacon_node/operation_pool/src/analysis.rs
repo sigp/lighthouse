@@ -3,6 +3,9 @@ use crate::max_cover::MaxCover;
 use eth2_serde_utils::quoted_u64::Quoted;
 use serde::{Deserialize, Serialize};
 use state_processing::common::get_attesting_indices;
+use state_processing::per_block_processing::{
+    verify_attestation_for_block_inclusion, VerifySignatures,
+};
 use std::collections::BTreeMap;
 use std::marker::PhantomData;
 use std::path::Path;
@@ -11,9 +14,16 @@ use std::{
     io,
 };
 use types::{
-    Attestation, BeaconCommittee, BeaconState, BeaconStateError, ChainSpec, Epoch, EthSpec,
-    RelativeEpoch, Slot,
+    Attestation, AttestationData, BeaconCommittee, BeaconState, BeaconStateError, ChainSpec, Epoch,
+    EthSpec, RelativeEpoch, Slot,
 };
+
+/// Simplified `IndexedAttestation` with no signature.
+#[derive(Serialize, Deserialize)]
+pub struct IndexedAttestation {
+    pub attesting_indices: Vec<u64>,
+    pub data: AttestationData,
+}
 
 #[derive(Serialize, Deserialize)]
 pub struct AttestationPackingProblem<E: EthSpec> {
@@ -35,15 +45,11 @@ pub struct AttestationPackingProblem<E: EthSpec> {
     pub current_epoch_committees: BTreeMap<Slot, Vec<Vec<usize>>>,
     /// Unaggregated attestations seen on the network that are relevant to the current instance.
     ///
-    /// An attestation is represented as a vector of validator indices (i.e. the attesting indices).
-    ///
-    /// In the case of unaggregated attestations all of these vectors have length 1.
-    ///
     /// Attestations from validators that have already had an attestation included in the relevant
     /// epoch are excluded (they have 0 value). A validator may only attest once per epoch so a
     /// given validator index can occur at most twice: for one slot in the previous epoch, and one
     /// slot in the current epoch.
-    pub unaggregated_attestations: BTreeMap<Slot, Vec<Vec<u64>>>,
+    pub unaggregated_attestations: BTreeMap<Slot, Vec<IndexedAttestation>>,
     /// Aggregated attestations seen on the network that are relevant to the current instance.
     ///
     /// These are represented the same way as the unaggregated attestations but:
@@ -52,7 +58,7 @@ pub struct AttestationPackingProblem<E: EthSpec> {
     /// - A single validator index may occur in multiple distinct aggregates at a single slot
     ///   but not multiple aggregates at different slots _unless_ those slots are in different
     ///   epochs.
-    pub aggregated_attestations: BTreeMap<Slot, Vec<Vec<u64>>>,
+    pub aggregated_attestations: BTreeMap<Slot, Vec<IndexedAttestation>>,
     /// Mapping from `epoch -> validator_index -> gwei_reward`.
     ///
     /// The `reward_function` contains values for the previous and current epoch. It is intended
@@ -68,9 +74,10 @@ pub struct AttestationPackingProblem<E: EthSpec> {
     pub reward_function: BTreeMap<Epoch, BTreeMap<Quoted<u64>, u64>>,
     /// The solution produced by Lighthouse as a vector of `(attestation_slot, attesting_indices)`.
     ///
-    /// The quality of the solution can be reconstructed by summing `reward_function[slot][i]` for
-    /// each `slot` and each `i in attesting_indices`.
-    pub greedy_solution: Vec<(Slot, Vec<usize>)>,
+    /// The quality of the solution can be reconstructed by summing
+    /// `reward_function[att.data.slot][i]` for each `att` in `greedy_solution` and each `i` in
+    /// `att.attesting_indices`.
+    pub greedy_solution: Vec<IndexedAttestation>,
     #[serde(skip)]
     _phantom: PhantomData<E>,
 }
@@ -119,14 +126,34 @@ impl<E: EthSpec> AttestationPackingProblem<E> {
                                 .map(move |(attestation, indices)| (slot, attestation, indices))
                         })
                 {
+                    // Double check that the attestation is valid for block inclusion.
+                    if verify_attestation_for_block_inclusion(
+                        state,
+                        &attestation,
+                        VerifySignatures::False,
+                        spec,
+                    )
+                    .is_err()
+                    {
+                        eprintln!(
+                            "Invalid attestation at slot {}: att_slot={}, source={}, target={}",
+                            state.slot(),
+                            attestation.data.slot,
+                            attestation.data.source.epoch.as_u64(),
+                            attestation.data.target.epoch.as_u64()
+                        );
+                        continue;
+                    }
+
                     let cover = if let Some(cover) =
                         AttMaxCover::new(&attestation, state, total_active_balance, spec)
                     {
                         cover
                     } else {
                         eprintln!(
-                            "Invalid attestation at slot {}: att_slot={}, source={}, target={}",
-                            slot,
+                            "Invalid attestation cover at slot {}: \
+                             att_slot={}, source={}, target={}",
+                            state.slot(),
                             attestation.data.slot,
                             attestation.data.source.epoch.as_u64(),
                             attestation.data.target.epoch.as_u64()
@@ -154,7 +181,10 @@ impl<E: EthSpec> AttestationPackingProblem<E> {
                         relevant_attestations
                             .entry(slot)
                             .or_insert_with(Vec::new)
-                            .push(attesting_indices)
+                            .push(IndexedAttestation {
+                                data: attestation.data,
+                                attesting_indices,
+                            })
                     }
                 }
                 relevant_attestations
@@ -170,7 +200,11 @@ impl<E: EthSpec> AttestationPackingProblem<E> {
                 let committee = state.get_beacon_committee(att.data.slot, att.data.index)?;
                 let indices =
                     get_attesting_indices::<E>(committee.committee, &att.aggregation_bits)?;
-                Ok((att.data.slot, indices))
+                let indexed_att = IndexedAttestation {
+                    data: att.data.clone(),
+                    attesting_indices: indices.into_iter().map(|x| x as u64).collect(),
+                };
+                Ok(indexed_att)
             })
             .collect::<Result<Vec<_>, BeaconStateError>>()?;
 
