@@ -1,5 +1,5 @@
 use crate::execution_engine::{ExecutionEngine, GenericExecutionEngine};
-use execution_layer::{ExecutionLayer, PayloadAttributes, PayloadStatus};
+use execution_layer::{ExecutionLayer, PayloadAttributes, PayloadStatus, DEFAULT_JWT_FILE};
 use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use task_executor::TaskExecutor;
@@ -49,13 +49,12 @@ impl<E: GenericExecutionEngine> TestRig<E> {
 
         let ee_a = {
             let execution_engine = ExecutionEngine::new(generic_engine.clone());
-            let urls = vec![execution_engine.http_auth_url()];
+            let secret_file = execution_engine.datadir().join(DEFAULT_JWT_FILE);
 
             let config = execution_layer::Config {
-                execution_endpoints: urls,
-                secret_files: vec![],
+                execution_endpoint: execution_engine.http_auth_url(),
+                secret_file,
                 suggested_fee_recipient: Some(Address::repeat_byte(42)),
-                default_datadir: execution_engine.datadir(),
                 ..Default::default()
             };
             let execution_layer =
@@ -68,13 +67,12 @@ impl<E: GenericExecutionEngine> TestRig<E> {
 
         let ee_b = {
             let execution_engine = ExecutionEngine::new(generic_engine);
-            let urls = vec![execution_engine.http_url()];
+            let secret_file = execution_engine.datadir().join(DEFAULT_JWT_FILE);
 
             let config = execution_layer::Config {
-                execution_endpoints: urls,
-                secret_files: vec![],
+                execution_endpoint: execution_engine.http_url(),
+                secret_file,
                 suggested_fee_recipient: fee_recipient,
-                default_datadir: execution_engine.datadir(),
                 ..Default::default()
             };
             let execution_layer =
@@ -109,9 +107,6 @@ impl<E: GenericExecutionEngine> TestRig<E> {
 
         for pair in [&self.ee_a, &self.ee_b] {
             loop {
-                // Run the routine to check for online nodes.
-                pair.execution_layer.watchdog_task().await;
-
                 if pair.execution_layer.is_synced().await {
                     break;
                 } else if start_instant + EXECUTION_ENGINE_START_TIMEOUT > Instant::now() {
