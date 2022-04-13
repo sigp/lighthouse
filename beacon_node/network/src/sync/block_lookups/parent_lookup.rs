@@ -117,7 +117,7 @@ impl<T: EthSpec> ParentLookup<T> {
     pub fn verify_block(
         &mut self,
         block: Option<Box<SignedBeaconBlock<T>>>,
-        failed_chains: &lru_cache::LRUCache<Hash256>,
+        failed_chains: &mut lru_cache::LRUTimeCache<Hash256>,
     ) -> Result<Option<Box<SignedBeaconBlock<T>>>, VerifyError> {
         let block = self.current_parent_request.verify_block(block)?;
 
