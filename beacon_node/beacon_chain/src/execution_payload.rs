@@ -11,7 +11,7 @@ use crate::{
     BeaconChain, BeaconChainError, BeaconChainTypes, BlockError, BlockProductionError,
     ExecutionPayloadError,
 };
-use execution_layer::{PayloadStatus};
+use execution_layer::PayloadStatus;
 use fork_choice::{InvalidationOperation, PayloadVerificationStatus};
 use proto_array::{Block as ProtoBlock, ExecutionStatus};
 use slog::debug;
@@ -351,7 +351,7 @@ pub async fn prepare_execution_payload<T: BeaconChainTypes, Payload: ExecPayload
 
     // Note: the suggested_fee_recipient is stored in the `execution_layer`, it will add this parameter.
     let execution_payload = execution_layer
-        .get_payload::<T::EthSpec, Payload>(
+        .get_payload::<Payload>(
             parent_hash,
             timestamp,
             random,

@@ -13,6 +13,7 @@ mod test_rig;
 use geth::GethEngine;
 use nethermind::NethermindEngine;
 use test_rig::TestRig;
+use types::MainnetEthSpec;
 
 /// Set to `false` to send logs to the console during tests. Logs are useful when debugging.
 const SUPPRESS_LOGS: bool = true;
@@ -29,11 +30,13 @@ fn main() {
 fn test_geth() {
     let test_dir = build_utils::prepare_dir();
     geth::build(&test_dir);
-    TestRig::new(GethEngine).perform_tests_blocking();
+    let rig: TestRig<_, MainnetEthSpec> = TestRig::new(GethEngine);
+    rig.perform_tests_blocking();
 }
 
 fn test_nethermind() {
     let test_dir = build_utils::prepare_dir();
     nethermind::build(&test_dir);
-    TestRig::new(NethermindEngine).perform_tests_blocking();
+    let rig: TestRig<_, MainnetEthSpec> = TestRig::new(GethEngine);
+    rig.perform_tests_blocking();
 }

@@ -31,13 +31,13 @@ use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use task_executor::TaskExecutor;
 use tokio::sync::mpsc;
-use tokio::sync::mpsc::{UnboundedSender};
+use tokio::sync::mpsc::UnboundedSender;
 use tokio::{
     sync::{Mutex, MutexGuard, RwLock},
     time::{sleep, sleep_until, Instant},
 };
 use types::{
-    BlindedPayload, BlockType, ChainSpec, Epoch, ExecPayload, ExecutionBlockHash,
+    BlindedPayload, BlockType, ChainSpec, Epoch, ExecPayload, ExecutionBlockHash, MainnetEthSpec,
     ProposerPreparationData, SignedBeaconBlock, Slot,
 };
 
@@ -153,12 +153,12 @@ fn strip_prefix(s: &str) -> &str {
 ///
 /// The fallback nodes have an ordering. The first supplied will be the first contacted, and so on.
 #[derive(Clone)]
-pub struct ExecutionLayer {
+pub struct ExecutionLayer<E: EthSpec> {
     inner: Arc<Inner>,
-    tx: UnboundedSender<ExecutionLayerRequest>,
+    tx: UnboundedSender<ExecutionLayerRequest<E>>,
 }
 
-impl ExecutionLayer {
+impl<E: EthSpec> ExecutionLayer<E> {
     /// Instantiate `Self` with Execution engines specified using `Config`, all using the JSON-RPC via HTTP.
     pub fn from_config(config: Config, executor: TaskExecutor, log: Logger) -> Result<Self, Error> {
         let Config {
@@ -259,7 +259,7 @@ impl ExecutionLayer {
             log,
         };
 
-        let (tx, mut rx) = mpsc::unbounded_channel::<ExecutionLayerRequest>();
+        let (tx, mut rx) = mpsc::unbounded_channel::<ExecutionLayerRequest<E>>();
         tokio::spawn(async move {
             while let Some(request) = rx.recv().await {
                 request.responder.send(request.future.await).unwrap();
@@ -275,26 +275,27 @@ impl ExecutionLayer {
 
 #[derive(derivative::Derivative)]
 #[derivative(Debug)]
-pub struct ExecutionLayerRequest {
+pub struct ExecutionLayerRequest<E: EthSpec> {
     #[derivative(Debug = "ignore")]
-    future: Pin<Box<dyn Future<Output = Result<ExecutionLayerResponse, Error>> + Send>>,
-    responder: crossbeam_channel::Sender<Result<ExecutionLayerResponse, Error>>,
+    future: Pin<Box<dyn Future<Output = Result<ExecutionLayerResponse<E>, Error>> + Send>>,
+    responder: crossbeam_channel::Sender<Result<ExecutionLayerResponse<E>, Error>>,
 }
 
 #[derive(Debug)]
-pub enum ExecutionLayerResponse {
+pub enum ExecutionLayerResponse<E: EthSpec> {
     NotifyNewPayload(PayloadStatus),
     IsValidTerminalPowBlockHash(Option<bool>),
+    ProposeBlindedPayload(ExecutionPayload<E>),
 }
 
-impl From<Option<bool>> for ExecutionLayerResponse {
+impl<T: EthSpec> From<Option<bool>> for ExecutionLayerResponse<T> {
     fn from(b: Option<bool>) -> Self {
         ExecutionLayerResponse::IsValidTerminalPowBlockHash(b)
     }
 }
 
-impl From<ExecutionLayerResponse> for Option<bool> {
-    fn from(b: ExecutionLayerResponse) -> Option<bool> {
+impl<T: EthSpec> From<ExecutionLayerResponse<T>> for Option<bool> {
+    fn from(b: ExecutionLayerResponse<T>) -> Option<bool> {
         match b {
             ExecutionLayerResponse::IsValidTerminalPowBlockHash(b) => b,
             _ => panic!(),
@@ -302,7 +303,22 @@ impl From<ExecutionLayerResponse> for Option<bool> {
     }
 }
 
-impl ExecutionLayer {
+impl<T: EthSpec> From<ExecutionPayload<T>> for ExecutionLayerResponse<T> {
+    fn from(b: ExecutionPayload<T>) -> Self {
+        ExecutionLayerResponse::ProposeBlindedPayload(b)
+    }
+}
+
+impl<T: EthSpec> From<ExecutionLayerResponse<T>> for ExecutionPayload<T> {
+    fn from(b: ExecutionLayerResponse<T>) -> ExecutionPayload<T> {
+        match b {
+            ExecutionLayerResponse::ProposeBlindedPayload(b) => b,
+            _ => panic!(),
+        }
+    }
+}
+
+impl<T: EthSpec> ExecutionLayer<T> {
     fn engines(&self) -> &Engines {
         &self.inner.engines
     }
@@ -342,11 +358,11 @@ impl ExecutionLayer {
     }
 
     /// Convenience function to allow calling async functions in a non-async context.
-    pub fn block_on<T, U, V>(&self, generate_future: T) -> Result<V, Error>
+    pub fn block_on<F, U, V>(&self, generate_future: F) -> Result<V, Error>
     where
-        T: FnOnce(Self) -> U + Send + 'static,
+        F: FnOnce(Self) -> U + Send + 'static,
         U: Future<Output = Result<V, Error>> + Send,
-        V: From<ExecutionLayerResponse> + Into<ExecutionLayerResponse>,
+        V: From<ExecutionLayerResponse<T>> + Into<ExecutionLayerResponse<T>>,
     {
         let cloned = self.clone();
         let (tx, rx) = crossbeam_channel::bounded(1);
@@ -365,9 +381,9 @@ impl ExecutionLayer {
     ///
     /// The function is "generic" since it does not enforce a particular return type on
     /// `generate_future`.
-    pub fn block_on_generic<'a, T, U, V>(&'a self, generate_future: T) -> Result<V, Error>
+    pub fn block_on_generic<'a, F, U, V>(&'a self, generate_future: F) -> Result<V, Error>
     where
-        T: Fn(&'a Self) -> U,
+        F: Fn(&'a Self) -> U,
         U: Future<Output = V>,
     {
         let runtime = self
@@ -380,9 +396,9 @@ impl ExecutionLayer {
     }
 
     /// Convenience function to allow spawning a task without waiting for the result.
-    pub fn spawn<T, U>(&self, generate_future: T, name: &'static str)
+    pub fn spawn<F, U>(&self, generate_future: F, name: &'static str)
     where
-        T: FnOnce(Self) -> U,
+        F: FnOnce(Self) -> U,
         U: Future<Output = ()> + Send + 'static,
     {
         self.executor().spawn(generate_future(self.clone()), name);
@@ -390,12 +406,12 @@ impl ExecutionLayer {
 
     /// Spawns a routine which attempts to keep the execution engines online.
     pub fn spawn_watchdog_routine<S: SlotClock + 'static>(&self, slot_clock: S) {
-        let watchdog = |el: ExecutionLayer| async move {
+        let watchdog = |el: ExecutionLayer<T>| async move {
             // Run one task immediately.
             el.watchdog_task().await;
 
             let recurring_task =
-                |el: ExecutionLayer, now: Instant, duration_to_next_slot: Duration| async move {
+                |el: ExecutionLayer<T>, now: Instant, duration_to_next_slot: Duration| async move {
                     // We run the task three times per slot.
                     //
                     // The interval between each task is 1/3rd of the slot duration. This matches nicely
@@ -450,11 +466,8 @@ impl ExecutionLayer {
     }
 
     /// Spawns a routine which cleans the cached proposer data periodically.
-    pub fn spawn_clean_proposer_caches_routine<S: SlotClock + 'static, T: EthSpec>(
-        &self,
-        slot_clock: S,
-    ) {
-        let preparation_cleaner = |el: ExecutionLayer| async move {
+    pub fn spawn_clean_proposer_caches_routine<S: SlotClock + 'static>(&self, slot_clock: S) {
+        let preparation_cleaner = |el: ExecutionLayer<T>| async move {
             // Start the loop to periodically clean proposer preparation cache.
             loop {
                 if let Some(duration_to_next_epoch) =
@@ -468,7 +481,7 @@ impl ExecutionLayer {
                         .map(|slot| slot.epoch(T::slots_per_epoch()))
                     {
                         Some(current_epoch) => el
-                            .clean_proposer_caches::<T>(current_epoch)
+                            .clean_proposer_caches(current_epoch)
                             .await
                             .map_err(|e| {
                                 error!(
@@ -493,7 +506,7 @@ impl ExecutionLayer {
 
     /// Spawns a routine that polls the `exchange_transition_configuration` endpoint.
     pub fn spawn_transition_configuration_poll(&self, spec: ChainSpec) {
-        let routine = |el: ExecutionLayer| async move {
+        let routine = |el: ExecutionLayer<T>| async move {
             loop {
                 if let Err(e) = el.exchange_transition_configuration(&spec).await {
                     error!(
@@ -549,7 +562,7 @@ impl ExecutionLayer {
     }
 
     /// Removes expired entries from proposer_preparation_data and proposers caches
-    async fn clean_proposer_caches<T: EthSpec>(&self, current_epoch: Epoch) -> Result<(), Error> {
+    async fn clean_proposer_caches(&self, current_epoch: Epoch) -> Result<(), Error> {
         let mut proposer_preparation_data = self.proposer_preparation_data().await;
 
         // Keep all entries that have been updated in the last 2 epochs
@@ -617,7 +630,7 @@ impl ExecutionLayer {
     ///
     /// The result will be returned from the first node that returns successfully. No more nodes
     /// will be contacted.
-    pub async fn get_payload<T: EthSpec, Payload: ExecPayload<T>>(
+    pub async fn get_payload<Payload: ExecPayload<T>>(
         &self,
         parent_hash: ExecutionBlockHash,
         timestamp: u64,
@@ -762,7 +775,7 @@ impl ExecutionLayer {
     /// - Invalid, if any nodes return invalid.
     /// - Syncing, if any nodes return syncing.
     /// - An error, if all nodes return an error.
-    pub async fn notify_new_payload<T: EthSpec>(
+    pub async fn notify_new_payload(
         &self,
         execution_payload: &ExecutionPayload<T>,
     ) -> Result<PayloadStatus, Error> {
@@ -1231,7 +1244,7 @@ impl ExecutionLayer {
         }
     }
 
-    pub async fn propose_blinded_beacon_block<T: EthSpec>(
+    pub async fn propose_blinded_beacon_block(
         &self,
         block: &SignedBeaconBlock<T, BlindedPayload<T>>,
     ) -> Result<ExecutionPayload<T>, Error> {

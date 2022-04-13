@@ -61,7 +61,7 @@ impl InvalidPayloadRig {
         self
     }
 
-    fn execution_layer(&self) -> ExecutionLayer {
+    fn execution_layer(&self) -> ExecutionLayer<E> {
         self.harness.chain.execution_layer.clone().unwrap()
     }
 

@@ -155,7 +155,7 @@ pub struct Builder<T: BeaconChainTypes> {
     store: Option<Arc<HotColdDB<T::EthSpec, T::HotStore, T::ColdStore>>>,
     initial_mutator: Option<BoxedMutator<T::EthSpec, T::HotStore, T::ColdStore>>,
     store_mutator: Option<BoxedMutator<T::EthSpec, T::HotStore, T::ColdStore>>,
-    execution_layer: Option<ExecutionLayer>,
+    execution_layer: Option<ExecutionLayer<T::EthSpec>>,
     execution_layer_runtime: Option<ExecutionLayerRuntime>,
     mock_execution_layer: Option<MockExecutionLayer<T::EthSpec>>,
     log: Logger,

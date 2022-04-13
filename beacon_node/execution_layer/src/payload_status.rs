@@ -2,7 +2,7 @@ use crate::engine_api::{Error as ApiError, PayloadStatusV1, PayloadStatusV1Statu
 use crate::engines::EngineError;
 use crate::{Error, ExecutionLayerResponse};
 use slog::{crit, warn, Logger};
-use types::ExecutionBlockHash;
+use types::{EthSpec, ExecutionBlockHash};
 
 /// Provides a simpler, easier to parse version of `PayloadStatusV1` for upstream users.
 ///
@@ -24,16 +24,16 @@ pub enum PayloadStatus {
     },
 }
 
-impl From<ExecutionLayerResponse> for PayloadStatus {
-    fn from(r: ExecutionLayerResponse) -> Self {
+impl<T: EthSpec> From<ExecutionLayerResponse<T>> for PayloadStatus {
+    fn from(r: ExecutionLayerResponse<T>) -> Self {
         match r {
             ExecutionLayerResponse::NotifyNewPayload(p) => p,
             _ => panic!(),
         }
     }
 }
-impl Into<ExecutionLayerResponse> for PayloadStatus {
-    fn into(self) -> ExecutionLayerResponse {
+impl<T: EthSpec> Into<ExecutionLayerResponse<T>> for PayloadStatus {
+    fn into(self) -> ExecutionLayerResponse<T> {
         ExecutionLayerResponse::NotifyNewPayload(self)
     }
 }

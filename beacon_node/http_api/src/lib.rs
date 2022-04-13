@@ -1054,8 +1054,11 @@ pub fn serve<T: BeaconChainTypes>(
                         // `validator/blinded_blocks`, caching their payloads, and transforming them into blinded
                         // blocks. We will access the payload of those blocks here. This flow should happen if the
                         // execution layer has no payload builders or if we have not yet finalized post-merge transition.
+                        let block_clone = block.clone();
                         let payload = el
-                            .block_on(|el| el.propose_blinded_beacon_block(&block))
+                            .block_on(|el| async move {
+                                el.propose_blinded_beacon_block(&block_clone).await
+                            })
                             .map_err(|e| {
                                 warp_utils::reject::custom_server_error(format!(
                                     "proposal failed: {:?}",

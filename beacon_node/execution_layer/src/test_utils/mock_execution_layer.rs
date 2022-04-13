@@ -49,7 +49,7 @@ impl Drop for ExecutionLayerRuntime {
 
 pub struct MockExecutionLayer<T: EthSpec> {
     pub server: MockServer<T>,
-    pub el: ExecutionLayer,
+    pub el: ExecutionLayer<T>,
     pub el_runtime: ExecutionLayerRuntime,
     pub spec: ChainSpec,
 }
@@ -154,7 +154,7 @@ impl<T: EthSpec> MockExecutionLayer<T> {
         let validator_index = 0;
         let payload = self
             .el
-            .get_payload::<T, FullPayload<T>>(
+            .get_payload::<FullPayload<T>>(
                 parent_hash,
                 timestamp,
                 prev_randao,
@@ -216,7 +216,7 @@ impl<T: EthSpec> MockExecutionLayer<T> {
 
     pub async fn with_terminal_block<'a, U, V>(self, func: U) -> Self
     where
-        U: Fn(ChainSpec, ExecutionLayer, Option<ExecutionBlock>) -> V,
+        U: Fn(ChainSpec, ExecutionLayer<T>, Option<ExecutionBlock>) -> V,
         V: Future<Output = ()>,
     {
         let terminal_block_number = self

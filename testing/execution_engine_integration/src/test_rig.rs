@@ -11,29 +11,29 @@ use types::{
 
 const EXECUTION_ENGINE_START_TIMEOUT: Duration = Duration::from_secs(10);
 
-struct ExecutionPair<E> {
+struct ExecutionPair<T, E: EthSpec> {
     /// The Lighthouse `ExecutionLayer` struct, connected to the `execution_engine` via HTTP.
-    execution_layer: ExecutionLayer,
+    execution_layer: ExecutionLayer<E>,
     /// A handle to external EE process, once this is dropped the process will be killed.
     #[allow(dead_code)]
-    execution_engine: ExecutionEngine<E>,
+    execution_engine: ExecutionEngine<T>,
 }
 
 /// A rig that holds two EE processes for testing.
 ///
 /// There are two EEs held here so that we can test out-of-order application of payloads, and other
 /// edge-cases.
-pub struct TestRig<E> {
+pub struct TestRig<T, E: EthSpec> {
     #[allow(dead_code)]
     runtime: Arc<tokio::runtime::Runtime>,
-    ee_a: ExecutionPair<E>,
-    ee_b: ExecutionPair<E>,
+    ee_a: ExecutionPair<T, E>,
+    ee_b: ExecutionPair<T, E>,
     spec: ChainSpec,
     _runtime_shutdown: exit_future::Signal,
 }
 
-impl<E: GenericExecutionEngine> TestRig<E> {
-    pub fn new(generic_engine: E) -> Self {
+impl<T: GenericExecutionEngine, E: EthSpec> TestRig<T, E> {
+    pub fn new(generic_engine: T) -> Self {
         let log = environment::null_logger().unwrap();
         let runtime = Arc::new(
             tokio::runtime::Builder::new_multi_thread()
@@ -172,7 +172,7 @@ impl<E: GenericExecutionEngine> TestRig<E> {
         let valid_payload = self
             .ee_a
             .execution_layer
-            .get_payload::<MainnetEthSpec, FullPayload<MainnetEthSpec>>(
+            .get_payload::<FullPayload<E>>(
                 parent_hash,
                 timestamp,
                 prev_randao,
@@ -264,7 +264,7 @@ impl<E: GenericExecutionEngine> TestRig<E> {
         let second_payload = self
             .ee_a
             .execution_layer
-            .get_payload::<MainnetEthSpec, FullPayload<MainnetEthSpec>>(
+            .get_payload::<FullPayload<E>>(
                 parent_hash,
                 timestamp,
                 prev_randao,
