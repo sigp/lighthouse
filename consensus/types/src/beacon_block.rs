@@ -510,11 +510,11 @@ impl<E: EthSpec> From<BeaconBlockAltair<E, BlindedPayload<E>>>
     }
 }
 
-// We can convert blocks with payloads to blocks without payloads.
+// We can convert blocks with payloads to blocks without payloads, and an optional payload.
 macro_rules! impl_from {
     ($ty_name:ident, <$($from_params:ty),*>, <$($to_params:ty),*>, $body_expr:expr) => {
         impl<E: EthSpec> From<$ty_name<$($from_params),*>>
-            for $ty_name<$($to_params),*>
+            for ($ty_name<$($to_params),*>, Option<ExecutionPayload<E>>)
         {
             #[allow(clippy::redundant_closure_call)]
             fn from(block: $ty_name<$($from_params),*>) -> Self {
@@ -526,13 +526,15 @@ macro_rules! impl_from {
                     body,
                 } = block;
 
-                $ty_name {
+                let (body, payload) = ($body_expr)(body);
+
+                ($ty_name {
                     slot,
                     proposer_index,
                     parent_root,
                     state_root,
-                    body: ($body_expr)(body),
-                }
+                    body,
+                }, payload)
             }
         }
     }
@@ -542,29 +544,48 @@ impl_from!(BeaconBlockBase, <E, FullPayload<E>>, <E, BlindedPayload<E>>, |body: 
 impl_from!(BeaconBlockAltair, <E, FullPayload<E>>, <E, BlindedPayload<E>>, |body: BeaconBlockBodyAltair<_, _>| body.into());
 impl_from!(BeaconBlockMerge, <E, FullPayload<E>>, <E, BlindedPayload<E>>, |body: BeaconBlockBodyMerge<_, _>| body.into());
 
+// This macro is a candidate for generation with `superstruct`.
+// https://github.com/sigp/superstruct/issues/19
 #[macro_export]
-macro_rules! map_beacon_block_variants {
+macro_rules! map_beacon_block {
     ($block:expr, $e:expr) => {
         match $block {
             BeaconBlock::Base(inner) => {
-                let f: fn(BeaconBlockBase<_, _>) -> _ = $e;
-                BeaconBlock::Base(f(inner))
+                let f: fn(
+                    BeaconBlockBase<_, _>,
+                    fn(BeaconBlockBase<_, _>) -> BeaconBlock<_, _>,
+                ) -> _ = $e;
+                f(inner, BeaconBlock::Base)
             }
             BeaconBlock::Altair(inner) => {
-                let f: fn(BeaconBlockAltair<_, _>) -> _ = $e;
-                BeaconBlock::Altair(f(inner))
+                let f: fn(
+                    BeaconBlockAltair<_, _>,
+                    fn(BeaconBlockAltair<_, _>) -> BeaconBlock<_, _>,
+                ) -> _ = $e;
+                f(inner, BeaconBlock::Altair)
             }
             BeaconBlock::Merge(inner) => {
-                let f: fn(BeaconBlockMerge<_, _>) -> _ = $e;
-                BeaconBlock::Merge(f(inner))
+                let f: fn(
+                    BeaconBlockMerge<_, _>,
+                    fn(BeaconBlockMerge<_, _>) -> BeaconBlock<_, _>,
+                ) -> _ = $e;
+                f(inner, BeaconBlock::Merge)
             }
         }
     };
 }
 
-impl<E: EthSpec> From<BeaconBlock<E, FullPayload<E>>> for BeaconBlock<E, BlindedPayload<E>> {
+impl<E: EthSpec> From<BeaconBlock<E, FullPayload<E>>>
+    for (
+        BeaconBlock<E, BlindedPayload<E>>,
+        Option<ExecutionPayload<E>>,
+    )
+{
     fn from(block: BeaconBlock<E, FullPayload<E>>) -> Self {
-        map_beacon_block_variants!(block, |inner| inner.into())
+        map_beacon_block!(block, |inner, cons| {
+            let (block, payload) = inner.into();
+            (cons(block), payload)
+        })
     }
 }
 

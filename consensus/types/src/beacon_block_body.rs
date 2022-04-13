@@ -73,16 +73,35 @@ impl<'a, T: EthSpec> BeaconBlockBodyRef<'a, T> {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    mod base {
-        use super::super::*;
-        ssz_and_tree_hash_tests!(BeaconBlockBodyBase<MainnetEthSpec>);
-    }
-    mod altair {
-        use super::super::*;
-        ssz_and_tree_hash_tests!(BeaconBlockBodyAltair<MainnetEthSpec>);
-    }
+// This macro is a candidate for generation with `superstruct`.
+// https://github.com/sigp/superstruct/issues/19
+#[macro_export]
+macro_rules! map_beacon_block_body {
+    ($block:expr, $e:expr) => {
+        match $block {
+            BeaconBlockBody::Base(inner) => {
+                let f: fn(
+                    BeaconBlockBodyBase<_, _>,
+                    fn(BeaconBlockBodyBase<_, _>) -> BeaconBlockBody<_, _>,
+                ) -> _ = $e;
+                f(inner, BeaconBlockBody::Base)
+            }
+            BeaconBlockBody::Altair(inner) => {
+                let f: fn(
+                    BeaconBlockBodyAltair<_, _>,
+                    fn(BeaconBlockBodyAltair<_, _>) -> BeaconBlockBody<_, _>,
+                ) -> _ = $e;
+                f(inner, BeaconBlockBody::Altair)
+            }
+            BeaconBlockBody::Merge(inner) => {
+                let f: fn(
+                    BeaconBlockBodyMerge<_, _>,
+                    fn(BeaconBlockBodyMerge<_, _>) -> BeaconBlockBody<_, _>,
+                ) -> _ = $e;
+                f(inner, BeaconBlockBody::Merge)
+            }
+        }
+    };
 }
 
 // We can convert pre-Bellatrix block bodies without payloads into block bodies "with" payloads.
@@ -150,7 +169,10 @@ impl<E: EthSpec> From<BeaconBlockBodyAltair<E, BlindedPayload<E>>>
 
 // Likewise bodies with payloads can be transformed into bodies without.
 impl<E: EthSpec> From<BeaconBlockBodyBase<E, FullPayload<E>>>
-    for BeaconBlockBodyBase<E, BlindedPayload<E>>
+    for (
+        BeaconBlockBodyBase<E, BlindedPayload<E>>,
+        Option<ExecutionPayload<E>>,
+    )
 {
     fn from(body: BeaconBlockBodyBase<E, FullPayload<E>>) -> Self {
         let BeaconBlockBodyBase {
@@ -165,22 +187,28 @@ impl<E: EthSpec> From<BeaconBlockBodyBase<E, FullPayload<E>>>
             _phantom,
         } = body;
 
-        BeaconBlockBodyBase {
-            randao_reveal,
-            eth1_data,
-            graffiti,
-            proposer_slashings,
-            attester_slashings,
-            attestations,
-            deposits,
-            voluntary_exits,
-            _phantom: PhantomData,
-        }
+        (
+            BeaconBlockBodyBase {
+                randao_reveal,
+                eth1_data,
+                graffiti,
+                proposer_slashings,
+                attester_slashings,
+                attestations,
+                deposits,
+                voluntary_exits,
+                _phantom: PhantomData,
+            },
+            None,
+        )
     }
 }
 
 impl<E: EthSpec> From<BeaconBlockBodyAltair<E, FullPayload<E>>>
-    for BeaconBlockBodyAltair<E, BlindedPayload<E>>
+    for (
+        BeaconBlockBodyAltair<E, BlindedPayload<E>>,
+        Option<ExecutionPayload<E>>,
+    )
 {
     fn from(body: BeaconBlockBodyAltair<E, FullPayload<E>>) -> Self {
         let BeaconBlockBodyAltair {
@@ -196,23 +224,29 @@ impl<E: EthSpec> From<BeaconBlockBodyAltair<E, FullPayload<E>>>
             _phantom,
         } = body;
 
-        BeaconBlockBodyAltair {
-            randao_reveal,
-            eth1_data,
-            graffiti,
-            proposer_slashings,
-            attester_slashings,
-            attestations,
-            deposits,
-            voluntary_exits,
-            sync_aggregate,
-            _phantom: PhantomData,
-        }
+        (
+            BeaconBlockBodyAltair {
+                randao_reveal,
+                eth1_data,
+                graffiti,
+                proposer_slashings,
+                attester_slashings,
+                attestations,
+                deposits,
+                voluntary_exits,
+                sync_aggregate,
+                _phantom: PhantomData,
+            },
+            None,
+        )
     }
 }
 
 impl<E: EthSpec> From<BeaconBlockBodyMerge<E, FullPayload<E>>>
-    for BeaconBlockBodyMerge<E, BlindedPayload<E>>
+    for (
+        BeaconBlockBodyMerge<E, BlindedPayload<E>>,
+        Option<ExecutionPayload<E>>,
+    )
 {
     fn from(body: BeaconBlockBodyMerge<E, FullPayload<E>>) -> Self {
         let BeaconBlockBodyMerge {
@@ -228,31 +262,48 @@ impl<E: EthSpec> From<BeaconBlockBodyMerge<E, FullPayload<E>>>
             execution_payload: FullPayload { execution_payload },
         } = body;
 
-        BeaconBlockBodyMerge {
-            randao_reveal,
-            eth1_data,
-            graffiti,
-            proposer_slashings,
-            attester_slashings,
-            attestations,
-            deposits,
-            voluntary_exits,
-            sync_aggregate,
-            execution_payload: BlindedPayload {
-                execution_payload_header: From::from(&execution_payload),
+        (
+            BeaconBlockBodyMerge {
+                randao_reveal,
+                eth1_data,
+                graffiti,
+                proposer_slashings,
+                attester_slashings,
+                attestations,
+                deposits,
+                voluntary_exits,
+                sync_aggregate,
+                execution_payload: BlindedPayload {
+                    execution_payload_header: From::from(&execution_payload),
+                },
             },
-        }
+            Some(execution_payload),
+        )
     }
 }
 
 impl<E: EthSpec> From<BeaconBlockBody<E, FullPayload<E>>>
-    for BeaconBlockBody<E, BlindedPayload<E>>
+    for (
+        BeaconBlockBody<E, BlindedPayload<E>>,
+        Option<ExecutionPayload<E>>,
+    )
 {
     fn from(body: BeaconBlockBody<E, FullPayload<E>>) -> Self {
-        match body {
-            BeaconBlockBody::Base(inner) => BeaconBlockBody::Base(inner.into()),
-            BeaconBlockBody::Altair(inner) => BeaconBlockBody::Altair(inner.into()),
-            BeaconBlockBody::Merge(inner) => BeaconBlockBody::Merge(inner.into()),
-        }
+        map_beacon_block_body!(body, |inner, cons| {
+            let (block, payload) = inner.into();
+            (cons(block), payload)
+        })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    mod base {
+        use super::super::*;
+        ssz_and_tree_hash_tests!(BeaconBlockBodyBase<MainnetEthSpec>);
+    }
+    mod altair {
+        use super::super::*;
+        ssz_and_tree_hash_tests!(BeaconBlockBodyAltair<MainnetEthSpec>);
     }
 }

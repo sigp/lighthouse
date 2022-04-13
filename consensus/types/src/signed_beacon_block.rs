@@ -325,11 +325,70 @@ impl<E: EthSpec> SignedBeaconBlock<E, BlindedPayload<E>> {
 }
 
 // We can blind blocks with payloads by converting the payload into a header.
-impl<E: EthSpec> From<SignedBeaconBlock<E, FullPayload<E>>>
-    for SignedBeaconBlock<E, BlindedPayload<E>>
+//
+// We can optionally keep the header, or discard it.
+impl<E: EthSpec> From<SignedBeaconBlock<E>>
+    for (SignedBlindedBeaconBlock<E>, Option<ExecutionPayload<E>>)
 {
-    fn from(signed_block: SignedBeaconBlock<E, FullPayload<E>>) -> Self {
+    fn from(signed_block: SignedBeaconBlock<E>) -> Self {
         let (block, signature) = signed_block.deconstruct();
-        Self::from_block(block.into(), signature)
+        let (blinded_block, payload) = block.into();
+        (
+            SignedBeaconBlock::from_block(blinded_block, signature),
+            payload,
+        )
+    }
+}
+
+impl<E: EthSpec> From<SignedBeaconBlock<E>> for SignedBlindedBeaconBlock<E> {
+    fn from(signed_block: SignedBeaconBlock<E>) -> Self {
+        let (blinded_block, _) = signed_block.into();
+        blinded_block
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn add_remove_payload_roundtrip() {
+        type E = MainnetEthSpec;
+
+        let spec = &E::default_spec();
+        let sig = Signature::empty();
+        let blocks = vec![
+            SignedBeaconBlock::<E>::from_block(
+                BeaconBlock::Base(BeaconBlockBase::empty(spec)),
+                sig.clone(),
+            ),
+            SignedBeaconBlock::from_block(
+                BeaconBlock::Altair(BeaconBlockAltair::empty(spec)),
+                sig.clone(),
+            ),
+            SignedBeaconBlock::from_block(
+                BeaconBlock::Merge(BeaconBlockMerge::empty(spec)),
+                sig.clone(),
+            ),
+        ];
+
+        for block in blocks {
+            let (blinded_block, payload): (SignedBlindedBeaconBlock<E>, _) = block.clone().into();
+            assert_eq!(blinded_block.tree_hash_root(), block.tree_hash_root());
+
+            if let Some(payload) = &payload {
+                assert_eq!(
+                    payload.tree_hash_root(),
+                    block
+                        .message()
+                        .execution_payload()
+                        .unwrap()
+                        .tree_hash_root()
+                );
+            }
+
+            let reconstructed = blinded_block.try_into_full_block(payload).unwrap();
+            assert_eq!(reconstructed, block);
+        }
     }
 }

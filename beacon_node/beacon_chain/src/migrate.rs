@@ -548,7 +548,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
             )
             .collect();
 
-        let mut kv_batch = store.convert_to_kv_batch(&batch)?;
+        let mut kv_batch = store.convert_to_kv_batch(batch)?;
 
         // Persist the head in case the process is killed or crashes here. This prevents
         // the head tracker reverting after our mutation above.

@@ -266,7 +266,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
     ) -> Result<(), Error> {
         // Store on disk.
         let mut ops = Vec::with_capacity(2);
-        self.block_as_kv_store_ops(block_root, &block, &mut ops);
+        let block = self.block_as_kv_store_ops(block_root, block, &mut ops)?;
         self.hot_db.do_atomically(ops)?;
         // Update cache.
         self.block_cache.lock().put(*block_root, block);
@@ -274,20 +274,30 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
     }
 
     /// Prepare a signed beacon block for storage in the database.
+    ///
+    /// Return the original block for re-use after storage. It's passed by value so it can be
+    /// cracked open and have its payload extracted.
     pub fn block_as_kv_store_ops(
         &self,
         key: &Hash256,
-        block: &SignedBeaconBlock<E>,
+        block: SignedBeaconBlock<E>,
         ops: &mut Vec<KeyValueStoreOp>,
-    ) {
+    ) -> Result<SignedBeaconBlock<E>, Error> {
+        // Split block into blinded block and execution payload.
+        let (blinded_block, payload) = block.into();
+
+        // Store blinded block.
+        self.blinded_block_as_kv_store_ops(key, &blinded_block, ops);
+
         // Store execution payload if present.
-        if let Ok(FullPayload { execution_payload }) = block.message().execution_payload() {
+        if let Some(ref execution_payload) = payload {
             ops.push(execution_payload.as_kv_store_op(*key));
         }
-        // Convert block to blinded block.
-        // FIXME(sproul): think about how to remove clone here
-        let blinded_block = block.clone().into();
-        self.blinded_block_as_kv_store_ops(key, &blinded_block, ops);
+
+        // Re-construct block. This should always succeed.
+        blinded_block
+            .try_into_full_block(payload)
+            .ok_or(Error::AddPayloadLogicError)
     }
 
     /// Prepare a signed beacon block for storage in the datbase *without* its payload.
@@ -650,24 +660,27 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
     }
 
     /// Convert a batch of `StoreOp` to a batch of `KeyValueStoreOp`.
-    pub fn convert_to_kv_batch(&self, batch: &[StoreOp<E>]) -> Result<Vec<KeyValueStoreOp>, Error> {
+    pub fn convert_to_kv_batch(
+        &self,
+        batch: Vec<StoreOp<E>>,
+    ) -> Result<Vec<KeyValueStoreOp>, Error> {
         let mut key_value_batch = Vec::with_capacity(batch.len());
         for op in batch {
             match op {
                 StoreOp::PutBlock(block_root, block) => {
-                    self.block_as_kv_store_ops(block_root, block, &mut key_value_batch);
+                    self.block_as_kv_store_ops(&block_root, *block, &mut key_value_batch)?;
                 }
 
                 StoreOp::PutState(state_root, state) => {
-                    self.store_hot_state(state_root, state, &mut key_value_batch)?;
+                    self.store_hot_state(&state_root, state, &mut key_value_batch)?;
                 }
 
                 StoreOp::PutStateSummary(state_root, summary) => {
-                    key_value_batch.push(summary.as_kv_store_op(*state_root));
+                    key_value_batch.push(summary.as_kv_store_op(state_root));
                 }
 
                 StoreOp::PutStateTemporaryFlag(state_root) => {
-                    key_value_batch.push(TemporaryFlag.as_kv_store_op(*state_root));
+                    key_value_batch.push(TemporaryFlag.as_kv_store_op(state_root));
                 }
 
                 StoreOp::DeleteStateTemporaryFlag(state_root) => {
@@ -703,10 +716,9 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
     }
 
     pub fn do_atomically(&self, batch: Vec<StoreOp<E>>) -> Result<(), Error> {
+        // Update the block cache whilst holding a lock, to ensure that the cache updates atomically
+        // with the database.
         let mut guard = self.block_cache.lock();
-
-        self.hot_db
-            .do_atomically(self.convert_to_kv_batch(&batch)?)?;
 
         for op in &batch {
             match op {
@@ -731,6 +743,11 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
                 StoreOp::DeleteExecutionPayload(_) => (),
             }
         }
+
+        self.hot_db
+            .do_atomically(self.convert_to_kv_batch(batch)?)?;
+        drop(guard);
+
         Ok(())
     }
 

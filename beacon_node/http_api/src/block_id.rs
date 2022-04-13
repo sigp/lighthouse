@@ -57,7 +57,6 @@ impl BlockId {
         chain: &BeaconChain<T>,
     ) -> Result<SignedBeaconBlock<T::EthSpec, BlindedPayload<T::EthSpec>>, warp::Rejection> {
         match &self.0 {
-            // FIXME(sproul): perf
             CoreBlockId::Head => chain
                 .head_beacon_block()
                 .map(Into::into)
