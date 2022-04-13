@@ -12,8 +12,6 @@ pub use engine_api::*;
 pub use engine_api::{http, http::HttpJsonRpc};
 pub use engines::ForkChoiceState;
 use engines::{Engine, EngineError, Engines, Logging};
-use futures::task::SpawnExt;
-use futures::{FutureExt, TryFutureExt};
 use lru::LruCache;
 use payload_status::process_multiple_payload_statuses;
 pub use payload_status::PayloadStatus;
@@ -37,7 +35,7 @@ use tokio::{
     time::{sleep, sleep_until, Instant},
 };
 use types::{
-    BlindedPayload, BlockType, ChainSpec, Epoch, ExecPayload, ExecutionBlockHash, MainnetEthSpec,
+    BlindedPayload, BlockType, ChainSpec, Epoch, ExecPayload, ExecutionBlockHash,
     ProposerPreparationData, SignedBeaconBlock, Slot,
 };
 
@@ -285,7 +283,7 @@ pub struct ExecutionLayerRequest<E: EthSpec> {
 pub enum ExecutionLayerResponse<E: EthSpec> {
     NotifyNewPayload(PayloadStatus),
     IsValidTerminalPowBlockHash(Option<bool>),
-    ProposeBlindedPayload(ExecutionPayload<E>),
+    ProposeBlindedPayload(Box<ExecutionPayload<E>>),
 }
 
 impl<T: EthSpec> From<Option<bool>> for ExecutionLayerResponse<T> {
@@ -305,14 +303,14 @@ impl<T: EthSpec> From<ExecutionLayerResponse<T>> for Option<bool> {
 
 impl<T: EthSpec> From<ExecutionPayload<T>> for ExecutionLayerResponse<T> {
     fn from(b: ExecutionPayload<T>) -> Self {
-        ExecutionLayerResponse::ProposeBlindedPayload(b)
+        ExecutionLayerResponse::ProposeBlindedPayload(Box::new(b))
     }
 }
 
 impl<T: EthSpec> From<ExecutionLayerResponse<T>> for ExecutionPayload<T> {
     fn from(b: ExecutionLayerResponse<T>) -> ExecutionPayload<T> {
         match b {
-            ExecutionLayerResponse::ProposeBlindedPayload(b) => b,
+            ExecutionLayerResponse::ProposeBlindedPayload(b) => *b,
             _ => panic!(),
         }
     }

@@ -11,7 +11,6 @@ mod nethermind;
 mod test_rig;
 
 use geth::GethEngine;
-use nethermind::NethermindEngine;
 use test_rig::TestRig;
 use types::MainnetEthSpec;
 
