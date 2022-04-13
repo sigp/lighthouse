@@ -61,7 +61,7 @@ pub fn notify_new_payload<T: BeaconChainTypes>(
         Ok(status) => match status {
             PayloadStatus::Valid => Ok(PayloadVerificationStatus::Verified),
             PayloadStatus::Syncing | PayloadStatus::Accepted => {
-                Ok(PayloadVerificationStatus::NotVerified)
+                Ok(PayloadVerificationStatus::Optimistic)
             }
             PayloadStatus::Invalid {
                 latest_valid_hash, ..
@@ -193,7 +193,7 @@ pub fn validate_execution_payload_for_gossip<T: BeaconChainTypes>(
 
         let is_merge_transition_complete = match parent_block.execution_status {
             // Optimistically declare that an "unknown" status block has completed the merge.
-            ExecutionStatus::Valid(_) | ExecutionStatus::Unknown(_) => true,
+            ExecutionStatus::Valid(_) | ExecutionStatus::Optimistic(_) => true,
             // It's impossible for an irrelevant block to have completed the merge. It is pre-merge
             // by definition.
             ExecutionStatus::Irrelevant(_) => false,

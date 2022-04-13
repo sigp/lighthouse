@@ -75,7 +75,6 @@ use state_processing::{
     state_advance::{complete_state_advance, partial_state_advance},
     BlockSignatureStrategy, SigVerifiedOp, VerifyBlockRoot,
 };
-use std::borrow::Cow;
 use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::collections::HashSet;
@@ -1430,8 +1429,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     pub fn get_aggregated_attestation(
         &self,
         data: &AttestationData,
-    ) -> Option<Attestation<T::EthSpec>> {
-        self.naive_aggregation_pool.read().get(data)
+    ) -> Result<Option<Attestation<T::EthSpec>>, Error> {
+        if let Some(attestation) = self.naive_aggregation_pool.read().get(data) {
+            self.filter_optimistic_attestation(attestation)
+                .map(Option::Some)
+        } else {
+            Ok(None)
+        }
     }
 
     /// Returns an aggregated `Attestation`, if any, that has a matching
@@ -1442,10 +1446,43 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         &self,
         slot: Slot,
         attestation_data_root: &Hash256,
-    ) -> Option<Attestation<T::EthSpec>> {
-        self.naive_aggregation_pool
+    ) -> Result<Option<Attestation<T::EthSpec>>, Error> {
+        if let Some(attestation) = self
+            .naive_aggregation_pool
             .read()
             .get_by_slot_and_root(slot, attestation_data_root)
+        {
+            self.filter_optimistic_attestation(attestation)
+                .map(Option::Some)
+        } else {
+            Ok(None)
+        }
+    }
+
+    /// Returns `Ok(attestation)` if the supplied `attestation` references a valid
+    /// `beacon_block_root`.
+    fn filter_optimistic_attestation(
+        &self,
+        attestation: Attestation<T::EthSpec>,
+    ) -> Result<Attestation<T::EthSpec>, Error> {
+        let beacon_block_root = attestation.data.beacon_block_root;
+        match self
+            .fork_choice
+            .read()
+            .get_block_execution_status(&beacon_block_root)
+        {
+            // The attestation references a block that is not in fork choice, it must be
+            // pre-finalization.
+            None => Err(Error::CannotAttestToFinalizedBlock { beacon_block_root }),
+            // The attestation references a fully valid `beacon_block_root`.
+            Some(execution_status) if execution_status.is_valid_or_irrelevant() => Ok(attestation),
+            // The attestation references a block that has not been verified by an EL (i.e. it
+            // is optimistic or invalid). Don't return the block, return an error instead.
+            Some(execution_status) => Err(Error::HeadBlockNotFullyVerified {
+                beacon_block_root,
+                execution_status,
+            }),
+        }
     }
 
     /// Return an aggregated `SyncCommitteeContribution` matching the given `root`.
@@ -1481,6 +1518,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         //
         // In effect, the early attester cache prevents slow database IO from causing missed
         // head/target votes.
+        //
+        // The early attester cache should never contain an optimistically imported block.
         match self
             .early_attester_cache
             .try_attest(request_slot, request_index, &self.spec)
@@ -1597,6 +1636,22 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         }
         drop(head_timer);
 
+        // Only attest to a block if it is fully verified (i.e. not optimistic or invalid).
+        match self
+            .fork_choice
+            .read()
+            .get_block_execution_status(&beacon_block_root)
+        {
+            Some(execution_status) if execution_status.is_valid_or_irrelevant() => (),
+            Some(execution_status) => {
+                return Err(Error::HeadBlockNotFullyVerified {
+                    beacon_block_root,
+                    execution_status,
+                })
+            }
+            None => return Err(Error::HeadMissingFromForkChoice(beacon_block_root)),
+        };
+
         /*
          *  Phase 2/2:
          *
@@ -1652,64 +1707,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 beacon_block_root,
                 source: justified_checkpoint,
                 target,
-            },
-            signature: AggregateSignature::empty(),
-        })
-    }
-
-    /// Produces an "unaggregated" attestation for the given `slot` and `index` that attests to
-    /// `beacon_block_root`. The provided `state` should match the `block.state_root` for the
-    /// `block` identified by `beacon_block_root`.
-    ///
-    /// The attestation doesn't _really_ have anything about it that makes it unaggregated per say,
-    /// however this function is only required in the context of forming an unaggregated
-    /// attestation. It would be an (undetectable) violation of the protocol to create a
-    /// `SignedAggregateAndProof` based upon the output of this function.
-    pub fn produce_unaggregated_attestation_for_block(
-        &self,
-        slot: Slot,
-        index: CommitteeIndex,
-        beacon_block_root: Hash256,
-        mut state: Cow<BeaconState<T::EthSpec>>,
-        state_root: Hash256,
-    ) -> Result<Attestation<T::EthSpec>, Error> {
-        let epoch = slot.epoch(T::EthSpec::slots_per_epoch());
-
-        if state.slot() > slot {
-            return Err(Error::CannotAttestToFutureState);
-        } else if state.current_epoch() < epoch {
-            let mut_state = state.to_mut();
-            // Only perform a "partial" state advance since we do not require the state roots to be
-            // accurate.
-            partial_state_advance(
-                mut_state,
-                Some(state_root),
-                epoch.start_slot(T::EthSpec::slots_per_epoch()),
-                &self.spec,
-            )?;
-            mut_state.build_committee_cache(RelativeEpoch::Current, &self.spec)?;
-        }
-
-        let committee_len = state.get_beacon_committee(slot, index)?.committee.len();
-
-        let target_slot = epoch.start_slot(T::EthSpec::slots_per_epoch());
-        let target_root = if state.slot() <= target_slot {
-            beacon_block_root
-        } else {
-            *state.get_block_root(target_slot)?
-        };
-
-        Ok(Attestation {
-            aggregation_bits: BitList::with_capacity(committee_len)?,
-            data: AttestationData {
-                slot,
-                index,
-                beacon_block_root,
-                source: state.current_justified_checkpoint(),
-                target: Checkpoint {
-                    epoch,
-                    root: target_root,
-                },
             },
             signature: AggregateSignature::empty(),
         })
@@ -2678,13 +2675,20 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             }
         }
 
-        // If the block is recent enough, check to see if it becomes the head block. If so, apply it
-        // to the early attester cache. This will allow attestations to the block without waiting
-        // for the block and state to be inserted to the database.
+        // If the block is recent enough and it was not optimistically imported, check to see if it
+        // becomes the head block. If so, apply it to the early attester cache. This will allow
+        // attestations to the block without waiting for the block and state to be inserted to the
+        // database.
         //
         // Only performing this check on recent blocks avoids slowing down sync with lots of calls
         // to fork choice `get_head`.
-        if block.slot() + EARLY_ATTESTER_CACHE_HISTORIC_SLOTS >= current_slot {
+        //
+        // Optimistically imported blocks are not added to the cache since the cache is only useful
+        // for a small window of time and the complexity of keeping track of the optimistic status
+        // is not worth it.
+        if !payload_verification_status.is_optimistic()
+            && block.slot() + EARLY_ATTESTER_CACHE_HISTORIC_SLOTS >= current_slot
+        {
             let new_head_root = fork_choice
                 .get_head(current_slot, &self.spec)
                 .map_err(BeaconChainError::from)?;
@@ -4185,7 +4189,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let status = match head_block.execution_status {
             ExecutionStatus::Valid(block_hash) => HeadSafetyStatus::Safe(Some(block_hash)),
             ExecutionStatus::Invalid(block_hash) => HeadSafetyStatus::Invalid(block_hash),
-            ExecutionStatus::Unknown(block_hash) => HeadSafetyStatus::Unsafe(block_hash),
+            ExecutionStatus::Optimistic(block_hash) => HeadSafetyStatus::Unsafe(block_hash),
             ExecutionStatus::Irrelevant(_) => HeadSafetyStatus::Safe(None),
         };
 

@@ -2138,6 +2138,12 @@ pub fn serve<T: BeaconChainTypes>(
                             query.slot,
                             &query.attestation_data_root,
                         )
+                        .map_err(|e| {
+                            warp_utils::reject::custom_bad_request(format!(
+                                "unable to fetch aggregate: {:?}",
+                                e
+                            ))
+                        })?
                         .map(api_types::GenericResponse::from)
                         .ok_or_else(|| {
                             warp_utils::reject::custom_not_found(
