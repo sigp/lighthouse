@@ -48,8 +48,9 @@ use types::{
     Attestation, AttesterSlashing, BeaconBlockBodyMerge, BeaconBlockMerge, BeaconStateError,
     BlindedPayload, CommitteeCache, ConfigAndPreset, Epoch, EthSpec, ForkName, FullPayload,
     ProposerPreparationData, ProposerSlashing, RelativeEpoch, Signature, SignedAggregateAndProof,
-    SignedBeaconBlock, SignedBeaconBlockMerge, SignedContributionAndProof, SignedVoluntaryExit,
-    Slot, SyncCommitteeMessage, SyncContributionData,
+    SignedBeaconBlock, SignedBeaconBlockMerge, SignedBlindedBeaconBlock,
+    SignedContributionAndProof, SignedVoluntaryExit, Slot, SyncCommitteeMessage,
+    SyncContributionData,
 };
 use version::{
     add_consensus_version_header, fork_versioned_response, inconsistent_fork_rejection,
@@ -2780,7 +2781,7 @@ pub fn serve<T: BeaconChainTypes>(
         .and(chain_filter.clone())
         .and(log_filter.clone())
         .and_then(
-            |blocks: Vec<SignedBeaconBlock<T::EthSpec>>,
+            |blocks: Vec<SignedBlindedBeaconBlock<T::EthSpec>>,
              chain: Arc<BeaconChain<T>>,
              log: Logger| {
                 info!(

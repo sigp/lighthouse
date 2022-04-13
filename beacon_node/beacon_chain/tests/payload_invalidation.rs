@@ -68,7 +68,7 @@ impl InvalidPayloadRig {
     fn block_hash(&self, block_root: Hash256) -> ExecutionBlockHash {
         self.harness
             .chain
-            .get_block(&block_root)
+            .get_blinded_block(&block_root)
             .unwrap()
             .unwrap()
             .message()
@@ -227,7 +227,12 @@ impl InvalidPayloadRig {
                 }
 
                 assert_eq!(
-                    self.harness.chain.get_block(&block_root).unwrap().unwrap(),
+                    self.harness
+                        .chain
+                        .store
+                        .get_full_block(&block_root)
+                        .unwrap()
+                        .unwrap(),
                     block,
                     "block from db must match block imported"
                 );
@@ -258,7 +263,11 @@ impl InvalidPayloadRig {
                     "invalid block must not exist in fork choice"
                 );
                 assert!(
-                    self.harness.chain.get_block(&block_root).unwrap().is_none(),
+                    self.harness
+                        .chain
+                        .get_blinded_block(&block_root)
+                        .unwrap()
+                        .is_none(),
                     "invalid block cannot be accessed via get_block"
                 );
             }
@@ -328,7 +337,7 @@ fn justified_checkpoint_becomes_invalid() {
     let parent_root_of_justified = rig
         .harness
         .chain
-        .get_block(&justified_checkpoint.root)
+        .get_blinded_block(&justified_checkpoint.root)
         .unwrap()
         .unwrap()
         .parent_root();
@@ -546,7 +555,13 @@ fn invalidates_all_descendants() {
     assert!(rig.execution_status(fork_block_root).is_invalid());
 
     for root in blocks {
-        let slot = rig.harness.chain.get_block(&root).unwrap().unwrap().slot();
+        let slot = rig
+            .harness
+            .chain
+            .get_blinded_block(&root)
+            .unwrap()
+            .unwrap()
+            .slot();
 
         // Fork choice doesn't have info about pre-finalization, nothing to check here.
         if slot < finalized_slot {
@@ -610,7 +625,13 @@ fn switches_heads() {
     assert!(rig.execution_status(fork_block_root).is_not_verified());
 
     for root in blocks {
-        let slot = rig.harness.chain.get_block(&root).unwrap().unwrap().slot();
+        let slot = rig
+            .harness
+            .chain
+            .get_blinded_block(&root)
+            .unwrap()
+            .unwrap()
+            .slot();
 
         // Fork choice doesn't have info about pre-finalization, nothing to check here.
         if slot < finalized_slot {
@@ -642,9 +663,17 @@ fn invalid_during_processing() {
     ];
 
     // 0 should be present in the chain.
-    assert!(rig.harness.chain.get_block(&roots[0]).unwrap().is_some());
+    assert!(rig
+        .harness
+        .chain
+        .get_blinded_block(&roots[0])
+        .unwrap()
+        .is_some());
     // 1 should *not* be present in the chain.
-    assert_eq!(rig.harness.chain.get_block(&roots[1]).unwrap(), None);
+    assert_eq!(
+        rig.harness.chain.get_blinded_block(&roots[1]).unwrap(),
+        None
+    );
     // 2 should be the head.
     let head = rig.harness.chain.head_info().unwrap();
     assert_eq!(head.block_root, roots[2]);
@@ -663,7 +692,7 @@ fn invalid_after_optimistic_sync() {
     ];
 
     for root in &roots {
-        assert!(rig.harness.chain.get_block(root).unwrap().is_some());
+        assert!(rig.harness.chain.get_blinded_block(root).unwrap().is_some());
     }
 
     // 2 should be the head.

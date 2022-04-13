@@ -986,10 +986,10 @@ mod test {
         assert_eq!(
             chain
                 .store
-                .get_block(&Hash256::zero())
+                .get_blinded_block(&Hash256::zero())
                 .expect("should read db")
                 .expect("should find genesis block"),
-            block,
+            block.clone().into(),
             "should store genesis block under zero hash alias"
         );
         assert_eq!(

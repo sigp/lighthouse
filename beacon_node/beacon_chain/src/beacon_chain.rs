@@ -756,11 +756,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         &self,
         request_slot: Slot,
         skips: WhenSlotSkipped,
-    ) -> Result<Option<SignedBeaconBlock<T::EthSpec>>, Error> {
+    ) -> Result<Option<SignedBlindedBeaconBlock<T::EthSpec>>, Error> {
         let root = self.block_root_at_slot(request_slot, skips)?;
 
         if let Some(block_root) = root {
-            Ok(self.store.get_full_block(&block_root)?)
+            Ok(self.store.get_blinded_block(&block_root)?)
         } else {
             Ok(None)
         }
