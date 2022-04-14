@@ -366,10 +366,7 @@ mod test {
                 BeaconBlock::Altair(BeaconBlockAltair::empty(spec)),
                 sig.clone(),
             ),
-            SignedBeaconBlock::from_block(
-                BeaconBlock::Merge(BeaconBlockMerge::empty(spec)),
-                sig.clone(),
-            ),
+            SignedBeaconBlock::from_block(BeaconBlock::Merge(BeaconBlockMerge::empty(spec)), sig),
         ];
 
         for block in blocks {
