@@ -51,9 +51,6 @@ pub enum Error<T> {
     MissingFinalizedBlock {
         finalized_checkpoint: Checkpoint,
     },
-    ExecutionOptimisticInvalid {
-        block_root: Hash256,
-    },
 }
 
 impl<T> From<InvalidAttestation> for Error<T> {
@@ -1004,24 +1001,15 @@ where
     /// Returns `Ok(false)` if `block_root`'s execution payload has been verfied, if it is a
     /// pre-Bellatrix block or if it is before the PoW terminal block.
     ///
-    /// Returns `Err` if the execution payload of `block_root` is `Invalid`.
-    ///
     /// In the case where the block could not be found in fork-choice, it returns the
     /// `execution_status` of the current finalized block.
     ///
-    /// This function assumes the `block_root` exists and is a post-Bellatrix block.
-    /// If run against a pre-Bellatrix block, it may return incorrect information.
+    /// This function assumes the `block_root` exists.
     pub fn is_optimistic_block(&self, block_root: &Hash256) -> Result<bool, Error<T::Error>> {
-        let block = self
-            .get_block(block_root)
-            .unwrap_or(self.get_finalized_block()?);
-
-        match block.execution_status {
-            ExecutionStatus::Unknown(_) => Ok(true),
-            ExecutionStatus::Valid(_) | ExecutionStatus::Irrelevant(_) => Ok(false),
-            ExecutionStatus::Invalid(_) => Err(Error::ExecutionOptimisticInvalid {
-                block_root: *block_root,
-            }),
+        if let Some(status) = self.get_block_execution_status(block_root) {
+            Ok(status.is_optimistic())
+        } else {
+            Ok(self.get_finalized_block()?.execution_status.is_optimistic())
         }
     }
 
@@ -1033,14 +1021,8 @@ where
         &self,
         block_root: &Hash256,
     ) -> Result<bool, Error<T::Error>> {
-        if let Some(block) = self.get_block(block_root) {
-            match block.execution_status {
-                ExecutionStatus::Unknown(_) => Ok(true),
-                ExecutionStatus::Valid(_) | ExecutionStatus::Irrelevant(_) => Ok(false),
-                ExecutionStatus::Invalid(_) => Err(Error::ExecutionOptimisticInvalid {
-                    block_root: *block_root,
-                }),
-            }
+        if let Some(status) = self.get_block_execution_status(block_root) {
+            Ok(status.is_optimistic())
         } else {
             Err(Error::MissingProtoArrayBlock(*block_root))
         }

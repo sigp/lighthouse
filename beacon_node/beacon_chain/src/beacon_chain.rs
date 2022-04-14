@@ -1483,7 +1483,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 })
                 .collect();
 
-            let execution_optimistic = self.is_optimistic_head(None)?;
+            let execution_optimistic = self.is_optimistic_head_block(
+                &self
+                    .get_block(&head_block_root)?
+                    .ok_or(Error::MissingBeaconBlock(head_block_root))?,
+            )?;
 
             Ok((duties, dependent_root, execution_optimistic))
         })
@@ -4341,13 +4345,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// Returns the value of `execution_optimistic` for `block`.
     ///
     /// Returns `Ok(false)` if the block is pre-Bellatrix, or has `ExecutionStatus::Valid`.
-    /// Returns `Ok(true)` if the block has `ExecutionStatus::Unknown`.
+    /// Returns `Ok(true)` if the block has `ExecutionStatus::Optimistic`.
     pub fn is_optimistic_block(
         &self,
         block: &SignedBeaconBlock<T::EthSpec>,
     ) -> Result<bool, BeaconChainError> {
         // Check if the block is pre-Bellatrix.
-        if block.message().execution_payload().is_err() {
+        if self.slot_is_prior_to_bellatrix(block.slot()) {
             Ok(false)
         } else {
             self.fork_choice
@@ -4360,13 +4364,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// Returns the value of `execution_optimistic` for `head_block`.
     ///
     /// Returns `Ok(false)` if the block is pre-Bellatrix, or has `ExecutionStatus::Valid`.
-    /// Returns `Ok(true)` if the block has `ExecutionStatus::Unknown`.
+    /// Returns `Ok(true)` if the block has `ExecutionStatus::Optimistic`.
     pub fn is_optimistic_head_block(
         &self,
         head_block: &SignedBeaconBlock<T::EthSpec>,
     ) -> Result<bool, BeaconChainError> {
         // Check if the block is pre-Bellatrix.
-        if head_block.message().execution_payload().is_err() {
+        if self.slot_is_prior_to_bellatrix(head_block.slot()) {
             Ok(false)
         } else {
             self.fork_choice
@@ -4380,7 +4384,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// You can optionally provide `head_info` if it was computed previously.
     ///
     /// Returns `Ok(false)` if the head block is pre-Bellatrix, or has `ExecutionStatus::Valid`.
-    /// Returns `Ok(true)` if the head block has `ExecutionStatus::Unknown`.
+    /// Returns `Ok(true)` if the head block has `ExecutionStatus::Optimistic`.
     pub fn is_optimistic_head(
         &self,
         head_info: Option<&HeadInfo>,
@@ -4392,7 +4396,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
     fn is_optimistic_head_internal(&self, head_info: &HeadInfo) -> Result<bool, BeaconChainError> {
         // Check if the block is pre-Bellatrix.
-        if head_info.execution_payload_block_hash.is_none() {
+        if self.slot_is_prior_to_bellatrix(head_info.slot) {
             Ok(false)
         } else {
             self.fork_choice
