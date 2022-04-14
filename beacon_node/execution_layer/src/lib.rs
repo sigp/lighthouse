@@ -258,11 +258,14 @@ impl<E: EthSpec> ExecutionLayer<E> {
         };
 
         let (tx, mut rx) = mpsc::unbounded_channel::<ExecutionLayerRequest<E>>();
-        tokio::spawn(async move {
-            while let Some(request) = rx.recv().await {
-                request.responder.send(request.future.await).unwrap();
-            }
-        });
+        executor.spawn(
+            async move {
+                while let Some(request) = rx.recv().await {
+                    request.responder.send(request.future.await).unwrap();
+                }
+            },
+            "execution_layer_handler",
+        );
 
         Ok(Self {
             inner: Arc::new(inner),
