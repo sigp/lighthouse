@@ -3,6 +3,7 @@ use clap_utils::flags::DISABLE_MALLOC_TUNING_FLAG;
 use client::{ClientConfig, ClientGenesis};
 use directory::{DEFAULT_BEACON_NODE_DIR, DEFAULT_NETWORK_DIR, DEFAULT_ROOT_DIR};
 use environment::RuntimeContext;
+use execution_layer::DEFAULT_JWT_FILE;
 use http_api::TlsConfig;
 use lighthouse_network::{multiaddr::Protocol, Enr, Multiaddr, NetworkConfig, PeerIdSerialized};
 use sensitive_url::SensitiveUrl;
@@ -236,47 +237,69 @@ pub fn get_config<E: EthSpec>(
         client_config.eth1.purge_cache = true;
     }
 
-    if cli_args.is_present("merge") || cli_args.is_present("execution-endpoints") {
+    // Support for multiple execution endpoints has been removed. Try to give the user some
+    // helpful feedback.
+    if let Some(execution_endpoints) = cli_args.value_of("execution-endpoints") {
+        warn!(
+            log,
+            "--execution-endpoints has been deprecated";
+            "msg" => "use --execution-endpoint instead"
+        );
+        if execution_endpoints.contains(',') {
+            return Err(
+                "A comma was detected in the --execution-endpoints flag, support for \
+                multiple execution endpoints has been removed."
+                    .into(),
+            );
+        }
+    }
+
+    if cli_args.is_present("merge") || cli_args.is_present("execution-endpoint") {
         let mut el_config = execution_layer::Config::default();
 
-        if let Some(endpoints) = cli_args.value_of("execution-endpoints") {
+        if let Some(endpoint) = cli_args.value_of("execution-endpoint") {
             client_config.sync_eth1_chain = true;
-            el_config.execution_endpoints = endpoints
-                .split(',')
-                .map(SensitiveUrl::parse)
-                .collect::<Result<_, _>>()
-                .map_err(|e| format!("execution-endpoints contains an invalid URL {:?}", e))?;
+            el_config.execution_endpoint = SensitiveUrl::parse(endpoint)
+                .map_err(|e| format!("execution-endpoint contains an invalid URL {:?}", e))?;
         } else if cli_args.is_present("merge") {
-            el_config.execution_endpoints = client_config.eth1.endpoints.clone();
+            el_config.execution_endpoint =
+                SensitiveUrl::parse("http:://localhost:8551").map_err(|e| {
+                    format!("default execution-endpoint contains an invalid URL {:?}", e)
+                })?;
         }
 
-        if let Some(endpoints) = cli_args.value_of("payload-builders") {
-            el_config.builder_endpoints = endpoints
-                .split(',')
-                .map(SensitiveUrl::parse)
-                .collect::<Result<_, _>>()
-                .map_err(|e| format!("payload-builders contains an invalid URL {:?}", e))?;
+        if let Some(endpoint) = cli_args.value_of("payload-builder") {
+            el_config.builder_endpoint = SensitiveUrl::parse(endpoint)
+                .map(Option::Some)
+                .map_err(|e| format!("payload-builder contains an invalid URL {:?}", e))?;
         }
 
-        if let Some(secrets) = cli_args.value_of("jwt-secrets") {
-            let secret_files: Vec<_> = secrets.split(',').map(PathBuf::from).collect();
-            if !secret_files.is_empty() && secret_files.len() != el_config.execution_endpoints.len()
-            {
-                return Err(format!(
-                    "{} execution-endpoints supplied with {} jwt-secrets. Lengths \
-                        must match or jwt-secrets must be empty.",
-                    el_config.execution_endpoints.len(),
-                    secret_files.len(),
-                ));
+        // Log some deprecation warnings for old JWT flags.
+        for (old, new) in [
+            ("jwt-secret", "execution-jwt"),
+            ("jwt-id", "execution-jwt"),
+            ("jwt-version", "execution-jwt-version"),
+        ] {
+            if cli_args.is_present(old) {
+                warn!(
+                    log,
+                    "Deprecated flag detected";
+                    "replace_with" => format!("--{}", new),
+                    "deprecated" => format!("--{}", old),
+                )
             }
-            el_config.secret_files = secret_files;
+        }
+
+        if let Some(secret) = clap_utils::parse_optional(cli_args, "execution-jwt")? {
+            el_config.secret_file = secret;
+        } else {
+            el_config.secret_file = client_config.data_dir.join(DEFAULT_JWT_FILE);
         }
 
         el_config.suggested_fee_recipient =
             clap_utils::parse_optional(cli_args, "suggested-fee-recipient")?;
-        el_config.jwt_id = clap_utils::parse_optional(cli_args, "jwt-id")?;
-        el_config.jwt_version = clap_utils::parse_optional(cli_args, "jwt-version")?;
-        el_config.default_datadir = client_config.data_dir.clone();
+        el_config.jwt_id = clap_utils::parse_optional(cli_args, "execution-jwt-id")?;
+        el_config.jwt_version = clap_utils::parse_optional(cli_args, "execution-jwt-version")?;
         client_config.execution_layer = Some(el_config);
     }
 

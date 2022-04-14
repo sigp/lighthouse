@@ -404,43 +404,41 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .takes_value(false),
         )
         .arg(
-            Arg::with_name("execution-endpoints")
-                .long("execution-endpoints")
-                .value_name("EXECUTION-ENDPOINTS")
-                .help("One or more comma-delimited server endpoints for HTTP JSON-RPC connection. \
-                       If multiple endpoints are given the endpoints are used as fallback in the \
-                       given order. Also enables the --merge flag. \
-                       If this flag is omitted and the --eth1-endpoints is supplied, those values \
-                       will be used. Defaults to http://127.0.0.1:8545.")
+            Arg::with_name("execution-endpoint")
+                .long("execution-endpoint")
+                .alias("execution-endpoints")
+                .value_name("EXECUTION-ENDPOINT")
+                .help("A server endpoint for HTTP JSON-RPC connection. Also enables the --merge flag. \
+                       Defaults to http://127.0.0.1:8551.")
                 .takes_value(true)
         )
         .arg(
-            Arg::with_name("jwt-secrets")
-                .long("jwt-secrets")
-                .value_name("JWT-SECRETS")
-                .help("One or more comma-delimited file paths which contain the corresponding hex-encoded \
-                       JWT secrets for each execution endpoint provided in the --execution-endpoints flag. \
-                       The number of paths should be in the same order and strictly equal to the number \
-                       of execution endpoints provided.")
+            Arg::with_name("execution-jwt")
+                .long("execution-jwt")
+                .alias("jwt-secrets")
+                .value_name("PATH")
+                .help("The path to a file which contains the 32-byte, hex-encoded JWT secret \
+                       used for communication with the execution-endpoint.")
                 .takes_value(true)
-                .requires("execution-endpoints")
         )
         .arg(
-            Arg::with_name("jwt-id")
-                .long("jwt-id")
+            Arg::with_name("execution-jwt-id")
+                .long("execution-jwt-id")
+                .alias("jwt-id")
                 .value_name("JWT-ID")
                 .help("Used by the beacon node to communicate a unique identifier to execution nodes \
                        during JWT authentication. It corresponds to the 'id' field in the JWT claims object.\
-                       Set to empty by deafult")
+                       Set to empty by default")
                 .takes_value(true)
         )
         .arg(
-            Arg::with_name("jwt-version")
-                .long("jwt-version")
+            Arg::with_name("execution-jwt-version")
+                .long("execution-jwt-version")
+                .alias("jwt-version")
                 .value_name("JWT-VERSION")
                 .help("Used by the beacon node to communicate a client version to execution nodes \
                        during JWT authentication. It corresponds to the 'clv' field in the JWT claims object.\
-                       Set to empty by deafult")
+                       Set to empty by default")
                 .takes_value(true)
         )
         .arg(
@@ -455,8 +453,8 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .takes_value(true)
         )
         .arg(
-            Arg::with_name("payload-builders")
-                .long("payload-builders")
+            Arg::with_name("payload-builder")
+                .long("payload-builder")
                 .help("The URL of a service compatible with the MEV-boost API.")
                 .requires("merge")
                 .takes_value(true)

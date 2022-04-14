@@ -15,7 +15,7 @@ use execution_layer::{
     test_utils::{
         ExecutionBlockGenerator, ExecutionLayerRuntime, MockExecutionLayer, DEFAULT_TERMINAL_BLOCK,
     },
-    ExecutionLayer,
+    ExecutionLayer, DEFAULT_JWT_FILE,
 };
 use futures::channel::mpsc::Receiver;
 pub use genesis::{interop_genesis_state, DEFAULT_ETH1_BLOCK_HASH};
@@ -37,6 +37,7 @@ use state_processing::{
 };
 use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
+use std::path::PathBuf;
 use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Duration;
@@ -324,7 +325,7 @@ where
         self
     }
 
-    pub fn execution_layer(mut self, urls: &[&str]) -> Self {
+    pub fn execution_layer(mut self, url: &str) -> Self {
         assert!(
             self.execution_layer.is_none(),
             "execution layer already defined"
@@ -332,15 +333,9 @@ where
 
         let el_runtime = ExecutionLayerRuntime::default();
 
-        let urls: Vec<SensitiveUrl> = urls
-            .iter()
-            .map(|s| SensitiveUrl::parse(*s))
-            .collect::<Result<_, _>>()
-            .unwrap();
-
         let config = execution_layer::Config {
-            execution_endpoints: urls,
-            secret_files: vec![],
+            execution_endpoint: SensitiveUrl::parse(url).unwrap(),
+            secret_file: PathBuf::from(DEFAULT_JWT_FILE),
             suggested_fee_recipient: Some(Address::repeat_byte(42)),
             ..Default::default()
         };
