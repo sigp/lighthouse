@@ -238,6 +238,16 @@ impl<E: EthSpec> ExecutionLayer<E> {
             })
             .collect::<Result<_, ApiError>>()?;
 
+        let (tx, mut rx) = mpsc::unbounded_channel::<ExecutionLayerRequest<E>>();
+        executor.spawn(
+            async move {
+                while let Some(request) = rx.recv().await {
+                    request.responder.send(request.future.await).unwrap();
+                }
+            },
+            "execution_layer_handler",
+        );
+
         let inner = Inner {
             engines: Engines {
                 engines,
@@ -256,16 +266,6 @@ impl<E: EthSpec> ExecutionLayer<E> {
             executor,
             log,
         };
-
-        let (tx, mut rx) = mpsc::unbounded_channel::<ExecutionLayerRequest<E>>();
-        executor.spawn(
-            async move {
-                while let Some(request) = rx.recv().await {
-                    request.responder.send(request.future.await).unwrap();
-                }
-            },
-            "execution_layer_handler",
-        );
 
         Ok(Self {
             inner: Arc::new(inner),
