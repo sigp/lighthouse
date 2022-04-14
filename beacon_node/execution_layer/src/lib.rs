@@ -4,8 +4,6 @@
 //! This crate only provides useful functionality for "The Merge", it does not provide any of the
 //! deposit-contract functionality that the `beacon_node/eth1` crate already provides.
 
-use crate::engine_api::Builder;
-use crate::engines::Builders;
 use auth::{Auth, JwtKey};
 use engine_api::{Error as ApiError, *};
 use lru::LruCache;
