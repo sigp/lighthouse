@@ -1215,12 +1215,7 @@ impl ExecutionLayer {
             block
                 .transactions
                 .into_iter()
-                .map(|mut transaction| {
-                    // Workaround for `access_list` encoding issue.
-                    // https://github.com/gakonst/ethers-rs/issues/1134
-                    transaction.access_list = Some(Default::default());
-                    VariableList::new(transaction.rlp().to_vec())
-                })
+                .map(|transaction| VariableList::new(transaction.rlp().to_vec()))
                 .collect::<Result<_, _>>()
                 .map_err(ApiError::DeserializeTransaction)?,
         )
