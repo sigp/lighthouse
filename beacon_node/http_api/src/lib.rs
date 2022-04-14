@@ -139,6 +139,12 @@ impl From<String> for Error {
     }
 }
 
+enum HeaderComputationType {
+    UsesHeadWithBlock,
+    UsesHeadNoBlock,
+    NoHead,
+}
+
 /// Creates a `warp` logging wrapper which we use to create `slog` logs.
 pub fn slog_logging(
     log: Logger,
@@ -892,7 +898,13 @@ pub fn serve<T: BeaconChainTypes>(
                         (None, None) => chain
                             .head_beacon_block()
                             .map_err(warp_utils::reject::beacon_chain_error)
-                            .map(|block| (block.canonical_root(), block, true))?,
+                            .map(|block| {
+                                (
+                                    block.canonical_root(),
+                                    block,
+                                    HeaderComputationType::UsesHeadWithBlock,
+                                )
+                            })?,
                         // Only the parent root parameter, do a forwards-iterator lookup.
                         (None, Some(parent_root)) => {
                             let parent = BlockId::from_root(parent_root).block(&chain)?;
@@ -914,14 +926,14 @@ pub fn serve<T: BeaconChainTypes>(
 
                             BlockId::from_root(root)
                                 .block(&chain)
-                                .map(|block| (root, block, false))?
+                                .map(|block| (root, block, HeaderComputationType::NoHead))?
                         }
                         // Slot is supplied, search by slot and optionally filter by
                         // parent root.
                         (Some(slot), parent_root_opt) => {
                             let root = BlockId::from_slot(slot).root(&chain)?;
                             let block = BlockId::from_root(root).block(&chain)?;
-                            let mut uses_head = true;
+                            let mut uses_head = HeaderComputationType::UsesHeadNoBlock;
 
                             // If the parent root was supplied, check that it matches the block
                             // obtained via a slot lookup.
@@ -932,7 +944,7 @@ pub fn serve<T: BeaconChainTypes>(
                                         slot, parent_root
                                     )));
                                 } else {
-                                    uses_head = false;
+                                    uses_head = HeaderComputationType::NoHead;
                                 }
                             }
 
@@ -943,8 +955,11 @@ pub fn serve<T: BeaconChainTypes>(
                     // The value of `execution_optimistic` depends on whether the method used to
                     // compute the response is dependent on the head block.
                     let execution_optimistic = match uses_head {
-                        false => chain.is_optimistic_block(&block),
-                        true => chain.is_optimistic_head(None),
+                        HeaderComputationType::NoHead => chain.is_optimistic_block(&block),
+                        HeaderComputationType::UsesHeadWithBlock => {
+                            chain.is_optimistic_head_block(&block)
+                        }
+                        HeaderComputationType::UsesHeadNoBlock => chain.is_optimistic_head(None),
                     }
                     .map_err(warp_utils::reject::beacon_chain_error)?;
 
