@@ -85,7 +85,7 @@ impl ForkChoiceTestDefinition {
             self.finalized_checkpoint,
             junk_shuffling_id.clone(),
             junk_shuffling_id,
-            ExecutionStatus::Unknown(ExecutionBlockHash::zero()),
+            ExecutionStatus::Optimistic(ExecutionBlockHash::zero()),
         )
         .expect("should create fork choice struct");
 
@@ -189,9 +189,9 @@ impl ForkChoiceTestDefinition {
                         justified_checkpoint,
                         finalized_checkpoint,
                         // All blocks are imported optimistically.
-                        execution_status: ExecutionStatus::Unknown(ExecutionBlockHash::from_root(
-                            root,
-                        )),
+                        execution_status: ExecutionStatus::Optimistic(
+                            ExecutionBlockHash::from_root(root),
+                        ),
                     };
                     fork_choice.process_block(block).unwrap_or_else(|e| {
                         panic!(
