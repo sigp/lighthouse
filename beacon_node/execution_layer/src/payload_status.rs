@@ -24,20 +24,6 @@ pub enum PayloadStatus {
     },
 }
 
-impl<T: EthSpec> From<ExecutionLayerResponse<T>> for PayloadStatus {
-    fn from(r: ExecutionLayerResponse<T>) -> Self {
-        match r {
-            ExecutionLayerResponse::NotifyNewPayload(p) => p,
-            _ => panic!(),
-        }
-    }
-}
-impl<T: EthSpec> Into<ExecutionLayerResponse<T>> for PayloadStatus {
-    fn into(self) -> ExecutionLayerResponse<T> {
-        ExecutionLayerResponse::NotifyNewPayload(self)
-    }
-}
-
 /// Processes the responses from multiple execution engines, finding the "best" status and returning
 /// it (if any).
 ///

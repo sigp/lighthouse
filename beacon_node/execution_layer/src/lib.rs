@@ -35,7 +35,7 @@ use tokio::{
     time::{sleep, sleep_until, Instant},
 };
 use types::{
-    BlindedPayload, BlockType, ChainSpec, Epoch, ExecPayload, ExecutionBlockHash,
+    BlindedPayload, BlockType, ChainSpec, Epoch, ExecPayload, ExecutionBlockHash, FullPayload,
     ProposerPreparationData, SignedBeaconBlock, Slot,
 };
 
@@ -76,11 +76,33 @@ pub enum Error {
     ConsensusFailure,
     MissingLatestValidHash,
     InvalidJWTSecret(String),
+    InvalidResponseFromBackend,
+    CrossbeamRecv(crossbeam_channel::RecvError),
+    CrossbeamSend,
+    MpscSend,
 }
 
 impl From<ApiError> for Error {
     fn from(e: ApiError) -> Self {
         Error::ApiError(e)
+    }
+}
+
+impl From<crossbeam_channel::RecvError> for Error {
+    fn from(e: crossbeam_channel::RecvError) -> Self {
+        Error::CrossbeamRecv(e)
+    }
+}
+
+impl<T> From<crossbeam_channel::SendError<T>> for Error {
+    fn from(_: crossbeam_channel::SendError<T>) -> Self {
+        Error::CrossbeamSend
+    }
+}
+
+impl<T> From<tokio::sync::mpsc::error::SendError<T>> for Error {
+    fn from(_: tokio::sync::mpsc::error::SendError<T>) -> Self {
+        Error::MpscSend
     }
 }
 
@@ -151,12 +173,12 @@ fn strip_prefix(s: &str) -> &str {
 ///
 /// The fallback nodes have an ordering. The first supplied will be the first contacted, and so on.
 #[derive(Clone)]
-pub struct ExecutionLayer<E: EthSpec> {
+pub struct ExecutionLayer<T: EthSpec> {
     inner: Arc<Inner>,
-    tx: UnboundedSender<ExecutionLayerRequest<E>>,
+    tx: UnboundedSender<ExecutionLayerRequest<T>>,
 }
 
-impl<E: EthSpec> ExecutionLayer<E> {
+impl<T: EthSpec> ExecutionLayer<T> {
     /// Instantiate `Self` with Execution engines specified using `Config`, all using the JSON-RPC via HTTP.
     pub fn from_config(config: Config, executor: TaskExecutor, log: Logger) -> Result<Self, Error> {
         let Config {
@@ -238,16 +260,6 @@ impl<E: EthSpec> ExecutionLayer<E> {
             })
             .collect::<Result<_, ApiError>>()?;
 
-        let (tx, mut rx) = mpsc::unbounded_channel::<ExecutionLayerRequest<E>>();
-        executor.spawn(
-            async move {
-                while let Some(request) = rx.recv().await {
-                    request.responder.send(request.future.await).unwrap();
-                }
-            },
-            "execution_layer_handler",
-        );
-
         let inner = Inner {
             engines: Engines {
                 engines,
@@ -267,56 +279,142 @@ impl<E: EthSpec> ExecutionLayer<E> {
             log,
         };
 
-        Ok(Self {
+        // Spawn a separate task to handle any requests to the execution layer that we receive from blocking contexts.
+        let (tx, mut rx) = mpsc::unbounded_channel::<ExecutionLayerRequest<T>>();
+
+        let el = Self {
             inner: Arc::new(inner),
             tx,
-        })
+        };
+
+        let el_ref = el.clone();
+
+        el.inner.executor.spawn(
+            async move {
+                while let Some(request) = rx.recv().await {
+                    match request {
+                        ExecutionLayerRequest::UpdateForkChoice { .. } => {}
+                        ExecutionLayerRequest::NotifyNewPayload { payload, responder } => {
+                            let res = el_ref.notify_new_payload(&payload).await;
+                            if let Err(e) = responder.send(ExecutionLayerResponse::NotifyNewPayload(res)) {
+                                error!(el_ref.inner.log, "Unable to respond to blocking context execution layer request: {e:?}");
+                            }
+                        }
+                        ExecutionLayerRequest::IsValidTerminalPowBlockHash { block_hash,spec,  responder } => {
+                            let res = el_ref.is_valid_terminal_pow_block_hash(block_hash, &spec).await;
+                            if let Err(e) = responder.send(ExecutionLayerResponse::IsValidTerminalPowBlockHash(res)) {
+                                error!(el_ref.inner.log, "Unable to respond to blocking context execution layer request: {e:?}");
+                            }
+                        }
+                        ExecutionLayerRequest::ProposeBlindedBlock { block, responder } => {
+                            let res = el_ref.propose_blinded_beacon_block(&block).await;
+                            if let Err(e) = responder.send(ExecutionLayerResponse::ProposeBlindedBlock(res)) {
+                                error!(el_ref.inner.log, "Unable to respond to blocking context execution layer request: {e:?}");
+                            }
+                        }
+                        ExecutionLayerRequest::GetTerminalPowBlockHash {spec, responder}=> {
+                            let res = el_ref.get_terminal_pow_block_hash(&spec).await;
+                            if let Err(e) = responder.send(ExecutionLayerResponse::GetTerminalPowBlockHash(res)) {
+                                error!(el_ref.inner.log, "Unable to respond to blocking context execution layer request: {e:?}");
+                            }
+                        }
+                        ExecutionLayerRequest::GetFullPayload {
+                            parent_hash,
+                            timestamp,
+                            prev_randao,
+                            finalized_block_hash,
+                            proposer_index,
+                            responder, } => {
+                            let res: Result<FullPayload<T>, Error> = el_ref.get_payload(parent_hash,
+                                                         timestamp,
+                                                         prev_randao,
+                                                         finalized_block_hash,
+                                                         proposer_index).await;
+                            if let Err(e) = responder.send(ExecutionLayerResponse::GetFullPayload(res.map(|r| r.execution_payload))) {
+                                error!(el_ref.inner.log, "Unable to respond to blocking context execution layer request: {e:?}");
+                            }
+                        }
+                        ExecutionLayerRequest::GetBlindedPayload {
+                            parent_hash,
+                            timestamp,
+                            prev_randao,
+                            finalized_block_hash,
+                            proposer_index,
+                            responder, } => {
+                            let res: Result<BlindedPayload<T>, Error> = el_ref.get_payload(parent_hash,
+                                                         timestamp,
+                                                         prev_randao,
+                                                         finalized_block_hash,
+                                                         proposer_index).await;
+                            if let Err(e) = responder.send(ExecutionLayerResponse::GetBlindedPayload(res.map(|r|r.execution_payload_header))) {
+                                error!(el_ref.inner.log, "Unable to respond to blocking context execution layer request: {e:?}");
+                            }
+                        }
+                        ExecutionLayerRequest::PrepareBeaconProposer { .. } => {}
+                    }
+                }
+            },
+            "el_blocking_request_handler",
+        );
+
+        Ok(el)
     }
 }
 
-#[derive(derivative::Derivative)]
-#[derivative(Debug)]
-pub struct ExecutionLayerRequest<E: EthSpec> {
-    #[derivative(Debug = "ignore")]
-    future: Pin<Box<dyn Future<Output = Result<ExecutionLayerResponse<E>, Error>> + Send>>,
-    responder: crossbeam_channel::Sender<Result<ExecutionLayerResponse<E>, Error>>,
+pub enum ExecutionLayerRequest<E: EthSpec> {
+    UpdateForkChoice {
+        slot: Slot,
+        responder: crossbeam_channel::Sender<ExecutionLayerResponse<E>>,
+    },
+    NotifyNewPayload {
+        payload: ExecutionPayload<E>,
+        responder: crossbeam_channel::Sender<ExecutionLayerResponse<E>>,
+    },
+    IsValidTerminalPowBlockHash {
+        block_hash: ExecutionBlockHash,
+        spec: ChainSpec,
+        responder: crossbeam_channel::Sender<ExecutionLayerResponse<E>>,
+    },
+    GetTerminalPowBlockHash {
+        spec: ChainSpec,
+        responder: crossbeam_channel::Sender<ExecutionLayerResponse<E>>,
+    },
+    ProposeBlindedBlock {
+        block: SignedBeaconBlock<E, BlindedPayload<E>>,
+        responder: crossbeam_channel::Sender<ExecutionLayerResponse<E>>,
+    },
+    GetFullPayload {
+        parent_hash: ExecutionBlockHash,
+        timestamp: u64,
+        prev_randao: Hash256,
+        finalized_block_hash: ExecutionBlockHash,
+        proposer_index: u64,
+        responder: crossbeam_channel::Sender<ExecutionLayerResponse<E>>,
+    },
+    GetBlindedPayload {
+        parent_hash: ExecutionBlockHash,
+        timestamp: u64,
+        prev_randao: Hash256,
+        finalized_block_hash: ExecutionBlockHash,
+        proposer_index: u64,
+        responder: crossbeam_channel::Sender<ExecutionLayerResponse<E>>,
+    },
+    PrepareBeaconProposer {
+        slot: Slot,
+        responder: crossbeam_channel::Sender<ExecutionLayerResponse<E>>,
+    },
 }
 
 #[derive(Debug)]
 pub enum ExecutionLayerResponse<E: EthSpec> {
-    NotifyNewPayload(PayloadStatus),
-    IsValidTerminalPowBlockHash(Option<bool>),
-    ProposeBlindedPayload(Box<ExecutionPayload<E>>),
-}
-
-impl<T: EthSpec> From<Option<bool>> for ExecutionLayerResponse<T> {
-    fn from(b: Option<bool>) -> Self {
-        ExecutionLayerResponse::IsValidTerminalPowBlockHash(b)
-    }
-}
-
-impl<T: EthSpec> From<ExecutionLayerResponse<T>> for Option<bool> {
-    fn from(b: ExecutionLayerResponse<T>) -> Option<bool> {
-        match b {
-            ExecutionLayerResponse::IsValidTerminalPowBlockHash(b) => b,
-            _ => panic!(),
-        }
-    }
-}
-
-impl<T: EthSpec> From<ExecutionPayload<T>> for ExecutionLayerResponse<T> {
-    fn from(b: ExecutionPayload<T>) -> Self {
-        ExecutionLayerResponse::ProposeBlindedPayload(Box::new(b))
-    }
-}
-
-impl<T: EthSpec> From<ExecutionLayerResponse<T>> for ExecutionPayload<T> {
-    fn from(b: ExecutionLayerResponse<T>) -> ExecutionPayload<T> {
-        match b {
-            ExecutionLayerResponse::ProposeBlindedPayload(b) => *b,
-            _ => panic!(),
-        }
-    }
+    UpdateForkChoice(),
+    NotifyNewPayload(Result<PayloadStatus, Error>),
+    IsValidTerminalPowBlockHash(Result<Option<bool>, Error>),
+    GetTerminalPowBlockHash(Result<Option<ExecutionBlockHash>, Error>),
+    ProposeBlindedBlock(Result<ExecutionPayload<E>, Error>),
+    GetFullPayload(Result<ExecutionPayload<E>, Error>),
+    GetBlindedPayload(Result<ExecutionPayloadHeader<E>, Error>),
+    PrepareBeaconProposer(()),
 }
 
 impl<T: EthSpec> ExecutionLayer<T> {
@@ -358,24 +456,97 @@ impl<T: EthSpec> ExecutionLayer<T> {
         self.inner.execution_engine_forkchoice_lock.lock().await
     }
 
-    /// Convenience function to allow calling async functions in a non-async context.
-    pub fn block_on<F, U, V>(&self, generate_future: F) -> Result<V, Error>
-    where
-        F: FnOnce(Self) -> U + Send + 'static,
-        U: Future<Output = Result<V, Error>> + Send,
-        V: From<ExecutionLayerResponse<T>> + Into<ExecutionLayerResponse<T>>,
-    {
-        let cloned = self.clone();
+    pub fn is_valid_terminal_pow_block_hash_blocking(
+        &self,
+        block_hash: ExecutionBlockHash,
+        spec: ChainSpec,
+    ) -> Result<Option<bool>, Error> {
         let (tx, rx) = crossbeam_channel::bounded(1);
-        let future = Box::pin(async move { generate_future(cloned).await.map(Into::into) });
-
-        let request = ExecutionLayerRequest {
-            future,
+        let req = ExecutionLayerRequest::IsValidTerminalPowBlockHash {
+            block_hash,
+            spec,
             responder: tx,
         };
-        self.tx.send(request).unwrap();
-        let b = rx.recv().unwrap();
-        b.map(V::from)
+        self.tx.send(req)?;
+        match rx.recv()? {
+            ExecutionLayerResponse::IsValidTerminalPowBlockHash(response) => response,
+            _ => Err(Error::InvalidResponseFromBackend),
+        }
+    }
+
+    pub fn notify_new_payload_blocking(
+        &self,
+        payload: ExecutionPayload<T>,
+    ) -> Result<PayloadStatus, Error> {
+        let (tx, rx) = crossbeam_channel::bounded(1);
+        let req = ExecutionLayerRequest::NotifyNewPayload {
+            payload,
+            responder: tx,
+        };
+        self.tx.send(req)?;
+        match rx.recv()? {
+            ExecutionLayerResponse::NotifyNewPayload(response) => response,
+            _ => Err(Error::InvalidResponseFromBackend),
+        }
+    }
+
+    pub fn get_terminal_pow_block_hash_blocking(&self, spec: ChainSpec) -> Result<Option<ExecutionBlockHash>, Error> {
+        let (tx, rx) = crossbeam_channel::bounded(1);
+        let req = ExecutionLayerRequest::GetTerminalPowBlockHash { spec, responder: tx };
+        self.tx.send(req)?;
+        match rx.recv()? {
+            ExecutionLayerResponse::GetTerminalPowBlockHash(response) => response,
+            _ => Err(Error::InvalidResponseFromBackend),
+        }
+    }
+
+    pub fn get_payload_blocking<Payload: ExecPayload<T>>(
+        &self,
+        parent_hash: ExecutionBlockHash,
+        timestamp: u64,
+        prev_randao: Hash256,
+        finalized_block_hash: ExecutionBlockHash,
+        proposer_index: u64,
+    ) -> Result<Payload, Error> {
+        let (tx, rx) = crossbeam_channel::bounded(1);
+        let req = match Payload::block_type() {
+            BlockType::Full => ExecutionLayerRequest::GetFullPayload {
+                parent_hash,
+                timestamp,
+                prev_randao,
+                finalized_block_hash,
+                proposer_index,
+                responder: tx,
+            },
+            BlockType::Blinded => ExecutionLayerRequest::GetBlindedPayload {
+                parent_hash,
+                timestamp,
+                prev_randao,
+                finalized_block_hash,
+                proposer_index,
+                responder: tx,
+            },
+        };
+        self.tx.send(req)?;
+        match rx.recv()? {
+            ExecutionLayerResponse::GetFullPayload(response) => response.map(Into::into),
+            ExecutionLayerResponse::GetBlindedPayload(response) => response.map(|r|r.try_into().map_err(|_|Error::CrossbeamSend).unwrap()),//TODO: fix,
+            _ => Err(Error::InvalidResponseFromBackend),
+        }
+    }
+
+
+    pub fn propose_blinded_beacon_block_blocking(
+        &self,
+        block: SignedBeaconBlock<T, BlindedPayload<T>>,
+    ) -> Result<ExecutionPayload<T>, Error> {
+        let (tx, rx) = crossbeam_channel::bounded(1);
+        let req = ExecutionLayerRequest::ProposeBlindedBlock { block, responder: tx };
+        self.tx.send(req)?;
+        match rx.recv()? {
+            ExecutionLayerResponse::ProposeBlindedBlock(response) => response,
+            _ => Err(Error::InvalidResponseFromBackend),
+        }
     }
 
     /// Convenience function to allow calling async functions in a non-async context.

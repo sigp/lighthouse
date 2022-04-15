@@ -98,10 +98,7 @@ impl<T: GenericExecutionEngine, E: EthSpec> TestRig<T, E> {
     }
 
     pub fn perform_tests_blocking(&self) {
-        self.ee_a
-            .execution_layer
-            .block_on_generic(|_| async { self.perform_tests().await })
-            .unwrap()
+        self.runtime.block_on(self.perform_tests())
     }
 
     pub async fn wait_until_synced(&self) {
