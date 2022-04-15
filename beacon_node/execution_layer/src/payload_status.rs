@@ -1,8 +1,8 @@
 use crate::engine_api::{Error as ApiError, PayloadStatusV1, PayloadStatusV1Status};
 use crate::engines::EngineError;
-use crate::{Error, ExecutionLayerResponse};
+use crate::Error;
 use slog::{crit, warn, Logger};
-use types::{EthSpec, ExecutionBlockHash};
+use types::ExecutionBlockHash;
 
 /// Provides a simpler, easier to parse version of `PayloadStatusV1` for upstream users.
 ///

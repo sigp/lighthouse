@@ -24,7 +24,6 @@ use std::convert::TryInto;
 use std::future::Future;
 use std::io::Write;
 use std::path::PathBuf;
-use std::pin::Pin;
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use task_executor::TaskExecutor;
@@ -490,9 +489,15 @@ impl<T: EthSpec> ExecutionLayer<T> {
         }
     }
 
-    pub fn get_terminal_pow_block_hash_blocking(&self, spec: ChainSpec) -> Result<Option<ExecutionBlockHash>, Error> {
+    pub fn get_terminal_pow_block_hash_blocking(
+        &self,
+        spec: ChainSpec,
+    ) -> Result<Option<ExecutionBlockHash>, Error> {
         let (tx, rx) = crossbeam_channel::bounded(1);
-        let req = ExecutionLayerRequest::GetTerminalPowBlockHash { spec, responder: tx };
+        let req = ExecutionLayerRequest::GetTerminalPowBlockHash {
+            spec,
+            responder: tx,
+        };
         self.tx.send(req)?;
         match rx.recv()? {
             ExecutionLayerResponse::GetTerminalPowBlockHash(response) => response,
@@ -530,18 +535,22 @@ impl<T: EthSpec> ExecutionLayer<T> {
         self.tx.send(req)?;
         match rx.recv()? {
             ExecutionLayerResponse::GetFullPayload(response) => response.map(Into::into),
-            ExecutionLayerResponse::GetBlindedPayload(response) => response.map(|r|r.try_into().map_err(|_|Error::CrossbeamSend).unwrap()),//TODO: fix,
+            ExecutionLayerResponse::GetBlindedPayload(response) => {
+                response.map(|r| r.try_into().map_err(|_| Error::CrossbeamSend).unwrap())
+            } //TODO: fix,
             _ => Err(Error::InvalidResponseFromBackend),
         }
     }
-
 
     pub fn propose_blinded_beacon_block_blocking(
         &self,
         block: SignedBeaconBlock<T, BlindedPayload<T>>,
     ) -> Result<ExecutionPayload<T>, Error> {
         let (tx, rx) = crossbeam_channel::bounded(1);
-        let req = ExecutionLayerRequest::ProposeBlindedBlock { block, responder: tx };
+        let req = ExecutionLayerRequest::ProposeBlindedBlock {
+            block,
+            responder: tx,
+        };
         self.tx.send(req)?;
         match rx.recv()? {
             ExecutionLayerResponse::ProposeBlindedBlock(response) => response,
