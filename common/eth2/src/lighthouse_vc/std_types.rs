@@ -103,7 +103,6 @@ pub enum DeleteKeystoreStatus {
     Error,
 }
 
-// ==== GET /remotekeys/ response
 #[derive(Debug, Deserialize, Serialize, PartialEq)]
 pub struct ListRemotekeysResponse {
     pub data: Vec<SingleListRemotekeysResponse>,
@@ -117,9 +116,6 @@ pub struct SingleListRemotekeysResponse {
     pub readonly: Option<bool>,
 }
 
-//=========
-
-// ===== POST /remotekeys
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct ImportRemotekeysRequest {
@@ -144,8 +140,6 @@ pub enum ImportRemotekeyStatus {
 pub struct ImportRemotekeysResponse {
     pub data: Vec<Status<ImportRemotekeyStatus>>,
 }
-
-// === DELETE
 
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]

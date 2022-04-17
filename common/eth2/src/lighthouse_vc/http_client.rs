@@ -1,7 +1,3 @@
-// TODO: Remove this
-#![allow(dead_code)]
-#![allow(unused_variables)]
-#![allow(unused_imports)]
 use super::{types::*, PK_LEN, SECRET_PREFIX};
 use crate::Error;
 use account_utils::ZeroizeString;
