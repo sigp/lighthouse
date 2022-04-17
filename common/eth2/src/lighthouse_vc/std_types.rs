@@ -102,3 +102,66 @@ pub enum DeleteKeystoreStatus {
     NotFound,
     Error,
 }
+
+// ==== GET /remotekeys/ response
+#[derive(Debug, Deserialize, Serialize, PartialEq)]
+pub struct ListRemotekeysResponse {
+    pub data: Vec<SingleListRemotekeysResponse>,
+}
+
+#[derive(Debug, Deserialize, Serialize, PartialEq)]
+pub struct SingleListRemotekeysResponse {
+    pub pubkey: PublicKeyBytes,
+    pub url: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub readonly: Option<bool>,
+}
+
+//=========
+
+// ===== POST /remotekeys
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct ImportRemotekeysRequest {
+    pub remotekeys: Vec<SingleImportRemotekeysRequest>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
+pub struct SingleImportRemotekeysRequest {
+    pub pubkey: PublicKeyBytes,
+    pub url: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ImportRemotekeyStatus {
+    Imported,
+    Duplicate,
+    Error,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct ImportRemotekeysResponse {
+    pub data: Vec<Status<ImportRemotekeyStatus>>,
+}
+
+// === DELETE
+
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct DeleteRemotekeysRequest {
+    pub pubkeys: Vec<PublicKeyBytes>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DeleteRemotekeyStatus {
+    Deleted,
+    NotFound,
+    Error,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct DeleteRemotekeysResponse {
+    pub data: Vec<Status<DeleteRemotekeyStatus>>,
+}

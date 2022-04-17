@@ -1,3 +1,7 @@
+// TODO: Remove this
+#![allow(dead_code)]
+#![allow(unused_variables)]
+#![allow(unused_imports)]
 use super::{types::*, PK_LEN, SECRET_PREFIX};
 use crate::Error;
 use account_utils::ZeroizeString;
@@ -476,6 +480,16 @@ impl ValidatorClientHttpClient {
         Ok(url)
     }
 
+    fn make_remotekeys_url(&self) -> Result<Url, Error> {
+        let mut url = self.server.full.clone();
+        url.path_segments_mut()
+            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
+            .push("eth")
+            .push("v1")
+            .push("remotekeys");
+        Ok(url)
+    }
+
     /// `GET lighthouse/auth`
     pub async fn get_auth(&self) -> Result<AuthResponse, Error> {
         let mut url = self.server.full.clone();
@@ -507,6 +521,30 @@ impl ValidatorClientHttpClient {
         req: &DeleteKeystoresRequest,
     ) -> Result<DeleteKeystoresResponse, Error> {
         let url = self.make_keystores_url()?;
+        self.delete_with_unsigned_response(url, req).await
+    }
+
+    /// `GET eth/v1/remotekeys`
+    pub async fn get_remotekeys(&self) -> Result<ListRemotekeysResponse, Error> {
+        let url = self.make_remotekeys_url()?;
+        self.get_unsigned(url).await
+    }
+
+    /// `POST eth/v1/remotekeys`
+    pub async fn post_remotekeys(
+        &self,
+        req: &ImportRemotekeysRequest,
+    ) -> Result<ImportRemotekeysResponse, Error> {
+        let url = self.make_remotekeys_url()?;
+        self.post_with_unsigned_response(url, req).await
+    }
+
+    /// `DELETE eth/v1/remotekeys`
+    pub async fn delete_remotekeys(
+        &self,
+        req: &DeleteRemotekeysRequest,
+    ) -> Result<DeleteRemotekeysResponse, Error> {
+        let url = self.make_remotekeys_url()?;
         self.delete_with_unsigned_response(url, req).await
     }
 }
