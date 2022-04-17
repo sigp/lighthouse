@@ -618,7 +618,7 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
             })
         });
 
-    // DELETE /eth/v1/keystores
+    // DELETE /eth/v1/remotekeys
     let delete_std_remotekeys = std_remotekeys
         .and(warp::body::json())
         .and(signer.clone())

@@ -120,6 +120,8 @@ fn import_single_remotekey<T: SlotClock + 'static, E: EthSpec>(
         }
     }
 
+    // Remotekeys are stored as web3signers.
+    // The remotekey API provides less confgiuration option than the web3signer API.
     let web3signer_validator = ValidatorDefinition {
         enabled: true,
         voting_public_key: pubkey,
@@ -144,6 +146,11 @@ pub fn delete<T: SlotClock + 'static, E: EthSpec>(
     runtime: Weak<Runtime>,
     log: Logger,
 ) -> Result<DeleteRemotekeysResponse, Rejection> {
+    info!(
+        log,
+        "Deleting remotekeys via standard HTTP API";
+        "count" => request.pubkeys.len(),
+    );
     // Remove from initialized validators.
     let initialized_validators_rwlock = validator_store.initialized_validators();
     let mut initialized_validators = initialized_validators_rwlock.write();
