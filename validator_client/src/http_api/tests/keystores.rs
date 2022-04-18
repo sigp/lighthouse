@@ -156,7 +156,7 @@ fn check_keystore_delete_response<'a>(
     }
 }
 
-fn check_remotekey_get_response<'a>(
+fn check_remotekey_get_response(
     response: &ListRemotekeysResponse,
     expected_keystores: impl IntoIterator<Item = SingleListRemotekeysResponse>,
 ) {
@@ -178,7 +178,7 @@ fn check_remotekey_import_response(
     }
 }
 
-fn check_remotekey_delete_response<'a>(
+fn check_remotekey_delete_response(
     response: &DeleteRemotekeysResponse,
     expected_statuses: impl IntoIterator<Item = DeleteRemotekeyStatus>,
 ) {

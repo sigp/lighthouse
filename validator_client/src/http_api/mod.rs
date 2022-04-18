@@ -572,7 +572,7 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
     let post_std_keystores = std_keystores
         .and(warp::body::json())
         .and(signer.clone())
-        .and(validator_dir_filter.clone())
+        .and(validator_dir_filter)
         .and(validator_store_filter.clone())
         .and(runtime_filter.clone())
         .and(log_filter.clone())
@@ -621,9 +621,9 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
     // DELETE /eth/v1/remotekeys
     let delete_std_remotekeys = std_remotekeys
         .and(warp::body::json())
-        .and(signer.clone())
-        .and(validator_store_filter.clone())
-        .and(runtime_filter.clone())
+        .and(signer)
+        .and(validator_store_filter)
+        .and(runtime_filter)
         .and(log_filter.clone())
         .and_then(|request, signer, validator_store, runtime, log| {
             blocking_signed_json_task(signer, move || {
