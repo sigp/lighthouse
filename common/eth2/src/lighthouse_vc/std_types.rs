@@ -119,7 +119,7 @@ pub struct SingleListRemotekeysResponse {
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct ImportRemotekeysRequest {
-    pub remotekeys: Vec<SingleImportRemotekeysRequest>,
+    pub remote_keys: Vec<SingleImportRemotekeysRequest>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]

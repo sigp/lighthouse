@@ -53,12 +53,12 @@ pub fn import<T: SlotClock + 'static, E: EthSpec>(
     info!(
         log,
         "Importing remotekeys via standard HTTP API";
-        "count" => request.remotekeys.len(),
+        "count" => request.remote_keys.len(),
     );
     // Import each remotekey. Some remotekeys may fail to be imported, so we record a status for each.
-    let mut statuses = Vec::with_capacity(request.remotekeys.len());
+    let mut statuses = Vec::with_capacity(request.remote_keys.len());
 
-    for remotekey in request.remotekeys {
+    for remotekey in request.remote_keys {
         let status = if let Some(runtime) = runtime.upgrade() {
             // Import the keystore.
             match import_single_remotekey(
@@ -111,10 +111,7 @@ fn import_single_remotekey<T: SlotClock + 'static, E: EthSpec>(
         .find(|def| def.voting_public_key == pubkey)
     {
         if def.signing_definition.is_local_keystore() {
-            return Err(
-                "cannot import duplicate of existing remote signer validator as local keystore"
-                    .into(),
-            );
+            return Err("Pubkey already present in local keystore.".into());
         } else if def.enabled {
             return Ok(ImportRemotekeyStatus::Duplicate);
         }
