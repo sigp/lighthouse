@@ -1059,7 +1059,7 @@ fn import_new_remotekeys() {
         let import_res = tester
             .client
             .post_remotekeys(&ImportRemotekeysRequest {
-                remotekeys: remotekeys.clone(),
+                remote_keys: remotekeys.clone(),
             })
             .await
             .unwrap();
@@ -1098,7 +1098,7 @@ fn import_same_remotekey_different_url() {
         let import_res = tester
             .client
             .post_remotekeys(&ImportRemotekeysRequest {
-                remotekeys: remotekeys.clone(),
+                remote_keys: remotekeys.clone(),
             })
             .await
             .unwrap();
@@ -1134,11 +1134,11 @@ fn import_only_duplicate_remotekeys() {
             .map(|_| new_remotekey_validator().1)
             .collect::<Vec<_>>();
 
-        // All keystores should be imported on first import.
+        // All remotekeys should be imported on first import.
         let import_res = tester
             .client
             .post_remotekeys(&ImportRemotekeysRequest {
-                remotekeys: remotekeys.clone(),
+                remote_keys: remotekeys.clone(),
             })
             .await
             .unwrap();
@@ -1147,11 +1147,11 @@ fn import_only_duplicate_remotekeys() {
             all_with_status(remotekeys.len(), ImportRemotekeyStatus::Imported),
         );
 
-        // No keystores should be imported on repeat import.
+        // No remotekeys  should be imported on repeat import.
         let import_res = tester
             .client
             .post_remotekeys(&ImportRemotekeysRequest {
-                remotekeys: remotekeys.clone(),
+                remote_keys: remotekeys.clone(),
             })
             .await
             .unwrap();
@@ -1200,7 +1200,7 @@ fn import_some_duplicate_remotekeys() {
         let import_res = tester
             .client
             .post_remotekeys(&ImportRemotekeysRequest {
-                remotekeys: remotekeys_even.clone(),
+                remote_keys: remotekeys_even.clone(),
             })
             .await
             .unwrap();
@@ -1209,7 +1209,6 @@ fn import_some_duplicate_remotekeys() {
             all_with_status(remotekeys_even.len(), ImportRemotekeyStatus::Imported),
         );
 
-        // Create expected import response.
         let expected = (0..num_remotekeys).map(|i| {
             if i % 2 == 0 {
                 ImportRemotekeyStatus::Duplicate
@@ -1218,11 +1217,11 @@ fn import_some_duplicate_remotekeys() {
             }
         });
 
-        // Try to import all keys.
+        // Try to import all keys. Every second import should be a duplicate.
         let import_res = tester
             .client
             .post_remotekeys(&ImportRemotekeysRequest {
-                remotekeys: remotekeys_all.clone(),
+                remote_keys: remotekeys_all.clone(),
             })
             .await
             .unwrap();
@@ -1277,13 +1276,19 @@ fn import_remote_and_local_keys() {
             .map(|_| new_remotekey_validator().1)
             .collect::<Vec<_>>();
 
-        tester
+        let import_res = tester
             .client
             .post_remotekeys(&ImportRemotekeysRequest {
-                remotekeys: remotekeys.clone(),
+                remote_keys: remotekeys.clone(),
             })
             .await
             .unwrap();
+
+        // All remotekeys should be imported.
+        check_remotekey_import_response(
+            &import_res,
+            all_with_status(remotekeys.len(), ImportRemotekeyStatus::Imported),
+        );
 
         // Check that both local and remote validators are returned.
         let get_res = tester.client.get_keystores().await.unwrap();
@@ -1307,6 +1312,139 @@ fn import_remote_and_local_keys() {
 }
 
 #[test]
+fn import_same_local_and_remote_keys() {
+    run_test(|tester| async move {
+        let _ = &tester;
+        let num_local = 3;
+
+        // Generate local keystores.
+        let password = random_password_string();
+        let keystores = (0..num_local)
+            .map(|_| new_keystore(password.clone()))
+            .collect::<Vec<_>>();
+
+        // Generate remotekeys with same pubkey as local keystores.
+        let mut remotekeys = Vec::new();
+        for keystore in keystores.iter() {
+            remotekeys.push(remotekey_validator_with_pubkey(
+                keystore.public_key().unwrap(),
+            ));
+        }
+
+        // Import keystores.
+        let import_res = tester
+            .client
+            .post_keystores(&ImportKeystoresRequest {
+                keystores: keystores.clone(),
+                passwords: vec![password.clone(); keystores.len()],
+                slashing_protection: None,
+            })
+            .await
+            .unwrap();
+
+        // All keystores should be imported.
+        check_keystore_import_response(
+            &import_res,
+            all_with_status(keystores.len(), ImportKeystoreStatus::Imported),
+        );
+
+        // Try to import remotekeys.
+        let import_res = tester
+            .client
+            .post_remotekeys(&ImportRemotekeysRequest {
+                remote_keys: remotekeys.clone(),
+            })
+            .await
+            .unwrap();
+
+        // All remotekey import should fail. Already imported as local keystore.
+        check_remotekey_import_response(
+            &import_res,
+            all_with_status(remotekeys.len(), ImportRemotekeyStatus::Error),
+        );
+
+        // Check that only local keystores are returned.
+        let get_res = tester.client.get_keystores().await.unwrap();
+        let expected_responses = keystores
+            .iter()
+            .map(|local_keystore| SingleKeystoreResponse {
+                validating_pubkey: keystore_pubkey(local_keystore),
+                derivation_path: local_keystore.path(),
+                readonly: None,
+            })
+            .collect::<Vec<_>>();
+        for response in expected_responses {
+            assert!(get_res.data.contains(&response), "{:?}", response);
+        }
+    })
+}
+#[test]
+fn import_same_remote_and_local_keys() {
+    run_test(|tester| async move {
+        let _ = &tester;
+        let num_local = 3;
+
+        // Generate local keystores.
+        let password = random_password_string();
+        let keystores = (0..num_local)
+            .map(|_| new_keystore(password.clone()))
+            .collect::<Vec<_>>();
+
+        // Generate remotekeys with same pubkey as local keystores.
+        let mut remotekeys = Vec::new();
+        for keystore in keystores.iter() {
+            remotekeys.push(remotekey_validator_with_pubkey(
+                keystore.public_key().unwrap(),
+            ));
+        }
+
+        // Import remotekeys.
+        let import_res = tester
+            .client
+            .post_remotekeys(&ImportRemotekeysRequest {
+                remote_keys: remotekeys.clone(),
+            })
+            .await
+            .unwrap();
+
+        // All remotekeys should be imported.
+        check_remotekey_import_response(
+            &import_res,
+            all_with_status(remotekeys.len(), ImportRemotekeyStatus::Imported),
+        );
+
+        // Try to import local keystores.
+        let import_res = tester
+            .client
+            .post_keystores(&ImportKeystoresRequest {
+                keystores: keystores.clone(),
+                passwords: vec![password.clone(); keystores.len()],
+                slashing_protection: None,
+            })
+            .await
+            .unwrap();
+
+        // All local keystore imports should fail. Already imported as remotekeys.
+        check_keystore_import_response(
+            &import_res,
+            all_with_status(keystores.len(), ImportKeystoreStatus::Error),
+        );
+
+        // Check that only remotekeys are returned.
+        let expected_responses = remotekeys
+            .iter()
+            .map(|remotekey| SingleListRemotekeysResponse {
+                pubkey: remotekey.pubkey,
+                url: Some(remotekey.url.clone()),
+                readonly: None,
+            })
+            .collect::<Vec<_>>();
+        let get_res = tester.client.get_remotekeys().await.unwrap();
+        check_remotekey_get_response(&get_res, expected_responses);
+    })
+}
+
+#[test]
 fn delete_remotekeys_twice() {
     run_test(|tester| async move {
         let _ = &tester;
@@ -1316,11 +1454,11 @@ fn delete_remotekeys_twice() {
             .map(|_| new_remotekey_validator().1)
             .collect::<Vec<_>>();
 
-        // Import all keystores.
+        // Import all remotekeys.
         let import_res = tester
             .client
             .post_remotekeys(&ImportRemotekeysRequest {
-                remotekeys: remotekeys.clone(),
+                remote_keys: remotekeys.clone(),
             })
             .await
             .unwrap();
@@ -1339,7 +1477,7 @@ fn delete_remotekeys_twice() {
             all_with_status(remotekeys.len(), DeleteRemotekeyStatus::Deleted),
         );
 
-        // Delete again.
+        // Try to delete again.
         let delete_res = tester.client.delete_remotekeys(&delete_req).await.unwrap();
         check_remotekey_delete_response(
             &delete_res,
@@ -1383,7 +1521,7 @@ fn delete_then_reimport_remotekeys() {
     run_test(|tester| async move {
         let _ = &tester;
 
-        // Generate remotekey validators.
+        // Generate remotekeys.
         let mut remotekeys = (0..2)
             .map(|_| new_remotekey_validator().1)
             .collect::<Vec<_>>();
@@ -1392,7 +1530,7 @@ fn delete_then_reimport_remotekeys() {
         let import_res = tester
             .client
             .post_remotekeys(&ImportRemotekeysRequest {
-                remotekeys: remotekeys.clone(),
+                remote_keys: remotekeys.clone(),
             })
             .await
             .unwrap();
@@ -1420,7 +1558,7 @@ fn delete_then_reimport_remotekeys() {
         let import_res = tester
             .client
             .post_remotekeys(&ImportRemotekeysRequest {
-                remotekeys: remotekeys.clone(),
+                remote_keys: remotekeys.clone(),
             })
             .await
             .unwrap();
@@ -1469,7 +1607,7 @@ fn import_remotekey_web3signer() {
         let import_res = tester
             .client
             .post_remotekeys(&ImportRemotekeysRequest {
-                remotekeys: remotekeys.clone(),
+                remote_keys: remotekeys.clone(),
             })
             .await
             .unwrap();
