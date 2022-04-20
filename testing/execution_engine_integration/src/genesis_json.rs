@@ -5,7 +5,7 @@ use serde_json::{json, Value};
 /// https://notes.ethereum.org/rmVErCfCRPKGqGkUe89-Kg
 pub fn geth_genesis_json() -> Value {
     json!({
-        "config": {
+            "config": {
             "chainId":1,
             "homesteadBlock":0,
             "eip150Block":0,
@@ -43,17 +43,17 @@ pub fn geth_genesis_json() -> Value {
 
 /// Sourced from:
 ///
-/// https://github.com/NethermindEth/nethermind/blob/themerge_kintsugi/src/Nethermind/Chains/themerge_kintsugi_m2.json
+/// https://github.com/NethermindEth/nethermind/blob/kiln/src/Nethermind/Chains/themerge_kiln_testvectors.json
 pub fn nethermind_genesis_json() -> Value {
     json!({
-        "name": "TheMerge_Devnet",
-        "engine": {
-            "clique": {
-                "params": {
-                    "period": 5,
-                    "epoch": 30000
-                }
-            }
+      "name": "TheMerge_Devnet",
+      "engine": {
+        "clique": {
+          "params": {
+            "period": 5,
+            "epoch": 30000
+          }
+        }
       },
       "params": {
         "gasLimitBoundDivisor": "0x400",
@@ -91,26 +91,27 @@ pub fn nethermind_genesis_json() -> Value {
         "eip3541Transition": "0x0"
       },
       "genesis": {
-          "seal": {
-              "ethereum": {
-                  "nonce": "0x42",
-                  "mixHash": "0x0000000000000000000000000000000000000000000000000000000000000000"
-              }
-          },
-          "difficulty": "0x000000000",
-          "author": "0x0000000000000000000000000000000000000000",
-          "timestamp": "0x0",
-          "parentHash": "0x0000000000000000000000000000000000000000000000000000000000000000",
-          "extraData":"0x0000000000000000000000000000000000000000000000000000000000000000a94f5374fce5edbc8e2a8697c15331677e6ebf0b0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
-          "gasLimit":"0x1C9C380",
-          "author": "0x0000000000000000000000000000000000000000",
-          "parentHash":"0x0000000000000000000000000000000000000000000000000000000000000000",
-          "baseFeePerGas":"0x7"
+        "seal": {
+          "ethereum": {
+            "nonce": "0x42",
+            "mixHash": "0x0000000000000000000000000000000000000000000000000000000000000000"
+          }
+        },
+        "difficulty": "0x400000000",
+        "author": "0x0000000000000000000000000000000000000000",
+        "timestamp": "0x0",
+        "parentHash": "0x0000000000000000000000000000000000000000000000000000000000000000",
+        "extraData":"0x0000000000000000000000000000000000000000000000000000000000000000a94f5374fce5edbc8e2a8697c15331677e6ebf0b0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+        "gasLimit":"0x1C9C380",
+        "author": "0x0000000000000000000000000000000000000000",
+        "parentHash":"0x0000000000000000000000000000000000000000000000000000000000000000",
+        "baseFeePerGas":"0x7"
       },
       "accounts": {
-          "0xa94f5374fce5edbc8e2a8697c15331677e6ebf0b": {
-              "balance":"0x6d6172697573766477000000"
-          }
+        "0xa94f5374fce5edbc8e2a8697c15331677e6ebf0b":
+        {
+            "balance":"0x6d6172697573766477000000"
+        }
       }
     })
 }
