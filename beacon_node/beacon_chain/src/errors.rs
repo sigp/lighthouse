@@ -45,8 +45,8 @@ pub enum BeaconChainError {
     UnableToReadSlot,
     UnableToComputeTimeAtSlot,
     RevertedFinalizedEpoch {
-        previous_epoch: Epoch,
-        new_epoch: Epoch,
+        old: Checkpoint,
+        new: Checkpoint,
     },
     SlotClockDidNotStart,
     NoStateForSlot(Slot),
@@ -149,6 +149,7 @@ pub enum BeaconChainError {
     BlockRewardSyncError,
     HeadMissingFromForkChoice(Hash256),
     FinalizedBlockMissingFromForkChoice(Hash256),
+    HeadBlockMissingFromForkChoice(Hash256),
     InvalidFinalizedPayload {
         finalized_root: Hash256,
         execution_block_hash: ExecutionBlockHash,

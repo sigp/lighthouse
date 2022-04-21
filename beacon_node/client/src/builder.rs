@@ -664,14 +664,13 @@ where
             if let Some(execution_layer) = beacon_chain.execution_layer.as_ref() {
                 // Only send a head update *after* genesis.
                 if let Ok(current_slot) = beacon_chain.slot() {
-                    let head = beacon_chain
-                        .head_info()
-                        .map_err(|e| format!("Unable to read beacon chain head: {:?}", e))?;
+                    let chain_summary = beacon_chain.chain_summary();
 
                     // Issue the head to the execution engine on startup. This ensures it can start
                     // syncing.
-                    if head
-                        .execution_payload_block_hash
+                    if chain_summary
+                        .head_execution_status
+                        .block_hash()
                         .map_or(false, |h| h != ExecutionBlockHash::zero())
                     {
                         // Spawn a new task using the "async" fork choice update method, rather than
@@ -791,8 +790,16 @@ where
         self.db_path = Some(hot_path.into());
         self.freezer_db_path = Some(cold_path.into());
 
+        let inner_spec = spec.clone();
         let schema_upgrade = |db, from, to| {
-            migrate_schema::<Witness<TSlotClock, TEth1Backend, _, _, _>>(db, datadir, from, to, log)
+            migrate_schema::<Witness<TSlotClock, TEth1Backend, _, _, _>>(
+                db,
+                datadir,
+                from,
+                to,
+                log,
+                &inner_spec,
+            )
         };
 
         let store = HotColdDB::open(

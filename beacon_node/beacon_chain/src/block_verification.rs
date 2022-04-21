@@ -656,7 +656,12 @@ impl<T: BeaconChainTypes> GossipVerifiedBlock<T> {
         // reboot if the `observed_block_producers` cache is empty. In that case, without this
         // check, we will load the parent and state from disk only to find out later that we
         // already know this block.
-        if chain.fork_choice.read().contains_block(&block_root) {
+        if chain
+            .canonical_head
+            .read()
+            .fork_choice
+            .contains_block(&block_root)
+        {
             return Err(BlockError::BlockIsAlreadyKnown);
         }
 
@@ -678,7 +683,7 @@ impl<T: BeaconChainTypes> GossipVerifiedBlock<T> {
         // We check this *before* we load the parent so that we can return a more detailed error.
         let block = check_block_is_finalized_descendant::<T, _>(
             block,
-            &chain.fork_choice.read(),
+            &chain.canonical_head.read().fork_choice,
             &chain.store,
         )?;
 
@@ -1007,7 +1012,12 @@ impl<'a, T: BeaconChainTypes> FullyVerifiedBlock<'a, T> {
         parent: PreProcessingSnapshot<T::EthSpec>,
         chain: &Arc<BeaconChain<T>>,
     ) -> Result<Self, BlockError<T::EthSpec>> {
-        if let Some(parent) = chain.fork_choice.read().get_block(&block.parent_root()) {
+        if let Some(parent) = chain
+            .canonical_head
+            .read()
+            .fork_choice
+            .get_block(&block.parent_root())
+        {
             // Reject any block where the parent has an invalid payload. It's impossible for a valid
             // block to descend from an invalid parent.
             if parent.execution_status.is_invalid() {
@@ -1173,8 +1183,9 @@ impl<'a, T: BeaconChainTypes> FullyVerifiedBlock<'a, T> {
                 .ok_or(BeaconChainError::UnableToReadSlot)?;
 
             if !chain
-                .fork_choice
+                .canonical_head
                 .read()
+                .fork_choice
                 .is_optimistic_candidate_block(
                     current_slot,
                     block.slot(),
@@ -1364,7 +1375,7 @@ fn check_block_against_finalized_slot<T: BeaconChainTypes>(
     chain: &BeaconChain<T>,
 ) -> Result<(), BlockError<T::EthSpec>> {
     let finalized_slot = chain
-        .head_info()?
+        .chain_summary()
         .finalized_checkpoint
         .epoch
         .start_slot(T::EthSpec::slots_per_epoch());
@@ -1450,7 +1461,12 @@ pub fn check_block_relevancy<T: BeaconChainTypes>(
 
     // Check if the block is already known. We know it is post-finalization, so it is
     // sufficient to check the fork choice.
-    if chain.fork_choice.read().contains_block(&block_root) {
+    if chain
+        .canonical_head
+        .read()
+        .fork_choice
+        .contains_block(&block_root)
+    {
         return Err(BlockError::BlockIsAlreadyKnown);
     }
 
@@ -1478,8 +1494,9 @@ fn verify_parent_block_is_known<T: BeaconChainTypes>(
     block: SignedBeaconBlock<T::EthSpec>,
 ) -> Result<(ProtoBlock, SignedBeaconBlock<T::EthSpec>), BlockError<T::EthSpec>> {
     if let Some(proto_block) = chain
-        .fork_choice
+        .canonical_head
         .read()
+        .fork_choice
         .get_block(&block.message().parent_root())
     {
         Ok((proto_block, block))
@@ -1516,8 +1533,9 @@ fn load_parent<T: BeaconChainTypes>(
     //  choice, so we will not reject any child of the finalized block (this is relevant during
     //  genesis).
     if !chain
-        .fork_choice
+        .canonical_head
         .read()
+        .fork_choice
         .contains_block(&block.parent_root())
     {
         return Err(BlockError::ParentUnknown(Box::new(block)));
@@ -1715,19 +1733,12 @@ fn verify_header_signature<T: BeaconChainTypes>(
         .get(header.message.proposer_index as usize)
         .cloned()
         .ok_or(BlockError::UnknownValidator(header.message.proposer_index))?;
-    let (fork, genesis_validators_root) = chain
-        .with_head(|head| {
-            Ok((
-                head.beacon_state.fork(),
-                head.beacon_state.genesis_validators_root(),
-            ))
-        })
-        .map_err(|e: BlockError<T::EthSpec>| e)?;
+    let chain_summary = chain.chain_summary();
 
     if header.verify_signature::<T::EthSpec>(
         &proposer_pubkey,
-        &fork,
-        genesis_validators_root,
+        &chain_summary.head_fork,
+        chain_summary.genesis_validators_root,
         &chain.spec,
     ) {
         Ok(())

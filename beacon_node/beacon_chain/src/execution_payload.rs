@@ -156,8 +156,9 @@ pub fn validate_merge_block<T: BeaconChainTypes>(
 
             // Ensure the block is a candidate for optimistic import.
             if chain
-                .fork_choice
+                .canonical_head
                 .read()
+                .fork_choice
                 .is_optimistic_candidate_block(
                     current_slot,
                     block.slot(),
@@ -327,21 +328,25 @@ pub async fn prepare_execution_payload<T: BeaconChainTypes, Payload: ExecPayload
     // The finalized block hash is not included in the specification, however we provide this
     // parameter so that the execution layer can produce a payload id if one is not already known
     // (e.g., due to a recent reorg).
-    let finalized_block_hash =
-        if let Some(block) = chain.fork_choice.read().get_block(&finalized_root) {
-            block.execution_status.block_hash()
-        } else {
-            chain
-                .store
-                .get_block(&finalized_root)
-                .map_err(BlockProductionError::FailedToReadFinalizedBlock)?
-                .ok_or(BlockProductionError::MissingFinalizedBlock(finalized_root))?
-                .message()
-                .body()
-                .execution_payload()
-                .ok()
-                .map(|ep| ep.block_hash())
-        };
+    let finalized_block_hash = if let Some(block) = chain
+        .canonical_head
+        .read()
+        .fork_choice
+        .get_block(&finalized_root)
+    {
+        block.execution_status.block_hash()
+    } else {
+        chain
+            .store
+            .get_block(&finalized_root)
+            .map_err(BlockProductionError::FailedToReadFinalizedBlock)?
+            .ok_or(BlockProductionError::MissingFinalizedBlock(finalized_root))?
+            .message()
+            .body()
+            .execution_payload()
+            .ok()
+            .map(|ep| ep.block_hash())
+    };
 
     // Note: the suggested_fee_recipient is stored in the `execution_layer`, it will add this parameter.
     let execution_payload = execution_layer

@@ -363,9 +363,7 @@ pub fn serve<T: BeaconChainTypes>(
                       chain: Arc<BeaconChain<T>>| async move {
                     match *network_globals.sync_state.read() {
                         SyncState::SyncingFinalized { .. } => {
-                            let head_slot = chain
-                                .best_slot()
-                                .map_err(warp_utils::reject::beacon_chain_error)?;
+                            let head_slot = chain.best_slot();
 
                             let current_slot =
                                 chain.slot_clock.now_or_genesis().ok_or_else(|| {
@@ -403,12 +401,7 @@ pub fn serve<T: BeaconChainTypes>(
     let only_with_safe_head = warp::any()
         .and(chain_filter.clone())
         .and_then(move |chain: Arc<BeaconChain<T>>| async move {
-            let status = chain.head_safety_status().map_err(|e| {
-                warp_utils::reject::custom_server_error(format!(
-                    "failed to read head safety status: {:?}",
-                    e
-                ))
-            })?;
+            let status = chain.head_safety_status();
             match status {
                 HeadSafetyStatus::Safe(_) => Ok(()),
                 HeadSafetyStatus::Unsafe(hash) => {
@@ -445,15 +438,13 @@ pub fn serve<T: BeaconChainTypes>(
         .and(chain_filter.clone())
         .and_then(|chain: Arc<BeaconChain<T>>| {
             blocking_json_task(move || {
-                chain
-                    .head_info()
-                    .map_err(warp_utils::reject::beacon_chain_error)
-                    .map(|head| api_types::GenesisData {
-                        genesis_time: head.genesis_time,
-                        genesis_validators_root: head.genesis_validators_root,
-                        genesis_fork_version: chain.spec.genesis_fork_version,
-                    })
-                    .map(api_types::GenericResponse::from)
+                let chain_summary = chain.chain_summary();
+                let data = api_types::GenesisData {
+                    genesis_time: chain_summary.genesis_time,
+                    genesis_validators_root: chain_summary.genesis_validators_root,
+                    genesis_fork_version: chain.spec.genesis_fork_version,
+                };
+                Ok(api_types::GenericResponse::from(data))
             })
         });
 
@@ -1499,9 +1490,7 @@ pub fn serve<T: BeaconChainTypes>(
                             )),
                         )?;
 
-                        chain
-                            .import_attester_slashing(slashing)
-                            .map_err(warp_utils::reject::beacon_chain_error)?;
+                        chain.import_attester_slashing(slashing);
                     }
 
                     Ok(())
@@ -1867,10 +1856,7 @@ pub fn serve<T: BeaconChainTypes>(
         .and_then(
             |network_globals: Arc<NetworkGlobals<T::EthSpec>>, chain: Arc<BeaconChain<T>>| {
                 blocking_json_task(move || {
-                    let head_slot = chain
-                        .head_info()
-                        .map(|info| info.slot)
-                        .map_err(warp_utils::reject::beacon_chain_error)?;
+                    let head_slot = chain.chain_summary().head_slot;
                     let current_slot = chain
                         .slot()
                         .map_err(warp_utils::reject::beacon_chain_error)?;
@@ -2741,7 +2727,12 @@ pub fn serve<T: BeaconChainTypes>(
         .and_then(|chain: Arc<BeaconChain<T>>| {
             blocking_task(move || {
                 Ok::<_, warp::Rejection>(warp::reply::json(&api_types::GenericResponseRef::from(
-                    chain.fork_choice.read().proto_array().core_proto_array(),
+                    chain
+                        .canonical_head
+                        .read()
+                        .fork_choice
+                        .proto_array()
+                        .core_proto_array(),
                 )))
             })
         });
@@ -2784,9 +2775,7 @@ pub fn serve<T: BeaconChainTypes>(
         .and(chain_filter.clone())
         .and_then(|chain: Arc<BeaconChain<T>>| {
             blocking_json_task(move || {
-                let head_info = chain
-                    .head_info()
-                    .map_err(warp_utils::reject::beacon_chain_error)?;
+                let chain_summary = chain.chain_summary();
                 let current_slot_opt = chain.slot().ok();
 
                 chain
@@ -2798,7 +2787,7 @@ pub fn serve<T: BeaconChainTypes>(
                         )
                     })
                     .and_then(|eth1| {
-                        eth1.sync_status(head_info.genesis_time, current_slot_opt, &chain.spec)
+                        eth1.sync_status(chain_summary.genesis_time, current_slot_opt, &chain.spec)
                             .ok_or_else(|| {
                                 warp_utils::reject::custom_server_error(
                                     "Unable to determine Eth1 sync status".to_string(),

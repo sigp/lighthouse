@@ -261,6 +261,13 @@ pub struct ForkchoiceUpdateParameters {
     pub finalized_hash: Option<ExecutionBlockHash>,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct ForkChoiceView {
+    pub head_block_root: Hash256,
+    pub justified_checkpoint: Checkpoint,
+    pub finalized_checkpoint: Checkpoint,
+}
+
 /// Provides an implementation of "Ethereum 2.0 Phase 0 -- Beacon Chain Fork Choice":
 ///
 /// https://github.com/ethereum/eth2.0-specs/blob/v0.12.1/specs/phase0/fork-choice.md#ethereum-20-phase-0----beacon-chain-fork-choice
@@ -280,6 +287,8 @@ pub struct ForkChoice<T, E> {
     queued_attestations: Vec<QueuedAttestation>,
     /// Stores a cache of the values required to be sent to the execution layer.
     forkchoice_update_parameters: Option<ForkchoiceUpdateParameters>,
+    /// The most recent result of running `Self::get_head`.
+    head_block_root: Hash256,
     _phantom: PhantomData<E>,
 }
 
@@ -306,6 +315,8 @@ where
         anchor_block_root: Hash256,
         anchor_block: &SignedBeaconBlock<E>,
         anchor_state: &BeaconState<E>,
+        current_slot: Option<Slot>,
+        spec: &ChainSpec,
     ) -> Result<Self, Error<T::Error>> {
         // Sanity check: the anchor must lie on an epoch boundary.
         if anchor_block.slot() % E::slots_per_epoch() != 0 {
@@ -340,6 +351,9 @@ where
             },
         );
 
+        // If the current slot is not provided, use the value that was last provided to the store.
+        let current_slot = current_slot.unwrap_or_else(|| fc_store.get_current_slot());
+
         let proto_array = ProtoArrayForkChoice::new(
             finalized_block_slot,
             finalized_block_state_root,
@@ -350,15 +364,23 @@ where
             execution_status,
         )?;
 
-        Ok(Self {
+        let mut fork_choice = Self {
             fc_store,
             proto_array,
             queued_attestations: vec![],
             forkchoice_update_parameters: None,
+            // This will be updated during the next call to `Self::get_head`.
+            head_block_root: Hash256::zero(),
             _phantom: PhantomData,
-        })
+        };
+
+        // Ensure that `fork_choice.head_block_root` is updated.
+        fork_choice.get_head(current_slot, spec)?;
+
+        Ok(fork_choice)
     }
 
+    /*
     /// Instantiates `Self` from some existing components.
     ///
     /// This is useful if the existing components have been loaded from disk after a process
@@ -376,6 +398,7 @@ where
             _phantom: PhantomData,
         }
     }
+    */
 
     /// Returns cached information that can be used to issue a `forkchoiceUpdated` message to an
     /// execution engine.
@@ -455,6 +478,8 @@ where
             spec,
         )?;
 
+        self.head_block_root = head_root;
+
         // Cache some values for the next forkchoiceUpdate call to the execution layer.
         let head_hash = self
             .get_block(&head_root)
@@ -470,6 +495,26 @@ where
         });
 
         Ok(head_root)
+    }
+
+    /// Return information about:
+    ///
+    /// - The LMD head of the chain.
+    /// - The FFG checkpoints.
+    ///
+    /// The information is "cached" since the last call to `Self::get_head`.
+    ///
+    /// ## Notes
+    ///
+    /// The finalized/justified checkpoints are determined from the fork choice store. Therefore,
+    /// it's possible that the state corresponding to `get_state(get_block(head_block_root))` will
+    /// have *differing* finalized and justified information.
+    pub fn cached_fork_choice_view(&self) -> ForkChoiceView {
+        ForkChoiceView {
+            head_block_root: self.head_block_root,
+            justified_checkpoint: self.justified_checkpoint(),
+            finalized_checkpoint: self.finalized_checkpoint(),
+        }
     }
 
     /// Returns `true` if the given `store` should be updated to set
@@ -1142,17 +1187,26 @@ where
     pub fn from_persisted(
         persisted: PersistedForkChoice,
         fc_store: T,
+        spec: &ChainSpec,
     ) -> Result<Self, Error<T::Error>> {
         let proto_array = ProtoArrayForkChoice::from_bytes(&persisted.proto_array_bytes)
             .map_err(Error::InvalidProtoArrayBytes)?;
 
-        Ok(Self {
+        let current_slot = fc_store.get_current_slot();
+
+        let mut fork_choice = Self {
             fc_store,
             proto_array,
             queued_attestations: persisted.queued_attestations,
             forkchoice_update_parameters: None,
+            // Will be updated in the following call to `Self::get_head`.
+            head_block_root: Hash256::zero(),
             _phantom: PhantomData,
-        })
+        };
+
+        fork_choice.get_head(current_slot, spec)?;
+
+        Ok(fork_choice)
     }
 
     /// Takes a snapshot of `Self` and stores it in `PersistedForkChoice`, allowing this struct to

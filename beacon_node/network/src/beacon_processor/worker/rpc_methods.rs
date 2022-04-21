@@ -61,7 +61,7 @@ impl<T: BeaconChainTypes> Worker<T> {
         &self,
         remote: &StatusMessage,
     ) -> Result<Option<String>, BeaconChainError> {
-        let local = self.chain.status_message()?;
+        let local = self.chain.status_message();
         let start_slot = |epoch: Epoch| epoch.start_slot(T::EthSpec::slots_per_epoch());
 
         let irrelevant_reason = if local.fork_digest != remote.fork_digest {

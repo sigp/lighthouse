@@ -1134,13 +1134,9 @@ impl<T: BeaconChainTypes> Worker<T> {
             .read()
             .register_gossip_attester_slashing(slashing.as_inner());
 
-        if let Err(e) = self.chain.import_attester_slashing(slashing) {
-            debug!(self.log, "Error importing attester slashing"; "error" => ?e);
-            metrics::inc_counter(&metrics::BEACON_PROCESSOR_ATTESTER_SLASHING_ERROR_TOTAL);
-        } else {
-            debug!(self.log, "Successfully imported attester slashing");
-            metrics::inc_counter(&metrics::BEACON_PROCESSOR_ATTESTER_SLASHING_IMPORTED_TOTAL);
-        }
+        self.chain.import_attester_slashing(slashing);
+        debug!(self.log, "Successfully imported attester slashing");
+        metrics::inc_counter(&metrics::BEACON_PROCESSOR_ATTESTER_SLASHING_IMPORTED_TOTAL);
     }
 
     /// Process the sync committee signature received from the gossip network and:

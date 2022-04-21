@@ -65,27 +65,26 @@ impl<T: EthSpec> SyncNetworkContext<T> {
         chain: &C,
         peers: impl Iterator<Item = PeerId>,
     ) {
-        if let Ok(status_message) = chain.status_message() {
-            for peer_id in peers {
-                debug!(
-                    self.log,
-                    "Sending Status Request";
-                    "peer" => %peer_id,
-                    "fork_digest" => ?status_message.fork_digest,
-                    "finalized_root" => ?status_message.finalized_root,
-                    "finalized_epoch" => ?status_message.finalized_epoch,
-                    "head_root" => %status_message.head_root,
-                    "head_slot" => %status_message.head_slot,
-                );
+        let status_message = chain.status_message();
+        for peer_id in peers {
+            debug!(
+                self.log,
+                "Sending Status Request";
+                "peer" => %peer_id,
+                "fork_digest" => ?status_message.fork_digest,
+                "finalized_root" => ?status_message.finalized_root,
+                "finalized_epoch" => ?status_message.finalized_epoch,
+                "head_root" => %status_message.head_root,
+                "head_slot" => %status_message.head_slot,
+            );
 
-                let request = Request::Status(status_message.clone());
-                let request_id = RequestId::Router;
-                let _ = self.send_network_msg(NetworkMessage::SendRequest {
-                    peer_id,
-                    request,
-                    request_id,
-                });
-            }
+            let request = Request::Status(status_message.clone());
+            let request_id = RequestId::Router;
+            let _ = self.send_network_msg(NetworkMessage::SendRequest {
+                peer_id,
+                request,
+                request_id,
+            });
         }
     }
 

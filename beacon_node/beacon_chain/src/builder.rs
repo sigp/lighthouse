@@ -1,4 +1,4 @@
-use crate::beacon_chain::{BEACON_CHAIN_DB_KEY, ETH1_CACHE_DB_KEY, OP_POOL_DB_KEY};
+use crate::beacon_chain::{CanonicalHead, BEACON_CHAIN_DB_KEY, ETH1_CACHE_DB_KEY, OP_POOL_DB_KEY};
 use crate::eth1_chain::{CachingEth1Backend, SszEth1};
 use crate::fork_revert::{reset_fork_choice_to_finalization, revert_to_fork_boundary};
 use crate::head_tracker::HeadTracker;
@@ -235,6 +235,7 @@ where
         let fork_choice =
             BeaconChain::<Witness<TSlotClock, TEth1Backend, _, _, _>>::load_fork_choice(
                 store.clone(),
+                &self.spec,
             )
             .map_err(|e| format!("Unable to load fork choice from disk: {:?}", e))?
             .ok_or("Fork choice not found in store")?;
@@ -342,12 +343,15 @@ where
         self = updated_builder;
 
         let fc_store = BeaconForkChoiceStore::get_forkchoice_store(store, &genesis);
+        let current_slot = None;
 
         let fork_choice = ForkChoice::from_anchor(
             fc_store,
             genesis.beacon_block_root,
             &genesis.beacon_block,
             &genesis.beacon_state,
+            current_slot,
+            &self.spec,
         )
         .map_err(|e| format!("Unable to initialize ForkChoice: {:?}", e))?;
 
@@ -451,11 +455,14 @@ where
 
         let fc_store = BeaconForkChoiceStore::get_forkchoice_store(store, &snapshot);
 
+        let current_slot = Some(snapshot.beacon_block.slot());
         let fork_choice = ForkChoice::from_anchor(
             fc_store,
             snapshot.beacon_block_root,
             &snapshot.beacon_block,
             &snapshot.beacon_state,
+            current_slot,
+            &self.spec,
         )
         .map_err(|e| format!("Unable to initialize ForkChoice: {:?}", e))?;
 
@@ -628,17 +635,18 @@ where
                 head_block_root,
                 &head_state,
                 store.clone(),
+                Some(current_slot),
                 &self.spec,
             )?;
         }
 
-        let mut canonical_head = BeaconSnapshot {
+        let mut head_snapshot = BeaconSnapshot {
             beacon_block_root: head_block_root,
             beacon_block: head_block,
             beacon_state: head_state,
         };
 
-        canonical_head
+        head_snapshot
             .beacon_state
             .build_all_caches(&self.spec)
             .map_err(|e| format!("Failed to build state caches: {:?}", e))?;
@@ -648,25 +656,17 @@ where
         //
         // This is a sanity check to detect database corruption.
         let fc_finalized = fork_choice.finalized_checkpoint();
-        let head_finalized = canonical_head.beacon_state.finalized_checkpoint();
-        if fc_finalized != head_finalized {
-            let is_genesis = head_finalized.root.is_zero()
-                && head_finalized.epoch == fc_finalized.epoch
-                && fc_finalized.root == genesis_block_root;
-            let is_wss = store.get_anchor_slot().map_or(false, |anchor_slot| {
-                fc_finalized.epoch == anchor_slot.epoch(TEthSpec::slots_per_epoch())
-            });
-            if !is_genesis && !is_wss {
-                return Err(format!(
-                    "Database corrupt: fork choice is finalized at {:?} whilst head is finalized at \
+        let head_finalized = head_snapshot.beacon_state.finalized_checkpoint();
+        if fc_finalized.epoch < head_finalized.epoch {
+            return Err(format!(
+                "Database corrupt: fork choice is finalized at {:?} whilst head is finalized at \
                     {:?}",
-                    fc_finalized, head_finalized
-                ));
-            }
+                fc_finalized, head_finalized
+            ));
         }
 
         let validator_pubkey_cache = self.validator_pubkey_cache.map(Ok).unwrap_or_else(|| {
-            ValidatorPubkeyCache::new(&canonical_head.beacon_state, store.clone())
+            ValidatorPubkeyCache::new(&head_snapshot.beacon_state, store.clone())
                 .map_err(|e| format!("Unable to init validator pubkey cache: {:?}", e))
         })?;
 
@@ -681,7 +681,7 @@ where
         if let Some(slot) = slot_clock.now() {
             validator_monitor.process_valid_state(
                 slot.epoch(TEthSpec::slots_per_epoch()),
-                &canonical_head.beacon_state,
+                &head_snapshot.beacon_state,
             );
         }
 
@@ -704,6 +704,24 @@ where
             .hot_db
             .do_atomically(self.pending_io_batch)
             .map_err(|e| format!("Error writing chain & metadata to disk: {:?}", e))?;
+
+        let genesis_validators_root = head_snapshot.beacon_state.genesis_validators_root();
+        let head_for_snapshot_cache = head_snapshot.clone();
+        let head_proto_block = fork_choice
+            .get_block(&head_snapshot.beacon_block_root)
+            .ok_or_else(|| {
+                format!(
+                    "Head block ({:?}) missing from fork choice",
+                    head_snapshot.beacon_block_root
+                )
+            })?;
+        let fork_choice_view = fork_choice.cached_fork_choice_view();
+        let canonical_head = CanonicalHead {
+            fork_choice,
+            head_proto_block,
+            fork_choice_view,
+            head_snapshot: head_snapshot.clone(),
+        };
 
         let beacon_chain = BeaconChain {
             spec: self.spec,
@@ -738,16 +756,15 @@ where
             observed_attester_slashings: <_>::default(),
             eth1_chain: self.eth1_chain,
             execution_layer: self.execution_layer,
-            genesis_validators_root: canonical_head.beacon_state.genesis_validators_root(),
-            canonical_head: TimeoutRwLock::new(canonical_head.clone()),
+            genesis_validators_root,
+            canonical_head: RwLock::new(canonical_head),
             genesis_block_root,
             genesis_state_root,
-            fork_choice: RwLock::new(fork_choice),
             event_handler: self.event_handler,
             head_tracker,
             snapshot_cache: TimeoutRwLock::new(SnapshotCache::new(
                 DEFAULT_SNAPSHOT_CACHE_SIZE,
-                canonical_head,
+                head_for_snapshot_cache,
             )),
             shuffling_cache: TimeoutRwLock::new(ShufflingCache::new()),
             beacon_proposer_cache: <_>::default(),

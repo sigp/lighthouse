@@ -94,16 +94,14 @@ fn try_proposer_duties_from_cache<T: BeaconChainTypes>(
     request_epoch: Epoch,
     chain: &BeaconChain<T>,
 ) -> Result<Option<ApiDuties>, warp::reject::Rejection> {
-    let head = chain
-        .head_info()
-        .map_err(warp_utils::reject::beacon_chain_error)?;
-    let head_epoch = head.slot.epoch(T::EthSpec::slots_per_epoch());
+    let view = chain.chain_summary();
+    let head_epoch = view.head_slot.epoch(T::EthSpec::slots_per_epoch());
 
     let dependent_root = match head_epoch.cmp(&request_epoch) {
         // head_epoch == request_epoch
-        Ordering::Equal => head.proposer_shuffling_decision_root,
+        Ordering::Equal => view.head_proposer_shuffling_decision_root,
         // head_epoch < request_epoch
-        Ordering::Less => head.block_root,
+        Ordering::Less => view.head_block_root,
         // head_epoch > request_epoch
         Ordering::Greater => {
             return Err(warp_utils::reject::custom_server_error(format!(
@@ -114,7 +112,11 @@ fn try_proposer_duties_from_cache<T: BeaconChainTypes>(
     };
 
     let execution_optimistic = chain
+<<<<<<< HEAD
         .is_optimistic_head(Some(&head))
+=======
+        .is_optimistic_head(Some(view.head_block_root))
+>>>>>>> aa5617d69 (Squash several commit for 3175)
         .map_err(warp_utils::reject::beacon_chain_error)?;
 
     chain

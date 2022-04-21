@@ -7,7 +7,7 @@ use crate::{
     subnet_service::{AttestationService, SubnetServiceMessage},
     NetworkConfig,
 };
-use beacon_chain::{BeaconChain, BeaconChainError, BeaconChainTypes};
+use beacon_chain::{BeaconChain, BeaconChainTypes};
 use futures::channel::mpsc::Sender;
 use futures::future::OptionFuture;
 use futures::prelude::*;
@@ -30,8 +30,8 @@ use task_executor::ShutdownReason;
 use tokio::sync::mpsc;
 use tokio::time::Sleep;
 use types::{
-    ChainSpec, EthSpec, ForkContext, RelativeEpoch, Slot, SubnetId, SyncCommitteeSubscription,
-    SyncSubnetId, Unsigned, ValidatorSubscription,
+    AttestationShufflingId, ChainSpec, EthSpec, ForkContext, Slot, SubnetId,
+    SyncCommitteeSubscription, SyncSubnetId, Unsigned, ValidatorSubscription,
 };
 
 mod tests;
@@ -42,6 +42,9 @@ const METRIC_UPDATE_INTERVAL: u64 = 5;
 const SUBSCRIBE_DELAY_SLOTS: u64 = 2;
 /// Delay after a fork where we unsubscribe from pre-fork topics.
 const UNSUBSCRIBE_DELAY_EPOCHS: u64 = 2;
+
+/// The time to wait on the shuffling cache whilst trying to count the active validator indices.
+const SHUFFLING_CACHE_TIMEOUT: Duration = Duration::from_millis(100);
 
 /// Application level requests sent to the network.
 #[derive(Debug, Clone, Copy)]
@@ -706,29 +709,7 @@ impl<T: BeaconChainTypes> NetworkService<T> {
 
     fn update_gossipsub_parameters(&mut self) {
         if let Ok(slot) = self.beacon_chain.slot() {
-            if let Some(active_validators) = self
-                .beacon_chain
-                .with_head(|head| {
-                    Ok::<_, BeaconChainError>(
-                        head.beacon_state
-                            .get_cached_active_validator_indices(RelativeEpoch::Current)
-                            .map(|indices| indices.len())
-                            .ok()
-                            .or_else(|| {
-                                // if active validator cached was not build we count the
-                                // active validators
-                                self.beacon_chain.epoch().ok().map(|current_epoch| {
-                                    head.beacon_state
-                                        .validators()
-                                        .iter()
-                                        .filter(|validator| validator.is_active_at(current_epoch))
-                                        .count()
-                                })
-                            }),
-                    )
-                })
-                .unwrap_or(None)
-            {
+            if let Some(active_validators) = self.get_active_validator_count() {
                 if self
                     .libp2p
                     .swarm
@@ -742,8 +723,34 @@ impl<T: BeaconChainTypes> NetworkService<T> {
                         "active_validators" => active_validators
                     );
                 }
+            } else {
+                warn!(
+                    self.log,
+                    "Failed to update gossipsub params";
+                    "msg" => "unable to get active validator count"
+                )
             }
         }
+    }
+
+    /// Returns the number of active validators in the head state.
+    ///
+    /// This method relies on the shuffling cache to return the active validator count. It's
+    /// possible (but unlikely) that the values for the head block are not present in the shuffling
+    /// cache. When that happens, this method will return `None`.
+    fn get_active_validator_count(&self) -> Option<usize> {
+        let chain_summary = self.beacon_chain.chain_summary();
+        let head_epoch = chain_summary.head_slot.epoch(T::EthSpec::slots_per_epoch());
+        let shuffling_id = AttestationShufflingId {
+            shuffling_epoch: head_epoch,
+            shuffling_decision_block: chain_summary.head_proposer_shuffling_decision_root,
+        };
+        let mut shuffling_cache = self
+            .beacon_chain
+            .shuffling_cache
+            .try_write_for(SHUFFLING_CACHE_TIMEOUT)?;
+        let shuffling = shuffling_cache.get(&shuffling_id)?;
+        Some(shuffling.active_validator_indices().len())
     }
 
     fn on_attestation_service_msg(&mut self, msg: SubnetServiceMessage) {
