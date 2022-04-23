@@ -5,10 +5,11 @@ use eth2::{
     types::ValidatorId,
 };
 use state_processing::per_epoch_processing::{
-    altair::participation_cache::Error as ParticipationCacheError, process_epoch,
     EpochProcessingSummary,
+    process_epoch,
 };
 use types::{BeaconState, ChainSpec, Epoch, EthSpec};
+use types::beacon_state::participation_cache::Error as ParticipationCacheError;
 
 /// Returns the state in the last slot of `epoch`.
 fn end_of_epoch_state<T: BeaconChainTypes>(

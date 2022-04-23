@@ -26,17 +26,17 @@ pub mod state_advance;
 pub mod upgrade;
 pub mod verify_operation;
 
-pub use block_replayer::{BlockReplayError, BlockReplayer, StateRootStrategy};
+pub use block_replayer::{BlockReplayer, BlockReplayError, StateRootStrategy};
 pub use genesis::{
     eth2_genesis_time, initialize_beacon_state_from_eth1, is_valid_genesis_state,
     process_activations,
 };
 pub use per_block_processing::{
-    block_signature_verifier, errors::BlockProcessingError, per_block_processing, signature_sets,
-    BlockSignatureStrategy, BlockSignatureVerifier, VerifyBlockRoot, VerifySignatures,
+    altair::sync_committee, block_signature_verifier, BlockSignatureStrategy, BlockSignatureVerifier,
+    errors::BlockProcessingError, per_block_processing, signature_sets, VerifyBlockRoot, VerifySignatures
 };
 pub use per_epoch_processing::{
-    errors::EpochProcessingError, process_epoch as per_epoch_processing,
+    errors::EpochProcessingError, process_epoch as per_epoch_processing
 };
-pub use per_slot_processing::{per_slot_processing, Error as SlotProcessingError};
+pub use per_slot_processing::{Error as SlotProcessingError, per_slot_processing};
 pub use verify_operation::{SigVerifiedOp, VerifyOperation};

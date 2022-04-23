@@ -3,11 +3,11 @@ use eth2::lighthouse::{
     AttestationPerformance, AttestationPerformanceQuery, AttestationPerformanceStatistics,
 };
 use state_processing::{
-    per_epoch_processing::altair::participation_cache::Error as ParticipationCacheError,
-    per_epoch_processing::EpochProcessingSummary, BlockReplayError, BlockReplayer,
+    BlockReplayer, BlockReplayError, per_epoch_processing::EpochProcessingSummary,
 };
 use std::sync::Arc;
 use types::{BeaconState, BeaconStateError, EthSpec, Hash256, SignedBeaconBlock};
+use types::beacon_state::participation_cache::Error as ParticipationCacheError;
 use warp_utils::reject::{beacon_chain_error, custom_bad_request, custom_server_error};
 
 const MAX_REQUEST_RANGE_EPOCHS: usize = 100;

@@ -4,6 +4,7 @@ use crate::per_epoch_processing::Error;
 use safe_arith::SafeArith;
 use types::consts::altair::TIMELY_TARGET_FLAG_INDEX;
 use types::{BeaconState, EthSpec};
+use types::beacon_state::participation_cache::CurrentEpochParticipationCache;
 
 /// Update the justified and finalized checkpoints for matching target attestations.
 pub fn process_justification_and_finalization<T: EthSpec>(

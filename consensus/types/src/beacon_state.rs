@@ -10,9 +10,9 @@ use int_to_bytes::{int_to_bytes4, int_to_bytes8};
 use pubkey_cache::PubkeyCache;
 use safe_arith::{ArithError, SafeArith};
 use serde_derive::{Deserialize, Serialize};
-use ssz::{ssz_encode, Decode, DecodeError, Encode};
+use ssz::{Decode, DecodeError, Encode, ssz_encode};
 use ssz_derive::{Decode, Encode};
-use ssz_types::{typenum::Unsigned, BitVector, FixedVector};
+use ssz_types::{BitVector, FixedVector, typenum::Unsigned};
 use std::convert::TryInto;
 use std::{fmt, mem, sync::Arc};
 use superstruct::superstruct;
@@ -20,10 +20,11 @@ use swap_or_not_shuffle::compute_shuffled_index;
 use test_random_derive::TestRandom;
 use tree_hash::TreeHash;
 use tree_hash_derive::TreeHash;
+use participation_cache::PreviousParticipationCache;
 
 pub use self::committee_cache::{
-    compute_committee_index_in_epoch, compute_committee_range_in_epoch, epoch_committee_count,
-    CommitteeCache,
+    CommitteeCache, compute_committee_index_in_epoch, compute_committee_range_in_epoch,
+    epoch_committee_count,
 };
 pub use clone_config::CloneConfig;
 pub use eth_spec::*;
@@ -38,6 +39,7 @@ mod iter;
 mod pubkey_cache;
 mod tests;
 mod tree_hash_cache;
+pub mod participation_cache;
 
 pub const CACHED_EPOCHS: usize = 3;
 const MAX_RANDOM_BYTE: u64 = (1 << 8) - 1;
@@ -311,6 +313,12 @@ where
     #[test_random(default)]
     #[derivative(Clone(clone_with = "clone_default"))]
     pub tree_hash_cache: BeaconTreeHashCache<T>,
+    #[serde(skip_serializing, skip_deserializing)]
+    #[ssz(skip_serializing, skip_deserializing)]
+    #[tree_hash(skip_hashing)]
+    #[test_random(default)]
+    #[derivative(Clone(clone_with = "clone_default"))]
+    pub previous_epoch_participation_cache: PreviousParticipationCache,
 }
 
 impl<T: EthSpec> Clone for BeaconState<T> {
@@ -376,6 +384,7 @@ impl<T: EthSpec> BeaconState<T> {
             pubkey_cache: PubkeyCache::default(),
             exit_cache: ExitCache::default(),
             tree_hash_cache: <_>::default(),
+            previous_epoch_participation_cache: <_>::default(),
         })
     }
 
@@ -1351,6 +1360,16 @@ impl<T: EthSpec> BeaconState<T> {
         self.drop_tree_hash_cache();
         *self.exit_cache_mut() = ExitCache::default();
         Ok(())
+    }
+
+    pub fn get_previous_epoch_participation_cache(&mut self, spec: &ChainSpec) -> Result<&PreviousParticipationCache, BeaconStateError> {
+        if self.previous_epoch_participation_cache().previous_epoch() == self.slot().epoch(T::slots_per_epoch()) - 1 {
+            Ok(&self.previous_epoch_participation_cache())
+        } else {
+            //rebuild cache
+            *self.previous_epoch_participation_cache_mut() = PreviousParticipationCache::new(self, spec)?;
+            Ok(&self.previous_epoch_participation_cache())
+        }
     }
 
     /// Returns `true` if the committee cache for `relative_epoch` is built and ready to use.

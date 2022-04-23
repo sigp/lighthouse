@@ -13,13 +13,15 @@
 
 use safe_arith::{ArithError, SafeArith};
 use std::collections::HashMap;
-use types::{
+use crate::{
     consts::altair::{
         NUM_FLAG_INDICES, TIMELY_HEAD_FLAG_INDEX, TIMELY_SOURCE_FLAG_INDEX,
         TIMELY_TARGET_FLAG_INDEX,
     },
     BeaconState, BeaconStateError, ChainSpec, Epoch, EthSpec, ParticipationFlags, RelativeEpoch,
 };
+use crate::test_utils::{RngCore, TestRandom};
+use test_random_derive::TestRandom;
 
 #[derive(Debug, PartialEq)]
 pub enum Error {
@@ -29,7 +31,7 @@ pub enum Error {
 /// A balance which will never be below the specified `minimum`.
 ///
 /// This is an effort to ensure the `EFFECTIVE_BALANCE_INCREMENT` minimum is always respected.
-#[derive(PartialEq, Debug, Clone, Copy)]
+#[derive(PartialEq, Debug, Default, Clone, Copy)]
 struct Balance {
     raw: u64,
     minimum: u64,
@@ -53,7 +55,7 @@ impl Balance {
 }
 
 /// Caches the participation values for one epoch (either the previous or current).
-#[derive(PartialEq, Debug)]
+#[derive(Clone, PartialEq, Default, Debug)]
 struct SingleEpochParticipationCache {
     /// Maps an active validator index to their participation flags.
     ///
@@ -165,11 +167,8 @@ impl SingleEpochParticipationCache {
 }
 
 /// Maintains a cache to be used during `altair::process_epoch`.
-#[derive(PartialEq, Debug)]
-pub struct ParticipationCache {
-    current_epoch: Epoch,
-    /// Caches information about active validators pertaining to `self.current_epoch`.
-    current_epoch_participation: SingleEpochParticipationCache,
+#[derive(PartialEq, Default, Debug)]
+pub struct PreviousParticipationCache {
     previous_epoch: Epoch,
     /// Caches information about active validators pertaining to `self.previous_epoch`.
     previous_epoch_participation: SingleEpochParticipationCache,
@@ -177,7 +176,7 @@ pub struct ParticipationCache {
     eligible_indices: Vec<usize>,
 }
 
-impl ParticipationCache {
+impl PreviousParticipationCache {
     /// Instantiate `Self`, returning a fully initialized cache.
     ///
     /// ## Errors
@@ -187,20 +186,14 @@ impl ParticipationCache {
         state: &BeaconState<T>,
         spec: &ChainSpec,
     ) -> Result<Self, BeaconStateError> {
-        let current_epoch = state.current_epoch();
         let previous_epoch = state.previous_epoch();
 
         let num_previous_epoch_active_vals = state
             .get_cached_active_validator_indices(RelativeEpoch::Previous)?
             .len();
-        let num_current_epoch_active_vals = state
-            .get_cached_active_validator_indices(RelativeEpoch::Current)?
-            .len();
 
         // Both the current/previous epoch participations are set to a capacity that is slightly
         // larger than required. The difference will be due slashed-but-active validators.
-        let mut current_epoch_participation =
-            SingleEpochParticipationCache::new(num_current_epoch_active_vals, spec);
         let mut previous_epoch_participation =
             SingleEpochParticipationCache::new(num_previous_epoch_active_vals, spec);
         // Contains the set of validators which are either:
@@ -220,13 +213,6 @@ impl ParticipationCache {
         // Care is taken to ensure that the ordering of `eligible_indices` is the same as the
         // `get_eligible_validator_indices` function in the spec.
         for (val_index, val) in state.validators().iter().enumerate() {
-            if val.is_active_at(current_epoch) {
-                current_epoch_participation.process_active_validator(
-                    val_index,
-                    state,
-                    RelativeEpoch::Current,
-                )?;
-            }
 
             if val.is_active_at(previous_epoch) {
                 previous_epoch_participation.process_active_validator(
@@ -244,12 +230,115 @@ impl ParticipationCache {
         }
 
         Ok(Self {
-            current_epoch,
-            current_epoch_participation,
             previous_epoch,
             previous_epoch_participation,
             eligible_indices,
         })
+    }
+
+    pub fn previous_epoch(&self) -> Epoch {
+        self.previous_epoch
+    }
+}
+
+pub struct CurrentEpochParticipationCache {
+    current_epoch: Epoch,
+    /// Caches information about active validators pertaining to `self.current_epoch`.
+    current_epoch_participation: SingleEpochParticipationCache,
+}
+
+impl CurrentEpochParticipationCache {
+    pub fn new<T: EthSpec>(
+        state: &BeaconState<T>,
+        spec: &ChainSpec,
+    ) -> Result<Self, BeaconStateError> {
+        let current_epoch = state.current_epoch();
+        let num_current_epoch_active_vals = state
+            .get_cached_active_validator_indices(RelativeEpoch::Current)?
+            .len();
+        let mut current_epoch_participation =
+            SingleEpochParticipationCache::new(num_current_epoch_active_vals, spec);
+        for (val_index, val) in state.validators().iter().enumerate() {
+            if val.is_active_at(current_epoch) {
+                current_epoch_participation.process_active_validator(
+                    val_index,
+                    state,
+                    RelativeEpoch::Current,
+                )?;
+            }
+        }
+        Ok(Self {
+            current_epoch,
+            current_epoch_participation,
+        })
+    }
+
+    pub fn current_epoch_total_active_balance(&self) -> u64 {
+        self.current_epoch_participation.total_active_balance.get()
+    }
+
+    pub fn current_epoch_target_attesting_balance(&self) -> Result<u64, Error> {
+        self.current_epoch_participation
+            .total_flag_balance(TIMELY_TARGET_FLAG_INDEX)
+    }
+
+    pub fn is_active_unslashed_in_current_epoch(&self, val_index: usize) -> bool {
+        self.current_epoch_participation
+            .unslashed_participating_indices
+            .contains_key(&val_index)
+    }
+
+    /// Always returns false for a slashed validator.
+    pub fn is_current_epoch_timely_source_attester(&self, val_index: usize) -> Result<bool, Error> {
+        self.current_epoch_participation
+            .has_flag(val_index, TIMELY_SOURCE_FLAG_INDEX)
+    }
+
+    /// Always returns false for a slashed validator.
+    pub fn is_current_epoch_timely_target_attester(&self, val_index: usize) -> Result<bool, Error> {
+        self.current_epoch_participation
+            .has_flag(val_index, TIMELY_TARGET_FLAG_INDEX)
+    }
+
+    /// Always returns false for a slashed validator.
+    pub fn is_current_epoch_timely_head_attester(&self, val_index: usize) -> Result<bool, Error> {
+        self.current_epoch_participation
+            .has_flag(val_index, TIMELY_HEAD_FLAG_INDEX)
+    }
+
+    /// Equivalent to the `get_unslashed_participating_indices` function in the specification.
+    pub fn get_unslashed_participating_indices(
+        &self,
+        flag_index: usize,
+    ) -> Result<UnslashedParticipatingIndices, BeaconStateError> {
+        Ok(UnslashedParticipatingIndices {
+            participation: &self.current_epoch_participation,
+            flag_index,
+        })
+    }
+}
+
+#[derive(Clone, PartialEq, Default, Debug)]
+pub struct ParticipationCache {
+    current_epoch: Epoch,
+    /// Caches information about active validators pertaining to `self.current_epoch`.
+    current_epoch_participation: SingleEpochParticipationCache,
+    previous_epoch: Epoch,
+    /// Caches information about active validators pertaining to `self.previous_epoch`.
+    previous_epoch_participation: SingleEpochParticipationCache,
+    /// Caches the result of the `get_eligible_validator_indices` function.
+    eligible_indices: Vec<usize>,
+}
+
+impl ParticipationCache {
+    pub fn new(prev_cache: &PreviousParticipationCache, current_cache: CurrentEpochParticipationCache) -> ParticipationCache {
+        ParticipationCache {
+            current_epoch: current_cache.current_epoch,
+            current_epoch_participation: current_cache.current_epoch_participation,
+            previous_epoch: prev_cache.previous_epoch,
+            previous_epoch_participation: prev_cache.previous_epoch_participation.clone(),
+            eligible_indices: prev_cache.eligible_indices.clone(),
+        }
     }
 
     /// Equivalent to the specification `get_eligible_validator_indices` function.
@@ -272,7 +361,7 @@ impl ParticipationCache {
         };
 
         Ok(UnslashedParticipatingIndices {
-            participation,
+            participation: &self.previous_epoch_participation,
             flag_index,
         })
     }
@@ -281,14 +370,6 @@ impl ParticipationCache {
      * Balances
      */
 
-    pub fn current_epoch_total_active_balance(&self) -> u64 {
-        self.current_epoch_participation.total_active_balance.get()
-    }
-
-    pub fn current_epoch_target_attesting_balance(&self) -> Result<u64, Error> {
-        self.current_epoch_participation
-            .total_flag_balance(TIMELY_TARGET_FLAG_INDEX)
-    }
 
     pub fn previous_epoch_total_active_balance(&self) -> u64 {
         self.previous_epoch_participation.total_active_balance.get()
@@ -319,12 +400,6 @@ impl ParticipationCache {
             .contains_key(&val_index)
     }
 
-    pub fn is_active_unslashed_in_current_epoch(&self, val_index: usize) -> bool {
-        self.current_epoch_participation
-            .unslashed_participating_indices
-            .contains_key(&val_index)
-    }
-
     /*
      * Flags
      */
@@ -351,6 +426,21 @@ impl ParticipationCache {
     pub fn is_previous_epoch_timely_head_attester(&self, val_index: usize) -> Result<bool, Error> {
         self.previous_epoch_participation
             .has_flag(val_index, TIMELY_HEAD_FLAG_INDEX)
+    }
+
+    pub fn current_epoch_total_active_balance(&self) -> u64 {
+        self.current_epoch_participation.total_active_balance.get()
+    }
+
+    pub fn current_epoch_target_attesting_balance(&self) -> Result<u64, Error> {
+        self.current_epoch_participation
+            .total_flag_balance(TIMELY_TARGET_FLAG_INDEX)
+    }
+
+    pub fn is_active_unslashed_in_current_epoch(&self, val_index: usize) -> bool {
+        self.current_epoch_participation
+            .unslashed_participating_indices
+            .contains_key(&val_index)
     }
 
     /// Always returns false for a slashed validator.
