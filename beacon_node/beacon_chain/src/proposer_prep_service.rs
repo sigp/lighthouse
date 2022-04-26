@@ -52,6 +52,7 @@ async fn proposer_prep_service<T: BeaconChainTypes>(
                     async move {
                         if let Ok(current_slot) = inner_chain.slot() {
                             if let Err(e) = inner_chain
+                                .clone()
                                 .prepare_beacon_proposer_async(current_slot)
                                 .await
                             {
