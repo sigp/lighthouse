@@ -2011,26 +2011,28 @@ fn weak_subjectivity_sync() {
     let seconds_per_slot = spec.seconds_per_slot;
 
     // Initialise a new beacon chain from the finalized checkpoint
-    let beacon_chain = BeaconChainBuilder::new(MinimalEthSpec)
-        .store(store.clone())
-        .custom_spec(test_spec::<E>())
-        .weak_subjectivity_state(wss_state, wss_block.clone(), genesis_state)
-        .unwrap()
-        .logger(log.clone())
-        .store_migrator_config(MigratorConfig::default().blocking())
-        .dummy_eth1_backend()
-        .expect("should build dummy backend")
-        .testing_slot_clock(Duration::from_secs(seconds_per_slot))
-        .expect("should configure testing slot clock")
-        .shutdown_sender(shutdown_tx)
-        .chain_config(ChainConfig::default())
-        .event_handler(Some(ServerSentEventHandler::new_with_capacity(
-            log.clone(),
-            1,
-        )))
-        .monitor_validators(true, vec![], log)
-        .build()
-        .expect("should build");
+    let beacon_chain = Arc::new(
+        BeaconChainBuilder::new(MinimalEthSpec)
+            .store(store.clone())
+            .custom_spec(test_spec::<E>())
+            .weak_subjectivity_state(wss_state, wss_block.clone(), genesis_state)
+            .unwrap()
+            .logger(log.clone())
+            .store_migrator_config(MigratorConfig::default().blocking())
+            .dummy_eth1_backend()
+            .expect("should build dummy backend")
+            .testing_slot_clock(Duration::from_secs(seconds_per_slot))
+            .expect("should configure testing slot clock")
+            .shutdown_sender(shutdown_tx)
+            .chain_config(ChainConfig::default())
+            .event_handler(Some(ServerSentEventHandler::new_with_capacity(
+                log.clone(),
+                1,
+            )))
+            .monitor_validators(true, vec![], log)
+            .build()
+            .expect("should build"),
+    );
 
     // Apply blocks forward to reach head.
     let chain_dump = harness.chain.chain_dump().unwrap();

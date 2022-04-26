@@ -172,7 +172,7 @@ async fn state_advance_timer<T: BeaconChainTypes>(
 ///
 /// See the module-level documentation for rationale.
 fn advance_head<T: BeaconChainTypes>(
-    beacon_chain: &BeaconChain<T>,
+    beacon_chain: &Arc<BeaconChain<T>>,
     log: &Logger,
 ) -> Result<(), Error> {
     let current_slot = beacon_chain.slot()?;
