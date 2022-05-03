@@ -1,3 +1,4 @@
+use itertools::min;
 use super::{EpochProcessingSummary, Error, process_registry_updates, process_slashings};
 use crate::per_epoch_processing::{
     effective_balance_updates::process_effective_balance_updates,
@@ -10,7 +11,7 @@ pub use types::beacon_state::participation_cache::ParticipationCache;
 pub use participation_flag_updates::process_participation_flag_updates;
 pub use rewards_and_penalties::process_rewards_and_penalties;
 pub use sync_committee_updates::process_sync_committee_updates;
-use types::{BeaconState, ChainSpec, EthSpec, RelativeEpoch};
+use types::{BeaconState, ChainSpec, EthSpec, MiniBeaconState, RelativeEpoch};
 use types::beacon_state::participation_cache::CurrentEpochParticipationCache;
 
 pub mod inactivity_updates;
@@ -26,7 +27,8 @@ pub fn process_epoch<T: EthSpec>(
 
     state.build_committee_cache(RelativeEpoch::Next, spec)?;
 
-    let participation_cache = process_justifiable(state, spec)?;
+    let (mini_beacon_state, participation_cache) = process_justifiable(state, spec)?;
+    state.update_justifiable(mini_beacon_state);
 
     let sync_committee = state.current_sync_committee()?.clone();
 
@@ -74,8 +76,8 @@ pub fn process_epoch<T: EthSpec>(
     })
 }
 
-pub fn process_justifiable<T: EthSpec>(state: &mut BeaconState<T>, spec: &ChainSpec) -> Result<ParticipationCache, Error> {
-// Ensure the committee caches are built.
+pub fn process_justifiable<T: EthSpec>(state: &mut BeaconState<T>, spec: &ChainSpec) -> Result<(MiniBeaconState<T>, ParticipationCache), Error> {
+    // Ensure the committee caches are built.
     state.build_committee_cache(RelativeEpoch::Previous, spec)?;
     state.build_committee_cache(RelativeEpoch::Current, spec)?;
 
@@ -87,7 +89,7 @@ pub fn process_justifiable<T: EthSpec>(state: &mut BeaconState<T>, spec: &ChainS
     let participation_cache = ParticipationCache::new(prev_participation_cache, current_participation_cache);
 
     // Justification and finalization.
-    process_justification_and_finalization(state, &participation_cache)?;
+    let mini_beacon_state = process_justification_and_finalization(state, &participation_cache)?;
 
-    Ok(participation_cache)
+    Ok((mini_beacon_state, participation_cache))
 }

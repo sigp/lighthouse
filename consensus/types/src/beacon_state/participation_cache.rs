@@ -167,8 +167,9 @@ impl SingleEpochParticipationCache {
 }
 
 /// Maintains a cache to be used during `altair::process_epoch`.
-#[derive(PartialEq, Default, Debug)]
+#[derive(Clone, PartialEq, Default, Debug)]
 pub struct PreviousParticipationCache {
+    initialized_epoch: Epoch,
     previous_epoch: Epoch,
     /// Caches information about active validators pertaining to `self.previous_epoch`.
     previous_epoch_participation: SingleEpochParticipationCache,
@@ -230,14 +231,15 @@ impl PreviousParticipationCache {
         }
 
         Ok(Self {
+            initialized_epoch: state.current_epoch(),
             previous_epoch,
             previous_epoch_participation,
             eligible_indices,
         })
     }
 
-    pub fn previous_epoch(&self) -> Epoch {
-        self.previous_epoch
+    pub fn initialized_epoch(&self) -> Epoch {
+        self.initialized_epoch
     }
 }
 
@@ -331,13 +333,13 @@ pub struct ParticipationCache {
 }
 
 impl ParticipationCache {
-    pub fn new(prev_cache: &PreviousParticipationCache, current_cache: CurrentEpochParticipationCache) -> ParticipationCache {
+    pub fn new(prev_cache: PreviousParticipationCache, current_cache: CurrentEpochParticipationCache) -> ParticipationCache {
         ParticipationCache {
             current_epoch: current_cache.current_epoch,
             current_epoch_participation: current_cache.current_epoch_participation,
             previous_epoch: prev_cache.previous_epoch,
-            previous_epoch_participation: prev_cache.previous_epoch_participation.clone(),
-            eligible_indices: prev_cache.eligible_indices.clone(),
+            previous_epoch_participation: prev_cache.previous_epoch_participation,
+            eligible_indices: prev_cache.eligible_indices,
         }
     }
 
@@ -361,7 +363,7 @@ impl ParticipationCache {
         };
 
         Ok(UnslashedParticipatingIndices {
-            participation: &self.previous_epoch_participation,
+            participation,
             flag_index,
         })
     }

@@ -318,7 +318,7 @@ where
     #[tree_hash(skip_hashing)]
     #[test_random(default)]
     #[derivative(Clone(clone_with = "clone_default"))]
-    pub previous_epoch_participation_cache: PreviousParticipationCache,
+    pub previous_epoch_participation_cache: Option<PreviousParticipationCache>,
 }
 
 impl<T: EthSpec> Clone for BeaconState<T> {
@@ -1359,16 +1359,24 @@ impl<T: EthSpec> BeaconState<T> {
         self.drop_pubkey_cache();
         self.drop_tree_hash_cache();
         *self.exit_cache_mut() = ExitCache::default();
+        *self.previous_epoch_participation_cache_mut() = None;
         Ok(())
     }
 
-    pub fn get_previous_epoch_participation_cache(&mut self, spec: &ChainSpec) -> Result<&PreviousParticipationCache, BeaconStateError> {
-        if self.previous_epoch_participation_cache().previous_epoch() == self.slot().epoch(T::slots_per_epoch()) - 1 {
-            Ok(&self.previous_epoch_participation_cache())
+    pub fn get_previous_epoch_participation_cache(&mut self, spec: &ChainSpec) -> Result<PreviousParticipationCache, BeaconStateError> {
+        if let Some(cache) = self.previous_epoch_participation_cache() {
+            if cache.initialized_epoch() == self.current_epoch() {
+                Ok(cache.clone())
+            } else {
+                // rebuild cache
+                let cache = PreviousParticipationCache::new(self, spec)?;
+                *self.previous_epoch_participation_cache_mut() = Some(cache.clone());
+                Ok(cache)
+            }
         } else {
-            //rebuild cache
-            *self.previous_epoch_participation_cache_mut() = PreviousParticipationCache::new(self, spec)?;
-            Ok(&self.previous_epoch_participation_cache())
+            let cache = PreviousParticipationCache::new(self, spec)?;
+            *self.previous_epoch_participation_cache_mut() = Some(cache.clone());
+            Ok(cache)
         }
     }
 
@@ -1654,6 +1662,16 @@ impl<T: EthSpec> BeaconState<T> {
             self.next_sync_committee()?.clone()
         };
         Ok(sync_committee)
+    }
+
+    pub fn update_justifiable(
+        &mut self,
+        mini_beacon_state: MiniBeaconState<T>,
+    ) {
+        *self.current_justified_checkpoint_mut() = mini_beacon_state.current_justified_checkpoint;
+        *self.previous_justified_checkpoint_mut() = mini_beacon_state.previous_justified_checkpoint;
+        *self.finalized_checkpoint_mut() = mini_beacon_state.finalized_checkpoint;
+        *self.justification_bits_mut() = mini_beacon_state.justification_bits;
     }
 }
 

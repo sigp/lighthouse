@@ -172,3 +172,11 @@ pub use bls::{
 };
 pub use ssz_types::{typenum, typenum::Unsigned, BitList, BitVector, FixedVector, VariableList};
 pub use superstruct::superstruct;
+
+
+pub struct MiniBeaconState<T: EthSpec> {
+    pub current_justified_checkpoint: Checkpoint,
+    pub previous_justified_checkpoint: Checkpoint,
+    pub justification_bits: BitVector<T::JustificationBitsLength>,
+    pub finalized_checkpoint: Checkpoint,
+}
