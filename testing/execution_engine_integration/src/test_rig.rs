@@ -303,8 +303,7 @@ impl<T: GenericExecutionEngine, E: EthSpec> TestRig<T, E> {
         let validator_index = 0;
         self.ee_a
             .execution_layer
-            .insert_proposer(slot, head_block_root, validator_index, payload_attributes)
-            .await;
+            .insert_proposer(slot, head_block_root, validator_index, payload_attributes);
         let status = self
             .ee_a
             .execution_layer

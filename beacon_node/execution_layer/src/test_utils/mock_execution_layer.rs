@@ -138,8 +138,7 @@ impl<T: EthSpec> MockExecutionLayer<T> {
                     prev_randao,
                     suggested_fee_recipient: Address::repeat_byte(42),
                 },
-            )
-            .await;
+            );
 
         self.el
             .notify_forkchoice_updated(

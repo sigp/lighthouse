@@ -3728,14 +3728,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             return Ok(());
         }
 
-        let execution_layer = self
-            .execution_layer
-            .as_ref()
-            .ok_or(Error::ExecutionLayerMissing)?;
-
-        execution_layer
-            .block_on_generic(|_| self.prepare_beacon_proposer_async(current_slot))
-            .map_err(Error::PrepareProposerBlockingFailed)?
+        self.prepare_beacon_proposer_async(current_slot)
     }
 
     /// Determines the beacon proposer for the next slot. If that proposer is registered in the
@@ -3750,7 +3743,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// 1. We're in the tail-end of the slot (as defined by PAYLOAD_PREPARATION_LOOKAHEAD_FACTOR)
     /// 2. The head block is one slot (or less) behind the prepare slot (e.g., we're preparing for
     ///    the next slot and the block at the current slot is already known).
-    pub async fn prepare_beacon_proposer_async(
+    pub fn prepare_beacon_proposer_async(
         self: &Arc<Self>,
         current_slot: Slot,
     ) -> Result<(), Error> {
@@ -3769,7 +3762,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         // Nothing to do if there are no proposers registered with the EL, exit early to avoid
         // wasting cycles.
-        if !execution_layer.has_any_proposer_preparation_data().await {
+        if !execution_layer.has_any_proposer_preparation_data() {
             return Ok(());
         }
 
@@ -3862,7 +3855,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // it's not connected to this BN and no action is required.
         if !execution_layer
             .has_proposer_preparation_data(proposer as u64)
-            .await
         {
             return Ok(());
         }
@@ -3876,7 +3868,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             prev_randao: head.random,
             suggested_fee_recipient: execution_layer
                 .get_suggested_fee_recipient(proposer as u64)
-                .await,
         };
 
         debug!(
@@ -3894,8 +3885,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 head.block_root,
                 proposer as u64,
                 payload_attributes,
-            )
-            .await;
+            );
         // Only push a log to the user if this is the first time we've seen this proposer for this
         // slot.
         if !already_known {
@@ -3947,8 +3937,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
             // Use the blocking method here so that we don't form a queue of these functions when
             // routinely calling them.
-            self.update_execution_engine_forkchoice_async(current_slot)
-                .await?;
+            self.update_execution_engine_forkchoice_async(current_slot)?;
         }
 
         Ok(())
@@ -3964,18 +3953,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         if self.slot_is_prior_to_bellatrix(current_slot + 1) {
             return Ok(());
         }
-
-        let execution_layer = self
-            .execution_layer
-            .as_ref()
-            .ok_or(Error::ExecutionLayerMissing)?;
-
-        execution_layer
-            .block_on_generic(|_| self.update_execution_engine_forkchoice_async(current_slot))
-            .map_err(Error::ForkchoiceUpdate)?
+        self.update_execution_engine_forkchoice_async(current_slot)
     }
 
-    pub async fn update_execution_engine_forkchoice_async(
+    pub fn update_execution_engine_forkchoice_async(
         self: &Arc<Self>,
         current_slot: Slot,
     ) -> Result<(), Error> {
@@ -4013,7 +3994,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // There is a "deadlock warning" in this function. The downside of this nice ordering is the
         // potential for deadlock. I would advise against any other use of
         // `execution_engine_forkchoice_lock` apart from the one here.
-        let forkchoice_lock = execution_layer.execution_engine_forkchoice_lock().await;
+        let forkchoice_lock = execution_layer.execution_engine_forkchoice_lock();
 
         // Deadlock warning:
         //
@@ -4044,13 +4025,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         // We are post-bellatrix
                         if execution_layer
                             .payload_attributes(next_slot, params.head_root)
-                            .await
                             .is_some()
                         {
                             // We are a proposer, check for terminal_pow_block_hash
                             if let Some(terminal_pow_block_hash) = execution_layer
-                                .get_terminal_pow_block_hash(&self.spec)
-                                .await
+                                .get_terminal_pow_block_hash_blocking(self.spec.clone())
                                 .map_err(Error::ForkchoiceUpdate)?
                             {
                                 info!(
@@ -4085,8 +4064,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         };
 
         let forkchoice_updated_response = execution_layer
-            .notify_forkchoice_updated(head_hash, finalized_hash, current_slot, head_block_root)
-            .await
+            .notify_forkchoice_updated_blocking(head_hash, finalized_hash, current_slot, head_block_root)
             .map_err(Error::ExecutionForkChoiceUpdateFailed);
 
         // The head has been read and the execution layer has been updated. It is now valid to send
@@ -4135,26 +4113,14 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         "Fork choice update invalidated payload";
                         "status" => ?status
                     );
-                    // The execution engine has stated that all blocks between the
-                    // `head_execution_block_hash` and `latest_valid_hash` are invalid.
-                    let chain = self.clone();
-                    execution_layer
-                        .executor()
-                        .spawn_blocking_handle(
-                            move || {
-                                chain.process_invalid_execution_payload(
-                                    &InvalidationOperation::InvalidateMany {
-                                        head_block_root,
-                                        always_invalidate_head: true,
-                                        latest_valid_ancestor: latest_valid_hash,
-                                    },
-                                )
-                            },
-                            "process_invalid_execution_payload",
-                        )
-                        .ok_or(BeaconChainError::RuntimeShutdown)?
-                        .await
-                        .map_err(BeaconChainError::ProcessInvalidExecutionPayload)??;
+
+                    self.process_invalid_execution_payload(
+                        &InvalidationOperation::InvalidateMany {
+                            head_block_root,
+                            always_invalidate_head: true,
+                            latest_valid_ancestor: latest_valid_hash,
+                        },
+                    )?;
 
                     Err(BeaconChainError::ExecutionForkChoiceUpdateInvalid { status })
                 }
@@ -4165,27 +4131,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         "Fork choice update invalidated payload";
                         "status" => ?status
                     );
-                    // The execution engine has stated that the head block is invalid, however it
-                    // hasn't returned a latest valid ancestor.
-                    //
-                    // Using a `None` latest valid ancestor will result in only the head block
-                    // being invalidated (no ancestors).
-                    let chain = self.clone();
-                    execution_layer
-                        .executor()
-                        .spawn_blocking_handle(
-                            move || {
-                                chain.process_invalid_execution_payload(
-                                    &InvalidationOperation::InvalidateOne {
-                                        block_root: head_block_root,
-                                    },
-                                )
-                            },
-                            "process_invalid_execution_payload",
-                        )
-                        .ok_or(BeaconChainError::RuntimeShutdown)?
-                        .await
-                        .map_err(BeaconChainError::ProcessInvalidExecutionPayload)??;
+
+                    self.process_invalid_execution_payload(
+                        &InvalidationOperation::InvalidateOne {
+                            block_root: head_block_root,
+                        },
+                    )?;
 
                     Err(BeaconChainError::ExecutionForkChoiceUpdateInvalid { status })
                 }

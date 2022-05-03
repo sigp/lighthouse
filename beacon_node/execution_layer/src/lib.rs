@@ -30,9 +30,9 @@ use task_executor::TaskExecutor;
 use tokio::sync::mpsc;
 use tokio::sync::mpsc::UnboundedSender;
 use tokio::{
-    sync::{Mutex, MutexGuard, RwLock},
     time::{sleep, sleep_until, Instant},
 };
+use parking_lot::{Mutex, MutexGuard, RwLock};
 use types::{
     BlindedPayload, BlockType, ChainSpec, Epoch, ExecPayload, ExecutionBlockHash, FullPayload,
     ProposerPreparationData, SignedBeaconBlock, Slot,
@@ -292,7 +292,21 @@ impl<T: EthSpec> ExecutionLayer<T> {
             async move {
                 while let Some(request) = rx.recv().await {
                     match request {
-                        ExecutionLayerRequest::UpdateForkChoice { .. } => {}
+                        ExecutionLayerRequest::UpdateForkChoice {
+                            head_hash,
+                            finalized_hash,
+                            head_block_root,
+                            current_slot,
+                            responder,
+                        } => {
+                            let res = el_ref.notify_forkchoice_updated(head_hash,
+                                                                       finalized_hash,
+                                                                       current_slot,
+                                                                       head_block_root).await;
+                            if let Err(e) = responder.send(ExecutionLayerResponse::NotifyNewPayload(res)) {
+                                error!(el_ref.inner.log, "Unable to respond to blocking context execution layer request: {e:?}");
+                            }
+                        }
                         ExecutionLayerRequest::NotifyNewPayload { payload, responder } => {
                             let res = el_ref.notify_new_payload(&payload).await;
                             if let Err(e) = responder.send(ExecutionLayerResponse::NotifyNewPayload(res)) {
@@ -362,7 +376,10 @@ impl<T: EthSpec> ExecutionLayer<T> {
 
 pub enum ExecutionLayerRequest<E: EthSpec> {
     UpdateForkChoice {
-        slot: Slot,
+        head_hash: ExecutionBlockHash,
+        finalized_hash: ExecutionBlockHash,
+        head_block_root: Hash256,
+        current_slot: Slot,
         responder: crossbeam_channel::Sender<ExecutionLayerResponse<E>>,
     },
     NotifyNewPayload {
@@ -406,7 +423,7 @@ pub enum ExecutionLayerRequest<E: EthSpec> {
 
 #[derive(Debug)]
 pub enum ExecutionLayerResponse<E: EthSpec> {
-    UpdateForkChoice(),
+    UpdateForkChoice(Result<PayloadStatus, Error>),
     NotifyNewPayload(Result<PayloadStatus, Error>),
     IsValidTerminalPowBlockHash(Result<Option<bool>, Error>),
     GetTerminalPowBlockHash(Result<Option<ExecutionBlockHash>, Error>),
@@ -430,17 +447,17 @@ impl<T: EthSpec> ExecutionLayer<T> {
     }
 
     /// Note: this function returns a mutex guard, be careful to avoid deadlocks.
-    async fn execution_blocks(
+    fn execution_blocks(
         &self,
     ) -> MutexGuard<'_, LruCache<ExecutionBlockHash, ExecutionBlock>> {
-        self.inner.execution_blocks.lock().await
+        self.inner.execution_blocks.lock()
     }
 
     /// Note: this function returns a mutex guard, be careful to avoid deadlocks.
-    async fn proposer_preparation_data(
+    fn proposer_preparation_data(
         &self,
     ) -> MutexGuard<'_, HashMap<u64, ProposerPreparationDataEntry>> {
-        self.inner.proposer_preparation_data.lock().await
+        self.inner.proposer_preparation_data.lock()
     }
 
     fn proposers(&self) -> &RwLock<HashMap<ProposerKey, Proposer>> {
@@ -451,8 +468,8 @@ impl<T: EthSpec> ExecutionLayer<T> {
         &self.inner.log
     }
 
-    pub async fn execution_engine_forkchoice_lock(&self) -> MutexGuard<'_, ()> {
-        self.inner.execution_engine_forkchoice_lock.lock().await
+    pub fn execution_engine_forkchoice_lock(&self) -> MutexGuard<'_, ()> {
+        self.inner.execution_engine_forkchoice_lock.lock()
     }
 
     pub fn is_valid_terminal_pow_block_hash_blocking(
@@ -485,6 +502,26 @@ impl<T: EthSpec> ExecutionLayer<T> {
         self.tx.send(req)?;
         match rx.recv()? {
             ExecutionLayerResponse::NotifyNewPayload(response) => response,
+            _ => Err(Error::InvalidResponseFromBackend),
+        }
+    }
+
+    pub fn notify_forkchoice_updated_blocking(
+        &self,
+        head_hash: ExecutionBlockHash,
+        finalized_hash: ExecutionBlockHash,
+        current_slot: Slot,
+        head_block_root: Hash256,
+    ) -> Result<PayloadStatus, Error> {
+        let (tx, rx) = crossbeam_channel::bounded(1);
+        let req = ExecutionLayerRequest::UpdateForkChoice {
+            head_hash, finalized_hash, current_slot,
+            head_block_root,
+            responder: tx,
+        };
+        self.tx.send(req)?;
+        match rx.recv()? {
+            ExecutionLayerResponse::UpdateForkChoice(response) => response,
             _ => Err(Error::InvalidResponseFromBackend),
         }
     }
@@ -663,7 +700,6 @@ impl<T: EthSpec> ExecutionLayer<T> {
                     {
                         Some(current_epoch) => el
                             .clean_proposer_caches(current_epoch)
-                            .await
                             .map_err(|e| {
                                 error!(
                                     el.log(),
@@ -714,19 +750,16 @@ impl<T: EthSpec> ExecutionLayer<T> {
         update_epoch: Epoch,
         preparation_data: &[ProposerPreparationData],
     ) -> Result<(), Error> {
-        self.block_on_generic(|_| async move {
-            self.update_proposer_preparation(update_epoch, preparation_data)
-                .await
-        })
+            Ok(self.update_proposer_preparation(update_epoch, preparation_data))
     }
 
     /// Updates the proposer preparation data provided by validators
-    async fn update_proposer_preparation(
+    fn update_proposer_preparation(
         &self,
         update_epoch: Epoch,
         preparation_data: &[ProposerPreparationData],
     ) {
-        let mut proposer_preparation_data = self.proposer_preparation_data().await;
+        let mut proposer_preparation_data = self.proposer_preparation_data();
         for preparation_entry in preparation_data {
             let new = ProposerPreparationDataEntry {
                 update_epoch,
@@ -743,8 +776,8 @@ impl<T: EthSpec> ExecutionLayer<T> {
     }
 
     /// Removes expired entries from proposer_preparation_data and proposers caches
-    async fn clean_proposer_caches(&self, current_epoch: Epoch) -> Result<(), Error> {
-        let mut proposer_preparation_data = self.proposer_preparation_data().await;
+    fn clean_proposer_caches(&self, current_epoch: Epoch) -> Result<(), Error> {
+        let mut proposer_preparation_data = self.proposer_preparation_data();
 
         // Keep all entries that have been updated in the last 2 epochs
         let retain_epoch = current_epoch.saturating_sub(Epoch::new(2));
@@ -756,7 +789,6 @@ impl<T: EthSpec> ExecutionLayer<T> {
         let retain_slot = retain_epoch.start_slot(T::slots_per_epoch());
         self.proposers()
             .write()
-            .await
             .retain(|proposer_key, _proposer| proposer_key.slot >= retain_slot);
 
         Ok(())
@@ -764,22 +796,21 @@ impl<T: EthSpec> ExecutionLayer<T> {
 
     /// Returns `true` if there have been any validators registered via
     /// `Self::update_proposer_preparation`.
-    pub async fn has_any_proposer_preparation_data(&self) -> bool {
-        !self.proposer_preparation_data().await.is_empty()
+    pub fn has_any_proposer_preparation_data(&self) -> bool {
+        !self.proposer_preparation_data().is_empty()
     }
 
     /// Returns `true` if the `proposer_index` has registered as a local validator via
     /// `Self::update_proposer_preparation`.
-    pub async fn has_proposer_preparation_data(&self, proposer_index: u64) -> bool {
+    pub fn has_proposer_preparation_data(&self, proposer_index: u64) -> bool {
         self.proposer_preparation_data()
-            .await
             .contains_key(&proposer_index)
     }
 
     /// Returns the fee-recipient address that should be used to build a block
-    pub async fn get_suggested_fee_recipient(&self, proposer_index: u64) -> Address {
+    pub fn get_suggested_fee_recipient(&self, proposer_index: u64) -> Address {
         if let Some(preparation_data_entry) =
-            self.proposer_preparation_data().await.get(&proposer_index)
+            self.proposer_preparation_data().get(&proposer_index)
         {
             // The values provided via the API have first priority.
             preparation_data_entry.preparation_data.fee_recipient
@@ -824,7 +855,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
             &[metrics::GET_PAYLOAD],
         );
 
-        let suggested_fee_recipient = self.get_suggested_fee_recipient(proposer_index).await;
+        let suggested_fee_recipient = self.get_suggested_fee_recipient(proposer_index);
 
         match Payload::block_type() {
             BlockType::Blinded => {
@@ -989,7 +1020,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
     ///
     /// The block will be built atop `head_block_root` and the EL will need to prepare an
     /// `ExecutionPayload` as defined by the given `payload_attributes`.
-    pub async fn insert_proposer(
+    pub fn insert_proposer(
         &self,
         slot: Slot,
         head_block_root: Hash256,
@@ -1001,7 +1032,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
             head_block_root,
         };
 
-        let existing = self.proposers().write().await.insert(
+        let existing = self.proposers().write().insert(
             proposers_key,
             Proposer {
                 validator_index,
@@ -1019,7 +1050,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
     /// If there has been a proposer registered via `Self::insert_proposer` with a matching `slot`
     /// `head_block_root`, then return the appropriate `PayloadAttributes` for inclusion in
     /// `forkchoiceUpdated` calls.
-    pub async fn payload_attributes(
+    pub fn payload_attributes(
         &self,
         current_slot: Slot,
         head_block_root: Hash256,
@@ -1029,7 +1060,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
             head_block_root,
         };
 
-        let proposer = self.proposers().read().await.get(&proposers_key).cloned()?;
+        let proposer = self.proposers().read().get(&proposers_key).cloned()?;
 
         debug!(
             self.log(),
@@ -1076,7 +1107,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
         );
 
         let next_slot = current_slot + 1;
-        let payload_attributes = self.payload_attributes(next_slot, head_block_root).await;
+        let payload_attributes = self.payload_attributes(next_slot, head_block_root);
 
         // Compute the "lookahead", the time between when the payload will be produced and now.
         if let Some(payload_attributes) = payload_attributes {
@@ -1271,7 +1302,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
             .await?
             .ok_or(ApiError::ExecutionHeadBlockNotFound)?;
 
-        self.execution_blocks().await.put(block.block_hash, block);
+        self.execution_blocks().put(block.block_hash, block);
 
         loop {
             let block_reached_ttd = block.total_difficulty >= spec.terminal_total_difficulty;
@@ -1409,7 +1440,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
         engine: &Engine<EngineApi>,
         hash: ExecutionBlockHash,
     ) -> Result<Option<ExecutionBlock>, ApiError> {
-        if let Some(cached) = self.execution_blocks().await.get(&hash).copied() {
+        if let Some(cached) = self.execution_blocks().get(&hash).copied() {
             // The block was in the cache, no need to request it from the execution
             // engine.
             return Ok(Some(cached));
@@ -1418,7 +1449,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
         // The block was *not* in the cache, request it from the execution
         // engine and cache it for future reference.
         if let Some(block) = engine.api.get_block_by_hash(hash).await? {
-            self.execution_blocks().await.put(hash, block);
+            self.execution_blocks().put(hash, block);
             Ok(Some(block))
         } else {
             Ok(None)
