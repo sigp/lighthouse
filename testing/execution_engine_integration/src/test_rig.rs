@@ -301,9 +301,12 @@ impl<T: GenericExecutionEngine, E: EthSpec> TestRig<T, E> {
         let slot = Slot::new(42);
         let head_block_root = Hash256::repeat_byte(100);
         let validator_index = 0;
-        self.ee_a
-            .execution_layer
-            .insert_proposer(slot, head_block_root, validator_index, payload_attributes);
+        self.ee_a.execution_layer.insert_proposer(
+            slot,
+            head_block_root,
+            validator_index,
+            payload_attributes,
+        );
         let status = self
             .ee_a
             .execution_layer

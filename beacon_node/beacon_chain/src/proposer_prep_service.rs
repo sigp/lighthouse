@@ -49,7 +49,7 @@ async fn proposer_prep_service<T: BeaconChainTypes>(
 
                 let inner_chain = chain.clone();
                 executor.spawn_blocking(
-                     move || {
+                    move || {
                         if let Ok(current_slot) = inner_chain.slot() {
                             if let Err(e) = inner_chain
                                 .clone()

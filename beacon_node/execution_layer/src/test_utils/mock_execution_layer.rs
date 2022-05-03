@@ -128,17 +128,16 @@ impl<T: EthSpec> MockExecutionLayer<T> {
         let slot = Slot::new(0);
         let head_block_root = Hash256::repeat_byte(42);
         let validator_index = 0;
-        self.el
-            .insert_proposer(
-                slot,
-                head_block_root,
-                validator_index,
-                PayloadAttributes {
-                    timestamp,
-                    prev_randao,
-                    suggested_fee_recipient: Address::repeat_byte(42),
-                },
-            );
+        self.el.insert_proposer(
+            slot,
+            head_block_root,
+            validator_index,
+            PayloadAttributes {
+                timestamp,
+                prev_randao,
+                suggested_fee_recipient: Address::repeat_byte(42),
+            },
+        );
 
         self.el
             .notify_forkchoice_updated(

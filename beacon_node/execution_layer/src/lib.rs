@@ -13,6 +13,7 @@ pub use engine_api::{http, http::HttpJsonRpc};
 pub use engines::ForkChoiceState;
 use engines::{Engine, EngineError, Engines, Logging};
 use lru::LruCache;
+use parking_lot::{Mutex, MutexGuard, RwLock};
 use payload_status::process_multiple_payload_statuses;
 pub use payload_status::PayloadStatus;
 use sensitive_url::SensitiveUrl;
@@ -29,10 +30,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use task_executor::TaskExecutor;
 use tokio::sync::mpsc;
 use tokio::sync::mpsc::UnboundedSender;
-use tokio::{
-    time::{sleep, sleep_until, Instant},
-};
-use parking_lot::{Mutex, MutexGuard, RwLock};
+use tokio::time::{sleep, sleep_until, Instant};
 use types::{
     BlindedPayload, BlockType, ChainSpec, Epoch, ExecPayload, ExecutionBlockHash, FullPayload,
     ProposerPreparationData, SignedBeaconBlock, Slot,
@@ -303,7 +301,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
                                                                        finalized_hash,
                                                                        current_slot,
                                                                        head_block_root).await;
-                            if let Err(e) = responder.send(ExecutionLayerResponse::NotifyNewPayload(res)) {
+                            if let Err(e) = responder.send(ExecutionLayerResponse::UpdateForkChoice(res)) {
                                 error!(el_ref.inner.log, "Unable to respond to blocking context execution layer request: {e:?}");
                             }
                         }
@@ -363,7 +361,6 @@ impl<T: EthSpec> ExecutionLayer<T> {
                                 error!(el_ref.inner.log, "Unable to respond to blocking context execution layer request: {e:?}");
                             }
                         }
-                        ExecutionLayerRequest::PrepareBeaconProposer { .. } => {}
                     }
                 }
             },
@@ -396,7 +393,7 @@ pub enum ExecutionLayerRequest<E: EthSpec> {
         responder: crossbeam_channel::Sender<ExecutionLayerResponse<E>>,
     },
     ProposeBlindedBlock {
-        block: SignedBeaconBlock<E, BlindedPayload<E>>,
+        block: Box<SignedBeaconBlock<E, BlindedPayload<E>>>,
         responder: crossbeam_channel::Sender<ExecutionLayerResponse<E>>,
     },
     GetFullPayload {
@@ -415,10 +412,6 @@ pub enum ExecutionLayerRequest<E: EthSpec> {
         proposer_index: u64,
         responder: crossbeam_channel::Sender<ExecutionLayerResponse<E>>,
     },
-    PrepareBeaconProposer {
-        slot: Slot,
-        responder: crossbeam_channel::Sender<ExecutionLayerResponse<E>>,
-    },
 }
 
 #[derive(Debug)]
@@ -430,7 +423,6 @@ pub enum ExecutionLayerResponse<E: EthSpec> {
     ProposeBlindedBlock(Result<ExecutionPayload<E>, Error>),
     GetFullPayload(Result<ExecutionPayload<E>, Error>),
     GetBlindedPayload(Result<ExecutionPayloadHeader<E>, Error>),
-    PrepareBeaconProposer(()),
 }
 
 impl<T: EthSpec> ExecutionLayer<T> {
@@ -447,9 +439,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
     }
 
     /// Note: this function returns a mutex guard, be careful to avoid deadlocks.
-    fn execution_blocks(
-        &self,
-    ) -> MutexGuard<'_, LruCache<ExecutionBlockHash, ExecutionBlock>> {
+    fn execution_blocks(&self) -> MutexGuard<'_, LruCache<ExecutionBlockHash, ExecutionBlock>> {
         self.inner.execution_blocks.lock()
     }
 
@@ -515,7 +505,9 @@ impl<T: EthSpec> ExecutionLayer<T> {
     ) -> Result<PayloadStatus, Error> {
         let (tx, rx) = crossbeam_channel::bounded(1);
         let req = ExecutionLayerRequest::UpdateForkChoice {
-            head_hash, finalized_hash, current_slot,
+            head_hash,
+            finalized_hash,
+            current_slot,
             head_block_root,
             responder: tx,
         };
@@ -585,7 +577,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
     ) -> Result<ExecutionPayload<T>, Error> {
         let (tx, rx) = crossbeam_channel::bounded(1);
         let req = ExecutionLayerRequest::ProposeBlindedBlock {
-            block,
+            block: Box::new(block),
             responder: tx,
         };
         self.tx.send(req)?;
@@ -593,24 +585,6 @@ impl<T: EthSpec> ExecutionLayer<T> {
             ExecutionLayerResponse::ProposeBlindedBlock(response) => response,
             _ => Err(Error::InvalidResponseFromBackend),
         }
-    }
-
-    /// Convenience function to allow calling async functions in a non-async context.
-    ///
-    /// The function is "generic" since it does not enforce a particular return type on
-    /// `generate_future`.
-    pub fn block_on_generic<'a, F, U, V>(&'a self, generate_future: F) -> Result<V, Error>
-    where
-        F: Fn(&'a Self) -> U,
-        U: Future<Output = V>,
-    {
-        let runtime = self
-            .executor()
-            .runtime()
-            .upgrade()
-            .ok_or(Error::ShuttingDown)?;
-        // TODO(merge): respect the shutdown signal.
-        Ok(runtime.block_on(generate_future(self)))
     }
 
     /// Convenience function to allow spawning a task without waiting for the result.
@@ -750,7 +724,8 @@ impl<T: EthSpec> ExecutionLayer<T> {
         update_epoch: Epoch,
         preparation_data: &[ProposerPreparationData],
     ) -> Result<(), Error> {
-            Ok(self.update_proposer_preparation(update_epoch, preparation_data))
+        self.update_proposer_preparation(update_epoch, preparation_data);
+        Ok(())
     }
 
     /// Updates the proposer preparation data provided by validators
@@ -809,8 +784,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
 
     /// Returns the fee-recipient address that should be used to build a block
     pub fn get_suggested_fee_recipient(&self, proposer_index: u64) -> Address {
-        if let Some(preparation_data_entry) =
-            self.proposer_preparation_data().get(&proposer_index)
+        if let Some(preparation_data_entry) = self.proposer_preparation_data().get(&proposer_index)
         {
             // The values provided via the API have first priority.
             preparation_data_entry.preparation_data.fee_recipient

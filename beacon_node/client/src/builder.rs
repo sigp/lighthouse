@@ -683,8 +683,7 @@ where
                         runtime_context.executor.spawn(
                             async move {
                                 let result = inner_chain
-                                    .update_execution_engine_forkchoice_async(current_slot)
-                                    .await;
+                                    .update_execution_engine_forkchoice_async(current_slot);
 
                                 // No need to exit early if setting the head fails. It will be set again if/when the
                                 // node comes online.

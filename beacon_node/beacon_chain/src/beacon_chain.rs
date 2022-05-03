@@ -3853,9 +3853,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         // If the execution layer doesn't have any proposer data for this validator then we assume
         // it's not connected to this BN and no action is required.
-        if !execution_layer
-            .has_proposer_preparation_data(proposer as u64)
-        {
+        if !execution_layer.has_proposer_preparation_data(proposer as u64) {
             return Ok(());
         }
 
@@ -3866,8 +3864,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 .ok_or(Error::InvalidSlot(prepare_slot))?
                 .as_secs(),
             prev_randao: head.random,
-            suggested_fee_recipient: execution_layer
-                .get_suggested_fee_recipient(proposer as u64)
+            suggested_fee_recipient: execution_layer.get_suggested_fee_recipient(proposer as u64),
         };
 
         debug!(
@@ -3879,13 +3876,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             "validator" => proposer,
         );
 
-        let already_known = execution_layer
-            .insert_proposer(
-                prepare_slot,
-                head.block_root,
-                proposer as u64,
-                payload_attributes,
-            );
+        let already_known = execution_layer.insert_proposer(
+            prepare_slot,
+            head.block_root,
+            proposer as u64,
+            payload_attributes,
+        );
         // Only push a log to the user if this is the first time we've seen this proposer for this
         // slot.
         if !already_known {
@@ -4064,7 +4060,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         };
 
         let forkchoice_updated_response = execution_layer
-            .notify_forkchoice_updated_blocking(head_hash, finalized_hash, current_slot, head_block_root)
+            .notify_forkchoice_updated_blocking(
+                head_hash,
+                finalized_hash,
+                current_slot,
+                head_block_root,
+            )
             .map_err(Error::ExecutionForkChoiceUpdateFailed);
 
         // The head has been read and the execution layer has been updated. It is now valid to send
