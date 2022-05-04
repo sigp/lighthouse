@@ -19,7 +19,8 @@ serde = "1.0.116"
 serde_derive = "1.0.116"
 serde_json = "1.0.0"
 store = { path = "../store" }
-eth2_serde_utils = { path = "../../consensus/serde_utils" }
+eth2_serde_utils = "0.1.1"
+tree_hash = "0.4.1"
 
 [dev-dependencies]
 beacon_chain =  { path = "../beacon_chain" }

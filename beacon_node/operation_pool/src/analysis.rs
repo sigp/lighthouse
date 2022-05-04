@@ -13,16 +13,18 @@ use std::{
     fs::{self, File},
     io,
 };
-use types::{
-    Attestation, AttestationData, BeaconCommittee, BeaconState, BeaconStateError, ChainSpec, Epoch,
-    EthSpec, RelativeEpoch, Slot,
-};
+use tree_hash::TreeHash;
+use types::{Attestation, BeaconState, BeaconStateError, ChainSpec, Epoch, EthSpec, Hash256, Slot};
 
-/// Simplified `IndexedAttestation` with no signature.
+/// Simplified `IndexedAttestation`.
 #[derive(Serialize, Deserialize)]
 pub struct IndexedAttestation {
     pub attesting_indices: Vec<u64>,
-    pub data: AttestationData,
+    pub data_root: Hash256,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub slot: Option<Slot>,
+    #[serde(with = "eth2_serde_utils::quoted_u64")]
+    pub index: u64,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -34,15 +36,6 @@ pub struct AttestationPackingProblem<E: EthSpec> {
     /// If `parent_slot < slot - 1` then there's been a skipped slot and we have an opportunity to
     /// include more attestations.
     pub parent_slot: Slot,
-    /// The total number of validators (`state.validators().len()`).
-    pub num_validators: usize,
-    /// Mapping from slot to committees at that slot (in order), for the previous epoch.
-    ///
-    /// A committee is represented as a vector of validator indices, and the committees for
-    /// a single epoch form a partitioning of the set of active validators.
-    pub previous_epoch_committees: BTreeMap<Slot, Vec<Vec<usize>>>,
-    /// Mapping from slot to committees at that slot (in order), for the current epoch.
-    pub current_epoch_committees: BTreeMap<Slot, Vec<Vec<usize>>>,
     /// Unaggregated attestations seen on the network that are relevant to the current instance.
     ///
     /// Attestations from validators that have already had an attestation included in the relevant
@@ -92,22 +85,6 @@ impl<E: EthSpec> AttestationPackingProblem<E> {
     ) -> Result<Self, BeaconStateError> {
         let slot = state.slot();
         let parent_slot = state.latest_block_header().slot;
-        let num_validators = state.validators().len();
-
-        let group_by_slot = |committees: Vec<BeaconCommittee>| {
-            let mut map = BTreeMap::new();
-            committees.into_iter().for_each(|committee| {
-                map.entry(committee.slot)
-                    .or_insert_with(Vec::new)
-                    .push(committee.committee.to_vec())
-            });
-            map
-        };
-
-        let previous_epoch_committees =
-            group_by_slot(state.get_beacon_committees_at_epoch(RelativeEpoch::Previous)?);
-        let current_epoch_committees =
-            group_by_slot(state.get_beacon_committees_at_epoch(RelativeEpoch::Current)?);
 
         let total_active_balance = state.get_total_active_balance()?;
         let mut reward_function: BTreeMap<Epoch, BTreeMap<Quoted<u64>, u64>> = BTreeMap::new();
@@ -182,8 +159,10 @@ impl<E: EthSpec> AttestationPackingProblem<E> {
                             .entry(slot)
                             .or_insert_with(Vec::new)
                             .push(IndexedAttestation {
-                                data: attestation.data,
                                 attesting_indices,
+                                data_root: attestation.data.tree_hash_root(),
+                                slot: None,
+                                index: attestation.data.index,
                             })
                     }
                 }
@@ -201,8 +180,10 @@ impl<E: EthSpec> AttestationPackingProblem<E> {
                 let indices =
                     get_attesting_indices::<E>(committee.committee, &att.aggregation_bits)?;
                 let indexed_att = IndexedAttestation {
-                    data: att.data.clone(),
                     attesting_indices: indices.into_iter().map(|x| x as u64).collect(),
+                    data_root: att.data.tree_hash_root(),
+                    slot: Some(att.data.slot),
+                    index: att.data.index,
                 };
                 Ok(indexed_att)
             })
@@ -211,9 +192,6 @@ impl<E: EthSpec> AttestationPackingProblem<E> {
         Ok(Self {
             slot,
             parent_slot,
-            num_validators,
-            previous_epoch_committees,
-            current_epoch_committees,
             unaggregated_attestations,
             aggregated_attestations,
             reward_function,
