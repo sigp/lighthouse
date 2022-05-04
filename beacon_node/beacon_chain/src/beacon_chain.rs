@@ -3017,8 +3017,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 .ok_or(BlockProductionError::UnableToReadSlot)?;
 
             // Check that we're producing a block one slot after the current head, and early enough
-            // in the slot to be able to propagate widely.
+            // in the slot to be able to propagate widely. For simplicity of analysis, also avoid
+            // proposing a re-org block in the first slot of the epoch, as
             if head_info.slot + 1 == slot
+                && slot % T::EthSpec::slots_per_epoch() != 0
                 && slot_delay < max_re_org_slot_delay(self.spec.seconds_per_slot)
             {
                 // Is the current head weak and appropriate for re-orging?
