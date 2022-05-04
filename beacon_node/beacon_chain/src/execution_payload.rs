@@ -70,7 +70,7 @@ pub fn notify_new_payload<T: BeaconChainTypes>(
                 // This block has not yet been applied to fork choice, so the latest block that was
                 // imported to fork choice was the parent.
                 let latest_root = block.parent_root();
-                chain.clone().process_invalid_execution_payload(
+                chain.process_invalid_execution_payload(
                     &InvalidationOperation::InvalidateMany {
                         head_block_root: latest_root,
                         always_invalidate_head: false,

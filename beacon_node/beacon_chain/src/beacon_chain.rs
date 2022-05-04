@@ -4150,7 +4150,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                                     },
                                 )
                             },
-                            "process_invalid_execution_payload",
+                            "process_invalid_execution_payload_many",
                         )
                         .ok_or(BeaconChainError::RuntimeShutdown)?
                         .await
@@ -4181,7 +4181,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                                     },
                                 )
                             },
-                            "process_invalid_execution_payload",
+                            "process_invalid_execution_payload_single",
                         )
                         .ok_or(BeaconChainError::RuntimeShutdown)?
                         .await
