@@ -2208,7 +2208,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// This method is generally much more efficient than importing each block using
     /// `Self::process_block`.
     pub fn process_chain_segment(
-        &self,
+        self: &Arc<Self>,
         chain_segment: Vec<SignedBeaconBlock<T::EthSpec>>,
     ) -> ChainSegmentResult<T::EthSpec> {
         let mut filtered_chain_segment = Vec::with_capacity(chain_segment.len());
@@ -2402,7 +2402,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// Returns an `Err` if the given block was invalid, or an error was encountered during
     /// verification.
     pub fn process_block<B: IntoFullyVerifiedBlock<T>>(
-        &self,
+        self: &Arc<Self>,
         unverified_block: B,
     ) -> Result<Hash256, BlockError<T::EthSpec>> {
         // Start the Prometheus timer.
@@ -3234,7 +3234,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     ///
     /// See the documentation of `InvalidationOperation` for information about defining `op`.
     pub fn process_invalid_execution_payload(
-        &self,
+        self: &Arc<Self>,
         op: &InvalidationOperation,
     ) -> Result<(), Error> {
         debug!(
@@ -3302,7 +3302,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     }
 
     /// Execute the fork choice algorithm and enthrone the result as the canonical head.
-    pub fn fork_choice(&self) -> Result<(), Error> {
+    pub fn fork_choice(self: &Arc<Self>) -> Result<(), Error> {
         metrics::inc_counter(&metrics::FORK_CHOICE_REQUESTS);
         let _timer = metrics::start_timer(&metrics::FORK_CHOICE_TIMES);
 
@@ -3315,7 +3315,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         result
     }
 
-    fn fork_choice_internal(&self) -> Result<(), Error> {
+    fn fork_choice_internal(self: &Arc<Self>) -> Result<(), Error> {
         // Atomically obtain the head block root and the finalized block.
         let (beacon_block_root, finalized_block) = {
             let mut fork_choice = self.fork_choice.write();
@@ -3718,7 +3718,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         Ok(())
     }
 
-    pub fn prepare_beacon_proposer_blocking(&self) -> Result<(), Error> {
+    pub fn prepare_beacon_proposer_blocking(self: &Arc<Self>) -> Result<(), Error> {
         let current_slot = self.slot()?;
 
         // Avoids raising an error before Bellatrix.
@@ -3750,7 +3750,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// 1. We're in the tail-end of the slot (as defined by PAYLOAD_PREPARATION_LOOKAHEAD_FACTOR)
     /// 2. The head block is one slot (or less) behind the prepare slot (e.g., we're preparing for
     ///    the next slot and the block at the current slot is already known).
-    pub async fn prepare_beacon_proposer_async(&self, current_slot: Slot) -> Result<(), Error> {
+    pub async fn prepare_beacon_proposer_async(
+        self: &Arc<Self>,
+        current_slot: Slot,
+    ) -> Result<(), Error> {
         let prepare_slot = current_slot + 1;
         let prepare_epoch = prepare_slot.epoch(T::EthSpec::slots_per_epoch());
 
@@ -3952,7 +3955,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     }
 
     pub fn update_execution_engine_forkchoice_blocking(
-        &self,
+        self: &Arc<Self>,
         current_slot: Slot,
     ) -> Result<(), Error> {
         // Avoids raising an error before Bellatrix.
@@ -3973,7 +3976,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     }
 
     pub async fn update_execution_engine_forkchoice_async(
-        &self,
+        self: &Arc<Self>,
         current_slot: Slot,
     ) -> Result<(), Error> {
         let next_slot = current_slot + 1;
@@ -4091,7 +4094,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         drop(forkchoice_lock);
 
         match forkchoice_updated_response {
-            Ok(status) => match &status {
+            Ok(status) => match status {
                 PayloadStatus::Valid => {
                     // Ensure that fork choice knows that the block is no longer optimistic.
                     if let Err(e) = self
@@ -4134,13 +4137,24 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     );
                     // The execution engine has stated that all blocks between the
                     // `head_execution_block_hash` and `latest_valid_hash` are invalid.
-                    self.process_invalid_execution_payload(
-                        &InvalidationOperation::InvalidateMany {
-                            head_block_root,
-                            always_invalidate_head: true,
-                            latest_valid_ancestor: *latest_valid_hash,
-                        },
-                    )?;
+                    let chain = self.clone();
+                    execution_layer
+                        .executor()
+                        .spawn_blocking_handle(
+                            move || {
+                                chain.process_invalid_execution_payload(
+                                    &InvalidationOperation::InvalidateMany {
+                                        head_block_root,
+                                        always_invalidate_head: true,
+                                        latest_valid_ancestor: latest_valid_hash,
+                                    },
+                                )
+                            },
+                            "process_invalid_execution_payload_many",
+                        )
+                        .ok_or(BeaconChainError::RuntimeShutdown)?
+                        .await
+                        .map_err(BeaconChainError::ProcessInvalidExecutionPayload)??;
 
                     Err(BeaconChainError::ExecutionForkChoiceUpdateInvalid { status })
                 }
@@ -4156,11 +4170,22 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     //
                     // Using a `None` latest valid ancestor will result in only the head block
                     // being invalidated (no ancestors).
-                    self.process_invalid_execution_payload(
-                        &InvalidationOperation::InvalidateOne {
-                            block_root: head_block_root,
-                        },
-                    )?;
+                    let chain = self.clone();
+                    execution_layer
+                        .executor()
+                        .spawn_blocking_handle(
+                            move || {
+                                chain.process_invalid_execution_payload(
+                                    &InvalidationOperation::InvalidateOne {
+                                        block_root: head_block_root,
+                                    },
+                                )
+                            },
+                            "process_invalid_execution_payload_single",
+                        )
+                        .ok_or(BeaconChainError::RuntimeShutdown)?
+                        .await
+                        .map_err(BeaconChainError::ProcessInvalidExecutionPayload)??;
 
                     Err(BeaconChainError::ExecutionForkChoiceUpdateInvalid { status })
                 }

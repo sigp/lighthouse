@@ -126,51 +126,156 @@ impl<T: EthSpec> MockServer<T> {
         self.ctx.previous_request.lock().take()
     }
 
-    pub fn all_payloads_valid(&self) {
-        let response = StaticNewPayloadResponse {
-            status: PayloadStatusV1 {
-                status: PayloadStatusV1Status::Valid,
-                latest_valid_hash: None,
-                validation_error: None,
-            },
-            should_import: true,
-        };
-        *self.ctx.static_forkchoice_updated_response.lock() = Some(response.status.clone());
+    pub fn set_new_payload_response(&self, response: StaticNewPayloadResponse) {
         *self.ctx.static_new_payload_response.lock() = Some(response)
+    }
+
+    pub fn set_forkchoice_updated_response(&self, status: PayloadStatusV1) {
+        *self.ctx.static_forkchoice_updated_response.lock() = Some(status);
+    }
+
+    fn valid_status() -> PayloadStatusV1 {
+        PayloadStatusV1 {
+            status: PayloadStatusV1Status::Valid,
+            latest_valid_hash: None,
+            validation_error: None,
+        }
+    }
+
+    fn valid_new_payload_response() -> StaticNewPayloadResponse {
+        StaticNewPayloadResponse {
+            status: Self::valid_status(),
+            should_import: true,
+        }
+    }
+
+    fn syncing_status() -> PayloadStatusV1 {
+        PayloadStatusV1 {
+            status: PayloadStatusV1Status::Syncing,
+            latest_valid_hash: None,
+            validation_error: None,
+        }
+    }
+
+    fn syncing_new_payload_response(should_import: bool) -> StaticNewPayloadResponse {
+        StaticNewPayloadResponse {
+            status: Self::syncing_status(),
+            should_import,
+        }
+    }
+
+    fn invalid_status(latest_valid_hash: ExecutionBlockHash) -> PayloadStatusV1 {
+        PayloadStatusV1 {
+            status: PayloadStatusV1Status::Invalid,
+            latest_valid_hash: Some(latest_valid_hash),
+            validation_error: Some("static response".into()),
+        }
+    }
+
+    fn invalid_new_payload_response(
+        latest_valid_hash: ExecutionBlockHash,
+    ) -> StaticNewPayloadResponse {
+        StaticNewPayloadResponse {
+            status: Self::invalid_status(latest_valid_hash),
+            should_import: true,
+        }
+    }
+
+    fn invalid_block_hash_status() -> PayloadStatusV1 {
+        PayloadStatusV1 {
+            status: PayloadStatusV1Status::InvalidBlockHash,
+            latest_valid_hash: None,
+            validation_error: Some("static response".into()),
+        }
+    }
+
+    fn invalid_block_hash_new_payload_response() -> StaticNewPayloadResponse {
+        StaticNewPayloadResponse {
+            status: Self::invalid_block_hash_status(),
+            should_import: true,
+        }
+    }
+
+    fn invalid_terminal_block_status() -> PayloadStatusV1 {
+        PayloadStatusV1 {
+            status: PayloadStatusV1Status::InvalidTerminalBlock,
+            latest_valid_hash: None,
+            validation_error: Some("static response".into()),
+        }
+    }
+
+    fn invalid_terminal_block_new_payload_response() -> StaticNewPayloadResponse {
+        StaticNewPayloadResponse {
+            status: Self::invalid_terminal_block_status(),
+            should_import: true,
+        }
+    }
+
+    pub fn all_payloads_valid(&self) {
+        self.all_payloads_valid_on_new_payload();
+        self.all_payloads_valid_on_forkchoice_updated();
+    }
+
+    pub fn all_payloads_valid_on_new_payload(&self) {
+        self.set_new_payload_response(Self::valid_new_payload_response());
+    }
+
+    pub fn all_payloads_valid_on_forkchoice_updated(&self) {
+        self.set_forkchoice_updated_response(Self::valid_status());
     }
 
     /// Setting `should_import = true` simulates an EE that initially returns `SYNCING` but obtains
-    /// the block via it's own means (e.g., devp2p).
+    /// the block via its own means (e.g., devp2p).
     pub fn all_payloads_syncing(&self, should_import: bool) {
-        let response = StaticNewPayloadResponse {
-            status: PayloadStatusV1 {
-                status: PayloadStatusV1Status::Syncing,
-                latest_valid_hash: None,
-                validation_error: None,
-            },
-            should_import,
-        };
-        *self.ctx.static_forkchoice_updated_response.lock() = Some(response.status.clone());
-        *self.ctx.static_new_payload_response.lock() = Some(response)
+        self.all_payloads_syncing_on_new_payload(should_import);
+        self.all_payloads_syncing_on_forkchoice_updated();
+    }
+
+    pub fn all_payloads_syncing_on_new_payload(&self, should_import: bool) {
+        self.set_new_payload_response(Self::syncing_new_payload_response(should_import));
+    }
+
+    pub fn all_payloads_syncing_on_forkchoice_updated(&self) {
+        self.set_forkchoice_updated_response(Self::syncing_status());
     }
 
     pub fn all_payloads_invalid(&self, latest_valid_hash: ExecutionBlockHash) {
-        let response = StaticNewPayloadResponse {
-            status: PayloadStatusV1 {
-                status: PayloadStatusV1Status::Invalid,
-                latest_valid_hash: Some(latest_valid_hash),
-                validation_error: Some("static response".into()),
-            },
-            should_import: true,
-        };
-        *self.ctx.static_forkchoice_updated_response.lock() = Some(response.status.clone());
-        *self.ctx.static_new_payload_response.lock() = Some(response)
+        self.all_payloads_invalid_on_new_payload(latest_valid_hash);
+        self.all_payloads_invalid_on_forkchoice_updated(latest_valid_hash);
     }
 
-    /// Disables any static payload response so the execution block generator will do its own
+    pub fn all_payloads_invalid_on_new_payload(&self, latest_valid_hash: ExecutionBlockHash) {
+        self.set_new_payload_response(Self::invalid_new_payload_response(latest_valid_hash));
+    }
+
+    pub fn all_payloads_invalid_on_forkchoice_updated(
+        &self,
+        latest_valid_hash: ExecutionBlockHash,
+    ) {
+        self.set_forkchoice_updated_response(Self::invalid_status(latest_valid_hash));
+    }
+
+    pub fn all_payloads_invalid_block_hash_on_new_payload(&self) {
+        self.set_new_payload_response(Self::invalid_block_hash_new_payload_response());
+    }
+
+    pub fn all_payloads_invalid_block_hash_on_forkchoice_updated(&self) {
+        self.set_forkchoice_updated_response(Self::invalid_block_hash_status());
+    }
+
+    pub fn all_payloads_invalid_terminal_block_on_new_payload(&self) {
+        self.set_new_payload_response(Self::invalid_terminal_block_new_payload_response());
+    }
+
+    pub fn all_payloads_invalid_terminal_block_on_forkchoice_updated(&self) {
+        self.set_forkchoice_updated_response(Self::invalid_terminal_block_status());
+    }
+
+    /// Disables any static payload responses so the execution block generator will do its own
     /// verification.
     pub fn full_payload_verification(&self) {
-        *self.ctx.static_new_payload_response.lock() = None
+        *self.ctx.static_new_payload_response.lock() = None;
+        *self.ctx.static_forkchoice_updated_response.lock() = None;
     }
 
     pub fn insert_pow_block(

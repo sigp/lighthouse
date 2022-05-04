@@ -26,6 +26,7 @@ use state_processing::{
 };
 use std::time::Duration;
 use task_executor::ShutdownReason;
+use tokio::task::JoinError;
 use types::*;
 
 macro_rules! easy_from_to {
@@ -170,6 +171,8 @@ pub enum BeaconChainError {
     CannotAttestToFinalizedBlock {
         beacon_block_root: Hash256,
     },
+    RuntimeShutdown,
+    ProcessInvalidExecutionPayload(JoinError),
 }
 
 easy_from_to!(SlotProcessingError, BeaconChainError);
