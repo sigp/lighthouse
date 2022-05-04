@@ -30,3 +30,8 @@ async fn deposit_contract_custom_network() {
 
     assert_eq!(result, expected);
 }
+
+// Test that the beacon node will try to perform proposer boost re-orgs on late blocks when
+// configured.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+pub fn proposer_boost_re_org_success() {}

@@ -46,13 +46,28 @@ pub struct ApiServer<E: EthSpec, SFut: Future<Output = ()>> {
     pub external_peer_id: PeerId,
 }
 
+type Mutator<E> = BoxedMutator<E, MemoryStore<E>, MemoryStore<E>>;
+
 impl<E: EthSpec> InteractiveTester<E> {
     pub async fn new(spec: Option<ChainSpec>, validator_count: usize) -> Self {
-        let harness = BeaconChainHarness::builder(E::default())
+        Self::new_with_mutator(spec, validator_count, None)
+    }
+
+    pub async fn new_with_mutator(
+        spec: Option<ChainSpec>,
+        validator_count: usize,
+        mutator: Option<Mutator<E>>,
+    ) -> Self {
+        let harness_builder = BeaconChainHarness::builder(E::default())
             .spec_or_default(spec)
             .deterministic_keypairs(validator_count)
-            .fresh_ephemeral_store()
-            .build();
+            .fresh_ephemeral_store();
+
+        if let Some(mutator) = mutator {
+            harness_builder = harness_builder.initial_mutator(mutator);
+        }
+
+        let harness = harness_builder.build();
 
         let ApiServer {
             server,
