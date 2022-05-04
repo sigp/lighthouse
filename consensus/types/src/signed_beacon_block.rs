@@ -52,27 +52,27 @@ impl From<SignedBeaconBlockHash> for Hash256 {
         ),
         derivative(PartialEq, Hash(bound = "E: EthSpec")),
         cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary)),
-        serde(bound = "E: EthSpec")
+        serde(bound = "E: EthSpec, Payload: ExecPayload<E>"),
     )
 )]
 #[derive(Debug, Clone, Serialize, Deserialize, Encode, TreeHash, Derivative)]
 #[derivative(PartialEq, Hash(bound = "E: EthSpec"))]
 #[serde(untagged)]
-#[serde(bound = "E: EthSpec")]
+#[serde(bound = "E: EthSpec, Payload: ExecPayload<E>")]
 #[cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary))]
 #[tree_hash(enum_behaviour = "transparent")]
 #[ssz(enum_behaviour = "transparent")]
-pub struct SignedBeaconBlock<E: EthSpec> {
+pub struct SignedBeaconBlock<E: EthSpec, Payload: ExecPayload<E> = FullPayload<E>> {
     #[superstruct(only(Base), partial_getter(rename = "message_base"))]
-    pub message: BeaconBlockBase<E>,
+    pub message: BeaconBlockBase<E, Payload>,
     #[superstruct(only(Altair), partial_getter(rename = "message_altair"))]
-    pub message: BeaconBlockAltair<E>,
+    pub message: BeaconBlockAltair<E, Payload>,
     #[superstruct(only(Merge), partial_getter(rename = "message_merge"))]
-    pub message: BeaconBlockMerge<E>,
+    pub message: BeaconBlockMerge<E, Payload>,
     pub signature: Signature,
 }
 
-impl<E: EthSpec> SignedBeaconBlock<E> {
+impl<E: EthSpec, Payload: ExecPayload<E>> SignedBeaconBlock<E, Payload> {
     /// Returns the name of the fork pertaining to `self`.
     ///
     /// Will return an `Err` if `self` has been instantiated to a variant conflicting with the fork
@@ -94,7 +94,7 @@ impl<E: EthSpec> SignedBeaconBlock<E> {
     /// SSZ decode with custom decode function.
     pub fn from_ssz_bytes_with(
         bytes: &[u8],
-        block_decoder: impl FnOnce(&[u8]) -> Result<BeaconBlock<E>, ssz::DecodeError>,
+        block_decoder: impl FnOnce(&[u8]) -> Result<BeaconBlock<E, Payload>, ssz::DecodeError>,
     ) -> Result<Self, ssz::DecodeError> {
         // We need the customer decoder for `BeaconBlock`, which doesn't compose with the other
         // SSZ utils, so we duplicate some parts of `ssz_derive` here.
@@ -113,7 +113,7 @@ impl<E: EthSpec> SignedBeaconBlock<E> {
     }
 
     /// Create a new `SignedBeaconBlock` from a `BeaconBlock` and `Signature`.
-    pub fn from_block(block: BeaconBlock<E>, signature: Signature) -> Self {
+    pub fn from_block(block: BeaconBlock<E, Payload>, signature: Signature) -> Self {
         match block {
             BeaconBlock::Base(message) => {
                 SignedBeaconBlock::Base(SignedBeaconBlockBase { message, signature })
@@ -131,7 +131,7 @@ impl<E: EthSpec> SignedBeaconBlock<E> {
     ///
     /// This is necessary to get a `&BeaconBlock` from a `SignedBeaconBlock` because
     /// `SignedBeaconBlock` only contains a `BeaconBlock` _variant_.
-    pub fn deconstruct(self) -> (BeaconBlock<E>, Signature) {
+    pub fn deconstruct(self) -> (BeaconBlock<E, Payload>, Signature) {
         match self {
             SignedBeaconBlock::Base(block) => (BeaconBlock::Base(block.message), block.signature),
             SignedBeaconBlock::Altair(block) => {
@@ -142,7 +142,7 @@ impl<E: EthSpec> SignedBeaconBlock<E> {
     }
 
     /// Accessor for the block's `message` field as a ref.
-    pub fn message(&self) -> BeaconBlockRef<'_, E> {
+    pub fn message(&self) -> BeaconBlockRef<'_, E, Payload> {
         match self {
             SignedBeaconBlock::Base(inner) => BeaconBlockRef::Base(&inner.message),
             SignedBeaconBlock::Altair(inner) => BeaconBlockRef::Altair(&inner.message),
@@ -151,7 +151,7 @@ impl<E: EthSpec> SignedBeaconBlock<E> {
     }
 
     /// Accessor for the block's `message` as a mutable reference (for testing only).
-    pub fn message_mut(&mut self) -> BeaconBlockRefMut<'_, E> {
+    pub fn message_mut(&mut self) -> BeaconBlockRefMut<'_, E, Payload> {
         match self {
             SignedBeaconBlock::Base(inner) => BeaconBlockRefMut::Base(&mut inner.message),
             SignedBeaconBlock::Altair(inner) => BeaconBlockRefMut::Altair(&mut inner.message),

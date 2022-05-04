@@ -86,10 +86,10 @@ execute_command_add_PID() {
     echo "$!" >> $PID_FILE
 }
 
-# Start ganache-cli, setup things up and start the bootnode.
+# Start ganache, setup things up and start the bootnode.
 # The delays are necessary, hopefully there is a better way :(
 
-# Delay to let ganache-cli to get started
+# Delay to let ganache to get started
 execute_command_add_PID ganache_test_node.log ./ganache_test_node.sh
 sleeping 10
 

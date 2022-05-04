@@ -6,8 +6,8 @@ use std::marker::PhantomData;
 use std::time::Duration;
 use types::{
     consts::merge::INTERVALS_PER_SLOT, AttestationShufflingId, BeaconBlock, BeaconState,
-    BeaconStateError, ChainSpec, Checkpoint, Epoch, EthSpec, ExecutionBlockHash, Hash256,
-    IndexedAttestation, RelativeEpoch, SignedBeaconBlock, Slot,
+    BeaconStateError, ChainSpec, Checkpoint, Epoch, EthSpec, ExecPayload, ExecutionBlockHash,
+    Hash256, IndexedAttestation, RelativeEpoch, SignedBeaconBlock, Slot,
 };
 
 #[derive(Debug)]
@@ -18,6 +18,7 @@ pub enum Error<T> {
     InvalidProtoArrayBytes(String),
     InvalidLegacyProtoArrayBytes(String),
     FailedToProcessInvalidExecutionPayload(String),
+    FailedToProcessValidExecutionPayload(String),
     MissingProtoArrayBlock(Hash256),
     UnknownAncestor {
         ancestor_slot: Slot,
@@ -121,9 +122,20 @@ pub enum PayloadVerificationStatus {
     /// An EL has declared the execution payload to be valid.
     Verified,
     /// An EL has not yet made a determination about the execution payload.
-    NotVerified,
+    Optimistic,
     /// The block is either pre-merge-fork, or prior to the terminal PoW block.
     Irrelevant,
+}
+
+impl PayloadVerificationStatus {
+    /// Returns `true` if the payload was optimistically imported.
+    pub fn is_optimistic(&self) -> bool {
+        match self {
+            PayloadVerificationStatus::Verified => false,
+            PayloadVerificationStatus::Optimistic => true,
+            PayloadVerificationStatus::Irrelevant => false,
+        }
+    }
 }
 
 /// Calculate how far `slot` lies from the start of its epoch.
@@ -241,6 +253,14 @@ pub enum AttestationFromBlock {
     False,
 }
 
+/// Parameters which are cached between calls to `Self::get_head`.
+#[derive(Clone, Copy)]
+pub struct ForkchoiceUpdateParameters {
+    pub head_root: Hash256,
+    pub head_hash: Option<ExecutionBlockHash>,
+    pub finalized_hash: Option<ExecutionBlockHash>,
+}
+
 /// Provides an implementation of "Ethereum 2.0 Phase 0 -- Beacon Chain Fork Choice":
 ///
 /// https://github.com/ethereum/eth2.0-specs/blob/v0.12.1/specs/phase0/fork-choice.md#ethereum-20-phase-0----beacon-chain-fork-choice
@@ -258,6 +278,8 @@ pub struct ForkChoice<T, E> {
     proto_array: ProtoArrayForkChoice,
     /// Attestations that arrived at the current slot and must be queued for later processing.
     queued_attestations: Vec<QueuedAttestation>,
+    /// Stores a cache of the values required to be sent to the execution layer.
+    forkchoice_update_parameters: Option<ForkchoiceUpdateParameters>,
     _phantom: PhantomData<E>,
 }
 
@@ -313,7 +335,7 @@ where
                 } else {
                     // Assume that this payload is valid, since the anchor should be a trusted block and
                     // state.
-                    ExecutionStatus::Valid(message.body.execution_payload.block_hash)
+                    ExecutionStatus::Valid(message.body.execution_payload.block_hash())
                 }
             },
         );
@@ -332,6 +354,7 @@ where
             fc_store,
             proto_array,
             queued_attestations: vec![],
+            forkchoice_update_parameters: None,
             _phantom: PhantomData,
         })
     }
@@ -349,8 +372,18 @@ where
             fc_store,
             proto_array,
             queued_attestations,
+            forkchoice_update_parameters: None,
             _phantom: PhantomData,
         }
+    }
+
+    /// Returns cached information that can be used to issue a `forkchoiceUpdated` message to an
+    /// execution engine.
+    ///
+    /// These values are updated each time `Self::get_head` is called. May return `None` if
+    /// `Self::get_head` has not yet been called.
+    pub fn get_forkchoice_update_parameters(&self) -> Option<ForkchoiceUpdateParameters> {
+        self.forkchoice_update_parameters
     }
 
     /// Returns the block root of an ancestor of `block_root` at the given `slot`. (Note: `slot` refers
@@ -414,15 +447,29 @@ where
 
         let store = &mut self.fc_store;
 
-        self.proto_array
-            .find_head::<E>(
-                *store.justified_checkpoint(),
-                *store.finalized_checkpoint(),
-                store.justified_balances(),
-                store.proposer_boost_root(),
-                spec,
-            )
-            .map_err(Into::into)
+        let head_root = self.proto_array.find_head::<E>(
+            *store.justified_checkpoint(),
+            *store.finalized_checkpoint(),
+            store.justified_balances(),
+            store.proposer_boost_root(),
+            spec,
+        )?;
+
+        // Cache some values for the next forkchoiceUpdate call to the execution layer.
+        let head_hash = self
+            .get_block(&head_root)
+            .and_then(|b| b.execution_status.block_hash());
+        let finalized_root = self.finalized_checkpoint().root;
+        let finalized_hash = self
+            .get_block(&finalized_root)
+            .and_then(|b| b.execution_status.block_hash());
+        self.forkchoice_update_parameters = Some(ForkchoiceUpdateParameters {
+            head_root,
+            head_hash,
+            finalized_hash,
+        });
+
+        Ok(head_root)
     }
 
     pub fn get_proposer_head(
@@ -494,6 +541,16 @@ where
         }
 
         Ok(true)
+    }
+
+    /// See `ProtoArrayForkChoice::process_execution_payload_validation` for documentation.
+    pub fn on_valid_execution_payload(
+        &mut self,
+        block_root: Hash256,
+    ) -> Result<(), Error<T::Error>> {
+        self.proto_array
+            .process_execution_payload_validation(block_root)
+            .map_err(Error::FailedToProcessValidExecutionPayload)
     }
 
     /// See `ProtoArrayForkChoice::process_execution_payload_invalidation` for documentation.
@@ -632,7 +689,7 @@ where
             .map_err(Error::AfterBlockFailed)?;
 
         let execution_status = if let Ok(execution_payload) = block.body().execution_payload() {
-            let block_hash = execution_payload.block_hash;
+            let block_hash = execution_payload.block_hash();
 
             if block_hash == ExecutionBlockHash::zero() {
                 // The block is post-merge-fork, but pre-terminal-PoW block. We don't need to verify
@@ -641,7 +698,9 @@ where
             } else {
                 match payload_verification_status {
                     PayloadVerificationStatus::Verified => ExecutionStatus::Valid(block_hash),
-                    PayloadVerificationStatus::NotVerified => ExecutionStatus::Unknown(block_hash),
+                    PayloadVerificationStatus::Optimistic => {
+                        ExecutionStatus::Optimistic(block_hash)
+                    }
                     // It would be a logic error to declare a block irrelevant if it has an
                     // execution payload with a non-zero block hash.
                     PayloadVerificationStatus::Irrelevant => {
@@ -917,6 +976,15 @@ where
         }
     }
 
+    /// Returns an `ExecutionStatus` if the block is known **and** a descendant of the finalized root.
+    pub fn get_block_execution_status(&self, block_root: &Hash256) -> Option<ExecutionStatus> {
+        if self.is_descendant_of_finalized(*block_root) {
+            self.proto_array.get_block_execution_status(block_root)
+        } else {
+            None
+        }
+    }
+
     /// Returns the `ProtoBlock` for the justified checkpoint.
     ///
     /// ## Notes
@@ -1068,6 +1136,7 @@ where
             fc_store,
             proto_array,
             queued_attestations: persisted.queued_attestations,
+            forkchoice_update_parameters: None,
             _phantom: PhantomData,
         })
     }

@@ -4,7 +4,7 @@ use crate::exec::CommandLineTestExec;
 use bls::{Keypair, PublicKeyBytes};
 use std::fs::File;
 use std::io::Write;
-use std::net::Ipv4Addr;
+use std::net::IpAddr;
 use std::path::PathBuf;
 use std::process::Command;
 use std::str::FromStr;
@@ -320,7 +320,7 @@ fn http_flag() {
 }
 #[test]
 fn http_address_flag() {
-    let addr = "127.0.0.99".parse::<Ipv4Addr>().unwrap();
+    let addr = "127.0.0.99".parse::<IpAddr>().unwrap();
     CommandLineTest::new()
         .flag("http-address", Some("127.0.0.99"))
         .flag("unencrypted-http-transport", None)
@@ -328,9 +328,18 @@ fn http_address_flag() {
         .with_config(|config| assert_eq!(config.http_api.listen_addr, addr));
 }
 #[test]
+fn http_address_ipv6_flag() {
+    let addr = "::1".parse::<IpAddr>().unwrap();
+    CommandLineTest::new()
+        .flag("http-address", Some("::1"))
+        .flag("unencrypted-http-transport", None)
+        .run()
+        .with_config(|config| assert_eq!(config.http_api.listen_addr, addr));
+}
+#[test]
 #[should_panic]
 fn missing_unencrypted_http_transport_flag() {
-    let addr = "127.0.0.99".parse::<Ipv4Addr>().unwrap();
+    let addr = "127.0.0.99".parse::<IpAddr>().unwrap();
     CommandLineTest::new()
         .flag("http-address", Some("127.0.0.99"))
         .run()
@@ -373,9 +382,17 @@ fn metrics_flag() {
 }
 #[test]
 fn metrics_address_flag() {
-    let addr = "127.0.0.99".parse::<Ipv4Addr>().unwrap();
+    let addr = "127.0.0.99".parse::<IpAddr>().unwrap();
     CommandLineTest::new()
         .flag("metrics-address", Some("127.0.0.99"))
+        .run()
+        .with_config(|config| assert_eq!(config.http_metrics.listen_addr, addr));
+}
+#[test]
+fn metrics_address_ipv6_flag() {
+    let addr = "::1".parse::<IpAddr>().unwrap();
+    CommandLineTest::new()
+        .flag("metrics-address", Some("::1"))
         .run()
         .with_config(|config| assert_eq!(config.http_metrics.listen_addr, addr));
 }

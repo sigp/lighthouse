@@ -2,7 +2,7 @@ pub use crate::persisted_beacon_chain::PersistedBeaconChain;
 pub use crate::{
     beacon_chain::{BEACON_CHAIN_DB_KEY, ETH1_CACHE_DB_KEY, FORK_CHOICE_DB_KEY, OP_POOL_DB_KEY},
     migrate::MigratorConfig,
-    BeaconChainError,
+    BeaconChainError, ProduceBlockVerification,
 };
 use crate::{
     builder::{BeaconChainBuilder, Witness},
@@ -31,7 +31,10 @@ use rayon::prelude::*;
 use sensitive_url::SensitiveUrl;
 use slog::Logger;
 use slot_clock::TestingSlotClock;
-use state_processing::{state_advance::complete_state_advance, StateRootStrategy};
+use state_processing::{
+    state_advance::{complete_state_advance, partial_state_advance},
+    StateRootStrategy,
+};
 use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
 use std::str::FromStr;
@@ -42,15 +45,7 @@ use task_executor::ShutdownReason;
 use tree_hash::TreeHash;
 use types::sync_selection_proof::SyncSelectionProof;
 pub use types::test_utils::generate_deterministic_keypairs;
-use types::{
-    typenum::U4294967296, Address, AggregateSignature, Attestation, AttestationData,
-    AttesterSlashing, BeaconBlock, BeaconState, BeaconStateHash, ChainSpec, Checkpoint, Deposit,
-    DepositData, Domain, Epoch, EthSpec, ForkName, Graffiti, Hash256, IndexedAttestation, Keypair,
-    ProposerSlashing, PublicKeyBytes, SelectionProof, SignatureBytes, SignedAggregateAndProof,
-    SignedBeaconBlock, SignedBeaconBlockHash, SignedContributionAndProof, SignedRoot,
-    SignedVoluntaryExit, Slot, SubnetId, SyncCommittee, SyncCommitteeContribution,
-    SyncCommitteeMessage, VariableList, VoluntaryExit,
-};
+use types::{typenum::U4294967296, *};
 
 // 4th September 2019
 pub const HARNESS_GENESIS_TIME: u64 = 1_567_552_690;
@@ -337,14 +332,20 @@ where
 
         let el_runtime = ExecutionLayerRuntime::default();
 
-        let urls = urls
+        let urls: Vec<SensitiveUrl> = urls
             .iter()
             .map(|s| SensitiveUrl::parse(*s))
             .collect::<Result<_, _>>()
             .unwrap();
-        let execution_layer = ExecutionLayer::from_urls(
-            urls,
-            Some(Address::repeat_byte(42)),
+
+        let config = execution_layer::Config {
+            execution_endpoints: urls,
+            secret_files: vec![],
+            suggested_fee_recipient: Some(Address::repeat_byte(42)),
+            ..Default::default()
+        };
+        let execution_layer = ExecutionLayer::from_config(
+            config,
             el_runtime.task_executor.clone(),
             el_runtime.log.clone(),
         )
@@ -598,7 +599,14 @@ where
 
         let (block, state) = self
             .chain
-            .produce_block_on_state(state, None, slot, randao_reveal, Some(graffiti))
+            .produce_block_on_state(
+                state,
+                None,
+                slot,
+                randao_reveal,
+                Some(graffiti),
+                ProduceBlockVerification::VerifyRandao,
+            )
             .unwrap();
 
         let signed_block = block.sign(
@@ -652,7 +660,14 @@ where
 
         let (block, state) = self
             .chain
-            .produce_block_on_state(state, None, slot, randao_reveal, Some(graffiti))
+            .produce_block_on_state(
+                state,
+                None,
+                slot,
+                randao_reveal,
+                Some(graffiti),
+                ProduceBlockVerification::VerifyRandao,
+            )
             .unwrap();
 
         let signed_block = block.sign(
@@ -663,6 +678,67 @@ where
         );
 
         (signed_block, pre_state)
+    }
+
+    /// Produces an "unaggregated" attestation for the given `slot` and `index` that attests to
+    /// `beacon_block_root`. The provided `state` should match the `block.state_root` for the
+    /// `block` identified by `beacon_block_root`.
+    ///
+    /// The attestation doesn't _really_ have anything about it that makes it unaggregated per say,
+    /// however this function is only required in the context of forming an unaggregated
+    /// attestation. It would be an (undetectable) violation of the protocol to create a
+    /// `SignedAggregateAndProof` based upon the output of this function.
+    ///
+    /// This function will produce attestations to optimistic blocks, which is against the
+    /// specification but useful during testing.
+    pub fn produce_unaggregated_attestation_for_block(
+        &self,
+        slot: Slot,
+        index: CommitteeIndex,
+        beacon_block_root: Hash256,
+        mut state: Cow<BeaconState<E>>,
+        state_root: Hash256,
+    ) -> Result<Attestation<E>, BeaconChainError> {
+        let epoch = slot.epoch(E::slots_per_epoch());
+
+        if state.slot() > slot {
+            return Err(BeaconChainError::CannotAttestToFutureState);
+        } else if state.current_epoch() < epoch {
+            let mut_state = state.to_mut();
+            // Only perform a "partial" state advance since we do not require the state roots to be
+            // accurate.
+            partial_state_advance(
+                mut_state,
+                Some(state_root),
+                epoch.start_slot(E::slots_per_epoch()),
+                &self.spec,
+            )?;
+            mut_state.build_committee_cache(RelativeEpoch::Current, &self.spec)?;
+        }
+
+        let committee_len = state.get_beacon_committee(slot, index)?.committee.len();
+
+        let target_slot = epoch.start_slot(E::slots_per_epoch());
+        let target_root = if state.slot() <= target_slot {
+            beacon_block_root
+        } else {
+            *state.get_block_root(target_slot)?
+        };
+
+        Ok(Attestation {
+            aggregation_bits: BitList::with_capacity(committee_len)?,
+            data: AttestationData {
+                slot,
+                index,
+                beacon_block_root,
+                source: state.current_justified_checkpoint(),
+                target: Checkpoint {
+                    epoch,
+                    root: target_root,
+                },
+            },
+            signature: AggregateSignature::empty(),
+        })
     }
 
     /// A list of attestations for each committee for the given slot.
@@ -696,7 +772,6 @@ where
                             return None;
                         }
                         let mut attestation = self
-                            .chain
                             .produce_unaggregated_attestation_for_block(
                                 attestation_slot,
                                 bc.index,
@@ -879,6 +954,7 @@ where
                         let aggregate = self
                             .chain
                             .get_aggregated_attestation(&attestation.data)
+                            .unwrap()
                             .unwrap_or_else(|| {
                                 committee_attestations.iter().skip(1).fold(
                                     attestation.clone(),

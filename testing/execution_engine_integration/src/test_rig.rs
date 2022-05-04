@@ -4,7 +4,10 @@ use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use task_executor::TaskExecutor;
 use tokio::time::sleep;
-use types::{Address, ChainSpec, EthSpec, ExecutionBlockHash, Hash256, MainnetEthSpec, Uint256};
+use types::{
+    Address, ChainSpec, EthSpec, ExecutionBlockHash, FullPayload, Hash256, MainnetEthSpec, Slot,
+    Uint256,
+};
 
 const EXECUTION_ENGINE_START_TIMEOUT: Duration = Duration::from_secs(10);
 
@@ -46,10 +49,17 @@ impl<E: GenericExecutionEngine> TestRig<E> {
 
         let ee_a = {
             let execution_engine = ExecutionEngine::new(generic_engine.clone());
-            let urls = vec![execution_engine.http_url()];
+            let urls = vec![execution_engine.http_auth_url()];
+
+            let config = execution_layer::Config {
+                execution_endpoints: urls,
+                secret_files: vec![],
+                suggested_fee_recipient: Some(Address::repeat_byte(42)),
+                default_datadir: execution_engine.datadir(),
+                ..Default::default()
+            };
             let execution_layer =
-                ExecutionLayer::from_urls(urls, fee_recipient, executor.clone(), log.clone())
-                    .unwrap();
+                ExecutionLayer::from_config(config, executor.clone(), log.clone()).unwrap();
             ExecutionPair {
                 execution_engine,
                 execution_layer,
@@ -59,8 +69,16 @@ impl<E: GenericExecutionEngine> TestRig<E> {
         let ee_b = {
             let execution_engine = ExecutionEngine::new(generic_engine);
             let urls = vec![execution_engine.http_url()];
+
+            let config = execution_layer::Config {
+                execution_endpoints: urls,
+                secret_files: vec![],
+                suggested_fee_recipient: fee_recipient,
+                default_datadir: execution_engine.datadir(),
+                ..Default::default()
+            };
             let execution_layer =
-                ExecutionLayer::from_urls(urls, fee_recipient, executor, log).unwrap();
+                ExecutionLayer::from_config(config, executor, log.clone()).unwrap();
             ExecutionPair {
                 execution_engine,
                 execution_layer,
@@ -109,6 +127,16 @@ impl<E: GenericExecutionEngine> TestRig<E> {
         self.wait_until_synced().await;
 
         /*
+         * Check the transition config endpoint.
+         */
+        for ee in [&self.ee_a, &self.ee_b] {
+            ee.execution_layer
+                .exchange_transition_configuration(&self.spec)
+                .await
+                .unwrap();
+        }
+
+        /*
          * Read the terminal block hash from both pairs, check it's equal.
          */
 
@@ -144,7 +172,7 @@ impl<E: GenericExecutionEngine> TestRig<E> {
         let valid_payload = self
             .ee_a
             .execution_layer
-            .get_payload::<MainnetEthSpec>(
+            .get_payload::<MainnetEthSpec, FullPayload<MainnetEthSpec>>(
                 parent_hash,
                 timestamp,
                 prev_randao,
@@ -152,7 +180,8 @@ impl<E: GenericExecutionEngine> TestRig<E> {
                 proposer_index,
             )
             .await
-            .unwrap();
+            .unwrap()
+            .execution_payload;
 
         /*
          * Execution Engine A:
@@ -162,11 +191,12 @@ impl<E: GenericExecutionEngine> TestRig<E> {
          */
         let head_block_hash = valid_payload.block_hash;
         let finalized_block_hash = ExecutionBlockHash::zero();
-        let payload_attributes = None;
+        let slot = Slot::new(42);
+        let head_block_root = Hash256::repeat_byte(42);
         let status = self
             .ee_a
             .execution_layer
-            .notify_forkchoice_updated(head_block_hash, finalized_block_hash, payload_attributes)
+            .notify_forkchoice_updated(head_block_hash, finalized_block_hash, slot, head_block_root)
             .await
             .unwrap();
         assert_eq!(status, PayloadStatus::Syncing);
@@ -194,11 +224,12 @@ impl<E: GenericExecutionEngine> TestRig<E> {
          */
         let head_block_hash = valid_payload.block_hash;
         let finalized_block_hash = ExecutionBlockHash::zero();
-        let payload_attributes = None;
+        let slot = Slot::new(42);
+        let head_block_root = Hash256::repeat_byte(42);
         let status = self
             .ee_a
             .execution_layer
-            .notify_forkchoice_updated(head_block_hash, finalized_block_hash, payload_attributes)
+            .notify_forkchoice_updated(head_block_hash, finalized_block_hash, slot, head_block_root)
             .await
             .unwrap();
         assert_eq!(status, PayloadStatus::Valid);
@@ -233,7 +264,7 @@ impl<E: GenericExecutionEngine> TestRig<E> {
         let second_payload = self
             .ee_a
             .execution_layer
-            .get_payload::<MainnetEthSpec>(
+            .get_payload::<MainnetEthSpec, FullPayload<MainnetEthSpec>>(
                 parent_hash,
                 timestamp,
                 prev_randao,
@@ -241,7 +272,8 @@ impl<E: GenericExecutionEngine> TestRig<E> {
                 proposer_index,
             )
             .await
-            .unwrap();
+            .unwrap()
+            .execution_payload;
 
         /*
          * Execution Engine A:
@@ -264,15 +296,22 @@ impl<E: GenericExecutionEngine> TestRig<E> {
          */
         let head_block_hash = valid_payload.block_hash;
         let finalized_block_hash = ExecutionBlockHash::zero();
-        let payload_attributes = Some(PayloadAttributes {
+        let payload_attributes = PayloadAttributes {
             timestamp: second_payload.timestamp + 1,
             prev_randao: Hash256::zero(),
             suggested_fee_recipient: Address::zero(),
-        });
+        };
+        let slot = Slot::new(42);
+        let head_block_root = Hash256::repeat_byte(100);
+        let validator_index = 0;
+        self.ee_a
+            .execution_layer
+            .insert_proposer(slot, head_block_root, validator_index, payload_attributes)
+            .await;
         let status = self
             .ee_a
             .execution_layer
-            .notify_forkchoice_updated(head_block_hash, finalized_block_hash, payload_attributes)
+            .notify_forkchoice_updated(head_block_hash, finalized_block_hash, slot, head_block_root)
             .await
             .unwrap();
         assert_eq!(status, PayloadStatus::Valid);
@@ -297,11 +336,12 @@ impl<E: GenericExecutionEngine> TestRig<E> {
          */
         let head_block_hash = second_payload.block_hash;
         let finalized_block_hash = ExecutionBlockHash::zero();
-        let payload_attributes = None;
+        let slot = Slot::new(42);
+        let head_block_root = Hash256::repeat_byte(42);
         let status = self
             .ee_b
             .execution_layer
-            .notify_forkchoice_updated(head_block_hash, finalized_block_hash, payload_attributes)
+            .notify_forkchoice_updated(head_block_hash, finalized_block_hash, slot, head_block_root)
             .await
             .unwrap();
         assert_eq!(status, PayloadStatus::Syncing);
@@ -340,11 +380,12 @@ impl<E: GenericExecutionEngine> TestRig<E> {
          */
         let head_block_hash = second_payload.block_hash;
         let finalized_block_hash = ExecutionBlockHash::zero();
-        let payload_attributes = None;
+        let slot = Slot::new(42);
+        let head_block_root = Hash256::repeat_byte(42);
         let status = self
             .ee_b
             .execution_layer
-            .notify_forkchoice_updated(head_block_hash, finalized_block_hash, payload_attributes)
+            .notify_forkchoice_updated(head_block_hash, finalized_block_hash, slot, head_block_root)
             .await
             .unwrap();
         assert_eq!(status, PayloadStatus::Valid);

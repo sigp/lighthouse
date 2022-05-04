@@ -4,6 +4,7 @@ use derivative::Derivative;
 use serde_derive::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
 use ssz_types::VariableList;
+use std::marker::PhantomData;
 use superstruct::superstruct;
 use test_random_derive::TestRandom;
 use tree_hash_derive::TreeHash;
@@ -25,8 +26,8 @@ use tree_hash_derive::TreeHash;
             TestRandom,
             Derivative,
         ),
-        derivative(PartialEq, Hash(bound = "T: EthSpec")),
-        serde(bound = "T: EthSpec", deny_unknown_fields),
+        derivative(PartialEq, Hash(bound = "T: EthSpec, Payload: ExecPayload<T>")),
+        serde(bound = "T: EthSpec, Payload: ExecPayload<T>", deny_unknown_fields),
         cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary))
     ),
     cast_error(ty = "Error", expr = "Error::IncorrectStateVariant"),
@@ -35,9 +36,9 @@ use tree_hash_derive::TreeHash;
 #[derive(Debug, Clone, Serialize, Deserialize, Derivative)]
 #[derivative(PartialEq, Hash(bound = "T: EthSpec"))]
 #[serde(untagged)]
-#[serde(bound = "T: EthSpec")]
+#[serde(bound = "T: EthSpec, Payload: ExecPayload<T>")]
 #[cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary))]
-pub struct BeaconBlockBody<T: EthSpec> {
+pub struct BeaconBlockBody<T: EthSpec, Payload: ExecPayload<T> = FullPayload<T>> {
     pub randao_reveal: Signature,
     pub eth1_data: Eth1Data,
     pub graffiti: Graffiti,
@@ -48,8 +49,17 @@ pub struct BeaconBlockBody<T: EthSpec> {
     pub voluntary_exits: VariableList<SignedVoluntaryExit, T::MaxVoluntaryExits>,
     #[superstruct(only(Altair, Merge))]
     pub sync_aggregate: SyncAggregate<T>,
+    // We flatten the execution payload so that serde can use the name of the inner type,
+    // either `execution_payload` for full payloads, or `execution_payload_header` for blinded
+    // payloads.
     #[superstruct(only(Merge))]
-    pub execution_payload: ExecutionPayload<T>,
+    #[serde(flatten)]
+    pub execution_payload: Payload,
+    #[superstruct(only(Base, Altair))]
+    #[ssz(skip_serializing, skip_deserializing)]
+    #[tree_hash(skip_hashing)]
+    #[serde(skip)]
+    pub _phantom: PhantomData<Payload>,
 }
 
 impl<'a, T: EthSpec> BeaconBlockBodyRef<'a, T> {

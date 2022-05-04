@@ -59,7 +59,7 @@ use fork_choice::{ForkChoice, ForkChoiceStore, PayloadVerificationStatus};
 use parking_lot::RwLockReadGuard;
 use proto_array::Block as ProtoBlock;
 use safe_arith::ArithError;
-use slog::{debug, error, Logger};
+use slog::{debug, error, info, Logger};
 use slot_clock::SlotClock;
 use ssz::Encode;
 use state_processing::per_block_processing::is_merge_transition_block;
@@ -75,11 +75,36 @@ use std::io::Write;
 use std::time::Duration;
 use store::{Error as DBError, HotColdDB, HotStateSummary, KeyValueStore, StoreOp};
 use tree_hash::TreeHash;
+use types::ExecPayload;
 use types::{
     BeaconBlockRef, BeaconState, BeaconStateError, ChainSpec, CloneConfig, Epoch, EthSpec,
     ExecutionBlockHash, Hash256, InconsistentFork, PublicKey, PublicKeyBytes, RelativeEpoch,
     SignedBeaconBlock, SignedBeaconBlockHeader, Slot,
 };
+
+const POS_PANDA_BANNER: &str = r#"
+    ,,,         ,,,                                               ,,,         ,,,
+  ;"   ^;     ;'   ",                                           ;"   ^;     ;'   ",
+  ;    s$$$$$$$s     ;                                          ;    s$$$$$$$s     ;
+  ,  ss$$$$$$$$$$s  ,'  ooooooooo.    .oooooo.   .oooooo..o     ,  ss$$$$$$$$$$s  ,'
+  ;s$$$$$$$$$$$$$$$     `888   `Y88. d8P'  `Y8b d8P'    `Y8     ;s$$$$$$$$$$$$$$$
+  $$$$$$$$$$$$$$$$$$     888   .d88'888      888Y88bo.          $$$$$$$$$$$$$$$$$$
+ $$$$P""Y$$$Y""W$$$$$    888ooo88P' 888      888 `"Y8888o.     $$$$P""Y$$$Y""W$$$$$
+ $$$$  p"LFG"q  $$$$$    888        888      888     `"Y88b    $$$$  p"LFG"q  $$$$$
+ $$$$  .$$$$$.  $$$$     888        `88b    d88'oo     .d8P    $$$$  .$$$$$.  $$$$
+  $$DcaU$$$$$$$$$$      o888o        `Y8bood8P' 8""88888P'      $$DcaU$$$$$$$$$$
+    "Y$$$"*"$$$Y"                                                 "Y$$$"*"$$$Y"
+        "$b.$$"                                                       "$b.$$"
+
+       .o.                   .   o8o                         .                 .o8
+      .888.                .o8   `"'                       .o8                "888
+     .8"888.     .ooooo. .o888oooooo oooo    ooo .oooo.  .o888oo .ooooo.  .oooo888
+    .8' `888.   d88' `"Y8  888  `888  `88.  .8' `P  )88b   888  d88' `88bd88' `888
+   .88ooo8888.  888        888   888   `88..8'   .oP"888   888  888ooo888888   888
+  .8'     `888. 888   .o8  888 . 888    `888'   d8(  888   888 .888    .o888   888
+ o88o     o8888o`Y8bod8P'  "888"o888o    `8'    `Y888""8o  "888"`Y8bod8P'`Y8bod88P"
+
+"#;
 
 /// Maximum block slot number. Block with slots bigger than this constant will NOT be processed.
 const MAXIMUM_BLOCK_SLOT_NUMBER: u64 = 4_294_967_296; // 2^32
@@ -981,21 +1006,25 @@ impl<'a, T: BeaconChainTypes> FullyVerifiedBlock<'a, T> {
         parent: PreProcessingSnapshot<T::EthSpec>,
         chain: &BeaconChain<T>,
     ) -> Result<Self, BlockError<T::EthSpec>> {
-        // Reject any block if its parent is not known to fork choice.
-        //
-        // A block that is not in fork choice is either:
-        //
-        //  - Not yet imported: we should reject this block because we should only import a child
-        //  after its parent has been fully imported.
-        //  - Pre-finalized: if the parent block is _prior_ to finalization, we should ignore it
-        //  because it will revert finalization. Note that the finalized block is stored in fork
-        //  choice, so we will not reject any child of the finalized block (this is relevant during
-        //  genesis).
-        if !chain
-            .fork_choice
-            .read()
-            .contains_block(&block.parent_root())
-        {
+        if let Some(parent) = chain.fork_choice.read().get_block(&block.parent_root()) {
+            // Reject any block where the parent has an invalid payload. It's impossible for a valid
+            // block to descend from an invalid parent.
+            if parent.execution_status.is_invalid() {
+                return Err(BlockError::ParentExecutionPayloadInvalid {
+                    parent_root: block.parent_root(),
+                });
+            }
+        } else {
+            // Reject any block if its parent is not known to fork choice.
+            //
+            // A block that is not in fork choice is either:
+            //
+            //  - Not yet imported: we should reject this block because we should only import a child
+            //  after its parent has been fully imported.
+            //  - Pre-finalized: if the parent block is _prior_ to finalization, we should ignore it
+            //  because it will revert finalization. Note that the finalized block is stored in fork
+            //  choice, so we will not reject any child of the finalized block (this is relevant during
+            //  genesis).
             return Err(BlockError::ParentUnknown(Box::new(block)));
         }
 
@@ -1118,9 +1147,13 @@ impl<'a, T: BeaconChainTypes> FullyVerifiedBlock<'a, T> {
         //   early.
         // - Doing the check here means we can keep our fork-choice implementation "pure". I.e., no
         //   calls to remote servers.
-        if is_merge_transition_block(&state, block.message().body()) {
-            validate_merge_block(chain, block.message())?
-        }
+        let valid_merge_transition_block =
+            if is_merge_transition_block(&state, block.message().body()) {
+                validate_merge_block(chain, block.message())?;
+                true
+            } else {
+                false
+            };
 
         // The specification declares that this should be run *inside* `per_block_processing`,
         // however we run it here to keep `per_block_processing` pure (i.e., no calls to external
@@ -1132,7 +1165,7 @@ impl<'a, T: BeaconChainTypes> FullyVerifiedBlock<'a, T> {
 
         // If the payload did not validate or invalidate the block, check to see if this block is
         // valid for optimistic import.
-        if payload_verification_status == PayloadVerificationStatus::NotVerified {
+        if payload_verification_status.is_optimistic() {
             let current_slot = chain
                 .slot_clock
                 .now()
@@ -1262,6 +1295,14 @@ impl<'a, T: BeaconChainTypes> FullyVerifiedBlock<'a, T> {
                 block: block.state_root(),
                 local: state_root,
             });
+        }
+
+        if valid_merge_transition_block {
+            info!(chain.log, "{}", POS_PANDA_BANNER);
+            info!(chain.log, "Proof of Stake Activated"; "slot" => block.slot());
+            info!(chain.log, ""; "Terminal POW Block Hash" => ?block.message().execution_payload()?.parent_hash().into_root());
+            info!(chain.log, ""; "Merge Transition Block Root" => ?block.message().tree_hash_root());
+            info!(chain.log, ""; "Merge Transition Execution Hash" => ?block.message().execution_payload()?.block_hash().into_root());
         }
 
         Ok(Self {

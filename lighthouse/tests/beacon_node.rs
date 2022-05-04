@@ -5,7 +5,7 @@ use beacon_node::beacon_chain::chain_config::DEFAULT_RE_ORG_THRESHOLD;
 use lighthouse_network::PeerId;
 use std::fs::File;
 use std::io::Write;
-use std::net::{IpAddr, Ipv4Addr};
+use std::net::IpAddr;
 use std::path::PathBuf;
 use std::process::Command;
 use std::str::FromStr;
@@ -213,7 +213,7 @@ fn merge_flag() {
     CommandLineTest::new()
         .flag("merge", None)
         .run_with_zero_port()
-        .with_config(|config| assert!(config.execution_endpoints.is_some()));
+        .with_config(|config| assert!(config.execution_layer.is_some()));
 }
 #[test]
 fn merge_execution_endpoints_flag() {
@@ -234,7 +234,33 @@ fn merge_execution_endpoints_flag() {
         .flag("merge", None)
         .flag("execution-endpoints", Some(&endpoint_arg))
         .run_with_zero_port()
-        .with_config(|config| assert_eq!(config.execution_endpoints.as_ref(), Some(&endpoints)));
+        .with_config(|config| {
+            let config = config.execution_layer.as_ref().unwrap();
+            assert_eq!(config.execution_endpoints, endpoints)
+        });
+}
+#[test]
+fn merge_jwt_secrets_flag() {
+    let dir = TempDir::new().expect("Unable to create temporary directory");
+    let mut file = File::create(dir.path().join("jwtsecrets")).expect("Unable to create file");
+    file.write_all(b"0x3cbc11b0d8fa16f3344eacfd6ff6430b9d30734450e8adcf5400f88d327dcb33")
+        .expect("Unable to write to file");
+    CommandLineTest::new()
+        .flag("merge", None)
+        .flag("execution-endpoints", Some("http://localhost:8551/"))
+        .flag(
+            "jwt-secrets",
+            dir.path().join("jwt-file").as_os_str().to_str(),
+        )
+        .run_with_zero_port()
+        .with_config(|config| {
+            let config = config.execution_layer.as_ref().unwrap();
+            assert_eq!(
+                config.execution_endpoints[0].full.to_string(),
+                "http://localhost:8551/"
+            );
+            assert_eq!(config.secret_files[0], dir.path().join("jwt-file"));
+        });
 }
 #[test]
 fn merge_fee_recipient_flag() {
@@ -246,10 +272,24 @@ fn merge_fee_recipient_flag() {
         )
         .run_with_zero_port()
         .with_config(|config| {
+            let config = config.execution_layer.as_ref().unwrap();
             assert_eq!(
                 config.suggested_fee_recipient,
                 Some(Address::from_str("0x00000000219ab540356cbb839cbe05303d7705fa").unwrap())
-            )
+            );
+        });
+}
+#[test]
+fn jwt_optional_flags() {
+    CommandLineTest::new()
+        .flag("merge", None)
+        .flag("jwt-id", Some("bn-1"))
+        .flag("jwt-version", Some("Lighthouse-v2.1.3"))
+        .run_with_zero_port()
+        .with_config(|config| {
+            let config = config.execution_layer.as_ref().unwrap();
+            assert_eq!(config.jwt_id, Some("bn-1".to_string()));
+            assert_eq!(config.jwt_version, Some("Lighthouse-v2.1.3".to_string()));
         });
 }
 #[test]
@@ -356,7 +396,7 @@ fn network_shutdown_after_sync_disabled_flag() {
 }
 #[test]
 fn network_listen_address_flag() {
-    let addr = "127.0.0.2".parse::<Ipv4Addr>().unwrap();
+    let addr = "127.0.0.2".parse::<IpAddr>().unwrap();
     CommandLineTest::new()
         .flag("listen-address", Some("127.0.0.2"))
         .run_with_zero_port()
@@ -588,9 +628,17 @@ fn http_flag() {
 }
 #[test]
 fn http_address_flag() {
-    let addr = "127.0.0.99".parse::<Ipv4Addr>().unwrap();
+    let addr = "127.0.0.99".parse::<IpAddr>().unwrap();
     CommandLineTest::new()
         .flag("http-address", Some("127.0.0.99"))
+        .run_with_zero_port()
+        .with_config(|config| assert_eq!(config.http_api.listen_addr, addr));
+}
+#[test]
+fn http_address_ipv6_flag() {
+    let addr = "::1".parse::<IpAddr>().unwrap();
+    CommandLineTest::new()
+        .flag("http-address", Some("::1"))
         .run_with_zero_port()
         .with_config(|config| assert_eq!(config.http_api.listen_addr, addr));
 }
@@ -665,10 +713,19 @@ fn metrics_flag() {
 }
 #[test]
 fn metrics_address_flag() {
-    let addr = "127.0.0.99".parse::<Ipv4Addr>().unwrap();
+    let addr = "127.0.0.99".parse::<IpAddr>().unwrap();
     CommandLineTest::new()
         .flag("metrics", None)
         .flag("metrics-address", Some("127.0.0.99"))
+        .run_with_zero_port()
+        .with_config(|config| assert_eq!(config.http_metrics.listen_addr, addr));
+}
+#[test]
+fn metrics_address_ipv6_flag() {
+    let addr = "::1".parse::<IpAddr>().unwrap();
+    CommandLineTest::new()
+        .flag("metrics", None)
+        .flag("metrics-address", Some("::1"))
         .run_with_zero_port()
         .with_config(|config| assert_eq!(config.http_metrics.listen_addr, addr));
 }
@@ -748,6 +805,40 @@ fn slots_per_restore_point_flag() {
         .run_with_zero_port()
         .with_config(|config| assert_eq!(config.store.slots_per_restore_point, 64));
 }
+#[test]
+fn slots_per_restore_point_update_prev_default() {
+    use beacon_node::beacon_chain::store::config::{
+        DEFAULT_SLOTS_PER_RESTORE_POINT, PREV_DEFAULT_SLOTS_PER_RESTORE_POINT,
+    };
+
+    CommandLineTest::new()
+        .flag("slots-per-restore-point", Some("2048"))
+        .run_with_zero_port()
+        .with_config_and_dir(|config, dir| {
+            // Check that 2048 is the previous default.
+            assert_eq!(
+                config.store.slots_per_restore_point,
+                PREV_DEFAULT_SLOTS_PER_RESTORE_POINT
+            );
+
+            // Restart the BN with the same datadir and the new default SPRP. It should
+            // allow this.
+            CommandLineTest::new()
+                .flag("datadir", Some(&dir.path().display().to_string()))
+                .flag("zero-ports", None)
+                .run_with_no_datadir()
+                .with_config(|config| {
+                    // The dumped config will have the new default 8192 value, but the fact that
+                    // the BN started and ran (with the same datadir) means that the override
+                    // was successful.
+                    assert_eq!(
+                        config.store.slots_per_restore_point,
+                        DEFAULT_SLOTS_PER_RESTORE_POINT
+                    );
+                });
+        })
+}
+
 #[test]
 fn block_cache_size_flag() {
     CommandLineTest::new()

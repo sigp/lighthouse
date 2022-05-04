@@ -52,5 +52,5 @@ filesystem of the VC) to encrypt the communications between the VC and Web3Signe
 
 > The `request_timeout_ms` key can also be specified. Use this key to override the default timeout
 > with a new timeout in milliseconds. This is the timeout before requests to Web3Signer are
-> considered to be failures. Setting a value that it too-long may create contention and late duties
+> considered to be failures. Setting a value that is too long may create contention and late duties
 > in the VC.  Setting it too short will result in failed signatures and therefore missed duties.

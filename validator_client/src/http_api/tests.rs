@@ -27,7 +27,7 @@ use slashing_protection::{SlashingDatabase, SLASHING_PROTECTION_FILENAME};
 use slot_clock::{SlotClock, TestingSlotClock};
 use std::future::Future;
 use std::marker::PhantomData;
-use std::net::Ipv4Addr;
+use std::net::{IpAddr, Ipv4Addr};
 use std::sync::Arc;
 use std::time::Duration;
 use task_executor::TaskExecutor;
@@ -120,7 +120,7 @@ impl ApiTester {
             spec: E::default_spec(),
             config: HttpConfig {
                 enabled: true,
-                listen_addr: Ipv4Addr::new(127, 0, 0, 1),
+                listen_addr: IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)),
                 listen_port: 0,
                 allow_origin: None,
             },

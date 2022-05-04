@@ -1,5 +1,5 @@
 use fs2::FileExt;
-use std::fs::{self, File, OpenOptions};
+use std::fs::{self, File};
 use std::io::{self, ErrorKind};
 use std::path::{Path, PathBuf};
 
@@ -30,7 +30,7 @@ impl Lockfile {
         let file = if file_existed {
             File::open(&path)
         } else {
-            OpenOptions::new()
+            File::options()
                 .read(true)
                 .write(true)
                 .create_new(true)

@@ -1,15 +1,16 @@
 //! Contains an implementation of `EngineAPI` using the JSON-RPC API via HTTP.
 
 use super::*;
+use crate::auth::Auth;
 use crate::json_structures::*;
-use async_trait::async_trait;
 use eth1::http::EIP155_ERROR_STR;
 use reqwest::header::CONTENT_TYPE;
 use sensitive_url::SensitiveUrl;
 use serde::de::DeserializeOwned;
 use serde_json::json;
+use std::marker::PhantomData;
 use std::time::Duration;
-use types::EthSpec;
+use types::{BlindedPayload, EthSpec, ExecutionPayloadHeader, SignedBeaconBlock};
 
 pub use reqwest::Client;
 
@@ -28,51 +29,77 @@ pub const ETH_SYNCING: &str = "eth_syncing";
 pub const ETH_SYNCING_TIMEOUT: Duration = Duration::from_millis(250);
 
 pub const ENGINE_NEW_PAYLOAD_V1: &str = "engine_newPayloadV1";
-pub const ENGINE_NEW_PAYLOAD_TIMEOUT: Duration = Duration::from_secs(2);
+pub const ENGINE_NEW_PAYLOAD_TIMEOUT: Duration = Duration::from_secs(6);
 
 pub const ENGINE_GET_PAYLOAD_V1: &str = "engine_getPayloadV1";
 pub const ENGINE_GET_PAYLOAD_TIMEOUT: Duration = Duration::from_secs(2);
 
 pub const ENGINE_FORKCHOICE_UPDATED_V1: &str = "engine_forkchoiceUpdatedV1";
-pub const ENGINE_FORKCHOICE_UPDATED_TIMEOUT: Duration = Duration::from_millis(500);
+pub const ENGINE_FORKCHOICE_UPDATED_TIMEOUT: Duration = Duration::from_secs(6);
 
-pub struct HttpJsonRpc {
+pub const ENGINE_EXCHANGE_TRANSITION_CONFIGURATION_V1: &str =
+    "engine_exchangeTransitionConfigurationV1";
+pub const ENGINE_EXCHANGE_TRANSITION_CONFIGURATION_V1_TIMEOUT: Duration =
+    Duration::from_millis(500);
+
+pub const BUILDER_GET_PAYLOAD_HEADER_V1: &str = "builder_getPayloadHeaderV1";
+pub const BUILDER_GET_PAYLOAD_HEADER_TIMEOUT: Duration = Duration::from_secs(2);
+
+pub const BUILDER_PROPOSE_BLINDED_BLOCK_V1: &str = "builder_proposeBlindedBlockV1";
+pub const BUILDER_PROPOSE_BLINDED_BLOCK_TIMEOUT: Duration = Duration::from_secs(2);
+
+pub struct HttpJsonRpc<T = EngineApi> {
     pub client: Client,
     pub url: SensitiveUrl,
+    auth: Option<Auth>,
+    _phantom: PhantomData<T>,
 }
 
-impl HttpJsonRpc {
+impl<T> HttpJsonRpc<T> {
     pub fn new(url: SensitiveUrl) -> Result<Self, Error> {
         Ok(Self {
             client: Client::builder().build()?,
             url,
+            auth: None,
+            _phantom: PhantomData,
         })
     }
 
-    pub async fn rpc_request<T: DeserializeOwned>(
+    pub fn new_with_auth(url: SensitiveUrl, auth: Auth) -> Result<Self, Error> {
+        Ok(Self {
+            client: Client::builder().build()?,
+            url,
+            auth: Some(auth),
+            _phantom: PhantomData,
+        })
+    }
+
+    pub async fn rpc_request<D: DeserializeOwned>(
         &self,
         method: &str,
         params: serde_json::Value,
         timeout: Duration,
-    ) -> Result<T, Error> {
+    ) -> Result<D, Error> {
         let body = JsonRequestBody {
             jsonrpc: JSONRPC_VERSION,
             method,
             params,
-            id: STATIC_ID,
+            id: json!(STATIC_ID),
         };
 
-        let body: JsonResponseBody = self
+        let mut request = self
             .client
             .post(self.url.full.clone())
             .timeout(timeout)
             .header(CONTENT_TYPE, "application/json")
-            .json(&body)
-            .send()
-            .await?
-            .error_for_status()?
-            .json()
-            .await?;
+            .json(&body);
+
+        // Generate and add a jwt token to the header if auth is defined.
+        if let Some(auth) = &self.auth {
+            request = request.bearer_auth(auth.generate_token()?);
+        };
+
+        let body: JsonResponseBody = request.send().await?.error_for_status()?.json().await?;
 
         match (body.result, body.error) {
             (result, None) => serde_json::from_value(result).map_err(Into::into),
@@ -90,9 +117,8 @@ impl HttpJsonRpc {
     }
 }
 
-#[async_trait]
-impl EngineApi for HttpJsonRpc {
-    async fn upcheck(&self) -> Result<(), Error> {
+impl HttpJsonRpc<EngineApi> {
+    pub async fn upcheck(&self) -> Result<(), Error> {
         let result: serde_json::Value = self
             .rpc_request(ETH_SYNCING, json!([]), ETH_SYNCING_TIMEOUT)
             .await?;
@@ -109,7 +135,7 @@ impl EngineApi for HttpJsonRpc {
         }
     }
 
-    async fn get_block_by_number<'a>(
+    pub async fn get_block_by_number<'a>(
         &self,
         query: BlockByNumberQuery<'a>,
     ) -> Result<Option<ExecutionBlock>, Error> {
@@ -123,7 +149,7 @@ impl EngineApi for HttpJsonRpc {
         .await
     }
 
-    async fn get_block_by_hash<'a>(
+    pub async fn get_block_by_hash<'a>(
         &self,
         block_hash: ExecutionBlockHash,
     ) -> Result<Option<ExecutionBlock>, Error> {
@@ -133,7 +159,7 @@ impl EngineApi for HttpJsonRpc {
             .await
     }
 
-    async fn new_payload_v1<T: EthSpec>(
+    pub async fn new_payload_v1<T: EthSpec>(
         &self,
         execution_payload: ExecutionPayload<T>,
     ) -> Result<PayloadStatusV1, Error> {
@@ -146,7 +172,7 @@ impl EngineApi for HttpJsonRpc {
         Ok(response.into())
     }
 
-    async fn get_payload_v1<T: EthSpec>(
+    pub async fn get_payload_v1<T: EthSpec>(
         &self,
         payload_id: PayloadId,
     ) -> Result<ExecutionPayload<T>, Error> {
@@ -159,7 +185,7 @@ impl EngineApi for HttpJsonRpc {
         Ok(response.into())
     }
 
-    async fn forkchoice_updated_v1(
+    pub async fn forkchoice_updated_v1(
         &self,
         forkchoice_state: ForkChoiceState,
         payload_attributes: Option<PayloadAttributes>,
@@ -179,16 +205,90 @@ impl EngineApi for HttpJsonRpc {
 
         Ok(response.into())
     }
+
+    pub async fn exchange_transition_configuration_v1(
+        &self,
+        transition_configuration: TransitionConfigurationV1,
+    ) -> Result<TransitionConfigurationV1, Error> {
+        let params = json!([transition_configuration]);
+
+        let response = self
+            .rpc_request(
+                ENGINE_EXCHANGE_TRANSITION_CONFIGURATION_V1,
+                params,
+                ENGINE_EXCHANGE_TRANSITION_CONFIGURATION_V1_TIMEOUT,
+            )
+            .await?;
+
+        Ok(response)
+    }
 }
 
+impl HttpJsonRpc<BuilderApi> {
+    pub async fn get_payload_header_v1<T: EthSpec>(
+        &self,
+        payload_id: PayloadId,
+    ) -> Result<ExecutionPayloadHeader<T>, Error> {
+        let params = json!([JsonPayloadIdRequest::from(payload_id)]);
+
+        let response: JsonExecutionPayloadHeaderV1<T> = self
+            .rpc_request(
+                BUILDER_GET_PAYLOAD_HEADER_V1,
+                params,
+                BUILDER_GET_PAYLOAD_HEADER_TIMEOUT,
+            )
+            .await?;
+
+        Ok(response.into())
+    }
+
+    pub async fn forkchoice_updated_v1(
+        &self,
+        forkchoice_state: ForkChoiceState,
+        payload_attributes: Option<PayloadAttributes>,
+    ) -> Result<ForkchoiceUpdatedResponse, Error> {
+        let params = json!([
+            JsonForkChoiceStateV1::from(forkchoice_state),
+            payload_attributes.map(JsonPayloadAttributesV1::from)
+        ]);
+
+        let response: JsonForkchoiceUpdatedV1Response = self
+            .rpc_request(
+                ENGINE_FORKCHOICE_UPDATED_V1,
+                params,
+                ENGINE_FORKCHOICE_UPDATED_TIMEOUT,
+            )
+            .await?;
+
+        Ok(response.into())
+    }
+
+    pub async fn propose_blinded_block_v1<T: EthSpec>(
+        &self,
+        block: SignedBeaconBlock<T, BlindedPayload<T>>,
+    ) -> Result<ExecutionPayload<T>, Error> {
+        let params = json!([block]);
+
+        let response: JsonExecutionPayloadV1<T> = self
+            .rpc_request(
+                BUILDER_PROPOSE_BLINDED_BLOCK_V1,
+                params,
+                BUILDER_PROPOSE_BLINDED_BLOCK_TIMEOUT,
+            )
+            .await?;
+
+        Ok(response.into())
+    }
+}
 #[cfg(test)]
 mod test {
+    use super::auth::JwtKey;
     use super::*;
-    use crate::test_utils::MockServer;
+    use crate::test_utils::{MockServer, JWT_SECRET};
     use std::future::Future;
     use std::str::FromStr;
     use std::sync::Arc;
-    use types::{MainnetEthSpec, Transaction, Unsigned, VariableList};
+    use types::{MainnetEthSpec, Transactions, Unsigned, VariableList};
 
     struct Tester {
         server: MockServer<MainnetEthSpec>,
@@ -197,14 +297,25 @@ mod test {
     }
 
     impl Tester {
-        pub fn new() -> Self {
+        pub fn new(with_auth: bool) -> Self {
             let server = MockServer::unit_testing();
 
             let rpc_url = SensitiveUrl::parse(&server.url()).unwrap();
-            let rpc_client = Arc::new(HttpJsonRpc::new(rpc_url).unwrap());
-
             let echo_url = SensitiveUrl::parse(&format!("{}/echo", server.url())).unwrap();
-            let echo_client = Arc::new(HttpJsonRpc::new(echo_url).unwrap());
+            // Create rpc clients that include JWT auth headers if `with_auth` is true.
+            let (rpc_client, echo_client) = if with_auth {
+                let rpc_auth = Auth::new(JwtKey::from_slice(&JWT_SECRET).unwrap(), None, None);
+                let echo_auth = Auth::new(JwtKey::from_slice(&JWT_SECRET).unwrap(), None, None);
+                (
+                    Arc::new(HttpJsonRpc::new_with_auth(rpc_url, rpc_auth).unwrap()),
+                    Arc::new(HttpJsonRpc::new_with_auth(echo_url, echo_auth).unwrap()),
+                )
+            } else {
+                (
+                    Arc::new(HttpJsonRpc::new(rpc_url).unwrap()),
+                    Arc::new(HttpJsonRpc::new(echo_url).unwrap()),
+                )
+            };
 
             Self {
                 server,
@@ -230,6 +341,22 @@ mod test {
                 panic!(
                     "json mismatch!\n\nobserved: {}\n\nexpected: {}\n\n",
                     request_json, expected_json,
+                )
+            }
+            self
+        }
+
+        pub async fn assert_auth_failure<R, F, T>(self, request_func: R) -> Self
+        where
+            R: Fn(Arc<HttpJsonRpc>) -> F,
+            F: Future<Output = Result<T, Error>>,
+            T: std::fmt::Debug,
+        {
+            let res = request_func(self.echo_client.clone()).await;
+            if !matches!(res, Err(Error::Auth(_))) {
+                panic!(
+                    "No authentication provided, rpc call should have failed.\nResult: {:?}",
+                    res
                 )
             }
             self
@@ -263,10 +390,7 @@ mod test {
     const LOGS_BLOOM_01: &str = "0x01010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101";
 
     fn encode_transactions<E: EthSpec>(
-        transactions: VariableList<
-            Transaction<E::MaxBytesPerTransaction>,
-            E::MaxTransactionsPerPayload,
-        >,
+        transactions: Transactions<E>,
     ) -> Result<serde_json::Value, serde_json::Error> {
         let ep: JsonExecutionPayloadV1<E> = JsonExecutionPayloadV1 {
             transactions,
@@ -278,10 +402,7 @@ mod test {
 
     fn decode_transactions<E: EthSpec>(
         transactions: serde_json::Value,
-    ) -> Result<
-        VariableList<Transaction<E::MaxBytesPerTransaction>, E::MaxTransactionsPerPayload>,
-        serde_json::Error,
-    > {
+    ) -> Result<Transactions<E>, serde_json::Error> {
         let mut json = json!({
             "parentHash": HASH_00,
             "feeRecipient": ADDRESS_01,
@@ -307,7 +428,7 @@ mod test {
 
     fn assert_transactions_serde<E: EthSpec>(
         name: &str,
-        as_obj: VariableList<Transaction<E::MaxBytesPerTransaction>, E::MaxTransactionsPerPayload>,
+        as_obj: Transactions<E>,
         as_json: serde_json::Value,
     ) {
         assert_eq!(
@@ -325,9 +446,7 @@ mod test {
     }
 
     /// Example: if `spec == &[1, 1]`, then two one-byte transactions will be created.
-    fn generate_transactions<E: EthSpec>(
-        spec: &[usize],
-    ) -> VariableList<Transaction<E::MaxBytesPerTransaction>, E::MaxTransactionsPerPayload> {
+    fn generate_transactions<E: EthSpec>(spec: &[usize]) -> Transactions<E> {
         let mut txs = VariableList::default();
 
         for &num_bytes in spec {
@@ -391,7 +510,7 @@ mod test {
 
     #[tokio::test]
     async fn get_block_by_number_request() {
-        Tester::new()
+        Tester::new(true)
             .assert_request_equals(
                 |client| async move {
                     let _ = client
@@ -406,11 +525,19 @@ mod test {
                 }),
             )
             .await;
+
+        Tester::new(false)
+            .assert_auth_failure(|client| async move {
+                client
+                    .get_block_by_number(BlockByNumberQuery::Tag(LATEST_TAG))
+                    .await
+            })
+            .await;
     }
 
     #[tokio::test]
     async fn get_block_by_hash_request() {
-        Tester::new()
+        Tester::new(true)
             .assert_request_equals(
                 |client| async move {
                     let _ = client
@@ -425,11 +552,19 @@ mod test {
                 }),
             )
             .await;
+
+        Tester::new(false)
+            .assert_auth_failure(|client| async move {
+                client
+                    .get_block_by_hash(ExecutionBlockHash::repeat_byte(1))
+                    .await
+            })
+            .await;
     }
 
     #[tokio::test]
     async fn forkchoice_updated_v1_with_payload_attributes_request() {
-        Tester::new()
+        Tester::new(true)
             .assert_request_equals(
                 |client| async move {
                     let _ = client
@@ -464,11 +599,30 @@ mod test {
                 }),
             )
             .await;
+
+        Tester::new(false)
+            .assert_auth_failure(|client| async move {
+                client
+                    .forkchoice_updated_v1(
+                        ForkChoiceState {
+                            head_block_hash: ExecutionBlockHash::repeat_byte(1),
+                            safe_block_hash: ExecutionBlockHash::repeat_byte(1),
+                            finalized_block_hash: ExecutionBlockHash::zero(),
+                        },
+                        Some(PayloadAttributes {
+                            timestamp: 5,
+                            prev_randao: Hash256::zero(),
+                            suggested_fee_recipient: Address::repeat_byte(0),
+                        }),
+                    )
+                    .await
+            })
+            .await;
     }
 
     #[tokio::test]
     async fn get_payload_v1_request() {
-        Tester::new()
+        Tester::new(true)
             .assert_request_equals(
                 |client| async move {
                     let _ = client.get_payload_v1::<MainnetEthSpec>([42; 8]).await;
@@ -481,11 +635,17 @@ mod test {
                 }),
             )
             .await;
+
+        Tester::new(false)
+            .assert_auth_failure(|client| async move {
+                client.get_payload_v1::<MainnetEthSpec>([42; 8]).await
+            })
+            .await;
     }
 
     #[tokio::test]
     async fn new_payload_v1_request() {
-        Tester::new()
+        Tester::new(true)
             .assert_request_equals(
                 |client| async move {
                     let _ = client
@@ -530,11 +690,34 @@ mod test {
                 }),
             )
             .await;
+
+        Tester::new(false)
+            .assert_auth_failure(|client| async move {
+                client
+                    .new_payload_v1::<MainnetEthSpec>(ExecutionPayload {
+                        parent_hash: ExecutionBlockHash::repeat_byte(0),
+                        fee_recipient: Address::repeat_byte(1),
+                        state_root: Hash256::repeat_byte(1),
+                        receipts_root: Hash256::repeat_byte(0),
+                        logs_bloom: vec![1; 256].into(),
+                        prev_randao: Hash256::repeat_byte(1),
+                        block_number: 0,
+                        gas_limit: 1,
+                        gas_used: 2,
+                        timestamp: 42,
+                        extra_data: vec![].into(),
+                        base_fee_per_gas: Uint256::from(1),
+                        block_hash: ExecutionBlockHash::repeat_byte(1),
+                        transactions: vec![].into(),
+                    })
+                    .await
+            })
+            .await;
     }
 
     #[tokio::test]
     async fn forkchoice_updated_v1_request() {
-        Tester::new()
+        Tester::new(true)
             .assert_request_equals(
                 |client| async move {
                     let _ = client
@@ -560,6 +743,21 @@ mod test {
                 }),
             )
             .await;
+
+        Tester::new(false)
+            .assert_auth_failure(|client| async move {
+                client
+                    .forkchoice_updated_v1(
+                        ForkChoiceState {
+                            head_block_hash: ExecutionBlockHash::repeat_byte(0),
+                            safe_block_hash: ExecutionBlockHash::repeat_byte(0),
+                            finalized_block_hash: ExecutionBlockHash::repeat_byte(1),
+                        },
+                        None,
+                    )
+                    .await
+            })
+            .await;
     }
 
     fn str_to_payload_id(s: &str) -> PayloadId {
@@ -583,7 +781,7 @@ mod test {
     /// The `id` field has been modified on these vectors to match the one we use.
     #[tokio::test]
     async fn geth_test_vectors() {
-        Tester::new()
+        Tester::new(true)
             .assert_request_equals(
                 // engine_forkchoiceUpdatedV1 (prepare payload) REQUEST validation
                 |client| async move {
@@ -718,7 +916,7 @@ mod test {
                             extra_data: vec![].into(),
                             base_fee_per_gas: Uint256::from(7),
                             block_hash: ExecutionBlockHash::from_str("0x6359b8381a370e2f54072a5784ddd78b6ed024991558c511d4452eb4f6ac898c").unwrap(),
-                            transactions: vec![].into(),
+                        transactions: vec![].into(),
                         };
 
                     assert_eq!(payload, expected);

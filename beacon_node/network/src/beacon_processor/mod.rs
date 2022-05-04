@@ -38,25 +38,27 @@
 //! checks the queues to see if there are more parcels of work that can be spawned in a new worker
 //! task.
 
+use crate::sync::manager::BlockProcessType;
 use crate::{metrics, service::NetworkMessage, sync::SyncMessage};
 use beacon_chain::parking_lot::Mutex;
-use beacon_chain::{BeaconChain, BeaconChainTypes, BlockError, GossipVerifiedBlock};
+use beacon_chain::{BeaconChain, BeaconChainTypes, GossipVerifiedBlock};
 use futures::stream::{Stream, StreamExt};
 use futures::task::Poll;
 use lighthouse_network::{
     rpc::{BlocksByRangeRequest, BlocksByRootRequest, StatusMessage},
     Client, MessageId, NetworkGlobals, PeerId, PeerRequestId,
 };
+use logging::TimeLatch;
 use slog::{crit, debug, error, trace, warn, Logger};
 use std::collections::VecDeque;
 use std::fmt;
 use std::pin::Pin;
 use std::sync::{Arc, Weak};
 use std::task::Context;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 use std::{cmp, collections::HashSet};
 use task_executor::TaskExecutor;
-use tokio::sync::{mpsc, oneshot};
+use tokio::sync::mpsc;
 use types::{
     Attestation, AttesterSlashing, Hash256, ProposerSlashing, SignedAggregateAndProof,
     SignedBeaconBlock, SignedContributionAndProof, SignedVoluntaryExit, SubnetId,
@@ -73,7 +75,7 @@ mod work_reprocessing_queue;
 mod worker;
 
 use crate::beacon_processor::work_reprocessing_queue::QueuedBlock;
-pub use worker::{GossipAggregatePackage, GossipAttestationPackage, ProcessId};
+pub use worker::{ChainSegmentProcessId, GossipAggregatePackage, GossipAttestationPackage};
 
 /// The maximum size of the channel for work events to the `BeaconProcessor`.
 ///
@@ -159,9 +161,6 @@ const MANAGER_TASK_NAME: &str = "beacon_processor_manager";
 /// The name of the worker tokio tasks.
 const WORKER_TASK_NAME: &str = "beacon_processor_worker";
 
-/// The minimum interval between log messages indicating that a queue is full.
-const LOG_DEBOUNCE_INTERVAL: Duration = Duration::from_secs(30);
-
 /// The `MAX_..._BATCH_SIZE` variables define how many attestations can be included in a single
 /// batch.
 ///
@@ -197,10 +196,6 @@ pub const BLOCKS_BY_RANGE_REQUEST: &str = "blocks_by_range_request";
 pub const BLOCKS_BY_ROOTS_REQUEST: &str = "blocks_by_roots_request";
 pub const UNKNOWN_BLOCK_ATTESTATION: &str = "unknown_block_attestation";
 pub const UNKNOWN_BLOCK_AGGREGATE: &str = "unknown_block_aggregate";
-
-/// Used to send/receive results from a rpc block import in a blocking task.
-pub type BlockResultSender<E> = oneshot::Sender<Result<Hash256, BlockError<E>>>;
-pub type BlockResultReceiver<E> = oneshot::Receiver<Result<Hash256, BlockError<E>>>;
 
 /// A simple first-in-first-out queue with a maximum length.
 struct FifoQueue<T> {
@@ -498,18 +493,22 @@ impl<T: BeaconChainTypes> WorkEvent<T> {
     /// sent to the other side of `result_tx`.
     pub fn rpc_beacon_block(
         block: Box<SignedBeaconBlock<T::EthSpec>>,
-    ) -> (Self, BlockResultReceiver<T::EthSpec>) {
-        let (result_tx, result_rx) = oneshot::channel();
-        let event = Self {
+        seen_timestamp: Duration,
+        process_type: BlockProcessType,
+    ) -> Self {
+        Self {
             drop_during_sync: false,
-            work: Work::RpcBlock { block, result_tx },
-        };
-        (event, result_rx)
+            work: Work::RpcBlock {
+                block,
+                seen_timestamp,
+                process_type,
+            },
+        }
     }
 
     /// Create a new work event to import `blocks` as a beacon chain segment.
     pub fn chain_segment(
-        process_id: ProcessId,
+        process_id: ChainSegmentProcessId,
         blocks: Vec<SignedBeaconBlock<T::EthSpec>>,
     ) -> Self {
         Self {
@@ -694,10 +693,11 @@ pub enum Work<T: BeaconChainTypes> {
     },
     RpcBlock {
         block: Box<SignedBeaconBlock<T::EthSpec>>,
-        result_tx: BlockResultSender<T::EthSpec>,
+        seen_timestamp: Duration,
+        process_type: BlockProcessType,
     },
     ChainSegment {
-        process_id: ProcessId,
+        process_id: ChainSegmentProcessId,
         blocks: Vec<SignedBeaconBlock<T::EthSpec>>,
     },
     Status {
@@ -739,25 +739,6 @@ impl<T: BeaconChainTypes> Work<T> {
             Work::UnknownBlockAttestation { .. } => UNKNOWN_BLOCK_ATTESTATION,
             Work::UnknownBlockAggregate { .. } => UNKNOWN_BLOCK_AGGREGATE,
         }
-    }
-}
-
-/// Provides de-bounce functionality for logging.
-#[derive(Default)]
-struct TimeLatch(Option<Instant>);
-
-impl TimeLatch {
-    /// Only returns true once every `LOG_DEBOUNCE_INTERVAL`.
-    fn elapsed(&mut self) -> bool {
-        let now = Instant::now();
-
-        let is_elapsed = self.0.map_or(false, |elapse_time| now > elapse_time);
-
-        if is_elapsed || self.0.is_none() {
-            self.0 = Some(now + LOG_DEBOUNCE_INTERVAL);
-        }
-
-        is_elapsed
     }
 }
 
@@ -1509,10 +1490,15 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                     /*
                      * Verification for beacon blocks received during syncing via RPC.
                      */
-                    Work::RpcBlock { block, result_tx } => {
+                    Work::RpcBlock {
+                        block,
+                        seen_timestamp,
+                        process_type,
+                    } => {
                         worker.process_rpc_block(
                             *block,
-                            result_tx,
+                            seen_timestamp,
+                            process_type,
                             work_reprocessing_tx.clone(),
                             duplicate_cache,
                         );

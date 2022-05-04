@@ -240,7 +240,13 @@ impl TestRig {
     }
 
     pub fn enqueue_rpc_block(&self) {
-        let (event, _rx) = WorkEvent::rpc_beacon_block(Box::new(self.next_block.clone()));
+        let event = WorkEvent::rpc_beacon_block(
+            Box::new(self.next_block.clone()),
+            std::time::Duration::default(),
+            BlockProcessType::ParentLookup {
+                chain_hash: Hash256::random(),
+            },
+        );
         self.beacon_processor_tx.try_send(event).unwrap();
     }
 

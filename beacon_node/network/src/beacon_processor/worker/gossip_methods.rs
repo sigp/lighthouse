@@ -1557,7 +1557,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                 /*
                  * The block indicated by the target root is not known to us.
                  *
-                 * We should always get `AttnError::UnknwonHeadBlock` before we get this
+                 * We should always get `AttnError::UnknownHeadBlock` before we get this
                  * error, so this means we can get this error if:
                  *
                  * 1. The target root does not represent a valid block.
@@ -1566,7 +1566,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                  * For (2), we should only be processing attestations when we should have
                  * all the available information. Note: if we do a weak-subjectivity sync
                  * it's possible that this situation could occur, but I think it's
-                 * unlikely. For now, we will declare this to be an invalid message>
+                 * unlikely. For now, we will declare this to be an invalid message.
                  *
                  * The peer has published an invalid consensus message.
                  */
@@ -1713,14 +1713,12 @@ impl<T: BeaconChainTypes> Worker<T> {
             AttnError::HeadBlockFinalized { beacon_block_root } => {
                 debug!(
                     self.log,
-                    "Rejected attestation to finalized block";
+                    "Ignored attestation to finalized block";
                     "block_root" => ?beacon_block_root,
                     "attestation_slot" => failed_att.attestation().data.slot,
                 );
 
-                // We have to reject the message as it isn't a descendant of the finalized
-                // checkpoint.
-                self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Reject);
+                self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
 
                 // The peer that sent us this could be a lagger, or a spammer, or this failure could
                 // be due to us processing attestations extremely slowly. Don't be too harsh.

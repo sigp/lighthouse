@@ -12,7 +12,7 @@ use sensitive_url::SensitiveUrl;
 use serde_derive::{Deserialize, Serialize};
 use slog::{info, warn, Logger};
 use std::fs;
-use std::net::Ipv4Addr;
+use std::net::IpAddr;
 use std::path::PathBuf;
 use std::time::Duration;
 use types::{Address, GRAFFITI_BYTES_LEN};
@@ -56,6 +56,7 @@ pub struct Config {
     /// If true, enable functionality that monitors the network for attestations or proposals from
     /// any of the validators managed by this client before starting up.
     pub enable_doppelganger_protection: bool,
+    pub private_tx_proposals: bool,
     /// A list of custom certificates that the validator client will additionally use when
     /// connecting to a beacon node over SSL/TLS.
     pub beacon_nodes_tls_certs: Option<Vec<PathBuf>>,
@@ -97,6 +98,7 @@ impl Default for Config {
             enable_doppelganger_protection: false,
             beacon_nodes_tls_certs: None,
             block_delay: None,
+            private_tx_proposals: false,
         }
     }
 }
@@ -244,8 +246,8 @@ impl Config {
         if let Some(address) = cli_args.value_of("http-address") {
             if cli_args.is_present("unencrypted-http-transport") {
                 config.http_api.listen_addr = address
-                    .parse::<Ipv4Addr>()
-                    .map_err(|_| "http-address is not a valid IPv4 address.")?;
+                    .parse::<IpAddr>()
+                    .map_err(|_| "http-address is not a valid IP address.")?;
             } else {
                 return Err(
                     "While using `--http-address`, you must also use `--unencrypted-http-transport`."
@@ -279,8 +281,8 @@ impl Config {
 
         if let Some(address) = cli_args.value_of("metrics-address") {
             config.http_metrics.listen_addr = address
-                .parse::<Ipv4Addr>()
-                .map_err(|_| "metrics-address is not a valid IPv4 address.")?;
+                .parse::<IpAddr>()
+                .map_err(|_| "metrics-address is not a valid IP address.")?;
         }
 
         if let Some(port) = cli_args.value_of("metrics-port") {
@@ -310,6 +312,10 @@ impl Config {
 
         if cli_args.is_present("enable-doppelganger-protection") {
             config.enable_doppelganger_protection = true;
+        }
+
+        if cli_args.is_present("private-tx-proposals") {
+            config.private_tx_proposals = true;
         }
 
         /*

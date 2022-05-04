@@ -33,9 +33,9 @@ pub enum Error {
 }
 
 /// Enumerates all messages that can be signed by a validator.
-pub enum SignableMessage<'a, T: EthSpec> {
+pub enum SignableMessage<'a, T: EthSpec, Payload: ExecPayload<T> = FullPayload<T>> {
     RandaoReveal(Epoch),
-    BeaconBlock(&'a BeaconBlock<T>),
+    BeaconBlock(&'a BeaconBlock<T, Payload>),
     AttestationData(&'a AttestationData),
     SignedAggregateAndProof(&'a AggregateAndProof<T>),
     SelectionProof(Slot),
@@ -47,7 +47,7 @@ pub enum SignableMessage<'a, T: EthSpec> {
     SignedContributionAndProof(&'a ContributionAndProof<T>),
 }
 
-impl<'a, T: EthSpec> SignableMessage<'a, T> {
+impl<'a, T: EthSpec, Payload: ExecPayload<T>> SignableMessage<'a, T, Payload> {
     /// Returns the `SignedRoot` for the contained message.
     ///
     /// The actual `SignedRoot` trait is not used since it also requires a `TreeHash` impl, which is
@@ -113,9 +113,9 @@ impl SigningContext {
 
 impl SigningMethod {
     /// Return the signature of `signable_message`, with respect to the `signing_context`.
-    pub async fn get_signature<T: EthSpec>(
+    pub async fn get_signature<T: EthSpec, Payload: ExecPayload<T>>(
         &self,
-        signable_message: SignableMessage<'_, T>,
+        signable_message: SignableMessage<'_, T, Payload>,
         signing_context: SigningContext,
         spec: &ChainSpec,
         executor: &TaskExecutor,

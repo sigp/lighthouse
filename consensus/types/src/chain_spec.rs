@@ -500,7 +500,7 @@ impl ChainSpec {
              * Fork choice
              */
             safe_slots_to_update_justified: 8,
-            proposer_score_boost: None,
+            proposer_score_boost: Some(70),
 
             /*
              * Eth1
@@ -698,7 +698,7 @@ impl ChainSpec {
              * Fork choice
              */
             safe_slots_to_update_justified: 8,
-            proposer_score_boost: None,
+            proposer_score_boost: Some(70),
 
             /*
              * Eth1
@@ -796,6 +796,7 @@ pub struct Config {
     pub terminal_block_hash_activation_epoch: Epoch,
     // TODO(merge): remove this default
     #[serde(default = "default_safe_slots_to_import_optimistically")]
+    #[serde(with = "eth2_serde_utils::quoted_u64")]
     pub safe_slots_to_import_optimistically: u64,
 
     #[serde(with = "eth2_serde_utils::quoted_u64")]
@@ -1163,14 +1164,13 @@ mod tests {
 #[cfg(test)]
 mod yaml_tests {
     use super::*;
-    use std::fs::OpenOptions;
     use tempfile::NamedTempFile;
 
     #[test]
     fn minimal_round_trip() {
         // create temp file
         let tmp_file = NamedTempFile::new().expect("failed to create temp file");
-        let writer = OpenOptions::new()
+        let writer = File::options()
             .read(false)
             .write(true)
             .open(tmp_file.as_ref())
@@ -1181,7 +1181,7 @@ mod yaml_tests {
         // write fresh minimal config to file
         serde_yaml::to_writer(writer, &yamlconfig).expect("failed to write or serialize");
 
-        let reader = OpenOptions::new()
+        let reader = File::options()
             .read(true)
             .write(false)
             .open(tmp_file.as_ref())
@@ -1194,7 +1194,7 @@ mod yaml_tests {
     #[test]
     fn mainnet_round_trip() {
         let tmp_file = NamedTempFile::new().expect("failed to create temp file");
-        let writer = OpenOptions::new()
+        let writer = File::options()
             .read(false)
             .write(true)
             .open(tmp_file.as_ref())
@@ -1203,7 +1203,7 @@ mod yaml_tests {
         let yamlconfig = Config::from_chain_spec::<MainnetEthSpec>(&mainnet_spec);
         serde_yaml::to_writer(writer, &yamlconfig).expect("failed to write or serialize");
 
-        let reader = OpenOptions::new()
+        let reader = File::options()
             .read(true)
             .write(false)
             .open(tmp_file.as_ref())

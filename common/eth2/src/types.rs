@@ -627,8 +627,14 @@ pub struct ProposerData {
 
 #[derive(Clone, Serialize, Deserialize)]
 pub struct ValidatorBlocksQuery {
-    pub randao_reveal: SignatureBytes,
+    pub randao_reveal: Option<SignatureBytes>,
     pub graffiti: Option<Graffiti>,
+    #[serde(default = "default_verify_randao")]
+    pub verify_randao: bool,
+}
+
+fn default_verify_randao() -> bool {
+    true
 }
 
 #[derive(Clone, Serialize, Deserialize)]

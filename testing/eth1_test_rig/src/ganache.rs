@@ -36,14 +36,14 @@ impl GanacheInstance {
         loop {
             if start + Duration::from_millis(GANACHE_STARTUP_TIMEOUT_MILLIS) <= Instant::now() {
                 break Err(
-                    "Timed out waiting for ganache to start. Is ganache-cli installed?".to_string(),
+                    "Timed out waiting for ganache to start. Is ganache installed?".to_string(),
                 );
             }
 
             let mut line = String::new();
             if let Err(e) = reader.read_line(&mut line) {
                 break Err(format!("Failed to read line from ganache process: {:?}", e));
-            } else if line.starts_with("Listening on") {
+            } else if line.starts_with("RPC Listening on") {
                 break Ok(());
             } else {
                 continue;
@@ -69,13 +69,13 @@ impl GanacheInstance {
         })
     }
 
-    /// Start a new `ganache-cli` process, waiting until it indicates that it is ready to accept
+    /// Start a new `ganache` process, waiting until it indicates that it is ready to accept
     /// RPC connections.
     pub fn new(network_id: u64, chain_id: u64) -> Result<Self, String> {
         let port = unused_tcp_port()?;
         let binary = match cfg!(windows) {
-            true => "ganache-cli.cmd",
-            false => "ganache-cli",
+            true => "ganache.cmd",
+            false => "ganache",
         };
         let child = Command::new(binary)
             .stdout(Stdio::piped())
@@ -85,15 +85,13 @@ impl GanacheInstance {
             .arg("1000000000")
             .arg("--accounts")
             .arg("10")
-            .arg("--keepAliveTimeout")
-            .arg("0")
             .arg("--port")
             .arg(format!("{}", port))
             .arg("--mnemonic")
             .arg("\"vast thought differ pull jewel broom cook wrist tribe word before omit\"")
             .arg("--networkId")
             .arg(format!("{}", network_id))
-            .arg("--chainId")
+            .arg("--chain.chainId")
             .arg(format!("{}", chain_id))
             .spawn()
             .map_err(|e| {
@@ -110,8 +108,8 @@ impl GanacheInstance {
     pub fn fork(&self) -> Result<Self, String> {
         let port = unused_tcp_port()?;
         let binary = match cfg!(windows) {
-            true => "ganache-cli.cmd",
-            false => "ganache-cli",
+            true => "ganache.cmd",
+            false => "ganache",
         };
         let child = Command::new(binary)
             .stdout(Stdio::piped())
@@ -119,9 +117,7 @@ impl GanacheInstance {
             .arg(self.endpoint())
             .arg("--port")
             .arg(format!("{}", port))
-            .arg("--keepAliveTimeout")
-            .arg("0")
-            .arg("--chainId")
+            .arg("--chain.chainId")
             .arg(format!("{}", self.chain_id))
             .spawn()
             .map_err(|e| {
@@ -178,8 +174,7 @@ impl GanacheInstance {
             .await
             .map(|_| ())
             .map_err(|_| {
-                "utils should mine new block with evm_mine (only works with ganache-cli!)"
-                    .to_string()
+                "utils should mine new block with evm_mine (only works with ganache!)".to_string()
             })
     }
 }

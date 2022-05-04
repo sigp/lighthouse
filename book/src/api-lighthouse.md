@@ -366,6 +366,12 @@ curl "http://localhost:5052/lighthouse/database/info" | jq
 ```json
 {
   "schema_version": 5,
+  "config": {
+    "slots_per_restore_point": 2048,
+    "block_cache_size": 5,
+    "compact_on_init": false,
+    "compact_on_prune": true
+  },
   "split": {
     "slot": "2034912",
     "state_root": "0x11c8516aa7d4d1613e84121e3a557ceca34618b4c1a38f05b66ad045ff82b33b"

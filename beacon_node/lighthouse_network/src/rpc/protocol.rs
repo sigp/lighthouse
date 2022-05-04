@@ -14,7 +14,7 @@ use std::io;
 use std::marker::PhantomData;
 use std::sync::Arc;
 use std::time::Duration;
-use strum::{AsStaticRef, AsStaticStr};
+use strum::IntoStaticStr;
 use tokio_io_timeout::TimeoutStream;
 use tokio_util::{
     codec::Framed,
@@ -63,7 +63,13 @@ lazy_static! {
 
     /// The `BeaconBlockMerge` block has an `ExecutionPayload` field which has a max size ~16 GiB for future proofing.
     /// We calculate the value from its fields instead of constructing the block and checking the length.
-    pub static ref SIGNED_BEACON_BLOCK_MERGE_MAX: usize = types::ExecutionPayload::<MainnetEthSpec>::max_execution_payload_size();
+    /// Note: This is only the theoretical upper bound. We further bound the max size we receive over the network
+    /// with `MAX_RPC_SIZE_POST_MERGE`.
+    pub static ref SIGNED_BEACON_BLOCK_MERGE_MAX: usize =
+    // Size of a full altair block
+    *SIGNED_BEACON_BLOCK_ALTAIR_MAX
+    + types::ExecutionPayload::<MainnetEthSpec>::max_execution_payload_size() // adding max size of execution payload (~16gb)
+    + ssz::BYTES_PER_LENGTH_OFFSET; // Adding the additional ssz offset for the `ExecutionPayload` field
 
     pub static ref BLOCKS_BY_ROOT_REQUEST_MIN: usize =
         VariableList::<Hash256, MaxRequestBlocks>::from(Vec::<Hash256>::new())
@@ -106,10 +112,29 @@ const REQUEST_TIMEOUT: u64 = 15;
 
 /// Returns the maximum bytes that can be sent across the RPC.
 pub fn max_rpc_size(fork_context: &ForkContext) -> usize {
-    if fork_context.fork_exists(ForkName::Merge) {
-        MAX_RPC_SIZE_POST_MERGE
-    } else {
-        MAX_RPC_SIZE
+    match fork_context.current_fork() {
+        ForkName::Merge => MAX_RPC_SIZE_POST_MERGE,
+        ForkName::Altair | ForkName::Base => MAX_RPC_SIZE,
+    }
+}
+
+/// Returns the rpc limits for beacon_block_by_range and beacon_block_by_root responses.
+///
+/// Note: This function should take care to return the min/max limits accounting for all
+/// previous valid forks when adding a new fork variant.
+pub fn rpc_block_limits_by_fork(current_fork: ForkName) -> RpcLimits {
+    match &current_fork {
+        ForkName::Base => {
+            RpcLimits::new(*SIGNED_BEACON_BLOCK_BASE_MIN, *SIGNED_BEACON_BLOCK_BASE_MAX)
+        }
+        ForkName::Altair => RpcLimits::new(
+            *SIGNED_BEACON_BLOCK_BASE_MIN, // Base block is smaller than altair blocks
+            *SIGNED_BEACON_BLOCK_ALTAIR_MAX, // Altair block is larger than base blocks
+        ),
+        ForkName::Merge => RpcLimits::new(
+            *SIGNED_BEACON_BLOCK_BASE_MIN, // Base block is smaller than altair and merge blocks
+            *SIGNED_BEACON_BLOCK_MERGE_MAX, // Merge block is larger than base and altair blocks
+        ),
     }
 }
 
@@ -269,39 +294,15 @@ impl ProtocolId {
     }
 
     /// Returns min and max size for messages of given protocol id responses.
-    pub fn rpc_response_limits<T: EthSpec>(&self) -> RpcLimits {
+    pub fn rpc_response_limits<T: EthSpec>(&self, fork_context: &ForkContext) -> RpcLimits {
         match self.message_name {
             Protocol::Status => RpcLimits::new(
                 <StatusMessage as Encode>::ssz_fixed_len(),
                 <StatusMessage as Encode>::ssz_fixed_len(),
             ),
             Protocol::Goodbye => RpcLimits::new(0, 0), // Goodbye request has no response
-            Protocol::BlocksByRange => RpcLimits::new(
-                std::cmp::min(
-                    std::cmp::min(
-                        *SIGNED_BEACON_BLOCK_ALTAIR_MIN,
-                        *SIGNED_BEACON_BLOCK_BASE_MIN,
-                    ),
-                    *SIGNED_BEACON_BLOCK_MERGE_MIN,
-                ),
-                std::cmp::max(
-                    std::cmp::max(
-                        *SIGNED_BEACON_BLOCK_ALTAIR_MAX,
-                        *SIGNED_BEACON_BLOCK_BASE_MAX,
-                    ),
-                    *SIGNED_BEACON_BLOCK_MERGE_MAX,
-                ),
-            ),
-            Protocol::BlocksByRoot => RpcLimits::new(
-                std::cmp::min(
-                    *SIGNED_BEACON_BLOCK_ALTAIR_MIN,
-                    *SIGNED_BEACON_BLOCK_BASE_MIN,
-                ),
-                std::cmp::max(
-                    *SIGNED_BEACON_BLOCK_ALTAIR_MAX,
-                    *SIGNED_BEACON_BLOCK_BASE_MAX,
-                ),
-            ),
+            Protocol::BlocksByRange => rpc_block_limits_by_fork(fork_context.current_fork()),
+            Protocol::BlocksByRoot => rpc_block_limits_by_fork(fork_context.current_fork()),
 
             Protocol::Ping => RpcLimits::new(
                 <Ping as Encode>::ssz_fixed_len(),
@@ -510,7 +511,7 @@ impl<TSpec: EthSpec> InboundRequest<TSpec> {
 }
 
 /// Error in RPC Encoding/Decoding.
-#[derive(Debug, Clone, PartialEq, AsStaticStr)]
+#[derive(Debug, Clone, PartialEq, IntoStaticStr)]
 #[strum(serialize_all = "snake_case")]
 pub enum RPCError {
     /// Error when decoding the raw buffer from ssz.
@@ -528,7 +529,7 @@ pub enum RPCError {
     /// Stream ended unexpectedly.
     IncompleteStream,
     /// Peer sent invalid data.
-    InvalidData,
+    InvalidData(String),
     /// An error occurred due to internal reasons. Ex: timer failure.
     InternalError(&'static str),
     /// Negotiation with this peer timed out.
@@ -562,7 +563,7 @@ impl std::fmt::Display for RPCError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match *self {
             RPCError::SSZDecodeError(ref err) => write!(f, "Error while decoding ssz: {:?}", err),
-            RPCError::InvalidData => write!(f, "Peer sent unexpected data"),
+            RPCError::InvalidData(ref err) => write!(f, "Peer sent unexpected data: {}", err),
             RPCError::IoError(ref err) => write!(f, "IO Error: {}", err),
             RPCError::ErrorResponse(ref code, ref reason) => write!(
                 f,
@@ -589,7 +590,7 @@ impl std::error::Error for RPCError {
             RPCError::StreamTimeout => None,
             RPCError::UnsupportedProtocol => None,
             RPCError::IncompleteStream => None,
-            RPCError::InvalidData => None,
+            RPCError::InvalidData(_) => None,
             RPCError::InternalError(_) => None,
             RPCError::ErrorResponse(_, _) => None,
             RPCError::NegotiationTimeout => None,
@@ -617,8 +618,8 @@ impl RPCError {
     /// Used for metrics.
     pub fn as_static_str(&self) -> &'static str {
         match self {
-            RPCError::ErrorResponse(ref code, ..) => code.as_static(),
-            e => e.as_static(),
+            RPCError::ErrorResponse(ref code, ..) => code.into(),
+            e => e.into(),
         }
     }
 }

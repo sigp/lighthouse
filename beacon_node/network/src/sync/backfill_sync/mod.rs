@@ -8,7 +8,7 @@
 //! If a batch fails, the backfill sync cannot progress. In this scenario, we mark the backfill
 //! sync as failed, log an error and attempt to retry once a new peer joins the node.
 
-use crate::beacon_processor::{ProcessId, WorkEvent as BeaconWorkEvent};
+use crate::beacon_processor::{ChainSegmentProcessId, WorkEvent as BeaconWorkEvent};
 use crate::sync::manager::{BatchProcessResult, Id};
 use crate::sync::network_context::SyncNetworkContext;
 use crate::sync::range_sync::{BatchConfig, BatchId, BatchInfo, BatchState};
@@ -534,7 +534,7 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
             Ok(v) => v,
         };
 
-        let process_id = ProcessId::BackSyncBatchId(batch_id);
+        let process_id = ChainSegmentProcessId::BackSyncBatchId(batch_id);
         self.current_processing_batch = Some(batch_id);
 
         if let Err(e) = self

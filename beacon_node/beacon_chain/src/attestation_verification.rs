@@ -961,7 +961,6 @@ impl<'a, T: BeaconChainTypes> VerifiedUnaggregatedAttestation<'a, T> {
 }
 
 /// Returns `Ok(())` if the `attestation.data.beacon_block_root` is known to this chain.
-/// You can use this `shuffling_id` to read from the shuffling cache.
 ///
 /// The block root may not be known for two reasons:
 ///

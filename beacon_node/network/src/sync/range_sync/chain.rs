@@ -1,5 +1,5 @@
 use super::batch::{BatchInfo, BatchState};
-use crate::beacon_processor::ProcessId;
+use crate::beacon_processor::ChainSegmentProcessId;
 use crate::beacon_processor::WorkEvent as BeaconWorkEvent;
 use crate::sync::{manager::Id, network_context::SyncNetworkContext, BatchProcessResult};
 use beacon_chain::BeaconChainTypes;
@@ -300,7 +300,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
         // for removing chains and checking completion is in the callback.
 
         let blocks = batch.start_processing()?;
-        let process_id = ProcessId::RangeBatchId(self.id, batch_id);
+        let process_id = ChainSegmentProcessId::RangeBatchId(self.id, batch_id);
         self.current_processing_batch = Some(batch_id);
 
         if let Err(e) = self

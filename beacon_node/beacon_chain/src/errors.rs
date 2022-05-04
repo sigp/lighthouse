@@ -9,6 +9,7 @@ use crate::observed_aggregates::Error as ObservedAttestationsError;
 use crate::observed_attesters::Error as ObservedAttestersError;
 use crate::observed_block_producers::Error as ObservedBlockProducersError;
 use execution_layer::PayloadStatus;
+use fork_choice::ExecutionStatus;
 use futures::channel::mpsc::TrySendError;
 use operation_pool::OpPoolError;
 use safe_arith::ArithError;
@@ -138,6 +139,7 @@ pub enum BeaconChainError {
     AltairForkDisabled,
     ExecutionLayerMissing,
     ExecutionForkChoiceUpdateFailed(execution_layer::Error),
+    PrepareProposerBlockingFailed(execution_layer::Error),
     ExecutionForkChoiceUpdateInvalid {
         status: PayloadStatus,
     },
@@ -159,6 +161,14 @@ pub enum BeaconChainError {
     FinalizedCheckpointMismatch {
         head_state: Checkpoint,
         fork_choice: Hash256,
+    },
+    InvalidSlot(Slot),
+    HeadBlockNotFullyVerified {
+        beacon_block_root: Hash256,
+        execution_status: ExecutionStatus,
+    },
+    CannotAttestToFinalizedBlock {
+        beacon_block_root: Hash256,
     },
 }
 

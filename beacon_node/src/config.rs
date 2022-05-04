@@ -94,8 +94,8 @@ pub fn get_config<E: EthSpec>(
 
     if let Some(address) = cli_args.value_of("http-address") {
         client_config.http_api.listen_addr = address
-            .parse::<Ipv4Addr>()
-            .map_err(|_| "http-address is not a valid IPv4 address.")?;
+            .parse::<IpAddr>()
+            .map_err(|_| "http-address is not a valid IP address.")?;
     }
 
     if let Some(port) = cli_args.value_of("http-port") {
@@ -146,8 +146,8 @@ pub fn get_config<E: EthSpec>(
 
     if let Some(address) = cli_args.value_of("metrics-address") {
         client_config.http_metrics.listen_addr = address
-            .parse::<Ipv4Addr>()
-            .map_err(|_| "metrics-address is not a valid IPv4 address.")?;
+            .parse::<IpAddr>()
+            .map_err(|_| "metrics-address is not a valid IP address.")?;
     }
 
     if let Some(port) = cli_args.value_of("metrics-port") {
@@ -237,35 +237,57 @@ pub fn get_config<E: EthSpec>(
         client_config.eth1.purge_cache = true;
     }
 
-    if let Some(endpoints) = cli_args.value_of("execution-endpoints") {
-        client_config.sync_eth1_chain = true;
-        client_config.execution_endpoints = endpoints
-            .split(',')
-            .map(SensitiveUrl::parse)
-            .collect::<Result<_, _>>()
-            .map(Some)
-            .map_err(|e| format!("execution-endpoints contains an invalid URL {:?}", e))?;
-    } else if cli_args.is_present("merge") {
-        client_config.execution_endpoints = Some(client_config.eth1.endpoints.clone());
-    }
+    if cli_args.is_present("merge") || cli_args.is_present("execution-endpoints") {
+        let mut el_config = execution_layer::Config::default();
 
-    client_config.suggested_fee_recipient =
-        clap_utils::parse_optional(cli_args, "suggested-fee-recipient")?;
+        if let Some(endpoints) = cli_args.value_of("execution-endpoints") {
+            client_config.sync_eth1_chain = true;
+            el_config.execution_endpoints = endpoints
+                .split(',')
+                .map(SensitiveUrl::parse)
+                .collect::<Result<_, _>>()
+                .map_err(|e| format!("execution-endpoints contains an invalid URL {:?}", e))?;
+        } else if cli_args.is_present("merge") {
+            el_config.execution_endpoints = client_config.eth1.endpoints.clone();
+        }
+
+        if let Some(endpoints) = cli_args.value_of("payload-builders") {
+            el_config.builder_endpoints = endpoints
+                .split(',')
+                .map(SensitiveUrl::parse)
+                .collect::<Result<_, _>>()
+                .map_err(|e| format!("payload-builders contains an invalid URL {:?}", e))?;
+        }
+
+        if let Some(secrets) = cli_args.value_of("jwt-secrets") {
+            let secret_files: Vec<_> = secrets.split(',').map(PathBuf::from).collect();
+            if !secret_files.is_empty() && secret_files.len() != el_config.execution_endpoints.len()
+            {
+                return Err(format!(
+                    "{} execution-endpoints supplied with {} jwt-secrets. Lengths \
+                        must match or jwt-secrets must be empty.",
+                    el_config.execution_endpoints.len(),
+                    secret_files.len(),
+                ));
+            }
+            el_config.secret_files = secret_files;
+        }
+
+        el_config.suggested_fee_recipient =
+            clap_utils::parse_optional(cli_args, "suggested-fee-recipient")?;
+        el_config.jwt_id = clap_utils::parse_optional(cli_args, "jwt-id")?;
+        el_config.jwt_version = clap_utils::parse_optional(cli_args, "jwt-version")?;
+        el_config.default_datadir = client_config.data_dir.clone();
+        client_config.execution_layer = Some(el_config);
+    }
 
     if let Some(freezer_dir) = cli_args.value_of("freezer-dir") {
         client_config.freezer_db_path = Some(PathBuf::from(freezer_dir));
     }
 
-    if let Some(slots_per_restore_point) = cli_args.value_of("slots-per-restore-point") {
-        client_config.store.slots_per_restore_point = slots_per_restore_point
-            .parse()
-            .map_err(|_| "slots-per-restore-point is not a valid integer".to_string())?;
-    } else {
-        client_config.store.slots_per_restore_point = std::cmp::min(
-            E::slots_per_historical_root() as u64,
-            store::config::DEFAULT_SLOTS_PER_RESTORE_POINT,
-        );
-    }
+    let (sprp, sprp_explicit) = get_slots_per_restore_point::<E>(cli_args)?;
+    client_config.store.slots_per_restore_point = sprp;
+    client_config.store.slots_per_restore_point_set_explicitly = sprp_explicit;
 
     if let Some(block_cache_size) = cli_args.value_of("block-cache-size") {
         client_config.store.block_cache_size = block_cache_size
@@ -802,4 +824,23 @@ pub fn get_data_dir(cli_args: &ArgMatches) -> PathBuf {
             })
         })
         .unwrap_or_else(|| PathBuf::from("."))
+}
+
+/// Get the `slots_per_restore_point` value to use for the database.
+///
+/// Return `(sprp, set_explicitly)` where `set_explicitly` is `true` if the user provided the value.
+pub fn get_slots_per_restore_point<E: EthSpec>(
+    cli_args: &ArgMatches,
+) -> Result<(u64, bool), String> {
+    if let Some(slots_per_restore_point) =
+        clap_utils::parse_optional(cli_args, "slots-per-restore-point")?
+    {
+        Ok((slots_per_restore_point, true))
+    } else {
+        let default = std::cmp::min(
+            E::slots_per_historical_root() as u64,
+            store::config::DEFAULT_SLOTS_PER_RESTORE_POINT,
+        );
+        Ok((default, false))
+    }
 }

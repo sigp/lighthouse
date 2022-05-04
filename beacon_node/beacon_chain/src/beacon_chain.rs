@@ -4,6 +4,7 @@ use crate::attestation_verification::{
     VerifiedUnaggregatedAttestation,
 };
 use crate::attester_cache::{AttesterCache, AttesterCacheKey};
+use crate::beacon_proposer_cache::compute_proposer_duties_from_head;
 use crate::beacon_proposer_cache::BeaconProposerCache;
 use crate::block_times_cache::BlockTimesCache;
 use crate::block_verification::{
@@ -35,6 +36,7 @@ use crate::observed_operations::{ObservationOutcome, ObservedOperations};
 use crate::persisted_beacon_chain::{PersistedBeaconChain, DUMMY_CANONICAL_HEAD_BLOCK_ROOT};
 use crate::persisted_fork_choice::PersistedForkChoice;
 use crate::pre_finalization_cache::PreFinalizationBlockCache;
+use crate::proposer_prep_service::PAYLOAD_PREPARATION_LOOKAHEAD_FACTOR;
 use crate::shuffling_cache::{BlockShufflingIds, ShufflingCache};
 use crate::snapshot_cache::{BlockProductionPreState, SnapshotCache};
 use crate::sync_committee_verification::{
@@ -52,7 +54,7 @@ use crate::{metrics, BeaconChainError};
 use eth2::types::{
     EventKind, SseBlock, SseChainReorg, SseFinalizedCheckpoint, SseHead, SseLateHead, SyncDuty,
 };
-use execution_layer::{ExecutionLayer, PayloadStatus};
+use execution_layer::{ExecutionLayer, PayloadAttributes, PayloadStatus};
 use fork_choice::{AttestationFromBlock, ForkChoice, InvalidationOperation};
 use futures::channel::mpsc::Sender;
 use itertools::process_results;
@@ -73,11 +75,11 @@ use state_processing::{
     state_advance::{complete_state_advance, partial_state_advance},
     BlockSignatureStrategy, SigVerifiedOp, VerifyBlockRoot,
 };
-use std::borrow::Cow;
 use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::io::prelude::*;
+use std::marker::PhantomData;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use store::iter::{BlockRootsIterator, ParentRootBlockIterator, StateRootsIterator};
@@ -118,6 +120,11 @@ pub const FORK_CHOICE_DB_KEY: Hash256 = Hash256::zero();
 /// Defines how old a block can be before it's no longer a candidate for the early attester cache.
 const EARLY_ATTESTER_CACHE_HISTORIC_SLOTS: u64 = 4;
 
+/// Defines a distance between the head block slot and the current slot.
+///
+/// If the head block is older than this value, don't bother preparing beacon proposers.
+const PREPARE_PROPOSER_HISTORIC_EPOCHS: u64 = 4;
+
 /// Reported to the user when the justified block has an invalid execution payload.
 pub const INVALID_JUSTIFIED_PAYLOAD_SHUTDOWN_REASON: &str =
     "Justified block has an invalid execution payload.";
@@ -144,6 +151,12 @@ pub enum ChainSegmentResult<T: EthSpec> {
         imported_blocks: usize,
         error: BlockError<T>,
     },
+}
+
+/// Configure the signature verification of produced blocks.
+pub enum ProduceBlockVerification {
+    VerifyRandao,
+    NoVerification,
 }
 
 /// The accepted clock drift for nodes gossiping blocks and attestations. See:
@@ -212,6 +225,7 @@ pub struct HeadInfo {
     pub proposer_shuffling_decision_root: Hash256,
     pub is_merge_transition_complete: bool,
     pub execution_payload_block_hash: Option<ExecutionBlockHash>,
+    pub random: Hash256,
 }
 
 pub trait BeaconChainTypes: Send + Sync + 'static {
@@ -362,7 +376,7 @@ pub struct BeaconChain<T: BeaconChainTypes> {
     pub validator_monitor: RwLock<ValidatorMonitor<T::EthSpec>>,
 }
 
-type BeaconBlockAndState<T> = (BeaconBlock<T>, BeaconState<T>);
+type BeaconBlockAndState<T, Payload> = (BeaconBlock<T, Payload>, BeaconState<T>);
 
 impl<T: BeaconChainTypes> BeaconChain<T> {
     /// Persists the head tracker and fork choice.
@@ -1122,6 +1136,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 .beacon_state
                 .proposer_shuffling_decision_root(head.beacon_block_root)?;
 
+            // The `random` value is used whilst producing an `ExecutionPayload` atop the head.
+            let current_epoch = head.beacon_state.current_epoch();
+            let random = *head.beacon_state.get_randao_mix(current_epoch)?;
+
             Ok(HeadInfo {
                 slot: head.beacon_block.slot(),
                 block_root: head.beacon_block_root,
@@ -1139,7 +1157,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     .body()
                     .execution_payload()
                     .ok()
-                    .map(|ep| ep.block_hash),
+                    .map(|ep| ep.block_hash()),
+                random,
             })
         })
     }
@@ -1416,8 +1435,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     pub fn get_aggregated_attestation(
         &self,
         data: &AttestationData,
-    ) -> Option<Attestation<T::EthSpec>> {
-        self.naive_aggregation_pool.read().get(data)
+    ) -> Result<Option<Attestation<T::EthSpec>>, Error> {
+        if let Some(attestation) = self.naive_aggregation_pool.read().get(data) {
+            self.filter_optimistic_attestation(attestation)
+                .map(Option::Some)
+        } else {
+            Ok(None)
+        }
     }
 
     /// Returns an aggregated `Attestation`, if any, that has a matching
@@ -1428,10 +1452,43 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         &self,
         slot: Slot,
         attestation_data_root: &Hash256,
-    ) -> Option<Attestation<T::EthSpec>> {
-        self.naive_aggregation_pool
+    ) -> Result<Option<Attestation<T::EthSpec>>, Error> {
+        if let Some(attestation) = self
+            .naive_aggregation_pool
             .read()
             .get_by_slot_and_root(slot, attestation_data_root)
+        {
+            self.filter_optimistic_attestation(attestation)
+                .map(Option::Some)
+        } else {
+            Ok(None)
+        }
+    }
+
+    /// Returns `Ok(attestation)` if the supplied `attestation` references a valid
+    /// `beacon_block_root`.
+    fn filter_optimistic_attestation(
+        &self,
+        attestation: Attestation<T::EthSpec>,
+    ) -> Result<Attestation<T::EthSpec>, Error> {
+        let beacon_block_root = attestation.data.beacon_block_root;
+        match self
+            .fork_choice
+            .read()
+            .get_block_execution_status(&beacon_block_root)
+        {
+            // The attestation references a block that is not in fork choice, it must be
+            // pre-finalization.
+            None => Err(Error::CannotAttestToFinalizedBlock { beacon_block_root }),
+            // The attestation references a fully valid `beacon_block_root`.
+            Some(execution_status) if execution_status.is_valid_or_irrelevant() => Ok(attestation),
+            // The attestation references a block that has not been verified by an EL (i.e. it
+            // is optimistic or invalid). Don't return the block, return an error instead.
+            Some(execution_status) => Err(Error::HeadBlockNotFullyVerified {
+                beacon_block_root,
+                execution_status,
+            }),
+        }
     }
 
     /// Return an aggregated `SyncCommitteeContribution` matching the given `root`.
@@ -1467,6 +1524,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         //
         // In effect, the early attester cache prevents slow database IO from causing missed
         // head/target votes.
+        //
+        // The early attester cache should never contain an optimistically imported block.
         match self
             .early_attester_cache
             .try_attest(request_slot, request_index, &self.spec)
@@ -1583,6 +1642,22 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         }
         drop(head_timer);
 
+        // Only attest to a block if it is fully verified (i.e. not optimistic or invalid).
+        match self
+            .fork_choice
+            .read()
+            .get_block_execution_status(&beacon_block_root)
+        {
+            Some(execution_status) if execution_status.is_valid_or_irrelevant() => (),
+            Some(execution_status) => {
+                return Err(Error::HeadBlockNotFullyVerified {
+                    beacon_block_root,
+                    execution_status,
+                })
+            }
+            None => return Err(Error::HeadMissingFromForkChoice(beacon_block_root)),
+        };
+
         /*
          *  Phase 2/2:
          *
@@ -1638,64 +1713,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 beacon_block_root,
                 source: justified_checkpoint,
                 target,
-            },
-            signature: AggregateSignature::empty(),
-        })
-    }
-
-    /// Produces an "unaggregated" attestation for the given `slot` and `index` that attests to
-    /// `beacon_block_root`. The provided `state` should match the `block.state_root` for the
-    /// `block` identified by `beacon_block_root`.
-    ///
-    /// The attestation doesn't _really_ have anything about it that makes it unaggregated per say,
-    /// however this function is only required in the context of forming an unaggregated
-    /// attestation. It would be an (undetectable) violation of the protocol to create a
-    /// `SignedAggregateAndProof` based upon the output of this function.
-    pub fn produce_unaggregated_attestation_for_block(
-        &self,
-        slot: Slot,
-        index: CommitteeIndex,
-        beacon_block_root: Hash256,
-        mut state: Cow<BeaconState<T::EthSpec>>,
-        state_root: Hash256,
-    ) -> Result<Attestation<T::EthSpec>, Error> {
-        let epoch = slot.epoch(T::EthSpec::slots_per_epoch());
-
-        if state.slot() > slot {
-            return Err(Error::CannotAttestToFutureState);
-        } else if state.current_epoch() < epoch {
-            let mut_state = state.to_mut();
-            // Only perform a "partial" state advance since we do not require the state roots to be
-            // accurate.
-            partial_state_advance(
-                mut_state,
-                Some(state_root),
-                epoch.start_slot(T::EthSpec::slots_per_epoch()),
-                &self.spec,
-            )?;
-            mut_state.build_committee_cache(RelativeEpoch::Current, &self.spec)?;
-        }
-
-        let committee_len = state.get_beacon_committee(slot, index)?.committee.len();
-
-        let target_slot = epoch.start_slot(T::EthSpec::slots_per_epoch());
-        let target_root = if state.slot() <= target_slot {
-            beacon_block_root
-        } else {
-            *state.get_block_root(target_slot)?
-        };
-
-        Ok(Attestation {
-            aggregation_bits: BitList::with_capacity(committee_len)?,
-            data: AttestationData {
-                slot,
-                index,
-                beacon_block_root,
-                source: state.current_justified_checkpoint(),
-                target: Checkpoint {
-                    epoch,
-                    root: target_root,
-                },
             },
             signature: AggregateSignature::empty(),
         })
@@ -2664,13 +2681,20 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             }
         }
 
-        // If the block is recent enough, check to see if it becomes the head block. If so, apply it
-        // to the early attester cache. This will allow attestations to the block without waiting
-        // for the block and state to be inserted to the database.
+        // If the block is recent enough and it was not optimistically imported, check to see if it
+        // becomes the head block. If so, apply it to the early attester cache. This will allow
+        // attestations to the block without waiting for the block and state to be inserted to the
+        // database.
         //
         // Only performing this check on recent blocks avoids slowing down sync with lots of calls
         // to fork choice `get_head`.
-        if block.slot() + EARLY_ATTESTER_CACHE_HISTORIC_SLOTS >= current_slot {
+        //
+        // Optimistically imported blocks are not added to the cache since the cache is only useful
+        // for a small window of time and the complexity of keeping track of the optimistic status
+        // is not worth it.
+        if !payload_verification_status.is_optimistic()
+            && block.slot() + EARLY_ATTESTER_CACHE_HISTORIC_SLOTS >= current_slot
+        {
             let new_head_root = fork_choice
                 .get_head(current_slot, &self.spec)
                 .map_err(BeaconChainError::from)?;
@@ -2879,12 +2903,28 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     ///
     /// The produced block will not be inherently valid, it must be signed by a block producer.
     /// Block signing is out of the scope of this function and should be done by a separate program.
-    pub fn produce_block(
+    pub fn produce_block<Payload: ExecPayload<T::EthSpec>>(
         &self,
         randao_reveal: Signature,
         slot: Slot,
         validator_graffiti: Option<Graffiti>,
-    ) -> Result<BeaconBlockAndState<T::EthSpec>, BlockProductionError> {
+    ) -> Result<BeaconBlockAndState<T::EthSpec, Payload>, BlockProductionError> {
+        self.produce_block_with_verification(
+            randao_reveal,
+            slot,
+            validator_graffiti,
+            ProduceBlockVerification::VerifyRandao,
+        )
+    }
+
+    /// Same as `produce_block` but allowing for configuration of RANDAO-verification.
+    pub fn produce_block_with_verification<Payload: ExecPayload<T::EthSpec>>(
+        &self,
+        randao_reveal: Signature,
+        slot: Slot,
+        validator_graffiti: Option<Graffiti>,
+        verification: ProduceBlockVerification,
+    ) -> Result<BeaconBlockAndState<T::EthSpec, Payload>, BlockProductionError> {
         metrics::inc_counter(&metrics::BLOCK_PRODUCTION_REQUESTS);
         let _complete_timer = metrics::start_timer(&metrics::BLOCK_PRODUCTION_TIMES);
 
@@ -2945,12 +2985,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         };
         drop(state_load_timer);
 
-        self.produce_block_on_state(
+        self.produce_block_on_state::<Payload>(
             state,
             state_root_opt,
             slot,
             randao_reveal,
             validator_graffiti,
+            verification,
         )
     }
 
@@ -3047,14 +3088,15 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// The provided `state_root_opt` should only ever be set to `Some` if the contained value is
     /// equal to the root of `state`. Providing this value will serve as an optimization to avoid
     /// performing a tree hash in some scenarios.
-    pub fn produce_block_on_state(
+    pub fn produce_block_on_state<Payload: ExecPayload<T::EthSpec>>(
         &self,
         mut state: BeaconState<T::EthSpec>,
         state_root_opt: Option<Hash256>,
         produce_at_slot: Slot,
         randao_reveal: Signature,
         validator_graffiti: Option<Graffiti>,
-    ) -> Result<BeaconBlockAndState<T::EthSpec>, BlockProductionError> {
+        verification: ProduceBlockVerification,
+    ) -> Result<BeaconBlockAndState<T::EthSpec, Payload>, BlockProductionError> {
         let eth1_chain = self
             .eth1_chain
             .as_ref()
@@ -3178,6 +3220,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     attestations,
                     deposits,
                     voluntary_exits: voluntary_exits.into(),
+                    _phantom: PhantomData,
                 },
             }),
             BeaconState::Altair(_) => {
@@ -3197,12 +3240,14 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         deposits,
                         voluntary_exits: voluntary_exits.into(),
                         sync_aggregate,
+                        _phantom: PhantomData,
                     },
                 })
             }
             BeaconState::Merge(_) => {
                 let sync_aggregate = get_sync_aggregate()?;
-                let execution_payload = get_execution_payload(self, &state, proposer_index)?;
+                let execution_payload =
+                    get_execution_payload::<T, Payload>(self, &state, proposer_index)?;
                 BeaconBlock::Merge(BeaconBlockMerge {
                     slot,
                     proposer_index,
@@ -3244,11 +3289,15 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         }
 
         let process_timer = metrics::start_timer(&metrics::BLOCK_PRODUCTION_PROCESS_TIMES);
+        let signature_strategy = match verification {
+            ProduceBlockVerification::VerifyRandao => BlockSignatureStrategy::VerifyRandao,
+            ProduceBlockVerification::NoVerification => BlockSignatureStrategy::NoVerification,
+        };
         per_block_processing(
             &mut state,
             &block,
             None,
-            BlockSignatureStrategy::VerifyRandao,
+            signature_strategy,
             VerifyBlockRoot::True,
             &self.spec,
         )?;
@@ -3533,16 +3582,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .beacon_state
             .attester_shuffling_decision_root(self.genesis_block_root, RelativeEpoch::Current);
 
-        // Used later for the execution engine.
-        let new_head_execution_block_hash_opt = new_head
-            .beacon_block
-            .message()
-            .body()
-            .execution_payload()
-            .ok()
-            .map(|ep| ep.block_hash);
-        let is_merge_transition_complete = is_merge_transition_complete(&new_head.beacon_state);
-
         drop(lag_timer);
 
         // Clear the early attester cache in case it conflicts with `self.canonical_head`.
@@ -3749,25 +3788,261 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             }
         }
 
-        // If this is a post-merge block, update the execution layer.
-        if let Some(new_head_execution_block_hash) = new_head_execution_block_hash_opt {
-            if is_merge_transition_complete {
-                let finalized_execution_block_hash = finalized_block
-                    .execution_status
-                    .block_hash()
-                    .unwrap_or_else(ExecutionBlockHash::zero);
-                if let Err(e) = self.update_execution_engine_forkchoice_blocking(
-                    finalized_execution_block_hash,
-                    beacon_block_root,
-                    new_head_execution_block_hash,
-                ) {
-                    crit!(
-                        self.log,
-                        "Failed to update execution head";
-                        "error" => ?e
-                    );
-                }
+        // Update the execution layer.
+        if let Err(e) = self.update_execution_engine_forkchoice_blocking(self.slot()?) {
+            crit!(
+                self.log,
+                "Failed to update execution head";
+                "error" => ?e
+            );
+        }
+
+        // Performing this call immediately after
+        // `update_execution_engine_forkchoice_blocking` might result in two calls to fork
+        // choice updated, one *without* payload attributes and then a second *with*
+        // payload attributes.
+        //
+        // This seems OK. It's not a significant waste of EL<>CL bandwidth or resources, as
+        // far as I know.
+        if let Err(e) = self.prepare_beacon_proposer_blocking() {
+            crit!(
+                self.log,
+                "Failed to prepare proposers after fork choice";
+                "error" => ?e
+            );
+        }
+
+        Ok(())
+    }
+
+    pub fn prepare_beacon_proposer_blocking(&self) -> Result<(), Error> {
+        let current_slot = self.slot()?;
+
+        // Avoids raising an error before Bellatrix.
+        //
+        // See `Self::prepare_beacon_proposer_async` for more detail.
+        if self.slot_is_prior_to_bellatrix(current_slot + 1) {
+            return Ok(());
+        }
+
+        let execution_layer = self
+            .execution_layer
+            .as_ref()
+            .ok_or(Error::ExecutionLayerMissing)?;
+
+        execution_layer
+            .block_on_generic(|_| self.prepare_beacon_proposer_async(current_slot))
+            .map_err(Error::PrepareProposerBlockingFailed)?
+    }
+
+    /// Determines the beacon proposer for the next slot. If that proposer is registered in the
+    /// `execution_layer`, provide the `execution_layer` with the necessary information to produce
+    /// `PayloadAttributes` for future calls to fork choice.
+    ///
+    /// The `PayloadAttributes` are used by the EL to give it a look-ahead for preparing an optimal
+    /// set of transactions for a new `ExecutionPayload`.
+    ///
+    /// This function will result in a call to `forkchoiceUpdated` on the EL if:
+    ///
+    /// 1. We're in the tail-end of the slot (as defined by PAYLOAD_PREPARATION_LOOKAHEAD_FACTOR)
+    /// 2. The head block is one slot (or less) behind the prepare slot (e.g., we're preparing for
+    ///    the next slot and the block at the current slot is already known).
+    pub async fn prepare_beacon_proposer_async(&self, current_slot: Slot) -> Result<(), Error> {
+        let prepare_slot = current_slot + 1;
+        let prepare_epoch = prepare_slot.epoch(T::EthSpec::slots_per_epoch());
+
+        // There's no need to run the proposer preparation routine before the bellatrix fork.
+        if self.slot_is_prior_to_bellatrix(prepare_slot) {
+            return Ok(());
+        }
+
+        let execution_layer = self
+            .execution_layer
+            .clone()
+            .ok_or(Error::ExecutionLayerMissing)?;
+
+        // Nothing to do if there are no proposers registered with the EL, exit early to avoid
+        // wasting cycles.
+        if !execution_layer.has_any_proposer_preparation_data().await {
+            return Ok(());
+        }
+
+        let head = self.head_info()?;
+        let head_epoch = head.slot.epoch(T::EthSpec::slots_per_epoch());
+
+        // Don't bother with proposer prep if the head is more than
+        // `PREPARE_PROPOSER_HISTORIC_EPOCHS` prior to the current slot.
+        //
+        // This prevents the routine from running during sync.
+        if head.slot + T::EthSpec::slots_per_epoch() * PREPARE_PROPOSER_HISTORIC_EPOCHS
+            < current_slot
+        {
+            debug!(
+                self.log,
+                "Head too old for proposer prep";
+                "head_slot" => head.slot,
+                "current_slot" => current_slot,
+            );
+            return Ok(());
+        }
+
+        // Ensure that the shuffling decision root is correct relative to the epoch we wish to
+        // query.
+        let shuffling_decision_root = if head_epoch == prepare_epoch {
+            head.proposer_shuffling_decision_root
+        } else {
+            head.block_root
+        };
+
+        // Read the proposer from the proposer cache.
+        let cached_proposer = self
+            .beacon_proposer_cache
+            .lock()
+            .get_slot::<T::EthSpec>(shuffling_decision_root, prepare_slot);
+        let proposer = if let Some(proposer) = cached_proposer {
+            proposer.index
+        } else {
+            if head_epoch + 2 < prepare_epoch {
+                warn!(
+                    self.log,
+                    "Skipping proposer preparation";
+                    "msg" => "this is a non-critical issue that can happen on unhealthy nodes or \
+                              networks.",
+                    "prepare_epoch" => prepare_epoch,
+                    "head_epoch" => head_epoch,
+                );
+
+                // Don't skip the head forward more than two epochs. This avoids burdening an
+                // unhealthy node.
+                //
+                // Although this node might miss out on preparing for a proposal, they should still
+                // be able to propose. This will prioritise beacon chain health over efficient
+                // packing of execution blocks.
+                return Ok(());
             }
+
+            let (proposers, decision_root, fork) =
+                compute_proposer_duties_from_head(prepare_epoch, self)?;
+
+            let proposer_index = prepare_slot.as_usize() % (T::EthSpec::slots_per_epoch() as usize);
+            let proposer = *proposers
+                .get(proposer_index)
+                .ok_or(BeaconChainError::NoProposerForSlot(prepare_slot))?;
+
+            self.beacon_proposer_cache.lock().insert(
+                prepare_epoch,
+                decision_root,
+                proposers,
+                fork,
+            )?;
+
+            // It's possible that the head changes whilst computing these duties. If so, abandon
+            // this routine since the change of head would have also spawned another instance of
+            // this routine.
+            //
+            // Exit now, after updating the cache.
+            if decision_root != shuffling_decision_root {
+                warn!(
+                    self.log,
+                    "Head changed during proposer preparation";
+                );
+                return Ok(());
+            }
+
+            proposer
+        };
+
+        // If the execution layer doesn't have any proposer data for this validator then we assume
+        // it's not connected to this BN and no action is required.
+        if !execution_layer
+            .has_proposer_preparation_data(proposer as u64)
+            .await
+        {
+            return Ok(());
+        }
+
+        let payload_attributes = PayloadAttributes {
+            timestamp: self
+                .slot_clock
+                .start_of(prepare_slot)
+                .ok_or(Error::InvalidSlot(prepare_slot))?
+                .as_secs(),
+            prev_randao: head.random,
+            suggested_fee_recipient: execution_layer
+                .get_suggested_fee_recipient(proposer as u64)
+                .await,
+        };
+
+        debug!(
+            self.log,
+            "Preparing beacon proposer";
+            "payload_attributes" => ?payload_attributes,
+            "head_root" => ?head.block_root,
+            "prepare_slot" => prepare_slot,
+            "validator" => proposer,
+        );
+
+        let already_known = execution_layer
+            .insert_proposer(
+                prepare_slot,
+                head.block_root,
+                proposer as u64,
+                payload_attributes,
+            )
+            .await;
+        // Only push a log to the user if this is the first time we've seen this proposer for this
+        // slot.
+        if !already_known {
+            info!(
+                self.log,
+                "Prepared beacon proposer";
+                "already_known" => already_known,
+                "prepare_slot" => prepare_slot,
+                "validator" => proposer,
+            );
+        }
+
+        let till_prepare_slot =
+            if let Some(duration) = self.slot_clock.duration_to_slot(prepare_slot) {
+                duration
+            } else {
+                // `SlotClock::duration_to_slot` will return `None` when we are past the start
+                // of `prepare_slot`. Don't bother sending a `forkchoiceUpdated` in that case,
+                // it's too late.
+                //
+                // This scenario might occur on an overloaded/under-resourced node.
+                warn!(
+                    self.log,
+                    "Delayed proposer preparation";
+                    "prepare_slot" => prepare_slot,
+                    "validator" => proposer,
+                );
+                return Ok(());
+            };
+
+        // If either of the following are true, send a fork-choice update message to the
+        // EL:
+        //
+        // 1. We're in the tail-end of the slot (as defined by
+        //    PAYLOAD_PREPARATION_LOOKAHEAD_FACTOR)
+        // 2. The head block is one slot (or less) behind the prepare slot (e.g., we're
+        //    preparing for the next slot and the block at the current slot is already
+        //    known).
+        if till_prepare_slot
+            <= self.slot_clock.slot_duration() / PAYLOAD_PREPARATION_LOOKAHEAD_FACTOR
+            || head.slot + 1 >= prepare_slot
+        {
+            debug!(
+                self.log,
+                "Pushing update to prepare proposer";
+                "till_prepare_slot" => ?till_prepare_slot,
+                "prepare_slot" => prepare_slot
+            );
+
+            // Use the blocking method here so that we don't form a queue of these functions when
+            // routinely calling them.
+            self.update_execution_engine_forkchoice_async(current_slot)
+                .await?;
         }
 
         Ok(())
@@ -3775,47 +4050,164 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
     pub fn update_execution_engine_forkchoice_blocking(
         &self,
-        finalized_execution_block_hash: ExecutionBlockHash,
-        head_block_root: Hash256,
-        head_execution_block_hash: ExecutionBlockHash,
+        current_slot: Slot,
     ) -> Result<(), Error> {
+        // Avoids raising an error before Bellatrix.
+        //
+        // See `Self::update_execution_engine_forkchoice_async` for more detail.
+        if self.slot_is_prior_to_bellatrix(current_slot + 1) {
+            return Ok(());
+        }
+
         let execution_layer = self
             .execution_layer
             .as_ref()
             .ok_or(Error::ExecutionLayerMissing)?;
 
         execution_layer
-            .block_on_generic(|_| {
-                self.update_execution_engine_forkchoice_async(
-                    finalized_execution_block_hash,
-                    head_block_root,
-                    head_execution_block_hash,
-                )
-            })
+            .block_on_generic(|_| self.update_execution_engine_forkchoice_async(current_slot))
             .map_err(Error::ForkchoiceUpdate)?
     }
 
     pub async fn update_execution_engine_forkchoice_async(
         &self,
-        finalized_execution_block_hash: ExecutionBlockHash,
-        head_block_root: Hash256,
-        head_execution_block_hash: ExecutionBlockHash,
+        current_slot: Slot,
     ) -> Result<(), Error> {
-        let forkchoice_updated_response = self
+        let next_slot = current_slot + 1;
+
+        // There is no need to issue a `forkchoiceUpdated` (fcU) message unless the Bellatrix fork
+        // has:
+        //
+        // 1. Already happened.
+        // 2. Will happen in the next slot.
+        //
+        // The reason for a fcU message in the slot prior to the Bellatrix fork is in case the
+        // terminal difficulty has already been reached and a payload preparation message needs to
+        // be issued.
+        if self.slot_is_prior_to_bellatrix(next_slot) {
+            return Ok(());
+        }
+
+        let execution_layer = self
             .execution_layer
             .as_ref()
-            .ok_or(Error::ExecutionLayerMissing)?
-            .notify_forkchoice_updated(
-                head_execution_block_hash,
-                finalized_execution_block_hash,
-                None,
-            )
+            .ok_or(Error::ExecutionLayerMissing)?;
+
+        // Take the global lock for updating the execution engine fork choice.
+        //
+        // Whilst holding this lock we must:
+        //
+        // 1. Read the canonical head.
+        // 2. Issue a forkchoiceUpdated call to the execution engine.
+        //
+        // This will allow us to ensure that we provide the execution layer with an *ordered* view
+        // of the head. I.e., we will never communicate a past head after communicating a later
+        // one.
+        //
+        // There is a "deadlock warning" in this function. The downside of this nice ordering is the
+        // potential for deadlock. I would advise against any other use of
+        // `execution_engine_forkchoice_lock` apart from the one here.
+        let forkchoice_lock = execution_layer.execution_engine_forkchoice_lock().await;
+
+        // Deadlock warning:
+        //
+        // We are taking the `self.fork_choice` lock whilst holding the `forkchoice_lock`. This
+        // is intentional, since it allows us to ensure a consistent ordering of messages to the
+        // execution layer.
+        let forkchoice_update_parameters =
+            self.fork_choice.read().get_forkchoice_update_parameters();
+        let (head_block_root, head_hash, finalized_hash) = if let Some(params) =
+            forkchoice_update_parameters
+        {
+            if let Some(head_hash) = params.head_hash {
+                (
+                    params.head_root,
+                    head_hash,
+                    params
+                        .finalized_hash
+                        .unwrap_or_else(ExecutionBlockHash::zero),
+                )
+            } else {
+                // The head block does not have an execution block hash. We must check to see if we
+                // happen to be the proposer of the transition block, in which case we still need to
+                // send forkchoice_updated.
+                match self.spec.fork_name_at_slot::<T::EthSpec>(next_slot) {
+                    // We are pre-bellatrix; no need to update the EL.
+                    ForkName::Base | ForkName::Altair => return Ok(()),
+                    _ => {
+                        // We are post-bellatrix
+                        if execution_layer
+                            .payload_attributes(next_slot, params.head_root)
+                            .await
+                            .is_some()
+                        {
+                            // We are a proposer, check for terminal_pow_block_hash
+                            if let Some(terminal_pow_block_hash) = execution_layer
+                                .get_terminal_pow_block_hash(&self.spec)
+                                .await
+                                .map_err(Error::ForkchoiceUpdate)?
+                            {
+                                info!(
+                                    self.log,
+                                    "Prepared POS transition block proposer"; "slot" => next_slot
+                                );
+                                (
+                                    params.head_root,
+                                    terminal_pow_block_hash,
+                                    params
+                                        .finalized_hash
+                                        .unwrap_or_else(ExecutionBlockHash::zero),
+                                )
+                            } else {
+                                // TTD hasn't been reached yet, no need to update the EL.
+                                return Ok(());
+                            }
+                        } else {
+                            // We are not a proposer, no need to update the EL.
+                            return Ok(());
+                        }
+                    }
+                }
+            }
+        } else {
+            warn!(
+                self.log,
+                "Missing forkchoice params";
+                "msg" => "please report this non-critical bug"
+            );
+            return Ok(());
+        };
+
+        let forkchoice_updated_response = execution_layer
+            .notify_forkchoice_updated(head_hash, finalized_hash, current_slot, head_block_root)
             .await
             .map_err(Error::ExecutionForkChoiceUpdateFailed);
 
+        // The head has been read and the execution layer has been updated. It is now valid to send
+        // another fork choice update.
+        drop(forkchoice_lock);
+
         match forkchoice_updated_response {
             Ok(status) => match &status {
-                PayloadStatus::Valid | PayloadStatus::Syncing => Ok(()),
+                PayloadStatus::Valid => {
+                    // Ensure that fork choice knows that the block is no longer optimistic.
+                    if let Err(e) = self
+                        .fork_choice
+                        .write()
+                        .on_valid_execution_payload(head_block_root)
+                    {
+                        error!(
+                            self.log,
+                            "Failed to validate payload";
+                            "error" => ?e
+                        )
+                    };
+                    Ok(())
+                }
+                // There's nothing to be done for a syncing response. If the block is already
+                // `SYNCING` in fork choice, there's nothing to do. If already known to be `VALID`
+                // or `INVALID` then we don't want to change it to syncing.
+                PayloadStatus::Syncing => Ok(()),
                 // The specification doesn't list `ACCEPTED` as a valid response to a fork choice
                 // update. This response *seems* innocent enough, so we won't return early with an
                 // error. However, we create a log to bring attention to the issue.
@@ -3874,6 +4266,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         }
     }
 
+    /// Returns `true` if the given slot is prior to the `bellatrix_fork_epoch`.
+    fn slot_is_prior_to_bellatrix(&self, slot: Slot) -> bool {
+        self.spec.bellatrix_fork_epoch.map_or(true, |bellatrix| {
+            slot.epoch(T::EthSpec::slots_per_epoch()) < bellatrix
+        })
+    }
+
     /// Returns the status of the current head block, regarding the validity of the execution
     /// payload.
     pub fn head_safety_status(&self) -> Result<HeadSafetyStatus, BeaconChainError> {
@@ -3887,7 +4286,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let status = match head_block.execution_status {
             ExecutionStatus::Valid(block_hash) => HeadSafetyStatus::Safe(Some(block_hash)),
             ExecutionStatus::Invalid(block_hash) => HeadSafetyStatus::Invalid(block_hash),
-            ExecutionStatus::Unknown(block_hash) => HeadSafetyStatus::Unsafe(block_hash),
+            ExecutionStatus::Optimistic(block_hash) => HeadSafetyStatus::Unsafe(block_hash),
             ExecutionStatus::Irrelevant(_) => HeadSafetyStatus::Safe(None),
         };
 
