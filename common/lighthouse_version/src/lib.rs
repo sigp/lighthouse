@@ -4,6 +4,7 @@ use target_info::Target;
 /// Returns the current version of this build of Lighthouse.
 ///
 /// A plus-sign (`+`) is appended to the git commit if the tree is dirty.
+/// Commit hash is omitted if the sources don't include git information.
 ///
 /// ## Example
 ///
@@ -17,7 +18,7 @@ pub const VERSION: &str = git_version!(
         "--match=thiswillnevermatchlol"
     ],
     prefix = "Lighthouse/v2.2.1-",
-    fallback = "unknown"
+    fallback = "Lighthouse/v2.2.1"
 );
 
 /// Returns `VERSION`, but with platform information appended to the end.
