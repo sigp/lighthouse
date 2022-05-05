@@ -345,8 +345,8 @@ impl ProtoArrayForkChoice {
                 justified_checkpoint,
                 finalized_checkpoint,
                 execution_status: block.execution_status,
-                unrealized_justified_checkpoint: None,
-                unrealized_finalized_checkpoint: None,
+                unrealized_justified_checkpoint: block.unrealized_justified_checkpoint,
+                unrealized_finalized_checkpoint: block.unrealized_finalized_checkpoint,
             })
         } else {
             None
