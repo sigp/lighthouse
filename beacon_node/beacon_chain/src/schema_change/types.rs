@@ -12,7 +12,7 @@ four_byte_option_impl!(four_byte_option_usize, usize);
 four_byte_option_impl!(four_byte_option_checkpoint, Checkpoint);
 
 #[superstruct(
-    variants(V1, V6, V7),
+    variants(V1, V6, V7, V9),
     variant_attributes(derive(Clone, PartialEq, Debug, Encode, Decode)),
     no_enum
 )]
@@ -30,18 +30,24 @@ pub struct ProtoNode {
     #[superstruct(only(V1, V6))]
     pub finalized_epoch: Epoch,
     #[ssz(with = "four_byte_option_checkpoint")]
-    #[superstruct(only(V7))]
+    #[superstruct(only(V7, V9))]
     pub justified_checkpoint: Option<Checkpoint>,
     #[ssz(with = "four_byte_option_checkpoint")]
-    #[superstruct(only(V7))]
+    #[superstruct(only(V7, V9))]
     pub finalized_checkpoint: Option<Checkpoint>,
     pub weight: u64,
     #[ssz(with = "four_byte_option_usize")]
     pub best_child: Option<usize>,
     #[ssz(with = "four_byte_option_usize")]
     pub best_descendant: Option<usize>,
-    #[superstruct(only(V6, V7))]
+    #[superstruct(only(V6, V7, V9))]
     pub execution_status: ExecutionStatus,
+    #[ssz(with = "four_byte_option_checkpoint")]
+    #[superstruct(only(V9))]
+    pub unrealized_justified_checkpoint: Option<Checkpoint>,
+    #[ssz(with = "four_byte_option_checkpoint")]
+    #[superstruct(only(V9))]
+    pub unrealized_finalized_checkpoint: Option<Checkpoint>,
 }
 
 impl Into<ProtoNodeV6> for ProtoNodeV1 {
@@ -88,7 +94,29 @@ impl Into<ProtoNodeV7> for ProtoNodeV6 {
     }
 }
 
-impl Into<ProtoNode> for ProtoNodeV7 {
+impl Into<ProtoNodeV9> for ProtoNodeV7 {
+    fn into(self) -> ProtoNodeV9 {
+        ProtoNodeV9 {
+            slot: self.slot,
+            state_root: self.state_root,
+            target_root: self.target_root,
+            current_epoch_shuffling_id: self.current_epoch_shuffling_id,
+            next_epoch_shuffling_id: self.next_epoch_shuffling_id,
+            root: self.root,
+            parent: self.parent,
+            justified_checkpoint: self.justified_checkpoint,
+            finalized_checkpoint: self.finalized_checkpoint,
+            weight: self.weight,
+            best_child: self.best_child,
+            best_descendant: self.best_descendant,
+            execution_status: self.execution_status,
+            unrealized_justified_checkpoint: None,
+            unrealized_finalized_checkpoint: None,
+        }
+    }
+}
+
+impl Into<ProtoNode> for ProtoNodeV9 {
     fn into(self) -> ProtoNode {
         ProtoNode {
             slot: self.slot,
@@ -104,12 +132,34 @@ impl Into<ProtoNode> for ProtoNodeV7 {
             best_child: self.best_child,
             best_descendant: self.best_descendant,
             execution_status: self.execution_status,
+            unrealized_justified_checkpoint: self.unrealized_justified_checkpoint,
+            unrealized_finalized_checkpoint: self.unrealized_finalized_checkpoint,
+        }
+    }
+}
+
+impl From<ProtoNode> for ProtoNodeV7 {
+    fn from(container: ProtoNode) -> Self {
+        Self {
+            slot: container.slot,
+            state_root: container.state_root,
+            target_root: container.target_root,
+            current_epoch_shuffling_id: container.current_epoch_shuffling_id,
+            next_epoch_shuffling_id: container.next_epoch_shuffling_id,
+            root: container.root,
+            parent: container.parent,
+            justified_checkpoint: container.justified_checkpoint,
+            finalized_checkpoint: container.finalized_checkpoint,
+            weight: container.weight,
+            best_child: container.best_child,
+            best_descendant: container.best_descendant,
+            execution_status: container.execution_status,
         }
     }
 }
 
 #[superstruct(
-    variants(V1, V6, V7),
+    variants(V1, V6, V7, V9),
     variant_attributes(derive(Encode, Decode)),
     no_enum
 )]
@@ -122,9 +172,9 @@ pub struct SszContainer {
     pub justified_epoch: Epoch,
     #[superstruct(only(V1, V6))]
     pub finalized_epoch: Epoch,
-    #[superstruct(only(V7))]
+    #[superstruct(only(V7, V9))]
     pub justified_checkpoint: Checkpoint,
-    #[superstruct(only(V7))]
+    #[superstruct(only(V7, V9))]
     pub finalized_checkpoint: Checkpoint,
     #[superstruct(only(V1))]
     pub nodes: Vec<ProtoNodeV1>,
@@ -132,8 +182,10 @@ pub struct SszContainer {
     pub nodes: Vec<ProtoNodeV6>,
     #[superstruct(only(V7))]
     pub nodes: Vec<ProtoNodeV7>,
+    #[superstruct(only(V9))]
+    pub nodes: Vec<ProtoNodeV9>,
     pub indices: Vec<(Hash256, usize)>,
-    #[superstruct(only(V7))]
+    #[superstruct(only(V7, V9))]
     pub previous_proposer_boost: ProposerBoost,
 }
 
@@ -174,7 +226,24 @@ impl SszContainerV6 {
     }
 }
 
-impl Into<SszContainer> for SszContainerV7 {
+impl Into<SszContainerV9> for SszContainerV7 {
+    fn into(self) -> SszContainerV9 {
+        let nodes = self.nodes.into_iter().map(Into::into).collect();
+
+        SszContainerV9 {
+            votes: self.votes,
+            balances: self.balances,
+            prune_threshold: self.prune_threshold,
+            justified_checkpoint: self.justified_checkpoint,
+            finalized_checkpoint: self.finalized_checkpoint,
+            nodes,
+            indices: self.indices,
+            previous_proposer_boost: self.previous_proposer_boost,
+        }
+    }
+}
+
+impl Into<SszContainer> for SszContainerV9 {
     fn into(self) -> SszContainer {
         let nodes = self.nodes.into_iter().map(Into::into).collect();
 
@@ -187,6 +256,23 @@ impl Into<SszContainer> for SszContainerV7 {
             nodes,
             indices: self.indices,
             previous_proposer_boost: self.previous_proposer_boost,
+        }
+    }
+}
+
+impl From<SszContainer> for SszContainerV7 {
+    fn from(container: SszContainer) -> Self {
+        let nodes = container.nodes.into_iter().map(Into::into).collect();
+
+        Self {
+            votes: container.votes,
+            balances: container.balances,
+            prune_threshold: container.prune_threshold,
+            justified_checkpoint: container.justified_checkpoint,
+            finalized_checkpoint: container.finalized_checkpoint,
+            nodes,
+            indices: container.indices,
+            previous_proposer_boost: container.previous_proposer_boost,
         }
     }
 }

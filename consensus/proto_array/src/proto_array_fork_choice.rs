@@ -124,6 +124,8 @@ pub struct Block {
     /// Indicates if an execution node has marked this block as valid. Also contains the execution
     /// block hash.
     pub execution_status: ExecutionStatus,
+    pub unrealized_justified_checkpoint : Option<Checkpoint>,
+    pub unrealized_finalized_checkpoint : Option<Checkpoint>,
 }
 
 /// A Vec-wrapper which will grow to match any request.
@@ -193,6 +195,8 @@ impl ProtoArrayForkChoice {
             justified_checkpoint,
             finalized_checkpoint,
             execution_status,
+            unrealized_justified_checkpoint: None,
+            unrealized_finalized_checkpoint: None,
         };
 
         proto_array
@@ -341,6 +345,8 @@ impl ProtoArrayForkChoice {
                 justified_checkpoint,
                 finalized_checkpoint,
                 execution_status: block.execution_status,
+                unrealized_justified_checkpoint: None,
+                unrealized_finalized_checkpoint: None,
             })
         } else {
             None

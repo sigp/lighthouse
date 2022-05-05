@@ -2603,7 +2603,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     &block,
                     block_root,
                     block_delay,
-                    &state,
+                    &mut state,
                     payload_verification_status,
                     &self.spec,
                 )

@@ -182,7 +182,7 @@ pub fn reset_fork_choice_to_finalization<E: EthSpec, Hot: ItemStore<E>, Cold: It
                 block.canonical_root(),
                 // Reward proposer boost. We are reinforcing the canonical chain.
                 Duration::from_secs(0),
-                &state,
+                &mut state,
                 payload_verification_status,
                 spec,
             )

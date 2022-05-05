@@ -192,6 +192,8 @@ impl ForkChoiceTestDefinition {
                         execution_status: ExecutionStatus::Optimistic(
                             ExecutionBlockHash::from_root(root),
                         ),
+                        unrealized_justified_checkpoint: None,
+                        unrealized_finalized_checkpoint: None,
                     };
                     fork_choice.process_block(block).unwrap_or_else(|e| {
                         panic!(

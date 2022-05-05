@@ -96,6 +96,10 @@ pub struct ProtoNode {
     /// Indicates if an execution node has marked this block as valid. Also contains the execution
     /// block hash.
     pub execution_status: ExecutionStatus,
+    #[ssz(with = "four_byte_option_checkpoint")]
+    pub unrealized_justified_checkpoint: Option<Checkpoint>,
+    #[ssz(with = "four_byte_option_checkpoint")]
+    pub unrealized_finalized_checkpoint: Option<Checkpoint>,
 }
 
 #[derive(PartialEq, Debug, Encode, Decode, Serialize, Deserialize, Copy, Clone)]
@@ -313,6 +317,8 @@ impl ProtoArray {
             best_child: None,
             best_descendant: None,
             execution_status: block.execution_status,
+            unrealized_justified_checkpoint: block.unrealized_justified_checkpoint,
+            unrealized_finalized_checkpoint: block.unrealized_finalized_checkpoint,
         };
 
         // If the parent has an invalid execution status, return an error before adding the block to

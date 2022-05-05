@@ -369,7 +369,7 @@ impl<E: EthSpec> Tester<E> {
                     &block,
                     block_root,
                     block_delay,
-                    &state,
+                    &mut state,
                     PayloadVerificationStatus::Irrelevant,
                     &self.harness.chain.spec,
                 );

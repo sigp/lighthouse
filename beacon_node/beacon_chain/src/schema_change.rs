@@ -2,10 +2,11 @@
 mod migration_schema_v6;
 mod migration_schema_v7;
 mod migration_schema_v8;
+mod migration_schema_v9;
 mod types;
 
 use crate::beacon_chain::{BeaconChainTypes, FORK_CHOICE_DB_KEY, OP_POOL_DB_KEY};
-use crate::persisted_fork_choice::{PersistedForkChoiceV1, PersistedForkChoiceV7};
+use crate::persisted_fork_choice::{PersistedForkChoiceV1, PersistedForkChoiceV7, PersistedForkChoiceV8};
 use crate::validator_pubkey_cache::ValidatorPubkeyCache;
 use operation_pool::{PersistedOperationPool, PersistedOperationPoolBase};
 use slog::{warn, Logger};
@@ -173,6 +174,19 @@ pub fn migrate_schema<T: BeaconChainTypes>(
             if let Some(fork_choice) = fork_choice_opt {
                 let updated_fork_choice =
                     migration_schema_v8::update_fork_choice::<T>(fork_choice, db.clone())?;
+
+                ops.push(updated_fork_choice.as_kv_store_op(FORK_CHOICE_DB_KEY));
+            }
+
+            db.store_schema_version_atomically(to, ops)?;
+
+            Ok(())
+        }
+        (SchemaVersion(8), SchemaVersion(9)) => {
+            let mut ops = vec![];
+            let fork_choice_opt = db.get_item::<PersistedForkChoiceV8>(&FORK_CHOICE_DB_KEY)?;
+            if let Some(fork_choice) = fork_choice_opt {
+                let updated_fork_choice = migration_schema_v9::update_fork_choice(fork_choice)?;
 
                 ops.push(updated_fork_choice.as_kv_store_op(FORK_CHOICE_DB_KEY));
             }

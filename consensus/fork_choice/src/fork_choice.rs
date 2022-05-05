@@ -51,11 +51,18 @@ pub enum Error<T> {
     MissingFinalizedBlock {
         finalized_checkpoint: Checkpoint,
     },
+    UnrealizedVoteProcessing(state_processing::EpochProcessingError)
 }
 
 impl<T> From<InvalidAttestation> for Error<T> {
     fn from(e: InvalidAttestation) -> Self {
         Error::InvalidAttestation(e)
+    }
+}
+
+impl<T> From<state_processing::EpochProcessingError> for Error<T> {
+    fn from(e: state_processing::EpochProcessingError) -> Self {
+        Error::UnrealizedVoteProcessing(e)
     }
 }
 
@@ -569,7 +576,7 @@ where
         block: &BeaconBlock<E>,
         block_root: Hash256,
         block_delay: Duration,
-        state: &BeaconState<E>,
+        state: &mut BeaconState<E>,
         payload_verification_status: PayloadVerificationStatus,
         spec: &ChainSpec,
     ) -> Result<(), Error<T::Error>> {
@@ -653,6 +660,9 @@ where
                 .map_err(Error::UnableToSetJustifiedCheckpoint)?;
         }
 
+        // Update unrealized justified/finalized checkpoints.
+        let (mini_beacon_state, _ ) = state_processing::per_epoch_processing::altair::process_justifiable(state, spec)?;
+
         let target_slot = block
             .slot()
             .epoch(E::slots_per_epoch())
@@ -721,6 +731,8 @@ where
             justified_checkpoint: state.current_justified_checkpoint(),
             finalized_checkpoint: state.finalized_checkpoint(),
             execution_status,
+            unrealized_justified_checkpoint: Some(mini_beacon_state.current_justified_checkpoint),
+            unrealized_finalized_checkpoint: Some(mini_beacon_state.finalized_checkpoint),
         })?;
 
         Ok(())
