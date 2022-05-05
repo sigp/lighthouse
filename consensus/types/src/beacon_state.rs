@@ -26,6 +26,7 @@ pub use self::committee_cache::{
     compute_committee_index_in_epoch, compute_committee_range_in_epoch, epoch_committee_count,
     CommitteeCache,
 };
+use crate::justifiable_beacon_state::JustifiableBeaconState;
 pub use clone_config::CloneConfig;
 pub use eth_spec::*;
 pub use iter::BlockRootsIter;
@@ -1367,20 +1368,17 @@ impl<T: EthSpec> BeaconState<T> {
         &mut self,
         spec: &ChainSpec,
     ) -> Result<PreviousParticipationCache, BeaconStateError> {
+        // Check cache if it was initialized in the states current epoch.
         if let Some(cache) = self.previous_epoch_participation_cache() {
             if cache.initialized_epoch() == self.current_epoch() {
-                Ok(cache.clone())
-            } else {
-                // rebuild cache
-                let cache = PreviousParticipationCache::new(self, spec)?;
-                *self.previous_epoch_participation_cache_mut() = Some(cache.clone());
-                Ok(cache)
+                return Ok(cache.clone());
             }
-        } else {
-            let cache = PreviousParticipationCache::new(self, spec)?;
-            *self.previous_epoch_participation_cache_mut() = Some(cache.clone());
-            Ok(cache)
         }
+
+        // Rebuild the cache.
+        let cache = PreviousParticipationCache::new(self, spec)?;
+        *self.previous_epoch_participation_cache_mut() = Some(cache.clone());
+        Ok(cache)
     }
 
     /// Returns `true` if the committee cache for `relative_epoch` is built and ready to use.
@@ -1667,11 +1665,13 @@ impl<T: EthSpec> BeaconState<T> {
         Ok(sync_committee)
     }
 
-    pub fn update_justifiable(&mut self, mini_beacon_state: MiniBeaconState<T>) {
-        *self.current_justified_checkpoint_mut() = mini_beacon_state.current_justified_checkpoint;
-        *self.previous_justified_checkpoint_mut() = mini_beacon_state.previous_justified_checkpoint;
-        *self.finalized_checkpoint_mut() = mini_beacon_state.finalized_checkpoint;
-        *self.justification_bits_mut() = mini_beacon_state.justification_bits;
+    pub fn update_justifiable(&mut self, justifiable_beacon_state: JustifiableBeaconState<T>) {
+        *self.current_justified_checkpoint_mut() =
+            justifiable_beacon_state.current_justified_checkpoint;
+        *self.previous_justified_checkpoint_mut() =
+            justifiable_beacon_state.previous_justified_checkpoint;
+        *self.finalized_checkpoint_mut() = justifiable_beacon_state.finalized_checkpoint;
+        *self.justification_bits_mut() = justifiable_beacon_state.justification_bits;
     }
 }
 

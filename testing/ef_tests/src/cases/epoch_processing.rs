@@ -99,14 +99,14 @@ impl<E: EthSpec> EpochTransition<E> for JustificationAndFinalization {
                 let prev_participation_cache =
                     state.get_previous_epoch_participation_cache(spec)?;
                 let current_participation_cache = CurrentEpochParticipationCache::new(state, spec)?;
-                let mini_beacon_state = altair::process_justification_and_finalization(
+                let justifiable_beacon_state = altair::process_justification_and_finalization(
                     state,
                     &altair::ParticipationCache::new(
                         prev_participation_cache,
                         current_participation_cache,
                     ),
                 )?;
-                state.update_justifiable(mini_beacon_state);
+                state.update_justifiable(justifiable_beacon_state);
                 Ok(())
             }
         }

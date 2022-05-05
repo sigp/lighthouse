@@ -20,6 +20,7 @@ use crate::{
 };
 use safe_arith::{ArithError, SafeArith};
 use std::collections::HashMap;
+use std::sync::Arc;
 
 #[derive(Debug, PartialEq)]
 pub enum Error {
@@ -170,9 +171,9 @@ pub struct PreviousParticipationCache {
     initialized_epoch: Epoch,
     previous_epoch: Epoch,
     /// Caches information about active validators pertaining to `self.previous_epoch`.
-    previous_epoch_participation: SingleEpochParticipationCache,
+    previous_epoch_participation: Arc<SingleEpochParticipationCache>,
     /// Caches the result of the `get_eligible_validator_indices` function.
-    eligible_indices: Vec<usize>,
+    eligible_indices: Arc<Vec<usize>>,
 }
 
 impl PreviousParticipationCache {
@@ -230,8 +231,8 @@ impl PreviousParticipationCache {
         Ok(Self {
             initialized_epoch: state.current_epoch(),
             previous_epoch,
-            previous_epoch_participation,
-            eligible_indices,
+            previous_epoch_participation: Arc::new(previous_epoch_participation),
+            eligible_indices: Arc::new(eligible_indices),
         })
     }
 
@@ -324,9 +325,9 @@ pub struct ParticipationCache {
     current_epoch_participation: SingleEpochParticipationCache,
     previous_epoch: Epoch,
     /// Caches information about active validators pertaining to `self.previous_epoch`.
-    previous_epoch_participation: SingleEpochParticipationCache,
+    previous_epoch_participation: Arc<SingleEpochParticipationCache>,
     /// Caches the result of the `get_eligible_validator_indices` function.
-    eligible_indices: Vec<usize>,
+    eligible_indices: Arc<Vec<usize>>,
 }
 
 impl ParticipationCache {

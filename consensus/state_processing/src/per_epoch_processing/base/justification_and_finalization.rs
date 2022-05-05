@@ -14,13 +14,13 @@ pub fn process_justification_and_finalization<T: EthSpec>(
         return Ok(());
     }
 
-    let mini_beacon_state = weigh_justification_and_finalization(
+    let justifiable_beacon_state = weigh_justification_and_finalization(
         state,
         total_balances.current_epoch(),
         total_balances.previous_epoch_target_attesters(),
         total_balances.current_epoch_target_attesters(),
     )?;
-    state.update_justifiable(mini_beacon_state);
+    state.update_justifiable(justifiable_beacon_state);
 
     Ok(())
 }

@@ -47,6 +47,7 @@ pub mod free_attestation;
 pub mod graffiti;
 pub mod historical_batch;
 pub mod indexed_attestation;
+pub mod justifiable_beacon_state;
 pub mod pending_attestation;
 pub mod proposer_preparation_data;
 pub mod proposer_slashing;
@@ -172,10 +173,3 @@ pub use bls::{
 };
 pub use ssz_types::{typenum, typenum::Unsigned, BitList, BitVector, FixedVector, VariableList};
 pub use superstruct::superstruct;
-
-pub struct MiniBeaconState<T: EthSpec> {
-    pub current_justified_checkpoint: Checkpoint,
-    pub previous_justified_checkpoint: Checkpoint,
-    pub justification_bits: BitVector<T::JustificationBitsLength>,
-    pub finalized_checkpoint: Checkpoint,
-}

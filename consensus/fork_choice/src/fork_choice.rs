@@ -661,7 +661,7 @@ where
         }
 
         // Update unrealized justified/finalized checkpoints.
-        let (mini_beacon_state, _) =
+        let (justifiable_beacon_state, _) =
             state_processing::per_epoch_processing::altair::process_justifiable(state, spec)?;
 
         let target_slot = block
@@ -732,8 +732,10 @@ where
             justified_checkpoint: state.current_justified_checkpoint(),
             finalized_checkpoint: state.finalized_checkpoint(),
             execution_status,
-            unrealized_justified_checkpoint: Some(mini_beacon_state.current_justified_checkpoint),
-            unrealized_finalized_checkpoint: Some(mini_beacon_state.finalized_checkpoint),
+            unrealized_justified_checkpoint: Some(
+                justifiable_beacon_state.current_justified_checkpoint,
+            ),
+            unrealized_finalized_checkpoint: Some(justifiable_beacon_state.finalized_checkpoint),
         })?;
 
         Ok(())
