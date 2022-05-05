@@ -31,53 +31,45 @@ where
         }
     }
 
-    // Inserts new elements and removes any expired elements.
+    // Inserts a new key. It first purges expired elements to do so.
     //
     // If the key was not present this returns `true`. If the value was already present this
-    // returns `false`.
-    pub fn insert_update(&mut self, key: Key) -> bool {
-        // check the cache before removing elements
-        let result = self.map.insert(key.clone());
-
-        let now = Instant::now();
-
-        // remove any expired results
-        while let Some(element) = self.list.pop_front() {
-            if element.inserted + self.ttl > now {
-                self.list.push_front(element);
-                break;
-            }
-            self.map.remove(&element.key);
-        }
-
-        // add the new key to the list, if it doesn't already exist.
-        if result {
-            self.list.push_back(Element { key, inserted: now });
-        }
-
-        result
-    }
-
-    // Inserts new element does not expire old elements.
-    //
-    // If the key was not present this returns `true`. If the value was already present this
-    // returns `false`.
+    // returns `false` and updates the insertion time of the key.
     pub fn insert(&mut self, key: Key) -> bool {
+        self.update();
         // check the cache before removing elements
-        let result = self.map.insert(key.clone());
+        let is_new = self.map.insert(key.clone());
 
         // add the new key to the list, if it doesn't already exist.
-        if result {
+        if is_new {
             self.list.push_back(Element {
                 key,
                 inserted: Instant::now(),
             });
+        } else {
+            let position = self
+                .list
+                .iter()
+                .position(|e| e.key == key)
+                .expect("Key is not new");
+            let mut element = self
+                .list
+                .remove(position)
+                .expect("Position is not occupied");
+            element.inserted = Instant::now();
+            self.list.push_back(element);
         }
-        result
+        #[cfg(test)]
+        self.check_invariant();
+        is_new
     }
 
     /// Removes any expired elements from the cache.
     pub fn update(&mut self) {
+        if self.list.is_empty() {
+            return;
+        }
+
         let now = Instant::now();
         // remove any expired results
         while let Some(element) = self.list.pop_front() {
@@ -87,6 +79,46 @@ where
             }
             self.map.remove(&element.key);
         }
+        #[cfg(test)]
+        self.check_invariant()
+    }
+
+    /// Returns if the key is present after removing expired elements.
+    pub fn contains(&mut self, key: &Key) -> bool {
+        self.update();
+        self.map.contains(key)
+    }
+
+    #[cfg(test)]
+    #[track_caller]
+    fn check_invariant(&self) {
+        // The list should be sorted. First element should have the oldest insertion
+        let mut prev_insertion_time = None;
+        for e in &self.list {
+            match prev_insertion_time {
+                Some(prev) => {
+                    if prev <= e.inserted {
+                        prev_insertion_time = Some(e.inserted);
+                    } else {
+                        panic!("List is not sorted by insertion time")
+                    }
+                }
+                None => prev_insertion_time = Some(e.inserted),
+            }
+            // The key should be in the map
+            assert!(self.map.contains(&e.key), "List and map should be in sync");
+        }
+
+        for k in &self.map {
+            let _ = self
+                .list
+                .iter()
+                .position(|e| &e.key == k)
+                .expect("Map and list should be in sync");
+        }
+
+        // One last check to make sure there are no duplicates in the list
+        assert_eq!(self.list.len(), self.map.len());
     }
 }
 
@@ -107,20 +139,22 @@ mod test {
     }
 
     #[test]
-    fn cache_entries_expire() {
+    fn test_reinsertion_updates_timeout() {
         let mut cache = LRUTimeCache::new(Duration::from_millis(100));
 
-        cache.insert_update("t");
-        assert!(!cache.insert_update("t"));
-        cache.insert_update("e");
-        assert!(!cache.insert_update("t"));
-        assert!(!cache.insert_update("e"));
-        // sleep until cache expiry
-        std::thread::sleep(Duration::from_millis(101));
-        // add another element to clear previous cache
-        cache.insert_update("s");
+        cache.insert("a");
+        cache.insert("b");
 
-        // should be removed from the cache
-        assert!(cache.insert_update("t"));
+        std::thread::sleep(Duration::from_millis(20));
+        cache.insert("a");
+        // a is newer now
+
+        std::thread::sleep(Duration::from_millis(85));
+        assert!(cache.contains(&"a"),);
+        // b was inserted first but was not as recent it should have been removed
+        assert!(!cache.contains(&"b"));
+
+        std::thread::sleep(Duration::from_millis(16));
+        assert!(!cache.contains(&"a"));
     }
 }

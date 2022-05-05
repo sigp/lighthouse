@@ -137,7 +137,7 @@ enum HandlerState {
     ///
     /// While in this state the handler rejects new requests but tries to finish existing ones.
     /// Once the timer expires, all messages are killed.
-    ShuttingDown(Box<Sleep>),
+    ShuttingDown(Pin<Box<Sleep>>),
     /// The handler is deactivated. A goodbye has been sent and no more messages are sent or
     /// received.
     Deactivated,
@@ -252,7 +252,7 @@ where
                 self.dial_queue.push((id, OutboundRequest::Goodbye(reason)));
             }
 
-            self.state = HandlerState::ShuttingDown(Box::new(sleep_until(
+            self.state = HandlerState::ShuttingDown(Box::pin(sleep_until(
                 TInstant::now() + Duration::from_secs(SHUTDOWN_TIMEOUT_SECS as u64),
             )));
         }
@@ -539,14 +539,15 @@ where
         }
 
         // Check if we are shutting down, and if the timer ran out
-        if let HandlerState::ShuttingDown(delay) = &self.state {
-            if delay.is_elapsed() {
-                self.state = HandlerState::Deactivated;
-                debug!(self.log, "Handler deactivated");
-                return Poll::Ready(ConnectionHandlerEvent::Close(RPCError::InternalError(
-                    "Shutdown timeout",
-                )));
-            }
+        if let HandlerState::ShuttingDown(delay) = &mut self.state {
+            match delay.as_mut().poll(cx) {
+                Poll::Ready(_) => {
+                    self.state = HandlerState::Deactivated;
+                    debug!(self.log, "Handler deactivated");
+                    return Poll::Ready(ConnectionHandlerEvent::Close(RPCError::Disconnected));
+                }
+                Poll::Pending => {}
+            };
         }
 
         // purge expired inbound substreams and send an error

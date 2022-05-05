@@ -335,6 +335,19 @@ impl RPCResponseErrorCode {
     }
 }
 
+use super::Protocol;
+impl<T: EthSpec> RPCResponse<T> {
+    pub fn protocol(&self) -> Protocol {
+        match self {
+            RPCResponse::Status(_) => Protocol::Status,
+            RPCResponse::BlocksByRange(_) => Protocol::BlocksByRange,
+            RPCResponse::BlocksByRoot(_) => Protocol::BlocksByRoot,
+            RPCResponse::Pong(_) => Protocol::Ping,
+            RPCResponse::MetaData(_) => Protocol::MetaData,
+        }
+    }
+}
+
 impl std::fmt::Display for RPCResponseErrorCode {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let repr = match self {

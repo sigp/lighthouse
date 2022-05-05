@@ -271,3 +271,38 @@ where
         Poll::Pending
     }
 }
+
+impl<Id, TSpec> slog::KV for RPCMessage<Id, TSpec>
+where
+    TSpec: EthSpec,
+    Id: ReqId,
+{
+    fn serialize(
+        &self,
+        _record: &slog::Record,
+        serializer: &mut dyn slog::Serializer,
+    ) -> slog::Result {
+        serializer.emit_arguments("peer_id", &format_args!("{}", self.peer_id))?;
+        let (msg_kind, protocol) = match &self.event {
+            Ok(received) => match received {
+                RPCReceived::Request(_, req) => ("request", req.protocol()),
+                RPCReceived::Response(_, res) => ("response", res.protocol()),
+                RPCReceived::EndOfStream(_, end) => (
+                    "end_of_stream",
+                    match end {
+                        ResponseTermination::BlocksByRange => Protocol::BlocksByRange,
+                        ResponseTermination::BlocksByRoot => Protocol::BlocksByRoot,
+                    },
+                ),
+            },
+            Err(error) => match &error {
+                HandlerErr::Inbound { proto, .. } => ("inbound_err", *proto),
+                HandlerErr::Outbound { proto, .. } => ("outbound_err", *proto),
+            },
+        };
+        serializer.emit_str("msg_kind", msg_kind)?;
+        serializer.emit_arguments("protocol", &format_args!("{}", protocol))?;
+
+        slog::Result::Ok(())
+    }
+}
