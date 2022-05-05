@@ -3947,6 +3947,7 @@ dependencies = [
  "serde_json",
  "state_processing",
  "store",
+ "tree_hash",
  "types",
 ]
 
