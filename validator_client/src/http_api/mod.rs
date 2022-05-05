@@ -475,6 +475,8 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
                                     url: web3signer.url,
                                     root_certificate_path: web3signer.root_certificate_path,
                                     request_timeout_ms: web3signer.request_timeout_ms,
+                                    client_identity_path: web3signer.client_identity_path,
+                                    client_identity_password: web3signer.client_identity_password,
                                 },
                             })
                             .collect();

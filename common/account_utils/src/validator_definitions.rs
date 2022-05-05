@@ -72,6 +72,16 @@ pub enum SigningDefinition {
         /// The timeout is applied from when the request starts connecting until the response body has finished.
         #[serde(skip_serializing_if = "Option::is_none")]
         request_timeout_ms: Option<u64>,
+
+        /// Path to a PKCS12 file.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        client_identity_path: Option<PathBuf>,
+
+        /// Password for the PKCS12 file.
+        ///
+        /// An empty password will be used if this is omitted.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        client_identity_password: Option<String>,
     },
 }
 
