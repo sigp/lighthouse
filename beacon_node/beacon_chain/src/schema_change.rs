@@ -6,7 +6,9 @@ mod migration_schema_v9;
 mod types;
 
 use crate::beacon_chain::{BeaconChainTypes, FORK_CHOICE_DB_KEY, OP_POOL_DB_KEY};
-use crate::persisted_fork_choice::{PersistedForkChoiceV1, PersistedForkChoiceV7, PersistedForkChoiceV8};
+use crate::persisted_fork_choice::{
+    PersistedForkChoiceV1, PersistedForkChoiceV7, PersistedForkChoiceV8,
+};
 use crate::validator_pubkey_cache::ValidatorPubkeyCache;
 use operation_pool::{PersistedOperationPool, PersistedOperationPoolBase};
 use slog::{warn, Logger};

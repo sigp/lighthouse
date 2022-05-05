@@ -51,7 +51,7 @@ pub enum Error<T> {
     MissingFinalizedBlock {
         finalized_checkpoint: Checkpoint,
     },
-    UnrealizedVoteProcessing(state_processing::EpochProcessingError)
+    UnrealizedVoteProcessing(state_processing::EpochProcessingError),
 }
 
 impl<T> From<InvalidAttestation> for Error<T> {
@@ -661,7 +661,8 @@ where
         }
 
         // Update unrealized justified/finalized checkpoints.
-        let (mini_beacon_state, _ ) = state_processing::per_epoch_processing::altair::process_justifiable(state, spec)?;
+        let (mini_beacon_state, _) =
+            state_processing::per_epoch_processing::altair::process_justifiable(state, spec)?;
 
         let target_slot = block
             .slot()

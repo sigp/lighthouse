@@ -14,11 +14,11 @@ use state_processing::{
     EpochProcessingError,
 };
 use std::path::{Path, PathBuf};
+use types::participation_cache::{CurrentEpochParticipationCache, PreviousParticipationCache};
 use types::{
     consts::altair::{TIMELY_HEAD_FLAG_INDEX, TIMELY_SOURCE_FLAG_INDEX, TIMELY_TARGET_FLAG_INDEX},
     BeaconState, EthSpec, ForkName,
 };
-use types::participation_cache::{CurrentEpochParticipationCache, PreviousParticipationCache};
 
 #[derive(Debug, Clone, PartialEq, Decode, Encode, CompareFields)]
 pub struct Deltas {

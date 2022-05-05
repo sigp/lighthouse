@@ -25,7 +25,8 @@ pub fn weigh_justification_and_finalization<T: EthSpec>(
     };
 
     // Process justifications
-    mini_beacon_state.previous_justified_checkpoint = mini_beacon_state.current_justified_checkpoint;
+    mini_beacon_state.previous_justified_checkpoint =
+        mini_beacon_state.current_justified_checkpoint;
     mini_beacon_state.justification_bits.shift_up(1)?;
 
     if previous_target_balance.safe_mul(3)? >= total_active_balance.safe_mul(2)? {

@@ -11,8 +11,6 @@
 //! Additionally, this cache is returned from the `altair::process_epoch` function and can be used
 //! to get useful summaries about the validator participation in an epoch.
 
-use safe_arith::{ArithError, SafeArith};
-use std::collections::HashMap;
 use crate::{
     consts::altair::{
         NUM_FLAG_INDICES, TIMELY_HEAD_FLAG_INDEX, TIMELY_SOURCE_FLAG_INDEX,
@@ -20,8 +18,8 @@ use crate::{
     },
     BeaconState, BeaconStateError, ChainSpec, Epoch, EthSpec, ParticipationFlags, RelativeEpoch,
 };
-use crate::test_utils::{RngCore, TestRandom};
-use test_random_derive::TestRandom;
+use safe_arith::{ArithError, SafeArith};
+use std::collections::HashMap;
 
 #[derive(Debug, PartialEq)]
 pub enum Error {
@@ -214,7 +212,6 @@ impl PreviousParticipationCache {
         // Care is taken to ensure that the ordering of `eligible_indices` is the same as the
         // `get_eligible_validator_indices` function in the spec.
         for (val_index, val) in state.validators().iter().enumerate() {
-
             if val.is_active_at(previous_epoch) {
                 previous_epoch_participation.process_active_validator(
                     val_index,
@@ -333,7 +330,10 @@ pub struct ParticipationCache {
 }
 
 impl ParticipationCache {
-    pub fn new(prev_cache: PreviousParticipationCache, current_cache: CurrentEpochParticipationCache) -> ParticipationCache {
+    pub fn new(
+        prev_cache: PreviousParticipationCache,
+        current_cache: CurrentEpochParticipationCache,
+    ) -> ParticipationCache {
         ParticipationCache {
             current_epoch: current_cache.current_epoch,
             current_epoch_participation: current_cache.current_epoch_participation,
@@ -371,7 +371,6 @@ impl ParticipationCache {
     /*
      * Balances
      */
-
 
     pub fn previous_epoch_total_active_balance(&self) -> u64 {
         self.previous_epoch_participation.total_active_balance.get()

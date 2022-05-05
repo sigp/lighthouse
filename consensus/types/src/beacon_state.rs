@@ -7,12 +7,13 @@ use compare_fields_derive::CompareFields;
 use derivative::Derivative;
 use eth2_hashing::hash;
 use int_to_bytes::{int_to_bytes4, int_to_bytes8};
+use participation_cache::PreviousParticipationCache;
 use pubkey_cache::PubkeyCache;
 use safe_arith::{ArithError, SafeArith};
 use serde_derive::{Deserialize, Serialize};
-use ssz::{Decode, DecodeError, Encode, ssz_encode};
+use ssz::{ssz_encode, Decode, DecodeError, Encode};
 use ssz_derive::{Decode, Encode};
-use ssz_types::{BitVector, FixedVector, typenum::Unsigned};
+use ssz_types::{typenum::Unsigned, BitVector, FixedVector};
 use std::convert::TryInto;
 use std::{fmt, mem, sync::Arc};
 use superstruct::superstruct;
@@ -20,11 +21,10 @@ use swap_or_not_shuffle::compute_shuffled_index;
 use test_random_derive::TestRandom;
 use tree_hash::TreeHash;
 use tree_hash_derive::TreeHash;
-use participation_cache::PreviousParticipationCache;
 
 pub use self::committee_cache::{
-    CommitteeCache, compute_committee_index_in_epoch, compute_committee_range_in_epoch,
-    epoch_committee_count,
+    compute_committee_index_in_epoch, compute_committee_range_in_epoch, epoch_committee_count,
+    CommitteeCache,
 };
 pub use clone_config::CloneConfig;
 pub use eth_spec::*;
@@ -36,10 +36,10 @@ mod committee_cache;
 mod clone_config;
 mod exit_cache;
 mod iter;
+pub mod participation_cache;
 mod pubkey_cache;
 mod tests;
 mod tree_hash_cache;
-pub mod participation_cache;
 
 pub const CACHED_EPOCHS: usize = 3;
 const MAX_RANDOM_BYTE: u64 = (1 << 8) - 1;
@@ -1363,7 +1363,10 @@ impl<T: EthSpec> BeaconState<T> {
         Ok(())
     }
 
-    pub fn get_previous_epoch_participation_cache(&mut self, spec: &ChainSpec) -> Result<PreviousParticipationCache, BeaconStateError> {
+    pub fn get_previous_epoch_participation_cache(
+        &mut self,
+        spec: &ChainSpec,
+    ) -> Result<PreviousParticipationCache, BeaconStateError> {
         if let Some(cache) = self.previous_epoch_participation_cache() {
             if cache.initialized_epoch() == self.current_epoch() {
                 Ok(cache.clone())
@@ -1664,10 +1667,7 @@ impl<T: EthSpec> BeaconState<T> {
         Ok(sync_committee)
     }
 
-    pub fn update_justifiable(
-        &mut self,
-        mini_beacon_state: MiniBeaconState<T>,
-    ) {
+    pub fn update_justifiable(&mut self, mini_beacon_state: MiniBeaconState<T>) {
         *self.current_justified_checkpoint_mut() = mini_beacon_state.current_justified_checkpoint;
         *self.previous_justified_checkpoint_mut() = mini_beacon_state.previous_justified_checkpoint;
         *self.finalized_checkpoint_mut() = mini_beacon_state.finalized_checkpoint;

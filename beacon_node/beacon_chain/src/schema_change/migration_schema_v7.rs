@@ -94,7 +94,6 @@ pub(crate) fn update_fork_choice<T: BeaconChainTypes>(
     update_store_justified_checkpoint(persisted_fork_choice, &mut fork_choice)
         .map_err(StoreError::SchemaMigrationError)?;
 
-
     // Need to downgrade the SSZ container to V7 so that all migrations can be applied in sequence.
     let ssz_container = SszContainer::from(&fork_choice);
     let ssz_container_v7 = SszContainerV7::from(ssz_container);

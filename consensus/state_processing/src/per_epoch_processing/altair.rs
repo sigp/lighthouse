@@ -1,5 +1,4 @@
-use itertools::min;
-use super::{EpochProcessingSummary, Error, process_registry_updates, process_slashings};
+use super::{process_registry_updates, process_slashings, EpochProcessingSummary, Error};
 use crate::per_epoch_processing::{
     effective_balance_updates::process_effective_balance_updates,
     historical_roots_update::process_historical_roots_update,
@@ -7,12 +6,12 @@ use crate::per_epoch_processing::{
 };
 pub use inactivity_updates::process_inactivity_updates;
 pub use justification_and_finalization::process_justification_and_finalization;
-pub use types::beacon_state::participation_cache::ParticipationCache;
 pub use participation_flag_updates::process_participation_flag_updates;
 pub use rewards_and_penalties::process_rewards_and_penalties;
 pub use sync_committee_updates::process_sync_committee_updates;
-use types::{BeaconState, ChainSpec, EthSpec, MiniBeaconState, RelativeEpoch};
 use types::beacon_state::participation_cache::CurrentEpochParticipationCache;
+pub use types::beacon_state::participation_cache::ParticipationCache;
+use types::{BeaconState, ChainSpec, EthSpec, MiniBeaconState, RelativeEpoch};
 
 pub mod inactivity_updates;
 pub mod justification_and_finalization;
@@ -24,7 +23,6 @@ pub fn process_epoch<T: EthSpec>(
     state: &mut BeaconState<T>,
     spec: &ChainSpec,
 ) -> Result<EpochProcessingSummary<T>, Error> {
-
     state.build_committee_cache(RelativeEpoch::Next, spec)?;
 
     let (mini_beacon_state, participation_cache) = process_justifiable(state, spec)?;
@@ -76,7 +74,10 @@ pub fn process_epoch<T: EthSpec>(
     })
 }
 
-pub fn process_justifiable<T: EthSpec>(state: &mut BeaconState<T>, spec: &ChainSpec) -> Result<(MiniBeaconState<T>, ParticipationCache), Error> {
+pub fn process_justifiable<T: EthSpec>(
+    state: &mut BeaconState<T>,
+    spec: &ChainSpec,
+) -> Result<(MiniBeaconState<T>, ParticipationCache), Error> {
     // Ensure the committee caches are built.
     state.build_committee_cache(RelativeEpoch::Previous, spec)?;
     state.build_committee_cache(RelativeEpoch::Current, spec)?;
@@ -86,7 +87,8 @@ pub fn process_justifiable<T: EthSpec>(state: &mut BeaconState<T>, spec: &ChainS
 
     let current_participation_cache = CurrentEpochParticipationCache::new(state, spec)?;
 
-    let participation_cache = ParticipationCache::new(prev_participation_cache, current_participation_cache);
+    let participation_cache =
+        ParticipationCache::new(prev_participation_cache, current_participation_cache);
 
     // Justification and finalization.
     let mini_beacon_state = process_justification_and_finalization(state, &participation_cache)?;

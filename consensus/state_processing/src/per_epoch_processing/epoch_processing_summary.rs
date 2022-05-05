@@ -1,11 +1,11 @@
 use super::{
     altair::ParticipationCache,
-    base::{TotalBalances, validator_statuses::InclusionInfo, ValidatorStatus},
+    base::{validator_statuses::InclusionInfo, TotalBalances, ValidatorStatus},
 };
 use crate::metrics;
 use std::sync::Arc;
-use types::{EthSpec, SyncCommittee};
 use types::beacon_state::participation_cache::Error as ParticipationCacheError;
+use types::{EthSpec, SyncCommittee};
 
 /// Provides a summary of validator participation during the epoch.
 #[derive(PartialEq, Debug)]

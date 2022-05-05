@@ -8,7 +8,6 @@ use types::{BeaconState, ChainSpec, EthSpec};
 
 use crate::common::{altair::get_base_reward, decrease_balance, increase_balance};
 use crate::per_epoch_processing::{Delta, Error};
-use types::beacon_state::participation_cache::CurrentEpochParticipationCache;
 
 /// Apply attester and proposer rewards.
 ///

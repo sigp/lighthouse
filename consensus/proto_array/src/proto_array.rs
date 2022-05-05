@@ -858,21 +858,29 @@ impl ProtoArray {
             return false;
         }
 
-
-        let predicate = |node_justified_checkpoint: Checkpoint, node_finalized_checkpoint: Checkpoint| {
-                let correct_justified = node_justified_checkpoint == self.justified_checkpoint || self.justified_checkpoint.epoch == Epoch::new(0);
-                let correct_finalized = node_finalized_checkpoint == self.finalized_checkpoint || self.finalized_checkpoint.epoch == Epoch::new(0);
+        let checkpoint_match_predicate =
+            |node_justified_checkpoint: Checkpoint, node_finalized_checkpoint: Checkpoint| {
+                let correct_justified = node_justified_checkpoint == self.justified_checkpoint
+                    || self.justified_checkpoint.epoch == Epoch::new(0);
+                let correct_finalized = node_finalized_checkpoint == self.finalized_checkpoint
+                    || self.finalized_checkpoint.epoch == Epoch::new(0);
                 correct_justified && correct_finalized
-        };
+            };
 
-        if let (Some(unrealized_justified_checkpoint), Some(unrealized_finalized_checkpoint)) = (node.unrealized_justified_checkpoint, node.unrealized_finalized_checkpoint) {
-            predicate(unrealized_justified_checkpoint, unrealized_finalized_checkpoint)
+        if let (Some(unrealized_justified_checkpoint), Some(unrealized_finalized_checkpoint)) = (
+            node.unrealized_justified_checkpoint,
+            node.unrealized_finalized_checkpoint,
+        ) {
+            checkpoint_match_predicate(
+                unrealized_justified_checkpoint,
+                unrealized_finalized_checkpoint,
+            )
+        } else if let (Some(justified_checkpoint), Some(finalized_checkpoint)) =
+            (node.justified_checkpoint, node.finalized_checkpoint)
+        {
+            checkpoint_match_predicate(justified_checkpoint, finalized_checkpoint)
         } else {
-            if let (Some(justified_checkpoint), Some(finalized_checkpoint)) = (node.justified_checkpoint, node.finalized_checkpoint) {
-                predicate(justified_checkpoint, finalized_checkpoint)
-            } else {
-                false
-            }
+            false
         }
     }
 
