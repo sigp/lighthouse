@@ -195,8 +195,8 @@ impl ProtoArrayForkChoice {
             justified_checkpoint,
             finalized_checkpoint,
             execution_status,
-            unrealized_justified_checkpoint: None,
-            unrealized_finalized_checkpoint: None,
+            unrealized_justified_checkpoint: Some(justified_checkpoint),
+            unrealized_finalized_checkpoint: Some(finalized_checkpoint),
         };
 
         proto_array
@@ -540,8 +540,8 @@ mod test_compute_deltas {
                 justified_checkpoint: genesis_checkpoint,
                 finalized_checkpoint: genesis_checkpoint,
                 execution_status,
-                unrealized_justified_checkpoint: None,
-                unrealized_finalized_checkpoint: None,
+                unrealized_justified_checkpoint: Some(genesis_checkpoint),
+                unrealized_finalized_checkpoint: Some(genesis_checkpoint),
             })
             .unwrap();
 

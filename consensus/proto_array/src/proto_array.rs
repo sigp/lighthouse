@@ -867,21 +867,28 @@ impl ProtoArray {
                 correct_justified && correct_finalized
             };
 
-        if let (Some(unrealized_justified_checkpoint), Some(unrealized_finalized_checkpoint)) = (
-            node.unrealized_justified_checkpoint,
-            node.unrealized_finalized_checkpoint,
-        ) {
-            checkpoint_match_predicate(
-                unrealized_justified_checkpoint,
-                unrealized_finalized_checkpoint,
-            )
-        } else if let (Some(justified_checkpoint), Some(finalized_checkpoint)) =
-            (node.justified_checkpoint, node.finalized_checkpoint)
-        {
-            checkpoint_match_predicate(justified_checkpoint, finalized_checkpoint)
-        } else {
-            false
-        }
+            if let (Some(unrealized_justified_checkpoint), Some(unrealized_finalized_checkpoint), Some(justified_checkpoint), Some(finalized_checkpoint)) = (
+                node.unrealized_justified_checkpoint,
+                node.unrealized_finalized_checkpoint,
+                node.justified_checkpoint,
+                node.finalized_checkpoint,
+            ) {
+                if justified_checkpoint.epoch < self.justified_checkpoint.epoch && finalized_checkpoint.epoch < self.finalized_checkpoint.epoch {
+                    checkpoint_match_predicate(unrealized_justified_checkpoint, unrealized_finalized_checkpoint, )
+                } else if justified_checkpoint.epoch < self.justified_checkpoint.epoch {
+                    checkpoint_match_predicate(unrealized_justified_checkpoint, finalized_checkpoint, )
+                } else if finalized_checkpoint.epoch < self.finalized_checkpoint.epoch {
+                    checkpoint_match_predicate(justified_checkpoint, unrealized_finalized_checkpoint, )
+                } else {
+                    checkpoint_match_predicate(justified_checkpoint, finalized_checkpoint)
+                }
+            } else if let (Some(justified_checkpoint), Some(finalized_checkpoint)) =
+                (node.justified_checkpoint, node.finalized_checkpoint)
+            {
+                checkpoint_match_predicate(justified_checkpoint, finalized_checkpoint)
+            } else {
+                false
+            }
     }
 
     /// Return a reverse iterator over the nodes which comprise the chain ending at `block_root`.

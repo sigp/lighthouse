@@ -9,6 +9,7 @@ edition = "2021"
 ef_tests = []
 milagro = ["bls/milagro"]
 fake_crypto = ["bls/fake_crypto"]
+write_ssz_files = ["beacon_chain/write_ssz_files"]
 
 [dependencies]
 bls = { path = "../../crypto/bls", default-features = false }

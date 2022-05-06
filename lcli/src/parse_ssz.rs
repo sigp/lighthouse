@@ -1,3 +1,4 @@
+use std::fs;
 use clap::ArgMatches;
 use clap_utils::parse_required;
 use serde::Serialize;
@@ -5,6 +6,7 @@ use ssz::Decode;
 use std::fs::File;
 use std::io::Read;
 use std::str::FromStr;
+use snap::raw::Decoder;
 use types::*;
 
 enum OutputFormat {
@@ -29,11 +31,19 @@ pub fn run_parse_ssz<T: EthSpec>(matches: &ArgMatches) -> Result<(), String> {
     let filename = matches.value_of("ssz-file").ok_or("No file supplied")?;
     let format = parse_required(matches, "format")?;
 
-    let mut bytes = vec![];
-    let mut file =
-        File::open(filename).map_err(|e| format!("Unable to open {}: {}", filename, e))?;
-    file.read_to_end(&mut bytes)
-        .map_err(|e| format!("Unable to read {}: {}", filename, e))?;
+    let bytes = if filename.ends_with("ssz_snappy") {
+        let bytes = fs::read(filename).unwrap();
+        let mut decoder = Decoder::new();
+        decoder.decompress_vec(&bytes).unwrap()
+    } else {
+        let mut bytes = vec![];
+        let mut file =
+            File::open(filename).map_err(|e| format!("Unable to open {}: {}", filename, e))?;
+        file.read_to_end(&mut bytes)
+            .map_err(|e| format!("Unable to read {}: {}", filename, e))?;
+        bytes
+    };
+
 
     info!("Using {} spec", T::spec_name());
     info!("Type: {:?}", type_str);
