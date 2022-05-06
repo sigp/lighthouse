@@ -3331,10 +3331,18 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
     /// Execute the fork choice algorithm and enthrone the result as the canonical head.
     pub fn fork_choice(self: &Arc<Self>) -> Result<(), Error> {
+        self.fork_choice_at_slot(self.slot()?)
+    }
+
+    /// Execute fork choice with the `slot`
+    ///
+    /// The `slot` is not verified in any way, callers should ensure it corresponds to at most
+    /// one slot ahead of the current wall-clock slot.
+    pub fn fork_choice_at_slot(self: &Arc<Self>, slot: Slot) -> Result<(), Error> {
         metrics::inc_counter(&metrics::FORK_CHOICE_REQUESTS);
         let _timer = metrics::start_timer(&metrics::FORK_CHOICE_TIMES);
 
-        let result = self.fork_choice_internal();
+        let result = self.fork_choice_internal(slot);
 
         if result.is_err() {
             metrics::inc_counter(&metrics::FORK_CHOICE_ERRORS);
@@ -3343,13 +3351,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         result
     }
 
-    fn fork_choice_internal(self: &Arc<Self>) -> Result<(), Error> {
+    fn fork_choice_internal(self: &Arc<Self>, slot: Slot) -> Result<(), Error> {
         // Atomically obtain the head block root and the finalized block.
         let (beacon_block_root, finalized_block) = {
             let mut fork_choice = self.fork_choice.write();
 
             // Determine the root of the block that is the head of the chain.
-            let beacon_block_root = fork_choice.get_head(self.slot()?, &self.spec)?;
+            let beacon_block_root = fork_choice.get_head(slot, &self.spec)?;
 
             (beacon_block_root, fork_choice.get_finalized_block()?)
         };
@@ -3720,6 +3728,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         }
 
         // Update the execution layer.
+        // FIXME(sproul): re-consider passing `slot` here
         if let Err(e) = self.update_execution_engine_forkchoice_blocking(self.slot()?) {
             crit!(
                 self.log,

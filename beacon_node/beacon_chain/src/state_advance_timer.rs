@@ -123,6 +123,19 @@ async fn state_advance_timer<T: BeaconChainTypes>(
 
             executor.spawn_blocking(
                 move || {
+                    let current_slot = match beacon_chain.slot() {
+                        Ok(slot) => slot,
+                        Err(e) => {
+                            warn!(
+                                log,
+                                "Unable to determine slot in state advance timer";
+                                "error" => ?e
+                            );
+                            is_running.unlock();
+                            return;
+                        }
+                    };
+
                     match advance_head(&beacon_chain, &log) {
                         Ok(()) => (),
                         Err(Error::BeaconChain(e)) => error!(
@@ -150,6 +163,19 @@ async fn state_advance_timer<T: BeaconChainTypes>(
                             "reason" => ?other
                         ),
                     };
+
+                    // Run fork choice pre-emptively for the next slot. This processes most of the
+                    // attestations from this slot off the hot path of block verification and
+                    // production.
+                    let next_slot = current_slot + 1;
+                    if let Err(e) = beacon_chain.fork_choice_at_slot(next_slot) {
+                        warn!(
+                            log,
+                            "Error updating fork choice for next slot";
+                            "error" => ?e,
+                            "slot" => next_slot,
+                        );
+                    }
 
                     // Permit this blocking task to spawn again, next time the timer fires.
                     is_running.unlock();
@@ -192,13 +218,6 @@ fn advance_head<T: BeaconChainTypes>(
             });
         }
     }
-
-    // Run fork choice so we get the latest view of the head.
-    //
-    // This is useful since it's quite likely that the last time we ran fork choice was shortly
-    // after receiving the latest gossip block, but not necessarily after we've received the
-    // majority of attestations.
-    beacon_chain.fork_choice()?;
 
     let head_root = beacon_chain.head_info()?.block_root;
 
