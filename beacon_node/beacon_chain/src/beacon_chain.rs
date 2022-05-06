@@ -2898,7 +2898,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// The produced block will not be inherently valid, it must be signed by a block producer.
     /// Block signing is out of the scope of this function and should be done by a separate program.
     pub fn produce_block<Payload: ExecPayload<T::EthSpec>>(
-        &self,
+        self: &Arc<Self>,
         randao_reveal: Signature,
         slot: Slot,
         validator_graffiti: Option<Graffiti>,
@@ -2913,7 +2913,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
     /// Same as `produce_block` but allowing for configuration of RANDAO-verification.
     pub fn produce_block_with_verification<Payload: ExecPayload<T::EthSpec>>(
-        &self,
+        self: &Arc<Self>,
         randao_reveal: Signature,
         slot: Slot,
         validator_graffiti: Option<Graffiti>,
@@ -2921,6 +2921,34 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     ) -> Result<BeaconBlockAndState<T::EthSpec, Payload>, BlockProductionError> {
         metrics::inc_counter(&metrics::BLOCK_PRODUCTION_REQUESTS);
         let _complete_timer = metrics::start_timer(&metrics::BLOCK_PRODUCTION_TIMES);
+
+        // Run fork choice so that the head is up to date with attestations from the previous
+        // slot. This prevents us from proposing on a stale head which has already been re-orged.
+        let fork_choice_timer = metrics::start_timer(&metrics::BLOCK_PRODUCTION_FORK_CHOICE_TIMES);
+        let current_slot = self
+            .slot()
+            .map_err(|_| BlockProductionError::UnableToReadSlot)?;
+        if slot == current_slot {
+            self.fork_choice()
+                .map_err(BlockProductionError::ForkChoiceError)?;
+        } else if slot == current_slot + 1 {
+            warn!(
+                self.log,
+                "Producing block early";
+                "block_slot" => slot,
+                "current_slot" => current_slot,
+                "message" => "check clock sync, this block may be orphaned",
+            );
+        } else {
+            error!(
+                self.log,
+                "Producing block at incorrect slot";
+                "block_slot" => slot,
+                "current_slot" => current_slot,
+                "message" => "check clock sync, this block may be orphaned",
+            );
+        }
+        drop(fork_choice_timer);
 
         // Producing a block requires the tree hash cache, so clone a full state corresponding to
         // the head from the snapshot cache. Unfortunately we can't move the snapshot out of the

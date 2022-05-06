@@ -222,6 +222,7 @@ pub enum BlockProductionError {
     FailedToReadFinalizedBlock(store::Error),
     MissingFinalizedBlock(Hash256),
     BlockTooLarge(usize),
+    ForkChoiceError(BeaconChainError),
 }
 
 easy_from_to!(BlockProcessingError, BlockProductionError);
