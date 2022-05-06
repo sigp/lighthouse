@@ -8,8 +8,7 @@ use eth2::lighthouse_vc::std_types::{
 };
 use slog::{info, warn, Logger};
 use slot_clock::SlotClock;
-use std::sync::Arc;
-use std::sync::Weak;
+use std::sync::{Arc, Weak};
 use tokio::runtime::Runtime;
 use types::{EthSpec, PublicKeyBytes};
 use url::Url;
@@ -26,17 +25,16 @@ pub fn list<T: SlotClock + 'static, E: EthSpec>(
         .validator_definitions()
         .iter()
         .filter(|def| def.enabled)
-        .map(|def| {
+        .filter_map(|def| {
             let validating_pubkey = def.voting_public_key.compress();
-            let (url, readonly) = match &def.signing_definition {
-                SigningDefinition::LocalKeystore { .. } => (None, Some(true)),
-                SigningDefinition::Web3Signer { url, .. } => (Some(url.clone()), None),
-            };
 
-            SingleListRemotekeysResponse {
-                pubkey: validating_pubkey,
-                url,
-                readonly,
+            match &def.signing_definition {
+                SigningDefinition::LocalKeystore { .. } => None,
+                SigningDefinition::Web3Signer { url, .. } => Some(SingleListRemotekeysResponse {
+                    pubkey: validating_pubkey,
+                    url: url.clone(),
+                    readonly: false,
+                }),
             }
         })
         .collect::<Vec<_>>();
@@ -137,6 +135,7 @@ fn import_single_remotekey<T: SlotClock + 'static, E: EthSpec>(
 
     Ok(ImportRemotekeyStatus::Imported)
 }
+
 pub fn delete<T: SlotClock + 'static, E: EthSpec>(
     request: DeleteRemotekeysRequest,
     validator_store: Arc<ValidatorStore<T, E>>,

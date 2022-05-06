@@ -164,12 +164,12 @@ pub async fn create_validators_mnemonic<P: AsRef<Path>, T: 'static + SlotClock, 
 }
 
 pub async fn create_validators_web3signer<T: 'static + SlotClock, E: EthSpec>(
-    validators: &[ValidatorDefinition],
+    validators: Vec<ValidatorDefinition>,
     validator_store: &ValidatorStore<T, E>,
 ) -> Result<(), warp::Rejection> {
     for validator in validators {
         validator_store
-            .add_validator(validator.clone())
+            .add_validator(validator)
             .await
             .map_err(|e| {
                 warp_utils::reject::custom_server_error(format!(

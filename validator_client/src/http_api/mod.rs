@@ -464,22 +464,22 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
                 blocking_signed_json_task(signer, move || {
                     if let Some(runtime) = runtime.upgrade() {
                         let web3signers: Vec<ValidatorDefinition> = body
-                            .iter()
+                            .into_iter()
                             .map(|web3signer| ValidatorDefinition {
                                 enabled: web3signer.enable,
-                                voting_public_key: web3signer.voting_public_key.clone(),
-                                graffiti: web3signer.graffiti.clone(),
+                                voting_public_key: web3signer.voting_public_key,
+                                graffiti: web3signer.graffiti,
                                 suggested_fee_recipient: web3signer.suggested_fee_recipient,
-                                description: web3signer.description.clone(),
+                                description: web3signer.description,
                                 signing_definition: SigningDefinition::Web3Signer {
-                                    url: web3signer.url.clone(),
-                                    root_certificate_path: web3signer.root_certificate_path.clone(),
+                                    url: web3signer.url,
+                                    root_certificate_path: web3signer.root_certificate_path,
                                     request_timeout_ms: web3signer.request_timeout_ms,
                                 },
                             })
                             .collect();
                         runtime.block_on(create_validators_web3signer(
-                            &web3signers,
+                            web3signers,
                             &validator_store,
                         ))?;
                         Ok(())

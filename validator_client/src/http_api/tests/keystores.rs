@@ -1075,8 +1075,8 @@ fn import_new_remotekeys() {
             .iter()
             .map(|remotekey| SingleListRemotekeysResponse {
                 pubkey: remotekey.pubkey,
-                url: Some(remotekey.url.clone()),
-                readonly: None,
+                url: remotekey.url.clone(),
+                readonly: false,
             })
             .collect::<Vec<_>>();
         let get_res = tester.client.get_remotekeys().await.unwrap();
@@ -1119,8 +1119,8 @@ fn import_same_remotekey_different_url() {
             &get_res,
             vec![SingleListRemotekeysResponse {
                 pubkey: remotekeys[0].pubkey,
-                url: Some(remotekeys[0].url.clone()),
-                readonly: None,
+                url: remotekeys[0].url.clone(),
+                readonly: false,
             }],
         );
     })
@@ -1165,8 +1165,8 @@ fn import_only_duplicate_remotekeys() {
             .iter()
             .map(|remotekey| SingleListRemotekeysResponse {
                 pubkey: remotekey.pubkey,
-                url: Some(remotekey.url.clone()),
-                readonly: None,
+                url: remotekey.url.clone(),
+                readonly: false,
             })
             .collect::<Vec<_>>();
         let get_res = tester.client.get_remotekeys().await.unwrap();
@@ -1232,8 +1232,8 @@ fn import_some_duplicate_remotekeys() {
             .iter()
             .map(|remotekey| SingleListRemotekeysResponse {
                 pubkey: remotekey.pubkey,
-                url: Some(remotekey.url.clone()),
-                readonly: Some(false),
+                url: remotekey.url.clone(),
+                readonly: false,
             })
             .collect::<Vec<_>>();
         let get_res = tester.client.get_remotekeys().await.unwrap();
@@ -1290,20 +1290,15 @@ fn import_remote_and_local_keys() {
             all_with_status(remotekeys.len(), ImportRemotekeyStatus::Imported),
         );
 
-        // Check that both local and remote validators are returned.
+        // Check that only remote validators are returned.
         let get_res = tester.client.get_keystores().await.unwrap();
-        let expected_responses = keystores
+        let expected_responses = remotekeys
             .iter()
-            .map(|local_keystore| SingleKeystoreResponse {
-                validating_pubkey: keystore_pubkey(local_keystore),
-                derivation_path: local_keystore.path(),
-                readonly: None,
-            })
-            .chain(remotekeys.iter().map(|remotekey| SingleKeystoreResponse {
+            .map(|remotekey| SingleKeystoreResponse {
                 validating_pubkey: remotekey.pubkey,
                 derivation_path: None,
                 readonly: Some(true),
-            }))
+            })
             .collect::<Vec<_>>();
         for response in expected_responses {
             assert!(get_res.data.contains(&response), "{:?}", response);
@@ -1435,8 +1430,8 @@ fn import_same_remote_and_local_keys() {
             .iter()
             .map(|remotekey| SingleListRemotekeysResponse {
                 pubkey: remotekey.pubkey,
-                url: Some(remotekey.url.clone()),
-                readonly: None,
+                url: remotekey.url.clone(),
+                readonly: false,
             })
             .collect::<Vec<_>>();
         let get_res = tester.client.get_remotekeys().await.unwrap();
@@ -1572,8 +1567,8 @@ fn delete_then_reimport_remotekeys() {
             .iter()
             .map(|remotekey| SingleListRemotekeysResponse {
                 pubkey: remotekey.pubkey,
-                url: Some(remotekey.url.clone()),
-                readonly: None,
+                url: remotekey.url.clone(),
+                readonly: false,
             })
             .collect::<Vec<_>>();
         let get_res = tester.client.get_remotekeys().await.unwrap();
@@ -1620,16 +1615,16 @@ fn import_remotekey_web3signer() {
             .iter()
             .map(|remotekey| SingleListRemotekeysResponse {
                 pubkey: remotekey.pubkey,
-                url: Some(remotekey.url.clone()),
-                readonly: None,
+                url: remotekey.url.clone(),
+                readonly: false,
             })
             .chain(
                 web3signers
                     .iter()
                     .map(|websigner| SingleListRemotekeysResponse {
                         pubkey: websigner.voting_public_key.compress(),
-                        url: Some(websigner.url.clone()),
-                        readonly: None,
+                        url: websigner.url.clone(),
+                        readonly: false,
                     }),
             )
             .collect::<Vec<_>>();

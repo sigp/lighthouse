@@ -111,9 +111,8 @@ pub struct ListRemotekeysResponse {
 #[derive(Debug, Deserialize, Serialize, PartialEq)]
 pub struct SingleListRemotekeysResponse {
     pub pubkey: PublicKeyBytes,
-    pub url: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub readonly: Option<bool>,
+    pub url: String,
+    pub readonly: bool,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
