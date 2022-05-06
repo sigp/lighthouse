@@ -214,52 +214,58 @@ fn merge_flag() {
         .run_with_zero_port()
         .with_config(|config| assert!(config.execution_layer.is_some()));
 }
-#[test]
-fn merge_execution_endpoints_flag() {
+fn merge_execution_endpoint(execution_endpoint_flag: &str) {
     use sensitive_url::SensitiveUrl;
-    let urls = vec!["http://sigp.io/no-way:1337", "http://infura.not_real:4242"];
-    let endpoints = urls
-        .iter()
-        .map(|s| SensitiveUrl::parse(s).unwrap())
-        .collect::<Vec<_>>();
-    let mut endpoint_arg = urls[0].to_string();
-    for url in urls.into_iter().skip(1) {
-        endpoint_arg.push(',');
-        endpoint_arg.push_str(url);
-    }
+    let url_str = "http://sigp.io/not_real:1337";
+    let url = SensitiveUrl::parse(url_str).unwrap();
     // this is way better but intersperse is still a nightly feature :/
     // let endpoint_arg: String = urls.into_iter().intersperse(",").collect();
     CommandLineTest::new()
         .flag("merge", None)
-        .flag("execution-endpoints", Some(&endpoint_arg))
+        .flag(execution_endpoint_flag, Some(url_str))
         .run_with_zero_port()
         .with_config(|config| {
             let config = config.execution_layer.as_ref().unwrap();
-            assert_eq!(config.execution_endpoints, endpoints)
+            assert_eq!(config.execution_endpoint, url)
         });
 }
 #[test]
-fn merge_jwt_secrets_flag() {
+fn merge_execution_endpoint_flag() {
+    merge_execution_endpoint("execution-endpoint")
+}
+#[test]
+fn deprecated_merge_execution_endpoints_flag() {
+    merge_execution_endpoint("execution-endpoints")
+}
+fn merge_jwt_secrets(execution_endpoint_flag: &str, execution_jwt_flag: &str) {
     let dir = TempDir::new().expect("Unable to create temporary directory");
     let mut file = File::create(dir.path().join("jwtsecrets")).expect("Unable to create file");
     file.write_all(b"0x3cbc11b0d8fa16f3344eacfd6ff6430b9d30734450e8adcf5400f88d327dcb33")
         .expect("Unable to write to file");
     CommandLineTest::new()
         .flag("merge", None)
-        .flag("execution-endpoints", Some("http://localhost:8551/"))
+        .flag(execution_endpoint_flag, Some("http://localhost:8551/"))
         .flag(
-            "jwt-secrets",
+            execution_jwt_flag,
             dir.path().join("jwt-file").as_os_str().to_str(),
         )
         .run_with_zero_port()
         .with_config(|config| {
             let config = config.execution_layer.as_ref().unwrap();
             assert_eq!(
-                config.execution_endpoints[0].full.to_string(),
+                config.execution_endpoint.full.to_string(),
                 "http://localhost:8551/"
             );
-            assert_eq!(config.secret_files[0], dir.path().join("jwt-file"));
+            assert_eq!(config.secret_file, dir.path().join("jwt-file"));
         });
+}
+#[test]
+fn merge_execution_jwt_flag() {
+    merge_jwt_secrets("execution-endpoint", "execution-jwt");
+}
+#[test]
+fn deprecated_merge_jwt_secrets_flag() {
+    merge_jwt_secrets("execution-endpoints", "execution-jwts");
 }
 #[test]
 fn merge_fee_recipient_flag() {
@@ -278,18 +284,24 @@ fn merge_fee_recipient_flag() {
             );
         });
 }
-#[test]
-fn jwt_optional_flags() {
+fn jwt_optional(id_flag: &str, version_flag: &str) {
     CommandLineTest::new()
-        .flag("merge", None)
-        .flag("jwt-id", Some("bn-1"))
-        .flag("jwt-version", Some("Lighthouse-v2.1.3"))
+        .flag(id_flag, Some("bn-1"))
+        .flag(version_flag, Some("Lighthouse-v2.1.3"))
         .run_with_zero_port()
         .with_config(|config| {
             let config = config.execution_layer.as_ref().unwrap();
             assert_eq!(config.jwt_id, Some("bn-1".to_string()));
             assert_eq!(config.jwt_version, Some("Lighthouse-v2.1.3".to_string()));
         });
+}
+#[test]
+fn jwt_optional_flags() {
+    jwt_optional("execution-jwt-id", "execution-jwt-version");
+}
+#[test]
+fn deprecated_jwt_optional_flags() {
+    jwt_optional("jwt-id", "jwt-version");
 }
 #[test]
 fn terminal_total_difficulty_override_flag() {
