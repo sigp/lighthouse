@@ -18,6 +18,8 @@ pub struct ChainConfig {
     pub enable_lock_timeouts: bool,
     /// The max size of a message that can be sent over the network.
     pub max_network_size: usize,
+    /// Whether to run fork choice immediately before block proposal.
+    pub fork_choice_before_proposal: bool,
 }
 
 impl Default for ChainConfig {
@@ -28,6 +30,7 @@ impl Default for ChainConfig {
             reconstruct_historic_states: false,
             enable_lock_timeouts: true,
             max_network_size: 10 * 1_048_576, // 10M
+            fork_choice_before_proposal: true,
         }
     }
 }

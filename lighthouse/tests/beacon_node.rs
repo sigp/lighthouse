@@ -109,6 +109,21 @@ fn disable_lock_timeouts_flag() {
 }
 
 #[test]
+fn enable_fork_choice_before_proposal_default() {
+    CommandLineTest::new()
+        .run_with_zero_port()
+        .with_config(|config| assert!(config.chain.fork_choice_before_proposal));
+}
+
+#[test]
+fn disable_fork_choice_before_proposal() {
+    CommandLineTest::new()
+        .flag("disable-fork-choice-before-proposal", None)
+        .run_with_zero_port()
+        .with_config(|config| assert!(!config.chain.fork_choice_before_proposal));
+}
+
+#[test]
 fn freezer_dir_flag() {
     let dir = TempDir::new().expect("Unable to create temporary directory");
     CommandLineTest::new()

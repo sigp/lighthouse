@@ -686,4 +686,11 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                        experimental as it may obscure performance issues.")
                 .takes_value(false)
         )
+        .arg(
+            Arg::with_name("disable-fork-choice-before-proposal")
+                .long("disable-fork-choice-before-proposal")
+                .help("Save time during block proposal by not running fork choice. This is risky \
+                       because it can potentially lead to proposing on the wrong head.")
+                .takes_value(false)
+        )
 }
