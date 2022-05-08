@@ -161,7 +161,7 @@ fn check_remotekey_get_response(
     expected_keystores: impl IntoIterator<Item = SingleListRemotekeysResponse>,
 ) {
     for expected in expected_keystores {
-        response.data.contains(&expected);
+        assert!(response.data.contains(&expected));
     }
 }
 
@@ -1127,6 +1127,55 @@ fn import_same_remotekey_different_url() {
 }
 
 #[test]
+fn delete_remotekey_then_reimport_different_url() {
+    run_test(|tester| async move {
+        let _ = &tester;
+
+        // Create two remotekeys with different urls.
+        let mut remotekey = new_remotekey_validator().1;
+        let remotekeys = vec![remotekey.clone()];
+
+        // Import and Delete remotekey.
+        let import_res = tester
+            .client
+            .post_remotekeys(&ImportRemotekeysRequest {
+                remote_keys: remotekeys.clone(),
+            })
+            .await
+            .unwrap();
+        check_remotekey_import_response(
+            &import_res,
+            vec![ImportRemotekeyStatus::Imported].into_iter(),
+        );
+        let delete_req = DeleteRemotekeysRequest {
+            pubkeys: remotekeys.iter().map(|k| k.pubkey).collect(),
+        };
+        let delete_res = tester.client.delete_remotekeys(&delete_req).await.unwrap();
+        check_remotekey_delete_response(
+            &delete_res,
+            all_with_status(remotekeys.len(), DeleteRemotekeyStatus::Deleted),
+        );
+
+        // Change remotekey url.
+        remotekey.url = "http://localhost:1/this-url-hopefully-does-also-not-exist".into();
+        let remotekeys = vec![remotekey.clone()];
+
+        // Reimport remotekey.
+        let import_res = tester
+            .client
+            .post_remotekeys(&ImportRemotekeysRequest {
+                remote_keys: remotekeys.clone(),
+            })
+            .await
+            .unwrap();
+        check_remotekey_import_response(
+            &import_res,
+            vec![ImportRemotekeyStatus::Imported].into_iter(),
+        );
+    })
+}
+
+#[test]
 fn import_only_duplicate_remotekeys() {
     run_test(|tester| async move {
         let _ = &tester;
@@ -1587,7 +1636,7 @@ fn import_remotekey_web3signer() {
             .collect::<Vec<_>>();
 
         // Generate web3signers.
-        let web3signers = (0..3)
+        let web3signers = (0..2)
             .map(|_| new_web3signer_validator().1)
             .collect::<Vec<_>>();
 
@@ -1628,6 +1677,119 @@ fn import_remotekey_web3signer() {
                     }),
             )
             .collect::<Vec<_>>();
+
+        // Check remotekey list response.
+        let get_res = tester.client.get_remotekeys().await.unwrap();
+        check_remotekey_get_response(&get_res, expected_responses);
+    })
+}
+
+#[test]
+fn import_remotekey_web3signer_disabled() {
+    run_test(|tester| async move {
+        let _ = &tester;
+
+        // Generate remotekey.
+        let (kp, remotekey_req) = new_remotekey_validator();
+
+        // Generate web3signer with same PK.
+        let mut web3signer_req = web3signer_validator_with_pubkey(kp.pk);
+        web3signer_req.enable = false;
+
+        // Import web3signers.
+        let _ = tester
+            .client
+            .post_lighthouse_validators_web3signer(&vec![web3signer_req])
+            .await
+            .unwrap();
+
+        // 1 validator imported.
+        assert_eq!(tester.vals_total(), 1);
+        assert_eq!(tester.vals_enabled(), 0);
+
+        // Import remotekeys.
+        let import_res = tester
+            .client
+            .post_remotekeys(&ImportRemotekeysRequest {
+                remote_keys: vec![remotekey_req.clone()].clone(),
+            })
+            .await
+            .unwrap();
+        check_remotekey_import_response(
+            &import_res,
+            all_with_status(1, ImportRemotekeyStatus::Imported),
+        );
+
+        // Still only one validator. Web3signer is overwritten by remotekey.
+        assert_eq!(tester.vals_total(), 1);
+        assert_eq!(tester.vals_enabled(), 1);
+
+        // Remotekey overwrites web3signer.
+        let expected_responses = vec![SingleListRemotekeysResponse {
+            pubkey: remotekey_req.pubkey,
+            url: remotekey_req.url.clone(),
+            readonly: false,
+        }];
+
+        // Check remotekey list response.
+        let get_res = tester.client.get_remotekeys().await.unwrap();
+        check_remotekey_get_response(&get_res, expected_responses);
+    })
+}
+
+#[test]
+fn import_remotekey_web3signer_enabled() {
+    run_test(|tester| async move {
+        let _ = &tester;
+
+        // Generate remotekey.
+        let (kp, remotekey_req) = new_remotekey_validator();
+
+        // Generate web3signer with same PK.
+        let mut web3signer_req = web3signer_validator_with_pubkey(kp.pk);
+        web3signer_req.url = "http://localhost:1/this-url-hopefully-does-also-not-exist".into();
+        web3signer_req.enable = true;
+
+        // Import web3signers.
+        tester
+            .client
+            .post_lighthouse_validators_web3signer(&vec![web3signer_req.clone()])
+            .await
+            .unwrap();
+
+        // 1 validator imported.
+        assert_eq!(tester.vals_total(), 1);
+        assert_eq!(tester.vals_enabled(), 1);
+        let vals = tester.initialized_validators.read();
+        let web3_vals = vals.validator_definitions().clone();
+
+        // Import remotekeys.
+        let import_res = tester
+            .client
+            .post_remotekeys(&ImportRemotekeysRequest {
+                remote_keys: vec![remotekey_req.clone()].clone(),
+            })
+            .await
+            .unwrap();
+        check_remotekey_import_response(
+            &import_res,
+            all_with_status(1, ImportRemotekeyStatus::Duplicate),
+        );
+
+        assert_eq!(tester.vals_total(), 1);
+        assert_eq!(tester.vals_enabled(), 1);
+        let vals = tester.initialized_validators.read();
+        let remote_vals = vals.validator_definitions().clone();
+
+        // Web3signer should not be overwritten since it is enabled.
+        assert!(web3_vals == remote_vals);
+
+        // Remotekey should not be imported.
+        let expected_responses = vec![SingleListRemotekeysResponse {
+            pubkey: web3signer_req.voting_public_key.compress(),
+            url: web3signer_req.url.clone(),
+            readonly: false,
+        }];
 
         // Check remotekey list response.
         let get_res = tester.client.get_remotekeys().await.unwrap();
