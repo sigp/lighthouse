@@ -1,12 +1,12 @@
-use std::fs;
 use clap::ArgMatches;
 use clap_utils::parse_required;
 use serde::Serialize;
+use snap::raw::Decoder;
 use ssz::Decode;
+use std::fs;
 use std::fs::File;
 use std::io::Read;
 use std::str::FromStr;
-use snap::raw::Decoder;
 use types::*;
 
 enum OutputFormat {
@@ -43,7 +43,6 @@ pub fn run_parse_ssz<T: EthSpec>(matches: &ArgMatches) -> Result<(), String> {
             .map_err(|e| format!("Unable to read {}: {}", filename, e))?;
         bytes
     };
-
 
     info!("Using {} spec", T::spec_name());
     info!("Type: {:?}", type_str);

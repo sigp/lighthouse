@@ -161,10 +161,6 @@ impl<E: EthSpec> Case for ForkChoiceTest<E> {
             return Err(Error::SkippedKnownFailure);
         };
 
-        if _case_index != 1 {
-            return Err(Error::SkippedKnownFailure);
-        }
-
         for step in &self.steps {
             match step {
                 Step::Tick { tick } => tester.set_tick(*tick),

@@ -1368,9 +1368,14 @@ impl<T: EthSpec> BeaconState<T> {
         &mut self,
         spec: &ChainSpec,
     ) -> Result<PreviousParticipationCache, BeaconStateError> {
+        let next_slot_epoch = self
+            .slot()
+            .saturating_add(Slot::new(1))
+            .epoch(T::slots_per_epoch());
+
         // Check cache if it was initialized in the states current epoch.
         if let Some(cache) = self.previous_epoch_participation_cache() {
-            if cache.initialized_epoch() == self.current_epoch() {
+            if cache.initialized_epoch() == next_slot_epoch {
                 return Ok(cache.clone());
             }
         }

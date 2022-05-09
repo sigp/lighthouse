@@ -420,7 +420,7 @@ fn fork_choice_get_head() {
 #[test]
 fn fork_choice_on_block() {
     ForkChoiceHandler::<MinimalEthSpec>::new("on_block").run();
-    // ForkChoiceHandler::<MainnetEthSpec>::new("on_block").run();
+    ForkChoiceHandler::<MainnetEthSpec>::new("on_block").run();
 }
 
 #[test]
