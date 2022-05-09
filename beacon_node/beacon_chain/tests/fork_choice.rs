@@ -9,8 +9,10 @@ const VALIDATOR_COUNT: usize = 24;
 #[test]
 fn chooses_highest_justified_checkpoint() {
     let slots_per_epoch = MainnetEthSpec::slots_per_epoch();
+    let mut spec = MainnetEthSpec::default_spec();
+    spec.altair_fork_epoch = Some(Epoch::new(0));
     let harness = BeaconChainHarness::builder(MainnetEthSpec)
-        .default_spec()
+        .spec(spec)
         .deterministic_keypairs(VALIDATOR_COUNT)
         .fresh_ephemeral_store()
         .mock_execution_layer()
@@ -56,15 +58,12 @@ fn chooses_highest_justified_checkpoint() {
     let fork_parent_slot = slot_a - reorg_distance;
     let fork_parent_block = harness
         .chain
-        .block_at_slot(fork_parent_slot.into(), WhenSlotSkipped::None)
+        .block_at_slot(fork_parent_slot, WhenSlotSkipped::None)
         .unwrap()
         .unwrap();
     let fork_parent_state = harness
         .chain
-        .get_state(
-            &fork_parent_block.state_root(),
-            Some(fork_parent_slot.into()),
-        )
+        .get_state(&fork_parent_block.state_root(), Some(fork_parent_slot))
         .unwrap()
         .unwrap();
     let (fork_block, fork_state) = harness.make_block(fork_parent_state, slot_a + 1);
@@ -105,11 +104,7 @@ fn chooses_highest_justified_checkpoint() {
 
     let head = harness.chain.head().unwrap();
     assert_eq!(
-        head.beacon_block_root, fork_block_root,
-        "the fork block has become the head"
-    );
-    assert_eq!(
-        head.beacon_block_root, fork_block_root,
-        "the fork block has become the head"
+        head.beacon_block_root, slot_a_root,
+        "the fork block has not become the head"
     );
 }
