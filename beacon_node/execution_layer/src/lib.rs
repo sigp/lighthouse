@@ -268,7 +268,7 @@ impl ExecutionLayer {
         &self.inner.builders
     }
 
-    fn executor(&self) -> &TaskExecutor {
+    pub fn executor(&self) -> &TaskExecutor {
         &self.inner.executor
     }
 

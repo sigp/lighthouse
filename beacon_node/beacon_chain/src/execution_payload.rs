@@ -20,6 +20,7 @@ use state_processing::per_block_processing::{
     compute_timestamp_at_slot, is_execution_enabled, is_merge_transition_complete,
     partially_verify_execution_payload,
 };
+use std::sync::Arc;
 use types::*;
 
 /// Verify that `execution_payload` contained by `block` is considered valid by an execution
@@ -32,7 +33,7 @@ use types::*;
 ///
 /// https://github.com/ethereum/consensus-specs/blob/v1.1.9/specs/bellatrix/beacon-chain.md#notify_new_payload
 pub fn notify_new_payload<T: BeaconChainTypes>(
-    chain: &BeaconChain<T>,
+    chain: &Arc<BeaconChain<T>>,
     state: &BeaconState<T::EthSpec>,
     block: BeaconBlockRef<T::EthSpec>,
 ) -> Result<PayloadVerificationStatus, BlockError<T::EthSpec>> {
