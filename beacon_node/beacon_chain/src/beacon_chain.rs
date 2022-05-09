@@ -3337,7 +3337,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         self.fork_choice_at_slot(self.slot()?)
     }
 
-    /// Execute fork choice with the `slot`
+    /// Execute fork choice at `slot`, processing queued attestations from `slot - 1` and earlier.
     ///
     /// The `slot` is not verified in any way, callers should ensure it corresponds to at most
     /// one slot ahead of the current wall-clock slot.
@@ -3731,7 +3731,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         }
 
         // Update the execution layer.
-        // FIXME(sproul): re-consider passing `slot` here
+        // Always use the wall-clock slot to update the execution engine rather than the `slot`
+        // passed in. We want to avoid informing the EE that the head for the next
+        // slot is the block of the current slot, only to change it out moments later when a
+        // block for the next slot actually arrives.
         if let Err(e) = self.update_execution_engine_forkchoice_blocking(self.slot()?) {
             crit!(
                 self.log,

@@ -99,10 +99,10 @@ pub async fn fork_choice_before_proposal() {
     );
 
     // Ensure that building a block via the HTTP API re-runs fork choice and builds block D upon B.
+    harness.advance_slot();
     let proposer_index = state_b
         .get_beacon_proposer_index(slot_d, &harness.chain.spec)
         .unwrap();
-    harness.advance_slot();
     let randao_reveal = harness
         .sign_randao_reveal(&state_b, proposer_index, slot_d)
         .into();

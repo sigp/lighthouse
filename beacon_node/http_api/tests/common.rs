@@ -1,5 +1,5 @@
 use beacon_chain::{
-    test_utils::{BeaconChainHarness, BoxedMutator, EphemeralHarnessType},
+    test_utils::{BeaconChainHarness, EphemeralHarnessType},
     BeaconChain, BeaconChainTypes,
 };
 use eth2::{BeaconNodeHttpClient, Timeouts};
@@ -18,7 +18,6 @@ use std::future::Future;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::sync::Arc;
 use std::time::Duration;
-use store::MemoryStore;
 use tokio::sync::{mpsc, oneshot};
 use types::{ChainSpec, EthSpec};
 
@@ -47,28 +46,13 @@ pub struct ApiServer<E: EthSpec, SFut: Future<Output = ()>> {
     pub external_peer_id: PeerId,
 }
 
-type Mutator<E> = BoxedMutator<E, MemoryStore<E>, MemoryStore<E>>;
-
 impl<E: EthSpec> InteractiveTester<E> {
     pub async fn new(spec: Option<ChainSpec>, validator_count: usize) -> Self {
-        Self::new_with_mutator(spec, validator_count, None).await
-    }
-
-    pub async fn new_with_mutator(
-        spec: Option<ChainSpec>,
-        validator_count: usize,
-        mutator: Option<Mutator<E>>,
-    ) -> Self {
-        let mut harness_builder = BeaconChainHarness::builder(E::default())
+        let harness = BeaconChainHarness::builder(E::default())
             .spec_or_default(spec)
             .deterministic_keypairs(validator_count)
-            .fresh_ephemeral_store();
-
-        if let Some(mutator) = mutator {
-            harness_builder = harness_builder.initial_mutator(mutator);
-        }
-
-        let harness = harness_builder.build();
+            .fresh_ephemeral_store()
+            .build();
 
         let ApiServer {
             server,
