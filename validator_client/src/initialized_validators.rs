@@ -14,7 +14,6 @@ use account_utils::{
     },
     ZeroizeString,
 };
-use eth2::lighthouse_vc::std_types::DeleteKeystoreStatus;
 use eth2_keystore::Keystore;
 use lighthouse_metrics::set_gauge;
 use lockfile::{Lockfile, LockfileError};
@@ -90,8 +89,8 @@ pub enum Error {
     InvalidWeb3SignerRootCertificateFile(io::Error),
     InvalidWeb3SignerRootCertificate(ReqwestError),
     UnableToBuildWeb3SignerClient(ReqwestError),
-    /// Unable to apply an action to a validator because it is using a remote signer.
-    InvalidActionOnRemoteValidator,
+    /// Unable to apply an action to a validator.
+    InvalidActionOnValidator,
 }
 
 impl From<LockfileError> for Error {
@@ -443,7 +442,8 @@ impl InitializedValidators {
     pub async fn delete_definition_and_keystore(
         &mut self,
         pubkey: &PublicKey,
-    ) -> Result<DeleteKeystoreStatus, Error> {
+        is_local_keystore: bool,
+    ) -> Result<(), Error> {
         // 1. Disable the validator definition.
         //
         // We disable before removing so that in case of a crash the auto-discovery mechanism
@@ -454,16 +454,19 @@ impl InitializedValidators {
             .iter_mut()
             .find(|def| &def.voting_public_key == pubkey)
         {
-            if def.signing_definition.is_local_keystore() {
+            // Update definition for local keystore
+            if def.signing_definition.is_local_keystore() && is_local_keystore {
                 def.enabled = false;
                 self.definitions
                     .save(&self.validators_dir)
                     .map_err(Error::UnableToSaveDefinitions)?;
+            } else if !def.signing_definition.is_local_keystore() && !is_local_keystore {
+                def.enabled = false;
             } else {
-                return Err(Error::InvalidActionOnRemoteValidator);
+                return Err(Error::InvalidActionOnValidator);
             }
         } else {
-            return Ok(DeleteKeystoreStatus::NotFound);
+            return Err(Error::ValidatorNotInitialized(pubkey.clone()));
         }
 
         // 2. Delete from `self.validators`, which holds the signing method.
@@ -491,7 +494,7 @@ impl InitializedValidators {
             .save(&self.validators_dir)
             .map_err(Error::UnableToSaveDefinitions)?;
 
-        Ok(DeleteKeystoreStatus::Deleted)
+        Ok(())
     }
 
     /// Attempt to delete the voting keystore file, or its entire validator directory.

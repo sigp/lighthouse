@@ -1,5 +1,8 @@
 //! Implementation of the standard keystore management API.
-use crate::{signing_method::SigningMethod, InitializedValidators, ValidatorStore};
+use crate::{
+    initialized_validators::Error, signing_method::SigningMethod, InitializedValidators,
+    ValidatorStore,
+};
 use account_utils::ZeroizeString;
 use eth2::lighthouse_vc::std_types::{
     DeleteKeystoreStatus, DeleteKeystoresRequest, DeleteKeystoresResponse, ImportKeystoreStatus,
@@ -282,9 +285,14 @@ fn delete_single_keystore(
             .decompress()
             .map_err(|e| format!("invalid pubkey, {:?}: {:?}", pubkey_bytes, e))?;
 
-        runtime
-            .block_on(initialized_validators.delete_definition_and_keystore(&pubkey))
-            .map_err(|e| format!("unable to disable and delete: {:?}", e))
+        match runtime.block_on(initialized_validators.delete_definition_and_keystore(&pubkey, true))
+        {
+            Ok(_) => Ok(DeleteKeystoreStatus::Deleted),
+            Err(e) => match e {
+                Error::ValidatorNotInitialized(_) => Ok(DeleteKeystoreStatus::NotFound),
+                _ => Err(format!("unable to disable and delete: {:?}", e)),
+            },
+        }
     } else {
         Err("validator client shutdown".into())
     }
