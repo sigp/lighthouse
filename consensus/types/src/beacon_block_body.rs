@@ -73,37 +73,6 @@ impl<'a, T: EthSpec> BeaconBlockBodyRef<'a, T> {
     }
 }
 
-// This macro is a candidate for generation with `superstruct`.
-// https://github.com/sigp/superstruct/issues/19
-#[macro_export]
-macro_rules! map_beacon_block_body {
-    ($block:expr, $e:expr) => {
-        match $block {
-            BeaconBlockBody::Base(inner) => {
-                let f: fn(
-                    BeaconBlockBodyBase<_, _>,
-                    fn(BeaconBlockBodyBase<_, _>) -> BeaconBlockBody<_, _>,
-                ) -> _ = $e;
-                f(inner, BeaconBlockBody::Base)
-            }
-            BeaconBlockBody::Altair(inner) => {
-                let f: fn(
-                    BeaconBlockBodyAltair<_, _>,
-                    fn(BeaconBlockBodyAltair<_, _>) -> BeaconBlockBody<_, _>,
-                ) -> _ = $e;
-                f(inner, BeaconBlockBody::Altair)
-            }
-            BeaconBlockBody::Merge(inner) => {
-                let f: fn(
-                    BeaconBlockBodyMerge<_, _>,
-                    fn(BeaconBlockBodyMerge<_, _>) -> BeaconBlockBody<_, _>,
-                ) -> _ = $e;
-                f(inner, BeaconBlockBody::Merge)
-            }
-        }
-    };
-}
-
 // We can convert pre-Bellatrix block bodies without payloads into block bodies "with" payloads.
 impl<E: EthSpec> From<BeaconBlockBodyBase<E, BlindedPayload<E>>>
     for BeaconBlockBodyBase<E, FullPayload<E>>

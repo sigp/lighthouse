@@ -37,7 +37,9 @@ use tree_hash_derive::TreeHash;
     ref_attributes(
         derive(Debug, PartialEq, TreeHash),
         tree_hash(enum_behaviour = "transparent")
-    )
+    ),
+    map_ref_into(BeaconBlockBodyRef),
+    map_ref_mut_into(BeaconBlockBodyRefMut)
 )]
 #[derive(Debug, Clone, Serialize, Deserialize, Encode, TreeHash, Derivative)]
 #[derivative(PartialEq, Hash(bound = "T: EthSpec"))]
@@ -199,20 +201,17 @@ impl<'a, T: EthSpec, Payload: ExecPayload<T>> BeaconBlockRef<'a, T, Payload> {
 
     /// Convenience accessor for the `body` as a `BeaconBlockBodyRef`.
     pub fn body(&self) -> BeaconBlockBodyRef<'a, T, Payload> {
-        match self {
-            BeaconBlockRef::Base(block) => BeaconBlockBodyRef::Base(&block.body),
-            BeaconBlockRef::Altair(block) => BeaconBlockBodyRef::Altair(&block.body),
-            BeaconBlockRef::Merge(block) => BeaconBlockBodyRef::Merge(&block.body),
-        }
+        map_beacon_block_ref_into_beacon_block_body_ref!(&'a _, *self, |block, cons| cons(
+            &block.body
+        ))
     }
 
     /// Return the tree hash root of the block's body.
     pub fn body_root(&self) -> Hash256 {
-        match self {
-            BeaconBlockRef::Base(block) => block.body.tree_hash_root(),
-            BeaconBlockRef::Altair(block) => block.body.tree_hash_root(),
-            BeaconBlockRef::Merge(block) => block.body.tree_hash_root(),
-        }
+        map_beacon_block_ref!(&'a _, *self, |block, cons| {
+            let _: Self = cons(block);
+            block.body.tree_hash_root()
+        })
     }
 
     /// Returns the epoch corresponding to `self.slot()`.
@@ -249,11 +248,9 @@ impl<'a, T: EthSpec, Payload: ExecPayload<T>> BeaconBlockRef<'a, T, Payload> {
 impl<'a, T: EthSpec, Payload: ExecPayload<T>> BeaconBlockRefMut<'a, T, Payload> {
     /// Convert a mutable reference to a beacon block to a mutable ref to its body.
     pub fn body_mut(self) -> BeaconBlockBodyRefMut<'a, T, Payload> {
-        match self {
-            BeaconBlockRefMut::Base(block) => BeaconBlockBodyRefMut::Base(&mut block.body),
-            BeaconBlockRefMut::Altair(block) => BeaconBlockBodyRefMut::Altair(&mut block.body),
-            BeaconBlockRefMut::Merge(block) => BeaconBlockBodyRefMut::Merge(&mut block.body),
-        }
+        map_beacon_block_ref_mut_into_beacon_block_body_ref_mut!(&'a _, self, |block, cons| cons(
+            &mut block.body
+        ))
     }
 }
 
@@ -543,37 +540,6 @@ macro_rules! impl_from {
 impl_from!(BeaconBlockBase, <E, FullPayload<E>>, <E, BlindedPayload<E>>, |body: BeaconBlockBodyBase<_, _>| body.into());
 impl_from!(BeaconBlockAltair, <E, FullPayload<E>>, <E, BlindedPayload<E>>, |body: BeaconBlockBodyAltair<_, _>| body.into());
 impl_from!(BeaconBlockMerge, <E, FullPayload<E>>, <E, BlindedPayload<E>>, |body: BeaconBlockBodyMerge<_, _>| body.into());
-
-// This macro is a candidate for generation with `superstruct`.
-// https://github.com/sigp/superstruct/issues/19
-#[macro_export]
-macro_rules! map_beacon_block {
-    ($block:expr, $e:expr) => {
-        match $block {
-            BeaconBlock::Base(inner) => {
-                let f: fn(
-                    BeaconBlockBase<_, _>,
-                    fn(BeaconBlockBase<_, _>) -> BeaconBlock<_, _>,
-                ) -> _ = $e;
-                f(inner, BeaconBlock::Base)
-            }
-            BeaconBlock::Altair(inner) => {
-                let f: fn(
-                    BeaconBlockAltair<_, _>,
-                    fn(BeaconBlockAltair<_, _>) -> BeaconBlock<_, _>,
-                ) -> _ = $e;
-                f(inner, BeaconBlock::Altair)
-            }
-            BeaconBlock::Merge(inner) => {
-                let f: fn(
-                    BeaconBlockMerge<_, _>,
-                    fn(BeaconBlockMerge<_, _>) -> BeaconBlock<_, _>,
-                ) -> _ = $e;
-                f(inner, BeaconBlock::Merge)
-            }
-        }
-    };
-}
 
 impl<E: EthSpec> From<BeaconBlock<E, FullPayload<E>>>
     for (

@@ -53,7 +53,10 @@ impl From<SignedBeaconBlockHash> for Hash256 {
         derivative(PartialEq, Hash(bound = "E: EthSpec")),
         cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary)),
         serde(bound = "E: EthSpec, Payload: ExecPayload<E>"),
-    )
+    ),
+    map_into(BeaconBlock),
+    map_ref_into(BeaconBlockRef),
+    map_ref_mut_into(BeaconBlockRefMut)
 )]
 #[derive(Debug, Clone, Serialize, Deserialize, Encode, TreeHash, Derivative)]
 #[derivative(PartialEq, Hash(bound = "E: EthSpec"))]
@@ -134,31 +137,27 @@ impl<E: EthSpec, Payload: ExecPayload<E>> SignedBeaconBlock<E, Payload> {
     /// This is necessary to get a `&BeaconBlock` from a `SignedBeaconBlock` because
     /// `SignedBeaconBlock` only contains a `BeaconBlock` _variant_.
     pub fn deconstruct(self) -> (BeaconBlock<E, Payload>, Signature) {
-        match self {
-            SignedBeaconBlock::Base(block) => (BeaconBlock::Base(block.message), block.signature),
-            SignedBeaconBlock::Altair(block) => {
-                (BeaconBlock::Altair(block.message), block.signature)
-            }
-            SignedBeaconBlock::Merge(block) => (BeaconBlock::Merge(block.message), block.signature),
-        }
+        map_signed_beacon_block_into_beacon_block!(self, |block, beacon_block_cons| {
+            (beacon_block_cons(block.message), block.signature)
+        })
     }
 
     /// Accessor for the block's `message` field as a ref.
-    pub fn message(&self) -> BeaconBlockRef<'_, E, Payload> {
-        match self {
-            SignedBeaconBlock::Base(inner) => BeaconBlockRef::Base(&inner.message),
-            SignedBeaconBlock::Altair(inner) => BeaconBlockRef::Altair(&inner.message),
-            SignedBeaconBlock::Merge(inner) => BeaconBlockRef::Merge(&inner.message),
-        }
+    pub fn message<'a>(&'a self) -> BeaconBlockRef<'a, E, Payload> {
+        map_signed_beacon_block_ref_into_beacon_block_ref!(
+            &'a _,
+            self.to_ref(),
+            |inner, cons| cons(&inner.message)
+        )
     }
 
     /// Accessor for the block's `message` as a mutable reference (for testing only).
-    pub fn message_mut(&mut self) -> BeaconBlockRefMut<'_, E, Payload> {
-        match self {
-            SignedBeaconBlock::Base(inner) => BeaconBlockRefMut::Base(&mut inner.message),
-            SignedBeaconBlock::Altair(inner) => BeaconBlockRefMut::Altair(&mut inner.message),
-            SignedBeaconBlock::Merge(inner) => BeaconBlockRefMut::Merge(&mut inner.message),
-        }
+    pub fn message_mut<'a>(&'a mut self) -> BeaconBlockRefMut<'a, E, Payload> {
+        map_signed_beacon_block_ref_mut_into_beacon_block_ref_mut!(
+            &'a _,
+            self.to_mut(),
+            |inner, cons| cons(&mut inner.message)
+        )
     }
 
     /// Verify `self.signature`.
