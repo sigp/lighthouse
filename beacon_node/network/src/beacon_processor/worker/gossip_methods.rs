@@ -744,7 +744,8 @@ impl<T: BeaconChainTypes> Worker<T> {
                 debug!(
                     self.log,
                     "Unknown parent for gossip block";
-                    "root" => ?block.canonical_root()
+                    "root" => ?block.canonical_root(),
+                    "peer_id" => %peer_id,
                 );
                 self.send_sync_message(SyncMessage::UnknownBlock(peer_id, block));
                 return None;

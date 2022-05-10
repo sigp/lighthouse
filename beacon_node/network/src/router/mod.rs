@@ -14,6 +14,7 @@ use futures::prelude::*;
 use lighthouse_network::{
     MessageId, NetworkGlobals, PeerId, PeerRequestId, PubsubMessage, Request, Response,
 };
+pub use processor::timestamp_now;
 use processor::Processor;
 use slog::{debug, o, trace};
 use std::sync::Arc;

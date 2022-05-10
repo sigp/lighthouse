@@ -169,6 +169,7 @@ impl<T: EthSpec> SyncNetworkContext<T> {
         &mut self,
         peer_id: PeerId,
         request: BlocksByRootRequest,
+        send_network_message: bool,
     ) -> Result<Id, &'static str> {
         trace!(
             self.log,
@@ -180,11 +181,14 @@ impl<T: EthSpec> SyncNetworkContext<T> {
         let request = Request::BlocksByRoot(request);
         let id = self.next_id();
         let request_id = RequestId::Sync(SyncRequestId::SingleBlock { id });
-        self.send_network_msg(NetworkMessage::SendRequest {
-            peer_id,
-            request,
-            request_id,
-        })?;
+        if send_network_message {
+            self.send_network_msg(NetworkMessage::SendRequest {
+                peer_id,
+                request,
+                request_id,
+            })?;
+        }
+
         Ok(id)
     }
 

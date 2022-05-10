@@ -293,6 +293,10 @@ lazy_static! {
         "sync_parent_block_lookups",
         "Number of parent block lookups underway"
     );
+    pub static ref SYNC_WAITING_ON_EXECUTION: Result<IntGauge> = try_create_int_gauge(
+        "sync_waiting_on_execution_blocks",
+        "Number of blocks cached as waiting on execution"
+    );
 
     /*
      * Block Delay Metrics
