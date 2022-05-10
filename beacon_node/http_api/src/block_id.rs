@@ -125,14 +125,28 @@ impl BlockId {
         let execution_optimistic = match self.0 {
             // Genesis block is inherently verified.
             CoreBlockId::Genesis => false,
+            // Head, Finalized and Justified are determined based on their respective statuses.
             CoreBlockId::Head => chain
                 .is_optimistic_head_block(&block)
                 .map_err(warp_utils::reject::beacon_chain_error)?,
-            // Slot, Finalized and Justified are determined based on the current head.
-            CoreBlockId::Slot(_) | CoreBlockId::Finalized | CoreBlockId::Justified => chain
+            // Note that `Justified` should always be present in fork choice,
+            // so using `is_optimistic_head_block` should be fine here. Although there is a small
+            // risk of `Justified` being pruned from the fork choice store before its status is
+            // computed.
+            CoreBlockId::Justified => chain
                 .is_optimistic_head_block(&block)
                 .map_err(warp_utils::reject::beacon_chain_error)?,
-            // If the root is explicitly given, we can determine based on fork-choice.
+            // Since `is_optimistic_block` falls back to the status of the finalized block, using
+            // it should minimize the impacts of the possible race condition.
+            CoreBlockId::Finalized => chain
+                .is_optimistic_block(&block)
+                .map_err(warp_utils::reject::beacon_chain_error)?,
+            // If the slot is supplied we cannot use `block`. Instead we compute the
+            // head and use that to determine the status.
+            CoreBlockId::Slot(_) => chain
+                .is_optimistic_head(None)
+                .map_err(warp_utils::reject::beacon_chain_error)?,
+            // If the root is explicitly given, compute its status directly.
             CoreBlockId::Root(_) => chain
                 .is_optimistic_block(&block)
                 .map_err(warp_utils::reject::beacon_chain_error)?,
