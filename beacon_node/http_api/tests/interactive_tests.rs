@@ -99,7 +99,11 @@ pub async fn fork_choice_before_proposal() {
     );
 
     // Ensure that building a block via the HTTP API re-runs fork choice and builds block D upon B.
+    // Manually prod the per-slot task, because the slot timer doesn't run in the background in
+    // these tests.
     harness.advance_slot();
+    harness.chain.per_slot_task();
+
     let proposer_index = state_b
         .get_beacon_proposer_index(slot_d, &harness.chain.spec)
         .unwrap();
