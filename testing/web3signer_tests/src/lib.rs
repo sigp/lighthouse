@@ -358,6 +358,8 @@ mod tests {
                         url: signer_rig.url.to_string(),
                         root_certificate_path: Some(root_certificate_path()),
                         request_timeout_ms: None,
+                        client_identity_path: None,
+                        client_identity_password: None,
                     },
                 };
                 ValidatorStoreRig::new(vec![validator_definition], spec).await

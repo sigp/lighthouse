@@ -40,6 +40,8 @@ fn web3signer_validator_with_pubkey(pubkey: PublicKey) -> Web3SignerValidatorReq
         url: web3_signer_url(),
         root_certificate_path: None,
         request_timeout_ms: None,
+        client_identity_path: None,
+        client_identity_password: None,
     }
 }
 

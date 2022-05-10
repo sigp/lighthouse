@@ -260,10 +260,8 @@ impl InitializedValidator {
                 };
 
                 let builder = if let Some(path) = client_identity_path {
-                    let identity = load_pkcs12_identity(
-                        path,
-                        &client_identity_password.unwrap_or(String::new()),
-                    )?;
+                    let identity =
+                        load_pkcs12_identity(path, &client_identity_password.unwrap_or_default())?;
                     builder.identity(identity)
                 } else {
                     builder
