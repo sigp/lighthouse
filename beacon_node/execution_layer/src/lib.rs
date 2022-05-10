@@ -1201,6 +1201,8 @@ impl ExecutionLayer {
         engine: &Engine<EngineApi>,
         hash: ExecutionBlockHash,
     ) -> Result<Option<ExecutionPayload<T>>, ApiError> {
+        let _timer = metrics::start_timer(&metrics::EXECUTION_LAYER_GET_PAYLOAD_BY_BLOCK_HASH);
+
         if hash == ExecutionBlockHash::zero() {
             return Ok(Some(ExecutionPayload::default()));
         }
