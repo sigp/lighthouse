@@ -4365,6 +4365,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     ///
     /// Returns `Ok(false)` if the block is pre-Bellatrix, or has `ExecutionStatus::Valid`.
     /// Returns `Ok(true)` if the block has `ExecutionStatus::Optimistic`.
+    ///
+    /// This function will return an error if `head_block` is not present in the fork choice store
+    /// and so should only be used on the head block or when the block *should* be present in the
+    /// fork choice store.
+    ///
+    /// There is a potential race condition when syncing where the block_root of `head_block` could
+    /// be pruned from the fork choice store before being read.
     pub fn is_optimistic_head_block(
         &self,
         head_block: &SignedBeaconBlock<T::EthSpec>,
@@ -4385,6 +4392,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     ///
     /// Returns `Ok(false)` if the head block is pre-Bellatrix, or has `ExecutionStatus::Valid`.
     /// Returns `Ok(true)` if the head block has `ExecutionStatus::Optimistic`.
+    ///
+    /// There is a potential race condition when syncing where the block root of `head_info` could
+    /// be pruned from the fork choice store before being read.
     pub fn is_optimistic_head(
         &self,
         head_info: Option<&HeadInfo>,
