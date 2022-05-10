@@ -944,6 +944,35 @@ impl<T: BeaconChainTypes> Worker<T> {
                 );
                 self.send_sync_message(SyncMessage::UnknownBlock(peer_id, block));
             }
+            Err(BlockError::ExecutionPayloadError(e)) => match &e {
+                ExecutionPayloadError::NoExecutionConnection { block: _ }
+                | ExecutionPayloadError::RequestFailed { err: _, block: _ } => {
+                    // These errors indicate an issue with the EL and not the block.
+                    warn!(self.log,
+                        "Execution layer stalled";
+                        "error" => ?e
+                    );
+                }
+                err => {
+                    debug!(
+                        self.log,
+                        "Invalid gossip beacon block";
+                        "outcome" => ?err,
+                        "block root" => ?block.canonical_root(),
+                        "block slot" => block.slot()
+                    );
+                    self.gossip_penalize_peer(
+                        peer_id,
+                        PeerAction::MidToleranceError,
+                        "bad_gossip_block_ssz",
+                    );
+                    trace!(
+                        self.log,
+                        "Invalid gossip beacon block ssz";
+                        "ssz" => format_args!("0x{}", hex::encode(block.as_ssz_bytes())),
+                    );
+                }
+            },
             other => {
                 debug!(
                     self.log,
