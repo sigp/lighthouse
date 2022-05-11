@@ -1,5 +1,5 @@
 use crate::error::Error;
-use crate::proto_array::{InvalidationOperation, Iter, ProposerBoost, ProtoArray};
+use crate::proto_array::{InvalidationOperation, Iter, ProposerBoost, ProtoArray, ProtoNode};
 use crate::ssz_container::SszContainer;
 use serde_derive::{Deserialize, Serialize};
 use ssz::{Decode, Encode};
@@ -28,7 +28,7 @@ pub enum ExecutionStatus {
     /// An EL has determined that the payload is invalid.
     Invalid(ExecutionBlockHash),
     /// An EL has not yet verified the execution payload.
-    Unknown(ExecutionBlockHash),
+    Optimistic(ExecutionBlockHash),
     /// The block is either prior to the merge fork, or after the merge fork but before the terminal
     /// PoW block has been found.
     ///
@@ -52,30 +52,48 @@ impl ExecutionStatus {
         match self {
             ExecutionStatus::Valid(hash)
             | ExecutionStatus::Invalid(hash)
-            | ExecutionStatus::Unknown(hash) => Some(*hash),
+            | ExecutionStatus::Optimistic(hash) => Some(*hash),
             ExecutionStatus::Irrelevant(_) => None,
         }
     }
 
     /// Returns `true` if the block:
     ///
-    /// - Has execution enabled
+    /// - Has a valid payload, OR
+    /// - Does not have execution enabled.
+    ///
+    /// Whenever this function returns `true`, the block is *fully valid*.
+    pub fn is_valid_or_irrelevant(&self) -> bool {
+        matches!(
+            self,
+            ExecutionStatus::Valid(_) | ExecutionStatus::Irrelevant(_)
+        )
+    }
+
+    /// Returns `true` if the block:
+    ///
+    /// - Has execution enabled, AND
     /// - Has a valid payload
-    pub fn is_valid(&self) -> bool {
+    ///
+    /// This function will return `false` for any block from a slot prior to the Bellatrix fork.
+    /// This means that some blocks that are perfectly valid will still receive a `false` response.
+    /// See `Self::is_valid_or_irrelevant` for a function that will always return `true` given any
+    /// perfectly valid block.
+    pub fn is_valid_and_post_bellatrix(&self) -> bool {
         matches!(self, ExecutionStatus::Valid(_))
     }
 
     /// Returns `true` if the block:
     ///
-    /// - Has execution enabled
+    /// - Has execution enabled, AND
     /// - Has a payload that has not yet been verified by an EL.
-    pub fn is_not_verified(&self) -> bool {
-        matches!(self, ExecutionStatus::Unknown(_))
+    pub fn is_optimistic(&self) -> bool {
+        matches!(self, ExecutionStatus::Optimistic(_))
     }
 
     /// Returns `true` if the block:
     ///
-    /// - Has execution enabled
+    /// - Has execution enabled, AND
     /// - Has an invalid payload.
     pub fn is_invalid(&self) -> bool {
         matches!(self, ExecutionStatus::Invalid(_))
@@ -294,9 +312,13 @@ impl ProtoArrayForkChoice {
         self.proto_array.indices.contains_key(block_root)
     }
 
-    pub fn get_block(&self, block_root: &Hash256) -> Option<Block> {
+    fn get_proto_node(&self, block_root: &Hash256) -> Option<&ProtoNode> {
         let block_index = self.proto_array.indices.get(block_root)?;
-        let block = self.proto_array.nodes.get(*block_index)?;
+        self.proto_array.nodes.get(*block_index)
+    }
+
+    pub fn get_block(&self, block_root: &Hash256) -> Option<Block> {
+        let block = self.get_proto_node(block_root)?;
         let parent_root = block
             .parent
             .and_then(|i| self.proto_array.nodes.get(i))
@@ -323,6 +345,12 @@ impl ProtoArrayForkChoice {
         } else {
             None
         }
+    }
+
+    /// Returns the `block.execution_status` field, if the block is present.
+    pub fn get_block_execution_status(&self, block_root: &Hash256) -> Option<ExecutionStatus> {
+        let block = self.get_proto_node(block_root)?;
+        Some(block.execution_status)
     }
 
     /// Returns the weight of a given block.

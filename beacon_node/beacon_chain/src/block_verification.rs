@@ -73,6 +73,7 @@ use state_processing::{
 use std::borrow::Cow;
 use std::fs;
 use std::io::Write;
+use std::sync::Arc;
 use std::time::Duration;
 use store::{Error as DBError, HotColdDB, HotStateSummary, KeyValueStore, StoreOp};
 use tree_hash::TreeHash;
@@ -586,7 +587,7 @@ pub struct FullyVerifiedBlock<'a, T: BeaconChainTypes> {
 pub trait IntoFullyVerifiedBlock<T: BeaconChainTypes>: Sized {
     fn into_fully_verified_block(
         self,
-        chain: &BeaconChain<T>,
+        chain: &Arc<BeaconChain<T>>,
     ) -> Result<FullyVerifiedBlock<T>, BlockError<T::EthSpec>> {
         self.into_fully_verified_block_slashable(chain)
             .map(|fully_verified| {
@@ -602,7 +603,7 @@ pub trait IntoFullyVerifiedBlock<T: BeaconChainTypes>: Sized {
     /// Convert the block to fully-verified form while producing data to aid checking slashability.
     fn into_fully_verified_block_slashable(
         self,
-        chain: &BeaconChain<T>,
+        chain: &Arc<BeaconChain<T>>,
     ) -> Result<FullyVerifiedBlock<T>, BlockSlashInfo<BlockError<T::EthSpec>>>;
 
     fn block(&self) -> &SignedBeaconBlock<T::EthSpec>;
@@ -837,7 +838,7 @@ impl<T: BeaconChainTypes> IntoFullyVerifiedBlock<T> for GossipVerifiedBlock<T> {
     /// Completes verification of the wrapped `block`.
     fn into_fully_verified_block_slashable(
         self,
-        chain: &BeaconChain<T>,
+        chain: &Arc<BeaconChain<T>>,
     ) -> Result<FullyVerifiedBlock<T>, BlockSlashInfo<BlockError<T::EthSpec>>> {
         let fully_verified =
             SignatureVerifiedBlock::from_gossip_verified_block_check_slashable(self, chain)?;
@@ -957,7 +958,7 @@ impl<T: BeaconChainTypes> IntoFullyVerifiedBlock<T> for SignatureVerifiedBlock<T
     /// Completes verification of the wrapped `block`.
     fn into_fully_verified_block_slashable(
         self,
-        chain: &BeaconChain<T>,
+        chain: &Arc<BeaconChain<T>>,
     ) -> Result<FullyVerifiedBlock<T>, BlockSlashInfo<BlockError<T::EthSpec>>> {
         let header = self.block.signed_block_header();
         let (parent, block) = if let Some(parent) = self.parent {
@@ -986,7 +987,7 @@ impl<T: BeaconChainTypes> IntoFullyVerifiedBlock<T> for SignedBeaconBlock<T::Eth
     /// and then using that implementation of `IntoFullyVerifiedBlock` to complete verification.
     fn into_fully_verified_block_slashable(
         self,
-        chain: &BeaconChain<T>,
+        chain: &Arc<BeaconChain<T>>,
     ) -> Result<FullyVerifiedBlock<T>, BlockSlashInfo<BlockError<T::EthSpec>>> {
         // Perform an early check to prevent wasting time on irrelevant blocks.
         let block_root = check_block_relevancy(&self, None, chain)
@@ -1013,7 +1014,7 @@ impl<'a, T: BeaconChainTypes> FullyVerifiedBlock<'a, T> {
         block: SignedBeaconBlock<T::EthSpec>,
         block_root: Hash256,
         parent: PreProcessingSnapshot<T::EthSpec>,
-        chain: &BeaconChain<T>,
+        chain: &Arc<BeaconChain<T>>,
     ) -> Result<Self, BlockError<T::EthSpec>> {
         if let Some(parent) = chain.fork_choice.read().get_block(&block.parent_root()) {
             // Reject any block where the parent has an invalid payload. It's impossible for a valid
@@ -1174,7 +1175,7 @@ impl<'a, T: BeaconChainTypes> FullyVerifiedBlock<'a, T> {
 
         // If the payload did not validate or invalidate the block, check to see if this block is
         // valid for optimistic import.
-        if payload_verification_status == PayloadVerificationStatus::NotVerified {
+        if payload_verification_status.is_optimistic() {
             let current_slot = chain
                 .slot_clock
                 .now()
