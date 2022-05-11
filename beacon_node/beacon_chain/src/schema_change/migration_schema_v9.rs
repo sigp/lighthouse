@@ -4,7 +4,9 @@ use slot_clock::SlotClock;
 use std::sync::Arc;
 use std::time::Duration;
 use store::{DBColumn, Error, HotColdDB, KeyValueStore};
-use types::{EthSpec, Hash256, SignedBeaconBlock, Slot};
+use types::{EthSpec, Hash256, Slot};
+
+const OPS_PER_BLOCK_WRITE: usize = 2;
 
 /// The slot clock isn't usually available before the database is initialized, so we construct a
 /// temporary slot clock by reading the genesis state. It should always exist if the database is
@@ -82,11 +84,11 @@ pub fn upgrade_to_v9<T: BeaconChainTypes>(
                        on Kiln and merge testnets, never Prater or mainnet."
         );
 
-        let mut kv_batch = vec![];
-
-        for res in db.hot_db.iter_column(DBColumn::BeaconBlock) {
-            let (block_root, bytes) = res?;
-            let block = SignedBeaconBlock::from_ssz_bytes(&bytes, db.get_chain_spec())?;
+        for res in db.hot_db.iter_column_keys(DBColumn::BeaconBlock) {
+            let block_root = res?;
+            let block = db
+                .get_full_block_prior_to_v9(&block_root)?
+                .ok_or(Error::BlockNotFound(block_root))?;
 
             if block.message().execution_payload().is_ok() {
                 // Overwrite block with blinded block and store execution payload separately.
@@ -95,16 +97,12 @@ pub fn upgrade_to_v9<T: BeaconChainTypes>(
                     "Rewriting Bellatrix block";
                     "block_root" => ?block_root,
                 );
+
+                let mut kv_batch = Vec::with_capacity(OPS_PER_BLOCK_WRITE);
                 db.block_as_kv_store_ops(&block_root, block, &mut kv_batch)?;
+                db.hot_db.do_atomically(kv_batch)?;
             }
         }
-        info!(
-            log,
-            "Committing block re-write transaction";
-            "num_ops" => kv_batch.len(),
-            "info" => "Memory usage is about to spike, if this fails you will need to re-sync"
-        );
-        db.hot_db.do_atomically(kv_batch)?;
     } else {
         info!(
             log,
