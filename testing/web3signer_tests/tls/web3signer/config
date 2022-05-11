@@ -10,7 +10,7 @@ ST = VA
 L = SomeCity
 O = MyCompany
 OU = MyDivision
-CN = 127.0.0.1
+CN = web3signer
 [v3_req]
 keyUsage = keyEncipherment, dataEncipherment
 extendedKeyUsage = serverAuth
