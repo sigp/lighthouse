@@ -230,6 +230,8 @@ pub struct CanonicalHead<T: BeaconChainTypes> {
     /// fork choice algorithm and determine the canonical head.
     pub fork_choice: BeaconForkChoice<T>,
     /// Provides cached values from a prior head elected by `self.fork_choice`.
+    ///
+    /// TODO(paul): this probably needs to be removed so the execution status is always up-to-date.
     pub head_proto_block: ProtoBlock,
     /// Provides cached values from a prior head elected by `self.fork_choice`.
     pub fork_choice_view: ForkChoiceView,
@@ -3565,8 +3567,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                             current_duty_dependent_root,
                             previous_duty_dependent_root,
                             epoch_transition: is_epoch_transition,
-                            execution_optimistic: self
-                                .is_optimistic_head(Some(new_view.head_block_root))?,
+                            execution_optimistic: new_head_proto_block
+                                .execution_status
+                                .is_optimistic(),
                         }));
                     }
                     (Err(e), _) | (_, Err(e)) => {
@@ -3588,8 +3591,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     new_head_block: new_view.head_block_root,
                     new_head_state: state_root,
                     epoch: head_slot.epoch(T::EthSpec::slots_per_epoch()),
-                    execution_optimistic: self
-                        .is_optimistic_head(Some(new_view.head_block_root))?,
+                    execution_optimistic: new_head_proto_block.execution_status.is_optimistic(),
                 }));
             }
         }
@@ -4362,8 +4364,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         if self.slot_is_prior_to_bellatrix(block.slot()) {
             Ok(false)
         } else {
-            self.fork_choice
+            self.canonical_head
                 .read()
+                .fork_choice
                 .is_optimistic_block(&block.canonical_root())
                 .map_err(BeaconChainError::ForkChoiceError)
         }
@@ -4388,8 +4391,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         if self.slot_is_prior_to_bellatrix(head_block.slot()) {
             Ok(false)
         } else {
-            self.fork_choice
+            self.canonical_head
                 .read()
+                .fork_choice
                 .is_optimistic_block_no_fallback(&head_block.canonical_root())
                 .map_err(BeaconChainError::ForkChoiceError)
         }
@@ -4403,23 +4407,33 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     ///
     /// There is a potential race condition when syncing where the block root of `head_info` could
     /// be pruned from the fork choice store before being read.
-    pub fn is_optimistic_head(
-        &self,
-        head_info: Option<&HeadInfo>,
-    ) -> Result<bool, BeaconChainError> {
-        head_info
-            .map(|head| self.is_optimistic_head_internal(head))
-            .unwrap_or_else(|| self.is_optimistic_head_internal(&self.head_info()?))
-    }
+    pub fn is_optimistic_head(&self) -> Result<bool, BeaconChainError> {
+        let canonical_head_lock = self.canonical_head.read();
+        let head = &canonical_head_lock.head_snapshot;
 
-    fn is_optimistic_head_internal(&self, head_info: &HeadInfo) -> Result<bool, BeaconChainError> {
-        // Check if the block is pre-Bellatrix.
-        if self.slot_is_prior_to_bellatrix(head_info.slot) {
+        if self.slot_is_prior_to_bellatrix(head.beacon_block.slot()) {
             Ok(false)
         } else {
-            self.fork_choice
+            canonical_head_lock
+                .fork_choice
+                .is_optimistic_block_no_fallback(&head.beacon_block_root)
+                .map_err(BeaconChainError::ForkChoiceError)
+        }
+    }
+
+    pub fn is_optimistic_block_root(
+        &self,
+        block_slot: Slot,
+        block_root: &Hash256,
+    ) -> Result<bool, BeaconChainError> {
+        // Check if the block is pre-Bellatrix.
+        if self.slot_is_prior_to_bellatrix(block_slot) {
+            Ok(false)
+        } else {
+            self.canonical_head
                 .read()
-                .is_optimistic_block_no_fallback(&head_info.block_root)
+                .fork_choice
+                .is_optimistic_block_no_fallback(block_root)
                 .map_err(BeaconChainError::ForkChoiceError)
         }
     }
@@ -4554,7 +4568,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     epoch: new_finalized_checkpoint.epoch,
                     block: new_finalized_checkpoint.root,
                     state: new_finalized_state_root,
-                    execution_optimistic: self.is_optimistic_head(None)?,
+                    execution_optimistic: self.is_optimistic_head()?,
                 }));
             }
         }

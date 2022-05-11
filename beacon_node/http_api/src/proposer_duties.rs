@@ -112,11 +112,7 @@ fn try_proposer_duties_from_cache<T: BeaconChainTypes>(
     };
 
     let execution_optimistic = chain
-<<<<<<< HEAD
-        .is_optimistic_head(Some(&head))
-=======
-        .is_optimistic_head(Some(view.head_block_root))
->>>>>>> aa5617d69 (Squash several commit for 3175)
+        .is_optimistic_head()
         .map_err(warp_utils::reject::beacon_chain_error)?;
 
     chain

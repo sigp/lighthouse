@@ -950,7 +950,7 @@ pub fn serve<T: BeaconChainTypes>(
                         HeaderComputationType::UsesHeadWithBlock => {
                             chain.is_optimistic_head_block(&block)
                         }
-                        HeaderComputationType::UsesHeadNoBlock => chain.is_optimistic_head(None),
+                        HeaderComputationType::UsesHeadNoBlock => chain.is_optimistic_head(),
                     }
                     .map_err(warp_utils::reject::beacon_chain_error)?;
 
