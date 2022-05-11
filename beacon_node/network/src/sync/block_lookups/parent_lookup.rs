@@ -96,6 +96,7 @@ impl<T: EthSpec> ParentLookup<T> {
 
     /// Insert the block into the head of `self.downloaded_blocks` updating the
     /// `chain_hash` to `block.canonical_root()`.
+    ///
     /// Note: this function does not check that current chain_hash is parent of block to be inserted.
     pub fn insert_block(&mut self, block: SignedBeaconBlock<T>, peer_id: PeerId) {
         let _old_hash = self.chain_hash;

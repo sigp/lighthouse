@@ -181,9 +181,14 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         // parent chain, then we simply insert the new block to the
         // tip of the chain and send the chain segment for processing.
         //
-        // B1 <- B2 : Existing parent chain with chain_hash set to B2
+        // This is done to prevent re-requesting of previous blocks in
+        // the parent chain over the network since they are already
+        // contained in the parent chain.
         //
-        // New block B3 with parent as B2.
+        // e.g.
+        // B1 <- B2 : Existing parent chain with chain_hash set to B2.
+        //
+        // New block B3 such that B3.parent = B2.
         //
         // B1 <- B2 <- B3 : New parent chain with chain_hash set to B3.
         if let Some(pos) = self
@@ -197,8 +202,8 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
             debug!(
                 self.log,
                 "Inserting block into existing parent chain";
-                "new_chain_hash" => %parent_lookup.chain_hash(),
                 "old_chain_hash" => %parent_root,
+                "new_chain_hash" => %parent_lookup.chain_hash(),
             );
             let chain_hash = parent_lookup.chain_hash();
             let blocks = parent_lookup.chain_blocks_clone();
@@ -251,22 +256,6 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
 
         match request.get_mut().verify_block(block) {
             Ok(Some(block)) => {
-                // If this block's parent already exists in a parent_lookup, add the block to
-                // the waiting_execution list.
-                if self
-                    .parent_queue
-                    .iter()
-                    .any(|request| request.chain_hash() == block.parent_root())
-                {
-                    let block_hash = block.canonical_root();
-                    debug!(
-                        self.log,
-                        "Single block request is waiting on execution";
-                        "block_hash" => %block_hash,
-                        "parent_hash" => %block.parent_root(),
-                    );
-                    self.waiting_execution.insert(block_hash, block.clone());
-                }
                 // This is the correct block, send it for processing
                 if self
                     .send_block_for_processing(
@@ -532,6 +521,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                     error!(self.log, "Beacon chain error processing single block"; "block_root" => %root, "error" => ?e);
                 }
                 BlockError::ParentUnknown(block) => {
+                    debug!(self.log, "Single block processed, parent unknown"; "block" => %block.canonical_root());
                     self.search_parent(block, peer_id, cx);
                 }
                 BlockError::ExecutionPayloadError(e) => match e {
@@ -543,40 +533,54 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                             "root" => %root,
                         );
 
-                        // Add this to the existing parent request and send the chain segment
-                        // for processing.
-                        if let Some(_) = self.waiting_execution.remove(&root) {
-                            if let Some(pos) = self
-                                .parent_queue
-                                .iter()
-                                .position(|req| req.chain_hash() == block.parent_root())
-                            {
-                                debug!(
-                                    self.log,
-                                    "Single block lookup processed, parent exists in parent queue";
-                                    "block_root" => %block.canonical_root(),
-                                    "parent_root" => %block.parent_root(),
-                                );
-                                let mut parent_lookup = self.parent_queue.remove(pos);
-                                parent_lookup.insert_block(*block, peer_id);
+                        self.waiting_execution
+                            .insert(block.canonical_root(), block.clone());
 
-                                let chain_hash = parent_lookup.chain_hash();
-                                let blocks = parent_lookup.chain_blocks_clone();
-                                let process_id = ChainSegmentProcessId::ParentLookup(chain_hash);
-                                match self
-                                    .beacon_processor_send
-                                    .try_send(WorkEvent::chain_segment(process_id, blocks))
-                                {
-                                    Ok(_) => {
-                                        self.parent_queue.push(parent_lookup);
-                                    }
-                                    Err(e) => {
-                                        error!(
-                                            self.log,
-                                            "Failed to send chain segment to processor";
-                                            "error" => ?e
-                                        );
-                                    }
+                        // Add this to the existing parent request and send the chain segment
+                        // for processing. This avoids re-requesting the entire parent chain
+                        // over the network.
+                        if let Some(pos) = self
+                            .parent_queue
+                            .iter()
+                            .position(|req| req.chain_hash() == block.parent_root())
+                        {
+                            debug!(
+                                self.log,
+                                "Single block lookup processed, parent exists in parent queue";
+                                "block_root" => %block.canonical_root(),
+                                "parent_root" => %block.parent_root(),
+                            );
+                            let mut parent_lookup = self.parent_queue.remove(pos);
+                            parent_lookup.insert_block(*block.clone(), peer_id);
+
+                            let chain_hash = parent_lookup.chain_hash();
+                            let blocks = parent_lookup.chain_blocks_clone();
+
+                            // Adding all blocks in the parent chain to `waiting_execution`
+                            // so that we don't have to request it over the network again
+                            // if the execution node is still offline.
+                            // TODO(pawan): clean up waiting_execution once the parent chain is processed
+                            for block in blocks.iter() {
+                                let root = block.canonical_root();
+                                if !self.waiting_execution.contains_key(&root) {
+                                    self.waiting_execution.insert(root, Box::new(block.clone()));
+                                }
+                            }
+
+                            let process_id = ChainSegmentProcessId::ParentLookup(chain_hash);
+                            match self
+                                .beacon_processor_send
+                                .try_send(WorkEvent::chain_segment(process_id, blocks))
+                            {
+                                Ok(_) => {
+                                    self.parent_queue.push(parent_lookup);
+                                }
+                                Err(e) => {
+                                    error!(
+                                        self.log,
+                                        "Failed to send chain segment to processor";
+                                        "error" => ?e
+                                    );
                                 }
                             }
                         }
