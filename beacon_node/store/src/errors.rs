@@ -43,6 +43,7 @@ pub enum Error {
     BlockReplayError(BlockReplayError),
     AddPayloadLogicError,
     ResyncRequiredForExecutionPayloadSeparation,
+    SlotClockUnavailableForMigration,
 }
 
 pub trait HandleUnavailable<T> {

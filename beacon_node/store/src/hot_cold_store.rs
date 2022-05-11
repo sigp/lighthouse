@@ -187,6 +187,21 @@ impl<E: EthSpec> HotColdDB<E, LevelDB<E>, LevelDB<E>> {
             }
         }
 
+        // Load the previous split slot from the database (if any). This ensures we can
+        // stop and restart correctly. This needs to occur *before* running any migrations
+        // because some migrations load states and depend on the split.
+        if let Some(split) = db.load_split()? {
+            *db.split.write() = split;
+            *db.anchor_info.write() = db.load_anchor_info()?;
+
+            info!(
+                db.log,
+                "Hot-Cold DB initialized";
+                "split_slot" => split.slot,
+                "split_state" => ?split.state_root
+            );
+        }
+
         // Ensure that the schema version of the on-disk database matches the software.
         // If the version is mismatched, an automatic migration will be attempted.
         let db = Arc::new(db);
@@ -207,20 +222,6 @@ impl<E: EthSpec> HotColdDB<E, LevelDB<E>, LevelDB<E>> {
             db.config.check_compatibility(&disk_config)?;
         }
         db.store_config()?;
-
-        // Load the previous split slot from the database (if any). This ensures we can
-        // stop and restart correctly.
-        if let Some(split) = db.load_split()? {
-            *db.split.write() = split;
-            *db.anchor_info.write() = db.load_anchor_info()?;
-
-            info!(
-                db.log,
-                "Hot-Cold DB initialized";
-                "split_slot" => split.slot,
-                "split_state" => ?split.state_root
-            );
-        }
 
         // Run a garbage collection pass.
         db.remove_garbage()?;

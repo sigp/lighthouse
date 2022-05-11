@@ -183,7 +183,6 @@ pub fn migrate_schema<T: BeaconChainTypes>(
             Ok(())
         }
         // Upgrade from v8 to v9 to separate the execution payloads into their own column.
-        // NOTE: only works before the Bellatrix fork epoch.
         (SchemaVersion(8), SchemaVersion(9)) => {
             migration_schema_v9::upgrade_to_v9::<T>(db.clone(), log)?;
             db.store_schema_version(to)
