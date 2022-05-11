@@ -43,6 +43,7 @@ use strum::{EnumString, IntoStaticStr};
 pub use types::*;
 
 pub type ColumnIter<'a> = Box<dyn Iterator<Item = Result<(Hash256, Vec<u8>), Error>> + 'a>;
+pub type ColumnKeyIter<'a> = Box<dyn Iterator<Item = Result<Hash256, Error>> + 'a>;
 
 pub trait KeyValueStore<E: EthSpec>: Sync + Send + Sized + 'static {
     /// Retrieve some bytes in `column` with `key`.
@@ -77,8 +78,14 @@ pub trait KeyValueStore<E: EthSpec>: Sync + Send + Sized + 'static {
     /// Compact the database, freeing space used by deleted items.
     fn compact(&self) -> Result<(), Error>;
 
-    /// Iterate through all values in a particular column.
+    /// Iterate through all keys and values in a particular column.
     fn iter_column(&self, _column: DBColumn) -> ColumnIter {
+        // Default impl for non LevelDB databases
+        Box::new(std::iter::empty())
+    }
+
+    /// Iterate through all keys in a particular column.
+    fn iter_column_keys(&self, _column: DBColumn) -> ColumnKeyIter {
         // Default impl for non LevelDB databases
         Box::new(std::iter::empty())
     }

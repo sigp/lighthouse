@@ -4,7 +4,9 @@ use slot_clock::SlotClock;
 use std::sync::Arc;
 use std::time::Duration;
 use store::{DBColumn, Error, HotColdDB, KeyValueStore};
-use types::{EthSpec, Hash256, SignedBeaconBlock, Slot};
+use types::{EthSpec, Hash256, Slot};
+
+const OPS_PER_BLOCK_WRITE: usize = 2;
 
 /// The slot clock isn't usually available before the database is initialized, so we construct a
 /// temporary slot clock by reading the genesis state. It should always exist if the database is
@@ -74,19 +76,32 @@ pub fn upgrade_to_v9<T: BeaconChainTypes>(
     if current_epoch >= bellatrix_fork_epoch {
         info!(
             log,
-            "Upgrading database schema to v9 by re-writing blocks";
-            "info" => "This will take several minutes and use a *lot* of RAM. \
-                       You cannot downgrade once it completes, but it is safe to exit before \
-                       completion (Ctrl-C now). If your machine doesn't have enough RAM to run \
-                       the migration then you will have to re-sync. This will only be necessary \
-                       on Kiln and merge testnets, never Prater or mainnet."
+            "Upgrading database schema to v9";
+            "info" => "This will take several minutes. Each block will be read from and \
+                       re-written to the database. You may safely exit now (Ctrl-C) and resume \
+                       the migration later. Downgrading is no longer possible."
         );
 
-        let mut kv_batch = vec![];
-
-        for res in db.hot_db.iter_column(DBColumn::BeaconBlock) {
-            let (block_root, bytes) = res?;
-            let block = SignedBeaconBlock::from_ssz_bytes(&bytes, db.get_chain_spec())?;
+        for res in db.hot_db.iter_column_keys(DBColumn::BeaconBlock) {
+            let block_root = res?;
+            let block = match db.get_full_block_prior_to_v9(&block_root) {
+                // A pre-v9 block is present.
+                Ok(Some(block)) => block,
+                // A block is missing.
+                Ok(None) => return Err(Error::BlockNotFound(block_root)),
+                // There was an error reading a pre-v9 block. Try reading it as a post-v9 block.
+                Err(_) => {
+                    if db.try_get_full_block(&block_root)?.is_some() {
+                        // The block is present as a post-v9 block, assume that it was already
+                        // correctly migrated.
+                        continue;
+                    } else {
+                        // This scenario should not be encountered since a prior check has ensured
+                        // that this block exists.
+                        return Err(Error::V9MigrationFailure(block_root));
+                    }
+                }
+            };
 
             if block.message().execution_payload().is_ok() {
                 // Overwrite block with blinded block and store execution payload separately.
@@ -95,16 +110,12 @@ pub fn upgrade_to_v9<T: BeaconChainTypes>(
                     "Rewriting Bellatrix block";
                     "block_root" => ?block_root,
                 );
+
+                let mut kv_batch = Vec::with_capacity(OPS_PER_BLOCK_WRITE);
                 db.block_as_kv_store_ops(&block_root, block, &mut kv_batch)?;
+                db.hot_db.do_atomically(kv_batch)?;
             }
         }
-        info!(
-            log,
-            "Committing block re-write transaction";
-            "num_ops" => kv_batch.len(),
-            "info" => "Memory usage is about to spike, if this fails you will need to re-sync"
-        );
-        db.hot_db.do_atomically(kv_batch)?;
     } else {
         info!(
             log,
