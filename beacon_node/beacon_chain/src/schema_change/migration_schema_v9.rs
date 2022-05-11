@@ -76,12 +76,10 @@ pub fn upgrade_to_v9<T: BeaconChainTypes>(
     if current_epoch >= bellatrix_fork_epoch {
         info!(
             log,
-            "Upgrading database schema to v9 by re-writing blocks";
-            "info" => "This will take several minutes and use a *lot* of RAM. \
-                       You cannot downgrade once it completes, but it is safe to exit before \
-                       completion (Ctrl-C now). If your machine doesn't have enough RAM to run \
-                       the migration then you will have to re-sync. This will only be necessary \
-                       on Kiln and merge testnets, never Prater or mainnet."
+            "Upgrading database schema to v9";
+            "info" => "This will take several minutes. Each block will be read from and \
+                       re-written to the database. You may safely exit now (Ctrl-C) and resume \
+                       the migration later. Downgrading is no longer possible."
         );
 
         for res in db.hot_db.iter_column_keys(DBColumn::BeaconBlock) {
