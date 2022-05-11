@@ -86,9 +86,24 @@ pub fn upgrade_to_v9<T: BeaconChainTypes>(
 
         for res in db.hot_db.iter_column_keys(DBColumn::BeaconBlock) {
             let block_root = res?;
-            let block = db
-                .get_full_block_prior_to_v9(&block_root)?
-                .ok_or(Error::BlockNotFound(block_root))?;
+            let block = match db.get_full_block_prior_to_v9(&block_root) {
+                // A pre-v9 block is present.
+                Ok(Some(block)) => block,
+                // A block is missing.
+                Ok(None) => return Err(Error::BlockNotFound(block_root)),
+                // There was an error reading a pre-v9 block. Try reading it as a post-v9 block.
+                Err(_) => {
+                    if db.try_get_full_block(&block_root)?.is_some() {
+                        // The block is present as a post-v9 block, assume that it was already
+                        // correctly migrated.
+                        continue;
+                    } else {
+                        // This scenario should not be encountered since a prior check has ensured
+                        // that this block exists.
+                        return Err(Error::V9MigrationFailure(block_root));
+                    }
+                }
+            };
 
             if block.message().execution_payload().is_ok() {
                 // Overwrite block with blinded block and store execution payload separately.
