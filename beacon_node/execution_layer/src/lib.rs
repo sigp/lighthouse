@@ -1307,7 +1307,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
         }
     }
 
-    pub async fn get_payload_by_block_hash<T: EthSpec>(
+    pub async fn get_payload_by_block_hash(
         &self,
         hash: ExecutionBlockHash,
     ) -> Result<Option<ExecutionPayload<T>>, Error> {
@@ -1320,7 +1320,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
             .map_err(Error::EngineErrors)
     }
 
-    async fn get_payload_by_block_hash_from_engine<T: EthSpec>(
+    async fn get_payload_by_block_hash_from_engine(
         &self,
         engine: &Engine<EngineApi>,
         hash: ExecutionBlockHash,
@@ -1365,7 +1365,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
         }))
     }
 
-    pub async fn propose_blinded_beacon_block<T: EthSpec>(
+    pub async fn propose_blinded_beacon_block(
         &self,
         block: &SignedBeaconBlock<T, BlindedPayload<T>>,
     ) -> Result<ExecutionPayload<T>, Error> {

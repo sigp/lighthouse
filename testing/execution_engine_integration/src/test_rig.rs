@@ -400,7 +400,7 @@ impl<E: GenericExecutionEngine> TestRig<E> {
 ///
 /// Panic if payload reconstruction fails.
 async fn check_payload_reconstruction<E: GenericExecutionEngine>(
-    ee: &ExecutionPair<E>,
+    ee: &ExecutionPair<E, MainnetEthSpec>,
     payload: &ExecutionPayload<MainnetEthSpec>,
 ) {
     let reconstructed = ee
