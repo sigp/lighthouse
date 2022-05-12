@@ -528,8 +528,11 @@ where
         self.chain.slot().unwrap()
     }
 
-    pub fn get_block(&self, block_hash: SignedBeaconBlockHash) -> Option<SignedBeaconBlock<E>> {
-        self.chain.get_block(&block_hash.into()).unwrap()
+    pub fn get_block(
+        &self,
+        block_hash: SignedBeaconBlockHash,
+    ) -> Option<SignedBeaconBlock<E, BlindedPayload<E>>> {
+        self.chain.get_blinded_block(&block_hash.into()).unwrap()
     }
 
     pub fn block_exists(&self, block_hash: SignedBeaconBlockHash) -> bool {

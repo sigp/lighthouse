@@ -333,7 +333,7 @@ pub async fn prepare_execution_payload<T: BeaconChainTypes, Payload: ExecPayload
         } else {
             chain
                 .store
-                .get_block(&finalized_root)
+                .get_blinded_block(&finalized_root)
                 .map_err(BlockProductionError::FailedToReadFinalizedBlock)?
                 .ok_or(BlockProductionError::MissingFinalizedBlock(finalized_root))?
                 .message()

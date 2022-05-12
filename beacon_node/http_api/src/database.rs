@@ -2,7 +2,7 @@ use beacon_chain::store::{metadata::CURRENT_SCHEMA_VERSION, AnchorInfo};
 use beacon_chain::{BeaconChain, BeaconChainTypes};
 use eth2::lighthouse::DatabaseInfo;
 use std::sync::Arc;
-use types::SignedBeaconBlock;
+use types::SignedBlindedBeaconBlock;
 
 pub fn info<T: BeaconChainTypes>(
     chain: Arc<BeaconChain<T>>,
@@ -22,10 +22,10 @@ pub fn info<T: BeaconChainTypes>(
 
 pub fn historical_blocks<T: BeaconChainTypes>(
     chain: Arc<BeaconChain<T>>,
-    blocks: Vec<SignedBeaconBlock<T::EthSpec>>,
+    blocks: Vec<SignedBlindedBeaconBlock<T::EthSpec>>,
 ) -> Result<AnchorInfo, warp::Rejection> {
     chain
-        .import_historical_block_batch(&blocks)
+        .import_historical_block_batch(blocks)
         .map_err(warp_utils::reject::beacon_chain_error)?;
 
     let anchor = chain.store.get_anchor_info().ok_or_else(|| {

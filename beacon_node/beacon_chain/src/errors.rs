@@ -139,6 +139,18 @@ pub enum BeaconChainError {
     },
     AltairForkDisabled,
     ExecutionLayerMissing,
+    BlockVariantLacksExecutionPayload(Hash256),
+    ExecutionLayerErrorPayloadReconstruction(ExecutionBlockHash, execution_layer::Error),
+    BlockHashMissingFromExecutionLayer(ExecutionBlockHash),
+    InconsistentPayloadReconstructed {
+        slot: Slot,
+        exec_block_hash: ExecutionBlockHash,
+        canonical_payload_root: Hash256,
+        reconstructed_payload_root: Hash256,
+        canonical_transactions_root: Hash256,
+        reconstructed_transactions_root: Hash256,
+    },
+    AddPayloadLogicError,
     ExecutionForkChoiceUpdateFailed(execution_layer::Error),
     PrepareProposerBlockingFailed(execution_layer::Error),
     ExecutionForkChoiceUpdateInvalid {

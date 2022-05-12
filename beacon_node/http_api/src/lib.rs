@@ -48,8 +48,9 @@ use types::{
     Attestation, AttesterSlashing, BeaconBlockBodyMerge, BeaconBlockMerge, BeaconStateError,
     BlindedPayload, CommitteeCache, ConfigAndPreset, Epoch, EthSpec, ForkName, FullPayload,
     ProposerPreparationData, ProposerSlashing, RelativeEpoch, Signature, SignedAggregateAndProof,
-    SignedBeaconBlock, SignedBeaconBlockMerge, SignedContributionAndProof, SignedVoluntaryExit,
-    Slot, SyncCommitteeMessage, SyncContributionData,
+    SignedBeaconBlock, SignedBeaconBlockMerge, SignedBlindedBeaconBlock,
+    SignedContributionAndProof, SignedVoluntaryExit, Slot, SyncCommitteeMessage,
+    SyncContributionData,
 };
 use version::{
     add_consensus_version_header, fork_versioned_response, inconsistent_fork_rejection,
@@ -826,10 +827,10 @@ pub fn serve<T: BeaconChainTypes>(
                         (None, None) => chain
                             .head_beacon_block()
                             .map_err(warp_utils::reject::beacon_chain_error)
-                            .map(|block| (block.canonical_root(), block))?,
+                            .map(|block| (block.canonical_root(), block.into()))?,
                         // Only the parent root parameter, do a forwards-iterator lookup.
                         (None, Some(parent_root)) => {
-                            let parent = BlockId::from_root(parent_root).block(&chain)?;
+                            let parent = BlockId::from_root(parent_root).blinded_block(&chain)?;
                             let (root, _slot) = chain
                                 .forwards_iter_block_roots(parent.slot())
                                 .map_err(warp_utils::reject::beacon_chain_error)?
@@ -847,14 +848,14 @@ pub fn serve<T: BeaconChainTypes>(
                                 })?;
 
                             BlockId::from_root(root)
-                                .block(&chain)
+                                .blinded_block(&chain)
                                 .map(|block| (root, block))?
                         }
                         // Slot is supplied, search by slot and optionally filter by
                         // parent root.
                         (Some(slot), parent_root_opt) => {
                             let root = BlockId::from_slot(slot).root(&chain)?;
-                            let block = BlockId::from_root(root).block(&chain)?;
+                            let block = BlockId::from_root(root).blinded_block(&chain)?;
 
                             // If the parent root was supplied, check that it matches the block
                             // obtained via a slot lookup.
@@ -899,7 +900,7 @@ pub fn serve<T: BeaconChainTypes>(
         .and_then(|block_id: BlockId, chain: Arc<BeaconChain<T>>| {
             blocking_json_task(move || {
                 let root = block_id.root(&chain)?;
-                let block = BlockId::from_root(root).block(&chain)?;
+                let block = BlockId::from_root(root).blinded_block(&chain)?;
 
                 let canonical = chain
                     .block_root_at_slot(block.slot(), WhenSlotSkipped::None)
@@ -1161,8 +1162,8 @@ pub fn serve<T: BeaconChainTypes>(
              block_id: BlockId,
              chain: Arc<BeaconChain<T>>,
              accept_header: Option<api_types::Accept>| {
-                blocking_task(move || {
-                    let block = block_id.block(&chain)?;
+                async move {
+                    let block = block_id.full_block(&chain).await?;
                     let fork_name = block
                         .fork_name(&chain.spec)
                         .map_err(inconsistent_fork_rejection)?;
@@ -1181,7 +1182,7 @@ pub fn serve<T: BeaconChainTypes>(
                             .map(|res| warp::reply::json(&res).into_response()),
                     }
                     .map(|resp| add_consensus_version_header(resp, fork_name))
-                })
+                }
             },
         );
 
@@ -1207,7 +1208,7 @@ pub fn serve<T: BeaconChainTypes>(
         .and_then(|block_id: BlockId, chain: Arc<BeaconChain<T>>| {
             blocking_json_task(move || {
                 block_id
-                    .block(&chain)
+                    .blinded_block(&chain)
                     .map(|block| block.message().body().attestations().clone())
                     .map(api_types::GenericResponse::from)
             })
@@ -2786,7 +2787,7 @@ pub fn serve<T: BeaconChainTypes>(
         .and(chain_filter.clone())
         .and(log_filter.clone())
         .and_then(
-            |blocks: Vec<SignedBeaconBlock<T::EthSpec>>,
+            |blocks: Vec<SignedBlindedBeaconBlock<T::EthSpec>>,
              chain: Arc<BeaconChain<T>>,
              log: Logger| {
                 info!(

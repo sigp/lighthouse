@@ -1183,6 +1183,64 @@ impl ExecutionLayer {
         }
     }
 
+    pub async fn get_payload_by_block_hash<T: EthSpec>(
+        &self,
+        hash: ExecutionBlockHash,
+    ) -> Result<Option<ExecutionPayload<T>>, Error> {
+        self.engines()
+            .first_success(|engine| async move {
+                self.get_payload_by_block_hash_from_engine(engine, hash)
+                    .await
+            })
+            .await
+            .map_err(Error::EngineErrors)
+    }
+
+    async fn get_payload_by_block_hash_from_engine<T: EthSpec>(
+        &self,
+        engine: &Engine<EngineApi>,
+        hash: ExecutionBlockHash,
+    ) -> Result<Option<ExecutionPayload<T>>, ApiError> {
+        let _timer = metrics::start_timer(&metrics::EXECUTION_LAYER_GET_PAYLOAD_BY_BLOCK_HASH);
+
+        if hash == ExecutionBlockHash::zero() {
+            return Ok(Some(ExecutionPayload::default()));
+        }
+
+        let block = if let Some(block) = engine.api.get_block_by_hash_with_txns::<T>(hash).await? {
+            block
+        } else {
+            return Ok(None);
+        };
+
+        let transactions = VariableList::new(
+            block
+                .transactions
+                .into_iter()
+                .map(|transaction| VariableList::new(transaction.rlp().to_vec()))
+                .collect::<Result<_, _>>()
+                .map_err(ApiError::DeserializeTransaction)?,
+        )
+        .map_err(ApiError::DeserializeTransactions)?;
+
+        Ok(Some(ExecutionPayload {
+            parent_hash: block.parent_hash,
+            fee_recipient: block.fee_recipient,
+            state_root: block.state_root,
+            receipts_root: block.receipts_root,
+            logs_bloom: block.logs_bloom,
+            prev_randao: block.prev_randao,
+            block_number: block.block_number,
+            gas_limit: block.gas_limit,
+            gas_used: block.gas_used,
+            timestamp: block.timestamp,
+            extra_data: block.extra_data,
+            base_fee_per_gas: block.base_fee_per_gas,
+            block_hash: block.block_hash,
+            transactions,
+        }))
+    }
+
     pub async fn propose_blinded_beacon_block<T: EthSpec>(
         &self,
         block: &SignedBeaconBlock<T, BlindedPayload<T>>,

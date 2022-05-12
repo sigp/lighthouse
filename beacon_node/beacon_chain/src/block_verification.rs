@@ -78,9 +78,9 @@ use store::{Error as DBError, HotColdDB, HotStateSummary, KeyValueStore, StoreOp
 use tree_hash::TreeHash;
 use types::ExecPayload;
 use types::{
-    BeaconBlockRef, BeaconState, BeaconStateError, ChainSpec, CloneConfig, Epoch, EthSpec,
-    ExecutionBlockHash, Hash256, InconsistentFork, PublicKey, PublicKeyBytes, RelativeEpoch,
-    SignedBeaconBlock, SignedBeaconBlockHeader, Slot,
+    BeaconBlockRef, BeaconState, BeaconStateError, BlindedPayload, ChainSpec, CloneConfig, Epoch,
+    EthSpec, ExecutionBlockHash, Hash256, InconsistentFork, PublicKey, PublicKeyBytes,
+    RelativeEpoch, SignedBeaconBlock, SignedBeaconBlockHeader, Slot,
 };
 
 const POS_PANDA_BANNER: &str = r#"
@@ -567,7 +567,7 @@ pub struct FullyVerifiedBlock<'a, T: BeaconChainTypes> {
     pub block: SignedBeaconBlock<T::EthSpec>,
     pub block_root: Hash256,
     pub state: BeaconState<T::EthSpec>,
-    pub parent_block: SignedBeaconBlock<T::EthSpec>,
+    pub parent_block: SignedBeaconBlock<T::EthSpec, BlindedPayload<T::EthSpec>>,
     pub confirmation_db_batch: Vec<StoreOp<'a, T::EthSpec>>,
     pub payload_verification_status: PayloadVerificationStatus,
 }
@@ -1569,7 +1569,7 @@ fn load_parent<T: BeaconChainTypes>(
         // indicate that we don't yet know the parent.
         let root = block.parent_root();
         let parent_block = chain
-            .get_block(&block.parent_root())
+            .get_blinded_block(&block.parent_root())
             .map_err(BlockError::BeaconChainError)?
             .ok_or_else(|| {
                 // Return a `MissingBeaconBlock` error instead of a `ParentUnknown` error since
