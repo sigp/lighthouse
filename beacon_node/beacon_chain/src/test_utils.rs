@@ -151,7 +151,7 @@ pub struct Builder<T: BeaconChainTypes> {
     execution_layer: Option<ExecutionLayer>,
     mock_execution_layer: Option<MockExecutionLayer<T::EthSpec>>,
     runtime: Arc<Runtime>,
-    executor: TaskExecutor,
+    task_executor: TaskExecutor,
     runtime_shutdown: exit_future::Signal,
     log: Logger,
 }
@@ -264,7 +264,8 @@ where
         let (runtime_shutdown, exit) = exit_future::signal();
         let (shutdown_tx, _) = futures::channel::mpsc::channel(1);
         let log = test_logger();
-        let executor = TaskExecutor::new(Arc::downgrade(&runtime), exit, log.clone(), shutdown_tx);
+        let task_executor =
+            TaskExecutor::new(Arc::downgrade(&runtime), exit, log.clone(), shutdown_tx);
 
         Self {
             eth_spec_instance,
@@ -278,7 +279,7 @@ where
             execution_layer: None,
             mock_execution_layer: None,
             runtime,
-            executor,
+            task_executor,
             runtime_shutdown,
             log,
         }
@@ -356,7 +357,8 @@ where
             ..Default::default()
         };
         let execution_layer =
-            ExecutionLayer::from_config(config, self.executor.clone(), self.log.clone()).unwrap();
+            ExecutionLayer::from_config(config, self.task_executor.clone(), self.log.clone())
+                .unwrap();
 
         self.execution_layer = Some(execution_layer);
         self
@@ -365,7 +367,7 @@ where
     pub fn mock_execution_layer(mut self) -> Self {
         let spec = self.spec.clone().expect("cannot build without spec");
         let mock = MockExecutionLayer::new(
-            self.executor.clone(),
+            self.task_executor.clone(),
             spec.terminal_total_difficulty,
             DEFAULT_TERMINAL_BLOCK,
             spec.terminal_block_hash,
@@ -402,6 +404,7 @@ where
             .custom_spec(spec)
             .store(self.store.expect("cannot build without store"))
             .store_migrator_config(MigratorConfig::default().blocking())
+            .task_executor(self.task_executor.clone())
             .execution_layer(self.execution_layer)
             .dummy_eth1_backend()
             .expect("should build dummy backend")
@@ -442,7 +445,7 @@ where
             validator_keypairs,
             shutdown_receiver: Arc::new(Mutex::new(shutdown_receiver)),
             runtime: self.runtime,
-            executor: self.executor,
+            task_executor: self.task_executor,
             runtime_shutdown: self.runtime_shutdown,
             mock_execution_layer: self.mock_execution_layer,
             rng: make_rng(),
@@ -461,7 +464,7 @@ pub struct BeaconChainHarness<T: BeaconChainTypes> {
     pub spec: ChainSpec,
     pub shutdown_receiver: Arc<Mutex<Receiver<ShutdownReason>>>,
     pub runtime: Arc<Runtime>,
-    pub executor: TaskExecutor,
+    pub task_executor: TaskExecutor,
     pub runtime_shutdown: exit_future::Signal,
 
     pub mock_execution_layer: Option<MockExecutionLayer<T::EthSpec>>,

@@ -22,7 +22,7 @@ use types::{EthSpec, ExecutionBlockHash, Uint256};
 use warp::{http::StatusCode, Filter, Rejection};
 
 pub use execution_block_generator::{generate_pow_block, ExecutionBlockGenerator};
-pub use mock_execution_layer::{ExecutionLayerRuntime, MockExecutionLayer};
+pub use mock_execution_layer::MockExecutionLayer;
 
 pub const DEFAULT_TERMINAL_DIFFICULTY: u64 = 6400;
 pub const DEFAULT_TERMINAL_BLOCK: u64 = 64;

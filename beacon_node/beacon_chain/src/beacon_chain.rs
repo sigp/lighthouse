@@ -82,7 +82,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 use store::iter::{BlockRootsIterator, ParentRootBlockIterator, StateRootsIterator};
 use store::{Error as DBError, HotColdDB, KeyValueStore, KeyValueStoreOp, StoreItem, StoreOp};
-use task_executor::ShutdownReason;
+use task_executor::{ShutdownReason, TaskExecutor};
 use types::beacon_state::CloneConfig;
 use types::*;
 
@@ -300,6 +300,8 @@ pub struct BeaconChain<T: BeaconChainTypes> {
     pub config: ChainConfig,
     /// Persistent storage for blocks, states, etc. Typically an on-disk store, such as LevelDB.
     pub store: BeaconStore<T>,
+    /// Used for spawning async and blocking tasks.
+    pub task_executor: TaskExecutor,
     /// Database migrator for running background maintenance on the store.
     pub store_migrator: BackgroundMigrator<T::EthSpec, T::HotStore, T::ColdStore>,
     /// Reports the current slot, typically based upon the system clock.

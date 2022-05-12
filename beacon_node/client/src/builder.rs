@@ -166,6 +166,7 @@ where
         let builder = BeaconChainBuilder::new(eth_spec_instance)
             .logger(context.log().clone())
             .store(store)
+            .task_executor(context.executor.clone())
             .custom_spec(spec.clone())
             .chain_config(chain_config)
             .graffiti(graffiti)

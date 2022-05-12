@@ -2,50 +2,10 @@ use crate::{
     test_utils::{MockServer, DEFAULT_TERMINAL_BLOCK, DEFAULT_TERMINAL_DIFFICULTY, JWT_SECRET},
     Config, *,
 };
-use environment::null_logger;
 use sensitive_url::SensitiveUrl;
-use std::sync::Arc;
 use task_executor::TaskExecutor;
 use tempfile::NamedTempFile;
 use types::{Address, ChainSpec, Epoch, EthSpec, FullPayload, Hash256, Uint256};
-
-pub struct ExecutionLayerRuntime {
-    pub runtime: Option<Arc<tokio::runtime::Runtime>>,
-    pub _runtime_shutdown: exit_future::Signal,
-    pub task_executor: TaskExecutor,
-    pub log: Logger,
-}
-
-impl Default for ExecutionLayerRuntime {
-    fn default() -> Self {
-        let runtime = Arc::new(
-            tokio::runtime::Builder::new_multi_thread()
-                .enable_all()
-                .build()
-                .unwrap(),
-        );
-        let (runtime_shutdown, exit) = exit_future::signal();
-        let (shutdown_tx, _) = futures::channel::mpsc::channel(1);
-        let log = null_logger().unwrap();
-        let task_executor =
-            TaskExecutor::new(Arc::downgrade(&runtime), exit, log.clone(), shutdown_tx);
-
-        Self {
-            runtime: Some(runtime),
-            _runtime_shutdown: runtime_shutdown,
-            task_executor,
-            log,
-        }
-    }
-}
-
-impl Drop for ExecutionLayerRuntime {
-    fn drop(&mut self) {
-        if let Some(runtime) = self.runtime.take() {
-            Arc::try_unwrap(runtime).unwrap().shutdown_background()
-        }
-    }
-}
 
 pub struct MockExecutionLayer<T: EthSpec> {
     pub server: MockServer<T>,
