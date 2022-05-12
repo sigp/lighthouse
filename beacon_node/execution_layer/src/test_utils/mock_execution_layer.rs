@@ -50,13 +50,14 @@ impl Drop for ExecutionLayerRuntime {
 pub struct MockExecutionLayer<T: EthSpec> {
     pub server: MockServer<T>,
     pub el: ExecutionLayer,
-    pub el_runtime: ExecutionLayerRuntime,
+    pub executor: TaskExecutor,
     pub spec: ChainSpec,
 }
 
 impl<T: EthSpec> MockExecutionLayer<T> {
-    pub fn default_params() -> Self {
+    pub fn default_params(executor: TaskExecutor) -> Self {
         Self::new(
+            executor,
             DEFAULT_TERMINAL_DIFFICULTY.into(),
             DEFAULT_TERMINAL_BLOCK,
             ExecutionBlockHash::zero(),
@@ -65,13 +66,14 @@ impl<T: EthSpec> MockExecutionLayer<T> {
     }
 
     pub fn new(
+        executor: TaskExecutor,
         terminal_total_difficulty: Uint256,
         terminal_block: u64,
         terminal_block_hash: ExecutionBlockHash,
         terminal_block_hash_activation_epoch: Epoch,
     ) -> Self {
-        let el_runtime = ExecutionLayerRuntime::default();
-        let handle = el_runtime.runtime.as_ref().unwrap().handle();
+        let runtime = executor.runtime().upgrade().unwrap();
+        let handle = runtime.handle();
 
         let mut spec = T::default_spec();
         spec.terminal_total_difficulty = terminal_total_difficulty;
@@ -97,17 +99,13 @@ impl<T: EthSpec> MockExecutionLayer<T> {
             suggested_fee_recipient: Some(Address::repeat_byte(42)),
             ..Default::default()
         };
-        let el = ExecutionLayer::from_config(
-            config,
-            el_runtime.task_executor.clone(),
-            el_runtime.log.clone(),
-        )
-        .unwrap();
+        let el =
+            ExecutionLayer::from_config(config, executor.clone(), executor.log().clone()).unwrap();
 
         Self {
             server,
             el,
-            el_runtime,
+            executor,
             spec,
         }
     }

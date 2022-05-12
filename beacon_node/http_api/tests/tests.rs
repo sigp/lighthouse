@@ -183,7 +183,7 @@ impl ApiTester {
             external_peer_id,
         } = create_api_server(chain.clone(), log).await;
 
-        tokio::spawn(server);
+        harness.executor.spawn(server, "api_server");
 
         let client = BeaconNodeHttpClient::new(
             SensitiveUrl::parse(&format!(
@@ -262,7 +262,7 @@ impl ApiTester {
             external_peer_id,
         } = create_api_server(chain.clone(), log).await;
 
-        tokio::spawn(server);
+        harness.executor.spawn(server, "api_server");
 
         let client = BeaconNodeHttpClient::new(
             SensitiveUrl::parse(&format!(

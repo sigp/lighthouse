@@ -1204,14 +1204,17 @@ impl ExecutionLayer {
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::test_utils::MockExecutionLayer as GenericMockExecutionLayer;
+    use crate::test_utils::{
+        ExecutionLayerRuntime, MockExecutionLayer as GenericMockExecutionLayer,
+    };
     use types::MainnetEthSpec;
 
     type MockExecutionLayer = GenericMockExecutionLayer<MainnetEthSpec>;
 
     #[tokio::test]
     async fn produce_three_valid_pos_execution_blocks() {
-        MockExecutionLayer::default_params()
+        let runtime = ExecutionLayerRuntime::default();
+        MockExecutionLayer::default_params(runtime.task_executor.clone())
             .move_to_terminal_block()
             .produce_valid_execution_payload_on_head()
             .await
@@ -1223,7 +1226,8 @@ mod test {
 
     #[tokio::test]
     async fn finds_valid_terminal_block_hash() {
-        MockExecutionLayer::default_params()
+        let runtime = ExecutionLayerRuntime::default();
+        MockExecutionLayer::default_params(runtime.task_executor.clone())
             .move_to_block_prior_to_terminal_block()
             .with_terminal_block(|spec, el, _| async move {
                 el.engines().upcheck_not_synced(Logging::Disabled).await;
@@ -1242,7 +1246,8 @@ mod test {
 
     #[tokio::test]
     async fn verifies_valid_terminal_block_hash() {
-        MockExecutionLayer::default_params()
+        let runtime = ExecutionLayerRuntime::default();
+        MockExecutionLayer::default_params(runtime.task_executor.clone())
             .move_to_terminal_block()
             .with_terminal_block(|spec, el, terminal_block| async move {
                 el.engines().upcheck_not_synced(Logging::Disabled).await;
@@ -1258,7 +1263,8 @@ mod test {
 
     #[tokio::test]
     async fn rejects_invalid_terminal_block_hash() {
-        MockExecutionLayer::default_params()
+        let runtime = ExecutionLayerRuntime::default();
+        MockExecutionLayer::default_params(runtime.task_executor.clone())
             .move_to_terminal_block()
             .with_terminal_block(|spec, el, terminal_block| async move {
                 el.engines().upcheck_not_synced(Logging::Disabled).await;
@@ -1276,7 +1282,8 @@ mod test {
 
     #[tokio::test]
     async fn rejects_unknown_terminal_block_hash() {
-        MockExecutionLayer::default_params()
+        let runtime = ExecutionLayerRuntime::default();
+        MockExecutionLayer::default_params(runtime.task_executor.clone())
             .move_to_terminal_block()
             .with_terminal_block(|spec, el, _| async move {
                 el.engines().upcheck_not_synced(Logging::Disabled).await;

@@ -12,9 +12,7 @@ use crate::{
 };
 use bls::get_withdrawal_credentials;
 use execution_layer::{
-    test_utils::{
-        ExecutionBlockGenerator, ExecutionLayerRuntime, MockExecutionLayer, DEFAULT_TERMINAL_BLOCK,
-    },
+    test_utils::{ExecutionBlockGenerator, MockExecutionLayer, DEFAULT_TERMINAL_BLOCK},
     ExecutionLayer,
 };
 use futures::channel::mpsc::Receiver;
@@ -41,7 +39,7 @@ use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Duration;
 use store::{config::StoreConfig, HotColdDB, ItemStore, LevelDB, MemoryStore};
-use task_executor::ShutdownReason;
+use task_executor::{Runtime, ShutdownReason, TaskExecutor};
 use tree_hash::TreeHash;
 use types::sync_selection_proof::SyncSelectionProof;
 pub use types::test_utils::generate_deterministic_keypairs;
@@ -151,8 +149,10 @@ pub struct Builder<T: BeaconChainTypes> {
     initial_mutator: Option<BoxedMutator<T::EthSpec, T::HotStore, T::ColdStore>>,
     store_mutator: Option<BoxedMutator<T::EthSpec, T::HotStore, T::ColdStore>>,
     execution_layer: Option<ExecutionLayer>,
-    execution_layer_runtime: Option<ExecutionLayerRuntime>,
     mock_execution_layer: Option<MockExecutionLayer<T::EthSpec>>,
+    runtime: Arc<Runtime>,
+    executor: TaskExecutor,
+    runtime_shutdown: exit_future::Signal,
     log: Logger,
 }
 
@@ -255,6 +255,17 @@ where
     Cold: ItemStore<E>,
 {
     pub fn new(eth_spec_instance: E) -> Self {
+        let runtime = Arc::new(
+            tokio::runtime::Builder::new_multi_thread()
+                .enable_all()
+                .build()
+                .unwrap(),
+        );
+        let (runtime_shutdown, exit) = exit_future::signal();
+        let (shutdown_tx, _) = futures::channel::mpsc::channel(1);
+        let log = test_logger();
+        let executor = TaskExecutor::new(Arc::downgrade(&runtime), exit, log.clone(), shutdown_tx);
+
         Self {
             eth_spec_instance,
             spec: None,
@@ -266,8 +277,10 @@ where
             store_mutator: None,
             execution_layer: None,
             mock_execution_layer: None,
-            execution_layer_runtime: None,
-            log: test_logger(),
+            runtime,
+            executor,
+            runtime_shutdown,
+            log,
         }
     }
 
@@ -330,8 +343,6 @@ where
             "execution layer already defined"
         );
 
-        let el_runtime = ExecutionLayerRuntime::default();
-
         let urls: Vec<SensitiveUrl> = urls
             .iter()
             .map(|s| SensitiveUrl::parse(*s))
@@ -344,21 +355,17 @@ where
             suggested_fee_recipient: Some(Address::repeat_byte(42)),
             ..Default::default()
         };
-        let execution_layer = ExecutionLayer::from_config(
-            config,
-            el_runtime.task_executor.clone(),
-            el_runtime.log.clone(),
-        )
-        .unwrap();
+        let execution_layer =
+            ExecutionLayer::from_config(config, self.executor.clone(), self.log.clone()).unwrap();
 
         self.execution_layer = Some(execution_layer);
-        self.execution_layer_runtime = Some(el_runtime);
         self
     }
 
     pub fn mock_execution_layer(mut self) -> Self {
         let spec = self.spec.clone().expect("cannot build without spec");
         let mock = MockExecutionLayer::new(
+            self.executor.clone(),
             spec.terminal_total_difficulty,
             DEFAULT_TERMINAL_BLOCK,
             spec.terminal_block_hash,
@@ -383,7 +390,7 @@ where
     pub fn build(self) -> BeaconChainHarness<BaseHarnessType<E, Hot, Cold>> {
         let (shutdown_tx, shutdown_receiver) = futures::channel::mpsc::channel(1);
 
-        let log = test_logger();
+        let log = self.log;
         let spec = self.spec.expect("cannot build without spec");
         let seconds_per_slot = spec.seconds_per_slot;
         let validator_keypairs = self
@@ -434,8 +441,10 @@ where
             chain: Arc::new(chain),
             validator_keypairs,
             shutdown_receiver: Arc::new(Mutex::new(shutdown_receiver)),
+            runtime: self.runtime,
+            executor: self.executor,
+            runtime_shutdown: self.runtime_shutdown,
             mock_execution_layer: self.mock_execution_layer,
-            execution_layer_runtime: self.execution_layer_runtime,
             rng: make_rng(),
         }
     }
@@ -451,9 +460,11 @@ pub struct BeaconChainHarness<T: BeaconChainTypes> {
     pub chain: Arc<BeaconChain<T>>,
     pub spec: ChainSpec,
     pub shutdown_receiver: Arc<Mutex<Receiver<ShutdownReason>>>,
+    pub runtime: Arc<Runtime>,
+    pub executor: TaskExecutor,
+    pub runtime_shutdown: exit_future::Signal,
 
     pub mock_execution_layer: Option<MockExecutionLayer<T::EthSpec>>,
-    pub execution_layer_runtime: Option<ExecutionLayerRuntime>,
 
     pub rng: Mutex<StdRng>,
 }
