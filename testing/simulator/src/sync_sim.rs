@@ -62,6 +62,9 @@ fn syncing_sim(
     let end_after_checks = true;
     let eth1_block_time = Duration::from_millis(15_000 / speed_up_factor);
 
+    // Set fork epochs to test syncing across fork boundaries
+    spec.altair_fork_epoch = Some(Epoch::new(1));
+    spec.bellatrix_fork_epoch = Some(Epoch::new(2));
     spec.seconds_per_slot /= speed_up_factor;
     spec.seconds_per_slot = max(1, spec.seconds_per_slot);
     spec.eth1_follow_distance = 16;
@@ -85,6 +88,8 @@ fn syncing_sim(
     };
     beacon_config.dummy_eth1_backend = true;
     beacon_config.sync_eth1_chain = true;
+
+    beacon_config.http_api.allow_sync_stalled = true;
 
     beacon_config.network.enr_address = Some(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)));
 

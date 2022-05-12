@@ -2,6 +2,7 @@
 mod migration_schema_v6;
 mod migration_schema_v7;
 mod migration_schema_v8;
+mod migration_schema_v9;
 mod types;
 
 use crate::beacon_chain::{BeaconChainTypes, FORK_CHOICE_DB_KEY, OP_POOL_DB_KEY};
@@ -32,7 +33,7 @@ pub fn migrate_schema<T: BeaconChainTypes>(
     match (from, to) {
         // Migrating from the current schema version to iself is always OK, a no-op.
         (_, _) if from == to && to == CURRENT_SCHEMA_VERSION => Ok(()),
-        // Migrate across multiple versions by recursively migrating one step at a time.
+        // Upgrade across multiple versions by recursively migrating one step at a time.
         (_, _) if from.as_u64() + 1 < to.as_u64() => {
             let next = SchemaVersion(from.as_u64() + 1);
             migrate_schema::<T>(db.clone(), datadir, from, next, log.clone())?;
@@ -180,6 +181,17 @@ pub fn migrate_schema<T: BeaconChainTypes>(
             db.store_schema_version_atomically(to, ops)?;
 
             Ok(())
+        }
+        // Upgrade from v8 to v9 to separate the execution payloads into their own column.
+        (SchemaVersion(8), SchemaVersion(9)) => {
+            migration_schema_v9::upgrade_to_v9::<T>(db.clone(), log)?;
+            db.store_schema_version(to)
+        }
+        // Downgrade from v9 to v8 to ignore the separation of execution payloads
+        // NOTE: only works before the Bellatrix fork epoch.
+        (SchemaVersion(9), SchemaVersion(8)) => {
+            migration_schema_v9::downgrade_from_v9::<T>(db.clone(), log)?;
+            db.store_schema_version(to)
         }
         // Anything else is an error.
         (_, _) => Err(HotColdDBError::UnsupportedSchemaVersion {

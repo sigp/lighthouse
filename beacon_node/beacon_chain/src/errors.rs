@@ -9,6 +9,7 @@ use crate::observed_aggregates::Error as ObservedAttestationsError;
 use crate::observed_attesters::Error as ObservedAttestersError;
 use crate::observed_block_producers::Error as ObservedBlockProducersError;
 use execution_layer::PayloadStatus;
+use fork_choice::ExecutionStatus;
 use futures::channel::mpsc::TrySendError;
 use operation_pool::OpPoolError;
 use safe_arith::ArithError;
@@ -25,6 +26,7 @@ use state_processing::{
 };
 use std::time::Duration;
 use task_executor::ShutdownReason;
+use tokio::task::JoinError;
 use types::*;
 
 macro_rules! easy_from_to {
@@ -137,6 +139,18 @@ pub enum BeaconChainError {
     },
     AltairForkDisabled,
     ExecutionLayerMissing,
+    BlockVariantLacksExecutionPayload(Hash256),
+    ExecutionLayerErrorPayloadReconstruction(ExecutionBlockHash, execution_layer::Error),
+    BlockHashMissingFromExecutionLayer(ExecutionBlockHash),
+    InconsistentPayloadReconstructed {
+        slot: Slot,
+        exec_block_hash: ExecutionBlockHash,
+        canonical_payload_root: Hash256,
+        reconstructed_payload_root: Hash256,
+        canonical_transactions_root: Hash256,
+        reconstructed_transactions_root: Hash256,
+    },
+    AddPayloadLogicError,
     ExecutionForkChoiceUpdateFailed(execution_layer::Error),
     PrepareProposerBlockingFailed(execution_layer::Error),
     ExecutionForkChoiceUpdateInvalid {
@@ -162,6 +176,15 @@ pub enum BeaconChainError {
         fork_choice: Hash256,
     },
     InvalidSlot(Slot),
+    HeadBlockNotFullyVerified {
+        beacon_block_root: Hash256,
+        execution_status: ExecutionStatus,
+    },
+    CannotAttestToFinalizedBlock {
+        beacon_block_root: Hash256,
+    },
+    RuntimeShutdown,
+    ProcessInvalidExecutionPayload(JoinError),
 }
 
 easy_from_to!(SlotProcessingError, BeaconChainError);

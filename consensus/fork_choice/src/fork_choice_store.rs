@@ -1,4 +1,4 @@
-use types::{BeaconBlock, BeaconState, Checkpoint, EthSpec, Hash256, Slot};
+use types::{BeaconBlock, BeaconState, Checkpoint, EthSpec, ExecPayload, Hash256, Slot};
 
 /// Approximates the `Store` in "Ethereum 2.0 Phase 0 -- Beacon Chain Fork Choice":
 ///
@@ -31,9 +31,9 @@ pub trait ForkChoiceStore<T: EthSpec>: Sized {
 
     /// Called whenever `ForkChoice::on_block` has verified a block, but not yet added it to fork
     /// choice. Allows the implementer to performing caching or other housekeeping duties.
-    fn on_verified_block(
+    fn on_verified_block<Payload: ExecPayload<T>>(
         &mut self,
-        block: &BeaconBlock<T>,
+        block: &BeaconBlock<T, Payload>,
         block_root: Hash256,
         state: &BeaconState<T>,
     ) -> Result<(), Self::Error>;

@@ -20,6 +20,7 @@ use state_processing::per_block_processing::{
     compute_timestamp_at_slot, is_execution_enabled, is_merge_transition_complete,
     partially_verify_execution_payload,
 };
+use std::sync::Arc;
 use types::*;
 
 /// Verify that `execution_payload` contained by `block` is considered valid by an execution
@@ -32,7 +33,7 @@ use types::*;
 ///
 /// https://github.com/ethereum/consensus-specs/blob/v1.1.9/specs/bellatrix/beacon-chain.md#notify_new_payload
 pub fn notify_new_payload<T: BeaconChainTypes>(
-    chain: &BeaconChain<T>,
+    chain: &Arc<BeaconChain<T>>,
     state: &BeaconState<T::EthSpec>,
     block: BeaconBlockRef<T::EthSpec>,
 ) -> Result<PayloadVerificationStatus, BlockError<T::EthSpec>> {
@@ -61,7 +62,7 @@ pub fn notify_new_payload<T: BeaconChainTypes>(
         Ok(status) => match status {
             PayloadStatus::Valid => Ok(PayloadVerificationStatus::Verified),
             PayloadStatus::Syncing | PayloadStatus::Accepted => {
-                Ok(PayloadVerificationStatus::NotVerified)
+                Ok(PayloadVerificationStatus::Optimistic)
             }
             PayloadStatus::Invalid {
                 latest_valid_hash, ..
@@ -193,7 +194,7 @@ pub fn validate_execution_payload_for_gossip<T: BeaconChainTypes>(
 
         let is_merge_transition_complete = match parent_block.execution_status {
             // Optimistically declare that an "unknown" status block has completed the merge.
-            ExecutionStatus::Valid(_) | ExecutionStatus::Unknown(_) => true,
+            ExecutionStatus::Valid(_) | ExecutionStatus::Optimistic(_) => true,
             // It's impossible for an irrelevant block to have completed the merge. It is pre-merge
             // by definition.
             ExecutionStatus::Irrelevant(_) => false,
@@ -332,7 +333,7 @@ pub async fn prepare_execution_payload<T: BeaconChainTypes, Payload: ExecPayload
         } else {
             chain
                 .store
-                .get_block(&finalized_root)
+                .get_blinded_block(&finalized_root)
                 .map_err(BlockProductionError::FailedToReadFinalizedBlock)?
                 .ok_or(BlockProductionError::MissingFinalizedBlock(finalized_root))?
                 .message()

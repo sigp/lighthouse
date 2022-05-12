@@ -240,7 +240,7 @@ where
             .ok_or("Fork choice not found in store")?;
 
         let genesis_block = store
-            .get_block(&chain.genesis_block_root)
+            .get_blinded_block(&chain.genesis_block_root)
             .map_err(|e| descriptive_db_error("genesis block", &e))?
             .ok_or("Genesis block not found in store")?;
         let genesis_state = store
@@ -588,7 +588,7 @@ where
         // Try to decode the head block according to the current fork, if that fails, try
         // to backtrack to before the most recent fork.
         let (head_block_root, head_block, head_reverted) =
-            match store.get_block(&initial_head_block_root) {
+            match store.get_full_block(&initial_head_block_root) {
                 Ok(Some(block)) => (initial_head_block_root, block, false),
                 Ok(None) => return Err("Head block not found in store".into()),
                 Err(StoreError::SszDecodeError(_)) => {
@@ -986,10 +986,10 @@ mod test {
         assert_eq!(
             chain
                 .store
-                .get_block(&Hash256::zero())
+                .get_blinded_block(&Hash256::zero())
                 .expect("should read db")
                 .expect("should find genesis block"),
-            block,
+            block.clone().into(),
             "should store genesis block under zero hash alias"
         );
         assert_eq!(

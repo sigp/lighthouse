@@ -59,7 +59,8 @@ strum = { version = "0.24.0", features = ["derive"] }
 logging = { path = "../../common/logging" }
 execution_layer = { path = "../execution_layer" }
 sensitive_url = { path = "../../common/sensitive_url" }
-superstruct = "0.4.1"
+superstruct = "0.5.0"
+hex = "0.4.2"
 
 [[test]]
 name = "beacon_chain_tests"

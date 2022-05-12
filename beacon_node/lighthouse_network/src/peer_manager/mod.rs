@@ -213,6 +213,8 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
             ScoreUpdateResult::Disconnect => {
                 // The peer has transitioned to a disconnect state and has been marked as such in
                 // the peer db. We must inform libp2p to disconnect this peer.
+                self.inbound_ping_peers.remove(peer_id);
+                self.outbound_ping_peers.remove(peer_id);
                 self.events.push(PeerManagerEvent::DisconnectPeer(
                     *peer_id,
                     GoodbyeReason::BadScore,

@@ -659,9 +659,11 @@ mod tests {
         ForkContext::new::<Spec>(current_slot, Hash256::zero(), &chain_spec)
     }
 
-    fn base_block() -> SignedBeaconBlock<Spec> {
-        let full_block = BeaconBlock::Base(BeaconBlockBase::<Spec>::full(&Spec::default_spec()));
-        SignedBeaconBlock::from_block(full_block, Signature::empty())
+    /// Smallest sized block across all current forks. Useful for testing
+    /// min length check conditions.
+    fn empty_base_block() -> SignedBeaconBlock<Spec> {
+        let empty_block = BeaconBlock::Base(BeaconBlockBase::<Spec>::empty(&Spec::default_spec()));
+        SignedBeaconBlock::from_block(empty_block, Signature::empty())
     }
 
     fn altair_block() -> SignedBeaconBlock<Spec> {
@@ -830,10 +832,12 @@ mod tests {
             encode_then_decode(
                 Protocol::BlocksByRange,
                 Version::V1,
-                RPCCodedResponse::Success(RPCResponse::BlocksByRange(Box::new(base_block()))),
+                RPCCodedResponse::Success(RPCResponse::BlocksByRange(Box::new(empty_base_block()))),
                 ForkName::Base,
             ),
-            Ok(Some(RPCResponse::BlocksByRange(Box::new(base_block()))))
+            Ok(Some(RPCResponse::BlocksByRange(Box::new(
+                empty_base_block()
+            ))))
         );
 
         assert!(
@@ -854,10 +858,12 @@ mod tests {
             encode_then_decode(
                 Protocol::BlocksByRoot,
                 Version::V1,
-                RPCCodedResponse::Success(RPCResponse::BlocksByRoot(Box::new(base_block()))),
+                RPCCodedResponse::Success(RPCResponse::BlocksByRoot(Box::new(empty_base_block()))),
                 ForkName::Base,
             ),
-            Ok(Some(RPCResponse::BlocksByRoot(Box::new(base_block()))))
+            Ok(Some(RPCResponse::BlocksByRoot(
+                Box::new(empty_base_block())
+            )))
         );
 
         assert!(
@@ -941,10 +947,27 @@ mod tests {
             encode_then_decode(
                 Protocol::BlocksByRange,
                 Version::V2,
-                RPCCodedResponse::Success(RPCResponse::BlocksByRange(Box::new(base_block()))),
+                RPCCodedResponse::Success(RPCResponse::BlocksByRange(Box::new(empty_base_block()))),
                 ForkName::Base,
             ),
-            Ok(Some(RPCResponse::BlocksByRange(Box::new(base_block()))))
+            Ok(Some(RPCResponse::BlocksByRange(Box::new(
+                empty_base_block()
+            ))))
+        );
+
+        // Decode the smallest possible base block when current fork is altair
+        // This is useful for checking that we allow for blocks smaller than
+        // the current_fork's rpc limit
+        assert_eq!(
+            encode_then_decode(
+                Protocol::BlocksByRange,
+                Version::V2,
+                RPCCodedResponse::Success(RPCResponse::BlocksByRange(Box::new(empty_base_block()))),
+                ForkName::Altair,
+            ),
+            Ok(Some(RPCResponse::BlocksByRange(Box::new(
+                empty_base_block()
+            ))))
         );
 
         assert_eq!(
@@ -996,10 +1019,27 @@ mod tests {
             encode_then_decode(
                 Protocol::BlocksByRoot,
                 Version::V2,
-                RPCCodedResponse::Success(RPCResponse::BlocksByRoot(Box::new(base_block()))),
+                RPCCodedResponse::Success(RPCResponse::BlocksByRoot(Box::new(empty_base_block()))),
                 ForkName::Base,
             ),
-            Ok(Some(RPCResponse::BlocksByRoot(Box::new(base_block())))),
+            Ok(Some(RPCResponse::BlocksByRoot(
+                Box::new(empty_base_block())
+            ))),
+        );
+
+        // Decode the smallest possible base block when current fork is altair
+        // This is useful for checking that we allow for blocks smaller than
+        // the current_fork's rpc limit
+        assert_eq!(
+            encode_then_decode(
+                Protocol::BlocksByRoot,
+                Version::V2,
+                RPCCodedResponse::Success(RPCResponse::BlocksByRoot(Box::new(empty_base_block()))),
+                ForkName::Altair,
+            ),
+            Ok(Some(RPCResponse::BlocksByRoot(
+                Box::new(empty_base_block())
+            )))
         );
 
         assert_eq!(
@@ -1073,7 +1113,7 @@ mod tests {
         let mut encoded_bytes = encode(
             Protocol::BlocksByRange,
             Version::V2,
-            RPCCodedResponse::Success(RPCResponse::BlocksByRange(Box::new(base_block()))),
+            RPCCodedResponse::Success(RPCResponse::BlocksByRange(Box::new(empty_base_block()))),
             ForkName::Base,
         )
         .unwrap();
@@ -1094,7 +1134,7 @@ mod tests {
         let mut encoded_bytes = encode(
             Protocol::BlocksByRoot,
             Version::V2,
-            RPCCodedResponse::Success(RPCResponse::BlocksByRoot(Box::new(base_block()))),
+            RPCCodedResponse::Success(RPCResponse::BlocksByRoot(Box::new(empty_base_block()))),
             ForkName::Base,
         )
         .unwrap();
@@ -1116,7 +1156,7 @@ mod tests {
         let mut encoded_bytes = encode(
             Protocol::BlocksByRange,
             Version::V2,
-            RPCCodedResponse::Success(RPCResponse::BlocksByRange(Box::new(base_block()))),
+            RPCCodedResponse::Success(RPCResponse::BlocksByRange(Box::new(empty_base_block()))),
             ForkName::Altair,
         )
         .unwrap();
@@ -1186,7 +1226,7 @@ mod tests {
         let mut encoded_bytes = encode(
             Protocol::BlocksByRoot,
             Version::V2,
-            RPCCodedResponse::Success(RPCResponse::BlocksByRoot(Box::new(base_block()))),
+            RPCCodedResponse::Success(RPCResponse::BlocksByRoot(Box::new(empty_base_block()))),
             ForkName::Altair,
         )
         .unwrap();
@@ -1210,7 +1250,7 @@ mod tests {
         let mut encoded_bytes = encode(
             Protocol::BlocksByRoot,
             Version::V2,
-            RPCCodedResponse::Success(RPCResponse::BlocksByRoot(Box::new(base_block()))),
+            RPCCodedResponse::Success(RPCResponse::BlocksByRoot(Box::new(empty_base_block()))),
             ForkName::Altair,
         )
         .unwrap();

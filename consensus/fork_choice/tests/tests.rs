@@ -344,7 +344,7 @@ impl ForkChoiceTest {
         let state_root = harness
             .chain
             .store
-            .get_block(&fc.fc_store().justified_checkpoint().root)
+            .get_blinded_block(&fc.fc_store().justified_checkpoint().root)
             .unwrap()
             .unwrap()
             .message()

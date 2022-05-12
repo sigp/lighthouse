@@ -1344,6 +1344,7 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
             "worker" => worker_id,
         );
 
+        let sub_executor = executor.clone();
         executor.spawn_blocking(
             move || {
                 let _worker_timer = worker_timer;
@@ -1520,7 +1521,15 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                         peer_id,
                         request_id,
                         request,
-                    } => worker.handle_blocks_by_range_request(peer_id, request_id, request),
+                    } => {
+                        return worker.handle_blocks_by_range_request(
+                            sub_executor,
+                            send_idle_on_drop,
+                            peer_id,
+                            request_id,
+                            request,
+                        )
+                    }
                     /*
                      * Processing of blocks by roots requests from other peers.
                      */
@@ -1528,7 +1537,15 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                         peer_id,
                         request_id,
                         request,
-                    } => worker.handle_blocks_by_root_request(peer_id, request_id, request),
+                    } => {
+                        return worker.handle_blocks_by_root_request(
+                            sub_executor,
+                            send_idle_on_drop,
+                            peer_id,
+                            request_id,
+                            request,
+                        )
+                    }
                     Work::UnknownBlockAttestation {
                         message_id,
                         peer_id,

@@ -5,8 +5,8 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use task_executor::TaskExecutor;
 use tokio::time::sleep;
 use types::{
-    Address, ChainSpec, EthSpec, ExecutionBlockHash, FullPayload, Hash256, MainnetEthSpec, Slot,
-    Uint256,
+    Address, ChainSpec, EthSpec, ExecutionBlockHash, ExecutionPayload, FullPayload, Hash256,
+    MainnetEthSpec, Slot, Uint256,
 };
 
 const EXECUTION_ENGINE_START_TIMEOUT: Duration = Duration::from_secs(10);
@@ -214,6 +214,7 @@ impl<E: GenericExecutionEngine> TestRig<E> {
             .await
             .unwrap();
         assert_eq!(status, PayloadStatus::Valid);
+        check_payload_reconstruction(&self.ee_a, &valid_payload).await;
 
         /*
          * Execution Engine A:
@@ -288,6 +289,7 @@ impl<E: GenericExecutionEngine> TestRig<E> {
             .await
             .unwrap();
         assert_eq!(status, PayloadStatus::Valid);
+        check_payload_reconstruction(&self.ee_a, &second_payload).await;
 
         /*
          * Execution Engine A:
@@ -359,6 +361,7 @@ impl<E: GenericExecutionEngine> TestRig<E> {
             .await
             .unwrap();
         assert_eq!(status, PayloadStatus::Valid);
+        check_payload_reconstruction(&self.ee_b, &valid_payload).await;
 
         /*
          * Execution Engine B:
@@ -372,6 +375,7 @@ impl<E: GenericExecutionEngine> TestRig<E> {
             .await
             .unwrap();
         assert_eq!(status, PayloadStatus::Valid);
+        check_payload_reconstruction(&self.ee_b, &second_payload).await;
 
         /*
          * Execution Engine B:
@@ -390,6 +394,22 @@ impl<E: GenericExecutionEngine> TestRig<E> {
             .unwrap();
         assert_eq!(status, PayloadStatus::Valid);
     }
+}
+
+/// Check that the given payload can be re-constructed by fetching it from the EE.
+///
+/// Panic if payload reconstruction fails.
+async fn check_payload_reconstruction<E: GenericExecutionEngine>(
+    ee: &ExecutionPair<E>,
+    payload: &ExecutionPayload<MainnetEthSpec>,
+) {
+    let reconstructed = ee
+        .execution_layer
+        .get_payload_by_block_hash(payload.block_hash)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(reconstructed, *payload);
 }
 
 /// Returns the duration since the unix epoch.

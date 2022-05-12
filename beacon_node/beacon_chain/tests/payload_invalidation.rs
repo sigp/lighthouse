@@ -14,19 +14,22 @@ use proto_array::{Error as ProtoArrayError, ExecutionStatus};
 use slot_clock::SlotClock;
 use std::time::Duration;
 use task_executor::ShutdownReason;
+use tree_hash::TreeHash;
 use types::*;
 
 const VALIDATOR_COUNT: usize = 32;
 
 type E = MainnetEthSpec;
 
-#[derive(PartialEq, Clone)]
+#[derive(PartialEq, Clone, Copy)]
 enum Payload {
     Valid,
     Invalid {
         latest_valid_hash: Option<ExecutionBlockHash>,
     },
     Syncing,
+    InvalidBlockHash,
+    InvalidTerminalBlock,
 }
 
 struct InvalidPayloadRig {
@@ -68,7 +71,7 @@ impl InvalidPayloadRig {
     fn block_hash(&self, block_root: Hash256) -> ExecutionBlockHash {
         self.harness
             .chain
-            .get_block(&block_root)
+            .get_blinded_block(&block_root)
             .unwrap()
             .unwrap()
             .message()
@@ -153,8 +156,9 @@ impl InvalidPayloadRig {
         assert_eq!(justified_checkpoint.epoch, 2);
     }
 
+    /// Import a block while setting the newPayload and forkchoiceUpdated responses to `is_valid`.
     fn import_block(&mut self, is_valid: Payload) -> Hash256 {
-        self.import_block_parametric(is_valid, |error| {
+        self.import_block_parametric(is_valid, is_valid, |error| {
             matches!(
                 error,
                 BlockError::ExecutionPayloadError(
@@ -182,7 +186,8 @@ impl InvalidPayloadRig {
 
     fn import_block_parametric<F: Fn(&BlockError<E>) -> bool>(
         &mut self,
-        is_valid: Payload,
+        new_payload_response: Payload,
+        forkchoice_response: Payload,
         evaluate_error: F,
     ) -> Hash256 {
         let mock_execution_layer = self.harness.mock_execution_layer.as_ref().unwrap();
@@ -193,15 +198,54 @@ impl InvalidPayloadRig {
         let (block, post_state) = self.harness.make_block(state, slot);
         let block_root = block.canonical_root();
 
-        match is_valid {
-            Payload::Valid | Payload::Syncing => {
-                if is_valid == Payload::Syncing {
-                    // Importing a payload whilst returning `SYNCING` simulates an EE that obtains
-                    // the block via it's own means (e.g., devp2p).
-                    let should_import_payload = true;
-                    mock_execution_layer
-                        .server
-                        .all_payloads_syncing(should_import_payload);
+        let set_new_payload = |payload: Payload| match payload {
+            Payload::Valid => mock_execution_layer
+                .server
+                .all_payloads_valid_on_new_payload(),
+            Payload::Syncing => mock_execution_layer
+                .server
+                .all_payloads_syncing_on_new_payload(true),
+            Payload::Invalid { latest_valid_hash } => {
+                let latest_valid_hash = latest_valid_hash
+                    .unwrap_or_else(|| self.block_hash(block.message().parent_root()));
+                mock_execution_layer
+                    .server
+                    .all_payloads_invalid_on_new_payload(latest_valid_hash)
+            }
+            Payload::InvalidBlockHash => mock_execution_layer
+                .server
+                .all_payloads_invalid_block_hash_on_new_payload(),
+            Payload::InvalidTerminalBlock => mock_execution_layer
+                .server
+                .all_payloads_invalid_terminal_block_on_new_payload(),
+        };
+        let set_forkchoice_updated = |payload: Payload| match payload {
+            Payload::Valid => mock_execution_layer
+                .server
+                .all_payloads_valid_on_forkchoice_updated(),
+            Payload::Syncing => mock_execution_layer
+                .server
+                .all_payloads_syncing_on_forkchoice_updated(),
+            Payload::Invalid { latest_valid_hash } => {
+                let latest_valid_hash = latest_valid_hash
+                    .unwrap_or_else(|| self.block_hash(block.message().parent_root()));
+                mock_execution_layer
+                    .server
+                    .all_payloads_invalid_on_forkchoice_updated(latest_valid_hash)
+            }
+            Payload::InvalidBlockHash => mock_execution_layer
+                .server
+                .all_payloads_invalid_block_hash_on_forkchoice_updated(),
+            Payload::InvalidTerminalBlock => mock_execution_layer
+                .server
+                .all_payloads_invalid_terminal_block_on_forkchoice_updated(),
+        };
+
+        match (new_payload_response, forkchoice_response) {
+            (Payload::Valid | Payload::Syncing, Payload::Valid | Payload::Syncing) => {
+                if new_payload_response == Payload::Syncing {
+                    set_new_payload(new_payload_response);
+                    set_forkchoice_updated(forkchoice_response);
                 } else {
                     mock_execution_layer.server.full_payload_verification();
                 }
@@ -220,47 +264,69 @@ impl InvalidPayloadRig {
 
                 let execution_status = self.execution_status(root.into());
 
-                match is_valid {
-                    Payload::Syncing => assert!(execution_status.is_not_verified()),
-                    Payload::Valid => assert!(execution_status.is_valid()),
-                    Payload::Invalid { .. } => unreachable!(),
+                match forkchoice_response {
+                    Payload::Syncing => assert!(execution_status.is_optimistic()),
+                    Payload::Valid => assert!(execution_status.is_valid_and_post_bellatrix()),
+                    Payload::Invalid { .. }
+                    | Payload::InvalidBlockHash
+                    | Payload::InvalidTerminalBlock => unreachable!(),
                 }
 
                 assert_eq!(
-                    self.harness.chain.get_block(&block_root).unwrap().unwrap(),
+                    self.harness
+                        .chain
+                        .store
+                        .get_full_block(&block_root)
+                        .unwrap()
+                        .unwrap(),
                     block,
                     "block from db must match block imported"
                 );
             }
-            Payload::Invalid { latest_valid_hash } => {
-                let latest_valid_hash = latest_valid_hash
-                    .unwrap_or_else(|| self.block_hash(block.message().parent_root()));
-
-                mock_execution_layer
-                    .server
-                    .all_payloads_invalid(latest_valid_hash);
+            (
+                Payload::Invalid { .. } | Payload::InvalidBlockHash | Payload::InvalidTerminalBlock,
+                _,
+            )
+            | (
+                _,
+                Payload::Invalid { .. } | Payload::InvalidBlockHash | Payload::InvalidTerminalBlock,
+            ) => {
+                set_new_payload(new_payload_response);
+                set_forkchoice_updated(forkchoice_response);
 
                 match self.harness.process_block(slot, block) {
                     Err(error) if evaluate_error(&error) => (),
                     Err(other) => {
                         panic!("evaluate_error returned false with {:?}", other)
                     }
-                    Ok(_) => panic!("block with invalid payload was imported"),
+                    Ok(_) => {
+                        // An invalid payload should only be imported initially if its status when
+                        // initially supplied to the EE is Valid or Syncing.
+                        assert!(matches!(
+                            new_payload_response,
+                            Payload::Valid | Payload::Syncing
+                        ));
+                    }
                 };
 
-                assert!(
-                    self.harness
-                        .chain
-                        .fork_choice
-                        .read()
-                        .get_block(&block_root)
-                        .is_none(),
-                    "invalid block must not exist in fork choice"
-                );
-                assert!(
-                    self.harness.chain.get_block(&block_root).unwrap().is_none(),
-                    "invalid block cannot be accessed via get_block"
-                );
+                let block_in_forkchoice =
+                    self.harness.chain.fork_choice.read().get_block(&block_root);
+                if let Payload::Invalid { .. } = new_payload_response {
+                    // A block found to be immediately invalid should not end up in fork choice.
+                    assert_eq!(block_in_forkchoice, None);
+
+                    assert!(
+                        self.harness
+                            .chain
+                            .get_blinded_block(&block_root)
+                            .unwrap()
+                            .is_none(),
+                        "invalid block cannot be accessed via get_block"
+                    );
+                } else {
+                    // A block imported and then found invalid should have an invalid status.
+                    assert!(block_in_forkchoice.unwrap().execution_status.is_invalid());
+                }
             }
         }
 
@@ -309,11 +375,53 @@ fn invalid_payload_invalidates_parent() {
         latest_valid_hash: Some(latest_valid_hash),
     });
 
-    assert!(rig.execution_status(roots[0]).is_valid());
+    assert!(rig.execution_status(roots[0]).is_valid_and_post_bellatrix());
     assert!(rig.execution_status(roots[1]).is_invalid());
     assert!(rig.execution_status(roots[2]).is_invalid());
 
     assert_eq!(rig.head_info().block_root, roots[0]);
+}
+
+/// Test invalidation of a payload via the fork choice updated message.
+///
+/// The `invalid_payload` argument determines the type of invalid payload: `Invalid`,
+/// `InvalidBlockHash`, etc, taking the `latest_valid_hash` as an argument.
+fn immediate_forkchoice_update_invalid_test(
+    invalid_payload: impl FnOnce(Option<ExecutionBlockHash>) -> Payload,
+) {
+    let mut rig = InvalidPayloadRig::new().enable_attestations();
+    rig.move_to_terminal_block();
+    rig.import_block(Payload::Valid); // Import a valid transition block.
+    rig.move_to_first_justification(Payload::Syncing);
+
+    let valid_head_root = rig.import_block(Payload::Valid);
+    let latest_valid_hash = Some(rig.block_hash(valid_head_root));
+
+    // Import a block which returns syncing when supplied via newPayload, and then
+    // invalid when the forkchoice update is sent.
+    rig.import_block_parametric(Payload::Syncing, invalid_payload(latest_valid_hash), |_| {
+        false
+    });
+
+    // The head should be the latest valid block.
+    assert_eq!(rig.head_info().block_root, valid_head_root);
+}
+
+#[test]
+fn immediate_forkchoice_update_payload_invalid() {
+    immediate_forkchoice_update_invalid_test(|latest_valid_hash| Payload::Invalid {
+        latest_valid_hash,
+    })
+}
+
+#[test]
+fn immediate_forkchoice_update_payload_invalid_block_hash() {
+    immediate_forkchoice_update_invalid_test(|_| Payload::InvalidBlockHash)
+}
+
+#[test]
+fn immediate_forkchoice_update_payload_invalid_terminal_block() {
+    immediate_forkchoice_update_invalid_test(|_| Payload::InvalidTerminalBlock)
 }
 
 /// Ensure the client tries to exit when the justified checkpoint is invalidated.
@@ -328,7 +436,7 @@ fn justified_checkpoint_becomes_invalid() {
     let parent_root_of_justified = rig
         .harness
         .chain
-        .get_block(&justified_checkpoint.root)
+        .get_blinded_block(&justified_checkpoint.root)
         .unwrap()
         .unwrap()
         .parent_root();
@@ -338,19 +446,17 @@ fn justified_checkpoint_becomes_invalid() {
     assert!(rig.harness.shutdown_reasons().is_empty());
 
     // Import a block that will invalidate the justified checkpoint.
-    rig.import_block_parametric(
-        Payload::Invalid {
-            latest_valid_hash: Some(parent_hash_of_justified),
-        },
-        |error| {
-            matches!(
-                error,
-                // The block import should fail since the beacon chain knows the justified payload
-                // is invalid.
-                BlockError::BeaconChainError(BeaconChainError::JustifiedPayloadInvalid { .. })
-            )
-        },
-    );
+    let is_valid = Payload::Invalid {
+        latest_valid_hash: Some(parent_hash_of_justified),
+    };
+    rig.import_block_parametric(is_valid, is_valid, |error| {
+        matches!(
+            error,
+            // The block import should fail since the beacon chain knows the justified payload
+            // is invalid.
+            BlockError::BeaconChainError(BeaconChainError::JustifiedPayloadInvalid { .. })
+        )
+    });
 
     // The beacon chain should have triggered a shutdown.
     assert_eq!(
@@ -397,9 +503,9 @@ fn pre_finalized_latest_valid_hash() {
         let slot = Slot::new(i);
         let root = rig.block_root_at_slot(slot).unwrap();
         if slot == 1 {
-            assert!(rig.execution_status(root).is_valid());
+            assert!(rig.execution_status(root).is_valid_and_post_bellatrix());
         } else {
-            assert!(rig.execution_status(root).is_not_verified());
+            assert!(rig.execution_status(root).is_optimistic());
         }
     }
 }
@@ -446,7 +552,7 @@ fn latest_valid_hash_will_validate() {
         } else if slot == 0 {
             assert!(execution_status.is_irrelevant())
         } else {
-            assert!(execution_status.is_valid())
+            assert!(execution_status.is_valid_and_post_bellatrix())
         }
     }
 }
@@ -484,9 +590,9 @@ fn latest_valid_hash_is_junk() {
         let slot = Slot::new(i);
         let root = rig.block_root_at_slot(slot).unwrap();
         if slot == 1 {
-            assert!(rig.execution_status(root).is_valid());
+            assert!(rig.execution_status(root).is_valid_and_post_bellatrix());
         } else {
-            assert!(rig.execution_status(root).is_not_verified());
+            assert!(rig.execution_status(root).is_optimistic());
         }
     }
 }
@@ -546,7 +652,13 @@ fn invalidates_all_descendants() {
     assert!(rig.execution_status(fork_block_root).is_invalid());
 
     for root in blocks {
-        let slot = rig.harness.chain.get_block(&root).unwrap().unwrap().slot();
+        let slot = rig
+            .harness
+            .chain
+            .get_blinded_block(&root)
+            .unwrap()
+            .unwrap()
+            .slot();
 
         // Fork choice doesn't have info about pre-finalization, nothing to check here.
         if slot < finalized_slot {
@@ -556,7 +668,7 @@ fn invalidates_all_descendants() {
         let execution_status = rig.execution_status(root);
         if slot <= latest_valid_slot {
             // Blocks prior to the latest valid hash are valid.
-            assert!(execution_status.is_valid());
+            assert!(execution_status.is_valid_and_post_bellatrix());
         } else {
             // Blocks after the latest valid hash are invalid.
             assert!(execution_status.is_invalid());
@@ -607,10 +719,16 @@ fn switches_heads() {
     assert_eq!(rig.head_info().block_root, fork_block_root);
 
     // The fork block has not yet been validated.
-    assert!(rig.execution_status(fork_block_root).is_not_verified());
+    assert!(rig.execution_status(fork_block_root).is_optimistic());
 
     for root in blocks {
-        let slot = rig.harness.chain.get_block(&root).unwrap().unwrap().slot();
+        let slot = rig
+            .harness
+            .chain
+            .get_blinded_block(&root)
+            .unwrap()
+            .unwrap()
+            .slot();
 
         // Fork choice doesn't have info about pre-finalization, nothing to check here.
         if slot < finalized_slot {
@@ -620,7 +738,7 @@ fn switches_heads() {
         let execution_status = rig.execution_status(root);
         if slot <= latest_valid_slot {
             // Blocks prior to the latest valid hash are valid.
-            assert!(execution_status.is_valid());
+            assert!(execution_status.is_valid_and_post_bellatrix());
         } else {
             // Blocks after the latest valid hash are invalid.
             assert!(execution_status.is_invalid());
@@ -642,9 +760,17 @@ fn invalid_during_processing() {
     ];
 
     // 0 should be present in the chain.
-    assert!(rig.harness.chain.get_block(&roots[0]).unwrap().is_some());
+    assert!(rig
+        .harness
+        .chain
+        .get_blinded_block(&roots[0])
+        .unwrap()
+        .is_some());
     // 1 should *not* be present in the chain.
-    assert_eq!(rig.harness.chain.get_block(&roots[1]).unwrap(), None);
+    assert_eq!(
+        rig.harness.chain.get_blinded_block(&roots[1]).unwrap(),
+        None
+    );
     // 2 should be the head.
     let head = rig.harness.chain.head_info().unwrap();
     assert_eq!(head.block_root, roots[2]);
@@ -663,7 +789,7 @@ fn invalid_after_optimistic_sync() {
     ];
 
     for root in &roots {
-        assert!(rig.harness.chain.get_block(root).unwrap().is_some());
+        assert!(rig.harness.chain.get_blinded_block(root).unwrap().is_some());
     }
 
     // 2 should be the head.
@@ -691,13 +817,13 @@ fn manually_validate_child() {
     let parent = rig.import_block(Payload::Syncing);
     let child = rig.import_block(Payload::Syncing);
 
-    assert!(rig.execution_status(parent).is_not_verified());
-    assert!(rig.execution_status(child).is_not_verified());
+    assert!(rig.execution_status(parent).is_optimistic());
+    assert!(rig.execution_status(child).is_optimistic());
 
     rig.validate_manually(child);
 
-    assert!(rig.execution_status(parent).is_valid());
-    assert!(rig.execution_status(child).is_valid());
+    assert!(rig.execution_status(parent).is_valid_and_post_bellatrix());
+    assert!(rig.execution_status(child).is_valid_and_post_bellatrix());
 }
 
 #[test]
@@ -709,13 +835,13 @@ fn manually_validate_parent() {
     let parent = rig.import_block(Payload::Syncing);
     let child = rig.import_block(Payload::Syncing);
 
-    assert!(rig.execution_status(parent).is_not_verified());
-    assert!(rig.execution_status(child).is_not_verified());
+    assert!(rig.execution_status(parent).is_optimistic());
+    assert!(rig.execution_status(child).is_optimistic());
 
     rig.validate_manually(parent);
 
-    assert!(rig.execution_status(parent).is_valid());
-    assert!(rig.execution_status(child).is_not_verified());
+    assert!(rig.execution_status(parent).is_valid_and_post_bellatrix());
+    assert!(rig.execution_status(child).is_optimistic());
 }
 
 #[test]
@@ -819,7 +945,7 @@ fn invalid_parent() {
             block_root,
             Duration::from_secs(0),
             &state,
-            PayloadVerificationStatus::NotVerified,
+            PayloadVerificationStatus::Optimistic,
             &rig.harness.chain.spec
         ),
         Err(ForkChoiceError::ProtoArrayError(message))
@@ -884,4 +1010,108 @@ fn payload_preparation_before_transition_block() {
     let latest_block_hash = rig.latest_execution_block_hash();
     assert_eq!(payload_attributes.suggested_fee_recipient, fee_recipient);
     assert_eq!(fork_choice_state.head_block_hash, latest_block_hash);
+}
+
+#[test]
+fn attesting_to_optimistic_head() {
+    let mut rig = InvalidPayloadRig::new();
+    rig.move_to_terminal_block();
+    rig.import_block(Payload::Valid); // Import a valid transition block.
+
+    let root = rig.import_block(Payload::Syncing);
+
+    let head = rig.harness.chain.head().unwrap();
+    let slot = head.beacon_block.slot();
+    assert_eq!(
+        head.beacon_block_root, root,
+        "the head should be the latest imported block"
+    );
+    assert!(
+        rig.execution_status(root).is_optimistic(),
+        "the head should be optimistic"
+    );
+
+    /*
+     * Define an attestation for use during testing. It doesn't have a valid signature, but that's
+     * not necessary here.
+     */
+
+    let attestation = {
+        let mut attestation = rig
+            .harness
+            .chain
+            .produce_unaggregated_attestation(Slot::new(0), 0)
+            .unwrap();
+
+        attestation.aggregation_bits.set(0, true).unwrap();
+        attestation.data.slot = slot;
+        attestation.data.beacon_block_root = root;
+
+        rig.harness
+            .chain
+            .naive_aggregation_pool
+            .write()
+            .insert(&attestation)
+            .unwrap();
+
+        attestation
+    };
+
+    /*
+     * Define some closures to produce attestations.
+     */
+
+    let produce_unaggregated = || rig.harness.chain.produce_unaggregated_attestation(slot, 0);
+
+    let get_aggregated = || {
+        rig.harness
+            .chain
+            .get_aggregated_attestation(&attestation.data)
+    };
+
+    let get_aggregated_by_slot_and_root = || {
+        rig.harness
+            .chain
+            .get_aggregated_attestation_by_slot_and_root(
+                attestation.data.slot,
+                &attestation.data.tree_hash_root(),
+            )
+    };
+
+    /*
+     * Ensure attestation production fails with an optimistic head.
+     */
+
+    macro_rules! assert_head_block_not_fully_verified {
+        ($func: expr) => {
+            assert!(matches!(
+                $func,
+                Err(BeaconChainError::HeadBlockNotFullyVerified {
+                    beacon_block_root,
+                    execution_status
+                })
+                if beacon_block_root == root && matches!(execution_status, ExecutionStatus::Optimistic(_))
+            ));
+        }
+    }
+
+    assert_head_block_not_fully_verified!(produce_unaggregated());
+    assert_head_block_not_fully_verified!(get_aggregated());
+    assert_head_block_not_fully_verified!(get_aggregated_by_slot_and_root());
+
+    /*
+     * Ensure attestation production succeeds once the head is verified.
+     *
+     * This is effectively a control for the previous tests.
+     */
+
+    rig.validate_manually(root);
+    assert!(
+        rig.execution_status(root).is_valid_and_post_bellatrix(),
+        "the head should no longer be optimistic"
+    );
+
+    produce_unaggregated().unwrap();
+    get_aggregated().unwrap();
+    get_aggregated_by_slot_and_root().unwrap();
 }

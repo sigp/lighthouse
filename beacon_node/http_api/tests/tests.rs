@@ -762,9 +762,9 @@ impl ApiTester {
         }
     }
 
-    fn get_block(&self, block_id: BlockId) -> Option<SignedBeaconBlock<E>> {
-        let root = self.get_block_root(block_id);
-        root.and_then(|root| self.chain.get_block(&root).unwrap())
+    async fn get_block(&self, block_id: BlockId) -> Option<SignedBeaconBlock<E>> {
+        let root = self.get_block_root(block_id)?;
+        self.chain.get_block(&root).await.unwrap()
     }
 
     pub async fn test_beacon_headers_all_slots(self) -> Self {
@@ -859,7 +859,11 @@ impl ApiTester {
                 }
             }
 
-            let block_opt = block_root_opt.and_then(|root| self.chain.get_block(&root).unwrap());
+            let block_opt = if let Some(root) = block_root_opt {
+                self.chain.get_block(&root).await.unwrap()
+            } else {
+                None
+            };
 
             if block_opt.is_none() && result.is_none() {
                 continue;
@@ -945,7 +949,7 @@ impl ApiTester {
 
     pub async fn test_beacon_blocks(self) -> Self {
         for block_id in self.interesting_block_ids() {
-            let expected = self.get_block(block_id);
+            let expected = self.get_block(block_id).await;
 
             if let BlockId::Slot(slot) = block_id {
                 if expected.is_none() {
@@ -1030,6 +1034,7 @@ impl ApiTester {
 
             let expected = self
                 .get_block(block_id)
+                .await
                 .map(|block| block.message().body().attestations().clone().into());
 
             if let BlockId::Slot(slot) = block_id {
