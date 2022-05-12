@@ -51,13 +51,9 @@ use crate::validator_pubkey_cache::ValidatorPubkeyCache;
 use crate::BeaconForkChoiceStore;
 use crate::BeaconSnapshot;
 use crate::{metrics, BeaconChainError};
-use eth2::types::{
-    EventKind, SseBlock, SseChainReorg, SseFinalizedCheckpoint, SseHead, SseLateHead, SyncDuty,
-};
+use eth2::types::{EventKind, SseBlock, SyncDuty};
 use execution_layer::{ExecutionLayer, PayloadAttributes, PayloadStatus};
-use fork_choice::{
-    AttestationFromBlock, ForkChoice, ForkChoiceView, InvalidationOperation, ProtoBlock,
-};
+use fork_choice::{AttestationFromBlock, ForkChoice, ForkChoiceView, InvalidationOperation};
 use futures::channel::mpsc::Sender;
 use itertools::process_results;
 use itertools::Itertools;
@@ -82,7 +78,6 @@ use std::collections::HashMap;
 use std::collections::HashSet;
 use std::io::prelude::*;
 use std::marker::PhantomData;
-use std::mem;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use store::iter::{BlockRootsIterator, ParentRootBlockIterator, StateRootsIterator};
@@ -213,16 +208,12 @@ pub struct ChainSummary {
     pub head_proposer_shuffling_decision_root: Hash256,
     pub head_execution_status: ExecutionStatus,
     pub head_fork: Fork,
+    pub head_random: Hash256,
     pub justified_checkpoint: types::Checkpoint,
     pub finalized_checkpoint: types::Checkpoint,
     pub genesis_time: u64,
     pub genesis_validators_root: Hash256,
     pub is_merge_transition_complete: bool,
-    // TODO(paul):
-    //
-    // Add:
-    //
-    // - random
 }
 
 pub struct CanonicalHead<T: BeaconChainTypes> {
@@ -230,13 +221,15 @@ pub struct CanonicalHead<T: BeaconChainTypes> {
     /// fork choice algorithm and determine the canonical head.
     pub fork_choice: BeaconForkChoice<T>,
     /// Provides cached values from a prior head elected by `self.fork_choice`.
-    ///
-    /// TODO(paul): this probably needs to be removed so the execution status is always up-to-date.
-    pub head_proto_block: ProtoBlock,
-    /// Provides cached values from a prior head elected by `self.fork_choice`.
     pub fork_choice_view: ForkChoiceView,
     /// Provides cached values from a prior head elected by `self.fork_choice`.
     pub head_snapshot: BeaconSnapshot<T::EthSpec>,
+    /// Provides cached values from a prior head elected by `self.fork_choice`.
+    pub head_proposer_shuffling_decision_root: Hash256,
+    /// Provides cached values from a prior head elected by `self.fork_choice`.
+    pub head_random: Hash256,
+    /// Provides cached values from a prior head elected by `self.fork_choice`.
+    pub head_execution_status: ExecutionStatus,
 }
 
 #[derive(Debug, PartialEq)]
@@ -1094,24 +1087,41 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// "backwards" due to unrealized votes.
     pub fn chain_summary(&self) -> ChainSummary {
         let canonical_head_lock = self.canonical_head.read();
-        let head_proto_block = &canonical_head_lock.head_proto_block;
-        let head_state = &canonical_head_lock.head_snapshot.beacon_state;
+        let head = &canonical_head_lock.head_snapshot;
+        let head_block = head.beacon_block.message();
+        let head_state = &head.beacon_state;
         let fork_choice_view = &canonical_head_lock.fork_choice_view;
+        let head_execution_status = canonical_head_lock
+            .fork_choice
+            .get_block_execution_status(&head.beacon_block_root)
+            .unwrap_or_else(|| {
+                crit!(
+                    self.log,
+                    "Head block missing from fork choice";
+                    "info" => "using old execution status value, please report this bug"
+                );
+                // Use the execution status from when the block was set as the head. Using this
+                // backup ensures this function does not need to return a `Result`.
+                canonical_head_lock.head_execution_status
+            });
 
         ChainSummary {
-            head_slot: head_proto_block.slot,
-            head_block_root: head_proto_block.root,
-            head_state_root: head_proto_block.state_root,
-            head_proposer_shuffling_decision_root: head_proto_block
-                .current_epoch_shuffling_id
-                .shuffling_decision_block,
-            head_execution_status: head_proto_block.execution_status,
+            head_slot: head_block.slot(),
+            head_block_root: head.beacon_block_root,
+            head_state_root: head.beacon_block.state_root(),
+            head_proposer_shuffling_decision_root: canonical_head_lock
+                .head_proposer_shuffling_decision_root,
+            head_execution_status,
             head_fork: head_state.fork(),
+            head_random: canonical_head_lock.head_random,
             justified_checkpoint: fork_choice_view.justified_checkpoint,
             finalized_checkpoint: fork_choice_view.finalized_checkpoint,
             genesis_time: self.slot_clock.genesis_duration().as_secs(),
             genesis_validators_root: self.genesis_validators_root,
-            is_merge_transition_complete: head_proto_block.execution_status.block_hash().is_some(),
+            is_merge_transition_complete: head_block
+                .body()
+                .execution_payload()
+                .map_or(false, |ep| ep.block_hash() != <_>::default()),
         }
     }
 
@@ -1260,7 +1270,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
     /// Returns the slot of the highest block in the canonical chain.
     pub fn best_slot(&self) -> Slot {
-        self.canonical_head.read().head_proto_block.slot
+        self.canonical_head.read().head_snapshot.beacon_block.slot()
     }
 
     /// Returns the validator index (if any) for the given public key.
@@ -3323,538 +3333,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         metrics::inc_counter(&metrics::FORK_CHOICE_REQUESTS);
         let _timer = metrics::start_timer(&metrics::FORK_CHOICE_TIMES);
 
-        let result = self.fork_choice_internal();
+        let result = self.recompute_head();
 
         if result.is_err() {
             metrics::inc_counter(&metrics::FORK_CHOICE_ERRORS);
         }
 
         result
-    }
-
-    fn fork_choice_internal(self: &Arc<Self>) -> Result<(), Error> {
-        let mut canonical_head = self.canonical_head.write();
-
-        // Build a new `ForkChoiceView` from the existing `ChainView` struct rather than call
-        // `fork_choice.cached_fork_choice_view` so we ensure we're getting the last known head
-        // value known to the `BeaconChain`, rather than the one known to fork choice.
-        //
-        // It's possible that `canonical_head.fork_choice` has been mutated outside of this
-        // function (`fork_choice_internal`) and it's important to detect any changes since
-        // this function was last run.
-        let old_view = canonical_head.fork_choice_view;
-
-        let fork_choice = &mut canonical_head.fork_choice;
-
-        // Recompute the current head via the fork choice algorithm.
-        fork_choice.get_head(self.slot()?, &self.spec)?;
-
-        // Read the current head value from the fork choice algorithm.
-        let new_view = fork_choice.cached_fork_choice_view();
-
-        // Check to ensure that this finalized block hasn't been marked as invalid.
-        let finalized_block = fork_choice.get_finalized_block()?;
-        if let ExecutionStatus::Invalid(block_hash) = finalized_block.execution_status {
-            crit!(
-                self.log,
-                "Finalized block has an invalid payload";
-                "msg" => "You must use the `--purge-db` flag to clear the database and restart sync. \
-                You may be on a hostile network.",
-                "block_hash" => ?block_hash
-            );
-            let mut shutdown_sender = self.shutdown_sender();
-            shutdown_sender
-                .try_send(ShutdownReason::Failure(
-                    "Finalized block has an invalid execution payload.",
-                ))
-                .map_err(BeaconChainError::InvalidFinalizedPayloadShutdownError)?;
-
-            // Exit now, the node is in an invalid state.
-            return Err(Error::InvalidFinalizedPayload {
-                finalized_root: finalized_block.root,
-                execution_block_hash: block_hash,
-            });
-        }
-
-        // Exit early if the head or justified/finalized checkpoints have not changed.
-        if new_view == old_view {
-            return Ok(());
-        }
-
-        // At this point we know that the new head block is not the same as the previous one
-        metrics::inc_counter(&metrics::FORK_CHOICE_CHANGED_HEAD);
-
-        // The new finalized checkpoint must be either equal to or better than the previous
-        // finalized checkpoint.
-        let valid_finalization_transition = new_view.finalized_checkpoint.epoch
-            > old_view.finalized_checkpoint.epoch
-            || new_view.finalized_checkpoint == old_view.finalized_checkpoint;
-        if !valid_finalization_transition {
-            return Err(Error::RevertedFinalizedEpoch {
-                old: old_view.finalized_checkpoint,
-                new: new_view.finalized_checkpoint,
-            });
-        }
-
-        let new_head_proto_block = fork_choice.get_block(&new_view.head_block_root).ok_or(
-            Error::HeadBlockMissingFromForkChoice(new_view.head_block_root),
-        )?;
-
-        // Try and obtain the snapshot for `beacon_block_root` from the snapshot cache, falling
-        // back to a database read if that fails.
-        let new_head = self
-            .snapshot_cache
-            .try_read_for(BLOCK_PROCESSING_CACHE_LOCK_TIMEOUT)
-            .and_then(|snapshot_cache| {
-                snapshot_cache.get_cloned(
-                    new_view.head_block_root,
-                    CloneConfig::committee_caches_only(),
-                )
-            })
-            .map::<Result<_, Error>, _>(Ok)
-            .unwrap_or_else(|| {
-                let beacon_block = self
-                    .get_block(&new_view.head_block_root)?
-                    .ok_or(Error::MissingBeaconBlock(new_view.head_block_root))?;
-
-                let beacon_state_root = beacon_block.state_root();
-                let beacon_state: BeaconState<T::EthSpec> = self
-                    .get_state(&beacon_state_root, Some(beacon_block.slot()))?
-                    .ok_or(Error::MissingBeaconState(beacon_state_root))?;
-
-                Ok(BeaconSnapshot {
-                    beacon_block,
-                    beacon_block_root: new_view.head_block_root,
-                    beacon_state,
-                })
-            })
-            .and_then(|mut snapshot| {
-                // Regardless of where we got the state from, attempt to build the committee
-                // caches.
-                snapshot
-                    .beacon_state
-                    .build_all_committee_caches(&self.spec)
-                    .map_err(Into::into)
-                    .map(|()| snapshot)
-            })?;
-
-        // Enshrine the new head values in `self.canonical_head`.
-        let old_head = mem::replace(&mut canonical_head.head_snapshot, new_head);
-        let old_head_proto_block =
-            mem::replace(&mut canonical_head.head_proto_block, new_head_proto_block);
-        let old_view = mem::replace(&mut canonical_head.fork_choice_view, new_view);
-
-        // Alias/clone the new values for readability and later use.
-        let new_head = &canonical_head.head_snapshot;
-        let new_head_proto_block = canonical_head.head_proto_block.clone();
-
-        // Detect and potentially report any re-orgs.
-        let reorg_distance = Self::detect_reorg(
-            &old_head.beacon_state,
-            old_head.beacon_block_root,
-            &new_head.beacon_state,
-            new_head.beacon_block_root,
-            &self.spec,
-            &self.log,
-        );
-
-        // Determine if the new head is in a later epoch to the previous head.
-        let is_epoch_transition = old_head
-            .beacon_block
-            .slot()
-            .epoch(T::EthSpec::slots_per_epoch())
-            < new_head
-                .beacon_state
-                .slot()
-                .epoch(T::EthSpec::slots_per_epoch());
-
-        // These fields are used for server-sent events.
-        let state_root = new_head.beacon_state_root();
-        let head_slot = new_head.beacon_state.slot();
-        let new_head_proposer = new_head.beacon_block.message().proposer_index();
-        let new_head_graffiti = new_head
-            .beacon_block
-            .message()
-            .body()
-            .graffiti()
-            .as_utf8_lossy();
-
-        // Find the dependent roots associated with this head before updating the snapshot. This
-        // is to ensure consistency when sending server sent events later in this method.
-        let dependent_root = new_head
-            .beacon_state
-            .proposer_shuffling_decision_root(self.genesis_block_root);
-        let prev_dependent_root = new_head
-            .beacon_state
-            .attester_shuffling_decision_root(self.genesis_block_root, RelativeEpoch::Current);
-
-        // Clear the early attester cache in case it conflicts with `self.canonical_head`.
-        self.early_attester_cache.clear();
-
-        if new_view.finalized_checkpoint != old_view.finalized_checkpoint {
-            // State root of the finalized state on the epoch boundary, NOT the state
-            // of the finalized block. We need to use an iterator in case the state is beyond
-            // the reach of the new head's `state_roots` array.
-            let new_finalized_slot = new_head
-                .beacon_state
-                .finalized_checkpoint()
-                .epoch
-                .start_slot(T::EthSpec::slots_per_epoch());
-            let new_finalized_state_root = process_results(
-                StateRootsIterator::new(&self.store, &new_head.beacon_state),
-                |mut iter| {
-                    iter.find_map(|(state_root, slot)| {
-                        if slot == new_finalized_slot {
-                            Some(state_root)
-                        } else {
-                            None
-                        }
-                    })
-                },
-            )?
-            .ok_or(Error::MissingFinalizedStateRoot(new_finalized_slot))?;
-
-            self.after_finalization(&new_head.beacon_state, new_finalized_state_root)?;
-        }
-
-        // Drop the lock on the canonical head.
-        drop(canonical_head);
-
-        // Update the snapshot cache with the latest head value.
-        //
-        // Since we're no long holding an exclusive lock on the canonical head, it's possible that
-        // race-conditions will see inconsistent values sent to the snapshot cache. This is deemed
-        // acceptable since the snapshot cache only uses the head for optimisations (to avoid
-        // pruning the head).
-        self.snapshot_cache
-            .try_write_for(BLOCK_PROCESSING_CACHE_LOCK_TIMEOUT)
-            .map(|mut snapshot_cache| {
-                snapshot_cache.update_head(new_view.head_block_root);
-            })
-            .unwrap_or_else(|| {
-                error!(
-                    self.log,
-                    "Failed to obtain cache write lock";
-                    "lock" => "snapshot_cache",
-                    "task" => "update head"
-                );
-            });
-
-        Self::observe_head_block_delays(
-            &mut self.block_times_cache.write(),
-            &new_head_proto_block,
-            new_head_proposer,
-            new_head_graffiti,
-            &self.slot_clock,
-            self.event_handler.as_ref(),
-            &self.log,
-        );
-
-        if is_epoch_transition || reorg_distance.is_some() {
-            self.persist_head_and_fork_choice()?;
-            self.op_pool.prune_attestations(self.epoch()?);
-        }
-
-        // Register a server-sent event if necessary
-        if let Some(event_handler) = self.event_handler.as_ref() {
-            if event_handler.has_head_subscribers() {
-                match (dependent_root, prev_dependent_root) {
-                    (Ok(current_duty_dependent_root), Ok(previous_duty_dependent_root)) => {
-                        event_handler.register(EventKind::Head(SseHead {
-                            slot: head_slot,
-                            block: new_view.head_block_root,
-                            state: state_root,
-                            current_duty_dependent_root,
-                            previous_duty_dependent_root,
-                            epoch_transition: is_epoch_transition,
-                            execution_optimistic: new_head_proto_block
-                                .execution_status
-                                .is_optimistic(),
-                        }));
-                    }
-                    (Err(e), _) | (_, Err(e)) => {
-                        warn!(
-                            self.log,
-                            "Unable to find dependent roots, cannot register head event";
-                            "error" => ?e
-                        );
-                    }
-                }
-            }
-
-            if let Some(depth) = reorg_distance.filter(|_| event_handler.has_reorg_subscribers()) {
-                event_handler.register(EventKind::ChainReorg(SseChainReorg {
-                    slot: head_slot,
-                    depth: depth.as_u64(),
-                    old_head_block: old_view.head_block_root,
-                    old_head_state: old_head_proto_block.state_root,
-                    new_head_block: new_view.head_block_root,
-                    new_head_state: state_root,
-                    epoch: head_slot.epoch(T::EthSpec::slots_per_epoch()),
-                    execution_optimistic: new_head_proto_block.execution_status.is_optimistic(),
-                }));
-            }
-        }
-
-        // Update the execution layer.
-        if let Err(e) = self.update_execution_engine_forkchoice_blocking(self.slot()?) {
-            crit!(
-                self.log,
-                "Failed to update execution head";
-                "error" => ?e
-            );
-        }
-
-        // Performing this call immediately after
-        // `update_execution_engine_forkchoice_blocking` might result in two calls to fork
-        // choice updated, one *without* payload attributes and then a second *with*
-        // payload attributes.
-        //
-        // This seems OK. It's not a significant waste of EL<>CL bandwidth or resources, as
-        // far as I know.
-        if let Err(e) = self.prepare_beacon_proposer_blocking() {
-            crit!(
-                self.log,
-                "Failed to prepare proposers after fork choice";
-                "error" => ?e
-            );
-        }
-
-        Ok(())
-    }
-
-    /// Attempt to detect if the new head is not on the same chain as the previous block
-    /// (i.e., a re-org).
-    ///
-    /// Note: this will declare a re-org if we skip `SLOTS_PER_HISTORICAL_ROOT` blocks
-    /// between calls to fork choice without swapping between chains. This seems like an
-    /// extreme-enough scenario that a warning is fine.
-    pub fn detect_reorg(
-        old_state: &BeaconState<T::EthSpec>,
-        old_block_root: Hash256,
-        new_state: &BeaconState<T::EthSpec>,
-        new_block_root: Hash256,
-        spec: &ChainSpec,
-        log: &Logger,
-    ) -> Option<Slot> {
-        let is_reorg = new_state
-            .get_block_root(old_state.slot())
-            .map_or(true, |root| *root != old_block_root);
-
-        if is_reorg {
-            let reorg_distance = match Self::find_reorg_slot(
-                old_state,
-                old_block_root,
-                new_state,
-                new_block_root,
-                spec,
-            ) {
-                Ok(slot) => old_state.slot().saturating_sub(slot),
-                Err(e) => {
-                    warn!(
-                        log,
-                        "Could not find re-org depth";
-                        "error" => format!("{:?}", e),
-                    );
-                    return None;
-                }
-            };
-
-            metrics::inc_counter(&metrics::FORK_CHOICE_REORG_COUNT);
-            metrics::inc_counter(&metrics::FORK_CHOICE_REORG_COUNT_INTEROP);
-            warn!(
-                log,
-                "Beacon chain re-org";
-                "previous_head" => ?old_block_root,
-                "previous_slot" => old_state.slot(),
-                "new_head" => ?new_block_root,
-                "new_slot" => new_state.slot(),
-                "reorg_distance" => reorg_distance,
-            );
-
-            Some(reorg_distance)
-        } else {
-            None
-        }
-    }
-
-    /// Iterate through the current chain to find the slot intersecting with the given beacon state.
-    /// The maximum depth this will search is `SLOTS_PER_HISTORICAL_ROOT`, and if that depth is reached
-    /// and no intersection is found, the finalized slot will be returned.
-    pub fn find_reorg_slot(
-        old_state: &BeaconState<T::EthSpec>,
-        old_block_root: Hash256,
-        new_state: &BeaconState<T::EthSpec>,
-        new_block_root: Hash256,
-        spec: &ChainSpec,
-    ) -> Result<Slot, Error> {
-        // The earliest slot for which the two chains may have a common history.
-        let lowest_slot = std::cmp::min(new_state.slot(), old_state.slot());
-
-        // Create an iterator across `$state`, assuming that the block at `$state.slot` has the
-        // block root of `$block_root`.
-        //
-        // The iterator will be skipped until the next value returns `lowest_slot`.
-        //
-        // This is a macro instead of a function or closure due to the complex types invloved
-        // in all the iterator wrapping.
-        macro_rules! aligned_roots_iter {
-            ($state: ident, $block_root: ident) => {
-                std::iter::once(Ok(($state.slot(), $block_root)))
-                    .chain($state.rev_iter_block_roots(spec))
-                    .skip_while(|result| {
-                        result
-                            .as_ref()
-                            .map_or(false, |(slot, _)| *slot > lowest_slot)
-                    })
-            };
-        }
-
-        // Create iterators across old/new roots where iterators both start at the same slot.
-        let mut new_roots = aligned_roots_iter!(new_state, new_block_root);
-        let mut old_roots = aligned_roots_iter!(old_state, old_block_root);
-
-        // Whilst *both* of the iterators are still returning values, try and find a common
-        // ancestor between them.
-        while let (Some(old), Some(new)) = (old_roots.next(), new_roots.next()) {
-            let (old_slot, old_root) = old?;
-            let (new_slot, new_root) = new?;
-
-            // Sanity check to detect programming errors.
-            if old_slot != new_slot {
-                return Err(Error::InvalidReorgSlotIter { new_slot, old_slot });
-            }
-
-            if old_root == new_root {
-                // A common ancestor has been found.
-                return Ok(old_slot);
-            }
-        }
-
-        // If no common ancestor is found, declare that the re-org happened at the previous
-        // finalized slot.
-        //
-        // Sometimes this will result in the return slot being *lower* than the actual reorg
-        // slot. However, assuming we don't re-org through a finalized slot, it will never be
-        // *higher*.
-        //
-        // We provide this potentially-inaccurate-but-safe information to avoid onerous
-        // database reads during times of deep reorgs.
-        Ok(old_state
-            .finalized_checkpoint()
-            .epoch
-            .start_slot(T::EthSpec::slots_per_epoch()))
-    }
-
-    fn observe_head_block_delays(
-        block_times_cache: &mut BlockTimesCache,
-        head_block: &ProtoBlock,
-        head_block_proposer_index: u64,
-        head_block_graffiti: String,
-        slot_clock: &T::SlotClock,
-        event_handler: Option<&ServerSentEventHandler<T::EthSpec>>,
-        log: &Logger,
-    ) {
-        let block_time_set_as_head = timestamp_now();
-        let head_block_root = head_block.root;
-        let head_block_slot = head_block.slot;
-
-        // Calculate the total delay between the start of the slot and when it was set as head.
-        let block_delay_total =
-            get_slot_delay_ms(block_time_set_as_head, head_block_slot, slot_clock);
-
-        // Do not write to the cache for blocks older than 2 epochs, this helps reduce writes to
-        // the cache during sync.
-        if block_delay_total < slot_clock.slot_duration() * 64 {
-            block_times_cache.set_time_set_as_head(
-                head_block_root,
-                head_block_slot,
-                block_time_set_as_head,
-            );
-        }
-
-        // If a block comes in from over 4 slots ago, it is most likely a block from sync.
-        let block_from_sync = block_delay_total > slot_clock.slot_duration() * 4;
-
-        // Determine whether the block has been set as head too late for proper attestation
-        // production.
-        let late_head = block_delay_total >= slot_clock.unagg_attestation_production_delay();
-
-        // Do not store metrics if the block was > 4 slots old, this helps prevent noise during
-        // sync.
-        if !block_from_sync {
-            // Observe the total block delay. This is the delay between the time the slot started
-            // and when the block was set as head.
-            metrics::observe_duration(
-                &metrics::BEACON_BLOCK_HEAD_SLOT_START_DELAY_TIME,
-                block_delay_total,
-            );
-
-            // Observe the delay between when we imported the block and when we set the block as
-            // head.
-            let block_delays = block_times_cache.get_block_delays(
-                head_block_root,
-                slot_clock
-                    .start_of(head_block_slot)
-                    .unwrap_or_else(|| Duration::from_secs(0)),
-            );
-
-            metrics::observe_duration(
-                &metrics::BEACON_BLOCK_OBSERVED_SLOT_START_DELAY_TIME,
-                block_delays
-                    .observed
-                    .unwrap_or_else(|| Duration::from_secs(0)),
-            );
-
-            metrics::observe_duration(
-                &metrics::BEACON_BLOCK_HEAD_IMPORTED_DELAY_TIME,
-                block_delays
-                    .set_as_head
-                    .unwrap_or_else(|| Duration::from_secs(0)),
-            );
-
-            // If the block was enshrined as head too late for attestations to be created for it,
-            // log a debug warning and increment a metric.
-            if late_head {
-                metrics::inc_counter(&metrics::BEACON_BLOCK_HEAD_SLOT_START_DELAY_EXCEEDED_TOTAL);
-                debug!(
-                    log,
-                    "Delayed head block";
-                    "block_root" => ?head_block_root,
-                    "proposer_index" => head_block_proposer_index,
-                    "slot" => head_block_slot,
-                    "block_delay" => ?block_delay_total,
-                    "observed_delay" => ?block_delays.observed,
-                    "imported_delay" => ?block_delays.imported,
-                    "set_as_head_delay" => ?block_delays.set_as_head,
-                );
-            }
-        }
-
-        if let Some(event_handler) = event_handler {
-            if !block_from_sync && late_head && event_handler.has_late_head_subscribers() {
-                let peer_info = block_times_cache.get_peer_info(head_block_root);
-                let block_delays = block_times_cache.get_block_delays(
-                    head_block_root,
-                    slot_clock
-                        .start_of(head_block_slot)
-                        .unwrap_or_else(|| Duration::from_secs(0)),
-                );
-                event_handler.register(EventKind::LateHead(SseLateHead {
-                    slot: head_block_slot,
-                    block: head_block_root,
-                    peer_id: peer_info.id,
-                    peer_client: peer_info.client,
-                    proposer_index: head_block_proposer_index,
-                    proposer_graffiti: head_block_graffiti,
-                    block_delay: block_delay_total,
-                    observed_delay: block_delays.observed,
-                    imported_delay: block_delays.imported,
-                    set_as_head_delay: block_delays.set_as_head,
-                    execution_optimistic: head_block.execution_status.is_optimistic(),
-                }));
-            }
-        }
     }
 
     pub fn prepare_beacon_proposer_blocking(self: &Arc<Self>) -> Result<(), Error> {
@@ -4512,68 +3997,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             self.naive_aggregation_pool.write().prune(slot);
             self.block_times_cache.write().prune(slot);
         }
-    }
-
-    /// Called after `self` has had a new block finalized.
-    ///
-    /// Performs pruning and finality-based optimizations.
-    fn after_finalization(
-        &self,
-        head_state: &BeaconState<T::EthSpec>,
-        new_finalized_state_root: Hash256,
-    ) -> Result<(), Error> {
-        self.canonical_head.write().fork_choice.prune()?;
-        let new_finalized_checkpoint = head_state.finalized_checkpoint();
-
-        self.observed_block_producers.write().prune(
-            new_finalized_checkpoint
-                .epoch
-                .start_slot(T::EthSpec::slots_per_epoch()),
-        );
-
-        self.snapshot_cache
-            .try_write_for(BLOCK_PROCESSING_CACHE_LOCK_TIMEOUT)
-            .map(|mut snapshot_cache| {
-                snapshot_cache.prune(new_finalized_checkpoint.epoch);
-                debug!(
-                    self.log,
-                    "Snapshot cache pruned";
-                    "new_len" => snapshot_cache.len(),
-                    "remaining_roots" => ?snapshot_cache.beacon_block_roots(),
-                );
-            })
-            .unwrap_or_else(|| {
-                error!(
-                    self.log,
-                    "Failed to obtain cache write lock";
-                    "lock" => "snapshot_cache",
-                    "task" => "prune"
-                );
-            });
-
-        self.op_pool.prune_all(head_state, self.epoch()?);
-
-        self.store_migrator.process_finalization(
-            new_finalized_state_root.into(),
-            new_finalized_checkpoint,
-            self.head_tracker.clone(),
-        )?;
-
-        self.attester_cache
-            .prune_below(new_finalized_checkpoint.epoch);
-
-        if let Some(event_handler) = self.event_handler.as_ref() {
-            if event_handler.has_finalized_subscribers() {
-                event_handler.register(EventKind::FinalizedCheckpoint(SseFinalizedCheckpoint {
-                    epoch: new_finalized_checkpoint.epoch,
-                    block: new_finalized_checkpoint.root,
-                    state: new_finalized_state_root,
-                    execution_optimistic: self.is_optimistic_head()?,
-                }));
-            }
-        }
-
-        Ok(())
     }
 
     /// Runs the `map_fn` with the committee cache for `shuffling_epoch` from the chain with head
