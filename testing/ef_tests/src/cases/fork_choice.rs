@@ -289,8 +289,7 @@ impl<E: EthSpec> Tester<E> {
 
     fn find_head(&self) -> Result<ChainSummary, Error> {
         self.harness
-            .chain
-            .fork_choice()
+            .recompute_head_blocking()
             .map_err(|e| Error::InternalError(format!("failed to find head with {:?}", e)))?;
         Ok(self.harness.chain.chain_summary())
     }

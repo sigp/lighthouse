@@ -269,6 +269,22 @@ impl TaskExecutor {
         Some(future)
     }
 
+    /// Block the current (non-async) thread on the completion of some future.
+    ///
+    /// ## Warning
+    ///
+    /// This method is "dangerous" since calling it from a non-async thread will result in a panic!
+    pub fn block_on_dangerous<F: Future>(
+        &self,
+        future: F,
+        _name: &'static str,
+    ) -> Option<F::Output>
+where {
+        let runtime = self.runtime.upgrade()?;
+        // TODO(paul): respect the shutdown signal and the name.
+        Some(runtime.block_on(future))
+    }
+
     pub fn runtime(&self) -> Weak<Runtime> {
         self.runtime.clone()
     }

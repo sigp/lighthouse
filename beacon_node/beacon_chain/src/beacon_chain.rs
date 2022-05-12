@@ -3249,7 +3249,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// results in the justified checkpoint being invalidated.
     ///
     /// See the documentation of `InvalidationOperation` for information about defining `op`.
-    pub fn process_invalid_execution_payload(
+    pub async fn process_invalid_execution_payload(
         self: &Arc<Self>,
         op: &InvalidationOperation,
     ) -> Result<(), Error> {
@@ -3281,7 +3281,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         //
         // Don't return early though, since invalidating the justified checkpoint might cause an
         // error here.
-        if let Err(e) = self.fork_choice() {
+        if let Err(e) = self.recompute_head().await {
             crit!(
                 self.log,
                 "Failed to run fork choice routine";
@@ -3330,12 +3330,34 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         self.canonical_head.read().fork_choice.contains_block(root)
     }
 
+    pub fn spawn_recompute_head(self: Arc<Self>, call_location: &'static str) {
+        self.task_executor.clone().spawn(
+            async move {
+                if let Err(e) = self.recompute_head().await {
+                    error!(
+                        self.log,
+                        "Fork choice failed";
+                        "error" => ?e,
+                        "location" => call_location
+                    )
+                } else {
+                    trace!(
+                        self.log,
+                        "Fork choice success";
+                        "location" => call_location
+                    )
+                }
+            },
+            "spawn_recompute_head",
+        )
+    }
+
     /// Execute the fork choice algorithm and enthrone the result as the canonical head.
-    pub fn fork_choice(self: &Arc<Self>) -> Result<(), Error> {
+    pub async fn recompute_head(self: &Arc<Self>) -> Result<(), Error> {
         metrics::inc_counter(&metrics::FORK_CHOICE_REQUESTS);
         let _timer = metrics::start_timer(&metrics::FORK_CHOICE_TIMES);
 
-        let result = self.recompute_head();
+        let result = self.recompute_head_internal().await;
 
         if result.is_err() {
             metrics::inc_counter(&metrics::FORK_CHOICE_ERRORS);
@@ -3775,24 +3797,14 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     );
                     // The execution engine has stated that all blocks between the
                     // `head_execution_block_hash` and `latest_valid_hash` are invalid.
-                    let chain = self.clone();
-                    execution_layer
-                        .executor()
-                        .spawn_blocking_handle(
-                            move || {
-                                chain.process_invalid_execution_payload(
-                                    &InvalidationOperation::InvalidateMany {
-                                        head_block_root,
-                                        always_invalidate_head: true,
-                                        latest_valid_ancestor: latest_valid_hash,
-                                    },
-                                )
-                            },
-                            "process_invalid_execution_payload_many",
-                        )
-                        .ok_or(BeaconChainError::RuntimeShutdown)?
-                        .await
-                        .map_err(BeaconChainError::ProcessInvalidExecutionPayload)??;
+                    self.process_invalid_execution_payload(
+                        &InvalidationOperation::InvalidateMany {
+                            head_block_root,
+                            always_invalidate_head: true,
+                            latest_valid_ancestor: latest_valid_hash,
+                        },
+                    )
+                    .await?;
 
                     Err(BeaconChainError::ExecutionForkChoiceUpdateInvalid { status })
                 }
@@ -3808,22 +3820,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     //
                     // Using a `None` latest valid ancestor will result in only the head block
                     // being invalidated (no ancestors).
-                    let chain = self.clone();
-                    execution_layer
-                        .executor()
-                        .spawn_blocking_handle(
-                            move || {
-                                chain.process_invalid_execution_payload(
-                                    &InvalidationOperation::InvalidateOne {
-                                        block_root: head_block_root,
-                                    },
-                                )
-                            },
-                            "process_invalid_execution_payload_single",
-                        )
-                        .ok_or(BeaconChainError::RuntimeShutdown)?
-                        .await
-                        .map_err(BeaconChainError::ProcessInvalidExecutionPayload)??;
+                    self.process_invalid_execution_payload(&InvalidationOperation::InvalidateOne {
+                        block_root: head_block_root,
+                    })
+                    .await?;
 
                     Err(BeaconChainError::ExecutionForkChoiceUpdateInvalid { status })
                 }

@@ -198,7 +198,9 @@ fn advance_head<T: BeaconChainTypes>(
     // This is useful since it's quite likely that the last time we ran fork choice was shortly
     // after receiving the latest gossip block, but not necessarily after we've received the
     // majority of attestations.
-    beacon_chain.fork_choice()?;
+    //
+    // TODO(paul): try and re-enable this.
+    // beacon_chain.fork_choice()?;
 
     let head_root = beacon_chain.chain_summary().head_block_root;
 

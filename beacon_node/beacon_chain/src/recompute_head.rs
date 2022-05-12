@@ -18,7 +18,7 @@ use task_executor::ShutdownReason;
 use types::*;
 
 impl<T: BeaconChainTypes> BeaconChain<T> {
-    pub(crate) fn recompute_head(self: &Arc<Self>) -> Result<(), Error> {
+    pub(crate) async fn recompute_head_internal(self: &Arc<Self>) -> Result<(), Error> {
         let mut canonical_head_write_lock = self.canonical_head.write();
 
         // Take note of the last-known head and finalization values.
@@ -194,7 +194,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// # Deadlock Warning
     ///
     /// Taking a write lock on the `self.canonical_head` in this function will result in a deadlock!
-    /// This is because `Self::recompute_head` will already be holding a read-lock.
+    /// This is because `Self::recompute_head_internal` will already be holding a read-lock.
     fn after_new_head(
         self: &Arc<Self>,
         old_head: &BeaconSnapshot<T::EthSpec>,

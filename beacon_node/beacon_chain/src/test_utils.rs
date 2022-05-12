@@ -1346,6 +1346,15 @@ where
         (deposits, state)
     }
 
+    pub fn recompute_head_blocking(&self) -> Result<(), BeaconChainError> {
+        let chain = self.chain.clone();
+        self.chain
+            .task_executor
+            .clone()
+            .block_on_dangerous(chain.recompute_head(), "recompute_head_blocking")
+            .ok_or(BeaconChainError::RuntimeShutdown)?
+    }
+
     pub fn process_block(
         &self,
         slot: Slot,
@@ -1353,7 +1362,7 @@ where
     ) -> Result<SignedBeaconBlockHash, BlockError<E>> {
         self.set_current_slot(slot);
         let block_hash: SignedBeaconBlockHash = self.chain.process_block(block)?.into();
-        self.chain.fork_choice()?;
+        self.recompute_head_blocking()?;
         Ok(block_hash)
     }
 
@@ -1362,7 +1371,7 @@ where
         block: SignedBeaconBlock<E>,
     ) -> Result<SignedBeaconBlockHash, BlockError<E>> {
         let block_hash: SignedBeaconBlockHash = self.chain.process_block(block)?.into();
-        self.chain.fork_choice().unwrap();
+        self.recompute_head_blocking().unwrap();
         Ok(block_hash)
     }
 
