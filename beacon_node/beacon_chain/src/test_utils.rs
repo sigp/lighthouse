@@ -31,10 +31,7 @@ use rayon::prelude::*;
 use sensitive_url::SensitiveUrl;
 use slog::Logger;
 use slot_clock::TestingSlotClock;
-use state_processing::{
-    state_advance::{complete_state_advance, partial_state_advance},
-    StateRootStrategy,
-};
+use state_processing::{BlockSignatureStrategy, per_block_processing, state_advance::{complete_state_advance, partial_state_advance}, StateRootStrategy, VerifyBlockRoot};
 use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
 use std::str::FromStr;
@@ -1244,10 +1241,31 @@ where
         assert_ne!(slot, 0, "can't produce a block at slot 0");
         assert!(slot >= state.slot());
 
-        let (block, state) = self.make_block_return_pre_state(state, slot);
+        let (block, pre_state) = self.make_block_return_pre_state(state, slot);
         let (mut block, _) = block.deconstruct();
 
+        let mut state = pre_state.clone();
+
         block_modifier(&mut block);
+
+        // Update the state root of the modified block to make sure it remains valid.
+        let mut signed_block = SignedBeaconBlock::from_block(
+            block,
+            // The block is not signed here, that is the task of a validator client.
+            Signature::empty(),
+        );
+
+        per_block_processing(
+            &mut state,
+            &signed_block,
+            None,
+            BlockSignatureStrategy::NoVerification,
+            VerifyBlockRoot::True,
+            &self.spec,
+        ).unwrap();
+
+        signed_block.message_altair_mut().unwrap().state_root = state.canonical_root();
+        let (mut block, _) = signed_block.deconstruct();
 
         let proposer_index = state.get_beacon_proposer_index(slot, &self.spec).unwrap();
 
@@ -1257,7 +1275,7 @@ where
             state.genesis_validators_root(),
             &self.spec,
         );
-        (signed_block, state)
+        (signed_block, pre_state)
     }
 
     pub fn make_deposits<'a>(
