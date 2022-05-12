@@ -183,7 +183,7 @@ impl ApiTester {
             external_peer_id,
         } = create_api_server(chain.clone(), log).await;
 
-        harness.executor.spawn(server, "api_server");
+        harness.task_executor.spawn(server, "api_server");
 
         let client = BeaconNodeHttpClient::new(
             SensitiveUrl::parse(&format!(
@@ -262,7 +262,7 @@ impl ApiTester {
             external_peer_id,
         } = create_api_server(chain.clone(), log).await;
 
-        harness.executor.spawn(server, "api_server");
+        harness.task_executor.spawn(server, "api_server");
 
         let client = BeaconNodeHttpClient::new(
             SensitiveUrl::parse(&format!(
@@ -337,7 +337,7 @@ impl ApiTester {
             BlockId(CoreBlockId::Root(Hash256::zero())),
         ];
         ids.push(BlockId(CoreBlockId::Root(
-            self.chain.chain_summary().block_root,
+            self.chain.chain_summary().head_block_root,
         )));
         ids
     }
