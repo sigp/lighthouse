@@ -35,4 +35,8 @@ lazy_static::lazy_static! {
         "execution_layer_get_payload_by_block_hash_time",
         "Time to reconstruct a payload from the EE using eth_getBlockByHash"
     );
+    pub static ref BUILDER_VALIDATOR_REGISTRATION_DATA: Result<IntCounter> = try_create_int_counter(
+        "builder_validator_registration_data",
+        "Count of times new validator registration data is supplied",
+    );
 }
