@@ -304,11 +304,7 @@ impl ExecutionLayer {
         T: Fn(&'a Self) -> U,
         U: Future<Output = Result<V, Error>>,
     {
-        let runtime = self
-            .executor()
-            .runtime()
-            .upgrade()
-            .ok_or(Error::ShuttingDown)?;
+        let runtime = self.executor().handle().ok_or(Error::ShuttingDown)?;
         // TODO(merge): respect the shutdown signal.
         runtime.block_on(generate_future(self))
     }
@@ -322,11 +318,7 @@ impl ExecutionLayer {
         T: Fn(&'a Self) -> U,
         U: Future<Output = V>,
     {
-        let runtime = self
-            .executor()
-            .runtime()
-            .upgrade()
-            .ok_or(Error::ShuttingDown)?;
+        let runtime = self.executor().handle().ok_or(Error::ShuttingDown)?;
         // TODO(merge): respect the shutdown signal.
         Ok(runtime.block_on(generate_future(self)))
     }

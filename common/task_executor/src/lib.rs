@@ -5,7 +5,7 @@ use futures::channel::mpsc::Sender;
 use futures::prelude::*;
 use slog::{crit, debug, o, trace};
 use std::sync::Weak;
-pub use tokio::runtime::Runtime;
+use tokio::runtime;
 
 /// Provides a reason when Lighthouse is shut down.
 #[derive(Copy, Clone, Debug, PartialEq)]
@@ -25,11 +25,40 @@ impl ShutdownReason {
     }
 }
 
+#[derive(Clone)]
+pub enum Handle {
+    Runtime(Weak<runtime::Runtime>),
+    Handle(runtime::Handle),
+}
+
+impl From<runtime::Handle> for Handle {
+    fn from(handle: runtime::Handle) -> Self {
+        Handle::Handle(handle)
+    }
+}
+
+impl From<Weak<runtime::Runtime>> for Handle {
+    fn from(weak_runtime: Weak<runtime::Runtime>) -> Self {
+        Handle::Runtime(weak_runtime)
+    }
+}
+
+impl Handle {
+    pub fn handle(&self) -> Option<runtime::Handle> {
+        match self {
+            Handle::Runtime(weak_runtime) => weak_runtime
+                .upgrade()
+                .map(|runtime| runtime.handle().clone()),
+            Handle::Handle(handle) => Some(handle.clone()),
+        }
+    }
+}
+
 /// A wrapper over a runtime handle which can spawn async and blocking tasks.
 #[derive(Clone)]
 pub struct TaskExecutor {
     /// The handle to the runtime on which tasks are spawned
-    runtime: Weak<Runtime>,
+    handle: Handle,
     /// The receiver exit future which on receiving shuts down the task
     exit: exit_future::Exit,
     /// Sender given to tasks, so that if they encounter a state in which execution cannot
@@ -43,17 +72,14 @@ pub struct TaskExecutor {
 
 impl TaskExecutor {
     /// Create a new task executor.
-    ///
-    /// Note: this function is mainly useful in tests. A `TaskExecutor` should be normally obtained from
-    /// a [`RuntimeContext`](struct.RuntimeContext.html)
-    pub fn new(
-        runtime: Weak<Runtime>,
+    pub fn new<T: Into<Handle>>(
+        handle: T,
         exit: exit_future::Exit,
         log: slog::Logger,
         signal_tx: Sender<ShutdownReason>,
     ) -> Self {
         Self {
-            runtime,
+            handle: handle.into(),
             exit,
             signal_tx,
             log,
@@ -63,7 +89,7 @@ impl TaskExecutor {
     /// Clones the task executor adding a service name.
     pub fn clone_with_name(&self, service_name: String) -> Self {
         TaskExecutor {
-            runtime: self.runtime.clone(),
+            handle: self.handle.clone(),
             exit: self.exit.clone(),
             signal_tx: self.signal_tx.clone(),
             log: self.log.new(o!("service" => service_name)),
@@ -95,8 +121,8 @@ impl TaskExecutor {
         let mut shutdown_sender = self.shutdown_sender();
         let log = self.log.clone();
 
-        if let Some(runtime) = self.runtime.upgrade() {
-            runtime.spawn(async move {
+        if let Some(handle) = self.handle.handle() {
+            handle.spawn(async move {
                 let timer = metrics::start_timer_vec(&metrics::TASKS_HISTOGRAM, &[name]);
                 if let Err(join_error) = task_handle.await {
                     if let Ok(panic) = join_error.try_into_panic() {
@@ -161,8 +187,8 @@ impl TaskExecutor {
             });
 
             int_gauge.inc();
-            if let Some(runtime) = self.runtime.upgrade() {
-                runtime.spawn(future);
+            if let Some(handle) = self.handle.handle() {
+                handle.spawn(future);
             } else {
                 debug!(self.log, "Couldn't spawn task. Runtime shutting down");
             }
@@ -212,8 +238,8 @@ impl TaskExecutor {
             });
 
             int_gauge.inc();
-            if let Some(runtime) = self.runtime.upgrade() {
-                Some(runtime.spawn(future))
+            if let Some(handle) = self.handle.handle() {
+                Some(handle.spawn(future))
             } else {
                 debug!(self.log, "Couldn't spawn task. Runtime shutting down");
                 None
@@ -243,8 +269,8 @@ impl TaskExecutor {
         let timer = metrics::start_timer_vec(&metrics::BLOCKING_TASKS_HISTOGRAM, &[name]);
         metrics::inc_gauge_vec(&metrics::BLOCKING_TASKS_COUNT, &[name]);
 
-        let join_handle = if let Some(runtime) = self.runtime.upgrade() {
-            runtime.spawn_blocking(task)
+        let join_handle = if let Some(handle) = self.handle.handle() {
+            handle.spawn_blocking(task)
         } else {
             debug!(self.log, "Couldn't spawn task. Runtime shutting down");
             return None;
@@ -269,8 +295,8 @@ impl TaskExecutor {
         Some(future)
     }
 
-    pub fn runtime(&self) -> Weak<Runtime> {
-        self.runtime.clone()
+    pub fn handle(&self) -> Option<runtime::Handle> {
+        self.handle.handle()
     }
 
     /// Returns a copy of the `exit_future::Exit`.

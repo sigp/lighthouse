@@ -32,8 +32,7 @@ impl<T: EthSpec> MockExecutionLayer<T> {
         terminal_block_hash: ExecutionBlockHash,
         terminal_block_hash_activation_epoch: Epoch,
     ) -> Self {
-        let runtime = executor.runtime().upgrade().unwrap();
-        let handle = runtime.handle();
+        let handle = executor.handle().unwrap();
 
         let mut spec = T::default_spec();
         spec.terminal_total_difficulty = terminal_total_difficulty;
@@ -41,7 +40,7 @@ impl<T: EthSpec> MockExecutionLayer<T> {
         spec.terminal_block_hash_activation_epoch = terminal_block_hash_activation_epoch;
 
         let server = MockServer::new(
-            handle,
+            &handle,
             terminal_total_difficulty,
             terminal_block,
             terminal_block_hash,

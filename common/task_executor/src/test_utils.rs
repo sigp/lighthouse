@@ -2,6 +2,7 @@ use crate::TaskExecutor;
 use slog::Logger;
 use sloggers::{null::NullLoggerBuilder, Build};
 use std::sync::Arc;
+use tokio::runtime;
 
 pub struct TestRuntime {
     pub runtime: Option<Arc<tokio::runtime::Runtime>>,
@@ -12,20 +13,27 @@ pub struct TestRuntime {
 
 impl Default for TestRuntime {
     fn default() -> Self {
-        let runtime = Arc::new(
-            tokio::runtime::Builder::new_multi_thread()
-                .enable_all()
-                .build()
-                .unwrap(),
-        );
         let (runtime_shutdown, exit) = exit_future::signal();
         let (shutdown_tx, _) = futures::channel::mpsc::channel(1);
         let log = null_logger().unwrap();
-        let task_executor =
-            TaskExecutor::new(Arc::downgrade(&runtime), exit, log.clone(), shutdown_tx);
+
+        let (runtime, handle) = if let Ok(handle) = runtime::Handle::try_current() {
+            (None, handle)
+        } else {
+            let runtime = Arc::new(
+                runtime::Builder::new_multi_thread()
+                    .enable_all()
+                    .build()
+                    .unwrap(),
+            );
+            let handle = runtime.handle().clone();
+            (Some(runtime), handle)
+        };
+
+        let task_executor = TaskExecutor::new(handle, exit, log.clone(), shutdown_tx);
 
         Self {
-            runtime: Some(runtime),
+            runtime,
             _runtime_shutdown: runtime_shutdown,
             task_executor,
             log,

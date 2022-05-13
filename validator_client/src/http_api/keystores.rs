@@ -14,8 +14,8 @@ use slog::{info, warn, Logger};
 use slot_clock::SlotClock;
 use std::path::PathBuf;
 use std::sync::Arc;
-use std::sync::Weak;
-use tokio::runtime::Runtime;
+use task_executor::TaskExecutor;
+use tokio::runtime::Handle;
 use types::{EthSpec, PublicKeyBytes};
 use validator_dir::Builder as ValidatorDirBuilder;
 use warp::Rejection;
@@ -59,7 +59,7 @@ pub fn import<T: SlotClock + 'static, E: EthSpec>(
     request: ImportKeystoresRequest,
     validator_dir: PathBuf,
     validator_store: Arc<ValidatorStore<T, E>>,
-    runtime: Weak<Runtime>,
+    task_executor: TaskExecutor,
     log: Logger,
 ) -> Result<ImportKeystoresResponse, Rejection> {
     // Check request validity. This is the only cases in which we should return a 4xx code.
@@ -122,14 +122,14 @@ pub fn import<T: SlotClock + 'static, E: EthSpec>(
                 ImportKeystoreStatus::Error,
                 format!("slashing protection import failed: {:?}", e),
             )
-        } else if let Some(runtime) = runtime.upgrade() {
+        } else if let Some(handle) = task_executor.handle() {
             // Import the keystore.
             match import_single_keystore(
                 keystore,
                 password,
                 validator_dir.clone(),
                 &validator_store,
-                runtime,
+                handle,
             ) {
                 Ok(status) => Status::ok(status),
                 Err(e) => {
@@ -159,7 +159,7 @@ fn import_single_keystore<T: SlotClock + 'static, E: EthSpec>(
     password: ZeroizeString,
     validator_dir_path: PathBuf,
     validator_store: &ValidatorStore<T, E>,
-    runtime: Arc<Runtime>,
+    handle: Handle,
 ) -> Result<ImportKeystoreStatus, String> {
     // Check if the validator key already exists, erroring if it is a remote signer validator.
     let pubkey = keystore
@@ -198,7 +198,7 @@ fn import_single_keystore<T: SlotClock + 'static, E: EthSpec>(
     let voting_keystore_path = validator_dir.voting_keystore_path();
     drop(validator_dir);
 
-    runtime
+    handle
         .block_on(validator_store.add_validator_keystore(
             voting_keystore_path,
             password,
@@ -214,7 +214,7 @@ fn import_single_keystore<T: SlotClock + 'static, E: EthSpec>(
 pub fn delete<T: SlotClock + 'static, E: EthSpec>(
     request: DeleteKeystoresRequest,
     validator_store: Arc<ValidatorStore<T, E>>,
-    runtime: Weak<Runtime>,
+    task_executor: TaskExecutor,
     log: Logger,
 ) -> Result<DeleteKeystoresResponse, Rejection> {
     // Remove from initialized validators.
@@ -225,8 +225,11 @@ pub fn delete<T: SlotClock + 'static, E: EthSpec>(
         .pubkeys
         .iter()
         .map(|pubkey_bytes| {
-            match delete_single_keystore(pubkey_bytes, &mut initialized_validators, runtime.clone())
-            {
+            match delete_single_keystore(
+                pubkey_bytes,
+                &mut initialized_validators,
+                task_executor.clone(),
+            ) {
                 Ok(status) => Status::ok(status),
                 Err(error) => {
                     warn!(
@@ -244,8 +247,8 @@ pub fn delete<T: SlotClock + 'static, E: EthSpec>(
     // Use `update_validators` to update the key cache. It is safe to let the key cache get a bit out
     // of date as it resets when it can't be decrypted. We update it just a single time to avoid
     // continually resetting it after each key deletion.
-    if let Some(runtime) = runtime.upgrade() {
-        runtime
+    if let Some(handle) = task_executor.handle() {
+        handle
             .block_on(initialized_validators.update_validators())
             .map_err(|e| custom_server_error(format!("unable to update key cache: {:?}", e)))?;
     }
@@ -278,14 +281,14 @@ pub fn delete<T: SlotClock + 'static, E: EthSpec>(
 fn delete_single_keystore(
     pubkey_bytes: &PublicKeyBytes,
     initialized_validators: &mut InitializedValidators,
-    runtime: Weak<Runtime>,
+    task_executor: TaskExecutor,
 ) -> Result<DeleteKeystoreStatus, String> {
-    if let Some(runtime) = runtime.upgrade() {
+    if let Some(handle) = task_executor.handle() {
         let pubkey = pubkey_bytes
             .decompress()
             .map_err(|e| format!("invalid pubkey, {:?}: {:?}", pubkey_bytes, e))?;
 
-        match runtime.block_on(initialized_validators.delete_definition_and_keystore(&pubkey, true))
+        match handle.block_on(initialized_validators.delete_definition_and_keystore(&pubkey, true))
         {
             Ok(_) => Ok(DeleteKeystoreStatus::Deleted),
             Err(e) => match e {
