@@ -673,31 +673,6 @@ impl ApiTester {
         self
     }
 
-    fn get_block_root(&self, block_id: BlockId) -> Option<Hash256> {
-        match block_id {
-            BlockId::Head => Some(self.chain.head_info().unwrap().block_root),
-            BlockId::Genesis => Some(self.chain.genesis_block_root),
-            BlockId::Finalized => Some(self.chain.head_info().unwrap().finalized_checkpoint.root),
-            BlockId::Justified => Some(
-                self.chain
-                    .head_info()
-                    .unwrap()
-                    .current_justified_checkpoint
-                    .root,
-            ),
-            BlockId::Slot(slot) => self
-                .chain
-                .block_root_at_slot(slot, WhenSlotSkipped::None)
-                .unwrap(),
-            BlockId::Root(root) => Some(root),
-        }
-    }
-
-    async fn get_block(&self, block_id: BlockId) -> Option<SignedBeaconBlock<E>> {
-        let root = self.get_block_root(block_id)?;
-        self.chain.get_block(&root).await.unwrap()
-    }
-
     pub async fn test_beacon_headers_all_slots(self) -> Self {
         for slot in 0..CHAIN_LENGTH {
             let slot = Slot::from(slot);
@@ -790,11 +765,7 @@ impl ApiTester {
                 }
             }
 
-            let block_opt = if let Some(root) = block_root_opt {
-                self.chain.get_block(&root).await.unwrap()
-            } else {
-                None
-            };
+            let block_opt = block_id.full_block(&self.chain).await.ok();
 
             if block_opt.is_none() && result.is_none() {
                 continue;
@@ -880,7 +851,7 @@ impl ApiTester {
 
     pub async fn test_beacon_blocks(self) -> Self {
         for block_id in self.interesting_block_ids() {
-            let expected = block_id.block(&self.chain).ok();
+            let expected = block_id.full_block(&self.chain).await.ok();
 
             if let CoreBlockId::Slot(slot) = block_id.0 {
                 if expected.is_none() {
@@ -964,7 +935,8 @@ impl ApiTester {
                 .map(|res| res.data);
 
             let expected = block_id
-                .block(&self.chain)
+                .full_block(&self.chain)
+                .await
                 .ok()
                 .map(|block| block.message().body().attestations().clone().into());
 

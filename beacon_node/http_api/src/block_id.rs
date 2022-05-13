@@ -1,4 +1,4 @@
-use beacon_chain::{BeaconChain, BeaconChainTypes, WhenSlotSkipped};
+use beacon_chain::{BeaconChain, BeaconChainError, BeaconChainTypes, WhenSlotSkipped};
 use eth2::types::BlockId as CoreBlockId;
 use std::fmt;
 use std::str::FromStr;
@@ -56,7 +56,9 @@ impl BlockId {
                     )));
                 };
                 chain
-                    .get_block(root)
+                    .store
+                    .get_blinded_block(root)
+                    .map_err(BeaconChainError::DBError)
                     .map_err(warp_utils::reject::beacon_chain_error)?
                     .map(|block| block.canonical_root())
                     .ok_or_else(|| {
@@ -167,11 +169,11 @@ impl BlockId {
     }
 
     /// Returns the `block` along with the `execution_optimistic` value identified by `self`.
-    pub fn block_and_execution_optimistic<T: BeaconChainTypes>(
+    pub async fn full_block_and_execution_optimistic<T: BeaconChainTypes>(
         &self,
         chain: &BeaconChain<T>,
     ) -> Result<(SignedBeaconBlock<T::EthSpec>, bool), warp::Rejection> {
-        let block = self.block(chain)?;
+        let block = self.full_block(chain).await?;
         let execution_optimistic = match self.0 {
             // Genesis block is inherently verified.
             CoreBlockId::Genesis => false,
@@ -205,11 +207,12 @@ impl BlockId {
     }
 
     /// Convenience function to compute `execution_optimistic` when `block` is not desired.
-    pub fn is_execution_optimistic<T: BeaconChainTypes>(
+    pub async fn is_execution_optimistic<T: BeaconChainTypes>(
         &self,
         chain: &BeaconChain<T>,
     ) -> Result<bool, warp::Rejection> {
-        self.block_and_execution_optimistic(chain)
+        self.full_block_and_execution_optimistic(chain)
+            .await
             .map(|(_, execution_optimistic)| execution_optimistic)
     }
 }

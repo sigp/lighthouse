@@ -1485,7 +1485,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
             let execution_optimistic = self.is_optimistic_head_block(
                 &self
-                    .get_block(&head_block_root)?
+                    .store
+                    .get_full_block(&head_block_root)?
                     .ok_or(Error::MissingBeaconBlock(head_block_root))?,
             )?;
 

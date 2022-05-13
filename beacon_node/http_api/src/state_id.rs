@@ -1,4 +1,4 @@
-use beacon_chain::{BeaconChain, BeaconChainTypes};
+use beacon_chain::{BeaconChain, BeaconChainError, BeaconChainTypes};
 use eth2::types::StateId as CoreStateId;
 use std::fmt;
 use std::str::FromStr;
@@ -165,7 +165,9 @@ impl StateId {
                 chain
                     .is_optimistic_block(
                         &chain
-                            .get_block(&state.get_latest_block_root(state_root))
+                            .store
+                            .get_full_block(&state.get_latest_block_root(state_root))
+                            .map_err(BeaconChainError::DBError)
                             .map_err(warp_utils::reject::beacon_chain_error)?
                             .ok_or_else(|| {
                                 warp_utils::reject::custom_not_found(format!(
