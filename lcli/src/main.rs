@@ -597,7 +597,8 @@ fn main() {
                         .takes_value(true)
                         .help("The number of nodes to divide the validator keys to"),
                 )
-        ).get_matches();
+        )
+        .get_matches();
 
     let result = matches
         .value_of("spec")
