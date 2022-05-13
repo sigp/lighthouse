@@ -716,14 +716,6 @@ where
 
         let genesis_validators_root = head_snapshot.beacon_state.genesis_validators_root();
         let head_for_snapshot_cache = head_snapshot.clone();
-        let head_proto_block = fork_choice
-            .get_block(&head_snapshot.beacon_block_root)
-            .ok_or_else(|| {
-                format!(
-                    "Head block ({:?}) missing from fork choice",
-                    head_snapshot.beacon_block_root
-                )
-            })?;
         let fork_choice_view = fork_choice.cached_fork_choice_view();
         let canonical_head = CanonicalHead {
             fork_choice,
@@ -732,11 +724,6 @@ where
                 .beacon_state
                 .proposer_shuffling_decision_root(head_snapshot.beacon_block_root)
                 .map_err(|e| format!("Failed to determine shuffling root: {:?}", e))?,
-            head_random: *head_snapshot
-                .beacon_state
-                .get_randao_mix(head_snapshot.beacon_state.current_epoch())
-                .map_err(|e| format!("Failed to determine randao mix: {:?}", e))?,
-            head_execution_status: head_proto_block.execution_status,
             head_snapshot,
         };
 

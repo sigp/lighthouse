@@ -371,15 +371,16 @@ impl<T: BeaconChainTypes> Processor<T> {
 
 /// Build a `StatusMessage` representing the state of the given `beacon_chain`.
 pub(crate) fn status_message<T: BeaconChainTypes>(beacon_chain: &BeaconChain<T>) -> StatusMessage {
-    let chain_summary = beacon_chain.chain_summary();
     let fork_digest = beacon_chain.enr_fork_id().fork_digest;
+    let head = beacon_chain.canonical_head.read();
+    let finalized_checkpoint = head.finalized_checkpoint();
 
     StatusMessage {
         fork_digest,
-        finalized_root: chain_summary.finalized_checkpoint.root,
-        finalized_epoch: chain_summary.finalized_checkpoint.epoch,
-        head_root: chain_summary.head_block_root,
-        head_slot: chain_summary.head_slot,
+        finalized_root: finalized_checkpoint.root,
+        finalized_epoch: finalized_checkpoint.epoch,
+        head_root: head.head_root(),
+        head_slot: head.head_slot(),
     }
 }
 

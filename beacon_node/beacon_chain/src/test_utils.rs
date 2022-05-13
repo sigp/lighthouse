@@ -1112,11 +1112,11 @@ where
         let mut attestation_2 = attestation_1.clone();
         attestation_2.data.index += 1;
 
+        let fork = self.chain.canonical_head.read().head_fork();
         for attestation in &mut [&mut attestation_1, &mut attestation_2] {
             for &i in &attestation.attesting_indices {
                 let sk = &self.validator_keypairs[i as usize].sk;
 
-                let fork = self.chain.chain_summary().head_fork;
                 let genesis_validators_root = self.chain.genesis_validators_root;
 
                 let domain = self.chain.spec.get_domain(
@@ -1170,11 +1170,11 @@ where
 
         attestation_2.data.index += 1;
 
+        let fork = self.chain.canonical_head.read().head_fork();
         for attestation in &mut [&mut attestation_1, &mut attestation_2] {
             for &i in &attestation.attesting_indices {
                 let sk = &self.validator_keypairs[i as usize].sk;
 
-                let fork = self.chain.chain_summary().head_fork;
                 let genesis_validators_root = self.chain.genesis_validators_root;
 
                 let domain = self.chain.spec.get_domain(
@@ -1208,7 +1208,7 @@ where
         block_header_2.state_root = Hash256::zero();
 
         let sk = &self.validator_keypairs[validator_index as usize].sk;
-        let fork = self.chain.chain_summary().head_fork;
+        let fork = self.chain.canonical_head.read().head_fork();
         let genesis_validators_root = self.chain.genesis_validators_root;
 
         let mut signed_block_headers = vec![block_header_1, block_header_2]
@@ -1226,7 +1226,7 @@ where
 
     pub fn make_voluntary_exit(&self, validator_index: u64, epoch: Epoch) -> SignedVoluntaryExit {
         let sk = &self.validator_keypairs[validator_index as usize].sk;
-        let fork = self.chain.chain_summary().head_fork;
+        let fork = self.chain.canonical_head.read().head_fork();
         let genesis_validators_root = self.chain.genesis_validators_root;
 
         VoluntaryExit {
@@ -1630,7 +1630,7 @@ where
 
     /// Uses `Self::extend_chain` to build the chain out to the `target_slot`.
     pub fn extend_to_slot(&self, target_slot: Slot) -> Hash256 {
-        if self.chain.slot().unwrap() == self.chain.chain_summary().head_slot {
+        if self.chain.slot().unwrap() == self.chain.canonical_head.read().head_slot() {
             self.advance_slot();
         }
 
@@ -1651,7 +1651,7 @@ where
     ///  - BlockStrategy::OnCanonicalHead,
     ///  - AttestationStrategy::AllValidators,
     pub fn extend_slots(&self, num_slots: usize) -> Hash256 {
-        if self.chain.slot().unwrap() == self.chain.chain_summary().head_slot {
+        if self.chain.slot().unwrap() == self.chain.canonical_head.read().head_slot() {
             self.advance_slot();
         }
 

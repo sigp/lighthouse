@@ -53,13 +53,12 @@ use crate::BeaconSnapshot;
 use crate::{metrics, BeaconChainError};
 use eth2::types::{EventKind, SseBlock, SyncDuty};
 use execution_layer::{ExecutionLayer, PayloadAttributes, PayloadStatus};
-use fork_choice::{AttestationFromBlock, ForkChoice, ForkChoiceView, InvalidationOperation};
+use fork_choice::{AttestationFromBlock, ForkChoice, InvalidationOperation};
 use futures::channel::mpsc::Sender;
 use itertools::process_results;
 use itertools::Itertools;
 use operation_pool::{OperationPool, PersistedOperationPool};
 use parking_lot::{Mutex, RwLock};
-use proto_array::ExecutionStatus;
 use safe_arith::SafeArith;
 use slasher::Slasher;
 use slog::{crit, debug, error, info, trace, warn, Logger};
@@ -85,6 +84,8 @@ use store::{Error as DBError, HotColdDB, KeyValueStore, KeyValueStoreOp, StoreIt
 use task_executor::{ShutdownReason, TaskExecutor};
 use types::beacon_state::CloneConfig;
 use types::*;
+
+pub use crate::canonical_head::{CanonicalHead, ChainSummary};
 
 pub type ForkChoiceError = fork_choice::Error<crate::ForkChoiceStoreError>;
 
@@ -198,38 +199,6 @@ pub enum StateSkipConfig {
     /// This state is useful for operations that don't use the state roots; e.g., for calculating
     /// the shuffling.
     WithoutStateRoots,
-}
-
-#[derive(Clone, Debug, PartialEq)]
-pub struct ChainSummary {
-    pub head_slot: Slot,
-    pub head_block_root: Hash256,
-    pub head_state_root: Hash256,
-    pub head_proposer_shuffling_decision_root: Hash256,
-    pub head_execution_status: ExecutionStatus,
-    pub head_fork: Fork,
-    pub head_random: Hash256,
-    pub justified_checkpoint: types::Checkpoint,
-    pub finalized_checkpoint: types::Checkpoint,
-    pub genesis_time: u64,
-    pub genesis_validators_root: Hash256,
-    pub is_merge_transition_complete: bool,
-}
-
-pub struct CanonicalHead<T: BeaconChainTypes> {
-    /// Provides an in-memory representation of the non-finalized block tree and is used to run the
-    /// fork choice algorithm and determine the canonical head.
-    pub fork_choice: BeaconForkChoice<T>,
-    /// Provides cached values from a prior head elected by `self.fork_choice`.
-    pub fork_choice_view: ForkChoiceView,
-    /// Provides cached values from a prior head elected by `self.fork_choice`.
-    pub head_snapshot: BeaconSnapshot<T::EthSpec>,
-    /// Provides cached values from a prior head elected by `self.fork_choice`.
-    pub head_proposer_shuffling_decision_root: Hash256,
-    /// Provides cached values from a prior head elected by `self.fork_choice`.
-    pub head_random: Hash256,
-    /// Provides cached values from a prior head elected by `self.fork_choice`.
-    pub head_execution_status: ExecutionStatus,
 }
 
 #[derive(Debug, PartialEq)]
@@ -1074,57 +1043,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         .start_slot(T::EthSpec::slots_per_epoch());
 
         self.state_at_slot(load_slot, StateSkipConfig::WithoutStateRoots)
-    }
-
-    /// Returns info representing the head block and the state of the beacon chain.
-    ///
-    /// Can be used as a summarized version of `Self::head` that involves less cloning.
-    ///
-    /// ## Notes
-    ///
-    /// This method replaces the `BeaconChain::head_info` method. The `head_info` method was
-    /// deprecated since it provided the finalized/justified checkpoints of the *head block*,
-    /// rather than that of fork choice. It is important to use the values from fork choice since
-    /// it's possible that the finalized/justified values read from the head block state can go
-    /// "backwards" due to unrealized votes.
-    pub fn chain_summary(&self) -> ChainSummary {
-        let canonical_head_lock = self.canonical_head.read();
-        let head = &canonical_head_lock.head_snapshot;
-        let head_block = head.beacon_block.message();
-        let head_state = &head.beacon_state;
-        let fork_choice_view = &canonical_head_lock.fork_choice_view;
-        let head_execution_status = canonical_head_lock
-            .fork_choice
-            .get_block_execution_status(&head.beacon_block_root)
-            .unwrap_or_else(|| {
-                crit!(
-                    self.log,
-                    "Head block missing from fork choice";
-                    "info" => "using old execution status value, please report this bug"
-                );
-                // Use the execution status from when the block was set as the head. Using this
-                // backup ensures this function does not need to return a `Result`.
-                canonical_head_lock.head_execution_status
-            });
-
-        ChainSummary {
-            head_slot: head_block.slot(),
-            head_block_root: head.beacon_block_root,
-            head_state_root: head.beacon_block.state_root(),
-            head_proposer_shuffling_decision_root: canonical_head_lock
-                .head_proposer_shuffling_decision_root,
-            head_execution_status,
-            head_fork: head_state.fork(),
-            head_random: canonical_head_lock.head_random,
-            justified_checkpoint: fork_choice_view.justified_checkpoint,
-            finalized_checkpoint: fork_choice_view.finalized_checkpoint,
-            genesis_time: self.slot_clock.genesis_duration().as_secs(),
-            genesis_validators_root: self.genesis_validators_root,
-            is_merge_transition_complete: head_block
-                .body()
-                .execution_payload()
-                .map_or(false, |ep| ep.block_hash() != <_>::default()),
-        }
     }
 
     /*
@@ -1989,7 +1907,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // If there's no eth1 chain then it's impossible to produce blocks and therefore
         // useless to put things in the op pool.
         if self.eth1_chain.is_some() {
-            let fork = self.chain_summary().head_fork;
+            let fork = self.canonical_head.read().head_fork();
 
             self.op_pool
                 .insert_attestation(
@@ -2189,7 +2107,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     ) {
         if self.eth1_chain.is_some() {
             self.op_pool
-                .insert_attester_slashing(attester_slashing, self.chain_summary().head_fork)
+                .insert_attester_slashing(attester_slashing, self.canonical_head.read().head_fork())
         }
     }
 
@@ -2946,15 +2864,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // signed. If we miss the cache or we're producing a block that conflicts with the head,
         // fall back to getting the head from `slot - 1`.
         let state_load_timer = metrics::start_timer(&metrics::BLOCK_PRODUCTION_STATE_LOAD_TIMES);
-        let chain_summary = self.chain_summary();
-        let (state, state_root_opt) = if chain_summary.head_slot < slot {
+        let (head_slot, head_root) = self.canonical_head.read().head_slot_and_root();
+        let (state, state_root_opt) = if head_slot < slot {
             // Normal case: proposing a block atop the current head. Use the snapshot cache.
             if let Some(pre_state) = self
                 .snapshot_cache
                 .try_read_for(BLOCK_PROCESSING_CACHE_LOCK_TIMEOUT)
-                .and_then(|snapshot_cache| {
-                    snapshot_cache.get_state_for_block_production(chain_summary.head_block_root)
-                })
+                .and_then(|snapshot_cache| snapshot_cache.get_state_for_block_production(head_root))
             {
                 (pre_state.pre_state, pre_state.state_root)
             } else {
@@ -3421,21 +3337,30 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             return Ok(());
         }
 
-        let chain_summary = self.chain_summary();
-        let head_epoch = chain_summary.head_slot.epoch(T::EthSpec::slots_per_epoch());
+        // Take some values from the canonical head, whilst avoiding taking the read-lock any
+        // longer than necessary.
+        let (head_slot, head_root, head_decision_root) = {
+            let canonical_head = self.canonical_head.read();
+            let (head_slot, head_root) = canonical_head.head_slot_and_root();
+            (
+                head_slot,
+                head_root,
+                canonical_head.head_proposer_shuffling_decision_root,
+            )
+        };
+        let head_epoch = head_slot.epoch(T::EthSpec::slots_per_epoch());
 
         // Don't bother with proposer prep if the head is more than
         // `PREPARE_PROPOSER_HISTORIC_EPOCHS` prior to the current slot.
         //
         // This prevents the routine from running during sync.
-        if chain_summary.head_slot
-            + T::EthSpec::slots_per_epoch() * PREPARE_PROPOSER_HISTORIC_EPOCHS
+        if head_slot + T::EthSpec::slots_per_epoch() * PREPARE_PROPOSER_HISTORIC_EPOCHS
             < current_slot
         {
             debug!(
                 self.log,
                 "Head too old for proposer prep";
-                "head_slot" => chain_summary.head_slot,
+                "head_slot" => head_slot,
                 "current_slot" => current_slot,
             );
             return Ok(());
@@ -3444,9 +3369,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // Ensure that the shuffling decision root is correct relative to the epoch we wish to
         // query.
         let shuffling_decision_root = if head_epoch == prepare_epoch {
-            chain_summary.head_proposer_shuffling_decision_root
+            head_decision_root
         } else {
-            chain_summary.head_block_root
+            head_root
         };
 
         // Read the proposer from the proposer cache.
@@ -3539,18 +3464,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             self.log,
             "Preparing beacon proposer";
             "payload_attributes" => ?payload_attributes,
-            "head_root" => ?chain_summary.head_block_root,
+            "head_root" => ?head_root,
             "prepare_slot" => prepare_slot,
             "validator" => proposer,
         );
 
         let already_known = execution_layer
-            .insert_proposer(
-                prepare_slot,
-                chain_summary.head_block_root,
-                proposer as u64,
-                payload_attributes,
-            )
+            .insert_proposer(prepare_slot, head_root, proposer as u64, payload_attributes)
             .await;
         // Only push a log to the user if this is the first time we've seen this proposer for this
         // slot.
@@ -3592,7 +3512,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         //    known).
         if till_prepare_slot
             <= self.slot_clock.slot_duration() / PAYLOAD_PREPARATION_LOOKAHEAD_FACTOR
-            || chain_summary.head_slot + 1 >= prepare_slot
+            || head_slot + 1 >= prepare_slot
         {
             debug!(
                 self.log,
@@ -3922,17 +3842,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 .fork_choice
                 .is_optimistic_block_no_fallback(block_root)
                 .map_err(BeaconChainError::ForkChoiceError)
-        }
-    }
-
-    /// Returns the status of the current head block, regarding the validity of the execution
-    /// payload.
-    pub fn head_safety_status(&self) -> HeadSafetyStatus {
-        match self.chain_summary().head_execution_status {
-            ExecutionStatus::Valid(block_hash) => HeadSafetyStatus::Safe(Some(block_hash)),
-            ExecutionStatus::Invalid(block_hash) => HeadSafetyStatus::Invalid(block_hash),
-            ExecutionStatus::Optimistic(block_hash) => HeadSafetyStatus::Unsafe(block_hash),
-            ExecutionStatus::Irrelevant(_) => HeadSafetyStatus::Safe(None),
         }
     }
 

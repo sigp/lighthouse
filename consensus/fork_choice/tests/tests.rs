@@ -120,8 +120,9 @@ impl ForkChoiceTest {
         assert!(
             self.harness
                 .chain
-                .chain_summary()
-                .finalized_checkpoint
+                .canonical_head
+                .read()
+                .finalized_checkpoint()
                 .epoch
                 < epoch
         );
@@ -480,13 +481,12 @@ impl ForkChoiceTest {
 
     /// Check to ensure that we can read the finalized block. This is a regression test.
     pub fn check_finalized_block_is_accessible(self) -> Self {
-        self.harness
-            .chain
-            .canonical_head
-            .write()
+        let canonical_head = self.harness.chain.canonical_head.write();
+        canonical_head
             .fork_choice
-            .get_block(&self.harness.chain.chain_summary().finalized_checkpoint.root)
+            .get_block(&canonical_head.finalized_checkpoint().root)
             .unwrap();
+        drop(canonical_head);
 
         self
     }
@@ -1063,8 +1063,9 @@ fn weak_subjectivity_check_passes() {
     let checkpoint = setup_harness
         .harness
         .chain
-        .chain_summary()
-        .finalized_checkpoint;
+        .canonical_head
+        .read()
+        .finalized_checkpoint();
 
     let chain_config = ChainConfig {
         weak_subjectivity_checkpoint: Some(checkpoint),
@@ -1090,8 +1091,9 @@ fn weak_subjectivity_check_fails_early_epoch() {
     let mut checkpoint = setup_harness
         .harness
         .chain
-        .chain_summary()
-        .finalized_checkpoint;
+        .canonical_head
+        .read()
+        .finalized_checkpoint();
 
     checkpoint.epoch = checkpoint.epoch - 1;
 
@@ -1118,8 +1120,9 @@ fn weak_subjectivity_check_fails_late_epoch() {
     let mut checkpoint = setup_harness
         .harness
         .chain
-        .chain_summary()
-        .finalized_checkpoint;
+        .canonical_head
+        .read()
+        .finalized_checkpoint();
 
     checkpoint.epoch = checkpoint.epoch + 1;
 
@@ -1146,8 +1149,9 @@ fn weak_subjectivity_check_fails_incorrect_root() {
     let mut checkpoint = setup_harness
         .harness
         .chain
-        .chain_summary()
-        .finalized_checkpoint;
+        .canonical_head
+        .read()
+        .finalized_checkpoint();
 
     checkpoint.root = Hash256::zero();
 
@@ -1171,7 +1175,12 @@ fn weak_subjectivity_check_epoch_boundary_is_skip_slot() {
         .unwrap();
 
     // get the head, it will become the finalized root of epoch 4
-    let checkpoint_root = setup_harness.harness.chain.chain_summary().head_block_root;
+    let checkpoint_root = setup_harness
+        .harness
+        .chain
+        .canonical_head
+        .read()
+        .head_root();
 
     setup_harness
         // epoch 3 will be entirely skip slots
@@ -1212,7 +1221,12 @@ fn weak_subjectivity_check_epoch_boundary_is_skip_slot_failure() {
         .unwrap();
 
     // get the head, it will become the finalized root of epoch 4
-    let checkpoint_root = setup_harness.harness.chain.chain_summary().head_block_root;
+    let checkpoint_root = setup_harness
+        .harness
+        .chain
+        .canonical_head
+        .read()
+        .head_root();
 
     setup_harness
         // epoch 3 will be entirely skip slots

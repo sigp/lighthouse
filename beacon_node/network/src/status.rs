@@ -11,15 +11,16 @@ pub trait ToStatusMessage {
 
 impl<T: BeaconChainTypes> ToStatusMessage for BeaconChain<T> {
     fn status_message(&self) -> StatusMessage {
-        let chain_summary = self.chain_summary();
         let fork_digest = self.enr_fork_id().fork_digest;
+        let head = self.canonical_head.read();
+        let finalized_checkpoint = head.finalized_checkpoint();
 
         StatusMessage {
             fork_digest,
-            finalized_root: chain_summary.finalized_checkpoint.root,
-            finalized_epoch: chain_summary.finalized_checkpoint.epoch,
-            head_root: chain_summary.head_block_root,
-            head_slot: chain_summary.head_slot,
+            finalized_root: finalized_checkpoint.root,
+            finalized_epoch: finalized_checkpoint.epoch,
+            head_root: head.head_root(),
+            head_slot: head.head_slot(),
         }
     }
 }

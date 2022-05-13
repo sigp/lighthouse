@@ -9,6 +9,7 @@ pub mod block_reward;
 mod block_times_cache;
 mod block_verification;
 pub mod builder;
+mod canonical_head;
 pub mod chain_config;
 mod early_attester_cache;
 mod errors;

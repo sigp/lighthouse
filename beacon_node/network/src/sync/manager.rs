@@ -469,7 +469,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                     SyncMessage::UnknownBlock(peer_id, block) => {
                         // If we are not synced or within SLOT_IMPORT_TOLERANCE of the block, ignore
                         if !self.network_globals.sync_state.read().is_synced() {
-                            let head_slot = self.chain.chain_summary().head_slot;
+                            let head_slot = self.chain.canonical_head.read().head_slot();
                             let unknown_block_slot = block.slot();
 
                             // if the block is far in the future, ignore it. If its within the slot tolerance of

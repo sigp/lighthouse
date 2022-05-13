@@ -141,10 +141,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             canonical_head_write_lock.head_proposer_shuffling_decision_root = new_head
                 .beacon_state
                 .proposer_shuffling_decision_root(new_head.beacon_block_root)?;
-            canonical_head_write_lock.head_random = *new_head
-                .beacon_state
-                .get_randao_mix(new_head.beacon_state.current_epoch())?;
-            canonical_head_write_lock.head_execution_status = new_head_proto_block.execution_status;
 
             // Enshrine the new value as the head.
             let old_head = mem::replace(&mut canonical_head_write_lock.head_snapshot, new_head);

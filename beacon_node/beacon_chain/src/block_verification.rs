@@ -1375,8 +1375,9 @@ fn check_block_against_finalized_slot<T: BeaconChainTypes>(
     chain: &BeaconChain<T>,
 ) -> Result<(), BlockError<T::EthSpec>> {
     let finalized_slot = chain
-        .chain_summary()
-        .finalized_checkpoint
+        .canonical_head
+        .read()
+        .finalized_checkpoint()
         .epoch
         .start_slot(T::EthSpec::slots_per_epoch());
 
@@ -1733,12 +1734,12 @@ fn verify_header_signature<T: BeaconChainTypes>(
         .get(header.message.proposer_index as usize)
         .cloned()
         .ok_or(BlockError::UnknownValidator(header.message.proposer_index))?;
-    let chain_summary = chain.chain_summary();
+    let head_fork = chain.canonical_head.read().head_fork();
 
     if header.verify_signature::<T::EthSpec>(
         &proposer_pubkey,
-        &chain_summary.head_fork,
-        chain_summary.genesis_validators_root,
+        &head_fork,
+        chain.genesis_validators_root,
         &chain.spec,
     ) {
         Ok(())

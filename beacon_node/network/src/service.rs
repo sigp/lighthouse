@@ -739,11 +739,14 @@ impl<T: BeaconChainTypes> NetworkService<T> {
     /// possible (but unlikely) that the values for the head block are not present in the shuffling
     /// cache. When that happens, this method will return `None`.
     fn get_active_validator_count(&self) -> Option<usize> {
-        let chain_summary = self.beacon_chain.chain_summary();
-        let head_epoch = chain_summary.head_slot.epoch(T::EthSpec::slots_per_epoch());
+        let (head_slot, shuffling_decision_block) = {
+            let head = self.beacon_chain.canonical_head.read();
+            (head.head_slot(), head.head_proposer_shuffling_decision_root)
+        };
+        let head_epoch = head_slot.epoch(T::EthSpec::slots_per_epoch());
         let shuffling_id = AttestationShufflingId {
             shuffling_epoch: head_epoch,
-            shuffling_decision_block: chain_summary.head_proposer_shuffling_decision_root,
+            shuffling_decision_block,
         };
         let mut shuffling_cache = self
             .beacon_chain
