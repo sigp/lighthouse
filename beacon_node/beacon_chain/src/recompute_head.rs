@@ -149,6 +149,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             // Enshrine the new value as the head.
             let old_head = mem::replace(&mut canonical_head_write_lock.head_snapshot, new_head);
 
+            // Clear the early attester cache in case it conflicts with `self.canonical_head`.
+            self.early_attester_cache.clear();
+
             Some((old_head, new_head_proto_block))
         } else {
             None
@@ -233,9 +236,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let prev_dependent_root = new_head
             .beacon_state
             .attester_shuffling_decision_root(self.genesis_block_root, RelativeEpoch::Current);
-
-        // Clear the early attester cache in case it conflicts with `self.canonical_head`.
-        self.early_attester_cache.clear();
 
         // Update the snapshot cache with the latest head value.
         self.snapshot_cache
