@@ -1,10 +1,11 @@
 mod metrics;
+pub mod test_utils;
 
 use futures::channel::mpsc::Sender;
 use futures::prelude::*;
 use slog::{crit, debug, o, trace};
 use std::sync::Weak;
-use tokio::runtime::Runtime;
+pub use tokio::runtime::Runtime;
 
 /// Provides a reason when Lighthouse is shut down.
 #[derive(Copy, Clone, Debug, PartialEq)]

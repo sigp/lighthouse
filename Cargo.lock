@@ -296,6 +296,7 @@ dependencies = [
  "eth2_ssz_derive",
  "eth2_ssz_types",
  "execution_layer",
+ "exit-future",
  "fork_choice",
  "futures",
  "genesis",
@@ -6028,6 +6029,7 @@ dependencies = [
  "lazy_static",
  "lighthouse_metrics",
  "slog",
+ "sloggers",
  "tokio",
 ]
 
