@@ -131,7 +131,8 @@ impl Timeouts {
 #[derive(Clone)]
 pub struct BeaconNodeHttpClient {
     client: reqwest::Client,
-    server: SensitiveUrl,
+    // DO NOT MERGE: For testing
+    pub server: SensitiveUrl,
     timeouts: Timeouts,
 }
 

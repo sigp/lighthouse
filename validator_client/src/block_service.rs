@@ -335,6 +335,10 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
                     &metrics::BLOCK_SERVICE_TIMES,
                     &[metrics::BEACON_BLOCK_HTTP_GET],
                 );
+                info!(
+                        log,
+                        "Asking to sign block";
+                        "Beacon node" =>format!("{:?}",beacon_node.server.full));
                 let block = match Payload::block_type() {
                     BlockType::Full => {
                         beacon_node
@@ -390,6 +394,19 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
                     &metrics::BLOCK_SERVICE_TIMES,
                     &[metrics::BEACON_BLOCK_HTTP_POST],
                 );
+
+                // FOR TESTING INJECT FAILURE FOR FIRST BOUNDARY NODE
+                // IF WE RUN WITH THE TESTING SCRIPTS THIS SHOULD be
+                if beacon_node.server.full.port().unwrap() == 8001 {
+                    info!(
+                        log,
+                        "Return block sign error";
+                        "Beacon node" =>format!("{:?}",beacon_node.server.full));
+                    return Err(BlockError::Irrecoverable(format!(
+                        "Returning block error for BN {:?}",
+                        beacon_node.server.full
+                    )));
+                }
 
                 match Payload::block_type() {
                     BlockType::Full => beacon_node
