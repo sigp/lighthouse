@@ -328,7 +328,7 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
         let self_ref = &self;
         let proposer_index = self.validator_store.validator_index(&validator_pubkey);
         let validator_pubkey_ref = &validator_pubkey;
-        let signed_block = self
+        let block = self
             .beacon_nodes
             .first_success(RequireSynced::No, |beacon_node| async move {
                 let get_timer = metrics::start_timer_vec(
@@ -375,38 +375,28 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
                 };
                 drop(get_timer);
 
-                if proposer_index != Some(block.proposer_index()) {
-                    return Err(BlockError::Recoverable(
-                        "Proposer index does not match block proposer. Beacon chain re-orged"
-                            .to_string(),
-                    ));
-                }
+                Ok::<_, BlockError>(block)
+            })
+            .await?;
 
-                let signed_block = self_ref
-                    .validator_store
-                    .sign_block::<Payload>(*validator_pubkey_ref, block, current_slot)
-                    .await
-                    .map_err(|e| {
-                        BlockError::Recoverable(format!("Unable to sign block: {:?}", e))
-                    })?;
+        if proposer_index != Some(block.proposer_index()) {
+            return Err(BlockError::Recoverable(
+                "Proposer index does not match block proposer. Beacon chain re-orged".to_string(),
+            ));
+        }
 
+        let signed_block = self_ref
+            .validator_store
+            .sign_block::<Payload>(*validator_pubkey_ref, block, current_slot)
+            .await
+            .map_err(|e| BlockError::Recoverable(format!("Unable to sign block: {:?}", e)))?;
+
+        self.beacon_nodes
+            .first_success(RequireSynced::No, |beacon_node| async {
                 let _post_timer = metrics::start_timer_vec(
                     &metrics::BLOCK_SERVICE_TIMES,
                     &[metrics::BEACON_BLOCK_HTTP_POST],
                 );
-
-                // FOR TESTING INJECT FAILURE FOR FIRST BOUNDARY NODE
-                // IF WE RUN WITH THE TESTING SCRIPTS THIS SHOULD be
-                if beacon_node.server.full.port().unwrap() == 8001 {
-                    info!(
-                        log,
-                        "Return block sign error";
-                        "Beacon node" =>format!("{:?}",beacon_node.server.full));
-                    return Err(BlockError::Irrecoverable(format!(
-                        "Returning block error for BN {:?}",
-                        beacon_node.server.full
-                    )));
-                }
 
                 match Payload::block_type() {
                     BlockType::Full => beacon_node
@@ -429,18 +419,9 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
                         })?,
                 }
 
-                Ok::<_, BlockError>(signed_block)
+                Ok::<_, BlockError>(())
             })
             .await?;
-
-        info!(
-            log,
-            "Successfully published block";
-            "deposits" => signed_block.message().body().deposits().len(),
-            "attestations" => signed_block.message().body().attestations().len(),
-            "graffiti" => ?graffiti.map(|g| g.as_utf8_lossy()),
-            "slot" => signed_block.slot().as_u64(),
-        );
 
         Ok(())
     }
