@@ -7,9 +7,7 @@ use tokio::runtime;
 /// Whilst the `TestRuntime` is not necessarily useful in itself, it provides the necessary
 /// components for creating a `TaskExecutor` during tests.
 ///
-/// If created *inside* an existing runtime, it will use a handle to that. If created *outside* any
-/// existing runtime, it will create a new `Runtime` and keep it alive until the `TestRuntime` is
-/// dropped.
+/// May create its own runtime or use an existing one.
 ///
 /// ## Warning
 ///
@@ -22,6 +20,9 @@ pub struct TestRuntime {
 }
 
 impl Default for TestRuntime {
+    /// If called *inside* an existing runtime, instantiates `Self` using handle to that runtime. If
+    /// called *outside* any existing runtime, create a new `Runtime` and keep it alive until the
+    /// `Self` is dropped.
     fn default() -> Self {
         let (runtime_shutdown, exit) = exit_future::signal();
         let (shutdown_tx, _) = futures::channel::mpsc::channel(1);

@@ -20,7 +20,7 @@ use std::cmp;
 use std::iter::Iterator;
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::runtime::Runtime;
+use tokio::runtime::Handle;
 use tokio::sync::mpsc;
 use types::{
     Attestation, AttesterSlashing, EthSpec, MainnetEthSpec, ProposerSlashing, SignedBeaconBlock,
@@ -324,20 +324,19 @@ impl TestRig {
             .unwrap();
     }
 
-    fn runtime(&mut self) -> Arc<Runtime> {
+    fn handle(&mut self) -> Handle {
         self.environment
             .as_mut()
             .unwrap()
             .core_context()
             .executor
-            .runtime()
-            .upgrade()
+            .handle()
             .unwrap()
     }
 
     /// Assert that the `BeaconProcessor` doesn't produce any events in the given `duration`.
     pub fn assert_no_events_for(&mut self, duration: Duration) {
-        self.runtime().block_on(async {
+        self.handle().block_on(async {
             tokio::select! {
                 _ = tokio::time::sleep(duration) => (),
                 event = self.work_journal_rx.recv() => panic!(
@@ -360,7 +359,7 @@ impl TestRig {
             .iter()
             .all(|ev| ev != &WORKER_FREED && ev != &NOTHING_TO_DO));
 
-        let (events, worker_freed_remaining) = self.runtime().block_on(async {
+        let (events, worker_freed_remaining) = self.handle().block_on(async {
             let mut events = Vec::with_capacity(expected.len());
             let mut worker_freed_remaining = expected.len();
 
@@ -415,7 +414,7 @@ impl TestRig {
     /// We won't attempt to listen for any more than `expected.len()` events. As such, it makes sense
     /// to use the `NOTHING_TO_DO` event to ensure that execution has completed.
     pub fn assert_event_journal_with_timeout(&mut self, expected: &[&str], timeout: Duration) {
-        let events = self.runtime().block_on(async {
+        let events = self.handle().block_on(async {
             let mut events = Vec::with_capacity(expected.len());
 
             let drain_future = async {
