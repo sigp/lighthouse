@@ -121,8 +121,7 @@ impl ApiTester {
                 harness.chain.slot().unwrap(),
             )
             .into_iter()
-            .map(|vec| vec.into_iter().map(|(attestation, _subnet_id)| attestation))
-            .flatten()
+            .flat_map(|vec| vec.into_iter().map(|(attestation, _subnet_id)| attestation))
             .collect::<Vec<_>>();
 
         assert!(
@@ -244,8 +243,7 @@ impl ApiTester {
                 harness.chain.slot().unwrap(),
             )
             .into_iter()
-            .map(|vec| vec.into_iter().map(|(attestation, _subnet_id)| attestation))
-            .flatten()
+            .flat_map(|vec| vec.into_iter().map(|(attestation, _subnet_id)| attestation))
             .collect::<Vec<_>>();
 
         let attester_slashing = harness.make_attester_slashing(vec![0, 1]);
@@ -2390,8 +2388,7 @@ impl ApiTester {
             .unwrap();
         let attesting_validators: Vec<usize> = committees
             .into_iter()
-            .map(|committee| committee.committee.iter().cloned())
-            .flatten()
+            .flat_map(|committee| committee.committee.iter().cloned())
             .collect();
         // All attesters should now be considered live
         let expected = expected
