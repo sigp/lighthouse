@@ -4,9 +4,19 @@ use sloggers::{null::NullLoggerBuilder, Build};
 use std::sync::Arc;
 use tokio::runtime;
 
+/// Whilst the `TestRuntime` is not necessarily useful in itself, it provides the necessary
+/// components for creating a `TaskExecutor` during tests.
+///
+/// If created *inside* an existing runtime, it will use a handle to that. If created *outside* any
+/// existing runtime, it will create a new `Runtime` and keep it alive until the `TestRuntime` is
+/// dropped.
+///
+/// ## Warning
+///
+/// This struct should never be used in production, only testing.
 pub struct TestRuntime {
-    pub runtime: Option<Arc<tokio::runtime::Runtime>>,
-    pub _runtime_shutdown: exit_future::Signal,
+    runtime: Option<Arc<tokio::runtime::Runtime>>,
+    _runtime_shutdown: exit_future::Signal,
     pub task_executor: TaskExecutor,
     pub log: Logger,
 }
