@@ -328,6 +328,7 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
         let self_ref = &self;
         let proposer_index = self.validator_store.validator_index(&validator_pubkey);
         let validator_pubkey_ref = &validator_pubkey;
+        // Request block from first responsive beacon node.
         let block = self
             .beacon_nodes
             .first_success(RequireSynced::No, |beacon_node| async move {
@@ -335,10 +336,7 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
                     &metrics::BLOCK_SERVICE_TIMES,
                     &[metrics::BEACON_BLOCK_HTTP_GET],
                 );
-                info!(
-                        log,
-                        "Asking to sign block";
-                        "Beacon node" =>format!("{:?}",beacon_node.server.full));
+
                 let block = match Payload::block_type() {
                     BlockType::Full => {
                         beacon_node
@@ -391,6 +389,7 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
             .await
             .map_err(|e| BlockError::Recoverable(format!("Unable to sign block: {:?}", e)))?;
 
+        // Publish block with first available beacon node.
         self.beacon_nodes
             .first_success(RequireSynced::No, |beacon_node| async {
                 let _post_timer = metrics::start_timer_vec(
