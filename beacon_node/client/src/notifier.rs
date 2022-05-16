@@ -106,7 +106,7 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
                 let head_lock = beacon_chain.canonical_head.read();
                 (
                     head_lock.head_slot(),
-                    head_lock.head_root(),
+                    head_lock.head_block_root(),
                     head_lock.finalized_checkpoint(),
                 )
             };

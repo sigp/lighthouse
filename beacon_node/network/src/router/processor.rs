@@ -379,7 +379,7 @@ pub(crate) fn status_message<T: BeaconChainTypes>(beacon_chain: &BeaconChain<T>)
         fork_digest,
         finalized_root: finalized_checkpoint.root,
         finalized_epoch: finalized_checkpoint.epoch,
-        head_root: head.head_root(),
+        head_root: head.head_block_root(),
         head_slot: head.head_slot(),
     }
 }

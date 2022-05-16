@@ -24,7 +24,7 @@ impl BlockId {
         chain: &BeaconChain<T>,
     ) -> Result<Hash256, warp::Rejection> {
         match &self.0 {
-            CoreBlockId::Head => Ok(chain.canonical_head.read().head_root()),
+            CoreBlockId::Head => Ok(chain.canonical_head.read().head_block_root()),
             CoreBlockId::Genesis => Ok(chain.genesis_block_root),
             CoreBlockId::Finalized => Ok(chain.canonical_head.read().finalized_checkpoint().root),
             CoreBlockId::Justified => Ok(chain.canonical_head.read().justified_checkpoint().root),

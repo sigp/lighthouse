@@ -19,7 +19,7 @@ impl<T: BeaconChainTypes> ToStatusMessage for BeaconChain<T> {
             fork_digest,
             finalized_root: finalized_checkpoint.root,
             finalized_epoch: finalized_checkpoint.epoch,
-            head_root: head.head_root(),
+            head_root: head.head_block_root(),
             head_slot: head.head_slot(),
         }
     }

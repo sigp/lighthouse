@@ -202,7 +202,7 @@ fn advance_head<T: BeaconChainTypes>(
     // TODO(paul): try and re-enable this.
     // beacon_chain.fork_choice()?;
 
-    let head_root = beacon_chain.canonical_head.read().head_root();
+    let head_root = beacon_chain.canonical_head.read().head_block_root();
 
     let (head_slot, head_state_root, mut state) = match beacon_chain
         .snapshot_cache

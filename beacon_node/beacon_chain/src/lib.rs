@@ -43,9 +43,8 @@ mod validator_pubkey_cache;
 
 pub use self::beacon_chain::{
     AttestationProcessingOutcome, BeaconChain, BeaconChainTypes, BeaconStore, ChainSegmentResult,
-    ChainSummary, ForkChoiceError, HeadInfo, HeadSafetyStatus, ProduceBlockVerification,
-    StateSkipConfig, WhenSlotSkipped, INVALID_JUSTIFIED_PAYLOAD_SHUTDOWN_REASON,
-    MAXIMUM_GOSSIP_CLOCK_DISPARITY,
+    ForkChoiceError, HeadSafetyStatus, ProduceBlockVerification, StateSkipConfig, WhenSlotSkipped,
+    INVALID_JUSTIFIED_PAYLOAD_SHUTDOWN_REASON, MAXIMUM_GOSSIP_CLOCK_DISPARITY,
 };
 pub use self::beacon_snapshot::BeaconSnapshot;
 pub use self::chain_config::ChainConfig;

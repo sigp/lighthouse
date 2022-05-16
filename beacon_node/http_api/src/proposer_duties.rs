@@ -97,7 +97,7 @@ fn try_proposer_duties_from_cache<T: BeaconChainTypes>(
     let (head_block_root, head_slot, decision_root) = {
         let head = chain.canonical_head.read();
         (
-            head.head_root(),
+            head.head_block_root(),
             head.head_slot(),
             head.head_proposer_shuffling_decision_root,
         )

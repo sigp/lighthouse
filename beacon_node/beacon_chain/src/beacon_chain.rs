@@ -85,7 +85,7 @@ use task_executor::{ShutdownReason, TaskExecutor};
 use types::beacon_state::CloneConfig;
 use types::*;
 
-pub use crate::canonical_head::{CanonicalHead, ChainSummary};
+pub use crate::canonical_head::CanonicalHead;
 
 pub type ForkChoiceError = fork_choice::Error<crate::ForkChoiceStoreError>;
 
@@ -199,22 +199,6 @@ pub enum StateSkipConfig {
     /// This state is useful for operations that don't use the state roots; e.g., for calculating
     /// the shuffling.
     WithoutStateRoots,
-}
-
-#[derive(Debug, PartialEq)]
-pub struct HeadInfo {
-    pub slot: Slot,
-    pub block_root: Hash256,
-    pub state_root: Hash256,
-    pub current_justified_checkpoint: types::Checkpoint,
-    pub finalized_checkpoint: types::Checkpoint,
-    pub fork: Fork,
-    pub genesis_time: u64,
-    pub genesis_validators_root: Hash256,
-    pub proposer_shuffling_decision_root: Hash256,
-    pub is_merge_transition_complete: bool,
-    pub execution_payload_block_hash: Option<ExecutionBlockHash>,
-    pub random: Hash256,
 }
 
 pub trait BeaconChainTypes: Send + Sync + 'static {
@@ -1046,44 +1030,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         self.state_at_slot(load_slot, StateSkipConfig::WithoutStateRoots)
     }
-
-    /*
-    /// Returns info representing the head block and state.
-    ///
-    /// A summarized version of `Self::head` that involves less cloning.
-    pub fn head_info(&self) -> Result<HeadInfo, Error> {
-        self.with_head(|head| {
-            let proposer_shuffling_decision_root = head
-                .beacon_state
-                .proposer_shuffling_decision_root(head.beacon_block_root)?;
-
-            // The `random` value is used whilst producing an `ExecutionPayload` atop the head.
-            let current_epoch = head.beacon_state.current_epoch();
-            let random = *head.beacon_state.get_randao_mix(current_epoch)?;
-
-            Ok(HeadInfo {
-                slot: head.beacon_block.slot(),
-                block_root: head.beacon_block_root,
-                state_root: head.beacon_state_root(),
-                current_justified_checkpoint: head.beacon_state.current_justified_checkpoint(),
-                finalized_checkpoint: head.beacon_state.finalized_checkpoint(),
-                fork: head.beacon_state.fork(),
-                genesis_time: head.beacon_state.genesis_time(),
-                genesis_validators_root: head.beacon_state.genesis_validators_root(),
-                proposer_shuffling_decision_root,
-                is_merge_transition_complete: is_merge_transition_complete(&head.beacon_state),
-                execution_payload_block_hash: head
-                    .beacon_block
-                    .message()
-                    .body()
-                    .execution_payload()
-                    .ok()
-                    .map(|ep| ep.block_hash()),
-                random,
-            })
-        })
-    }
-    */
 
     /// Returns the current heads of the `BeaconChain`. For the canonical head, see `Self::head`.
     ///
@@ -2866,13 +2812,20 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // signed. If we miss the cache or we're producing a block that conflicts with the head,
         // fall back to getting the head from `slot - 1`.
         let state_load_timer = metrics::start_timer(&metrics::BLOCK_PRODUCTION_STATE_LOAD_TIMES);
-        let (head_slot, head_root) = self.canonical_head.read().head_slot_and_root();
+        // Atomically read some values from the head whilst avoiding holding the read-lock any
+        // longer than necessary.
+        let (head_slot, head_block_root) = {
+            let head = self.canonical_head.read();
+            (head.head_slot(), head.head_block_root())
+        };
         let (state, state_root_opt) = if head_slot < slot {
             // Normal case: proposing a block atop the current head. Use the snapshot cache.
             if let Some(pre_state) = self
                 .snapshot_cache
                 .try_read_for(BLOCK_PROCESSING_CACHE_LOCK_TIMEOUT)
-                .and_then(|snapshot_cache| snapshot_cache.get_state_for_block_production(head_root))
+                .and_then(|snapshot_cache| {
+                    snapshot_cache.get_state_for_block_production(head_block_root)
+                })
             {
                 (pre_state.pre_state, pre_state.state_root)
             } else {
@@ -3339,14 +3292,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             return Ok(());
         }
 
-        // Take some values from the canonical head, whilst avoiding taking the read-lock any
-        // longer than necessary.
+        // Atomically read some values from the canonical head, whilst avoiding taking the read-lock
+        // any longer than necessary.
         let (head_slot, head_root, head_decision_root) = {
             let canonical_head = self.canonical_head.read();
-            let (head_slot, head_root) = canonical_head.head_slot_and_root();
             (
-                head_slot,
-                head_root,
+                canonical_head.head_slot(),
+                canonical_head.head_block_root(),
                 canonical_head.head_proposer_shuffling_decision_root,
             )
         };

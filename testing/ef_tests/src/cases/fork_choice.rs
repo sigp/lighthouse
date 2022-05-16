@@ -427,7 +427,7 @@ impl<E: EthSpec> Tester<E> {
         let head = self.find_head()?;
         let chain_head = Head {
             slot: head.head_slot(),
-            root: head.head_root(),
+            root: head.head_block_root(),
         };
 
         check_equal("head", chain_head, expected_head)
