@@ -316,7 +316,7 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
                         Ok(api_types::GenericResponse::from(response))
                     } else {
                         Err(warp_utils::reject::custom_server_error(
-                            "TaskExecutor shutdown".into(),
+                            "Lighthouse shutting down".into(),
                         ))
                     }
                 })
@@ -362,7 +362,7 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
                         Ok(api_types::GenericResponse::from(validators))
                     } else {
                         Err(warp_utils::reject::custom_server_error(
-                            "TaskExecutor shutdown".into(),
+                            "Lighthouse shutting down".into(),
                         ))
                     }
                 })
@@ -433,7 +433,7 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
                                 })?
                         } else {
                             return Err(warp_utils::reject::custom_server_error(
-                                "TaskExecutor shutdown".into(),
+                                "Lighthouse shutting down".into(),
                             ));
                         }
                     };
@@ -485,7 +485,7 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
                         Ok(())
                     } else {
                         Err(warp_utils::reject::custom_server_error(
-                            "TaskExecutor shutdown".into(),
+                            "Lighthouse shutting down".into(),
                         ))
                     }
                 })
@@ -533,7 +533,7 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
                                 Ok(())
                             } else {
                                 Err(warp_utils::reject::custom_server_error(
-                                    "TaskExecutor shutdown".into(),
+                                    "Lighthouse shutting down".into(),
                                 ))
                             }
                         }

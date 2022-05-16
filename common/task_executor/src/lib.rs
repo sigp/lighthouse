@@ -5,7 +5,7 @@ use futures::channel::mpsc::Sender;
 use futures::prelude::*;
 use slog::{crit, debug, o, trace};
 use std::sync::Weak;
-use tokio::runtime;
+use tokio::runtime::{Handle, Runtime};
 
 /// Provides a reason when Lighthouse is shut down.
 #[derive(Copy, Clone, Debug, PartialEq)]
@@ -25,31 +25,42 @@ impl ShutdownReason {
     }
 }
 
+/// Provides a `Handle` by either:
+///
+/// 1. Holding a `Weak<Runtime>` and calling `Runtime::handle`.
+/// 2. Directly holding a `Handle` and cloning it.
+///
+/// This enum allows the `TaskExecutor` to work in production where a `Weak<Runtime>` is directly
+/// accessible and in testing where the `Runtime` is hidden outside our scope.
 #[derive(Clone)]
-pub enum Handle {
-    Runtime(Weak<runtime::Runtime>),
-    Handle(runtime::Handle),
+pub enum HandleProvider {
+    Runtime(Weak<Runtime>),
+    Handle(Handle),
 }
 
-impl From<runtime::Handle> for Handle {
-    fn from(handle: runtime::Handle) -> Self {
-        Handle::Handle(handle)
+impl From<Handle> for HandleProvider {
+    fn from(handle: Handle) -> Self {
+        HandleProvider::Handle(handle)
     }
 }
 
-impl From<Weak<runtime::Runtime>> for Handle {
-    fn from(weak_runtime: Weak<runtime::Runtime>) -> Self {
-        Handle::Runtime(weak_runtime)
+impl From<Weak<Runtime>> for HandleProvider {
+    fn from(weak_runtime: Weak<Runtime>) -> Self {
+        HandleProvider::Runtime(weak_runtime)
     }
 }
 
-impl Handle {
-    pub fn handle(&self) -> Option<runtime::Handle> {
+impl HandleProvider {
+    /// Returns a `Handle` to a `Runtime`.
+    ///
+    /// May return `None` if the weak reference to the `Runtime` has been dropped (this generally
+    /// means Lighthouse is shutting down).
+    pub fn handle(&self) -> Option<Handle> {
         match self {
-            Handle::Runtime(weak_runtime) => weak_runtime
+            HandleProvider::Runtime(weak_runtime) => weak_runtime
                 .upgrade()
                 .map(|runtime| runtime.handle().clone()),
-            Handle::Handle(handle) => Some(handle.clone()),
+            HandleProvider::Handle(handle) => Some(handle.clone()),
         }
     }
 }
@@ -58,7 +69,7 @@ impl Handle {
 #[derive(Clone)]
 pub struct TaskExecutor {
     /// The handle to the runtime on which tasks are spawned
-    handle: Handle,
+    handle_provider: HandleProvider,
     /// The receiver exit future which on receiving shuts down the task
     exit: exit_future::Exit,
     /// Sender given to tasks, so that if they encounter a state in which execution cannot
@@ -72,14 +83,20 @@ pub struct TaskExecutor {
 
 impl TaskExecutor {
     /// Create a new task executor.
-    pub fn new<T: Into<Handle>>(
+    ///
+    /// ## Note
+    ///
+    /// This function should only be used during testing. In production, prefer to obtain an
+    /// instance of `Self` via a `environment::RuntimeContext` (see the `lighthouse/environment`
+    /// crate).
+    pub fn new<T: Into<HandleProvider>>(
         handle: T,
         exit: exit_future::Exit,
         log: slog::Logger,
         signal_tx: Sender<ShutdownReason>,
     ) -> Self {
         Self {
-            handle: handle.into(),
+            handle_provider: handle.into(),
             exit,
             signal_tx,
             log,
@@ -89,7 +106,7 @@ impl TaskExecutor {
     /// Clones the task executor adding a service name.
     pub fn clone_with_name(&self, service_name: String) -> Self {
         TaskExecutor {
-            handle: self.handle.clone(),
+            handle_provider: self.handle_provider.clone(),
             exit: self.exit.clone(),
             signal_tx: self.signal_tx.clone(),
             log: self.log.new(o!("service" => service_name)),
@@ -121,7 +138,7 @@ impl TaskExecutor {
         let mut shutdown_sender = self.shutdown_sender();
         let log = self.log.clone();
 
-        if let Some(handle) = self.handle.handle() {
+        if let Some(handle) = self.handle() {
             handle.spawn(async move {
                 let timer = metrics::start_timer_vec(&metrics::TASKS_HISTOGRAM, &[name]);
                 if let Err(join_error) = task_handle.await {
@@ -187,7 +204,7 @@ impl TaskExecutor {
             });
 
             int_gauge.inc();
-            if let Some(handle) = self.handle.handle() {
+            if let Some(handle) = self.handle() {
                 handle.spawn(future);
             } else {
                 debug!(self.log, "Couldn't spawn task. Runtime shutting down");
@@ -238,7 +255,7 @@ impl TaskExecutor {
             });
 
             int_gauge.inc();
-            if let Some(handle) = self.handle.handle() {
+            if let Some(handle) = self.handle() {
                 Some(handle.spawn(future))
             } else {
                 debug!(self.log, "Couldn't spawn task. Runtime shutting down");
@@ -269,7 +286,7 @@ impl TaskExecutor {
         let timer = metrics::start_timer_vec(&metrics::BLOCKING_TASKS_HISTOGRAM, &[name]);
         metrics::inc_gauge_vec(&metrics::BLOCKING_TASKS_COUNT, &[name]);
 
-        let join_handle = if let Some(handle) = self.handle.handle() {
+        let join_handle = if let Some(handle) = self.handle() {
             handle.spawn_blocking(task)
         } else {
             debug!(self.log, "Couldn't spawn task. Runtime shutting down");
@@ -295,8 +312,9 @@ impl TaskExecutor {
         Some(future)
     }
 
-    pub fn handle(&self) -> Option<runtime::Handle> {
-        self.handle.handle()
+    /// Returns a `Handle` to the current runtime.
+    pub fn handle(&self) -> Option<Handle> {
+        self.handle_provider.handle()
     }
 
     /// Returns a copy of the `exit_future::Exit`.
