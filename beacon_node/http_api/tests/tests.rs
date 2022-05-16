@@ -162,12 +162,12 @@ impl ApiTester {
         let chain = harness.chain.clone();
 
         assert_eq!(
-            chain.chain_summary().finalized_checkpoint.epoch,
+            chain.canonical_head.read().finalized_checkpoint().epoch,
             2,
             "precondition: finality"
         );
         assert_eq!(
-            chain.chain_summary().justified_checkpoint.epoch,
+            chain.canonical_head.read().justified_checkpoint().epoch,
             3,
             "precondition: justification"
         );
@@ -317,7 +317,7 @@ impl ApiTester {
             StateId(CoreStateId::Root(Hash256::zero())),
         ];
         ids.push(StateId(CoreStateId::Root(
-            self.chain.chain_summary().head_state_root,
+            self.chain.canonical_head.read().head_state_root(),
         )));
         ids
     }
@@ -337,7 +337,7 @@ impl ApiTester {
             BlockId(CoreBlockId::Root(Hash256::zero())),
         ];
         ids.push(BlockId(CoreBlockId::Root(
-            self.chain.chain_summary().head_block_root,
+            self.chain.canonical_head.read().head_block_root(),
         )));
         ids
     }
@@ -1208,7 +1208,7 @@ impl ApiTester {
 
     pub async fn test_get_node_syncing(self) -> Self {
         let result = self.client.get_node_syncing().await.unwrap().data;
-        let head_slot = self.chain.chain_summary().head_slot;
+        let head_slot = self.chain.canonical_head.read().head_slot();
         let sync_distance = self.chain.slot().unwrap() - head_slot;
 
         let expected = SyncingData {
@@ -1772,7 +1772,7 @@ impl ApiTester {
     }
 
     pub async fn test_block_production(self) -> Self {
-        let fork = self.chain.chain_summary().head_fork;
+        let fork = self.chain.canonical_head.read().head_fork();
         let genesis_validators_root = self.chain.genesis_validators_root;
 
         for _ in 0..E::slots_per_epoch() * 3 {
@@ -1851,7 +1851,7 @@ impl ApiTester {
     }
 
     pub async fn test_block_production_verify_randao_invalid(self) -> Self {
-        let fork = self.chain.chain_summary().head_fork;
+        let fork = self.chain.canonical_head.read().head_fork();
         let genesis_validators_root = self.chain.genesis_validators_root;
 
         for _ in 0..E::slots_per_epoch() {

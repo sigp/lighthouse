@@ -1180,7 +1180,7 @@ fn weak_subjectivity_check_epoch_boundary_is_skip_slot() {
         .chain
         .canonical_head
         .read()
-        .head_root();
+        .head_block_root();
 
     setup_harness
         // epoch 3 will be entirely skip slots
@@ -1226,7 +1226,7 @@ fn weak_subjectivity_check_epoch_boundary_is_skip_slot_failure() {
         .chain
         .canonical_head
         .read()
-        .head_root();
+        .head_block_root();
 
     setup_harness
         // epoch 3 will be entirely skip slots
