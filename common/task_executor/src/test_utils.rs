@@ -20,7 +20,7 @@ pub struct TestRuntime {
 }
 
 impl Default for TestRuntime {
-    /// If called *inside* an existing runtime, instantiates `Self` using handle to that runtime. If
+    /// If called *inside* an existing runtime, instantiates `Self` using a handle to that runtime. If
     /// called *outside* any existing runtime, create a new `Runtime` and keep it alive until the
     /// `Self` is dropped.
     fn default() -> Self {
