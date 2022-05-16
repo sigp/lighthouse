@@ -55,7 +55,9 @@ impl<T: BeaconChainTypes> ValidatorPubkeyCache<T> {
             if let Some(DatabasePubkey(pubkey)) =
                 store.get_item(&DatabasePubkey::key_for_index(validator_index))?
             {
-                pubkeys.push((&pubkey).try_into().map_err(Error::PubkeyDecode)?);
+                pubkeys.push((&pubkey).try_into().map_err(|e| {
+                    BeaconChainError::ValidatorPubkeyCacheError(format!("{:?}", e))
+                })?);
                 pubkey_bytes.push(pubkey);
                 indices.insert(pubkey, validator_index);
             } else {
@@ -153,17 +155,6 @@ impl<T: BeaconChainTypes> ValidatorPubkeyCache<T> {
     /// Returns the number of validators in the cache.
     pub fn len(&self) -> usize {
         self.indices.len()
-    }
-}
-
-#[derive(Debug)]
-enum Error {
-    PubkeyDecode(bls::Error),
-}
-
-impl From<Error> for BeaconChainError {
-    fn from(e: Error) -> BeaconChainError {
-        BeaconChainError::ValidatorPubkeyCacheError(format!("{:?}", e))
     }
 }
 
