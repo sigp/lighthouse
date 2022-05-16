@@ -715,6 +715,7 @@ where
             .map_err(|e| format!("Error writing chain & metadata to disk: {:?}", e))?;
 
         let genesis_validators_root = head_snapshot.beacon_state.genesis_validators_root();
+        let genesis_time = head_snapshot.beacon_state.genesis_time();
         let head_for_snapshot_cache = head_snapshot.clone();
         let fork_choice_view = fork_choice.cached_fork_choice_view();
         let canonical_head = CanonicalHead {
@@ -764,6 +765,7 @@ where
             eth1_chain: self.eth1_chain,
             execution_layer: self.execution_layer,
             genesis_validators_root,
+            genesis_time,
             canonical_head: RwLock::new(canonical_head),
             genesis_block_root,
             genesis_state_root,

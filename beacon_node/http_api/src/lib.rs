@@ -414,9 +414,8 @@ pub fn serve<T: BeaconChainTypes>(
         .and(chain_filter.clone())
         .and_then(|chain: Arc<BeaconChain<T>>| {
             blocking_json_task(move || {
-                let genesis_time = chain.canonical_head.read().genesis_time();
                 let data = api_types::GenesisData {
-                    genesis_time,
+                    genesis_time: chain.genesis_time,
                     genesis_validators_root: chain.genesis_validators_root,
                     genesis_fork_version: chain.spec.genesis_fork_version,
                 };
@@ -2746,9 +2745,7 @@ pub fn serve<T: BeaconChainTypes>(
         .and(chain_filter.clone())
         .and_then(|chain: Arc<BeaconChain<T>>| {
             blocking_json_task(move || {
-                let genesis_time = chain.canonical_head.read().genesis_time();
                 let current_slot_opt = chain.slot().ok();
-
                 chain
                     .eth1_chain
                     .as_ref()
@@ -2758,7 +2755,7 @@ pub fn serve<T: BeaconChainTypes>(
                         )
                     })
                     .and_then(|eth1| {
-                        eth1.sync_status(genesis_time, current_slot_opt, &chain.spec)
+                        eth1.sync_status(chain.genesis_time, current_slot_opt, &chain.spec)
                             .ok_or_else(|| {
                                 warp_utils::reject::custom_server_error(
                                     "Unable to determine Eth1 sync status".to_string(),

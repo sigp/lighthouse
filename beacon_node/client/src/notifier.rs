@@ -315,7 +315,6 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
 fn eth1_logging<T: BeaconChainTypes>(beacon_chain: &BeaconChain<T>, log: &Logger) {
     let current_slot_opt = beacon_chain.slot().ok();
 
-    let genesis_time = beacon_chain.canonical_head.read().genesis_time();
     // Perform some logging about the eth1 chain
     if let Some(eth1_chain) = beacon_chain.eth1_chain.as_ref() {
         // No need to do logging if using the dummy backend.
@@ -323,9 +322,11 @@ fn eth1_logging<T: BeaconChainTypes>(beacon_chain: &BeaconChain<T>, log: &Logger
             return;
         }
 
-        if let Some(status) =
-            eth1_chain.sync_status(genesis_time, current_slot_opt, &beacon_chain.spec)
-        {
+        if let Some(status) = eth1_chain.sync_status(
+            beacon_chain.genesis_time,
+            current_slot_opt,
+            &beacon_chain.spec,
+        ) {
             debug!(
                 log,
                 "Eth1 cache sync status";

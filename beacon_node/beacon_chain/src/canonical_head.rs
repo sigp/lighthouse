@@ -90,10 +90,6 @@ impl<T: BeaconChainTypes> CanonicalHead<T> {
         self.fork_choice_view.finalized_checkpoint
     }
 
-    pub fn genesis_time(&self) -> u64 {
-        self.head_snapshot.beacon_state.genesis_time()
-    }
-
     /*
     /// Returns info representing the head block and the state of the beacon chain.
     ///
