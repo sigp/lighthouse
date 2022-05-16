@@ -8,8 +8,9 @@ use eth2::lighthouse_vc::std_types::{
 };
 use slog::{info, warn, Logger};
 use slot_clock::SlotClock;
-use std::sync::{Arc, Weak};
-use tokio::runtime::Runtime;
+use std::sync::Arc;
+use task_executor::TaskExecutor;
+use tokio::runtime::Handle;
 use types::{EthSpec, PublicKeyBytes};
 use url::Url;
 use warp::Rejection;
@@ -45,7 +46,7 @@ pub fn list<T: SlotClock + 'static, E: EthSpec>(
 pub fn import<T: SlotClock + 'static, E: EthSpec>(
     request: ImportRemotekeysRequest,
     validator_store: Arc<ValidatorStore<T, E>>,
-    runtime: Weak<Runtime>,
+    task_executor: TaskExecutor,
     log: Logger,
 ) -> Result<ImportRemotekeysResponse, Rejection> {
     info!(
@@ -57,14 +58,10 @@ pub fn import<T: SlotClock + 'static, E: EthSpec>(
     let mut statuses = Vec::with_capacity(request.remote_keys.len());
 
     for remotekey in request.remote_keys {
-        let status = if let Some(runtime) = runtime.upgrade() {
+        let status = if let Some(handle) = task_executor.handle() {
             // Import the keystore.
-            match import_single_remotekey(
-                remotekey.pubkey,
-                remotekey.url,
-                &validator_store,
-                runtime,
-            ) {
+            match import_single_remotekey(remotekey.pubkey, remotekey.url, &validator_store, handle)
+            {
                 Ok(status) => Status::ok(status),
                 Err(e) => {
                     warn!(
@@ -91,7 +88,7 @@ fn import_single_remotekey<T: SlotClock + 'static, E: EthSpec>(
     pubkey: PublicKeyBytes,
     url: String,
     validator_store: &ValidatorStore<T, E>,
-    runtime: Arc<Runtime>,
+    handle: Handle,
 ) -> Result<ImportRemotekeyStatus, String> {
     if let Err(url_err) = Url::parse(&url) {
         return Err(format!("failed to parse remotekey URL: {}", url_err));
@@ -129,7 +126,7 @@ fn import_single_remotekey<T: SlotClock + 'static, E: EthSpec>(
             request_timeout_ms: None,
         },
     };
-    runtime
+    handle
         .block_on(validator_store.add_validator(web3signer_validator))
         .map_err(|e| format!("failed to initialize validator: {:?}", e))?;
 
@@ -139,7 +136,7 @@ fn import_single_remotekey<T: SlotClock + 'static, E: EthSpec>(
 pub fn delete<T: SlotClock + 'static, E: EthSpec>(
     request: DeleteRemotekeysRequest,
     validator_store: Arc<ValidatorStore<T, E>>,
-    runtime: Weak<Runtime>,
+    task_executor: TaskExecutor,
     log: Logger,
 ) -> Result<DeleteRemotekeysResponse, Rejection> {
     info!(
@@ -158,7 +155,7 @@ pub fn delete<T: SlotClock + 'static, E: EthSpec>(
             match delete_single_remotekey(
                 pubkey_bytes,
                 &mut initialized_validators,
-                runtime.clone(),
+                task_executor.clone(),
             ) {
                 Ok(status) => Status::ok(status),
                 Err(error) => {
@@ -177,8 +174,8 @@ pub fn delete<T: SlotClock + 'static, E: EthSpec>(
     // Use `update_validators` to update the key cache. It is safe to let the key cache get a bit out
     // of date as it resets when it can't be decrypted. We update it just a single time to avoid
     // continually resetting it after each key deletion.
-    if let Some(runtime) = runtime.upgrade() {
-        runtime
+    if let Some(handle) = task_executor.handle() {
+        handle
             .block_on(initialized_validators.update_validators())
             .map_err(|e| custom_server_error(format!("unable to update key cache: {:?}", e)))?;
     }
@@ -189,15 +186,14 @@ pub fn delete<T: SlotClock + 'static, E: EthSpec>(
 fn delete_single_remotekey(
     pubkey_bytes: &PublicKeyBytes,
     initialized_validators: &mut InitializedValidators,
-    runtime: Weak<Runtime>,
+    task_executor: TaskExecutor,
 ) -> Result<DeleteRemotekeyStatus, String> {
-    if let Some(runtime) = runtime.upgrade() {
+    if let Some(handle) = task_executor.handle() {
         let pubkey = pubkey_bytes
             .decompress()
             .map_err(|e| format!("invalid pubkey, {:?}: {:?}", pubkey_bytes, e))?;
 
-        match runtime
-            .block_on(initialized_validators.delete_definition_and_keystore(&pubkey, false))
+        match handle.block_on(initialized_validators.delete_definition_and_keystore(&pubkey, false))
         {
             Ok(_) => Ok(DeleteRemotekeyStatus::Deleted),
             Err(e) => match e {

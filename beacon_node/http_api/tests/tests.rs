@@ -20,6 +20,7 @@ use slot_clock::SlotClock;
 use state_processing::per_slot_processing;
 use std::convert::TryInto;
 use std::sync::Arc;
+use task_executor::test_utils::TestRuntime;
 use tokio::sync::{mpsc, oneshot};
 use tokio::time::Duration;
 use tree_hash::TreeHash;
@@ -63,6 +64,7 @@ struct ApiTester {
     network_rx: mpsc::UnboundedReceiver<NetworkMessage<E>>,
     local_enr: Enr,
     external_peer_id: PeerId,
+    _runtime: TestRuntime,
 }
 
 impl ApiTester {
@@ -185,7 +187,7 @@ impl ApiTester {
             external_peer_id,
         } = create_api_server(chain.clone(), log).await;
 
-        tokio::spawn(server);
+        harness.runtime.task_executor.spawn(server, "api_server");
 
         let client = BeaconNodeHttpClient::new(
             SensitiveUrl::parse(&format!(
@@ -212,6 +214,7 @@ impl ApiTester {
             network_rx,
             local_enr,
             external_peer_id,
+            _runtime: harness.runtime,
         }
     }
 
@@ -263,7 +266,7 @@ impl ApiTester {
             external_peer_id,
         } = create_api_server(chain.clone(), log).await;
 
-        tokio::spawn(server);
+        harness.runtime.task_executor.spawn(server, "api_server");
 
         let client = BeaconNodeHttpClient::new(
             SensitiveUrl::parse(&format!(
@@ -290,6 +293,7 @@ impl ApiTester {
             network_rx,
             local_enr,
             external_peer_id,
+            _runtime: harness.runtime,
         }
     }
 

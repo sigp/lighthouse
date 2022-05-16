@@ -498,7 +498,7 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
 
         self.http_api_listen_addr = if self.config.http_api.enabled {
             let ctx = Arc::new(http_api::Context {
-                runtime: self.context.executor.runtime(),
+                task_executor: self.context.executor.clone(),
                 api_secret,
                 validator_store: Some(self.validator_store.clone()),
                 validator_dir: Some(self.config.validator_dir.clone()),

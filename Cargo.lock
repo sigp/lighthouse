@@ -296,6 +296,7 @@ dependencies = [
  "eth2_ssz_derive",
  "eth2_ssz_types",
  "execution_layer",
+ "exit-future",
  "fork_choice",
  "futures",
  "genesis",
@@ -2531,6 +2532,7 @@ dependencies = [
  "slot_clock",
  "state_processing",
  "store",
+ "task_executor",
  "tokio",
  "tokio-stream",
  "tree_hash",
@@ -6028,6 +6030,7 @@ dependencies = [
  "lazy_static",
  "lighthouse_metrics",
  "slog",
+ "sloggers",
  "tokio",
 ]
 
