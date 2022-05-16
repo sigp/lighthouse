@@ -23,7 +23,7 @@ use beacon_chain::{
     observed_operations::ObservationOutcome,
     validator_monitor::{get_block_delay_ms, timestamp_now},
     AttestationError as AttnError, BeaconChain, BeaconChainError, BeaconChainTypes,
-    HeadSafetyStatus, ProduceBlockVerification, WhenSlotSkipped,
+    ProduceBlockVerification, WhenSlotSkipped,
 };
 pub use block_id::BlockId;
 use eth2::types::{self as api_types, EndpointVersion, ValidatorId};
@@ -396,30 +396,6 @@ pub fn serve<T: BeaconChainTypes>(
             )
             .untuple_one();
 
-    // Create a `warp` filter that rejects requests unless the head has been verified by the
-    // execution layer.
-    let only_with_safe_head = warp::any()
-        .and(chain_filter.clone())
-        .and_then(move |chain: Arc<BeaconChain<T>>| async move {
-            let status = chain.head_safety_status();
-            match status {
-                HeadSafetyStatus::Safe(_) => Ok(()),
-                HeadSafetyStatus::Unsafe(hash) => {
-                    Err(warp_utils::reject::custom_server_error(format!(
-                        "optimistic head hash {:?} has not been verified by the execution layer",
-                        hash
-                    )))
-                }
-                HeadSafetyStatus::Invalid(hash) => {
-                    Err(warp_utils::reject::custom_server_error(format!(
-                        "the head block has an invalid payload {:?}, this may be unrecoverable",
-                        hash
-                    )))
-                }
-            }
-        })
-        .untuple_one();
-
     // Create a `warp` filter that provides access to the logger.
     let inner_ctx = ctx.clone();
     let log_filter = warp::any().map(move || inner_ctx.log.clone());
@@ -438,10 +414,10 @@ pub fn serve<T: BeaconChainTypes>(
         .and(chain_filter.clone())
         .and_then(|chain: Arc<BeaconChain<T>>| {
             blocking_json_task(move || {
-                let chain_summary = chain.chain_summary();
+                let genesis_time = chain.canonical_head.read().genesis_time();
                 let data = api_types::GenesisData {
-                    genesis_time: chain_summary.genesis_time,
-                    genesis_validators_root: chain_summary.genesis_validators_root,
+                    genesis_time,
+                    genesis_validators_root: chain.genesis_validators_root,
                     genesis_fork_version: chain.spec.genesis_fork_version,
                 };
                 Ok(api_types::GenericResponse::from(data))
@@ -1854,7 +1830,7 @@ pub fn serve<T: BeaconChainTypes>(
         .and_then(
             |network_globals: Arc<NetworkGlobals<T::EthSpec>>, chain: Arc<BeaconChain<T>>| {
                 blocking_json_task(move || {
-                    let head_slot = chain.chain_summary().head_slot;
+                    let head_slot = chain.canonical_head.read().head_slot();
                     let current_slot = chain
                         .slot()
                         .map_err(warp_utils::reject::beacon_chain_error)?;
@@ -2214,7 +2190,6 @@ pub fn serve<T: BeaconChainTypes>(
         .and(warp::path::end())
         .and(warp::query::<api_types::ValidatorAttestationDataQuery>())
         .and(not_while_syncing_filter.clone())
-        .and(only_with_safe_head.clone())
         .and(chain_filter.clone())
         .and_then(
             |query: api_types::ValidatorAttestationDataQuery, chain: Arc<BeaconChain<T>>| {
@@ -2247,7 +2222,6 @@ pub fn serve<T: BeaconChainTypes>(
         .and(warp::path::end())
         .and(warp::query::<api_types::ValidatorAggregateAttestationQuery>())
         .and(not_while_syncing_filter.clone())
-        .and(only_with_safe_head.clone())
         .and(chain_filter.clone())
         .and_then(
             |query: api_types::ValidatorAggregateAttestationQuery, chain: Arc<BeaconChain<T>>| {
@@ -2324,7 +2298,6 @@ pub fn serve<T: BeaconChainTypes>(
         .and(warp::path::end())
         .and(warp::query::<SyncContributionData>())
         .and(not_while_syncing_filter.clone())
-        .and(only_with_safe_head)
         .and(chain_filter.clone())
         .and_then(
             |sync_committee_data: SyncContributionData, chain: Arc<BeaconChain<T>>| {
@@ -2773,7 +2746,7 @@ pub fn serve<T: BeaconChainTypes>(
         .and(chain_filter.clone())
         .and_then(|chain: Arc<BeaconChain<T>>| {
             blocking_json_task(move || {
-                let chain_summary = chain.chain_summary();
+                let genesis_time = chain.canonical_head.read().genesis_time();
                 let current_slot_opt = chain.slot().ok();
 
                 chain
@@ -2785,7 +2758,7 @@ pub fn serve<T: BeaconChainTypes>(
                         )
                     })
                     .and_then(|eth1| {
-                        eth1.sync_status(chain_summary.genesis_time, current_slot_opt, &chain.spec)
+                        eth1.sync_status(genesis_time, current_slot_opt, &chain.spec)
                             .ok_or_else(|| {
                                 warp_utils::reject::custom_server_error(
                                     "Unable to determine Eth1 sync status".to_string(),

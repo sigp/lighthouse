@@ -7,8 +7,9 @@ use beacon_chain::{
         obtain_indexed_attestation_and_committees_per_slot, VerifiedAttestation,
     },
     test_utils::{BeaconChainHarness, EphemeralHarnessType},
-    BeaconChainTypes, ChainSummary,
+    BeaconChainTypes, CanonicalHead,
 };
+use parking_lot::RwLockReadGuard;
 use serde_derive::Deserialize;
 use ssz_derive::Decode;
 use state_processing::state_advance::complete_state_advance;
@@ -287,11 +288,11 @@ impl<E: EthSpec> Tester<E> {
         Ok(self.spec.genesis_slot + slots_since_genesis)
     }
 
-    fn find_head(&self) -> Result<ChainSummary, Error> {
+    fn find_head(&self) -> Result<RwLockReadGuard<CanonicalHead<EphemeralHarnessType<E>>>, Error> {
         self.harness
             .recompute_head_blocking()
             .map_err(|e| Error::InternalError(format!("failed to find head with {:?}", e)))?;
-        Ok(self.harness.chain.chain_summary())
+        Ok(self.harness.chain.canonical_head.read())
     }
 
     fn genesis_epoch(&self) -> Epoch {
@@ -423,10 +424,11 @@ impl<E: EthSpec> Tester<E> {
     }
 
     pub fn check_head(&self, expected_head: Head) -> Result<(), Error> {
-        let chain_head = self.find_head().map(|head| Head {
-            slot: head.head_slot,
-            root: head.head_block_root,
-        })?;
+        let head = self.find_head()?;
+        let chain_head = Head {
+            slot: head.head_slot(),
+            root: head.head_root(),
+        };
 
         check_equal("head", chain_head, expected_head)
     }
@@ -445,7 +447,7 @@ impl<E: EthSpec> Tester<E> {
     }
 
     pub fn check_justified_checkpoint(&self, expected_checkpoint: Checkpoint) -> Result<(), Error> {
-        let head_checkpoint = self.find_head()?.justified_checkpoint;
+        let head_checkpoint = self.find_head()?.justified_checkpoint();
         let fc_checkpoint = self
             .harness
             .chain
@@ -468,7 +470,7 @@ impl<E: EthSpec> Tester<E> {
         &self,
         expected_checkpoint_root: Hash256,
     ) -> Result<(), Error> {
-        let head_checkpoint = self.find_head()?.justified_checkpoint;
+        let head_checkpoint = self.find_head()?.justified_checkpoint();
         let fc_checkpoint = self
             .harness
             .chain
@@ -492,7 +494,7 @@ impl<E: EthSpec> Tester<E> {
     }
 
     pub fn check_finalized_checkpoint(&self, expected_checkpoint: Checkpoint) -> Result<(), Error> {
-        let head_checkpoint = self.find_head()?.finalized_checkpoint;
+        let head_checkpoint = self.find_head()?.finalized_checkpoint();
         let fc_checkpoint = self
             .harness
             .chain

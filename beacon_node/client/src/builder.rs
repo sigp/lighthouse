@@ -665,13 +665,13 @@ where
             if let Some(execution_layer) = beacon_chain.execution_layer.as_ref() {
                 // Only send a head update *after* genesis.
                 if let Ok(current_slot) = beacon_chain.slot() {
-                    let chain_summary = beacon_chain.chain_summary();
-
                     // Issue the head to the execution engine on startup. This ensures it can start
                     // syncing.
-                    if chain_summary
-                        .head_execution_status
-                        .block_hash()
+                    if beacon_chain
+                        .canonical_head
+                        .read()
+                        .head_execution_status()
+                        .and_then(|status| status.block_hash())
                         .map_or(false, |h| h != ExecutionBlockHash::zero())
                     {
                         // Spawn a new task using the "async" fork choice update method, rather than

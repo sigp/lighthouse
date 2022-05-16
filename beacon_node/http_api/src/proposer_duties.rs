@@ -94,14 +94,21 @@ fn try_proposer_duties_from_cache<T: BeaconChainTypes>(
     request_epoch: Epoch,
     chain: &BeaconChain<T>,
 ) -> Result<Option<ApiDuties>, warp::reject::Rejection> {
-    let view = chain.chain_summary();
-    let head_epoch = view.head_slot.epoch(T::EthSpec::slots_per_epoch());
+    let (head_block_root, head_slot, decision_root) = {
+        let head = chain.canonical_head.read();
+        (
+            head.head_root(),
+            head.head_slot(),
+            head.head_proposer_shuffling_decision_root,
+        )
+    };
+    let head_epoch = head_slot.epoch(T::EthSpec::slots_per_epoch());
 
     let dependent_root = match head_epoch.cmp(&request_epoch) {
         // head_epoch == request_epoch
-        Ordering::Equal => view.head_proposer_shuffling_decision_root,
+        Ordering::Equal => decision_root,
         // head_epoch < request_epoch
-        Ordering::Less => view.head_block_root,
+        Ordering::Less => head_block_root,
         // head_epoch > request_epoch
         Ordering::Greater => {
             return Err(warp_utils::reject::custom_server_error(format!(

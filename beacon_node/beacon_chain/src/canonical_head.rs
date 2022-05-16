@@ -37,6 +37,16 @@ impl<T: BeaconChainTypes> CanonicalHead<T> {
         self.head_snapshot.beacon_block_root
     }
 
+    /// Returns root of the `BeaconState` at the head of the beacon chain.
+    ///
+    /// ## Note
+    ///
+    /// This `BeaconState` has *not* been advanced to the current slot, it has the same slot as the
+    /// head block.
+    pub fn head_state_root(&self) -> Hash256 {
+        self.head_snapshot.beacon_state_root()
+    }
+
     /// Returns slot of the block at the head of the beacon chain.
     ///
     /// ## Notes
@@ -78,6 +88,10 @@ impl<T: BeaconChainTypes> CanonicalHead<T> {
 
     pub fn justified_checkpoint(&self) -> Checkpoint {
         self.fork_choice_view.finalized_checkpoint
+    }
+
+    pub fn genesis_time(&self) -> u64 {
+        self.head_snapshot.beacon_state.genesis_time()
     }
 
     /*
