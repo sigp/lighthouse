@@ -3,6 +3,7 @@
 
 use crate::Error as ServerError;
 use lighthouse_network::{ConnectionDirection, Enr, Multiaddr, PeerConnectionStatus};
+use mime::{Mime, APPLICATION, JSON, OCTET_STREAM, STAR};
 use serde::{Deserialize, Serialize};
 use std::convert::TryFrom;
 use std::fmt;
@@ -1008,13 +1009,38 @@ impl FromStr for Accept {
     type Err = String;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s {
-            "application/octet-stream" => Ok(Accept::Ssz),
-            "application/json" => Ok(Accept::Json),
-            "*/*" => Ok(Accept::Any),
-            _ => Err("accept header cannot be parsed.".to_string()),
+        let mimes = parse_accept(s);
+
+        // [q-factor weighting]: https://datatracker.ietf.org/doc/html/rfc7231#section-5.3.2
+        let mut highest_mime: Option<Mime> = None;
+        let mut max_pref = 0f32;
+        for m in mimes {
+            let pref = m
+                .get_param("q")
+                .map_or(1f32, |n| n.as_ref().parse::<f32>().unwrap_or(0f32));
+            if pref > max_pref {
+                highest_mime = Some(m);
+                max_pref = pref;
+            }
         }
+
+        highest_mime.map_or(
+            Err("accept header cannot be parsed.".to_string()),
+            |m| match (m.type_(), m.subtype()) {
+                (APPLICATION, OCTET_STREAM) => Ok(Accept::Ssz),
+                (APPLICATION, JSON) => Ok(Accept::Json),
+                (STAR, STAR) => Ok(Accept::Any),
+                _ => Err("accept header is not supported".to_string()),
+            },
+        )
     }
+}
+
+fn parse_accept(accept: &str) -> Vec<Mime> {
+    accept
+        .split(',')
+        .map(|part| part.parse().unwrap())
+        .collect()
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -1043,6 +1069,19 @@ mod tests {
             QueryVec {
                 values: vec![0_u64, 1, 2]
             }
+        );
+    }
+
+    #[test]
+    fn parse_accept_header_content() {
+        assert_eq!(
+            Accept::from_str("application/json; charset=utf-8").unwrap(),
+            Accept::Json
+        );
+
+        assert_eq!(
+            Accept::from_str("application/octet-stream,application/json;q=0.9").unwrap(),
+            Accept::Ssz
         );
     }
 }
