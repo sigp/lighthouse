@@ -374,8 +374,8 @@ pub fn process_execution_payload<T: EthSpec, Payload: ExecPayload<T>>(
 
 /// These functions will definitely be called before the merge. Their entire purpose is to check if
 /// the merge has happened or if we're on the transition block. Thus we don't want to propagate
-/// errors from the `BeaconState` being an earlier variant than `BeaconStateMerge` as we'd have to
-/// repeaetedly write code to treat these errors as false.
+/// errors from the `BeaconState` being an earlier variant than `BeaconStateBellatrix` as we'd have to
+/// repeatedly write code to treat these errors as false.
 /// https://github.com/ethereum/consensus-specs/blob/dev/specs/merge/beacon-chain.md#is_merge_transition_complete
 pub fn is_merge_transition_complete<T: EthSpec>(state: &BeaconState<T>) -> bool {
     state

@@ -10,12 +10,12 @@ use std::str::FromStr;
 pub enum ForkName {
     Base,
     Altair,
-    Merge,
+    Bellatrix,
 }
 
 impl ForkName {
     pub fn list_all() -> Vec<ForkName> {
-        vec![ForkName::Base, ForkName::Altair, ForkName::Merge]
+        vec![ForkName::Base, ForkName::Altair, ForkName::Bellatrix]
     }
 
     /// Set the activation slots in the given `ChainSpec` so that the fork named by `self`
@@ -33,7 +33,7 @@ impl ForkName {
                 spec.bellatrix_fork_epoch = None;
                 spec
             }
-            ForkName::Merge => {
+            ForkName::Bellatrix => {
                 spec.altair_fork_epoch = Some(Epoch::new(0));
                 spec.bellatrix_fork_epoch = Some(Epoch::new(0));
                 spec
@@ -48,7 +48,7 @@ impl ForkName {
         match self {
             ForkName::Base => None,
             ForkName::Altair => Some(ForkName::Base),
-            ForkName::Merge => Some(ForkName::Altair),
+            ForkName::Bellatrix => Some(ForkName::Altair),
         }
     }
 
@@ -58,8 +58,8 @@ impl ForkName {
     pub fn next_fork(self) -> Option<ForkName> {
         match self {
             ForkName::Base => Some(ForkName::Altair),
-            ForkName::Altair => Some(ForkName::Merge),
-            ForkName::Merge => None,
+            ForkName::Altair => Some(ForkName::Bellatrix),
+            ForkName::Bellatrix => None,
         }
     }
 }
@@ -97,9 +97,9 @@ macro_rules! map_fork_name_with {
                 let (value, extra_data) = $body;
                 ($t::Altair(value), extra_data)
             }
-            ForkName::Merge => {
+            ForkName::Bellatrix => {
                 let (value, extra_data) = $body;
-                ($t::Merge(value), extra_data)
+                ($t::Bellatrix(value), extra_data)
             }
         }
     };
@@ -112,7 +112,7 @@ impl FromStr for ForkName {
         Ok(match fork_name.to_lowercase().as_ref() {
             "phase0" | "base" => ForkName::Base,
             "altair" => ForkName::Altair,
-            "bellatrix" | "merge" => ForkName::Merge,
+            "bellatrix" | "merge" => ForkName::Bellatrix,
             _ => return Err(()),
         })
     }
@@ -123,7 +123,7 @@ impl Display for ForkName {
         match self {
             ForkName::Base => "phase0".fmt(f),
             ForkName::Altair => "altair".fmt(f),
-            ForkName::Merge => "bellatrix".fmt(f),
+            ForkName::Bellatrix => "bellatrix".fmt(f),
         }
     }
 }
@@ -155,7 +155,7 @@ mod test {
 
     #[test]
     fn previous_and_next_fork_consistent() {
-        assert_eq!(ForkName::Merge.next_fork(), None);
+        assert_eq!(ForkName::Bellatrix.next_fork(), None);
         assert_eq!(ForkName::Base.previous_fork(), None);
 
         for (prev_fork, fork) in ForkName::list_all().into_iter().tuple_windows() {
@@ -178,14 +178,18 @@ mod test {
         assert_eq!(ForkName::from_str("AlTaIr"), Ok(ForkName::Altair));
         assert_eq!(ForkName::from_str("altair"), Ok(ForkName::Altair));
 
+        assert_eq!(ForkName::from_str("BELLATRIX"), Ok(ForkName::Bellatrix));
+        assert_eq!(ForkName::from_str("BeLLaTRiX"), Ok(ForkName::Bellatrix));
+        assert_eq!(ForkName::from_str("bellatrix"), Ok(ForkName::Bellatrix));
+
         assert_eq!(ForkName::from_str("NO_NAME"), Err(()));
         assert_eq!(ForkName::from_str("no_name"), Err(()));
     }
 
     #[test]
     fn fork_name_bellatrix_or_merge() {
-        assert_eq!(ForkName::from_str("bellatrix"), Ok(ForkName::Merge));
-        assert_eq!(ForkName::from_str("merge"), Ok(ForkName::Merge));
-        assert_eq!(ForkName::Merge.to_string(), "bellatrix");
+        assert_eq!(ForkName::from_str("bellatrix"), Ok(ForkName::Bellatrix));
+        assert_eq!(ForkName::from_str("merge"), Ok(ForkName::Bellatrix));
+        assert_eq!(ForkName::Bellatrix.to_string(), "bellatrix");
     }
 }

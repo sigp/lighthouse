@@ -41,13 +41,15 @@ pub fn run_parse_ssz<T: EthSpec>(matches: &ArgMatches) -> Result<(), String> {
     match type_str {
         "signed_block_base" => decode_and_print::<SignedBeaconBlockBase<T>>(&bytes, format)?,
         "signed_block_altair" => decode_and_print::<SignedBeaconBlockAltair<T>>(&bytes, format)?,
-        "signed_block_merge" => decode_and_print::<SignedBeaconBlockMerge<T>>(&bytes, format)?,
+        "signed_block_bellatrix" => {
+            decode_and_print::<SignedBeaconBlockBellatrix<T>>(&bytes, format)?
+        }
         "block_base" => decode_and_print::<BeaconBlockBase<T>>(&bytes, format)?,
         "block_altair" => decode_and_print::<BeaconBlockAltair<T>>(&bytes, format)?,
-        "block_merge" => decode_and_print::<BeaconBlockMerge<T>>(&bytes, format)?,
+        "block_bellatrix" => decode_and_print::<BeaconBlockBellatrix<T>>(&bytes, format)?,
         "state_base" => decode_and_print::<BeaconStateBase<T>>(&bytes, format)?,
         "state_altair" => decode_and_print::<BeaconStateAltair<T>>(&bytes, format)?,
-        "state_merge" => decode_and_print::<BeaconStateMerge<T>>(&bytes, format)?,
+        "state_bellatrix" => decode_and_print::<BeaconStateBellatrix<T>>(&bytes, format)?,
         other => return Err(format!("Unknown type: {}", other)),
     };
 

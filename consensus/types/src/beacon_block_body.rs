@@ -13,7 +13,7 @@ use tree_hash_derive::TreeHash;
 ///
 /// This *superstruct* abstracts over the hard-fork.
 #[superstruct(
-    variants(Base, Altair, Merge),
+    variants(Base, Altair, Bellatrix),
     variant_attributes(
         derive(
             Debug,
@@ -47,12 +47,12 @@ pub struct BeaconBlockBody<T: EthSpec, Payload: ExecPayload<T> = FullPayload<T>>
     pub attestations: VariableList<Attestation<T>, T::MaxAttestations>,
     pub deposits: VariableList<Deposit, T::MaxDeposits>,
     pub voluntary_exits: VariableList<SignedVoluntaryExit, T::MaxVoluntaryExits>,
-    #[superstruct(only(Altair, Merge))]
+    #[superstruct(only(Altair, Bellatrix))]
     pub sync_aggregate: SyncAggregate<T>,
     // We flatten the execution payload so that serde can use the name of the inner type,
     // either `execution_payload` for full payloads, or `execution_payload_header` for blinded
     // payloads.
-    #[superstruct(only(Merge))]
+    #[superstruct(only(Bellatrix))]
     #[serde(flatten)]
     pub execution_payload: Payload,
     #[superstruct(only(Base, Altair))]
@@ -68,7 +68,7 @@ impl<'a, T: EthSpec> BeaconBlockBodyRef<'a, T> {
         match self {
             BeaconBlockBodyRef::Base { .. } => ForkName::Base,
             BeaconBlockBodyRef::Altair { .. } => ForkName::Altair,
-            BeaconBlockBodyRef::Merge { .. } => ForkName::Merge,
+            BeaconBlockBodyRef::Bellatrix { .. } => ForkName::Bellatrix,
         }
     }
 }
@@ -211,14 +211,14 @@ impl<E: EthSpec> From<BeaconBlockBodyAltair<E, FullPayload<E>>>
     }
 }
 
-impl<E: EthSpec> From<BeaconBlockBodyMerge<E, FullPayload<E>>>
+impl<E: EthSpec> From<BeaconBlockBodyBellatrix<E, FullPayload<E>>>
     for (
-        BeaconBlockBodyMerge<E, BlindedPayload<E>>,
+        BeaconBlockBodyBellatrix<E, BlindedPayload<E>>,
         Option<ExecutionPayload<E>>,
     )
 {
-    fn from(body: BeaconBlockBodyMerge<E, FullPayload<E>>) -> Self {
-        let BeaconBlockBodyMerge {
+    fn from(body: BeaconBlockBodyBellatrix<E, FullPayload<E>>) -> Self {
+        let BeaconBlockBodyBellatrix {
             randao_reveal,
             eth1_data,
             graffiti,
@@ -232,7 +232,7 @@ impl<E: EthSpec> From<BeaconBlockBodyMerge<E, FullPayload<E>>>
         } = body;
 
         (
-            BeaconBlockBodyMerge {
+            BeaconBlockBodyBellatrix {
                 randao_reveal,
                 eth1_data,
                 graffiti,

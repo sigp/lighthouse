@@ -462,12 +462,12 @@ fn main() {
                         ),
                 )
                 .arg(
-                    Arg::with_name("merge-fork-epoch")
-                        .long("merge-fork-epoch")
+                    Arg::with_name("bellatrix-fork-epoch")
+                        .long("bellatrix-fork-epoch")
                         .value_name("EPOCH")
                         .takes_value(true)
                         .help(
-                            "The epoch at which to enable the Merge hard fork",
+                            "The epoch at which to enable the Bellatrix hard fork",
                         ),
                 )
                 .arg(

@@ -59,10 +59,11 @@ impl Into<ProtoNodeV6> for ProtoNodeV1 {
             weight: self.weight,
             best_child: self.best_child,
             best_descendant: self.best_descendant,
-            // We set the following execution value as if the block is a pre-merge-fork block. This
-            // is safe as long as we never import a merge block with the old version of proto-array.
-            // This will be safe since we can't actually process merge blocks until we've made this
-            // change to fork choice.
+            // We set the following execution value as if the block is a pre-Bellatrix-fork block.
+            // This is safe as long as we never import a Bellatrix block with the old version of
+            // proto-array.
+            // This will be safe since we can't actually process Bellatrix blocks until we've made
+            // this change to fork choice.
             execution_status: ExecutionStatus::irrelevant(),
         }
     }

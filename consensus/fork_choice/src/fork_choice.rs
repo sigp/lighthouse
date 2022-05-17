@@ -5,7 +5,7 @@ use std::cmp::Ordering;
 use std::marker::PhantomData;
 use std::time::Duration;
 use types::{
-    consts::merge::INTERVALS_PER_SLOT, AttestationShufflingId, BeaconBlock, BeaconState,
+    consts::bellatrix::INTERVALS_PER_SLOT, AttestationShufflingId, BeaconBlock, BeaconState,
     BeaconStateError, ChainSpec, Checkpoint, Epoch, EthSpec, ExecPayload, ExecutionBlockHash,
     Hash256, IndexedAttestation, RelativeEpoch, SignedBeaconBlock, Slot,
 };
@@ -123,7 +123,7 @@ pub enum PayloadVerificationStatus {
     Verified,
     /// An EL has not yet made a determination about the execution payload.
     Optimistic,
-    /// The block is either pre-merge-fork, or prior to the terminal PoW block.
+    /// The block is either pre-Bellatrix-fork, or prior to the terminal PoW block.
     Irrelevant,
 }
 
@@ -324,8 +324,8 @@ where
             AttestationShufflingId::new(anchor_block_root, anchor_state, RelativeEpoch::Next)
                 .map_err(Error::BeaconStateError)?;
 
-        // Default any non-merge execution block hashes to 0x000..000.
-        let execution_status = anchor_block.message_merge().map_or_else(
+        // Default any non-Bellatrix execution block hashes to 0x000..000.
+        let execution_status = anchor_block.message_bellatrix().map_or_else(
             |()| ExecutionStatus::irrelevant(),
             |message| {
                 let execution_payload = &message.body.execution_payload;
@@ -673,8 +673,8 @@ where
             let block_hash = execution_payload.block_hash();
 
             if block_hash == ExecutionBlockHash::zero() {
-                // The block is post-merge-fork, but pre-terminal-PoW block. We don't need to verify
-                // the payload.
+                // The block is post-Bellatrix-fork, but pre-terminal-PoW block. We don't need to
+                // verify the payload.
                 ExecutionStatus::irrelevant()
             } else {
                 match payload_verification_status {

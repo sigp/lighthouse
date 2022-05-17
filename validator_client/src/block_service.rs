@@ -236,7 +236,7 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
         }
 
         let private_tx_proposals = self.private_tx_proposals;
-        let merge_slot = self
+        let bellatrix_slot = self
             .context
             .eth2_config
             .spec
@@ -248,7 +248,7 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
             let log = log.clone();
             self.inner.context.executor.spawn(
                 async move {
-                    let publish_result = if private_tx_proposals && slot >= merge_slot {
+                    let publish_result = if private_tx_proposals && slot >= bellatrix_slot {
                         let mut result = service.clone()
                             .publish_block::<BlindedPayload<E>>(slot, validator_pubkey)
                             .await;

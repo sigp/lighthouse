@@ -135,13 +135,13 @@ pub struct ChainSpec {
     pub altair_fork_epoch: Option<Epoch>,
 
     /*
-     * Merge hard fork params
+     * Bellatrix hard fork params
      */
     pub inactivity_penalty_quotient_bellatrix: u64,
     pub min_slashing_penalty_quotient_bellatrix: u64,
     pub proportional_slashing_multiplier_bellatrix: u64,
     pub bellatrix_fork_version: [u8; 4],
-    /// The Merge fork epoch is optional, with `None` representing "Merge never happens".
+    /// The Bellatrix fork epoch is optional, with `None` representing "Bellatrix never happens".
     pub bellatrix_fork_epoch: Option<Epoch>,
     pub terminal_total_difficulty: Uint256,
     pub terminal_block_hash: ExecutionBlockHash,
@@ -224,7 +224,7 @@ impl ChainSpec {
     /// Returns the name of the fork which is active at `epoch`.
     pub fn fork_name_at_epoch(&self, epoch: Epoch) -> ForkName {
         match self.bellatrix_fork_epoch {
-            Some(fork_epoch) if epoch >= fork_epoch => ForkName::Merge,
+            Some(fork_epoch) if epoch >= fork_epoch => ForkName::Bellatrix,
             _ => match self.altair_fork_epoch {
                 Some(fork_epoch) if epoch >= fork_epoch => ForkName::Altair,
                 _ => ForkName::Base,
@@ -237,7 +237,7 @@ impl ChainSpec {
         match fork_name {
             ForkName::Base => self.genesis_fork_version,
             ForkName::Altair => self.altair_fork_version,
-            ForkName::Merge => self.bellatrix_fork_version,
+            ForkName::Bellatrix => self.bellatrix_fork_version,
         }
     }
 
@@ -246,7 +246,7 @@ impl ChainSpec {
         match fork_name {
             ForkName::Base => Some(Epoch::new(0)),
             ForkName::Altair => self.altair_fork_epoch,
-            ForkName::Merge => self.bellatrix_fork_epoch,
+            ForkName::Bellatrix => self.bellatrix_fork_epoch,
         }
     }
 
@@ -255,7 +255,7 @@ impl ChainSpec {
         match state {
             BeaconState::Base(_) => self.inactivity_penalty_quotient,
             BeaconState::Altair(_) => self.inactivity_penalty_quotient_altair,
-            BeaconState::Merge(_) => self.inactivity_penalty_quotient_bellatrix,
+            BeaconState::Bellatrix(_) => self.inactivity_penalty_quotient_bellatrix,
         }
     }
 
@@ -267,7 +267,7 @@ impl ChainSpec {
         match state {
             BeaconState::Base(_) => self.proportional_slashing_multiplier,
             BeaconState::Altair(_) => self.proportional_slashing_multiplier_altair,
-            BeaconState::Merge(_) => self.proportional_slashing_multiplier_bellatrix,
+            BeaconState::Bellatrix(_) => self.proportional_slashing_multiplier_bellatrix,
         }
     }
 
@@ -279,7 +279,7 @@ impl ChainSpec {
         match state {
             BeaconState::Base(_) => self.min_slashing_penalty_quotient,
             BeaconState::Altair(_) => self.min_slashing_penalty_quotient_altair,
-            BeaconState::Merge(_) => self.min_slashing_penalty_quotient_bellatrix,
+            BeaconState::Bellatrix(_) => self.min_slashing_penalty_quotient_bellatrix,
         }
     }
 
@@ -534,7 +534,7 @@ impl ChainSpec {
             altair_fork_epoch: Some(Epoch::new(74240)),
 
             /*
-             * Merge hard fork params
+             * Bellatrix hard fork params
              */
             inactivity_penalty_quotient_bellatrix: u64::checked_pow(2, 24)
                 .expect("pow does not overflow"),
@@ -594,7 +594,7 @@ impl ChainSpec {
             epochs_per_sync_committee_period: Epoch::new(8),
             altair_fork_version: [0x01, 0x00, 0x00, 0x01],
             altair_fork_epoch: None,
-            // Merge
+            // Bellatrix
             bellatrix_fork_version: [0x02, 0x00, 0x00, 0x01],
             bellatrix_fork_epoch: None,
             // Other
@@ -732,7 +732,7 @@ impl ChainSpec {
             altair_fork_epoch: Some(Epoch::new(256)),
 
             /*
-             * Merge hard fork params
+             * Bellatrix hard fork params
              */
             inactivity_penalty_quotient_bellatrix: u64::checked_pow(2, 24)
                 .expect("pow does not overflow"),

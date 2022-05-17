@@ -38,7 +38,7 @@ impl From<SignedBeaconBlockHash> for Hash256 {
 
 /// A `BeaconBlock` and a signature from its proposer.
 #[superstruct(
-    variants(Base, Altair, Merge),
+    variants(Base, Altair, Bellatrix),
     variant_attributes(
         derive(
             Debug,
@@ -70,8 +70,8 @@ pub struct SignedBeaconBlock<E: EthSpec, Payload: ExecPayload<E> = FullPayload<E
     pub message: BeaconBlockBase<E, Payload>,
     #[superstruct(only(Altair), partial_getter(rename = "message_altair"))]
     pub message: BeaconBlockAltair<E, Payload>,
-    #[superstruct(only(Merge), partial_getter(rename = "message_merge"))]
-    pub message: BeaconBlockMerge<E, Payload>,
+    #[superstruct(only(Bellatrix), partial_getter(rename = "message_bellatrix"))]
+    pub message: BeaconBlockBellatrix<E, Payload>,
     pub signature: Signature,
 }
 
@@ -126,8 +126,8 @@ impl<E: EthSpec, Payload: ExecPayload<E>> SignedBeaconBlock<E, Payload> {
             BeaconBlock::Altair(message) => {
                 SignedBeaconBlock::Altair(SignedBeaconBlockAltair { message, signature })
             }
-            BeaconBlock::Merge(message) => {
-                SignedBeaconBlock::Merge(SignedBeaconBlockMerge { message, signature })
+            BeaconBlock::Bellatrix(message) => {
+                SignedBeaconBlock::Bellatrix(SignedBeaconBlockBellatrix { message, signature })
             }
         }
     }
@@ -255,20 +255,20 @@ impl<E: EthSpec> From<SignedBeaconBlockAltair<E, BlindedPayload<E>>>
 // Post-Bellatrix blocks can be "unblinded" by adding the full payload.
 // NOTE: It might be nice to come up with a `superstruct` pattern to abstract over this before
 // the first fork after Bellatrix.
-impl<E: EthSpec> SignedBeaconBlockMerge<E, BlindedPayload<E>> {
+impl<E: EthSpec> SignedBeaconBlockBellatrix<E, BlindedPayload<E>> {
     pub fn into_full_block(
         self,
         execution_payload: ExecutionPayload<E>,
-    ) -> SignedBeaconBlockMerge<E, FullPayload<E>> {
-        let SignedBeaconBlockMerge {
+    ) -> SignedBeaconBlockBellatrix<E, FullPayload<E>> {
+        let SignedBeaconBlockBellatrix {
             message:
-                BeaconBlockMerge {
+                BeaconBlockBellatrix {
                     slot,
                     proposer_index,
                     parent_root,
                     state_root,
                     body:
-                        BeaconBlockBodyMerge {
+                        BeaconBlockBodyBellatrix {
                             randao_reveal,
                             eth1_data,
                             graffiti,
@@ -283,13 +283,13 @@ impl<E: EthSpec> SignedBeaconBlockMerge<E, BlindedPayload<E>> {
                 },
             signature,
         } = self;
-        SignedBeaconBlockMerge {
-            message: BeaconBlockMerge {
+        SignedBeaconBlockBellatrix {
+            message: BeaconBlockBellatrix {
                 slot,
                 proposer_index,
                 parent_root,
                 state_root,
-                body: BeaconBlockBodyMerge {
+                body: BeaconBlockBodyBellatrix {
                     randao_reveal,
                     eth1_data,
                     graffiti,
@@ -315,8 +315,8 @@ impl<E: EthSpec> SignedBeaconBlock<E, BlindedPayload<E>> {
         let full_block = match self {
             SignedBeaconBlock::Base(block) => SignedBeaconBlock::Base(block.into()),
             SignedBeaconBlock::Altair(block) => SignedBeaconBlock::Altair(block.into()),
-            SignedBeaconBlock::Merge(block) => {
-                SignedBeaconBlock::Merge(block.into_full_block(execution_payload?))
+            SignedBeaconBlock::Bellatrix(block) => {
+                SignedBeaconBlock::Bellatrix(block.into_full_block(execution_payload?))
             }
         };
         Some(full_block)
@@ -365,7 +365,10 @@ mod test {
                 BeaconBlock::Altair(BeaconBlockAltair::empty(spec)),
                 sig.clone(),
             ),
-            SignedBeaconBlock::from_block(BeaconBlock::Merge(BeaconBlockMerge::empty(spec)), sig),
+            SignedBeaconBlock::from_block(
+                BeaconBlock::Bellatrix(BeaconBlockBellatrix::empty(spec)),
+                sig,
+            ),
         ];
 
         for block in blocks {

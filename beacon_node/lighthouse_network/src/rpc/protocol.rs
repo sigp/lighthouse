@@ -21,7 +21,7 @@ use tokio_util::{
     compat::{Compat, FuturesAsyncReadCompatExt},
 };
 use types::{
-    BeaconBlock, BeaconBlockAltair, BeaconBlockBase, BeaconBlockMerge, EthSpec, ForkContext,
+    BeaconBlock, BeaconBlockAltair, BeaconBlockBase, BeaconBlockBellatrix, EthSpec, ForkContext,
     ForkName, Hash256, MainnetEthSpec, Signature, SignedBeaconBlock,
 };
 
@@ -54,18 +54,18 @@ lazy_static! {
     .as_ssz_bytes()
     .len();
 
-    pub static ref SIGNED_BEACON_BLOCK_MERGE_MIN: usize = SignedBeaconBlock::<MainnetEthSpec>::from_block(
-        BeaconBlock::Merge(BeaconBlockMerge::<MainnetEthSpec>::empty(&MainnetEthSpec::default_spec())),
+    pub static ref SIGNED_BEACON_BLOCK_BELLATRIX_MIN: usize = SignedBeaconBlock::<MainnetEthSpec>::from_block(
+        BeaconBlock::Bellatrix(BeaconBlockBellatrix::<MainnetEthSpec>::empty(&MainnetEthSpec::default_spec())),
         Signature::empty(),
     )
     .as_ssz_bytes()
     .len();
 
-    /// The `BeaconBlockMerge` block has an `ExecutionPayload` field which has a max size ~16 GiB for future proofing.
+    /// The `BeaconBlockBellatrix` block has an `ExecutionPayload` field which has a max size ~16 GiB for future proofing.
     /// We calculate the value from its fields instead of constructing the block and checking the length.
     /// Note: This is only the theoretical upper bound. We further bound the max size we receive over the network
-    /// with `MAX_RPC_SIZE_POST_MERGE`.
-    pub static ref SIGNED_BEACON_BLOCK_MERGE_MAX: usize =
+    /// with `MAX_RPC_SIZE_POST_BELLATRIX`.
+    pub static ref SIGNED_BEACON_BLOCK_BELLATRIX_MAX: usize =
     // Size of a full altair block
     *SIGNED_BEACON_BLOCK_ALTAIR_MAX
     + types::ExecutionPayload::<MainnetEthSpec>::max_execution_payload_size() // adding max size of execution payload (~16gb)
@@ -98,10 +98,10 @@ lazy_static! {
 
 }
 
-/// The maximum bytes that can be sent across the RPC pre-merge.
+/// The maximum bytes that can be sent across the RPC pre-Bellatrix.
 pub(crate) const MAX_RPC_SIZE: usize = 1_048_576; // 1M
-/// The maximum bytes that can be sent across the RPC post-merge.
-pub(crate) const MAX_RPC_SIZE_POST_MERGE: usize = 10 * 1_048_576; // 10M
+/// The maximum bytes that can be sent across the RPC post-Bellatrix.
+pub(crate) const MAX_RPC_SIZE_POST_BELLATRIX: usize = 10 * 1_048_576; // 10M
 /// The protocol prefix the RPC protocol id.
 const PROTOCOL_PREFIX: &str = "/eth2/beacon_chain/req";
 /// Time allowed for the first byte of a request to arrive before we time out (Time To First Byte).
@@ -113,7 +113,7 @@ const REQUEST_TIMEOUT: u64 = 15;
 /// Returns the maximum bytes that can be sent across the RPC.
 pub fn max_rpc_size(fork_context: &ForkContext) -> usize {
     match fork_context.current_fork() {
-        ForkName::Merge => MAX_RPC_SIZE_POST_MERGE,
+        ForkName::Bellatrix => MAX_RPC_SIZE_POST_BELLATRIX,
         ForkName::Altair | ForkName::Base => MAX_RPC_SIZE,
     }
 }
@@ -131,9 +131,9 @@ pub fn rpc_block_limits_by_fork(current_fork: ForkName) -> RpcLimits {
             *SIGNED_BEACON_BLOCK_BASE_MIN, // Base block is smaller than altair blocks
             *SIGNED_BEACON_BLOCK_ALTAIR_MAX, // Altair block is larger than base blocks
         ),
-        ForkName::Merge => RpcLimits::new(
-            *SIGNED_BEACON_BLOCK_BASE_MIN, // Base block is smaller than altair and merge blocks
-            *SIGNED_BEACON_BLOCK_MERGE_MAX, // Merge block is larger than base and altair blocks
+        ForkName::Bellatrix => RpcLimits::new(
+            *SIGNED_BEACON_BLOCK_BASE_MIN, // Base block is smaller than Altair and Bellatrix blocks
+            *SIGNED_BEACON_BLOCK_BELLATRIX_MAX, // Bellatrix block is larger than base and altair blocks
         ),
     }
 }

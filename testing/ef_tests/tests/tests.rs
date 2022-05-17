@@ -234,9 +234,9 @@ mod ssz_static {
             .run();
         SszStaticHandler::<BeaconBlockBodyAltair<MainnetEthSpec>, MainnetEthSpec>::altair_only()
             .run();
-        SszStaticHandler::<BeaconBlockBodyMerge<MinimalEthSpec>, MinimalEthSpec>::merge_only()
+        SszStaticHandler::<BeaconBlockBodyBellatrix<MinimalEthSpec>, MinimalEthSpec>::bellatrix_only()
             .run();
-        SszStaticHandler::<BeaconBlockBodyMerge<MainnetEthSpec>, MainnetEthSpec>::merge_only()
+        SszStaticHandler::<BeaconBlockBodyBellatrix<MainnetEthSpec>, MainnetEthSpec>::bellatrix_only()
             .run();
     }
 
@@ -287,20 +287,20 @@ mod ssz_static {
         SszStaticHandler::<SyncAggregatorSelectionData, MainnetEthSpec>::altair_and_later().run();
     }
 
-    // Merge and later
+    // Bellatrix and later
     #[test]
     fn execution_payload() {
-        SszStaticHandler::<ExecutionPayload<MinimalEthSpec>, MinimalEthSpec>::merge_and_later()
+        SszStaticHandler::<ExecutionPayload<MinimalEthSpec>, MinimalEthSpec>::bellatrix_and_later()
             .run();
-        SszStaticHandler::<ExecutionPayload<MainnetEthSpec>, MainnetEthSpec>::merge_and_later()
+        SszStaticHandler::<ExecutionPayload<MainnetEthSpec>, MainnetEthSpec>::bellatrix_and_later()
             .run();
     }
 
     #[test]
     fn execution_payload_header() {
-        SszStaticHandler::<ExecutionPayloadHeader<MinimalEthSpec>, MinimalEthSpec>::merge_and_later()
+        SszStaticHandler::<ExecutionPayloadHeader<MinimalEthSpec>, MinimalEthSpec>::bellatrix_and_later()
             .run();
-        SszStaticHandler::<ExecutionPayloadHeader<MainnetEthSpec>, MainnetEthSpec>::merge_and_later()
+        SszStaticHandler::<ExecutionPayloadHeader<MainnetEthSpec>, MainnetEthSpec>::bellatrix_and_later()
             .run();
     }
 }

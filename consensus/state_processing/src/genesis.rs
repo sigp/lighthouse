@@ -56,7 +56,7 @@ pub fn initialize_beacon_state_from_eth1<T: EthSpec>(
         state.fork_mut().previous_version = spec.altair_fork_version;
     }
 
-    // Similarly, perform an upgrade to the merge if configured from genesis.
+    // Similarly, perform the Bellatrix upgrade if configured from genesis.
     if spec
         .bellatrix_fork_epoch
         .map_or(false, |fork_epoch| fork_epoch == T::genesis_epoch())

@@ -44,7 +44,7 @@ type_name_generic!(BeaconBlock);
 type_name_generic!(BeaconBlockBody);
 type_name_generic!(BeaconBlockBodyBase, "BeaconBlockBody");
 type_name_generic!(BeaconBlockBodyAltair, "BeaconBlockBody");
-type_name_generic!(BeaconBlockBodyMerge, "BeaconBlockBody");
+type_name_generic!(BeaconBlockBodyBellatrix, "BeaconBlockBody");
 type_name!(BeaconBlockHeader);
 type_name_generic!(BeaconState);
 type_name!(Checkpoint);

@@ -41,7 +41,7 @@ pub fn build(execution_clients_dir: &Path) {
     // Build nethermind
     build_utils::check_command_output(build_result(&repo_dir), "dotnet build failed");
 
-    // Build nethermind a second time to enable Merge-related features.
+    // Build nethermind a second time to enable Bellatrix-related features.
     // Not sure why this is necessary.
     build_utils::check_command_output(build_result(&repo_dir), "dotnet build failed");
 }

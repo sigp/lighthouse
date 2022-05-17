@@ -94,7 +94,7 @@ impl<E: EthSpec> EpochTransition<E> for JustificationAndFinalization {
                     spec,
                 )
             }
-            BeaconState::Altair(_) | BeaconState::Merge(_) => {
+            BeaconState::Altair(_) | BeaconState::Bellatrix(_) => {
                 altair::process_justification_and_finalization(
                     state,
                     &altair::ParticipationCache::new(state, spec).unwrap(),
@@ -112,7 +112,7 @@ impl<E: EthSpec> EpochTransition<E> for RewardsAndPenalties {
                 validator_statuses.process_attestations(state)?;
                 base::process_rewards_and_penalties(state, &mut validator_statuses, spec)
             }
-            BeaconState::Altair(_) | BeaconState::Merge(_) => {
+            BeaconState::Altair(_) | BeaconState::Bellatrix(_) => {
                 altair::process_rewards_and_penalties(
                     state,
                     &altair::ParticipationCache::new(state, spec).unwrap(),
@@ -141,7 +141,7 @@ impl<E: EthSpec> EpochTransition<E> for Slashings {
                     spec,
                 )?;
             }
-            BeaconState::Altair(_) | BeaconState::Merge(_) => {
+            BeaconState::Altair(_) | BeaconState::Bellatrix(_) => {
                 process_slashings(
                     state,
                     altair::ParticipationCache::new(state, spec)
@@ -199,7 +199,7 @@ impl<E: EthSpec> EpochTransition<E> for SyncCommitteeUpdates {
     fn run(state: &mut BeaconState<E>, spec: &ChainSpec) -> Result<(), EpochProcessingError> {
         match state {
             BeaconState::Base(_) => Ok(()),
-            BeaconState::Altair(_) | BeaconState::Merge(_) => {
+            BeaconState::Altair(_) | BeaconState::Bellatrix(_) => {
                 altair::process_sync_committee_updates(state, spec)
             }
         }
@@ -210,11 +210,13 @@ impl<E: EthSpec> EpochTransition<E> for InactivityUpdates {
     fn run(state: &mut BeaconState<E>, spec: &ChainSpec) -> Result<(), EpochProcessingError> {
         match state {
             BeaconState::Base(_) => Ok(()),
-            BeaconState::Altair(_) | BeaconState::Merge(_) => altair::process_inactivity_updates(
-                state,
-                &altair::ParticipationCache::new(state, spec).unwrap(),
-                spec,
-            ),
+            BeaconState::Altair(_) | BeaconState::Bellatrix(_) => {
+                altair::process_inactivity_updates(
+                    state,
+                    &altair::ParticipationCache::new(state, spec).unwrap(),
+                    spec,
+                )
+            }
         }
     }
 }
@@ -223,7 +225,7 @@ impl<E: EthSpec> EpochTransition<E> for ParticipationFlagUpdates {
     fn run(state: &mut BeaconState<E>, _: &ChainSpec) -> Result<(), EpochProcessingError> {
         match state {
             BeaconState::Base(_) => Ok(()),
-            BeaconState::Altair(_) | BeaconState::Merge(_) => {
+            BeaconState::Altair(_) | BeaconState::Bellatrix(_) => {
                 altair::process_participation_flag_updates(state)
             }
         }
@@ -270,7 +272,7 @@ impl<E: EthSpec, T: EpochTransition<E>> Case for EpochProcessing<E, T> {
                     && T::name() != "inactivity_updates"
                     && T::name() != "participation_flag_updates"
             }
-            ForkName::Altair | ForkName::Merge => true, // TODO: revisit when tests are out
+            ForkName::Altair | ForkName::Bellatrix => true, // TODO: revisit when tests are out
         }
     }
 

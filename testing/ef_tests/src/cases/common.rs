@@ -77,6 +77,6 @@ pub fn previous_fork(fork_name: ForkName) -> ForkName {
     match fork_name {
         ForkName::Base => ForkName::Base,
         ForkName::Altair => ForkName::Base,
-        ForkName::Merge => ForkName::Altair, // TODO: Check this when tests are released..
+        ForkName::Bellatrix => ForkName::Altair, // TODO: Check this when tests are released..
     }
 }

@@ -41,8 +41,8 @@ pub const DUPLICATE_CACHE_TIME: Duration = Duration::from_secs(33 * 12 + 1);
 const MESSAGE_DOMAIN_VALID_SNAPPY: [u8; 4] = [1, 0, 0, 0];
 
 /// The maximum size of gossip messages.
-pub fn gossip_max_size(is_merge_enabled: bool) -> usize {
-    if is_merge_enabled {
+pub fn gossip_max_size(is_bellatrix_enabled: bool) -> usize {
+    if is_bellatrix_enabled {
         GOSSIP_MAX_SIZE_POST_MERGE
     } else {
         GOSSIP_MAX_SIZE
@@ -296,7 +296,7 @@ pub fn gossipsub_config(network_load: u8, fork_context: Arc<ForkContext>) -> Gos
         match fork_context.current_fork() {
             // according to: https://github.com/ethereum/consensus-specs/blob/dev/specs/merge/p2p-interface.md#the-gossip-domain-gossipsub
             // the derivation of the message-id remains the same in the merge
-            ForkName::Altair | ForkName::Merge => {
+            ForkName::Altair | ForkName::Bellatrix => {
                 let topic_len_bytes = topic_bytes.len().to_le_bytes();
                 let mut vec = Vec::with_capacity(
                     prefix.len() + topic_len_bytes.len() + topic_bytes.len() + message.data.len(),
@@ -316,7 +316,7 @@ pub fn gossipsub_config(network_load: u8, fork_context: Arc<ForkContext>) -> Gos
         }
     }
 
-    let is_merge_enabled = fork_context.fork_exists(ForkName::Merge);
+    let is_bellatrix_enabled = fork_context.fork_exists(ForkName::Bellatrix);
     let gossip_message_id = move |message: &GossipsubMessage| {
         MessageId::from(
             &Sha256::digest(
@@ -328,7 +328,7 @@ pub fn gossipsub_config(network_load: u8, fork_context: Arc<ForkContext>) -> Gos
     let load = NetworkLoad::from(network_load);
 
     GossipsubConfigBuilder::default()
-        .max_transmit_size(gossip_max_size(is_merge_enabled))
+        .max_transmit_size(gossip_max_size(is_bellatrix_enabled))
         .heartbeat_interval(load.heartbeat_interval)
         .mesh_n(load.mesh_n)
         .mesh_n_low(load.mesh_n_low)

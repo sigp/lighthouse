@@ -62,7 +62,7 @@ pub fn run<T: EthSpec>(testnet_dir_path: PathBuf, matches: &ArgMatches) -> Resul
         spec.altair_fork_epoch = Some(fork_epoch);
     }
 
-    if let Some(fork_epoch) = parse_optional(matches, "merge-fork-epoch")? {
+    if let Some(fork_epoch) = parse_optional(matches, "bellatrix-fork-epoch")? {
         spec.bellatrix_fork_epoch = Some(fork_epoch);
     }
 

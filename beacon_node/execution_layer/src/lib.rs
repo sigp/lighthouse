@@ -1,8 +1,8 @@
 //! This crate provides an abstraction over one or more *execution engines*. An execution engine
 //! was formerly known as an "eth1 node", like Geth, Nethermind, Erigon, etc.
 //!
-//! This crate only provides useful functionality for "The Merge", it does not provide any of the
-//! deposit-contract functionality that the `beacon_node/eth1` crate already provides.
+//! This crate only provides useful functionality for the Bellatrix fork, it does not provide any
+//! of the deposit-contract functionality that the `beacon_node/eth1` crate already provides.
 
 use crate::engine_api::Builder;
 use crate::engines::Builders;

@@ -51,7 +51,7 @@ pub fn per_slot_processing<T: EthSpec>(
         if spec.altair_fork_epoch == Some(state.current_epoch()) {
             upgrade_to_altair(state, spec)?;
         }
-        // If the Merge fork epoch is reached, perform an irregular state upgrade.
+        // If the Bellatrix fork epoch is reached, perform an irregular state upgrade.
         if spec.bellatrix_fork_epoch == Some(state.current_epoch()) {
             upgrade_to_bellatrix(state, spec)?;
         }

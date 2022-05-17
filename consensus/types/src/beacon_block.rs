@@ -1,5 +1,5 @@
 use crate::beacon_block_body::{
-    BeaconBlockBodyAltair, BeaconBlockBodyBase, BeaconBlockBodyMerge, BeaconBlockBodyRef,
+    BeaconBlockBodyAltair, BeaconBlockBodyBase, BeaconBlockBodyBellatrix, BeaconBlockBodyRef,
     BeaconBlockBodyRefMut,
 };
 use crate::test_utils::TestRandom;
@@ -17,7 +17,7 @@ use tree_hash_derive::TreeHash;
 
 /// A block of the `BeaconChain`.
 #[superstruct(
-    variants(Base, Altair, Merge),
+    variants(Base, Altair, Bellatrix),
     variant_attributes(
         derive(
             Debug,
@@ -62,8 +62,8 @@ pub struct BeaconBlock<T: EthSpec, Payload: ExecPayload<T> = FullPayload<T>> {
     pub body: BeaconBlockBodyBase<T, Payload>,
     #[superstruct(only(Altair), partial_getter(rename = "body_altair"))]
     pub body: BeaconBlockBodyAltair<T, Payload>,
-    #[superstruct(only(Merge), partial_getter(rename = "body_merge"))]
-    pub body: BeaconBlockBodyMerge<T, Payload>,
+    #[superstruct(only(Bellatrix), partial_getter(rename = "body_bellatrix"))]
+    pub body: BeaconBlockBodyBellatrix<T, Payload>,
 }
 
 impl<T: EthSpec, Payload: ExecPayload<T>> SignedRoot for BeaconBlock<T, Payload> {}
@@ -73,7 +73,7 @@ impl<T: EthSpec, Payload: ExecPayload<T>> BeaconBlock<T, Payload> {
     /// Returns an empty block to be used during genesis.
     pub fn empty(spec: &ChainSpec) -> Self {
         if spec.bellatrix_fork_epoch == Some(T::genesis_epoch()) {
-            Self::Merge(BeaconBlockMerge::empty(spec))
+            Self::Bellatrix(BeaconBlockBellatrix::empty(spec))
         } else if spec.altair_fork_epoch == Some(T::genesis_epoch()) {
             Self::Altair(BeaconBlockAltair::empty(spec))
         } else {
@@ -107,8 +107,8 @@ impl<T: EthSpec, Payload: ExecPayload<T>> BeaconBlock<T, Payload> {
     /// Usually it's better to prefer `from_ssz_bytes` which will decode the correct variant based
     /// on the fork slot.
     pub fn any_from_ssz_bytes(bytes: &[u8]) -> Result<Self, ssz::DecodeError> {
-        BeaconBlockMerge::from_ssz_bytes(bytes)
-            .map(BeaconBlock::Merge)
+        BeaconBlockBellatrix::from_ssz_bytes(bytes)
+            .map(BeaconBlock::Bellatrix)
             .or_else(|_| {
                 BeaconBlockAltair::from_ssz_bytes(bytes)
                     .map(BeaconBlock::Altair)
@@ -186,7 +186,7 @@ impl<'a, T: EthSpec, Payload: ExecPayload<T>> BeaconBlockRef<'a, T, Payload> {
         let object_fork = match self {
             BeaconBlockRef::Base { .. } => ForkName::Base,
             BeaconBlockRef::Altair { .. } => ForkName::Altair,
-            BeaconBlockRef::Merge { .. } => ForkName::Merge,
+            BeaconBlockRef::Bellatrix { .. } => ForkName::Bellatrix,
         };
 
         if fork_at_slot == object_fork {
@@ -239,7 +239,7 @@ impl<'a, T: EthSpec, Payload: ExecPayload<T>> BeaconBlockRef<'a, T, Payload> {
     }
 
     /// Extracts a reference to an execution payload from a block, returning an error if the block
-    /// is pre-merge.
+    /// is pre-Bellatrix.
     pub fn execution_payload(&self) -> Result<&Payload, Error> {
         self.body().execution_payload()
     }
@@ -434,15 +434,15 @@ impl<T: EthSpec, Payload: ExecPayload<T>> BeaconBlockAltair<T, Payload> {
     }
 }
 
-impl<T: EthSpec, Payload: ExecPayload<T>> BeaconBlockMerge<T, Payload> {
-    /// Returns an empty Merge block to be used during genesis.
+impl<T: EthSpec, Payload: ExecPayload<T>> BeaconBlockBellatrix<T, Payload> {
+    /// Returns an empty Bellatrix block to be used during genesis.
     pub fn empty(spec: &ChainSpec) -> Self {
-        BeaconBlockMerge {
+        BeaconBlockBellatrix {
             slot: spec.genesis_slot,
             proposer_index: 0,
             parent_root: Hash256::zero(),
             state_root: Hash256::zero(),
-            body: BeaconBlockBodyMerge {
+            body: BeaconBlockBodyBellatrix {
                 randao_reveal: Signature::empty(),
                 eth1_data: Eth1Data {
                     deposit_root: Hash256::zero(),
@@ -539,7 +539,7 @@ macro_rules! impl_from {
 
 impl_from!(BeaconBlockBase, <E, FullPayload<E>>, <E, BlindedPayload<E>>, |body: BeaconBlockBodyBase<_, _>| body.into());
 impl_from!(BeaconBlockAltair, <E, FullPayload<E>>, <E, BlindedPayload<E>>, |body: BeaconBlockBodyAltair<_, _>| body.into());
-impl_from!(BeaconBlockMerge, <E, FullPayload<E>>, <E, BlindedPayload<E>>, |body: BeaconBlockBodyMerge<_, _>| body.into());
+impl_from!(BeaconBlockBellatrix, <E, FullPayload<E>>, <E, BlindedPayload<E>>, |body: BeaconBlockBodyBellatrix<_, _>| body.into());
 
 impl<E: EthSpec> From<BeaconBlock<E, FullPayload<E>>>
     for (

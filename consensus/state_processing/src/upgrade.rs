@@ -1,5 +1,5 @@
 pub mod altair;
-pub mod merge;
+pub mod bellatrix;
 
 pub use altair::upgrade_to_altair;
-pub use merge::upgrade_to_bellatrix;
+pub use bellatrix::upgrade_to_bellatrix;

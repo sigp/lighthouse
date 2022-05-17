@@ -29,7 +29,7 @@ pub enum ExecutionStatus {
     Invalid(ExecutionBlockHash),
     /// An EL has not yet verified the execution payload.
     Optimistic(ExecutionBlockHash),
-    /// The block is either prior to the merge fork, or after the merge fork but before the terminal
+    /// The block is either prior to the Bellatrix fork, or after the Bellatrix fork but before the terminal
     /// PoW block has been found.
     ///
     /// # Note:

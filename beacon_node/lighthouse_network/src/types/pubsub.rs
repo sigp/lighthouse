@@ -10,7 +10,7 @@ use std::io::{Error, ErrorKind};
 use types::{
     Attestation, AttesterSlashing, EthSpec, ForkContext, ForkName, ProposerSlashing,
     SignedAggregateAndProof, SignedBeaconBlock, SignedBeaconBlockAltair, SignedBeaconBlockBase,
-    SignedBeaconBlockMerge, SignedContributionAndProof, SignedVoluntaryExit, SubnetId,
+    SignedBeaconBlockBellatrix, SignedContributionAndProof, SignedVoluntaryExit, SubnetId,
     SyncCommitteeMessage, SyncSubnetId,
 };
 
@@ -162,8 +162,8 @@ impl<T: EthSpec> PubsubMessage<T> {
                                     SignedBeaconBlockAltair::from_ssz_bytes(data)
                                         .map_err(|e| format!("{:?}", e))?,
                                 ),
-                                Some(ForkName::Merge) => SignedBeaconBlock::<T>::Merge(
-                                    SignedBeaconBlockMerge::from_ssz_bytes(data)
+                                Some(ForkName::Bellatrix) => SignedBeaconBlock::<T>::Bellatrix(
+                                    SignedBeaconBlockBellatrix::from_ssz_bytes(data)
                                         .map_err(|e| format!("{:?}", e))?,
                                 ),
                                 None => {

@@ -45,12 +45,12 @@ use std::sync::Arc;
 use tokio::sync::mpsc::UnboundedSender;
 use tokio_stream::{wrappers::BroadcastStream, StreamExt};
 use types::{
-    Attestation, AttesterSlashing, BeaconBlockBodyMerge, BeaconBlockMerge, BeaconStateError,
-    BlindedPayload, CommitteeCache, ConfigAndPreset, Epoch, EthSpec, ForkName, FullPayload,
-    ProposerPreparationData, ProposerSlashing, RelativeEpoch, Signature, SignedAggregateAndProof,
-    SignedBeaconBlock, SignedBeaconBlockMerge, SignedBlindedBeaconBlock,
-    SignedContributionAndProof, SignedVoluntaryExit, Slot, SyncCommitteeMessage,
-    SyncContributionData,
+    Attestation, AttesterSlashing, BeaconBlockBellatrix, BeaconBlockBodyBellatrix,
+    BeaconStateError, BlindedPayload, CommitteeCache, ConfigAndPreset, Epoch, EthSpec, ForkName,
+    FullPayload, ProposerPreparationData, ProposerSlashing, RelativeEpoch, Signature,
+    SignedAggregateAndProof, SignedBeaconBlock, SignedBeaconBlockBellatrix,
+    SignedBlindedBeaconBlock, SignedContributionAndProof, SignedVoluntaryExit, Slot,
+    SyncCommitteeMessage, SyncContributionData,
 };
 use version::{
     add_consensus_version_header, fork_versioned_response, inconsistent_fork_rejection,
@@ -1063,13 +1063,13 @@ pub fn serve<T: BeaconChainTypes>(
                                     e
                                 ))
                             })?;
-                        let new_block = SignedBeaconBlock::Merge(SignedBeaconBlockMerge {
-                            message: BeaconBlockMerge {
+                        let new_block = SignedBeaconBlock::Bellatrix(SignedBeaconBlockBellatrix {
+                            message: BeaconBlockBellatrix {
                                 slot: block.message().slot(),
                                 proposer_index: block.message().proposer_index(),
                                 parent_root: block.message().parent_root(),
                                 state_root: block.message().state_root(),
-                                body: BeaconBlockBodyMerge {
+                                body: BeaconBlockBodyBellatrix {
                                     randao_reveal: block.message().body().randao_reveal().clone(),
                                     eth1_data: block.message().body().eth1_data().clone(),
                                     graffiti: *block.message().body().graffiti(),

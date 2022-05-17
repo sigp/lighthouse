@@ -14,7 +14,7 @@ use types::*;
 ///
 /// Utilises lazy-loading from separate storage for its vector fields.
 #[superstruct(
-    variants(Base, Altair, Merge),
+    variants(Base, Altair, Bellatrix),
     variant_attributes(derive(Debug, PartialEq, Clone, Encode, Decode))
 )]
 #[derive(Debug, PartialEq, Clone, Encode)]
@@ -66,9 +66,9 @@ where
     pub current_epoch_attestations: VariableList<PendingAttestation<T>, T::MaxPendingAttestations>,
 
     // Participation (Altair and later)
-    #[superstruct(only(Altair, Merge))]
+    #[superstruct(only(Altair, Bellatrix))]
     pub previous_epoch_participation: VariableList<ParticipationFlags, T::ValidatorRegistryLimit>,
-    #[superstruct(only(Altair, Merge))]
+    #[superstruct(only(Altair, Bellatrix))]
     pub current_epoch_participation: VariableList<ParticipationFlags, T::ValidatorRegistryLimit>,
 
     // Finality
@@ -78,17 +78,17 @@ where
     pub finalized_checkpoint: Checkpoint,
 
     // Inactivity
-    #[superstruct(only(Altair, Merge))]
+    #[superstruct(only(Altair, Bellatrix))]
     pub inactivity_scores: VariableList<u64, T::ValidatorRegistryLimit>,
 
     // Light-client sync committees
-    #[superstruct(only(Altair, Merge))]
+    #[superstruct(only(Altair, Bellatrix))]
     pub current_sync_committee: Arc<SyncCommittee<T>>,
-    #[superstruct(only(Altair, Merge))]
+    #[superstruct(only(Altair, Bellatrix))]
     pub next_sync_committee: Arc<SyncCommittee<T>>,
 
     // Execution
-    #[superstruct(only(Merge))]
+    #[superstruct(only(Bellatrix))]
     pub latest_execution_payload_header: ExecutionPayloadHeader<T>,
 }
 
@@ -164,11 +164,11 @@ impl<T: EthSpec> PartialBeaconState<T> {
                     inactivity_scores
                 ]
             ),
-            BeaconState::Merge(s) => impl_from_state_forgetful!(
+            BeaconState::Bellatrix(s) => impl_from_state_forgetful!(
                 s,
                 outer,
-                Merge,
-                PartialBeaconStateMerge,
+                Bellatrix,
+                PartialBeaconStateBellatrix,
                 [
                     previous_epoch_participation,
                     current_epoch_participation,
@@ -352,10 +352,10 @@ impl<E: EthSpec> TryInto<BeaconState<E>> for PartialBeaconState<E> {
                     inactivity_scores
                 ]
             ),
-            PartialBeaconState::Merge(inner) => impl_try_into_beacon_state!(
+            PartialBeaconState::Bellatrix(inner) => impl_try_into_beacon_state!(
                 inner,
-                Merge,
-                BeaconStateMerge,
+                Bellatrix,
+                BeaconStateBellatrix,
                 [
                     previous_epoch_participation,
                     current_epoch_participation,

@@ -147,11 +147,11 @@ impl<T, E> SszStaticHandler<T, E> {
         Self::for_forks(ForkName::list_all()[1..].to_vec())
     }
 
-    pub fn merge_only() -> Self {
-        Self::for_forks(vec![ForkName::Merge])
+    pub fn bellatrix_only() -> Self {
+        Self::for_forks(vec![ForkName::Bellatrix])
     }
 
-    pub fn merge_and_later() -> Self {
+    pub fn bellatrix_and_later() -> Self {
         Self::for_forks(ForkName::list_all()[2..].to_vec())
     }
 }
@@ -461,8 +461,8 @@ impl<E: EthSpec + TypeName> Handler for ForkChoiceHandler<E> {
     }
 
     fn is_enabled_for_fork(&self, fork_name: ForkName) -> bool {
-        // Merge block tests are only enabled for Bellatrix or later.
-        if self.handler_name == "on_merge_block"
+        // Bellatrix block tests are only enabled for Bellatrix or later.
+        if self.handler_name == "on_bellatrix_block"
             && (fork_name == ForkName::Base || fork_name == ForkName::Altair)
         {
             return false;

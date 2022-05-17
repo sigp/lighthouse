@@ -358,7 +358,7 @@ impl<T: EthSpec> BeaconTreeHashCacheInner<T> {
             hasher.write(next_sync_committee.tree_hash_root().as_bytes())?;
         }
 
-        // Execution payload (merge and later).
+        // Execution payload (Bellatrix and later).
         if let Ok(payload_header) = state.latest_execution_payload_header() {
             hasher.write(payload_header.tree_hash_root().as_bytes())?;
         }

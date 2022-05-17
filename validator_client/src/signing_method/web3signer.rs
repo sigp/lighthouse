@@ -71,7 +71,7 @@ impl<'a, T: EthSpec, Payload: ExecPayload<T>> Web3SignerObject<'a, T, Payload> {
         let version = match block {
             BeaconBlock::Base(_) => ForkName::Phase0,
             BeaconBlock::Altair(_) => ForkName::Altair,
-            BeaconBlock::Merge(_) => return Err(Error::MergeForkNotSupported),
+            BeaconBlock::Bellatrix(_) => return Err(Error::BellatrixForkNotSupported),
         };
 
         Ok(Web3SignerObject::BeaconBlock { version, block })

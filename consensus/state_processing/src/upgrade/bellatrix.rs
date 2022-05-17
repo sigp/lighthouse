@@ -1,10 +1,10 @@
 use std::mem;
 use types::{
-    BeaconState, BeaconStateError as Error, BeaconStateMerge, ChainSpec, EthSpec,
+    BeaconState, BeaconStateBellatrix, BeaconStateError as Error, ChainSpec, EthSpec,
     ExecutionPayloadHeader, Fork,
 };
 
-/// Transform a `Altair` state into an `Merge` state.
+/// Transform a `Altair` state into an `Bellatrix` state.
 pub fn upgrade_to_bellatrix<E: EthSpec>(
     pre_state: &mut BeaconState<E>,
     spec: &ChainSpec,
@@ -17,7 +17,7 @@ pub fn upgrade_to_bellatrix<E: EthSpec>(
     //
     // Fixed size vectors get cloned because replacing them would require the same size
     // allocation as cloning.
-    let post = BeaconState::Merge(BeaconStateMerge {
+    let post = BeaconState::Bellatrix(BeaconStateBellatrix {
         // Versioning
         genesis_time: pre.genesis_time,
         genesis_validators_root: pre.genesis_validators_root,

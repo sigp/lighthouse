@@ -95,12 +95,12 @@ pub fn notify_new_payload<T: BeaconChainTypes>(
 ///
 /// ## Errors
 ///
-/// Will return an error when using a pre-merge fork `state`. Ensure to only run this function
-/// after the merge fork.
+/// Will return an error when using a pre-Bellatrix fork `state`. Ensure to only run this function
+/// after the Bellatrix fork.
 ///
 /// ## Specification
 ///
-/// Equivalent to the `validate_merge_block` function in the merge Fork Choice Changes:
+/// Equivalent to the `validate_merge_block` function in the Bellatrix fork Choice Changes:
 ///
 /// https://github.com/ethereum/consensus-specs/blob/v1.1.5/specs/merge/fork-choice.md#validate_merge_block
 pub fn validate_merge_block<T: BeaconChainTypes>(
@@ -235,8 +235,8 @@ pub fn validate_execution_payload_for_gossip<T: BeaconChainTypes>(
 ///
 /// ## Errors
 ///
-/// Will return an error when using a pre-merge fork `state`. Ensure to only run this function
-/// after the merge fork.
+/// Will return an error when using a pre-Bellatrix fork `state`. Ensure to only run this function
+/// after the Bellatrix fork.
 ///
 /// ## Specification
 ///
@@ -274,12 +274,13 @@ pub fn prepare_execution_payload_blocking<T: BeaconChainTypes, Payload: ExecPayl
 
 /// Prepares an execution payload for inclusion in a block.
 ///
-/// Will return `Ok(None)` if the merge fork has occurred, but a terminal block has not been found.
+/// Will return `Ok(None)` if the Bellatrix fork has occurred, but a terminal block has not been
+/// found.
 ///
 /// ## Errors
 ///
-/// Will return an error when using a pre-merge fork `state`. Ensure to only run this function
-/// after the merge fork.
+/// Will return an error when using a pre-Bellatrix fork `state`. Ensure to only run this function
+/// after the Bellatrix fork.
 ///
 /// ## Specification
 ///

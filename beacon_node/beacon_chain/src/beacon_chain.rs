@@ -3206,16 +3206,16 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     },
                 })
             }
-            BeaconState::Merge(_) => {
+            BeaconState::Bellatrix(_) => {
                 let sync_aggregate = get_sync_aggregate()?;
                 let execution_payload =
                     get_execution_payload::<T, Payload>(self, &state, proposer_index)?;
-                BeaconBlock::Merge(BeaconBlockMerge {
+                BeaconBlock::Bellatrix(BeaconBlockBellatrix {
                     slot,
                     proposer_index,
                     parent_root,
                     state_root: Hash256::zero(),
-                    body: BeaconBlockBodyMerge {
+                    body: BeaconBlockBodyBellatrix {
                         randao_reveal,
                         eth1_data,
                         graffiti,

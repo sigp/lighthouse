@@ -29,7 +29,7 @@ pub enum Error {
     Web3SignerJsonParsingFailed(String),
     ShuttingDown,
     TokioJoin(String),
-    MergeForkNotSupported,
+    BellatrixForkNotSupported,
 }
 
 /// Enumerates all messages that can be signed by a validator.

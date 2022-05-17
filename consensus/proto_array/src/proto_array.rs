@@ -531,8 +531,8 @@ impl ProtoArray {
                     // The block is already invalid, but keep going backwards to ensure all ancestors
                     // are updated.
                     ExecutionStatus::Invalid(_) => (),
-                    // This block is pre-merge, therefore it has no execution status. Nor do its
-                    // ancestors.
+                    // This block is pre-Bellatrix, therefore it has no execution status. Nor do
+                    // its ancestors.
                     ExecutionStatus::Irrelevant(_) => break,
                 }
             }
