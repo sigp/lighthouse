@@ -46,6 +46,18 @@ fn get_chain_segment() -> Vec<BeaconSnapshot<E>> {
         .chain_dump()
         .expect("should dump chain")
         .into_iter()
+        .map(|snapshot| {
+            let full_block = harness
+                .chain
+                .store
+                .make_full_block(&snapshot.beacon_block_root, snapshot.beacon_block)
+                .unwrap();
+            BeaconSnapshot {
+                beacon_block_root: snapshot.beacon_block_root,
+                beacon_block: full_block,
+                beacon_state: snapshot.beacon_state,
+            }
+        })
         .skip(1)
         .collect()
 }

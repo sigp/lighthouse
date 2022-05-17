@@ -28,7 +28,7 @@ use std::marker::PhantomData;
 use std::sync::Arc;
 use std::time::Duration;
 use store::{Error as StoreError, HotColdDB, ItemStore, KeyValueStoreOp};
-use task_executor::ShutdownReason;
+use task_executor::{ShutdownReason, TaskExecutor};
 use types::{
     BeaconBlock, BeaconState, ChainSpec, Checkpoint, EthSpec, Graffiti, Hash256, PublicKeyBytes,
     Signature, SignedBeaconBlock, Slot,
@@ -92,6 +92,7 @@ pub struct BeaconChainBuilder<T: BeaconChainTypes> {
     // Pending I/O batch that is constructed during building and should be executed atomically
     // alongside `PersistedBeaconChain` storage when `BeaconChainBuilder::build` is called.
     pending_io_batch: Vec<KeyValueStoreOp>,
+    task_executor: Option<TaskExecutor>,
 }
 
 impl<TSlotClock, TEth1Backend, TEthSpec, THotStore, TColdStore>
@@ -130,6 +131,7 @@ where
             slasher: None,
             validator_monitor: None,
             pending_io_batch: vec![],
+            task_executor: None,
         }
     }
 
@@ -183,6 +185,13 @@ where
         self.log = Some(log);
         self
     }
+
+    /// Sets the task executor.
+    pub fn task_executor(mut self, task_executor: TaskExecutor) -> Self {
+        self.task_executor = Some(task_executor);
+        self
+    }
+
     /// Attempt to load an existing eth1 cache from the builder's `Store`.
     pub fn get_persisted_eth1_backend(&self) -> Result<Option<SszEth1>, String> {
         let store = self
@@ -241,7 +250,7 @@ where
             .ok_or("Fork choice not found in store")?;
 
         let genesis_block = store
-            .get_block(&chain.genesis_block_root)
+            .get_blinded_block(&chain.genesis_block_root)
             .map_err(|e| descriptive_db_error("genesis block", &e))?
             .ok_or("Genesis block not found in store")?;
         let genesis_state = store
@@ -589,7 +598,7 @@ where
         // Try to decode the head block according to the current fork, if that fails, try
         // to backtrack to before the most recent fork.
         let (head_block_root, head_block, head_reverted) =
-            match store.get_block(&initial_head_block_root) {
+            match store.get_full_block(&initial_head_block_root) {
                 Ok(Some(block)) => (initial_head_block_root, block, false),
                 Ok(None) => return Err("Head block not found in store".into()),
                 Err(StoreError::SszDecodeError(_)) => {
@@ -932,6 +941,7 @@ mod test {
     use std::time::Duration;
     use store::config::StoreConfig;
     use store::{HotColdDB, MemoryStore};
+    use task_executor::test_utils::TestRuntime;
     use types::{EthSpec, MinimalEthSpec, Slot};
 
     type TestEthSpec = MinimalEthSpec;
@@ -965,10 +975,12 @@ mod test {
         .expect("should create interop genesis state");
 
         let (shutdown_tx, _) = futures::channel::mpsc::channel(1);
+        let runtime = TestRuntime::default();
 
         let chain = BeaconChainBuilder::new(MinimalEthSpec)
             .logger(log.clone())
             .store(Arc::new(store))
+            .task_executor(runtime.task_executor.clone())
             .genesis_state(genesis_state)
             .expect("should build state using recent genesis")
             .dummy_eth1_backend()
@@ -999,10 +1011,10 @@ mod test {
         assert_eq!(
             chain
                 .store
-                .get_block(&Hash256::zero())
+                .get_blinded_block(&Hash256::zero())
                 .expect("should read db")
                 .expect("should find genesis block"),
-            block,
+            block.clone().into(),
             "should store genesis block under zero hash alias"
         );
         assert_eq!(

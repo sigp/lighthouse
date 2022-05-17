@@ -1,7 +1,7 @@
 use beacon_chain::{BeaconChain, BeaconChainTypes, WhenSlotSkipped};
 use eth2::types::BlockId as CoreBlockId;
 use std::str::FromStr;
-use types::{Hash256, SignedBeaconBlock, Slot};
+use types::{BlindedPayload, Hash256, SignedBeaconBlock, Slot};
 
 /// Wraps `eth2::types::BlockId` and provides a simple way to obtain a block or root for a given
 /// `BlockId`.
@@ -52,7 +52,55 @@ impl BlockId {
     }
 
     /// Return the `SignedBeaconBlock` identified by `self`.
-    pub fn block<T: BeaconChainTypes>(
+    pub fn blinded_block<T: BeaconChainTypes>(
+        &self,
+        chain: &BeaconChain<T>,
+    ) -> Result<SignedBeaconBlock<T::EthSpec, BlindedPayload<T::EthSpec>>, warp::Rejection> {
+        match &self.0 {
+            CoreBlockId::Head => chain
+                .head_beacon_block()
+                .map(Into::into)
+                .map_err(warp_utils::reject::beacon_chain_error),
+            CoreBlockId::Slot(slot) => {
+                let root = self.root(chain)?;
+                chain
+                    .get_blinded_block(&root)
+                    .map_err(warp_utils::reject::beacon_chain_error)
+                    .and_then(|block_opt| match block_opt {
+                        Some(block) => {
+                            if block.slot() != *slot {
+                                return Err(warp_utils::reject::custom_not_found(format!(
+                                    "slot {} was skipped",
+                                    slot
+                                )));
+                            }
+                            Ok(block)
+                        }
+                        None => Err(warp_utils::reject::custom_not_found(format!(
+                            "beacon block with root {}",
+                            root
+                        ))),
+                    })
+            }
+            _ => {
+                let root = self.root(chain)?;
+                chain
+                    .get_blinded_block(&root)
+                    .map_err(warp_utils::reject::beacon_chain_error)
+                    .and_then(|root_opt| {
+                        root_opt.ok_or_else(|| {
+                            warp_utils::reject::custom_not_found(format!(
+                                "beacon block with root {}",
+                                root
+                            ))
+                        })
+                    })
+            }
+        }
+    }
+
+    /// Return the `SignedBeaconBlock` identified by `self`.
+    pub async fn full_block<T: BeaconChainTypes>(
         &self,
         chain: &BeaconChain<T>,
     ) -> Result<SignedBeaconBlock<T::EthSpec>, warp::Rejection> {
@@ -64,6 +112,7 @@ impl BlockId {
                 let root = self.root(chain)?;
                 chain
                     .get_block(&root)
+                    .await
                     .map_err(warp_utils::reject::beacon_chain_error)
                     .and_then(|block_opt| match block_opt {
                         Some(block) => {
@@ -85,6 +134,7 @@ impl BlockId {
                 let root = self.root(chain)?;
                 chain
                     .get_block(&root)
+                    .await
                     .map_err(warp_utils::reject::beacon_chain_error)
                     .and_then(|root_opt| {
                         root_opt.ok_or_else(|| {

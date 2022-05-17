@@ -55,11 +55,15 @@ fn produces_attestations() {
             Slot::from(num_blocks_produced)
         };
 
-        let block = chain
+        let blinded_block = chain
             .block_at_slot(block_slot, WhenSlotSkipped::Prev)
             .expect("should get block")
             .expect("block should not be skipped");
-        let block_root = block.message().tree_hash_root();
+        let block_root = blinded_block.message().tree_hash_root();
+        let block = chain
+            .store
+            .make_full_block(&block_root, blinded_block)
+            .unwrap();
 
         let epoch_boundary_slot = state
             .current_epoch()

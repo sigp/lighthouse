@@ -149,12 +149,21 @@ impl HttpJsonRpc<EngineApi> {
         .await
     }
 
-    pub async fn get_block_by_hash<'a>(
+    pub async fn get_block_by_hash(
         &self,
         block_hash: ExecutionBlockHash,
     ) -> Result<Option<ExecutionBlock>, Error> {
         let params = json!([block_hash, RETURN_FULL_TRANSACTION_OBJECTS]);
 
+        self.rpc_request(ETH_GET_BLOCK_BY_HASH, params, ETH_GET_BLOCK_BY_HASH_TIMEOUT)
+            .await
+    }
+
+    pub async fn get_block_by_hash_with_txns<T: EthSpec>(
+        &self,
+        block_hash: ExecutionBlockHash,
+    ) -> Result<Option<ExecutionBlockWithTransactions<T>>, Error> {
+        let params = json!([block_hash, true]);
         self.rpc_request(ETH_GET_BLOCK_BY_HASH, params, ETH_GET_BLOCK_BY_HASH_TIMEOUT)
             .await
     }

@@ -73,6 +73,198 @@ impl<'a, T: EthSpec> BeaconBlockBodyRef<'a, T> {
     }
 }
 
+// We can convert pre-Bellatrix block bodies without payloads into block bodies "with" payloads.
+impl<E: EthSpec> From<BeaconBlockBodyBase<E, BlindedPayload<E>>>
+    for BeaconBlockBodyBase<E, FullPayload<E>>
+{
+    fn from(body: BeaconBlockBodyBase<E, BlindedPayload<E>>) -> Self {
+        let BeaconBlockBodyBase {
+            randao_reveal,
+            eth1_data,
+            graffiti,
+            proposer_slashings,
+            attester_slashings,
+            attestations,
+            deposits,
+            voluntary_exits,
+            _phantom,
+        } = body;
+
+        BeaconBlockBodyBase {
+            randao_reveal,
+            eth1_data,
+            graffiti,
+            proposer_slashings,
+            attester_slashings,
+            attestations,
+            deposits,
+            voluntary_exits,
+            _phantom: PhantomData,
+        }
+    }
+}
+
+impl<E: EthSpec> From<BeaconBlockBodyAltair<E, BlindedPayload<E>>>
+    for BeaconBlockBodyAltair<E, FullPayload<E>>
+{
+    fn from(body: BeaconBlockBodyAltair<E, BlindedPayload<E>>) -> Self {
+        let BeaconBlockBodyAltair {
+            randao_reveal,
+            eth1_data,
+            graffiti,
+            proposer_slashings,
+            attester_slashings,
+            attestations,
+            deposits,
+            voluntary_exits,
+            sync_aggregate,
+            _phantom,
+        } = body;
+
+        BeaconBlockBodyAltair {
+            randao_reveal,
+            eth1_data,
+            graffiti,
+            proposer_slashings,
+            attester_slashings,
+            attestations,
+            deposits,
+            voluntary_exits,
+            sync_aggregate,
+            _phantom: PhantomData,
+        }
+    }
+}
+
+// Likewise bodies with payloads can be transformed into bodies without.
+impl<E: EthSpec> From<BeaconBlockBodyBase<E, FullPayload<E>>>
+    for (
+        BeaconBlockBodyBase<E, BlindedPayload<E>>,
+        Option<ExecutionPayload<E>>,
+    )
+{
+    fn from(body: BeaconBlockBodyBase<E, FullPayload<E>>) -> Self {
+        let BeaconBlockBodyBase {
+            randao_reveal,
+            eth1_data,
+            graffiti,
+            proposer_slashings,
+            attester_slashings,
+            attestations,
+            deposits,
+            voluntary_exits,
+            _phantom,
+        } = body;
+
+        (
+            BeaconBlockBodyBase {
+                randao_reveal,
+                eth1_data,
+                graffiti,
+                proposer_slashings,
+                attester_slashings,
+                attestations,
+                deposits,
+                voluntary_exits,
+                _phantom: PhantomData,
+            },
+            None,
+        )
+    }
+}
+
+impl<E: EthSpec> From<BeaconBlockBodyAltair<E, FullPayload<E>>>
+    for (
+        BeaconBlockBodyAltair<E, BlindedPayload<E>>,
+        Option<ExecutionPayload<E>>,
+    )
+{
+    fn from(body: BeaconBlockBodyAltair<E, FullPayload<E>>) -> Self {
+        let BeaconBlockBodyAltair {
+            randao_reveal,
+            eth1_data,
+            graffiti,
+            proposer_slashings,
+            attester_slashings,
+            attestations,
+            deposits,
+            voluntary_exits,
+            sync_aggregate,
+            _phantom,
+        } = body;
+
+        (
+            BeaconBlockBodyAltair {
+                randao_reveal,
+                eth1_data,
+                graffiti,
+                proposer_slashings,
+                attester_slashings,
+                attestations,
+                deposits,
+                voluntary_exits,
+                sync_aggregate,
+                _phantom: PhantomData,
+            },
+            None,
+        )
+    }
+}
+
+impl<E: EthSpec> From<BeaconBlockBodyMerge<E, FullPayload<E>>>
+    for (
+        BeaconBlockBodyMerge<E, BlindedPayload<E>>,
+        Option<ExecutionPayload<E>>,
+    )
+{
+    fn from(body: BeaconBlockBodyMerge<E, FullPayload<E>>) -> Self {
+        let BeaconBlockBodyMerge {
+            randao_reveal,
+            eth1_data,
+            graffiti,
+            proposer_slashings,
+            attester_slashings,
+            attestations,
+            deposits,
+            voluntary_exits,
+            sync_aggregate,
+            execution_payload: FullPayload { execution_payload },
+        } = body;
+
+        (
+            BeaconBlockBodyMerge {
+                randao_reveal,
+                eth1_data,
+                graffiti,
+                proposer_slashings,
+                attester_slashings,
+                attestations,
+                deposits,
+                voluntary_exits,
+                sync_aggregate,
+                execution_payload: BlindedPayload {
+                    execution_payload_header: From::from(&execution_payload),
+                },
+            },
+            Some(execution_payload),
+        )
+    }
+}
+
+impl<E: EthSpec> From<BeaconBlockBody<E, FullPayload<E>>>
+    for (
+        BeaconBlockBody<E, BlindedPayload<E>>,
+        Option<ExecutionPayload<E>>,
+    )
+{
+    fn from(body: BeaconBlockBody<E, FullPayload<E>>) -> Self {
+        map_beacon_block_body!(body, |inner, cons| {
+            let (block, payload) = inner.into();
+            (cons(block), payload)
+        })
+    }
+}
+
 #[cfg(test)]
 mod tests {
     mod base {

@@ -563,10 +563,10 @@ where
     /// The supplied block **must** pass the `state_transition` function as it will not be run
     /// here.
     #[allow(clippy::too_many_arguments)]
-    pub fn on_block(
+    pub fn on_block<Payload: ExecPayload<E>>(
         &mut self,
         current_slot: Slot,
-        block: &BeaconBlock<E>,
+        block: &BeaconBlock<E, Payload>,
         block_root: Hash256,
         block_delay: Duration,
         state: &BeaconState<E>,

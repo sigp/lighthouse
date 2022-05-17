@@ -2,12 +2,12 @@ use crate::{BeaconChain, BeaconChainError, BeaconChainTypes};
 use eth2::lighthouse::{AttestationRewards, BlockReward, BlockRewardMeta};
 use operation_pool::{AttMaxCover, MaxCover};
 use state_processing::per_block_processing::altair::sync_committee::compute_sync_aggregate_rewards;
-use types::{BeaconBlockRef, BeaconState, EthSpec, Hash256, RelativeEpoch};
+use types::{BeaconBlockRef, BeaconState, EthSpec, ExecPayload, Hash256, RelativeEpoch};
 
 impl<T: BeaconChainTypes> BeaconChain<T> {
-    pub fn compute_block_reward(
+    pub fn compute_block_reward<Payload: ExecPayload<T::EthSpec>>(
         &self,
-        block: BeaconBlockRef<'_, T::EthSpec>,
+        block: BeaconBlockRef<'_, T::EthSpec, Payload>,
         block_root: Hash256,
         state: &BeaconState<T::EthSpec>,
     ) -> Result<BlockReward, BeaconChainError> {
