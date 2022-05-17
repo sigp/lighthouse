@@ -8,13 +8,11 @@ mod types;
 use crate::beacon_chain::{BeaconChainTypes, FORK_CHOICE_DB_KEY};
 use crate::persisted_fork_choice::{PersistedForkChoiceV1, PersistedForkChoiceV7};
 use slog::{warn, Logger};
-use ssz::{Decode, Encode};
-use ssz_derive::{Decode, Encode};
 use std::path::Path;
 use std::sync::Arc;
 use store::hot_cold_store::{HotColdDB, HotColdDBError};
 use store::metadata::{SchemaVersion, CURRENT_SCHEMA_VERSION};
-use store::{DBColumn, Error as StoreError, StoreItem};
+use store::{Error as StoreError, StoreItem};
 
 /// Migrate the database from one schema version to another, applying all requisite mutations.
 pub fn migrate_schema<T: BeaconChainTypes>(
@@ -135,26 +133,5 @@ pub fn migrate_schema<T: BeaconChainTypes>(
             current_version: from,
         }
         .into()),
-    }
-}
-
-// Store config used in v4 schema and earlier.
-#[derive(Debug, Clone, PartialEq, Eq, Encode, Decode)]
-pub struct OnDiskStoreConfigV4 {
-    pub slots_per_restore_point: u64,
-    pub _block_cache_size: usize,
-}
-
-impl StoreItem for OnDiskStoreConfigV4 {
-    fn db_column() -> DBColumn {
-        DBColumn::BeaconMeta
-    }
-
-    fn as_store_bytes(&self) -> Vec<u8> {
-        self.as_ssz_bytes()
-    }
-
-    fn from_store_bytes(bytes: &[u8]) -> Result<Self, StoreError> {
-        Ok(Self::from_ssz_bytes(bytes)?)
     }
 }
