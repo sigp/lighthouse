@@ -47,7 +47,7 @@ use lighthouse_network::rpc::methods::MAX_REQUEST_BLOCKS;
 use lighthouse_network::types::{NetworkGlobals, SyncState};
 use lighthouse_network::SyncInfo;
 use lighthouse_network::{PeerAction, PeerId};
-use slog::{crit, debug, error, info, trace, warn, Logger};
+use slog::{crit, debug, error, info, trace, Logger};
 use std::boxed::Box;
 use std::ops::Sub;
 use std::pin::Pin;
@@ -64,9 +64,6 @@ use types::{EthSpec, Hash256, SignedBeaconBlock, Slot};
 /// gossip if no peers are further than this range ahead of us that we have not already downloaded
 /// blocks for.
 pub const SLOT_IMPORT_TOLERANCE: usize = 32;
-
-// Delay for polling execution layer sync status in seconds.
-const EXECTION_LAYER_POLLING_DELAY: u64 = 5;
 
 pub type Id = u32;
 
@@ -171,8 +168,9 @@ pub struct SyncManager<T: BeaconChainTypes> {
 
     block_lookups: BlockLookups<T>,
 
-    /// Optional timer for polling execution layer for sync status.
-    poll_execution: Pin<Box<OptionFuture<tokio::time::Sleep>>>,
+    /// Optional oneshot receiver that receives when sync status changes from
+    /// offline to online.
+    poll_execution: Pin<Box<OptionFuture<tokio::sync::oneshot::Receiver<()>>>>,
 
     /// bool that indicates if RangeSync is waiting on the execution layer.
     waiting_on_execution: bool,
@@ -240,7 +238,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
     ///
     /// If the peer is within the `SLOT_IMPORT_TOLERANCE`, then it's head is sufficiently close to
     /// ours that we consider it fully sync'd with respect to our current chain.
-    fn add_peer(&mut self, peer_id: PeerId, remote: SyncInfo) {
+    async fn add_peer(&mut self, peer_id: PeerId, remote: SyncInfo) {
         // ensure the beacon chain still exists
         let local = match self.chain.status_message() {
             Ok(status) => SyncInfo {
@@ -265,11 +263,11 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                 .add_peer(&mut self.network, local, peer_id, remote);
         }
 
-        self.update_sync_state();
+        self.update_sync_state().await;
     }
 
     /// Handles RPC errors related to requests that were emitted from the sync manager.
-    fn inject_error(&mut self, peer_id: PeerId, request_id: RequestId) {
+    async fn inject_error(&mut self, peer_id: PeerId, request_id: RequestId) {
         trace!(self.log, "Sync manager received a failed RPC");
         match request_id {
             RequestId::SingleBlock { id } => {
@@ -287,7 +285,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                         .inject_error(&mut self.network, batch_id, &peer_id, id)
                     {
                         Ok(_) => {}
-                        Err(_) => self.update_sync_state(),
+                        Err(_) => self.update_sync_state().await,
                     }
                 }
             }
@@ -300,13 +298,13 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                         chain_id,
                         id,
                     );
-                    self.update_sync_state()
+                    self.update_sync_state().await
                 }
             }
         }
     }
 
-    fn peer_disconnect(&mut self, peer_id: &PeerId) {
+    async fn peer_disconnect(&mut self, peer_id: &PeerId) {
         self.range_sync.peer_disconnect(&mut self.network, peer_id);
         self.block_lookups
             .peer_disconnected(peer_id, &mut self.network);
@@ -314,7 +312,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         let _ = self
             .backfill_sync
             .peer_disconnected(peer_id, &mut self.network);
-        self.update_sync_state();
+        self.update_sync_state().await;
     }
 
     /// Updates the syncing state of a peer.
@@ -370,7 +368,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
     /// backfill sync is running.
     /// - If there is no range sync and no required backfill and we have synced up to the currently
     /// known peers, we consider ourselves synced.
-    fn update_sync_state(&mut self) {
+    async fn update_sync_state(&mut self) {
         let new_state: SyncState = match self.range_sync.state() {
             Err(e) => {
                 crit!(self.log, "Error getting range sync state"; "error" => %e);
@@ -461,13 +459,12 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                     // Start the timer to poll
                     // Reset the timer to poll the EL again after the delay
                     if !self.waiting_on_execution {
+                        if let Some(execution_layer) = self.chain.execution_layer.as_ref() {
+                            let receiver = execution_layer.is_synced_channel().await;
+                            self.poll_execution = Box::pin(Some(receiver).into());
+                        }
+
                         debug!(self.log, "Sync is waiting on execution layer");
-                        self.poll_execution = Box::pin(
-                            Some(tokio::time::sleep(Duration::from_secs(
-                                EXECTION_LAYER_POLLING_DELAY,
-                            )))
-                            .into(),
-                        );
                         self.waiting_on_execution = true;
                     }
                     SyncState::WaitingOnExecution
@@ -498,32 +495,19 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         loop {
             tokio::select! {
                 Some(_) = &mut self.poll_execution => {
-                    if let Some(el) = self.chain.execution_layer.as_ref() {
-                        if el.is_synced().await {
-                            debug!(self.log, "Execution layer back online"; "action" => "resuming sync");
-                            // unpause syncing chains
-                            self.range_sync.execution_ready(&mut self.network);
-                            // Stop polling execution layer
-                            self.poll_execution = Box::pin(None.into());
-                            self.waiting_on_execution = false;
-                            self.update_sync_state();
-                        }
-                        else {
-                            // Reset the timer to poll the EL again after the delay
-                            warn!(self.log, "Execution layer still offline"; "action" => "checking liveness after delay");
-                            self.poll_execution = Box::pin(Some(tokio::time::sleep(Duration::from_secs(EXECTION_LAYER_POLLING_DELAY))).into());
-                        }
-                    }
-                    else {
-                        // This is an invalid state as we shouldn't be waiting on execution if execution doesn't exist
-                        crit!(self.log, "Invalid state");
-                    }
+                    debug!(self.log, "Execution layer back online"; "action" => "resuming sync");
+                    // unpause syncing chains
+                    self.range_sync.execution_ready(&mut self.network);
+                    // Stop polling execution layer
+                    self.poll_execution = Box::pin(None.into());
+                    self.waiting_on_execution = false;
+                    self.update_sync_state().await;
                 }
                 // process any inbound messages
                 Some(sync_message) = self.input_channel.recv() => {
                     match sync_message {
                         SyncMessage::AddPeer(peer_id, info) => {
-                            self.add_peer(peer_id, info);
+                            self.add_peer(peer_id, info).await;
                         }
                         SyncMessage::RpcBlock {
                             request_id,
@@ -531,7 +515,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                             beacon_block,
                             seen_timestamp,
                         } => {
-                            self.rpc_block_received(request_id, peer_id, beacon_block, seen_timestamp);
+                            self.rpc_block_received(request_id, peer_id, beacon_block, seen_timestamp).await;
                         }
                         SyncMessage::UnknownBlock(peer_id, block) => {
                             // If we are not synced or within SLOT_IMPORT_TOLERANCE of the block, ignore
@@ -570,12 +554,12 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                             }
                         }
                         SyncMessage::Disconnect(peer_id) => {
-                            self.peer_disconnect(&peer_id);
+                            self.peer_disconnect(&peer_id).await;
                         }
                         SyncMessage::RpcError {
                             peer_id,
                             request_id,
-                        } => self.inject_error(peer_id, request_id),
+                        } => self.inject_error(peer_id, request_id).await,
                         SyncMessage::BlockProcessed {
                             process_type,
                             result,
@@ -595,7 +579,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                                     epoch,
                                     result,
                                 );
-                                self.update_sync_state();
+                                self.update_sync_state().await;
                             }
                             ChainSegmentProcessId::BackSyncBatchId(epoch) => {
                                 match self.backfill_sync.on_batch_process_result(
@@ -604,11 +588,11 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                                     &result,
                                 ) {
                                     Ok(ProcessResult::Successful) => {}
-                                    Ok(ProcessResult::SyncCompleted) => self.update_sync_state(),
+                                    Ok(ProcessResult::SyncCompleted) => self.update_sync_state().await,
                                     Err(error) => {
                                         error!(self.log, "Backfill sync failed"; "error" => ?error);
                                         // Update the global status
-                                        self.update_sync_state();
+                                        self.update_sync_state().await;
                                     }
                                 }
                             }
@@ -622,7 +606,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         }
     }
 
-    fn rpc_block_received(
+    async fn rpc_block_received(
         &mut self,
         request_id: RequestId,
         peer_id: PeerId,
@@ -656,12 +640,12 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                         id,
                         beacon_block.map(|b| *b),
                     ) {
-                        Ok(ProcessResult::SyncCompleted) => self.update_sync_state(),
+                        Ok(ProcessResult::SyncCompleted) => self.update_sync_state().await,
                         Ok(ProcessResult::Successful) => {}
                         Err(_error) => {
                             // The backfill sync has failed, errors are reported
                             // within.
-                            self.update_sync_state();
+                            self.update_sync_state().await;
                         }
                     }
                 }
@@ -678,7 +662,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                         id,
                         beacon_block.map(|b| *b),
                     );
-                    self.update_sync_state();
+                    self.update_sync_state().await;
                 }
             }
         }

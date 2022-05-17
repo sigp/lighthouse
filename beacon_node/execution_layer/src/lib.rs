@@ -238,6 +238,7 @@ impl ExecutionLayer {
             engines: Engines {
                 engines,
                 latest_forkchoice_state: <_>::default(),
+                sync_notifier: <_>::default(),
                 log: log.clone(),
             },
             builders: Builders {
@@ -456,6 +457,12 @@ impl ExecutionLayer {
     /// Returns `true` if there is at least one synced and reachable engine.
     pub async fn is_synced(&self) -> bool {
         self.engines().any_synced().await
+    }
+
+    /// Returns a receiver channel that receives when the sync status changes
+    /// to synced.
+    pub async fn is_synced_channel(&self) -> tokio::sync::oneshot::Receiver<()> {
+        self.engines().sync_notifier().await
     }
 
     /// Updates the proposer preparation data provided by validators
