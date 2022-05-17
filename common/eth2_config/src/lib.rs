@@ -92,6 +92,7 @@ impl<'a> Eth2NetArchiveAndDirectory<'a> {
 /// Indicates that the `genesis.ssz.zip` file is present on the filesystem. This means that the
 /// deposit ceremony has concluded and the final genesis `BeaconState` is known.
 const GENESIS_STATE_IS_KNOWN: bool = true;
+const GENESIS_STATE_NOT_KNOWN: bool = false;
 
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub struct HardcodedNet {
@@ -237,5 +238,6 @@ define_hardcoded_nets!(
     (mainnet, "mainnet", GENESIS_STATE_IS_KNOWN),
     (prater, "prater", GENESIS_STATE_IS_KNOWN),
     (gnosis, "gnosis", GENESIS_STATE_IS_KNOWN),
-    (kiln, "kiln", GENESIS_STATE_IS_KNOWN)
+    (kiln, "kiln", GENESIS_STATE_IS_KNOWN),
+    (ropsten, "ropsten", GENESIS_STATE_NOT_KNOWN)
 );
