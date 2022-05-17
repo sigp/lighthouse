@@ -100,8 +100,8 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         let mut single_block_request = SingleBlockRequest::new(hash, peer_id);
 
         // If the block exists in the `waiting_execution` cache, we directly call the
-        // `single_block_lookup_response` function with the block to avoid re-requesting
-        // the block over the network
+        // `single_block_lookup_response` function with the cached block to avoid re-requesting
+        // the block over the network.
         if let Some(block) = self.waiting_execution.remove(&hash) {
             debug!(
                 self.log,
@@ -124,11 +124,6 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         }
         // Block does not exist in the cache, request it over the network
         else {
-            trace!(
-                self.log,
-                "Making single block lookup request";
-                "root" => %hash
-            );
             let (peer_id, request) = single_block_request.request_block().unwrap();
             if let Ok(request_id) = cx.single_block_lookup_request(peer_id, request, true) {
                 self.single_block_lookups
@@ -523,7 +518,6 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                     error!(self.log, "Beacon chain error processing single block"; "block_root" => %root, "error" => ?e);
                 }
                 BlockError::ParentUnknown(block) => {
-                    debug!(self.log, "Single block processed, parent unknown"; "block" => %block.canonical_root());
                     self.search_parent(block, peer_id, cx);
                 }
                 BlockError::ExecutionPayloadError(e) => match e {

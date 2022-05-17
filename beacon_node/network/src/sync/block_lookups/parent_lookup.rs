@@ -99,12 +99,12 @@ impl<T: EthSpec> ParentLookup<T> {
     ///
     /// Note: this function does not check that current chain_hash is parent of block to be inserted.
     pub fn insert_block(&mut self, block: SignedBeaconBlock<T>, peer_id: PeerId) {
-        let _old_hash = self.chain_hash;
+        let parent_hash = self.chain_hash;
         let root = block.canonical_root();
         self.chain_hash = root;
         // TODO(pawan): potentially change to deque
         self.downloaded_blocks.insert(0, block);
-        self.current_parent_request.hash = root;
+        self.current_parent_request.hash = parent_hash;
         self.current_parent_request.state = single_block_lookup::State::Processing { peer_id };
         self.current_parent_request_id = None;
     }
