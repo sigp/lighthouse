@@ -104,6 +104,10 @@ impl<E: EthSpec> EarlyAttesterCache<E> {
             return Ok(None);
         }
 
+        if request_slot < item.block.slot() {
+            return Ok(None);
+        }
+
         let committee_count = item
             .committee_lengths
             .get_committee_count_per_slot::<E>(spec)?;
