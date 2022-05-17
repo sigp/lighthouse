@@ -18,8 +18,8 @@ use crate::metadata::{
 };
 use crate::metrics;
 use crate::{
-    get_key_for_col, DBColumn, Error, ItemStore, KeyValueStoreOp, PartialBeaconState, StoreItem,
-    StoreOp,
+    get_key_for_col, DBColumn, DatabaseBlock, Error, ItemStore, KeyValueStoreOp,
+    PartialBeaconState, StoreItem, StoreOp,
 };
 use leveldb::iterator::LevelDBIterator;
 use lru::LruCache;
@@ -89,6 +89,8 @@ pub enum HotColdDBError {
     MissingHotStateSummary(Hash256),
     MissingEpochBoundaryState(Hash256),
     MissingSplitState(Hash256, Slot),
+    MissingExecutionPayload(Hash256),
+    MissingFullBlockExecutionPayloadPruned(Hash256, Slot),
     MissingAnchorInfo,
     HotStateSummaryError(BeaconStateError),
     RestorePointDecodeError(ssz::DecodeError),
@@ -185,6 +187,21 @@ impl<E: EthSpec> HotColdDB<E, LevelDB<E>, LevelDB<E>> {
             }
         }
 
+        // Load the previous split slot from the database (if any). This ensures we can
+        // stop and restart correctly. This needs to occur *before* running any migrations
+        // because some migrations load states and depend on the split.
+        if let Some(split) = db.load_split()? {
+            *db.split.write() = split;
+            *db.anchor_info.write() = db.load_anchor_info()?;
+
+            info!(
+                db.log,
+                "Hot-Cold DB initialized";
+                "split_slot" => split.slot,
+                "split_state" => ?split.state_root
+            );
+        }
+
         // Ensure that the schema version of the on-disk database matches the software.
         // If the version is mismatched, an automatic migration will be attempted.
         let db = Arc::new(db);
@@ -205,20 +222,6 @@ impl<E: EthSpec> HotColdDB<E, LevelDB<E>, LevelDB<E>> {
             db.config.check_compatibility(&disk_config)?;
         }
         db.store_config()?;
-
-        // Load the previous split slot from the database (if any). This ensures we can
-        // stop and restart correctly.
-        if let Some(split) = db.load_split()? {
-            *db.split.write() = split;
-            *db.anchor_info.write() = db.load_anchor_info()?;
-
-            info!(
-                db.log,
-                "Hot-Cold DB initialized";
-                "split_slot" => split.slot,
-                "split_state" => ?split.state_root
-            );
-        }
 
         // Run a garbage collection pass.
         db.remove_garbage()?;
@@ -263,53 +266,150 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         block: SignedBeaconBlock<E>,
     ) -> Result<(), Error> {
         // Store on disk.
-        let op = self.block_as_kv_store_op(block_root, &block);
-        self.hot_db.do_atomically(vec![op])?;
-
+        let mut ops = Vec::with_capacity(2);
+        let block = self.block_as_kv_store_ops(block_root, block, &mut ops)?;
+        self.hot_db.do_atomically(ops)?;
         // Update cache.
         self.block_cache.lock().put(*block_root, block);
-
         Ok(())
     }
 
     /// Prepare a signed beacon block for storage in the database.
-    pub fn block_as_kv_store_op(
+    ///
+    /// Return the original block for re-use after storage. It's passed by value so it can be
+    /// cracked open and have its payload extracted.
+    pub fn block_as_kv_store_ops(
         &self,
         key: &Hash256,
-        block: &SignedBeaconBlock<E>,
-    ) -> KeyValueStoreOp {
-        // FIXME(altair): re-add block write/overhead metrics, or remove them
-        let db_key = get_key_for_col(DBColumn::BeaconBlock.into(), key.as_bytes());
-        KeyValueStoreOp::PutKeyValue(db_key, block.as_ssz_bytes())
+        block: SignedBeaconBlock<E>,
+        ops: &mut Vec<KeyValueStoreOp>,
+    ) -> Result<SignedBeaconBlock<E>, Error> {
+        // Split block into blinded block and execution payload.
+        let (blinded_block, payload) = block.into();
+
+        // Store blinded block.
+        self.blinded_block_as_kv_store_ops(key, &blinded_block, ops);
+
+        // Store execution payload if present.
+        if let Some(ref execution_payload) = payload {
+            ops.push(execution_payload.as_kv_store_op(*key));
+        }
+
+        // Re-construct block. This should always succeed.
+        blinded_block
+            .try_into_full_block(payload)
+            .ok_or(Error::AddPayloadLogicError)
     }
 
-    /// Fetch a block from the store.
-    pub fn get_block(&self, block_root: &Hash256) -> Result<Option<SignedBeaconBlock<E>>, Error> {
+    /// Prepare a signed beacon block for storage in the datbase *without* its payload.
+    pub fn blinded_block_as_kv_store_ops(
+        &self,
+        key: &Hash256,
+        blinded_block: &SignedBeaconBlock<E, BlindedPayload<E>>,
+        ops: &mut Vec<KeyValueStoreOp>,
+    ) {
+        let db_key = get_key_for_col(DBColumn::BeaconBlock.into(), key.as_bytes());
+        ops.push(KeyValueStoreOp::PutKeyValue(
+            db_key,
+            blinded_block.as_ssz_bytes(),
+        ));
+    }
+
+    pub fn try_get_full_block(
+        &self,
+        block_root: &Hash256,
+    ) -> Result<Option<DatabaseBlock<E>>, Error> {
         metrics::inc_counter(&metrics::BEACON_BLOCK_GET_COUNT);
 
         // Check the cache.
         if let Some(block) = self.block_cache.lock().get(block_root) {
             metrics::inc_counter(&metrics::BEACON_BLOCK_CACHE_HIT_COUNT);
-            return Ok(Some(block.clone()));
+            return Ok(Some(DatabaseBlock::Full(block.clone())));
         }
 
-        let block = self.get_block_with(block_root, |bytes| {
-            SignedBeaconBlock::from_ssz_bytes(bytes, &self.spec)
-        })?;
+        // Load the blinded block.
+        let blinded_block = match self.get_blinded_block(block_root)? {
+            Some(block) => block,
+            None => return Ok(None),
+        };
 
-        // Add to cache.
-        if let Some(ref block) = block {
-            self.block_cache.lock().put(*block_root, block.clone());
-        }
+        // If the block is after the split point then we should have the full execution payload
+        // stored in the database. Otherwise, just return the blinded block.
+        // Hold the split lock so that it can't change.
+        let split = self.split.read_recursive();
 
-        Ok(block)
+        let block = if blinded_block.message().execution_payload().is_err()
+            || blinded_block.slot() >= split.slot
+        {
+            // Re-constructing the full block should always succeed here.
+            let full_block = self.make_full_block(block_root, blinded_block)?;
+
+            // Add to cache.
+            self.block_cache.lock().put(*block_root, full_block.clone());
+
+            DatabaseBlock::Full(full_block)
+        } else {
+            DatabaseBlock::Blinded(blinded_block)
+        };
+        drop(split);
+
+        Ok(Some(block))
     }
 
-    /// Fetch a block from the store, ignoring which fork variant it *should* be for.
-    pub fn get_block_any_variant(
+    /// Fetch a full block with execution payload from the store.
+    pub fn get_full_block(
         &self,
         block_root: &Hash256,
     ) -> Result<Option<SignedBeaconBlock<E>>, Error> {
+        match self.try_get_full_block(block_root)? {
+            Some(DatabaseBlock::Full(block)) => Ok(Some(block)),
+            Some(DatabaseBlock::Blinded(block)) => Err(
+                HotColdDBError::MissingFullBlockExecutionPayloadPruned(*block_root, block.slot())
+                    .into(),
+            ),
+            None => Ok(None),
+        }
+    }
+
+    /// Get a schema V8 or earlier full block by reading it and its payload from disk.
+    pub fn get_full_block_prior_to_v9(
+        &self,
+        block_root: &Hash256,
+    ) -> Result<Option<SignedBeaconBlock<E>>, Error> {
+        self.get_block_with(block_root, |bytes| {
+            SignedBeaconBlock::from_ssz_bytes(bytes, &self.spec)
+        })
+    }
+
+    /// Convert a blinded block into a full block by loading its execution payload if necessary.
+    pub fn make_full_block(
+        &self,
+        block_root: &Hash256,
+        blinded_block: SignedBeaconBlock<E, BlindedPayload<E>>,
+    ) -> Result<SignedBeaconBlock<E>, Error> {
+        if blinded_block.message().execution_payload().is_ok() {
+            let execution_payload = self.get_execution_payload(block_root)?;
+            blinded_block.try_into_full_block(Some(execution_payload))
+        } else {
+            blinded_block.try_into_full_block(None)
+        }
+        .ok_or(Error::AddPayloadLogicError)
+    }
+
+    pub fn get_blinded_block(
+        &self,
+        block_root: &Hash256,
+    ) -> Result<Option<SignedBeaconBlock<E, BlindedPayload<E>>>, Error> {
+        self.get_block_with(block_root, |bytes| {
+            SignedBeaconBlock::from_ssz_bytes(bytes, &self.spec)
+        })
+    }
+
+    /// Fetch a block from the store, ignoring which fork variant it *should* be for.
+    pub fn get_block_any_variant<Payload: ExecPayload<E>>(
+        &self,
+        block_root: &Hash256,
+    ) -> Result<Option<SignedBeaconBlock<E, Payload>>, Error> {
         self.get_block_with(block_root, SignedBeaconBlock::any_from_ssz_bytes)
     }
 
@@ -317,16 +417,25 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
     ///
     /// This is useful for e.g. ignoring the slot-indicated fork to forcefully load a block as if it
     /// were for a different fork.
-    pub fn get_block_with(
+    pub fn get_block_with<Payload: ExecPayload<E>>(
         &self,
         block_root: &Hash256,
-        decoder: impl FnOnce(&[u8]) -> Result<SignedBeaconBlock<E>, ssz::DecodeError>,
-    ) -> Result<Option<SignedBeaconBlock<E>>, Error> {
+        decoder: impl FnOnce(&[u8]) -> Result<SignedBeaconBlock<E, Payload>, ssz::DecodeError>,
+    ) -> Result<Option<SignedBeaconBlock<E, Payload>>, Error> {
         self.hot_db
             .get_bytes(DBColumn::BeaconBlock.into(), block_root.as_bytes())?
             .map(|block_bytes| decoder(&block_bytes))
             .transpose()
             .map_err(|e| e.into())
+    }
+
+    /// Load the execution payload for a block from disk.
+    pub fn get_execution_payload(
+        &self,
+        block_root: &Hash256,
+    ) -> Result<ExecutionPayload<E>, Error> {
+        self.get_item(block_root)?
+            .ok_or_else(|| HotColdDBError::MissingExecutionPayload(*block_root).into())
     }
 
     /// Determine whether a block exists in the database.
@@ -339,7 +448,9 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
     pub fn delete_block(&self, block_root: &Hash256) -> Result<(), Error> {
         self.block_cache.lock().pop(block_root);
         self.hot_db
-            .key_delete(DBColumn::BeaconBlock.into(), block_root.as_bytes())
+            .key_delete(DBColumn::BeaconBlock.into(), block_root.as_bytes())?;
+        self.hot_db
+            .key_delete(DBColumn::ExecPayload.into(), block_root.as_bytes())
     }
 
     pub fn put_state_summary(
@@ -550,24 +661,27 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
     }
 
     /// Convert a batch of `StoreOp` to a batch of `KeyValueStoreOp`.
-    pub fn convert_to_kv_batch(&self, batch: &[StoreOp<E>]) -> Result<Vec<KeyValueStoreOp>, Error> {
+    pub fn convert_to_kv_batch(
+        &self,
+        batch: Vec<StoreOp<E>>,
+    ) -> Result<Vec<KeyValueStoreOp>, Error> {
         let mut key_value_batch = Vec::with_capacity(batch.len());
         for op in batch {
             match op {
                 StoreOp::PutBlock(block_root, block) => {
-                    key_value_batch.push(self.block_as_kv_store_op(block_root, block));
+                    self.block_as_kv_store_ops(&block_root, *block, &mut key_value_batch)?;
                 }
 
                 StoreOp::PutState(state_root, state) => {
-                    self.store_hot_state(state_root, state, &mut key_value_batch)?;
+                    self.store_hot_state(&state_root, state, &mut key_value_batch)?;
                 }
 
                 StoreOp::PutStateSummary(state_root, summary) => {
-                    key_value_batch.push(summary.as_kv_store_op(*state_root));
+                    key_value_batch.push(summary.as_kv_store_op(state_root));
                 }
 
                 StoreOp::PutStateTemporaryFlag(state_root) => {
-                    key_value_batch.push(TemporaryFlag.as_kv_store_op(*state_root));
+                    key_value_batch.push(TemporaryFlag.as_kv_store_op(state_root));
                 }
 
                 StoreOp::DeleteStateTemporaryFlag(state_root) => {
@@ -592,16 +706,20 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
                         key_value_batch.push(KeyValueStoreOp::DeleteKey(state_key));
                     }
                 }
+
+                StoreOp::DeleteExecutionPayload(block_root) => {
+                    let key = get_key_for_col(DBColumn::ExecPayload.into(), block_root.as_bytes());
+                    key_value_batch.push(KeyValueStoreOp::DeleteKey(key));
+                }
             }
         }
         Ok(key_value_batch)
     }
 
     pub fn do_atomically(&self, batch: Vec<StoreOp<E>>) -> Result<(), Error> {
+        // Update the block cache whilst holding a lock, to ensure that the cache updates atomically
+        // with the database.
         let mut guard = self.block_cache.lock();
-
-        self.hot_db
-            .do_atomically(self.convert_to_kv_batch(&batch)?)?;
 
         for op in &batch {
             match op {
@@ -622,8 +740,15 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
                 }
 
                 StoreOp::DeleteState(_, _) => (),
+
+                StoreOp::DeleteExecutionPayload(_) => (),
             }
         }
+
+        self.hot_db
+            .do_atomically(self.convert_to_kv_batch(batch)?)?;
+        drop(guard);
+
         Ok(())
     }
 
@@ -887,34 +1012,33 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         start_slot: Slot,
         end_slot: Slot,
         end_block_hash: Hash256,
-    ) -> Result<Vec<SignedBeaconBlock<E>>, Error> {
-        let mut blocks: Vec<SignedBeaconBlock<E>> =
-            ParentRootBlockIterator::new(self, end_block_hash)
-                .map(|result| result.map(|(_, block)| block))
-                // Include the block at the end slot (if any), it needs to be
-                // replayed in order to construct the canonical state at `end_slot`.
-                .filter(|result| {
-                    result
-                        .as_ref()
-                        .map_or(true, |block| block.slot() <= end_slot)
-                })
-                // Include the block at the start slot (if any). Whilst it doesn't need to be
-                // applied to the state, it contains a potentially useful state root.
-                //
-                // Return `true` on an `Err` so that the `collect` fails, unless the error is a
-                // `BlockNotFound` error and some blocks are intentionally missing from the DB.
-                // This complexity is unfortunately necessary to avoid loading the parent of the
-                // oldest known block -- we can't know that we have all the required blocks until we
-                // load a block with slot less than the start slot, which is impossible if there are
-                // no blocks with slot less than the start slot.
-                .take_while(|result| match result {
-                    Ok(block) => block.slot() >= start_slot,
-                    Err(Error::BlockNotFound(_)) => {
-                        self.get_oldest_block_slot() == self.spec.genesis_slot
-                    }
-                    Err(_) => true,
-                })
-                .collect::<Result<_, _>>()?;
+    ) -> Result<Vec<SignedBeaconBlock<E, BlindedPayload<E>>>, Error> {
+        let mut blocks = ParentRootBlockIterator::new(self, end_block_hash)
+            .map(|result| result.map(|(_, block)| block))
+            // Include the block at the end slot (if any), it needs to be
+            // replayed in order to construct the canonical state at `end_slot`.
+            .filter(|result| {
+                result
+                    .as_ref()
+                    .map_or(true, |block| block.slot() <= end_slot)
+            })
+            // Include the block at the start slot (if any). Whilst it doesn't need to be
+            // applied to the state, it contains a potentially useful state root.
+            //
+            // Return `true` on an `Err` so that the `collect` fails, unless the error is a
+            // `BlockNotFound` error and some blocks are intentionally missing from the DB.
+            // This complexity is unfortunately necessary to avoid loading the parent of the
+            // oldest known block -- we can't know that we have all the required blocks until we
+            // load a block with slot less than the start slot, which is impossible if there are
+            // no blocks with slot less than the start slot.
+            .take_while(|result| match result {
+                Ok(block) => block.slot() >= start_slot,
+                Err(Error::BlockNotFound(_)) => {
+                    self.get_oldest_block_slot() == self.spec.genesis_slot
+                }
+                Err(_) => true,
+            })
+            .collect::<Result<Vec<_>, _>>()?;
         blocks.reverse();
         Ok(blocks)
     }
@@ -926,7 +1050,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
     fn replay_blocks(
         &self,
         state: BeaconState<E>,
-        blocks: Vec<SignedBeaconBlock<E>>,
+        blocks: Vec<SignedBeaconBlock<E, BlindedPayload<E>>>,
         target_slot: Slot,
         state_root_iter: Option<impl Iterator<Item = Result<(Hash256, Slot), Error>>>,
         state_root_strategy: StateRootStrategy,
@@ -954,6 +1078,11 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
 
                 block_replayer.into_state()
             })
+    }
+
+    /// Get a reference to the `ChainSpec` used by the database.
+    pub fn get_chain_spec(&self) -> &ChainSpec {
+        &self.spec
     }
 
     /// Fetch a copy of the current split slot from memory.

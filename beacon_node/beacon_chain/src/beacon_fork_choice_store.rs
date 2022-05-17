@@ -13,7 +13,8 @@ use std::sync::Arc;
 use store::{Error as StoreError, HotColdDB, ItemStore};
 use superstruct::superstruct;
 use types::{
-    BeaconBlock, BeaconState, BeaconStateError, Checkpoint, Epoch, EthSpec, Hash256, Slot,
+    BeaconBlock, BeaconState, BeaconStateError, Checkpoint, Epoch, EthSpec, ExecPayload, Hash256,
+    Slot,
 };
 
 #[derive(Debug)]
@@ -254,9 +255,9 @@ where
         self.time = slot
     }
 
-    fn on_verified_block(
+    fn on_verified_block<Payload: ExecPayload<E>>(
         &mut self,
-        _block: &BeaconBlock<E>,
+        _block: &BeaconBlock<E, Payload>,
         block_root: Hash256,
         state: &BeaconState<E>,
     ) -> Result<(), Self::Error> {
@@ -300,7 +301,7 @@ where
             metrics::inc_counter(&metrics::BALANCES_CACHE_MISSES);
             let justified_block = self
                 .store
-                .get_block(&self.justified_checkpoint.root)
+                .get_blinded_block(&self.justified_checkpoint.root)
                 .map_err(Error::FailedToReadBlock)?
                 .ok_or(Error::MissingBlock(self.justified_checkpoint.root))?
                 .deconstruct()

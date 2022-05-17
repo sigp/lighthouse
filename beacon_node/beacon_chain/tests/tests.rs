@@ -744,7 +744,11 @@ fn block_roots_skip_slot_behaviour() {
                 "WhenSlotSkipped::Prev should accurately return the prior skipped block"
             );
 
-            let expected_block = harness.chain.get_block(&skipped_root).unwrap().unwrap();
+            let expected_block = harness
+                .chain
+                .get_blinded_block(&skipped_root)
+                .unwrap()
+                .unwrap();
 
             assert_eq!(
                 harness
@@ -782,7 +786,11 @@ fn block_roots_skip_slot_behaviour() {
                 "WhenSlotSkipped::None and WhenSlotSkipped::Prev should be equal on non-skipped slot"
             );
 
-            let expected_block = harness.chain.get_block(&skips_prev).unwrap().unwrap();
+            let expected_block = harness
+                .chain
+                .get_blinded_block(&skips_prev)
+                .unwrap()
+                .unwrap();
 
             assert_eq!(
                 harness

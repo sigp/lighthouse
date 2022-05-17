@@ -313,7 +313,10 @@ fn epoch_boundary_state_attestation_processing() {
     for (attestation, subnet_id) in late_attestations.into_iter().flatten() {
         // load_epoch_boundary_state is idempotent!
         let block_root = attestation.data.beacon_block_root;
-        let block = store.get_block(&block_root).unwrap().expect("block exists");
+        let block = store
+            .get_blinded_block(&block_root)
+            .unwrap()
+            .expect("block exists");
         let epoch_boundary_state = store
             .load_epoch_boundary_state(&block.state_root())
             .expect("no error")
@@ -603,7 +606,7 @@ fn delete_blocks_and_states() {
     );
 
     let faulty_head_block = store
-        .get_block(&faulty_head.into())
+        .get_blinded_block(&faulty_head.into())
         .expect("no errors")
         .expect("faulty head block exists");
 
@@ -645,7 +648,7 @@ fn delete_blocks_and_states() {
             break;
         }
         store.delete_block(&block_root).unwrap();
-        assert_eq!(store.get_block(&block_root).unwrap(), None);
+        assert_eq!(store.get_blinded_block(&block_root).unwrap(), None);
     }
 
     // Deleting frozen states should do nothing
@@ -890,7 +893,12 @@ fn shuffling_compatible_short_fork() {
 }
 
 fn get_state_for_block(harness: &TestHarness, block_root: Hash256) -> BeaconState<E> {
-    let head_block = harness.chain.get_block(&block_root).unwrap().unwrap();
+    let head_block = harness
+        .chain
+        .store
+        .get_blinded_block(&block_root)
+        .unwrap()
+        .unwrap();
     harness
         .chain
         .get_state(&head_block.state_root(), Some(head_block.slot()))
@@ -1695,7 +1703,7 @@ fn check_all_blocks_exist<'a>(
     blocks: impl Iterator<Item = &'a SignedBeaconBlockHash>,
 ) {
     for &block_hash in blocks {
-        let block = harness.chain.get_block(&block_hash.into()).unwrap();
+        let block = harness.chain.get_blinded_block(&block_hash.into()).unwrap();
         assert!(
             block.is_some(),
             "expected block {:?} to be in DB",
@@ -1742,7 +1750,7 @@ fn check_no_blocks_exist<'a>(
     blocks: impl Iterator<Item = &'a SignedBeaconBlockHash>,
 ) {
     for &block_hash in blocks {
-        let block = harness.chain.get_block(&block_hash.into()).unwrap();
+        let block = harness.chain.get_blinded_block(&block_hash.into()).unwrap();
         assert!(
             block.is_none(),
             "did not expect block {:?} to be in the DB",
@@ -1988,7 +1996,12 @@ fn weak_subjectivity_sync() {
         .unwrap()
         .unwrap();
     let wss_checkpoint = harness.chain.head_info().unwrap().finalized_checkpoint;
-    let wss_block = harness.get_block(wss_checkpoint.root.into()).unwrap();
+    let wss_block = harness
+        .chain
+        .store
+        .get_full_block(&wss_checkpoint.root)
+        .unwrap()
+        .unwrap();
     let wss_state = full_store
         .get_state(&wss_block.state_root(), None)
         .unwrap()
@@ -2042,8 +2055,14 @@ fn weak_subjectivity_sync() {
 
     for snapshot in new_blocks {
         let block = &snapshot.beacon_block;
+        let full_block = harness
+            .chain
+            .store
+            .make_full_block(&snapshot.beacon_block_root, block.clone())
+            .unwrap();
+
         beacon_chain.slot_clock.set_slot(block.slot().as_u64());
-        beacon_chain.process_block(block.clone()).unwrap();
+        beacon_chain.process_block(full_block).unwrap();
         beacon_chain.fork_choice().unwrap();
 
         // Check that the new block's state can be loaded correctly.
@@ -2085,13 +2104,13 @@ fn weak_subjectivity_sync() {
         .map(|s| s.beacon_block.clone())
         .collect::<Vec<_>>();
     beacon_chain
-        .import_historical_block_batch(&historical_blocks)
+        .import_historical_block_batch(historical_blocks.clone())
         .unwrap();
     assert_eq!(beacon_chain.store.get_oldest_block_slot(), 0);
 
     // Resupplying the blocks should not fail, they can be safely ignored.
     beacon_chain
-        .import_historical_block_batch(&historical_blocks)
+        .import_historical_block_batch(historical_blocks)
         .unwrap();
 
     // The forwards iterator should now match the original chain
@@ -2114,7 +2133,7 @@ fn weak_subjectivity_sync() {
         .unwrap()
         .map(Result::unwrap)
     {
-        let block = store.get_block(&block_root).unwrap().unwrap();
+        let block = store.get_blinded_block(&block_root).unwrap().unwrap();
         assert_eq!(block.slot(), slot);
     }
 
@@ -2574,7 +2593,7 @@ fn check_iterators(harness: &TestHarness) {
 }
 
 fn get_finalized_epoch_boundary_blocks(
-    dump: &[BeaconSnapshot<MinimalEthSpec>],
+    dump: &[BeaconSnapshot<MinimalEthSpec, BlindedPayload<MinimalEthSpec>>],
 ) -> HashSet<SignedBeaconBlockHash> {
     dump.iter()
         .cloned()
@@ -2582,7 +2601,9 @@ fn get_finalized_epoch_boundary_blocks(
         .collect()
 }
 
-fn get_blocks(dump: &[BeaconSnapshot<MinimalEthSpec>]) -> HashSet<SignedBeaconBlockHash> {
+fn get_blocks(
+    dump: &[BeaconSnapshot<MinimalEthSpec, BlindedPayload<MinimalEthSpec>>],
+) -> HashSet<SignedBeaconBlockHash> {
     dump.iter()
         .cloned()
         .map(|checkpoint| checkpoint.beacon_block_root.into())

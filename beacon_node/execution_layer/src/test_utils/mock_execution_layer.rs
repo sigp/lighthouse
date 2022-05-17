@@ -2,61 +2,22 @@ use crate::{
     test_utils::{MockServer, DEFAULT_TERMINAL_BLOCK, DEFAULT_TERMINAL_DIFFICULTY, JWT_SECRET},
     Config, *,
 };
-use environment::null_logger;
 use sensitive_url::SensitiveUrl;
-use std::sync::Arc;
 use task_executor::TaskExecutor;
 use tempfile::NamedTempFile;
 use types::{Address, ChainSpec, Epoch, EthSpec, FullPayload, Hash256, Uint256};
 
-pub struct ExecutionLayerRuntime {
-    pub runtime: Option<Arc<tokio::runtime::Runtime>>,
-    pub _runtime_shutdown: exit_future::Signal,
-    pub task_executor: TaskExecutor,
-    pub log: Logger,
-}
-
-impl Default for ExecutionLayerRuntime {
-    fn default() -> Self {
-        let runtime = Arc::new(
-            tokio::runtime::Builder::new_multi_thread()
-                .enable_all()
-                .build()
-                .unwrap(),
-        );
-        let (runtime_shutdown, exit) = exit_future::signal();
-        let (shutdown_tx, _) = futures::channel::mpsc::channel(1);
-        let log = null_logger().unwrap();
-        let task_executor =
-            TaskExecutor::new(Arc::downgrade(&runtime), exit, log.clone(), shutdown_tx);
-
-        Self {
-            runtime: Some(runtime),
-            _runtime_shutdown: runtime_shutdown,
-            task_executor,
-            log,
-        }
-    }
-}
-
-impl Drop for ExecutionLayerRuntime {
-    fn drop(&mut self) {
-        if let Some(runtime) = self.runtime.take() {
-            Arc::try_unwrap(runtime).unwrap().shutdown_background()
-        }
-    }
-}
-
 pub struct MockExecutionLayer<T: EthSpec> {
     pub server: MockServer<T>,
     pub el: ExecutionLayer,
-    pub el_runtime: ExecutionLayerRuntime,
+    pub executor: TaskExecutor,
     pub spec: ChainSpec,
 }
 
 impl<T: EthSpec> MockExecutionLayer<T> {
-    pub fn default_params() -> Self {
+    pub fn default_params(executor: TaskExecutor) -> Self {
         Self::new(
+            executor,
             DEFAULT_TERMINAL_DIFFICULTY.into(),
             DEFAULT_TERMINAL_BLOCK,
             ExecutionBlockHash::zero(),
@@ -65,13 +26,13 @@ impl<T: EthSpec> MockExecutionLayer<T> {
     }
 
     pub fn new(
+        executor: TaskExecutor,
         terminal_total_difficulty: Uint256,
         terminal_block: u64,
         terminal_block_hash: ExecutionBlockHash,
         terminal_block_hash_activation_epoch: Epoch,
     ) -> Self {
-        let el_runtime = ExecutionLayerRuntime::default();
-        let handle = el_runtime.runtime.as_ref().unwrap().handle();
+        let handle = executor.handle().unwrap();
 
         let mut spec = T::default_spec();
         spec.terminal_total_difficulty = terminal_total_difficulty;
@@ -79,7 +40,7 @@ impl<T: EthSpec> MockExecutionLayer<T> {
         spec.terminal_block_hash_activation_epoch = terminal_block_hash_activation_epoch;
 
         let server = MockServer::new(
-            handle,
+            &handle,
             terminal_total_difficulty,
             terminal_block,
             terminal_block_hash,
@@ -97,17 +58,13 @@ impl<T: EthSpec> MockExecutionLayer<T> {
             suggested_fee_recipient: Some(Address::repeat_byte(42)),
             ..Default::default()
         };
-        let el = ExecutionLayer::from_config(
-            config,
-            el_runtime.task_executor.clone(),
-            el_runtime.log.clone(),
-        )
-        .unwrap();
+        let el =
+            ExecutionLayer::from_config(config, executor.clone(), executor.log().clone()).unwrap();
 
         Self {
             server,
             el,
-            el_runtime,
+            executor,
             spec,
         }
     }

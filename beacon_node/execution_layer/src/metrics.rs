@@ -31,4 +31,8 @@ lazy_static::lazy_static! {
         "Indicates hits or misses for already having prepared a payload id before payload production",
         &["event"]
     );
+    pub static ref EXECUTION_LAYER_GET_PAYLOAD_BY_BLOCK_HASH: Result<Histogram> = try_create_histogram(
+        "execution_layer_get_payload_by_block_hash_time",
+        "Time to reconstruct a payload from the EE using eth_getBlockByHash"
+    );
 }

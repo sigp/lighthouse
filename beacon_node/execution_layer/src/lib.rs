@@ -304,11 +304,7 @@ impl ExecutionLayer {
         T: Fn(&'a Self) -> U,
         U: Future<Output = Result<V, Error>>,
     {
-        let runtime = self
-            .executor()
-            .runtime()
-            .upgrade()
-            .ok_or(Error::ShuttingDown)?;
+        let runtime = self.executor().handle().ok_or(Error::ShuttingDown)?;
         // TODO(merge): respect the shutdown signal.
         runtime.block_on(generate_future(self))
     }
@@ -322,11 +318,7 @@ impl ExecutionLayer {
         T: Fn(&'a Self) -> U,
         U: Future<Output = V>,
     {
-        let runtime = self
-            .executor()
-            .runtime()
-            .upgrade()
-            .ok_or(Error::ShuttingDown)?;
+        let runtime = self.executor().handle().ok_or(Error::ShuttingDown)?;
         // TODO(merge): respect the shutdown signal.
         Ok(runtime.block_on(generate_future(self)))
     }
@@ -1183,6 +1175,64 @@ impl ExecutionLayer {
         }
     }
 
+    pub async fn get_payload_by_block_hash<T: EthSpec>(
+        &self,
+        hash: ExecutionBlockHash,
+    ) -> Result<Option<ExecutionPayload<T>>, Error> {
+        self.engines()
+            .first_success(|engine| async move {
+                self.get_payload_by_block_hash_from_engine(engine, hash)
+                    .await
+            })
+            .await
+            .map_err(Error::EngineErrors)
+    }
+
+    async fn get_payload_by_block_hash_from_engine<T: EthSpec>(
+        &self,
+        engine: &Engine<EngineApi>,
+        hash: ExecutionBlockHash,
+    ) -> Result<Option<ExecutionPayload<T>>, ApiError> {
+        let _timer = metrics::start_timer(&metrics::EXECUTION_LAYER_GET_PAYLOAD_BY_BLOCK_HASH);
+
+        if hash == ExecutionBlockHash::zero() {
+            return Ok(Some(ExecutionPayload::default()));
+        }
+
+        let block = if let Some(block) = engine.api.get_block_by_hash_with_txns::<T>(hash).await? {
+            block
+        } else {
+            return Ok(None);
+        };
+
+        let transactions = VariableList::new(
+            block
+                .transactions
+                .into_iter()
+                .map(|transaction| VariableList::new(transaction.rlp().to_vec()))
+                .collect::<Result<_, _>>()
+                .map_err(ApiError::DeserializeTransaction)?,
+        )
+        .map_err(ApiError::DeserializeTransactions)?;
+
+        Ok(Some(ExecutionPayload {
+            parent_hash: block.parent_hash,
+            fee_recipient: block.fee_recipient,
+            state_root: block.state_root,
+            receipts_root: block.receipts_root,
+            logs_bloom: block.logs_bloom,
+            prev_randao: block.prev_randao,
+            block_number: block.block_number,
+            gas_limit: block.gas_limit,
+            gas_used: block.gas_used,
+            timestamp: block.timestamp,
+            extra_data: block.extra_data,
+            base_fee_per_gas: block.base_fee_per_gas,
+            block_hash: block.block_hash,
+            transactions,
+        }))
+    }
+
     pub async fn propose_blinded_beacon_block<T: EthSpec>(
         &self,
         block: &SignedBeaconBlock<T, BlindedPayload<T>>,
@@ -1205,13 +1255,15 @@ impl ExecutionLayer {
 mod test {
     use super::*;
     use crate::test_utils::MockExecutionLayer as GenericMockExecutionLayer;
+    use task_executor::test_utils::TestRuntime;
     use types::MainnetEthSpec;
 
     type MockExecutionLayer = GenericMockExecutionLayer<MainnetEthSpec>;
 
     #[tokio::test]
     async fn produce_three_valid_pos_execution_blocks() {
-        MockExecutionLayer::default_params()
+        let runtime = TestRuntime::default();
+        MockExecutionLayer::default_params(runtime.task_executor.clone())
             .move_to_terminal_block()
             .produce_valid_execution_payload_on_head()
             .await
@@ -1223,7 +1275,8 @@ mod test {
 
     #[tokio::test]
     async fn finds_valid_terminal_block_hash() {
-        MockExecutionLayer::default_params()
+        let runtime = TestRuntime::default();
+        MockExecutionLayer::default_params(runtime.task_executor.clone())
             .move_to_block_prior_to_terminal_block()
             .with_terminal_block(|spec, el, _| async move {
                 el.engines().upcheck_not_synced(Logging::Disabled).await;
@@ -1242,7 +1295,8 @@ mod test {
 
     #[tokio::test]
     async fn verifies_valid_terminal_block_hash() {
-        MockExecutionLayer::default_params()
+        let runtime = TestRuntime::default();
+        MockExecutionLayer::default_params(runtime.task_executor.clone())
             .move_to_terminal_block()
             .with_terminal_block(|spec, el, terminal_block| async move {
                 el.engines().upcheck_not_synced(Logging::Disabled).await;
@@ -1258,7 +1312,8 @@ mod test {
 
     #[tokio::test]
     async fn rejects_invalid_terminal_block_hash() {
-        MockExecutionLayer::default_params()
+        let runtime = TestRuntime::default();
+        MockExecutionLayer::default_params(runtime.task_executor.clone())
             .move_to_terminal_block()
             .with_terminal_block(|spec, el, terminal_block| async move {
                 el.engines().upcheck_not_synced(Logging::Disabled).await;
@@ -1276,7 +1331,8 @@ mod test {
 
     #[tokio::test]
     async fn rejects_unknown_terminal_block_hash() {
-        MockExecutionLayer::default_params()
+        let runtime = TestRuntime::default();
+        MockExecutionLayer::default_params(runtime.task_executor.clone())
             .move_to_terminal_block()
             .with_terminal_block(|spec, el, _| async move {
                 el.engines().upcheck_not_synced(Logging::Disabled).await;

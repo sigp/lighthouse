@@ -5,7 +5,6 @@ mod check_deposit_data;
 mod create_payload_header;
 mod deploy_deposit_contract;
 mod eth1_genesis;
-mod etl;
 mod generate_bootnode_enr;
 mod insecure_validators;
 mod interop_genesis;
@@ -599,63 +598,6 @@ fn main() {
                         .help("The number of nodes to divide the validator keys to"),
                 )
         )
-        .subcommand(
-            SubCommand::with_name("etl-block-efficiency")
-                .about(
-                    "Performs ETL analysis of block efficiency. Requires a Beacon Node API to \
-                    extract data from.",
-                )
-                .arg(
-                    Arg::with_name("endpoint")
-                        .long("endpoint")
-                        .short("e")
-                        .takes_value(true)
-                        .default_value("http://localhost:5052")
-                        .help(
-                            "The endpoint of the Beacon Node API."
-                        ),
-                )
-                .arg(
-                    Arg::with_name("output")
-                        .long("output")
-                        .short("o")
-                        .takes_value(true)
-                        .help("The path of the output data in CSV file.")
-                        .required(true),
-                )
-                .arg(
-                    Arg::with_name("start-epoch")
-                        .long("start-epoch")
-                        .takes_value(true)
-                        .help(
-                            "The first epoch in the range of epochs to be evaluated. Use with \
-                            --end-epoch.",
-                        )
-                        .required(true),
-                )
-                .arg(
-                    Arg::with_name("end-epoch")
-                        .long("end-epoch")
-                        .takes_value(true)
-                        .help(
-                            "The last epoch in the range of epochs to be evaluated. Use with \
-                            --start-epoch.",
-                        )
-                        .required(true),
-                )
-                .arg(
-                    Arg::with_name("offline-window")
-                        .long("offline-window")
-                        .takes_value(true)
-                        .default_value("3")
-                        .help(
-                            "If a validator does not submit an attestion within this many epochs, \
-                            they are deemed offline. For example, for a offline window of 3, if a \
-                            validator does not attest in epochs 4, 5 or 6, it is deemed offline \
-                            during epoch 6. A value of 0 will skip these checks."
-                        )
-                )
-        )
         .get_matches();
 
     let result = matches
@@ -737,10 +679,6 @@ fn run<T: EthSpec>(
             .map_err(|e| format!("Failed to run generate-bootnode-enr command: {}", e)),
         ("insecure-validators", Some(matches)) => insecure_validators::run(matches)
             .map_err(|e| format!("Failed to run insecure-validators command: {}", e)),
-        ("etl-block-efficiency", Some(matches)) => env
-            .runtime()
-            .block_on(etl::block_efficiency::run::<T>(matches))
-            .map_err(|e| format!("Failed to run etl-block_efficiency: {}", e)),
         (other, _) => Err(format!("Unknown subcommand {}. See --help.", other)),
     }
 }

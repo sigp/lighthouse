@@ -83,8 +83,11 @@ use std::marker::PhantomData;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use store::iter::{BlockRootsIterator, ParentRootBlockIterator, StateRootsIterator};
-use store::{Error as DBError, HotColdDB, KeyValueStore, KeyValueStoreOp, StoreItem, StoreOp};
+use store::{
+    DatabaseBlock, Error as DBError, HotColdDB, KeyValueStore, KeyValueStoreOp, StoreItem, StoreOp,
+};
 use task_executor::ShutdownReason;
+use tree_hash::TreeHash;
 use types::beacon_state::CloneConfig;
 use types::*;
 
@@ -587,7 +590,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         block_root: Hash256,
     ) -> Result<impl Iterator<Item = Result<(Hash256, Slot), Error>> + '_, Error> {
         let block = self
-            .get_block(&block_root)?
+            .get_blinded_block(&block_root)?
             .ok_or(Error::MissingBeaconBlock(block_root))?;
         let state = self
             .get_state(&block.state_root(), Some(block.slot()))?
@@ -752,11 +755,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         &self,
         request_slot: Slot,
         skips: WhenSlotSkipped,
-    ) -> Result<Option<SignedBeaconBlock<T::EthSpec>>, Error> {
+    ) -> Result<Option<SignedBlindedBeaconBlock<T::EthSpec>>, Error> {
         let root = self.block_root_at_slot(request_slot, skips)?;
 
         if let Some(block_root) = root {
-            Ok(self.store.get_block(&block_root)?)
+            Ok(self.store.get_blinded_block(&block_root)?)
         } else {
             Ok(None)
         }
@@ -961,16 +964,14 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// ## Errors
     ///
     /// May return a database error.
-    pub fn get_block_checking_early_attester_cache(
+    pub async fn get_block_checking_early_attester_cache(
         &self,
         block_root: &Hash256,
     ) -> Result<Option<SignedBeaconBlock<T::EthSpec>>, Error> {
-        let block_opt = self
-            .store
-            .get_block(block_root)?
-            .or_else(|| self.early_attester_cache.get_block(*block_root));
-
-        Ok(block_opt)
+        if let Some(block) = self.early_attester_cache.get_block(*block_root) {
+            return Ok(Some(block));
+        }
+        self.get_block(block_root).await
     }
 
     /// Returns the block at the given root, if any.
@@ -978,11 +979,69 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// ## Errors
     ///
     /// May return a database error.
-    pub fn get_block(
+    pub async fn get_block(
         &self,
         block_root: &Hash256,
     ) -> Result<Option<SignedBeaconBlock<T::EthSpec>>, Error> {
-        Ok(self.store.get_block(block_root)?)
+        // Load block from database, returning immediately if we have the full block w payload
+        // stored.
+        let blinded_block = match self.store.try_get_full_block(block_root)? {
+            Some(DatabaseBlock::Full(block)) => return Ok(Some(block)),
+            Some(DatabaseBlock::Blinded(block)) => block,
+            None => return Ok(None),
+        };
+
+        // If we only have a blinded block, load the execution payload from the EL.
+        let block_message = blinded_block.message();
+        let execution_payload_header = &block_message
+            .execution_payload()
+            .map_err(|_| Error::BlockVariantLacksExecutionPayload(*block_root))?
+            .execution_payload_header;
+
+        let exec_block_hash = execution_payload_header.block_hash;
+
+        let execution_payload = self
+            .execution_layer
+            .as_ref()
+            .ok_or(Error::ExecutionLayerMissing)?
+            .get_payload_by_block_hash(exec_block_hash)
+            .await
+            .map_err(|e| Error::ExecutionLayerErrorPayloadReconstruction(exec_block_hash, e))?
+            .ok_or(Error::BlockHashMissingFromExecutionLayer(exec_block_hash))?;
+
+        // Verify payload integrity.
+        let header_from_payload = ExecutionPayloadHeader::from(&execution_payload);
+        if header_from_payload != *execution_payload_header {
+            for txn in &execution_payload.transactions {
+                debug!(
+                    self.log,
+                    "Reconstructed txn";
+                    "bytes" => format!("0x{}", hex::encode(&**txn)),
+                );
+            }
+
+            return Err(Error::InconsistentPayloadReconstructed {
+                slot: blinded_block.slot(),
+                exec_block_hash,
+                canonical_payload_root: execution_payload_header.tree_hash_root(),
+                reconstructed_payload_root: header_from_payload.tree_hash_root(),
+                canonical_transactions_root: execution_payload_header.transactions_root,
+                reconstructed_transactions_root: header_from_payload.transactions_root,
+            });
+        }
+
+        // Add the payload to the block to form a full block.
+        blinded_block
+            .try_into_full_block(Some(execution_payload))
+            .ok_or(Error::AddPayloadLogicError)
+            .map(Some)
+    }
+
+    pub fn get_blinded_block(
+        &self,
+        block_root: &Hash256,
+    ) -> Result<Option<SignedBlindedBeaconBlock<T::EthSpec>>, Error> {
+        Ok(self.store.get_blinded_block(block_root)?)
     }
 
     /// Returns the state at the given root, if any.
@@ -3373,7 +3432,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .map::<Result<_, Error>, _>(Ok)
             .unwrap_or_else(|| {
                 let beacon_block = self
-                    .get_block(&beacon_block_root)?
+                    .store
+                    .get_full_block(&beacon_block_root)?
                     .ok_or(Error::MissingBeaconBlock(beacon_block_root))?;
 
                 let beacon_state_root = beacon_block.state_root();
@@ -4525,11 +4585,14 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     ///
     /// This could be a very expensive operation and should only be done in testing/analysis
     /// activities.
-    pub fn chain_dump(&self) -> Result<Vec<BeaconSnapshot<T::EthSpec>>, Error> {
+    #[allow(clippy::type_complexity)]
+    pub fn chain_dump(
+        &self,
+    ) -> Result<Vec<BeaconSnapshot<T::EthSpec, BlindedPayload<T::EthSpec>>>, Error> {
         let mut dump = vec![];
 
         let mut last_slot = BeaconSnapshot {
-            beacon_block: self.head()?.beacon_block,
+            beacon_block: self.head()?.beacon_block.into(),
             beacon_block_root: self.head()?.beacon_block_root,
             beacon_state: self.head()?.beacon_state,
         };
@@ -4543,9 +4606,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 break; // Genesis has been reached.
             }
 
-            let beacon_block = self.store.get_block(&beacon_block_root)?.ok_or_else(|| {
-                Error::DBInconsistent(format!("Missing block {}", beacon_block_root))
-            })?;
+            let beacon_block = self
+                .store
+                .get_blinded_block(&beacon_block_root)?
+                .ok_or_else(|| {
+                    Error::DBInconsistent(format!("Missing block {}", beacon_block_root))
+                })?;
             let beacon_state_root = beacon_block.state_root();
             let beacon_state = self
                 .store
@@ -4630,7 +4696,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 visited.insert(block_hash);
 
                 if signed_beacon_block.slot() % T::EthSpec::slots_per_epoch() == 0 {
-                    let block = self.get_block(&block_hash).unwrap().unwrap();
+                    let block = self.get_blinded_block(&block_hash).unwrap().unwrap();
                     let state = self
                         .get_state(&block.state_root(), Some(block.slot()))
                         .unwrap()
