@@ -372,15 +372,16 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
                 };
                 drop(get_timer);
 
+                if proposer_index != Some(block.proposer_index()) {
+                    return Err(BlockError::Recoverable(
+                        "Proposer index does not match block proposer. Beacon chain re-orged"
+                            .to_string(),
+                    ));
+                }
+
                 Ok::<_, BlockError>(block)
             })
             .await?;
-
-        if proposer_index != Some(block.proposer_index()) {
-            return Err(BlockError::Recoverable(
-                "Proposer index does not match block proposer. Beacon chain re-orged".to_string(),
-            ));
-        }
 
         let signed_block = self_ref
             .validator_store
