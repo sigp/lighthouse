@@ -16,18 +16,20 @@ use futures::FutureExt;
 use http_api::{BlockId, StateId};
 use lighthouse_network::{Enr, EnrExt, PeerId};
 use network::NetworkMessage;
+use proto_array::ExecutionStatus;
 use sensitive_url::SensitiveUrl;
 use slot_clock::SlotClock;
 use state_processing::per_slot_processing;
 use std::convert::TryInto;
 use std::sync::Arc;
+use std::sync::RwLock;
 use task_executor::test_utils::TestRuntime;
 use tokio::sync::{mpsc, oneshot};
 use tokio::time::Duration;
 use tree_hash::TreeHash;
 use types::{
-    AggregateSignature, BitList, Domain, EthSpec, Hash256, Keypair, MainnetEthSpec, RelativeEpoch,
-    SelectionProof, SignedRoot, Slot,
+    AggregateSignature, BitList, Domain, EthSpec, ExecutionBlockHash, Hash256, Keypair,
+    MainnetEthSpec, RelativeEpoch, SelectionProof, SignedRoot, Slot,
 };
 
 type E = MainnetEthSpec;
@@ -286,6 +288,185 @@ impl ApiTester {
             reorg_block,
             attestations,
             contribution_and_proofs: vec![],
+            attester_slashing,
+            proposer_slashing,
+            voluntary_exit,
+            _server_shutdown: shutdown_tx,
+            validator_keypairs: harness.validator_keypairs,
+            network_rx,
+            local_enr,
+            external_peer_id,
+            _runtime: harness.runtime,
+        }
+    }
+
+    pub async fn new_post_bellatrix() -> Self {
+        let mut spec = E::default_spec();
+        spec.altair_fork_epoch = Some(Epoch::new(0));
+        spec.bellatrix_fork_epoch = Some(Epoch::new(0));
+
+        let harness = Arc::new(RwLock::new(
+            BeaconChainHarness::builder(MainnetEthSpec)
+                .spec(spec.clone())
+                .deterministic_keypairs(VALIDATOR_COUNT)
+                .fresh_ephemeral_store()
+                .mock_execution_layer()
+                .build(),
+        ));
+
+        harness.read().unwrap().advance_slot();
+
+        let executor = harness.read().unwrap().runtime.task_executor.clone();
+        let harness_inner = harness.clone();
+
+        let next_block = Arc::new(RwLock::new(None));
+        let reorg_block = Arc::new(RwLock::new(None));
+
+        let next_block_inner = next_block.clone();
+        let reorg_block_inner = reorg_block.clone();
+
+        executor
+            .spawn_blocking_handle(
+                move || {
+                    for _ in 0..CHAIN_LENGTH {
+                        let slot = harness_inner.read().unwrap().chain.slot().unwrap().as_u64();
+
+                        if !SKIPPED_SLOTS.contains(&slot) {
+                            harness_inner.read().unwrap().extend_chain(
+                                1,
+                                BlockStrategy::OnCanonicalHead,
+                                AttestationStrategy::AllValidators,
+                            );
+                        }
+
+                        harness_inner.read().unwrap().advance_slot();
+                    }
+
+                    let head = harness_inner.read().unwrap().chain.head().unwrap();
+
+                    assert_eq!(
+                        harness_inner.read().unwrap().chain.slot().unwrap(),
+                        head.beacon_block.slot() + 1,
+                        "precondition: current slot is one after head"
+                    );
+
+                    let (next_block, _next_state) = harness_inner.read().unwrap().make_block(
+                        head.beacon_state.clone(),
+                        harness_inner.read().unwrap().chain.slot().unwrap(),
+                    );
+                    let mut next_block_mut = next_block_inner.write().unwrap();
+                    *next_block_mut = Some(next_block);
+
+                    // `make_block` adds random graffiti, so this will produce an alternate block
+                    let (reorg_block, _reorg_state) = harness_inner.read().unwrap().make_block(
+                        head.beacon_state.clone(),
+                        harness_inner.read().unwrap().chain.slot().unwrap(),
+                    );
+                    let mut reorg_block_mut = reorg_block_inner.write().unwrap();
+                    *reorg_block_mut = Some(reorg_block);
+                },
+                "test_extend_chain",
+            )
+            .unwrap()
+            .await
+            .unwrap();
+
+        // This operation requires `BeaconChainHarness` implements `Debug`.
+        let harness = Arc::try_unwrap(harness).unwrap().into_inner().unwrap();
+
+        let head = harness.chain.head().unwrap();
+
+        let head_state_root = head.beacon_state_root();
+        let attestations = harness
+            .get_unaggregated_attestations(
+                &AttestationStrategy::AllValidators,
+                &head.beacon_state,
+                head_state_root,
+                head.beacon_block_root,
+                harness.chain.slot().unwrap(),
+            )
+            .into_iter()
+            .flat_map(|vec| vec.into_iter().map(|(attestation, _subnet_id)| attestation))
+            .collect::<Vec<_>>();
+
+        assert!(
+            !attestations.is_empty(),
+            "precondition: attestations for testing"
+        );
+
+        let contribution_and_proofs = harness
+            .make_sync_contributions(
+                &head.beacon_state,
+                head_state_root,
+                harness.chain.slot().unwrap(),
+                RelativeSyncCommittee::Current,
+            )
+            .into_iter()
+            .filter_map(|(_, contribution)| contribution)
+            .collect::<Vec<_>>();
+
+        let attester_slashing = harness.make_attester_slashing(vec![0, 1]);
+        let proposer_slashing = harness.make_proposer_slashing(2);
+        let voluntary_exit = harness.make_voluntary_exit(3, harness.chain.epoch().unwrap());
+
+        let chain = harness.chain.clone();
+
+        assert_eq!(
+            chain.head_info().unwrap().finalized_checkpoint.epoch,
+            2,
+            "precondition: finality"
+        );
+        assert_eq!(
+            chain
+                .head_info()
+                .unwrap()
+                .current_justified_checkpoint
+                .epoch,
+            3,
+            "precondition: justification"
+        );
+
+        let log = null_logger().unwrap();
+
+        let ApiServer {
+            server,
+            listening_socket,
+            shutdown_tx,
+            network_rx,
+            local_enr,
+            external_peer_id,
+        } = create_api_server(chain.clone(), log).await;
+
+        harness.runtime.task_executor.spawn(server, "api_server");
+
+        let client = BeaconNodeHttpClient::new(
+            SensitiveUrl::parse(&format!(
+                "http://{}:{}",
+                listening_socket.ip(),
+                listening_socket.port()
+            ))
+            .unwrap(),
+            Timeouts::set_all(Duration::from_secs(SECONDS_PER_SLOT)),
+        );
+
+        let next_block = Arc::try_unwrap(next_block)
+            .unwrap()
+            .into_inner()
+            .unwrap()
+            .unwrap();
+        let reorg_block = Arc::try_unwrap(reorg_block)
+            .unwrap()
+            .into_inner()
+            .unwrap()
+            .unwrap();
+
+        Self {
+            chain,
+            client,
+            next_block,
+            reorg_block,
+            attestations,
+            contribution_and_proofs,
             attester_slashing,
             proposer_slashing,
             voluntary_exit,
@@ -2530,6 +2711,40 @@ impl ApiTester {
 
         self
     }
+
+    pub async fn test_check_optimistic_responses(&mut self) {
+        // Check responses are not optimistic.
+        let result = self
+            .client
+            .get_beacon_headers_block_id(CoreBlockId::Head)
+            .await
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(result.execution_optimistic, false);
+
+        // Change head to be optimistic.
+        self.chain
+            .fork_choice
+            .write()
+            .proto_array_mut()
+            .core_proto_array_mut()
+            .nodes
+            .last_mut()
+            .map(|head_node| {
+                head_node.execution_status = ExecutionStatus::Optimistic(ExecutionBlockHash::zero())
+            });
+
+        // Check responses are now optimistic.
+        let result = self
+            .client
+            .get_beacon_headers_block_id(CoreBlockId::Head)
+            .await
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(result.execution_optimistic, true);
+    }
 }
 
 async fn poll_events<S: Stream<Item = Result<EventKind<T>, eth2::Error>> + Unpin, T: EthSpec>(
@@ -2917,5 +3132,13 @@ async fn lighthouse_endpoints() {
         .test_post_lighthouse_database_reconstruct()
         .await
         .test_post_lighthouse_liveness()
+        .await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn optimistic_responses() {
+    ApiTester::new_post_bellatrix()
+        .await
+        .test_check_optimistic_responses()
         .await;
 }
