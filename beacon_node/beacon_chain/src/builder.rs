@@ -688,7 +688,7 @@ where
 
         // If enabled, set up the fork choice signaller.
         let (fork_choice_signal_tx, fork_choice_signal_rx) =
-            if self.chain_config.fork_choice_before_proposal {
+            if self.chain_config.fork_choice_before_proposal_timeout_ms != 0 {
                 let tx = ForkChoiceSignalTx::new();
                 let rx = tx.get_receiver();
                 (Some(tx), Some(rx))

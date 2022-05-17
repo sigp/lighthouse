@@ -581,8 +581,10 @@ pub fn get_config<E: EthSpec>(
         client_config.chain.enable_lock_timeouts = false;
     }
 
-    if cli_args.is_present("disable-fork-choice-before-proposal") {
-        client_config.chain.fork_choice_before_proposal = false;
+    if let Some(timeout) =
+        clap_utils::parse_optional(cli_args, "fork-choice-before-proposal-timeout")?
+    {
+        client_config.chain.fork_choice_before_proposal_timeout_ms = timeout;
     }
 
     Ok(client_config)

@@ -109,18 +109,23 @@ fn disable_lock_timeouts_flag() {
 }
 
 #[test]
-fn enable_fork_choice_before_proposal_default() {
+fn fork_choice_before_proposal_timeout_default() {
     CommandLineTest::new()
         .run_with_zero_port()
-        .with_config(|config| assert!(config.chain.fork_choice_before_proposal));
+        .with_config(|config| {
+            assert_eq!(
+                config.chain.fork_choice_before_proposal_timeout_ms,
+                beacon_node::beacon_chain::chain_config::DEFAULT_FORK_CHOICE_BEFORE_PROPOSAL_TIMEOUT
+            )
+        });
 }
 
 #[test]
-fn disable_fork_choice_before_proposal() {
+fn fork_choice_before_proposal_timeout_zero() {
     CommandLineTest::new()
-        .flag("disable-fork-choice-before-proposal", None)
+        .flag("fork-choice-before-proposal-timeout", Some("0"))
         .run_with_zero_port()
-        .with_config(|config| assert!(!config.chain.fork_choice_before_proposal));
+        .with_config(|config| assert_eq!(config.chain.fork_choice_before_proposal_timeout_ms, 0));
 }
 
 #[test]

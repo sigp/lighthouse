@@ -2908,8 +2908,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 .slot()
                 .map_err(|_| BlockProductionError::UnableToReadSlot)?;
 
-            // FIXME(sproul): dynamic timeout
-            let timeout = Duration::from_millis(250);
+            let timeout = Duration::from_millis(self.config.fork_choice_before_proposal_timeout_ms);
 
             if slot == current_slot {
                 match rx.wait_for_fork_choice(slot, timeout) {

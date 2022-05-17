@@ -64,6 +64,12 @@ impl ForkChoiceSignalTx {
     }
 }
 
+impl Default for ForkChoiceSignalTx {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ForkChoiceSignalRx {
     pub fn wait_for_fork_choice(&self, slot: Slot, timeout: Duration) -> ForkChoiceWaitResult {
         let &(ref lock, ref condvar) = &*self.pair;
