@@ -3,6 +3,7 @@ use crate::notifier::spawn_notifier;
 use crate::Client;
 use beacon_chain::proposer_prep_service::start_proposer_prep_service;
 use beacon_chain::schema_change::migrate_schema;
+use beacon_chain::validator_registration_service::start_validator_registration_service;
 use beacon_chain::{
     builder::{BeaconChainBuilder, Witness},
     eth1_chain::{CachingEth1Backend, Eth1Chain},
@@ -31,7 +32,6 @@ use std::sync::Arc;
 use std::time::Duration;
 use timer::spawn_timer;
 use tokio::sync::{mpsc::UnboundedSender, oneshot};
-use beacon_chain::validator_registration_service::start_validator_registration_service;
 use types::{
     test_utils::generate_deterministic_keypairs, BeaconState, ChainSpec, EthSpec,
     ExecutionBlockHash, Hash256, SignedBeaconBlock,
@@ -715,7 +715,10 @@ where
             }
 
             start_proposer_prep_service(runtime_context.executor.clone(), beacon_chain.clone());
-            start_validator_registration_service(runtime_context.executor.clone(), beacon_chain.clone());
+            start_validator_registration_service(
+                runtime_context.executor.clone(),
+                beacon_chain.clone(),
+            );
         }
 
         Ok(Client {

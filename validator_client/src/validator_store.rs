@@ -16,13 +16,14 @@ use std::marker::PhantomData;
 use std::path::Path;
 use std::sync::Arc;
 use task_executor::TaskExecutor;
+use types::application_domain::ApplicationDomain;
 use types::{
     attestation::Error as AttestationError, graffiti::GraffitiString, Address, AggregateAndProof,
     Attestation, BeaconBlock, BlindedPayload, ChainSpec, ContributionAndProof, Domain, Epoch,
     EthSpec, ExecPayload, Fork, Graffiti, Hash256, Keypair, PublicKeyBytes, SelectionProof,
-    Signature, SignedAggregateAndProof, SignedBeaconBlock, SignedContributionAndProof, Slot,
-    SyncAggregatorSelectionData, SyncCommitteeContribution, SyncCommitteeMessage,
-    SyncSelectionProof, SyncSubnetId,
+    Signature, SignedAggregateAndProof, SignedBeaconBlock, SignedContributionAndProof,
+    SignedValidatorRegistrationData, Slot, SyncAggregatorSelectionData, SyncCommitteeContribution,
+    SyncCommitteeMessage, SyncSelectionProof, SyncSubnetId, ValidatorRegistrationData,
 };
 use validator_dir::ValidatorDir;
 
@@ -520,6 +521,43 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
                 Err(Error::Slashable(e))
             }
         }
+    }
+
+    pub async fn sign_validator_registration_data(
+        &self,
+        validator_registration_data: ValidatorRegistrationData,
+    ) -> Result<SignedValidatorRegistrationData, Error> {
+        // Fork version and validator root should be updated at some point, relevant discussion here:
+        //
+        // https://github.com/ethereum/builder-specs/issues/14
+        let genesis_epoch = self.spec.genesis_slot.epoch(E::slots_per_epoch());
+        let signing_context = SigningContext {
+            domain: Domain::ApplicationMask(ApplicationDomain::BuilderRegistration),
+            epoch: genesis_epoch,
+            fork: self.fork(genesis_epoch),
+            genesis_validators_root: Hash256::zero(),
+        };
+
+        let signing_method =
+            self.doppelganger_bypassed_signing_method(validator_registration_data.pubkey)?;
+        let signature = signing_method
+            .get_signature::<E, BlindedPayload<E>>(
+                SignableMessage::ValidatorRegistration(&validator_registration_data),
+                signing_context,
+                &self.spec,
+                &self.task_executor,
+            )
+            .await?;
+
+        metrics::inc_counter_vec(
+            &metrics::SIGNED_VALIDATOR_REGISTRATIONS_TOTAL,
+            &[metrics::SUCCESS],
+        );
+
+        Ok(SignedValidatorRegistrationData {
+            message: validator_registration_data,
+            signature,
+        })
     }
 
     /// Signs an `AggregateAndProof` for a given validator.

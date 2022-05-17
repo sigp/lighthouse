@@ -31,8 +31,11 @@ use tokio::{
     sync::{Mutex, MutexGuard, RwLock},
     time::{sleep, sleep_until, Instant},
 };
-use types::{BlindedPayload, BlockType, ChainSpec, Epoch, ExecPayload, ExecutionBlockHash, ProposerPreparationData, PublicKeyBytes, SignedBeaconBlock, Slot};
 use types::validator_registration_data::SignedValidatorRegistrationData;
+use types::{
+    BlindedPayload, BlockType, ChainSpec, Epoch, ExecPayload, ExecutionBlockHash,
+    ProposerPreparationData, PublicKeyBytes, SignedBeaconBlock, Slot,
+};
 
 mod engine_api;
 mod engines;
@@ -529,7 +532,7 @@ impl ExecutionLayer {
     async fn update_validator_registration(
         &self,
         update_epoch: Epoch,
-        val_registration_data:  &[SignedValidatorRegistrationData],
+        val_registration_data: &[SignedValidatorRegistrationData],
     ) {
         let mut validator_registration_data = self.validator_registration_data().await;
         for registration_entry in val_registration_data {

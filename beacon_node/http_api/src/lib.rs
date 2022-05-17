@@ -49,8 +49,8 @@ use types::{
     BlindedPayload, CommitteeCache, ConfigAndPreset, Epoch, EthSpec, ForkName, FullPayload,
     ProposerPreparationData, ProposerSlashing, RelativeEpoch, Signature, SignedAggregateAndProof,
     SignedBeaconBlock, SignedBeaconBlockMerge, SignedBlindedBeaconBlock,
-    SignedContributionAndProof, SignedVoluntaryExit, Slot, SyncCommitteeMessage,
-    SyncContributionData, SignedValidatorRegistrationData
+    SignedContributionAndProof, SignedValidatorRegistrationData, SignedVoluntaryExit, Slot,
+    SyncCommitteeMessage, SyncContributionData,
 };
 use version::{
     add_consensus_version_header, fork_versioned_response, inconsistent_fork_rejection,
@@ -2449,7 +2449,6 @@ pub fn serve<T: BeaconChainTypes>(
         .and(warp::path("validator"))
         .and(warp::path("register_validator"))
         .and(warp::path::end())
-        .and(not_while_syncing_filter.clone())
         .and(chain_filter.clone())
         .and(warp::addr::remote())
         .and(log_filter.clone())

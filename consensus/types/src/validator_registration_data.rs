@@ -1,5 +1,7 @@
 use crate::*;
 use serde::{Deserialize, Serialize};
+use ssz_derive::{Decode, Encode};
+use tree_hash_derive::TreeHash;
 
 /// Validator registration, for use in interacting with servers implementing the builder API.
 #[derive(PartialEq, Debug, Serialize, Deserialize, Clone)]
@@ -8,7 +10,7 @@ pub struct SignedValidatorRegistrationData {
     pub signature: Signature,
 }
 
-#[derive(PartialEq, Debug, Serialize, Deserialize, Clone)]
+#[derive(PartialEq, Debug, Serialize, Deserialize, Clone, Encode, Decode, TreeHash)]
 pub struct ValidatorRegistrationData {
     pub fee_recipient: Address,
     #[serde(with = "eth2_serde_utils::quoted_u64")]
@@ -16,5 +18,6 @@ pub struct ValidatorRegistrationData {
     #[serde(with = "eth2_serde_utils::quoted_u64")]
     pub timestamp: u64,
     pub pubkey: PublicKeyBytes,
-    pub signature: Signature,
 }
+
+impl SignedRoot for ValidatorRegistrationData {}
