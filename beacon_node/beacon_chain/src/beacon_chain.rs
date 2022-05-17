@@ -3830,9 +3830,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         // Update the execution layer.
         // Always use the wall-clock slot to update the execution engine rather than the `slot`
-        // passed in. We want to avoid informing the EE that the head for the next
-        // slot is the block of the current slot, only to change it out moments later when a
-        // block for the next slot actually arrives.
+        // passed in.
         if let Err(e) = self.update_execution_engine_forkchoice_blocking(self.slot()?) {
             crit!(
                 self.log,
@@ -4086,8 +4084,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 "prepare_slot" => prepare_slot
             );
 
-            // Use the blocking method here so that we don't form a queue of these functions when
-            // routinely calling them.
             self.update_execution_engine_forkchoice_async(current_slot)
                 .await?;
         }
