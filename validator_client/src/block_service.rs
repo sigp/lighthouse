@@ -336,7 +336,6 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
                     &metrics::BLOCK_SERVICE_TIMES,
                     &[metrics::BEACON_BLOCK_HTTP_GET],
                 );
-
                 let block = match Payload::block_type() {
                     BlockType::Full => {
                         beacon_node
