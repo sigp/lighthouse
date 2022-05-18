@@ -4,14 +4,14 @@ mod keystores;
 mod remotekeys;
 mod tests;
 
-use crate::ValidatorStore;
+use crate::{PreparationService, ValidatorStore};
 use account_utils::{
     mnemonic_from_phrase,
     validator_definitions::{SigningDefinition, ValidatorDefinition},
 };
 use create_validator::{create_validators_mnemonic, create_validators_web3signer};
 use eth2::lighthouse_vc::{
-    std_types::AuthResponse,
+    std_types::{AuthResponse, GetFeeRecipientResponse, GetFeeRecipientResponseData},
     types::{self as api_types, PublicKey, PublicKeyBytes},
 };
 use lighthouse_version::version_with_platform;
@@ -63,6 +63,7 @@ pub struct Context<T: SlotClock, E: EthSpec> {
     pub api_secret: ApiSecret,
     pub validator_store: Option<Arc<ValidatorStore<T, E>>>,
     pub validator_dir: Option<PathBuf>,
+    pub preparation_service: PreparationService<T, E>,
     pub spec: ChainSpec,
     pub config: Config,
     pub log: Logger,
@@ -177,6 +178,9 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
 
     let inner_ctx = ctx.clone();
     let log_filter = warp::any().map(move || inner_ctx.log.clone());
+
+    let inner_preparation_service = ctx.preparation_service.clone();
+    let preparation_service_filter = warp::any().map(move || inner_preparation_service.clone());
 
     let inner_spec = Arc::new(ctx.spec.clone());
     let spec_filter = warp::any().map(move || inner_spec.clone());
@@ -331,7 +335,7 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
         .and(warp::body::json())
         .and(validator_dir_filter.clone())
         .and(validator_store_filter.clone())
-        .and(spec_filter)
+        .and(spec_filter.clone())
         .and(signer.clone())
         .and(task_executor_filter.clone())
         .and_then(
@@ -562,6 +566,108 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
     let std_keystores = eth_v1.and(warp::path("keystores")).and(warp::path::end());
     let std_remotekeys = eth_v1.and(warp::path("remotekeys")).and(warp::path::end());
 
+    // GET /eth/v1/validator/{pubkey}/feerecipient
+    let get_fee_recipient = eth_v1
+        .and(warp::path("validator"))
+        .and(warp::path::param::<PublicKey>())
+        .and(warp::path("feerecipient"))
+        .and(warp::path::end())
+        .and(preparation_service_filter.clone())
+        .and(signer.clone())
+        .and_then(
+            |validator_pubkey: PublicKey, preparation_service: PreparationService<T, E>, signer| {
+                blocking_signed_json_task(signer, move || {
+                    preparation_service
+                        .get_preparation_data(
+                            &PublicKeyBytes::from(&validator_pubkey),
+                            &preparation_service.read_fee_recipient_file(),
+                        )
+                        .map(|preparation_data| GetFeeRecipientResponse {
+                            data: GetFeeRecipientResponseData {
+                                pubkey: PublicKeyBytes::from(validator_pubkey.clone()),
+                                ethaddress: preparation_data.fee_recipient,
+                            },
+                        })
+                        .ok_or(warp_utils::reject::custom_not_found(format!(
+                            "no validator found with pubkey {:?}",
+                            validator_pubkey
+                        )))
+                })
+            },
+        );
+
+    // POST /eth/v1/validator/{pubkey}/feerecipient
+    let post_fee_recipient = eth_v1
+        .and(warp::path("validator"))
+        .and(warp::path::param::<PublicKey>())
+        .and(warp::body::json())
+        .and(warp::path("feerecipient"))
+        .and(warp::path::end())
+        .and(preparation_service_filter.clone())
+        .and(validator_store_filter.clone())
+        .and(spec_filter)
+        .and(signer.clone())
+        .and(task_executor_filter.clone())
+        .and_then(
+            |validator_pubkey: PublicKey,
+             request: api_types::UpdateFeeRecipientRequest,
+             preparation_service: PreparationService<T, E>,
+             validator_store: Arc<ValidatorStore<T, E>>,
+             spec: Arc<ChainSpec>,
+             signer,
+             task_executor: TaskExecutor| {
+                blocking_signed_json_task(signer, move || {
+                    let initialized_validators_rw_lock = validator_store.initialized_validators();
+                    let mut initialized_validators = initialized_validators_rw_lock.write();
+
+                    match initialized_validators.is_enabled(&validator_pubkey) {
+                        None => Err(warp_utils::reject::custom_not_found(format!(
+                            "no validator found with pubkey {:?}",
+                            validator_pubkey
+                        ))),
+                        Some(validator_enabled) => {
+                            if let Some(handle) = task_executor.handle() {
+                                handle
+                                    .block_on(async move {
+                                        initialized_validators
+                                            .set_validator_fee_recipient(
+                                                &validator_pubkey,
+                                                request.ethaddress,
+                                            )
+                                            .await
+                                            .map_err(|e| {
+                                                format!("error persisting fee recipient: {:?}", e)
+                                            })?;
+                                        drop(initialized_validators);
+                                        if validator_enabled
+                                            && preparation_service
+                                                .should_publish_at_current_slot(&spec)
+                                        {
+                                            preparation_service
+                                                .prepare_proposers_and_publish(&spec)
+                                                .await?;
+                                        }
+                                        Ok(())
+                                    })
+                                    .map_err(|e: String| {
+                                        warp_utils::reject::custom_server_error(format!(
+                                            "unable to set validator fee recipient: {:?}",
+                                            e
+                                        ))
+                                    })?;
+                                Ok(())
+                            } else {
+                                Err(warp_utils::reject::custom_server_error(
+                                    "Lighthouse shutting down".into(),
+                                ))
+                            }
+                        }
+                    }
+                })
+            },
+        )
+        .map(|reply| warp::reply::with_status(reply, warp::http::StatusCode::ACCEPTED));
+
     // GET /eth/v1/keystores
     let get_std_keystores = std_keystores
         .and(signer.clone())
@@ -647,6 +753,7 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
                         .or(get_lighthouse_spec)
                         .or(get_lighthouse_validators)
                         .or(get_lighthouse_validators_pubkey)
+                        .or(get_fee_recipient)
                         .or(get_std_keystores)
                         .or(get_std_remotekeys),
                 )
@@ -655,6 +762,7 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
                         .or(post_validators_keystore)
                         .or(post_validators_mnemonic)
                         .or(post_validators_web3signer)
+                        .or(post_fee_recipient)
                         .or(post_std_keystores)
                         .or(post_std_remotekeys),
                 ))

@@ -502,6 +502,7 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
                 api_secret,
                 validator_store: Some(self.validator_store.clone()),
                 validator_dir: Some(self.config.validator_dir.clone()),
+                preparation_service: self.preparation_service.clone(),
                 spec: self.context.eth2_config.spec.clone(),
                 config: self.config.http_api.clone(),
                 log: log.clone(),

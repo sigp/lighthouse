@@ -3,6 +3,7 @@ use crate::{
     fee_recipient_file::FeeRecipientFile,
     validator_store::{DoppelgangerStatus, ValidatorStore},
 };
+use bls::PublicKeyBytes;
 use environment::RuntimeContext;
 use slog::{debug, error, info};
 use slot_clock::SlotClock;
@@ -167,7 +168,7 @@ impl<T: SlotClock + 'static, E: EthSpec> PreparationService<T, E> {
     ///
     /// This avoids spamming the BN with preparations before the Bellatrix fork epoch, which may
     /// cause errors if it doesn't support the preparation API.
-    fn should_publish_at_current_slot(&self, spec: &ChainSpec) -> bool {
+    pub fn should_publish_at_current_slot(&self, spec: &ChainSpec) -> bool {
         let current_epoch = self
             .slot_clock
             .now()
@@ -178,7 +179,7 @@ impl<T: SlotClock + 'static, E: EthSpec> PreparationService<T, E> {
     }
 
     /// Prepare proposer preparations and send to beacon node
-    async fn prepare_proposers_and_publish(&self, spec: &ChainSpec) -> Result<(), String> {
+    pub async fn prepare_proposers_and_publish(&self, spec: &ChainSpec) -> Result<(), String> {
         let preparation_data = self.collect_preparation_data(spec);
         if !preparation_data.is_empty() {
             self.publish_preparation_data(preparation_data).await?;
@@ -187,26 +188,56 @@ impl<T: SlotClock + 'static, E: EthSpec> PreparationService<T, E> {
         Ok(())
     }
 
-    fn collect_preparation_data(&self, spec: &ChainSpec) -> Vec<ProposerPreparationData> {
-        let log = self.context.log();
-
-        let fee_recipient_file = self
-            .fee_recipient_file
+    pub fn read_fee_recipient_file(&self) -> Option<FeeRecipientFile> {
+        self.fee_recipient_file
             .clone()
             .map(|mut fee_recipient_file| {
                 fee_recipient_file
                     .read_fee_recipient_file()
                     .map_err(|e| {
                         error!(
-                            log,
+                            self.context.log(),
                             "Error loading fee-recipient file";
                             "error" => ?e
                         );
                     })
                     .unwrap_or(());
                 fee_recipient_file
-            });
+            })
+    }
 
+    pub fn get_preparation_data(
+        &self,
+        pubkey: &PublicKeyBytes,
+        fee_recipient_file: &Option<FeeRecipientFile>,
+    ) -> Option<ProposerPreparationData> {
+        let validator_index = self.validator_store.validator_index(pubkey)?;
+
+        // If there is a `suggested_fee_recipient` in the validator definitions yaml
+        // file, use that value.
+        self
+            .validator_store
+            .suggested_fee_recipient(pubkey)
+            .or_else(|| {
+                // If there's nothing in the validator defs file, check the fee
+                // recipient file.
+                fee_recipient_file
+                    .as_ref()?
+                    .get_fee_recipient(&pubkey)
+                    .ok()?
+            })
+            // If there's nothing in the file, try the process-level default value.
+            .or(self.fee_recipient)
+            .map(|fee_recipient| ProposerPreparationData {
+                validator_index,
+                fee_recipient,
+            })
+    }
+
+    fn collect_preparation_data(&self, spec: &ChainSpec) -> Vec<ProposerPreparationData> {
+        let log = self.context.log();
+
+        let fee_recipient_file = self.read_fee_recipient_file();
         let all_pubkeys: Vec<_> = self
             .validator_store
             .voting_pubkeys(DoppelgangerStatus::ignored);
@@ -214,41 +245,18 @@ impl<T: SlotClock + 'static, E: EthSpec> PreparationService<T, E> {
         all_pubkeys
             .into_iter()
             .filter_map(|pubkey| {
-                // Ignore fee recipients for keys without indices, they are inactive.
-                let validator_index = self.validator_store.validator_index(&pubkey)?;
-
-                // If there is a `suggested_fee_recipient` in the validator definitions yaml
-                // file, use that value.
-                let fee_recipient = self
-                    .validator_store
-                    .suggested_fee_recipient(&pubkey)
+                self.get_preparation_data(&pubkey, &fee_recipient_file)
                     .or_else(|| {
-                        // If there's nothing in the validator defs file, check the fee
-                        // recipient file.
-                        fee_recipient_file
-                            .as_ref()?
-                            .get_fee_recipient(&pubkey)
-                            .ok()?
+                        if spec.bellatrix_fork_epoch.is_some() {
+                            error!(
+                                log,
+                                "Validator is missing fee recipient";
+                                "msg" => "update validator_definitions.yml",
+                                "pubkey" => ?pubkey
+                            );
+                        }
+                        None
                     })
-                    // If there's nothing in the file, try the process-level default value.
-                    .or(self.fee_recipient);
-
-                if let Some(fee_recipient) = fee_recipient {
-                    Some(ProposerPreparationData {
-                        validator_index,
-                        fee_recipient,
-                    })
-                } else {
-                    if spec.bellatrix_fork_epoch.is_some() {
-                        error!(
-                            log,
-                            "Validator is missing fee recipient";
-                            "msg" => "update validator_definitions.yml",
-                            "pubkey" => ?pubkey
-                        );
-                    }
-                    None
-                }
             })
             .collect()
     }

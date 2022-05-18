@@ -97,3 +97,8 @@ pub struct Web3SignerValidatorRequest {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub client_identity_password: Option<String>,
 }
+
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
+pub struct UpdateFeeRecipientRequest {
+    pub ethaddress: Address,
+}

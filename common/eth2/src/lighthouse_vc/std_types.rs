@@ -2,7 +2,17 @@ use account_utils::ZeroizeString;
 use eth2_keystore::Keystore;
 use serde::{Deserialize, Serialize};
 use slashing_protection::interchange::Interchange;
-use types::PublicKeyBytes;
+use types::{Address, PublicKeyBytes};
+
+#[derive(Debug, Deserialize, Serialize, PartialEq)]
+pub struct GetFeeRecipientResponseData {
+    pub pubkey: PublicKeyBytes,
+    pub ethaddress: Address,
+}
+#[derive(Debug, Deserialize, Serialize, PartialEq)]
+pub struct GetFeeRecipientResponse {
+    pub data: GetFeeRecipientResponseData,
+}
 
 #[derive(Debug, Deserialize, Serialize, PartialEq)]
 pub struct AuthResponse {
