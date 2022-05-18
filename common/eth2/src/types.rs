@@ -5,7 +5,7 @@ use crate::Error as ServerError;
 use lighthouse_network::{ConnectionDirection, Enr, Multiaddr, PeerConnectionStatus};
 use mime::{Mime, APPLICATION, JSON, OCTET_STREAM, STAR};
 use serde::{Deserialize, Serialize};
-use std::cmp::Ordering::Equal;
+use std::cmp::Reverse;
 use std::convert::TryFrom;
 use std::fmt;
 use std::str::{from_utf8, FromStr};
@@ -1010,29 +1010,24 @@ impl FromStr for Accept {
     type Err = String;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let mimes = parse_accept(s);
+        let mut mimes = parse_accept(s)?;
 
         // [q-factor weighting]: https://datatracker.ietf.org/doc/html/rfc7231#section-5.3.2
         // find the highest q-factor supported accept type
-        mimes.and_then(|mut ms| {
-            ms.sort_by(|m1, m2| {
-                let m1q = m1
-                    .get_param("q")
-                    .map_or(1f32, |n| n.as_ref().parse::<f32>().unwrap_or(0f32));
-                let m2q = m2
-                    .get_param("q")
-                    .map_or(1f32, |n| n.as_ref().parse::<f32>().unwrap_or(0f32));
-                m2q.partial_cmp(&m1q).unwrap_or(Equal)
-            });
-            ms.into_iter()
-                .find_map(|m| match (m.type_(), m.subtype()) {
-                    (APPLICATION, OCTET_STREAM) => Some(Accept::Ssz),
-                    (APPLICATION, JSON) => Some(Accept::Json),
-                    (STAR, STAR) => Some(Accept::Any),
-                    _ => None,
-                })
-                .ok_or("accept header is not supported".to_string())
-        })
+        mimes.sort_by_key(|m| {
+            Reverse(m.get_param("q").map_or(1000_u16, |n| {
+                (n.as_ref().parse::<f32>().unwrap_or(0_f32) * 1000_f32) as u16
+            }))
+        });
+        mimes
+            .into_iter()
+            .find_map(|m| match (m.type_(), m.subtype()) {
+                (APPLICATION, OCTET_STREAM) => Some(Accept::Ssz),
+                (APPLICATION, JSON) => Some(Accept::Json),
+                (STAR, STAR) => Some(Accept::Any),
+                _ => None,
+            })
+            .ok_or_else(|| "accept header is not supported".to_string())
     }
 }
 
