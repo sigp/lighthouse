@@ -5,6 +5,7 @@ use crate::Error as ServerError;
 use lighthouse_network::{ConnectionDirection, Enr, Multiaddr, PeerConnectionStatus};
 use mime::{Mime, APPLICATION, JSON, OCTET_STREAM, STAR};
 use serde::{Deserialize, Serialize};
+use std::cmp::Ordering::Equal;
 use std::convert::TryFrom;
 use std::fmt;
 use std::str::{from_utf8, FromStr};
@@ -1012,34 +1013,36 @@ impl FromStr for Accept {
         let mimes = parse_accept(s);
 
         // [q-factor weighting]: https://datatracker.ietf.org/doc/html/rfc7231#section-5.3.2
-        let mut highest_mime: Option<Mime> = None;
-        let mut max_pref = 0f32;
-        for m in mimes {
-            let pref = m
-                .get_param("q")
-                .map_or(1f32, |n| n.as_ref().parse::<f32>().unwrap_or(0f32));
-            if pref > max_pref {
-                highest_mime = Some(m);
-                max_pref = pref;
-            }
-        }
-
-        highest_mime.map_or(
-            Err("accept header cannot be parsed.".to_string()),
-            |m| match (m.type_(), m.subtype()) {
-                (APPLICATION, OCTET_STREAM) => Ok(Accept::Ssz),
-                (APPLICATION, JSON) => Ok(Accept::Json),
-                (STAR, STAR) => Ok(Accept::Any),
-                _ => Err("accept header is not supported".to_string()),
-            },
-        )
+        // find the highest q-factor supported accept type
+        mimes.and_then(|mut ms| {
+            ms.sort_by(|m1, m2| {
+                let m1q = m1
+                    .get_param("q")
+                    .map_or(1f32, |n| n.as_ref().parse::<f32>().unwrap_or(0f32));
+                let m2q = m2
+                    .get_param("q")
+                    .map_or(1f32, |n| n.as_ref().parse::<f32>().unwrap_or(0f32));
+                m2q.partial_cmp(&m1q).unwrap_or(Equal)
+            });
+            ms.into_iter()
+                .find_map(|m| match (m.type_(), m.subtype()) {
+                    (APPLICATION, OCTET_STREAM) => Some(Accept::Ssz),
+                    (APPLICATION, JSON) => Some(Accept::Json),
+                    (STAR, STAR) => Some(Accept::Any),
+                    _ => None,
+                })
+                .ok_or("accept header is not supported".to_string())
+        })
     }
 }
 
-fn parse_accept(accept: &str) -> Vec<Mime> {
+fn parse_accept(accept: &str) -> Result<Vec<Mime>, String> {
     accept
         .split(',')
-        .map(|part| part.parse().unwrap())
+        .map(|part| {
+            part.parse()
+                .map_err(|e| format!("error parsing Accept header: {}", e))
+        })
         .collect()
 }
 
@@ -1080,8 +1083,14 @@ mod tests {
         );
 
         assert_eq!(
-            Accept::from_str("application/octet-stream,application/json;q=0.9").unwrap(),
-            Accept::Ssz
+            Accept::from_str("text/plain,application/octet-stream;q=0.3,application/json;q=0.9")
+                .unwrap(),
+            Accept::Json
         );
+
+        assert_eq!(
+            Accept::from_str("text/plain"),
+            Err("accept header is not supported".to_string())
+        )
     }
 }
