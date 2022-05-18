@@ -19,6 +19,7 @@ pub trait ExecPayload<T: EthSpec>:
     Debug
     + Clone
     + Encode
+    + Debug
     + Decode
     + TestRandom
     + TreeHash

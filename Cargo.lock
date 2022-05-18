@@ -546,6 +546,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "builder_client"
+version = "0.1.0"
+dependencies = [
+ "eth2",
+ "reqwest",
+ "sensitive_url",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "bumpalo"
 version = "3.9.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"

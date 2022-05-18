@@ -413,14 +413,14 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
             .await?;
 
         info!(
-                    log,
-                    "Successfully published block";
-                    "block_type" => ?Payload::block_type(),
-                    "deposits" => signed_block.message().body().deposits().len(),
-                    "attestations" => signed_block.message().body().attestations().len(),
-                    "graffiti" => ?graffiti.map(|g| g.as_utf8_lossy()),
-                    "slot" => signed_block.slot().as_u64(),
-                );
+            log,
+            "Successfully published block";
+            "block_type" => ?Payload::block_type(),
+            "deposits" => signed_block.message().body().deposits().len(),
+            "attestations" => signed_block.message().body().attestations().len(),
+            "graffiti" => ?graffiti.map(|g| g.as_utf8_lossy()),
+            "slot" => signed_block.slot().as_u64(),
+        );
         Ok(())
     }
 }
