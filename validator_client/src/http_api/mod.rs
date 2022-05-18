@@ -22,8 +22,8 @@ use std::future::Future;
 use std::marker::PhantomData;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::path::PathBuf;
-use std::sync::{Arc, Weak};
-use tokio::runtime::Runtime;
+use std::sync::Arc;
+use task_executor::TaskExecutor;
 use types::{ChainSpec, ConfigAndPreset, EthSpec};
 use validator_dir::Builder as ValidatorDirBuilder;
 use warp::{
@@ -59,7 +59,7 @@ impl From<String> for Error {
 ///
 /// The server will gracefully handle the case where any fields are `None`.
 pub struct Context<T: SlotClock, E: EthSpec> {
-    pub runtime: Weak<Runtime>,
+    pub task_executor: TaskExecutor,
     pub api_secret: ApiSecret,
     pub validator_store: Option<Arc<ValidatorStore<T, E>>>,
     pub validator_dir: Option<PathBuf>,
@@ -161,8 +161,8 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
             })
         });
 
-    let inner_runtime = ctx.runtime.clone();
-    let runtime_filter = warp::any().map(move || inner_runtime.clone());
+    let inner_task_executor = ctx.task_executor.clone();
+    let task_executor_filter = warp::any().map(move || inner_task_executor.clone());
 
     let inner_validator_dir = ctx.validator_dir.clone();
     let validator_dir_filter = warp::any()
@@ -290,18 +290,18 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
         .and(validator_store_filter.clone())
         .and(spec_filter.clone())
         .and(signer.clone())
-        .and(runtime_filter.clone())
+        .and(task_executor_filter.clone())
         .and_then(
             |body: Vec<api_types::ValidatorRequest>,
              validator_dir: PathBuf,
              validator_store: Arc<ValidatorStore<T, E>>,
              spec: Arc<ChainSpec>,
              signer,
-             runtime: Weak<Runtime>| {
+             task_executor: TaskExecutor| {
                 blocking_signed_json_task(signer, move || {
-                    if let Some(runtime) = runtime.upgrade() {
+                    if let Some(handle) = task_executor.handle() {
                         let (validators, mnemonic) =
-                            runtime.block_on(create_validators_mnemonic(
+                            handle.block_on(create_validators_mnemonic(
                                 None,
                                 None,
                                 &body,
@@ -316,7 +316,7 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
                         Ok(api_types::GenericResponse::from(response))
                     } else {
                         Err(warp_utils::reject::custom_server_error(
-                            "Runtime shutdown".into(),
+                            "Lighthouse shutting down".into(),
                         ))
                     }
                 })
@@ -333,16 +333,16 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
         .and(validator_store_filter.clone())
         .and(spec_filter)
         .and(signer.clone())
-        .and(runtime_filter.clone())
+        .and(task_executor_filter.clone())
         .and_then(
             |body: api_types::CreateValidatorsMnemonicRequest,
              validator_dir: PathBuf,
              validator_store: Arc<ValidatorStore<T, E>>,
              spec: Arc<ChainSpec>,
              signer,
-             runtime: Weak<Runtime>| {
+             task_executor: TaskExecutor| {
                 blocking_signed_json_task(signer, move || {
-                    if let Some(runtime) = runtime.upgrade() {
+                    if let Some(handle) = task_executor.handle() {
                         let mnemonic =
                             mnemonic_from_phrase(body.mnemonic.as_str()).map_err(|e| {
                                 warp_utils::reject::custom_bad_request(format!(
@@ -351,7 +351,7 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
                                 ))
                             })?;
                         let (validators, _mnemonic) =
-                            runtime.block_on(create_validators_mnemonic(
+                            handle.block_on(create_validators_mnemonic(
                                 Some(mnemonic),
                                 Some(body.key_derivation_path_offset),
                                 &body.validators,
@@ -362,7 +362,7 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
                         Ok(api_types::GenericResponse::from(validators))
                     } else {
                         Err(warp_utils::reject::custom_server_error(
-                            "Runtime shutdown".into(),
+                            "Lighthouse shutting down".into(),
                         ))
                     }
                 })
@@ -378,13 +378,13 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
         .and(validator_dir_filter.clone())
         .and(validator_store_filter.clone())
         .and(signer.clone())
-        .and(runtime_filter.clone())
+        .and(task_executor_filter.clone())
         .and_then(
             |body: api_types::KeystoreValidatorsPostRequest,
              validator_dir: PathBuf,
              validator_store: Arc<ValidatorStore<T, E>>,
              signer,
-             runtime: Weak<Runtime>| {
+             task_executor: TaskExecutor| {
                 blocking_signed_json_task(signer, move || {
                     // Check to ensure the password is correct.
                     let keypair = body
@@ -416,8 +416,8 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
                     let suggested_fee_recipient = body.suggested_fee_recipient;
 
                     let validator_def = {
-                        if let Some(runtime) = runtime.upgrade() {
-                            runtime
+                        if let Some(handle) = task_executor.handle() {
+                            handle
                                 .block_on(validator_store.add_validator_keystore(
                                     voting_keystore_path,
                                     voting_password,
@@ -433,7 +433,7 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
                                 })?
                         } else {
                             return Err(warp_utils::reject::custom_server_error(
-                                "Runtime shutdown".into(),
+                                "Lighthouse shutting down".into(),
                             ));
                         }
                     };
@@ -455,14 +455,14 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
         .and(warp::body::json())
         .and(validator_store_filter.clone())
         .and(signer.clone())
-        .and(runtime_filter.clone())
+        .and(task_executor_filter.clone())
         .and_then(
             |body: Vec<api_types::Web3SignerValidatorRequest>,
              validator_store: Arc<ValidatorStore<T, E>>,
              signer,
-             runtime: Weak<Runtime>| {
+             task_executor: TaskExecutor| {
                 blocking_signed_json_task(signer, move || {
-                    if let Some(runtime) = runtime.upgrade() {
+                    if let Some(handle) = task_executor.handle() {
                         let web3signers: Vec<ValidatorDefinition> = body
                             .into_iter()
                             .map(|web3signer| ValidatorDefinition {
@@ -478,14 +478,14 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
                                 },
                             })
                             .collect();
-                        runtime.block_on(create_validators_web3signer(
+                        handle.block_on(create_validators_web3signer(
                             web3signers,
                             &validator_store,
                         ))?;
                         Ok(())
                     } else {
                         Err(warp_utils::reject::custom_server_error(
-                            "Runtime shutdown".into(),
+                            "Lighthouse shutting down".into(),
                         ))
                     }
                 })
@@ -500,13 +500,13 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
         .and(warp::body::json())
         .and(validator_store_filter.clone())
         .and(signer.clone())
-        .and(runtime_filter.clone())
+        .and(task_executor_filter.clone())
         .and_then(
             |validator_pubkey: PublicKey,
              body: api_types::ValidatorPatchRequest,
              validator_store: Arc<ValidatorStore<T, E>>,
              signer,
-             runtime: Weak<Runtime>| {
+             task_executor: TaskExecutor| {
                 blocking_signed_json_task(signer, move || {
                     let initialized_validators_rw_lock = validator_store.initialized_validators();
                     let mut initialized_validators = initialized_validators_rw_lock.write();
@@ -518,8 +518,8 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
                         ))),
                         Some(enabled) if enabled == body.enabled => Ok(()),
                         Some(_) => {
-                            if let Some(runtime) = runtime.upgrade() {
-                                runtime
+                            if let Some(handle) = task_executor.handle() {
+                                handle
                                     .block_on(
                                         initialized_validators
                                             .set_validator_status(&validator_pubkey, body.enabled),
@@ -533,7 +533,7 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
                                 Ok(())
                             } else {
                                 Err(warp_utils::reject::custom_server_error(
-                                    "Runtime shutdown".into(),
+                                    "Lighthouse shutting down".into(),
                                 ))
                             }
                         }
@@ -574,12 +574,12 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
         .and(signer.clone())
         .and(validator_dir_filter)
         .and(validator_store_filter.clone())
-        .and(runtime_filter.clone())
+        .and(task_executor_filter.clone())
         .and(log_filter.clone())
         .and_then(
-            |request, signer, validator_dir, validator_store, runtime, log| {
+            |request, signer, validator_dir, validator_store, task_executor, log| {
                 blocking_signed_json_task(signer, move || {
-                    keystores::import(request, validator_dir, validator_store, runtime, log)
+                    keystores::import(request, validator_dir, validator_store, task_executor, log)
                 })
             },
         );
@@ -589,11 +589,11 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
         .and(warp::body::json())
         .and(signer.clone())
         .and(validator_store_filter.clone())
-        .and(runtime_filter.clone())
+        .and(task_executor_filter.clone())
         .and(log_filter.clone())
-        .and_then(|request, signer, validator_store, runtime, log| {
+        .and_then(|request, signer, validator_store, task_executor, log| {
             blocking_signed_json_task(signer, move || {
-                keystores::delete(request, validator_store, runtime, log)
+                keystores::delete(request, validator_store, task_executor, log)
             })
         });
 
@@ -610,11 +610,11 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
         .and(warp::body::json())
         .and(signer.clone())
         .and(validator_store_filter.clone())
-        .and(runtime_filter.clone())
+        .and(task_executor_filter.clone())
         .and(log_filter.clone())
-        .and_then(|request, signer, validator_store, runtime, log| {
+        .and_then(|request, signer, validator_store, task_executor, log| {
             blocking_signed_json_task(signer, move || {
-                remotekeys::import(request, validator_store, runtime, log)
+                remotekeys::import(request, validator_store, task_executor, log)
             })
         });
 
@@ -623,11 +623,11 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
         .and(warp::body::json())
         .and(signer)
         .and(validator_store_filter)
-        .and(runtime_filter)
+        .and(task_executor_filter)
         .and(log_filter.clone())
-        .and_then(|request, signer, validator_store, runtime, log| {
+        .and_then(|request, signer, validator_store, task_executor, log| {
             blocking_signed_json_task(signer, move || {
-                remotekeys::delete(request, validator_store, runtime, log)
+                remotekeys::delete(request, validator_store, task_executor, log)
             })
         });
 

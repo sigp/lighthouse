@@ -17,7 +17,7 @@ type PersistedSyncContributions<T> = Vec<(SyncAggregateId, Vec<SyncCommitteeCont
 /// Operations are stored in arbitrary order, so it's not a good idea to compare instances
 /// of this type (or its encoded form) for equality. Convert back to an `OperationPool` first.
 #[superstruct(
-    variants(Base, Altair),
+    variants(Altair),
     variant_attributes(
         derive(Derivative, PartialEq, Debug, Serialize, Deserialize, Encode, Decode),
         serde(bound = "T: EthSpec", deny_unknown_fields),
@@ -46,9 +46,7 @@ pub struct PersistedOperationPool<T: EthSpec> {
 }
 
 impl<T: EthSpec> PersistedOperationPool<T> {
-    /// Convert an `OperationPool` into serializable form. Always converts to
-    /// `PersistedOperationPool::Altair` because the v3 to v4 database schema migration ensures
-    /// the op pool is always persisted as the Altair variant.
+    /// Convert an `OperationPool` into serializable form.
     pub fn from_operation_pool(operation_pool: &OperationPool<T>) -> Self {
         let attestations = operation_pool
             .attestations
@@ -114,14 +112,6 @@ impl<T: EthSpec> PersistedOperationPool<T> {
                 .collect(),
         );
         let op_pool = match self {
-            PersistedOperationPool::Base(_) => OperationPool {
-                attestations,
-                sync_contributions: <_>::default(),
-                attester_slashings,
-                proposer_slashings,
-                voluntary_exits,
-                _phantom: Default::default(),
-            },
             PersistedOperationPool::Altair(_) => {
                 let sync_contributions =
                     RwLock::new(self.sync_contributions()?.iter().cloned().collect());
@@ -138,44 +128,9 @@ impl<T: EthSpec> PersistedOperationPool<T> {
         };
         Ok(op_pool)
     }
-
-    /// Convert the `PersistedOperationPool::Base` variant to `PersistedOperationPool::Altair` by
-    /// setting `sync_contributions` to its default.
-    pub fn base_to_altair(self) -> Self {
-        match self {
-            PersistedOperationPool::Base(_) => {
-                PersistedOperationPool::Altair(PersistedOperationPoolAltair {
-                    attestations: self.attestations().to_vec(),
-                    sync_contributions: <_>::default(),
-                    attester_slashings: self.attester_slashings().to_vec(),
-                    proposer_slashings: self.proposer_slashings().to_vec(),
-                    voluntary_exits: self.voluntary_exits().to_vec(),
-                })
-            }
-            PersistedOperationPool::Altair(_) => self,
-        }
-    }
 }
 
-/// This `StoreItem` implementation is necessary for migrating the `PersistedOperationPool`
-/// in the v3 to v4 database schema migration.
-impl<T: EthSpec> StoreItem for PersistedOperationPoolBase<T> {
-    fn db_column() -> DBColumn {
-        DBColumn::OpPool
-    }
-
-    fn as_store_bytes(&self) -> Vec<u8> {
-        self.as_ssz_bytes()
-    }
-
-    fn from_store_bytes(bytes: &[u8]) -> Result<Self, StoreError> {
-        Self::from_ssz_bytes(bytes).map_err(Into::into)
-    }
-}
-
-/// Deserialization for `PersistedOperationPool` defaults to `PersistedOperationPool::Altair`
-/// because the v3 to v4 database schema migration ensures the persisted op pool is always stored
-/// in the Altair format.
+/// Deserialization for `PersistedOperationPool` defaults to `PersistedOperationPool::Altair`.
 impl<T: EthSpec> StoreItem for PersistedOperationPool<T> {
     fn db_column() -> DBColumn {
         DBColumn::OpPool

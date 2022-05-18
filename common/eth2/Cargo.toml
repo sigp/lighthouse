@@ -26,6 +26,7 @@ futures-util = "0.3.8"
 futures = "0.3.8"
 store = { path = "../../beacon_node/store", optional = true }
 slashing_protection = { path = "../../validator_client/slashing_protection", optional = true }
+mime = "0.3.16"
 
 [target.'cfg(target_os = "linux")'.dependencies]
 psutil = { version = "3.2.2", optional = true }

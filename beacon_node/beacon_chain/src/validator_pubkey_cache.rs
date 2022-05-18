@@ -1,11 +1,8 @@
 use crate::errors::BeaconChainError;
 use crate::{BeaconChainTypes, BeaconStore};
-use ssz::{Decode, DecodeError, Encode};
+use ssz::{Decode, Encode};
 use std::collections::HashMap;
 use std::convert::TryInto;
-use std::fs::File;
-use std::io::{self, Read, Write};
-use std::path::Path;
 use store::{DBColumn, Error as StoreError, StoreItem};
 use types::{BeaconState, Hash256, PublicKey, PublicKeyBytes};
 
@@ -24,15 +21,7 @@ pub struct ValidatorPubkeyCache<T: BeaconChainTypes> {
     pubkeys: Vec<PublicKey>,
     indices: HashMap<PublicKeyBytes, usize>,
     pubkey_bytes: Vec<PublicKeyBytes>,
-    backing: PubkeyCacheBacking<T>,
-}
-
-/// Abstraction over on-disk backing.
-///
-/// `File` backing is legacy, `Database` is current.
-enum PubkeyCacheBacking<T: BeaconChainTypes> {
-    File(ValidatorPubkeyCacheFile),
-    Database(BeaconStore<T>),
+    store: BeaconStore<T>,
 }
 
 impl<T: BeaconChainTypes> ValidatorPubkeyCache<T> {
@@ -48,7 +37,7 @@ impl<T: BeaconChainTypes> ValidatorPubkeyCache<T> {
             pubkeys: vec![],
             indices: HashMap::new(),
             pubkey_bytes: vec![],
-            backing: PubkeyCacheBacking::Database(store),
+            store,
         };
 
         cache.import_new_pubkeys(state)?;
@@ -66,7 +55,9 @@ impl<T: BeaconChainTypes> ValidatorPubkeyCache<T> {
             if let Some(DatabasePubkey(pubkey)) =
                 store.get_item(&DatabasePubkey::key_for_index(validator_index))?
             {
-                pubkeys.push((&pubkey).try_into().map_err(Error::PubkeyDecode)?);
+                pubkeys.push((&pubkey).try_into().map_err(|e| {
+                    BeaconChainError::ValidatorPubkeyCacheError(format!("{:?}", e))
+                })?);
                 pubkey_bytes.push(pubkey);
                 indices.insert(pubkey, validator_index);
             } else {
@@ -78,29 +69,8 @@ impl<T: BeaconChainTypes> ValidatorPubkeyCache<T> {
             pubkeys,
             indices,
             pubkey_bytes,
-            backing: PubkeyCacheBacking::Database(store),
+            store,
         })
-    }
-
-    /// DEPRECATED: used only for migration
-    pub fn load_from_file<P: AsRef<Path>>(path: P) -> Result<Self, BeaconChainError> {
-        ValidatorPubkeyCacheFile::open(&path)
-            .and_then(ValidatorPubkeyCacheFile::into_cache)
-            .map_err(Into::into)
-    }
-
-    /// Convert a cache using `File` backing to one using `Database` backing.
-    ///
-    /// This will write all of the keys from `existing_cache` to `store`.
-    pub fn convert(existing_cache: Self, store: BeaconStore<T>) -> Result<Self, BeaconChainError> {
-        let mut result = ValidatorPubkeyCache {
-            pubkeys: Vec::with_capacity(existing_cache.pubkeys.len()),
-            indices: HashMap::with_capacity(existing_cache.indices.len()),
-            pubkey_bytes: Vec::with_capacity(existing_cache.indices.len()),
-            backing: PubkeyCacheBacking::Database(store),
-        };
-        result.import(existing_cache.pubkeys.iter().map(PublicKeyBytes::from))?;
-        Ok(result)
     }
 
     /// Scan the given `state` and add any new validator public keys.
@@ -146,14 +116,8 @@ impl<T: BeaconChainTypes> ValidatorPubkeyCache<T> {
             // The motivation behind this ordering is that we do not want to have states that
             // reference a pubkey that is not in our cache. However, it's fine to have pubkeys
             // that are never referenced in a state.
-            match &mut self.backing {
-                PubkeyCacheBacking::File(persistence_file) => {
-                    persistence_file.append(i, &pubkey)?;
-                }
-                PubkeyCacheBacking::Database(store) => {
-                    store.put_item(&DatabasePubkey::key_for_index(i), &DatabasePubkey(pubkey))?;
-                }
-            }
+            self.store
+                .put_item(&DatabasePubkey::key_for_index(i), &DatabasePubkey(pubkey))?;
 
             self.pubkeys.push(
                 (&pubkey)
@@ -219,105 +183,6 @@ impl DatabasePubkey {
     }
 }
 
-/// Allows for maintaining an on-disk copy of the `ValidatorPubkeyCache`. The file is raw SSZ bytes
-/// (not ASCII encoded).
-///
-/// ## Writes
-///
-/// Each entry is simply appended to the file.
-///
-/// ## Reads
-///
-/// The whole file is parsed as an SSZ "variable list" of objects.
-///
-/// This parsing method is possible because the items in the list are fixed-length SSZ objects.
-struct ValidatorPubkeyCacheFile(File);
-
-#[derive(Debug)]
-enum Error {
-    Io(io::Error),
-    Ssz(DecodeError),
-    PubkeyDecode(bls::Error),
-    /// The file read from disk does not have a contiguous list of validator public keys. The file
-    /// has become corrupted.
-    InconsistentIndex {
-        _expected: Option<usize>,
-        _found: usize,
-    },
-}
-
-impl From<Error> for BeaconChainError {
-    fn from(e: Error) -> BeaconChainError {
-        BeaconChainError::ValidatorPubkeyCacheFileError(format!("{:?}", e))
-    }
-}
-
-impl ValidatorPubkeyCacheFile {
-    /// Opens an existing file for reading and writing.
-    pub fn open<P: AsRef<Path>>(path: P) -> Result<Self, Error> {
-        File::options()
-            .read(true)
-            .write(true)
-            .create(false)
-            .append(true)
-            .open(path)
-            .map(Self)
-            .map_err(Error::Io)
-    }
-
-    /// Append a public key to file.
-    ///
-    /// The provided `index` should each be one greater than the previous and start at 0.
-    /// Otherwise, the file will become corrupted and unable to be converted into a cache .
-    pub fn append(&mut self, index: usize, pubkey: &PublicKeyBytes) -> Result<(), Error> {
-        append_to_file(&mut self.0, index, pubkey)
-    }
-
-    /// Creates a `ValidatorPubkeyCache` by reading and parsing the underlying file.
-    pub fn into_cache<T: BeaconChainTypes>(mut self) -> Result<ValidatorPubkeyCache<T>, Error> {
-        let mut bytes = vec![];
-        self.0.read_to_end(&mut bytes).map_err(Error::Io)?;
-
-        let list: Vec<(usize, PublicKeyBytes)> = Vec::from_ssz_bytes(&bytes).map_err(Error::Ssz)?;
-
-        let mut last = None;
-        let mut pubkeys = Vec::with_capacity(list.len());
-        let mut indices = HashMap::with_capacity(list.len());
-        let mut pubkey_bytes = Vec::with_capacity(list.len());
-
-        for (index, pubkey) in list {
-            let expected = last.map(|n| n + 1);
-            if expected.map_or(true, |expected| index == expected) {
-                last = Some(index);
-                pubkeys.push((&pubkey).try_into().map_err(Error::PubkeyDecode)?);
-                pubkey_bytes.push(pubkey);
-                indices.insert(pubkey, index);
-            } else {
-                return Err(Error::InconsistentIndex {
-                    _expected: expected,
-                    _found: index,
-                });
-            }
-        }
-
-        Ok(ValidatorPubkeyCache {
-            pubkeys,
-            indices,
-            pubkey_bytes,
-            backing: PubkeyCacheBacking::File(self),
-        })
-    }
-}
-
-fn append_to_file(file: &mut File, index: usize, pubkey: &PublicKeyBytes) -> Result<(), Error> {
-    let mut line = Vec::with_capacity(index.ssz_bytes_len() + pubkey.ssz_bytes_len());
-
-    index.ssz_append(&mut line);
-    pubkey.ssz_append(&mut line);
-
-    file.write_all(&line).map_err(Error::Io)
-}
-
 #[cfg(test)]
 mod test {
     use super::*;
@@ -325,10 +190,7 @@ mod test {
     use logging::test_logger;
     use std::sync::Arc;
     use store::HotColdDB;
-    use tempfile::tempdir;
-    use types::{
-        test_utils::generate_deterministic_keypair, BeaconState, EthSpec, Keypair, MainnetEthSpec,
-    };
+    use types::{BeaconState, EthSpec, Keypair, MainnetEthSpec};
 
     type E = MainnetEthSpec;
     type T = EphemeralHarnessType<E>;
@@ -422,7 +284,7 @@ mod test {
         check_cache_get(&cache, &keypairs[..]);
         drop(cache);
 
-        // Re-init the cache from the file.
+        // Re-init the cache from the store.
         let mut cache =
             ValidatorPubkeyCache::load_from_store(store.clone()).expect("should open cache");
         check_cache_get(&cache, &keypairs[..]);
@@ -435,36 +297,8 @@ mod test {
         check_cache_get(&cache, &keypairs[..]);
         drop(cache);
 
-        // Re-init the cache from the file.
+        // Re-init the cache from the store.
         let cache = ValidatorPubkeyCache::load_from_store(store).expect("should open cache");
         check_cache_get(&cache, &keypairs[..]);
-    }
-
-    #[test]
-    fn invalid_persisted_file() {
-        let dir = tempdir().expect("should create tempdir");
-        let path = dir.path().join("cache.ssz");
-        let pubkey = generate_deterministic_keypair(0).pk.into();
-
-        let mut file = File::create(&path).expect("should create file");
-        append_to_file(&mut file, 0, &pubkey).expect("should write to file");
-        drop(file);
-
-        let cache = ValidatorPubkeyCache::<T>::load_from_file(&path).expect("should open cache");
-        drop(cache);
-
-        let mut file = File::options()
-            .write(true)
-            .append(true)
-            .open(&path)
-            .expect("should open file");
-
-        append_to_file(&mut file, 42, &pubkey).expect("should write bad data to file");
-        drop(file);
-
-        assert!(
-            ValidatorPubkeyCache::<T>::load_from_file(&path).is_err(),
-            "should not parse invalid file"
-        );
     }
 }

@@ -983,8 +983,7 @@ fn delete_concurrent_with_signing() {
 
         for interchange in collected_slashing_protection
             .into_iter()
-            .map(Result::unwrap)
-            .flatten()
+            .flat_map(Result::unwrap)
         {
             for validator_data in interchange.data {
                 slashing_protection_map
