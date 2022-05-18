@@ -774,7 +774,9 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
             self.state = ChainSyncingState::Syncing;
             return self.request_batches(network);
         }
-        Err(RemoveChain::WrongBatchState(format!("Invalid batch state")))
+        Err(RemoveChain::WrongBatchState(
+            "Invalid batch state".to_string(),
+        ))
     }
 
     /// Either a new chain, or an old one with a peer list

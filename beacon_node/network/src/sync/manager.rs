@@ -168,11 +168,13 @@ pub struct SyncManager<T: BeaconChainTypes> {
 
     block_lookups: BlockLookups<T>,
 
-    /// Optional oneshot receiver that receives when sync status changes from
-    /// offline to online.
-    poll_execution: Pin<Box<OptionFuture<tokio::sync::oneshot::Receiver<()>>>>,
+    /// An optional notifier that receives a notification from the execution layer.
+    /// The notifier gets initialized when range sync stalls because of execution
+    /// layer going offline. The execution layer signals that it is back online
+    /// by sending over the channel.
+    execution_notifier: Pin<Box<OptionFuture<tokio::sync::oneshot::Receiver<()>>>>,
 
-    /// bool that indicates if RangeSync is waiting on the execution layer.
+    /// Indicates if RangeSync is currently waiting on the execution layer.
     waiting_on_execution: bool,
 
     /// The logger for the import manager.
@@ -215,7 +217,7 @@ pub fn spawn<T: BeaconChainTypes>(
             log.clone(),
         ),
         block_lookups: BlockLookups::new(beacon_processor_send, log.clone()),
-        poll_execution: Box::pin(None.into()),
+        execution_notifier: Box::pin(None.into()),
         waiting_on_execution: false,
         log: log.clone(),
     };
@@ -461,7 +463,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                     if !self.waiting_on_execution {
                         if let Some(execution_layer) = self.chain.execution_layer.as_ref() {
                             let receiver = execution_layer.is_synced_channel().await;
-                            self.poll_execution = Box::pin(Some(receiver).into());
+                            self.execution_notifier = Box::pin(Some(receiver).into());
                         }
 
                         debug!(self.log, "Sync is waiting on execution layer");
@@ -494,12 +496,12 @@ impl<T: BeaconChainTypes> SyncManager<T> {
     async fn main(&mut self) {
         loop {
             tokio::select! {
-                Some(_) = &mut self.poll_execution => {
+                Some(_) = &mut self.execution_notifier => {
                     debug!(self.log, "Execution layer back online"; "action" => "resuming sync");
                     // unpause syncing chains
                     self.range_sync.execution_ready(&mut self.network);
                     // Stop polling execution layer
-                    self.poll_execution = Box::pin(None.into());
+                    self.execution_notifier = Box::pin(None.into());
                     self.waiting_on_execution = false;
                     self.update_sync_state().await;
                 }

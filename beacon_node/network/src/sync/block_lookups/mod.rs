@@ -134,10 +134,6 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
             &metrics::SYNC_SINGLE_BLOCK_LOOKUPS,
             self.single_block_lookups.len() as i64,
         );
-        metrics::set_gauge(
-            &metrics::SYNC_WAITING_ON_EXECUTION,
-            self.waiting_execution.len() as i64,
-        );
     }
 
     pub fn search_parent(
@@ -289,10 +285,6 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         metrics::set_gauge(
             &metrics::SYNC_SINGLE_BLOCK_LOOKUPS,
             self.single_block_lookups.len() as i64,
-        );
-        metrics::set_gauge(
-            &metrics::SYNC_WAITING_ON_EXECUTION,
-            self.waiting_execution.len() as i64,
         );
     }
 
@@ -552,17 +544,6 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                             let chain_hash = parent_lookup.chain_hash();
                             let blocks = parent_lookup.chain_blocks_clone();
 
-                            // Adding all blocks in the parent chain to `waiting_execution`
-                            // so that we don't have to request it over the network again
-                            // if the execution node is still offline.
-                            // TODO(pawan): clean up waiting_execution once the parent chain is processed
-                            for block in blocks.iter() {
-                                let root = block.canonical_root();
-                                if !self.waiting_execution.contains_key(&root) {
-                                    self.waiting_execution.insert(root, Box::new(block.clone()));
-                                }
-                            }
-
                             let process_id = ChainSegmentProcessId::ParentLookup(chain_hash);
                             match self
                                 .beacon_processor_send
@@ -621,11 +602,6 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         metrics::set_gauge(
             &metrics::SYNC_SINGLE_BLOCK_LOOKUPS,
             self.single_block_lookups.len() as i64,
-        );
-
-        metrics::set_gauge(
-            &metrics::SYNC_WAITING_ON_EXECUTION,
-            self.waiting_execution.len() as i64,
         );
     }
 
@@ -784,7 +760,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         debug!(self.log, "Parent chain processed"; "chain_hash" => %chain_hash, "result" => ?result);
         match result {
             BatchProcessResult::Success(_) => {
-                // nothing to do.
+                self.waiting_execution.clear();
             }
             BatchProcessResult::Failed {
                 imported_blocks: _,
