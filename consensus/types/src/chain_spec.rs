@@ -1,3 +1,4 @@
+use crate::application_domain::ApplicationDomain;
 use crate::*;
 use eth2_serde_utils::quoted_u64::MaybeQuoted;
 use int_to_bytes::int_to_bytes4;
@@ -20,6 +21,7 @@ pub enum Domain {
     SyncCommittee,
     ContributionAndProof,
     SyncCommitteeSelectionProof,
+    ApplicationMask(ApplicationDomain),
 }
 
 /// Lighthouse's internal configuration struct.
@@ -159,6 +161,11 @@ pub struct ChainSpec {
     pub attestation_subnet_count: u64,
     pub random_subnets_per_validator: u64,
     pub epochs_per_random_subnet_subscription: u64,
+
+    /*
+     * Application params
+     */
+    pub(crate) domain_application_mask: u32,
 }
 
 impl ChainSpec {
@@ -326,6 +333,20 @@ impl ChainSpec {
             Domain::SyncCommittee => self.domain_sync_committee,
             Domain::ContributionAndProof => self.domain_contribution_and_proof,
             Domain::SyncCommitteeSelectionProof => self.domain_sync_committee_selection_proof,
+            Domain::ApplicationMask(application_domain) => {
+                let mut domain = [0; 4];
+                let domain_bytes = int_to_bytes4(application_domain.get_domain_constant());
+                let mask_bytes = int_to_bytes4(self.domain_application_mask);
+
+                // Apply application bit mask
+                for (i, (domain_byte, mask_byte)) in
+                    domain_bytes.iter().zip(mask_bytes.iter()).enumerate()
+                {
+                    domain[i] = domain_byte | mask_byte;
+                }
+
+                u32::from_le_bytes(domain)
+            }
         }
     }
 
@@ -565,6 +586,11 @@ impl ChainSpec {
             maximum_gossip_clock_disparity_millis: 500,
             target_aggregators_per_committee: 16,
             epochs_per_random_subnet_subscription: 256,
+
+            /*
+             * Application specific
+             */
+            domain_application_mask: 16777216, // Little endian hex: 0x00000001, Binary: 1000000000000000000000000
         }
     }
 
@@ -763,6 +789,11 @@ impl ChainSpec {
             maximum_gossip_clock_disparity_millis: 500,
             target_aggregators_per_committee: 16,
             epochs_per_random_subnet_subscription: 256,
+
+            /*
+             * Application specific
+             */
+            domain_application_mask: 16777216, // Little endian hex: 0x00000001, Binary: 1000000000000000000000000
         }
     }
 }
@@ -1119,6 +1150,7 @@ mod tests {
             &spec,
         );
         test_domain(Domain::SyncCommittee, spec.domain_sync_committee, &spec);
+        test_domain(Domain::ApplicationMask, spec.domain_application_mask, &spec);
     }
 
     // Test that `fork_name_at_epoch` and `fork_epoch` are consistent.

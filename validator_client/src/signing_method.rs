@@ -45,6 +45,7 @@ pub enum SignableMessage<'a, T: EthSpec, Payload: ExecPayload<T> = FullPayload<T
         slot: Slot,
     },
     SignedContributionAndProof(&'a ContributionAndProof<T>),
+    ValidatorRegistration(&'a ValidatorRegistrationData),
 }
 
 impl<'a, T: EthSpec, Payload: ExecPayload<T>> SignableMessage<'a, T, Payload> {
@@ -64,6 +65,7 @@ impl<'a, T: EthSpec, Payload: ExecPayload<T>> SignableMessage<'a, T, Payload> {
                 beacon_block_root, ..
             } => beacon_block_root.signing_root(domain),
             SignableMessage::SignedContributionAndProof(c) => c.signing_root(domain),
+            SignableMessage::ValidatorRegistration(v) => v.signing_root(domain),
         }
     }
 }
@@ -180,6 +182,9 @@ impl SigningMethod {
                     },
                     SignableMessage::SignedContributionAndProof(c) => {
                         Web3SignerObject::ContributionAndProof(c)
+                    }
+                    SignableMessage::ValidatorRegistration(v) => {
+                        Web3SignerObject::ValidatorRegistration(v)
                     }
                 };
 
