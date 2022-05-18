@@ -89,6 +89,8 @@ pub enum Error {
     InvalidWeb3SignerRootCertificateFile(io::Error),
     InvalidWeb3SignerRootCertificate(ReqwestError),
     /// Unable to read the client certificate for the remote signer.
+    MissingWeb3SignerClientIdentityCertificateFile,
+    MissingWeb3SignerClientIdentityPassword,
     InvalidWeb3SignerClientIdentityCertificateFile(io::Error),
     InvalidWeb3SignerClientIdentityCertificate(ReqwestError),
     UnableToBuildWeb3SignerClient(ReqwestError),
@@ -260,10 +262,16 @@ impl InitializedValidator {
                 };
 
                 let builder = if let Some(path) = client_identity_path {
-                    let identity =
-                        load_pkcs12_identity(path, &client_identity_password.unwrap_or_default())?;
+                    let identity = load_pkcs12_identity(
+                        path,
+                        &client_identity_password
+                            .ok_or(Error::MissingWeb3SignerClientIdentityPassword)?,
+                    )?;
                     builder.identity(identity)
                 } else {
+                    if client_identity_password.is_some() {
+                        return Err(Error::MissingWeb3SignerClientIdentityCertificateFile);
+                    }
                     builder
                 };
 
