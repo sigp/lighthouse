@@ -124,6 +124,8 @@ fn import_single_remotekey<T: SlotClock + 'static, E: EthSpec>(
             url,
             root_certificate_path: None,
             request_timeout_ms: None,
+            client_identity_path: None,
+            client_identity_password: None,
         },
     };
     handle
