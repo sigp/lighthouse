@@ -2969,7 +2969,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
             let timeout = Duration::from_millis(self.config.fork_choice_before_proposal_timeout_ms);
 
-            if slot == current_slot {
+            if slot == current_slot || slot == current_slot + 1 {
                 match rx.wait_for_fork_choice(slot, timeout) {
                     ForkChoiceWaitResult::Success(fc_slot) => {
                         debug!(
@@ -2996,14 +2996,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         );
                     }
                 }
-            } else if slot == current_slot + 1 {
-                warn!(
-                    self.log,
-                    "Producing block early";
-                    "block_slot" => slot,
-                    "current_slot" => current_slot,
-                    "message" => "check clock sync, this block may be orphaned",
-                );
             } else {
                 error!(
                     self.log,
