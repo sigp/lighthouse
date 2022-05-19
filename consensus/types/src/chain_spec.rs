@@ -333,20 +333,7 @@ impl ChainSpec {
             Domain::SyncCommittee => self.domain_sync_committee,
             Domain::ContributionAndProof => self.domain_contribution_and_proof,
             Domain::SyncCommitteeSelectionProof => self.domain_sync_committee_selection_proof,
-            Domain::ApplicationMask(application_domain) => {
-                let mut domain = [0; 4];
-                let domain_bytes = int_to_bytes4(application_domain.get_domain_constant());
-                let mask_bytes = int_to_bytes4(self.domain_application_mask);
-
-                // Apply application bit mask
-                for (i, (domain_byte, mask_byte)) in
-                    domain_bytes.iter().zip(mask_bytes.iter()).enumerate()
-                {
-                    domain[i] = domain_byte | mask_byte;
-                }
-
-                u32::from_le_bytes(domain)
-            }
+            Domain::ApplicationMask(application_domain) => application_domain.get_domain_constant(),
         }
     }
 

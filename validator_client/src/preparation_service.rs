@@ -5,18 +5,17 @@ use crate::{
 };
 use bls::PublicKeyBytes;
 use environment::RuntimeContext;
-use itertools::Itertools;
 use parking_lot::RwLock;
 use slog::{debug, error, info};
 use slot_clock::SlotClock;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::hash::Hash;
 use std::ops::Deref;
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::time::{sleep, Duration};
 use types::{
-    Address, ChainSpec, Epoch, EthSpec, ProposerPreparationData, SignedValidatorRegistrationData,
+    Address, ChainSpec, EthSpec, ProposerPreparationData, SignedValidatorRegistrationData,
     ValidatorRegistrationData,
 };
 
