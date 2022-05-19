@@ -18,10 +18,9 @@ use types::{Address, ExecutionBlockHash, Hash256};
 /// Since the size of each value is small (~100 bytes) a large number is used for safety.
 const PAYLOAD_ID_LRU_CACHE_SIZE: usize = 512;
 
-pub struct SyncNotifier {
-    sync_status: bool,
-    notifier_tx: tokio::sync::oneshot::Sender<()>,
-}
+/// A notifier that indicates change to the execution layer status
+/// from offline -> online by sending it over a oneshot channel.
+pub struct ExecutionOnlineNotifier(tokio::sync::oneshot::Sender<()>);
 
 /// Stores the remembered state of a engine.
 #[derive(Copy, Clone, PartialEq, Debug)]
@@ -166,7 +165,7 @@ impl Builder for Engine<BuilderApi> {
 pub struct Engines {
     pub engines: Vec<Engine<EngineApi>>,
     pub latest_forkchoice_state: RwLock<Option<ForkChoiceState>>,
-    pub sync_notifier: RwLock<Option<SyncNotifier>>,
+    pub notifier: RwLock<Option<ExecutionOnlineNotifier>>,
     pub log: Logger,
 }
 
@@ -245,37 +244,32 @@ impl Engines {
         false
     }
 
-    /// Returns a notifier receiver that receives when the sync status receives.
-    pub async fn sync_notifier(&self) -> tokio::sync::oneshot::Receiver<()> {
-        // If a notifier already exists, send on it and return a new receiver
-        let mut notifier_lock = self.sync_notifier.write().await;
-        if let Some(sync_notifier) = notifier_lock.take() {
-            if let Err(err) = sync_notifier.notifier_tx.send(()) {
-                crit!(
-                    self.log,
-                    "Failed to send sync status";
-                    "error" => ?err
-                );
+    /// Returns a notifier that receives over the channel when the execution
+    /// layer becomes available.
+    ///
+    /// Returns `None` if there already exists a notifier in `self` over which
+    /// we have not sent a notification.
+    pub async fn execution_online_notifier(&self) -> Option<tokio::sync::oneshot::Receiver<()>> {
+        let mut notifier_lock = self.notifier.write().await;
+        if let Some(notifier) = notifier_lock.take() {
+            if !notifier.0.is_closed() {
+                return None;
             }
         }
+
         let (tx, rx) = tokio::sync::oneshot::channel();
-        let notifier = SyncNotifier {
-            notifier_tx: tx,
-            sync_status: false,
-        };
+
+        let notifier = ExecutionOnlineNotifier(tx);
         *notifier_lock = Some(notifier);
-        rx
+        Some(rx)
     }
 
-    /// Returns the status of the sync notifier.
+    /// Returns the status of the notifier.
     ///
-    /// Returns `None` if the notifier is not initialized.
-    async fn sync_notifier_status(&self) -> Option<bool> {
-        self.sync_notifier
-            .read()
-            .await
-            .as_ref()
-            .map(|notifier| notifier.sync_status)
+    /// Returns `false` if the notifier is not initialized.
+    /// `true` implies
+    async fn notifier_status(&self) -> bool {
+        self.notifier.read().await.as_ref().is_some()
     }
 
     /// Run the `EngineApi::upcheck` function on all nodes which are currently offline.
@@ -354,18 +348,18 @@ impl Engines {
             )
         }
 
-        // Update sync notifier only if it was initialized
-        if num_synced > 0 && self.sync_notifier_status().await == Some(false) {
-            if let Some(notifier) = self.sync_notifier.write().await.take() {
+        // Update notifier only if it was initialized
+        if num_synced > 0 && self.notifier_status().await == true {
+            if let Some(notifier) = self.notifier.write().await.take() {
                 debug!(
                     self.log,
-                    "Restarting sync";
+                    "Execution layer is online";
                 );
-                // Notify consumer that sync status has changed
-                if let Err(err) = notifier.notifier_tx.send(()) {
+                // Notify consumer that execution layer is online
+                if let Err(err) = notifier.0.send(()) {
                     crit!(
                         self.log,
-                        "Failed to send sync status";
+                        "Failed to send execution layer status";
                         "error" => ?err
                     );
                 }

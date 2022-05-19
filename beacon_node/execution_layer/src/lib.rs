@@ -238,7 +238,7 @@ impl ExecutionLayer {
             engines: Engines {
                 engines,
                 latest_forkchoice_state: <_>::default(),
-                sync_notifier: <_>::default(),
+                notifier: <_>::default(),
                 log: log.clone(),
             },
             builders: Builders {
@@ -459,10 +459,17 @@ impl ExecutionLayer {
         self.engines().any_synced().await
     }
 
-    /// Returns a receiver channel that receives when the sync status changes
-    /// to synced.
-    pub async fn is_synced_channel(&self) -> tokio::sync::oneshot::Receiver<()> {
-        self.engines().sync_notifier().await
+    /// Returns a notifier that receives when the execution layer comes back online.
+    /// Currently returns just one receiver instance at a time.
+    /// Is able to return a new instance only after the previously handed
+    /// out receiver instance has been closed.
+    ///
+    /// This is to ensure there are no race conditions with multiple instances
+    /// of the notifier having different sync statuses.
+    ///
+    /// Returns `None` if a non-closed receiver instance already exists.
+    pub async fn is_online_notifier(&self) -> Option<tokio::sync::oneshot::Receiver<()>> {
+        self.engines().execution_online_notifier().await
     }
 
     /// Updates the proposer preparation data provided by validators

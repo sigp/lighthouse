@@ -143,6 +143,11 @@ pub enum BatchProcessResult {
     },
 }
 
+/// A wrapper struct that represents which chains are currently waiting on
+/// execution layer to become available.
+///
+/// A value of `true` implies that particular sync mode is currently waiting
+/// for execution to become available.
 struct WaitingOnExecution {
     range: bool,
     block_lookup: bool,
@@ -174,12 +179,13 @@ pub struct SyncManager<T: BeaconChainTypes> {
     block_lookups: BlockLookups<T>,
 
     /// An optional notifier that receives a notification from the execution layer.
-    /// The notifier gets initialized when range sync stalls because of execution
-    /// layer going offline. The execution layer signals that it is back online
+    /// The notifier gets initialized when `RangeSync` or BlockLookup stalls because
+    ///  of execution layer going offline. The execution layer signals that it is back online
     /// by sending over the channel.
     execution_notifier: Pin<Box<OptionFuture<tokio::sync::oneshot::Receiver<()>>>>,
 
-    /// Indicates if RangeSync is currently waiting on the execution layer.
+    /// Signals if any of the sync modes are waiting for the execution layer to
+    /// become available.
     waiting_on_execution: Mutex<WaitingOnExecution>,
 
     /// The logger for the import manager.
@@ -472,8 +478,16 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                     // This is to ensure that we don't overwrite the notifier.
                     if !status_lock.range && !status_lock.block_lookup {
                         if let Some(execution_layer) = self.chain.execution_layer.as_ref() {
-                            let receiver = execution_layer.is_synced_channel().await;
-                            self.execution_notifier = Box::pin(Some(receiver).into());
+                            let receiver = execution_layer.is_online_notifier().await;
+                            if let Some(recv) = receiver {
+                                self.execution_notifier = Box::pin(Some(recv).into());
+                            } else {
+                                crit!(
+                                    self.log,
+                                    "Requesting for duplicate execution layer notifier in range sync";
+                                );
+                                return;
+                            }
                         }
                     }
                     if !status_lock.range {
@@ -598,8 +612,16 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                                 let mut status_lock = self.waiting_on_execution.lock().await;
                                 if !status_lock.range && !status_lock.block_lookup {
                                     if let Some(execution_layer) = self.chain.execution_layer.as_ref() {
-                                        let receiver = execution_layer.is_synced_channel().await;
-                                        self.execution_notifier = Box::pin(Some(receiver).into());
+                                        let receiver = execution_layer.is_online_notifier().await;
+                                        if let Some(recv) = receiver {
+                                            self.execution_notifier = Box::pin(Some(recv).into());
+                                        } else {
+                                            crit!(
+                                                self.log,
+                                                "Requesting for duplicate execution layer notifier in sync";
+                                            );
+                                            return;
+                                        }
                                     }
 
                                     debug!(self.log, "Sync is waiting on execution layer");
@@ -641,8 +663,16 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                                     let mut status_lock = self.waiting_on_execution.lock().await;
                                     if !status_lock.range && !status_lock.block_lookup {
                                         if let Some(execution_layer) = self.chain.execution_layer.as_ref() {
-                                            let receiver = execution_layer.is_synced_channel().await;
-                                            self.execution_notifier = Box::pin(Some(receiver).into());
+                                            let receiver = execution_layer.is_online_notifier().await;
+                                            if let Some(recv) = receiver {
+                                                self.execution_notifier = Box::pin(Some(recv).into());
+                                            } else {
+                                                crit!(
+                                                    self.log,
+                                                    "Requesting for duplicate execution layer notifier in parent lookup";
+                                                );
+                                                return;
+                                            }
                                         }
 
                                         debug!(self.log, "Sync is waiting on execution layer");
