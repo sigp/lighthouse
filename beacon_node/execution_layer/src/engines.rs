@@ -349,7 +349,7 @@ impl Engines {
         }
 
         // Update notifier only if it was initialized
-        if num_synced > 0 && self.notifier_status().await == true {
+        if num_synced > 0 && self.notifier_status().await {
             if let Some(notifier) = self.notifier.write().await.take() {
                 debug!(
                     self.log,

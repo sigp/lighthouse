@@ -442,7 +442,7 @@ fn test_parent_lookup_too_deep() {
             chain_hash,
             Err(BlockError::ParentUnknown(Box::new(block))),
             &mut cx,
-        )
+        );
     }
 
     rig.expect_penalty();

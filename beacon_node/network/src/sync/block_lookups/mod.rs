@@ -422,11 +422,13 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                 #[cfg(debug_assertions)]
                 panic!("block processed for single block lookup not present");
                 #[cfg(not(debug_assertions))]
-                crit!(
-                    self.log,
-                    "Block processed for single block lookup not present"
-                );
-                return self.status();
+                {
+                    crit!(
+                        self.log,
+                        "Block processed for single block lookup not present"
+                    );
+                    return self.status();
+                }
             }
         };
 
@@ -535,8 +537,10 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                 chain_hash
             );
             #[cfg(not(debug_assertions))]
-            crit!(self.log, "Process response for a parent lookup request that was not found"; "chain_hash" => %chain_hash);
-            return self.status();
+            {
+                crit!(self.log, "Process response for a parent lookup request that was not found"; "chain_hash" => %chain_hash);
+                return self.status();
+            }
         };
 
         if let Err(e) = &result {
@@ -651,8 +655,10 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                 chain_hash
             );
             #[cfg(not(debug_assertions))]
-            crit!(self.log, "Chain process response for a parent lookup request that was not found"; "chain_hash" => %chain_hash);
-            return self.status();
+            {
+                crit!(self.log, "Chain process response for a parent lookup request that was not found"; "chain_hash" => %chain_hash);
+                return self.status();
+            }
         };
 
         debug!(self.log, "Parent chain processed"; "chain_hash" => %chain_hash, "result" => ?result);
