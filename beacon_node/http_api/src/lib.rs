@@ -2477,13 +2477,38 @@ pub fn serve<T: BeaconChainTypes>(
                             .unwrap_or_else(|| "unknown".to_string()),
                     );
 
+                    let preparation_data = register_val_data
+                        .iter()
+                        .filter_map(|register_data| {
+                            chain
+                                .validator_index(&register_data.message.pubkey)
+                                .ok()
+                                .flatten()
+                                .map(|validator_index| ProposerPreparationData {
+                                    validator_index: validator_index as u64,
+                                    fee_recipient: register_data.message.fee_recipient,
+                                })
+                        })
+                        .collect::<Vec<_>>();
+
+                    // Update the prepare beacon proposer cache based on this request.
                     execution_layer
-                        .update_validator_registration_blocking(current_epoch, &register_val_data)
+                        .update_proposer_preparation_blocking(current_epoch, &preparation_data)
                         .map_err(|_e| {
                             warp_utils::reject::custom_bad_request(
-                                "error processing validator registrations".to_string(),
+                                "error processing proposer preparations".to_string(),
                             )
                         })?;
+
+                    // Call prepare beacon proposer blocking with the latest update in order to make
+                    // sure we have a local payload to fall back to in the event of the blined block
+                    // flow failing.
+                    chain.prepare_beacon_proposer_blocking().map_err(|e| {
+                        warp_utils::reject::custom_bad_request(format!(
+                            "error updating proposer preparations: {:?}",
+                            e
+                        ))
+                    })?;
 
                     //TODO(sean): In the MEV-boost PR, add a call here to send the update request to the builder
 

@@ -38,7 +38,6 @@ pub mod test_utils;
 mod timeout_rw_lock;
 pub mod validator_monitor;
 mod validator_pubkey_cache;
-pub mod validator_registration_service;
 
 pub use self::beacon_chain::{
     AttestationProcessingOutcome, BeaconChain, BeaconChainTypes, BeaconStore, ChainSegmentResult,

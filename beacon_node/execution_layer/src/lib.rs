@@ -31,7 +31,6 @@ use tokio::{
     sync::{Mutex, MutexGuard, RwLock},
     time::{sleep, sleep_until, Instant},
 };
-use types::validator_registration_data::SignedValidatorRegistrationData;
 use types::{
     BlindedPayload, BlockType, ChainSpec, Epoch, ExecPayload, ExecutionBlockHash,
     ProposerPreparationData, PublicKeyBytes, SignedBeaconBlock, Slot,
@@ -88,12 +87,6 @@ pub struct ProposerPreparationDataEntry {
     preparation_data: ProposerPreparationData,
 }
 
-#[derive(Clone, PartialEq)]
-pub struct ValidatorRegistrationDataEntry {
-    update_epoch: Epoch,
-    validator_registration_data: SignedValidatorRegistrationData,
-}
-
 #[derive(Hash, PartialEq, Eq)]
 pub struct ProposerKey {
     slot: Slot,
@@ -112,7 +105,6 @@ struct Inner {
     execution_engine_forkchoice_lock: Mutex<()>,
     suggested_fee_recipient: Option<Address>,
     proposer_preparation_data: Mutex<HashMap<u64, ProposerPreparationDataEntry>>,
-    validator_registration_data: Mutex<HashMap<PublicKeyBytes, ValidatorRegistrationDataEntry>>,
     execution_blocks: Mutex<LruCache<ExecutionBlockHash, ExecutionBlock>>,
     proposers: RwLock<HashMap<ProposerKey, Proposer>>,
     executor: TaskExecutor,
@@ -255,7 +247,6 @@ impl ExecutionLayer {
             execution_engine_forkchoice_lock: <_>::default(),
             suggested_fee_recipient,
             proposer_preparation_data: Mutex::new(HashMap::new()),
-            validator_registration_data: Mutex::new(HashMap::new()),
             proposers: RwLock::new(HashMap::new()),
             execution_blocks: Mutex::new(LruCache::new(EXECUTION_BLOCKS_LRU_CACHE_SIZE)),
             executor,
@@ -293,13 +284,6 @@ impl ExecutionLayer {
         &self,
     ) -> MutexGuard<'_, HashMap<u64, ProposerPreparationDataEntry>> {
         self.inner.proposer_preparation_data.lock().await
-    }
-
-    /// Note: this function returns a mutex guard, be careful to avoid deadlocks.
-    async fn validator_registration_data(
-        &self,
-    ) -> MutexGuard<'_, HashMap<PublicKeyBytes, ValidatorRegistrationDataEntry>> {
-        self.inner.validator_registration_data.lock().await
     }
 
     fn proposers(&self) -> &RwLock<HashMap<ProposerKey, Proposer>> {
@@ -512,40 +496,6 @@ impl ExecutionLayer {
 
             if existing != Some(new) {
                 metrics::inc_counter(&metrics::EXECUTION_LAYER_PROPOSER_DATA_UPDATED);
-            }
-        }
-    }
-
-    /// Updates the validator registration data provided by validators
-    pub fn update_validator_registration_blocking(
-        &self,
-        update_epoch: Epoch,
-        val_registration_data: &[SignedValidatorRegistrationData],
-    ) -> Result<(), Error> {
-        self.block_on_generic(|_| async move {
-            self.update_validator_registration(update_epoch, val_registration_data)
-                .await
-        })
-    }
-
-    /// Updates the validator registration data provided by validators
-    async fn update_validator_registration(
-        &self,
-        update_epoch: Epoch,
-        val_registration_data: &[SignedValidatorRegistrationData],
-    ) {
-        let mut validator_registration_data = self.validator_registration_data().await;
-        for registration_entry in val_registration_data {
-            let new = ValidatorRegistrationDataEntry {
-                update_epoch,
-                validator_registration_data: registration_entry.clone(),
-            };
-
-            let existing =
-                validator_registration_data.insert(registration_entry.message.pubkey, new.clone());
-
-            if existing != Some(new) {
-                metrics::inc_counter(&metrics::BUILDER_VALIDATOR_REGISTRATION_DATA);
             }
         }
     }

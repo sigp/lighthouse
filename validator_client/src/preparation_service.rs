@@ -372,7 +372,6 @@ impl<T: SlotClock + 'static, E: EthSpec> PreparationService<T, E> {
 
         // Post the proposer preparations to the BN.
         let registration_data_len = reigstration_data.len();
-        let registration_entries = reigstration_data.as_slice();
 
         let mut signed = Vec::with_capacity(registration_data_len);
 
