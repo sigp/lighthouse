@@ -5,16 +5,26 @@ use crate::{
 };
 use bls::PublicKeyBytes;
 use environment::RuntimeContext;
+use itertools::Itertools;
+use parking_lot::RwLock;
 use slog::{debug, error, info};
 use slot_clock::SlotClock;
+use std::collections::{HashMap, HashSet};
+use std::hash::Hash;
 use std::ops::Deref;
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::time::{sleep, Duration};
-use types::{Address, ChainSpec, EthSpec, ProposerPreparationData, ValidatorRegistrationData};
+use types::{
+    Address, ChainSpec, Epoch, EthSpec, ProposerPreparationData, SignedValidatorRegistrationData,
+    ValidatorRegistrationData,
+};
 
 /// Number of epochs before the Bellatrix hard fork to begin posting proposer preparations.
 const PROPOSER_PREPARATION_LOOKAHEAD_EPOCHS: u64 = 2;
+
+/// Number of epochs to wait before re-submitting validator registration.
+const EPOCHS_PER_VALIDATOR_REGISTRATION_SUBMISSION: u64 = 1;
 
 /// Builds an `PreparationService`.
 pub struct PreparationServiceBuilder<T: SlotClock + 'static, E: EthSpec> {
@@ -85,6 +95,7 @@ impl<T: SlotClock + 'static, E: EthSpec> PreparationServiceBuilder<T, E> {
                     .ok_or("Cannot build PreparationService without runtime_context")?,
                 fee_recipient: self.fee_recipient,
                 fee_recipient_file: self.fee_recipient_file,
+                validator_registration_cache: RwLock::new(HashMap::new()),
             }),
         })
     }
@@ -98,8 +109,34 @@ pub struct Inner<T, E: EthSpec> {
     context: RuntimeContext<E>,
     fee_recipient: Option<Address>,
     fee_recipient_file: Option<FeeRecipientFile>,
+    // Used to track unpublished validator registration changes.
+    // TODO(sean): should this be persisted?
+    validator_registration_cache:
+        RwLock<HashMap<ValidatorRegistrationKey, SignedValidatorRegistrationData>>,
 }
 
+#[derive(Hash, Eq, PartialEq, Debug, Clone)]
+pub struct ValidatorRegistrationKey {
+    pub fee_recipient: Address,
+    pub gas_limit: u64,
+    pub pubkey: PublicKeyBytes,
+}
+
+impl From<ValidatorRegistrationData> for ValidatorRegistrationKey {
+    fn from(data: ValidatorRegistrationData) -> Self {
+        let ValidatorRegistrationData {
+            fee_recipient,
+            gas_limit,
+            timestamp: _,
+            pubkey,
+        } = data;
+        Self {
+            fee_recipient,
+            gas_limit,
+            pubkey,
+        }
+    }
+}
 /// Attempts to produce proposer preparations for all known validators at the beginning of each epoch.
 pub struct PreparationService<T, E: EthSpec> {
     inner: Arc<Inner<T, E>>,
@@ -174,31 +211,28 @@ impl<T: SlotClock + 'static, E: EthSpec> PreparationService<T, E> {
     pub fn start_validator_registration_service(self, spec: &ChainSpec) -> Result<(), String> {
         let log = self.context.log().clone();
 
-        let slot_duration = Duration::from_secs(spec.seconds_per_slot);
         info!(
             log,
             "Validator registration service started";
         );
 
-        let executor = self.context.executor.clone();
         let spec = spec.clone();
+        let slot_duration = Duration::from_secs(spec.seconds_per_slot);
+
+        let executor = self.context.executor.clone();
 
         let validator_registration_fut = async move {
             loop {
                 if self.should_publish_at_current_slot(&spec) {
+                    //TODO(sean) we should probably make it so validator registrations happen well before the merge
+                    //
                     // Poll the endpoint immediately to ensure fee recipients are received.
-                    self.register_validators(&spec)
-                        .await
-                        .map_err(|e| {
-                            error!(
-                                log,
-                                "Error during validator registration";
-                                "error" => ?e,
-                            )
-                        })
-                        .unwrap_or(());
+                    if let Err(e) = self.register_validators(&spec).await {
+                        error!(log,"Error during validator registration";"error" => ?e);
+                    }
                 }
 
+                // Wait one slot if the register validator request fails or if we should not publish at the current slot.
                 if let Some(duration_to_next_slot) = self.slot_clock.duration_to_next_slot() {
                     sleep(duration_to_next_slot).await;
                 } else {
@@ -237,16 +271,33 @@ impl<T: SlotClock + 'static, E: EthSpec> PreparationService<T, E> {
     }
 
     fn collect_preparation_data(&self, spec: &ChainSpec) -> Vec<ProposerPreparationData> {
-        self.collect_validator_registration_data(spec)
-            .into_iter()
-            .map(|(_, data)| data)
-            .collect()
+        self.collect_data(spec, |_, validator_index, fee_recipient| {
+            ProposerPreparationData {
+                validator_index,
+                fee_recipient,
+            }
+        })
     }
 
-    fn collect_validator_registration_data(
+    fn collect_validator_registration_keys(
         &self,
         spec: &ChainSpec,
-    ) -> Vec<(PublicKeyBytes, ProposerPreparationData)> {
+    ) -> Vec<ValidatorRegistrationKey> {
+        self.collect_data(spec, |pubkey, _, fee_recipient| {
+            ValidatorRegistrationKey {
+                fee_recipient,
+                //TODO(sean) this is geth's default, we should make this configurable and maybe have the default be dynamic.
+                // Discussion here: https://github.com/ethereum/builder-specs/issues/17
+                gas_limit: 30_000_000,
+                pubkey,
+            }
+        })
+    }
+
+    fn collect_data<G, U>(&self, spec: &ChainSpec, map_fn: G) -> Vec<U>
+    where
+        G: Fn(PublicKeyBytes, u64, Address) -> U,
+    {
         let log = self.context.log();
 
         let fee_recipient_file = self
@@ -294,13 +345,7 @@ impl<T: SlotClock + 'static, E: EthSpec> PreparationService<T, E> {
                     };
 
                     if let Some(fee_recipient) = fee_recipient {
-                        Some((
-                            pubkey,
-                            ProposerPreparationData {
-                                validator_index,
-                                fee_recipient,
-                            },
-                        ))
+                        Some(map_fn(pubkey, validator_index, fee_recipient))
                     } else {
                         if spec.bellatrix_fork_epoch.is_some() {
                             error!(
@@ -353,10 +398,33 @@ impl<T: SlotClock + 'static, E: EthSpec> PreparationService<T, E> {
 
     /// Register validators with builders, used in the blinded block proposal flow.
     async fn register_validators(&self, spec: &ChainSpec) -> Result<(), String> {
-        let registration_data = self.collect_validator_registration_data(spec);
-        if !registration_data.is_empty() {
-            self.publish_validator_registration_data(registration_data)
+        let registration_keys = self.collect_validator_registration_keys(spec);
+
+        let mut changed_keys = vec![];
+
+        // Need to scope this so the read lock is not held across an await point (I don't know why
+        // but the explicit `drop` is not enough).
+        {
+            let guard = self.validator_registration_cache.read();
+            for key in registration_keys.iter() {
+                if guard.contains_key(key) {
+                    changed_keys.push(key.clone());
+                }
+            }
+            drop(guard);
+        }
+
+        // Check if any have changed or its been `EPOCHS_PER_VALIDATOR_REGISTRATION_SUBMISSION`.
+        if !changed_keys.is_empty() {
+            self.publish_validator_registration_data(changed_keys)
                 .await?;
+        }
+
+        if let Some(slot) = self.slot_clock.now() {
+            if slot % (E::slots_per_epoch() * EPOCHS_PER_VALIDATOR_REGISTRATION_SUBMISSION) == 0 {
+                self.publish_validator_registration_data(registration_keys)
+                    .await?;
+            }
         }
 
         Ok(())
@@ -364,74 +432,80 @@ impl<T: SlotClock + 'static, E: EthSpec> PreparationService<T, E> {
 
     async fn publish_validator_registration_data(
         &self,
-        reigstration_data: Vec<(PublicKeyBytes, ProposerPreparationData)>,
+        registration_keys: Vec<ValidatorRegistrationKey>,
     ) -> Result<(), String> {
         let log = self.context.log();
 
-        // Post the proposer preparations to the BN.
-        let registration_data_len = reigstration_data.len();
-
+        let registration_data_len = registration_keys.len();
         let mut signed = Vec::with_capacity(registration_data_len);
 
-        // iter and sign and timestamp
-        // Builder API messages, e.g. validator registration, which should compute the signing root using compute_signing_root and the domain DomainType('0x00000001'). As compute_signing_root takes SSZObject as input, client software should convert in-protocol messages to their SSZ representation to compute the signing root and Builder API messages to the SSZ representations defined above.
-        for (pubkey, data) in reigstration_data {
-            let timestamp = match SystemTime::now().duration_since(UNIX_EPOCH) {
-                Ok(time) => time.as_secs(),
-                Err(e) => {
-                    error!(
-                        log,
-                        "Unable to get system time during validator registration {e:?}"
-                    );
-                    continue;
-                }
-            };
+        for key in registration_keys {
+            let cached_registration_opt =
+                self.validator_registration_cache.read().get(&key).cloned();
 
-            let validator_registration_data = ValidatorRegistrationData {
-                fee_recipient: data.fee_recipient,
-                //TODO(sean) this is geth's default, we should make this configurable and maybe have the default be dynamic.
-                // Discussion here: https://github.com/ethereum/builder-specs/issues/17
-                gas_limit: 30_000_000,
-                timestamp,
-                pubkey,
-            };
+            let signed_data = if let Some(signed_data) = cached_registration_opt {
+                signed_data
+            } else {
+                let timestamp = SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .map_err(|e| format!("{e:?}"))?
+                    .as_secs();
 
-            let signed_data = match self
-                .validator_store
-                .sign_validator_registration_data(validator_registration_data)
-                .await
-            {
-                Ok(data) => data,
-                Err(e) => {
-                    error!(log, "Unable to sign validator registration data"; "error" => ?e, "pubkey" => ?pubkey);
-                    continue;
-                }
-            };
+                let ValidatorRegistrationKey {
+                    fee_recipient,
+                    gas_limit,
+                    pubkey,
+                } = key.clone();
 
+                let signed_data = match self
+                    .validator_store
+                    .sign_validator_registration_data(ValidatorRegistrationData {
+                        fee_recipient,
+                        gas_limit,
+                        timestamp,
+                        pubkey,
+                    })
+                    .await
+                {
+                    Ok(data) => data,
+                    Err(e) => {
+                        error!(log, "Unable to sign validator registration data"; "error" => ?e, "pubkey" => ?pubkey);
+                        continue;
+                    }
+                };
+
+                self.validator_registration_cache
+                    .write()
+                    .insert(key, signed_data.clone());
+
+                signed_data
+            };
             signed.push(signed_data);
         }
 
-        let signed_ref = signed.as_slice();
+        if !signed.is_empty() {
+            let signed_ref = signed.as_slice();
 
-        match self
-            .beacon_nodes
-            .first_success(RequireSynced::No, |beacon_node| async move {
-                beacon_node
-                    .post_validator_register_validator(signed_ref)
-                    .await
-            })
-            .await
-        {
-            Ok(()) => debug!(
-                log,
-                "Published validator registration";
-                "count" => registration_data_len,
-            ),
-            Err(e) => error!(
-                log,
-                "Unable to publish validator registration";
-                "error" => %e,
-            ),
+            match self
+                .beacon_nodes
+                .first_success(RequireSynced::No, |beacon_node| async move {
+                    beacon_node
+                        .post_validator_register_validator(signed_ref)
+                        .await
+                })
+                .await
+            {
+                Ok(()) => debug!(
+                    log,
+                    "Published validator registration";
+                    "count" => registration_data_len,
+                ),
+                Err(e) => error!(
+                    log,
+                    "Unable to publish validator registration";
+                    "error" => %e,
+                ),
+            }
         }
         Ok(())
     }
