@@ -134,8 +134,8 @@ fn syncing_sim(
          */
         println!(
             "Simulation complete. Finished with {} beacon nodes and {} validator clients",
-            network.beacon_node_count().await,
-            network.validator_client_count().await
+            network.beacon_node_count(),
+            network.validator_client_count()
         );
 
         // Be explicit about dropping the network, as this kills all the nodes. This ensures
@@ -370,7 +370,7 @@ pub async fn verify_syncing<E: EthSpec>(
 pub async fn check_still_syncing<E: EthSpec>(network: &LocalNetwork<E>) -> Result<bool, String> {
     // get syncing status of nodes
     let mut status = Vec::new();
-    for remote_node in network.remote_nodes().await? {
+    for remote_node in network.remote_nodes()? {
         status.push(
             remote_node
                 .get_node_syncing()

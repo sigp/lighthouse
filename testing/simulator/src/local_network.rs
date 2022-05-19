@@ -3,13 +3,13 @@ use node_test_rig::{
     eth2::{types::StateId, BeaconNodeHttpClient},
     ClientConfig, LocalBeaconNode, LocalValidatorClient, ValidatorConfig, ValidatorFiles,
 };
+use parking_lot::RwLock;
 use sensitive_url::SensitiveUrl;
 use std::{
     ops::Deref,
     time::{SystemTime, UNIX_EPOCH},
 };
 use std::{sync::Arc, time::Duration};
-use tokio::sync::RwLock;
 use types::{Epoch, EthSpec};
 
 const BOOTNODE_PORT: u16 = 42424;
@@ -72,16 +72,16 @@ impl<E: EthSpec> LocalNetwork<E> {
     ///
     /// Note: does not count nodes that are external to this `LocalNetwork` that may have connected
     /// (e.g., another Lighthouse process on the same machine.)
-    pub async fn beacon_node_count(&self) -> usize {
-        self.beacon_nodes.read().await.len()
+    pub fn beacon_node_count(&self) -> usize {
+        self.beacon_nodes.read().len()
     }
 
     /// Returns the number of validator clients in the network.
     ///
     /// Note: does not count nodes that are external to this `LocalNetwork` that may have connected
     /// (e.g., another Lighthouse process on the same machine.)
-    pub async fn validator_client_count(&self) -> usize {
-        self.validator_clients.read().await.len()
+    pub fn validator_client_count(&self) -> usize {
+        self.validator_clients.read().len()
     }
 
     /// Adds a beacon node to the network, connecting to the 0'th beacon node via ENR.
@@ -89,7 +89,7 @@ impl<E: EthSpec> LocalNetwork<E> {
         let self_1 = self.clone();
         println!("Adding beacon node..");
         {
-            let read_lock = self.beacon_nodes.read().await;
+            let read_lock = self.beacon_nodes.read();
 
             let boot_node = read_lock.first().expect("should have at least one node");
 
@@ -99,7 +99,7 @@ impl<E: EthSpec> LocalNetwork<E> {
                     .enr()
                     .expect("bootnode must have a network"),
             );
-            let count = self.beacon_node_count().await as u16;
+            let count = self.beacon_node_count() as u16;
             beacon_config.network.discovery_port = BOOTNODE_PORT + count;
             beacon_config.network.libp2p_port = BOOTNODE_PORT + count;
             beacon_config.network.enr_udp_port = Some(BOOTNODE_PORT + count);
@@ -107,15 +107,16 @@ impl<E: EthSpec> LocalNetwork<E> {
             beacon_config.network.discv5_config.table_filter = |_| true;
         }
 
-        let mut write_lock = self_1.beacon_nodes.write().await;
-        let index = write_lock.len();
-
+        // We create the beacon node without holding the lock, so that the lock isn't held
+        // across the await. This is only correct if this function never runs in parallel
+        // with itself (which at the time of writing, it does not).
+        let index = self_1.beacon_nodes.read().len();
         let beacon_node = LocalBeaconNode::production(
             self.context.service_context(format!("node_{}", index)),
             beacon_config,
         )
         .await?;
-        write_lock.push(beacon_node);
+        self_1.beacon_nodes.write().push(beacon_node);
         Ok(())
     }
 
@@ -133,7 +134,7 @@ impl<E: EthSpec> LocalNetwork<E> {
             .service_context(format!("validator_{}", beacon_node));
         let self_1 = self.clone();
         let socket_addr = {
-            let read_lock = self.beacon_nodes.read().await;
+            let read_lock = self.beacon_nodes.read();
             let beacon_node = read_lock
                 .get(beacon_node)
                 .ok_or_else(|| format!("No beacon node for index {}", beacon_node))?;
@@ -158,17 +159,13 @@ impl<E: EthSpec> LocalNetwork<E> {
             validator_files,
         )
         .await?;
-        self_1
-            .validator_clients
-            .write()
-            .await
-            .push(validator_client);
+        self_1.validator_clients.write().push(validator_client);
         Ok(())
     }
 
     /// For all beacon nodes in `Self`, return a HTTP client to access each nodes HTTP API.
-    pub async fn remote_nodes(&self) -> Result<Vec<BeaconNodeHttpClient>, String> {
-        let beacon_nodes = self.beacon_nodes.read().await;
+    pub fn remote_nodes(&self) -> Result<Vec<BeaconNodeHttpClient>, String> {
+        let beacon_nodes = self.beacon_nodes.read();
 
         beacon_nodes
             .iter()
@@ -178,10 +175,7 @@ impl<E: EthSpec> LocalNetwork<E> {
 
     /// Return current epoch of bootnode.
     pub async fn bootnode_epoch(&self) -> Result<Epoch, String> {
-        let nodes = self
-            .remote_nodes()
-            .await
-            .expect("Failed to get remote nodes");
+        let nodes = self.remote_nodes().expect("Failed to get remote nodes");
         let bootnode = nodes.first().expect("Should contain bootnode");
         bootnode
             .get_beacon_states_finality_checkpoints(StateId::Head)
@@ -191,10 +185,7 @@ impl<E: EthSpec> LocalNetwork<E> {
     }
 
     pub async fn duration_to_genesis(&self) -> Duration {
-        let nodes = self
-            .remote_nodes()
-            .await
-            .expect("Failed to get remote nodes");
+        let nodes = self.remote_nodes().expect("Failed to get remote nodes");
         let bootnode = nodes.first().expect("Should contain bootnode");
         let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap();
         let genesis_time = Duration::from_secs(
