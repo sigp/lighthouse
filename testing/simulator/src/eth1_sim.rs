@@ -248,8 +248,8 @@ pub fn run_eth1_sim(matches: &ArgMatches) -> Result<(), String> {
          */
         println!(
             "Simulation complete. Finished with {} beacon nodes and {} validator clients",
-            network.beacon_node_count(),
-            network.validator_client_count()
+            network.beacon_node_count().await,
+            network.validator_client_count().await
         );
 
         // Be explicit about dropping the network, as this kills all the nodes. This ensures

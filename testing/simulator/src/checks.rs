@@ -63,7 +63,7 @@ pub async fn verify_all_finalized_at<E: EthSpec>(
 ) -> Result<(), String> {
     let epochs = {
         let mut epochs = Vec::new();
-        for remote_node in network.remote_nodes()? {
+        for remote_node in network.remote_nodes().await? {
             epochs.push(
                 remote_node
                     .get_beacon_states_finality_checkpoints(StateId::Head)
@@ -93,7 +93,7 @@ async fn verify_validator_count<E: EthSpec>(
 ) -> Result<(), String> {
     let validator_counts = {
         let mut validator_counts = Vec::new();
-        for remote_node in network.remote_nodes()? {
+        for remote_node in network.remote_nodes().await? {
             let vc = remote_node
                 .get_debug_beacon_states::<E>(StateId::Head)
                 .await
@@ -126,7 +126,7 @@ pub async fn verify_full_block_production_up_to<E: EthSpec>(
     slot_duration: Duration,
 ) -> Result<(), String> {
     slot_delay(slot, slot_duration).await;
-    let beacon_nodes = network.beacon_nodes.read();
+    let beacon_nodes = network.beacon_nodes.read().await;
     let beacon_chain = beacon_nodes[0].client.beacon_chain().unwrap();
     let num_blocks = beacon_chain
         .chain_dump()
@@ -152,7 +152,7 @@ pub async fn verify_fork_version<E: EthSpec>(
     altair_fork_version: [u8; 4],
 ) -> Result<(), String> {
     epoch_delay(fork_epoch, slot_duration, E::slots_per_epoch()).await;
-    for remote_node in network.remote_nodes()? {
+    for remote_node in network.remote_nodes().await? {
         let fork_version = remote_node
             .get_beacon_states_fork(StateId::Head)
             .await
@@ -177,7 +177,7 @@ pub async fn verify_full_sync_aggregates_up_to<E: EthSpec>(
     slot_duration: Duration,
 ) -> Result<(), String> {
     slot_delay(upto_slot, slot_duration).await;
-    let remote_nodes = network.remote_nodes()?;
+    let remote_nodes = network.remote_nodes().await?;
     let remote_node = remote_nodes.first().unwrap();
 
     for slot in sync_committee_start_slot.as_u64()..=upto_slot.as_u64() {
