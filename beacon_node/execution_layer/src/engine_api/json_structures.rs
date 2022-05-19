@@ -60,70 +60,6 @@ pub struct JsonPayloadIdResponse {
 
 #[derive(Debug, PartialEq, Default, Serialize, Deserialize)]
 #[serde(bound = "T: EthSpec", rename_all = "camelCase")]
-pub struct JsonExecutionPayloadHeaderV1<T: EthSpec> {
-    pub parent_hash: ExecutionBlockHash,
-    pub fee_recipient: Address,
-    pub state_root: Hash256,
-    pub receipts_root: Hash256,
-    #[serde(with = "serde_logs_bloom")]
-    pub logs_bloom: FixedVector<u8, T::BytesPerLogsBloom>,
-    pub prev_randao: Hash256,
-    #[serde(with = "eth2_serde_utils::u64_hex_be")]
-    pub block_number: u64,
-    #[serde(with = "eth2_serde_utils::u64_hex_be")]
-    pub gas_limit: u64,
-    #[serde(with = "eth2_serde_utils::u64_hex_be")]
-    pub gas_used: u64,
-    #[serde(with = "eth2_serde_utils::u64_hex_be")]
-    pub timestamp: u64,
-    #[serde(with = "ssz_types::serde_utils::hex_var_list")]
-    pub extra_data: VariableList<u8, T::MaxExtraDataBytes>,
-    pub base_fee_per_gas: Uint256,
-    pub block_hash: ExecutionBlockHash,
-    pub transactions_root: Hash256,
-}
-
-impl<T: EthSpec> From<JsonExecutionPayloadHeaderV1<T>> for ExecutionPayloadHeader<T> {
-    fn from(e: JsonExecutionPayloadHeaderV1<T>) -> Self {
-        // Use this verbose deconstruction pattern to ensure no field is left unused.
-        let JsonExecutionPayloadHeaderV1 {
-            parent_hash,
-            fee_recipient,
-            state_root,
-            receipts_root,
-            logs_bloom,
-            prev_randao,
-            block_number,
-            gas_limit,
-            gas_used,
-            timestamp,
-            extra_data,
-            base_fee_per_gas,
-            block_hash,
-            transactions_root,
-        } = e;
-
-        Self {
-            parent_hash,
-            fee_recipient,
-            state_root,
-            receipts_root,
-            logs_bloom,
-            prev_randao,
-            block_number,
-            gas_limit,
-            gas_used,
-            timestamp,
-            extra_data,
-            base_fee_per_gas,
-            block_hash,
-            transactions_root,
-        }
-    }
-}
-
-#[derive(Debug, PartialEq, Default, Serialize, Deserialize)]
-#[serde(bound = "T: EthSpec", rename_all = "camelCase")]
 pub struct JsonExecutionPayloadV1<T: EthSpec> {
     pub parent_hash: ExecutionBlockHash,
     pub fee_recipient: Address,
@@ -426,59 +362,6 @@ impl From<ForkchoiceUpdatedResponse> for JsonForkchoiceUpdatedV1Response {
         Self {
             payload_status: status.into(),
             payload_id: payload_id.map(Into::into),
-        }
-    }
-}
-
-#[derive(Debug, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
-pub enum JsonProposeBlindedBlockResponseStatus {
-    Valid,
-    Invalid,
-    Syncing,
-}
-#[derive(Debug, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-#[serde(bound = "E: EthSpec")]
-pub struct JsonProposeBlindedBlockResponse<E: EthSpec> {
-    pub result: ExecutionPayload<E>,
-    pub error: Option<String>,
-}
-
-impl<E: EthSpec> From<JsonProposeBlindedBlockResponse<E>> for ExecutionPayload<E> {
-    fn from(j: JsonProposeBlindedBlockResponse<E>) -> Self {
-        let JsonProposeBlindedBlockResponse { result, error: _ } = j;
-        result
-    }
-}
-
-impl From<JsonProposeBlindedBlockResponseStatus> for ProposeBlindedBlockResponseStatus {
-    fn from(j: JsonProposeBlindedBlockResponseStatus) -> Self {
-        match j {
-            JsonProposeBlindedBlockResponseStatus::Valid => {
-                ProposeBlindedBlockResponseStatus::Valid
-            }
-            JsonProposeBlindedBlockResponseStatus::Invalid => {
-                ProposeBlindedBlockResponseStatus::Invalid
-            }
-            JsonProposeBlindedBlockResponseStatus::Syncing => {
-                ProposeBlindedBlockResponseStatus::Syncing
-            }
-        }
-    }
-}
-impl From<ProposeBlindedBlockResponseStatus> for JsonProposeBlindedBlockResponseStatus {
-    fn from(f: ProposeBlindedBlockResponseStatus) -> Self {
-        match f {
-            ProposeBlindedBlockResponseStatus::Valid => {
-                JsonProposeBlindedBlockResponseStatus::Valid
-            }
-            ProposeBlindedBlockResponseStatus::Invalid => {
-                JsonProposeBlindedBlockResponseStatus::Invalid
-            }
-            ProposeBlindedBlockResponseStatus::Syncing => {
-                JsonProposeBlindedBlockResponseStatus::Syncing
-            }
         }
     }
 }

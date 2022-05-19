@@ -4,7 +4,6 @@
 //! This crate only provides useful functionality for "The Merge", it does not provide any of the
 //! deposit-contract functionality that the `beacon_node/eth1` crate already provides.
 
-use crate::engine_api::Builder;
 use crate::engines::Builders;
 use crate::payload_cache::PayloadCache;
 use auth::{Auth, JwtKey};
@@ -32,6 +31,7 @@ use tokio::{
     sync::{Mutex, MutexGuard, RwLock},
     time::{sleep, sleep_until, Instant},
 };
+use builder_client::BuilderHttpClient;
 use types::validator_registration_data::SignedValidatorRegistrationData;
 use types::{
     BlindedPayload, BlockType, ChainSpec, Epoch, ExecPayload, ExecutionBlockHash,
@@ -114,7 +114,7 @@ struct Inner<E: EthSpec> {
     execution_engine_forkchoice_lock: Mutex<()>,
     suggested_fee_recipient: Option<Address>,
     proposer_preparation_data: Mutex<HashMap<u64, ProposerPreparationDataEntry>>,
-    validator_registration_data: Mutex<HashMap<PublicKeyBytes, ValidatorRegistrationDataEntry>>,
+    validator_registration_data: Mutex<HashMap<u64, ValidatorRegistrationDataEntry>>,
     execution_blocks: Mutex<LruCache<ExecutionBlockHash, ExecutionBlock>>,
     proposers: RwLock<HashMap<ProposerKey, Proposer>>,
     executor: TaskExecutor,
@@ -236,12 +236,11 @@ impl<T: EthSpec> ExecutionLayer<T> {
             })
             .collect::<Result<_, ApiError>>()?;
 
-        let builders: Vec<Engine<BuilderApi>> = builder_urls
+        let builders: Vec<BuilderHttpClient> = builder_urls
             .into_iter()
             .map(|url| {
                 let id = url.to_string();
-                let api = HttpJsonRpc::<BuilderApi>::new(url)?;
-                Ok(Engine::<BuilderApi>::new(id, api))
+                BuilderHttpClient::new(url).map_err(ApiError::BuilderApi)
             })
             .collect::<Result<_, ApiError>>()?;
 
@@ -316,7 +315,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
     /// Note: this function returns a mutex guard, be careful to avoid deadlocks.
     async fn validator_registration_data(
         &self,
-    ) -> MutexGuard<'_, HashMap<PublicKeyBytes, ValidatorRegistrationDataEntry>> {
+    ) -> MutexGuard<'_, HashMap<u64, ValidatorRegistrationDataEntry>> {
         self.inner.validator_registration_data.lock().await
     }
 
@@ -527,7 +526,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
     pub fn update_validator_registration_blocking(
         &self,
         update_epoch: Epoch,
-        val_registration_data: &[SignedValidatorRegistrationData],
+        val_registration_data: &[(u64, SignedValidatorRegistrationData)],
     ) -> Result<(), Error> {
         self.block_on_generic(|_| async move {
             self.update_validator_registration(update_epoch, val_registration_data)
@@ -539,17 +538,17 @@ impl<T: EthSpec> ExecutionLayer<T> {
     async fn update_validator_registration(
         &self,
         update_epoch: Epoch,
-        val_registration_data: &[SignedValidatorRegistrationData],
+        val_registration_data: &[(u64, SignedValidatorRegistrationData)],
     ) {
         let mut validator_registration_data = self.validator_registration_data().await;
-        for registration_entry in val_registration_data {
+        for (val_index, registration_entry) in val_registration_data {
             let new = ValidatorRegistrationDataEntry {
                 update_epoch,
                 validator_registration_data: registration_entry.clone(),
             };
 
             let existing =
-                validator_registration_data.insert(registration_entry.message.pubkey, new.clone());
+                validator_registration_data.insert(*val_index, new.clone());
 
             if existing != Some(new) {
                 metrics::inc_counter(&metrics::BUILDER_VALIDATOR_REGISTRATION_DATA);
@@ -676,38 +675,30 @@ impl<T: EthSpec> ExecutionLayer<T> {
         finalized_block_hash: ExecutionBlockHash,
         suggested_fee_recipient: Address,
     ) -> Result<Payload, Error> {
+
+        //TODO(sean) only use the blinded block flow if we have recent chain health
+
         // Don't attempt to outsource payload construction until after the merge transition has been
         // finalized. We want to be conservative with payload construction until then.
         if self.has_builders() && finalized_block_hash != ExecutionBlockHash::zero() {
+
             debug!(
                 self.log(),
-                "Issuing builder_getPayloadHeader";
-                "suggested_fee_recipient" => ?suggested_fee_recipient,
-                "prev_randao" => ?prev_randao,
-                "timestamp" => timestamp,
+                "Requesting blinded header from connected builder";
+                "slot" => ?slot,
+                "pubkey" => ?pubkey,
                 "parent_hash" => ?parent_hash,
             );
             let result = self
                 .builders()
-                .first_success_without_retry(|engine| async move {
-                    let payload_id = engine
-                        .get_payload_id(
-                            parent_hash,
-                            timestamp,
-                            prev_randao,
-                            suggested_fee_recipient,
-                        )
-                        .await
-                        .ok_or(ApiError::MissingPayloadId {
-                            parent_hash,
-                            timestamp,
-                            prev_randao,
-                            suggested_fee_recipient,
-                        })?;
-                    engine
-                        .api
-                        .get_payload_header_v1::<T>(payload_id)
+                .first_success_without_retry(|builder| async move {
+                    let pubkey = pubkey_opt.ok_or(ApiError::PublicKeyMissing)?;
+                    let data = self.validator_registration_data().get(&pubkey).ok_or(ApiError::PublicKeyMissing)?;
+
+                    builder.get_builder_header(slot, parent_hash, &)
                         .await?
+                        //TODO(sean) check fork?
+                        .data
                         .try_into()
                         .map_err(|_| ApiError::PayloadConversionLogicFlaw)
                 })
@@ -1043,23 +1034,10 @@ impl<T: EthSpec> ExecutionLayer<T> {
             })
             .await;
 
-        // Only query builders with payload attributes populated.
-        let builder_broadcast_results = if payload_attributes.is_some() {
-            self.builders()
-                .broadcast_without_retry(|engine| async move {
-                    engine
-                        .notify_forkchoice_updated(forkchoice_state, payload_attributes, self.log())
-                        .await
-                })
-                .await
-        } else {
-            vec![]
-        };
         process_multiple_payload_statuses(
             head_block_hash,
             broadcast_results
                 .into_iter()
-                .chain(builder_broadcast_results.into_iter())
                 .map(|result| result.map(|response| response.payload_status)),
             self.log(),
         )
@@ -1417,10 +1395,12 @@ impl<T: EthSpec> ExecutionLayer<T> {
             "root" => ?block.canonical_root(),
         );
         self.builders()
-            .first_success_without_retry(|engine| async move {
-                engine.api.propose_blinded_block_v1(block.clone()).await
+            .first_success_without_retry(|builder| async move {
+                builder.post_builder_blinded_blocks(block).await.map_err(engine_api::Error::BuilderApi)
             })
             .await
+            //TODO(sean) check fork?
+            .map(|d|d.data)
             .map_err(Error::EngineErrors)
     }
 }

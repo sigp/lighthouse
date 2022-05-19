@@ -40,15 +40,9 @@ pub enum Error {
     PayloadIdUnavailable,
     TransitionConfigurationMismatch,
     PayloadConversionLogicFlaw,
-    InvalidBuilderQuery,
-    MissingPayloadId {
-        parent_hash: ExecutionBlockHash,
-        timestamp: u64,
-        prev_randao: Hash256,
-        suggested_fee_recipient: Address,
-    },
     DeserializeTransaction(ssz_types::Error),
     DeserializeTransactions(ssz_types::Error),
+    BuilderApi(builder_client::Error),
 }
 
 impl From<reqwest::Error> for Error {
@@ -76,18 +70,13 @@ impl From<auth::Error> for Error {
     }
 }
 
-pub struct EngineApi;
-pub struct BuilderApi;
-
-#[async_trait]
-pub trait Builder {
-    async fn notify_forkchoice_updated(
-        &self,
-        forkchoice_state: ForkChoiceState,
-        payload_attributes: Option<PayloadAttributes>,
-        log: &Logger,
-    ) -> Result<ForkchoiceUpdatedResponse, Error>;
+impl From<builder_client::Error> for Error {
+    fn from(e: builder_client::Error) -> Self {
+        Error::BuilderApi(e)
+    }
 }
+
+pub struct EngineApi;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum PayloadStatusV1Status {

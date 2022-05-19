@@ -1894,6 +1894,7 @@ name = "execution_layer"
 version = "0.1.0"
 dependencies = [
  "async-trait",
+ "builder_client",
  "bytes",
  "environment",
  "eth1",

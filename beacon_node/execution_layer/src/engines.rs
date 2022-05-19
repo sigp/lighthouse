@@ -1,16 +1,17 @@
 //! Provides generic behaviour for multiple execution engines, specifically fallback behaviour.
 
 use crate::engine_api::{
-    Builder, EngineApi, Error as EngineApiError, ForkchoiceUpdatedResponse, PayloadAttributes,
+     EngineApi, Error as EngineApiError, ForkchoiceUpdatedResponse, PayloadAttributes,
     PayloadId,
 };
-use crate::{BuilderApi, HttpJsonRpc};
+use crate::HttpJsonRpc;
 use async_trait::async_trait;
 use futures::future::join_all;
 use lru::LruCache;
 use slog::{crit, debug, info, warn, Logger};
 use std::future::Future;
 use tokio::sync::{Mutex, RwLock};
+use builder_client::BuilderHttpClient;
 use types::{Address, ExecutionBlockHash, Hash256};
 
 /// The number of payload IDs that will be stored for each `Engine`.
@@ -97,9 +98,8 @@ impl<T> Engine<T> {
     }
 }
 
-#[async_trait]
-impl Builder for Engine<EngineApi> {
-    async fn notify_forkchoice_updated(
+impl Engine<EngineApi> {
+    pub async fn notify_forkchoice_updated(
         &self,
         forkchoice_state: ForkChoiceState,
         payload_attributes: Option<PayloadAttributes>,
@@ -128,34 +128,6 @@ impl Builder for Engine<EngineApi> {
     }
 }
 
-#[async_trait]
-impl Builder for Engine<BuilderApi> {
-    async fn notify_forkchoice_updated(
-        &self,
-        forkchoice_state: ForkChoiceState,
-        pa: Option<PayloadAttributes>,
-        log: &Logger,
-    ) -> Result<ForkchoiceUpdatedResponse, EngineApiError> {
-        let payload_attributes = pa.ok_or(EngineApiError::InvalidBuilderQuery)?;
-        let response = self
-            .api
-            .forkchoice_updated_v1(forkchoice_state, Some(payload_attributes))
-            .await?;
-
-        if let Some(payload_id) = response.payload_id {
-            let key = PayloadIdCacheKey::new(&forkchoice_state, &payload_attributes);
-            self.payload_id_cache.lock().await.put(key, payload_id);
-        } else {
-            warn!(
-                log,
-                "Builder should have returned a payload_id for attributes {:?}", payload_attributes
-            );
-        }
-
-        Ok(response)
-    }
-}
-
 /// Holds multiple execution engines and provides functionality for managing them in a fallback
 /// manner.
 pub struct Engines {
@@ -165,7 +137,7 @@ pub struct Engines {
 }
 
 pub struct Builders {
-    pub builders: Vec<Engine<BuilderApi>>,
+    pub builders: Vec<BuilderHttpClient>,
     pub log: Logger,
 }
 
@@ -173,6 +145,7 @@ pub struct Builders {
 pub enum EngineError {
     Offline { id: String },
     Api { id: String, error: EngineApiError },
+    BuilderApi { error: EngineApiError },
     Auth { id: String },
 }
 
@@ -469,7 +442,7 @@ impl Builders {
         func: F,
     ) -> Result<H, Vec<EngineError>>
     where
-        F: Fn(&'a Engine<BuilderApi>) -> G,
+        F: Fn(&'a BuilderHttpClient) -> G,
         G: Future<Output = Result<H, EngineApiError>>,
     {
         let mut errors = vec![];
@@ -482,10 +455,8 @@ impl Builders {
                         self.log,
                         "Builder call failed";
                         "error" => ?error,
-                        "id" => &builder.id
                     );
-                    errors.push(EngineError::Api {
-                        id: builder.id.clone(),
+                    errors.push(EngineError::BuilderApi {
                         error,
                     })
                 }
@@ -500,7 +471,7 @@ impl Builders {
         func: F,
     ) -> Vec<Result<H, EngineError>>
     where
-        F: Fn(&'a Engine<BuilderApi>) -> G,
+        F: Fn(&'a BuilderHttpClient) -> G,
         G: Future<Output = Result<H, EngineApiError>>,
     {
         let func = &func;
@@ -510,10 +481,8 @@ impl Builders {
                     self.log,
                     "Builder call failed";
                     "error" => ?error,
-                    "id" => &engine.id
                 );
-                EngineError::Api {
-                    id: engine.id.clone(),
+                EngineError::BuilderApi {
                     error,
                 }
             })

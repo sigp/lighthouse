@@ -1,9 +1,6 @@
-use eth2::types::{
-    BlindedPayload, EthSpec, ExecutionPayload, ExecutionPayloadHeader, ForkVersionedResponse,
-    GenericResponse, Hash256, PublicKeyBytes, SignedBeaconBlock, SignedValidatorRegistrationData,
-    Slot,
-};
-use eth2::{ok_or_error, Error};
+use eth2::types::{BlindedPayload, EthSpec, ExecutionBlockHash, ExecutionPayload, ExecutionPayloadHeader, ForkVersionedResponse, GenericResponse, Hash256, PublicKeyBytes, SignedBeaconBlock, SignedValidatorRegistrationData, Slot};
+use eth2::{ok_or_error};
+pub use eth2::Error;
 use reqwest::{IntoUrl, Response};
 use sensitive_url::SensitiveUrl;
 use serde::de::DeserializeOwned;
@@ -96,11 +93,12 @@ impl BuilderHttpClient {
         self.post(path, &blinded_block).await
     }
 
+    //TODO(sean) add timeouts
     /// `GET /eth/v1/builder/header`
     pub async fn get_builder_header<E: EthSpec>(
         &self,
         slot: Slot,
-        parent_hash: Hash256,
+        parent_hash: ExecutionBlockHash,
         pubkey: &PublicKeyBytes,
     ) -> Result<ForkVersionedResponse<ExecutionPayloadHeader<E>>, Error> {
         let mut path = self.server.full.clone();
