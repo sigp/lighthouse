@@ -34,7 +34,7 @@
 //! search for the block and subsequently search for parents if needed.
 
 use super::backfill_sync::{BackFillSync, ProcessResult, SyncStart};
-use super::block_lookups::BlockLookups;
+use super::block_lookups::{BlockLookupStatus, BlockLookups};
 use super::network_context::SyncNetworkContext;
 use super::peer_sync_info::{remote_sync_type, PeerSyncType};
 use super::range_sync::{ChainState, RangeSync, RangeSyncType, EPOCHS_PER_BATCH};
@@ -53,7 +53,7 @@ use std::ops::Sub;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, Mutex};
 use types::{EthSpec, Hash256, SignedBeaconBlock, Slot};
 
 /// The number of slots ahead of us that is allowed before requesting a long-range (batch)  Sync
@@ -143,6 +143,11 @@ pub enum BatchProcessResult {
     },
 }
 
+struct WaitingOnExecution {
+    range: bool,
+    block_lookup: bool,
+}
+
 /// The primary object for handling and driving all the current syncing logic. It maintains the
 /// current state of the syncing process, the number of useful peers, downloaded blocks and
 /// controls the logic behind both the long-range (batch) sync and the on-going potential parent
@@ -175,7 +180,7 @@ pub struct SyncManager<T: BeaconChainTypes> {
     execution_notifier: Pin<Box<OptionFuture<tokio::sync::oneshot::Receiver<()>>>>,
 
     /// Indicates if RangeSync is currently waiting on the execution layer.
-    waiting_on_execution: bool,
+    waiting_on_execution: Mutex<WaitingOnExecution>,
 
     /// The logger for the import manager.
     log: Logger,
@@ -218,7 +223,10 @@ pub fn spawn<T: BeaconChainTypes>(
         ),
         block_lookups: BlockLookups::new(beacon_processor_send, log.clone()),
         execution_notifier: Box::pin(None.into()),
-        waiting_on_execution: false,
+        waiting_on_execution: Mutex::new(WaitingOnExecution {
+            range: false,
+            block_lookup: false,
+        }),
         log: log.clone(),
     };
 
@@ -458,16 +466,19 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                     }
                 }
                 ChainState::WaitingOnExecution => {
-                    // Start the timer to poll
-                    // Reset the timer to poll the EL again after the delay
-                    if !self.waiting_on_execution {
+                    let mut status_lock = self.waiting_on_execution.lock().await;
+                    // Get the notifier from the execution layer only if neither
+                    // of range and block_lookup are waiting on execution.
+                    // This is to ensure that we don't overwrite the notifier.
+                    if !status_lock.range && !status_lock.block_lookup {
                         if let Some(execution_layer) = self.chain.execution_layer.as_ref() {
                             let receiver = execution_layer.is_synced_channel().await;
                             self.execution_notifier = Box::pin(Some(receiver).into());
                         }
-
-                        debug!(self.log, "Sync is waiting on execution layer");
-                        self.waiting_on_execution = true;
+                    }
+                    if !status_lock.range {
+                        status_lock.range = true;
+                        debug!(self.log, "Range sync is waiting on execution layer");
                     }
                     SyncState::WaitingOnExecution
                 }
@@ -499,10 +510,19 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                 Some(_) = &mut self.execution_notifier => {
                     debug!(self.log, "Execution layer back online"; "action" => "resuming sync");
                     // unpause syncing chains
-                    self.range_sync.execution_ready(&mut self.network);
-                    // Stop polling execution layer
+                    {
+                        let mut status_lock = self.waiting_on_execution.lock().await;
+                        if status_lock.range {
+                            status_lock.range = false;
+                            self.range_sync.execution_ready(&mut self.network);
+                        }
+                        if status_lock.block_lookup {
+                            status_lock.block_lookup = false;
+                            self.block_lookups.set_status(BlockLookupStatus::Activated);
+                        }
+                    }
+                    // Reset the notifier
                     self.execution_notifier = Box::pin(None.into());
-                    self.waiting_on_execution = false;
                     self.update_sync_state().await;
                 }
                 // process any inbound messages
@@ -565,14 +585,28 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                         SyncMessage::BlockProcessed {
                             process_type,
                             result,
-                        } => match process_type {
+                        } => {
+                            let block_lookup_status = match process_type {
                             BlockProcessType::SingleBlock { id } => self
                                 .block_lookups
                                 .single_block_processed(id, result, &mut self.network),
                             BlockProcessType::ParentLookup { chain_hash } => self
                                 .block_lookups
                                 .parent_block_processed(chain_hash, result, &mut self.network),
-                        },
+                            };
+                            if let BlockLookupStatus::WaitingOnExecution = block_lookup_status {
+                                let mut status_lock = self.waiting_on_execution.lock().await;
+                                if !status_lock.range && !status_lock.block_lookup {
+                                    if let Some(execution_layer) = self.chain.execution_layer.as_ref() {
+                                        let receiver = execution_layer.is_synced_channel().await;
+                                        self.execution_notifier = Box::pin(Some(receiver).into());
+                                    }
+
+                                    debug!(self.log, "Sync is waiting on execution layer");
+                                }
+                                status_lock.block_lookup = true;
+                            }
+                        }
                         SyncMessage::BatchProcessed { sync_type, result } => match sync_type {
                             ChainSegmentProcessId::RangeBatchId(chain_id, epoch) => {
                                 self.range_sync.handle_block_process_result(
@@ -598,9 +632,25 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                                     }
                                 }
                             }
-                            ChainSegmentProcessId::ParentLookup(chain_hash) => self
-                                .block_lookups
-                                .parent_chain_processed(chain_hash, result, &mut self.network),
+                            ChainSegmentProcessId::ParentLookup(chain_hash) => {
+                                let block_lookup_status = self
+                                    .block_lookups
+                                    .parent_chain_processed(chain_hash, result, &mut self.network);
+
+                                if let BlockLookupStatus::WaitingOnExecution = block_lookup_status {
+                                    let mut status_lock = self.waiting_on_execution.lock().await;
+                                    if !status_lock.range && !status_lock.block_lookup {
+                                        if let Some(execution_layer) = self.chain.execution_layer.as_ref() {
+                                            let receiver = execution_layer.is_synced_channel().await;
+                                            self.execution_notifier = Box::pin(Some(receiver).into());
+                                        }
+
+                                        debug!(self.log, "Sync is waiting on execution layer");
+                                    }
+                                    status_lock.block_lookup = true;
+                                }
+                            }
+
                         },
                     }
                 }
