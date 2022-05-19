@@ -660,25 +660,28 @@ impl ExecutionLayer {
                                 suggested_fee_recipient,
                             };
 
-                            engine
+                            let response = engine
                                 .notify_forkchoice_updated(
                                     fork_choice_state,
                                     Some(payload_attributes),
                                     self.log(),
                                 )
-                                .await
-                                .map(|response| response.payload_id)?
-                                .ok_or_else(|| {
+                                .await?;
+
+                            match response.payload_id {
+                                Some(payload_id) => payload_id,
+                                None => {
                                     error!(
                                         self.log(),
                                         "Exec engine unable to produce payload";
                                         "msg" => "No payload ID, the engine is likely syncing. \
                                                   This has the potential to cause a missed block \
                                                   proposal.",
+                                        "status" => ?response.payload_status
                                     );
-
-                                    ApiError::PayloadIdUnavailable
-                                })?
+                                    return Err(ApiError::PayloadIdUnavailable);
+                                }
+                            }
                         };
 
                         engine
