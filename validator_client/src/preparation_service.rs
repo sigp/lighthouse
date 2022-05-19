@@ -1,12 +1,10 @@
 use crate::beacon_node_fallback::{BeaconNodeFallback, RequireSynced};
-use crate::signing_method::SignableMessage::ValidatorRegistration;
 use crate::{
     fee_recipient_file::FeeRecipientFile,
     validator_store::{DoppelgangerStatus, ValidatorStore},
 };
 use bls::PublicKeyBytes;
 use environment::RuntimeContext;
-use slashing_protection::test_utils::pubkey;
 use slog::{debug, error, info};
 use slot_clock::SlotClock;
 use std::ops::Deref;

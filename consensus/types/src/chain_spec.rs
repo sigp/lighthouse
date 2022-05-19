@@ -1150,7 +1150,13 @@ mod tests {
             &spec,
         );
         test_domain(Domain::SyncCommittee, spec.domain_sync_committee, &spec);
-        test_domain(Domain::ApplicationMask, spec.domain_application_mask, &spec);
+
+        // 16777216 is the application domain index of 0 with the application mask applied
+        test_domain(
+            Domain::ApplicationMask(ApplicationDomain::Builder),
+            16777216,
+            &spec,
+        );
     }
 
     // Test that `fork_name_at_epoch` and `fork_epoch` are consistent.

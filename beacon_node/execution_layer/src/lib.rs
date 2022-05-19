@@ -33,7 +33,7 @@ use tokio::{
 };
 use types::{
     BlindedPayload, BlockType, ChainSpec, Epoch, ExecPayload, ExecutionBlockHash,
-    ProposerPreparationData, PublicKeyBytes, SignedBeaconBlock, Slot,
+    ProposerPreparationData, SignedBeaconBlock, Slot,
 };
 
 mod engine_api;

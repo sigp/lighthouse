@@ -532,7 +532,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
         // https://github.com/ethereum/builder-specs/issues/14
         let genesis_epoch = self.spec.genesis_slot.epoch(E::slots_per_epoch());
         let signing_context = SigningContext {
-            domain: Domain::ApplicationMask(ApplicationDomain::BuilderRegistration),
+            domain: Domain::ApplicationMask(ApplicationDomain::Builder),
             epoch: genesis_epoch,
             fork: self.fork(genesis_epoch),
             genesis_validators_root: Hash256::zero(),
