@@ -1,5 +1,6 @@
 use crate::beacon_chain::{BEACON_CHAIN_DB_KEY, ETH1_CACHE_DB_KEY, OP_POOL_DB_KEY};
 use crate::eth1_chain::{CachingEth1Backend, SszEth1};
+use crate::fork_choice_signal::ForkChoiceSignalTx;
 use crate::fork_revert::{reset_fork_choice_to_finalization, revert_to_fork_boundary};
 use crate::head_tracker::HeadTracker;
 use crate::migrate::{BackgroundMigrator, MigratorConfig};
@@ -694,6 +695,16 @@ where
             );
         }
 
+        // If enabled, set up the fork choice signaller.
+        let (fork_choice_signal_tx, fork_choice_signal_rx) =
+            if self.chain_config.fork_choice_before_proposal_timeout_ms != 0 {
+                let tx = ForkChoiceSignalTx::new();
+                let rx = tx.get_receiver();
+                (Some(tx), Some(rx))
+            } else {
+                (None, None)
+            };
+
         // Store the `PersistedBeaconChain` in the database atomically with the metadata so that on
         // restart we can correctly detect the presence of an initialized database.
         //
@@ -752,6 +763,8 @@ where
             genesis_block_root,
             genesis_state_root,
             fork_choice: RwLock::new(fork_choice),
+            fork_choice_signal_tx,
+            fork_choice_signal_rx,
             event_handler: self.event_handler,
             head_tracker,
             snapshot_cache: TimeoutRwLock::new(SnapshotCache::new(

@@ -15,6 +15,7 @@ mod errors;
 pub mod eth1_chain;
 pub mod events;
 mod execution_payload;
+pub mod fork_choice_signal;
 pub mod fork_revert;
 mod head_tracker;
 pub mod historical_blocks;
@@ -38,7 +39,6 @@ pub mod test_utils;
 mod timeout_rw_lock;
 pub mod validator_monitor;
 mod validator_pubkey_cache;
-pub mod validator_registration_service;
 
 pub use self::beacon_chain::{
     AttestationProcessingOutcome, BeaconChain, BeaconChainTypes, BeaconStore, ChainSegmentResult,

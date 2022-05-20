@@ -26,8 +26,9 @@ const BATCH_BUFFER_SIZE: u8 = 5;
 /// A return type for functions that act on a `Chain` which informs the caller whether the chain
 /// has been completed and should be removed or to be kept if further processing is
 /// required.
-#[must_use = "Should be checked, since a failed chain must be removed. A chain that requested
- being removed and continued is now in an inconsistent state"]
+///
+/// Should be checked, since a failed chain must be removed. A chain that requested being removed
+/// and continued is now in an inconsistent state.
 pub type ProcessingResult = Result<KeepChain, RemoveChain>;
 
 /// Reasons for removing a chain

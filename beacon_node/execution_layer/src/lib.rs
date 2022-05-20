@@ -31,11 +31,9 @@ use tokio::{
     sync::{Mutex, MutexGuard, RwLock},
     time::{sleep, sleep_until, Instant},
 };
-use builder_client::BuilderHttpClient;
-use types::validator_registration_data::SignedValidatorRegistrationData;
 use types::{
     BlindedPayload, BlockType, ChainSpec, Epoch, ExecPayload, ExecutionBlockHash,
-    ProposerPreparationData, PublicKeyBytes, SignedBeaconBlock, Slot,
+    ProposerPreparationData, SignedBeaconBlock, Slot,
 };
 
 mod engine_api;
@@ -90,12 +88,6 @@ pub struct ProposerPreparationDataEntry {
     preparation_data: ProposerPreparationData,
 }
 
-#[derive(Clone, PartialEq)]
-pub struct ValidatorRegistrationDataEntry {
-    update_epoch: Epoch,
-    validator_registration_data: SignedValidatorRegistrationData,
-}
-
 #[derive(Hash, PartialEq, Eq)]
 pub struct ProposerKey {
     slot: Slot,
@@ -114,7 +106,6 @@ struct Inner<E: EthSpec> {
     execution_engine_forkchoice_lock: Mutex<()>,
     suggested_fee_recipient: Option<Address>,
     proposer_preparation_data: Mutex<HashMap<u64, ProposerPreparationDataEntry>>,
-    validator_registration_data: Mutex<HashMap<u64, ValidatorRegistrationDataEntry>>,
     execution_blocks: Mutex<LruCache<ExecutionBlockHash, ExecutionBlock>>,
     proposers: RwLock<HashMap<ProposerKey, Proposer>>,
     executor: TaskExecutor,
@@ -257,7 +248,6 @@ impl<T: EthSpec> ExecutionLayer<T> {
             execution_engine_forkchoice_lock: <_>::default(),
             suggested_fee_recipient,
             proposer_preparation_data: Mutex::new(HashMap::new()),
-            validator_registration_data: Mutex::new(HashMap::new()),
             proposers: RwLock::new(HashMap::new()),
             execution_blocks: Mutex::new(LruCache::new(EXECUTION_BLOCKS_LRU_CACHE_SIZE)),
             executor,
@@ -310,13 +300,6 @@ impl<T: EthSpec> ExecutionLayer<T> {
         &self,
     ) -> MutexGuard<'_, HashMap<u64, ProposerPreparationDataEntry>> {
         self.inner.proposer_preparation_data.lock().await
-    }
-
-    /// Note: this function returns a mutex guard, be careful to avoid deadlocks.
-    async fn validator_registration_data(
-        &self,
-    ) -> MutexGuard<'_, HashMap<u64, ValidatorRegistrationDataEntry>> {
-        self.inner.validator_registration_data.lock().await
     }
 
     fn proposers(&self) -> &RwLock<HashMap<ProposerKey, Proposer>> {
@@ -518,40 +501,6 @@ impl<T: EthSpec> ExecutionLayer<T> {
 
             if existing != Some(new) {
                 metrics::inc_counter(&metrics::EXECUTION_LAYER_PROPOSER_DATA_UPDATED);
-            }
-        }
-    }
-
-    /// Updates the validator registration data provided by validators
-    pub fn update_validator_registration_blocking(
-        &self,
-        update_epoch: Epoch,
-        val_registration_data: &[(u64, SignedValidatorRegistrationData)],
-    ) -> Result<(), Error> {
-        self.block_on_generic(|_| async move {
-            self.update_validator_registration(update_epoch, val_registration_data)
-                .await
-        })
-    }
-
-    /// Updates the validator registration data provided by validators
-    async fn update_validator_registration(
-        &self,
-        update_epoch: Epoch,
-        val_registration_data: &[(u64, SignedValidatorRegistrationData)],
-    ) {
-        let mut validator_registration_data = self.validator_registration_data().await;
-        for (val_index, registration_entry) in val_registration_data {
-            let new = ValidatorRegistrationDataEntry {
-                update_epoch,
-                validator_registration_data: registration_entry.clone(),
-            };
-
-            let existing =
-                validator_registration_data.insert(*val_index, new.clone());
-
-            if existing != Some(new) {
-                metrics::inc_counter(&metrics::BUILDER_VALIDATOR_REGISTRATION_DATA);
             }
         }
     }
@@ -822,26 +771,29 @@ impl<T: EthSpec> ExecutionLayer<T> {
                         suggested_fee_recipient,
                     };
 
-                    engine
-                        .notify_forkchoice_updated(
-                            fork_choice_state,
-                            Some(payload_attributes),
-                            self.log(),
-                        )
-                        .await
-                        .map(|response| response.payload_id)?
-                        .ok_or_else(|| {
-                            error!(
-                                self.log(),
-                                "Exec engine unable to produce payload";
-                                "msg" => "No payload ID, the engine is likely syncing. \
-                                          This has the potential to cause a missed block \
-                                          proposal.",
-                            );
+                            let response = engine
+                                .notify_forkchoice_updated(
+                                    fork_choice_state,
+                                    Some(payload_attributes),
+                                    self.log(),
+                                )
+                                .await?;
 
-                            ApiError::PayloadIdUnavailable
-                        })?
-                };
+                            match response.payload_id {
+                                Some(payload_id) => payload_id,
+                                None => {
+                                    error!(
+                                        self.log(),
+                                        "Exec engine unable to produce payload";
+                                        "msg" => "No payload ID, the engine is likely syncing. \
+                                                  This has the potential to cause a missed block \
+                                                  proposal.",
+                                        "status" => ?response.payload_status
+                                    );
+                                    return Err(ApiError::PayloadIdUnavailable);
+                                }
+                            }
+                        };
 
                 engine
                     .api

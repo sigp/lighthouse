@@ -61,7 +61,7 @@ pub type BaseHarnessType<TEthSpec, THotStore, TColdStore> =
 pub type DiskHarnessType<E> = BaseHarnessType<E, LevelDB<E>, LevelDB<E>>;
 pub type EphemeralHarnessType<E> = BaseHarnessType<E, MemoryStore<E>, MemoryStore<E>>;
 
-type BoxedMutator<E, Hot, Cold> = Box<
+pub type BoxedMutator<E, Hot, Cold> = Box<
     dyn FnOnce(
         BeaconChainBuilder<BaseHarnessType<E, Hot, Cold>>,
     ) -> BeaconChainBuilder<BaseHarnessType<E, Hot, Cold>>,
@@ -586,18 +586,7 @@ where
         // different blocks each time.
         let graffiti = Graffiti::from(self.rng.lock().gen::<[u8; 32]>());
 
-        let randao_reveal = {
-            let epoch = slot.epoch(E::slots_per_epoch());
-            let domain = self.spec.get_domain(
-                epoch,
-                Domain::Randao,
-                &state.fork(),
-                state.genesis_validators_root(),
-            );
-            let message = epoch.signing_root(domain);
-            let sk = &self.validator_keypairs[proposer_index].sk;
-            sk.sign(message)
-        };
+        let randao_reveal = self.sign_randao_reveal(&state, proposer_index, slot);
 
         let (block, state) = self
             .chain
@@ -645,18 +634,7 @@ where
         // different blocks each time.
         let graffiti = Graffiti::from(self.rng.lock().gen::<[u8; 32]>());
 
-        let randao_reveal = {
-            let epoch = slot.epoch(E::slots_per_epoch());
-            let domain = self.spec.get_domain(
-                epoch,
-                Domain::Randao,
-                &state.fork(),
-                state.genesis_validators_root(),
-            );
-            let message = epoch.signing_root(domain);
-            let sk = &self.validator_keypairs[proposer_index].sk;
-            sk.sign(message)
-        };
+        let randao_reveal = self.sign_randao_reveal(&state, proposer_index, slot);
 
         let pre_state = state.clone();
 
@@ -680,6 +658,25 @@ where
         );
 
         (signed_block, pre_state)
+    }
+
+    /// Create a randao reveal for a block at `slot`.
+    pub fn sign_randao_reveal(
+        &self,
+        state: &BeaconState<E>,
+        proposer_index: usize,
+        slot: Slot,
+    ) -> Signature {
+        let epoch = slot.epoch(E::slots_per_epoch());
+        let domain = self.spec.get_domain(
+            epoch,
+            Domain::Randao,
+            &state.fork(),
+            state.genesis_validators_root(),
+        );
+        let message = epoch.signing_root(domain);
+        let sk = &self.validator_keypairs[proposer_index].sk;
+        sk.sign(message)
     }
 
     /// Produces an "unaggregated" attestation for the given `slot` and `index` that attests to

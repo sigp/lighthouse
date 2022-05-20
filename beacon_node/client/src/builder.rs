@@ -3,7 +3,6 @@ use crate::notifier::spawn_notifier;
 use crate::Client;
 use beacon_chain::proposer_prep_service::start_proposer_prep_service;
 use beacon_chain::schema_change::migrate_schema;
-use beacon_chain::validator_registration_service::start_validator_registration_service;
 use beacon_chain::{
     builder::{BeaconChainBuilder, Witness},
     eth1_chain::{CachingEth1Backend, Eth1Chain},
@@ -716,10 +715,6 @@ where
             }
 
             start_proposer_prep_service(runtime_context.executor.clone(), beacon_chain.clone());
-            start_validator_registration_service(
-                runtime_context.executor.clone(),
-                beacon_chain.clone(),
-            );
         }
 
         Ok(Client {

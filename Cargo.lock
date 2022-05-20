@@ -2536,11 +2536,13 @@ dependencies = [
  "lighthouse_metrics",
  "lighthouse_network",
  "lighthouse_version",
+ "logging",
  "network",
  "parking_lot 0.12.0",
  "safe_arith",
  "sensitive_url",
  "serde",
+ "serde_json",
  "slog",
  "slot_clock",
  "state_processing",
@@ -3899,6 +3901,7 @@ name = "network"
 version = "0.2.0"
 dependencies = [
  "beacon_chain",
+ "derivative",
  "environment",
  "error-chain",
  "eth2_ssz",

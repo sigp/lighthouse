@@ -172,6 +172,8 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
     /// - Adding the validator definition to the YAML file, saving it to the filesystem.
     /// - Enabling the validator with the slashing protection database.
     /// - If `enable == true`, starting to perform duties for the validator.
+    // FIXME: ignore this clippy lint until the validator store is refactored to use async locks
+    #[allow(clippy::await_holding_lock)]
     pub async fn add_validator(
         &self,
         validator_def: ValidatorDefinition,
@@ -532,7 +534,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
         // https://github.com/ethereum/builder-specs/issues/14
         let genesis_epoch = self.spec.genesis_slot.epoch(E::slots_per_epoch());
         let signing_context = SigningContext {
-            domain: Domain::ApplicationMask(ApplicationDomain::BuilderRegistration),
+            domain: Domain::ApplicationMask(ApplicationDomain::Builder),
             epoch: genesis_epoch,
             fork: self.fork(genesis_epoch),
             genesis_validators_root: Hash256::zero(),
