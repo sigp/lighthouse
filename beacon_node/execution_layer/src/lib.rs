@@ -10,8 +10,8 @@ use auth::{Auth, JwtKey};
 use engine_api::Error as ApiError;
 pub use engine_api::*;
 pub use engine_api::{http, http::HttpJsonRpc};
-pub use engines::ForkChoiceState;
 use engines::{Engine, EngineError, Engines, Logging};
+pub use engines::{ExecutionSyncNotifierRx, ForkChoiceState};
 use lru::LruCache;
 use payload_status::process_multiple_payload_statuses;
 pub use payload_status::PayloadStatus;
@@ -238,7 +238,7 @@ impl ExecutionLayer {
             engines: Engines {
                 engines,
                 latest_forkchoice_state: <_>::default(),
-                notifier: <_>::default(),
+                sync_notifier_tx: <_>::default(),
                 log: log.clone(),
             },
             builders: Builders {
@@ -459,17 +459,16 @@ impl ExecutionLayer {
         self.engines().any_synced().await
     }
 
-    /// Returns a notifier that receives when the execution layer comes back online.
-    /// Currently returns just one receiver instance at a time.
-    /// Is able to return a new instance only after the previously handed
-    /// out receiver instance has been closed.
+    /// Returns a notifier that receives over a channel when the execution layer
+    /// comes back online. This function returns just one receiver instance at a
+    /// time and can creates a new instance only after the existing channel is closed.
     ///
-    /// This is to ensure there are no race conditions with multiple instances
+    /// This is to ensure there are no deadlocks in sync with multiple instances
     /// of the notifier having different sync statuses.
     ///
     /// Returns `None` if a non-closed receiver instance already exists.
-    pub async fn is_online_notifier(&self) -> Option<tokio::sync::oneshot::Receiver<()>> {
-        self.engines().execution_online_notifier().await
+    pub async fn is_online_notifier(&self) -> Option<ExecutionSyncNotifierRx> {
+        self.engines().execution_sync_notifier().await
     }
 
     /// Updates the proposer preparation data provided by validators

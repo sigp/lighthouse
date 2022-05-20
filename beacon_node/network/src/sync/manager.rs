@@ -475,12 +475,13 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                     let mut status_lock = self.waiting_on_execution.lock().await;
                     // Get the notifier from the execution layer only if neither
                     // of range and block_lookup are waiting on execution.
-                    // This is to ensure that we don't overwrite the notifier.
+                    // This is to ensure that we do not request a new notifier when
+                    // we already have one which has not received over the channel.
                     if !status_lock.range && !status_lock.block_lookup {
                         if let Some(execution_layer) = self.chain.execution_layer.as_ref() {
                             let receiver = execution_layer.is_online_notifier().await;
                             if let Some(recv) = receiver {
-                                self.execution_notifier = Box::pin(Some(recv).into());
+                                self.execution_notifier = Box::pin(Some(recv.0).into());
                             } else {
                                 crit!(
                                     self.log,
@@ -614,7 +615,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                                     if let Some(execution_layer) = self.chain.execution_layer.as_ref() {
                                         let receiver = execution_layer.is_online_notifier().await;
                                         if let Some(recv) = receiver {
-                                            self.execution_notifier = Box::pin(Some(recv).into());
+                                            self.execution_notifier = Box::pin(Some(recv.0).into());
                                         } else {
                                             crit!(
                                                 self.log,
@@ -665,7 +666,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                                         if let Some(execution_layer) = self.chain.execution_layer.as_ref() {
                                             let receiver = execution_layer.is_online_notifier().await;
                                             if let Some(recv) = receiver {
-                                                self.execution_notifier = Box::pin(Some(recv).into());
+                                                self.execution_notifier = Box::pin(Some(recv.0).into());
                                             } else {
                                                 crit!(
                                                     self.log,

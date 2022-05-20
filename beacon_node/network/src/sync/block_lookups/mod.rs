@@ -466,7 +466,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                             "root" => %root,
                             "error" => ?e
                         );
-                        self.status = BlockLookupStatus::WaitingOnExecution;
+                        self.set_status(BlockLookupStatus::WaitingOnExecution);
                     }
                     err => {
                         debug!(self.log,
@@ -587,7 +587,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                         "chain_hash" => %chain_hash,
                         "error" => ?e
                     );
-                    self.status = BlockLookupStatus::WaitingOnExecution;
+                    self.set_status(BlockLookupStatus::WaitingOnExecution);
                 }
                 err => {
                     warn!(self.log,
@@ -680,7 +680,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                             "chain_hash" => %chain_hash,
                             "error" => ?mode
                         );
-                        self.status = BlockLookupStatus::WaitingOnExecution;
+                        self.set_status(BlockLookupStatus::WaitingOnExecution);
                         metrics::set_gauge(
                             &metrics::SYNC_PARENT_BLOCK_LOOKUPS,
                             self.parent_queue.len() as i64,

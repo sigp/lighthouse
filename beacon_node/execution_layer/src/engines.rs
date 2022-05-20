@@ -18,9 +18,13 @@ use types::{Address, ExecutionBlockHash, Hash256};
 /// Since the size of each value is small (~100 bytes) a large number is used for safety.
 const PAYLOAD_ID_LRU_CACHE_SIZE: usize = 512;
 
-/// A notifier that indicates change to the execution layer status
-/// from offline -> online by sending it over a oneshot channel.
-pub struct ExecutionOnlineNotifier(tokio::sync::oneshot::Sender<()>);
+/// Notifies the sync thread about a change in the execution layer status
+/// from offline -> online by sending over a oneshot channel.
+pub struct ExecutionSyncNotifierTx(tokio::sync::oneshot::Sender<()>);
+
+/// Receives over a oneshot channel when the execution layer becomes
+/// available.
+pub struct ExecutionSyncNotifierRx(pub tokio::sync::oneshot::Receiver<()>);
 
 /// Stores the remembered state of a engine.
 #[derive(Copy, Clone, PartialEq, Debug)]
@@ -165,7 +169,7 @@ impl Builder for Engine<BuilderApi> {
 pub struct Engines {
     pub engines: Vec<Engine<EngineApi>>,
     pub latest_forkchoice_state: RwLock<Option<ForkChoiceState>>,
-    pub notifier: RwLock<Option<ExecutionOnlineNotifier>>,
+    pub sync_notifier_tx: RwLock<Option<ExecutionSyncNotifierTx>>,
     pub log: Logger,
 }
 
@@ -245,23 +249,28 @@ impl Engines {
     }
 
     /// Returns a notifier that receives over the channel when the execution
-    /// layer becomes available.
+    /// layer becomes available. The notifier is meant to indicate to the block
+    /// syncing thread that the execution layer is online after a period of downtime.
     ///
     /// Returns `None` if there already exists a notifier in `self` over which
     /// we have not sent a notification.
-    pub async fn execution_online_notifier(&self) -> Option<tokio::sync::oneshot::Receiver<()>> {
-        let mut notifier_lock = self.notifier.write().await;
-        if let Some(notifier) = notifier_lock.take() {
+    pub async fn execution_sync_notifier(&self) -> Option<ExecutionSyncNotifierRx> {
+        let mut notifier_lock = self.sync_notifier_tx.write().await;
+        if let Some(notifier) = notifier_lock.as_ref() {
+            // If the channel is not closed (i.e. the receiver is still waiting), we don't
+            // create a new notifier
             if !notifier.0.is_closed() {
                 return None;
             }
         }
 
+        // If the notifier was not initialized or the send channel is closed,
+        // we create a new channel and return the receiver.
         let (tx, rx) = tokio::sync::oneshot::channel();
 
-        let notifier = ExecutionOnlineNotifier(tx);
+        let notifier = ExecutionSyncNotifierTx(tx);
         *notifier_lock = Some(notifier);
-        Some(rx)
+        Some(ExecutionSyncNotifierRx(rx))
     }
 
     /// Returns the status of the notifier.
@@ -269,7 +278,7 @@ impl Engines {
     /// Returns `false` if the notifier is not initialized.
     /// `true` implies
     async fn notifier_status(&self) -> bool {
-        self.notifier.read().await.as_ref().is_some()
+        self.sync_notifier_tx.read().await.as_ref().is_some()
     }
 
     /// Run the `EngineApi::upcheck` function on all nodes which are currently offline.
@@ -350,7 +359,7 @@ impl Engines {
 
         // Update notifier only if it was initialized
         if num_synced > 0 && self.notifier_status().await {
-            if let Some(notifier) = self.notifier.write().await.take() {
+            if let Some(notifier) = self.sync_notifier_tx.write().await.take() {
                 debug!(
                     self.log,
                     "Execution layer is online";
