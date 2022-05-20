@@ -89,3 +89,67 @@ validators where a `suggested_fee_recipient` is not loaded from another method.
 
 The `--suggested-fee-recipient` can be provided to the BN to act as a default value when the
 validator client does not transmit a `suggested_fee_recipient` to the BN.
+
+## Setting the fee recipient dynamically using the keymanager API
+
+When the [validator client API](api-vc.md) is enabled, the
+[standard keymanager API](https://ethereum.github.io/keymanager-APIs/) includes an endpoint
+for setting the fee recipient dynamically. When used, the fee recipient will be saved in
+`validator_definitions.yml` so that it persists across restarts of the validator client.
+
+| Property | Specification |
+| --- | --- |
+Path | `/eth/v1/validator/{pubkey}/feerecipient`
+Method | POST
+Required Headers | [`Authorization`](./api-vc-auth-header.md)
+Typical Responses | 202, 404
+
+```bash
+DATADIR=$HOME/.lighthouse/mainnet
+PUBKEY=0xa9735061c84fc0003657e5bd38160762b7ef2d67d280e00347b1781570088c32c06f15418c144949f5d736b1d3a6c591
+FEE_RECIPIENT=0x1D4E51167DBDC4789a014357f4029ff76381b16c
+
+curl -X POST \
+    -H "Authorization: Bearer $(cat ${DATADIR}/validators/api-token.txt)" \
+    -H "Content-Type: application/json" \
+    -d "{ \"ethaddress\": \"${FEE_RECIPIENT}\" }" \
+    http://localhost:5062/eth/v1/validator/${PUBKEY}/feerecipient | jq
+```
+
+Successful Response (202)
+```json
+null
+```
+
+### Querying the fee recipient
+
+The same path with a `GET` request can be used to query the fee recipient at any time.
+
+| Property | Specification |
+| --- | --- |
+Path | `/eth/v1/validator/{pubkey}/feerecipient`
+Method | GET
+Required Headers | [`Authorization`](./api-vc-auth-header.md)
+Typical Responses | 200, 404
+
+```bash
+DATADIR=$HOME/.lighthouse/mainnet
+PUBKEY=0xa9735061c84fc0003657e5bd38160762b7ef2d67d280e00347b1781570088c32c06f15418c144949f5d736b1d3a6c591
+
+curl -X GET \
+    -H "Authorization: Bearer $(cat ${DATADIR}/validators/api-token.txt)" \
+    -H "Content-Type: application/json" \
+    http://localhost:5062/eth/v1/validator/${PUBKEY}/feerecipient | jq
+```
+
+Successful Response (200)
+```json
+{
+  "data": {
+    "pubkey": "0xa9735061c84fc0003657e5bd38160762b7ef2d67d280e00347b1781570088c32c06f15418c144949f5d736b1d3a6c591",
+    "ethaddress": "0x1d4e51167dbdc4789a014357f4029ff76381b16c"
+  }
+}
+```
+
+

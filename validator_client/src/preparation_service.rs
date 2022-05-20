@@ -215,8 +215,7 @@ impl<T: SlotClock + 'static, E: EthSpec> PreparationService<T, E> {
 
         // If there is a `suggested_fee_recipient` in the validator definitions yaml
         // file, use that value.
-        self
-            .validator_store
+        self.validator_store
             .suggested_fee_recipient(pubkey)
             .or_else(|| {
                 // If there's nothing in the validator defs file, check the fee
