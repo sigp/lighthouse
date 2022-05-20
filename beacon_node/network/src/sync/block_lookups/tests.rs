@@ -72,6 +72,15 @@ impl TestRig {
         )
     }
 
+    fn rand_block_merge(&mut self) -> SignedBeaconBlock<E> {
+        SignedBeaconBlock::from_block(
+            types::BeaconBlock::Merge(types::BeaconBlockMerge {
+                ..<_>::random_for_test(&mut self.rng)
+            }),
+            types::Signature::random_for_test(&mut self.rng),
+        )
+    }
+
     #[track_caller]
     fn expect_block_request(&mut self) -> Id {
         match self.network_rx.try_recv() {
@@ -231,6 +240,61 @@ fn test_single_block_lookup_failure() {
 }
 
 #[test]
+fn test_execution_layer_error_single_block_lookup() {
+    let (mut bl, mut cx, mut rig) = TestRig::test_setup(None);
+
+    let block = rig.rand_block_merge();
+    let peer_id = PeerId::random();
+
+    // Trigger the request
+    bl.search_block(block.canonical_root(), peer_id, &mut cx);
+    let id = rig.expect_block_request();
+
+    // Peer sends something else. It should be penalized.
+    bl.single_block_lookup_response(id, peer_id, Some(Box::new(block.clone())), D, &mut cx);
+    rig.expect_empty_network();
+    rig.expect_block_process();
+
+    // The request should still be active.
+    assert_eq!(bl.single_block_lookups.len(), 1);
+
+    // Peer should not be penalized, block_lookup should be waiting on execution after this.
+    assert_eq!(
+        bl.single_block_processed(
+            id,
+            Err(BlockError::ExecutionPayloadError(
+                ExecutionPayloadError::NoExecutionConnection,
+            )),
+            &mut cx,
+        ),
+        BlockLookupStatus::WaitingOnExecution
+    );
+    assert_eq!(bl.single_block_lookups.len(), 0);
+
+    // Set the status back to active and resend the request
+    bl.set_status(BlockLookupStatus::Activated);
+
+    // Trigger the request
+    bl.search_block(block.canonical_root(), peer_id, &mut cx);
+    let id = rig.expect_block_request();
+
+    // Peer sends something else. It should be penalized.
+    bl.single_block_lookup_response(id, peer_id, Some(Box::new(block)), D, &mut cx);
+    rig.expect_empty_network();
+    rig.expect_block_process();
+
+    // The request should still be active.
+    assert_eq!(bl.single_block_lookups.len(), 1);
+
+    // Block_lookup should be successful.
+    assert_eq!(
+        bl.single_block_processed(id, Ok(()), &mut cx),
+        BlockLookupStatus::Activated
+    );
+    assert_eq!(bl.single_block_lookups.len(), 0);
+}
+
+#[test]
 fn test_single_block_lookup_becomes_parent_request() {
     let (mut bl, mut cx, mut rig) = TestRig::test_setup(None);
 
@@ -372,6 +436,63 @@ fn test_parent_lookup_rpc_failure() {
     bl.parent_block_processed(chain_hash, Ok(()), &mut cx);
     rig.expect_parent_chain_process();
     bl.parent_chain_processed(chain_hash, BatchProcessResult::Success(true), &mut cx);
+    assert_eq!(bl.parent_queue.len(), 0);
+}
+
+#[test]
+fn test_execution_layer_error_parent_lookup() {
+    let (mut bl, mut cx, mut rig) = TestRig::test_setup(None);
+
+    let parent = rig.rand_block_merge();
+    let block = rig.block_with_parent(parent.canonical_root());
+    let chain_hash = block.canonical_root();
+    let peer_id = PeerId::random();
+
+    // Trigger the request
+    bl.search_parent(Box::new(block.clone()), peer_id, &mut cx);
+    let id = rig.expect_parent_request();
+
+    // Peer sends the right block, it should be sent for processing. Peer should not be penalized.
+    bl.parent_lookup_response(id, peer_id, Some(Box::new(parent.clone())), D, &mut cx);
+    rig.expect_block_process();
+    rig.expect_empty_network();
+
+    // Processing stalls because of execution layer error
+    assert_eq!(
+        bl.parent_block_processed(
+            chain_hash,
+            Err(BlockError::ExecutionPayloadError(
+                ExecutionPayloadError::NoExecutionConnection,
+            )),
+            &mut cx,
+        ),
+        BlockLookupStatus::WaitingOnExecution
+    );
+
+    assert_eq!(bl.parent_queue.len(), 0);
+
+    // Set the status back to active and resend the request
+    bl.set_status(BlockLookupStatus::Activated);
+
+    // Trigger the request
+    bl.search_parent(Box::new(block), peer_id, &mut cx);
+    let id = rig.expect_parent_request();
+
+    // Peer sends the right block, it should be sent for processing. Peer should not be penalized.
+    bl.parent_lookup_response(id, peer_id, Some(Box::new(parent)), D, &mut cx);
+    rig.expect_block_process();
+    rig.expect_empty_network();
+
+    // Processing succeeds, now the rest of the chain should be sent for processing.
+    assert_eq!(
+        bl.parent_block_processed(chain_hash, Err(BlockError::BlockIsAlreadyKnown), &mut cx),
+        BlockLookupStatus::Activated
+    );
+    rig.expect_parent_chain_process();
+    assert_eq!(
+        bl.parent_chain_processed(chain_hash, BatchProcessResult::Success(true), &mut cx),
+        BlockLookupStatus::Activated
+    );
     assert_eq!(bl.parent_queue.len(), 0);
 }
 

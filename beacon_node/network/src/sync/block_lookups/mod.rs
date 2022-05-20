@@ -32,7 +32,7 @@ mod tests;
 const FAILED_CHAINS_CACHE_EXPIRY_SECONDS: u64 = 60;
 const SINGLE_BLOCK_LOOKUP_MAX_ATTEMPTS: u8 = 3;
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum BlockLookupStatus {
     WaitingOnExecution,
     Activated,
