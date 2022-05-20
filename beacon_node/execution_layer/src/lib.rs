@@ -33,8 +33,9 @@ use tokio::{
 };
 use types::{
     BlindedPayload, BlockType, ChainSpec, Epoch, ExecPayload, ExecutionBlockHash,
-    ProposerPreparationData, SignedBeaconBlock, Slot,
+    ProposerPreparationData, PublicKeyBytes, SignedBeaconBlock, Slot,
 };
+use builder_client::BuilderHttpClient;
 
 mod engine_api;
 mod engines;
@@ -581,6 +582,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
         prev_randao: Hash256,
         finalized_block_hash: ExecutionBlockHash,
         proposer_index: u64,
+        pubkey: Option<PublicKeyBytes>,
     ) -> Result<Payload, Error> {
         let suggested_fee_recipient = self.get_suggested_fee_recipient(proposer_index).await;
 
@@ -596,6 +598,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
                     prev_randao,
                     finalized_block_hash,
                     suggested_fee_recipient,
+                    pubkey,
                 )
                 .await
             }
@@ -623,50 +626,49 @@ impl<T: EthSpec> ExecutionLayer<T> {
         prev_randao: Hash256,
         finalized_block_hash: ExecutionBlockHash,
         suggested_fee_recipient: Address,
+        pubkey_opt: Option<PublicKeyBytes>,
     ) -> Result<Payload, Error> {
-
         //TODO(sean) only use the blinded block flow if we have recent chain health
 
         // Don't attempt to outsource payload construction until after the merge transition has been
         // finalized. We want to be conservative with payload construction until then.
         if self.has_builders() && finalized_block_hash != ExecutionBlockHash::zero() {
-
-            debug!(
-                self.log(),
-                "Requesting blinded header from connected builder";
-                "slot" => ?slot,
-                "pubkey" => ?pubkey,
-                "parent_hash" => ?parent_hash,
-            );
-            let result = self
-                .builders()
-                .first_success_without_retry(|builder| async move {
-                    let pubkey = pubkey_opt.ok_or(ApiError::PublicKeyMissing)?;
-                    let data = self.validator_registration_data().get(&pubkey).ok_or(ApiError::PublicKeyMissing)?;
-
-                    builder.get_builder_header(slot, parent_hash, &)
-                        .await?
-                        //TODO(sean) check fork?
-                        .data
-                        .try_into()
-                        .map_err(|_| ApiError::PayloadConversionLogicFlaw)
-                })
-                .await
-                .map_err(Error::EngineErrors);
-
-            match result {
-                Err(e) => {
-                    warn!(self.log(),"Unable to retrieve a payload from a relay, falling back to the local execution client: {e:?}");
-                    self.get_full_payload_caching(
-                        parent_hash,
-                        timestamp,
-                        prev_randao,
-                        finalized_block_hash,
-                        suggested_fee_recipient,
-                    )
+            if let Some(pubkey) = pubkey_opt {
+                debug!(
+                    self.log(),
+                    "Requesting blinded header from connected builder";
+                    "slot" => ?slot,
+                    "pubkey" => ?pubkey,
+                    "parent_hash" => ?parent_hash,
+                );
+                let result = self
+                    .builders()
+                    .first_success_without_retry(|builder| async move {
+                        builder
+                            .get_builder_header(slot, parent_hash, &pubkey)
+                            .await?
+                            //TODO(sean) check fork?
+                            .data
+                            .try_into()
+                            .map_err(|_| ApiError::PayloadConversionLogicFlaw)
+                    })
                     .await
+                    .map_err(Error::EngineErrors);
+
+                match result {
+                    Err(e) => {
+                        warn!(self.log(),"Unable to retrieve a payload from a relay, falling back to the local execution client: {e:?}");
+                        self.get_full_payload_caching(
+                            parent_hash,
+                            timestamp,
+                            prev_randao,
+                            finalized_block_hash,
+                            suggested_fee_recipient,
+                        )
+                        .await
+                    }
+                    Ok(payload) => Ok(payload),
                 }
-                Ok(payload) => Ok(payload),
             }
         } else {
             self.get_full_payload_caching(
@@ -1348,11 +1350,14 @@ impl<T: EthSpec> ExecutionLayer<T> {
         );
         self.builders()
             .first_success_without_retry(|builder| async move {
-                builder.post_builder_blinded_blocks(block).await.map_err(engine_api::Error::BuilderApi)
+                builder
+                    .post_builder_blinded_blocks(block)
+                    .await
+                    .map_err(engine_api::Error::BuilderApi)
             })
             .await
             //TODO(sean) check fork?
-            .map(|d|d.data)
+            .map(|d| d.data)
             .map_err(Error::EngineErrors)
     }
 }

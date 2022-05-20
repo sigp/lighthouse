@@ -1,5 +1,9 @@
-use eth2::types::{BlindedPayload, EthSpec, ExecutionBlockHash, ExecutionPayload, ExecutionPayloadHeader, ForkVersionedResponse, GenericResponse, Hash256, PublicKeyBytes, SignedBeaconBlock, SignedValidatorRegistrationData, Slot};
-use eth2::{ok_or_error};
+use eth2::ok_or_error;
+use eth2::types::{
+    BlindedPayload, EthSpec, ExecutionBlockHash, ExecutionPayload, ExecutionPayloadHeader,
+    ForkVersionedResponse, GenericResponse, PublicKeyBytes, SignedBeaconBlock,
+    SignedValidatorRegistrationData, Slot,
+};
 pub use eth2::Error;
 use reqwest::{IntoUrl, Response};
 use sensitive_url::SensitiveUrl;

@@ -247,9 +247,10 @@ pub fn get_execution_payload<T: BeaconChainTypes, Payload: ExecPayload<T::EthSpe
     chain: &BeaconChain<T>,
     state: &BeaconState<T::EthSpec>,
     proposer_index: u64,
+    pubkey: Option<PublicKeyBytes>,
 ) -> Result<Payload, BlockProductionError> {
     Ok(
-        prepare_execution_payload_blocking::<T, Payload>(chain, state, proposer_index)?
+        prepare_execution_payload_blocking::<T, Payload>(chain, state, proposer_index, pubkey)?
             .unwrap_or_default(),
     )
 }
@@ -259,6 +260,7 @@ pub fn prepare_execution_payload_blocking<T: BeaconChainTypes, Payload: ExecPayl
     chain: &BeaconChain<T>,
     state: &BeaconState<T::EthSpec>,
     proposer_index: u64,
+    pubkey: Option<PublicKeyBytes>,
 ) -> Result<Option<Payload>, BlockProductionError> {
     let execution_layer = chain
         .execution_layer
@@ -267,7 +269,7 @@ pub fn prepare_execution_payload_blocking<T: BeaconChainTypes, Payload: ExecPayl
 
     execution_layer
         .block_on_generic(|_| async {
-            prepare_execution_payload::<T, Payload>(chain, state, proposer_index).await
+            prepare_execution_payload::<T, Payload>(chain, state, proposer_index, pubkey).await
         })
         .map_err(BlockProductionError::BlockingFailed)?
 }
@@ -290,6 +292,7 @@ pub async fn prepare_execution_payload<T: BeaconChainTypes, Payload: ExecPayload
     chain: &BeaconChain<T>,
     state: &BeaconState<T::EthSpec>,
     proposer_index: u64,
+    pubkey: Option<PublicKeyBytes>,
 ) -> Result<Option<Payload>, BlockProductionError> {
     let spec = &chain.spec;
     let execution_layer = chain
@@ -351,6 +354,7 @@ pub async fn prepare_execution_payload<T: BeaconChainTypes, Payload: ExecPayload
             random,
             finalized_block_hash.unwrap_or_else(ExecutionBlockHash::zero),
             proposer_index,
+            pubkey,
         )
         .await
         .map_err(BlockProductionError::GetPayloadFailed)?;

@@ -1,17 +1,16 @@
 //! Provides generic behaviour for multiple execution engines, specifically fallback behaviour.
 
 use crate::engine_api::{
-     EngineApi, Error as EngineApiError, ForkchoiceUpdatedResponse, PayloadAttributes,
-    PayloadId,
+    EngineApi, Error as EngineApiError, ForkchoiceUpdatedResponse, PayloadAttributes, PayloadId,
 };
 use crate::HttpJsonRpc;
 use async_trait::async_trait;
+use builder_client::BuilderHttpClient;
 use futures::future::join_all;
 use lru::LruCache;
 use slog::{crit, debug, info, warn, Logger};
 use std::future::Future;
 use tokio::sync::{Mutex, RwLock};
-use builder_client::BuilderHttpClient;
 use types::{Address, ExecutionBlockHash, Hash256};
 
 /// The number of payload IDs that will be stored for each `Engine`.
@@ -456,9 +455,7 @@ impl Builders {
                         "Builder call failed";
                         "error" => ?error,
                     );
-                    errors.push(EngineError::BuilderApi {
-                        error,
-                    })
+                    errors.push(EngineError::BuilderApi { error })
                 }
             }
         }
@@ -482,9 +479,7 @@ impl Builders {
                     "Builder call failed";
                     "error" => ?error,
                 );
-                EngineError::BuilderApi {
-                    error,
-                }
+                EngineError::BuilderApi { error }
             })
         });
 

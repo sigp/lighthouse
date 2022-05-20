@@ -28,10 +28,7 @@ pub enum Error {
     InvalidExecutePayloadResponse(&'static str),
     JsonRpc(RpcError),
     Json(serde_json::Error),
-    ServerMessage {
-        code: i64,
-        message: String,
-    },
+    ServerMessage { code: i64, message: String },
     Eip155Failure,
     IsSyncing,
     ExecutionBlockNotFound(ExecutionBlockHash),

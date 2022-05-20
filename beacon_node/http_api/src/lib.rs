@@ -2301,15 +2301,10 @@ pub fn serve<T: BeaconChainTypes>(
                         .epoch()
                         .map_err(warp_utils::reject::beacon_chain_error)?;
 
-                    let index_val_data = register_val_data.into_iter().filter_map(|data|{
-                        chain.validator_index(&data.message.pubkey)?.map(|val_index|Ok((val_index, data)))
-                    }).collect<Vec<Result<_>>>()?;
-
                     debug!(
                         log,
                         "Received register validator request";
                         "count" => register_val_data.len(),
-                        "indexed_count" => index_val_data.len(),
                         "client" => client_addr
                             .map(|a| a.to_string())
                             .unwrap_or_else(|| "unknown".to_string()),

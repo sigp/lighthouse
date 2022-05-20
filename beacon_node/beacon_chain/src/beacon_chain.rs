@@ -3212,6 +3212,14 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let slot = state.slot();
         let proposer_index = state.get_beacon_proposer_index(state.slot(), &self.spec)? as u64;
 
+        let pubkey_opt = match self.validator_pubkey_bytes(proposer_index as usize) {
+            Ok(p) => p,
+            Err(e) => {
+                warn!(log, "Can't access proposer's pubkey, cannot use external builder"; "error" => ?e);
+                None
+            }
+        };
+
         // Closure to fetch a sync aggregate in cases where it is required.
         let get_sync_aggregate = || -> Result<SyncAggregate<_>, BlockProductionError> {
             Ok(self
@@ -3270,7 +3278,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             BeaconState::Merge(_) => {
                 let sync_aggregate = get_sync_aggregate()?;
                 let execution_payload =
-                    get_execution_payload::<T, Payload>(self, &state, proposer_index)?;
+                    get_execution_payload::<T, Payload>(self, &state, proposer_index, pubkey_opt)?;
                 BeaconBlock::Merge(BeaconBlockMerge {
                     slot,
                     proposer_index,
