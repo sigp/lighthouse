@@ -1,6 +1,6 @@
 use eth2::ok_or_error;
 use eth2::types::{
-    BlindedPayload, EthSpec, ExecutionBlockHash, ExecutionPayload, ExecutionPayloadHeader,
+    BlindedPayload, EthSpec, ExecPayload, ExecutionBlockHash, ExecutionPayload,
     ForkVersionedResponse, GenericResponse, PublicKeyBytes, SignedBeaconBlock,
     SignedValidatorRegistrationData, Slot,
 };
@@ -99,12 +99,12 @@ impl BuilderHttpClient {
 
     //TODO(sean) add timeouts
     /// `GET /eth/v1/builder/header`
-    pub async fn get_builder_header<E: EthSpec>(
+    pub async fn get_builder_header<E: EthSpec, Payload: ExecPayload<E>>(
         &self,
         slot: Slot,
         parent_hash: ExecutionBlockHash,
         pubkey: &PublicKeyBytes,
-    ) -> Result<ForkVersionedResponse<ExecutionPayloadHeader<E>>, Error> {
+    ) -> Result<ForkVersionedResponse<Payload>, Error> {
         let mut path = self.server.full.clone();
 
         path.path_segments_mut()

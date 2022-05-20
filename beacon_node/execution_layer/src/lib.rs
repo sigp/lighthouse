@@ -4,7 +4,6 @@
 //! This crate only provides useful functionality for "The Merge", it does not provide any of the
 //! deposit-contract functionality that the `beacon_node/eth1` crate already provides.
 
-use crate::engines::Builders;
 use crate::payload_cache::PayloadCache;
 use auth::{Auth, JwtKey};
 use builder_client::BuilderHttpClient;
@@ -21,7 +20,6 @@ use serde::{Deserialize, Serialize};
 use slog::{crit, debug, error, info, trace, warn, Logger};
 use slot_clock::SlotClock;
 use std::collections::HashMap;
-use std::convert::TryInto;
 use std::future::Future;
 use std::io::Write;
 use std::path::PathBuf;
@@ -68,6 +66,7 @@ pub enum Error {
     NoEngines,
     NoPayloadBuilder,
     ApiError(ApiError),
+    Builder(builder_client::Error),
     EngineErrors(Vec<EngineError>),
     NotSynced,
     ShuttingDown,
@@ -103,7 +102,7 @@ pub struct Proposer {
 
 struct Inner<E: EthSpec> {
     engines: Engines,
-    builders: Builders,
+    builder: Option<BuilderHttpClient>,
     execution_engine_forkchoice_lock: Mutex<()>,
     suggested_fee_recipient: Option<Address>,
     proposer_preparation_data: Mutex<HashMap<u64, ProposerPreparationDataEntry>>,
@@ -119,7 +118,7 @@ pub struct Config {
     /// Endpoint urls for EL nodes that are running the engine api.
     pub execution_endpoints: Vec<SensitiveUrl>,
     /// Endpoint urls for services providing the builder api.
-    pub builder_endpoints: Vec<SensitiveUrl>,
+    pub builder_url: Option<SensitiveUrl>,
     /// JWT secrets for the above endpoints running the engine api.
     pub secret_files: Vec<PathBuf>,
     /// The default fee recipient to use on the beacon node if none if provided from
@@ -160,7 +159,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
     pub fn from_config(config: Config, executor: TaskExecutor, log: Logger) -> Result<Self, Error> {
         let Config {
             execution_endpoints: urls,
-            builder_endpoints: builder_urls,
+            builder_url,
             mut secret_files,
             suggested_fee_recipient,
             jwt_id,
@@ -228,12 +227,9 @@ impl<T: EthSpec> ExecutionLayer<T> {
             })
             .collect::<Result<_, ApiError>>()?;
 
-        let builders: Vec<BuilderHttpClient> = builder_urls
-            .into_iter()
-            .map(|url| {
-                BuilderHttpClient::new(url).map_err(ApiError::BuilderApi)
-            })
-            .collect::<Result<_, ApiError>>()?;
+        let builder = builder_url
+            .map(|url| BuilderHttpClient::new(url).map_err(Error::Builder))
+            .transpose()?;
 
         let inner = Inner {
             engines: Engines {
@@ -241,10 +237,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
                 latest_forkchoice_state: <_>::default(),
                 log: log.clone(),
             },
-            builders: Builders {
-                builders,
-                log: log.clone(),
-            },
+            builder,
             execution_engine_forkchoice_lock: <_>::default(),
             suggested_fee_recipient,
             proposer_preparation_data: Mutex::new(HashMap::new()),
@@ -264,14 +257,6 @@ impl<T: EthSpec> ExecutionLayer<T> {
 impl<T: EthSpec> ExecutionLayer<T> {
     fn engines(&self) -> &Engines {
         &self.inner.engines
-    }
-
-    fn builders(&self) -> &Builders {
-        &self.inner.builders
-    }
-
-    fn has_builders(&self) -> bool {
-        !self.inner.builders.builders.is_empty()
     }
 
     /// Cache a full payload, keyed on the `tree_hash_root` of its `transactions` field.
@@ -574,6 +559,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
     ///
     /// The result will be returned from the first node that returns successfully. No more nodes
     /// will be contacted.
+    #[allow(clippy::too_many_arguments)]
     pub async fn get_payload<Payload: ExecPayload<T>>(
         &self,
         parent_hash: ExecutionBlockHash,
@@ -620,6 +606,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     async fn get_blinded_payload<Payload: ExecPayload<T>>(
         &self,
         parent_hash: ExecutionBlockHash,
@@ -634,8 +621,8 @@ impl<T: EthSpec> ExecutionLayer<T> {
 
         // Don't attempt to outsource payload construction until after the merge transition has been
         // finalized. We want to be conservative with payload construction until then.
-        if self.has_builders() && finalized_block_hash != ExecutionBlockHash::zero() {
-            if let Some(pubkey) = pubkey_opt {
+        if let (Some(builder), Some(pubkey)) = (self.inner.builder.as_ref(), pubkey_opt) {
+            if finalized_block_hash != ExecutionBlockHash::zero() {
                 debug!(
                     self.log(),
                     "Requesting blinded header from connected builder";
@@ -643,19 +630,9 @@ impl<T: EthSpec> ExecutionLayer<T> {
                     "pubkey" => ?pubkey,
                     "parent_hash" => ?parent_hash,
                 );
-                let result = self
-                    .builders()
-                    .first_success_without_retry(|builder| async move {
-                        builder
-                            .get_builder_header(slot, parent_hash, &pubkey)
-                            .await?
-                            //TODO(sean) check fork?
-                            .data
-                            .try_into()
-                            .map_err(|_| ApiError::PayloadConversionLogicFlaw)
-                    })
-                    .await
-                    .map_err(Error::EngineErrors);
+                let result = builder
+                    .get_builder_header::<T, Payload>(slot, parent_hash, &pubkey)
+                    .await;
 
                 match result {
                     Err(e) => {
@@ -669,7 +646,8 @@ impl<T: EthSpec> ExecutionLayer<T> {
                         )
                         .await
                     }
-                    Ok(payload) => Ok(payload),
+                    //TODO(sean) check fork?
+                    Ok(response) => Ok(response.data),
                 }
             } else {
                 self.get_full_payload_caching(
@@ -1359,17 +1337,15 @@ impl<T: EthSpec> ExecutionLayer<T> {
             "Issuing builder_proposeBlindedBlock";
             "root" => ?block.canonical_root(),
         );
-        self.builders()
-            .first_success_without_retry(|builder| async move {
-                builder
-                    .post_builder_blinded_blocks(block)
-                    .await
-                    .map_err(engine_api::Error::BuilderApi)
-            })
-            .await
-            //TODO(sean) check fork?
-            .map(|d| d.data)
-            .map_err(Error::EngineErrors)
+        if let Some(builder) = self.inner.builder.as_ref() {
+            builder
+                .post_builder_blinded_blocks(block)
+                .await
+                .map_err(Error::Builder)
+                .map(|d| d.data)
+        } else {
+            Err(Error::NoPayloadBuilder)
+        }
     }
 }
 

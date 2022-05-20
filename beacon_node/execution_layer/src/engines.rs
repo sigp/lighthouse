@@ -4,7 +4,6 @@ use crate::engine_api::{
     EngineApi, Error as EngineApiError, ForkchoiceUpdatedResponse, PayloadAttributes, PayloadId,
 };
 use crate::HttpJsonRpc;
-use builder_client::BuilderHttpClient;
 use futures::future::join_all;
 use lru::LruCache;
 use slog::{crit, debug, info, warn, Logger};
@@ -131,11 +130,6 @@ impl Engine<EngineApi> {
 pub struct Engines {
     pub engines: Vec<Engine<EngineApi>>,
     pub latest_forkchoice_state: RwLock<Option<ForkChoiceState>>,
-    pub log: Logger,
-}
-
-pub struct Builders {
-    pub builders: Vec<BuilderHttpClient>,
     pub log: Logger,
 }
 
@@ -428,58 +422,6 @@ impl Engines {
                     id: engine.id.clone(),
                 })
             }
-        });
-
-        join_all(futures).await
-    }
-}
-
-impl Builders {
-    pub async fn first_success_without_retry<'a, F, G, H>(
-        &'a self,
-        func: F,
-    ) -> Result<H, Vec<EngineError>>
-    where
-        F: Fn(&'a BuilderHttpClient) -> G,
-        G: Future<Output = Result<H, EngineApiError>>,
-    {
-        let mut errors = vec![];
-
-        for builder in &self.builders {
-            match func(builder).await {
-                Ok(result) => return Ok(result),
-                Err(error) => {
-                    debug!(
-                        self.log,
-                        "Builder call failed";
-                        "error" => ?error,
-                    );
-                    errors.push(EngineError::BuilderApi { error })
-                }
-            }
-        }
-
-        Err(errors)
-    }
-
-    pub async fn broadcast_without_retry<'a, F, G, H>(
-        &'a self,
-        func: F,
-    ) -> Vec<Result<H, EngineError>>
-    where
-        F: Fn(&'a BuilderHttpClient) -> G,
-        G: Future<Output = Result<H, EngineApiError>>,
-    {
-        let func = &func;
-        let futures = self.builders.iter().map(|engine| async move {
-            func(engine).await.map_err(|error| {
-                debug!(
-                    self.log,
-                    "Builder call failed";
-                    "error" => ?error,
-                );
-                EngineError::BuilderApi { error }
-            })
         });
 
         join_all(futures).await

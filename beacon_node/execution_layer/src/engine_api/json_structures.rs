@@ -1,9 +1,6 @@
 use super::*;
 use serde::{Deserialize, Serialize};
-use types::{
-    EthSpec, ExecutionBlockHash, FixedVector, Transaction, Unsigned,
-    VariableList,
-};
+use types::{EthSpec, ExecutionBlockHash, FixedVector, Transaction, Unsigned, VariableList};
 
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]

@@ -47,9 +47,8 @@ use types::{
     Attestation, AttesterSlashing, BeaconStateError, BlindedPayload, CommitteeCache,
     ConfigAndPreset, Epoch, EthSpec, ForkName, FullPayload, ProposerPreparationData,
     ProposerSlashing, RelativeEpoch, Signature, SignedAggregateAndProof, SignedBeaconBlock,
-    SignedBlindedBeaconBlock, SignedContributionAndProof,
-    SignedValidatorRegistrationData, SignedVoluntaryExit, Slot, SyncCommitteeMessage,
-    SyncContributionData,
+    SignedBlindedBeaconBlock, SignedContributionAndProof, SignedValidatorRegistrationData,
+    SignedVoluntaryExit, Slot, SyncCommitteeMessage, SyncContributionData,
 };
 use version::{
     add_consensus_version_header, fork_versioned_response, inconsistent_fork_rejection,

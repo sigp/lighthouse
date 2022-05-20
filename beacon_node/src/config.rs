@@ -250,13 +250,13 @@ pub fn get_config<E: EthSpec>(
             el_config.execution_endpoints = client_config.eth1.endpoints.clone();
         }
 
-        if let Some(endpoints) = cli_args.value_of("payload-builders") {
-            el_config.builder_endpoints = endpoints
-                .split(',')
-                .map(SensitiveUrl::parse)
-                .collect::<Result<_, _>>()
-                .map_err(|e| format!("payload-builders contains an invalid URL {:?}", e))?;
-        }
+        el_config.builder_url = cli_args
+            .value_of("payload-builder")
+            .map(|url| {
+                SensitiveUrl::parse(url)
+                    .map_err(|e| format!("payload-builder contains an invalid URL {:?}", e))
+            })
+            .transpose()?;
 
         if let Some(secrets) = cli_args.value_of("jwt-secrets") {
             let secret_files: Vec<_> = secrets.split(',').map(PathBuf::from).collect();
