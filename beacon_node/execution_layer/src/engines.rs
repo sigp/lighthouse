@@ -275,8 +275,9 @@ impl Engines {
 
     /// Returns the status of the notifier.
     ///
-    /// Returns `false` if the notifier is not initialized.
-    /// `true` implies
+    /// `false` implies that the notifier is not initialized.
+    /// `true` implies that the notifier has been initialized
+    /// and the execution layer is offline.
     async fn notifier_status(&self) -> bool {
         self.sync_notifier_tx.read().await.as_ref().is_some()
     }
@@ -494,11 +495,10 @@ impl Engines {
     {
         let func = &func;
         let futures = self.engines.iter().map(|engine| async move {
-            let state = *engine.state.read().await;
-            let is_offline = state == EngineState::Offline;
+            let is_offline = *engine.state.read().await == EngineState::Offline;
             if !is_offline {
                 match func(engine).await {
-                    Ok(h) => Ok(h),
+                    Ok(res) => Ok(res),
                     Err(error) => {
                         debug!(
                             self.log,

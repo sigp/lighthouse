@@ -36,7 +36,7 @@ struct ChainSegmentFailed {
     mode: FailureMode,
 }
 
-/// Represents if a failure was on the consensus or execution side.
+/// Represents if a block processing failure was on the consensus or execution side.
 #[derive(Debug)]
 pub enum FailureMode {
     ExecutionLayer { pause_sync: bool },

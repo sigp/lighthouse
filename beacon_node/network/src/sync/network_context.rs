@@ -185,7 +185,6 @@ impl<T: EthSpec> SyncNetworkContext<T> {
             request,
             request_id,
         })?;
-
         Ok(id)
     }
 

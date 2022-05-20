@@ -738,7 +738,7 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
                 BatchState::Failed
                 | BatchState::AwaitingDownload
                 | BatchState::Processing(_)
-                | BatchState::WaitingOnExecution(_) => {
+                | BatchState::WaitingOnExecution => {
                     // these are all inconsistent states:
                     // - Failed -> non recoverable batch. Chain should have been removed
                     // - AwaitingDownload -> A recoverable failed batch should have been
@@ -850,7 +850,7 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
                         "batch indicates inconsistent chain state while advancing chain"
                     )
                 }
-                BatchState::WaitingOnExecution(_) => {
+                BatchState::WaitingOnExecution => {
                     crit!(
                         self.log,
                         "Batch failed with execution error while backfilling. Inconsistent state"

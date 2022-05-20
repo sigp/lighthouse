@@ -109,7 +109,7 @@ pub enum ChainSyncingState {
     Stopped,
     /// The chain is undergoing syncing.
     Syncing,
-    /// The chain is stalled because of an execution layer error.
+    /// The chain sync is stalled because the execution layer is offline.
     ExecutionStalled,
 }
 
@@ -322,7 +322,6 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                 &BatchProcessResult::Failed {
                     imported_blocks: false,
                     peer_action: None,
-                    // TODO(pawan): check if this is correct failure mode for all cases
                     mode: FailureMode::ConsensusLayer,
                 },
             )
@@ -350,7 +349,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                 let state = batch.state();
                 match state {
                     // Return early here without any additional processing.
-                    BatchState::WaitingOnExecution(_) => return Ok(KeepChain),
+                    BatchState::WaitingOnExecution => return Ok(KeepChain),
                     BatchState::AwaitingProcessing(..) => {
                         // this batch is ready
                         debug!(self.log, "Processing optimistic start"; "epoch" => epoch);
@@ -392,7 +391,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
         if let Some(batch) = self.batches.get(&self.processing_target) {
             let state = batch.state();
             match state {
-                BatchState::WaitingOnExecution(_) => return Ok(KeepChain),
+                BatchState::WaitingOnExecution => return Ok(KeepChain),
                 BatchState::AwaitingProcessing(..) => {
                     return self.process_batch(network, self.processing_target);
                 }
@@ -523,7 +522,8 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                 debug!(self.log, "Batch processing failed"; "imported_blocks" => imported_blocks,
                     "batch_epoch" => batch_id, "peer" => %peer, "client" => %network.client_type(&peer));
 
-                // The batch failed because of an EL error. Stop syncing until the EL recovers.
+                // The batch failed because the execution layer went offline.
+                // Stop syncing until the EL recovers.
                 let stall_execution = if let FailureMode::ExecutionLayer { pause_sync } = mode {
                     if *pause_sync {
                         self.state = ChainSyncingState::ExecutionStalled;
@@ -630,7 +630,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
             // only for batches awaiting validation can we be sure the last attempt is
             // right, and thus, that any different attempt is wrong
             match batch.state() {
-                BatchState::WaitingOnExecution(_) => return,
+                BatchState::WaitingOnExecution => return,
                 BatchState::AwaitingValidation(ref processed_attempt) => {
                     for attempt in batch.attempts() {
                         // The validated batch has been re-processed
