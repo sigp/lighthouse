@@ -2290,7 +2290,7 @@ pub fn serve<T: BeaconChainTypes>(
              client_addr: Option<SocketAddr>,
              log: Logger,
              register_val_data: Vec<SignedValidatorRegistrationData>| {
-                blocking_json_task(move || {
+                async move {
                     let execution_layer = chain
                         .execution_layer
                         .as_ref()
@@ -2325,29 +2325,62 @@ pub fn serve<T: BeaconChainTypes>(
 
                     // Update the prepare beacon proposer cache based on this request.
                     execution_layer
-                        .update_proposer_preparation_blocking(current_epoch, &preparation_data)
-                        .map_err(|_e| {
-                            warp_utils::reject::custom_bad_request(
-                                "error processing proposer preparations".to_string(),
-                            )
-                        })?;
+                        .update_proposer_preparation(current_epoch, &preparation_data)
+                        .await;
 
                     // Call prepare beacon proposer blocking with the latest update in order to make
-                    // sure we have a local payload to fall back to in the event of the blined block
+                    // sure we have a local payload to fall back to in the event of the blinded block
                     // flow failing.
-                    chain.prepare_beacon_proposer_blocking().map_err(|e| {
-                        warp_utils::reject::custom_bad_request(format!(
-                            "error updating proposer preparations: {:?}",
-                            e
+                    chain
+                        .prepare_beacon_proposer_async(
+                            chain
+                                .slot()
+                                .map_err(warp_utils::reject::beacon_chain_error)?,
+                        )
+                        .await
+                        .map_err(|e| {
+                            warp_utils::reject::custom_bad_request(format!(
+                                "error updating proposer preparations: {:?}",
+                                e
+                            ))
+                        })?;
+
+                    let builder = execution_layer
+                        .builder()
+                        .as_ref()
+                        .ok_or(BeaconChainError::BuilderMissing)
+                        .map_err(warp_utils::reject::beacon_chain_error)?;
+
+                    let mut failures = vec![];
+
+                    for (index, val_data) in register_val_data.iter().enumerate() {
+                        if let Err(e) = builder.post_builder_validators(val_data).await {
+                            error!(log,
+                                "Failure registering validator with remote builder";
+                                "error" => format!("{:?}", e),
+                                "pubkey" => ?val_data.message.pubkey,
+                                "fee_recipient" => ?val_data.message.fee_recipient,
+                            );
+                            failures.push(api_types::Failure::new(
+                                index,
+                                format!("Validator registration: {:?}", e),
+                            ));
+                        }
+                    }
+
+                    let resp = if !failures.is_empty() {
+                        Err(warp_utils::reject::indexed_bad_request(
+                            "error registering validators".to_string(),
+                            failures,
                         ))
-                    })?;
-
-                    //TODO(sean): In the MEV-boost PR, add a call here to send the update request to the builder
-
-                    Ok(())
-                })
+                    } else {
+                        Ok(())
+                    };
+                    resp.map(|resp| warp::reply::json(&resp))
+                }
             },
         );
+
     // POST validator/sync_committee_subscriptions
     let post_validator_sync_committee_subscriptions = eth1_v1
         .and(warp::path("validator"))

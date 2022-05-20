@@ -269,6 +269,10 @@ impl<T: EthSpec> ExecutionLayer<T> {
         self.inner.payload_cache.pop(tx_root)
     }
 
+    pub fn builder(&self) -> &Option<BuilderHttpClient> {
+        &self.inner.builder
+    }
+
     pub fn executor(&self) -> &TaskExecutor {
         &self.inner.executor
     }
@@ -469,7 +473,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
     }
 
     /// Updates the proposer preparation data provided by validators
-    async fn update_proposer_preparation(
+    pub async fn update_proposer_preparation(
         &self,
         update_epoch: Epoch,
         preparation_data: &[ProposerPreparationData],
@@ -621,7 +625,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
 
         // Don't attempt to outsource payload construction until after the merge transition has been
         // finalized. We want to be conservative with payload construction until then.
-        if let (Some(builder), Some(pubkey)) = (self.inner.builder.as_ref(), pubkey_opt) {
+        if let (Some(builder), Some(pubkey)) = (self.builder(), pubkey_opt) {
             if finalized_block_hash != ExecutionBlockHash::zero() {
                 debug!(
                     self.log(),
@@ -1337,7 +1341,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
             "Issuing builder_proposeBlindedBlock";
             "root" => ?block.canonical_root(),
         );
-        if let Some(builder) = self.inner.builder.as_ref() {
+        if let Some(builder) = self.builder() {
             builder
                 .post_builder_blinded_blocks(block)
                 .await
