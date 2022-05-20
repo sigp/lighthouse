@@ -945,8 +945,8 @@ impl<T: BeaconChainTypes> Worker<T> {
                 self.send_sync_message(SyncMessage::UnknownBlock(peer_id, block));
             }
             Err(BlockError::ExecutionPayloadError(e)) => match &e {
-                ExecutionPayloadError::NoExecutionConnection { block: _ }
-                | ExecutionPayloadError::RequestFailed { err: _, block: _ } => {
+                ExecutionPayloadError::NoExecutionConnection
+                | ExecutionPayloadError::RequestFailed(_) => {
                     // These errors indicate an issue with the EL and not the block.
                     warn!(self.log,
                         "Execution layer stalled";

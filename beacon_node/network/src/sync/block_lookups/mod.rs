@@ -457,8 +457,8 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                     self.search_parent(block, peer_id, cx);
                 }
                 BlockError::ExecutionPayloadError(e) => match e {
-                    ExecutionPayloadError::NoExecutionConnection { block: _ }
-                    | ExecutionPayloadError::RequestFailed { err: _, block: _ } => {
+                    ExecutionPayloadError::NoExecutionConnection
+                    | ExecutionPayloadError::RequestFailed(_) => {
                         debug!(
                             self.log,
                             "Single block lookup failed. Execution layer is offline";
@@ -578,8 +578,8 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                 }
             }
             Err(BlockError::ExecutionPayloadError(e)) => match e {
-                ExecutionPayloadError::NoExecutionConnection { block: _ }
-                | ExecutionPayloadError::RequestFailed { err: _, block: _ } => {
+                ExecutionPayloadError::NoExecutionConnection
+                | ExecutionPayloadError::RequestFailed(_) => {
                     debug!(
                         self.log,
                         "Parent lookup failed. Execution layer is offline";
