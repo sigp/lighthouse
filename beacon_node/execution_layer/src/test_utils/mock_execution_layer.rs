@@ -118,6 +118,8 @@ impl<T: EthSpec> MockExecutionLayer<T> {
                 prev_randao,
                 finalized_block_hash,
                 validator_index,
+                None,
+                slot,
             )
             .await
             .unwrap()
@@ -142,6 +144,8 @@ impl<T: EthSpec> MockExecutionLayer<T> {
                 prev_randao,
                 finalized_block_hash,
                 validator_index,
+                None,
+                slot,
             )
             .await
             .unwrap()

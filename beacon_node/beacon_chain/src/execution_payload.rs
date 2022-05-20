@@ -355,6 +355,7 @@ pub async fn prepare_execution_payload<T: BeaconChainTypes, Payload: ExecPayload
             finalized_block_hash.unwrap_or_else(ExecutionBlockHash::zero),
             proposer_index,
             pubkey,
+            state.slot(),
         )
         .await
         .map_err(BlockProductionError::GetPayloadFailed)?;

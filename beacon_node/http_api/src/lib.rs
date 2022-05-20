@@ -47,7 +47,7 @@ use types::{
     Attestation, AttesterSlashing, BeaconStateError, BlindedPayload, CommitteeCache,
     ConfigAndPreset, Epoch, EthSpec, ForkName, FullPayload, ProposerPreparationData,
     ProposerSlashing, RelativeEpoch, Signature, SignedAggregateAndProof, SignedBeaconBlock,
-    SignedBeaconBlockMerge, SignedBlindedBeaconBlock, SignedContributionAndProof,
+    SignedBlindedBeaconBlock, SignedContributionAndProof,
     SignedValidatorRegistrationData, SignedVoluntaryExit, Slot, SyncCommitteeMessage,
     SyncContributionData,
 };

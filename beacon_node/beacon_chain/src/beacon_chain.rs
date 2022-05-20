@@ -3215,7 +3215,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let pubkey_opt = match self.validator_pubkey_bytes(proposer_index as usize) {
             Ok(p) => p,
             Err(e) => {
-                warn!(log, "Can't access proposer's pubkey, cannot use external builder"; "error" => ?e);
+                warn!(self.log, "Can't access proposer's pubkey, cannot use external builder"; "error" => ?e);
                 None
             }
         };

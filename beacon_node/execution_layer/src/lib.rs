@@ -7,6 +7,7 @@
 use crate::engines::Builders;
 use crate::payload_cache::PayloadCache;
 use auth::{Auth, JwtKey};
+use builder_client::BuilderHttpClient;
 use engine_api::Error as ApiError;
 pub use engine_api::*;
 pub use engine_api::{http, http::HttpJsonRpc};
@@ -35,7 +36,6 @@ use types::{
     BlindedPayload, BlockType, ChainSpec, Epoch, ExecPayload, ExecutionBlockHash,
     ProposerPreparationData, PublicKeyBytes, SignedBeaconBlock, Slot,
 };
-use builder_client::BuilderHttpClient;
 
 mod engine_api;
 mod engines;
@@ -583,6 +583,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
         finalized_block_hash: ExecutionBlockHash,
         proposer_index: u64,
         pubkey: Option<PublicKeyBytes>,
+        slot: Slot,
     ) -> Result<Payload, Error> {
         let suggested_fee_recipient = self.get_suggested_fee_recipient(proposer_index).await;
 
@@ -599,6 +600,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
                     finalized_block_hash,
                     suggested_fee_recipient,
                     pubkey,
+                    slot,
                 )
                 .await
             }
@@ -627,6 +629,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
         finalized_block_hash: ExecutionBlockHash,
         suggested_fee_recipient: Address,
         pubkey_opt: Option<PublicKeyBytes>,
+        slot: Slot,
     ) -> Result<Payload, Error> {
         //TODO(sean) only use the blinded block flow if we have recent chain health
 
@@ -669,6 +672,15 @@ impl<T: EthSpec> ExecutionLayer<T> {
                     }
                     Ok(payload) => Ok(payload),
                 }
+            } else {
+                self.get_full_payload_caching(
+                    parent_hash,
+                    timestamp,
+                    prev_randao,
+                    finalized_block_hash,
+                    suggested_fee_recipient,
+                )
+                .await
             }
         } else {
             self.get_full_payload_caching(

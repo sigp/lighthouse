@@ -178,6 +178,8 @@ impl<E: GenericExecutionEngine> TestRig<E> {
                 prev_randao,
                 finalized_block_hash,
                 proposer_index,
+                None,
+                Slot::new(0),
             )
             .await
             .unwrap()
@@ -271,6 +273,8 @@ impl<E: GenericExecutionEngine> TestRig<E> {
                 prev_randao,
                 finalized_block_hash,
                 proposer_index,
+                None,
+                Slot::new(0),
             )
             .await
             .unwrap()
