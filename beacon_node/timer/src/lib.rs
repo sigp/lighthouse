@@ -3,7 +3,7 @@
 //! This service allows task execution on the beacon node for various functionality.
 
 use beacon_chain::{BeaconChain, BeaconChainTypes};
-use slog::{debug, error, info};
+use slog::{debug, info, warn};
 use slot_clock::SlotClock;
 use std::sync::Arc;
 use std::time::Duration;
@@ -34,7 +34,7 @@ pub fn spawn_timer<T: BeaconChainTypes>(
                 .spawn_blocking_handle(move || chain.per_slot_task(), "timer_per_slot_task")
             {
                 if let Err(e) = handle.await {
-                    error!(
+                    warn!(
                         log,
                         "Per slot task failed";
                         "info" => ?e
