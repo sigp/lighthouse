@@ -56,9 +56,9 @@ impl ForkChoiceSignalTx {
             *current_slot = slot;
         }
 
-        // We use `notify_one` because we assume a single waiter. If there are more in future we
-        // could change this to `notify_all`.
-        condvar.notify_one();
+        // We use `notify_all` because there may be multiple block proposals waiting simultaneously.
+        // Usually there'll be 0-1.
+        condvar.notify_all();
 
         Ok(())
     }
