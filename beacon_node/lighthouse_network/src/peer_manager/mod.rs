@@ -841,21 +841,14 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
             let outbound_only_peer_count = self.network_globals.connected_outbound_only_peers();
             let wanted_peers = if peer_count < self.target_peers.saturating_sub(dialing_peers) {
                 // We need more peers in general.
-                // The maximum discovery query is for 16 peers, but we can search for less if
-                // needed.
-                std::cmp::min(
-                    self.target_peers.saturating_sub(dialing_peers) - peer_count,
-                    16,
-                )
+                // Note: The maximum discovery query is bounded by `Discovery`.
+                self.target_peers.saturating_sub(dialing_peers) - peer_count
             } else if outbound_only_peer_count < self.min_outbound_only_peers()
                 && peer_count < self.max_outbound_dialing_peers()
             {
-                std::cmp::min(
-                    self.max_outbound_dialing_peers()
-                        .saturating_sub(dialing_peers)
-                        - peer_count,
-                    16,
-                )
+                self.max_outbound_dialing_peers()
+                    .saturating_sub(dialing_peers)
+                    - peer_count
             } else {
                 0
             };

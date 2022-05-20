@@ -18,7 +18,7 @@ use eth2_keystore::Keystore;
 use lighthouse_metrics::set_gauge;
 use lockfile::{Lockfile, LockfileError};
 use parking_lot::{MappedMutexGuard, Mutex, MutexGuard};
-use reqwest::{Certificate, Client, Error as ReqwestError};
+use reqwest::{Certificate, Client, Error as ReqwestError, Identity};
 use slog::{debug, error, info, warn, Logger};
 use std::collections::{HashMap, HashSet};
 use std::fs::{self, File};
@@ -88,6 +88,11 @@ pub enum Error {
     /// Unable to read the root certificate file for the remote signer.
     InvalidWeb3SignerRootCertificateFile(io::Error),
     InvalidWeb3SignerRootCertificate(ReqwestError),
+    /// Unable to read the client certificate for the remote signer.
+    MissingWeb3SignerClientIdentityCertificateFile,
+    MissingWeb3SignerClientIdentityPassword,
+    InvalidWeb3SignerClientIdentityCertificateFile(io::Error),
+    InvalidWeb3SignerClientIdentityCertificate(ReqwestError),
     UnableToBuildWeb3SignerClient(ReqwestError),
     /// Unable to apply an action to a validator.
     InvalidActionOnValidator,
@@ -238,6 +243,8 @@ impl InitializedValidator {
                 url,
                 root_certificate_path,
                 request_timeout_ms,
+                client_identity_path,
+                client_identity_password,
             } => {
                 let signing_url = build_web3_signer_url(&url, &def.voting_public_key)
                     .map_err(|e| Error::InvalidWeb3SignerUrl(e.to_string()))?;
@@ -251,6 +258,20 @@ impl InitializedValidator {
                     let certificate = load_pem_certificate(path)?;
                     builder.add_root_certificate(certificate)
                 } else {
+                    builder
+                };
+
+                let builder = if let Some(path) = client_identity_path {
+                    let identity = load_pkcs12_identity(
+                        path,
+                        &client_identity_password
+                            .ok_or(Error::MissingWeb3SignerClientIdentityPassword)?,
+                    )?;
+                    builder.identity(identity)
+                } else {
+                    if client_identity_password.is_some() {
+                        return Err(Error::MissingWeb3SignerClientIdentityCertificateFile);
+                    }
                     builder
                 };
 
@@ -292,6 +313,19 @@ pub fn load_pem_certificate<P: AsRef<Path>>(pem_path: P) -> Result<Certificate, 
         .read_to_end(&mut buf)
         .map_err(Error::InvalidWeb3SignerRootCertificateFile)?;
     Certificate::from_pem(&buf).map_err(Error::InvalidWeb3SignerRootCertificate)
+}
+
+pub fn load_pkcs12_identity<P: AsRef<Path>>(
+    pkcs12_path: P,
+    password: &str,
+) -> Result<Identity, Error> {
+    let mut buf = Vec::new();
+    File::open(&pkcs12_path)
+        .map_err(Error::InvalidWeb3SignerClientIdentityCertificateFile)?
+        .read_to_end(&mut buf)
+        .map_err(Error::InvalidWeb3SignerClientIdentityCertificateFile)?;
+    Identity::from_pkcs12_der(&buf, password)
+        .map_err(Error::InvalidWeb3SignerClientIdentityCertificate)
 }
 
 fn build_web3_signer_url(base_url: &str, voting_public_key: &PublicKey) -> Result<Url, ParseError> {

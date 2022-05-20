@@ -27,7 +27,7 @@ use std::sync::{
     Arc,
 };
 use task_executor::TaskExecutor;
-use tokio::time::sleep;
+use tokio::time::{sleep, sleep_until, Instant};
 use types::{AttestationShufflingId, EthSpec, Hash256, RelativeEpoch, Slot};
 
 /// If the head slot is more than `MAX_ADVANCE_DISTANCE` from the current slot, then don't perform
@@ -105,8 +105,8 @@ async fn state_advance_timer<T: BeaconChainTypes>(
     let slot_duration = slot_clock.slot_duration();
 
     loop {
-        match beacon_chain.slot_clock.duration_to_next_slot() {
-            Some(duration) => sleep(duration + (slot_duration / 4) * 3).await,
+        let duration_to_next_slot = match beacon_chain.slot_clock.duration_to_next_slot() {
+            Some(duration) => duration,
             None => {
                 error!(log, "Failed to read slot clock");
                 // If we can't read the slot clock, just wait another slot.
@@ -115,7 +115,45 @@ async fn state_advance_timer<T: BeaconChainTypes>(
             }
         };
 
-        // Only start spawn the state advance task if the lock was previously free.
+        // Run the state advance 3/4 of the way through the slot (9s on mainnet).
+        let state_advance_offset = slot_duration / 4;
+        let state_advance_instant = if duration_to_next_slot > state_advance_offset {
+            Instant::now() + duration_to_next_slot - state_advance_offset
+        } else {
+            // Skip the state advance for the current slot and wait until the next one.
+            Instant::now() + duration_to_next_slot + slot_duration - state_advance_offset
+        };
+
+        // Run fork choice 23/24s of the way through the slot (11.5s on mainnet).
+        // We need to run after the state advance, so use the same condition as above.
+        let fork_choice_offset = slot_duration / 24;
+        let fork_choice_instant = if duration_to_next_slot > state_advance_offset {
+            Instant::now() + duration_to_next_slot - fork_choice_offset
+        } else {
+            Instant::now() + duration_to_next_slot + slot_duration - fork_choice_offset
+        };
+
+        // Wait for the state advance.
+        sleep_until(state_advance_instant).await;
+
+        // Compute the current slot here at approx 3/4 through the slot. Even though this slot is
+        // only used by fork choice we need to calculate it here rather than after the state
+        // advance, in case the state advance flows over into the next slot.
+        let current_slot = match beacon_chain.slot() {
+            Ok(slot) => slot,
+            Err(e) => {
+                warn!(
+                    log,
+                    "Unable to determine slot in state advance timer";
+                    "error" => ?e
+                );
+                // If we can't read the slot clock, just wait another slot.
+                sleep(slot_duration).await;
+                continue;
+            }
+        };
+
+        // Only spawn the state advance task if the lock was previously free.
         if !is_running.lock() {
             let log = log.clone();
             let beacon_chain = beacon_chain.clone();
@@ -163,6 +201,40 @@ async fn state_advance_timer<T: BeaconChainTypes>(
                 "msg" => "system resources may be overloaded"
             )
         }
+
+        // Run fork choice pre-emptively for the next slot. This processes most of the attestations
+        // from this slot off the hot path of block verification and production.
+        // Wait for the fork choice instant (which may already be past).
+        sleep_until(fork_choice_instant).await;
+
+        let log = log.clone();
+        let beacon_chain = beacon_chain.clone();
+        let next_slot = current_slot + 1;
+        executor.spawn_blocking(
+            move || {
+                if let Err(e) = beacon_chain.fork_choice_at_slot(next_slot) {
+                    warn!(
+                        log,
+                        "Error updating fork choice for next slot";
+                        "error" => ?e,
+                        "slot" => next_slot,
+                    );
+                }
+
+                // Signal block proposal for the next slot (if it happens to be waiting).
+                if let Some(tx) = &beacon_chain.fork_choice_signal_tx {
+                    if let Err(e) = tx.notify_fork_choice_complete(next_slot) {
+                        warn!(
+                            log,
+                            "Error signalling fork choice waiter";
+                            "error" => ?e,
+                            "slot" => next_slot,
+                        );
+                    }
+                }
+            },
+            "fork_choice_advance",
+        );
     }
 }
 
@@ -192,13 +264,6 @@ fn advance_head<T: BeaconChainTypes>(
             });
         }
     }
-
-    // Run fork choice so we get the latest view of the head.
-    //
-    // This is useful since it's quite likely that the last time we ran fork choice was shortly
-    // after receiving the latest gossip block, but not necessarily after we've received the
-    // majority of attestations.
-    beacon_chain.fork_choice()?;
 
     let head_root = beacon_chain.head_info()?.block_root;
 

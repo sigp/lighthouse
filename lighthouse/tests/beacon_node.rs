@@ -109,6 +109,26 @@ fn disable_lock_timeouts_flag() {
 }
 
 #[test]
+fn fork_choice_before_proposal_timeout_default() {
+    CommandLineTest::new()
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert_eq!(
+                config.chain.fork_choice_before_proposal_timeout_ms,
+                beacon_node::beacon_chain::chain_config::DEFAULT_FORK_CHOICE_BEFORE_PROPOSAL_TIMEOUT
+            )
+        });
+}
+
+#[test]
+fn fork_choice_before_proposal_timeout_zero() {
+    CommandLineTest::new()
+        .flag("fork-choice-before-proposal-timeout", Some("0"))
+        .run_with_zero_port()
+        .with_config(|config| assert_eq!(config.chain.fork_choice_before_proposal_timeout_ms, 0));
+}
+
+#[test]
 fn freezer_dir_flag() {
     let dir = TempDir::new().expect("Unable to create temporary directory");
     CommandLineTest::new()

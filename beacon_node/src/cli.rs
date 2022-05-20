@@ -686,4 +686,13 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                        experimental as it may obscure performance issues.")
                 .takes_value(false)
         )
+        .arg(
+            Arg::with_name("fork-choice-before-proposal-timeout")
+                .long("fork-choice-before-proposal-timeout")
+                .help("Set the maximum number of milliseconds to wait for fork choice before \
+                       proposing a block. You can prevent waiting at all by setting the timeout \
+                       to 0, however you risk proposing atop the wrong parent block.")
+                .default_value("250")
+                .takes_value(true)
+        )
 }

@@ -1586,6 +1586,7 @@ dependencies = [
  "futures-util",
  "libsecp256k1",
  "lighthouse_network",
+ "mime",
  "procinfo",
  "proto_array",
  "psutil",
@@ -2523,6 +2524,7 @@ dependencies = [
  "lighthouse_metrics",
  "lighthouse_network",
  "lighthouse_version",
+ "logging",
  "network",
  "parking_lot 0.12.0",
  "safe_arith",
@@ -3886,6 +3888,7 @@ name = "network"
 version = "0.2.0"
 dependencies = [
  "beacon_chain",
+ "derivative",
  "environment",
  "error-chain",
  "eth2_ssz",
