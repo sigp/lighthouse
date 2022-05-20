@@ -17,7 +17,7 @@ use payload_status::process_multiple_payload_statuses;
 pub use payload_status::PayloadStatus;
 use sensitive_url::SensitiveUrl;
 use serde::{Deserialize, Serialize};
-use slog::{crit, debug, error, info, trace, Logger};
+use slog::{crit, debug, error, info, trace, warn, Logger};
 use slot_clock::SlotClock;
 use std::collections::HashMap;
 use std::convert::TryInto;
@@ -531,6 +531,23 @@ impl ExecutionLayer {
         if let Some(preparation_data_entry) =
             self.proposer_preparation_data().await.get(&proposer_index)
         {
+            if let Some(suggested_fee_recipient) = self.inner.suggested_fee_recipient {
+                if preparation_data_entry.preparation_data.fee_recipient != suggested_fee_recipient
+                {
+                    warn!(
+                        self.log(),
+                        "Inconsistent fee recipient";
+                        "msg" => "The fee recipient returned from the Execution Engine differs \
+                        from the suggested_fee_recipient set on the beacon node. This could \
+                        indicate that fees are being diverted to another address. Please \
+                        ensure that the value of suggested_fee_recipient is set correctly and \
+                        that the Execution Engine is trusted.",
+                        "proposer_index" => ?proposer_index,
+                        "fee_recipient" => ?preparation_data_entry.preparation_data.fee_recipient,
+                        "suggested_fee_recipient" => ?suggested_fee_recipient,
+                    )
+                }
+            }
             // The values provided via the API have first priority.
             preparation_data_entry.preparation_data.fee_recipient
         } else if let Some(address) = self.inner.suggested_fee_recipient {
