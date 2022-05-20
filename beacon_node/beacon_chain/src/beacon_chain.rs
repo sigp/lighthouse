@@ -4406,7 +4406,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
     /// Called by the timer on every slot.
     ///
-    /// Note: this function **should** be called from a non-async context since
+    /// Note: this function **MUST** be called from a non-async context since
     /// it contains a call to `fork_choice` which may eventually call
     /// `tokio::runtime::block_on` in certain cases.
     pub fn per_slot_task(self: &Arc<Self>) {
