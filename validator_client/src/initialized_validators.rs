@@ -636,7 +636,7 @@ impl InitializedValidators {
             .iter_mut()
             .find(|def| def.voting_public_key == *voting_public_key)
         {
-            def.suggested_fee_recipient = Some(fee_recipient.clone());
+            def.suggested_fee_recipient = Some(fee_recipient);
         }
 
         if let Some(val) = self

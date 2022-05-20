@@ -588,10 +588,12 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
                                 ethaddress: preparation_data.fee_recipient,
                             },
                         })
-                        .ok_or(warp_utils::reject::custom_not_found(format!(
-                            "no validator found with pubkey {:?}",
-                            validator_pubkey
-                        )))
+                        .ok_or_else(|| {
+                            warp_utils::reject::custom_not_found(format!(
+                                "no validator found with pubkey {:?}",
+                                validator_pubkey
+                            ))
+                        })
                 })
             },
         );
@@ -603,7 +605,7 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
         .and(warp::body::json())
         .and(warp::path("feerecipient"))
         .and(warp::path::end())
-        .and(preparation_service_filter.clone())
+        .and(preparation_service_filter)
         .and(validator_store_filter.clone())
         .and(spec_filter)
         .and(signer.clone())
