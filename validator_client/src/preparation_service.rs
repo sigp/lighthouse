@@ -308,7 +308,8 @@ impl<T: SlotClock + 'static, E: EthSpec> PreparationService<T, E> {
                     .map_err(|e| {
                         error!(
                             log,
-                            "{}", format!("Error loading fee-recipient file: {:?}", e);
+                            "Error loading fee-recipient file";
+                            "error" => ?e
                         );
                     })
                     .unwrap_or(());
@@ -322,26 +323,24 @@ impl<T: SlotClock + 'static, E: EthSpec> PreparationService<T, E> {
         all_pubkeys
             .into_iter()
             .filter_map(|pubkey| {
-                let validator_index = self.validator_store.validator_index(&pubkey);
-                if let Some(validator_index) = validator_index {
-                    let fee_recipient = if let Some(from_validator_defs) =
-                        self.validator_store.suggested_fee_recipient(&pubkey)
-                    {
-                        // If there is a `suggested_fee_recipient` in the validator definitions yaml
-                        // file, use that value.
-                        Some(from_validator_defs)
-                    } else {
-                        // If there's nothing in the validator defs file, check the fee recipient
-                        // file.
+                // Ignore fee recipients for keys without indices, they are inactive.
+                let validator_index = self.validator_store.validator_index(&pubkey)?;
+
+                // If there is a `suggested_fee_recipient` in the validator definitions yaml
+                // file, use that value.
+                let fee_recipient = self
+                    .validator_store
+                    .suggested_fee_recipient(&pubkey)
+                    .or_else(|| {
+                        // If there's nothing in the validator defs file, check the fee
+                        // recipient file.
                         fee_recipient_file
-                            .as_ref()
-                            .and_then(|f| match f.get_fee_recipient(&pubkey) {
-                                Ok(f) => f,
-                                Err(_e) => None,
-                            })
-                            // If there's nothing in the file, try the process-level default value.
-                            .or(self.fee_recipient)
-                    };
+                            .as_ref()?
+                            .get_fee_recipient(&pubkey)
+                            .ok()?
+                    })
+                    // If there's nothing in the file, try the process-level default value.
+                    .or(self.fee_recipient);
 
                     if let Some(fee_recipient) = fee_recipient {
                         Some(map_fn(pubkey, validator_index, fee_recipient))
@@ -355,9 +354,6 @@ impl<T: SlotClock + 'static, E: EthSpec> PreparationService<T, E> {
                             );
                         }
                         None
-                    }
-                } else {
-                    None
                 }
             })
             .collect()

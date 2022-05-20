@@ -107,15 +107,16 @@ impl<E: EthSpec> LocalNetwork<E> {
             beacon_config.network.discv5_config.table_filter = |_| true;
         }
 
-        let mut write_lock = self_1.beacon_nodes.write();
-        let index = write_lock.len();
-
+        // We create the beacon node without holding the lock, so that the lock isn't held
+        // across the await. This is only correct if this function never runs in parallel
+        // with itself (which at the time of writing, it does not).
+        let index = self_1.beacon_nodes.read().len();
         let beacon_node = LocalBeaconNode::production(
             self.context.service_context(format!("node_{}", index)),
             beacon_config,
         )
         .await?;
-        write_lock.push(beacon_node);
+        self_1.beacon_nodes.write().push(beacon_node);
         Ok(())
     }
 

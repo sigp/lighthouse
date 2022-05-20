@@ -91,7 +91,7 @@ pub enum BeaconChainError {
     BlockSignatureVerifierError(state_processing::block_signature_verifier::Error),
     BlockReplayError(BlockReplayError),
     DuplicateValidatorPublicKey,
-    ValidatorPubkeyCacheFileError(String),
+    ValidatorPubkeyCacheError(String),
     ValidatorIndexUnknown(usize),
     ValidatorPubkeyUnknown(PublicKeyBytes),
     OpPoolError(OpPoolError),
@@ -185,6 +185,10 @@ pub enum BeaconChainError {
     },
     RuntimeShutdown,
     ProcessInvalidExecutionPayload(JoinError),
+    ForkChoiceSignalOutOfOrder {
+        current: Slot,
+        latest: Slot,
+    },
 }
 
 easy_from_to!(SlotProcessingError, BeaconChainError);
@@ -234,6 +238,7 @@ pub enum BlockProductionError {
     FailedToReadFinalizedBlock(store::Error),
     MissingFinalizedBlock(Hash256),
     BlockTooLarge(usize),
+    ForkChoiceError(BeaconChainError),
 }
 
 easy_from_to!(BlockProcessingError, BlockProductionError);

@@ -304,11 +304,7 @@ impl ExecutionLayer {
         T: Fn(&'a Self) -> U,
         U: Future<Output = Result<V, Error>>,
     {
-        let runtime = self
-            .executor()
-            .runtime()
-            .upgrade()
-            .ok_or(Error::ShuttingDown)?;
+        let runtime = self.executor().handle().ok_or(Error::ShuttingDown)?;
         // TODO(merge): respect the shutdown signal.
         runtime.block_on(generate_future(self))
     }
@@ -322,11 +318,7 @@ impl ExecutionLayer {
         T: Fn(&'a Self) -> U,
         U: Future<Output = V>,
     {
-        let runtime = self
-            .executor()
-            .runtime()
-            .upgrade()
-            .ok_or(Error::ShuttingDown)?;
+        let runtime = self.executor().handle().ok_or(Error::ShuttingDown)?;
         // TODO(merge): respect the shutdown signal.
         Ok(runtime.block_on(generate_future(self)))
     }
@@ -668,25 +660,28 @@ impl ExecutionLayer {
                                 suggested_fee_recipient,
                             };
 
-                            engine
+                            let response = engine
                                 .notify_forkchoice_updated(
                                     fork_choice_state,
                                     Some(payload_attributes),
                                     self.log(),
                                 )
-                                .await
-                                .map(|response| response.payload_id)?
-                                .ok_or_else(|| {
+                                .await?;
+
+                            match response.payload_id {
+                                Some(payload_id) => payload_id,
+                                None => {
                                     error!(
                                         self.log(),
                                         "Exec engine unable to produce payload";
                                         "msg" => "No payload ID, the engine is likely syncing. \
                                                   This has the potential to cause a missed block \
                                                   proposal.",
+                                        "status" => ?response.payload_status
                                     );
-
-                                    ApiError::PayloadIdUnavailable
-                                })?
+                                    return Err(ApiError::PayloadIdUnavailable);
+                                }
+                            }
                         };
 
                         engine
@@ -1263,13 +1258,15 @@ impl ExecutionLayer {
 mod test {
     use super::*;
     use crate::test_utils::MockExecutionLayer as GenericMockExecutionLayer;
+    use task_executor::test_utils::TestRuntime;
     use types::MainnetEthSpec;
 
     type MockExecutionLayer = GenericMockExecutionLayer<MainnetEthSpec>;
 
     #[tokio::test]
     async fn produce_three_valid_pos_execution_blocks() {
-        MockExecutionLayer::default_params()
+        let runtime = TestRuntime::default();
+        MockExecutionLayer::default_params(runtime.task_executor.clone())
             .move_to_terminal_block()
             .produce_valid_execution_payload_on_head()
             .await
@@ -1281,7 +1278,8 @@ mod test {
 
     #[tokio::test]
     async fn finds_valid_terminal_block_hash() {
-        MockExecutionLayer::default_params()
+        let runtime = TestRuntime::default();
+        MockExecutionLayer::default_params(runtime.task_executor.clone())
             .move_to_block_prior_to_terminal_block()
             .with_terminal_block(|spec, el, _| async move {
                 el.engines().upcheck_not_synced(Logging::Disabled).await;
@@ -1300,7 +1298,8 @@ mod test {
 
     #[tokio::test]
     async fn verifies_valid_terminal_block_hash() {
-        MockExecutionLayer::default_params()
+        let runtime = TestRuntime::default();
+        MockExecutionLayer::default_params(runtime.task_executor.clone())
             .move_to_terminal_block()
             .with_terminal_block(|spec, el, terminal_block| async move {
                 el.engines().upcheck_not_synced(Logging::Disabled).await;
@@ -1316,7 +1315,8 @@ mod test {
 
     #[tokio::test]
     async fn rejects_invalid_terminal_block_hash() {
-        MockExecutionLayer::default_params()
+        let runtime = TestRuntime::default();
+        MockExecutionLayer::default_params(runtime.task_executor.clone())
             .move_to_terminal_block()
             .with_terminal_block(|spec, el, terminal_block| async move {
                 el.engines().upcheck_not_synced(Logging::Disabled).await;
@@ -1334,7 +1334,8 @@ mod test {
 
     #[tokio::test]
     async fn rejects_unknown_terminal_block_hash() {
-        MockExecutionLayer::default_params()
+        let runtime = TestRuntime::default();
+        MockExecutionLayer::default_params(runtime.task_executor.clone())
             .move_to_terminal_block()
             .with_terminal_block(|spec, el, _| async move {
                 el.engines().upcheck_not_synced(Logging::Disabled).await;

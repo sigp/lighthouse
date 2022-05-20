@@ -102,7 +102,7 @@ impl ApiTester {
             spec,
             Some(Arc::new(DoppelgangerService::new(log.clone()))),
             slot_clock,
-            executor,
+            executor.clone(),
             log.clone(),
         ));
 
@@ -113,7 +113,7 @@ impl ApiTester {
         let initialized_validators = validator_store.initialized_validators();
 
         let context = Arc::new(Context {
-            runtime,
+            task_executor: executor,
             api_secret,
             validator_dir: Some(validator_dir.path().into()),
             validator_store: Some(validator_store.clone()),
@@ -457,6 +457,8 @@ impl ApiTester {
                     url: format!("http://signer_{}.com/", i),
                     root_certificate_path: None,
                     request_timeout_ms: None,
+                    client_identity_path: None,
+                    client_identity_password: None,
                 }
             })
             .collect();

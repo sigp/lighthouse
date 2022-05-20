@@ -42,6 +42,7 @@ use crate::sync::manager::BlockProcessType;
 use crate::{metrics, service::NetworkMessage, sync::SyncMessage};
 use beacon_chain::parking_lot::Mutex;
 use beacon_chain::{BeaconChain, BeaconChainTypes, GossipVerifiedBlock};
+use derivative::Derivative;
 use futures::stream::{Stream, StreamExt};
 use futures::task::Poll;
 use lighthouse_network::{
@@ -51,7 +52,6 @@ use lighthouse_network::{
 use logging::TimeLatch;
 use slog::{crit, debug, error, trace, warn, Logger};
 use std::collections::VecDeque;
-use std::fmt;
 use std::pin::Pin;
 use std::sync::{Arc, Weak};
 use std::task::Context;
@@ -331,15 +331,11 @@ impl DuplicateCache {
 }
 
 /// An event to be processed by the manager task.
+#[derive(Derivative)]
+#[derivative(Debug(bound = "T: BeaconChainTypes"))]
 pub struct WorkEvent<T: BeaconChainTypes> {
     drop_during_sync: bool,
     work: Work<T>,
-}
-
-impl<T: BeaconChainTypes> fmt::Debug for WorkEvent<T> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{:?}", self)
-    }
 }
 
 impl<T: BeaconChainTypes> WorkEvent<T> {
@@ -615,7 +611,8 @@ impl<T: BeaconChainTypes> std::convert::From<ReadyWork<T>> for WorkEvent<T> {
 }
 
 /// A consensus message (or multiple) from the network that requires processing.
-#[derive(Debug)]
+#[derive(Derivative)]
+#[derivative(Debug(bound = "T: BeaconChainTypes"))]
 pub enum Work<T: BeaconChainTypes> {
     GossipAttestation {
         message_id: MessageId,

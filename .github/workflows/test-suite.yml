@@ -12,7 +12,7 @@ env:
   # Deny warnings in CI
   RUSTFLAGS: "-D warnings"
   # The Nightly version used for cargo-udeps, might need updating from time to time.
-  PINNED_NIGHTLY: nightly-2021-12-01
+  PINNED_NIGHTLY: nightly-2022-05-20
 jobs:
   target-branch-check:
     name: target-branch-check
