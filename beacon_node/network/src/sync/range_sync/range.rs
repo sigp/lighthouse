@@ -419,7 +419,7 @@ mod tests {
     use std::collections::HashSet;
     use std::sync::Arc;
     use store::MemoryStore;
-    use types::{Hash256, MinimalEthSpec as E};
+    use types::{Hash256, MinimalEthSpec as E, Slot};
 
     #[derive(Debug)]
     struct FakeStorage {
@@ -549,6 +549,16 @@ mod tests {
                 (request_id, request)
             } else {
                 panic!("Should have sent a batch request to the peer")
+            }
+        }
+
+        #[track_caller]
+        fn expect_chain_segment_process(&mut self) {
+            match self.beacon_processor_rx.try_recv() {
+                Ok(work) => {
+                    assert_eq!(work.work_type(), crate::beacon_processor::CHAIN_SEGMENT);
+                }
+                other => panic!("Expected chain segment process, found {:?}", other),
             }
         }
 
@@ -682,5 +692,59 @@ mod tests {
         // Add an additional peer to the second chain to make range update it's status
         let (finalized_peer, local_info, remote_info) = rig.finalized_peer();
         range.add_peer(&mut rig.cx, local_info, finalized_peer, remote_info);
+    }
+
+    #[test]
+    fn test_waiting_on_execution() {
+        let (mut rig, mut range) = range(true);
+        // Now get a peer with an advanced finalized epoch.
+        let (finalized_peer, local_info, remote_info) = rig.finalized_peer();
+        range.add_peer(&mut rig.cx, local_info, finalized_peer, remote_info);
+
+        // Sync should have requested a batch, grab the request
+        let (req_id, request) = rig.grab_request(&finalized_peer);
+        let req_id = match req_id {
+            RequestId::Sync(crate::sync::manager::RequestId::RangeSync { id }) => id,
+            _ => unreachable!(),
+        };
+        let (chain_id, batch_id) = rig.cx.range_sync_response(req_id, true).unwrap();
+        range.blocks_by_range_response(
+            &mut rig.cx,
+            finalized_peer,
+            chain_id,
+            batch_id,
+            req_id,
+            None,
+        );
+
+        // Now sync should have sent the empty batch for processing, send back the response to sync
+        // with an execution layer failure
+        rig.expect_chain_segment_process();
+        range.handle_block_process_result(
+            &mut rig.cx,
+            chain_id,
+            batch_id,
+            BatchProcessResult::Failed {
+                imported_blocks: false,
+                peer_action: None,
+                mode: crate::beacon_processor::FailureMode::ExecutionLayer { pause_sync: true },
+            },
+        );
+
+        assert_eq!(range.state(), Ok(ChainState::WaitingOnExecution));
+
+        slog::info!(rig.log, "Range status after EL failure"; "state" => ?range.state());
+
+        // Resume syncing
+        range.execution_ready(&mut rig.cx);
+
+        assert_eq!(
+            range.state(),
+            Ok(ChainState::Range {
+                range_type: RangeSyncType::Finalized,
+                from: Slot::new(request.start_slot - 1),
+                to: Slot::new(request.start_slot - 1 + request.count),
+            })
+        );
     }
 }
