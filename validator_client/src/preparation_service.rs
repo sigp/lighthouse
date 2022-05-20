@@ -342,18 +342,18 @@ impl<T: SlotClock + 'static, E: EthSpec> PreparationService<T, E> {
                     // If there's nothing in the file, try the process-level default value.
                     .or(self.fee_recipient);
 
-                    if let Some(fee_recipient) = fee_recipient {
-                        Some(map_fn(pubkey, validator_index, fee_recipient))
-                    } else {
-                        if spec.bellatrix_fork_epoch.is_some() {
-                            error!(
-                                log,
-                                "Validator is missing fee recipient";
-                                "msg" => "update validator_definitions.yml",
-                                "pubkey" => ?pubkey
-                            );
-                        }
-                        None
+                if let Some(fee_recipient) = fee_recipient {
+                    Some(map_fn(pubkey, validator_index, fee_recipient))
+                } else {
+                    if spec.bellatrix_fork_epoch.is_some() {
+                        error!(
+                            log,
+                            "Validator is missing fee recipient";
+                            "msg" => "update validator_definitions.yml",
+                            "pubkey" => ?pubkey
+                        );
+                    }
+                    None
                 }
             })
             .collect()

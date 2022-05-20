@@ -2530,6 +2530,7 @@ dependencies = [
  "safe_arith",
  "sensitive_url",
  "serde",
+ "serde_json",
  "slog",
  "slot_clock",
  "state_processing",
