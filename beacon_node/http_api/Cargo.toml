@@ -38,6 +38,7 @@ store = { path = "../store" }
 environment = { path = "../../lighthouse/environment" }
 tree_hash = "0.4.1"
 sensitive_url = { path = "../../common/sensitive_url" }
+logging = { path = "../../common/logging" }
 
 [[test]]
 name = "bn_http_api_tests"
