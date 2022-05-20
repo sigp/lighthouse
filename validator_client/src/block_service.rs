@@ -328,7 +328,8 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
         let self_ref = &self;
         let proposer_index = self.validator_store.validator_index(&validator_pubkey);
         let validator_pubkey_ref = &validator_pubkey;
-        let signed_block = self
+        // Request block from first responsive beacon node.
+        let block = self
             .beacon_nodes
             .first_success(RequireSynced::No, |beacon_node| async move {
                 let get_timer = metrics::start_timer_vec(
@@ -378,14 +379,19 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
                     ));
                 }
 
-                let signed_block = self_ref
-                    .validator_store
-                    .sign_block::<Payload>(*validator_pubkey_ref, block, current_slot)
-                    .await
-                    .map_err(|e| {
-                        BlockError::Recoverable(format!("Unable to sign block: {:?}", e))
-                    })?;
+                Ok::<_, BlockError>(block)
+            })
+            .await?;
 
+        let signed_block = self_ref
+            .validator_store
+            .sign_block::<Payload>(*validator_pubkey_ref, block, current_slot)
+            .await
+            .map_err(|e| BlockError::Recoverable(format!("Unable to sign block: {:?}", e)))?;
+
+        // Publish block with first available beacon node.
+        self.beacon_nodes
+            .first_success(RequireSynced::No, |beacon_node| async {
                 let _post_timer = metrics::start_timer_vec(
                     &metrics::BLOCK_SERVICE_TIMES,
                     &[metrics::BEACON_BLOCK_HTTP_POST],
@@ -412,19 +418,17 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
                         })?,
                 }
 
-                Ok::<_, BlockError>(signed_block)
+                info!(
+                    log,
+                    "Successfully published block";
+                    "deposits" => signed_block.message().body().deposits().len(),
+                    "attestations" => signed_block.message().body().attestations().len(),
+                    "graffiti" => ?graffiti.map(|g| g.as_utf8_lossy()),
+                    "slot" => signed_block.slot().as_u64(),
+                );
+                Ok::<_, BlockError>(())
             })
             .await?;
-
-        info!(
-            log,
-            "Successfully published block";
-            "deposits" => signed_block.message().body().deposits().len(),
-            "attestations" => signed_block.message().body().attestations().len(),
-            "graffiti" => ?graffiti.map(|g| g.as_utf8_lossy()),
-            "slot" => signed_block.slot().as_u64(),
-        );
-
         Ok(())
     }
 }

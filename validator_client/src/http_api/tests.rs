@@ -457,6 +457,8 @@ impl ApiTester {
                     url: format!("http://signer_{}.com/", i),
                     root_certificate_path: None,
                     request_timeout_ms: None,
+                    client_identity_path: None,
+                    client_identity_password: None,
                 }
             })
             .collect();

@@ -36,7 +36,9 @@ mod tests {
     use types::*;
     use url::Url;
     use validator_client::{
-        initialized_validators::{load_pem_certificate, InitializedValidators},
+        initialized_validators::{
+            load_pem_certificate, load_pkcs12_identity, InitializedValidators,
+        },
         validator_store::ValidatorStore,
         SlashingDatabase, SLASHING_PROTECTION_FILENAME,
     };
@@ -108,7 +110,18 @@ mod tests {
     }
 
     fn root_certificate_path() -> PathBuf {
-        tls_dir().join("cert.pem")
+        tls_dir().join("lighthouse").join("web3signer.pem")
+    }
+
+    fn client_identity_path() -> PathBuf {
+        tls_dir().join("lighthouse").join("key.p12")
+    }
+
+    fn client_identity_password() -> String {
+        fs::read_to_string(tls_dir().join("lighthouse").join("password.txt"))
+            .unwrap()
+            .trim()
+            .to_string()
     }
 
     /// A testing rig which holds a live Web3Signer process.
@@ -155,8 +168,9 @@ mod tests {
                 File::create(&keystore_dir.path().join("key-config.yaml")).unwrap();
             serde_yaml::to_writer(key_config_file, &key_config).unwrap();
 
-            let tls_keystore_file = tls_dir().join("key.p12");
-            let tls_keystore_password_file = tls_dir().join("password.txt");
+            let tls_keystore_file = tls_dir().join("web3signer").join("key.p12");
+            let tls_keystore_password_file = tls_dir().join("web3signer").join("password.txt");
+            let tls_known_clients_file = tls_dir().join("web3signer").join("known_clients.txt");
 
             let stdio = || {
                 if SUPPRESS_WEB3SIGNER_LOGS {
@@ -173,7 +187,10 @@ mod tests {
                 ))
                 .arg(format!("--http-listen-host={}", listen_address))
                 .arg(format!("--http-listen-port={}", listen_port))
-                .arg("--tls-allow-any-client=true")
+                .arg(format!(
+                    "--tls-known-clients-file={}",
+                    tls_known_clients_file.to_str().unwrap()
+                ))
                 .arg(format!(
                     "--tls-keystore-file={}",
                     tls_keystore_file.to_str().unwrap()
@@ -193,8 +210,11 @@ mod tests {
             let url = Url::parse(&format!("https://{}:{}", listen_address, listen_port)).unwrap();
 
             let certificate = load_pem_certificate(root_certificate_path()).unwrap();
+            let identity =
+                load_pkcs12_identity(client_identity_path(), &client_identity_password()).unwrap();
             let http_client = Client::builder()
                 .add_root_certificate(certificate)
+                .identity(identity)
                 .build()
                 .unwrap();
 
@@ -358,6 +378,8 @@ mod tests {
                         url: signer_rig.url.to_string(),
                         root_certificate_path: Some(root_certificate_path()),
                         request_timeout_ms: None,
+                        client_identity_path: Some(client_identity_path()),
+                        client_identity_password: Some(client_identity_password()),
                     },
                 };
                 ValidatorStoreRig::new(vec![validator_definition], spec).await

@@ -92,4 +92,8 @@ pub struct Web3SignerValidatorRequest {
     #[serde(default)]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub request_timeout_ms: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub client_identity_path: Option<PathBuf>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub client_identity_password: Option<String>,
 }
