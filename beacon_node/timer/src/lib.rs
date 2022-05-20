@@ -24,10 +24,12 @@ pub fn spawn_timer<T: BeaconChainTypes>(
 
     // Warning: `interval_at` panics if `seconds_per_slot` = 0.
     let mut interval = interval_at(start_instant, Duration::from_secs(seconds_per_slot));
+    let per_slot_executor = executor.clone();
     let timer_future = async move {
         loop {
             interval.tick().await;
-            beacon_chain.per_slot_task();
+            let chain = beacon_chain.clone();
+            per_slot_executor.spawn_blocking(move || chain.per_slot_task(), "timer_per_slot_task");
         }
     };
 
