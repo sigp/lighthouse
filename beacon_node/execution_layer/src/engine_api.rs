@@ -1,11 +1,9 @@
 use crate::engines::ForkChoiceState;
-use async_trait::async_trait;
 use eth1::http::RpcError;
 pub use ethers_core::types::Transaction;
 pub use json_structures::TransitionConfigurationV1;
 use reqwest::StatusCode;
 use serde::{Deserialize, Serialize};
-use slog::Logger;
 pub use types::{
     Address, EthSpec, ExecutionBlockHash, ExecutionPayload, ExecutionPayloadHeader, FixedVector,
     Hash256, Uint256, VariableList,

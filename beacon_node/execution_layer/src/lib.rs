@@ -231,7 +231,6 @@ impl<T: EthSpec> ExecutionLayer<T> {
         let builders: Vec<BuilderHttpClient> = builder_urls
             .into_iter()
             .map(|url| {
-                let id = url.to_string();
                 BuilderHttpClient::new(url).map_err(ApiError::BuilderApi)
             })
             .collect::<Result<_, ApiError>>()?;

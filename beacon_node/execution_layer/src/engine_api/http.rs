@@ -10,7 +10,7 @@ use serde::de::DeserializeOwned;
 use serde_json::json;
 use std::marker::PhantomData;
 use std::time::Duration;
-use types::{BlindedPayload, EthSpec, ExecutionPayloadHeader, SignedBeaconBlock};
+use types::{EthSpec};
 
 pub use reqwest::Client;
 

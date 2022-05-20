@@ -1,7 +1,7 @@
 use super::*;
 use serde::{Deserialize, Serialize};
 use types::{
-    EthSpec, ExecutionBlockHash, ExecutionPayloadHeader, FixedVector, Transaction, Unsigned,
+    EthSpec, ExecutionBlockHash, FixedVector, Transaction, Unsigned,
     VariableList,
 };
 

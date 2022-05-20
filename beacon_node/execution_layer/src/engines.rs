@@ -4,7 +4,6 @@ use crate::engine_api::{
     EngineApi, Error as EngineApiError, ForkchoiceUpdatedResponse, PayloadAttributes, PayloadId,
 };
 use crate::HttpJsonRpc;
-use async_trait::async_trait;
 use builder_client::BuilderHttpClient;
 use futures::future::join_all;
 use lru::LruCache;
