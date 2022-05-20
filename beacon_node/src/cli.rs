@@ -455,8 +455,8 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .takes_value(true)
         )
         .arg(
-            Arg::with_name("payload-builder")
-                .long("payload-builder")
+            Arg::with_name("builder")
+                .long("builder")
                 .help("The URL of a service compatible with the MEV-boost API.")
                 .requires("merge")
                 .takes_value(true)

@@ -251,10 +251,10 @@ pub fn get_config<E: EthSpec>(
         }
 
         el_config.builder_url = cli_args
-            .value_of("payload-builder")
+            .value_of("builder")
             .map(|url| {
                 SensitiveUrl::parse(url)
-                    .map_err(|e| format!("payload-builder contains an invalid URL {:?}", e))
+                    .map_err(|e| format!("builder contains an invalid URL {:?}", e))
             })
             .transpose()?;
 
