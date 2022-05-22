@@ -500,7 +500,7 @@ impl ChainSpec {
              * Fork choice
              */
             safe_slots_to_update_justified: 8,
-            proposer_score_boost: Some(70),
+            proposer_score_boost: Some(40),
 
             /*
              * Eth1
@@ -698,7 +698,7 @@ impl ChainSpec {
              * Fork choice
              */
             safe_slots_to_update_justified: 8,
-            proposer_score_boost: Some(70),
+            proposer_score_boost: Some(40),
 
             /*
              * Eth1
@@ -1261,7 +1261,7 @@ mod yaml_tests {
         EJECTION_BALANCE: 16000000000
         MIN_PER_EPOCH_CHURN_LIMIT: 4
         CHURN_LIMIT_QUOTIENT: 65536
-        PROPOSER_SCORE_BOOST: 70
+        PROPOSER_SCORE_BOOST: 40
         DEPOSIT_CHAIN_ID: 1
         DEPOSIT_NETWORK_ID: 1
         DEPOSIT_CONTRACT_ADDRESS: 0x00000000219ab540356cBB839Cbe05303d7705Fa
