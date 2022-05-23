@@ -236,18 +236,20 @@ pub fn get_config<E: EthSpec>(
         client_config.eth1.purge_cache = true;
     }
 
-    if cli_args.is_present("merge") || cli_args.is_present("execution-endpoints") {
+    if cli_args.is_present("merge") || cli_args.is_present("execution-endpoint") {
         let mut el_config = execution_layer::Config::default();
 
-        if let Some(endpoints) = cli_args.value_of("execution-endpoints") {
+        if let Some(endpoint) = cli_args.value_of("execution-endpoint") {
             client_config.sync_eth1_chain = true;
-            el_config.execution_endpoints = endpoints
-                .split(',')
-                .map(SensitiveUrl::parse)
-                .collect::<Result<_, _>>()
-                .map_err(|e| format!("execution-endpoints contains an invalid URL {:?}", e))?;
+            let execution_endpoint = SensitiveUrl::parse(endpoint)
+                .map_err(|e| format!("execution-endpoint contains an invalid URL {:?}", e))?;
+            el_config.execution_endpoints = vec![execution_endpoint.clone()];
         } else if cli_args.is_present("merge") {
-            el_config.execution_endpoints = client_config.eth1.endpoints.clone();
+            el_config.execution_endpoints =
+                vec![
+                    SensitiveUrl::parse(execution_layer::DEFAULT_EXECUTION_ENDPOINT)
+                        .expect("DEFAULT_EXECUTION_ENDPOINT is a valid endpoint"),
+                ];
         }
 
         if let Some(endpoints) = cli_args.value_of("payload-builders") {
@@ -258,24 +260,15 @@ pub fn get_config<E: EthSpec>(
                 .map_err(|e| format!("payload-builders contains an invalid URL {:?}", e))?;
         }
 
-        if let Some(secrets) = cli_args.value_of("jwt-secrets") {
-            let secret_files: Vec<_> = secrets.split(',').map(PathBuf::from).collect();
-            if !secret_files.is_empty() && secret_files.len() != el_config.execution_endpoints.len()
-            {
-                return Err(format!(
-                    "{} execution-endpoints supplied with {} jwt-secrets. Lengths \
-                        must match or jwt-secrets must be empty.",
-                    el_config.execution_endpoints.len(),
-                    secret_files.len(),
-                ));
-            }
-            el_config.secret_files = secret_files;
+        if let Some(secret) = cli_args.value_of("execution-jwt") {
+            let secret_file = PathBuf::from(secret);
+            el_config.secret_files = vec![secret_file];
         }
 
         el_config.suggested_fee_recipient =
             clap_utils::parse_optional(cli_args, "suggested-fee-recipient")?;
-        el_config.jwt_id = clap_utils::parse_optional(cli_args, "jwt-id")?;
-        el_config.jwt_version = clap_utils::parse_optional(cli_args, "jwt-version")?;
+        el_config.jwt_id = clap_utils::parse_optional(cli_args, "execution-jwt-id")?;
+        el_config.jwt_version = clap_utils::parse_optional(cli_args, "execution-jwt-version")?;
         el_config.default_datadir = client_config.data_dir.clone();
         client_config.execution_layer = Some(el_config);
     }

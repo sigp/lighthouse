@@ -401,43 +401,46 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .long("merge")
                 .help("Enable the features necessary to run merge testnets. This feature \
                        is unstable and is for developers only.")
-                .takes_value(false),
+                .takes_value(false)
+                .conflicts_with("eth1-endpoints")
         )
         .arg(
-            Arg::with_name("execution-endpoints")
-                .long("execution-endpoints")
-                .value_name("EXECUTION-ENDPOINTS")
-                .help("One or more comma-delimited server endpoints for HTTP JSON-RPC connection. \
-                       If multiple endpoints are given the endpoints are used as fallback in the \
-                       given order. Also enables the --merge flag. \
-                       If this flag is omitted and the --eth1-endpoints is supplied, those values \
-                       will be used. Defaults to http://127.0.0.1:8545.")
+            Arg::with_name("execution-endpoint")
+                .long("execution-endpoint")
+                .value_name("EXECUTION-ENDPOINT")
+                .alias("execution-endpoints")
+                .help("Server endpoint for an execution layer jwt authenticated HTTP \
+                       JSON-RPC connection. Uses the same endpoint to populate the \
+                       deposit cache. Also enables the --merge flag.\
+                       If not provided, uses the default value of http://127.0.0.1:8551")
+                .conflicts_with("eth1-endpoints")
+                .takes_value(true)
+                .requires("execution-jwt")
+        )
+        .arg(
+            Arg::with_name("execution-jwt")
+                .long("execution-jwt")
+                .value_name("EXECUTION-JWT")
+                .alias("jwt-secrets")
+                .help("File path which contains the hex-encoded JWT secret for the \
+                       execution endpoint provided in the --execution-endpoint flag.")
                 .takes_value(true)
         )
         .arg(
-            Arg::with_name("jwt-secrets")
-                .long("jwt-secrets")
-                .value_name("JWT-SECRETS")
-                .help("One or more comma-delimited file paths which contain the corresponding hex-encoded \
-                       JWT secrets for each execution endpoint provided in the --execution-endpoints flag. \
-                       The number of paths should be in the same order and strictly equal to the number \
-                       of execution endpoints provided.")
-                .takes_value(true)
-                .requires("execution-endpoints")
-        )
-        .arg(
-            Arg::with_name("jwt-id")
-                .long("jwt-id")
-                .value_name("JWT-ID")
+            Arg::with_name("execution-jwt-id")
+                .long("excution-jwt-id")
+                .value_name("EXECUTION-JWT-ID")
+                .alias("jwt-id")
                 .help("Used by the beacon node to communicate a unique identifier to execution nodes \
                        during JWT authentication. It corresponds to the 'id' field in the JWT claims object.\
                        Set to empty by deafult")
                 .takes_value(true)
         )
         .arg(
-            Arg::with_name("jwt-version")
+            Arg::with_name("execution-jwt-version")
+                .long("execution-jwt-version")
+                .value_name("EXECUTION-JWT-VERSION")
                 .long("jwt-version")
-                .value_name("JWT-VERSION")
                 .help("Used by the beacon node to communicate a client version to execution nodes \
                        during JWT authentication. It corresponds to the 'clv' field in the JWT claims object.\
                        Set to empty by deafult")
