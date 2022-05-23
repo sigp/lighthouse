@@ -16,12 +16,11 @@ use std::marker::PhantomData;
 use std::path::Path;
 use std::sync::Arc;
 use task_executor::TaskExecutor;
-use types::application_domain::ApplicationDomain;
 use types::{
     attestation::Error as AttestationError, graffiti::GraffitiString, Address, AggregateAndProof,
     Attestation, BeaconBlock, BlindedPayload, ChainSpec, ContributionAndProof, Domain, Epoch,
     EthSpec, ExecPayload, Fork, Graffiti, Hash256, Keypair, PublicKeyBytes, SelectionProof,
-    Signature, SignedAggregateAndProof, SignedBeaconBlock, SignedContributionAndProof,
+    Signature, SignedAggregateAndProof, SignedBeaconBlock, SignedContributionAndProof, SignedRoot,
     SignedValidatorRegistrationData, Slot, SyncAggregatorSelectionData, SyncCommitteeContribution,
     SyncCommitteeMessage, SyncSelectionProof, SyncSubnetId, ValidatorRegistrationData,
 };
@@ -529,25 +528,17 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
         &self,
         validator_registration_data: ValidatorRegistrationData,
     ) -> Result<SignedValidatorRegistrationData, Error> {
-        // Fork version and validator root should be updated at some point, relevant discussion here:
-        //
-        // https://github.com/ethereum/builder-specs/issues/14
-        let genesis_epoch = self.spec.genesis_slot.epoch(E::slots_per_epoch());
-        let signing_context = SigningContext {
-            domain: Domain::ApplicationMask(ApplicationDomain::Builder),
-            epoch: genesis_epoch,
-            fork: self.fork(genesis_epoch),
-            genesis_validators_root: Hash256::zero(),
-        };
+        let domain_hash = self.spec.get_builder_domain();
+        let signing_root = validator_registration_data.signing_root(domain_hash);
 
         let signing_method =
             self.doppelganger_bypassed_signing_method(validator_registration_data.pubkey)?;
         let signature = signing_method
-            .get_signature::<E, BlindedPayload<E>>(
+            .get_signature_from_root::<E, BlindedPayload<E>>(
                 SignableMessage::ValidatorRegistration(&validator_registration_data),
-                signing_context,
-                &self.spec,
+                signing_root,
                 &self.task_executor,
+                None,
             )
             .await?;
 
