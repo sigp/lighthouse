@@ -66,6 +66,8 @@ struct ApiTester {
     network_rx: mpsc::UnboundedReceiver<NetworkMessage<E>>,
     local_enr: Enr,
     external_peer_id: PeerId,
+    // This is never directly accessed, but adding it creates a payload cache, which we use in tests here.
+    #[allow(dead_code)]
     mock_el: Option<MockExecutionLayer<E>>,
     _runtime: TestRuntime,
 }
