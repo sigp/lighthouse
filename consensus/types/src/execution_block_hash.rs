@@ -1,12 +1,14 @@
 use crate::test_utils::TestRandom;
 use crate::Hash256;
+use derivative::Derivative;
 use rand::RngCore;
 use serde_derive::{Deserialize, Serialize};
 use ssz::{Decode, DecodeError, Encode};
 use std::fmt;
 
 #[cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary))]
-#[derive(Default, Debug, Clone, Copy, Serialize, Deserialize, Eq, PartialEq, Hash)]
+#[derive(Default, Clone, Copy, Serialize, Deserialize, Eq, PartialEq, Hash, Derivative)]
+#[derivative(Debug = "transparent")]
 #[serde(transparent)]
 pub struct ExecutionBlockHash(Hash256);
 

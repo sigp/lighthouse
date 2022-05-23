@@ -10,6 +10,7 @@ use reqwest::{IntoUrl, Response};
 use sensitive_url::SensitiveUrl;
 use serde::de::DeserializeOwned;
 use serde::Serialize;
+use std::fmt::format;
 use std::time::Duration;
 
 #[derive(Clone)]
@@ -138,7 +139,7 @@ impl BuilderHttpClient {
             .push("builder")
             .push("header")
             .push(slot.to_string().as_str())
-            .push(parent_hash.to_string().as_str())
+            .push(format!("{parent_hash:?}").as_str())
             .push(pubkey.as_hex_string().as_str());
 
         self.get(path).await
