@@ -131,6 +131,22 @@ impl SigningMethod {
 
         let signing_root = signable_message.signing_root(domain_hash);
 
+        let fork_info = Some(ForkInfo {
+            fork,
+            genesis_validators_root,
+        });
+
+        self.get_signature_from_root(signable_message, signing_root, executor, fork_info)
+            .await
+    }
+
+    pub async fn get_signature_from_root<T: EthSpec, Payload: ExecPayload<T>>(
+        &self,
+        signable_message: SignableMessage<'_, T, Payload>,
+        signing_root: Hash256,
+        executor: &TaskExecutor,
+        fork_info: Option<ForkInfo>,
+    ) -> Result<Signature, Error> {
         match self {
             SigningMethod::LocalKeystore { voting_keypair, .. } => {
                 let _timer =
@@ -190,17 +206,6 @@ impl SigningMethod {
 
                 // Determine the Web3Signer message type.
                 let message_type = object.message_type();
-
-                // The `fork_info` field is not required for deposits since they sign across the
-                // genesis fork version.
-                let fork_info = if let Web3SignerObject::Deposit { .. } = &object {
-                    None
-                } else {
-                    Some(ForkInfo {
-                        fork,
-                        genesis_validators_root,
-                    })
-                };
 
                 let request = SigningRequest {
                     message_type,

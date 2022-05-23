@@ -361,6 +361,16 @@ impl ChainSpec {
         self.compute_domain(Domain::Deposit, self.genesis_fork_version, Hash256::zero())
     }
 
+    //TODO(sean): this will be fork versioned at some point
+    // https://github.com/ethereum/builder-specs/issues/14
+    pub fn get_builder_domain(&self) -> Hash256 {
+        self.compute_domain(
+            Domain::ApplicationMask(ApplicationDomain::Builder),
+            self.genesis_fork_version,
+            Hash256::zero(),
+        )
+    }
+
     /// Return the 32-byte fork data root for the `current_version` and `genesis_validators_root`.
     ///
     /// This is used primarily in signature domains to avoid collisions across forks/chains.
