@@ -36,6 +36,7 @@ use warp::{
 };
 
 pub use api_secret::ApiSecret;
+use eth2::lighthouse_vc::types::{GetFeeRecipientResponse, GetFeeRecipientResponseData};
 
 #[derive(Debug)]
 pub enum Error {
@@ -562,6 +563,76 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
     let std_keystores = eth_v1.and(warp::path("keystores")).and(warp::path::end());
     let std_remotekeys = eth_v1.and(warp::path("remotekeys")).and(warp::path::end());
 
+    // GET /eth/v1/validator/{pubkey}/feerecipient
+    let get_fee_recipient = eth_v1
+        .and(warp::path("validator"))
+        .and(warp::path::param::<PublicKey>())
+        .and(warp::path("feerecipient"))
+        .and(warp::path::end())
+        .and(validator_store_filter.clone())
+        .and(signer.clone())
+        .and_then(
+            |validator_pubkey: PublicKey, validator_store: Arc<ValidatorStore<T, E>>, signer| {
+                blocking_signed_json_task(signer, move || {
+                    validator_store
+                        .load_fee_recipient(&PublicKeyBytes::from(&validator_pubkey))
+                        .map(|fee_recipient| GetFeeRecipientResponse {
+                            data: GetFeeRecipientResponseData {
+                                pubkey: PublicKeyBytes::from(validator_pubkey.clone()),
+                                ethaddress: fee_recipient,
+                            },
+                        })
+                        .ok_or_else(|| {
+                            warp_utils::reject::custom_not_found(format!(
+                                "no validator found with pubkey {:?}",
+                                validator_pubkey
+                            ))
+                        })
+                })
+            },
+        );
+
+    // POST /eth/v1/validator/{pubkey}/feerecipient
+    let post_fee_recipient = eth_v1
+        .and(warp::path("validator"))
+        .and(warp::path::param::<PublicKey>())
+        .and(warp::body::json())
+        .and(warp::path("feerecipient"))
+        .and(warp::path::end())
+        .and(validator_store_filter.clone())
+        .and(signer.clone())
+        .and(task_executor_filter.clone())
+        .and_then(
+            |validator_pubkey: PublicKey,
+             request: api_types::UpdateFeeRecipientRequest,
+             validator_store: Arc<ValidatorStore<T, E>>,
+             signer,
+             task_executor: TaskExecutor| {
+                blocking_signed_json_task(signer, move || {
+                    if let Some(handle) = task_executor.handle() {
+                        handle
+                            .block_on(async move {
+                                validator_store
+                                    .set_fee_recipient(&validator_pubkey, request.ethaddress)
+                                    .await
+                            })
+                            .map_err(|e: String| {
+                                warp_utils::reject::custom_server_error(format!(
+                                    "unable to set validator fee recipient: {:?}",
+                                    e
+                                ))
+                            })?;
+                        Ok(())
+                    } else {
+                        Err(warp_utils::reject::custom_server_error(
+                            "Lighthouse shutting down".into(),
+                        ))
+                    }
+                })
+            },
+        )
+        .map(|reply| warp::reply::with_status(reply, warp::http::StatusCode::ACCEPTED));
+
     // GET /eth/v1/keystores
     let get_std_keystores = std_keystores
         .and(signer.clone())
@@ -647,6 +718,7 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
                         .or(get_lighthouse_spec)
                         .or(get_lighthouse_validators)
                         .or(get_lighthouse_validators_pubkey)
+                        .or(get_fee_recipient)
                         .or(get_std_keystores)
                         .or(get_std_remotekeys),
                 )
@@ -655,6 +727,7 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
                         .or(post_validators_keystore)
                         .or(post_validators_mnemonic)
                         .or(post_validators_web3signer)
+                        .or(post_fee_recipient)
                         .or(post_std_keystores)
                         .or(post_std_remotekeys),
                 ))

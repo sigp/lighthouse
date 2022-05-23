@@ -20,10 +20,11 @@ use task_executor::TaskExecutor;
 use types::{
     attestation::Error as AttestationError, graffiti::GraffitiString, Address, AggregateAndProof,
     Attestation, BeaconBlock, BlindedPayload, ChainSpec, ContributionAndProof, Domain, Epoch,
-    EthSpec, ExecPayload, Fork, Graffiti, Hash256, Keypair, PublicKeyBytes, SelectionProof,
-    Signature, SignedAggregateAndProof, SignedBeaconBlock, SignedContributionAndProof, SignedRoot,
-    SignedValidatorRegistrationData, Slot, SyncAggregatorSelectionData, SyncCommitteeContribution,
-    SyncCommitteeMessage, SyncSelectionProof, SyncSubnetId, ValidatorRegistrationData,
+    EthSpec, ExecPayload, Fork, Graffiti, Hash256, Keypair, PublicKey, PublicKeyBytes,
+    SelectionProof, Signature, SignedAggregateAndProof, SignedBeaconBlock,
+    SignedContributionAndProof, SignedRoot, SignedValidatorRegistrationData, Slot,
+    SyncAggregatorSelectionData, SyncCommitteeContribution, SyncCommitteeMessage,
+    SyncSelectionProof, SyncSubnetId, ValidatorRegistrationData,
 };
 use validator_dir::ValidatorDir;
 
@@ -419,6 +420,23 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
             .as_ref()
             .map(|frf| frf.as_ref().write().read_fee_recipient_file())
             .unwrap_or(Ok(()))
+    }
+
+    /// Sets the fee_recipient for the validator with the given public key. This value is stored in memory
+    /// and persisted in `validator_definitions.yml` so it persists across reboots.
+    pub async fn set_fee_recipient(
+        &self,
+        pubkey: &PublicKey,
+        fee_recipient: Address,
+    ) -> Result<(), String> {
+        let mut initialized_validators = self.validators.write();
+        match initialized_validators.is_enabled(pubkey) {
+            Some(_) => initialized_validators
+                .set_validator_fee_recipient(pubkey, fee_recipient)
+                .await
+                .map_err(|e| format!("Error persisting fee recipient: {:?}", e)),
+            None => Err(format!("no validator found with pubkey {:?}", pubkey)),
+        }
     }
 
     /// Returns the suggested_fee_recipient from `validator_definitions.yml` if any.
