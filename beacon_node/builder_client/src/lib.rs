@@ -1,14 +1,15 @@
 use eth2::ok_or_error;
 use eth2::types::{
     BlindedPayload, EthSpec, ExecPayload, ExecutionBlockHash, ExecutionPayload,
-    ForkVersionedResponse, GenericResponse, PublicKeyBytes, SignedBeaconBlock,
-    SignedValidatorRegistrationData, Slot,
+    ForkVersionedResponse, PublicKeyBytes, SignedBeaconBlock, SignedValidatorRegistrationData,
+    Slot,
 };
 pub use eth2::Error;
 use reqwest::{IntoUrl, Response};
 use sensitive_url::SensitiveUrl;
 use serde::de::DeserializeOwned;
 use serde::Serialize;
+use std::time::Duration;
 
 #[derive(Clone)]
 pub struct BuilderHttpClient {
@@ -38,14 +39,30 @@ impl BuilderHttpClient {
         ok_or_error(response).await
     }
 
-    /// Perform a HTTP POST request.
-    async fn post<T: Serialize, U: IntoUrl, V: DeserializeOwned>(
+    /// Perform a HTTP POST request with a custom timeout.
+    async fn post_with_timeout<T: Serialize, U: IntoUrl>(
         &self,
         url: U,
         body: &T,
-    ) -> Result<V, Error> {
-        let response = self.post_with_raw_response(url, body).await?;
-        Ok(response.json().await?)
+        timeout: Duration,
+    ) -> Result<(), Error> {
+        self.post_generic(url, body, Some(timeout)).await?;
+        Ok(())
+    }
+
+    /// Generic POST function supporting arbitrary responses and timeouts.
+    async fn post_generic<T: Serialize, U: IntoUrl>(
+        &self,
+        url: U,
+        body: &T,
+        timeout: Option<Duration>,
+    ) -> Result<Response, Error> {
+        let mut builder = self.client.post(url);
+        if let Some(timeout) = timeout {
+            builder = builder.timeout(timeout);
+        }
+        let response = builder.json(body).send().await?;
+        ok_or_error(response).await
     }
 
     async fn post_with_raw_response<T: Serialize, U: IntoUrl>(
@@ -67,7 +84,7 @@ impl BuilderHttpClient {
     pub async fn post_builder_validators(
         &self,
         validator: &SignedValidatorRegistrationData,
-    ) -> Result<GenericResponse<()>, Error> {
+    ) -> Result<(), Error> {
         let mut path = self.server.full.clone();
 
         path.path_segments_mut()
@@ -77,7 +94,9 @@ impl BuilderHttpClient {
             .push("builder")
             .push("validators");
 
-        self.post(path, &validator).await
+        //TODO(sean): move config and shorten to 500 millis
+        self.post_with_timeout(path, &validator, Duration::from_secs(1))
+            .await
     }
 
     /// `POST /eth/v1/builder/blinded_blocks`
@@ -94,7 +113,11 @@ impl BuilderHttpClient {
             .push("builder")
             .push("blinded_blocks");
 
-        self.post(path, &blinded_block).await
+        Ok(self
+            .post_with_raw_response(path, &blinded_block)
+            .await?
+            .json()
+            .await?)
     }
 
     //TODO(sean) add timeouts
