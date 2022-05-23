@@ -1,4 +1,5 @@
 use eth2::ok_or_error;
+use eth2::types::builder_bid::SignedBuilderBid;
 use eth2::types::{
     BlindedPayload, EthSpec, ExecPayload, ExecutionBlockHash, ExecutionPayload,
     ForkVersionedResponse, PublicKeyBytes, SignedBeaconBlock, SignedValidatorRegistrationData,
@@ -127,7 +128,7 @@ impl BuilderHttpClient {
         slot: Slot,
         parent_hash: ExecutionBlockHash,
         pubkey: &PublicKeyBytes,
-    ) -> Result<ForkVersionedResponse<Payload>, Error> {
+    ) -> Result<ForkVersionedResponse<SignedBuilderBid<E, Payload>>, Error> {
         let mut path = self.server.full.clone();
 
         path.path_segments_mut()

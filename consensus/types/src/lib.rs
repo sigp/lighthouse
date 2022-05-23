@@ -28,6 +28,7 @@ pub mod beacon_block_body;
 pub mod beacon_block_header;
 pub mod beacon_committee;
 pub mod beacon_state;
+pub mod builder_bid;
 pub mod chain_spec;
 pub mod checkpoint;
 pub mod consts;

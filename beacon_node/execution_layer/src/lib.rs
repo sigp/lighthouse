@@ -651,7 +651,8 @@ impl<T: EthSpec> ExecutionLayer<T> {
                         .await
                     }
                     //TODO(sean) check fork?
-                    Ok(response) => Ok(response.data),
+                    //TODO(sean) verify value
+                    Ok(response) => Ok(response.data.message.header),
                 }
             } else {
                 self.get_full_payload_caching(
