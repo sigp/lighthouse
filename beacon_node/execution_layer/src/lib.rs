@@ -9,7 +9,7 @@ use crate::engines::Builders;
 use auth::{Auth, JwtKey};
 use engine_api::Error as ApiError;
 pub use engine_api::*;
-pub use engine_api::{http, http::HttpJsonRpc};
+pub use engine_api::{http, http::deposit_methods, http::HttpJsonRpc};
 pub use engines::ForkChoiceState;
 use engines::{Engine, EngineError, Engines, Logging};
 use lru::LruCache;
