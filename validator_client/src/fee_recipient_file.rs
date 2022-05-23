@@ -44,12 +44,11 @@ impl FeeRecipientFile {
     /// default fee-recipient.
     ///
     /// Returns an error if loading from the fee-recipient file fails.
-    pub fn get_fee_recipient(&self, public_key: &PublicKeyBytes) -> Result<Option<Address>, Error> {
-        Ok(self
-            .fee_recipients
+    pub fn get_fee_recipient(&self, public_key: &PublicKeyBytes) -> Option<Address> {
+        self.fee_recipients
             .get(public_key)
             .copied()
-            .or(self.default))
+            .or(self.default)
     }
 
     /// Loads the fee-recipient file and populates the default fee-recipient and `fee_recipients` hashmap.

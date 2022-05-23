@@ -102,6 +102,8 @@ impl ApiTester {
             spec,
             Some(Arc::new(DoppelgangerService::new(log.clone()))),
             slot_clock,
+            None,
+            None,
             executor.clone(),
             log.clone(),
         ));
