@@ -10,7 +10,6 @@ use reqwest::{IntoUrl, Response};
 use sensitive_url::SensitiveUrl;
 use serde::de::DeserializeOwned;
 use serde::Serialize;
-use std::fmt::format;
 use std::time::Duration;
 
 #[derive(Clone)]
