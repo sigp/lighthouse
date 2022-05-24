@@ -158,7 +158,11 @@ impl<T, E: EthSpec> Deref for PreparationService<T, E> {
 }
 
 impl<T: SlotClock + 'static, E: EthSpec> PreparationService<T, E> {
-    pub fn start_update_service(self, start_registration_service: bool, spec: &ChainSpec) -> Result<(), String> {
+    pub fn start_update_service(
+        self,
+        start_registration_service: bool,
+        spec: &ChainSpec,
+    ) -> Result<(), String> {
         if start_registration_service {
             self.clone().start_validator_registration_service(spec)?;
         }
@@ -224,13 +228,9 @@ impl<T: SlotClock + 'static, E: EthSpec> PreparationService<T, E> {
 
         let validator_registration_fut = async move {
             loop {
-                if self.should_publish_at_current_slot(&spec) {
-                    //TODO(sean) we should probably make it so validator registrations happen well before the merge
-                    //
-                    // Poll the endpoint immediately to ensure fee recipients are received.
-                    if let Err(e) = self.register_validators(&spec).await {
-                        error!(log,"Error during validator registration";"error" => ?e);
-                    }
+                // Poll the endpoint immediately to ensure fee recipients are received.
+                if let Err(e) = self.register_validators(&spec).await {
+                    error!(log,"Error during validator registration";"error" => ?e);
                 }
 
                 // Wait one slot if the register validator request fails or if we should not publish at the current slot.
