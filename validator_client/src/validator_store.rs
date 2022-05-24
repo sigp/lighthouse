@@ -422,23 +422,6 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
             .unwrap_or(Ok(()))
     }
 
-    /// Sets the fee_recipient for the validator with the given public key. This value is stored in memory
-    /// and persisted in `validator_definitions.yml` so it persists across reboots.
-    pub async fn set_fee_recipient(
-        &self,
-        pubkey: &PublicKey,
-        fee_recipient: Address,
-    ) -> Result<(), String> {
-        let mut initialized_validators = self.validators.write();
-        match initialized_validators.is_enabled(pubkey) {
-            Some(_) => initialized_validators
-                .set_validator_fee_recipient(pubkey, fee_recipient)
-                .await
-                .map_err(|e| format!("Error persisting fee recipient: {:?}", e)),
-            None => Err(format!("no validator found with pubkey {:?}", pubkey)),
-        }
-    }
-
     /// Returns the suggested_fee_recipient from `validator_definitions.yml` if any.
     /// This has been pulled into a private function so the read lock is dropped easily
     fn suggested_fee_recipient(&self, validator_pubkey: &PublicKeyBytes) -> Option<Address> {

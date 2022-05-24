@@ -310,6 +310,8 @@ mod tests {
                 spec,
                 None,
                 slot_clock,
+                None,
+                None,
                 executor,
                 log.clone(),
             );

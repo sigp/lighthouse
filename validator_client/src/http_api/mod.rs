@@ -635,8 +635,14 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
                         handle
                             .block_on(async move {
                                 validator_store
-                                    .set_fee_recipient(&validator_pubkey, request.ethaddress)
+                                    .initialized_validators()
+                                    .write()
+                                    .set_validator_fee_recipient(
+                                        &validator_pubkey,
+                                        request.ethaddress,
+                                    )
                                     .await
+                                    .map_err(|e| format!("Error persisting fee recipient: {:?}", e))
                             })
                             .map_err(|e: String| {
                                 warp_utils::reject::custom_server_error(format!(
