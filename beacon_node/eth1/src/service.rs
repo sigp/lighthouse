@@ -25,8 +25,6 @@ use tokio::sync::RwLock as TRwLock;
 use tokio::time::{interval_at, Duration, Instant};
 use types::{ChainSpec, EthSpec, Unsigned};
 
-/// Indicates the default eth1 network id we use for the deposit contract.
-pub const DEFAULT_NETWORK_ID: Eth1Id = Eth1Id::Goerli;
 /// Indicates the default eth1 chain id we use for the deposit contract.
 pub const DEFAULT_CHAIN_ID: Eth1Id = Eth1Id::Goerli;
 /// Indicates the default eth1 endpoint.
@@ -83,7 +81,6 @@ async fn get_state(endpoint: &EndpointWithState) -> Option<EndpointState> {
 /// is not usable.
 pub struct EndpointsCache {
     pub fallback: Fallback<EndpointWithState>,
-    pub config_network_id: Eth1Id,
     pub config_chain_id: Eth1Id,
     pub log: Logger,
 }
@@ -103,13 +100,7 @@ impl EndpointsCache {
             &crate::metrics::ENDPOINT_REQUESTS,
             &[&endpoint.endpoint.to_string()],
         );
-        let state = endpoint_state(
-            &endpoint.endpoint,
-            &self.config_network_id,
-            &self.config_chain_id,
-            &self.log,
-        )
-        .await;
+        let state = endpoint_state(&endpoint.endpoint, &self.config_chain_id, &self.log).await;
         *value = Some(state.clone());
         if state.is_err() {
             crate::metrics::inc_counter_vec(
@@ -181,7 +172,6 @@ impl EndpointsCache {
 /// chain id. Otherwise it returns `Err`.
 async fn endpoint_state(
     endpoint: &HttpJsonRpc,
-    config_network_id: &Eth1Id,
     config_chain_id: &Eth1Id,
     log: &Logger,
 ) -> EndpointState {
@@ -194,21 +184,7 @@ async fn endpoint_state(
         );
         EndpointError::RequestFailed(e)
     };
-    let network_id = endpoint
-        .get_network_id(Duration::from_millis(STANDARD_TIMEOUT_MILLIS))
-        .await
-        .map_err(error_connecting)?;
-    if &network_id != config_network_id {
-        warn!(
-            log,
-            "Invalid eth1 network id on endpoint. Please switch to correct network id";
-            "endpoint" => %endpoint,
-            "action" => "trying fallbacks",
-            "expected" => format!("{:?}",config_network_id),
-            "received" => format!("{:?}",network_id),
-        );
-        return Err(EndpointError::WrongNetworkId);
-    }
+
     let chain_id = endpoint
         .get_chain_id(Duration::from_millis(STANDARD_TIMEOUT_MILLIS))
         .await
@@ -391,8 +367,6 @@ pub struct Config {
     pub endpoints: Eth1Endpoints,
     /// The address the `BlockCache` and `DepositCache` should assume is the canonical deposit contract.
     pub deposit_contract_address: String,
-    /// The eth1 network id where the deposit contract is deployed (Goerli/Mainnet).
-    pub network_id: Eth1Id,
     /// The eth1 chain id where the deposit contract is deployed (Goerli/Mainnet).
     pub chain_id: Eth1Id,
     /// Defines the first block that the `DepositCache` will start searching for deposit logs.
@@ -455,7 +429,6 @@ impl Default for Config {
             endpoints: Eth1Endpoints::NoAuth(vec![SensitiveUrl::parse(DEFAULT_ETH1_ENDPOINT)
                 .expect("The default Eth1 endpoint must always be a valid URL.")]),
             deposit_contract_address: "0x0000000000000000000000000000000000000000".into(),
-            network_id: DEFAULT_NETWORK_ID,
             chain_id: DEFAULT_CHAIN_ID,
             deposit_contract_deploy_block: 1,
             lowest_cached_block_number: 1,
@@ -666,7 +639,6 @@ impl Service {
     /// Builds a new `EndpointsCache` with empty states.
     pub fn init_endpoints(&self) -> Result<Arc<EndpointsCache>, String> {
         let endpoints = self.config().endpoints.clone();
-        let config_network_id = self.config().network_id.clone();
         let config_chain_id = self.config().chain_id.clone();
 
         let servers = match endpoints {
@@ -685,7 +657,6 @@ impl Service {
         };
         let new_cache = Arc::new(EndpointsCache {
             fallback: Fallback::new(servers.into_iter().map(EndpointWithState::new).collect()),
-            config_network_id,
             config_chain_id,
             log: self.log.clone(),
         });

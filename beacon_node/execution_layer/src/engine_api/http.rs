@@ -318,19 +318,6 @@ pub mod deposit_methods {
     }
 
     impl HttpJsonRpc<EngineApi> {
-        /// Get the eth1 network id of the given endpoint.
-        pub async fn get_network_id(&self, timeout: Duration) -> Result<Eth1Id, String> {
-            let response_body: String = self
-                .rpc_request("net_version", json!([]), timeout)
-                .await
-                .map_err(|e| format!("net_version call failed {:?}", e))?;
-            Eth1Id::from_str(
-                response_result_or_error(&response_body)?
-                    .as_str()
-                    .ok_or("Data was not string")?,
-            )
-        }
-
         /// Get the eth1 chain id of the given endpoint.
         pub async fn get_chain_id(&self, timeout: Duration) -> Result<Eth1Id, String> {
             let response_body: String = self

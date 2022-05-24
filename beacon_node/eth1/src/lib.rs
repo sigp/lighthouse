@@ -13,5 +13,5 @@ pub use execution_layer::http::deposit_log::DepositLog;
 pub use inner::SszEth1Cache;
 pub use service::{
     BlockCacheUpdateOutcome, Config, DepositCacheUpdateOutcome, Error, Eth1Endpoints, Service,
-    DEFAULT_CHAIN_ID, DEFAULT_NETWORK_ID,
+    DEFAULT_CHAIN_ID,
 };

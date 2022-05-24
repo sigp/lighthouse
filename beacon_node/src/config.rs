@@ -340,7 +340,6 @@ pub fn get_config<E: EthSpec>(
     client_config.eth1.follow_distance = spec.eth1_follow_distance;
     client_config.eth1.node_far_behind_seconds =
         max(5, spec.eth1_follow_distance / 2) * spec.seconds_per_eth1_block;
-    client_config.eth1.network_id = spec.deposit_network_id.into();
     client_config.eth1.chain_id = spec.deposit_chain_id.into();
     client_config.eth1.set_block_cache_truncation::<E>(spec);
 
