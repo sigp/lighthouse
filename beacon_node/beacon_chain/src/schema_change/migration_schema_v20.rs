@@ -41,7 +41,7 @@ fn get_state_by_replay<T: BeaconChainTypes>(
     db.replay_blocks(epoch_boundary_state, blocks, slot, std::iter::empty())
 }
 
-pub fn upgrade_to_v10<T: BeaconChainTypes>(
+pub fn upgrade_to_v20<T: BeaconChainTypes>(
     db: Arc<HotColdDB<T::EthSpec, T::HotStore, T::ColdStore>>,
     log: Logger,
 ) -> Result<(), Error> {
@@ -192,7 +192,7 @@ pub fn upgrade_to_v10<T: BeaconChainTypes>(
     db.store_schema_version_atomically(SchemaVersion(10), ops)
 }
 
-pub fn downgrade_from_v10<T: BeaconChainTypes>(
+pub fn downgrade_from_v20<T: BeaconChainTypes>(
     db: Arc<HotColdDB<T::EthSpec, T::HotStore, T::ColdStore>>,
     log: Logger,
 ) -> Result<(), Error> {

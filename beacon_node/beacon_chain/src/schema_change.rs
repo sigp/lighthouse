@@ -1,5 +1,5 @@
 //! Utilities for managing database schema changes.
-mod migration_schema_v10;
+mod migration_schema_v20;
 mod migration_schema_v6;
 mod migration_schema_v7;
 mod migration_schema_v8;
@@ -129,10 +129,10 @@ pub fn migrate_schema<T: BeaconChainTypes>(
             db.store_schema_version(to)
         }
         // Upgrade for tree-states database changes.
-        (SchemaVersion(9), SchemaVersion(10)) => migration_schema_v10::upgrade_to_v10::<T>(db, log),
+        (SchemaVersion(9), SchemaVersion(20)) => migration_schema_v20::upgrade_to_v20::<T>(db, log),
         // Downgrade for tree-states database changes.
-        (SchemaVersion(10), SchemaVersion(9)) => {
-            migration_schema_v10::downgrade_from_v10::<T>(db, log)
+        (SchemaVersion(20), SchemaVersion(9)) => {
+            migration_schema_v20::downgrade_from_v20::<T>(db, log)
         }
         // Anything else is an error.
         (_, _) => Err(HotColdDBError::UnsupportedSchemaVersion {
