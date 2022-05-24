@@ -38,6 +38,7 @@
     * [Validator Graffiti](./graffiti.md)
     * [Remote Signing with Web3Signer](./validator-web3signer.md)
     * [Database Configuration](./advanced_database.md)
+    * [Database Migrations](./database-migrations.md)
     * [Advanced Networking](./advanced_networking.md)
     * [Running a Slasher](./slasher.md)
     * [Redundancy](./redundancy.md)
