@@ -109,7 +109,6 @@ pub struct Inner<T, E: EthSpec> {
     fee_recipient: Option<Address>,
     fee_recipient_file: Option<FeeRecipientFile>,
     // Used to track unpublished validator registration changes.
-    // TODO(sean): should this be persisted?
     validator_registration_cache:
         RwLock<HashMap<ValidatorRegistrationKey, SignedValidatorRegistrationData>>,
 }
