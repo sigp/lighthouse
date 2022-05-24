@@ -438,6 +438,13 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .requires("merge")
                 .takes_value(true)
         )
+        .arg(
+            Arg::with_name("payload-builders")
+                .long("payload-builders")
+                .help("The URL of a service compatible with the MEV-boost API.")
+                .requires("merge")
+                .takes_value(true)
+        )
 
         /*
          * Database.
@@ -448,7 +455,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .value_name("SLOT_COUNT")
                 .help("Specifies how often a freezer DB restore point should be stored. \
                        Cannot be changed after initialization. \
-                       [default: 2048 (mainnet) or 64 (minimal)]")
+                       [default: 8192 (mainnet) or 64 (minimal)]")
                 .takes_value(true)
         )
         .arg(
@@ -692,5 +699,14 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                        lead to less spurious failures on slow hardware but is considered \
                        experimental as it may obscure performance issues.")
                 .takes_value(false)
+        )
+        .arg(
+            Arg::with_name("fork-choice-before-proposal-timeout")
+                .long("fork-choice-before-proposal-timeout")
+                .help("Set the maximum number of milliseconds to wait for fork choice before \
+                       proposing a block. You can prevent waiting at all by setting the timeout \
+                       to 0, however you risk proposing atop the wrong parent block.")
+                .default_value("250")
+                .takes_value(true)
         )
 }

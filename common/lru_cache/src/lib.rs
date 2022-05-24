@@ -1,7 +1,5 @@
-//! A library to provide fast and efficient LRU Cache's without updating.
+//! A library to provide fast and efficient LRU Cache's.
 
-mod space;
 mod time;
 
-pub use space::LRUCache;
 pub use time::LRUTimeCache;

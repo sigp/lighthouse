@@ -30,7 +30,7 @@ dirs = "3.0.1"
 directory = { path = "../common/directory" }
 lockfile = { path = "../common/lockfile" }
 environment = { path = "../lighthouse/environment" }
-parking_lot = "0.11.0"
+parking_lot = "0.12.0"
 exit-future = "0.2.0"
 filesystem = { path = "../common/filesystem" }
 hex = "0.4.2"
@@ -47,9 +47,9 @@ warp_utils = { path = "../common/warp_utils" }
 warp = "0.3.2"
 hyper = "0.14.4"
 eth2_serde_utils = "0.1.1"
-libsecp256k1 = "0.6.0"
+libsecp256k1 = "0.7.0"
 ring = "0.16.19"
-rand = { version = "0.7.3", features = ["small_rng"] }
+rand = { version = "0.8.5", features = ["small_rng"] }
 lighthouse_metrics = { path = "../common/lighthouse_metrics" }
 lazy_static = "1.4.0"
 itertools = "0.10.0"

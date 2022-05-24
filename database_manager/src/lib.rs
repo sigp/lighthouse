@@ -63,7 +63,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
     App::new(CMD)
         .visible_aliases(&["db"])
         .setting(clap::AppSettings::ColoredHelp)
-        .about("")
+        .about("Manage a beacon node database")
         .arg(
             Arg::with_name("slots-per-restore-point")
                 .long("slots-per-restore-point")
@@ -100,7 +100,9 @@ fn parse_client_config<E: EthSpec>(
         client_config.freezer_db_path = Some(freezer_dir);
     }
 
-    client_config.store.slots_per_restore_point = get_slots_per_restore_point::<E>(cli_args)?;
+    let (sprp, sprp_explicit) = get_slots_per_restore_point::<E>(cli_args)?;
+    client_config.store.slots_per_restore_point = sprp;
+    client_config.store.slots_per_restore_point_set_explicitly = sprp_explicit;
 
     Ok(client_config)
 }
@@ -124,10 +126,18 @@ pub fn display_db_version<E: EthSpec>(
         },
         client_config.store,
         spec,
-        log,
+        log.clone(),
     )?;
 
-    println!("Database version: {}", version.as_u64());
+    info!(log, "Database version: {}", version.as_u64());
+
+    if version != CURRENT_SCHEMA_VERSION {
+        info!(
+            log,
+            "Latest schema version: {}",
+            CURRENT_SCHEMA_VERSION.as_u64(),
+        );
+    }
 
     Ok(())
 }

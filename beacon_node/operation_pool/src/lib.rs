@@ -9,9 +9,7 @@ mod sync_aggregate_id;
 
 pub use attestation::AttMaxCover;
 pub use max_cover::MaxCover;
-pub use persistence::{
-    PersistedOperationPool, PersistedOperationPoolAltair, PersistedOperationPoolBase,
-};
+pub use persistence::{PersistedOperationPool, PersistedOperationPoolAltair};
 pub use reward_cache::RewardCache;
 
 use crate::sync_aggregate_id::SyncAggregateId;

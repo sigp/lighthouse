@@ -54,6 +54,10 @@ pub enum Error {
         state_root: Hash256,
         slot: Slot,
     },
+    AddPayloadLogicError,
+    ResyncRequiredForExecutionPayloadSeparation,
+    SlotClockUnavailableForMigration,
+    V9MigrationFailure(Hash256),
 }
 
 pub trait HandleUnavailable<T> {

@@ -1,11 +1,14 @@
 use serde_derive::Serialize;
-use types::{BeaconState, EthSpec, Hash256, SignedBeaconBlock};
+use types::{
+    BeaconState, EthSpec, ExecPayload, FullPayload, Hash256, SignedBeaconBlock,
+    SignedBlindedBeaconBlock,
+};
 
 /// Represents some block and its associated state. Generally, this will be used for tracking the
 /// head, justified head and finalized head.
 #[derive(Clone, Serialize, PartialEq, Debug)]
-pub struct BeaconSnapshot<E: EthSpec> {
-    pub beacon_block: SignedBeaconBlock<E>,
+pub struct BeaconSnapshot<E: EthSpec, Payload: ExecPayload<E> = FullPayload<E>> {
+    pub beacon_block: SignedBeaconBlock<E, Payload>,
     pub beacon_block_root: Hash256,
     pub beacon_state: BeaconState<E>,
 }
@@ -19,14 +22,14 @@ pub struct PreProcessingSnapshot<T: EthSpec> {
     pub pre_state: BeaconState<T>,
     /// This value is only set to `Some` if the `pre_state` was *not* advanced forward.
     pub beacon_state_root: Option<Hash256>,
-    pub beacon_block: SignedBeaconBlock<T>,
+    pub beacon_block: SignedBlindedBeaconBlock<T>,
     pub beacon_block_root: Hash256,
 }
 
-impl<E: EthSpec> BeaconSnapshot<E> {
+impl<E: EthSpec, Payload: ExecPayload<E>> BeaconSnapshot<E, Payload> {
     /// Create a new checkpoint.
     pub fn new(
-        beacon_block: SignedBeaconBlock<E>,
+        beacon_block: SignedBeaconBlock<E, Payload>,
         beacon_block_root: Hash256,
         beacon_state: BeaconState<E>,
     ) -> Self {
@@ -49,7 +52,7 @@ impl<E: EthSpec> BeaconSnapshot<E> {
     /// Update all fields of the checkpoint.
     pub fn update(
         &mut self,
-        beacon_block: SignedBeaconBlock<E>,
+        beacon_block: SignedBeaconBlock<E, Payload>,
         beacon_block_root: Hash256,
         beacon_state: BeaconState<E>,
     ) {

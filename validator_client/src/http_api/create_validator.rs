@@ -1,5 +1,5 @@
 use crate::ValidatorStore;
-use account_utils::validator_definitions::{SigningDefinition, ValidatorDefinition};
+use account_utils::validator_definitions::ValidatorDefinition;
 use account_utils::{
     eth2_wallet::{bip39::Mnemonic, WalletBuilder},
     random_mnemonic, random_password, ZeroizeString,
@@ -164,24 +164,12 @@ pub async fn create_validators_mnemonic<P: AsRef<Path>, T: 'static + SlotClock, 
 }
 
 pub async fn create_validators_web3signer<T: 'static + SlotClock, E: EthSpec>(
-    validator_requests: &[api_types::Web3SignerValidatorRequest],
+    validators: Vec<ValidatorDefinition>,
     validator_store: &ValidatorStore<T, E>,
 ) -> Result<(), warp::Rejection> {
-    for request in validator_requests {
-        let validator_definition = ValidatorDefinition {
-            enabled: request.enable,
-            voting_public_key: request.voting_public_key.clone(),
-            graffiti: request.graffiti.clone(),
-            suggested_fee_recipient: request.suggested_fee_recipient,
-            description: request.description.clone(),
-            signing_definition: SigningDefinition::Web3Signer {
-                url: request.url.clone(),
-                root_certificate_path: request.root_certificate_path.clone(),
-                request_timeout_ms: request.request_timeout_ms,
-            },
-        };
+    for validator in validators {
         validator_store
-            .add_validator(validator_definition)
+            .add_validator(validator)
             .await
             .map_err(|e| {
                 warp_utils::reject::custom_server_error(format!(

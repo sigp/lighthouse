@@ -45,6 +45,7 @@ use strum::{EnumString, IntoStaticStr};
 pub use types::*;
 
 pub type ColumnIter<'a> = Box<dyn Iterator<Item = Result<(Hash256, Vec<u8>), Error>> + 'a>;
+pub type ColumnKeyIter<'a> = Box<dyn Iterator<Item = Result<Hash256, Error>> + 'a>;
 
 pub trait KeyValueStore<E: EthSpec>: Sync + Send + Sized + 'static {
     /// Retrieve some bytes in `column` with `key`.
@@ -79,8 +80,14 @@ pub trait KeyValueStore<E: EthSpec>: Sync + Send + Sized + 'static {
     /// Compact the database, freeing space used by deleted items.
     fn compact(&self) -> Result<(), Error>;
 
-    /// Iterate through all values in a particular column.
+    /// Iterate through all keys and values in a particular column.
     fn iter_column(&self, _column: DBColumn) -> ColumnIter {
+        // Default impl for non LevelDB databases
+        Box::new(std::iter::empty())
+    }
+
+    /// Iterate through all keys in a particular column.
+    fn iter_column_keys(&self, _column: DBColumn) -> ColumnKeyIter {
         // Default impl for non LevelDB databases
         Box::new(std::iter::empty())
     }
@@ -153,6 +160,7 @@ pub enum StoreOp<'a, E: EthSpec> {
     DeleteStateTemporaryFlag(Hash256),
     DeleteBlock(Hash256),
     DeleteState(Hash256, Option<Slot>),
+    DeleteExecutionPayload(Hash256),
     KeyValueOp(KeyValueStoreOp),
 }
 
@@ -177,6 +185,9 @@ pub enum DBColumn {
     /// and then made non-temporary by the deletion of their state root from this column.
     #[strum(serialize = "bst")]
     BeaconStateTemporary,
+    /// Execution payloads for blocks more recent than the finalized checkpoint.
+    #[strum(serialize = "exp")]
+    ExecPayload,
     /// For persisting in-memory state to the database.
     #[strum(serialize = "bch")]
     BeaconChain,
@@ -201,6 +212,12 @@ pub enum DBColumn {
     BeaconRandaoMixes,
     #[strum(serialize = "dht")]
     DhtEnrs,
+}
+
+/// A block from the database, which might have an execution payload or not.
+pub enum DatabaseBlock<E: EthSpec> {
+    Full(SignedBeaconBlock<E>),
+    Blinded(SignedBeaconBlock<E, BlindedPayload<E>>),
 }
 
 impl DBColumn {

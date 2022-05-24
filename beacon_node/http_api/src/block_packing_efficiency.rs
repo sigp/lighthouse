@@ -10,8 +10,8 @@ use std::collections::{HashMap, HashSet};
 use std::marker::PhantomData;
 use std::sync::Arc;
 use types::{
-    BeaconCommittee, BeaconState, BeaconStateError, ChainSpec, Epoch, EthSpec, Hash256,
-    OwnedBeaconCommittee, RelativeEpoch, SignedBeaconBlock, Slot,
+    BeaconCommittee, BeaconState, BeaconStateError, BlindedPayload, ChainSpec, Epoch, EthSpec,
+    Hash256, OwnedBeaconCommittee, RelativeEpoch, SignedBeaconBlock, Slot,
 };
 use warp_utils::reject::{beacon_chain_error, custom_bad_request, custom_server_error};
 
@@ -104,7 +104,7 @@ impl<T: EthSpec> PackingEfficiencyHandler<T> {
 
     fn apply_block(
         &mut self,
-        block: &SignedBeaconBlock<T>,
+        block: &SignedBeaconBlock<T, BlindedPayload<T>>,
     ) -> Result<usize, PackingEfficiencyError> {
         let block_body = block.message().body();
         let attestations = block_body.attestations();
@@ -251,7 +251,7 @@ pub fn get_block_packing_efficiency<T: BeaconChainTypes>(
         .ok_or_else(|| custom_server_error("no blocks were loaded".to_string()))?;
 
     let first_block = chain
-        .get_block(first_block_root)
+        .get_blinded_block(first_block_root)
         .and_then(|maybe_block| {
             maybe_block.ok_or(BeaconChainError::MissingBeaconBlock(*first_block_root))
         })
@@ -309,7 +309,7 @@ pub fn get_block_packing_efficiency<T: BeaconChainTypes>(
     };
 
     let pre_block_hook = |_state: &mut BeaconState<T::EthSpec>,
-                          block: &SignedBeaconBlock<T::EthSpec>|
+                          block: &SignedBeaconBlock<_, BlindedPayload<_>>|
      -> Result<(), PackingEfficiencyError> {
         let slot = block.slot();
 
@@ -363,13 +363,13 @@ pub fn get_block_packing_efficiency<T: BeaconChainTypes>(
             .iter()
             .map(|root| {
                 chain
-                    .get_block(root)
+                    .get_blinded_block(root)
                     .and_then(|maybe_block| {
                         maybe_block.ok_or(BeaconChainError::MissingBeaconBlock(*root))
                     })
                     .map_err(beacon_chain_error)
             })
-            .collect::<Result<Vec<SignedBeaconBlock<T::EthSpec>>, _>>()?;
+            .collect::<Result<Vec<_>, _>>()?;
 
         replayer = replayer
             .apply_blocks(blocks, None)

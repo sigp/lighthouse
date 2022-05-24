@@ -8,17 +8,20 @@ const VALIDATOR_COUNT: usize = 32;
 
 type E = MainnetEthSpec;
 
-fn verify_execution_payload_chain<T: EthSpec>(chain: &[ExecutionPayload<T>]) {
-    let mut prev_ep: Option<ExecutionPayload<T>> = None;
+fn verify_execution_payload_chain<T: EthSpec>(chain: &[FullPayload<T>]) {
+    let mut prev_ep: Option<FullPayload<T>> = None;
 
     for ep in chain {
-        assert!(*ep != ExecutionPayload::default());
-        assert!(ep.block_hash != ExecutionBlockHash::zero());
+        assert!(*ep != FullPayload::default());
+        assert!(ep.block_hash() != ExecutionBlockHash::zero());
 
         // Check against previous `ExecutionPayload`.
         if let Some(prev_ep) = prev_ep {
-            assert_eq!(prev_ep.block_hash, ep.parent_hash);
-            assert_eq!(prev_ep.block_number + 1, ep.block_number);
+            assert_eq!(prev_ep.block_hash(), ep.execution_payload.parent_hash);
+            assert_eq!(
+                prev_ep.execution_payload.block_number + 1,
+                ep.execution_payload.block_number
+            );
         }
         prev_ep = Some(ep.clone());
     }
@@ -83,12 +86,12 @@ fn merge_with_terminal_block_hash_override() {
 
         let execution_payload = block.message().body().execution_payload().unwrap().clone();
         if i == 0 {
-            assert_eq!(execution_payload.block_hash, genesis_pow_block_hash);
+            assert_eq!(execution_payload.block_hash(), genesis_pow_block_hash);
         }
         execution_payloads.push(execution_payload);
     }
 
-    verify_execution_payload_chain(&execution_payloads);
+    verify_execution_payload_chain(execution_payloads.as_slice());
 }
 
 #[test]
@@ -138,7 +141,7 @@ fn base_altair_merge_with_terminal_block_after_fork() {
     assert_eq!(merge_head.slot(), merge_fork_slot);
     assert_eq!(
         *merge_head.message().body().execution_payload().unwrap(),
-        ExecutionPayload::default()
+        FullPayload::default()
     );
 
     /*
@@ -154,7 +157,7 @@ fn base_altair_merge_with_terminal_block_after_fork() {
             .body()
             .execution_payload()
             .unwrap(),
-        ExecutionPayload::default()
+        FullPayload::default()
     );
     assert_eq!(one_after_merge_head.slot(), merge_fork_slot + 1);
 
@@ -178,5 +181,5 @@ fn base_altair_merge_with_terminal_block_after_fork() {
         execution_payloads.push(block.message().body().execution_payload().unwrap().clone());
     }
 
-    verify_execution_payload_chain(&execution_payloads);
+    verify_execution_payload_chain(execution_payloads.as_slice());
 }

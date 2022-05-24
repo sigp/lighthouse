@@ -4,11 +4,10 @@ use std::time::Duration;
 use beacon_chain::{BeaconChainTypes, BlockError};
 use fnv::FnvHashMap;
 use lighthouse_network::{PeerAction, PeerId};
-use lru_cache::LRUCache;
+use lru_cache::LRUTimeCache;
 use slog::{crit, debug, error, trace, warn, Logger};
 use smallvec::SmallVec;
 use store::{Hash256, SignedBeaconBlock};
-use strum::AsStaticRef;
 use tokio::sync::mpsc;
 
 use crate::beacon_processor::{ChainSegmentProcessId, WorkEvent};
@@ -30,7 +29,7 @@ mod single_block_lookup;
 #[cfg(test)]
 mod tests;
 
-const FAILED_CHAINS_CACHE_SIZE: usize = 500;
+const FAILED_CHAINS_CACHE_EXPIRY_SECONDS: u64 = 60;
 const SINGLE_BLOCK_LOOKUP_MAX_ATTEMPTS: u8 = 3;
 
 pub(crate) struct BlockLookups<T: BeaconChainTypes> {
@@ -38,7 +37,7 @@ pub(crate) struct BlockLookups<T: BeaconChainTypes> {
     parent_queue: SmallVec<[ParentLookup<T::EthSpec>; 3]>,
 
     /// A cache of failed chain lookups to prevent duplicate searches.
-    failed_chains: LRUCache<Hash256>,
+    failed_chains: LRUTimeCache<Hash256>,
 
     /// A collection of block hashes being searched for and a flag indicating if a result has been
     /// received or not.
@@ -57,7 +56,9 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
     pub fn new(beacon_processor_send: mpsc::Sender<WorkEvent<T>>, log: Logger) -> Self {
         Self {
             parent_queue: Default::default(),
-            failed_chains: LRUCache::new(FAILED_CHAINS_CACHE_SIZE),
+            failed_chains: LRUTimeCache::new(Duration::from_secs(
+                FAILED_CHAINS_CACHE_EXPIRY_SECONDS,
+            )),
             single_block_lookups: Default::default(),
             beacon_processor_send,
             log,
@@ -176,7 +177,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                 // request finished correctly, it will be removed after the block is processed.
             }
             Err(error) => {
-                let msg: &str = error.as_static();
+                let msg: &str = error.into();
                 cx.report_peer(peer_id, PeerAction::LowToleranceError, msg);
                 // Remove the request, if it can be retried it will be added with a new id.
                 let mut req = request.remove();
@@ -219,7 +220,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
             return;
         };
 
-        match parent_lookup.verify_block(block, &self.failed_chains) {
+        match parent_lookup.verify_block(block, &mut self.failed_chains) {
             Ok(Some(block)) => {
                 // Block is correct, send to the beacon processor.
                 let chain_hash = parent_lookup.chain_hash();
@@ -243,7 +244,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                 VerifyError::RootMismatch
                 | VerifyError::NoBlockReturned
                 | VerifyError::ExtraBlocksReturned => {
-                    let e = e.as_static();
+                    let e = e.into();
                     warn!(self.log, "Peer sent invalid response to parent request.";
                         "peer_id" => %peer_id, "reason" => e);
 
@@ -310,8 +311,13 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                     }
                 }
                 Err(e) => {
-                    trace!(self.log, "Single block request failed on peer disconnection";
-                        "block_root" => %req.hash, "peer_id" => %peer_id, "reason" => e.as_static());
+                    trace!(
+                        self.log,
+                        "Single block request failed on peer disconnection";
+                        "block_root" => %req.hash,
+                        "peer_id" => %peer_id,
+                        "reason" => <&str>::from(e),
+                    );
                 }
             }
         }
@@ -402,8 +408,8 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
             trace!(self.log, "Single block processing succeeded"; "block" => %root);
         }
 
-        match result {
-            Err(e) => match e {
+        if let Err(e) = result {
+            match e {
                 BlockError::BlockIsAlreadyKnown => {
                     // No error here
                 }
@@ -431,9 +437,6 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                         }
                     }
                 }
-            },
-            Ok(()) => {
-                // No error here
             }
         }
 

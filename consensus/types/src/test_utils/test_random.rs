@@ -3,6 +3,7 @@ use rand::RngCore;
 use rand::SeedableRng;
 use rand_xorshift::XorShiftRng;
 use ssz_types::typenum::Unsigned;
+use std::marker::PhantomData;
 use std::sync::Arc;
 
 mod address;
@@ -23,6 +24,12 @@ pub fn test_random_instance<T: TestRandom>() -> T {
 
 pub trait TestRandom {
     fn random_for_test(rng: &mut impl RngCore) -> Self;
+}
+
+impl<T> TestRandom for PhantomData<T> {
+    fn random_for_test(_rng: &mut impl RngCore) -> Self {
+        PhantomData::default()
+    }
 }
 
 impl TestRandom for bool {

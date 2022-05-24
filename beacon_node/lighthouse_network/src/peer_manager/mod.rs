@@ -213,6 +213,8 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
             ScoreUpdateResult::Disconnect => {
                 // The peer has transitioned to a disconnect state and has been marked as such in
                 // the peer db. We must inform libp2p to disconnect this peer.
+                self.inbound_ping_peers.remove(peer_id);
+                self.outbound_ping_peers.remove(peer_id);
                 self.events.push(PeerManagerEvent::DisconnectPeer(
                     *peer_id,
                     GoodbyeReason::BadScore,
@@ -388,7 +390,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
     /// Updates `PeerInfo` with `identify` information.
     pub fn identify(&mut self, peer_id: &PeerId, info: &IdentifyInfo) {
         if let Some(peer_info) = self.network_globals.peers.write().peer_info_mut(peer_id) {
-            let previous_kind = peer_info.client().kind.clone();
+            let previous_kind = peer_info.client().kind;
             let previous_listening_addresses =
                 peer_info.set_listening_addresses(info.listen_addrs.clone());
             peer_info.set_client(peerdb::client::Client::from_identify_info(info));
@@ -412,12 +414,9 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
                 ) {
                     metrics::inc_gauge_vec(
                         &metrics::PEERS_PER_CLIENT,
-                        &[&peer_info.client().kind.to_string()],
+                        &[peer_info.client().kind.as_ref()],
                     );
-                    metrics::dec_gauge_vec(
-                        &metrics::PEERS_PER_CLIENT,
-                        &[&previous_kind.to_string()],
-                    );
+                    metrics::dec_gauge_vec(&metrics::PEERS_PER_CLIENT, &[previous_kind.as_ref()]);
                 }
             }
         } else {
@@ -462,7 +461,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
                 // Our fault. Do nothing
                 return;
             }
-            RPCError::InvalidData => {
+            RPCError::InvalidData(_) => {
                 // Peer is not complying with the protocol. This is considered a malicious action
                 PeerAction::Fatal
             }
@@ -674,7 +673,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
             let value = clients_per_peer.get(&client_kind.to_string()).unwrap_or(&0);
             metrics::set_gauge_vec(
                 &metrics::PEERS_PER_CLIENT,
-                &[&client_kind.to_string()],
+                &[client_kind.as_ref()],
                 *value as i64,
             );
         }
@@ -842,21 +841,14 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
             let outbound_only_peer_count = self.network_globals.connected_outbound_only_peers();
             let wanted_peers = if peer_count < self.target_peers.saturating_sub(dialing_peers) {
                 // We need more peers in general.
-                // The maximum discovery query is for 16 peers, but we can search for less if
-                // needed.
-                std::cmp::min(
-                    self.target_peers.saturating_sub(dialing_peers) - peer_count,
-                    16,
-                )
+                // Note: The maximum discovery query is bounded by `Discovery`.
+                self.target_peers.saturating_sub(dialing_peers) - peer_count
             } else if outbound_only_peer_count < self.min_outbound_only_peers()
                 && peer_count < self.max_outbound_dialing_peers()
             {
-                std::cmp::min(
-                    self.max_outbound_dialing_peers()
-                        .saturating_sub(dialing_peers)
-                        - peer_count,
-                    16,
-                )
+                self.max_outbound_dialing_peers()
+                    .saturating_sub(dialing_peers)
+                    - peer_count
             } else {
                 0
             };

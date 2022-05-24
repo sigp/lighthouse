@@ -258,4 +258,12 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                     immediately.")
                 .takes_value(false),
         )
+        .arg(
+            Arg::with_name("private-tx-proposals")
+                .long("private-tx-proposals")
+                .help("If this flag is set, Lighthouse will query the Beacon Node for only block \
+                    headers during proposals and will sign over headers. Useful for outsourcing \
+                    execution payload construction during proposals.")
+                .takes_value(false),
+        )
 }

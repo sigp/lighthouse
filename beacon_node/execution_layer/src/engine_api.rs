@@ -1,17 +1,22 @@
+use crate::engines::ForkChoiceState;
 use async_trait::async_trait;
 use eth1::http::RpcError;
+pub use ethers_core::types::Transaction;
+pub use json_structures::TransitionConfigurationV1;
 use reqwest::StatusCode;
 use serde::{Deserialize, Serialize};
-
-pub const LATEST_TAG: &str = "latest";
-
-use crate::engines::ForkChoiceState;
-pub use json_structures::TransitionConfigurationV1;
-pub use types::{Address, EthSpec, ExecutionBlockHash, ExecutionPayload, Hash256, Uint256};
+use slog::Logger;
+use ssz_types::FixedVector;
+pub use types::{
+    Address, EthSpec, ExecutionBlockHash, ExecutionPayload, ExecutionPayloadHeader, Hash256,
+    Uint256, VariableList,
+};
 
 pub mod auth;
 pub mod http;
 pub mod json_structures;
+
+pub const LATEST_TAG: &str = "latest";
 
 pub type PayloadId = [u8; 8];
 
@@ -24,7 +29,10 @@ pub enum Error {
     InvalidExecutePayloadResponse(&'static str),
     JsonRpc(RpcError),
     Json(serde_json::Error),
-    ServerMessage { code: i64, message: String },
+    ServerMessage {
+        code: i64,
+        message: String,
+    },
     Eip155Failure,
     IsSyncing,
     ExecutionBlockNotFound(ExecutionBlockHash),
@@ -32,6 +40,16 @@ pub enum Error {
     ParentHashEqualsBlockHash(ExecutionBlockHash),
     PayloadIdUnavailable,
     TransitionConfigurationMismatch,
+    PayloadConversionLogicFlaw,
+    InvalidBuilderQuery,
+    MissingPayloadId {
+        parent_hash: ExecutionBlockHash,
+        timestamp: u64,
+        prev_randao: Hash256,
+        suggested_fee_recipient: Address,
+    },
+    DeserializeTransaction(ssz_types::Error),
+    DeserializeTransactions(ssz_types::Error),
 }
 
 impl From<reqwest::Error> for Error {
@@ -59,41 +77,17 @@ impl From<auth::Error> for Error {
     }
 }
 
-/// A generic interface for an execution engine API.
+pub struct EngineApi;
+pub struct BuilderApi;
+
 #[async_trait]
-pub trait EngineApi {
-    async fn upcheck(&self) -> Result<(), Error>;
-
-    async fn get_block_by_number<'a>(
-        &self,
-        block_by_number: BlockByNumberQuery<'a>,
-    ) -> Result<Option<ExecutionBlock>, Error>;
-
-    async fn get_block_by_hash<'a>(
-        &self,
-        block_hash: ExecutionBlockHash,
-    ) -> Result<Option<ExecutionBlock>, Error>;
-
-    async fn new_payload_v1<T: EthSpec>(
-        &self,
-        execution_payload: ExecutionPayload<T>,
-    ) -> Result<PayloadStatusV1, Error>;
-
-    async fn get_payload_v1<T: EthSpec>(
-        &self,
-        payload_id: PayloadId,
-    ) -> Result<ExecutionPayload<T>, Error>;
-
-    async fn forkchoice_updated_v1(
+pub trait Builder {
+    async fn notify_forkchoice_updated(
         &self,
         forkchoice_state: ForkChoiceState,
         payload_attributes: Option<PayloadAttributes>,
+        log: &Logger,
     ) -> Result<ForkchoiceUpdatedResponse, Error>;
-
-    async fn exchange_transition_configuration_v1(
-        &self,
-        transition_configuration: TransitionConfigurationV1,
-    ) -> Result<TransitionConfigurationV1, Error>;
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -119,6 +113,9 @@ pub enum BlockByNumberQuery<'a> {
     Tag(&'a str),
 }
 
+/// Representation of an exection block with enough detail to determine the terminal PoW block.
+///
+/// See `get_pow_block_hash_at_total_difficulty`.
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ExecutionBlock {
@@ -128,6 +125,35 @@ pub struct ExecutionBlock {
     pub block_number: u64,
     pub parent_hash: ExecutionBlockHash,
     pub total_difficulty: Uint256,
+}
+
+/// Representation of an exection block with enough detail to reconstruct a payload.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExecutionBlockWithTransactions<T: EthSpec> {
+    pub parent_hash: ExecutionBlockHash,
+    #[serde(alias = "miner")]
+    pub fee_recipient: Address,
+    pub state_root: Hash256,
+    pub receipts_root: Hash256,
+    #[serde(with = "ssz_types::serde_utils::hex_fixed_vec")]
+    pub logs_bloom: FixedVector<u8, T::BytesPerLogsBloom>,
+    #[serde(alias = "mixHash")]
+    pub prev_randao: Hash256,
+    #[serde(rename = "number", with = "eth2_serde_utils::u64_hex_be")]
+    pub block_number: u64,
+    #[serde(with = "eth2_serde_utils::u64_hex_be")]
+    pub gas_limit: u64,
+    #[serde(with = "eth2_serde_utils::u64_hex_be")]
+    pub gas_used: u64,
+    #[serde(with = "eth2_serde_utils::u64_hex_be")]
+    pub timestamp: u64,
+    #[serde(with = "ssz_types::serde_utils::hex_var_list")]
+    pub extra_data: VariableList<u8, T::MaxExtraDataBytes>,
+    pub base_fee_per_gas: Uint256,
+    #[serde(rename = "hash")]
+    pub block_hash: ExecutionBlockHash,
+    pub transactions: Vec<Transaction>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -141,4 +167,18 @@ pub struct PayloadAttributes {
 pub struct ForkchoiceUpdatedResponse {
     pub payload_status: PayloadStatusV1,
     pub payload_id: Option<PayloadId>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum ProposeBlindedBlockResponseStatus {
+    Valid,
+    Invalid,
+    Syncing,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct ProposeBlindedBlockResponse {
+    pub status: ProposeBlindedBlockResponseStatus,
+    pub latest_valid_hash: Option<Hash256>,
+    pub validation_error: Option<String>,
 }

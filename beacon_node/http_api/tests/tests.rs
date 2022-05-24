@@ -20,6 +20,7 @@ use slot_clock::SlotClock;
 use state_processing::per_slot_processing;
 use std::convert::TryInto;
 use std::sync::Arc;
+use task_executor::test_utils::TestRuntime;
 use tokio::sync::{mpsc, oneshot};
 use tokio::time::Duration;
 use tree_hash::TreeHash;
@@ -63,6 +64,7 @@ struct ApiTester {
     network_rx: mpsc::UnboundedReceiver<NetworkMessage<E>>,
     local_enr: Enr,
     external_peer_id: PeerId,
+    _runtime: TestRuntime,
 }
 
 impl ApiTester {
@@ -121,8 +123,7 @@ impl ApiTester {
                 harness.chain.slot().unwrap(),
             )
             .into_iter()
-            .map(|vec| vec.into_iter().map(|(attestation, _subnet_id)| attestation))
-            .flatten()
+            .flat_map(|vec| vec.into_iter().map(|(attestation, _subnet_id)| attestation))
             .collect::<Vec<_>>();
 
         assert!(
@@ -186,7 +187,7 @@ impl ApiTester {
             external_peer_id,
         } = create_api_server(chain.clone(), log).await;
 
-        tokio::spawn(server);
+        harness.runtime.task_executor.spawn(server, "api_server");
 
         let client = BeaconNodeHttpClient::new(
             SensitiveUrl::parse(&format!(
@@ -213,6 +214,7 @@ impl ApiTester {
             network_rx,
             local_enr,
             external_peer_id,
+            _runtime: harness.runtime,
         }
     }
 
@@ -244,8 +246,7 @@ impl ApiTester {
                 harness.chain.slot().unwrap(),
             )
             .into_iter()
-            .map(|vec| vec.into_iter().map(|(attestation, _subnet_id)| attestation))
-            .flatten()
+            .flat_map(|vec| vec.into_iter().map(|(attestation, _subnet_id)| attestation))
             .collect::<Vec<_>>();
 
         let attester_slashing = harness.make_attester_slashing(vec![0, 1]);
@@ -265,7 +266,7 @@ impl ApiTester {
             external_peer_id,
         } = create_api_server(chain.clone(), log).await;
 
-        tokio::spawn(server);
+        harness.runtime.task_executor.spawn(server, "api_server");
 
         let client = BeaconNodeHttpClient::new(
             SensitiveUrl::parse(&format!(
@@ -292,6 +293,7 @@ impl ApiTester {
             network_rx,
             local_enr,
             external_peer_id,
+            _runtime: harness.runtime,
         }
     }
 
@@ -762,9 +764,9 @@ impl ApiTester {
         }
     }
 
-    fn get_block(&self, block_id: BlockId) -> Option<SignedBeaconBlock<E>> {
-        let root = self.get_block_root(block_id);
-        root.and_then(|root| self.chain.get_block(&root).unwrap())
+    async fn get_block(&self, block_id: BlockId) -> Option<SignedBeaconBlock<E>> {
+        let root = self.get_block_root(block_id)?;
+        self.chain.get_block(&root).await.unwrap()
     }
 
     pub async fn test_beacon_headers_all_slots(self) -> Self {
@@ -859,7 +861,11 @@ impl ApiTester {
                 }
             }
 
-            let block_opt = block_root_opt.and_then(|root| self.chain.get_block(&root).unwrap());
+            let block_opt = if let Some(root) = block_root_opt {
+                self.chain.get_block(&root).await.unwrap()
+            } else {
+                None
+            };
 
             if block_opt.is_none() && result.is_none() {
                 continue;
@@ -945,7 +951,7 @@ impl ApiTester {
 
     pub async fn test_beacon_blocks(self) -> Self {
         for block_id in self.interesting_block_ids() {
-            let expected = self.get_block(block_id);
+            let expected = self.get_block(block_id).await;
 
             if let BlockId::Slot(slot) = block_id {
                 if expected.is_none() {
@@ -1030,6 +1036,7 @@ impl ApiTester {
 
             let expected = self
                 .get_block(block_id)
+                .await
                 .map(|block| block.message().body().attestations().clone().into());
 
             if let BlockId::Slot(slot) = block_id {
@@ -1902,7 +1909,7 @@ impl ApiTester {
 
             let block = self
                 .client
-                .get_validator_blocks::<E>(slot, &randao_reveal, None)
+                .get_validator_blocks::<E, FullPayload<E>>(slot, &randao_reveal, None)
                 .await
                 .unwrap()
                 .data;
@@ -1925,7 +1932,12 @@ impl ApiTester {
 
             let block = self
                 .client
-                .get_validator_blocks_with_verify_randao::<E>(slot, None, None, Some(false))
+                .get_validator_blocks_with_verify_randao::<E, FullPayload<E>>(
+                    slot,
+                    None,
+                    None,
+                    Some(false),
+                )
                 .await
                 .unwrap()
                 .data;
@@ -1976,13 +1988,13 @@ impl ApiTester {
 
             // Check failure with no `verify_randao` passed.
             self.client
-                .get_validator_blocks::<E>(slot, &bad_randao_reveal, None)
+                .get_validator_blocks::<E, FullPayload<E>>(slot, &bad_randao_reveal, None)
                 .await
                 .unwrap_err();
 
             // Check failure with `verify_randao=true`.
             self.client
-                .get_validator_blocks_with_verify_randao::<E>(
+                .get_validator_blocks_with_verify_randao::<E, FullPayload<E>>(
                     slot,
                     Some(&bad_randao_reveal),
                     None,
@@ -1993,14 +2005,16 @@ impl ApiTester {
 
             // Check failure with no randao reveal provided.
             self.client
-                .get_validator_blocks_with_verify_randao::<E>(slot, None, None, None)
+                .get_validator_blocks_with_verify_randao::<E, FullPayload<E>>(
+                    slot, None, None, None,
+                )
                 .await
                 .unwrap_err();
 
             // Check success with `verify_randao=false`.
             let block = self
                 .client
-                .get_validator_blocks_with_verify_randao::<E>(
+                .get_validator_blocks_with_verify_randao::<E, FullPayload<E>>(
                     slot,
                     Some(&bad_randao_reveal),
                     None,
@@ -2378,8 +2392,7 @@ impl ApiTester {
             .unwrap();
         let attesting_validators: Vec<usize> = committees
             .into_iter()
-            .map(|committee| committee.committee.iter().cloned())
-            .flatten()
+            .flat_map(|committee| committee.committee.iter().cloned())
             .collect();
         // All attesters should now be considered live
         let expected = expected

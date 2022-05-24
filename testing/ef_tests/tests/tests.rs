@@ -72,8 +72,8 @@ fn operations_sync_aggregate() {
 
 #[test]
 fn operations_execution_payload() {
-    OperationsHandler::<MinimalEthSpec, ExecutionPayload<_>>::default().run();
-    OperationsHandler::<MainnetEthSpec, ExecutionPayload<_>>::default().run();
+    OperationsHandler::<MinimalEthSpec, FullPayload<_>>::default().run();
+    OperationsHandler::<MainnetEthSpec, FullPayload<_>>::default().run();
 }
 
 #[test]

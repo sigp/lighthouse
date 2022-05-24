@@ -12,15 +12,12 @@ use crate::{
 };
 use bls::get_withdrawal_credentials;
 use execution_layer::{
-    test_utils::{
-        ExecutionBlockGenerator, ExecutionLayerRuntime, MockExecutionLayer, DEFAULT_TERMINAL_BLOCK,
-    },
+    test_utils::{ExecutionBlockGenerator, MockExecutionLayer, DEFAULT_TERMINAL_BLOCK},
     ExecutionLayer,
 };
 use futures::channel::mpsc::Receiver;
 pub use genesis::{interop_genesis_state, DEFAULT_ETH1_BLOCK_HASH};
 use int_to_bytes::int_to_bytes32;
-use logging::test_logger;
 use merkle_proof::MerkleTree;
 use parking_lot::Mutex;
 use parking_lot::RwLockWriteGuard;
@@ -38,19 +35,11 @@ use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Duration;
 use store::{config::StoreConfig, HotColdDB, ItemStore, LevelDB, MemoryStore};
-use task_executor::ShutdownReason;
+use task_executor::{test_utils::TestRuntime, ShutdownReason};
 use tree_hash::TreeHash;
 use types::sync_selection_proof::SyncSelectionProof;
 pub use types::test_utils::generate_deterministic_keypairs;
-use types::{
-    typenum::U4294967296, Address, AggregateSignature, Attestation, AttestationData,
-    AttesterSlashing, BeaconBlock, BeaconState, BeaconStateHash, ChainSpec, Checkpoint, Deposit,
-    DepositData, Domain, Epoch, EthSpec, ForkName, Graffiti, Hash256, IndexedAttestation, Keypair,
-    ProposerSlashing, PublicKeyBytes, SelectionProof, SignatureBytes, SignedAggregateAndProof,
-    SignedBeaconBlock, SignedBeaconBlockHash, SignedContributionAndProof, SignedRoot,
-    SignedVoluntaryExit, Slot, SubnetId, SyncCommittee, SyncCommitteeContribution,
-    SyncCommitteeMessage, VariableList, VoluntaryExit,
-};
+use types::{typenum::U4294967296, *};
 
 // 4th September 2019
 pub const HARNESS_GENESIS_TIME: u64 = 1_567_552_690;
@@ -69,7 +58,7 @@ pub type BaseHarnessType<TEthSpec, THotStore, TColdStore> =
 pub type DiskHarnessType<E> = BaseHarnessType<E, LevelDB<E>, LevelDB<E>>;
 pub type EphemeralHarnessType<E> = BaseHarnessType<E, MemoryStore<E>, MemoryStore<E>>;
 
-type BoxedMutator<E, Hot, Cold> = Box<
+pub type BoxedMutator<E, Hot, Cold> = Box<
     dyn FnOnce(
         BeaconChainBuilder<BaseHarnessType<E, Hot, Cold>>,
     ) -> BeaconChainBuilder<BaseHarnessType<E, Hot, Cold>>,
@@ -156,8 +145,8 @@ pub struct Builder<T: BeaconChainTypes> {
     initial_mutator: Option<BoxedMutator<T::EthSpec, T::HotStore, T::ColdStore>>,
     store_mutator: Option<BoxedMutator<T::EthSpec, T::HotStore, T::ColdStore>>,
     execution_layer: Option<ExecutionLayer>,
-    execution_layer_runtime: Option<ExecutionLayerRuntime>,
     mock_execution_layer: Option<MockExecutionLayer<T::EthSpec>>,
+    runtime: TestRuntime,
     log: Logger,
 }
 
@@ -260,6 +249,9 @@ where
     Cold: ItemStore<E>,
 {
     pub fn new(eth_spec_instance: E) -> Self {
+        let runtime = TestRuntime::default();
+        let log = runtime.log.clone();
+
         Self {
             eth_spec_instance,
             spec: None,
@@ -271,8 +263,8 @@ where
             store_mutator: None,
             execution_layer: None,
             mock_execution_layer: None,
-            execution_layer_runtime: None,
-            log: test_logger(),
+            runtime,
+            log,
         }
     }
 
@@ -335,8 +327,6 @@ where
             "execution layer already defined"
         );
 
-        let el_runtime = ExecutionLayerRuntime::default();
-
         let urls: Vec<SensitiveUrl> = urls
             .iter()
             .map(|s| SensitiveUrl::parse(*s))
@@ -351,19 +341,19 @@ where
         };
         let execution_layer = ExecutionLayer::from_config(
             config,
-            el_runtime.task_executor.clone(),
-            el_runtime.log.clone(),
+            self.runtime.task_executor.clone(),
+            self.log.clone(),
         )
         .unwrap();
 
         self.execution_layer = Some(execution_layer);
-        self.execution_layer_runtime = Some(el_runtime);
         self
     }
 
     pub fn mock_execution_layer(mut self) -> Self {
         let spec = self.spec.clone().expect("cannot build without spec");
         let mock = MockExecutionLayer::new(
+            self.runtime.task_executor.clone(),
             spec.terminal_total_difficulty,
             DEFAULT_TERMINAL_BLOCK,
             spec.terminal_block_hash,
@@ -388,7 +378,7 @@ where
     pub fn build(self) -> BeaconChainHarness<BaseHarnessType<E, Hot, Cold>> {
         let (shutdown_tx, shutdown_receiver) = futures::channel::mpsc::channel(1);
 
-        let log = test_logger();
+        let log = self.log;
         let spec = self.spec.expect("cannot build without spec");
         let seconds_per_slot = spec.seconds_per_slot;
         let validator_keypairs = self
@@ -400,6 +390,7 @@ where
             .custom_spec(spec)
             .store(self.store.expect("cannot build without store"))
             .store_migrator_config(MigratorConfig::default().blocking())
+            .task_executor(self.runtime.task_executor.clone())
             .execution_layer(self.execution_layer)
             .dummy_eth1_backend()
             .expect("should build dummy backend")
@@ -439,8 +430,8 @@ where
             chain: Arc::new(chain),
             validator_keypairs,
             shutdown_receiver: Arc::new(Mutex::new(shutdown_receiver)),
+            runtime: self.runtime,
             mock_execution_layer: self.mock_execution_layer,
-            execution_layer_runtime: self.execution_layer_runtime,
             rng: make_rng(),
         }
     }
@@ -456,9 +447,9 @@ pub struct BeaconChainHarness<T: BeaconChainTypes> {
     pub chain: Arc<BeaconChain<T>>,
     pub spec: ChainSpec,
     pub shutdown_receiver: Arc<Mutex<Receiver<ShutdownReason>>>,
+    pub runtime: TestRuntime,
 
     pub mock_execution_layer: Option<MockExecutionLayer<T::EthSpec>>,
-    pub execution_layer_runtime: Option<ExecutionLayerRuntime>,
 
     pub rng: Mutex<StdRng>,
 }
@@ -533,8 +524,11 @@ where
         self.chain.slot().unwrap()
     }
 
-    pub fn get_block(&self, block_hash: SignedBeaconBlockHash) -> Option<SignedBeaconBlock<E>> {
-        self.chain.get_block(&block_hash.into()).unwrap()
+    pub fn get_block(
+        &self,
+        block_hash: SignedBeaconBlockHash,
+    ) -> Option<SignedBeaconBlock<E, BlindedPayload<E>>> {
+        self.chain.get_blinded_block(&block_hash.into()).unwrap()
     }
 
     pub fn block_exists(&self, block_hash: SignedBeaconBlockHash) -> bool {
@@ -590,18 +584,7 @@ where
         // different blocks each time.
         let graffiti = Graffiti::from(self.rng.lock().gen::<[u8; 32]>());
 
-        let randao_reveal = {
-            let epoch = slot.epoch(E::slots_per_epoch());
-            let domain = self.spec.get_domain(
-                epoch,
-                Domain::Randao,
-                &state.fork(),
-                state.genesis_validators_root(),
-            );
-            let message = epoch.signing_root(domain);
-            let sk = &self.validator_keypairs[proposer_index].sk;
-            sk.sign(message)
-        };
+        let randao_reveal = self.sign_randao_reveal(&state, proposer_index, slot);
 
         let (block, state) = self
             .chain
@@ -649,18 +632,7 @@ where
         // different blocks each time.
         let graffiti = Graffiti::from(self.rng.lock().gen::<[u8; 32]>());
 
-        let randao_reveal = {
-            let epoch = slot.epoch(E::slots_per_epoch());
-            let domain = self.spec.get_domain(
-                epoch,
-                Domain::Randao,
-                &state.fork(),
-                state.genesis_validators_root(),
-            );
-            let message = epoch.signing_root(domain);
-            let sk = &self.validator_keypairs[proposer_index].sk;
-            sk.sign(message)
-        };
+        let randao_reveal = self.sign_randao_reveal(&state, proposer_index, slot);
 
         let pre_state = state.clone();
 
@@ -684,6 +656,84 @@ where
         );
 
         (signed_block, pre_state)
+    }
+
+    /// Create a randao reveal for a block at `slot`.
+    pub fn sign_randao_reveal(
+        &self,
+        state: &BeaconState<E>,
+        proposer_index: usize,
+        slot: Slot,
+    ) -> Signature {
+        let epoch = slot.epoch(E::slots_per_epoch());
+        let domain = self.spec.get_domain(
+            epoch,
+            Domain::Randao,
+            &state.fork(),
+            state.genesis_validators_root(),
+        );
+        let message = epoch.signing_root(domain);
+        let sk = &self.validator_keypairs[proposer_index].sk;
+        sk.sign(message)
+    }
+
+    /// Produces an "unaggregated" attestation for the given `slot` and `index` that attests to
+    /// `beacon_block_root`. The provided `state` should match the `block.state_root` for the
+    /// `block` identified by `beacon_block_root`.
+    ///
+    /// The attestation doesn't _really_ have anything about it that makes it unaggregated per say,
+    /// however this function is only required in the context of forming an unaggregated
+    /// attestation. It would be an (undetectable) violation of the protocol to create a
+    /// `SignedAggregateAndProof` based upon the output of this function.
+    ///
+    /// This function will produce attestations to optimistic blocks, which is against the
+    /// specification but useful during testing.
+    pub fn produce_unaggregated_attestation_for_block(
+        &self,
+        slot: Slot,
+        index: CommitteeIndex,
+        beacon_block_root: Hash256,
+        mut state: Cow<BeaconState<E>>,
+        state_root: Hash256,
+    ) -> Result<Attestation<E>, BeaconChainError> {
+        let epoch = slot.epoch(E::slots_per_epoch());
+
+        if state.slot() > slot {
+            return Err(BeaconChainError::CannotAttestToFutureState);
+        } else if state.current_epoch() < epoch {
+            let mut_state = state.to_mut();
+            complete_state_advance(
+                mut_state,
+                Some(state_root),
+                epoch.start_slot(E::slots_per_epoch()),
+                &self.spec,
+            )?;
+            mut_state.build_committee_cache(RelativeEpoch::Current, &self.spec)?;
+        }
+
+        let committee_len = state.get_beacon_committee(slot, index)?.committee.len();
+
+        let target_slot = epoch.start_slot(E::slots_per_epoch());
+        let target_root = if state.slot() <= target_slot {
+            beacon_block_root
+        } else {
+            *state.get_block_root(target_slot)?
+        };
+
+        Ok(Attestation {
+            aggregation_bits: BitList::with_capacity(committee_len)?,
+            data: AttestationData {
+                slot,
+                index,
+                beacon_block_root,
+                source: state.current_justified_checkpoint(),
+                target: Checkpoint {
+                    epoch,
+                    root: target_root,
+                },
+            },
+            signature: AggregateSignature::empty(),
+        })
     }
 
     /// A list of attestations for each committee for the given slot.
@@ -717,7 +767,6 @@ where
                             return None;
                         }
                         let mut attestation = self
-                            .chain
                             .produce_unaggregated_attestation_for_block(
                                 attestation_slot,
                                 bc.index,
@@ -900,6 +949,7 @@ where
                         let aggregate = self
                             .chain
                             .get_aggregated_attestation(&attestation.data)
+                            .unwrap()
                             .unwrap_or_else(|| {
                                 committee_attestations.iter().skip(1).fold(
                                     attestation.clone(),

@@ -3,7 +3,8 @@ use crate::{Error, HotColdDB, ItemStore};
 use std::borrow::Cow;
 use std::marker::PhantomData;
 use types::{
-    typenum::Unsigned, BeaconState, BeaconStateError, EthSpec, Hash256, SignedBeaconBlock, Slot,
+    typenum::Unsigned, BeaconState, BeaconStateError, BlindedPayload, EthSpec, Hash256,
+    SignedBeaconBlock, Slot,
 };
 
 /// Implemented for types that have ancestors (e.g., blocks, states) that may be iterated over.
@@ -188,7 +189,7 @@ impl<'a, T: EthSpec, Hot: ItemStore<T>, Cold: ItemStore<T>> RootsIterator<'a, T,
         block_hash: Hash256,
     ) -> Result<Self, Error> {
         let block = store
-            .get_block(&block_hash)?
+            .get_blinded_block(&block_hash)?
             .ok_or_else(|| BeaconStateError::MissingBeaconBlock(block_hash.into()))?;
         let state = store
             .get_state(&block.state_root(), Some(block.slot()))?
@@ -272,7 +273,10 @@ impl<'a, E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>>
         }
     }
 
-    fn do_next(&mut self) -> Result<Option<(Hash256, SignedBeaconBlock<E>)>, Error> {
+    #[allow(clippy::type_complexity)]
+    fn do_next(
+        &mut self,
+    ) -> Result<Option<(Hash256, SignedBeaconBlock<E, BlindedPayload<E>>)>, Error> {
         // Stop once we reach the zero parent, otherwise we'll keep returning the genesis
         // block forever.
         if self.next_block_root.is_zero() {
@@ -282,7 +286,7 @@ impl<'a, E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>>
             let block = if self.decode_any_variant {
                 self.store.get_block_any_variant(&block_root)
             } else {
-                self.store.get_block(&block_root)
+                self.store.get_blinded_block(&block_root)
             }?
             .ok_or(Error::BlockNotFound(block_root))?;
             self.next_block_root = block.message().parent_root();
@@ -294,7 +298,7 @@ impl<'a, E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>>
 impl<'a, E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> Iterator
     for ParentRootBlockIterator<'a, E, Hot, Cold>
 {
-    type Item = Result<(Hash256, SignedBeaconBlock<E>), Error>;
+    type Item = Result<(Hash256, SignedBeaconBlock<E, BlindedPayload<E>>), Error>;
 
     fn next(&mut self) -> Option<Self::Item> {
         self.do_next().transpose()
@@ -322,10 +326,10 @@ impl<'a, T: EthSpec, Hot: ItemStore<T>, Cold: ItemStore<T>> BlockIterator<'a, T,
         }
     }
 
-    fn do_next(&mut self) -> Result<Option<SignedBeaconBlock<T>>, Error> {
+    fn do_next(&mut self) -> Result<Option<SignedBeaconBlock<T, BlindedPayload<T>>>, Error> {
         if let Some(result) = self.roots.next() {
             let (root, _slot) = result?;
-            self.roots.inner.store.get_block(&root)
+            self.roots.inner.store.get_blinded_block(&root)
         } else {
             Ok(None)
         }
@@ -335,7 +339,7 @@ impl<'a, T: EthSpec, Hot: ItemStore<T>, Cold: ItemStore<T>> BlockIterator<'a, T,
 impl<'a, T: EthSpec, Hot: ItemStore<T>, Cold: ItemStore<T>> Iterator
     for BlockIterator<'a, T, Hot, Cold>
 {
-    type Item = Result<SignedBeaconBlock<T>, Error>;
+    type Item = Result<SignedBeaconBlock<T, BlindedPayload<T>>, Error>;
 
     fn next(&mut self) -> Option<Self::Item> {
         self.do_next().transpose()

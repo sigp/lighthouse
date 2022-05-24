@@ -194,6 +194,8 @@ impl DepositContract {
             to: Some(self.contract.address()),
             gas: Some(U256::from(DEPOSIT_GAS)),
             gas_price: None,
+            max_fee_per_gas: None,
+            max_priority_fee_per_gas: None,
             value: Some(from_gwei(deposit_data.amount)),
             // Note: the reason we use this `TransactionRequest` instead of just using the
             // function in `self.contract` is so that the `eth1_tx_data` function gets used

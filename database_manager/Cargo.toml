@@ -15,4 +15,4 @@ store = { path = "../beacon_node/store" }
 tempfile = "3.1.0"
 types = { path = "../consensus/types" }
 slog = "2.5.2"
-strum = { version = "0.24", features = ["derive"] }
+strum = { version = "0.24.0", features = ["derive"] }

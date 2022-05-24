@@ -178,10 +178,7 @@ impl<E: EthSpec> KeyValueStore<E> for LevelDB<E> {
     }
 
     /// Iterate through all keys and values in a particular column.
-    fn iter_column<'a>(
-        &'a self,
-        column: DBColumn,
-    ) -> Box<dyn Iterator<Item = Result<(Hash256, Vec<u8>), Error>> + 'a> {
+    fn iter_column(&self, column: DBColumn) -> ColumnIter {
         let start_key =
             BytesKey::from_vec(get_key_for_col(column.into(), Hash256::zero().as_bytes()));
 
@@ -198,6 +195,28 @@ impl<E: EthSpec> KeyValueStore<E> for LevelDB<E> {
                                 unexpected_key: bytes_key,
                             })?;
                     Ok((key, value))
+                }),
+        )
+    }
+
+    /// Iterate through all keys and values in a particular column.
+    fn iter_column_keys(&self, column: DBColumn) -> ColumnKeyIter {
+        let start_key =
+            BytesKey::from_vec(get_key_for_col(column.into(), Hash256::zero().as_bytes()));
+
+        let iter = self.db.keys_iter(self.read_options());
+        iter.seek(&start_key);
+
+        Box::new(
+            iter.take_while(move |key| key.matches_column(column))
+                .map(move |bytes_key| {
+                    let key =
+                        bytes_key
+                            .remove_column(column)
+                            .ok_or(HotColdDBError::IterationError {
+                                unexpected_key: bytes_key,
+                            })?;
+                    Ok(key)
                 }),
         )
     }

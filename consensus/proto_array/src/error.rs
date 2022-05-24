@@ -44,6 +44,10 @@ pub enum Error {
     IrrelevantDescendant {
         block_root: Hash256,
     },
+    ParentExecutionStatusIsInvalid {
+        block_root: Hash256,
+        parent_root: Hash256,
+    },
 }
 
 #[derive(Clone, PartialEq, Debug)]

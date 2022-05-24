@@ -549,7 +549,7 @@ fn delete_blocks_and_states() {
     );
 
     let faulty_head_block = store
-        .get_block(&faulty_head.into())
+        .get_blinded_block(&faulty_head.into())
         .expect("no errors")
         .expect("faulty head block exists");
 
@@ -591,7 +591,7 @@ fn delete_blocks_and_states() {
             break;
         }
         store.delete_block(&block_root).unwrap();
-        assert_eq!(store.get_block(&block_root).unwrap(), None);
+        assert_eq!(store.get_blinded_block(&block_root).unwrap(), None);
     }
 
     // Deleting frozen states should do nothing
@@ -836,7 +836,12 @@ fn shuffling_compatible_short_fork() {
 }
 
 fn get_state_for_block(harness: &TestHarness, block_root: Hash256) -> BeaconState<E> {
-    let head_block = harness.chain.get_block(&block_root).unwrap().unwrap();
+    let head_block = harness
+        .chain
+        .store
+        .get_blinded_block(&block_root)
+        .unwrap()
+        .unwrap();
     harness
         .chain
         .get_state(&head_block.state_root(), Some(head_block.slot()))
@@ -1641,7 +1646,7 @@ fn check_all_blocks_exist<'a>(
     blocks: impl Iterator<Item = &'a SignedBeaconBlockHash>,
 ) {
     for &block_hash in blocks {
-        let block = harness.chain.get_block(&block_hash.into()).unwrap();
+        let block = harness.chain.get_blinded_block(&block_hash.into()).unwrap();
         assert!(
             block.is_some(),
             "expected block {:?} to be in DB",
@@ -1688,7 +1693,7 @@ fn check_no_blocks_exist<'a>(
     blocks: impl Iterator<Item = &'a SignedBeaconBlockHash>,
 ) {
     for &block_hash in blocks {
-        let block = harness.chain.get_block(&block_hash.into()).unwrap();
+        let block = harness.chain.get_blinded_block(&block_hash.into()).unwrap();
         assert!(
             block.is_none(),
             "did not expect block {:?} to be in the DB",
@@ -1936,7 +1941,12 @@ fn weak_subjectivity_sync() {
         .unwrap()
         .unwrap();
     let wss_checkpoint = harness.chain.head_info().unwrap().finalized_checkpoint;
-    let wss_block = harness.get_block(wss_checkpoint.root.into()).unwrap();
+    let wss_block = harness
+        .chain
+        .store
+        .get_full_block(&wss_checkpoint.root)
+        .unwrap()
+        .unwrap();
     let wss_state = full_store
         .get_state(&wss_block.state_root(), None)
         .unwrap()
@@ -1959,26 +1969,28 @@ fn weak_subjectivity_sync() {
     let seconds_per_slot = spec.seconds_per_slot;
 
     // Initialise a new beacon chain from the finalized checkpoint
-    let beacon_chain = BeaconChainBuilder::new(MinimalEthSpec)
-        .store(store.clone())
-        .custom_spec(test_spec::<E>())
-        .weak_subjectivity_state(wss_state, wss_block.clone(), genesis_state)
-        .unwrap()
-        .logger(log.clone())
-        .store_migrator_config(MigratorConfig::default().blocking())
-        .dummy_eth1_backend()
-        .expect("should build dummy backend")
-        .testing_slot_clock(Duration::from_secs(seconds_per_slot))
-        .expect("should configure testing slot clock")
-        .shutdown_sender(shutdown_tx)
-        .chain_config(ChainConfig::default())
-        .event_handler(Some(ServerSentEventHandler::new_with_capacity(
-            log.clone(),
-            1,
-        )))
-        .monitor_validators(true, vec![], log)
-        .build()
-        .expect("should build");
+    let beacon_chain = Arc::new(
+        BeaconChainBuilder::new(MinimalEthSpec)
+            .store(store.clone())
+            .custom_spec(test_spec::<E>())
+            .weak_subjectivity_state(wss_state, wss_block.clone(), genesis_state)
+            .unwrap()
+            .logger(log.clone())
+            .store_migrator_config(MigratorConfig::default().blocking())
+            .dummy_eth1_backend()
+            .expect("should build dummy backend")
+            .testing_slot_clock(Duration::from_secs(seconds_per_slot))
+            .expect("should configure testing slot clock")
+            .shutdown_sender(shutdown_tx)
+            .chain_config(ChainConfig::default())
+            .event_handler(Some(ServerSentEventHandler::new_with_capacity(
+                log.clone(),
+                1,
+            )))
+            .monitor_validators(true, vec![], log)
+            .build()
+            .expect("should build"),
+    );
 
     // Apply blocks forward to reach head.
     let chain_dump = harness.chain.chain_dump().unwrap();
@@ -1988,8 +2000,14 @@ fn weak_subjectivity_sync() {
 
     for snapshot in new_blocks {
         let block = &snapshot.beacon_block;
+        let full_block = harness
+            .chain
+            .store
+            .make_full_block(&snapshot.beacon_block_root, block.clone())
+            .unwrap();
+
         beacon_chain.slot_clock.set_slot(block.slot().as_u64());
-        beacon_chain.process_block(block.clone()).unwrap();
+        beacon_chain.process_block(full_block).unwrap();
         beacon_chain.fork_choice().unwrap();
 
         // Check that the new block's state can be loaded correctly.
@@ -2031,13 +2049,13 @@ fn weak_subjectivity_sync() {
         .map(|s| s.beacon_block.clone())
         .collect::<Vec<_>>();
     beacon_chain
-        .import_historical_block_batch(&historical_blocks)
+        .import_historical_block_batch(historical_blocks.clone())
         .unwrap();
     assert_eq!(beacon_chain.store.get_oldest_block_slot(), 0);
 
     // Resupplying the blocks should not fail, they can be safely ignored.
     beacon_chain
-        .import_historical_block_batch(&historical_blocks)
+        .import_historical_block_batch(historical_blocks)
         .unwrap();
 
     // The forwards iterator should now match the original chain
@@ -2060,7 +2078,7 @@ fn weak_subjectivity_sync() {
         .unwrap()
         .map(Result::unwrap)
     {
-        let block = store.get_block(&block_root).unwrap().unwrap();
+        let block = store.get_blinded_block(&block_root).unwrap().unwrap();
         assert_eq!(block.slot(), slot);
     }
 
@@ -2520,7 +2538,7 @@ fn check_iterators(harness: &TestHarness) {
 }
 
 fn get_finalized_epoch_boundary_blocks(
-    dump: &[BeaconSnapshot<MinimalEthSpec>],
+    dump: &[BeaconSnapshot<MinimalEthSpec, BlindedPayload<MinimalEthSpec>>],
 ) -> HashSet<SignedBeaconBlockHash> {
     dump.iter()
         .cloned()
@@ -2528,7 +2546,9 @@ fn get_finalized_epoch_boundary_blocks(
         .collect()
 }
 
-fn get_blocks(dump: &[BeaconSnapshot<MinimalEthSpec>]) -> HashSet<SignedBeaconBlockHash> {
+fn get_blocks(
+    dump: &[BeaconSnapshot<MinimalEthSpec, BlindedPayload<MinimalEthSpec>>],
+) -> HashSet<SignedBeaconBlockHash> {
     dump.iter()
         .cloned()
         .map(|checkpoint| checkpoint.beacon_block_root.into())

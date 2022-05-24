@@ -6,8 +6,8 @@ use std::marker::PhantomData;
 use std::time::Duration;
 use types::{
     consts::merge::INTERVALS_PER_SLOT, AttestationShufflingId, BeaconBlock, BeaconState,
-    BeaconStateError, ChainSpec, Checkpoint, Epoch, EthSpec, ExecutionBlockHash, Hash256,
-    IndexedAttestation, RelativeEpoch, SignedBeaconBlock, Slot,
+    BeaconStateError, ChainSpec, Checkpoint, Epoch, EthSpec, ExecPayload, ExecutionBlockHash,
+    Hash256, IndexedAttestation, RelativeEpoch, SignedBeaconBlock, Slot,
 };
 
 #[derive(Debug)]
@@ -18,6 +18,7 @@ pub enum Error<T> {
     InvalidProtoArrayBytes(String),
     InvalidLegacyProtoArrayBytes(String),
     FailedToProcessInvalidExecutionPayload(String),
+    FailedToProcessValidExecutionPayload(String),
     MissingProtoArrayBlock(Hash256),
     UnknownAncestor {
         ancestor_slot: Slot,
@@ -121,9 +122,20 @@ pub enum PayloadVerificationStatus {
     /// An EL has declared the execution payload to be valid.
     Verified,
     /// An EL has not yet made a determination about the execution payload.
-    NotVerified,
+    Optimistic,
     /// The block is either pre-merge-fork, or prior to the terminal PoW block.
     Irrelevant,
+}
+
+impl PayloadVerificationStatus {
+    /// Returns `true` if the payload was optimistically imported.
+    pub fn is_optimistic(&self) -> bool {
+        match self {
+            PayloadVerificationStatus::Verified => false,
+            PayloadVerificationStatus::Optimistic => true,
+            PayloadVerificationStatus::Irrelevant => false,
+        }
+    }
 }
 
 /// Calculate how far `slot` lies from the start of its epoch.
@@ -323,7 +335,7 @@ where
                 } else {
                     // Assume that this payload is valid, since the anchor should be a trusted block and
                     // state.
-                    ExecutionStatus::Valid(message.body.execution_payload.block_hash)
+                    ExecutionStatus::Valid(message.body.execution_payload.block_hash())
                 }
             },
         );
@@ -512,6 +524,16 @@ where
         Ok(true)
     }
 
+    /// See `ProtoArrayForkChoice::process_execution_payload_validation` for documentation.
+    pub fn on_valid_execution_payload(
+        &mut self,
+        block_root: Hash256,
+    ) -> Result<(), Error<T::Error>> {
+        self.proto_array
+            .process_execution_payload_validation(block_root)
+            .map_err(Error::FailedToProcessValidExecutionPayload)
+    }
+
     /// See `ProtoArrayForkChoice::process_execution_payload_invalidation` for documentation.
     pub fn on_invalid_execution_payload(
         &mut self,
@@ -541,10 +563,10 @@ where
     /// The supplied block **must** pass the `state_transition` function as it will not be run
     /// here.
     #[allow(clippy::too_many_arguments)]
-    pub fn on_block(
+    pub fn on_block<Payload: ExecPayload<E>>(
         &mut self,
         current_slot: Slot,
-        block: &BeaconBlock<E>,
+        block: &BeaconBlock<E, Payload>,
         block_root: Hash256,
         block_delay: Duration,
         state: &BeaconState<E>,
@@ -648,7 +670,7 @@ where
             .map_err(Error::AfterBlockFailed)?;
 
         let execution_status = if let Ok(execution_payload) = block.body().execution_payload() {
-            let block_hash = execution_payload.block_hash;
+            let block_hash = execution_payload.block_hash();
 
             if block_hash == ExecutionBlockHash::zero() {
                 // The block is post-merge-fork, but pre-terminal-PoW block. We don't need to verify
@@ -657,7 +679,9 @@ where
             } else {
                 match payload_verification_status {
                     PayloadVerificationStatus::Verified => ExecutionStatus::Valid(block_hash),
-                    PayloadVerificationStatus::NotVerified => ExecutionStatus::Unknown(block_hash),
+                    PayloadVerificationStatus::Optimistic => {
+                        ExecutionStatus::Optimistic(block_hash)
+                    }
                     // It would be a logic error to declare a block irrelevant if it has an
                     // execution payload with a non-zero block hash.
                     PayloadVerificationStatus::Irrelevant => {
@@ -928,6 +952,15 @@ where
     pub fn get_block(&self, block_root: &Hash256) -> Option<ProtoBlock> {
         if self.is_descendant_of_finalized(*block_root) {
             self.proto_array.get_block(block_root)
+        } else {
+            None
+        }
+    }
+
+    /// Returns an `ExecutionStatus` if the block is known **and** a descendant of the finalized root.
+    pub fn get_block_execution_status(&self, block_root: &Hash256) -> Option<ExecutionStatus> {
+        if self.is_descendant_of_finalized(*block_root) {
+            self.proto_array.get_block_execution_status(block_root)
         } else {
             None
         }

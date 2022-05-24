@@ -27,8 +27,10 @@ slot_clock = { path = "../../common/slot_clock" }
 eth2_ssz = "0.4.1"
 bs58 = "0.4.0"
 futures = "0.3.8"
-parking_lot = "0.11.0"
+execution_layer = {path = "../execution_layer"}
+parking_lot = "0.12.0"
 safe_arith = {path = "../../consensus/safe_arith"}
+task_executor = { path = "../../common/task_executor" }
 
 
 [dev-dependencies]
@@ -36,6 +38,7 @@ store = { path = "../store" }
 environment = { path = "../../lighthouse/environment" }
 tree_hash = "0.4.1"
 sensitive_url = { path = "../../common/sensitive_url" }
+logging = { path = "../../common/logging" }
 
 [[test]]
 name = "bn_http_api_tests"

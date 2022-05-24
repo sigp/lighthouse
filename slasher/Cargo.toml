@@ -15,8 +15,8 @@ lighthouse_metrics = { path = "../common/lighthouse_metrics" }
 filesystem = { path = "../common/filesystem" }
 mdbx = { package = "libmdbx", version = "0.1.0" }
 lru = "0.7.1"
-parking_lot = "0.11.0"
-rand = "0.7.3"
+parking_lot = "0.12.0"
+rand = "0.8.5"
 safe_arith = { path = "../consensus/safe_arith" }
 serde = "1.0"
 serde_derive = "1.0"

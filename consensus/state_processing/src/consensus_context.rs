@@ -1,6 +1,9 @@
 use std::marker::PhantomData;
 use tree_hash::TreeHash;
-use types::{BeaconState, BeaconStateError, ChainSpec, EthSpec, Hash256, SignedBeaconBlock, Slot};
+use types::{
+    BeaconState, BeaconStateError, ChainSpec, EthSpec, ExecPayload, Hash256, SignedBeaconBlock,
+    Slot,
+};
 
 #[derive(Debug)]
 pub struct ConsensusContext<T: EthSpec> {
@@ -61,9 +64,9 @@ impl<T: EthSpec> ConsensusContext<T> {
         self
     }
 
-    pub fn get_current_block_root(
+    pub fn get_current_block_root<Payload: ExecPayload<T>>(
         &mut self,
-        block: &SignedBeaconBlock<T>,
+        block: &SignedBeaconBlock<T, Payload>,
     ) -> Result<Hash256, ContextError> {
         self.check_slot(block.slot())?;
 

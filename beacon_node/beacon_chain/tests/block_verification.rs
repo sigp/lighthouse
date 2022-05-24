@@ -12,6 +12,7 @@ use state_processing::{
     per_block_processing::{per_block_processing, BlockSignatureStrategy},
     per_slot_processing, BlockProcessingError, ConsensusContext, VerifyBlockRoot,
 };
+use std::marker::PhantomData;
 use std::sync::Arc;
 use tempfile::tempdir;
 use types::{test_utils::generate_deterministic_keypair, *};
@@ -45,6 +46,18 @@ fn get_chain_segment() -> Vec<BeaconSnapshot<E>> {
         .chain_dump()
         .expect("should dump chain")
         .into_iter()
+        .map(|snapshot| {
+            let full_block = harness
+                .chain
+                .store
+                .make_full_block(&snapshot.beacon_block_root, snapshot.beacon_block)
+                .unwrap();
+            BeaconSnapshot {
+                beacon_block_root: snapshot.beacon_block_root,
+                beacon_block: full_block,
+                beacon_state: snapshot.beacon_state,
+            }
+        })
         .skip(1)
         .collect()
 }
@@ -962,6 +975,7 @@ fn add_base_block_to_altair_chain() {
                 attestations: altair_body.attestations.clone(),
                 deposits: altair_body.deposits.clone(),
                 voluntary_exits: altair_body.voluntary_exits.clone(),
+                _phantom: PhantomData,
             },
         },
         signature: Signature::empty(),
@@ -1083,6 +1097,7 @@ fn add_altair_block_to_base_chain() {
                 deposits: base_body.deposits.clone(),
                 voluntary_exits: base_body.voluntary_exits.clone(),
                 sync_aggregate: SyncAggregate::empty(),
+                _phantom: PhantomData,
             },
         },
         signature: Signature::empty(),

@@ -55,6 +55,7 @@ pub struct Config {
     /// If true, enable functionality that monitors the network for attestations or proposals from
     /// any of the validators managed by this client before starting up.
     pub enable_doppelganger_protection: bool,
+    pub private_tx_proposals: bool,
     /// A list of custom certificates that the validator client will additionally use when
     /// connecting to a beacon node over SSL/TLS.
     pub beacon_nodes_tls_certs: Option<Vec<PathBuf>>,
@@ -91,6 +92,7 @@ impl Default for Config {
             monitoring_api: None,
             enable_doppelganger_protection: false,
             beacon_nodes_tls_certs: None,
+            private_tx_proposals: false,
         }
     }
 }
@@ -304,6 +306,10 @@ impl Config {
 
         if cli_args.is_present("enable-doppelganger-protection") {
             config.enable_doppelganger_protection = true;
+        }
+
+        if cli_args.is_present("private-tx-proposals") {
+            config.private_tx_proposals = true;
         }
 
         Ok(config)

@@ -70,7 +70,7 @@ pub fn upgrade_to_v10<T: BeaconChainTypes>(
         .zip(ssz_head_tracker.slots)
     {
         let block = db
-            .get_block(&head_block_root)?
+            .get_blinded_block(&head_block_root)?
             .ok_or(Error::BlockNotFound(head_block_root))?;
         let head_state_root = block.state_root();
 

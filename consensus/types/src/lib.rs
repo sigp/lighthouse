@@ -70,6 +70,7 @@ pub mod config_and_preset;
 pub mod fork_context;
 pub mod participation_flags;
 pub mod participation_list;
+pub mod payload;
 pub mod preset;
 pub mod slot_epoch;
 pub mod subnet_id;
@@ -114,7 +115,7 @@ pub use crate::enr_fork_id::EnrForkId;
 pub use crate::eth1_data::Eth1Data;
 pub use crate::eth_spec::EthSpecId;
 pub use crate::execution_block_hash::ExecutionBlockHash;
-pub use crate::execution_payload::{ExecutionPayload, Transaction};
+pub use crate::execution_payload::{ExecutionPayload, Transaction, Transactions};
 pub use crate::execution_payload_header::ExecutionPayloadHeader;
 pub use crate::fork::Fork;
 pub use crate::fork_context::ForkContext;
@@ -126,6 +127,7 @@ pub use crate::historical_batch::HistoricalBatch;
 pub use crate::indexed_attestation::IndexedAttestation;
 pub use crate::participation_flags::ParticipationFlags;
 pub use crate::participation_list::ParticipationList;
+pub use crate::payload::{BlindedPayload, BlockType, ExecPayload, FullPayload};
 pub use crate::pending_attestation::PendingAttestation;
 pub use crate::preset::{AltairPreset, BasePreset, BellatrixPreset};
 pub use crate::proposer_preparation_data::ProposerPreparationData;
@@ -136,7 +138,7 @@ pub use crate::shuffling_id::AttestationShufflingId;
 pub use crate::signed_aggregate_and_proof::SignedAggregateAndProof;
 pub use crate::signed_beacon_block::{
     SignedBeaconBlock, SignedBeaconBlockAltair, SignedBeaconBlockBase, SignedBeaconBlockHash,
-    SignedBeaconBlockMerge,
+    SignedBeaconBlockMerge, SignedBlindedBeaconBlock,
 };
 pub use crate::signed_beacon_block_header::SignedBeaconBlockHeader;
 pub use crate::signed_contribution_and_proof::SignedContributionAndProof;

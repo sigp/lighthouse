@@ -55,11 +55,15 @@ fn produces_attestations() {
             Slot::from(num_blocks_produced)
         };
 
-        let block = chain
+        let blinded_block = chain
             .block_at_slot(block_slot, WhenSlotSkipped::Prev)
             .expect("should get block")
             .expect("block should not be skipped");
-        let block_root = block.message().tree_hash_root();
+        let block_root = blinded_block.message().tree_hash_root();
+        let block = chain
+            .store
+            .make_full_block(&block_root, blinded_block)
+            .unwrap();
 
         let epoch_boundary_slot = state
             .current_epoch()
@@ -143,4 +147,59 @@ fn produces_attestations() {
             );
         }
     }
+}
+
+/// Ensures that the early attester cache wont create an attestation to a block in a later slot than
+/// the one requested.
+#[test]
+fn early_attester_cache_old_request() {
+    let harness = BeaconChainHarness::builder(MainnetEthSpec)
+        .default_spec()
+        .keypairs(KEYPAIRS[..].to_vec())
+        .fresh_ephemeral_store()
+        .mock_execution_layer()
+        .build();
+
+    harness.advance_slot();
+
+    harness.extend_chain(
+        2,
+        BlockStrategy::OnCanonicalHead,
+        AttestationStrategy::AllValidators,
+    );
+
+    let head = harness.chain.head().unwrap();
+    assert_eq!(head.beacon_block.slot(), 2);
+    let head_proto_block = harness
+        .chain
+        .fork_choice
+        .read()
+        .get_block(&head.beacon_block_root)
+        .unwrap();
+
+    harness
+        .chain
+        .early_attester_cache
+        .add_head_block(
+            head.beacon_block_root,
+            head.beacon_block.clone(),
+            head_proto_block,
+            &head.beacon_state,
+            &harness.chain.spec,
+        )
+        .unwrap();
+
+    let attest_slot = head.beacon_block.slot() - 1;
+    let attestation = harness
+        .chain
+        .produce_unaggregated_attestation(attest_slot, 0)
+        .unwrap();
+
+    assert_eq!(attestation.data.slot, attest_slot);
+    let attested_block = harness
+        .chain
+        .get_blinded_block(&attestation.data.beacon_block_root)
+        .unwrap()
+        .unwrap();
+    assert_eq!(attested_block.slot(), attest_slot);
 }

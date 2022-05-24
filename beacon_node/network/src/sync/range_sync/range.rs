@@ -49,13 +49,18 @@ use crate::sync::manager::Id;
 use crate::sync::network_context::SyncNetworkContext;
 use crate::sync::BatchProcessResult;
 use beacon_chain::{BeaconChain, BeaconChainTypes};
+use lighthouse_network::rpc::GoodbyeReason;
 use lighthouse_network::PeerId;
 use lighthouse_network::SyncInfo;
-use slog::{crit, debug, error, trace};
+use lru_cache::LRUTimeCache;
+use slog::{crit, debug, error, trace, warn};
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::mpsc;
-use types::{Epoch, EthSpec, SignedBeaconBlock, Slot};
+use types::{Epoch, EthSpec, Hash256, SignedBeaconBlock, Slot};
+
+/// For how long we store failed finalized chains to prevent retries.
+const FAILED_CHAINS_EXPIRY_SECONDS: u64 = 30;
 
 /// The primary object dealing with long range/batch syncing. This contains all the active and
 /// non-active chains that need to be processed before the syncing is considered complete. This
@@ -69,6 +74,8 @@ pub struct RangeSync<T: BeaconChainTypes, C = BeaconChain<T>> {
     /// A collection of chains that need to be downloaded. This stores any head or finalized chains
     /// that need to be downloaded.
     chains: ChainCollection<T, C>,
+    /// Chains that have failed and are stored to prevent being retried.
+    failed_chains: LRUTimeCache<Hash256>,
     /// A multi-threaded, non-blocking processor for applying messages to the beacon chain.
     beacon_processor_send: mpsc::Sender<BeaconWorkEvent<T>>,
     /// The syncing logger.
@@ -88,6 +95,9 @@ where
         RangeSync {
             beacon_chain: beacon_chain.clone(),
             chains: ChainCollection::new(beacon_chain, log.clone()),
+            failed_chains: LRUTimeCache::new(std::time::Duration::from_secs(
+                FAILED_CHAINS_EXPIRY_SECONDS,
+            )),
             awaiting_head_peers: HashMap::new(),
             beacon_processor_send,
             log,
@@ -128,6 +138,14 @@ where
         // determine which kind of sync to perform and set up the chains
         match RangeSyncType::new(self.beacon_chain.as_ref(), &local_info, &remote_info) {
             RangeSyncType::Finalized => {
+                // Make sure we have not recently tried this chain
+                if self.failed_chains.contains(&remote_info.finalized_root) {
+                    debug!(self.log, "Disconnecting peer that belongs to previously failed chain";
+                        "failed_root" => %remote_info.finalized_root, "peer_id" => %peer_id);
+                    network.goodbye_peer(peer_id, GoodbyeReason::IrrelevantNetwork);
+                    return;
+                }
+
                 // Finalized chain search
                 debug!(self.log, "Finalization sync peer joined"; "peer_id" => %peer_id);
                 self.awaiting_head_peers.remove(&peer_id);
@@ -336,6 +354,13 @@ where
             crit!(self.log, "Chain removed"; "sync_type" => ?sync_type, &chain, "reason" => ?remove_reason, "op" => op);
         } else {
             debug!(self.log, "Chain removed"; "sync_type" => ?sync_type, &chain, "reason" => ?remove_reason, "op" => op);
+        }
+
+        if let RemoveChain::ChainFailed(_) = remove_reason {
+            if RangeSyncType::Finalized == sync_type {
+                warn!(self.log, "Chain failed! Syncing to its head won't be retried for at least the next {} seconds", FAILED_CHAINS_EXPIRY_SECONDS; &chain);
+                self.failed_chains.insert(chain.target_head_root);
+            }
         }
 
         network.status_peers(self.beacon_chain.as_ref(), chain.peers());

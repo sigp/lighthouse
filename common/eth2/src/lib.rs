@@ -579,9 +579,9 @@ impl BeaconNodeHttpClient {
     /// `POST beacon/blocks`
     ///
     /// Returns `Ok(None)` on a 404 error.
-    pub async fn post_beacon_blocks<T: EthSpec>(
+    pub async fn post_beacon_blocks<T: EthSpec, Payload: ExecPayload<T>>(
         &self,
-        block: &SignedBeaconBlock<T>,
+        block: &SignedBeaconBlock<T, Payload>,
     ) -> Result<(), Error> {
         let mut path = self.eth_path(V1)?;
 
@@ -589,6 +589,26 @@ impl BeaconNodeHttpClient {
             .map_err(|()| Error::InvalidUrl(self.server.clone()))?
             .push("beacon")
             .push("blocks");
+
+        self.post_with_timeout(path, block, self.timeouts.proposal)
+            .await?;
+
+        Ok(())
+    }
+
+    /// `POST beacon/blinded_blocks`
+    ///
+    /// Returns `Ok(None)` on a 404 error.
+    pub async fn post_beacon_blinded_blocks<T: EthSpec, Payload: ExecPayload<T>>(
+        &self,
+        block: &SignedBeaconBlock<T, Payload>,
+    ) -> Result<(), Error> {
+        let mut path = self.eth_path(V1)?;
+
+        path.path_segments_mut()
+            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
+            .push("beacon")
+            .push("blinded_blocks");
 
         self.post_with_timeout(path, block, self.timeouts.proposal)
             .await?;
@@ -1150,30 +1170,83 @@ impl BeaconNodeHttpClient {
     }
 
     /// `GET v2/validator/blocks/{slot}`
-    pub async fn get_validator_blocks<T: EthSpec>(
+    pub async fn get_validator_blocks<T: EthSpec, Payload: ExecPayload<T>>(
         &self,
         slot: Slot,
         randao_reveal: &SignatureBytes,
         graffiti: Option<&Graffiti>,
-    ) -> Result<ForkVersionedResponse<BeaconBlock<T>>, Error> {
+    ) -> Result<ForkVersionedResponse<BeaconBlock<T, Payload>>, Error> {
         self.get_validator_blocks_with_verify_randao(slot, Some(randao_reveal), graffiti, None)
             .await
     }
 
     /// `GET v2/validator/blocks/{slot}`
-    pub async fn get_validator_blocks_with_verify_randao<T: EthSpec>(
+    pub async fn get_validator_blocks_with_verify_randao<T: EthSpec, Payload: ExecPayload<T>>(
         &self,
         slot: Slot,
         randao_reveal: Option<&SignatureBytes>,
         graffiti: Option<&Graffiti>,
         verify_randao: Option<bool>,
-    ) -> Result<ForkVersionedResponse<BeaconBlock<T>>, Error> {
+    ) -> Result<ForkVersionedResponse<BeaconBlock<T, Payload>>, Error> {
         let mut path = self.eth_path(V2)?;
 
         path.path_segments_mut()
             .map_err(|()| Error::InvalidUrl(self.server.clone()))?
             .push("validator")
             .push("blocks")
+            .push(&slot.to_string());
+
+        if let Some(randao_reveal) = randao_reveal {
+            path.query_pairs_mut()
+                .append_pair("randao_reveal", &randao_reveal.to_string());
+        }
+
+        if let Some(graffiti) = graffiti {
+            path.query_pairs_mut()
+                .append_pair("graffiti", &graffiti.to_string());
+        }
+
+        if let Some(verify_randao) = verify_randao {
+            path.query_pairs_mut()
+                .append_pair("verify_randao", &verify_randao.to_string());
+        }
+
+        self.get(path).await
+    }
+
+    /// `GET v2/validator/blinded_blocks/{slot}`
+    pub async fn get_validator_blinded_blocks<T: EthSpec, Payload: ExecPayload<T>>(
+        &self,
+        slot: Slot,
+        randao_reveal: &SignatureBytes,
+        graffiti: Option<&Graffiti>,
+    ) -> Result<ForkVersionedResponse<BeaconBlock<T, Payload>>, Error> {
+        self.get_validator_blinded_blocks_with_verify_randao(
+            slot,
+            Some(randao_reveal),
+            graffiti,
+            None,
+        )
+        .await
+    }
+
+    /// `GET v2/validator/blocks/{slot}`
+    pub async fn get_validator_blinded_blocks_with_verify_randao<
+        T: EthSpec,
+        Payload: ExecPayload<T>,
+    >(
+        &self,
+        slot: Slot,
+        randao_reveal: Option<&SignatureBytes>,
+        graffiti: Option<&Graffiti>,
+        verify_randao: Option<bool>,
+    ) -> Result<ForkVersionedResponse<BeaconBlock<T, Payload>>, Error> {
+        let mut path = self.eth_path(V2)?;
+
+        path.path_segments_mut()
+            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
+            .push("validator")
+            .push("blinded_blocks")
             .push(&slot.to_string());
 
         if let Some(randao_reveal) = randao_reveal {

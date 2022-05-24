@@ -109,6 +109,26 @@ fn disable_lock_timeouts_flag() {
 }
 
 #[test]
+fn fork_choice_before_proposal_timeout_default() {
+    CommandLineTest::new()
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert_eq!(
+                config.chain.fork_choice_before_proposal_timeout_ms,
+                beacon_node::beacon_chain::chain_config::DEFAULT_FORK_CHOICE_BEFORE_PROPOSAL_TIMEOUT
+            )
+        });
+}
+
+#[test]
+fn fork_choice_before_proposal_timeout_zero() {
+    CommandLineTest::new()
+        .flag("fork-choice-before-proposal-timeout", Some("0"))
+        .run_with_zero_port()
+        .with_config(|config| assert_eq!(config.chain.fork_choice_before_proposal_timeout_ms, 0));
+}
+
+#[test]
 fn freezer_dir_flag() {
     let dir = TempDir::new().expect("Unable to create temporary directory");
     CommandLineTest::new()
@@ -804,6 +824,40 @@ fn slots_per_restore_point_flag() {
         .run_with_zero_port()
         .with_config(|config| assert_eq!(config.store.slots_per_restore_point, 64));
 }
+#[test]
+fn slots_per_restore_point_update_prev_default() {
+    use beacon_node::beacon_chain::store::config::{
+        DEFAULT_SLOTS_PER_RESTORE_POINT, PREV_DEFAULT_SLOTS_PER_RESTORE_POINT,
+    };
+
+    CommandLineTest::new()
+        .flag("slots-per-restore-point", Some("2048"))
+        .run_with_zero_port()
+        .with_config_and_dir(|config, dir| {
+            // Check that 2048 is the previous default.
+            assert_eq!(
+                config.store.slots_per_restore_point,
+                PREV_DEFAULT_SLOTS_PER_RESTORE_POINT
+            );
+
+            // Restart the BN with the same datadir and the new default SPRP. It should
+            // allow this.
+            CommandLineTest::new()
+                .flag("datadir", Some(&dir.path().display().to_string()))
+                .flag("zero-ports", None)
+                .run_with_no_datadir()
+                .with_config(|config| {
+                    // The dumped config will have the new default 8192 value, but the fact that
+                    // the BN started and ran (with the same datadir) means that the override
+                    // was successful.
+                    assert_eq!(
+                        config.store.slots_per_restore_point,
+                        DEFAULT_SLOTS_PER_RESTORE_POINT
+                    );
+                });
+        })
+}
+
 #[test]
 fn block_cache_size_flag() {
     CommandLineTest::new()
