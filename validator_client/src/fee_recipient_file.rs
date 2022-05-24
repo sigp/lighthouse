@@ -40,10 +40,10 @@ impl FeeRecipientFile {
         }
     }
 
-    /// Returns the fee-recipient corresponding to the given public key if present, else returns the
-    /// default fee-recipient.
+    /// Returns the fee-recipient FROM MEMORY corresponding to the given public key if present, else
+    /// returns the default fee-recipient.
     ///
-    /// Returns an error if loading from the fee-recipient file fails.
+    /// This function DOES NOT reload the fee-recipient file from disk
     pub fn get_fee_recipient(&self, public_key: &PublicKeyBytes) -> Option<Address> {
         self.fee_recipients
             .get(public_key)

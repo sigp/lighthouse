@@ -594,7 +594,9 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
                             },
                         })
                         .ok_or_else(|| {
-                            warp_utils::reject::custom_server_error(format!("no fee recipient set"))
+                            warp_utils::reject::custom_server_error(
+                                "no fee recipient set".to_string(),
+                            )
                         })
                 })
             },

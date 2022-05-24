@@ -104,6 +104,13 @@ Method | POST
 Required Headers | [`Authorization`](./api-vc-auth-header.md)
 Typical Responses | 202, 404
 
+#### Example Request Body
+```json
+{
+    "ethaddress": "0x1D4E51167DBDC4789a014357f4029ff76381b16c"
+}
+```
+
 ```bash
 DATADIR=$HOME/.lighthouse/mainnet
 PUBKEY=0xa9735061c84fc0003657e5bd38160762b7ef2d67d280e00347b1781570088c32c06f15418c144949f5d736b1d3a6c591
@@ -116,7 +123,7 @@ curl -X POST \
     http://localhost:5062/eth/v1/validator/${PUBKEY}/feerecipient | jq
 ```
 
-Successful Response (202)
+#### Successful Response (202)
 ```json
 null
 ```
@@ -142,7 +149,7 @@ curl -X GET \
     http://localhost:5062/eth/v1/validator/${PUBKEY}/feerecipient | jq
 ```
 
-Successful Response (200)
+#### Successful Response (200)
 ```json
 {
   "data": {
