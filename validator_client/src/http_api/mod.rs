@@ -594,10 +594,7 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
                             },
                         })
                         .ok_or_else(|| {
-                            warp_utils::reject::custom_not_found(format!(
-                                "no validator found with pubkey {:?}",
-                                validator_pubkey
-                            ))
+                            warp_utils::reject::custom_server_error(format!("no fee recipient set"))
                         })
                 })
             },
