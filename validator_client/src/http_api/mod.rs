@@ -574,6 +574,17 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
         .and_then(
             |validator_pubkey: PublicKey, validator_store: Arc<ValidatorStore<T, E>>, signer| {
                 blocking_signed_json_task(signer, move || {
+                    if validator_store
+                        .initialized_validators()
+                        .read()
+                        .is_enabled(&validator_pubkey)
+                        .is_none()
+                    {
+                        return Err(warp_utils::reject::custom_not_found(format!(
+                            "no validator found with pubkey {:?}",
+                            validator_pubkey
+                        )));
+                    }
                     validator_store
                         .load_fee_recipient(&PublicKeyBytes::from(&validator_pubkey))
                         .map(|fee_recipient| GetFeeRecipientResponse {
@@ -610,6 +621,17 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
              task_executor: TaskExecutor| {
                 blocking_signed_json_task(signer, move || {
                     if let Some(handle) = task_executor.handle() {
+                        if validator_store
+                            .initialized_validators()
+                            .read()
+                            .is_enabled(&validator_pubkey)
+                            .is_none()
+                        {
+                            return Err(warp_utils::reject::custom_not_found(format!(
+                                "no validator found with pubkey {:?}",
+                                validator_pubkey
+                            )));
+                        }
                         handle
                             .block_on(async move {
                                 validator_store
