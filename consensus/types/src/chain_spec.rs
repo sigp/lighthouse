@@ -361,7 +361,8 @@ impl ChainSpec {
         self.compute_domain(Domain::Deposit, self.genesis_fork_version, Hash256::zero())
     }
 
-    //TODO(sean): this will be fork versioned at some point
+    // This should be updated to include the current fork and the genesis validators root, but discussion is ongoing:
+    //
     // https://github.com/ethereum/builder-specs/issues/14
     pub fn get_builder_domain(&self) -> Hash256 {
         self.compute_domain(
