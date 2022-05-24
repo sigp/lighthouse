@@ -416,11 +416,9 @@ impl<T: SlotClock + 'static, E: EthSpec> PreparationService<T, E> {
             if slot % (E::slots_per_epoch() * EPOCHS_PER_VALIDATOR_REGISTRATION_SUBMISSION) == 0 {
                 self.publish_validator_registration_data(registration_keys)
                     .await?;
-            } else {
-                if !changed_keys.is_empty() {
-                    self.publish_validator_registration_data(changed_keys)
-                        .await?;
-                }
+            } else if !changed_keys.is_empty() {
+                self.publish_validator_registration_data(changed_keys)
+                    .await?;
             }
         }
 

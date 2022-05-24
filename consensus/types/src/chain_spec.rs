@@ -1149,8 +1149,8 @@ mod tests {
         );
         test_domain(Domain::SyncCommittee, spec.domain_sync_committee, &spec);
 
-        // 16777216 is the application domain index of 0 with the application mask applied
-        let mut builder_domain_pre_mask = [0; 4];
+        // The builder domain index is zero
+        let builder_domain_pre_mask = [0; 4];
         test_domain(
             Domain::ApplicationMask(ApplicationDomain::Builder),
             apply_bit_mask(builder_domain_pre_mask, &spec),
@@ -1158,7 +1158,8 @@ mod tests {
         );
     }
 
-    fn apply_bit_mask(mut domain: [u8; 4], spec: &ChainSpec) -> u32 {
+    fn apply_bit_mask(domain_bytes: [u8; 4], spec: &ChainSpec) -> u32 {
+        let mut domain = [0; 4];
         let mask_bytes = int_to_bytes4(spec.domain_application_mask);
 
         // Apply application bit mask
