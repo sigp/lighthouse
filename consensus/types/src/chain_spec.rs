@@ -1150,11 +1150,24 @@ mod tests {
         test_domain(Domain::SyncCommittee, spec.domain_sync_committee, &spec);
 
         // 16777216 is the application domain index of 0 with the application mask applied
+        let mut builder_domain_pre_mask = [0; 4];
         test_domain(
             Domain::ApplicationMask(ApplicationDomain::Builder),
-            16777216,
+            apply_bit_mask(builder_domain_pre_mask, &spec),
             &spec,
         );
+    }
+
+    fn apply_bit_mask(mut domain: [u8; 4], spec: &ChainSpec) -> u32 {
+        let mask_bytes = int_to_bytes4(spec.domain_application_mask);
+
+        // Apply application bit mask
+        for (i, (domain_byte, mask_byte)) in domain_bytes.iter().zip(mask_bytes.iter()).enumerate()
+        {
+            domain[i] = domain_byte | mask_byte;
+        }
+
+        u32::from_le_bytes(domain)
     }
 
     // Test that `fork_name_at_epoch` and `fork_epoch` are consistent.
