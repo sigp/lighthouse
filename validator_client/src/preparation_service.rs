@@ -402,7 +402,7 @@ impl<T: SlotClock + 'static, E: EthSpec> PreparationService<T, E> {
         {
             let guard = self.validator_registration_cache.read();
             for key in registration_keys.iter() {
-                if guard.contains_key(key) {
+                if !guard.contains_key(key) {
                     changed_keys.push(key.clone());
                 }
             }
