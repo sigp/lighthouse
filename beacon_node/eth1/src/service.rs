@@ -2,11 +2,12 @@ use crate::metrics;
 use crate::{
     block_cache::{BlockCache, Error as BlockCacheError, Eth1Block},
     deposit_cache::{DepositCacheInsertOutcome, Error as DepositCacheError},
-    http::{
-        get_block, get_block_number, get_chain_id, get_deposit_logs_in_range, get_network_id,
-        BlockQuery, Eth1Id,
-    },
     inner::{DepositUpdater, Inner},
+};
+use execution_layer::auth::Auth;
+use execution_layer::http::{
+    deposit_methods::{BlockQuery, Eth1Id},
+    HttpJsonRpc,
 };
 use fallback::{Fallback, FallbackError};
 use futures::future::TryFutureExt;
@@ -17,6 +18,7 @@ use slog::{crit, debug, error, info, trace, warn, Logger};
 use std::fmt::Debug;
 use std::future::Future;
 use std::ops::{Range, RangeInclusive};
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::sync::RwLock as TRwLock;
@@ -55,12 +57,12 @@ pub enum EndpointError {
 type EndpointState = Result<(), EndpointError>;
 
 pub struct EndpointWithState {
-    endpoint: SensitiveUrl,
+    endpoint: HttpJsonRpc,
     state: TRwLock<Option<EndpointState>>,
 }
 
 impl EndpointWithState {
-    pub fn new(endpoint: SensitiveUrl) -> Self {
+    pub fn new(endpoint: HttpJsonRpc) -> Self {
         Self {
             endpoint,
             state: TRwLock::new(None),
@@ -128,7 +130,7 @@ impl EndpointsCache {
         func: F,
     ) -> Result<(O, usize), FallbackError<SingleEndpointError>>
     where
-        F: Fn(&'a SensitiveUrl) -> R,
+        F: Fn(&'a HttpJsonRpc) -> R,
         R: Future<Output = Result<O, SingleEndpointError>>,
     {
         let func = &func;
@@ -178,7 +180,7 @@ impl EndpointsCache {
 /// Returns `Ok` if the endpoint is usable, i.e. is reachable and has a correct network id and
 /// chain id. Otherwise it returns `Err`.
 async fn endpoint_state(
-    endpoint: &SensitiveUrl,
+    endpoint: &HttpJsonRpc,
     config_network_id: &Eth1Id,
     config_chain_id: &Eth1Id,
     log: &Logger,
@@ -192,7 +194,8 @@ async fn endpoint_state(
         );
         EndpointError::RequestFailed(e)
     };
-    let network_id = get_network_id(endpoint, Duration::from_millis(STANDARD_TIMEOUT_MILLIS))
+    let network_id = endpoint
+        .get_network_id(Duration::from_millis(STANDARD_TIMEOUT_MILLIS))
         .await
         .map_err(error_connecting)?;
     if &network_id != config_network_id {
@@ -206,7 +209,8 @@ async fn endpoint_state(
         );
         return Err(EndpointError::WrongNetworkId);
     }
-    let chain_id = get_chain_id(endpoint, Duration::from_millis(STANDARD_TIMEOUT_MILLIS))
+    let chain_id = endpoint
+        .get_chain_id(Duration::from_millis(STANDARD_TIMEOUT_MILLIS))
         .await
         .map_err(error_connecting)?;
     // Eth1 nodes return chain_id = 0 if the node is not synced
@@ -245,7 +249,7 @@ pub enum HeadType {
 /// Returns the head block and the new block ranges relevant for deposits and the block cache
 /// from the given endpoint.
 async fn get_remote_head_and_new_block_ranges(
-    endpoint: &SensitiveUrl,
+    endpoint: &HttpJsonRpc,
     service: &Service,
     node_far_behind_seconds: u64,
 ) -> Result<
@@ -299,14 +303,14 @@ async fn get_remote_head_and_new_block_ranges(
 /// Returns the range of new block numbers to be considered for the given head type from the given
 /// endpoint.
 async fn relevant_new_block_numbers_from_endpoint(
-    endpoint: &SensitiveUrl,
+    endpoint: &HttpJsonRpc,
     service: &Service,
     head_type: HeadType,
 ) -> Result<Option<RangeInclusive<u64>>, SingleEndpointError> {
-    let remote_highest_block =
-        get_block_number(endpoint, Duration::from_millis(BLOCK_NUMBER_TIMEOUT_MILLIS))
-            .map_err(SingleEndpointError::GetBlockNumberFailed)
-            .await?;
+    let remote_highest_block = endpoint
+        .get_block_number(Duration::from_millis(BLOCK_NUMBER_TIMEOUT_MILLIS))
+        .map_err(SingleEndpointError::GetBlockNumberFailed)
+        .await?;
     service.relevant_new_block_numbers(remote_highest_block, head_type)
 }
 
@@ -364,9 +368,27 @@ pub struct DepositCacheUpdateOutcome {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum Eth1Endpoints {
+    Auth {
+        jwt_path: PathBuf,
+        endpoint: SensitiveUrl,
+    },
+    NoAuth(Vec<SensitiveUrl>),
+}
+
+impl Eth1Endpoints {
+    fn len(&self) -> usize {
+        match &self {
+            Self::Auth { .. } => 1,
+            Self::NoAuth(urls) => urls.len(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Config {
     /// An Eth1 node (e.g., Geth) running a HTTP JSON-RPC endpoint.
-    pub endpoints: Vec<SensitiveUrl>,
+    pub endpoints: Eth1Endpoints,
     /// The address the `BlockCache` and `DepositCache` should assume is the canonical deposit contract.
     pub deposit_contract_address: String,
     /// The eth1 network id where the deposit contract is deployed (Goerli/Mainnet).
@@ -430,8 +452,8 @@ impl Config {
 impl Default for Config {
     fn default() -> Self {
         Self {
-            endpoints: vec![SensitiveUrl::parse(DEFAULT_ETH1_ENDPOINT)
-                .expect("The default Eth1 endpoint must always be a valid URL.")],
+            endpoints: Eth1Endpoints::NoAuth(vec![SensitiveUrl::parse(DEFAULT_ETH1_ENDPOINT)
+                .expect("The default Eth1 endpoint must always be a valid URL.")]),
             deposit_contract_address: "0x0000000000000000000000000000000000000000".into(),
             network_id: DEFAULT_NETWORK_ID,
             chain_id: DEFAULT_CHAIN_ID,
@@ -642,12 +664,27 @@ impl Service {
     }
 
     /// Builds a new `EndpointsCache` with empty states.
-    pub fn init_endpoints(&self) -> Arc<EndpointsCache> {
+    pub fn init_endpoints(&self) -> Result<Arc<EndpointsCache>, String> {
         let endpoints = self.config().endpoints.clone();
         let config_network_id = self.config().network_id.clone();
         let config_chain_id = self.config().chain_id.clone();
+
+        let servers = match endpoints {
+            Eth1Endpoints::Auth { jwt_path, endpoint } => {
+                let auth = Auth::new_with_path(jwt_path, None, None)
+                    .map_err(|e| format!("Failed to initialize jwt auth: {:?}", e))?;
+                vec![HttpJsonRpc::new_with_auth(endpoint, auth)
+                    .map_err(|e| format!("Failed to build auth enabled json rpc {:?}", e))?]
+            }
+            Eth1Endpoints::NoAuth(urls) => urls
+                .into_iter()
+                .map(|url| {
+                    HttpJsonRpc::new(url).map_err(|e| format!("Failed to build json rpc {:?}", e))
+                })
+                .collect::<Result<_, _>>()?,
+        };
         let new_cache = Arc::new(EndpointsCache {
-            fallback: Fallback::new(endpoints.into_iter().map(EndpointWithState::new).collect()),
+            fallback: Fallback::new(servers.into_iter().map(EndpointWithState::new).collect()),
             config_network_id,
             config_chain_id,
             log: self.log.clone(),
@@ -655,14 +692,14 @@ impl Service {
 
         let mut endpoints_cache = self.inner.endpoints_cache.write();
         *endpoints_cache = Some(new_cache.clone());
-        new_cache
+        Ok(new_cache)
     }
 
     /// Returns the cached `EndpointsCache` if it exists or builds a new one.
-    pub fn get_endpoints(&self) -> Arc<EndpointsCache> {
+    pub fn get_endpoints(&self) -> Result<Arc<EndpointsCache>, String> {
         let endpoints_cache = self.inner.endpoints_cache.read();
         if let Some(cache) = endpoints_cache.clone() {
-            cache
+            Ok(cache)
         } else {
             drop(endpoints_cache);
             self.init_endpoints()
@@ -680,7 +717,7 @@ impl Service {
     pub async fn update(
         &self,
     ) -> Result<(DepositCacheUpdateOutcome, BlockCacheUpdateOutcome), String> {
-        let endpoints = self.get_endpoints();
+        let endpoints = self.get_endpoints()?;
 
         // Reset the state of any endpoints which have errored so their state can be redetermined.
         endpoints.reset_errorred_endpoints().await;
@@ -928,15 +965,15 @@ impl Service {
              */
             let block_range_ref = &block_range;
             let logs = endpoints
-                .first_success(|e| async move {
-                    get_deposit_logs_in_range(
-                        e,
-                        deposit_contract_address_ref,
-                        block_range_ref.clone(),
-                        Duration::from_millis(GET_DEPOSIT_LOG_TIMEOUT_MILLIS),
-                    )
-                    .await
-                    .map_err(SingleEndpointError::GetDepositLogsFailed)
+                .first_success(|endpoint| async move {
+                    endpoint
+                        .get_deposit_logs_in_range(
+                            deposit_contract_address_ref,
+                            block_range_ref.clone(),
+                            Duration::from_millis(GET_DEPOSIT_LOG_TIMEOUT_MILLIS),
+                        )
+                        .await
+                        .map_err(SingleEndpointError::GetDepositLogsFailed)
                 })
                 .await
                 .map(|(res, _)| res)
@@ -1221,7 +1258,7 @@ fn relevant_block_range(
 ///
 /// Performs three async calls to an Eth1 HTTP JSON RPC endpoint.
 async fn download_eth1_block(
-    endpoint: &SensitiveUrl,
+    endpoint: &HttpJsonRpc,
     cache: Arc<Inner>,
     block_number_opt: Option<u64>,
 ) -> Result<Eth1Block, SingleEndpointError> {
@@ -1242,15 +1279,15 @@ async fn download_eth1_block(
     });
 
     // Performs a `get_blockByNumber` call to an eth1 node.
-    let http_block = get_block(
-        endpoint,
-        block_number_opt
-            .map(BlockQuery::Number)
-            .unwrap_or_else(|| BlockQuery::Latest),
-        Duration::from_millis(GET_BLOCK_TIMEOUT_MILLIS),
-    )
-    .map_err(SingleEndpointError::BlockDownloadFailed)
-    .await?;
+    let http_block = endpoint
+        .get_block(
+            block_number_opt
+                .map(BlockQuery::Number)
+                .unwrap_or_else(|| BlockQuery::Latest),
+            Duration::from_millis(GET_BLOCK_TIMEOUT_MILLIS),
+        )
+        .map_err(SingleEndpointError::BlockDownloadFailed)
+        .await?;
 
     Ok(Eth1Block {
         hash: http_block.hash,

@@ -1,7 +1,7 @@
 use clap::ArgMatches;
 use environment::Environment;
 use eth2_network_config::Eth2NetworkConfig;
-use genesis::{Eth1Config, Eth1GenesisService};
+use genesis::{Eth1Config, Eth1Endpoints, Eth1GenesisService};
 use sensitive_url::SensitiveUrl;
 use ssz::Encode;
 use std::cmp::max;
@@ -17,29 +17,19 @@ pub fn run<T: EthSpec>(
     testnet_dir: PathBuf,
     matches: &ArgMatches<'_>,
 ) -> Result<(), String> {
-    let endpoints = matches
-        .value_of("eth1-endpoint")
-        .map(|e| {
-            warn!("The --eth1-endpoint flag is deprecated. Please use --eth1-endpoints instead");
-            vec![String::from(e)]
-        })
-        .or_else(|| {
-            matches
-                .value_of("eth1-endpoints")
-                .map(|s| s.split(',').map(String::from).collect())
-        });
+    let endpoint = matches.value_of("eth1-endpoint").map(|e| {
+        warn!("The --eth1-endpoint flag is deprecated. Please use --eth1-endpoints instead");
+        String::from(e)
+    });
 
     let mut eth2_network_config = Eth2NetworkConfig::load(testnet_dir.clone())?;
 
     let spec = eth2_network_config.chain_spec::<T>()?;
 
     let mut config = Eth1Config::default();
-    if let Some(v) = endpoints.clone() {
-        config.endpoints = v
-            .iter()
-            .map(|s| SensitiveUrl::parse(s))
-            .collect::<Result<_, _>>()
-            .map_err(|e| format!("Unable to parse eth1 endpoint URL: {:?}", e))?;
+    if let Some(v) = endpoint.clone() {
+        config.endpoints = Eth1Endpoints::NoAuth(vec![SensitiveUrl::parse(&v)
+            .map_err(|e| format!("Unable to parse eth1 endpoint URL: {:?}", e))?]);
     }
     config.deposit_contract_address = format!("{:?}", spec.deposit_contract_address);
     config.deposit_contract_deploy_block = eth2_network_config.deposit_contract_deploy_block;
@@ -61,7 +51,7 @@ pub fn run<T: EthSpec>(
             .map_err(|e| format!("Failed to find genesis: {}", e))?;
 
         info!("Starting service to produce genesis BeaconState from eth1");
-        info!("Connecting to eth1 http endpoints: {:?}", endpoints);
+        info!("Connecting to eth1 http endpoints: {:?}", endpoint);
 
         Ok(())
     })

@@ -3,6 +3,7 @@ use clap_utils::flags::DISABLE_MALLOC_TUNING_FLAG;
 use client::{ClientConfig, ClientGenesis};
 use directory::{DEFAULT_BEACON_NODE_DIR, DEFAULT_NETWORK_DIR, DEFAULT_ROOT_DIR};
 use environment::RuntimeContext;
+use genesis::Eth1Endpoints;
 use http_api::TlsConfig;
 use lighthouse_network::{multiaddr::Protocol, Enr, Multiaddr, NetworkConfig, PeerIdSerialized};
 use sensitive_url::SensitiveUrl;
@@ -215,15 +216,18 @@ pub fn get_config<E: EthSpec>(
             "msg" => "please use --eth1-endpoints instead"
         );
         client_config.sync_eth1_chain = true;
-        client_config.eth1.endpoints = vec![SensitiveUrl::parse(endpoint)
+
+        let endpoints = vec![SensitiveUrl::parse(endpoint)
             .map_err(|e| format!("eth1-endpoint was an invalid URL: {:?}", e))?];
+        client_config.eth1.endpoints = Eth1Endpoints::NoAuth(endpoints);
     } else if let Some(endpoints) = cli_args.value_of("eth1-endpoints") {
         client_config.sync_eth1_chain = true;
-        client_config.eth1.endpoints = endpoints
+        let endpoints = endpoints
             .split(',')
             .map(SensitiveUrl::parse)
             .collect::<Result<_, _>>()
             .map_err(|e| format!("eth1-endpoints contains an invalid URL {:?}", e))?;
+        client_config.eth1.endpoints = Eth1Endpoints::NoAuth(endpoints);
     }
 
     if let Some(val) = cli_args.value_of("eth1-blocks-per-log-query") {
@@ -264,6 +268,11 @@ pub fn get_config<E: EthSpec>(
             let secret_file = PathBuf::from(secret);
             el_config.secret_files = vec![secret_file];
         }
+
+        client_config.eth1.endpoints = Eth1Endpoints::Auth {
+            jwt_path: el_config.secret_files[0].clone(),
+            endpoint: el_config.execution_endpoints[0].clone(),
+        };
 
         el_config.suggested_fee_recipient =
             clap_utils::parse_optional(cli_args, "suggested-fee-recipient")?;
