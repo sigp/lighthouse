@@ -135,6 +135,7 @@ impl From<ValidatorRegistrationData> for ValidatorRegistrationKey {
         }
     }
 }
+
 /// Attempts to produce proposer preparations for all known validators at the beginning of each epoch.
 pub struct PreparationService<T, E: EthSpec> {
     inner: Arc<Inner<T, E>>,
