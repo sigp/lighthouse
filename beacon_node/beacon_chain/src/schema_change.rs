@@ -28,6 +28,8 @@ pub fn migrate_schema<T: BeaconChainTypes>(
         (_, _) if from == to && to == CURRENT_SCHEMA_VERSION => Ok(()),
         // Upgrade for tree-states database changes.
         (SchemaVersion(9), SchemaVersion(20)) => migration_schema_v20::upgrade_to_v20::<T>(db, log),
+        // FIXME(sproul): this is a temporary patch remove it before merging
+        (SchemaVersion(10), SchemaVersion(20)) => db.store_schema_version(to),
         // Downgrade for tree-states database changes.
         (SchemaVersion(20), SchemaVersion(9)) => {
             migration_schema_v20::downgrade_from_v20::<T>(db, log)

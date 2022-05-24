@@ -100,6 +100,7 @@ pub fn upgrade_to_v20<T: BeaconChainTypes>(
             let prev_state_root = *current_state.get_state_root(slot - 1)?;
             let epoch_boundary_state_root = *current_state.get_state_root(epoch_boundary_slot)?;
 
+            // FIXME(sproul): rename V10 variant
             let summary = HotStateSummaryV10 {
                 slot,
                 latest_block_root,
@@ -189,7 +190,7 @@ pub fn upgrade_to_v20<T: BeaconChainTypes>(
         ops.push(summary.as_kv_store_op(state_root)?);
     }
 
-    db.store_schema_version_atomically(SchemaVersion(10), ops)
+    db.store_schema_version_atomically(SchemaVersion(20), ops)
 }
 
 pub fn downgrade_from_v20<T: BeaconChainTypes>(
