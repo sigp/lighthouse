@@ -409,16 +409,16 @@ impl<T: SlotClock + 'static, E: EthSpec> PreparationService<T, E> {
             drop(guard);
         }
 
-        // Check if any have changed or its been `EPOCHS_PER_VALIDATOR_REGISTRATION_SUBMISSION`.
-        if !changed_keys.is_empty() {
-            self.publish_validator_registration_data(changed_keys)
-                .await?;
-        }
-
+        // Check if any have changed or it's been `EPOCHS_PER_VALIDATOR_REGISTRATION_SUBMISSION`.
         if let Some(slot) = self.slot_clock.now() {
             if slot % (E::slots_per_epoch() * EPOCHS_PER_VALIDATOR_REGISTRATION_SUBMISSION) == 0 {
                 self.publish_validator_registration_data(registration_keys)
                     .await?;
+            } else {
+                if !changed_keys.is_empty() {
+                    self.publish_validator_registration_data(changed_keys)
+                        .await?;
+                }
             }
         }
 
