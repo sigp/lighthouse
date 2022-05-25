@@ -123,6 +123,12 @@ const EARLY_ATTESTER_CACHE_HISTORIC_SLOTS: u64 = 4;
 /// If the head block is older than this value, don't bother preparing beacon proposers.
 const PREPARE_PROPOSER_HISTORIC_EPOCHS: u64 = 4;
 
+/// If the head is more than `MAX_PER_SLOT_FORK_CHOICE_DISTANCE` slots behind the wall-clock slot, DO NOT
+/// run the per-slot tasks (primarily fork choice).
+///
+/// This prevents unnecessary work during sync.
+const MAX_PER_SLOT_FORK_CHOICE_DISTANCE: u64 = 4;
+
 /// Reported to the user when the justified block has an invalid execution payload.
 pub const INVALID_JUSTIFIED_PAYLOAD_SHUTDOWN_REASON: &str =
     "Justified block has an invalid execution payload.";
@@ -4412,6 +4418,18 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     pub fn per_slot_task(self: &Arc<Self>) {
         trace!(self.log, "Running beacon chain per slot tasks");
         if let Some(slot) = self.slot_clock.now() {
+            // Always run the light-weight pruning tasks (these structures should be empty during
+            // sync anyway).
+            self.naive_aggregation_pool.write().prune(slot);
+            self.block_times_cache.write().prune(slot);
+
+            // Don't run heavy-weight tasks during sync.
+            if self.best_slot().map_or(true, |head_slot| {
+                head_slot + MAX_PER_SLOT_FORK_CHOICE_DISTANCE < slot
+            }) {
+                return;
+            }
+
             // Run fork choice and signal to any waiting task that it has completed.
             if let Err(e) = self.fork_choice() {
                 error!(
@@ -4434,9 +4452,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     );
                 }
             }
-
-            self.naive_aggregation_pool.write().prune(slot);
-            self.block_times_cache.write().prune(slot);
         }
     }
 
