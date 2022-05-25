@@ -449,6 +449,8 @@ mod tests {
         }
     }
 
+    //TODO: remove this once the consensys web3signer includes the `validator_registration` method
+    #[allow(dead_code)]
     fn get_validator_registration(pubkey: PublicKeyBytes) -> ValidatorRegistrationData {
         let fee_recipient = Address::repeat_byte(42);
         ValidatorRegistrationData {
