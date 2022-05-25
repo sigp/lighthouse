@@ -55,14 +55,14 @@ pub enum EndpointError {
 type EndpointState = Result<(), EndpointError>;
 
 pub struct EndpointWithState {
-    endpoint: HttpJsonRpc,
+    client: HttpJsonRpc,
     state: TRwLock<Option<EndpointState>>,
 }
 
 impl EndpointWithState {
-    pub fn new(endpoint: HttpJsonRpc) -> Self {
+    pub fn new(client: HttpJsonRpc) -> Self {
         Self {
-            endpoint,
+            client,
             state: TRwLock::new(None),
         }
     }
@@ -98,14 +98,14 @@ impl EndpointsCache {
         }
         crate::metrics::inc_counter_vec(
             &crate::metrics::ENDPOINT_REQUESTS,
-            &[&endpoint.endpoint.to_string()],
+            &[&endpoint.client.to_string()],
         );
-        let state = endpoint_state(&endpoint.endpoint, &self.config_chain_id, &self.log).await;
+        let state = endpoint_state(&endpoint.client, &self.config_chain_id, &self.log).await;
         *value = Some(state.clone());
         if state.is_err() {
             crate::metrics::inc_counter_vec(
                 &crate::metrics::ENDPOINT_ERRORS,
-                &[&endpoint.endpoint.to_string()],
+                &[&endpoint.client.to_string()],
             );
             crate::metrics::set_gauge(&metrics::ETH1_CONNECTED, 0);
         } else {
@@ -129,12 +129,12 @@ impl EndpointsCache {
             .first_success(|endpoint| async move {
                 match self.state(endpoint).await {
                     Ok(()) => {
-                        let endpoint_str = &endpoint.endpoint.to_string();
+                        let endpoint_str = &endpoint.client.to_string();
                         crate::metrics::inc_counter_vec(
                             &crate::metrics::ENDPOINT_REQUESTS,
                             &[endpoint_str],
                         );
-                        match func(&endpoint.endpoint).await {
+                        match func(&endpoint.client).await {
                             Ok(t) => Ok(t),
                             Err(t) => {
                                 crate::metrics::inc_counter_vec(
@@ -343,8 +343,11 @@ pub struct DepositCacheUpdateOutcome {
     pub logs_imported: usize,
 }
 
+/// Supports either one authenticated jwt JSON-RPC endpoint **or**
+/// multiple non-authenticated endpoints with fallback.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub enum Eth1Endpoints {
+
+pub enum Eth1Endpoint {
     Auth {
         jwt_path: PathBuf,
         endpoint: SensitiveUrl,
@@ -352,7 +355,7 @@ pub enum Eth1Endpoints {
     NoAuth(Vec<SensitiveUrl>),
 }
 
-impl Eth1Endpoints {
+impl Eth1Endpoint {
     fn len(&self) -> usize {
         match &self {
             Self::Auth { .. } => 1,
@@ -364,7 +367,7 @@ impl Eth1Endpoints {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Config {
     /// An Eth1 node (e.g., Geth) running a HTTP JSON-RPC endpoint.
-    pub endpoints: Eth1Endpoints,
+    pub endpoints: Eth1Endpoint,
     /// The address the `BlockCache` and `DepositCache` should assume is the canonical deposit contract.
     pub deposit_contract_address: String,
     /// The eth1 chain id where the deposit contract is deployed (Goerli/Mainnet).
@@ -426,7 +429,7 @@ impl Config {
 impl Default for Config {
     fn default() -> Self {
         Self {
-            endpoints: Eth1Endpoints::NoAuth(vec![SensitiveUrl::parse(DEFAULT_ETH1_ENDPOINT)
+            endpoints: Eth1Endpoint::NoAuth(vec![SensitiveUrl::parse(DEFAULT_ETH1_ENDPOINT)
                 .expect("The default Eth1 endpoint must always be a valid URL.")]),
             deposit_contract_address: "0x0000000000000000000000000000000000000000".into(),
             chain_id: DEFAULT_CHAIN_ID,
@@ -642,13 +645,13 @@ impl Service {
         let config_chain_id = self.config().chain_id.clone();
 
         let servers = match endpoints {
-            Eth1Endpoints::Auth { jwt_path, endpoint } => {
+            Eth1Endpoint::Auth { jwt_path, endpoint } => {
                 let auth = Auth::new_with_path(jwt_path, None, None)
                     .map_err(|e| format!("Failed to initialize jwt auth: {:?}", e))?;
                 vec![HttpJsonRpc::new_with_auth(endpoint, auth)
                     .map_err(|e| format!("Failed to build auth enabled json rpc {:?}", e))?]
             }
-            Eth1Endpoints::NoAuth(urls) => urls
+            Eth1Endpoint::NoAuth(urls) => urls
                 .into_iter()
                 .map(|url| {
                     HttpJsonRpc::new(url).map_err(|e| format!("Failed to build json rpc {:?}", e))
@@ -715,7 +718,7 @@ impl Service {
                     }
                 }
             }
-            endpoints.fallback.map_format_error(|s| &s.endpoint, e)
+            endpoints.fallback.map_format_error(|s| &s.client, e)
         };
 
         let process_err = |e: Error| match &e {

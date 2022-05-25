@@ -3,7 +3,7 @@ use clap_utils::flags::DISABLE_MALLOC_TUNING_FLAG;
 use client::{ClientConfig, ClientGenesis};
 use directory::{DEFAULT_BEACON_NODE_DIR, DEFAULT_NETWORK_DIR, DEFAULT_ROOT_DIR};
 use environment::RuntimeContext;
-use genesis::Eth1Endpoints;
+use genesis::Eth1Endpoint;
 use http_api::TlsConfig;
 use lighthouse_network::{multiaddr::Protocol, Enr, Multiaddr, NetworkConfig, PeerIdSerialized};
 use sensitive_url::SensitiveUrl;
@@ -219,7 +219,7 @@ pub fn get_config<E: EthSpec>(
 
         let endpoints = vec![SensitiveUrl::parse(endpoint)
             .map_err(|e| format!("eth1-endpoint was an invalid URL: {:?}", e))?];
-        client_config.eth1.endpoints = Eth1Endpoints::NoAuth(endpoints);
+        client_config.eth1.endpoints = Eth1Endpoint::NoAuth(endpoints);
     } else if let Some(endpoints) = cli_args.value_of("eth1-endpoints") {
         client_config.sync_eth1_chain = true;
         let endpoints = endpoints
@@ -227,7 +227,7 @@ pub fn get_config<E: EthSpec>(
             .map(SensitiveUrl::parse)
             .collect::<Result<_, _>>()
             .map_err(|e| format!("eth1-endpoints contains an invalid URL {:?}", e))?;
-        client_config.eth1.endpoints = Eth1Endpoints::NoAuth(endpoints);
+        client_config.eth1.endpoints = Eth1Endpoint::NoAuth(endpoints);
     }
 
     if let Some(val) = cli_args.value_of("eth1-blocks-per-log-query") {
@@ -269,7 +269,7 @@ pub fn get_config<E: EthSpec>(
             el_config.secret_files = vec![secret_file];
         }
 
-        client_config.eth1.endpoints = Eth1Endpoints::Auth {
+        client_config.eth1.endpoints = Eth1Endpoint::Auth {
             jwt_path: el_config.secret_files[0].clone(),
             endpoint: el_config.execution_endpoints[0].clone(),
         };

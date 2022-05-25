@@ -4,7 +4,7 @@
 //! dir in the root of the `lighthouse` repo.
 #![cfg(test)]
 use environment::{Environment, EnvironmentBuilder};
-use eth1::{Eth1Endpoints, DEFAULT_CHAIN_ID};
+use eth1::{Eth1Endpoint, DEFAULT_CHAIN_ID};
 use eth1_test_rig::{DelayThenDeposit, GanacheEth1Instance};
 use genesis::{Eth1Config, Eth1GenesisService};
 use sensitive_url::SensitiveUrl;
@@ -44,7 +44,7 @@ fn basic() {
 
         let service = Eth1GenesisService::new(
             Eth1Config {
-                endpoints: Eth1Endpoints::NoAuth(vec![SensitiveUrl::parse(
+                endpoints: Eth1Endpoint::NoAuth(vec![SensitiveUrl::parse(
                     eth1.endpoint().as_str(),
                 )
                 .unwrap()]),
