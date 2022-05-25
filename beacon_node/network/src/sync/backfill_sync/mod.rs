@@ -738,20 +738,7 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
                 BatchState::Failed
                 | BatchState::AwaitingDownload
                 | BatchState::Processing(_)
-                | BatchState::WaitingOnExecution => {
-                    // these are all inconsistent states:
-                    // - Failed -> non recoverable batch. Chain should have been removed
-                    // - AwaitingDownload -> A recoverable failed batch should have been
-                    //   re-requested.
-                    // - Processing -> `self.current_processing_batch` is None
-                    // - WaitingOnExecution -> We shouldn't get an EL error when backfilling
-                    return self
-                        .fail_sync(BackFillError::InvalidSyncState(String::from(
-                            "Invalid expected batch state",
-                        )))
-                        .map(|_| ProcessResult::Successful);
-                }
-                BatchState::AwaitingValidation(_) => {
+                | BatchState::AwaitingValidation(_) => {
                     // TODO: I don't think this state is possible, log a CRIT just in case.
                     // If this is not observed, add it to the failed state branch above.
                     crit!(self.log, "Chain encountered a robust batch awaiting validation"; "batch" => self.processing_target);
@@ -848,12 +835,6 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
                     crit!(
                         self.log,
                         "batch indicates inconsistent chain state while advancing chain"
-                    )
-                }
-                BatchState::WaitingOnExecution => {
-                    crit!(
-                        self.log,
-                        "Batch failed with execution error while backfilling. Inconsistent state"
                     )
                 }
                 BatchState::AwaitingProcessing(..) => {}

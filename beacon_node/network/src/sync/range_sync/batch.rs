@@ -106,8 +106,6 @@ pub enum BatchState<T: EthSpec> {
     AwaitingValidation(Attempt),
     /// Intermediate state for inner state handling.
     Poisoned,
-    /// The batch is waiting for the execution layer to resume validation.
-    WaitingOnExecution,
     /// The batch has maxed out the allowed attempts for either downloading or processing. It
     /// cannot be recovered.
     Failed,
@@ -179,9 +177,7 @@ impl<T: EthSpec, B: BatchConfig> BatchInfo<T, B> {
     /// Returns the peer that is currently responsible for progressing the state of the batch.
     pub fn current_peer(&self) -> Option<&PeerId> {
         match &self.state {
-            BatchState::AwaitingDownload | BatchState::Failed | BatchState::WaitingOnExecution => {
-                None
-            }
+            BatchState::AwaitingDownload | BatchState::Failed => None,
             BatchState::Downloading(peer_id, _, _)
             | BatchState::AwaitingProcessing(peer_id, _)
             | BatchState::Processing(Attempt { peer_id, .. })
@@ -489,9 +485,6 @@ impl<T: EthSpec> std::fmt::Debug for BatchState<T> {
                 blocks.len(),
                 request_id
             ),
-            BatchState::WaitingOnExecution => {
-                write!(f, "WaitingOnExecution")
-            }
             BatchState::Poisoned => f.write_str("Poisoned"),
         }
     }

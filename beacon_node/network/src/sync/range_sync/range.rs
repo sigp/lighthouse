@@ -208,6 +208,7 @@ where
         }
     }
 
+    /// The execution layer is back online, resume all stalled chains.
     pub fn execution_ready(&mut self, network: &mut SyncNetworkContext<T::EthSpec>) {
         for (removed_chain, sync_type, remove_reason) in self
             .chains
@@ -219,6 +220,21 @@ where
                 remove_reason,
                 network,
                 "execution resumed",
+            );
+        }
+    }
+
+    /// The execution layer is offline, stall all syncing chains.
+    pub fn execution_stalled(&mut self, network: &mut SyncNetworkContext<T::EthSpec>) {
+        for (removed_chain, sync_type, remove_reason) in
+            self.chains.call_all(|chain| chain.execution_stalled())
+        {
+            self.on_chain_removed(
+                removed_chain,
+                sync_type,
+                remove_reason,
+                network,
+                "execution stalled",
             );
         }
     }

@@ -349,7 +349,6 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                 let state = batch.state();
                 match state {
                     // Return early here without any additional processing.
-                    BatchState::WaitingOnExecution => return Ok(KeepChain),
                     BatchState::AwaitingProcessing(..) => {
                         // this batch is ready
                         debug!(self.log, "Processing optimistic start"; "epoch" => epoch);
@@ -391,7 +390,6 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
         if let Some(batch) = self.batches.get(&self.processing_target) {
             let state = batch.state();
             match state {
-                BatchState::WaitingOnExecution => return Ok(KeepChain),
                 BatchState::AwaitingProcessing(..) => {
                     return self.process_batch(network, self.processing_target);
                 }
@@ -630,7 +628,6 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
             // only for batches awaiting validation can we be sure the last attempt is
             // right, and thus, that any different attempt is wrong
             match batch.state() {
-                BatchState::WaitingOnExecution => return,
                 BatchState::AwaitingValidation(ref processed_attempt) => {
                     for attempt in batch.attempts() {
                         // The validated batch has been re-processed
@@ -763,8 +760,9 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
         self.state = ChainSyncingState::Stopped;
     }
 
-    pub fn execution_stalled(&mut self) {
+    pub fn execution_stalled(&mut self) -> ProcessingResult {
         self.state = ChainSyncingState::ExecutionStalled;
+        Ok(KeepChain)
     }
 
     pub fn execution_resumed(

@@ -492,6 +492,10 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                         }
                     }
                     if !status_lock.range {
+                        // Stall every chain if any one chain is waiting on execution
+                        // This is to ensure that all the chains are in the right state
+                        // when we resume.
+                        self.range_sync.execution_stalled(&mut self.network);
                         status_lock.range = true;
                         debug!(self.log, "Range sync is waiting on execution layer");
                     }
