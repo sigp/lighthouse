@@ -109,7 +109,6 @@ pub struct Inner<T, E: EthSpec> {
     fee_recipient: Option<Address>,
     fee_recipient_file: Option<FeeRecipientFile>,
     // Used to track unpublished validator registration changes.
-    // TODO(sean): should this be persisted?
     validator_registration_cache:
         RwLock<HashMap<ValidatorRegistrationKey, SignedValidatorRegistrationData>>,
 }
@@ -136,6 +135,7 @@ impl From<ValidatorRegistrationData> for ValidatorRegistrationKey {
         }
     }
 }
+
 /// Attempts to produce proposer preparations for all known validators at the beginning of each epoch.
 pub struct PreparationService<T, E: EthSpec> {
     inner: Arc<Inner<T, E>>,
@@ -158,9 +158,15 @@ impl<T, E: EthSpec> Deref for PreparationService<T, E> {
 }
 
 impl<T: SlotClock + 'static, E: EthSpec> PreparationService<T, E> {
-    pub fn start_update_services(self, spec: &ChainSpec) -> Result<(), String> {
-        self.clone().start_proposer_prepare_service(spec)?;
-        self.start_validator_registration_service(spec)
+    pub fn start_update_service(
+        self,
+        start_registration_service: bool,
+        spec: &ChainSpec,
+    ) -> Result<(), String> {
+        if start_registration_service {
+            self.clone().start_validator_registration_service(spec)?;
+        }
+        self.start_proposer_prepare_service(spec)
     }
 
     /// Starts the service which periodically produces proposer preparations.
@@ -222,13 +228,9 @@ impl<T: SlotClock + 'static, E: EthSpec> PreparationService<T, E> {
 
         let validator_registration_fut = async move {
             loop {
-                if self.should_publish_at_current_slot(&spec) {
-                    //TODO(sean) we should probably make it so validator registrations happen well before the merge
-                    //
-                    // Poll the endpoint immediately to ensure fee recipients are received.
-                    if let Err(e) = self.register_validators(&spec).await {
-                        error!(log,"Error during validator registration";"error" => ?e);
-                    }
+                // Poll the endpoint immediately to ensure fee recipients are received.
+                if let Err(e) = self.register_validators(&spec).await {
+                    error!(log,"Error during validator registration";"error" => ?e);
                 }
 
                 // Wait one slot if the register validator request fails or if we should not publish at the current slot.
@@ -402,22 +404,20 @@ impl<T: SlotClock + 'static, E: EthSpec> PreparationService<T, E> {
         {
             let guard = self.validator_registration_cache.read();
             for key in registration_keys.iter() {
-                if guard.contains_key(key) {
+                if !guard.contains_key(key) {
                     changed_keys.push(key.clone());
                 }
             }
             drop(guard);
         }
 
-        // Check if any have changed or its been `EPOCHS_PER_VALIDATOR_REGISTRATION_SUBMISSION`.
-        if !changed_keys.is_empty() {
-            self.publish_validator_registration_data(changed_keys)
-                .await?;
-        }
-
+        // Check if any have changed or it's been `EPOCHS_PER_VALIDATOR_REGISTRATION_SUBMISSION`.
         if let Some(slot) = self.slot_clock.now() {
             if slot % (E::slots_per_epoch() * EPOCHS_PER_VALIDATOR_REGISTRATION_SUBMISSION) == 0 {
                 self.publish_validator_registration_data(registration_keys)
+                    .await?;
+            } else if !changed_keys.is_empty() {
+                self.publish_validator_registration_data(changed_keys)
                     .await?;
             }
         }

@@ -3277,7 +3277,7 @@ async fn get_validator_beacon_committee_subscriptions() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn get_validator_register_validator() {
+async fn post_validator_register_validator() {
     ApiTester::new()
         .await
         .test_post_validator_register_validator()
