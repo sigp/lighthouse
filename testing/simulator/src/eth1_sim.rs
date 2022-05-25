@@ -3,6 +3,7 @@ use crate::{checks, LocalNetwork, E};
 use clap::ArgMatches;
 use eth1::{Eth1Endpoints, DEFAULT_CHAIN_ID};
 use eth1_test_rig::GanacheEth1Instance;
+
 use execution_layer::http::deposit_methods::Eth1Id;
 use futures::prelude::*;
 use node_test_rig::{
@@ -146,12 +147,15 @@ pub fn run_eth1_sim(matches: &ArgMatches) -> Result<(), String> {
          */
         for i in 0..node_count - 1 {
             let mut config = beacon_config.clone();
-            // // if i % 2 == 0 {
-            // //     config.eth1.endpoints.insert(
-            // //         0,
-            // //         SensitiveUrl::parse(INVALID_ADDRESS).expect("Unable to parse invalid address"),
-            // //     );
-            // // }
+            if i % 2 == 0 {
+                if let Eth1Endpoints::NoAuth(endpoints) = &mut config.eth1.endpoints {
+                    endpoints.insert(
+                        0,
+                        SensitiveUrl::parse(INVALID_ADDRESS)
+                            .expect("Unable to parse invalid address"),
+                    )
+                }
+            }
             network.add_beacon_node(config).await?;
         }
 
