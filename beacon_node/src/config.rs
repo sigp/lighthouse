@@ -247,7 +247,7 @@ pub fn get_config<E: EthSpec>(
             client_config.sync_eth1_chain = true;
             let execution_endpoint = SensitiveUrl::parse(endpoint)
                 .map_err(|e| format!("execution-endpoint contains an invalid URL {:?}", e))?;
-            el_config.execution_endpoints = vec![execution_endpoint.clone()];
+            el_config.execution_endpoints = vec![execution_endpoint];
         } else if cli_args.is_present("merge") {
             el_config.execution_endpoints =
                 vec![

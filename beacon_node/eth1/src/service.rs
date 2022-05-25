@@ -1281,13 +1281,6 @@ mod tests {
     }
 
     #[test]
-    fn serde_serialize() {
-        let serialized =
-            toml::to_string(&Config::default()).expect("Should serde encode default config");
-        toml::from_str::<Config>(&serialized).expect("Should serde decode default config");
-    }
-
-    #[test]
     fn block_cache_size() {
         let mut config = Config::default();
 
