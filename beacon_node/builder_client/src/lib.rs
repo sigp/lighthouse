@@ -13,9 +13,23 @@ use serde::Serialize;
 use std::time::Duration;
 
 #[derive(Clone)]
+pub struct Timeouts {
+    get_header: Duration,
+}
+
+impl Default for Timeouts {
+    fn default() -> Self {
+        Self {
+            get_header: Duration::from_millis(500),
+        }
+    }
+}
+
+#[derive(Clone)]
 pub struct BuilderHttpClient {
     client: reqwest::Client,
     server: SensitiveUrl,
+    timeouts: Timeouts,
 }
 
 impl BuilderHttpClient {
@@ -23,11 +37,32 @@ impl BuilderHttpClient {
         Ok(Self {
             client: reqwest::Client::new(),
             server,
+            timeouts: Timeouts::default(),
+        })
+    }
+
+    pub fn new_with_timeouts(server: SensitiveUrl, timeouts: Timeouts) -> Result<Self, Error> {
+        Ok(Self {
+            client: reqwest::Client::new(),
+            server,
+            timeouts,
         })
     }
 
     async fn get<T: DeserializeOwned, U: IntoUrl>(&self, url: U) -> Result<T, Error> {
-        self.get_response(url)
+        self.get_response_with_timeout(url, None)
+            .await?
+            .json()
+            .await
+            .map_err(Error::Reqwest)
+    }
+
+    async fn get_with_timeout<T: DeserializeOwned, U: IntoUrl>(
+        &self,
+        url: U,
+        timeout: Duration,
+    ) -> Result<T, Error> {
+        self.get_response_with_timeout(url, Some(timeout))
             .await?
             .json()
             .await
@@ -35,20 +70,17 @@ impl BuilderHttpClient {
     }
 
     /// Perform a HTTP GET request, returning the `Response` for further processing.
-    async fn get_response<U: IntoUrl>(&self, url: U) -> Result<Response, Error> {
-        let response = self.client.get(url).send().await.map_err(Error::Reqwest)?;
-        ok_or_error(response).await
-    }
-
-    /// Perform a HTTP POST request with a custom timeout.
-    async fn post_with_timeout<T: Serialize, U: IntoUrl>(
+    async fn get_response_with_timeout<U: IntoUrl>(
         &self,
         url: U,
-        body: &T,
-        timeout: Duration,
-    ) -> Result<(), Error> {
-        self.post_generic(url, body, Some(timeout)).await?;
-        Ok(())
+        timeout: Option<Duration>,
+    ) -> Result<Response, Error> {
+        let mut builder = self.client.get(url);
+        if let Some(timeout) = timeout {
+            builder = builder.timeout(timeout);
+        }
+        let response = builder.send().await.map_err(Error::Reqwest)?;
+        ok_or_error(response).await
     }
 
     /// Generic POST function supporting arbitrary responses and timeouts.
@@ -95,9 +127,8 @@ impl BuilderHttpClient {
             .push("builder")
             .push("validators");
 
-        //TODO(sean): move config and shorten to 500 millis
-        self.post_with_timeout(path, &validator, Duration::from_secs(1))
-            .await
+        self.post_generic(path, &validator, None).await?;
+        Ok(())
     }
 
     /// `POST /eth/v1/builder/blinded_blocks`
@@ -121,7 +152,6 @@ impl BuilderHttpClient {
             .await?)
     }
 
-    //TODO(sean) add timeouts
     /// `GET /eth/v1/builder/header`
     pub async fn get_builder_header<E: EthSpec, Payload: ExecPayload<E>>(
         &self,
@@ -141,7 +171,7 @@ impl BuilderHttpClient {
             .push(format!("{parent_hash:?}").as_str())
             .push(pubkey.as_hex_string().as_str());
 
-        self.get(path).await
+        self.get_with_timeout(path, self.timeouts.get_header).await
     }
 
     /// `GET /eth/v1/builder/status`
@@ -156,14 +186,5 @@ impl BuilderHttpClient {
             .push("status");
 
         self.get(path).await
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    #[test]
-    fn it_works() {
-        let result = 2 + 2;
-        assert_eq!(result, 4);
     }
 }
