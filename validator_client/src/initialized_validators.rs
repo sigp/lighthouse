@@ -625,7 +625,7 @@ impl InitializedValidators {
     /// disk.
     ///
     /// Saves the `ValidatorDefinitions` to file, even if no definitions were changed.
-    pub async fn set_validator_fee_recipient(
+    pub fn set_validator_fee_recipient(
         &mut self,
         voting_public_key: &PublicKey,
         fee_recipient: Address,

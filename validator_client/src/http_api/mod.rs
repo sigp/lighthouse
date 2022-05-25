@@ -11,8 +11,8 @@ use account_utils::{
 };
 use create_validator::{create_validators_mnemonic, create_validators_web3signer};
 use eth2::lighthouse_vc::{
-    std_types::AuthResponse,
-    types::{self as api_types, PublicKey, PublicKeyBytes},
+    std_types::{AuthResponse, GetFeeRecipientResponse},
+    types::{self as api_types, GenericResponse, PublicKey, PublicKeyBytes},
 };
 use lighthouse_version::version_with_platform;
 use serde::{Deserialize, Serialize};
@@ -36,7 +36,6 @@ use warp::{
 };
 
 pub use api_secret::ApiSecret;
-use eth2::lighthouse_vc::types::{GetFeeRecipientResponse, GetFeeRecipientResponseData};
 
 #[derive(Debug)]
 pub enum Error {
@@ -587,11 +586,11 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
                     }
                     validator_store
                         .load_fee_recipient(&PublicKeyBytes::from(&validator_pubkey))
-                        .map(|fee_recipient| GetFeeRecipientResponse {
-                            data: GetFeeRecipientResponseData {
+                        .map(|fee_recipient| {
+                            GenericResponse::from(GetFeeRecipientResponse {
                                 pubkey: PublicKeyBytes::from(validator_pubkey.clone()),
                                 ethaddress: fee_recipient,
-                            },
+                            })
                         })
                         .ok_or_else(|| {
                             warp_utils::reject::custom_server_error(
@@ -611,50 +610,33 @@ pub fn serve<T: 'static + SlotClock + Clone, E: EthSpec>(
         .and(warp::path::end())
         .and(validator_store_filter.clone())
         .and(signer.clone())
-        .and(task_executor_filter.clone())
         .and_then(
             |validator_pubkey: PublicKey,
              request: api_types::UpdateFeeRecipientRequest,
              validator_store: Arc<ValidatorStore<T, E>>,
-             signer,
-             task_executor: TaskExecutor| {
+             signer| {
                 blocking_signed_json_task(signer, move || {
-                    if let Some(handle) = task_executor.handle() {
-                        if validator_store
-                            .initialized_validators()
-                            .read()
-                            .is_enabled(&validator_pubkey)
-                            .is_none()
-                        {
-                            return Err(warp_utils::reject::custom_not_found(format!(
-                                "no validator found with pubkey {:?}",
-                                validator_pubkey
-                            )));
-                        }
-                        handle
-                            .block_on(async move {
-                                validator_store
-                                    .initialized_validators()
-                                    .write()
-                                    .set_validator_fee_recipient(
-                                        &validator_pubkey,
-                                        request.ethaddress,
-                                    )
-                                    .await
-                                    .map_err(|e| format!("Error persisting fee recipient: {:?}", e))
-                            })
-                            .map_err(|e: String| {
-                                warp_utils::reject::custom_server_error(format!(
-                                    "unable to set validator fee recipient: {:?}",
-                                    e
-                                ))
-                            })?;
-                        Ok(())
-                    } else {
-                        Err(warp_utils::reject::custom_server_error(
-                            "Lighthouse shutting down".into(),
-                        ))
+                    if validator_store
+                        .initialized_validators()
+                        .read()
+                        .is_enabled(&validator_pubkey)
+                        .is_none()
+                    {
+                        return Err(warp_utils::reject::custom_not_found(format!(
+                            "no validator found with pubkey {:?}",
+                            validator_pubkey
+                        )));
                     }
+                    validator_store
+                        .initialized_validators()
+                        .write()
+                        .set_validator_fee_recipient(&validator_pubkey, request.ethaddress)
+                        .map_err(|e| {
+                            warp_utils::reject::custom_server_error(format!(
+                                "Error persisting fee recipient: {:?}",
+                                e
+                            ))
+                        })
                 })
             },
         )

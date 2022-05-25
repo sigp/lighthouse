@@ -5,13 +5,9 @@ use slashing_protection::interchange::Interchange;
 use types::{Address, PublicKeyBytes};
 
 #[derive(Debug, Deserialize, Serialize, PartialEq)]
-pub struct GetFeeRecipientResponseData {
+pub struct GetFeeRecipientResponse {
     pub pubkey: PublicKeyBytes,
     pub ethaddress: Address,
-}
-#[derive(Debug, Deserialize, Serialize, PartialEq)]
-pub struct GetFeeRecipientResponse {
-    pub data: GetFeeRecipientResponseData,
 }
 
 #[derive(Debug, Deserialize, Serialize, PartialEq)]
