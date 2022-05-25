@@ -171,7 +171,6 @@ pub mod deposit_log {
 
 pub mod deposit_methods {
     pub use super::deposit_log::Log;
-    use super::EIP155_ERROR_STR;
     use crate::{EngineApi, HttpJsonRpc};
     use serde::{Deserialize, Serialize};
     use serde_json::{json, Value};
@@ -300,56 +299,27 @@ pub mod deposit_methods {
             Err("Hex string did not start with `0x`".to_string())
         }
     }
-    /// Accepts an entire HTTP body (as a string) and returns either the `result` field or the `error['message']` field, as a serde `Value`.
-    fn response_result_or_error(response: &str) -> Result<Value, RpcError> {
-        let json = serde_json::from_str::<Value>(response)
-            .map_err(|e| RpcError::InvalidJson(e.to_string()))?;
-
-        if let Some(error) = json.get("error").and_then(|e| e.get("message")) {
-            let error = error.to_string();
-            if error.contains(EIP155_ERROR_STR) {
-                Err(RpcError::Eip155Error)
-            } else {
-                Err(RpcError::Error(error))
-            }
-        } else {
-            json.get("result").cloned().ok_or(RpcError::NoResultField)
-        }
-    }
 
     impl HttpJsonRpc<EngineApi> {
         /// Get the eth1 chain id of the given endpoint.
         pub async fn get_chain_id(&self, timeout: Duration) -> Result<Eth1Id, String> {
-            let response_body: String = self
+            let chain_id: String = self
                 .rpc_request("eth_chainId", json!([]), timeout)
                 .await
                 .map_err(|e| format!("eth_chainId call failed {:?}", e))?;
-
-            match response_result_or_error(&response_body) {
-                Ok(chain_id) => hex_to_u64_be(chain_id.as_str().ok_or("Data was not string")?)
-                    .map(|id| id.into()),
-                // Geth returns this error when it's syncing lower blocks. Simply map this into `0` since
-                // Lighthouse does not raise errors for `0`, it simply waits for it to change.
-                Err(RpcError::Eip155Error) => Ok(Eth1Id::Custom(0)),
-                Err(e) => Err(e.to_string()),
-            }
+            hex_to_u64_be(chain_id.as_str()).map(|id| id.into())
         }
 
         /// Returns the current block number.
         ///
         /// Uses HTTP JSON RPC at `endpoint`. E.g., `http://localhost:8545`.
         pub async fn get_block_number(&self, timeout: Duration) -> Result<u64, String> {
-            let response_body: String = self
+            let response: String = self
                 .rpc_request("eth_blockNumber", json!([]), timeout)
                 .await
                 .map_err(|e| format!("eth_blockNumber call failed {:?}", e))?;
-            hex_to_u64_be(
-                response_result_or_error(&response_body)
-                    .map_err(|e| format!("eth_blockNumber failed: {}", e))?
-                    .as_str()
-                    .ok_or("Data was not string")?,
-            )
-            .map_err(|e| format!("Failed to get block number: {}", e))
+            hex_to_u64_be(response.as_str())
+                .map_err(|e| format!("Failed to get block number: {}", e))
         }
 
         /// Gets a block hash by block number.
@@ -369,13 +339,10 @@ pub mod deposit_methods {
                 false // do not return full tx objects.
             ]);
 
-            let response_body: String = self
+            let response: Value = self
                 .rpc_request("eth_getBlockByNumber", params, timeout)
                 .await
                 .map_err(|e| format!("eth_getBlockByNumber call failed {:?}", e))?;
-
-            let response = response_result_or_error(&response_body)
-                .map_err(|e| format!("eth_getBlockByNumber failed: {}", e))?;
 
             let hash: Vec<u8> = hex_to_bytes(
                 response
@@ -504,24 +471,12 @@ pub mod deposit_methods {
                 format!("0x{:x}", block_number)
             ]);
 
-            let response_body: String = self
+            let response: String = self
                 .rpc_request("eth_call", params, timeout)
                 .await
                 .map_err(|e| format!("eth_call call failed {:?}", e))?;
 
-            match response_result_or_error(&response_body) {
-                Ok(result) => {
-                    let hex = result
-                        .as_str()
-                        .map(|s| s.to_string())
-                        .ok_or("'result' value was not a string")?;
-
-                    Ok(Some(hex_to_bytes(&hex)?))
-                }
-                // It's valid for `eth_call` to return without a result.
-                Err(RpcError::NoResultField) => Ok(None),
-                Err(e) => Err(format!("eth_call failed: {}", e)),
-            }
+            Ok(Some(hex_to_bytes(&response)?))
         }
 
         /// Returns logs for the `DEPOSIT_EVENT_TOPIC`, for the given `address` in the given
@@ -543,12 +498,11 @@ pub mod deposit_methods {
                 "toBlock": format!("0x{:x}", block_height_range.end),
             }]);
 
-            let response_body: String = self
+            let response: Value = self
                 .rpc_request("eth_getLogs", params, timeout)
                 .await
                 .map_err(|e| format!("eth_getLogs call failed {:?}", e))?;
-            response_result_or_error(&response_body)
-                .map_err(|e| format!("eth_getLogs failed: {}", e))?
+            response
                 .as_array()
                 .cloned()
                 .ok_or("'result' value was not an array")?
