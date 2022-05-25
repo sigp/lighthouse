@@ -2351,32 +2351,24 @@ pub fn serve<T: BeaconChainTypes>(
                         .ok_or(BeaconChainError::BuilderMissing)
                         .map_err(warp_utils::reject::beacon_chain_error)?;
 
-                    let mut failures = vec![];
-
-                    for (index, val_data) in register_val_data.iter().enumerate() {
-                        if let Err(e) = builder.post_builder_validators(val_data).await {
-                            error!(log,
-                                "Failure registering validator with remote builder";
-                                "error" => format!("{:?}", e),
-                                "pubkey" => ?val_data.message.pubkey,
-                                "fee_recipient" => ?val_data.message.fee_recipient,
-                            );
-                            failures.push(api_types::Failure::new(
-                                index,
-                                format!("Validator registration: {:?}", e),
-                            ));
-                        }
-                    }
-
-                    let resp = if !failures.is_empty() {
-                        Err(warp_utils::reject::indexed_bad_request(
-                            "error registering validators".to_string(),
-                            failures,
-                        ))
-                    } else {
-                        Ok(())
-                    };
-                    resp.map(|resp| warp::reply::json(&resp))
+                    builder
+                        .post_builder_validators(&register_val_data)
+                        .await
+                        .map(|resp| warp::reply::json(&resp))
+                        .map_err(|e| {
+                            // Forward the HTTP status code if we are able to, otherwise fall back
+                            // to a server error.
+                            if let eth2::Error::ServerMessage(message) = e {
+                                if message.code == StatusCode::BAD_REQUEST.as_u16() {
+                                    return warp_utils::reject::custom_bad_request(message.message);
+                                } else {
+                                    // According to the spec this response should only be a 400 or 500,
+                                    // so we fall back to a 500 here.
+                                    return warp_utils::reject::custom_server_error(message.message);
+                                }
+                            }
+                            warp_utils::reject::custom_server_error(format!("{e:?}"))
+                        })
                 }
             },
         );

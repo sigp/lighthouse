@@ -116,7 +116,7 @@ impl BuilderHttpClient {
     /// `POST /eth/v1/builder/validators`
     pub async fn post_builder_validators(
         &self,
-        validator: &SignedValidatorRegistrationData,
+        validator: &[SignedValidatorRegistrationData],
     ) -> Result<(), Error> {
         let mut path = self.server.full.clone();
 
