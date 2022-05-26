@@ -43,7 +43,7 @@ mod payload_status;
 pub mod test_utils;
 
 /// Indicates the default jwt authenticated execution endpoint.
-pub const DEFAULT_EXECUTION_ENDPOINT: &str = "http://localhost:8551";
+pub const DEFAULT_EXECUTION_ENDPOINT: &str = "http://localhost:8551/";
 
 /// Name for the default file used for the jwt secret.
 pub const DEFAULT_JWT_FILE: &str = "jwt.hex";

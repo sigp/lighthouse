@@ -14,6 +14,7 @@ use types::{Address, Checkpoint, Epoch, ExecutionBlockHash, Hash256, MainnetEthS
 use unused_port::{unused_tcp_port, unused_udp_port};
 
 const DEFAULT_ETH1_ENDPOINT: &str = "http://localhost:8545/";
+const DEFAULT_EXECUTION_ENDPOINT: &str = "http://localhost:8551/";
 
 /// Returns the `lighthouse beacon_node` command.
 fn base_cmd() -> Command {
@@ -66,7 +67,10 @@ fn staking_flag() {
         .with_config(|config| {
             assert!(config.http_api.enabled);
             assert!(config.sync_eth1_chain);
-            assert_eq!(config.eth1.endpoints[0].to_string(), DEFAULT_ETH1_ENDPOINT);
+            assert_eq!(
+                config.eth1.endpoints.get_endpoints()[0].to_string(),
+                DEFAULT_ETH1_ENDPOINT
+            );
         });
 }
 
@@ -196,18 +200,21 @@ fn eth1_endpoints_flag() {
         .run_with_zero_port()
         .with_config(|config| {
             assert_eq!(
-                config.eth1.endpoints[0].full.to_string(),
+                config.eth1.endpoints.get_endpoints()[0].full.to_string(),
                 "http://localhost:9545/"
             );
             assert_eq!(
-                config.eth1.endpoints[0].to_string(),
+                config.eth1.endpoints.get_endpoints()[0].to_string(),
                 "http://localhost:9545/"
             );
             assert_eq!(
-                config.eth1.endpoints[1].full.to_string(),
+                config.eth1.endpoints.get_endpoints()[1].full.to_string(),
                 "https://infura.io/secret"
             );
-            assert_eq!(config.eth1.endpoints[1].to_string(), "https://infura.io/");
+            assert_eq!(
+                config.eth1.endpoints.get_endpoints()[1].to_string(),
+                "https://infura.io/"
+            );
             assert!(config.sync_eth1_chain);
         });
 }
@@ -229,21 +236,39 @@ fn eth1_purge_cache_flag() {
 // Tests for Bellatrix flags.
 #[test]
 fn merge_flag() {
+    use sensitive_url::SensitiveUrl;
+    let dir = TempDir::new().expect("Unable to create temporary directory");
+    let jwt_file_name = "jwt-file";
     CommandLineTest::new()
         .flag("merge", None)
+        .flag(
+            "execution-jwt",
+            dir.path().join(jwt_file_name).as_os_str().to_str(),
+        )
         .run_with_zero_port()
-        .with_config(|config| assert!(config.execution_layer.is_some()));
+        .with_config(|config| {
+            let config = config
+                .execution_layer
+                .as_ref()
+                .expect("execution_layer config must exist");
+
+            assert_eq!(
+                config.execution_endpoints[0],
+                SensitiveUrl::parse(DEFAULT_EXECUTION_ENDPOINT).unwrap()
+            );
+            assert_eq!(config.secret_files[0], dir.path().join(jwt_file_name));
+        });
 }
 #[test]
 fn merge_execution_endpoints_flag() {
     use sensitive_url::SensitiveUrl;
+    let dir = TempDir::new().expect("Unable to create temporary directory");
     let urls = vec!["http://sigp.io/no-way:1337", "http://infura.not_real:4242"];
-    let endpoints = urls
-        .iter()
-        .map(|s| SensitiveUrl::parse(s).unwrap())
-        .collect::<Vec<_>>();
+    // we don't support redundancy for execution-endpoints
+    // only the first provided endpoint is parsed.
+
     let mut endpoint_arg = urls[0].to_string();
-    for url in urls.into_iter().skip(1) {
+    for url in urls.iter().skip(1) {
         endpoint_arg.push(',');
         endpoint_arg.push_str(url);
     }
@@ -252,10 +277,18 @@ fn merge_execution_endpoints_flag() {
     CommandLineTest::new()
         .flag("merge", None)
         .flag("execution-endpoints", Some(&endpoint_arg))
+        .flag(
+            "execution-jwt",
+            dir.path().join("jwt-file").as_os_str().to_str(),
+        )
         .run_with_zero_port()
         .with_config(|config| {
             let config = config.execution_layer.as_ref().unwrap();
-            assert_eq!(config.execution_endpoints, endpoints)
+            assert_eq!(config.execution_endpoints.len(), 1);
+            assert_eq!(
+                config.execution_endpoints[0],
+                SensitiveUrl::parse(&urls[0]).unwrap()
+            );
         });
 }
 #[test]
@@ -283,8 +316,13 @@ fn merge_jwt_secrets_flag() {
 }
 #[test]
 fn merge_fee_recipient_flag() {
+    let dir = TempDir::new().expect("Unable to create temporary directory");
     CommandLineTest::new()
         .flag("merge", None)
+        .flag(
+            "execution-jwt",
+            dir.path().join("jwt-file").as_os_str().to_str(),
+        )
         .flag(
             "suggested-fee-recipient",
             Some("0x00000000219ab540356cbb839cbe05303d7705fa"),
@@ -300,8 +338,13 @@ fn merge_fee_recipient_flag() {
 }
 #[test]
 fn jwt_optional_flags() {
+    let dir = TempDir::new().expect("Unable to create temporary directory");
     CommandLineTest::new()
         .flag("merge", None)
+        .flag(
+            "execution-jwt",
+            dir.path().join("jwt-file").as_os_str().to_str(),
+        )
         .flag("jwt-id", Some("bn-1"))
         .flag("jwt-version", Some("Lighthouse-v2.1.3"))
         .run_with_zero_port()

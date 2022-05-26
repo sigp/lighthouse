@@ -243,11 +243,16 @@ pub fn get_config<E: EthSpec>(
     if cli_args.is_present("merge") || cli_args.is_present("execution-endpoint") {
         let mut el_config = execution_layer::Config::default();
 
-        if let Some(endpoint) = cli_args.value_of("execution-endpoint") {
+        if let Some(endpoints) = cli_args.value_of("execution-endpoint") {
             client_config.sync_eth1_chain = true;
-            let execution_endpoint = SensitiveUrl::parse(endpoint)
-                .map_err(|e| format!("execution-endpoint contains an invalid URL {:?}", e))?;
-            el_config.execution_endpoints = vec![execution_endpoint];
+            let mut execution_endpoints: Vec<SensitiveUrl> = endpoints
+                .split(',')
+                .map(SensitiveUrl::parse)
+                .collect::<Result<_, _>>()
+                .map_err(|e| format!("execution-endpoints contains an invalid URL {:?}", e))?;
+            // Retain only first element since we don't support multiple execution engines
+            execution_endpoints.truncate(1);
+            el_config.execution_endpoints = execution_endpoints;
         } else if cli_args.is_present("merge") {
             el_config.execution_endpoints =
                 vec![
@@ -264,14 +269,27 @@ pub fn get_config<E: EthSpec>(
                 .map_err(|e| format!("payload-builders contains an invalid URL {:?}", e))?;
         }
 
-        if let Some(secret) = cli_args.value_of("execution-jwt") {
-            let secret_file = PathBuf::from(secret);
-            el_config.secret_files = vec![secret_file];
-        }
+        // jwt-secret has to be specified if `--merge` or `execution-endpoints` is specified
+        let secret_files: String = clap_utils::parse_required(cli_args, "execution-jwt")?;
+        let mut secret_files: Vec<PathBuf> = secret_files
+            .split(',')
+            .map(PathBuf::from)
+            .collect::<Vec<_>>();
+        // Retain only first element
+        secret_files.truncate(1);
+        el_config.secret_files = secret_files;
 
         client_config.eth1.endpoints = Eth1Endpoint::Auth {
-            jwt_path: el_config.secret_files[0].clone(),
-            endpoint: el_config.execution_endpoints[0].clone(),
+            jwt_path: el_config
+                .secret_files
+                .first()
+                .expect("jwt-path must exist")
+                .clone(),
+            endpoint: el_config
+                .execution_endpoints
+                .first()
+                .expect("execution-endpoints should use default value if not provided")
+                .clone(),
         };
 
         el_config.suggested_fee_recipient =

@@ -346,7 +346,6 @@ pub struct DepositCacheUpdateOutcome {
 /// Supports either one authenticated jwt JSON-RPC endpoint **or**
 /// multiple non-authenticated endpoints with fallback.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-
 pub enum Eth1Endpoint {
     Auth {
         jwt_path: PathBuf,
@@ -360,6 +359,13 @@ impl Eth1Endpoint {
         match &self {
             Self::Auth { .. } => 1,
             Self::NoAuth(urls) => urls.len(),
+        }
+    }
+
+    pub fn get_endpoints(&self) -> Vec<SensitiveUrl> {
+        match &self {
+            Self::Auth { endpoint, .. } => vec![endpoint.clone()],
+            Self::NoAuth(endpoints) => endpoints.clone(),
         }
     }
 }
