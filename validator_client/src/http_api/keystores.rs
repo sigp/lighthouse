@@ -1,6 +1,6 @@
 //! Implementation of the standard keystore management API.
 use crate::{
-    initialized_validators::Error, signing_method::SigningMethod, InitializedValidators,
+    initialized_validators::Error, signing_handler::SigningMethod, InitializedValidators,
     ValidatorStore,
 };
 use account_utils::ZeroizeString;

@@ -6,7 +6,7 @@
 //! The `InitializedValidators` struct in this file serves as the source-of-truth of which
 //! validators are managed by this validator client.
 
-use crate::signing_method::SigningMethod;
+use crate::signing_handler::{SigningHandler, SigningMethod};
 use account_utils::{
     read_password, read_password_from_user,
     validator_definitions::{
@@ -106,7 +106,7 @@ impl From<LockfileError> for Error {
 
 /// A validator that is ready to sign messages.
 pub struct InitializedValidator {
-    signing_method: Arc<SigningMethod>,
+    signing_handler: Arc<SigningHandler>,
     graffiti: Option<Graffiti>,
     suggested_fee_recipient: Option<Address>,
     /// The validators index in `state.validators`, to be updated by an external service.
@@ -116,7 +116,7 @@ pub struct InitializedValidator {
 impl InitializedValidator {
     /// Return a reference to this validator's lockfile if it has one.
     pub fn keystore_lockfile(&self) -> Option<MappedMutexGuard<Lockfile>> {
-        match self.signing_method.as_ref() {
+        match self.signing_handler.as_ref().method {
             SigningMethod::LocalKeystore {
                 ref voting_keystore_lockfile,
                 ..
@@ -288,7 +288,7 @@ impl InitializedValidator {
         };
 
         Ok(Self {
-            signing_method: Arc::new(signing_method),
+            signing_handler: Arc::new(SigningHandler::new(signing_method)),
             graffiti: def.graffiti.map(Into::into),
             suggested_fee_recipient: def.suggested_fee_recipient,
             index: None,
@@ -297,7 +297,7 @@ impl InitializedValidator {
 
     /// Returns the voting public key for this validator.
     pub fn voting_public_key(&self) -> &PublicKey {
-        match self.signing_method.as_ref() {
+        match &self.signing_handler.as_ref().method {
             SigningMethod::LocalKeystore { voting_keypair, .. } => &voting_keypair.pk,
             SigningMethod::Web3Signer {
                 voting_public_key, ..
@@ -422,10 +422,23 @@ impl InitializedValidators {
     ///
     ///  - The validator is known to `self`.
     ///  - The validator is enabled.
-    pub fn signing_method(&self, voting_public_key: &PublicKeyBytes) -> Option<Arc<SigningMethod>> {
+    pub fn signing_method(&self, voting_public_key: &PublicKeyBytes) -> Option<&SigningMethod> {
         self.validators
             .get(voting_public_key)
-            .map(|v| v.signing_method.clone())
+            .map(|v| &v.signing_handler.method)
+    }
+
+    /// Returns the `SigningHandler` for a given voting `PublicKey`, if all are true:
+    ///
+    ///  - The validator is known to `self`.
+    ///  - The validator is enabled.
+    pub fn signing_handler(
+        &self,
+        voting_public_key: &PublicKeyBytes,
+    ) -> Option<Arc<SigningHandler>> {
+        self.validators
+            .get(voting_public_key)
+            .map(|v| v.signing_handler.clone())
     }
 
     /// Add a validator definition to `self`, replacing any disabled definition with the same
@@ -511,7 +524,7 @@ impl InitializedValidators {
                 ref voting_keystore_lockfile,
                 ref voting_keystore,
                 ..
-            } = *initialized_validator.signing_method
+            } = initialized_validator.signing_handler.as_ref().method
             {
                 // Drop the lock file so that it may be deleted. This is particularly important on
                 // Windows where the lockfile will fail to be deleted if it is still open.

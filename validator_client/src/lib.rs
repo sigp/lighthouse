@@ -11,7 +11,7 @@ mod http_metrics;
 mod key_cache;
 mod notifier;
 mod preparation_service;
-mod signing_method;
+mod signing_handler;
 mod sync_committee_service;
 
 mod doppelganger_service;

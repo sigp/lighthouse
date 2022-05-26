@@ -6,8 +6,9 @@
 use crate::http_metrics::metrics;
 use eth2_keystore::Keystore;
 use lockfile::Lockfile;
-use parking_lot::Mutex;
+use parking_lot::{Mutex, RwLock};
 use reqwest::Client;
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 use task_executor::TaskExecutor;
@@ -18,6 +19,8 @@ use web3signer::{ForkInfo, SigningRequest, SigningResponse};
 pub use web3signer::Web3SignerObject;
 
 mod web3signer;
+
+const MAX_SIGNATURE_CACHE_SIZE: usize = 64;
 
 #[derive(Debug, PartialEq)]
 pub enum Error {
@@ -33,6 +36,7 @@ pub enum Error {
 }
 
 /// Enumerates all messages that can be signed by a validator.
+#[derive(Debug)]
 pub enum SignableMessage<'a, T: EthSpec, Payload: ExecPayload<T> = FullPayload<T>> {
     RandaoReveal(Epoch),
     BeaconBlock(&'a BeaconBlock<T, Payload>),
@@ -90,6 +94,31 @@ pub enum SigningMethod {
     },
 }
 
+/// A cache for signatures previously used for different verifications and proofs.
+/// Currently, caching is only used for Selection Proof message variants.
+pub type SignatureCache = HashMap<Hash256, (Signature, Slot)>;
+
+/// Handler type to manage signing methods and caches on a per-validator basis.
+pub struct SigningHandler {
+    pub method: SigningMethod,
+    pub selection_proof_signature_cache: RwLock<SignatureCache>,
+    pub sync_selection_proof_signature_cache: RwLock<SignatureCache>,
+}
+
+impl SigningHandler {
+    pub fn new(method: SigningMethod) -> Self {
+        Self {
+            method,
+            selection_proof_signature_cache: RwLock::new(HashMap::with_capacity(
+                MAX_SIGNATURE_CACHE_SIZE,
+            )),
+            sync_selection_proof_signature_cache: RwLock::new(HashMap::with_capacity(
+                MAX_SIGNATURE_CACHE_SIZE,
+            )),
+        }
+    }
+}
+
 /// The additional information used to construct a signature. Mostly used for protection from replay
 /// attacks.
 pub struct SigningContext {
@@ -111,7 +140,62 @@ impl SigningContext {
     }
 }
 
-impl SigningMethod {
+impl SigningHandler {
+    fn get_from_cache<T: EthSpec, Payload: ExecPayload<T>>(
+        &self,
+        signing_root: &Hash256,
+        message_type: &SignableMessage<'_, T, Payload>,
+    ) -> Option<Signature> {
+        match message_type {
+            SignableMessage::SelectionProof(_) => self
+                .selection_proof_signature_cache
+                .read()
+                .get(signing_root)
+                .map(|val| val.0.clone()),
+            SignableMessage::SyncSelectionProof(_) => self
+                .sync_selection_proof_signature_cache
+                .read()
+                .get(signing_root)
+                .map(|val| val.0.clone()),
+            _ => None,
+        }
+    }
+
+    fn store_in_cache<T: EthSpec, Payload: ExecPayload<T>>(
+        &self,
+        signing_root: Hash256,
+        signature: Signature,
+        message: &SignableMessage<'_, T, Payload>,
+    ) {
+        match message {
+            SignableMessage::SelectionProof(slot) => {
+                let mut cache = self.selection_proof_signature_cache.write();
+                if cache.len() >= MAX_SIGNATURE_CACHE_SIZE {
+                    // Find the entry with the oldest slot and prune it.
+                    let min_slot = cache.iter().min_by_key(|c| c.1 .1);
+                    if let Some(item) = min_slot {
+                        let min_key = *item.0;
+                        cache.remove(&min_key);
+                    }
+                }
+                cache.insert(signing_root, (signature, *slot));
+            }
+            SignableMessage::SyncSelectionProof(data) => {
+                let mut cache = self.sync_selection_proof_signature_cache.write();
+                if cache.len() >= MAX_SIGNATURE_CACHE_SIZE {
+                    // Find the entry with the oldest slot and prune it.
+                    let min_slot = cache.iter().min_by_key(|c| c.1 .1);
+                    if let Some(item) = min_slot {
+                        let min_key = *item.0;
+                        cache.remove(&min_key);
+                    }
+                }
+                cache.insert(signing_root, (signature, data.slot));
+            }
+            _ => (),
+        }
+    }
+
     /// Return the signature of `signable_message`, with respect to the `signing_context`.
     pub async fn get_signature<T: EthSpec, Payload: ExecPayload<T>>(
         &self,
@@ -129,9 +213,25 @@ impl SigningMethod {
 
         let signing_root = signable_message.signing_root(domain_hash);
 
-        match self {
+        // Use cached signature if it exists.
+        let cached = match signable_message {
+            SignableMessage::SelectionProof(_) => {
+                self.get_from_cache(&signing_root, &signable_message)
+            }
+            SignableMessage::SyncSelectionProof(_) => {
+                self.get_from_cache(&signing_root, &signable_message)
+            }
+            _ => None,
+        };
+
+        match &self.method {
             SigningMethod::LocalKeystore { voting_keypair, .. } => {
-                let _timer =
+                match cached {
+                    Some(signature) => return Ok(signature),
+                    None => (),
+                };
+
+                let timer =
                     metrics::start_timer_vec(&metrics::SIGNING_TIMES, &[metrics::LOCAL_KEYSTORE]);
 
                 let voting_keypair = voting_keypair.clone();
@@ -145,6 +245,19 @@ impl SigningMethod {
                     .ok_or(Error::ShuttingDown)?
                     .await
                     .map_err(|e| Error::TokioJoin(e.to_string()))?;
+                drop(timer);
+
+                match signable_message {
+                    // Store signatures for selection proof messages in the signature cache.
+                    SignableMessage::SelectionProof(_) => {
+                        self.store_in_cache(signing_root, signature.clone(), &signable_message)
+                    }
+                    SignableMessage::SyncSelectionProof(_) => {
+                        self.store_in_cache(signing_root, signature.clone(), &signable_message)
+                    }
+                    _ => (),
+                };
+
                 Ok(signature)
             }
             SigningMethod::Web3Signer {
@@ -152,7 +265,12 @@ impl SigningMethod {
                 http_client,
                 ..
             } => {
-                let _timer =
+                match cached {
+                    Some(signature) => return Ok(signature),
+                    None => (),
+                };
+
+                let timer =
                     metrics::start_timer_vec(&metrics::SIGNING_TIMES, &[metrics::WEB3SIGNER]);
 
                 // Map the message into a Web3Signer type.
@@ -216,6 +334,22 @@ impl SigningMethod {
                     .json()
                     .await
                     .map_err(|e| Error::Web3SignerJsonParsingFailed(e.to_string()))?;
+                drop(timer);
+
+                match signable_message {
+                    // Store signature in the signature cache.
+                    SignableMessage::SelectionProof(_) => self.store_in_cache(
+                        signing_root,
+                        response.signature.clone(),
+                        &signable_message,
+                    ),
+                    SignableMessage::SyncSelectionProof(_) => self.store_in_cache(
+                        signing_root,
+                        response.signature.clone(),
+                        &signable_message,
+                    ),
+                    _ => (),
+                };
 
                 Ok(response.signature)
             }

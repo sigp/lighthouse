@@ -2,7 +2,7 @@ use crate::{
     doppelganger_service::DoppelgangerService,
     http_metrics::metrics,
     initialized_validators::InitializedValidators,
-    signing_method::{Error as SigningError, SignableMessage, SigningContext, SigningMethod},
+    signing_handler::{Error as SigningError, SignableMessage, SigningContext, SigningHandler},
 };
 use account_utils::{validator_definitions::ValidatorDefinition, ZeroizeString};
 use parking_lot::{Mutex, RwLock};
@@ -291,16 +291,16 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
         self.spec.fork_at_epoch(epoch)
     }
 
-    /// Returns a `SigningMethod` for `validator_pubkey` *only if* that validator is considered safe
+    /// Returns a `SigningHandler` for `validator_pubkey` *only if* that validator is considered safe
     /// by doppelganger protection.
-    fn doppelganger_checked_signing_method(
+    fn doppelganger_checked_signing_handler(
         &self,
         validator_pubkey: PublicKeyBytes,
-    ) -> Result<Arc<SigningMethod>, Error> {
+    ) -> Result<Arc<SigningHandler>, Error> {
         if self.doppelganger_protection_allows_signing(validator_pubkey) {
             self.validators
                 .read()
-                .signing_method(&validator_pubkey)
+                .signing_handler(&validator_pubkey)
                 .ok_or(Error::UnknownPubkey(validator_pubkey))
         } else {
             Err(Error::DoppelgangerProtected(validator_pubkey))
@@ -313,13 +313,13 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
     /// ## Warning
     ///
     /// This method should only be used for signing non-slashable messages.
-    fn doppelganger_bypassed_signing_method(
+    fn doppelganger_bypassed_signing_handler(
         &self,
         validator_pubkey: PublicKeyBytes,
-    ) -> Result<Arc<SigningMethod>, Error> {
+    ) -> Result<Arc<SigningHandler>, Error> {
         self.validators
             .read()
-            .signing_method(&validator_pubkey)
+            .signing_handler(&validator_pubkey)
             .ok_or(Error::UnknownPubkey(validator_pubkey))
     }
 
@@ -337,10 +337,10 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
         validator_pubkey: PublicKeyBytes,
         signing_epoch: Epoch,
     ) -> Result<Signature, Error> {
-        let signing_method = self.doppelganger_checked_signing_method(validator_pubkey)?;
+        let signing_handler = self.doppelganger_checked_signing_handler(validator_pubkey)?;
         let signing_context = self.signing_context(Domain::Randao, signing_epoch);
 
-        let signature = signing_method
+        let signature = signing_handler
             .get_signature::<E, BlindedPayload<E>>(
                 SignableMessage::RandaoReveal(signing_epoch),
                 signing_context,
@@ -398,8 +398,9 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
             Ok(Safe::Valid) => {
                 metrics::inc_counter_vec(&metrics::SIGNED_BLOCKS_TOTAL, &[metrics::SUCCESS]);
 
-                let signing_method = self.doppelganger_checked_signing_method(validator_pubkey)?;
-                let signature = signing_method
+                let signing_handler =
+                    self.doppelganger_checked_signing_handler(validator_pubkey)?;
+                let signature = signing_handler
                     .get_signature::<E, Payload>(
                         SignableMessage::BeaconBlock(&block),
                         signing_context,
@@ -467,8 +468,9 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
         match slashing_status {
             // We can safely sign this attestation.
             Ok(Safe::Valid) => {
-                let signing_method = self.doppelganger_checked_signing_method(validator_pubkey)?;
-                let signature = signing_method
+                let signing_handler =
+                    self.doppelganger_checked_signing_handler(validator_pubkey)?;
+                let signature = signing_handler
                     .get_signature::<E, BlindedPayload<E>>(
                         SignableMessage::AttestationData(&attestation.data),
                         signing_context,
@@ -544,8 +546,8 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
             selection_proof: selection_proof.into(),
         };
 
-        let signing_method = self.doppelganger_checked_signing_method(validator_pubkey)?;
-        let signature = signing_method
+        let signing_handler = self.doppelganger_checked_signing_handler(validator_pubkey)?;
+        let signature = signing_handler
             .get_signature::<E, BlindedPayload<E>>(
                 SignableMessage::SignedAggregateAndProof(&message),
                 signing_context,
@@ -569,16 +571,16 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
         let signing_epoch = slot.epoch(E::slots_per_epoch());
         let signing_context = self.signing_context(Domain::SelectionProof, signing_epoch);
 
-        // Bypass the `with_validator_signing_method` function.
+        // Bypass the `with_validator_signing_handler` function.
         //
         // This is because we don't care about doppelganger protection when it comes to selection
         // proofs. They are not slashable and we need them to subscribe to subnets on the BN.
         //
         // As long as we disallow `SignedAggregateAndProof` then these selection proofs will never
         // be published on the network.
-        let signing_method = self.doppelganger_bypassed_signing_method(validator_pubkey)?;
+        let signing_handler = self.doppelganger_bypassed_signing_handler(validator_pubkey)?;
 
-        let signature = signing_method
+        let signature = signing_handler
             .get_signature::<E, BlindedPayload<E>>(
                 SignableMessage::SelectionProof(slot),
                 signing_context,
@@ -604,8 +606,8 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
         let signing_context =
             self.signing_context(Domain::SyncCommitteeSelectionProof, signing_epoch);
 
-        // Bypass `with_validator_signing_method`: sync committee messages are not slashable.
-        let signing_method = self.doppelganger_bypassed_signing_method(*validator_pubkey)?;
+        // Bypass `with_validator_signing_handler`: sync committee messages are not slashable.
+        let signing_handler = self.doppelganger_bypassed_signing_handler(*validator_pubkey)?;
 
         metrics::inc_counter_vec(
             &metrics::SIGNED_SYNC_SELECTION_PROOFS_TOTAL,
@@ -617,7 +619,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
             subcommittee_index: subnet_id.into(),
         };
 
-        let signature = signing_method
+        let signature = signing_handler
             .get_signature::<E, BlindedPayload<E>>(
                 SignableMessage::SyncSelectionProof(&message),
                 signing_context,
@@ -640,10 +642,10 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
         let signing_epoch = slot.epoch(E::slots_per_epoch());
         let signing_context = self.signing_context(Domain::SyncCommittee, signing_epoch);
 
-        // Bypass `with_validator_signing_method`: sync committee messages are not slashable.
-        let signing_method = self.doppelganger_bypassed_signing_method(*validator_pubkey)?;
+        // Bypass `with_validator_signing_handler`: sync committee messages are not slashable.
+        let signing_handler = self.doppelganger_bypassed_signing_handler(*validator_pubkey)?;
 
-        let signature = signing_method
+        let signature = signing_handler
             .get_signature::<E, BlindedPayload<E>>(
                 SignableMessage::SyncCommitteeSignature {
                     beacon_block_root,
@@ -679,8 +681,8 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
         let signing_epoch = contribution.slot.epoch(E::slots_per_epoch());
         let signing_context = self.signing_context(Domain::ContributionAndProof, signing_epoch);
 
-        // Bypass `with_validator_signing_method`: sync committee messages are not slashable.
-        let signing_method = self.doppelganger_bypassed_signing_method(aggregator_pubkey)?;
+        // Bypass `with_validator_signing_handler`: sync committee messages are not slashable.
+        let signing_handler = self.doppelganger_bypassed_signing_handler(aggregator_pubkey)?;
 
         let message = ContributionAndProof {
             aggregator_index,
@@ -688,7 +690,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
             selection_proof: selection_proof.into(),
         };
 
-        let signature = signing_method
+        let signature = signing_handler
             .get_signature::<E, BlindedPayload<E>>(
                 SignableMessage::SignedContributionAndProof(&message),
                 signing_context,
