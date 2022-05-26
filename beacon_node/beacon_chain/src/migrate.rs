@@ -55,7 +55,13 @@ pub enum PruningOutcome {
     Successful {
         old_finalized_checkpoint: Checkpoint,
     },
-    DeferredConcurrentMutation,
+    /// The run was aborted because the new finalized checkpoint is older than the previous one.
+    OutOfOrderFinalization {
+        old_finalized_checkpoint: Checkpoint,
+        new_finalized_checkpoint: Checkpoint,
+    },
+    /// The run was aborted due to a concurrent mutation of the head tracker.
+    DeferredConcurrentHeadTrackerMutation,
 }
 
 /// Logic errors that can occur during pruning, none of these should ever happen.
@@ -67,6 +73,10 @@ pub enum PruningError {
     },
     MissingInfoForCanonicalChain {
         slot: Slot,
+    },
+    FinalizedStateOutOfOrder {
+        old_finalized_checkpoint: Checkpoint,
+        new_finalized_checkpoint: Checkpoint,
     },
     UnexpectedEqualStateRoots,
     UnexpectedUnequalStateRoots,
@@ -223,7 +233,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
             Ok(PruningOutcome::Successful {
                 old_finalized_checkpoint,
             }) => old_finalized_checkpoint,
-            Ok(PruningOutcome::DeferredConcurrentMutation) => {
+            Ok(PruningOutcome::DeferredConcurrentHeadTrackerMutation) => {
                 warn!(
                     log,
                     "Pruning deferred because of a concurrent mutation";
@@ -231,8 +241,21 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
                 );
                 return;
             }
+            Ok(PruningOutcome::OutOfOrderFinalization {
+                old_finalized_checkpoint,
+                new_finalized_checkpoint,
+            }) => {
+                warn!(
+                    log,
+                    "Ignoring out of order finalization request";
+                    "old_finalized_epoch" => old_finalized_checkpoint.epoch,
+                    "new_finalized_epoch" => new_finalized_checkpoint.epoch,
+                    "message" => "this is expected occasionally due to a (harmless) race condition"
+                );
+                return;
+            }
             Err(e) => {
-                warn!(log, "Block pruning failed"; "error" => format!("{:?}", e));
+                warn!(log, "Block pruning failed"; "error" => ?e);
                 return;
             }
         };
@@ -345,6 +368,16 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
                 new_finalized_slot,
             }
             .into());
+        }
+
+        // The new finalized state must be newer than the previous finalized state.
+        // I think this can happen sometimes currently due to `fork_choice` running in parallel
+        // with itself and sending us notifications out of order.
+        if old_finalized_slot > new_finalized_slot {
+            return Ok(PruningOutcome::OutOfOrderFinalization {
+                old_finalized_checkpoint,
+                new_finalized_checkpoint,
+            });
         }
 
         debug!(
@@ -523,7 +556,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> BackgroundMigrator<E, Ho
         // later.
         for head_hash in &abandoned_heads {
             if !head_tracker_lock.contains_key(head_hash) {
-                return Ok(PruningOutcome::DeferredConcurrentMutation);
+                return Ok(PruningOutcome::DeferredConcurrentHeadTrackerMutation);
             }
         }
 

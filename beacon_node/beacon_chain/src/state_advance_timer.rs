@@ -37,6 +37,9 @@ use types::{AttestationShufflingId, EthSpec, Hash256, RelativeEpoch, Slot};
 /// for some period of time.
 const MAX_ADVANCE_DISTANCE: u64 = 4;
 
+/// Similarly for fork choice: avoid the fork choice lookahead during sync.
+const MAX_FORK_CHOICE_DISTANCE: u64 = 4;
+
 #[derive(Debug)]
 enum Error {
     BeaconChain(BeaconChainError),
@@ -212,6 +215,13 @@ async fn state_advance_timer<T: BeaconChainTypes>(
         let next_slot = current_slot + 1;
         executor.spawn_blocking(
             move || {
+                // Don't run fork choice during sync.
+                if beacon_chain.best_slot().map_or(true, |head_slot| {
+                    head_slot + MAX_FORK_CHOICE_DISTANCE < current_slot
+                }) {
+                    return;
+                }
+
                 if let Err(e) = beacon_chain.fork_choice_at_slot(next_slot) {
                     warn!(
                         log,
