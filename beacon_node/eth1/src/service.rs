@@ -1284,6 +1284,13 @@ mod tests {
     }
 
     #[test]
+    fn serde_serialize() {
+        let serialized =
+            serde_yaml::to_string(&Config::default()).expect("Should serde encode default config");
+        serde_yaml::from_str::<Config>(&serialized).expect("Should serde decode default config");
+    }
+
+    #[test]
     fn block_cache_size() {
         let mut config = Config::default();
 

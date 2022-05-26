@@ -3,7 +3,7 @@ use environment::{Environment, EnvironmentBuilder};
 use eth1::{Config, Eth1Endpoint, Service};
 use eth1::{DepositCache, DEFAULT_CHAIN_ID};
 use eth1_test_rig::GanacheEth1Instance;
-use execution_layer::http::{deposit_methods::*, HttpJsonRpc};
+use execution_layer::http::{deposit_methods::*, HttpJsonRpc, Log};
 use merkle_proof::verify_merkle_proof;
 use sensitive_url::SensitiveUrl;
 use slog::Logger;

@@ -12,6 +12,7 @@ use std::marker::PhantomData;
 use std::time::Duration;
 use types::{BlindedPayload, EthSpec, ExecutionPayloadHeader, SignedBeaconBlock};
 
+pub use deposit_log::{DepositLog, Log};
 pub use reqwest::Client;
 
 const STATIC_ID: u32 = 1;
@@ -51,6 +52,7 @@ pub const BUILDER_PROPOSE_BLINDED_BLOCK_TIMEOUT: Duration = Duration::from_secs(
 /// This error is returned during a `chainId` call by Geth.
 pub const EIP155_ERROR_STR: &str = "chain not synced beyond EIP-155 replay-protection fork block";
 
+/// Contains methods to convert arbitary bytes to an ETH2 deposit contract object.
 pub mod deposit_log {
     use ssz::Decode;
     use state_processing::per_block_processing::signature_sets::deposit_pubkey_signature_message;
@@ -169,8 +171,10 @@ pub mod deposit_log {
     }
 }
 
+/// Contains subset of the HTTP JSON-RPC methods used to query an execution node for
+/// state of the deposit contract.
 pub mod deposit_methods {
-    pub use super::deposit_log::Log;
+    use super::Log;
     use crate::{EngineApi, HttpJsonRpc};
     use serde::{Deserialize, Serialize};
     use serde_json::{json, Value};
@@ -311,8 +315,6 @@ pub mod deposit_methods {
         }
 
         /// Returns the current block number.
-        ///
-        /// Uses HTTP JSON RPC at `endpoint`. E.g., `http://localhost:8545`.
         pub async fn get_block_number(&self, timeout: Duration) -> Result<u64, String> {
             let response: String = self
                 .rpc_request("eth_blockNumber", json!([]), timeout)
@@ -323,8 +325,6 @@ pub mod deposit_methods {
         }
 
         /// Gets a block hash by block number.
-        ///
-        /// Uses HTTP JSON RPC at `endpoint`. E.g., `http://localhost:8545`.
         pub async fn get_block(
             &self,
             query: BlockQuery,
@@ -389,8 +389,6 @@ pub mod deposit_methods {
         /// `block_number`.
         ///
         /// Assumes that the `address` has the same ABI as the eth2 deposit contract.
-        ///
-        /// Uses HTTP JSON RPC at `endpoint`. E.g., `http://localhost:8545`.
         pub async fn get_deposit_count(
             &self,
             address: &str,
@@ -422,8 +420,6 @@ pub mod deposit_methods {
         /// Returns the value of the `get_hash_tree_root()` call at the given `block_number`.
         ///
         /// Assumes that the `address` has the same ABI as the eth2 deposit contract.
-        ///
-        /// Uses HTTP JSON RPC at `endpoint`. E.g., `http://localhost:8545`.
         pub async fn get_deposit_root(
             &self,
             address: &str,
@@ -454,8 +450,6 @@ pub mod deposit_methods {
         /// `hex_data`.
         ///
         /// Returns bytes, if any.
-        ///
-        /// Uses HTTP JSON RPC at `endpoint`. E.g., `http://localhost:8545`.
         async fn call(
             &self,
             address: &str,
@@ -483,8 +477,6 @@ pub mod deposit_methods {
         /// `block_height_range`.
         ///
         /// It's not clear from the Ethereum JSON-RPC docs if this range is inclusive or not.
-        ///
-        /// Uses HTTP JSON RPC at `endpoint`. E.g., `http://localhost:8545`.
         pub async fn get_deposit_logs_in_range(
             &self,
             address: &str,
