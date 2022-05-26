@@ -1,6 +1,6 @@
 use super::*;
 use crate::case_result::compare_result;
-use crate::cases::common::BlsCase;
+use crate::decode::yaml_decode_file;
 use bls::{AggregatePublicKey, PublicKeyBytes};
 use serde_derive::Deserialize;
 
@@ -10,7 +10,11 @@ pub struct BlsEthAggregatePubkeys {
     pub output: Option<PublicKeyBytes>,
 }
 
-impl BlsCase for BlsEthAggregatePubkeys {}
+impl LoadCase for BlsEthAggregatePubkeys {
+    fn load_from_dir(path: &Path, _fork_name: ForkName) -> Result<Self, Error> {
+        yaml_decode_file(&path.join("data.yaml"))
+    }
+}
 
 impl Case for BlsEthAggregatePubkeys {
     fn is_enabled_for_fork(fork_name: ForkName) -> bool {
