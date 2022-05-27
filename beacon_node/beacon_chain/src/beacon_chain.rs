@@ -1473,7 +1473,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         validator_indices: &[u64],
         epoch: Epoch,
         head_block_root: Hash256,
-    ) -> Result<(Vec<Option<AttestationDuty>>, Hash256), Error> {
+    ) -> Result<(Vec<Option<AttestationDuty>>, Hash256, bool), Error> {
         self.with_committee_cache(head_block_root, epoch, |committee_cache, dependent_root| {
             let duties = validator_indices
                 .iter()
@@ -1483,7 +1483,14 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 })
                 .collect();
 
-            Ok((duties, dependent_root))
+            let execution_optimistic = self.is_optimistic_head_block(
+                &self
+                    .store
+                    .get_full_block(&head_block_root)?
+                    .ok_or(Error::MissingBeaconBlock(head_block_root))?,
+            )?;
+
+            Ok((duties, dependent_root, execution_optimistic))
         })
     }
 
@@ -2885,7 +2892,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 snapshot_cache.insert(
                     BeaconSnapshot {
                         beacon_state: state,
-                        beacon_block: signed_block,
+                        beacon_block: signed_block.clone(),
                         beacon_block_root: block_root,
                     },
                     None,
@@ -2910,6 +2917,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 event_handler.register(EventKind::Block(SseBlock {
                     slot,
                     block: block_root,
+                    execution_optimistic: self.is_optimistic_block(&signed_block)?,
                 }));
             }
         }
@@ -3622,6 +3630,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .beacon_state
             .attester_shuffling_decision_root(self.genesis_block_root, RelativeEpoch::Current);
 
+        let execution_optimistic = self.is_optimistic_head_block(&new_head.beacon_block)?;
+
         drop(lag_timer);
 
         // Clear the early attester cache in case it conflicts with `self.canonical_head`.
@@ -3778,6 +3788,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                             current_duty_dependent_root,
                             previous_duty_dependent_root,
                             epoch_transition: is_epoch_transition,
+                            execution_optimistic,
                         }));
                     }
                     (Err(e), _) | (_, Err(e)) => {
@@ -3799,6 +3810,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     new_head_block: beacon_block_root,
                     new_head_state: state_root,
                     epoch: head_slot.epoch(T::EthSpec::slots_per_epoch()),
+                    execution_optimistic,
                 }));
             }
 
@@ -3824,6 +3836,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     observed_delay: block_delays.observed,
                     imported_delay: block_delays.imported,
                     set_as_head_delay: block_delays.set_as_head,
+                    execution_optimistic,
                 }));
             }
         }
@@ -3966,7 +3979,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 return Ok(());
             }
 
-            let (proposers, decision_root, fork) =
+            let (proposers, decision_root, _, fork) =
                 compute_proposer_duties_from_head(prepare_epoch, self)?;
 
             let proposer_index = prepare_slot.as_usize() % (T::EthSpec::slots_per_epoch() as usize);
@@ -4338,6 +4351,80 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         })
     }
 
+    /// Returns the value of `execution_optimistic` for `block`.
+    ///
+    /// Returns `Ok(false)` if the block is pre-Bellatrix, or has `ExecutionStatus::Valid`.
+    /// Returns `Ok(true)` if the block has `ExecutionStatus::Optimistic`.
+    pub fn is_optimistic_block(
+        &self,
+        block: &SignedBeaconBlock<T::EthSpec>,
+    ) -> Result<bool, BeaconChainError> {
+        // Check if the block is pre-Bellatrix.
+        if self.slot_is_prior_to_bellatrix(block.slot()) {
+            Ok(false)
+        } else {
+            self.fork_choice
+                .read()
+                .is_optimistic_block(&block.canonical_root())
+                .map_err(BeaconChainError::ForkChoiceError)
+        }
+    }
+
+    /// Returns the value of `execution_optimistic` for `head_block`.
+    ///
+    /// Returns `Ok(false)` if the block is pre-Bellatrix, or has `ExecutionStatus::Valid`.
+    /// Returns `Ok(true)` if the block has `ExecutionStatus::Optimistic`.
+    ///
+    /// This function will return an error if `head_block` is not present in the fork choice store
+    /// and so should only be used on the head block or when the block *should* be present in the
+    /// fork choice store.
+    ///
+    /// There is a potential race condition when syncing where the block_root of `head_block` could
+    /// be pruned from the fork choice store before being read.
+    pub fn is_optimistic_head_block(
+        &self,
+        head_block: &SignedBeaconBlock<T::EthSpec>,
+    ) -> Result<bool, BeaconChainError> {
+        // Check if the block is pre-Bellatrix.
+        if self.slot_is_prior_to_bellatrix(head_block.slot()) {
+            Ok(false)
+        } else {
+            self.fork_choice
+                .read()
+                .is_optimistic_block_no_fallback(&head_block.canonical_root())
+                .map_err(BeaconChainError::ForkChoiceError)
+        }
+    }
+
+    /// Returns the value of `execution_optimistic` for the current head block.
+    /// You can optionally provide `head_info` if it was computed previously.
+    ///
+    /// Returns `Ok(false)` if the head block is pre-Bellatrix, or has `ExecutionStatus::Valid`.
+    /// Returns `Ok(true)` if the head block has `ExecutionStatus::Optimistic`.
+    ///
+    /// There is a potential race condition when syncing where the block root of `head_info` could
+    /// be pruned from the fork choice store before being read.
+    pub fn is_optimistic_head(
+        &self,
+        head_info: Option<&HeadInfo>,
+    ) -> Result<bool, BeaconChainError> {
+        head_info
+            .map(|head| self.is_optimistic_head_internal(head))
+            .unwrap_or_else(|| self.is_optimistic_head_internal(&self.head_info()?))
+    }
+
+    fn is_optimistic_head_internal(&self, head_info: &HeadInfo) -> Result<bool, BeaconChainError> {
+        // Check if the block is pre-Bellatrix.
+        if self.slot_is_prior_to_bellatrix(head_info.slot) {
+            Ok(false)
+        } else {
+            self.fork_choice
+                .read()
+                .is_optimistic_block_no_fallback(&head_info.block_root)
+                .map_err(BeaconChainError::ForkChoiceError)
+        }
+    }
+
     /// Returns the status of the current head block, regarding the validity of the execution
     /// payload.
     pub fn head_safety_status(&self) -> Result<HeadSafetyStatus, BeaconChainError> {
@@ -4502,6 +4589,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     epoch: new_finalized_checkpoint.epoch,
                     block: new_finalized_checkpoint.root,
                     state: new_finalized_state_root,
+                    execution_optimistic: self.is_optimistic_head(None)?,
                 }));
             }
         }

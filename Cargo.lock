@@ -2657,6 +2657,7 @@ dependencies = [
  "logging",
  "network",
  "parking_lot 0.12.0",
+ "proto_array",
  "safe_arith",
  "sensitive_url",
  "serde",

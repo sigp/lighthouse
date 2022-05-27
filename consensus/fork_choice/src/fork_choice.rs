@@ -995,6 +995,39 @@ where
             .is_descendant(self.fc_store.finalized_checkpoint().root, block_root)
     }
 
+    /// Returns `Ok(true)` if `block_root` has been imported optimistically. That is, the
+    /// execution payload has not been verified.
+    ///
+    /// Returns `Ok(false)` if `block_root`'s execution payload has been verfied, if it is a
+    /// pre-Bellatrix block or if it is before the PoW terminal block.
+    ///
+    /// In the case where the block could not be found in fork-choice, it returns the
+    /// `execution_status` of the current finalized block.
+    ///
+    /// This function assumes the `block_root` exists.
+    pub fn is_optimistic_block(&self, block_root: &Hash256) -> Result<bool, Error<T::Error>> {
+        if let Some(status) = self.get_block_execution_status(block_root) {
+            Ok(status.is_optimistic())
+        } else {
+            Ok(self.get_finalized_block()?.execution_status.is_optimistic())
+        }
+    }
+
+    /// The same as `is_optimistic_block` but does not fallback to `self.get_finalized_block`
+    /// when the block cannot be found.
+    ///
+    /// Intended to be used when checking if the head has been imported optimistically.
+    pub fn is_optimistic_block_no_fallback(
+        &self,
+        block_root: &Hash256,
+    ) -> Result<bool, Error<T::Error>> {
+        if let Some(status) = self.get_block_execution_status(block_root) {
+            Ok(status.is_optimistic())
+        } else {
+            Err(Error::MissingProtoArrayBlock(*block_root))
+        }
+    }
+
     /// Returns `Ok(false)` if a block is not viable to be imported optimistically.
     ///
     /// ## Notes
@@ -1078,6 +1111,12 @@ where
     /// Returns a reference to the underlying fork choice DAG.
     pub fn proto_array(&self) -> &ProtoArrayForkChoice {
         &self.proto_array
+    }
+
+    /// Returns a mutable reference to `proto_array`.
+    /// Should only be used in testing.
+    pub fn proto_array_mut(&mut self) -> &mut ProtoArrayForkChoice {
+        &mut self.proto_array
     }
 
     /// Returns a reference to the underlying `fc_store`.
