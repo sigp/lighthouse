@@ -6,7 +6,8 @@ use std::hash::{Hash, Hasher};
 use std::ops::Sub;
 use types::{Epoch, EthSpec, SignedBeaconBlock, Slot};
 
-use self::wrong_state::{wrong_state, WrongState};
+use self::wrong_state::wrong_state;
+pub use self::wrong_state::WrongState;
 
 /// The number of times to retry a batch before it is considered failed.
 const MAX_BATCH_DOWNLOAD_ATTEMPTS: u8 = 5;
@@ -493,5 +494,11 @@ mod wrong_state {
         panic!("{}", err);
         #[cfg(not(debug_assertions))]
         WrongState(err)
+    }
+
+    impl From<WrongState> for String {
+        fn from(e: WrongState) -> Self {
+            e.0
+        }
     }
 }

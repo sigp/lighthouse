@@ -1073,7 +1073,7 @@ impl<T: BeaconChainTypes> slog::KV for SyncingChain<T> {
 use super::batch::WrongState as WrongBatchState;
 impl From<WrongBatchState> for RemoveChain {
     fn from(err: WrongBatchState) -> Self {
-        RemoveChain::WrongBatchState(err.0)
+        RemoveChain::WrongBatchState(err.into())
     }
 }
 

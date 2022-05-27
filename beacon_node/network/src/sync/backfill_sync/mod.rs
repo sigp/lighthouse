@@ -329,7 +329,7 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
                         }
                         Ok(false) => {}
                         Err(e) => {
-                            self.fail_sync(BackFillError::BatchInvalidState(id, e.0))?;
+                            self.fail_sync(BackFillError::BatchInvalidState(id, e.into()))?;
                         }
                     }
                     // If we have run out of peers in which to retry this batch, the backfill state
@@ -370,7 +370,7 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
                 active_requests.remove(&batch_id);
             }
             match batch.download_failed(true) {
-                Err(e) => self.fail_sync(BackFillError::BatchInvalidState(batch_id, e.0)),
+                Err(e) => self.fail_sync(BackFillError::BatchInvalidState(batch_id, e.into())),
                 Ok(true) => self.fail_sync(BackFillError::BatchDownloadFailed(batch_id)),
                 Ok(false) => self.retry_batch_download(network, batch_id),
             }
@@ -418,7 +418,7 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
         if let Some(block) = beacon_block {
             // This is not a stream termination, simply add the block to the request
             if let Err(e) = batch.add_block(block) {
-                self.fail_sync(BackFillError::BatchInvalidState(batch_id, e.0))?;
+                self.fail_sync(BackFillError::BatchInvalidState(batch_id, e.into()))?;
             }
             Ok(ProcessResult::Successful)
         } else {
@@ -442,7 +442,7 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
                     let (expected_boundary, received_boundary, is_failed) = match result {
                         Err(e) => {
                             return self
-                                .fail_sync(BackFillError::BatchInvalidState(batch_id, e.0))
+                                .fail_sync(BackFillError::BatchInvalidState(batch_id, e.into()))
                                 .map(|_| ProcessResult::Successful);
                         }
                         Ok(v) => v,
@@ -528,7 +528,7 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
         let blocks = match batch.start_processing() {
             Err(e) => {
                 return self
-                    .fail_sync(BackFillError::BatchInvalidState(batch_id, e.0))
+                    .fail_sync(BackFillError::BatchInvalidState(batch_id, e.into()))
                     .map(|_| ProcessResult::Successful)
             }
             Ok(v) => v,
@@ -607,7 +607,7 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
                 };
 
                 if let Err(e) = batch.processing_completed(true) {
-                    self.fail_sync(BackFillError::BatchInvalidState(batch_id, e.0))?;
+                    self.fail_sync(BackFillError::BatchInvalidState(batch_id, e.into()))?;
                 }
                 // If the processed batch was not empty, we can validate previous unvalidated
                 // blocks.
@@ -667,7 +667,7 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
                 match batch.processing_completed(false) {
                     Err(e) => {
                         // Batch was in the wrong state
-                        self.fail_sync(BackFillError::BatchInvalidState(batch_id, e.0))
+                        self.fail_sync(BackFillError::BatchInvalidState(batch_id, e.into()))
                             .map(|_| ProcessResult::Successful)
                     }
                     Ok(true) => {
@@ -899,7 +899,7 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
         {
             match batch
                 .validation_failed()
-                .map_err(|e| BackFillError::BatchInvalidState(batch_id, e.0))?
+                .map_err(|e| BackFillError::BatchInvalidState(batch_id, e.into()))?
             {
                 true => {
                     // Batch has failed and cannot be redownloaded.
@@ -979,7 +979,8 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
                 Ok(request_id) => {
                     // inform the batch about the new request
                     if let Err(e) = batch.start_downloading_from_peer(peer, request_id) {
-                        return self.fail_sync(BackFillError::BatchInvalidState(batch_id, e.0));
+                        return self
+                            .fail_sync(BackFillError::BatchInvalidState(batch_id, e.into()));
                     }
                     debug!(self.log, "Requesting batch"; "epoch" => batch_id, &batch);
 
@@ -996,7 +997,8 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
                         "batch_id" => batch_id, "error" => e, &batch);
                     // register the failed download and check if the batch can be retried
                     if let Err(e) = batch.start_downloading_from_peer(peer, 1) {
-                        return self.fail_sync(BackFillError::BatchInvalidState(batch_id, e.0));
+                        return self
+                            .fail_sync(BackFillError::BatchInvalidState(batch_id, e.into()));
                     }
                     self.active_requests
                         .get_mut(&peer)
@@ -1004,7 +1006,7 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
 
                     match batch.download_failed(true) {
                         Err(e) => {
-                            self.fail_sync(BackFillError::BatchInvalidState(batch_id, e.0))?
+                            self.fail_sync(BackFillError::BatchInvalidState(batch_id, e.into()))?
                         }
                         Ok(true) => self.fail_sync(BackFillError::BatchDownloadFailed(batch_id))?,
                         Ok(false) => return self.retry_batch_download(network, batch_id),
