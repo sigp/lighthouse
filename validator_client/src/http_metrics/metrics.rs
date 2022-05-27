@@ -164,6 +164,11 @@ lazy_static::lazy_static! {
         "Duration to obtain a signature",
         &["type"]
     );
+    pub static ref SIGNATURE_CACHE_HIT: Result<IntCounterVec> = try_create_int_counter_vec(
+        "vc_signature_cache_hits",
+        "Number of signature cache hits",
+        &["type"]
+    );
 }
 
 pub fn gather_prometheus_metrics<T: EthSpec>(

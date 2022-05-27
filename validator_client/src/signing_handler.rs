@@ -227,7 +227,13 @@ impl SigningHandler {
         match &self.method {
             SigningMethod::LocalKeystore { voting_keypair, .. } => {
                 match cached {
-                    Some(signature) => return Ok(signature),
+                    Some(signature) => {
+                        metrics::inc_counter_vec(
+                            &metrics::SIGNATURE_CACHE_HIT,
+                            &[metrics::LOCAL_KEYSTORE],
+                        );
+                        return Ok(signature);
+                    }
                     None => (),
                 };
 
@@ -266,7 +272,13 @@ impl SigningHandler {
                 ..
             } => {
                 match cached {
-                    Some(signature) => return Ok(signature),
+                    Some(signature) => {
+                        metrics::inc_counter_vec(
+                            &metrics::SIGNATURE_CACHE_HIT,
+                            &[metrics::WEB3SIGNER],
+                        );
+                        return Ok(signature);
+                    }
                     None => (),
                 };
 
