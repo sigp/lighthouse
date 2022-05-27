@@ -172,7 +172,7 @@ impl SigningHandler {
                 let mut cache = self.selection_proof_signature_cache.write();
                 if cache.len() >= MAX_SIGNATURE_CACHE_SIZE {
                     // Find the entry with the oldest slot and prune it.
-                    let min_slot = cache.iter().min_by_key(|c| c.1 .1);
+                    let min_slot = cache.iter().min_by_key(|(_, (_, slot))| slot);
                     if let Some(item) = min_slot {
                         let min_key = *item.0;
                         cache.remove(&min_key);
@@ -184,7 +184,7 @@ impl SigningHandler {
                 let mut cache = self.sync_selection_proof_signature_cache.write();
                 if cache.len() >= MAX_SIGNATURE_CACHE_SIZE {
                     // Find the entry with the oldest slot and prune it.
-                    let min_slot = cache.iter().min_by_key(|c| c.1 .1);
+                    let min_slot = cache.iter().min_by_key(|(_, (_, slot))| slot);
                     if let Some(item) = min_slot {
                         let min_key = *item.0;
                         cache.remove(&min_key);
