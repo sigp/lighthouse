@@ -208,6 +208,7 @@ pub mod deposit_methods {
     #[derive(Clone, Copy)]
     pub enum BlockQuery {
         Number(u64),
+        Hash(Hash256),
         Latest,
     }
 
@@ -322,9 +323,12 @@ pub mod deposit_methods {
             query: BlockQuery,
             timeout: Duration,
         ) -> Result<Block, String> {
-            let query_param = match query {
-                BlockQuery::Number(block_number) => format!("0x{:x}", block_number),
-                BlockQuery::Latest => "latest".to_string(),
+            let (method, query_param) = match query {
+                BlockQuery::Number(block_number) => {
+                    ("eth_getBlockByNumber", format!("0x{:x}", block_number))
+                }
+                BlockQuery::Hash(block_hash) => ("eth_getBlockByHash", format!("{:?}", block_hash)),
+                BlockQuery::Latest => ("eth_getBlockByNumber", "latest".to_string()),
             };
             let params = json!([
                 query_param,
@@ -332,9 +336,9 @@ pub mod deposit_methods {
             ]);
 
             let response: Value = self
-                .rpc_request("eth_getBlockByNumber", params, timeout)
+                .rpc_request(method, params, timeout)
                 .await
-                .map_err(|e| format!("eth_getBlockByNumber call failed {:?}", e))?;
+                .map_err(|e| format!("{} call failed {:?}", method, e))?;
 
             let hash: Vec<u8> = hex_to_bytes(
                 response

@@ -92,20 +92,35 @@ pub struct EndpointsCache {
 }
 
 impl EndpointsCache {
-    fn from_config(config: &Config, log: Logger) -> Self {
-        EndpointsCache {
-            fallback: Fallback::new(
-                config
-                    .endpoints
-                    .clone()
-                    .into_iter()
-                    .map(EndpointWithState::new)
-                    .collect(),
-            ),
-            config_network_id: config.network_id.clone(),
-            config_chain_id: config.chain_id.clone(),
+    fn from_config(config: &Config, log: Logger) -> Result<Self, String> {
+        let endpoints = config.endpoints.clone();
+        let config_chain_id = config.chain_id.clone();
+
+        let servers = match endpoints {
+            Eth1Endpoint::Auth {
+                jwt_path,
+                endpoint,
+                jwt_id,
+                jwt_version,
+            } => {
+                let auth = Auth::new_with_path(jwt_path, jwt_id, jwt_version)
+                    .map_err(|e| format!("Failed to initialize jwt auth: {:?}", e))?;
+                vec![HttpJsonRpc::new_with_auth(endpoint, auth)
+                    .map_err(|e| format!("Failed to build auth enabled json rpc {:?}", e))?]
+            }
+            Eth1Endpoint::NoAuth(urls) => urls
+                .into_iter()
+                .map(|url| {
+                    HttpJsonRpc::new(url).map_err(|e| format!("Failed to build json rpc {:?}", e))
+                })
+                .collect::<Result<_, _>>()?,
+        };
+
+        Ok(EndpointsCache {
+            fallback: Fallback::new(servers.into_iter().map(EndpointWithState::new).collect()),
+            config_chain_id,
             log,
-        }
+        })
     }
 
     /// Checks the usability of an endpoint. Results get cached and therefore only the first call
@@ -177,18 +192,6 @@ impl EndpointsCache {
                 }
             })
             .await
-    }
-
-    #[tokio::main]
-    pub async fn first_success_blocking<'a, F, O, R>(
-        &'a self,
-        func: F,
-    ) -> Result<(O, usize), FallbackError<SingleEndpointError>>
-    where
-        F: Fn(&'a SensitiveUrl) -> R,
-        R: Future<Output = Result<O, SingleEndpointError>>,
-    {
-        self.first_success(func).await
     }
 
     pub async fn reset_errorred_endpoints(&self) {
@@ -563,13 +566,15 @@ impl Service {
         deposit_snapshot: DepositTreeSnapshot,
     ) -> Result<Self, Error> {
         // first get eth1_block from endpoint
-        let endpoints = Arc::new(EndpointsCache::from_config(&config, log.clone()));
+        let endpoints = Arc::new(
+            EndpointsCache::from_config(&config, log.clone())
+                .map_err(Error::FailedToInitializeFromSnapshot)?,
+        );
         let block_hash_ref = &deposit_snapshot.execution_block_hash;
         let http_block = endpoints
             .clone()
             .first_success(|e| async move {
-                get_block(
-                    e,
+                e.get_block(
                     BlockQuery::Hash(*block_hash_ref),
                     Duration::from_millis(GET_BLOCK_TIMEOUT_MILLIS),
                 )
@@ -768,34 +773,10 @@ impl Service {
 
     /// Builds a new `EndpointsCache` with empty states.
     pub fn init_endpoints(&self) -> Result<Arc<EndpointsCache>, String> {
-        let endpoints = self.config().endpoints.clone();
-        let config_chain_id = self.config().chain_id.clone();
-
-        let servers = match endpoints {
-            Eth1Endpoint::Auth {
-                jwt_path,
-                endpoint,
-                jwt_id,
-                jwt_version,
-            } => {
-                let auth = Auth::new_with_path(jwt_path, jwt_id, jwt_version)
-                    .map_err(|e| format!("Failed to initialize jwt auth: {:?}", e))?;
-                vec![HttpJsonRpc::new_with_auth(endpoint, auth)
-                    .map_err(|e| format!("Failed to build auth enabled json rpc {:?}", e))?]
-            }
-            Eth1Endpoint::NoAuth(urls) => urls
-                .into_iter()
-                .map(|url| {
-                    HttpJsonRpc::new(url).map_err(|e| format!("Failed to build json rpc {:?}", e))
-                })
-                .collect::<Result<_, _>>()?,
-        };
-        let new_cache = Arc::new(EndpointsCache {
-            fallback: Fallback::new(servers.into_iter().map(EndpointWithState::new).collect()),
-            config_chain_id,
-            log: self.log.clone(),
-        });
-
+        let new_cache = Arc::new(EndpointsCache::from_config(
+            &self.config(),
+            self.log.clone(),
+        )?);
         let mut endpoints_cache = self.inner.endpoints_cache.write();
         *endpoints_cache = Some(new_cache.clone());
         Ok(new_cache)
@@ -891,7 +872,8 @@ impl Service {
                     "old_block_number" => deposit_cache.last_processed_block,
                     "new_block_number" => deposit_cache.cache.latest_block_number(),
                 );
-                deposit_cache.last_processed_block = deposit_cache.cache.latest_block_number();
+                deposit_cache.last_processed_block =
+                    Some(deposit_cache.cache.latest_block_number());
             }
 
             let outcome = outcome_result

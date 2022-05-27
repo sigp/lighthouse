@@ -861,9 +861,16 @@ where
         self.freezer_db_path = Some(cold_path.into());
 
         let inner_spec = spec.clone();
+        let deposit_contract_deploy_block = context
+            .eth2_network_config
+            .as_ref()
+            .map(|config| config.deposit_contract_deploy_block)
+            .unwrap_or(0);
+
         let schema_upgrade = |db, from, to| {
             migrate_schema::<Witness<TSlotClock, TEth1Backend, _, _, _>>(
                 db,
+                deposit_contract_deploy_block,
                 datadir,
                 from,
                 to,

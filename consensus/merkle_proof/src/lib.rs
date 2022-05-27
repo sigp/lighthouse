@@ -238,7 +238,7 @@ impl MerkleTree {
         deposits: usize,
         level: usize,
     ) -> Result<Self, MerkleTreeError> {
-        if finalized_branch == EMPTY_SLICE {
+        if finalized_branch.is_empty() {
             return if deposits == 0 {
                 Ok(MerkleTree::Zero(level))
             } else {
@@ -246,34 +246,39 @@ impl MerkleTree {
             };
         }
         if deposits == (0x1 << level) {
-            return Ok(MerkleTree::Finalized(finalized_branch[0]));
+            return Ok(MerkleTree::Finalized(
+                *finalized_branch
+                    .get(0)
+                    .ok_or(MerkleTreeError::PleaseNotifyTheDevs)?,
+            ));
         }
         if level == 0 {
             return Err(InvalidSnapshot::EndOfTree.into());
         }
 
-        let left_subtree = 0x1 << (level - 1);
-        if deposits <= left_subtree {
-            let left = MerkleTree::from_finalized_snapshot(finalized_branch, deposits, level - 1)?;
-            let right = MerkleTree::Zero(level - 1);
-            let hash = H256::from_slice(&hash32_concat(
-                left.hash().as_bytes(),
-                right.hash().as_bytes(),
-            ));
-            Ok(MerkleTree::Node(hash, Box::new(left), Box::new(right)))
-        } else {
-            let left = MerkleTree::Finalized(finalized_branch[0]);
-            let right = MerkleTree::from_finalized_snapshot(
-                &finalized_branch[1..],
-                deposits - left_subtree,
-                level - 1,
-            )?;
-            let hash = H256::from_slice(&hash32_concat(
-                left.hash().as_bytes(),
-                right.hash().as_bytes(),
-            ));
-            Ok(MerkleTree::Node(hash, Box::new(left), Box::new(right)))
-        }
+        let (left, right) = match deposits.checked_sub(0x1 << (level - 1)) {
+            // left tree is fully finalized
+            Some(right_deposits) => {
+                let (left_hash, right_branch) = finalized_branch
+                    .split_first()
+                    .ok_or(MerkleTreeError::PleaseNotifyTheDevs)?;
+                (
+                    MerkleTree::Finalized(*left_hash),
+                    MerkleTree::from_finalized_snapshot(right_branch, right_deposits, level - 1)?,
+                )
+            }
+            // left tree is not fully finalized -> right tree is zero
+            None => (
+                MerkleTree::from_finalized_snapshot(finalized_branch, deposits, level - 1)?,
+                MerkleTree::Zero(level - 1),
+            ),
+        };
+
+        let hash = H256::from_slice(&hash32_concat(
+            left.hash().as_bytes(),
+            right.hash().as_bytes(),
+        ));
+        Ok(MerkleTree::Node(hash, Box::new(left), Box::new(right)))
     }
 
     /// Return the leaf at `index` and a Merkle proof of its inclusion.

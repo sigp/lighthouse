@@ -1537,21 +1537,27 @@ pub fn serve<T: BeaconChainTypes>(
         .and(warp::path("beacon"))
         .and(warp::path("deposit_snapshot"))
         .and(warp::path::end())
+        .and(warp::header::optional::<api_types::Accept>("accept"))
         .and(eth1_service_filter.clone())
-        .and_then(|eth1_service: eth1::Service| {
-            blocking_task(move || {
-                Response::builder()
-                    .status(200)
-                    .header("Content-Type", "application/octet-stream")
-                    .body(eth1_service.get_deposit_snapshot().as_ssz_bytes())
-                    .map_err(|e| {
-                        warp_utils::reject::custom_server_error(format!(
-                            "failed to create response: {}",
-                            e
-                        ))
-                    })
-            })
-        });
+        .and_then(
+            |accept_header: Option<api_types::Accept>, eth1_service: eth1::Service| {
+                blocking_task(move || match accept_header {
+                    Some(api_types::Accept::Json) => {
+                        Ok(warp::reply::json(&eth1_service.get_deposit_snapshot()).into_response())
+                    }
+                    _ => Response::builder()
+                        .status(200)
+                        .header("Content-Type", "application/octet-stream")
+                        .body(eth1_service.get_deposit_snapshot().as_ssz_bytes().into())
+                        .map_err(|e| {
+                            warp_utils::reject::custom_server_error(format!(
+                                "failed to create response: {}",
+                                e
+                            ))
+                        }),
+                })
+            },
+        );
 
     /*
      * config

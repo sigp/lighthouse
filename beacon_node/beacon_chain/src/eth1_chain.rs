@@ -169,8 +169,8 @@ fn get_sync_status<T: EthSpec>(
 
 #[derive(Encode, Decode, Clone)]
 pub struct SszEth1 {
-    use_dummy_backend: bool,
-    backend_bytes: Vec<u8>,
+    pub use_dummy_backend: bool,
+    pub backend_bytes: Vec<u8>,
 }
 
 impl StoreItem for SszEth1 {

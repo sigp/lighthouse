@@ -16,7 +16,7 @@ use crate::chain_config::ChainConfig;
 use crate::early_attester_cache::EarlyAttesterCache;
 use crate::errors::{BeaconChainError as Error, BlockProductionError};
 use crate::eth1_chain::{Eth1Chain, Eth1ChainBackend};
-use crate::eth1_finalization_cache::{Eth1CacheData, Eth1FinalizationCache};
+use crate::eth1_finalization_cache::{Eth1FinalizationCache, Eth1FinalizationData};
 use crate::events::ServerSentEventHandler;
 use crate::execution_payload::{get_execution_payload, PreparePayloadHandle};
 use crate::fork_choice_signal::{ForkChoiceSignalRx, ForkChoiceSignalTx, ForkChoiceWaitResult};
@@ -364,7 +364,7 @@ pub struct BeaconChain<T: BeaconChainTypes> {
     /// Caches the attester shuffling for a given epoch and shuffling key root.
     pub shuffling_cache: TimeoutRwLock<ShufflingCache>,
     /// A cache of eth1 deposit data at epoch boundaries for deposit finalization
-    pub eth1_cache: TimeoutRwLock<Eth1FinalizationCache>,
+    pub eth1_finalization_cache: TimeoutRwLock<Eth1FinalizationCache>,
     /// Caches the beacon block proposer shuffling for a given epoch and shuffling key root.
     pub beacon_proposer_cache: Mutex<BeaconProposerCache>,
     /// Caches a map of `validator_index -> validator_pubkey`.
@@ -2516,9 +2516,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             block,
             block_root,
             state,
-            parent_block: _,
+            parent_block,
             confirmed_state_roots,
             payload_verification_handle,
+            parent_eth1_finalization_data,
         } = execution_pending_block;
 
         let PayloadVerificationOutcome {
@@ -2570,6 +2571,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         confirmed_state_roots,
                         payload_verification_status,
                         count_unrealized,
+                        parent_block,
+                        parent_eth1_finalization_data,
                     )
                 },
                 "payload_verification_handle",
@@ -2592,6 +2595,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         confirmed_state_roots: Vec<Hash256>,
         payload_verification_status: PayloadVerificationStatus,
         count_unrealized: CountUnrealized,
+        parent_block: SignedBlindedBeaconBlock<T::EthSpec>,
+        parent_eth1_finalization_data: Eth1FinalizationData,
     ) -> Result<Hash256, BlockError<T::EthSpec>> {
         let current_slot = self.slot()?;
         let current_epoch = current_slot.epoch(T::EthSpec::slots_per_epoch());
@@ -2972,7 +2977,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let parent_root = block.parent_root();
         let slot = block.slot();
 
-        let current_eth1_cache_data = Eth1CacheData {
+        let current_eth1_finalization_data = Eth1FinalizationData {
             eth1_data: state.eth1_data().clone(),
             eth1_deposit_index: state.eth1_deposit_index(),
         };
@@ -3050,16 +3055,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             );
         }
 
-        // Do not write to eth1 data cache for blocks older than 5 epochs, this helps reduce
-        // noise during sync
+        // Do not write to eth1 finalization cache for blocks older than 5 epochs
+        // this helps reduce noise during sync
         if block_delay_total < self.slot_clock.slot_duration() * 160 {
-            let parent_block_epoch = fully_verified_block
-                .parent_block
-                .slot()
-                .epoch(T::EthSpec::slots_per_epoch());
+            let parent_block_epoch = parent_block.slot().epoch(T::EthSpec::slots_per_epoch());
             if parent_block_epoch < current_epoch {
                 // we've crossed epoch boundary, store Eth1CacheData
-                let (checkpoint, eth1_cache_data) =
+                let (checkpoint, eth1_finalization_data) =
                     if current_slot % T::EthSpec::slots_per_epoch() == 0 {
                         // current block is the checkpoint
                         (
@@ -3067,24 +3069,24 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                                 epoch: current_epoch,
                                 root: block_root,
                             },
-                            current_eth1_cache_data,
+                            current_eth1_finalization_data,
                         )
                     } else {
                         // parent block is the checkpoint
                         (
                             Checkpoint {
                                 epoch: current_epoch,
-                                root: fully_verified_block.parent_block.canonical_root(),
+                                root: parent_block.canonical_root(),
                             },
-                            fully_verified_block.parent_eth1_cache_data,
+                            parent_eth1_finalization_data,
                         )
                     };
 
                 if let Some(finalized_eth1_data) = self
-                    .eth1_cache
+                    .eth1_finalization_cache
                     .try_write_for(ETH1_CACHE_LOCK_TIMEOUT)
                     .and_then(|mut cache| {
-                        cache.insert(checkpoint, eth1_cache_data);
+                        cache.insert(checkpoint, eth1_finalization_data);
                         cache.finalize(&current_finalized_checkpoint)
                     })
                 {

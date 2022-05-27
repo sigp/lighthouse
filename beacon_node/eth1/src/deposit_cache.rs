@@ -2,6 +2,7 @@ use crate::{DepositLog, Eth1Block};
 use ssz_derive::{Decode, Encode};
 use state_processing::common::DepositDataTree;
 use std::cmp::Ordering;
+use superstruct::superstruct;
 use tree_hash::TreeHash;
 use types::{Deposit, DepositTreeSnapshot, Hash256, DEPOSIT_TREE_DEPTH};
 
@@ -48,57 +49,24 @@ pub enum Error {
     Internal(String),
 }
 
-#[derive(Encode, Decode, Clone)]
-pub struct SszLegacyDepositCache {
-    logs: Vec<DepositLog>,
-    leaves: Vec<Hash256>,
-    deposit_contract_deploy_block: u64,
-    deposit_roots: Vec<Hash256>,
-}
+pub type SszDepositCache = SszDepositCacheV13;
 
-// TODO: delete this after the new SszDepositCache has been release for a while
-impl SszLegacyDepositCache {
-    pub fn to_deposit_cache(&self) -> Result<DepositCache, String> {
-        let deposit_tree =
-            DepositDataTree::create(&self.leaves, self.leaves.len(), DEPOSIT_TREE_DEPTH);
-        // Check for invalid SszDepositCache conditions
-        if self.leaves.len() != self.logs.len() {
-            return Err("Invalid SszDepositCache: logs and leaves should have equal length".into());
-        }
-        // `deposit_roots` also includes the zero root
-        if self.leaves.len() + 1 != self.deposit_roots.len() {
-            return Err(
-                "Invalid SszDepositCache: deposit_roots length must be only one more than leaves"
-                    .into(),
-            );
-        }
-        let finalized_block_height = if self.deposit_contract_deploy_block == 0 {
-            0
-        } else {
-            self.deposit_contract_deploy_block - 1
-        };
-
-        Ok(DepositCache {
-            logs: self.logs.clone(),
-            leaves: self.leaves.clone(),
-            deposit_contract_deploy_block: self.deposit_contract_deploy_block,
-            deposit_tree,
-            finalized_deposit_count: 0,
-            finalized_block_height,
-            deposit_roots: self.deposit_roots.clone(),
-        })
-    }
-}
-
-#[derive(Encode, Decode, Clone)]
+#[superstruct(
+    variants(V1, V13),
+    variant_attributes(derive(Encode, Decode, Clone)),
+    no_enum
+)]
 pub struct SszDepositCache {
-    logs: Vec<DepositLog>,
-    leaves: Vec<Hash256>,
-    deposit_contract_deploy_block: u64,
-    finalized_deposit_count: u64,
-    finalized_block_height: u64,
-    deposit_tree_snapshot: DepositTreeSnapshot,
-    deposit_roots: Vec<Hash256>,
+    pub logs: Vec<DepositLog>,
+    pub leaves: Vec<Hash256>,
+    pub deposit_contract_deploy_block: u64,
+    #[superstruct(only(V13))]
+    pub finalized_deposit_count: u64,
+    #[superstruct(only(V13))]
+    pub finalized_block_height: u64,
+    #[superstruct(only(V13))]
+    pub deposit_tree_snapshot: Option<DepositTreeSnapshot>,
+    pub deposit_roots: Vec<Hash256>,
 }
 
 impl SszDepositCache {
@@ -190,14 +158,9 @@ impl DepositCache {
     /// Create new `DepositCache` given block number at which deposit
     /// contract was deployed.
     pub fn new(deposit_contract_deploy_block: u64) -> Self {
-        let finalized_block_height = if deposit_contract_deploy_block == 0 {
-            0
-        } else {
-            deposit_contract_deploy_block - 1
-        };
         DepositCache {
             deposit_contract_deploy_block,
-            finalized_block_height,
+            finalized_block_height: deposit_contract_deploy_block.saturating_sub(1),
             ..Self::default()
         }
     }
@@ -482,8 +445,6 @@ pub mod tests {
     use super::*;
     use execution_layer::http::deposit_log::Log;
     use types::{EthSpec, MainnetEthSpec};
-
-    pub const TREE_DEPTH: usize = 32;
 
     /// The data from a deposit event, using the v0.8.3 version of the deposit contract.
     pub const EXAMPLE_LOG: &[u8] = &[

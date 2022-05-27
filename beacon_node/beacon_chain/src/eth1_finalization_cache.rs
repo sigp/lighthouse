@@ -11,12 +11,12 @@ pub const DEFAULT_ETH1_CACHE_SIZE: usize = 5;
 /// These fields are named the same as the corresponding fields in the `BeaconState`
 /// as this structure stores these values from the `BeaconState` at a `Checkpoint`
 #[derive(Clone)]
-pub struct Eth1CacheData {
+pub struct Eth1FinalizationData {
     pub eth1_data: Eth1Data,
     pub eth1_deposit_index: u64,
 }
 
-impl Eth1CacheData {
+impl Eth1FinalizationData {
     fn fully_imported(&self) -> bool {
         self.eth1_deposit_index >= self.eth1_data.deposit_count
     }
@@ -28,7 +28,7 @@ pub struct CheckpointMap {
     // There shouldn't be more than a couple of potential checkpoints at the same
     // epoch, so searching through a vector for the matching Root should be faster
     // than using another map from Root->Eth1CacheData
-    store: BTreeMap<Epoch, Vec<(Root, Eth1CacheData)>>,
+    store: BTreeMap<Epoch, Vec<(Root, Eth1FinalizationData)>>,
 }
 
 impl Default for CheckpointMap {
@@ -61,11 +61,11 @@ impl CheckpointMap {
         }
     }
 
-    pub fn insert(&mut self, checkpoint: Checkpoint, eth1_cache_data: Eth1CacheData) {
+    pub fn insert(&mut self, checkpoint: Checkpoint, eth1_finalization_data: Eth1FinalizationData) {
         self.store
             .entry(checkpoint.epoch)
             .or_insert_with(Vec::new)
-            .push((checkpoint.root, eth1_cache_data));
+            .push((checkpoint.root, eth1_finalization_data));
 
         // faster to reduce size after the fact than do pre-checking to see
         // if the current data would increase the size of the BTreeMap
@@ -75,7 +75,7 @@ impl CheckpointMap {
         }
     }
 
-    pub fn get(&self, checkpoint: &Checkpoint) -> Option<&Eth1CacheData> {
+    pub fn get(&self, checkpoint: &Checkpoint) -> Option<&Eth1FinalizationData> {
         match self.store.get(&checkpoint.epoch) {
             Some(vec) => {
                 for (root, data) in vec {
@@ -126,25 +126,26 @@ impl Eth1FinalizationCache {
         }
     }
 
-    pub fn insert(&mut self, checkpoint: Checkpoint, eth1_cache_data: Eth1CacheData) {
-        if !eth1_cache_data.fully_imported() {
+    pub fn insert(&mut self, checkpoint: Checkpoint, eth1_finalization_data: Eth1FinalizationData) {
+        if !eth1_finalization_data.fully_imported() {
             self.pending_eth1.insert(
-                eth1_cache_data.eth1_data.deposit_count,
-                eth1_cache_data.eth1_data.clone(),
+                eth1_finalization_data.eth1_data.deposit_count,
+                eth1_finalization_data.eth1_data.clone(),
             );
             debug!(
                 self.log,
                 "Eth1Cache: inserted pending eth1";
-                "eth1_data.deposit_count" => eth1_cache_data.eth1_data.deposit_count,
-                "eth1_deposit_index" => eth1_cache_data.eth1_deposit_index,
+                "eth1_data.deposit_count" => eth1_finalization_data.eth1_data.deposit_count,
+                "eth1_deposit_index" => eth1_finalization_data.eth1_deposit_index,
             );
         }
-        self.by_checkpoint.insert(checkpoint, eth1_cache_data);
+        self.by_checkpoint
+            .insert(checkpoint, eth1_finalization_data);
     }
 
     pub fn finalize(&mut self, checkpoint: &Checkpoint) -> Option<Eth1Data> {
-        if let Some(finalized_cache_data) = self.by_checkpoint.get(checkpoint) {
-            let finalized_deposit_index = finalized_cache_data.eth1_deposit_index;
+        if let Some(eth1_finalized_data) = self.by_checkpoint.get(checkpoint) {
+            let finalized_deposit_index = eth1_finalized_data.eth1_deposit_index;
             let mut result = None;
             while let Some(pending_count) = self.pending_eth1.keys().next().cloned() {
                 if finalized_deposit_index >= pending_count {
@@ -159,8 +160,8 @@ impl Eth1FinalizationCache {
                     break;
                 }
             }
-            if finalized_cache_data.fully_imported() {
-                result = Some(finalized_cache_data.eth1_data.clone())
+            if eth1_finalized_data.fully_imported() {
+                result = Some(eth1_finalized_data.eth1_data.clone())
             }
             if result.is_some() {
                 self.last_finalized = result;
@@ -245,7 +246,7 @@ pub mod tests {
             let checkpoint = checkpoints.get(epoch as usize).unwrap();
             eth1cache.insert(
                 *checkpoint,
-                Eth1CacheData {
+                Eth1FinalizationData {
                     eth1_data: eth1data.clone(),
                     eth1_deposit_index: deposits_imported,
                 },
@@ -299,7 +300,7 @@ pub mod tests {
             );
             eth1cache.insert(
                 *checkpoint,
-                Eth1CacheData {
+                Eth1FinalizationData {
                     eth1_data: eth1data.clone(),
                     eth1_deposit_index: deposits_imported,
                 },
@@ -355,7 +356,7 @@ pub mod tests {
             let checkpoint = checkpoints.get(epoch as usize).unwrap();
             eth1cache.insert(
                 *checkpoint,
-                Eth1CacheData {
+                Eth1FinalizationData {
                     eth1_data: eth1data.clone(),
                     eth1_deposit_index: deposits_imported,
                 },
@@ -365,7 +366,7 @@ pub mod tests {
                 let fork = random_checkpoint(epoch);
                 eth1cache.insert(
                     fork,
-                    Eth1CacheData {
+                    Eth1FinalizationData {
                         eth1_data: eth1data.clone(),
                         eth1_deposit_index: deposits_imported,
                     },
@@ -436,7 +437,7 @@ pub mod tests {
                 );
                 eth1cache.insert(
                     checkpoint,
-                    Eth1CacheData {
+                    Eth1FinalizationData {
                         eth1_data: period_eth1_data.clone(),
                         eth1_deposit_index: deposits_imported,
                     },

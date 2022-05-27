@@ -919,6 +919,7 @@ impl BeaconNodeHttpClient {
         let mut path = self.eth_path(V1)?;
         path.path_segments_mut()
             .map_err(|()| Error::InvalidUrl(self.server.clone()))?
+            .push("beacon")
             .push("deposit_snapshot");
         self.get_bytes_opt_accept_header(path, Accept::Ssz)
             .await?
