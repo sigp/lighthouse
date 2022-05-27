@@ -1,3 +1,4 @@
+pub use self::remove_chain::RemoveChain;
 use super::batch::{BatchInfo, BatchState};
 use crate::beacon_processor::ChainSegmentProcessId;
 use crate::beacon_processor::WorkEvent as BeaconWorkEvent;
@@ -6,7 +7,7 @@ use beacon_chain::BeaconChainTypes;
 use fnv::FnvHashMap;
 use lighthouse_network::{PeerAction, PeerId};
 use rand::seq::SliceRandom;
-use slog::{crit, debug, o, warn};
+use slog::{crit, debug, error, o, warn};
 use std::collections::{btree_map::Entry, BTreeMap, HashSet};
 use std::hash::{Hash, Hasher};
 use tokio::sync::mpsc::Sender;
@@ -30,16 +31,6 @@ const BATCH_BUFFER_SIZE: u8 = 5;
 /// Should be checked, since a failed chain must be removed. A chain that requested being removed
 /// and continued is now in an inconsistent state.
 pub type ProcessingResult = Result<KeepChain, RemoveChain>;
-
-/// Reasons for removing a chain
-#[derive(Debug)]
-pub enum RemoveChain {
-    EmptyPeerPool,
-    ChainCompleted,
-    ChainFailed(BatchId),
-    WrongBatchState(String),
-    WrongChainState(String),
-}
 
 #[derive(Debug)]
 pub struct KeepChain;
@@ -289,7 +280,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
         let batch = match self.batches.get_mut(&batch_id) {
             Some(batch) => batch,
             None => {
-                return Err(RemoveChain::WrongChainState(format!(
+                return Err(RemoveChain::wrong_chain_state(format!(
                     "Trying to process a batch that does not exist: {}",
                     batch_id
                 )));
@@ -308,7 +299,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
             .beacon_processor_send
             .try_send(BeaconWorkEvent::chain_segment(process_id, blocks))
         {
-            crit!(self.log, "Failed to send chain segment to processor."; "msg" => "process_batch",
+            error!(self.log, "Failed to send chain segment to processor."; "msg" => "process_batch",
                 "error" => %e, "batch" => self.processing_target);
             // This is unlikely to happen but it would stall syncing since the batch now has no
             // blocks to continue, and the chain is expecting a processing result that won't
@@ -365,7 +356,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                         //   have been removed
                         // - AwaitingDownload -> A recoverable failed batch should have been
                         //   re-requested.
-                        return Err(RemoveChain::WrongChainState(format!(
+                        return Err(RemoveChain::wrong_chain_state(format!(
                             "Optimistic batch indicates inconsistent chain state: {:?}",
                             state
                         )));
@@ -399,7 +390,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                     // - AwaitingDownload -> A recoverable failed batch should have been
                     //   re-requested.
                     // - Processing -> `self.current_processing_batch` is None
-                    return Err(RemoveChain::WrongChainState(format!(
+                    return Err(RemoveChain::wrong_chain_state(format!(
                         "Robust target batch indicates inconsistent chain state: {:?}",
                         state
                     )));
@@ -419,7 +410,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                 }
             }
         } else {
-            return Err(RemoveChain::WrongChainState(format!(
+            return Err(RemoveChain::wrong_chain_state(format!(
                 "Batch not found for current processing target {}",
                 self.processing_target
             )));
@@ -457,7 +448,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
         match result {
             BatchProcessResult::Success(was_non_empty) => {
                 let batch = self.batches.get_mut(&batch_id).ok_or_else(|| {
-                    RemoveChain::WrongChainState(format!(
+                    RemoveChain::wrong_chain_state(format!(
                         "Current processing batch not found: {}",
                         batch_id
                     ))
@@ -501,13 +492,13 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                 peer_action,
             } => {
                 let batch = self.batches.get_mut(&batch_id).ok_or_else(|| {
-                    RemoveChain::WrongChainState(format!(
+                    RemoveChain::wrong_chain_state(format!(
                         "Batch not found for current processing target {}",
                         batch_id
                     ))
                 })?;
                 let peer = batch.current_peer().cloned().ok_or_else(|| {
-                    RemoveChain::WrongBatchState(format!(
+                    RemoveChain::wrong_batch_state(format!(
                         "Processing target is in wrong state: {:?}",
                         batch.state(),
                     ))
@@ -653,7 +644,8 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                         active_batches.remove(&id);
                     }
                 }
-                BatchState::Failed | BatchState::Poisoned | BatchState::AwaitingDownload => crit!(
+                BatchState::Poisoned => unreachable!("Poisoned batch"),
+                BatchState::Failed | BatchState::AwaitingDownload => crit!(
                     self.log,
                     "batch indicates inconsistent chain state while advancing chain"
                 ),
@@ -895,7 +887,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                             Ok(KeepChain)
                         })
                         .unwrap_or_else(|| {
-                            Err(RemoveChain::WrongChainState(format!(
+                            Err(RemoveChain::wrong_chain_state(format!(
                                 "Sending batch to a peer that is not in the chain: {}",
                                 peer
                             )))
@@ -1070,18 +1062,48 @@ impl<T: BeaconChainTypes> slog::KV for SyncingChain<T> {
     }
 }
 
-use super::batch::WrongState as WrongBatchState;
-impl From<WrongBatchState> for RemoveChain {
-    fn from(err: WrongBatchState) -> Self {
-        RemoveChain::WrongBatchState(err.into())
-    }
-}
+mod remove_chain {
+    use crate::sync::range_sync::batch::WrongState as WrongBatchState;
 
-impl RemoveChain {
-    pub fn is_critical(&self) -> bool {
-        matches!(
-            self,
-            RemoveChain::WrongBatchState(..) | RemoveChain::WrongChainState(..)
-        )
+    use super::BatchId;
+
+    /// Reasons for removing a chain
+    #[derive(Debug)]
+    pub enum RemoveChain {
+        EmptyPeerPool,
+        ChainCompleted,
+        ChainFailed(BatchId),
+        WrongBatchState { err: String },
+        WrongChainState { err: String },
+    }
+
+    impl RemoveChain {
+        #[track_caller]
+        pub fn wrong_batch_state(e: String) -> RemoveChain {
+            #[cfg(debug_assertions)]
+            panic!("{}", e);
+            #[cfg(not(debug_assertions))]
+            RemoveChain::WrongBatchState(e)
+        }
+
+        #[track_caller]
+        pub fn wrong_chain_state(e: String) -> RemoveChain {
+            #[cfg(debug_assertions)]
+            panic!("{}", e);
+            #[cfg(not(debug_assertions))]
+            RemoveChain::WrongChainState(e)
+        }
+        pub fn is_critical(&self) -> bool {
+            matches!(
+                self,
+                RemoveChain::WrongBatchState { .. } | RemoveChain::WrongChainState { .. }
+            )
+        }
+    }
+
+    impl From<WrongBatchState> for RemoveChain {
+        fn from(err: WrongBatchState) -> Self {
+            RemoveChain::WrongBatchState { err: err.into() }
+        }
     }
 }
