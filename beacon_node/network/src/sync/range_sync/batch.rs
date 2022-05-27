@@ -6,6 +6,8 @@ use std::hash::{Hash, Hasher};
 use std::ops::Sub;
 use types::{Epoch, EthSpec, SignedBeaconBlock, Slot};
 
+use self::wrong_state::{wrong_state, WrongState};
+
 /// The number of times to retry a batch before it is considered failed.
 const MAX_BATCH_DOWNLOAD_ATTEMPTS: u8 = 5;
 
@@ -64,10 +66,6 @@ impl BatchConfig for RangeSyncBatchConfig {
         hasher.finish()
     }
 }
-
-/// Error type of a batch in a wrong state.
-// Such errors should never be encountered.
-pub struct WrongState(pub(crate) String);
 
 /// Auxiliary type alias for readability.
 type IsFailed = bool;
@@ -214,7 +212,7 @@ impl<T: EthSpec, B: BatchConfig> BatchInfo<T, B> {
             BatchState::Poisoned => unreachable!("Poisoned batch"),
             other => {
                 self.state = other;
-                Err(WrongState(format!(
+                Err(wrong_state(format!(
                     "Add block for batch in wrong state {:?}",
                     self.state
                 )))
@@ -267,7 +265,7 @@ impl<T: EthSpec, B: BatchConfig> BatchInfo<T, B> {
             BatchState::Poisoned => unreachable!("Poisoned batch"),
             other => {
                 self.state = other;
-                Err(Err(WrongState(format!(
+                Err(Err(wrong_state(format!(
                     "Download completed for batch in wrong state {:?}",
                     self.state
                 ))))
@@ -301,7 +299,7 @@ impl<T: EthSpec, B: BatchConfig> BatchInfo<T, B> {
             BatchState::Poisoned => unreachable!("Poisoned batch"),
             other => {
                 self.state = other;
-                Err(WrongState(format!(
+                Err(wrong_state(format!(
                     "Download failed for batch in wrong state {:?}",
                     self.state
                 )))
@@ -322,7 +320,7 @@ impl<T: EthSpec, B: BatchConfig> BatchInfo<T, B> {
             BatchState::Poisoned => unreachable!("Poisoned batch"),
             other => {
                 self.state = other;
-                Err(WrongState(format!(
+                Err(wrong_state(format!(
                     "Starting download for batch in wrong state {:?}",
                     self.state
                 )))
@@ -339,7 +337,7 @@ impl<T: EthSpec, B: BatchConfig> BatchInfo<T, B> {
             BatchState::Poisoned => unreachable!("Poisoned batch"),
             other => {
                 self.state = other;
-                Err(WrongState(format!(
+                Err(wrong_state(format!(
                     "Starting procesing batch in wrong state {:?}",
                     self.state
                 )))
@@ -371,7 +369,7 @@ impl<T: EthSpec, B: BatchConfig> BatchInfo<T, B> {
             BatchState::Poisoned => unreachable!("Poisoned batch"),
             other => {
                 self.state = other;
-                Err(WrongState(format!(
+                Err(wrong_state(format!(
                     "Procesing completed for batch in wrong state: {:?}",
                     self.state
                 )))
@@ -398,7 +396,7 @@ impl<T: EthSpec, B: BatchConfig> BatchInfo<T, B> {
             BatchState::Poisoned => unreachable!("Poisoned batch"),
             other => {
                 self.state = other;
-                Err(WrongState(format!(
+                Err(wrong_state(format!(
                     "Validation failed for batch in wrong state: {:?}",
                     self.state
                 )))
@@ -481,5 +479,19 @@ impl<T: EthSpec> std::fmt::Debug for BatchState<T> {
             ),
             BatchState::Poisoned => f.write_str("Poisoned"),
         }
+    }
+}
+
+mod wrong_state {
+    /// Error type of a batch in a wrong state.
+    // Such errors should never be encountered.
+    pub struct WrongState(String);
+
+    #[track_caller]
+    pub fn wrong_state(err: String) -> WrongState {
+        #[cfg(debug_assertions)]
+        panic!("{}", err);
+        #[cfg(not(debug_assertions))]
+        WrongState(err)
     }
 }
