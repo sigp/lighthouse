@@ -1,4 +1,4 @@
-use crate::common::{create_api_server, ApiServer};
+use crate::common::{create_api_server, create_api_server_on_port, ApiServer};
 use beacon_chain::test_utils::RelativeSyncCommittee;
 use beacon_chain::{
     test_utils::{AttestationStrategy, BeaconChainHarness, BlockStrategy, EphemeralHarnessType},
@@ -11,6 +11,7 @@ use eth2::{
     types::{BlockId as CoreBlockId, StateId as CoreStateId, *},
     BeaconNodeHttpClient, Error, StatusCode, Timeouts,
 };
+use execution_layer::test_utils::MockBuilderPool;
 use execution_layer::test_utils::MockExecutionLayer;
 use futures::stream::{Stream, StreamExt};
 use futures::FutureExt;
@@ -72,6 +73,7 @@ struct ApiTester {
     // This is never directly accessed, but adding it creates a payload cache, which we use in tests here.
     #[allow(dead_code)]
     mock_el: Option<MockExecutionLayer<E>>,
+    mock_builder: Option<Arc<MockBuilderPool<E>>>,
     _runtime: TestRuntime,
 }
 
@@ -88,7 +90,6 @@ impl ApiTester {
             .spec(spec.clone())
             .deterministic_keypairs(VALIDATOR_COUNT)
             .fresh_ephemeral_store()
-            .mock_execution_layer()
             .build();
 
         harness.advance_slot();
@@ -223,7 +224,8 @@ impl ApiTester {
             network_rx,
             local_enr,
             external_peer_id,
-            mock_el: harness.mock_execution_layer,
+            mock_el: None,
+            mock_builder: None,
             _runtime: harness.runtime,
         }
     }
@@ -304,6 +306,7 @@ impl ApiTester {
             local_enr,
             external_peer_id,
             mock_el: None,
+            mock_builder: None,
             _runtime: harness.runtime,
         }
     }
@@ -312,13 +315,14 @@ impl ApiTester {
         let mut spec = E::default_spec();
         spec.altair_fork_epoch = Some(Epoch::new(0));
         spec.bellatrix_fork_epoch = Some(Epoch::new(0));
+        let beacon_url = SensitiveUrl::parse("http://127.0.0.1:42425").unwrap();
 
         let harness = Arc::new(RwLock::new(
             BeaconChainHarness::builder(MainnetEthSpec)
                 .spec(spec.clone())
                 .deterministic_keypairs(VALIDATOR_COUNT)
                 .fresh_ephemeral_store()
-                .mock_execution_layer()
+                .mock_execution_layer_with_builder(beacon_url)
                 .build(),
         ));
 
@@ -443,18 +447,24 @@ impl ApiTester {
             network_rx,
             local_enr,
             external_peer_id,
-        } = create_api_server(chain.clone(), log).await;
+        } = create_api_server_on_port(chain.clone(), log, 42425).await;
 
         harness.runtime.task_executor.spawn(server, "api_server");
-
+        let real_beacon_url = SensitiveUrl::parse(&format!(
+            "http://{}:{}",
+            listening_socket.ip(),
+            listening_socket.port()
+        ))
+        .unwrap();
         let client = BeaconNodeHttpClient::new(
-            SensitiveUrl::parse(&format!(
-                "http://{}:{}",
-                listening_socket.ip(),
-                listening_socket.port()
-            ))
-            .unwrap(),
+            real_beacon_url,
             Timeouts::set_all(Duration::from_secs(SECONDS_PER_SLOT)),
+        );
+
+        let builder_ref = harness.mock_builder.as_ref().unwrap().clone();
+        harness.runtime.task_executor.spawn(
+            async move { builder_ref.run().await },
+            "mock_builder_server",
         );
 
         let next_block = Arc::try_unwrap(next_block)
@@ -483,6 +493,8 @@ impl ApiTester {
             network_rx,
             local_enr,
             external_peer_id,
+            mock_el: harness.mock_execution_layer,
+            mock_builder: harness.mock_builder,
             _runtime: harness.runtime,
         }
     }
@@ -3408,7 +3420,7 @@ async fn get_validator_beacon_committee_subscriptions() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn post_validator_register_validator() {
-    ApiTester::new()
+    ApiTester::new_post_bellatrix()
         .await
         .test_post_validator_register_validator()
         .await;

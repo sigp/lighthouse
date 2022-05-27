@@ -2420,7 +2420,7 @@ pub fn serve<T: BeaconChainTypes>(
         );
 
     // POST validator/register_validator
-    let post_validator_register_validator = eth1_v1
+    let post_validator_register_validator = eth_v1
         .and(warp::path("validator"))
         .and(warp::path("register_validator"))
         .and(warp::path::end())

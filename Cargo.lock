@@ -350,7 +350,7 @@ checksum = "dea908e7347a8c64e378c17e30ef880ad73e3b4498346b055c2c00ea342f3179"
 [[package]]
 name = "beacon-api-client"
 version = "0.1.0"
-source = "git+https://github.com/ralexstokes/beacon-api-client#901241e85013c7293b5a63217a91203992d1cc4d"
+source = "git+https://github.com/ralexstokes/beacon-api-client#8b50aac570657027130164f0f51c60fe156fed1f"
 dependencies = [
  "ethereum-consensus",
  "http",
@@ -1909,7 +1909,7 @@ dependencies = [
 [[package]]
 name = "ethereum-consensus"
 version = "0.1.0"
-source = "git+https://github.com/ralexstokes/ethereum-consensus#9a7566e7f063124f7ff01dddcdd51fec0248380f"
+source = "git+https://github.com/ralexstokes/ethereum-consensus#8748ff49c98d409b6d6047a56fdaaa52df2fe541"
 dependencies = [
  "async-stream",
  "blst",
@@ -3779,7 +3779,7 @@ dependencies = [
 [[package]]
 name = "mev-build-rs"
 version = "0.1.0"
-source = "git+https://github.com/ralexstokes/mev-rs#5b7c09a10963db670363c3276884416087dd4972"
+source = "git+https://github.com/ralexstokes/mev-rs?tag=v0.1.0#d391ac8a93f2e34c3efe2a84f64443e2427e81f8"
 dependencies = [
  "async-trait",
  "axum",

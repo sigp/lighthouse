@@ -1,8 +1,8 @@
-use crate::test_utils::MockExecutionLayer;
-use crate::{ExecutionLayer, PayloadAttributes, PublicKeyBytes};
+use crate::test_utils::{MockExecutionLayer, JWT_SECRET};
+use crate::{Config, ExecutionLayer, PayloadAttributes, PublicKeyBytes};
 use async_trait::async_trait;
 use eth2::types::{BlockId, StateId, ValidatorId};
-use eth2::BeaconNodeHttpClient;
+use eth2::{BeaconNodeHttpClient, Timeouts};
 use ethereum_consensus::builder::ValidatorRegistration;
 use ethereum_consensus::primitives::BlsPublicKey;
 use ethereum_consensus::state_transition::Context;
@@ -14,6 +14,7 @@ use mev_build_rs::{
     SignedBlindedBeaconBlock, SignedBuilderBid, SignedValidatorRegistration,
 };
 use parking_lot::RwLock;
+use sensitive_url::SensitiveUrl;
 use slot_clock::SlotClock;
 use ssz::{Decode, Encode};
 use ssz_rs::SimpleSerialize;
@@ -21,19 +22,76 @@ use std::collections::HashMap;
 use std::fmt::Debug;
 use std::net::Ipv4Addr;
 use std::sync::Arc;
+use std::time::Duration;
+use task_executor::TaskExecutor;
+use tempfile::NamedTempFile;
 use tree_hash::TreeHash;
 use types::{
     Address, BlindedPayload, ChainSpec, EthSpec, ExecPayload, ExecutionBlockHash, ExecutionPayload,
     Hash256, Slot, ValidatorRegistrationData,
 };
 
-pub type MockBuilderPool<E> = ApiServer<MockBuilder<E>>;
+pub struct MockBuilderPool<E: EthSpec>(ApiServer<MockBuilder<E>>);
 
+impl<E: EthSpec> MockBuilderPool<E> {
+    pub fn new(
+        mock_el_url: SensitiveUrl,
+        builder_url: SensitiveUrl,
+        beacon_url: SensitiveUrl,
+        spec: ChainSpec,
+        executor: TaskExecutor,
+    ) -> Self {
+        let file = NamedTempFile::new().unwrap();
+        let path = file.path().into();
+        std::fs::write(&path, hex::encode(JWT_SECRET)).unwrap();
+
+        // This EL should not talk to a builder
+        let mut config = Config {
+            execution_endpoints: vec![mock_el_url],
+            secret_files: vec![path],
+            suggested_fee_recipient: None,
+            ..Default::default()
+        };
+
+        let el =
+            ExecutionLayer::from_config(config, executor.clone(), executor.log().clone()).unwrap();
+
+        // This should probably be done for all fields, we only update ones we are testing with so far.
+        let mut context = Context::default();
+        context.terminal_total_difficulty = to_ssz_rs(&spec.terminal_total_difficulty).unwrap();
+        context.terminal_block_hash = to_ssz_rs(&spec.terminal_block_hash).unwrap();
+        context.terminal_block_hash_activation_epoch =
+            to_ssz_rs(&spec.terminal_block_hash_activation_epoch).unwrap();
+
+        let builder = MockBuilder::new(
+            el,
+            BeaconNodeHttpClient::new(beacon_url, Timeouts::set_all(Duration::from_secs(1))),
+            spec,
+            context,
+        );
+        let port = builder_url.full.port().unwrap();
+        let host: Ipv4Addr = builder_url
+            .full
+            .host_str()
+            .unwrap()
+            .to_string()
+            .parse()
+            .unwrap();
+        let server = ApiServer::new(host, port, builder);
+        Self(server)
+    }
+
+    pub async fn run(&self) {
+        self.0.run().await
+    }
+}
+
+#[derive(Clone)]
 pub struct MockBuilder<E: EthSpec> {
     el: ExecutionLayer<E>,
     beacon_client: BeaconNodeHttpClient,
     spec: ChainSpec,
-    context: Context,
+    context: Arc<Context>,
     val_registration_cache: Arc<RwLock<HashMap<BlsPublicKey, SignedValidatorRegistration>>>,
 }
 
@@ -49,7 +107,7 @@ impl<E: EthSpec> MockBuilder<E> {
             beacon_client,
             // Should keep spec and context consistent somehow
             spec,
-            context,
+            context: Arc::new(context),
             val_registration_cache: Arc::new(RwLock::new(HashMap::new())),
         }
     }
@@ -59,15 +117,23 @@ impl<E: EthSpec> MockBuilder<E> {
 impl<E: EthSpec> mev_build_rs::Builder for MockBuilder<E> {
     async fn register_validator(
         &self,
-        registration: &mut SignedValidatorRegistration,
+        registrations: &mut [SignedValidatorRegistration],
     ) -> Result<(), Error> {
-        let pubkey = registration.message.public_key.clone();
-        let message = &mut registration.message;
-        verify_signed_builder_message(message, &registration.signature, &pubkey, &self.context)?;
-        self.val_registration_cache.write().insert(
-            registration.message.public_key.clone(),
-            registration.clone(),
-        );
+        for registration in registrations {
+            let pubkey = registration.message.public_key.clone();
+            let message = &mut registration.message;
+            verify_signed_builder_message(
+                message,
+                &registration.signature,
+                &pubkey,
+                &self.context,
+            )?;
+            self.val_registration_cache.write().insert(
+                registration.message.public_key.clone(),
+                registration.clone(),
+            );
+        }
+
         Ok(())
     }
 
