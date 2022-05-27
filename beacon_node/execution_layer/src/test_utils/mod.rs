@@ -30,6 +30,7 @@ pub const JWT_SECRET: [u8; 32] = [42; 32];
 
 mod execution_block_generator;
 mod handle_rpc;
+mod mock_builder;
 mod mock_execution_layer;
 
 pub struct MockServer<T: EthSpec> {

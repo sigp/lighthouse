@@ -1450,6 +1450,15 @@ mod test {
             })
             .await;
     }
+
+    // test fallback
+
+    // test normal flow used when
+    // - merge hasn't finalized
+    // - bad chain health (finalization not advancing?)
+    // - gas_limit not what you sent builder
+    // - fee recipient not what you sent builder
+    // - timeout?
 }
 
 fn noop<T: EthSpec>(_: &ExecutionLayer<T>, _: &ExecutionPayload<T>) -> Option<ExecutionPayload<T>> {

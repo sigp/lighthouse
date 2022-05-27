@@ -1,10 +1,15 @@
+use crate::test_utils::mock_builder::{to_ssz_rs, MockBuilder, MockBuilderPool};
 use crate::{
     test_utils::{MockServer, DEFAULT_TERMINAL_BLOCK, DEFAULT_TERMINAL_DIFFICULTY, JWT_SECRET},
     Config, *,
 };
+use eth2::BeaconNodeHttpClient;
+use ethereum_consensus::state_transition::Context;
+use mev_build_rs::{ApiServer, Builder};
 use sensitive_url::SensitiveUrl;
 use task_executor::TaskExecutor;
 use tempfile::NamedTempFile;
+use test_utils::Config as MockServerConfig;
 use tree_hash::TreeHash;
 use types::{Address, ChainSpec, Epoch, EthSpec, FullPayload, Hash256, Uint256};
 
@@ -13,6 +18,7 @@ pub struct MockExecutionLayer<T: EthSpec> {
     pub el: ExecutionLayer<T>,
     pub executor: TaskExecutor,
     pub spec: ChainSpec,
+    pub mock_relay: Option<MockBuilderPool<T>>,
 }
 
 impl<T: EthSpec> MockExecutionLayer<T> {
@@ -23,6 +29,18 @@ impl<T: EthSpec> MockExecutionLayer<T> {
             DEFAULT_TERMINAL_BLOCK,
             ExecutionBlockHash::zero(),
             Epoch::new(0),
+            false,
+        )
+    }
+
+    pub fn default_params_start_builder(executor: TaskExecutor) -> Self {
+        Self::new(
+            executor,
+            DEFAULT_TERMINAL_DIFFICULTY.into(),
+            DEFAULT_TERMINAL_BLOCK,
+            ExecutionBlockHash::zero(),
+            Epoch::new(0),
+            true,
         )
     }
 
@@ -32,6 +50,7 @@ impl<T: EthSpec> MockExecutionLayer<T> {
         terminal_block: u64,
         terminal_block_hash: ExecutionBlockHash,
         terminal_block_hash_activation_epoch: Epoch,
+        start_builder: bool,
     ) -> Self {
         let handle = executor.handle().unwrap();
 
@@ -53,20 +72,57 @@ impl<T: EthSpec> MockExecutionLayer<T> {
         let path = file.path().into();
         std::fs::write(&path, hex::encode(JWT_SECRET)).unwrap();
 
-        let config = Config {
+        let mut config = Config {
             execution_endpoints: vec![url],
             secret_files: vec![path],
             suggested_fee_recipient: Some(Address::repeat_byte(42)),
             ..Default::default()
         };
         let el =
-            ExecutionLayer::from_config(config, executor.clone(), executor.log().clone()).unwrap();
+            ExecutionLayer::from_config(config.clone(), executor.clone(), executor.log().clone())
+                .unwrap();
+
+        let mut mock_relay = None;
+
+        // Create a second EL, so we don't mix caches, reusing the jwt secret
+        if start_builder {
+            let mut mock_server_config = MockServerConfig::default();
+            mock_server_config.listen_port = 1;
+            config.builder_url = Some(
+                SensitiveUrl::parse(
+                    format!(
+                        "{}:{}",
+                        mock_server_config.listen_addr, mock_server_config.listen_port
+                    )
+                    .as_str(),
+                )
+                .unwrap(),
+            );
+
+            let el = ExecutionLayer::from_config(config, executor.clone(), executor.log().clone())
+                .unwrap();
+
+            let mut context = Context::default();
+            context.terminal_total_difficulty = to_ssz_rs(&terminal_total_difficulty).unwrap();
+            context.terminal_block_hash = to_ssz_rs(&terminal_block_hash).unwrap();
+            context.terminal_block_hash_activation_epoch =
+                to_ssz_rs(&terminal_block_hash_activation_epoch).unwrap();
+
+            let builder = MockBuilder::new(el, BeaconNodeHttpClient::new(), spec, context);
+
+            mock_relay = Some(MockBuilderPool::new(
+                mock_server_config.listen_addr,
+                mock_server_config.listen_port,
+                builder,
+            ));
+        }
 
         Self {
             server,
             el,
             executor,
             spec,
+            mock_relay,
         }
     }
 

@@ -2364,7 +2364,9 @@ pub fn serve<T: BeaconChainTypes>(
                                 } else {
                                     // According to the spec this response should only be a 400 or 500,
                                     // so we fall back to a 500 here.
-                                    return warp_utils::reject::custom_server_error(message.message);
+                                    return warp_utils::reject::custom_server_error(
+                                        message.message,
+                                    );
                                 }
                             }
                             warp_utils::reject::custom_server_error(format!("{e:?}"))
