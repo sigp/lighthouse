@@ -589,8 +589,9 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
 
         // safety check for batch boundaries
         if validating_epoch % EPOCHS_PER_BATCH != self.start_epoch % EPOCHS_PER_BATCH {
-            return crit!(self.log, "Validating Epoch is not aligned");
             #[cfg(not(debug_assertions))]
+            return crit!(self.log, "Validating Epoch is not aligned");
+            #[cfg(debug_assertions)]
             panic!(
                 "Validating epoch is not aligned. validating_epoch: {}; start_epoch: {}",
                 validating_epoch, self.start_epoch
