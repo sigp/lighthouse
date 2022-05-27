@@ -590,6 +590,11 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
         // safety check for batch boundaries
         if validating_epoch % EPOCHS_PER_BATCH != self.start_epoch % EPOCHS_PER_BATCH {
             crit!(self.log, "Validating Epoch is not aligned");
+            #[cfg(not(debug_assertions))]
+            panic!(
+                "Validating epoch is not aligned. validating_epoch: {}; start_epoch: {}",
+                validating_epoch, self.start_epoch
+            );
             return;
         }
 
@@ -645,10 +650,14 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                     }
                 }
                 BatchState::Poisoned => unreachable!("Poisoned batch"),
-                BatchState::Failed | BatchState::AwaitingDownload => crit!(
-                    self.log,
-                    "batch indicates inconsistent chain state while advancing chain"
-                ),
+                BatchState::Failed | BatchState::AwaitingDownload => {
+                    crit!(
+                        self.log,
+                        "batch indicates inconsistent chain state while advancing chain"
+                    );
+                    #[cfg(not(debug_assertions))]
+                    panic!("batch indicates inconsistent chain state while advancing chain")
+                }
                 BatchState::AwaitingProcessing(..) => {}
                 BatchState::Processing(_) => {
                     debug!(self.log, "Advancing chain while processing a batch"; "batch" => id, batch);
@@ -1087,11 +1096,11 @@ mod remove_chain {
         }
 
         #[track_caller]
-        pub fn wrong_chain_state(e: String) -> RemoveChain {
+        pub fn wrong_chain_state(err: String) -> RemoveChain {
             #[cfg(debug_assertions)]
-            panic!("{}", e);
+            panic!("{}", err);
             #[cfg(not(debug_assertions))]
-            RemoveChain::WrongChainState(e)
+            RemoveChain::WrongChainState { err }
         }
         pub fn is_critical(&self) -> bool {
             matches!(
