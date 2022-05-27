@@ -589,13 +589,12 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
 
         // safety check for batch boundaries
         if validating_epoch % EPOCHS_PER_BATCH != self.start_epoch % EPOCHS_PER_BATCH {
-            crit!(self.log, "Validating Epoch is not aligned");
+            return crit!(self.log, "Validating Epoch is not aligned");
             #[cfg(not(debug_assertions))]
             panic!(
                 "Validating epoch is not aligned. validating_epoch: {}; start_epoch: {}",
                 validating_epoch, self.start_epoch
             );
-            return;
         }
 
         // batches in the range [BatchId, ..) (not yet validated)
@@ -1088,11 +1087,11 @@ mod remove_chain {
 
     impl RemoveChain {
         #[track_caller]
-        pub fn wrong_batch_state(e: String) -> RemoveChain {
+        pub fn wrong_batch_state(err: String) -> RemoveChain {
             #[cfg(debug_assertions)]
-            panic!("{}", e);
+            panic!("{}", err);
             #[cfg(not(debug_assertions))]
-            RemoveChain::WrongBatchState(e)
+            RemoveChain::WrongBatchState { err }
         }
 
         #[track_caller]
