@@ -360,13 +360,22 @@ impl ParticipationCache {
      * Active/Unslashed
      */
 
-    pub fn is_active_unslashed_in_previous_epoch(&self, _val_index: usize) -> bool {
-        false
+    pub fn is_active_unslashed_in_previous_epoch(&self, val_index: usize) -> bool {
+        self.validators
+            .info
+            .get(&val_index)
+            .map_or(false, |validator| {
+                validator.is_active_previous_epoch && !validator.is_slashed
+            })
     }
 
-    pub fn is_active_unslashed_in_current_epoch(&self, _val_index: usize) -> bool {
-        // FIXME(sproul): work out how to serve this for the validator API
-        false
+    pub fn is_active_unslashed_in_current_epoch(&self, val_index: usize) -> bool {
+        self.validators
+            .info
+            .get(&val_index)
+            .map_or(false, |validator| {
+                validator.is_active_current_epoch && !validator.is_slashed
+            })
     }
 
     pub fn get_validator(&self, val_index: usize) -> Result<&ValidatorInfo, Error> {
@@ -379,35 +388,52 @@ impl ParticipationCache {
     /*
      * Flags
      */
-    // FIXME(sproul): broken
-
     /// Always returns false for a slashed validator.
     pub fn is_previous_epoch_timely_source_attester(
         &self,
-        _val_index: usize,
+        val_index: usize,
     ) -> Result<bool, Error> {
-        Ok(false)
+        self.validators
+            .info
+            .get(&val_index)
+            .map_or(Ok(false), |validator| {
+                Ok(!validator.is_slashed
+                    && validator
+                        .previous_epoch_participation
+                        .has_flag(TIMELY_SOURCE_FLAG_INDEX)
+                        .map_err(|_| Error::InvalidFlagIndex(TIMELY_SOURCE_FLAG_INDEX))?)
+            })
     }
 
     /// Always returns false for a slashed validator.
     pub fn is_previous_epoch_timely_target_attester(
         &self,
-        _val_index: usize,
+        val_index: usize,
     ) -> Result<bool, Error> {
-        Ok(false)
+        self.validators
+            .info
+            .get(&val_index)
+            .map_or(Ok(false), |validator| {
+                Ok(!validator.is_slashed
+                    && validator
+                        .previous_epoch_participation
+                        .has_flag(TIMELY_TARGET_FLAG_INDEX)
+                        .map_err(|_| Error::InvalidFlagIndex(TIMELY_TARGET_FLAG_INDEX))?)
+            })
     }
 
     /// Always returns false for a slashed validator.
-    pub fn is_previous_epoch_timely_head_attester(&self, _val_index: usize) -> Result<bool, Error> {
-        Ok(false)
-    }
-
-    /// Always returns false for a slashed validator.
-    pub fn is_current_epoch_timely_source_attester(
-        &self,
-        _val_index: usize,
-    ) -> Result<bool, Error> {
-        Ok(false)
+    pub fn is_previous_epoch_timely_head_attester(&self, val_index: usize) -> Result<bool, Error> {
+        self.validators
+            .info
+            .get(&val_index)
+            .map_or(Ok(false), |validator| {
+                Ok(!validator.is_slashed
+                    && validator
+                        .previous_epoch_participation
+                        .has_flag(TIMELY_HEAD_FLAG_INDEX)
+                        .map_err(|_| Error::InvalidFlagIndex(TIMELY_TARGET_FLAG_INDEX))?)
+            })
     }
 
     /// Always returns false for a slashed validator.
@@ -415,6 +441,8 @@ impl ParticipationCache {
         &self,
         _val_index: usize,
     ) -> Result<bool, Error> {
+        // FIXME(sproul): decide whether it's worth storing the current epoch participation flags
+        // *just* for this call. Perhaps the validator API could source it from the state directly.
         Ok(false)
     }
 }
