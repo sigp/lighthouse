@@ -2509,7 +2509,13 @@ impl ApiTester {
         let mut registrations = vec![];
         let mut fee_recipients = vec![];
 
-        let fork = self.chain.head().unwrap().beacon_state.fork();
+        let genesis_epoch = self.chain.spec.genesis_slot.epoch(E::slots_per_epoch());
+
+        let fork = Fork {
+            current_version: self.chain.spec.genesis_fork_version,
+            previous_version: self.chain.spec.genesis_fork_version,
+            epoch: genesis_epoch
+        };
 
         for (val_index, keypair) in self.validator_keypairs.iter().enumerate() {
             let pubkey = keypair.pk.compress();
@@ -2522,7 +2528,7 @@ impl ApiTester {
                 pubkey,
             };
             let domain = self.chain.spec.get_domain(
-                Epoch::new(0),
+                genesis_epoch,
                 Domain::ApplicationMask(ApplicationDomain::Builder),
                 &fork,
                 Hash256::zero(),
@@ -2530,11 +2536,14 @@ impl ApiTester {
             let message = data.signing_root(domain);
             let signature = keypair.sk.sign(message);
 
-            fee_recipients.push(fee_recipient);
-            registrations.push(SignedValidatorRegistrationData {
+
+            let signed = SignedValidatorRegistrationData {
                 message: data,
                 signature,
-            });
+            };
+            dbg!(&signed);
+            fee_recipients.push(fee_recipient);
+            registrations.push(signed);
         }
 
         self.client
@@ -2542,11 +2551,13 @@ impl ApiTester {
             .await
             .unwrap();
 
-        for (val_index, (_, fee_recipient)) in self
+        let head_state = self
             .chain
             .head()
             .unwrap()
-            .beacon_state
+            .beacon_state;
+
+        for (val_index, (val, fee_recipient)) in head_state
             .validators()
             .into_iter()
             .zip(fee_recipients.into_iter())
@@ -2560,6 +2571,9 @@ impl ApiTester {
                 .get_suggested_fee_recipient(val_index as u64)
                 .await;
             assert_eq!(actual, fee_recipient);
+
+            let payload : BlindedPayload<E>= beacon_chain::execution_payload::prepare_execution_payload(&self.chain, &head_state, val_index as u64, Some(val.pubkey)).await.unwrap().unwrap();
+            dbg!(&payload);
         }
 
         self
