@@ -5,7 +5,7 @@ use eth2::types::{BlockId, StateId, ValidatorId};
 use eth2::{BeaconNodeHttpClient, Timeouts};
 use ethereum_consensus::builder::ValidatorRegistration;
 use ethereum_consensus::primitives::BlsPublicKey;
-use ethereum_consensus::state_transition::Context;
+pub use ethereum_consensus::state_transition::Context;
 use ethers_core::k256::elliptic_curve::consts::U256;
 use futures::AsyncReadExt;
 use mev_build_rs::{
