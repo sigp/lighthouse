@@ -277,7 +277,7 @@ pub fn get_block_packing_efficiency<T: BeaconChainTypes>(
     ));
 
     let pre_slot_hook =
-        |state: &mut BeaconState<T::EthSpec>| -> Result<(), PackingEfficiencyError> {
+        |_, state: &mut BeaconState<T::EthSpec>| -> Result<(), PackingEfficiencyError> {
             // Add attestations to `available_attestations`.
             handler.lock().add_attestations(state.slot())?;
             Ok(())

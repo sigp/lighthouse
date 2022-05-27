@@ -38,7 +38,7 @@ fn get_state_by_replay<T: BeaconChainTypes>(
     // Replay blocks to reach the target state.
     let blocks = db.load_blocks_to_replay(epoch_boundary_state.slot(), slot, latest_block_root)?;
 
-    db.replay_blocks(epoch_boundary_state, blocks, slot, std::iter::empty())
+    db.replay_blocks(epoch_boundary_state, blocks, slot, std::iter::empty(), None)
 }
 
 pub fn upgrade_to_v20<T: BeaconChainTypes>(

@@ -6,10 +6,10 @@ use crate::config::{
     PREV_DEFAULT_SLOTS_PER_RESTORE_POINT,
 };
 use crate::forwards_iter::{HybridForwardsBlockRootsIterator, HybridForwardsStateRootsIterator};
+use crate::hot_state_iter::HotStateRootIter;
 use crate::impls::beacon_state::{get_full_state, store_full_state};
 use crate::iter::{ParentRootBlockIterator, StateRootsIterator};
-use crate::leveldb_store::BytesKey;
-use crate::leveldb_store::LevelDB;
+use crate::leveldb_store::{BytesKey, LevelDB};
 use crate::memory_store::MemoryStore;
 use crate::metadata::{
     AnchorInfo, CompactionTimestamp, PruningCheckpoint, SchemaVersion, ANCHOR_INFO_KEY,
@@ -17,7 +17,7 @@ use crate::metadata::{
     SCHEMA_VERSION_KEY, SPLIT_KEY,
 };
 use crate::metrics;
-use crate::state_cache::StateCache;
+use crate::state_cache::{PutStateOutcome, StateCache};
 use crate::{
     get_key_for_col, DBColumn, DatabaseBlock, Error, ItemStore, KeyValueStoreOp,
     PartialBeaconState, StoreItem, StoreOp,
@@ -31,7 +31,9 @@ use serde_derive::{Deserialize, Serialize};
 use slog::{debug, error, info, trace, warn, Logger};
 use ssz::{Decode, Encode};
 use ssz_derive::{Decode, Encode};
-use state_processing::{BlockProcessingError, BlockReplayer, SlotProcessingError};
+use state_processing::{
+    block_replayer::PreSlotHook, BlockProcessingError, BlockReplayer, SlotProcessingError,
+};
 use std::cmp::min;
 use std::convert::TryInto;
 use std::marker::PhantomData;
@@ -40,6 +42,8 @@ use std::sync::Arc;
 use std::time::Duration;
 use types::*;
 use types::{beacon_state::BeaconStateDiff, EthSpec};
+
+pub const MAX_PARENT_STATES_TO_CACHE: u64 = 32;
 
 /// On-disk database that stores finalized states efficiently.
 ///
@@ -273,12 +277,11 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         &self,
         state_root: Hash256,
         block_root: Hash256,
-        epoch: Epoch,
         state: BeaconState<E>,
     ) -> Result<(), Error> {
         self.state_cache
             .lock()
-            .update_finalized_state(state_root, block_root, epoch, state)
+            .update_finalized_state(state_root, block_root, state)
     }
 
     pub fn state_cache_len(&self) -> usize {
@@ -737,12 +740,14 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         // FIXME(sproul): could optimise out the block root
         let block_root = state.get_latest_block_root(*state_root);
 
-        if self
-            .state_cache
-            .lock()
-            .put_state(*state_root, block_root, state)?
+        // Avoid storing states in the database if they already exist in the state cache.
+        // The exception to this is the finalized state, which must exist in the cache before it
+        // is stored on disk.
+        if let PutStateOutcome::Duplicate =
+            self.state_cache
+                .lock()
+                .put_state(*state_root, block_root, state)?
         {
-            // Already exists in database.
             return Ok(());
         }
 
@@ -756,11 +761,10 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         // On the epoch boundary, store a diff from the previous epoch boundary state -- unless
         // we're at a fork boundary in which case the full state must be stored.
         if state.slot() % E::slots_per_epoch() == 0 {
-            if let Some(fork) = self.spec.fork_activated_at_slot::<E>(state.slot()) {
+            if self.is_stored_as_full_state(*state_root, state.slot())? {
                 info!(
                     self.log,
-                    "Storing fork transition state";
-                    "fork" => %fork,
+                    "Storing full state on epoch boundary";
                     "slot" => state.slot(),
                     "state_root" => ?state_root,
                 );
@@ -852,7 +856,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             slot,
             latest_block_root,
             epoch_boundary_state_root,
-            prev_state_root,
+            prev_state_root: _,
         }) = self.load_hot_state_summary(state_root)?
         {
             // Load the latest block, and use it to confirm the validity of this state.
@@ -882,21 +886,105 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
                     .map(Some);
             }
 
-            // Otherwise try to load the prior state and replay the `latest_block` on top of it as
-            // necessary (if it's not a skip slot).
-            let prev_state = self
-                .get_hot_state(&prev_state_root)?
-                .ok_or(HotColdDBError::MissingPrevState(prev_state_root))?;
-            let blocks = if latest_block.slot() == slot {
-                vec![latest_block]
+            // Backtrack until we reach a state that is in the cache, or in the worst case
+            // the finalized state (this should only be reachable on first start-up).
+            let mut state_root_iter = HotStateRootIter::new(self, slot, *state_root);
+            let mut state_roots = Vec::with_capacity(32);
+            let mut state = None;
+
+            while let Some(res) = state_root_iter.next() {
+                let (prior_state_root, prior_slot) = res?;
+
+                state_roots.push(Ok((prior_state_root, prior_slot)));
+
+                // Check if this state is in the cache.
+                if let Some(base_state) =
+                    self.state_cache.lock().get_by_state_root(prior_state_root)
+                {
+                    debug!(
+                        self.log,
+                        "Found cached base state for replay";
+                        "base_state_root" => ?prior_state_root,
+                        "base_slot" => prior_slot,
+                        "target_state_root" => ?state_root,
+                        "target_slot" => slot,
+                    );
+                    state = Some(base_state);
+                    break;
+                }
+
+                // If the prior state is the split state and it isn't cached then load it in
+                // entirety from disk. This should only happen on first start up.
+                if prior_state_root == self.get_split_info().state_root {
+                    debug!(
+                        self.log,
+                        "Using split state as base state for replay";
+                        "base_state_root" => ?prior_state_root,
+                        "base_slot" => prior_slot,
+                        "target_state_root" => ?state_root,
+                        "target_slot" => slot,
+                    );
+                    let (split_state, _) = self.load_hot_state_full(&prior_state_root)?;
+                    state = Some(split_state);
+                    break;
+                }
+            }
+
+            let base_state = state.ok_or(Error::NoBaseStateFound(*state_root))?;
+
+            // Reverse the collected state roots so that they are in slot ascending order.
+            state_roots.reverse();
+
+            // Collect the blocks to replay.
+            // We already have the latest block loaded, which is sufficient if the base state is
+            // just one slot behind the state to be constructed.
+            let mut blocks = if base_state.slot() + 1 == slot {
+                Vec::with_capacity(1)
             } else {
-                vec![]
+                self.load_blocks_to_replay(base_state.slot(), slot - 1, latest_block.parent_root())?
             };
+            blocks.push(latest_block);
 
-            let state_roots = [(prev_state_root, slot - 1), (*state_root, slot)];
-            let state_root_iter = state_roots.into_iter().map(Ok);
+            let state_cacher_hook: PreSlotHook<_, _> = Box::new(|opt_state_root, state| {
+                // Ensure all caches are built before attempting to cache.
+                state.update_tree_hash_cache()?;
+                state.build_all_caches(&self.spec)?;
 
-            let mut state = self.replay_blocks(prev_state, blocks, slot, state_root_iter)?;
+                if let Some(state_root) = opt_state_root {
+                    // Cache
+                    if state.slot() + MAX_PARENT_STATES_TO_CACHE > slot
+                        || state.slot() % E::slots_per_epoch() == 0
+                    {
+                        debug!(
+                            self.log,
+                            "Caching ancestor state";
+                            "state_root" => ?state_root,
+                            "slot" => state.slot(),
+                        );
+                        // FIXME(sproul): this block root could be optimized out
+                        let latest_block_root = state.get_latest_block_root(state_root);
+                        self.state_cache
+                            .lock()
+                            .put_state(state_root, latest_block_root, state)?;
+                    }
+                } else {
+                    debug!(
+                        self.log,
+                        "Block replay state root miss";
+                        "slot" => state.slot(),
+                    );
+                }
+                Ok(())
+            });
+
+            let mut state = self.replay_blocks(
+                base_state,
+                blocks,
+                slot,
+                state_roots.into_iter(),
+                Some(state_cacher_hook),
+            )?;
+
             state.update_tree_hash_cache()?;
             state.build_all_caches(&self.spec)?;
 
@@ -1087,7 +1175,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             &self.spec,
         )?;
 
-        self.replay_blocks(low_restore_point, blocks, slot, state_root_iter)
+        self.replay_blocks(low_restore_point, blocks, slot, state_root_iter, None)
     }
 
     /// Get the restore point with the given index, or if it is out of bounds, the split state.
@@ -1173,11 +1261,18 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         blocks: Vec<SignedBeaconBlock<E, BlindedPayload<E>>>,
         target_slot: Slot,
         state_root_iter: impl Iterator<Item = Result<(Hash256, Slot), Error>>,
+        pre_slot_hook: Option<PreSlotHook<E, Error>>,
     ) -> Result<BeaconState<E>, Error> {
-        BlockReplayer::new(state, &self.spec)
+        let mut block_replayer = BlockReplayer::new(state, &self.spec)
             .no_signature_verification()
             .minimal_block_root_verification()
-            .state_root_iter(state_root_iter)
+            .state_root_iter(state_root_iter);
+
+        if let Some(pre_slot_hook) = pre_slot_hook {
+            block_replayer = block_replayer.pre_slot_hook(pre_slot_hook);
+        }
+
+        block_replayer
             .apply_blocks(blocks, Some(target_slot))
             .map(|block_replayer| {
                 // FIXME(sproul): tweak state miss condition
@@ -1677,7 +1772,6 @@ pub fn migrate_database<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>>(
     store.update_finalized_state(
         finalized_state_root,
         finalized_block_root,
-        finalized_state.slot().epoch(E::slots_per_epoch()),
         finalized_state.clone(),
     )?;
 

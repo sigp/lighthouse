@@ -1,12 +1,11 @@
 use crate::Error;
 use lru::LruCache;
 use std::collections::{BTreeMap, HashMap, HashSet};
-use types::{BeaconState, Epoch, EthSpec, Hash256, Slot};
+use types::{BeaconState, EthSpec, Hash256, Slot};
 
 #[derive(Debug)]
 pub struct FinalizedState<E: EthSpec> {
     state_root: Hash256,
-    epoch: Epoch,
     state: BeaconState<E>,
 }
 
@@ -29,6 +28,13 @@ pub struct StateCache<E: EthSpec> {
     block_map: BlockMap,
 }
 
+#[derive(Debug)]
+pub enum PutStateOutcome {
+    Finalized,
+    Duplicate,
+    New,
+}
+
 impl<E: EthSpec> StateCache<E> {
     pub fn new(capacity: usize) -> Self {
         StateCache {
@@ -46,25 +52,27 @@ impl<E: EthSpec> StateCache<E> {
         &mut self,
         state_root: Hash256,
         block_root: Hash256,
-        epoch: Epoch,
         state: BeaconState<E>,
     ) -> Result<(), Error> {
+        if state.slot() % E::slots_per_epoch() != 0 {
+            return Err(Error::FinalizedStateUnaligned);
+        }
+
         if self
             .finalized_state
             .as_ref()
-            .map_or(false, |finalized_state| epoch < finalized_state.epoch)
+            .map_or(false, |finalized_state| {
+                state.slot() < finalized_state.state.slot()
+            })
         {
-            return Err(Error::FinalizedStateDecreasingEpoch);
+            return Err(Error::FinalizedStateDecreasingSlot);
         }
 
-        let finalized_slot = epoch.start_slot(E::slots_per_epoch());
-
         // Add to block map.
-        self.block_map
-            .insert(block_root, finalized_slot, state_root);
+        self.block_map.insert(block_root, state.slot(), state_root);
 
         // Prune block map.
-        let state_roots_to_prune = self.block_map.prune(finalized_slot);
+        let state_roots_to_prune = self.block_map.prune(state.slot());
 
         // Delete states.
         for state_root in state_roots_to_prune {
@@ -72,21 +80,17 @@ impl<E: EthSpec> StateCache<E> {
         }
 
         // Update finalized state.
-        self.finalized_state = Some(FinalizedState {
-            state_root,
-            epoch,
-            state,
-        });
+        self.finalized_state = Some(FinalizedState { state_root, state });
         Ok(())
     }
 
-    /// Return a bool indicating whether the state already existed in the cache.
+    /// Return a status indicating whether the state already existed in the cache.
     pub fn put_state(
         &mut self,
         state_root: Hash256,
         block_root: Hash256,
         state: &BeaconState<E>,
-    ) -> Result<bool, Error> {
+    ) -> Result<PutStateOutcome, Error> {
         if self
             .finalized_state
             .as_ref()
@@ -94,11 +98,11 @@ impl<E: EthSpec> StateCache<E> {
                 finalized_state.state_root == state_root
             })
         {
-            return Ok(true);
+            return Ok(PutStateOutcome::Finalized);
         }
 
         if self.states.peek(&state_root).is_some() {
-            return Ok(true);
+            return Ok(PutStateOutcome::Duplicate);
         }
 
         // Refuse states with pending mutations: we want cached states to be as small as possible
@@ -117,7 +121,7 @@ impl<E: EthSpec> StateCache<E> {
         let slot = state.slot();
         self.block_map.insert(block_root, slot, state_root);
 
-        Ok(false)
+        Ok(PutStateOutcome::New)
     }
 
     pub fn get_by_state_root(&mut self, state_root: Hash256) -> Option<BeaconState<E>> {

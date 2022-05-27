@@ -42,6 +42,7 @@ pub enum Error {
     },
     MissingStateRoot(Slot),
     MissingState(Hash256),
+    NoBaseStateFound(Hash256),
     BlockReplayError(BlockReplayError),
     MilhouseError(milhouse::Error),
     Compression(std::io::Error),
@@ -49,7 +50,8 @@ pub enum Error {
     SlotIsBeforeSplit {
         slot: Slot,
     },
-    FinalizedStateDecreasingEpoch,
+    FinalizedStateDecreasingSlot,
+    FinalizedStateUnaligned,
     StateForCacheHasPendingUpdates {
         state_root: Hash256,
         slot: Slot,

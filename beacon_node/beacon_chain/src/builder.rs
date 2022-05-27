@@ -29,8 +29,8 @@ use std::time::Duration;
 use store::{Error as StoreError, HotColdDB, ItemStore, KeyValueStoreOp};
 use task_executor::{ShutdownReason, TaskExecutor};
 use types::{
-    BeaconBlock, BeaconState, ChainSpec, Checkpoint, Epoch, EthSpec, Graffiti, Hash256,
-    PublicKeyBytes, Signature, SignedBeaconBlock, Slot,
+    BeaconBlock, BeaconState, ChainSpec, Checkpoint, EthSpec, Graffiti, Hash256, PublicKeyBytes,
+    Signature, SignedBeaconBlock, Slot,
 };
 
 /// An empty struct used to "witness" all the `BeaconChainTypes` traits. It has no user-facing
@@ -313,12 +313,7 @@ where
         let beacon_block_root = beacon_block.canonical_root();
 
         store
-            .update_finalized_state(
-                beacon_state_root,
-                beacon_block_root,
-                Epoch::new(0),
-                beacon_state.clone(),
-            )
+            .update_finalized_state(beacon_state_root, beacon_block_root, beacon_state.clone())
             .map_err(|e| format!("Failed to set genesis state as finalized state: {:?}", e))?;
 
         store
@@ -447,12 +442,11 @@ where
             .update_finalized_state(
                 weak_subj_state_root,
                 weak_subj_block_root,
-                weak_subj_slot.epoch(TEthSpec::slots_per_epoch()),
                 weak_subj_state.clone(),
             )
             .map_err(|e| format!("Failed to set checkpoint state as finalized state: {:?}", e))?;
         store
-            .store_full_state(&weak_subj_state_root, &weak_subj_state)
+            .put_state(&weak_subj_state_root, &weak_subj_state)
             .map_err(|e| format!("Failed to store weak subjectivity state: {:?}", e))?;
         store
             .put_block(&weak_subj_block_root, weak_subj_block.clone())

@@ -445,7 +445,7 @@ fn block_replayer_hooks() {
     let mut post_block_slots = vec![];
 
     let mut replay_state = BlockReplayer::<MinimalEthSpec>::new(state, &chain.spec)
-        .pre_slot_hook(Box::new(|state| {
+        .pre_slot_hook(Box::new(|_, state| {
             pre_slots.push(state.slot());
             Ok(())
         }))
