@@ -5,7 +5,6 @@ use std::convert::TryFrom;
 use std::fmt::Debug;
 use tree_hash::TreeHash;
 use types::ForkName;
-
 /// Macro to wrap U128 and U256 so they deserialize correctly.
 macro_rules! uint_wrapper {
     ($wrapper_name:ident, $wrapped_type:ty) => {
@@ -66,4 +65,25 @@ pub fn previous_fork(fork_name: ForkName) -> ForkName {
         ForkName::Altair => ForkName::Base,
         ForkName::Merge => ForkName::Altair, // TODO: Check this when tests are released..
     }
+}
+
+#[macro_export]
+macro_rules! impl_bls_load_case {
+    ($case_name:ident) => {
+        use crate::decode::yaml_decode_file;
+        impl LoadCase for $case_name {
+            fn load_from_dir(path: &Path, _fork_name: ForkName) -> Result<Self, Error> {
+                yaml_decode_file(&path)
+            }
+        }
+    };
+
+    ($case_name:ident, $sub_path_name:expr) => {
+        use crate::decode::yaml_decode_file;
+        impl LoadCase for $case_name {
+            fn load_from_dir(path: &Path, _fork_name: ForkName) -> Result<Self, Error> {
+                yaml_decode_file(&path.join($sub_path_name))
+            }
+        }
+    };
 }

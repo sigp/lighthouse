@@ -1,6 +1,6 @@
 use super::*;
 use crate::case_result::compare_result;
-use crate::decode::yaml_decode_file;
+use crate::impl_bls_load_case;
 use bls::{AggregateSignature, Signature};
 use serde_derive::Deserialize;
 
@@ -10,11 +10,7 @@ pub struct BlsAggregateSigs {
     pub output: String,
 }
 
-impl LoadCase for BlsAggregateSigs {
-    fn load_from_dir(path: &Path, _fork_name: ForkName) -> Result<Self, Error> {
-        yaml_decode_file(path)
-    }
-}
+impl_bls_load_case!(BlsAggregateSigs);
 
 impl Case for BlsAggregateSigs {
     fn result(&self, _case_index: usize, _fork_name: ForkName) -> Result<(), Error> {

@@ -1,6 +1,6 @@
 use super::*;
 use crate::case_result::compare_result;
-use crate::decode::yaml_decode_file;
+use crate::impl_bls_load_case;
 use bls::{AggregateSignature, PublicKeyBytes};
 use serde_derive::Deserialize;
 use std::convert::TryInto;
@@ -20,11 +20,7 @@ pub struct BlsFastAggregateVerify {
     pub output: bool,
 }
 
-impl LoadCase for BlsFastAggregateVerify {
-    fn load_from_dir(path: &Path, _fork_name: ForkName) -> Result<Self, Error> {
-        yaml_decode_file(path)
-    }
-}
+impl_bls_load_case!(BlsFastAggregateVerify);
 
 impl Case for BlsFastAggregateVerify {
     fn result(&self, _case_index: usize, _fork_name: ForkName) -> Result<(), Error> {

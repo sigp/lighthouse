@@ -1,6 +1,6 @@
 use super::*;
 use crate::case_result::compare_result;
-use crate::decode::yaml_decode_file;
+use crate::impl_bls_load_case;
 use bls::SecretKey;
 use serde_derive::Deserialize;
 use types::Hash256;
@@ -17,11 +17,7 @@ pub struct BlsSign {
     pub output: Option<String>,
 }
 
-impl LoadCase for BlsSign {
-    fn load_from_dir(path: &Path, _fork_name: ForkName) -> Result<Self, Error> {
-        yaml_decode_file(path)
-    }
-}
+impl_bls_load_case!(BlsSign);
 
 impl Case for BlsSign {
     fn result(&self, _case_index: usize, _fork_name: ForkName) -> Result<(), Error> {
