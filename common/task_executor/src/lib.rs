@@ -7,6 +7,8 @@ use slog::{crit, debug, o, trace};
 use std::sync::Weak;
 use tokio::runtime::{Handle, Runtime};
 
+pub use tokio::task::JoinHandle;
+
 /// Provides a reason when Lighthouse is shut down.
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub enum ShutdownReason {
@@ -310,6 +312,22 @@ impl TaskExecutor {
         };
 
         Some(future)
+    }
+
+    /// Block the current (non-async) thread on the completion of some future.
+    ///
+    /// ## Warning
+    ///
+    /// This method is "dangerous" since calling it from a non-async thread will result in a panic!
+    pub fn block_on_dangerous<F: Future>(
+        &self,
+        future: F,
+        _name: &'static str,
+    ) -> Option<F::Output>
+where {
+        let handle = self.handle()?;
+        // TODO(paul): respect the shutdown signal and the name.
+        Some(handle.block_on(future))
     }
 
     /// Returns a `Handle` to the current runtime.

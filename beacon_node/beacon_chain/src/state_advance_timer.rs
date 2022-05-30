@@ -216,9 +216,7 @@ async fn state_advance_timer<T: BeaconChainTypes>(
         executor.spawn_blocking(
             move || {
                 // Don't run fork choice during sync.
-                if beacon_chain.best_slot().map_or(true, |head_slot| {
-                    head_slot + MAX_FORK_CHOICE_DISTANCE < current_slot
-                }) {
+                if beacon_chain.best_slot() + MAX_FORK_CHOICE_DISTANCE < current_slot {
                     return;
                 }
 

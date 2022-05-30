@@ -18,6 +18,14 @@ use task_executor::{JoinHandle, ShutdownReason};
 use types::*;
 
 impl<T: BeaconChainTypes> BeaconChain<T> {
+    pub fn fork_choice(self: &Arc<Self>) -> Result<(), Error> {
+        todo!("remove this method")
+    }
+
+    pub fn fork_choice_at_slot(self: &Arc<Self>, _next_slot: Slot) -> Result<(), Error> {
+        todo!("remove this method")
+    }
+
     pub fn spawn_recompute_head(self: Arc<Self>, call_location: &'static str) {
         self.task_executor.clone().spawn(
             async move {
@@ -207,7 +215,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 .map::<Result<_, Error>, _>(Ok)
                 .unwrap_or_else(|| {
                     let beacon_block = self
-                        .get_block(&new_view.head_block_root)?
+                        .store
+                        .get_full_block(&new_view.head_block_root)?
                         .ok_or(Error::MissingBeaconBlock(new_view.head_block_root))?;
 
                     let beacon_state_root = beacon_block.state_root();

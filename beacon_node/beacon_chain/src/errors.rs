@@ -190,11 +190,13 @@ pub enum BeaconChainError {
     ForkChoiceSignalOutOfOrder {
         current: Slot,
         latest: Slot,
+    },
     ForkchoiceUpdateParamsMissing,
     HeadHasInvalidPayload {
         block_root: Hash256,
         execution_status: ExecutionStatus,
     },
+    AttestationHeadNotInForkChoice(Hash256),
 }
 
 easy_from_to!(SlotProcessingError, BeaconChainError);

@@ -86,7 +86,6 @@ use store::iter::{BlockRootsIterator, ParentRootBlockIterator, StateRootsIterato
 use store::{
     DatabaseBlock, Error as DBError, HotColdDB, KeyValueStore, KeyValueStoreOp, StoreItem, StoreOp,
 };
-use task_executor::ShutdownReason;
 use task_executor::{ShutdownReason, TaskExecutor};
 use tree_hash::TreeHash;
 use types::beacon_state::CloneConfig;
@@ -1363,11 +1362,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 })
                 .collect();
 
-            let execution_optimistic = self.is_optimistic_head_block(
-                &self
-                    .get_block(&head_block_root)?
-                    .ok_or(Error::MissingBeaconBlock(head_block_root))?,
-            )?;
+            let execution_optimistic = self
+                .canonical_head
+                .read()
+                .fork_choice
+                .get_block_execution_status(&head_block_root)
+                .ok_or(Error::AttestationHeadNotInForkChoice(head_block_root))?
+                .is_optimistic();
 
             Ok((duties, dependent_root, execution_optimistic))
         })
@@ -3918,9 +3919,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             self.block_times_cache.write().prune(slot);
 
             // Don't run heavy-weight tasks during sync.
-            if self.best_slot().map_or(true, |head_slot| {
-                head_slot + MAX_PER_SLOT_FORK_CHOICE_DISTANCE < slot
-            }) {
+            if self.best_slot() + MAX_PER_SLOT_FORK_CHOICE_DISTANCE < slot {
                 return;
             }
 
