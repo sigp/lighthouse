@@ -919,7 +919,8 @@ impl<T: BeaconChainTypes> Worker<T> {
                     "peer_id" => %peer_id
                 );
 
-                self.chain.spawn_recompute_head("block gossip");
+                self.chain
+                    .spawn_recompute_head_at_current_slot("block gossip");
             }
             Err(BlockError::ParentUnknown { .. }) => {
                 // Inform the sync manager to find parents for this block

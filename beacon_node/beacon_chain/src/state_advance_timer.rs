@@ -213,36 +213,32 @@ async fn state_advance_timer<T: BeaconChainTypes>(
         let log = log.clone();
         let beacon_chain = beacon_chain.clone();
         let next_slot = current_slot + 1;
-        executor.spawn_blocking(
-            move || {
-                // Don't run fork choice during sync.
-                if beacon_chain.best_slot() + MAX_FORK_CHOICE_DISTANCE < current_slot {
-                    return;
-                }
 
-                if let Err(e) = beacon_chain.fork_choice_at_slot(next_slot) {
-                    warn!(
-                        log,
-                        "Error updating fork choice for next slot";
-                        "error" => ?e,
-                        "slot" => next_slot,
-                    );
-                }
+        // Don't run fork choice during sync.
+        if beacon_chain.best_slot() + MAX_FORK_CHOICE_DISTANCE < current_slot {
+            return;
+        }
 
-                // Signal block proposal for the next slot (if it happens to be waiting).
-                if let Some(tx) = &beacon_chain.fork_choice_signal_tx {
-                    if let Err(e) = tx.notify_fork_choice_complete(next_slot) {
-                        warn!(
-                            log,
-                            "Error signalling fork choice waiter";
-                            "error" => ?e,
-                            "slot" => next_slot,
-                        );
-                    }
-                }
-            },
-            "fork_choice_advance",
-        );
+        if let Err(e) = beacon_chain.recompute_head_at_slot(next_slot).await {
+            warn!(
+                log,
+                "Error updating fork choice for next slot";
+                "error" => ?e,
+                "slot" => next_slot,
+            );
+        }
+
+        // Signal block proposal for the next slot (if it happens to be waiting).
+        if let Some(tx) = &beacon_chain.fork_choice_signal_tx {
+            if let Err(e) = tx.notify_fork_choice_complete(next_slot) {
+                warn!(
+                    log,
+                    "Error signalling fork choice waiter";
+                    "error" => ?e,
+                    "slot" => next_slot,
+                );
+            }
+        }
     }
 }
 

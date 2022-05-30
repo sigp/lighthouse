@@ -18,18 +18,10 @@ use task_executor::{JoinHandle, ShutdownReason};
 use types::*;
 
 impl<T: BeaconChainTypes> BeaconChain<T> {
-    pub fn fork_choice(self: &Arc<Self>) -> Result<(), Error> {
-        todo!("remove this method")
-    }
-
-    pub fn fork_choice_at_slot(self: &Arc<Self>, _next_slot: Slot) -> Result<(), Error> {
-        todo!("remove this method")
-    }
-
-    pub fn spawn_recompute_head(self: Arc<Self>, call_location: &'static str) {
+    pub fn spawn_recompute_head_at_current_slot(self: Arc<Self>, call_location: &'static str) {
         self.task_executor.clone().spawn(
             async move {
-                if let Err(e) = self.recompute_head().await {
+                if let Err(e) = self.recompute_head_at_current_slot().await {
                     error!(
                         self.log,
                         "Fork choice failed";
@@ -49,7 +41,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     }
 
     /// Execute the fork choice algorithm and enthrone the result as the canonical head.
-    pub async fn recompute_head(self: &Arc<Self>) -> Result<(), Error> {
+    pub async fn recompute_head_at_current_slot(self: &Arc<Self>) -> Result<(), Error> {
+        let current_slot = self.slot()?;
+        self.recompute_head_at_slot(current_slot).await
+    }
+
+    /// Execute the fork choice algorithm and enthrone the result as the canonical head.
+    pub async fn recompute_head_at_slot(self: &Arc<Self>, current_slot: Slot) -> Result<(), Error> {
         metrics::inc_counter(&metrics::FORK_CHOICE_REQUESTS);
         let _timer = metrics::start_timer(&metrics::FORK_CHOICE_TIMES);
 
@@ -57,7 +55,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         match self
             .task_executor
             .spawn_blocking_handle(
-                move || chain.recompute_head_internal(),
+                move || chain.recompute_head_at_slot_internal(current_slot),
                 "recompute_head_internal",
             )
             .ok_or(Error::RuntimeShutdown)?
@@ -98,8 +96,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         }
     }
 
-    pub(crate) fn recompute_head_internal(
+    pub fn recompute_head_at_slot_internal(
         self: &Arc<Self>,
+        current_slot: Slot,
     ) -> Result<Option<JoinHandle<Option<()>>>, Error> {
         let mut canonical_head_write_lock = self.canonical_head.write();
 
@@ -113,7 +112,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // Recompute the current head via the fork choice algorithm.
         canonical_head_write_lock
             .fork_choice
-            .get_head(self.slot()?, &self.spec)?;
+            .get_head(current_slot, &self.spec)?;
 
         // Read the current head value from the fork choice algorithm.
         let new_view = canonical_head_write_lock

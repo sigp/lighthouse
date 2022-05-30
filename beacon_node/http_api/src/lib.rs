@@ -954,9 +954,12 @@ pub fn serve<T: BeaconChainTypes>(
 
                             // Update the head since it's likely this block will become the new
                             // head.
+                            //
+                            // This is spawned in a new task since it's not imperative we wait for
+                            // it to complete.
                             chain
-                                .fork_choice()
-                                .map_err(warp_utils::reject::beacon_chain_error)?;
+                                .clone()
+                                .spawn_recompute_head_at_current_slot("api_full_block");
 
                             // Perform some logging to inform users if their blocks are being produced
                             // late.
@@ -1090,9 +1093,10 @@ pub fn serve<T: BeaconChainTypes>(
                             Ok(_) => {
                                 // Update the head since it's likely this block will become the new
                                 // head.
-                                chain
-                                    .fork_choice()
-                                    .map_err(warp_utils::reject::beacon_chain_error)?;
+                                //
+                                // This is spawned in a new task since it's not imperative we wait for
+                                // it to complete.
+                                chain.spawn_recompute_head_at_current_slot("api_blinded_block");
 
                                 Ok(())
                             }

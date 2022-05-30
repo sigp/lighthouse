@@ -1336,7 +1336,10 @@ where
         self.chain
             .task_executor
             .clone()
-            .block_on_dangerous(chain.recompute_head(), "recompute_head_blocking")
+            .block_on_dangerous(
+                chain.recompute_head_at_current_slot(),
+                "recompute_head_blocking",
+            )
             .ok_or(BeaconChainError::RuntimeShutdown)?
     }
 

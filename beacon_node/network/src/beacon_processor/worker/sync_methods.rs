@@ -88,7 +88,9 @@ impl<T: BeaconChainTypes> Worker<T> {
                     None,
                 );
                 // TODO(paul): use a SendOnDrop to keep the worker alive during this call.
-                self.chain.clone().spawn_recompute_head("process_rpc_block")
+                self.chain
+                    .clone()
+                    .spawn_recompute_head_at_current_slot("process_rpc_block")
             }
         }
         // Sync handles these results
@@ -215,7 +217,9 @@ impl<T: BeaconChainTypes> Worker<T> {
                 metrics::inc_counter(&metrics::BEACON_PROCESSOR_CHAIN_SEGMENT_SUCCESS_TOTAL);
                 if imported_blocks > 0 {
                     // TODO(paul): use a SendOnDrop to keep the worker alive during this call.
-                    self.chain.clone().spawn_recompute_head("process_blocks_ok")
+                    self.chain
+                        .clone()
+                        .spawn_recompute_head_at_current_slot("process_blocks_ok")
                 }
 
                 (imported_blocks, Ok(()))
@@ -230,7 +234,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                     // TODO(paul): use a SendOnDrop to keep the worker alive during this call.
                     self.chain
                         .clone()
-                        .spawn_recompute_head("process_blocks_err")
+                        .spawn_recompute_head_at_current_slot("process_blocks_err")
                 }
                 (imported_blocks, r)
             }

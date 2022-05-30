@@ -3281,7 +3281,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         //
         // Don't return early though, since invalidating the justified checkpoint might cause an
         // error here.
-        if let Err(e) = self.recompute_head().await {
+        if let Err(e) = self.recompute_head_at_current_slot().await {
             crit!(
                 self.log,
                 "Failed to run fork choice routine";
@@ -3909,7 +3909,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// Note: this function **MUST** be called from a non-async context since
     /// it contains a call to `fork_choice` which may eventually call
     /// `tokio::runtime::block_on` in certain cases.
-    pub fn per_slot_task(self: &Arc<Self>) {
+    pub async fn per_slot_task(self: &Arc<Self>) {
         trace!(self.log, "Running beacon chain per slot tasks");
         if let Some(slot) = self.slot_clock.now() {
             // Always run the light-weight pruning tasks (these structures should be empty during
@@ -3923,7 +3923,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             }
 
             // Run fork choice and signal to any waiting task that it has completed.
-            if let Err(e) = self.fork_choice() {
+            if let Err(e) = self.recompute_head_at_current_slot().await {
                 error!(
                     self.log,
                     "Fork choice error at slot start";
