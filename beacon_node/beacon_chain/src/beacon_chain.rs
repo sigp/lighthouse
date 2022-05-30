@@ -2777,6 +2777,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                             "Early attester cache insert failed";
                             "error" => ?e
                         );
+                    } else {
+                        // Success, record the block as capable of being attested to.
+                        self.block_times_cache.write().set_time_attestable(
+                            block_root,
+                            block.slot(),
+                            timestamp_now(),
+                        );
                     }
                 } else {
                     warn!(
@@ -3656,7 +3663,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         // Determine whether the block has been set as head too late for proper attestation
         // production.
-        let late_head = block_delay_total >= self.slot_clock.unagg_attestation_production_delay();
+        let attestation_deadline = self.slot_clock.unagg_attestation_production_delay();
+        let late_head = block_delay_total >= attestation_deadline;
 
         // Do not store metrics if the block was > 4 slots old, this helps prevent noise during
         // sync.
@@ -3676,34 +3684,61 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     .start_of(head_slot)
                     .unwrap_or_else(|| Duration::from_secs(0)),
             );
+            let observed_delay = block_delays
+                .observed
+                .unwrap_or_else(|| Duration::from_secs(0));
+            let import_delay = block_delays
+                .imported
+                .unwrap_or_else(|| Duration::from_secs(0));
+            let attestable_delay = block_delays
+                .attestable
+                .unwrap_or_else(|| Duration::from_secs(0));
+            let set_as_head_delay = block_delays
+                .set_as_head
+                .unwrap_or_else(|| Duration::from_secs(0));
 
             metrics::observe_duration(
                 &metrics::BEACON_BLOCK_OBSERVED_SLOT_START_DELAY_TIME,
-                block_delays
-                    .observed
-                    .unwrap_or_else(|| Duration::from_secs(0)),
+                observed_delay,
             );
-
+            metrics::observe_duration(
+                &metrics::BEACON_BLOCK_HEAD_ATTESTABLE_DELAY_TIME,
+                attestable_delay,
+            );
             metrics::observe_duration(
                 &metrics::BEACON_BLOCK_HEAD_IMPORTED_DELAY_TIME,
-                block_delays
-                    .set_as_head
-                    .unwrap_or_else(|| Duration::from_secs(0)),
+                set_as_head_delay,
             );
 
             // If the block was enshrined as head too late for attestations to be created for it,
             // log a debug warning and increment a metric.
-            if late_head {
-                metrics::inc_counter(&metrics::BEACON_BLOCK_HEAD_SLOT_START_DELAY_EXCEEDED_TOTAL);
+            let missed_attestation_deadline = attestable_delay >= attestation_deadline;
+            if missed_attestation_deadline {
+                let due_to_late_block = observed_delay >= attestation_deadline;
+                let due_to_processing = observed_delay + import_delay >= attestation_deadline;
+
+                let reason = if due_to_late_block {
+                    metrics::inc_counter(&metrics::BEACON_BLOCK_HEAD_MISSED_ATT_DEADLINE_LATE);
+                    "late block"
+                } else if due_to_processing {
+                    metrics::inc_counter(&metrics::BEACON_BLOCK_HEAD_MISSED_ATT_DEADLINE_SLOW);
+                    "slow to process"
+                } else {
+                    metrics::inc_counter(&metrics::BEACON_BLOCK_HEAD_MISSED_ATT_DEADLINE_OTHER);
+                    "other"
+                };
+
                 debug!(
                     self.log,
                     "Delayed head block";
+                    "reason" => reason,
                     "block_root" => ?beacon_block_root,
                     "proposer_index" => head_proposer_index,
                     "slot" => head_slot,
                     "block_delay" => ?block_delay_total,
                     "observed_delay" => ?block_delays.observed,
                     "imported_delay" => ?block_delays.imported,
+                    "attestable_delay" => ?attestable_delay,
                     "set_as_head_delay" => ?block_delays.set_as_head,
                 );
             }
@@ -3820,6 +3855,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     proposer_graffiti,
                     block_delay: block_delay_total,
                     observed_delay: block_delays.observed,
+                    attestable_delay: block_delays.attestable,
                     imported_delay: block_delays.imported,
                     set_as_head_delay: block_delays.set_as_head,
                 }));

@@ -771,7 +771,10 @@ lazy_static! {
         "Number of attester slashings seen",
         &["src", "validator"]
     );
+}
 
+// Fourth lazy-static block is used to account for macro recursion limit.
+lazy_static! {
     /*
      * Block Delay Metrics
      */
@@ -787,14 +790,25 @@ lazy_static! {
         "beacon_block_head_imported_delay_time",
         "Duration between the time the block was imported and the time when it was set as head.",
     );
+    pub static ref BEACON_BLOCK_HEAD_ATTESTABLE_DELAY_TIME: Result<Histogram> = try_create_histogram(
+        "beacon_block_head_attestable_delay_time",
+        "Duration between the start of the slot and the time at which the block could be attested to.",
+    );
     pub static ref BEACON_BLOCK_HEAD_SLOT_START_DELAY_TIME: Result<Histogram> = try_create_histogram(
         "beacon_block_head_slot_start_delay_time",
         "Duration between the start of the block's slot and the time when it was set as head.",
     );
-    pub static ref BEACON_BLOCK_HEAD_SLOT_START_DELAY_EXCEEDED_TOTAL: Result<IntCounter> = try_create_int_counter(
-        "beacon_block_head_slot_start_delay_exceeded_total",
-        "Triggered when the duration between the start of the block's slot and the current time \
-        will result in failed attestations.",
+    pub static ref BEACON_BLOCK_HEAD_MISSED_ATT_DEADLINE_LATE: Result<IntCounter> = try_create_int_counter(
+        "beacon_block_head_missed_att_deadline_late",
+        "Total number of delayed head blocks that arrived late"
+    );
+    pub static ref BEACON_BLOCK_HEAD_MISSED_ATT_DEADLINE_SLOW: Result<IntCounter> = try_create_int_counter(
+        "beacon_block_head_missed_att_deadline_slow",
+        "Total number of delayed head blocks that arrived on time but not processed in time"
+    );
+    pub static ref BEACON_BLOCK_HEAD_MISSED_ATT_DEADLINE_OTHER: Result<IntCounter> = try_create_int_counter(
+        "beacon_block_head_missed_att_deadline_other",
+        "Total number of delayed head blocks that were not late and not slow to process"
     );
 
     /*
@@ -805,10 +819,7 @@ lazy_static! {
             "gossip_beacon_block_skipped_slots",
             "For each gossip blocks, the number of skip slots between it and its parent"
         );
-}
 
-// Fourth lazy-static block is used to account for macro recursion limit.
-lazy_static! {
     /*
      * Sync Committee Message Verification
      */
