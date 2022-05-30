@@ -189,14 +189,6 @@ impl fmt::Display for StateId {
 #[serde(bound = "T: Serialize + serde::de::DeserializeOwned")]
 pub struct DutiesResponse<T: Serialize + serde::de::DeserializeOwned> {
     pub dependent_root: Hash256,
-    pub execution_optimistic: bool,
-    pub data: T,
-}
-
-#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
-#[serde(bound = "T: Serialize + serde::de::DeserializeOwned")]
-pub struct ExecutionOptimisticResponse<T: Serialize + serde::de::DeserializeOwned> {
-    pub execution_optimistic: bool,
     pub data: T,
 }
 
@@ -212,18 +204,6 @@ impl<T: Serialize + serde::de::DeserializeOwned> From<T> for GenericResponse<T> 
     }
 }
 
-impl<T: Serialize + serde::de::DeserializeOwned> GenericResponse<T> {
-    pub fn add_execution_optimistic(
-        self,
-        execution_optimistic: bool,
-    ) -> ExecutionOptimisticResponse<T> {
-        ExecutionOptimisticResponse {
-            execution_optimistic,
-            data: self.data,
-        }
-    }
-}
-
 #[derive(Debug, PartialEq, Clone, Serialize)]
 #[serde(bound = "T: Serialize")]
 pub struct GenericResponseRef<'a, T: Serialize> {
@@ -234,14 +214,6 @@ impl<'a, T: Serialize> From<&'a T> for GenericResponseRef<'a, T> {
     fn from(data: &'a T) -> Self {
         Self { data }
     }
-}
-
-#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
-pub struct ExecutionOptimisticForkVersionedResponse<T> {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub version: Option<ForkName>,
-    pub execution_optimistic: bool,
-    pub data: T,
 }
 
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
@@ -523,8 +495,6 @@ pub struct DepositContractData {
 pub struct ChainHeadData {
     pub slot: Slot,
     pub root: Hash256,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub execution_optimistic: Option<bool>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -824,7 +794,6 @@ pub struct PeerCount {
 pub struct SseBlock {
     pub slot: Slot,
     pub block: Hash256,
-    pub execution_optimistic: bool,
 }
 
 #[derive(PartialEq, Debug, Serialize, Deserialize, Clone)]
@@ -832,7 +801,6 @@ pub struct SseFinalizedCheckpoint {
     pub block: Hash256,
     pub state: Hash256,
     pub epoch: Epoch,
-    pub execution_optimistic: bool,
 }
 
 #[derive(PartialEq, Debug, Serialize, Deserialize, Clone)]
@@ -843,7 +811,6 @@ pub struct SseHead {
     pub current_duty_dependent_root: Hash256,
     pub previous_duty_dependent_root: Hash256,
     pub epoch_transition: bool,
-    pub execution_optimistic: bool,
 }
 
 #[derive(PartialEq, Debug, Serialize, Deserialize, Clone)]
@@ -856,7 +823,6 @@ pub struct SseChainReorg {
     pub new_head_block: Hash256,
     pub new_head_state: Hash256,
     pub epoch: Epoch,
-    pub execution_optimistic: bool,
 }
 
 #[derive(PartialEq, Debug, Serialize, Deserialize, Clone)]
@@ -871,7 +837,6 @@ pub struct SseLateHead {
     pub observed_delay: Option<Duration>,
     pub imported_delay: Option<Duration>,
     pub set_as_head_delay: Option<Duration>,
-    pub execution_optimistic: bool,
 }
 
 #[derive(PartialEq, Debug, Serialize, Clone)]
