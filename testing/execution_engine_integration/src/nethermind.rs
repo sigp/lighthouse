@@ -1,13 +1,12 @@
 use crate::build_utils;
 use crate::execution_engine::GenericExecutionEngine;
-use crate::genesis_json::nethermind_genesis_json;
+use std::env;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Output};
-use std::{env, fs::File};
 use tempfile::TempDir;
 use unused_port::unused_tcp_port;
 
-const NETHERMIND_BRANCH: &str = "kiln";
+const NETHERMIND_BRANCH: &str = "master";
 const NETHERMIND_REPO_URL: &str = "https://github.com/NethermindEth/nethermind";
 
 fn build_result(repo_dir: &Path) -> Output {
@@ -71,14 +70,7 @@ impl NethermindEngine {
 
 impl GenericExecutionEngine for NethermindEngine {
     fn init_datadir() -> TempDir {
-        let datadir = TempDir::new().unwrap();
-
-        let genesis_json_path = datadir.path().join("genesis.json");
-        let mut file = File::create(&genesis_json_path).unwrap();
-        let json = nethermind_genesis_json();
-        serde_json::to_writer(&mut file, &json).unwrap();
-
-        datadir
+        TempDir::new().unwrap()
     }
 
     fn start_client(
@@ -88,15 +80,14 @@ impl GenericExecutionEngine for NethermindEngine {
         jwt_secret_path: PathBuf,
     ) -> Child {
         let network_port = unused_tcp_port().unwrap();
-        let genesis_json_path = datadir.path().join("genesis.json");
 
         Command::new(Self::binary_path())
             .arg("--datadir")
             .arg(datadir.path().to_str().unwrap())
             .arg("--config")
-            .arg("themerge_kiln_testvectors")
-            .arg("--Init.ChainSpecPath")
-            .arg(genesis_json_path.to_str().unwrap())
+            .arg("kiln")
+            .arg("--Merge.TerminalTotalDifficulty")
+            .arg("0")
             .arg("--JsonRpc.AdditionalRpcUrls")
             .arg(format!("http://localhost:{}|http;ws|net;eth;subscribe;engine;web3;client|no-auth,http://localhost:{}|http;ws|net;eth;subscribe;engine;web3;client", http_port, http_auth_port))
             .arg("--JsonRpc.EnabledModules")
