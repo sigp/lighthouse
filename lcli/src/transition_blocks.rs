@@ -70,9 +70,11 @@ fn do_transition<T: EthSpec>(
     block: SignedBeaconBlock<T>,
     spec: &ChainSpec,
 ) -> Result<BeaconState<T>, String> {
+    let t = std::time::Instant::now();
     pre_state
         .build_all_caches(spec)
         .map_err(|e| format!("Unable to build caches: {:?}", e))?;
+    println!("Build all caches: {}ms", t.elapsed().as_millis());
 
     let t = std::time::Instant::now();
     pre_state
@@ -94,9 +96,11 @@ fn do_transition<T: EthSpec>(
         .map_err(|e| format!("Unable to build tree hash cache: {:?}", e))?;
     println!("Pre-block tree hash: {}ms", t.elapsed().as_millis());
 
+    let t = std::time::Instant::now();
     pre_state
         .build_all_caches(spec)
         .map_err(|e| format!("Unable to build caches: {:?}", e))?;
+    println!("Build all caches (again): {}ms", t.elapsed().as_millis());
 
     let t = std::time::Instant::now();
     let mut ctxt =
