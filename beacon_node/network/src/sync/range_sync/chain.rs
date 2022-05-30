@@ -1,4 +1,4 @@
-use super::batch::{BatchInfo, BatchState};
+use super::batch::{BatchInfo, BatchProcessingResult, BatchState};
 use crate::beacon_processor::WorkEvent as BeaconWorkEvent;
 use crate::beacon_processor::{ChainSegmentProcessId, FailureMode};
 use crate::sync::{manager::Id, network_context::SyncNetworkContext, BatchProcessResult};
@@ -348,7 +348,6 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
             if let Some(batch) = self.batches.get(&epoch) {
                 let state = batch.state();
                 match state {
-                    // Return early here without any additional processing.
                     BatchState::AwaitingProcessing(..) => {
                         // this batch is ready
                         debug!(self.log, "Processing optimistic start"; "epoch" => epoch);
@@ -467,7 +466,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                     ))
                 })?;
 
-                batch.processing_completed(true, false)?;
+                batch.processing_completed(BatchProcessingResult::Success)?;
                 // If the processed batch was not empty, we can validate previous unvalidated
                 // blocks.
                 if *was_non_empty {
@@ -530,7 +529,10 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                 } else {
                     false
                 };
-                if batch.processing_completed(false, stall_execution)? {
+                if batch.processing_completed(BatchProcessingResult::Failed {
+                    // do not count attempt if the error was due to execution layer being offline
+                    count_attempt: !stall_execution,
+                })? {
                     // check that we have not exceeded the re-process retry counter
                     // If a batch has exceeded the invalid batch lookup attempts limit, it means
                     // that it is likely all peers in this chain are are sending invalid batches

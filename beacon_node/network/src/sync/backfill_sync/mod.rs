@@ -11,7 +11,7 @@
 use crate::beacon_processor::{ChainSegmentProcessId, FailureMode, WorkEvent as BeaconWorkEvent};
 use crate::sync::manager::{BatchProcessResult, Id};
 use crate::sync::network_context::SyncNetworkContext;
-use crate::sync::range_sync::{BatchConfig, BatchId, BatchInfo, BatchState};
+use crate::sync::range_sync::{BatchConfig, BatchId, BatchInfo, BatchProcessingResult, BatchState};
 use beacon_chain::{BeaconChain, BeaconChainTypes};
 use lighthouse_network::types::{BackFillState, NetworkGlobals};
 use lighthouse_network::{PeerAction, PeerId};
@@ -607,7 +607,7 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
                     }
                 };
 
-                if let Err(e) = batch.processing_completed(true, false) {
+                if let Err(e) = batch.processing_completed(BatchProcessingResult::Success) {
                     self.fail_sync(BackFillError::BatchInvalidState(batch_id, e.0))?;
                 }
                 // If the processed batch was not empty, we can validate previous unvalidated
@@ -666,7 +666,9 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
                 };
                 debug!(self.log, "Batch processing failed"; "imported_blocks" => imported_blocks,
                     "batch_epoch" => batch_id, "peer" => %peer, "client" => %network.client_type(&peer));
-                match batch.processing_completed(false, false) {
+                match batch.processing_completed(BatchProcessingResult::Failed {
+                    count_attempt: true,
+                }) {
                     Err(e) => {
                         // Batch was in the wrong state
                         self.fail_sync(BackFillError::BatchInvalidState(batch_id, e.0))
@@ -735,10 +737,20 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
                     // Batch is not ready, nothing to process
                 }
                 BatchState::Poisoned => unreachable!("Poisoned batch"),
-                BatchState::Failed
-                | BatchState::AwaitingDownload
-                | BatchState::Processing(_)
-                | BatchState::AwaitingValidation(_) => {
+                BatchState::Failed | BatchState::AwaitingDownload | BatchState::Processing(_) => {
+                    // these are all inconsistent states:
+                    // - Failed -> non recoverable batch. Chain should have been removed
+                    // - AwaitingDownload -> A recoverable failed batch should have been
+                    //   re-requested.
+                    // - Processing -> `self.current_processing_batch` is None
+                    return self
+                        .fail_sync(BackFillError::InvalidSyncState(String::from(
+                            "Invalid expected batch state",
+                        )))
+                        .map(|_| ProcessResult::Successful);
+                }
+
+                BatchState::AwaitingValidation(_) => {
                     // TODO: I don't think this state is possible, log a CRIT just in case.
                     // If this is not observed, add it to the failed state branch above.
                     crit!(self.log, "Chain encountered a robust batch awaiting validation"; "batch" => self.processing_target);

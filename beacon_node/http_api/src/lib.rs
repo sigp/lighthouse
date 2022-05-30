@@ -389,9 +389,12 @@ pub fn serve<T: BeaconChainTypes>(
                         {
                             Ok(())
                         }
-                        SyncState::Stalled | SyncState::WaitingOnExecution => Err(
-                            warp_utils::reject::not_synced("sync is stalled".to_string()),
-                        ),
+                        SyncState::Stalled => Err(warp_utils::reject::not_synced(
+                            "sync is stalled".to_string(),
+                        )),
+                        SyncState::WaitingOnExecution => Err(warp_utils::reject::not_synced(
+                            "sync is waiting on execution".to_string(),
+                        )),
                     }
                 },
             )

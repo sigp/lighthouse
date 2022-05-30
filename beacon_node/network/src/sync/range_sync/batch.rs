@@ -72,6 +72,11 @@ pub struct WrongState(pub(crate) String);
 /// Auxiliary type alias for readability.
 type IsFailed = bool;
 
+pub enum BatchProcessingResult {
+    Success,
+    Failed { count_attempt: bool },
+}
+
 /// A segment of a chain.
 pub struct BatchInfo<T: EthSpec, B: BatchConfig = RangeSyncBatchConfig> {
     /// Start slot of the batch.
@@ -350,27 +355,29 @@ impl<T: EthSpec, B: BatchConfig> BatchInfo<T, B> {
     #[must_use = "Batch may have failed"]
     pub fn processing_completed(
         &mut self,
-        was_sucessful: bool,
-        stall_execution: bool,
+        procesing_result: BatchProcessingResult,
     ) -> Result<IsFailed, WrongState> {
         match self.state.poison() {
             BatchState::Processing(attempt) => {
-                self.state = if stall_execution {
-                    BatchState::AwaitingDownload
-                } else if !was_sucessful {
-                    // register the failed attempt
-                    self.failed_processing_attempts.push(attempt);
+                self.state = match procesing_result {
+                    BatchProcessingResult::Success => BatchState::AwaitingValidation(attempt),
+                    BatchProcessingResult::Failed { count_attempt } => {
+                        if count_attempt {
+                            // register the failed attempt
+                            self.failed_processing_attempts.push(attempt);
 
-                    // check if the batch can be downloaded again
-                    if self.failed_processing_attempts.len()
-                        >= B::max_batch_processing_attempts() as usize
-                    {
-                        BatchState::Failed
-                    } else {
-                        BatchState::AwaitingDownload
+                            // check if the batch can be downloaded again
+                            if self.failed_processing_attempts.len()
+                                >= B::max_batch_processing_attempts() as usize
+                            {
+                                BatchState::Failed
+                            } else {
+                                BatchState::AwaitingDownload
+                            }
+                        } else {
+                            BatchState::AwaitingDownload
+                        }
                     }
-                } else {
-                    BatchState::AwaitingValidation(attempt)
                 };
                 Ok(self.state.is_failed())
             }
