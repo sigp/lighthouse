@@ -15,12 +15,11 @@ macro_rules! vectors_and_tests {
         }
 
         #[cfg(all(test, not(debug_assertions)))]
-        #[tokio::test]
         mod tests {
             use super::*;
             $(
                 #[tokio::test]
-                fn $name() {
+                async fn $name() {
                     $test.run().await;
                 }
             )*

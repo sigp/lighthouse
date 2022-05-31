@@ -73,12 +73,12 @@ impl ExitTest {
     }
 
     #[cfg(all(test, not(debug_assertions)))]
-    fn run(self) -> BeaconState<E> {
+    async fn run(self) -> BeaconState<E> {
         let spec = &E::default_spec();
         let expected = self.expected.clone();
         assert_eq!(STATE_EPOCH, spec.shard_committee_period);
 
-        let (block, mut state) = self.block_and_pre_state();
+        let (block, mut state) = self.block_and_pre_state().await;
 
         let result = Self::process(&block, &mut state);
 
@@ -335,14 +335,14 @@ mod custom_tests {
         );
     }
 
-    #[test]
-    fn valid() {
-        let state = ExitTest::default().run();
+    #[tokio::test]
+    async fn valid() {
+        let state = ExitTest::default().run().await;
         assert_exited(&state, VALIDATOR_INDEX as usize);
     }
 
-    #[test]
-    fn valid_three() {
+    #[tokio::test]
+    async fn valid_three() {
         let state = ExitTest {
             block_modifier: Box::new(|harness, block| {
                 harness.add_voluntary_exit(block, 1, STATE_EPOCH);
@@ -350,7 +350,8 @@ mod custom_tests {
             }),
             ..ExitTest::default()
         }
-        .run();
+        .run()
+        .await;
 
         for i in &[VALIDATOR_INDEX, 1, 2] {
             assert_exited(&state, *i as usize);

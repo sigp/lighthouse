@@ -1331,18 +1331,6 @@ where
         (deposits, state)
     }
 
-    pub fn recompute_head_blocking(&self) -> Result<(), BeaconChainError> {
-        let chain = self.chain.clone();
-        self.chain
-            .task_executor
-            .clone()
-            .block_on_dangerous(
-                chain.recompute_head_at_current_slot(),
-                "recompute_head_blocking",
-            )
-            .ok_or(BeaconChainError::RuntimeShutdown)?
-    }
-
     pub async fn process_block(
         &self,
         slot: Slot,

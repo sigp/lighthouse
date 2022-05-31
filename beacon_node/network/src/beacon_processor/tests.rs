@@ -70,7 +70,7 @@ impl Drop for TestRig {
 }
 
 impl TestRig {
-    pub fn new(chain_length: u64) -> Self {
+    pub async fn new(chain_length: u64) -> Self {
         // This allows for testing voluntary exits without building out a massive chain.
         let mut spec = E::default_spec();
         spec.shard_committee_period = 2;
@@ -84,11 +84,13 @@ impl TestRig {
         harness.advance_slot();
 
         for _ in 0..chain_length {
-            harness.extend_chain(
-                1,
-                BlockStrategy::OnCanonicalHead,
-                AttestationStrategy::AllValidators,
-            );
+            harness
+                .extend_chain(
+                    1,
+                    BlockStrategy::OnCanonicalHead,
+                    AttestationStrategy::AllValidators,
+                )
+                .await;
 
             harness.advance_slot();
         }
@@ -223,14 +225,8 @@ impl TestRig {
         }
     }
 
-    pub fn recompute_head_blocking(&self) {
-        let chain = self.chain.clone();
-        self.chain
-            .task_executor
-            .clone()
-            .block_on_dangerous(chain.recompute_head(), "recompute_head_blocking")
-            .unwrap()
-            .unwrap();
+    pub async fn recompute_head(&self) {
+        self.chain.recompute_head_at_current_slot().await.unwrap()
     }
 
     pub fn head_root(&self) -> Hash256 {
@@ -465,9 +461,9 @@ fn junk_message_id() -> MessageId {
 }
 
 /// Blocks that arrive early should be queued for later processing.
-#[test]
-fn import_gossip_block_acceptably_early() {
-    let mut rig = TestRig::new(SMALL_CHAIN);
+#[tokio::test]
+async fn import_gossip_block_acceptably_early() {
+    let mut rig = TestRig::new(SMALL_CHAIN).await;
 
     let slot_start = rig
         .chain
@@ -512,9 +508,9 @@ fn import_gossip_block_acceptably_early() {
 }
 
 /// Blocks that are *too* early shouldn't get into the delay queue.
-#[test]
-fn import_gossip_block_unacceptably_early() {
-    let mut rig = TestRig::new(SMALL_CHAIN);
+#[tokio::test]
+async fn import_gossip_block_unacceptably_early() {
+    let mut rig = TestRig::new(SMALL_CHAIN).await;
 
     let slot_start = rig
         .chain
@@ -547,9 +543,9 @@ fn import_gossip_block_unacceptably_early() {
 }
 
 /// Blocks that arrive on-time should be processed normally.
-#[test]
-fn import_gossip_block_at_current_slot() {
-    let mut rig = TestRig::new(SMALL_CHAIN);
+#[tokio::test]
+async fn import_gossip_block_at_current_slot() {
+    let mut rig = TestRig::new(SMALL_CHAIN).await;
 
     assert_eq!(
         rig.chain.slot().unwrap(),
@@ -569,9 +565,9 @@ fn import_gossip_block_at_current_slot() {
 }
 
 /// Ensure a valid attestation can be imported.
-#[test]
-fn import_gossip_attestation() {
-    let mut rig = TestRig::new(SMALL_CHAIN);
+#[tokio::test]
+async fn import_gossip_attestation() {
+    let mut rig = TestRig::new(SMALL_CHAIN).await;
 
     let initial_attns = rig.chain.naive_aggregation_pool.read().num_items();
 
@@ -593,8 +589,8 @@ enum BlockImportMethod {
 
 /// Ensure that attestations that reference an unknown block get properly re-queued and
 /// re-processed upon importing the block.
-fn attestation_to_unknown_block_processed(import_method: BlockImportMethod) {
-    let mut rig = TestRig::new(SMALL_CHAIN);
+async fn attestation_to_unknown_block_processed(import_method: BlockImportMethod) {
+    let mut rig = TestRig::new(SMALL_CHAIN).await;
 
     // Send the attestation but not the block, and check that it was not imported.
 
@@ -627,7 +623,7 @@ fn attestation_to_unknown_block_processed(import_method: BlockImportMethod) {
 
     // Run fork choice, since it isn't run when processing an RPC block. At runtime it is the
     // responsibility of the sync manager to do this.
-    rig.recompute_head_blocking();
+    rig.recompute_head().await;
 
     assert_eq!(
         rig.head_root(),
@@ -642,20 +638,20 @@ fn attestation_to_unknown_block_processed(import_method: BlockImportMethod) {
     );
 }
 
-#[test]
-fn attestation_to_unknown_block_processed_after_gossip_block() {
-    attestation_to_unknown_block_processed(BlockImportMethod::Gossip)
+#[tokio::test]
+async fn attestation_to_unknown_block_processed_after_gossip_block() {
+    attestation_to_unknown_block_processed(BlockImportMethod::Gossip).await
 }
 
-#[test]
-fn attestation_to_unknown_block_processed_after_rpc_block() {
-    attestation_to_unknown_block_processed(BlockImportMethod::Rpc)
+#[tokio::test]
+async fn attestation_to_unknown_block_processed_after_rpc_block() {
+    attestation_to_unknown_block_processed(BlockImportMethod::Rpc).await
 }
 
 /// Ensure that attestations that reference an unknown block get properly re-queued and
 /// re-processed upon importing the block.
-fn aggregate_attestation_to_unknown_block(import_method: BlockImportMethod) {
-    let mut rig = TestRig::new(SMALL_CHAIN);
+async fn aggregate_attestation_to_unknown_block(import_method: BlockImportMethod) {
+    let mut rig = TestRig::new(SMALL_CHAIN).await;
 
     // Empty the op pool.
     rig.chain
@@ -694,7 +690,7 @@ fn aggregate_attestation_to_unknown_block(import_method: BlockImportMethod) {
 
     // Run fork choice, since it isn't run when processing an RPC block. At runtime it is the
     // responsibility of the sync manager to do this.
-    rig.recompute_head_blocking();
+    rig.recompute_head().await;
 
     assert_eq!(
         rig.head_root(),
@@ -709,21 +705,21 @@ fn aggregate_attestation_to_unknown_block(import_method: BlockImportMethod) {
     );
 }
 
-#[test]
-fn aggregate_attestation_to_unknown_block_processed_after_gossip_block() {
-    aggregate_attestation_to_unknown_block(BlockImportMethod::Gossip)
+#[tokio::test]
+async fn aggregate_attestation_to_unknown_block_processed_after_gossip_block() {
+    aggregate_attestation_to_unknown_block(BlockImportMethod::Gossip).await
 }
 
-#[test]
-fn aggregate_attestation_to_unknown_block_processed_after_rpc_block() {
-    aggregate_attestation_to_unknown_block(BlockImportMethod::Rpc)
+#[tokio::test]
+async fn aggregate_attestation_to_unknown_block_processed_after_rpc_block() {
+    aggregate_attestation_to_unknown_block(BlockImportMethod::Rpc).await
 }
 
 /// Ensure that attestations that reference an unknown block get properly re-queued and re-processed
 /// when the block is not seen.
-#[test]
-fn requeue_unknown_block_gossip_attestation_without_import() {
-    let mut rig = TestRig::new(SMALL_CHAIN);
+#[tokio::test]
+async fn requeue_unknown_block_gossip_attestation_without_import() {
+    let mut rig = TestRig::new(SMALL_CHAIN).await;
 
     // Send the attestation but not the block, and check that it was not imported.
 
@@ -755,9 +751,9 @@ fn requeue_unknown_block_gossip_attestation_without_import() {
 
 /// Ensure that aggregate that reference an unknown block get properly re-queued and re-processed
 /// when the block is not seen.
-#[test]
-fn requeue_unknown_block_gossip_aggregated_attestation_without_import() {
-    let mut rig = TestRig::new(SMALL_CHAIN);
+#[tokio::test]
+async fn requeue_unknown_block_gossip_aggregated_attestation_without_import() {
+    let mut rig = TestRig::new(SMALL_CHAIN).await;
 
     // Send the attestation but not the block, and check that it was not imported.
 
@@ -788,10 +784,10 @@ fn requeue_unknown_block_gossip_aggregated_attestation_without_import() {
 }
 
 /// Ensure a bunch of valid operations can be imported.
-#[test]
-fn import_misc_gossip_ops() {
+#[tokio::test]
+async fn import_misc_gossip_ops() {
     // Exits need the long chain so validators aren't too young to exit.
-    let mut rig = TestRig::new(LONG_CHAIN);
+    let mut rig = TestRig::new(LONG_CHAIN).await;
 
     /*
      * Attester slashing
