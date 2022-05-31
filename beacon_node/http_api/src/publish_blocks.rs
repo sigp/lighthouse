@@ -245,7 +245,7 @@ fn reconstruct_block<T: BeaconChainTypes>(
 
             // If we already have an execution payload with this transactions root cached, use it.
             let full_payload = if let Some(cached_payload) =
-                el.get_payload_by_root(&execution_payload.execution_payload_header.tree_hash_root())
+                el.get_payload_by_root(&execution_payload.tree_hash_root())
             {
                 cached_payload
             } else {
