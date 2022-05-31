@@ -1737,9 +1737,9 @@ pub fn serve<T: BeaconChainTypes>(
                         .head_info()
                         .map(|info| info.slot)
                         .map_err(warp_utils::reject::beacon_chain_error)?;
-                    let current_slot = chain
-                        .slot()
-                        .map_err(warp_utils::reject::beacon_chain_error)?;
+                    let current_slot = chain.slot_clock.now_or_genesis().ok_or_else(|| {
+                        warp_utils::reject::custom_server_error("Unable to read slot clock".into())
+                    })?;
 
                     // Taking advantage of saturating subtraction on slot.
                     let sync_distance = current_slot - head_slot;
