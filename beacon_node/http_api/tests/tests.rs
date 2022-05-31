@@ -20,7 +20,6 @@ use slot_clock::SlotClock;
 use state_processing::per_slot_processing;
 use std::convert::TryInto;
 use std::sync::Arc;
-use task_executor::test_utils::TestRuntime;
 use tokio::sync::{mpsc, oneshot};
 use tokio::time::Duration;
 use tree_hash::TreeHash;
@@ -50,6 +49,7 @@ const SKIPPED_SLOTS: &[u64] = &[
 ];
 
 struct ApiTester {
+    harness: Arc<BeaconChainHarness<EphemeralHarnessType<E>>>,
     chain: Arc<BeaconChain<EphemeralHarnessType<E>>>,
     client: BeaconNodeHttpClient,
     next_block: SignedBeaconBlock<E>,
@@ -60,11 +60,9 @@ struct ApiTester {
     proposer_slashing: ProposerSlashing,
     voluntary_exit: SignedVoluntaryExit,
     _server_shutdown: oneshot::Sender<()>,
-    validator_keypairs: Vec<Keypair>,
     network_rx: mpsc::UnboundedReceiver<NetworkMessage<E>>,
     local_enr: Enr,
     external_peer_id: PeerId,
-    _runtime: TestRuntime,
 }
 
 impl ApiTester {
@@ -76,11 +74,13 @@ impl ApiTester {
     }
 
     pub async fn new_from_spec(spec: ChainSpec) -> Self {
-        let harness = BeaconChainHarness::builder(MainnetEthSpec)
-            .spec(spec.clone())
-            .deterministic_keypairs(VALIDATOR_COUNT)
-            .fresh_ephemeral_store()
-            .build();
+        let harness = Arc::new(
+            BeaconChainHarness::builder(MainnetEthSpec)
+                .spec(spec.clone())
+                .deterministic_keypairs(VALIDATOR_COUNT)
+                .fresh_ephemeral_store()
+                .build(),
+        );
 
         harness.advance_slot();
 
@@ -88,11 +88,23 @@ impl ApiTester {
             let slot = harness.chain.slot().unwrap().as_u64();
 
             if !SKIPPED_SLOTS.contains(&slot) {
-                harness.extend_chain(
-                    1,
-                    BlockStrategy::OnCanonicalHead,
-                    AttestationStrategy::AllValidators,
-                );
+                let inner_harness = harness.clone();
+                harness
+                    .chain
+                    .task_executor
+                    .spawn_blocking_handle(
+                        move || {
+                            inner_harness.extend_chain(
+                                1,
+                                BlockStrategy::OnCanonicalHead,
+                                AttestationStrategy::AllValidators,
+                            );
+                        },
+                        "extend_chain",
+                    )
+                    .unwrap()
+                    .await
+                    .unwrap()
             }
 
             harness.advance_slot();
@@ -196,6 +208,7 @@ impl ApiTester {
         );
 
         Self {
+            harness,
             chain,
             client,
             next_block,
@@ -206,20 +219,20 @@ impl ApiTester {
             proposer_slashing,
             voluntary_exit,
             _server_shutdown: shutdown_tx,
-            validator_keypairs: harness.validator_keypairs,
             network_rx,
             local_enr,
             external_peer_id,
-            _runtime: harness.runtime,
         }
     }
 
     pub async fn new_from_genesis() -> Self {
-        let harness = BeaconChainHarness::builder(MainnetEthSpec)
-            .default_spec()
-            .deterministic_keypairs(VALIDATOR_COUNT)
-            .fresh_ephemeral_store()
-            .build();
+        let harness = Arc::new(
+            BeaconChainHarness::builder(MainnetEthSpec)
+                .default_spec()
+                .deterministic_keypairs(VALIDATOR_COUNT)
+                .fresh_ephemeral_store()
+                .build(),
+        );
 
         harness.advance_slot();
 
@@ -275,6 +288,7 @@ impl ApiTester {
         );
 
         Self {
+            harness,
             chain,
             client,
             next_block,
@@ -285,12 +299,14 @@ impl ApiTester {
             proposer_slashing,
             voluntary_exit,
             _server_shutdown: shutdown_tx,
-            validator_keypairs: harness.validator_keypairs,
             network_rx,
             local_enr,
             external_peer_id,
-            _runtime: harness.runtime,
         }
+    }
+
+    fn validator_keypairs(&self) -> &[Keypair] {
+        &self.harness.validator_keypairs
     }
 
     fn skip_slots(self, count: u64) -> Self {
@@ -1888,7 +1904,7 @@ impl ApiTester {
             let proposer_pubkey = (&proposer_pubkey_bytes).try_into().unwrap();
 
             let sk = self
-                .validator_keypairs
+                .validator_keypairs()
                 .iter()
                 .find(|kp| kp.pk == proposer_pubkey)
                 .map(|kp| kp.sk.clone())
@@ -1967,7 +1983,7 @@ impl ApiTester {
             let proposer_pubkey = (&proposer_pubkey_bytes).try_into().unwrap();
 
             let sk = self
-                .validator_keypairs
+                .validator_keypairs()
                 .iter()
                 .find(|kp| kp.pk == proposer_pubkey)
                 .map(|kp| kp.sk.clone())
@@ -2104,7 +2120,7 @@ impl ApiTester {
             .client
             .post_validator_duties_attester(
                 epoch,
-                (0..self.validator_keypairs.len() as u64)
+                (0..self.validator_keypairs().len() as u64)
                     .collect::<Vec<u64>>()
                     .as_slice(),
             )
@@ -2113,7 +2129,7 @@ impl ApiTester {
             .data;
 
         let (i, kp, duty, proof) = self
-            .validator_keypairs
+            .validator_keypairs()
             .iter()
             .enumerate()
             .find_map(|(i, kp)| {
