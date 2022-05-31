@@ -23,8 +23,8 @@ impl<T: EthSpec> Default for PayloadCache<T> {
 
 impl<T: EthSpec> PayloadCache<T> {
     pub fn put(&self, payload: ExecutionPayload<T>) -> Option<ExecutionPayload<T>> {
-        let tx_root = payload.transactions.tree_hash_root();
-        self.payloads.lock().put(PayloadCacheId(tx_root), payload)
+        let root = payload.tree_hash_root();
+        self.payloads.lock().put(PayloadCacheId(root), payload)
     }
 
     pub fn pop(&self, root: &Hash256) -> Option<ExecutionPayload<T>> {
