@@ -122,6 +122,9 @@ const PREPARE_PROPOSER_HISTORIC_EPOCHS: u64 = 4;
 pub const INVALID_JUSTIFIED_PAYLOAD_SHUTDOWN_REASON: &str =
     "Justified block has an invalid execution payload.";
 
+/// Interval before the attestation deadline during which to consider blocks "borderline" late.
+const BORDERLINE_LATE_BLOCK_TOLERANCE: Duration = Duration::from_millis(50);
+
 /// Defines the behaviour when a block/block-root for a skipped slot is requested.
 pub enum WhenSlotSkipped {
     /// If the slot is a skip slot, return `None`.
@@ -2894,25 +2897,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             );
         }
 
-        // Do not store metrics if the block was > 4 slots old, this helps prevent noise during
-        // sync.
-        if block_delay_total < self.slot_clock.slot_duration() * 4 {
-            // Observe the delay between when we observed the block and when we imported it.
-            let block_delays = self.block_times_cache.read().get_block_delays(
-                block_root,
-                self.slot_clock
-                    .start_of(current_slot)
-                    .unwrap_or_else(|| Duration::from_secs(0)),
-            );
-
-            metrics::observe_duration(
-                &metrics::BEACON_BLOCK_IMPORTED_OBSERVED_DELAY_TIME,
-                block_delays
-                    .imported
-                    .unwrap_or_else(|| Duration::from_secs(0)),
-            );
-        }
-
         // Inform the unknown block cache, in case it was waiting on this block.
         self.pre_finalization_block_cache
             .block_processed(block_root);
@@ -3622,6 +3606,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 attestable_delay,
             );
             metrics::observe_duration(
+                &metrics::BEACON_BLOCK_IMPORTED_OBSERVED_DELAY_TIME,
+                import_delay,
+            );
+            metrics::observe_duration(
                 &metrics::BEACON_BLOCK_HEAD_IMPORTED_DELAY_TIME,
                 set_as_head_delay,
             );
@@ -3631,11 +3619,18 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             let missed_attestation_deadline = attestable_delay >= attestation_deadline;
             if missed_attestation_deadline {
                 let due_to_late_block = observed_delay >= attestation_deadline;
+                let due_to_borderline_late_block =
+                    observed_delay + BORDERLINE_LATE_BLOCK_TOLERANCE >= attestation_deadline;
                 let due_to_processing = observed_delay + import_delay >= attestation_deadline;
 
                 let reason = if due_to_late_block {
                     metrics::inc_counter(&metrics::BEACON_BLOCK_HEAD_MISSED_ATT_DEADLINE_LATE);
                     "late block"
+                } else if due_to_borderline_late_block {
+                    metrics::inc_counter(
+                        &metrics::BEACON_BLOCK_HEAD_MISSED_ATT_DEADLINE_BORDERLINE,
+                    );
+                    "borderline late block"
                 } else if due_to_processing {
                     metrics::inc_counter(&metrics::BEACON_BLOCK_HEAD_MISSED_ATT_DEADLINE_SLOW);
                     "slow to process"
