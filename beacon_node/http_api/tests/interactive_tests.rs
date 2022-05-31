@@ -94,7 +94,7 @@ pub async fn fork_choice_before_proposal() {
 
     // Due to proposer boost, the head should be C during slot C.
     assert_eq!(
-        harness.chain.head_info().unwrap().block_root,
+        harness.chain.canonical_head.read().head_block_root(),
         block_root_c.into()
     );
 
@@ -102,7 +102,7 @@ pub async fn fork_choice_before_proposal() {
     // Manually prod the per-slot task, because the slot timer doesn't run in the background in
     // these tests.
     harness.advance_slot();
-    harness.chain.per_slot_task();
+    harness.chain.per_slot_task().await;
 
     let proposer_index = state_b
         .get_beacon_proposer_index(slot_d, &harness.chain.spec)
@@ -119,7 +119,7 @@ pub async fn fork_choice_before_proposal() {
 
     // Head is now B.
     assert_eq!(
-        harness.chain.head_info().unwrap().block_root,
+        harness.chain.canonical_head.read().head_block_root(),
         block_root_b.into()
     );
     // D's parent is B.
