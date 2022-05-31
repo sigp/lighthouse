@@ -327,10 +327,17 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         if let Some(was_updated) = update_sync_status {
             let is_connected = self.network_globals.peers.read().is_connected(peer_id);
             if was_updated {
-                debug!(self.log, "Peer transitioned sync state"; "peer_id" => %peer_id, "new_state" => rpr,
-                    "our_head_slot" => local_sync_info.head_slot, "out_finalized_epoch" => local_sync_info.finalized_epoch,
-                    "their_head_slot" => remote_sync_info.head_slot, "their_finalized_epoch" => remote_sync_info.finalized_epoch,
-                    "is_connected" => is_connected);
+                debug!(
+                    self.log,
+                    "Peer transitioned sync state";
+                    "peer_id" => %peer_id,
+                    "new_state" => rpr,
+                    "our_head_slot" => local_sync_info.head_slot,
+                    "our_finalized_epoch" => local_sync_info.finalized_epoch,
+                    "their_head_slot" => remote_sync_info.head_slot,
+                    "their_finalized_epoch" => remote_sync_info.finalized_epoch,
+                    "is_connected" => is_connected
+                );
 
                 // A peer has transitioned its sync state. If the new state is "synced" we
                 // inform the backfill sync that a new synced peer has joined us.
