@@ -2048,6 +2048,7 @@ dependencies = [
  "eth2_ssz_derive",
  "proto_array",
  "store",
+ "tokio",
  "types",
 ]
 
@@ -4156,6 +4157,7 @@ dependencies = [
  "serde_derive",
  "state_processing",
  "store",
+ "tokio",
  "types",
 ]
 
@@ -5932,6 +5934,7 @@ dependencies = [
  "rayon",
  "safe_arith",
  "smallvec",
+ "tokio",
  "tree_hash",
  "types",
 ]
@@ -5944,6 +5947,7 @@ dependencies = [
  "eth2_ssz",
  "lazy_static",
  "state_processing",
+ "tokio",
  "types",
 ]
 

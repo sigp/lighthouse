@@ -1343,23 +1343,23 @@ where
             .ok_or(BeaconChainError::RuntimeShutdown)?
     }
 
-    pub fn process_block(
+    pub async fn process_block(
         &self,
         slot: Slot,
         block: SignedBeaconBlock<E>,
     ) -> Result<SignedBeaconBlockHash, BlockError<E>> {
         self.set_current_slot(slot);
         let block_hash: SignedBeaconBlockHash = self.chain.process_block(block)?.into();
-        self.recompute_head_blocking()?;
+        self.chain.recompute_head_at_current_slot().await?;
         Ok(block_hash)
     }
 
-    pub fn process_block_result(
+    pub async fn process_block_result(
         &self,
         block: SignedBeaconBlock<E>,
     ) -> Result<SignedBeaconBlockHash, BlockError<E>> {
         let block_hash: SignedBeaconBlockHash = self.chain.process_block(block)?.into();
-        self.recompute_head_blocking().unwrap();
+        self.chain.recompute_head_at_current_slot().await?;
         Ok(block_hash)
     }
 
@@ -1414,14 +1414,14 @@ where
         self.chain.slot_clock.set_slot(slot.into());
     }
 
-    pub fn add_block_at_slot(
+    pub async fn add_block_at_slot(
         &self,
         slot: Slot,
         state: BeaconState<E>,
     ) -> Result<(SignedBeaconBlockHash, SignedBeaconBlock<E>, BeaconState<E>), BlockError<E>> {
         self.set_current_slot(slot);
         let (block, new_state) = self.make_block(state, slot);
-        let block_hash = self.process_block(slot, block.clone())?;
+        let block_hash = self.process_block(slot, block.clone()).await?;
         Ok((block_hash, block, new_state))
     }
 
@@ -1438,19 +1438,19 @@ where
         self.process_attestations(attestations);
     }
 
-    pub fn add_attested_block_at_slot(
+    pub async fn add_attested_block_at_slot(
         &self,
         slot: Slot,
         state: BeaconState<E>,
         state_root: Hash256,
         validators: &[usize],
     ) -> Result<(SignedBeaconBlockHash, BeaconState<E>), BlockError<E>> {
-        let (block_hash, block, state) = self.add_block_at_slot(slot, state)?;
+        let (block_hash, block, state) = self.add_block_at_slot(slot, state).await?;
         self.attest_block(&state, state_root, block_hash, &block, validators);
         Ok((block_hash, state))
     }
 
-    pub fn add_attested_blocks_at_slots(
+    pub async fn add_attested_blocks_at_slots(
         &self,
         state: BeaconState<E>,
         state_root: Hash256,
@@ -1459,9 +1459,10 @@ where
     ) -> AddBlocksResult<E> {
         assert!(!slots.is_empty());
         self.add_attested_blocks_at_slots_given_lbh(state, state_root, slots, validators, None)
+            .await
     }
 
-    fn add_attested_blocks_at_slots_given_lbh(
+    async fn add_attested_blocks_at_slots_given_lbh(
         &self,
         mut state: BeaconState<E>,
         state_root: Hash256,
@@ -1478,6 +1479,7 @@ where
         for slot in slots {
             let (block_hash, new_state) = self
                 .add_attested_block_at_slot(*slot, state, state_root, validators)
+                .await
                 .unwrap();
             state = new_state;
             block_hash_from_slot.insert(*slot, block_hash);
@@ -1499,7 +1501,7 @@ where
     /// epoch at a time.
     ///
     /// Chains is a vec of `(state, slots, validators)` tuples.
-    pub fn add_blocks_on_multiple_chains(
+    pub async fn add_blocks_on_multiple_chains(
         &self,
         chains: Vec<(BeaconState<E>, Vec<Slot>, Vec<usize>)>,
     ) -> Vec<AddBlocksResult<E>> {
@@ -1558,7 +1560,8 @@ where
                         &epoch_slots,
                         &validators,
                         Some(head_block),
-                    );
+                    )
+                    .await;
 
                 block_hashes.extend(new_block_hashes);
                 state_hashes.extend(new_state_hashes);
@@ -1617,7 +1620,7 @@ where
     }
 
     /// Uses `Self::extend_chain` to build the chain out to the `target_slot`.
-    pub fn extend_to_slot(&self, target_slot: Slot) -> Hash256 {
+    pub async fn extend_to_slot(&self, target_slot: Slot) -> Hash256 {
         if self.chain.slot().unwrap() == self.chain.canonical_head.read().head_slot() {
             self.advance_slot();
         }
@@ -1629,7 +1632,7 @@ where
             .checked_add(1)
             .unwrap();
 
-        self.extend_slots(num_slots)
+        self.extend_slots(num_slots).await
     }
 
     /// Uses `Self::extend_chain` to `num_slots` blocks.
@@ -1638,7 +1641,7 @@ where
     ///
     ///  - BlockStrategy::OnCanonicalHead,
     ///  - AttestationStrategy::AllValidators,
-    pub fn extend_slots(&self, num_slots: usize) -> Hash256 {
+    pub async fn extend_slots(&self, num_slots: usize) -> Hash256 {
         if self.chain.slot().unwrap() == self.chain.canonical_head.read().head_slot() {
             self.advance_slot();
         }
@@ -1648,6 +1651,7 @@ where
             BlockStrategy::OnCanonicalHead,
             AttestationStrategy::AllValidators,
         )
+        .await
     }
 
     /// Deprecated: Use add_attested_blocks_at_slots() instead
@@ -1661,7 +1665,7 @@ where
     ///
     /// The `attestation_strategy` dictates which validators will attest to the newly created
     /// blocks.
-    pub fn extend_chain(
+    pub async fn extend_chain(
         &self,
         num_blocks: usize,
         block_strategy: BlockStrategy,
@@ -1696,8 +1700,9 @@ where
             AttestationStrategy::SomeValidators(vals) => vals,
         };
         let state_root = state.update_tree_hash_cache().unwrap();
-        let (_, _, last_produced_block_hash, _) =
-            self.add_attested_blocks_at_slots(state, state_root, &slots, &validators);
+        let (_, _, last_produced_block_hash, _) = self
+            .add_attested_blocks_at_slots(state, state_root, &slots, &validators)
+            .await;
         last_produced_block_hash.into()
     }
 
@@ -1711,7 +1716,7 @@ where
     /// then built `faulty_fork_blocks`.
     ///
     /// Returns `(honest_head, faulty_head)`, the roots of the blocks at the top of each chain.
-    pub fn generate_two_forks_by_skipping_a_block(
+    pub async fn generate_two_forks_by_skipping_a_block(
         &self,
         honest_validators: &[usize],
         faulty_validators: &[usize],
@@ -1729,23 +1734,27 @@ where
         self.advance_slot();
 
         // Extend the chain with blocks where only honest validators agree.
-        let honest_head = self.extend_chain(
-            honest_fork_blocks,
-            BlockStrategy::OnCanonicalHead,
-            AttestationStrategy::SomeValidators(honest_validators.to_vec()),
-        );
+        let honest_head = self
+            .extend_chain(
+                honest_fork_blocks,
+                BlockStrategy::OnCanonicalHead,
+                AttestationStrategy::SomeValidators(honest_validators.to_vec()),
+            )
+            .await;
 
         // Go back to the last block where all agreed, and build blocks upon it where only faulty nodes
         // agree.
-        let faulty_head = self.extend_chain(
-            faulty_fork_blocks,
-            BlockStrategy::ForkCanonicalChainAt {
-                previous_slot: initial_head_slot,
-                // `initial_head_slot + 2` means one slot is skipped.
-                first_slot: initial_head_slot + 2,
-            },
-            AttestationStrategy::SomeValidators(faulty_validators.to_vec()),
-        );
+        let faulty_head = self
+            .extend_chain(
+                faulty_fork_blocks,
+                BlockStrategy::ForkCanonicalChainAt {
+                    previous_slot: initial_head_slot,
+                    // `initial_head_slot + 2` means one slot is skipped.
+                    first_slot: initial_head_slot + 2,
+                },
+                AttestationStrategy::SomeValidators(faulty_validators.to_vec()),
+            )
+            .await;
 
         assert_ne!(honest_head, faulty_head, "forks should be distinct");
 

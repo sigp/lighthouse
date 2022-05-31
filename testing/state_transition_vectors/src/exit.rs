@@ -37,11 +37,12 @@ impl Default for ExitTest {
 }
 
 impl ExitTest {
-    fn block_and_pre_state(self) -> (SignedBeaconBlock<E>, BeaconState<E>) {
+    async fn block_and_pre_state(self) -> (SignedBeaconBlock<E>, BeaconState<E>) {
         let harness = get_harness::<E>(
             self.state_epoch.start_slot(E::slots_per_epoch()),
             VALIDATOR_COUNT,
-        );
+        )
+        .await;
         let mut state = harness.get_current_state();
         (self.state_modifier)(&mut state);
 
@@ -86,8 +87,8 @@ impl ExitTest {
         state
     }
 
-    fn test_vector(self, title: String) -> TestVector {
-        let (block, pre_state) = self.block_and_pre_state();
+    async fn test_vector(self, title: String) -> TestVector {
+        let (block, pre_state) = self.block_and_pre_state().await;
         let mut post_state = pre_state.clone();
         let (post_state, error) = match Self::process(&block, &mut post_state) {
             Ok(_) => (Some(post_state), None),

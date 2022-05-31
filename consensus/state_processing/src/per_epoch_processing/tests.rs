@@ -6,8 +6,8 @@ use bls::Hash256;
 use env_logger::{Builder, Env};
 use types::Slot;
 
-#[test]
-fn runs_without_error() {
+#[tokio::test]
+async fn runs_without_error() {
     Builder::from_env(Env::default().default_filter_or("error")).init();
 
     let harness = BeaconChainHarness::builder(MinimalEthSpec)
@@ -22,15 +22,17 @@ fn runs_without_error() {
         (MinimalEthSpec::genesis_epoch() + 4).end_slot(MinimalEthSpec::slots_per_epoch());
 
     let state = harness.get_current_state();
-    harness.add_attested_blocks_at_slots(
-        state,
-        Hash256::zero(),
-        (1..target_slot.as_u64())
-            .map(Slot::new)
-            .collect::<Vec<_>>()
-            .as_slice(),
-        (0..8).collect::<Vec<_>>().as_slice(),
-    );
+    harness
+        .add_attested_blocks_at_slots(
+            state,
+            Hash256::zero(),
+            (1..target_slot.as_u64())
+                .map(Slot::new)
+                .collect::<Vec<_>>()
+                .as_slice(),
+            (0..8).collect::<Vec<_>>().as_slice(),
+        )
+        .await;
     let mut new_head_state = harness.get_current_state();
 
     process_epoch(&mut new_head_state, &spec).unwrap();

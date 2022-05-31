@@ -289,8 +289,16 @@ impl<E: EthSpec> Tester<E> {
     }
 
     fn find_head(&self) -> Result<RwLockReadGuard<CanonicalHead<EphemeralHarnessType<E>>>, Error> {
+        let chain = self.harness.chain.clone();
         self.harness
-            .recompute_head_blocking()
+            .chain
+            .task_executor
+            .clone()
+            .block_on_dangerous(
+                chain.recompute_head_at_current_slot(),
+                "recompute_head_blocking",
+            )
+            .ok_or_else(|| Error::InternalError("runtime shutdown".into()))?
             .map_err(|e| Error::InternalError(format!("failed to find head with {:?}", e)))?;
         Ok(self.harness.chain.canonical_head.read())
     }
