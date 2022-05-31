@@ -103,7 +103,13 @@ fn main() {
                         .required(true)
                         .default_value("./output.ssz")
                         .help("Path to output a SSZ file."),
-                ),
+                )
+                .arg(
+                    Arg::with_name("no-signature-verification")
+                        .long("no-signature-verification")
+                        .takes_value(false)
+                        .help("Disable signature verification.")
+                )
         )
         .subcommand(
             SubCommand::with_name("pretty-ssz")
