@@ -244,8 +244,9 @@ impl<E: EthSpec> mev_build_rs::Builder for MockBuilder<E> {
             .map_err(convert_err)?
             .to_execution_payload_header();
 
-        let json_payload = serde_json::to_string(&payload).unwrap();
-        let mut header: ServerPayloadHeader = serde_json::from_str(json_payload.as_str()).unwrap();
+        let json_payload = serde_json::to_string(&payload).map_err(convert_err)?;
+        let mut header: ServerPayloadHeader =
+            serde_json::from_str(json_payload.as_str()).map_err(convert_err)?;
 
         header.gas_limit = cached_data.gas_limit;
 
@@ -278,7 +279,8 @@ impl<E: EthSpec> mev_build_rs::Builder for MockBuilder<E> {
             )?)
             .ok_or(convert_err("missing payload for tx root"))?;
 
-        to_ssz_rs(&payload)
+        let json_payload = serde_json::to_string(&payload).map_err(convert_err)?;
+        serde_json::from_str(json_payload.as_str()).map_err(convert_err)
     }
 }
 
