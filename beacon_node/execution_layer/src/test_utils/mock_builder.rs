@@ -163,10 +163,11 @@ impl<E: EthSpec> mev_build_rs::Builder for MockBuilder<E> {
             .ok_or(convert_err("missing head block"))?;
 
         let block = head.data.message_merge().map_err(convert_err)?;
+        info!(self.el.log(), "{:?}", block);
         let head_block_root = block.tree_hash_root();
         let head_execution_hash = block.body.execution_payload.execution_payload.block_hash;
         if head_execution_hash != from_ssz_rs(&bid_request.parent_hash)? {
-            return Err(Error::Custom("head mismatch".to_string()));
+            return Err(Error::Custom(format!("head mismatch: {} {}", head_execution_hash, bid_request.parent_hash)));
         }
 
         let prev_randao = block.body.execution_payload.execution_payload.prev_randao;
