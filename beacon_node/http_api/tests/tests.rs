@@ -2514,7 +2514,7 @@ impl ApiTester {
         let fork = Fork {
             current_version: self.chain.spec.genesis_fork_version,
             previous_version: self.chain.spec.genesis_fork_version,
-            epoch: genesis_epoch
+            epoch: genesis_epoch,
         };
 
         for (val_index, keypair) in self.validator_keypairs.iter().enumerate() {
@@ -2536,7 +2536,6 @@ impl ApiTester {
             let message = data.signing_root(domain);
             let signature = keypair.sk.sign(message);
 
-
             let signed = SignedValidatorRegistrationData {
                 message: data,
                 signature,
@@ -2551,11 +2550,7 @@ impl ApiTester {
             .await
             .unwrap();
 
-        let head_state = self
-            .chain
-            .head()
-            .unwrap()
-            .beacon_state;
+        let head_state = self.chain.head().unwrap().beacon_state;
 
         for (val_index, (val, fee_recipient)) in head_state
             .validators()
@@ -2572,7 +2567,16 @@ impl ApiTester {
                 .await;
             assert_eq!(actual, fee_recipient);
 
-            let payload : BlindedPayload<E>= beacon_chain::execution_payload::prepare_execution_payload(&self.chain, &head_state, val_index as u64, Some(val.pubkey)).await.unwrap().unwrap();
+            let payload: BlindedPayload<E> =
+                beacon_chain::execution_payload::prepare_execution_payload(
+                    &self.chain,
+                    &head_state,
+                    val_index as u64,
+                    Some(val.pubkey),
+                )
+                .await
+                .unwrap()
+                .unwrap();
             dbg!(&payload);
         }
 

@@ -4,17 +4,19 @@ use async_trait::async_trait;
 use eth2::types::{BlockId, StateId, ValidatorId};
 use eth2::{BeaconNodeHttpClient, Timeouts};
 use ethereum_consensus::builder::ValidatorRegistration;
+use ethereum_consensus::crypto::SecretKey;
 use ethereum_consensus::primitives::BlsPublicKey;
 pub use ethereum_consensus::state_transition::Context;
 use ethers_core::k256::elliptic_curve::consts::U256;
 use futures::AsyncReadExt;
 use mev_build_rs::{
-    verify_signed_builder_message, ApiServer, BidRequest, BuilderBid, Error,
+    sign_builder_message, verify_signed_builder_message, ApiServer, BidRequest, BuilderBid, Error,
     ExecutionPayload as ServerPayload, ExecutionPayloadHeader as ServerPayloadHeader,
     SignedBlindedBeaconBlock, SignedBuilderBid, SignedValidatorRegistration,
 };
 use parking_lot::RwLock;
 use sensitive_url::SensitiveUrl;
+use slog::info;
 use slot_clock::SlotClock;
 use ssz::{Decode, Encode};
 use ssz_rs::SimpleSerialize;
@@ -23,7 +25,6 @@ use std::fmt::Debug;
 use std::net::Ipv4Addr;
 use std::sync::Arc;
 use std::time::Duration;
-use slog::info;
 use task_executor::TaskExecutor;
 use tempfile::NamedTempFile;
 use tree_hash::TreeHash;
@@ -94,6 +95,7 @@ pub struct MockBuilder<E: EthSpec> {
     spec: ChainSpec,
     context: Arc<Context>,
     val_registration_cache: Arc<RwLock<HashMap<BlsPublicKey, SignedValidatorRegistration>>>,
+    builder_sk: SecretKey,
 }
 
 impl<E: EthSpec> MockBuilder<E> {
@@ -103,6 +105,7 @@ impl<E: EthSpec> MockBuilder<E> {
         spec: ChainSpec,
         context: Context,
     ) -> Self {
+        let sk = SecretKey::random(&mut rand::thread_rng()).unwrap();
         Self {
             el,
             beacon_client,
@@ -110,6 +113,7 @@ impl<E: EthSpec> MockBuilder<E> {
             spec,
             context: Arc::new(context),
             val_registration_cache: Arc::new(RwLock::new(HashMap::new())),
+            builder_sk: sk,
         }
     }
 }
@@ -225,27 +229,21 @@ impl<E: EthSpec> mev_build_rs::Builder for MockBuilder<E> {
             .map_err(convert_err)?
             .to_execution_payload_header();
 
-        let lighthouse_msg = format!("{payload:?}");
-        info!(self.el.log(), "{}", lighthouse_msg);
         let json_payload = serde_json::to_string(&payload).unwrap();
-        let json_msg = format!("{json_payload:?}");
-        info!(self.el.log(), "{}", json_msg);
-        let mut header: ServerPayloadHeader =  serde_json::from_str(json_payload.as_str()).unwrap();
-        let ssz_rs_msg = format!("{header:?}");
-        info!(self.el.log(), "{}", ssz_rs_msg);
+        let mut header: ServerPayloadHeader = serde_json::from_str(json_payload.as_str()).unwrap();
 
-         // = to_ssz_rs(&payload)?;
         header.gas_limit = cached_data.gas_limit;
 
-        let signed_bid = SignedBuilderBid {
-            message: BuilderBid {
-                header,
-                value: ssz_rs::U256::default(),
-                public_key: cached_data.public_key,
-            },
-            // Garbage value, not verified by the CL
-            signature: signed_cached_data.signature,
+        let mut message = BuilderBid {
+            header,
+            value: ssz_rs::U256::default(),
+            public_key: self.builder_sk.public_key(),
         };
+
+        let signature =
+            sign_builder_message(&mut message, &self.builder_sk, self.context.as_ref())?;
+
+        let signed_bid = SignedBuilderBid { message, signature };
         Ok(signed_bid)
     }
 
