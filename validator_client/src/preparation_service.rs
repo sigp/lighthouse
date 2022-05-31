@@ -490,9 +490,9 @@ impl<T: SlotClock + 'static, E: EthSpec> PreparationService<T, E> {
                 })
                 .await
             {
-                Ok(()) => debug!(
+                Ok(()) => info!(
                     log,
-                    "Published validator registration";
+                    "Registered validators with external builders";
                     "count" => registration_data_len,
                 ),
                 Err(e) => error!(

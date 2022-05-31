@@ -23,6 +23,7 @@ use std::fmt::Debug;
 use std::net::Ipv4Addr;
 use std::sync::Arc;
 use std::time::Duration;
+use slog::info;
 use task_executor::TaskExecutor;
 use tempfile::NamedTempFile;
 use tree_hash::TreeHash;
@@ -224,7 +225,13 @@ impl<E: EthSpec> mev_build_rs::Builder for MockBuilder<E> {
             .map_err(convert_err)?
             .to_execution_payload_header();
 
-        let mut header: ServerPayloadHeader = to_ssz_rs(&payload)?;
+        info!(self.el.log(), "header"; "ssz_header" => ?payload);
+        let json_payload = serde_json::to_string(&payload).unwrap();
+        info!(self.el.log(), "header"; "json_payload" => json_payload.clone());
+        let mut header: ServerPayloadHeader =  serde_json::from_str(json_payload.as_str()).unwrap();
+        info!(self.el.log(), "header"; "ssz_rs_header" => ?header);
+
+         // = to_ssz_rs(&payload)?;
         header.gas_limit = cached_data.gas_limit;
 
         let signed_bid = SignedBuilderBid {
