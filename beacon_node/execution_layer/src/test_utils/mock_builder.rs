@@ -29,8 +29,8 @@ use task_executor::TaskExecutor;
 use tempfile::NamedTempFile;
 use tree_hash::TreeHash;
 use types::{
-    Address, BlindedPayload, ChainSpec, EthSpec, ExecPayload, ExecutionBlockHash, ExecutionPayload,
-    Hash256, Slot, ValidatorRegistrationData,
+    Address, BeaconState, BlindedPayload, ChainSpec, EthSpec, ExecPayload, ExecutionBlockHash,
+    ExecutionPayload, Hash256, Slot, ValidatorRegistrationData,
 };
 
 pub struct MockBuilderPool<E: EthSpec>(ApiServer<MockBuilder<E>>);
@@ -210,7 +210,7 @@ impl<E: EthSpec> mev_build_rs::Builder for MockBuilder<E> {
             .genesis_time;
         let timestamp = (slots_since_genesis * self.spec.seconds_per_slot) + genesis_time;
 
-        let head_state = self
+        let head_state: BeaconState<E> = self
             .beacon_client
             .get_debug_beacon_states(StateId::Head)
             .await
