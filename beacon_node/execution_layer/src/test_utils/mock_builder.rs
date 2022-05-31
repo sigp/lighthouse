@@ -167,10 +167,12 @@ impl<E: EthSpec> mev_build_rs::Builder for MockBuilder<E> {
         let head_block_root = block.tree_hash_root();
         let head_execution_hash = block.body.execution_payload.execution_payload.block_hash;
         if head_execution_hash != from_ssz_rs(&bid_request.parent_hash)? {
-            return Err(Error::Custom(format!("head mismatch: {} {}", head_execution_hash, bid_request.parent_hash)));
+            return Err(Error::Custom(format!(
+                "head mismatch: {} {}",
+                head_execution_hash, bid_request.parent_hash
+            )));
         }
 
-        let prev_randao = block.body.execution_payload.execution_payload.prev_randao;
         let finalized_execution_hash = self
             .beacon_client
             .get_beacon_blocks::<E>(BlockId::Finalized)
@@ -207,9 +209,21 @@ impl<E: EthSpec> mev_build_rs::Builder for MockBuilder<E> {
             .data
             .genesis_time;
         let timestamp = (slots_since_genesis * self.spec.seconds_per_slot) + genesis_time;
+
+        let head_state = self
+            .beacon_client
+            .get_debug_beacon_states(StateId::Head)
+            .await
+            .map_err(convert_err)?
+            .ok_or(Error::Custom("missing head state".to_string()))?
+            .data;
+        let prev_randao = head_state
+            .get_randao_mix(head_state.current_epoch())
+            .map_err(convert_err)?;
+
         let payload_attributes = PayloadAttributes {
             timestamp,
-            prev_randao,
+            prev_randao: *prev_randao,
             suggested_fee_recipient: fee_recipient,
         };
 
@@ -222,7 +236,7 @@ impl<E: EthSpec> mev_build_rs::Builder for MockBuilder<E> {
             .get_full_payload_caching::<BlindedPayload<E>>(
                 head_execution_hash,
                 timestamp,
-                prev_randao,
+                *prev_randao,
                 finalized_execution_hash,
                 fee_recipient,
             )
