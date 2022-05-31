@@ -258,7 +258,8 @@ impl<E: EthSpec> mev_build_rs::Builder for MockBuilder<E> {
                     .message
                     .body
                     .execution_payload_header
-                    .hash_tree_root(),
+                    .hash_tree_root()
+                    .map_err(convert_err)?,
             )?)
             .ok_or(convert_err("missing payload for tx root"))?;
 
