@@ -225,11 +225,14 @@ impl<E: EthSpec> mev_build_rs::Builder for MockBuilder<E> {
             .map_err(convert_err)?
             .to_execution_payload_header();
 
-        info!(self.el.log(), "header"; "ssz_header" => ?payload);
+        let lighthouse_msg = format!("{payload:?}");
+        info!(self.el.log(), "{}", lighthouse_msg);
         let json_payload = serde_json::to_string(&payload).unwrap();
-        info!(self.el.log(), "header"; "json_payload" => json_payload.clone());
+        let json_msg = format!("{json_payload:?}");
+        info!(self.el.log(), "{}", json_msg);
         let mut header: ServerPayloadHeader =  serde_json::from_str(json_payload.as_str()).unwrap();
-        info!(self.el.log(), "header"; "ssz_rs_header" => ?header);
+        let ssz_rs_msg = format!("{header:?}");
+        info!(self.el.log(), "{}", ssz_rs_msg);
 
          // = to_ssz_rs(&payload)?;
         header.gas_limit = cached_data.gas_limit;
