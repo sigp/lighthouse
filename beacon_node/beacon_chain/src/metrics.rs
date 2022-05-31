@@ -802,6 +802,10 @@ lazy_static! {
         "beacon_block_head_missed_att_deadline_late",
         "Total number of delayed head blocks that arrived late"
     );
+    pub static ref BEACON_BLOCK_HEAD_MISSED_ATT_DEADLINE_BORDERLINE: Result<IntCounter> = try_create_int_counter(
+        "beacon_block_head_missed_att_deadline_borderline",
+        "Total number of delayed head blocks that arrived very close to the deadline"
+    );
     pub static ref BEACON_BLOCK_HEAD_MISSED_ATT_DEADLINE_SLOW: Result<IntCounter> = try_create_int_counter(
         "beacon_block_head_missed_att_deadline_slow",
         "Total number of delayed head blocks that arrived on time but not processed in time"
