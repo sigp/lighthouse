@@ -19,7 +19,7 @@ use sensitive_url::SensitiveUrl;
 use slog::info;
 use slot_clock::SlotClock;
 use ssz::{Decode, Encode};
-use ssz_rs::SimpleSerialize;
+use ssz_rs::{Merkleized, SimpleSerialize};
 use std::collections::HashMap;
 use std::fmt::Debug;
 use std::net::Ipv4Addr;
@@ -253,12 +253,12 @@ impl<E: EthSpec> mev_build_rs::Builder for MockBuilder<E> {
     ) -> Result<ServerPayload, Error> {
         let payload = self
             .el
-            .get_payload_by_tx_root(&from_ssz_rs(
+            .get_payload_by_root(&from_ssz_rs(
                 &signed_block
                     .message
                     .body
                     .execution_payload_header
-                    .transactions_root,
+                    .hash_tree_root(),
             )?)
             .ok_or(convert_err("missing payload for tx root"))?;
 

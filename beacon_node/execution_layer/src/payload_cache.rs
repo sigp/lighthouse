@@ -5,12 +5,12 @@ use types::{EthSpec, ExecutionPayload, Hash256};
 
 pub const DEFAULT_PAYLOAD_CACHE_SIZE: usize = 10;
 
-/// A cache mapping execution payloads by transaction roots.
+/// A cache mapping execution payloads by tree hash roots.
 pub struct PayloadCache<T: EthSpec> {
     payloads: Mutex<LruCache<PayloadCacheId, ExecutionPayload<T>>>,
 }
 
-#[derive(Hash, PartialEq, std::cmp::Eq)]
+#[derive(Hash, PartialEq, Eq)]
 struct PayloadCacheId(Hash256);
 
 impl<T: EthSpec> Default for PayloadCache<T> {
@@ -27,7 +27,7 @@ impl<T: EthSpec> PayloadCache<T> {
         self.payloads.lock().put(PayloadCacheId(tx_root), payload)
     }
 
-    pub fn pop(&self, tx_root: &Hash256) -> Option<ExecutionPayload<T>> {
-        self.payloads.lock().pop(&PayloadCacheId(*tx_root))
+    pub fn pop(&self, root: &Hash256) -> Option<ExecutionPayload<T>> {
+        self.payloads.lock().pop(&PayloadCacheId(*root))
     }
 }

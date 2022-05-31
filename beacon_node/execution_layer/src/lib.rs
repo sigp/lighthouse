@@ -265,8 +265,8 @@ impl<T: EthSpec> ExecutionLayer<T> {
     }
 
     /// Attempt to retrieve a full payload from the payload cache by the `transactions_root`.
-    pub fn get_payload_by_tx_root(&self, tx_root: &Hash256) -> Option<ExecutionPayload<T>> {
-        self.inner.payload_cache.pop(tx_root)
+    pub fn get_payload_by_root(&self, root: &Hash256) -> Option<ExecutionPayload<T>> {
+        self.inner.payload_cache.pop(root)
     }
 
     pub fn builder(&self) -> &Option<BuilderHttpClient> {

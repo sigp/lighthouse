@@ -142,7 +142,7 @@ impl<T: EthSpec> MockExecutionLayer<T> {
         // Ensure the payload cache is empty.
         assert!(self
             .el
-            .get_payload_by_tx_root(&payload.transactions.tree_hash_root())
+            .get_payload_by_root(&payload.tree_hash_root())
             .is_none());
 
         let payload_header = self
@@ -168,7 +168,7 @@ impl<T: EthSpec> MockExecutionLayer<T> {
         // Ensure the payload cache has the correct payload.
         assert_eq!(
             self.el
-                .get_payload_by_tx_root(&payload_header.transactions_root),
+                .get_payload_by_root(&payload_header.tree_hash_root()),
             Some(payload.clone())
         );
 

@@ -8,6 +8,7 @@ use slot_clock::SlotClock;
 use std::marker::PhantomData;
 use std::sync::Arc;
 use tokio::sync::mpsc::UnboundedSender;
+use tree_hash::TreeHash;
 use types::{
     BeaconBlockAltair, BeaconBlockBase, BeaconBlockBodyAltair, BeaconBlockBodyBase,
     BeaconBlockBodyMerge, BeaconBlockMerge, BlindedPayload, FullPayload, SignedBeaconBlock,
@@ -243,9 +244,9 @@ fn reconstruct_block<T: BeaconChainTypes>(
             })?;
 
             // If we already have an execution payload with this transactions root cached, use it.
-            let full_payload = if let Some(cached_payload) = el.get_payload_by_tx_root(
-                &execution_payload.execution_payload_header.transactions_root,
-            ) {
+            let full_payload = if let Some(cached_payload) =
+                el.get_payload_by_root(&execution_payload.execution_payload_header.tree_hash_root())
+            {
                 cached_payload
             } else {
                 // Otherwise, this likely means we are attempting a blind block proposal.
