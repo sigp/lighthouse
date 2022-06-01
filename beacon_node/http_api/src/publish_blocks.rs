@@ -250,7 +250,7 @@ fn reconstruct_block<T: BeaconChainTypes>(
             //TODO: should probably remove this. Maybe just log out the tx root?
             let blinded_payload_json =
                 serde_json::to_string(&execution_payload_header).map_err(|e| {
-                    warp_utils::reject::custom_server_error(fromat!(
+                    warp_utils::reject::custom_server_error(format!(
                         "Unable to deserialize payload from validator: {}",
                         e
                     ))
@@ -296,7 +296,7 @@ fn reconstruct_block<T: BeaconChainTypes>(
                 // important to have for relay reputation.
                 let builder_payload_json =
                     serde_json::to_string(&builder_payload).map_err(|e| {
-                        warp_utils::reject::custom_server_error(fromat!(
+                        warp_utils::reject::custom_server_error(format!(
                             "Unable to deserialize payload from builder: {}",
                             e
                         ))
