@@ -1339,7 +1339,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
     ) -> Result<ExecutionPayload<T>, Error> {
         debug!(
             self.log(),
-            "Issuing builder_proposeBlindedBlock";
+            "Sending block to builder";
             "root" => ?block.canonical_root(),
         );
         if let Some(builder) = self.builder() {

@@ -3,7 +3,7 @@ use beacon_chain::validator_monitor::{get_block_delay_ms, timestamp_now};
 use beacon_chain::{BeaconChain, BeaconChainTypes};
 use lighthouse_network::PubsubMessage;
 use network::NetworkMessage;
-use slog::{crit, error, info, Logger};
+use slog::{crit, debug, error, info, Logger};
 use slot_clock::SlotClock;
 use std::marker::PhantomData;
 use std::sync::Arc;
@@ -11,8 +11,9 @@ use tokio::sync::mpsc::UnboundedSender;
 use tree_hash::TreeHash;
 use types::{
     BeaconBlockAltair, BeaconBlockBase, BeaconBlockBodyAltair, BeaconBlockBodyBase,
-    BeaconBlockBodyMerge, BeaconBlockMerge, BlindedPayload, FullPayload, SignedBeaconBlock,
-    SignedBeaconBlockAltair, SignedBeaconBlockBase, SignedBeaconBlockMerge,
+    BeaconBlockBodyMerge, BeaconBlockMerge, BlindedPayload, ExecutionPayload,
+    ExecutionPayloadHeader, FullPayload, SignedBeaconBlock, SignedBeaconBlockAltair,
+    SignedBeaconBlockBase, SignedBeaconBlockMerge,
 };
 use warp::Rejection;
 
@@ -110,7 +111,7 @@ pub fn publish_blinded_block<T: BeaconChainTypes>(
     network_tx: &UnboundedSender<NetworkMessage<T::EthSpec>>,
     log: Logger,
 ) -> Result<(), Rejection> {
-    let full_block = reconstruct_block(chain.clone(), block)?;
+    let full_block = reconstruct_block(chain.clone(), block, log.clone())?;
     publish_block::<T>(full_block, chain, network_tx, log)
 }
 
@@ -120,6 +121,7 @@ pub fn publish_blinded_block<T: BeaconChainTypes>(
 fn reconstruct_block<T: BeaconChainTypes>(
     chain: Arc<BeaconChain<T>>,
     block: SignedBeaconBlock<T::EthSpec, BlindedPayload<T::EthSpec>>,
+    log: Logger,
 ) -> Result<SignedBeaconBlock<T::EthSpec, FullPayload<T::EthSpec>>, Rejection> {
     let block_clone = block.clone();
     let full_block = match block {
@@ -239,24 +241,68 @@ fn reconstruct_block<T: BeaconChainTypes>(
                 execution_payload,
             } = body;
 
+            let payload_root = execution_payload.tree_hash_root();
+
+            let BlindedPayload {
+                execution_payload_header,
+            } = execution_payload;
+
+            //TODO: should probably remove this. Maybe just log out the tx root?
+            let blinded_payload_json =
+                serde_json::to_string(&execution_payload_header).map_err(|e| {
+                    warp_utils::reject::custom_server_error(fromat!(
+                        "Unable to deserialize payload from validator: {}",
+                        e
+                    ))
+                })?;
+            debug!(log, "Blinded payload before reconstruction"; "block" => blinded_payload_json);
+
+            let ExecutionPayloadHeader {
+                parent_hash,
+                fee_recipient,
+                state_root: payload_state_root,
+                receipts_root,
+                logs_bloom,
+                prev_randao,
+                block_number,
+                gas_limit,
+                gas_used,
+                timestamp,
+                extra_data,
+                base_fee_per_gas,
+                block_hash,
+                transactions_root: _transactions_root,
+            } = execution_payload_header;
+
             let el = chain.execution_layer.as_ref().ok_or_else(|| {
                 warp_utils::reject::custom_server_error("Missing execution layer".to_string())
             })?;
 
             // If we already have an execution payload with this transactions root cached, use it.
-            let full_payload = if let Some(cached_payload) =
-                el.get_payload_by_root(&execution_payload.tree_hash_root())
-            {
+            let full_payload = if let Some(cached_payload) = el.get_payload_by_root(&payload_root) {
                 cached_payload
             } else {
                 // Otherwise, this likely means we are attempting a blind block proposal.
-                el.block_on(|el| el.propose_blinded_beacon_block(&block_clone))
+                let builder_payload = el
+                    .block_on(|el| el.propose_blinded_beacon_block(&block_clone))
                     .map_err(|e| {
                         warp_utils::reject::custom_server_error(format!(
                             "Blind block proposal failed: {:?}",
                             e
                         ))
-                    })?
+                    })?;
+
+                // Logging out the whole payload might seem excessive but it seems like it will be
+                // important to have for relay reputation.
+                let builder_payload_json =
+                    serde_json::to_string(&builder_payload).map_err(|e| {
+                        warp_utils::reject::custom_server_error(fromat!(
+                            "Unable to deserialize payload from builder: {}",
+                            e
+                        ))
+                    })?;
+                debug!(log, "Payload revealed by builder"; "payload" => builder_payload_json);
+                builder_payload
             };
 
             SignedBeaconBlock::Merge(SignedBeaconBlockMerge {
@@ -276,7 +322,22 @@ fn reconstruct_block<T: BeaconChainTypes>(
                         voluntary_exits,
                         sync_aggregate,
                         execution_payload: FullPayload {
-                            execution_payload: full_payload,
+                            execution_payload: ExecutionPayload {
+                                parent_hash,
+                                fee_recipient,
+                                state_root: payload_state_root,
+                                receipts_root,
+                                logs_bloom,
+                                prev_randao,
+                                block_number,
+                                gas_limit,
+                                gas_used,
+                                timestamp,
+                                extra_data,
+                                base_fee_per_gas,
+                                block_hash,
+                                transactions: full_payload.transactions,
+                            },
                         },
                     },
                 },
