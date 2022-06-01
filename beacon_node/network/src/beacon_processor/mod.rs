@@ -869,6 +869,7 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
         // Using a FIFO queue since blocks need to be imported sequentially.
         let mut rpc_block_queue = FifoQueue::new(MAX_RPC_BLOCK_QUEUE_LEN);
         let mut chain_segment_queue = FifoQueue::new(MAX_CHAIN_SEGMENT_QUEUE_LEN);
+        let mut backfill_chain_segment = FifoQueue::new(MAX_CHAIN_SEGMENT_QUEUE_LEN);
         let mut gossip_block_queue = FifoQueue::new(MAX_GOSSIP_BLOCK_QUEUE_LEN);
         let mut delayed_block_queue = FifoQueue::new(MAX_DELAYED_BLOCK_QUEUE_LEN);
 
@@ -1110,6 +1111,9 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                         // Check exits last since our validators don't get rewards from them.
                         } else if let Some(item) = gossip_voluntary_exit_queue.pop() {
                             self.spawn_worker(item, toolbox);
+                        // Handle backfill sync chain segments.
+                        } else if let Some(item) = backfill_chain_segment.pop() {
+                            self.spawn_worker(item, toolbox);
                         // This statement should always be the final else statement.
                         } else {
                             // Let the journal know that a worker is freed and there's nothing else
@@ -1195,9 +1199,15 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                                 sync_contribution_queue.push(work)
                             }
                             Work::RpcBlock { .. } => rpc_block_queue.push(work, work_id, &self.log),
-                            Work::ChainSegment { .. } => {
-                                chain_segment_queue.push(work, work_id, &self.log)
-                            }
+                            Work::ChainSegment { ref process_id, .. } => match process_id {
+                                ChainSegmentProcessId::RangeBatchId { .. }
+                                | ChainSegmentProcessId::ParentLookup { .. } => {
+                                    chain_segment_queue.push(work, work_id, &self.log)
+                                }
+                                ChainSegmentProcessId::BackSyncBatchId { .. } => {
+                                    backfill_chain_segment.push(work, work_id, &self.log)
+                                }
+                            },
                             Work::Status { .. } => status_queue.push(work, work_id, &self.log),
                             Work::BlocksByRangeRequest { .. } => {
                                 bbrange_queue.push(work, work_id, &self.log)
@@ -1246,6 +1256,10 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                 metrics::set_gauge(
                     &metrics::BEACON_PROCESSOR_CHAIN_SEGMENT_QUEUE_TOTAL,
                     chain_segment_queue.len() as i64,
+                );
+                metrics::set_gauge(
+                    &metrics::BEACON_PROCESSOR_BACKFILL_CHAIN_SEGMENT_QUEUE_TOTAL,
+                    backfill_chain_segment.len() as i64,
                 );
                 metrics::set_gauge(
                     &metrics::BEACON_PROCESSOR_EXIT_QUEUE_TOTAL,
