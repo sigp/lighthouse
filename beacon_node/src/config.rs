@@ -16,7 +16,7 @@ use std::str::FromStr;
 use types::{Checkpoint, Epoch, EthSpec, Hash256, PublicKeyBytes, GRAFFITI_BYTES_LEN};
 use unused_port::{unused_tcp_port, unused_udp_port};
 
-pub const ROPSTEN_DEFAULT_ETH1_CACHE_FOLLOW_DISTANCE: u64 = 256;
+pub const ROPSTEN_DEFAULT_ETH1_CACHE_FOLLOW_DISTANCE: u64 = 512;
 
 /// Gets the fully-initialized global client.
 ///
