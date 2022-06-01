@@ -523,6 +523,22 @@ where
         (head.beacon_state, state_root)
     }
 
+    pub fn head_slot(&self) -> Slot {
+        self.chain.canonical_head.read().head_slot()
+    }
+
+    pub fn head_block_root(&self) -> Hash256 {
+        self.chain.canonical_head.read().head_block_root()
+    }
+
+    pub fn finalized_checkpoint(&self) -> Checkpoint {
+        self.chain.canonical_head.read().finalized_checkpoint()
+    }
+
+    pub fn justified_checkpoint(&self) -> Checkpoint {
+        self.chain.canonical_head.read().justified_checkpoint()
+    }
+
     pub fn get_current_slot(&self) -> Slot {
         self.chain.slot().unwrap()
     }

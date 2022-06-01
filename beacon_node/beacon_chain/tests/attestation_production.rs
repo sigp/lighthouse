@@ -17,8 +17,8 @@ lazy_static! {
 /// attestation at each slot from genesis through to three epochs past the head.
 ///
 /// It checks the produced attestation against some locally computed values.
-#[test]
-fn produces_attestations() {
+#[tokio::test]
+async fn produces_attestations() {
     let num_blocks_produced = MainnetEthSpec::slots_per_epoch() * 4;
     let additional_slots_tested = MainnetEthSpec::slots_per_epoch() * 3;
 
@@ -37,11 +37,13 @@ fn produces_attestations() {
         if slot > 0 && slot <= num_blocks_produced {
             harness.advance_slot();
 
-            harness.extend_chain(
-                1,
-                BlockStrategy::OnCanonicalHead,
-                AttestationStrategy::AllValidators,
-            );
+            harness
+                .extend_chain(
+                    1,
+                    BlockStrategy::OnCanonicalHead,
+                    AttestationStrategy::AllValidators,
+                )
+                .await;
         }
 
         let slot = Slot::from(slot);
@@ -129,7 +131,12 @@ fn produces_attestations() {
             assert_eq!(data.target.root, target_root, "bad target root");
 
             let early_attestation = {
-                let proto_block = chain.fork_choice.read().get_block(&block_root).unwrap();
+                let proto_block = chain
+                    .canonical_head
+                    .read()
+                    .fork_choice
+                    .get_block(&block_root)
+                    .unwrap();
                 chain
                     .early_attester_cache
                     .add_head_block(block_root, block.clone(), proto_block, &state, &chain.spec)
@@ -151,8 +158,8 @@ fn produces_attestations() {
 
 /// Ensures that the early attester cache wont create an attestation to a block in a later slot than
 /// the one requested.
-#[test]
-fn early_attester_cache_old_request() {
+#[tokio::test]
+async fn early_attester_cache_old_request() {
     let harness = BeaconChainHarness::builder(MainnetEthSpec)
         .default_spec()
         .keypairs(KEYPAIRS[..].to_vec())
@@ -162,18 +169,21 @@ fn early_attester_cache_old_request() {
 
     harness.advance_slot();
 
-    harness.extend_chain(
-        2,
-        BlockStrategy::OnCanonicalHead,
-        AttestationStrategy::AllValidators,
-    );
+    harness
+        .extend_chain(
+            2,
+            BlockStrategy::OnCanonicalHead,
+            AttestationStrategy::AllValidators,
+        )
+        .await;
 
     let head = harness.chain.head().unwrap();
     assert_eq!(head.beacon_block.slot(), 2);
     let head_proto_block = harness
         .chain
-        .fork_choice
+        .canonical_head
         .read()
+        .fork_choice
         .get_block(&head.beacon_block_root)
         .unwrap();
 

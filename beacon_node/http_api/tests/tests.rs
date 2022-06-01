@@ -88,23 +88,13 @@ impl ApiTester {
             let slot = harness.chain.slot().unwrap().as_u64();
 
             if !SKIPPED_SLOTS.contains(&slot) {
-                let inner_harness = harness.clone();
                 harness
-                    .chain
-                    .task_executor
-                    .spawn_blocking_handle(
-                        move || {
-                            inner_harness.extend_chain(
-                                1,
-                                BlockStrategy::OnCanonicalHead,
-                                AttestationStrategy::AllValidators,
-                            );
-                        },
-                        "extend_chain",
+                    .extend_chain(
+                        1,
+                        BlockStrategy::OnCanonicalHead,
+                        AttestationStrategy::AllValidators,
                     )
-                    .unwrap()
-                    .await
-                    .unwrap()
+                    .await;
             }
 
             harness.advance_slot();

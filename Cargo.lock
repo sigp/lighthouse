@@ -6661,6 +6661,7 @@ dependencies = [
  "swap_or_not_shuffle",
  "tempfile",
  "test_random_derive",
+ "tokio",
  "tree_hash",
  "tree_hash_derive",
 ]

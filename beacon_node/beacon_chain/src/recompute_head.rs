@@ -608,7 +608,7 @@ fn detect_reorg<E: EthSpec>(
 /// Iterate through the current chain to find the slot intersecting with the given beacon state.
 /// The maximum depth this will search is `SLOTS_PER_HISTORICAL_ROOT`, and if that depth is reached
 /// and no intersection is found, the finalized slot will be returned.
-fn find_reorg_slot<E: EthSpec>(
+pub fn find_reorg_slot<E: EthSpec>(
     old_state: &BeaconState<E>,
     old_block_root: Hash256,
     new_state: &BeaconState<E>,

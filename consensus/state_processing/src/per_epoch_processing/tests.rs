@@ -47,8 +47,8 @@ mod release_tests {
     use beacon_chain::test_utils::{AttestationStrategy, BlockStrategy};
     use types::{Epoch, ForkName, InconsistentFork, MainnetEthSpec};
 
-    #[test]
-    fn altair_state_on_base_fork() {
+    #[tokio::test]
+    async fn altair_state_on_base_fork() {
         let mut spec = MainnetEthSpec::default_spec();
         let slots_per_epoch = MainnetEthSpec::slots_per_epoch();
         // The Altair fork happens at epoch 1.
@@ -63,12 +63,14 @@ mod release_tests {
 
             harness.advance_slot();
 
-            harness.extend_chain(
-                // Build out enough blocks so we get an Altair block at the very end of an epoch.
-                (slots_per_epoch * 2 - 1) as usize,
-                BlockStrategy::OnCanonicalHead,
-                AttestationStrategy::AllValidators,
-            );
+            harness
+                .extend_chain(
+                    // Build out enough blocks so we get an Altair block at the very end of an epoch.
+                    (slots_per_epoch * 2 - 1) as usize,
+                    BlockStrategy::OnCanonicalHead,
+                    AttestationStrategy::AllValidators,
+                )
+                .await;
 
             harness.get_current_state()
         };
@@ -105,8 +107,8 @@ mod release_tests {
         );
     }
 
-    #[test]
-    fn base_state_on_altair_fork() {
+    #[tokio::test]
+    async fn base_state_on_altair_fork() {
         let mut spec = MainnetEthSpec::default_spec();
         let slots_per_epoch = MainnetEthSpec::slots_per_epoch();
         // The Altair fork never happens.
@@ -121,12 +123,14 @@ mod release_tests {
 
             harness.advance_slot();
 
-            harness.extend_chain(
-                // Build out enough blocks so we get a block at the very end of an epoch.
-                (slots_per_epoch * 2 - 1) as usize,
-                BlockStrategy::OnCanonicalHead,
-                AttestationStrategy::AllValidators,
-            );
+            harness
+                .extend_chain(
+                    // Build out enough blocks so we get a block at the very end of an epoch.
+                    (slots_per_epoch * 2 - 1) as usize,
+                    BlockStrategy::OnCanonicalHead,
+                    AttestationStrategy::AllValidators,
+                )
+                .await;
 
             harness.get_current_state()
         };

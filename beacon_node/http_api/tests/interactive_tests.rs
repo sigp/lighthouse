@@ -47,11 +47,13 @@ pub async fn fork_choice_before_proposal() {
 
     // Create some chain depth.
     harness.advance_slot();
-    harness.extend_chain(
-        num_initial as usize,
-        BlockStrategy::OnCanonicalHead,
-        AttestationStrategy::AllValidators,
-    );
+    harness
+        .extend_chain(
+            num_initial as usize,
+            BlockStrategy::OnCanonicalHead,
+            AttestationStrategy::AllValidators,
+        )
+        .await;
 
     // We set up the following block graph, where B is a block that is temporarily orphaned by C,
     // but is then reinstated and built upon by D.
@@ -65,7 +67,7 @@ pub async fn fork_choice_before_proposal() {
 
     let state_a = harness.get_current_state();
     let (block_b, state_b) = harness.make_block(state_a.clone(), slot_b);
-    let block_root_b = harness.process_block(slot_b, block_b).unwrap();
+    let block_root_b = harness.process_block(slot_b, block_b).await.unwrap();
 
     // Create attestations to B but keep them in reserve until after C has been processed.
     let attestations_b = harness.make_attestations(
@@ -77,7 +79,10 @@ pub async fn fork_choice_before_proposal() {
     );
 
     let (block_c, state_c) = harness.make_block(state_a, slot_c);
-    let block_root_c = harness.process_block(slot_c, block_c.clone()).unwrap();
+    let block_root_c = harness
+        .process_block(slot_c, block_c.clone())
+        .await
+        .unwrap();
 
     // Create attestations to C from a small number of validators and process them immediately.
     let attestations_c = harness.make_attestations(
