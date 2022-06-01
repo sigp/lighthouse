@@ -1347,11 +1347,10 @@ mod tests {
         let seconds_per_voting_period =
             <MainnetEthSpec as EthSpec>::SlotsPerEth1VotingPeriod::to_u64() * spec.seconds_per_slot;
         let eth1_blocks_per_voting_period = seconds_per_voting_period / spec.seconds_per_eth1_block;
-        let reduce_follow_distance_blocks =
-            config.follow_distance / ETH1_BLOCK_TIME_TOLERANCE_FACTOR;
+        let cache_follow_distance_blocks = config.follow_distance - config.cache_follow_distance();
 
-        let minimum_len = eth1_blocks_per_voting_period * 2 + reduce_follow_distance_blocks;
+        let minimum_len = eth1_blocks_per_voting_period * 2 + cache_follow_distance_blocks;
 
-        assert!(len > minimum_len as usize);
+        assert!(len >= minimum_len as usize);
     }
 }
