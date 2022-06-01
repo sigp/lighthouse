@@ -8,9 +8,9 @@ use super::chain::{ChainId, ProcessingResult, RemoveChain, SyncingChain};
 use super::sync_type::RangeSyncType;
 use crate::beacon_processor::WorkEvent as BeaconWorkEvent;
 use crate::metrics;
-use crate::sync::manager::ExecutionState;
+use crate::sync::manager::ExecutionStatusHandler;
 use crate::sync::network_context::SyncNetworkContext;
-use beacon_chain::{parking_lot::RwLock, BeaconChainTypes};
+use beacon_chain::BeaconChainTypes;
 use fnv::FnvHashMap;
 use lighthouse_network::PeerId;
 use lighthouse_network::SyncInfo;
@@ -61,7 +61,7 @@ pub struct ChainCollection<T: BeaconChainTypes, C> {
     /// The current sync state of the process.
     state: RangeSyncState,
     /// The status of the execution layer.
-    execution_state: Arc<RwLock<Option<ExecutionState>>>,
+    execution_status_handler: ExecutionStatusHandler,
     /// Logger for the collection.
     log: slog::Logger,
 }
@@ -69,7 +69,7 @@ pub struct ChainCollection<T: BeaconChainTypes, C> {
 impl<T: BeaconChainTypes, C: BlockStorage> ChainCollection<T, C> {
     pub fn new(
         beacon_chain: Arc<C>,
-        execution_state: Arc<RwLock<Option<ExecutionState>>>,
+        execution_status_handler: ExecutionStatusHandler,
         log: slog::Logger,
     ) -> Self {
         ChainCollection {
@@ -77,7 +77,7 @@ impl<T: BeaconChainTypes, C: BlockStorage> ChainCollection<T, C> {
             finalized_chains: FnvHashMap::default(),
             head_chains: FnvHashMap::default(),
             state: RangeSyncState::Idle,
-            execution_state,
+            execution_status_handler,
             log,
         }
     }
@@ -528,7 +528,7 @@ impl<T: BeaconChainTypes, C: BlockStorage> ChainCollection<T, C> {
                     target_head_slot,
                     target_head_root,
                     peer,
-                    self.execution_state.clone(),
+                    self.execution_status_handler.clone(),
                     beacon_processor_send.clone(),
                     &self.log,
                 );

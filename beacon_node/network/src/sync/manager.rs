@@ -144,12 +144,14 @@ pub enum BatchProcessResult {
     },
 }
 
+#[derive(Clone)]
 /// The state of the execution layer connection for block verification.
 pub enum ExecutionState {
     Online,
     Offline,
 }
 
+#[derive(Clone)]
 pub struct ExecutionStatusHandler {
     state: Arc<RwLock<Option<ExecutionState>>>,
     tx: tokio::sync::mpsc::Sender<()>,
@@ -165,6 +167,21 @@ impl ExecutionStatusHandler {
             },
             rx,
         )
+    }
+
+    pub fn status(&self) -> Option<ExecutionState> {
+        (*self.state.read()).clone()
+    }
+
+    pub fn offline(&self) {
+        *self.state.write() = Some(ExecutionState::Offline);
+        if let Err(e) = self.tx.try_send(()) {
+            dbg!("arre baapre", e);
+        }
+    }
+
+    pub fn online(&self) {
+        *self.state.write() = Some(ExecutionState::Online);
     }
 }
 
@@ -201,7 +218,9 @@ pub struct SyncManager<T: BeaconChainTypes> {
 
     /// The state of the execution layer.
     /// `None` implies that the chain is not merge enabled.
-    execution_state: Arc<RwLock<Option<ExecutionState>>>,
+    execution_status_handler: ExecutionStatusHandler,
+
+    execution_status_listener: tokio::sync::mpsc::Receiver<()>,
 
     /// The logger for the import manager.
     log: Logger,
@@ -227,10 +246,12 @@ pub fn spawn<T: BeaconChainTypes>(
 
     let execution_state = if beacon_chain.execution_layer.is_some() {
         // We optimistically assume that the execution layer is online if it is enabled
-        Arc::new(RwLock::new(Some(ExecutionState::Online)))
+        Some(ExecutionState::Online)
     } else {
-        Arc::new(RwLock::new(None))
+        None
     };
+
+    let (execution_status_handler, rx) = ExecutionStatusHandler::new(execution_state);
 
     // create an instance of the SyncManager
     let mut sync_manager = SyncManager {
@@ -240,7 +261,7 @@ pub fn spawn<T: BeaconChainTypes>(
         network: SyncNetworkContext::new(network_send, network_globals.clone(), log.clone()),
         range_sync: RangeSync::new(
             beacon_chain.clone(),
-            execution_state.clone(),
+            execution_status_handler.clone(),
             beacon_processor_send.clone(),
             log.clone(),
         ),
@@ -252,11 +273,12 @@ pub fn spawn<T: BeaconChainTypes>(
         ),
         block_lookups: BlockLookups::new(
             beacon_processor_send,
-            execution_state.clone(),
+            execution_status_handler.clone(),
             log.clone(),
         ),
         execution_notifier: Box::pin(None.into()),
-        execution_state,
+        execution_status_handler,
+        execution_status_listener: rx,
         log: log.clone(),
     };
 
@@ -520,11 +542,24 @@ impl<T: BeaconChainTypes> SyncManager<T> {
     async fn main(&mut self) {
         loop {
             tokio::select! {
+                Some(_) = self.execution_status_listener.recv() => {
+                    debug!(self.log, "Execution status changed to offline";);
+                    if let Some(execution_layer) = self.chain.execution_layer.as_ref() {
+                        let receiver = execution_layer.is_online_notifier().await;
+                        if let Some(recv) = receiver {
+                            self.execution_notifier = Box::pin(Some(recv.0).into());
+                        } else {
+                            crit!(
+                                self.log,
+                                "Requesting for duplicate execution layer notifier in range sync";
+                            );
+                            return;
+                        }
+                    }
+                }
                 Some(_) = &mut self.execution_notifier => {
                     debug!(self.log, "Execution layer back online"; "action" => "resuming sync");
-                    {
-                        *self.execution_state.write() = Some(ExecutionState::Online);
-                    }
+                    self.execution_status_handler.online();
                     // Reset the notifier
                     self.execution_notifier = Box::pin(None.into());
                     self.update_sync_state().await;

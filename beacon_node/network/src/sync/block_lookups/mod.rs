@@ -1,15 +1,13 @@
 use std::collections::hash_map::Entry;
 use std::time::Duration;
 
-use crate::sync::manager::ExecutionState;
-use beacon_chain::parking_lot::RwLock;
+use crate::sync::manager::{ExecutionState, ExecutionStatusHandler};
 use beacon_chain::{BeaconChainTypes, BlockError, ExecutionPayloadError};
 use fnv::FnvHashMap;
 use lighthouse_network::{PeerAction, PeerId};
 use lru_cache::LRUTimeCache;
 use slog::{crit, debug, error, trace, warn, Logger};
 use smallvec::SmallVec;
-use std::sync::Arc;
 use store::{Hash256, SignedBeaconBlock};
 use tokio::sync::mpsc;
 
@@ -49,7 +47,7 @@ pub(crate) struct BlockLookups<T: BeaconChainTypes> {
     single_block_lookups: FnvHashMap<Id, SingleBlockRequest<SINGLE_BLOCK_LOOKUP_MAX_ATTEMPTS>>,
 
     /// Current status for the block lookups.
-    execution_state: Arc<RwLock<Option<ExecutionState>>>,
+    execution_status_handler: ExecutionStatusHandler,
 
     /// A multi-threaded, non-blocking processor for applying messages to the beacon chain.
     beacon_processor_send: mpsc::Sender<WorkEvent<T>>,
@@ -61,7 +59,7 @@ pub(crate) struct BlockLookups<T: BeaconChainTypes> {
 impl<T: BeaconChainTypes> BlockLookups<T> {
     pub fn new(
         beacon_processor_send: mpsc::Sender<WorkEvent<T>>,
-        execution_state: Arc<RwLock<Option<ExecutionState>>>,
+        execution_status_handler: ExecutionStatusHandler,
         log: Logger,
     ) -> Self {
         Self {
@@ -69,7 +67,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
             failed_chains: LRUTimeCache::new(Duration::from_secs(
                 FAILED_CHAINS_CACHE_EXPIRY_SECONDS,
             )),
-            execution_state,
+            execution_status_handler,
             single_block_lookups: Default::default(),
             beacon_processor_send,
             log,
@@ -84,7 +82,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         peer_id: PeerId,
         cx: &mut SyncNetworkContext<T::EthSpec>,
     ) {
-        if let Some(ExecutionState::Offline) = *self.execution_state.read() {
+        if let Some(ExecutionState::Offline) = self.execution_status_handler.status() {
             return;
         }
         // Do not re-request a block that is already being requested
@@ -123,7 +121,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         peer_id: PeerId,
         cx: &mut SyncNetworkContext<T::EthSpec>,
     ) {
-        if let Some(ExecutionState::Offline) = *self.execution_state.read() {
+        if let Some(ExecutionState::Offline) = self.execution_status_handler.status() {
             return;
         }
         let block_root = block.canonical_root();
@@ -400,7 +398,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         result: Result<(), BlockError<T::EthSpec>>,
         cx: &mut SyncNetworkContext<T::EthSpec>,
     ) {
-        if let Some(ExecutionState::Offline) = *self.execution_state.read() {
+        if let Some(ExecutionState::Offline) = self.execution_status_handler.status() {
             return;
         }
         let mut req = match self.single_block_lookups.remove(&id) {
@@ -453,7 +451,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                             "root" => %root,
                             "error" => ?e
                         );
-                        *self.execution_state.write() = Some(ExecutionState::Offline);
+                        self.execution_status_handler.offline();
                     }
                     err => {
                         debug!(self.log,
@@ -502,7 +500,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         result: Result<(), BlockError<T::EthSpec>>,
         cx: &mut SyncNetworkContext<T::EthSpec>,
     ) {
-        if let Some(ExecutionState::Offline) = *self.execution_state.read() {
+        if let Some(ExecutionState::Offline) = self.execution_status_handler.status() {
             return;
         }
         let (mut parent_lookup, peer_id) = if let Some((pos, peer)) = self
@@ -572,7 +570,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                         "chain_hash" => %chain_hash,
                         "error" => ?e
                     );
-                    *self.execution_state.write() = Some(ExecutionState::Offline);
+                    self.execution_status_handler.offline();
                 }
                 err => {
                     warn!(self.log,
@@ -622,7 +620,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         result: BatchProcessResult,
         cx: &mut SyncNetworkContext<T::EthSpec>,
     ) {
-        if let Some(ExecutionState::Offline) = *self.execution_state.read() {
+        if let Some(ExecutionState::Offline) = self.execution_status_handler.status() {
             return;
         }
         let parent_lookup = if let Some(pos) = self
@@ -663,7 +661,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                             "chain_hash" => %chain_hash,
                             "error" => ?mode
                         );
-                        *self.execution_state.write() = Some(ExecutionState::Offline);
+                        self.execution_status_handler.offline();
                     }
                 } else {
                     self.failed_chains.insert(parent_lookup.chain_hash());

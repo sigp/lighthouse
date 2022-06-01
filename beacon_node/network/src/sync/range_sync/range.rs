@@ -45,10 +45,9 @@ use super::chain_collection::{ChainCollection, ChainState};
 use super::sync_type::RangeSyncType;
 use crate::beacon_processor::WorkEvent as BeaconWorkEvent;
 use crate::status::ToStatusMessage;
-use crate::sync::manager::{ExecutionState, Id};
+use crate::sync::manager::{ExecutionStatusHandler, Id};
 use crate::sync::network_context::SyncNetworkContext;
 use crate::sync::BatchProcessResult;
-use beacon_chain::parking_lot::RwLock;
 use beacon_chain::{BeaconChain, BeaconChainTypes};
 use lighthouse_network::rpc::GoodbyeReason;
 use lighthouse_network::PeerId;
@@ -90,13 +89,17 @@ where
 {
     pub fn new(
         beacon_chain: Arc<C>,
-        execution_state: Arc<RwLock<Option<ExecutionState>>>,
+        execution_status_handler: ExecutionStatusHandler,
         beacon_processor_send: mpsc::Sender<BeaconWorkEvent<T>>,
         log: slog::Logger,
     ) -> Self {
         RangeSync {
             beacon_chain: beacon_chain.clone(),
-            chains: ChainCollection::new(beacon_chain, execution_state.clone(), log.clone()),
+            chains: ChainCollection::new(
+                beacon_chain,
+                execution_status_handler.clone(),
+                log.clone(),
+            ),
             failed_chains: LRUTimeCache::new(std::time::Duration::from_secs(
                 FAILED_CHAINS_EXPIRY_SECONDS,
             )),
