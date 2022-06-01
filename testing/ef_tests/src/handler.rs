@@ -135,7 +135,6 @@ macro_rules! bls_handler {
                     .filter_map(as_file)
                     .map(|test_case_path| {
                         let path = test_case_path.path();
-
                         let case =
                             Self::Case::load_from_dir(&path, fork_name).expect("test should load");
 
@@ -159,6 +158,7 @@ macro_rules! bls_handler {
 
 bls_handler!(BlsAggregateSigsHandler, BlsAggregateSigs, "aggregate");
 bls_handler!(BlsSignMsgHandler, BlsSign, "sign");
+bls_handler!(BlsBatchVerifyHandler, BlsBatchVerify, "batch_verify");
 bls_handler!(BlsVerifyMsgHandler, BlsVerify, "verify");
 bls_handler!(
     BlsAggregateVerifyHandler,
