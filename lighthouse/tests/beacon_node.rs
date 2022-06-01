@@ -1,4 +1,4 @@
-use beacon_node::ClientConfig as Config;
+use beacon_node::{ClientConfig as Config, ROPSTEN_DEFAULT_ETH1_CACHE_FOLLOW_DISTANCE};
 
 use crate::exec::{CommandLineTestExec, CompletedTest};
 use lighthouse_network::PeerId;
@@ -224,6 +224,41 @@ fn eth1_purge_cache_flag() {
         .flag("eth1-purge-cache", None)
         .run_with_zero_port()
         .with_config(|config| assert!(config.eth1.purge_cache));
+}
+#[test]
+fn eth1_cache_follow_distance_default() {
+    CommandLineTest::new()
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert_eq!(config.eth1.cache_follow_distance, None);
+            assert_eq!(config.eth1.cache_follow_distance(), 3 * 2048 / 4);
+        });
+}
+#[test]
+fn eth1_cache_follow_distance_manual() {
+    CommandLineTest::new()
+        .flag("eth1-cache-follow-distance", Some("128"))
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert_eq!(config.eth1.cache_follow_distance, Some(128));
+            assert_eq!(config.eth1.cache_follow_distance(), 128);
+        });
+}
+#[test]
+fn eth1_cache_follow_distance_ropsten() {
+    CommandLineTest::new()
+        .flag("network", Some("ropsten"))
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert_eq!(
+                config.eth1.cache_follow_distance,
+                Some(ROPSTEN_DEFAULT_ETH1_CACHE_FOLLOW_DISTANCE)
+            );
+            assert_eq!(
+                config.eth1.cache_follow_distance(),
+                ROPSTEN_DEFAULT_ETH1_CACHE_FOLLOW_DISTANCE
+            );
+        });
 }
 
 // Tests for Bellatrix flags.

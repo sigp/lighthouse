@@ -16,6 +16,8 @@ use std::str::FromStr;
 use types::{Checkpoint, Epoch, EthSpec, Hash256, PublicKeyBytes, GRAFFITI_BYTES_LEN};
 use unused_port::{unused_tcp_port, unused_udp_port};
 
+pub const ROPSTEN_DEFAULT_ETH1_CACHE_FOLLOW_DISTANCE: u64 = 256;
+
 /// Gets the fully-initialized global client.
 ///
 /// The top-level `clap` arguments should be provided as `cli_args`.
@@ -341,6 +343,14 @@ pub fn get_config<E: EthSpec>(
     client_config.eth1.network_id = spec.deposit_network_id.into();
     client_config.eth1.chain_id = spec.deposit_chain_id.into();
     client_config.eth1.set_block_cache_truncation::<E>(spec);
+
+    if let Some(follow_distance) =
+        clap_utils::parse_optional(cli_args, "eth1-cache-follow-distance")?
+    {
+        client_config.eth1.cache_follow_distance = Some(follow_distance);
+    } else if spec.config_name.as_deref() == Some("ropsten") {
+        client_config.eth1.cache_follow_distance = Some(ROPSTEN_DEFAULT_ETH1_CACHE_FOLLOW_DISTANCE);
+    }
 
     info!(
         log,

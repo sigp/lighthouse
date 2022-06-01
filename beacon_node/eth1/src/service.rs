@@ -41,9 +41,6 @@ const GET_DEPOSIT_LOG_TIMEOUT_MILLIS: u64 = 60_000;
 
 const WARNING_MSG: &str = "BLOCK PROPOSALS WILL FAIL WITHOUT VALID, SYNCED ETH1 CONNECTION";
 
-/// A factor used to reduce the eth1 follow distance to account for discrepancies in the block time.
-const ETH1_BLOCK_TIME_TOLERANCE_FACTOR: u64 = 4;
-
 #[derive(Debug, PartialEq, Clone)]
 pub enum EndpointError {
     RequestFailed(String),
@@ -319,7 +316,7 @@ pub enum SingleEndpointError {
     RemoteNotSynced {
         next_required_block: u64,
         remote_highest_block: u64,
-        reduced_follow_distance: u64,
+        cache_follow_distance: u64,
     },
     /// Failed to download a block from the eth1 node.
     BlockDownloadFailed(String),
@@ -384,6 +381,11 @@ pub struct Config {
     ///
     /// Note: this should be less than or equal to the specification's `ETH1_FOLLOW_DISTANCE`.
     pub follow_distance: u64,
+    /// The follow distance to use for blocks in our cache.
+    ///
+    /// This can be set lower than the true follow distance in order to correct for poor timing
+    /// of eth1 blocks.
+    pub cache_follow_distance: Option<u64>,
     /// Specifies the seconds when we consider the head of a node far behind.
     /// This should be less than `ETH1_FOLLOW_DISTANCE * SECONDS_PER_ETH1_BLOCK`.
     pub node_far_behind_seconds: u64,
@@ -410,20 +412,25 @@ impl Config {
             E::SlotsPerEth1VotingPeriod::to_u64() * spec.seconds_per_slot;
         let eth1_blocks_per_voting_period = seconds_per_voting_period / spec.seconds_per_eth1_block;
 
-        // Compute the number of extra blocks we store prior to the voting period start blocks.
-        let follow_distance_tolerance_blocks =
-            spec.eth1_follow_distance / ETH1_BLOCK_TIME_TOLERANCE_FACTOR;
-
         // Ensure we can store two full windows of voting blocks.
         let voting_windows = eth1_blocks_per_voting_period * 2;
 
-        // Extend the cache to account for varying eth1 block times and the follow distance
-        // tolerance blocks.
-        let length = voting_windows
-            + (voting_windows / ETH1_BLOCK_TIME_TOLERANCE_FACTOR)
-            + follow_distance_tolerance_blocks;
+        // Extend the cache to account for the cache follow distance.
+        let extra_follow_distance_blocks = self
+            .follow_distance
+            .saturating_sub(self.cache_follow_distance());
+
+        let length = voting_windows + extra_follow_distance_blocks;
 
         self.block_cache_truncation = Some(length as usize);
+    }
+
+    /// The distance at which the cache should follow the head.
+    ///
+    /// Defaults to 3/4 of `follow_distance` unless set manually.
+    pub fn cache_follow_distance(&self) -> u64 {
+        self.cache_follow_distance
+            .unwrap_or(3 * self.follow_distance / 4)
     }
 }
 
@@ -438,6 +445,7 @@ impl Default for Config {
             deposit_contract_deploy_block: 1,
             lowest_cached_block_number: 1,
             follow_distance: 128,
+            cache_follow_distance: None,
             node_far_behind_seconds: 128 * 14,
             block_cache_truncation: Some(4_096),
             auto_update_interval_millis: 60_000,
@@ -486,9 +494,8 @@ impl Service {
     ///
     /// This is useful since the spec declares `SECONDS_PER_ETH1_BLOCK` to be `14`, whilst it is
     /// actually `15` on Goerli.
-    pub fn reduced_follow_distance(&self) -> u64 {
-        let full = self.config().follow_distance;
-        full.saturating_sub(full / ETH1_BLOCK_TIME_TOLERANCE_FACTOR)
+    pub fn cache_follow_distance(&self) -> u64 {
+        self.config().cache_follow_distance()
     }
 
     /// Return byte representation of deposit and block caches.
@@ -836,7 +843,7 @@ impl Service {
         remote_highest_block: u64,
         head_type: HeadType,
     ) -> Result<Option<RangeInclusive<u64>>, SingleEndpointError> {
-        let follow_distance = self.reduced_follow_distance();
+        let follow_distance = self.cache_follow_distance();
         let next_required_block = match head_type {
             HeadType::Deposit => self
                 .deposits()
@@ -1191,9 +1198,9 @@ impl Service {
 fn relevant_block_range(
     remote_highest_block: u64,
     next_required_block: u64,
-    reduced_follow_distance: u64,
+    cache_follow_distance: u64,
 ) -> Result<Option<RangeInclusive<u64>>, SingleEndpointError> {
-    let remote_follow_block = remote_highest_block.saturating_sub(reduced_follow_distance);
+    let remote_follow_block = remote_highest_block.saturating_sub(cache_follow_distance);
 
     if next_required_block <= remote_follow_block {
         Ok(Some(next_required_block..=remote_follow_block))
@@ -1201,12 +1208,12 @@ fn relevant_block_range(
         // If this is the case, the node must have gone "backwards" in terms of it's sync
         // (i.e., it's head block is lower than it was before).
         //
-        // We assume that the `reduced_follow_distance` should be sufficient to ensure this never
+        // We assume that the `cache_follow_distance` should be sufficient to ensure this never
         // happens, otherwise it is an error.
         Err(SingleEndpointError::RemoteNotSynced {
             next_required_block,
             remote_highest_block,
-            reduced_follow_distance,
+            cache_follow_distance,
         })
     } else {
         // Return an empty range.
