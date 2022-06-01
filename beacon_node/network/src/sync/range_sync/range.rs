@@ -45,9 +45,10 @@ use super::chain_collection::{ChainCollection, ChainState};
 use super::sync_type::RangeSyncType;
 use crate::beacon_processor::WorkEvent as BeaconWorkEvent;
 use crate::status::ToStatusMessage;
-use crate::sync::manager::Id;
+use crate::sync::manager::{ExecutionState, Id};
 use crate::sync::network_context::SyncNetworkContext;
 use crate::sync::BatchProcessResult;
+use beacon_chain::parking_lot::RwLock;
 use beacon_chain::{BeaconChain, BeaconChainTypes};
 use lighthouse_network::rpc::GoodbyeReason;
 use lighthouse_network::PeerId;
@@ -89,12 +90,13 @@ where
 {
     pub fn new(
         beacon_chain: Arc<C>,
+        execution_state: Arc<RwLock<Option<ExecutionState>>>,
         beacon_processor_send: mpsc::Sender<BeaconWorkEvent<T>>,
         log: slog::Logger,
     ) -> Self {
         RangeSync {
             beacon_chain: beacon_chain.clone(),
-            chains: ChainCollection::new(beacon_chain, log.clone()),
+            chains: ChainCollection::new(beacon_chain, execution_state.clone(), log.clone()),
             failed_chains: LRUTimeCache::new(std::time::Duration::from_secs(
                 FAILED_CHAINS_EXPIRY_SECONDS,
             )),
@@ -131,7 +133,7 @@ where
             .start_slot(T::EthSpec::slots_per_epoch());
 
         // NOTE: A peer that has been re-status'd may now exist in multiple finalized chains. This
-        // is OK since we since only one finalized chain at a time.
+        // is OK since we sync only one finalized chain at a time.
 
         // determine which kind of sync to perform and set up the chains
         match RangeSyncType::new(self.beacon_chain.as_ref(), &local_info, &remote_info) {
@@ -205,37 +207,6 @@ where
                     &self.beacon_processor_send,
                 );
             }
-        }
-    }
-
-    /// The execution layer is back online, resume all stalled chains.
-    pub fn execution_ready(&mut self, network: &mut SyncNetworkContext<T::EthSpec>) {
-        for (removed_chain, sync_type, remove_reason) in self
-            .chains
-            .call_all(|chain| chain.execution_resumed(network))
-        {
-            self.on_chain_removed(
-                removed_chain,
-                sync_type,
-                remove_reason,
-                network,
-                "execution resumed",
-            );
-        }
-    }
-
-    /// The execution layer is offline, stall all syncing chains.
-    pub fn execution_stalled(&mut self, network: &mut SyncNetworkContext<T::EthSpec>) {
-        for (removed_chain, sync_type, remove_reason) in
-            self.chains.call_all(|chain| chain.execution_stalled())
-        {
-            self.on_chain_removed(
-                removed_chain,
-                sync_type,
-                remove_reason,
-                network,
-                "execution stalled",
-            );
         }
     }
 

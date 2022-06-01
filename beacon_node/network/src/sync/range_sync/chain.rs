@@ -1,7 +1,12 @@
 use super::batch::{BatchInfo, BatchProcessingResult, BatchState};
 use crate::beacon_processor::WorkEvent as BeaconWorkEvent;
 use crate::beacon_processor::{ChainSegmentProcessId, FailureMode};
-use crate::sync::{manager::Id, network_context::SyncNetworkContext, BatchProcessResult};
+use crate::sync::{
+    manager::{ExecutionState, Id},
+    network_context::SyncNetworkContext,
+    BatchProcessResult,
+};
+use beacon_chain::parking_lot::RwLock;
 use beacon_chain::BeaconChainTypes;
 use fnv::FnvHashMap;
 use lighthouse_network::{PeerAction, PeerId};
@@ -9,6 +14,7 @@ use rand::seq::SliceRandom;
 use slog::{crit, debug, o, warn};
 use std::collections::{btree_map::Entry, BTreeMap, HashSet};
 use std::hash::{Hash, Hasher};
+use std::sync::Arc;
 use tokio::sync::mpsc::Sender;
 use types::{Epoch, EthSpec, Hash256, SignedBeaconBlock, Slot};
 
@@ -96,6 +102,9 @@ pub struct SyncingChain<T: BeaconChainTypes> {
     /// Batches validated by this chain.
     validated_batches: u64,
 
+    /// The status of the execution layer.
+    execution_state: Arc<RwLock<Option<ExecutionState>>>,
+
     /// A multi-threaded, non-blocking processor for applying messages to the beacon chain.
     beacon_processor_send: Sender<BeaconWorkEvent<T>>,
 
@@ -109,8 +118,6 @@ pub enum ChainSyncingState {
     Stopped,
     /// The chain is undergoing syncing.
     Syncing,
-    /// The chain sync is stalled because the execution layer is offline.
-    ExecutionStalled,
 }
 
 impl<T: BeaconChainTypes> SyncingChain<T> {
@@ -126,6 +133,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
         target_head_slot: Slot,
         target_head_root: Hash256,
         peer_id: PeerId,
+        execution_state: Arc<RwLock<Option<ExecutionState>>>,
         beacon_processor_send: Sender<BeaconWorkEvent<T>>,
         log: &slog::Logger,
     ) -> Self {
@@ -148,6 +156,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
             state: ChainSyncingState::Stopped,
             current_processing_batch: None,
             validated_batches: 0,
+            execution_state,
             beacon_processor_send,
             log: log.new(o!("chain" => id)),
         }
@@ -520,10 +529,11 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                     "batch_epoch" => batch_id, "peer" => %peer, "client" => %network.client_type(&peer));
 
                 // The batch failed because the execution layer went offline.
-                // Stop syncing until the EL recovers.
+                // Set the execution_state to offline
                 let stall_execution = if let FailureMode::ExecutionLayer { pause_sync } = mode {
                     if *pause_sync {
-                        self.state = ChainSyncingState::ExecutionStalled;
+                        *self.execution_state.write() = Some(ExecutionState::Offline);
+                        self.state = ChainSyncingState::Stopped;
                     }
                     *pause_sync
                 } else {
@@ -762,24 +772,6 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
         self.state = ChainSyncingState::Stopped;
     }
 
-    pub fn execution_stalled(&mut self) -> ProcessingResult {
-        self.state = ChainSyncingState::ExecutionStalled;
-        Ok(KeepChain)
-    }
-
-    pub fn execution_resumed(
-        &mut self,
-        network: &mut SyncNetworkContext<T::EthSpec>,
-    ) -> ProcessingResult {
-        if let ChainSyncingState::ExecutionStalled = self.state {
-            self.state = ChainSyncingState::Syncing;
-            return self.request_batches(network);
-        }
-        Err(RemoveChain::WrongBatchState(
-            "Invalid batch state".to_string(),
-        ))
-    }
-
     /// Either a new chain, or an old one with a peer list
     /// This chain has been requested to start syncing.
     ///
@@ -790,7 +782,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
         local_finalized_epoch: Epoch,
         optimistic_start_epoch: Epoch,
     ) -> ProcessingResult {
-        if let ChainSyncingState::ExecutionStalled = self.state {
+        if let Some(ExecutionState::Offline) = *self.execution_state.read() {
             return Ok(KeepChain);
         }
         // to avoid dropping local progress, we advance the chain wrt its batch boundaries. This
@@ -966,7 +958,6 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
         match self.state {
             ChainSyncingState::Syncing => true,
             ChainSyncingState::Stopped => false,
-            ChainSyncingState::ExecutionStalled => false,
         }
     }
 

@@ -34,13 +34,14 @@
 //! search for the block and subsequently search for parents if needed.
 
 use super::backfill_sync::{BackFillSync, ProcessResult, SyncStart};
-use super::block_lookups::{BlockLookupStatus, BlockLookups};
+use super::block_lookups::BlockLookups;
 use super::network_context::SyncNetworkContext;
 use super::peer_sync_info::{remote_sync_type, PeerSyncType};
 use super::range_sync::{ChainState, RangeSync, RangeSyncType, EPOCHS_PER_BATCH};
 use crate::beacon_processor::{ChainSegmentProcessId, FailureMode, WorkEvent as BeaconWorkEvent};
 use crate::service::NetworkMessage;
 use crate::status::ToStatusMessage;
+use beacon_chain::parking_lot::RwLock;
 use beacon_chain::{BeaconChain, BeaconChainTypes, BlockError};
 use futures::future::OptionFuture;
 use lighthouse_network::rpc::methods::MAX_REQUEST_BLOCKS;
@@ -53,7 +54,7 @@ use std::ops::Sub;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::sync::{mpsc, Mutex};
+use tokio::sync::mpsc;
 use types::{EthSpec, Hash256, SignedBeaconBlock, Slot};
 
 /// The number of slots ahead of us that is allowed before requesting a long-range (batch)  Sync
@@ -143,14 +144,28 @@ pub enum BatchProcessResult {
     },
 }
 
-/// A wrapper struct that represents which chains are currently waiting on
-/// execution layer to become available.
-///
-/// A value of `true` implies that particular sync mode is currently waiting
-/// for execution to become available.
-struct WaitingOnExecution {
-    range: bool,
-    block_lookup: bool,
+/// The state of the execution layer connection for block verification.
+pub enum ExecutionState {
+    Online,
+    Offline,
+}
+
+pub struct ExecutionStatusHandler {
+    state: Arc<RwLock<Option<ExecutionState>>>,
+    tx: tokio::sync::mpsc::Sender<()>,
+}
+
+impl ExecutionStatusHandler {
+    pub fn new(state: Option<ExecutionState>) -> (Self, tokio::sync::mpsc::Receiver<()>) {
+        let (tx, rx) = tokio::sync::mpsc::channel(1);
+        (
+            Self {
+                state: Arc::new(RwLock::new(state)),
+                tx,
+            },
+            rx,
+        )
+    }
 }
 
 /// The primary object for handling and driving all the current syncing logic. It maintains the
@@ -184,9 +199,9 @@ pub struct SyncManager<T: BeaconChainTypes> {
     /// by sending over the channel.
     execution_notifier: Pin<Box<OptionFuture<tokio::sync::oneshot::Receiver<()>>>>,
 
-    /// Signals if any of the sync modes are waiting for the execution layer to
-    /// become available.
-    waiting_on_execution: Mutex<WaitingOnExecution>,
+    /// The state of the execution layer.
+    /// `None` implies that the chain is not merge enabled.
+    execution_state: Arc<RwLock<Option<ExecutionState>>>,
 
     /// The logger for the import manager.
     log: Logger,
@@ -210,6 +225,13 @@ pub fn spawn<T: BeaconChainTypes>(
     // generate the message channel
     let (sync_send, sync_recv) = mpsc::unbounded_channel::<SyncMessage<T::EthSpec>>();
 
+    let execution_state = if beacon_chain.execution_layer.is_some() {
+        // We optimistically assume that the execution layer is online if it is enabled
+        Arc::new(RwLock::new(Some(ExecutionState::Online)))
+    } else {
+        Arc::new(RwLock::new(None))
+    };
+
     // create an instance of the SyncManager
     let mut sync_manager = SyncManager {
         chain: beacon_chain.clone(),
@@ -218,6 +240,7 @@ pub fn spawn<T: BeaconChainTypes>(
         network: SyncNetworkContext::new(network_send, network_globals.clone(), log.clone()),
         range_sync: RangeSync::new(
             beacon_chain.clone(),
+            execution_state.clone(),
             beacon_processor_send.clone(),
             log.clone(),
         ),
@@ -227,12 +250,13 @@ pub fn spawn<T: BeaconChainTypes>(
             beacon_processor_send.clone(),
             log.clone(),
         ),
-        block_lookups: BlockLookups::new(beacon_processor_send, log.clone()),
+        block_lookups: BlockLookups::new(
+            beacon_processor_send,
+            execution_state.clone(),
+            log.clone(),
+        ),
         execution_notifier: Box::pin(None.into()),
-        waiting_on_execution: Mutex::new(WaitingOnExecution {
-            range: false,
-            block_lookup: false,
-        }),
+        execution_state,
         log: log.clone(),
     };
 
@@ -471,36 +495,6 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                         target_slot,
                     }
                 }
-                ChainState::WaitingOnExecution => {
-                    let mut status_lock = self.waiting_on_execution.lock().await;
-                    // Get the notifier from the execution layer only if neither
-                    // of range and block_lookup are waiting on execution.
-                    // This is to ensure that we do not request a new notifier when
-                    // we already have one which has not received over the channel.
-                    if !status_lock.range && !status_lock.block_lookup {
-                        if let Some(execution_layer) = self.chain.execution_layer.as_ref() {
-                            let receiver = execution_layer.is_online_notifier().await;
-                            if let Some(recv) = receiver {
-                                self.execution_notifier = Box::pin(Some(recv.0).into());
-                            } else {
-                                crit!(
-                                    self.log,
-                                    "Requesting for duplicate execution layer notifier in range sync";
-                                );
-                                return;
-                            }
-                        }
-                    }
-                    if !status_lock.range {
-                        // Stall every chain if any one chain is waiting on execution
-                        // This is to ensure that all the chains are in the right state
-                        // when we resume.
-                        self.range_sync.execution_stalled(&mut self.network);
-                        status_lock.range = true;
-                        debug!(self.log, "Range sync is waiting on execution layer");
-                    }
-                    SyncState::WaitingOnExecution
-                }
             },
         };
 
@@ -528,17 +522,8 @@ impl<T: BeaconChainTypes> SyncManager<T> {
             tokio::select! {
                 Some(_) = &mut self.execution_notifier => {
                     debug!(self.log, "Execution layer back online"; "action" => "resuming sync");
-                    // unpause syncing chains
                     {
-                        let mut status_lock = self.waiting_on_execution.lock().await;
-                        if status_lock.range {
-                            status_lock.range = false;
-                            self.range_sync.execution_ready(&mut self.network);
-                        }
-                        if status_lock.block_lookup {
-                            status_lock.block_lookup = false;
-                            self.block_lookups.set_status(BlockLookupStatus::Activated);
-                        }
+                        *self.execution_state.write() = Some(ExecutionState::Online);
                     }
                     // Reset the notifier
                     self.execution_notifier = Box::pin(None.into());
@@ -605,7 +590,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                             process_type,
                             result,
                         } => {
-                            let block_lookup_status = match process_type {
+                            let _block_lookup_status = match process_type {
                             BlockProcessType::SingleBlock { id } => self
                                 .block_lookups
                                 .single_block_processed(id, result, &mut self.network),
@@ -613,26 +598,6 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                                 .block_lookups
                                 .parent_block_processed(chain_hash, result, &mut self.network),
                             };
-                            if let BlockLookupStatus::WaitingOnExecution = block_lookup_status {
-                                let mut status_lock = self.waiting_on_execution.lock().await;
-                                if !status_lock.range && !status_lock.block_lookup {
-                                    if let Some(execution_layer) = self.chain.execution_layer.as_ref() {
-                                        let receiver = execution_layer.is_online_notifier().await;
-                                        if let Some(recv) = receiver {
-                                            self.execution_notifier = Box::pin(Some(recv.0).into());
-                                        } else {
-                                            crit!(
-                                                self.log,
-                                                "Requesting for duplicate execution layer notifier in sync";
-                                            );
-                                            return;
-                                        }
-                                    }
-
-                                    debug!(self.log, "Sync is waiting on execution layer");
-                                }
-                                status_lock.block_lookup = true;
-                            }
                         }
                         SyncMessage::BatchProcessed { sync_type, result } => match sync_type {
                             ChainSegmentProcessId::RangeBatchId(chain_id, epoch) => {
@@ -660,31 +625,11 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                                 }
                             }
                             ChainSegmentProcessId::ParentLookup(chain_hash) => {
-                                let block_lookup_status = self
+                                self
                                     .block_lookups
                                     .parent_chain_processed(chain_hash, result, &mut self.network);
-
-                                if let BlockLookupStatus::WaitingOnExecution = block_lookup_status {
-                                    let mut status_lock = self.waiting_on_execution.lock().await;
-                                    if !status_lock.range && !status_lock.block_lookup {
-                                        if let Some(execution_layer) = self.chain.execution_layer.as_ref() {
-                                            let receiver = execution_layer.is_online_notifier().await;
-                                            if let Some(recv) = receiver {
-                                                self.execution_notifier = Box::pin(Some(recv.0).into());
-                                            } else {
-                                                crit!(
-                                                    self.log,
-                                                    "Requesting for duplicate execution layer notifier in parent lookup";
-                                                );
-                                                return;
-                                            }
-                                        }
-
-                                        debug!(self.log, "Sync is waiting on execution layer");
-                                    }
-                                    status_lock.block_lookup = true;
-                                }
                             }
+
 
                         },
                     }

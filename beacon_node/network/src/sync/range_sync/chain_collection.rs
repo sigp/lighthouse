@@ -4,12 +4,13 @@
 //! this struct to simplify the logic of the other layers of sync.
 
 use super::block_storage::BlockStorage;
-use super::chain::{ChainId, ChainSyncingState, ProcessingResult, RemoveChain, SyncingChain};
+use super::chain::{ChainId, ProcessingResult, RemoveChain, SyncingChain};
 use super::sync_type::RangeSyncType;
 use crate::beacon_processor::WorkEvent as BeaconWorkEvent;
 use crate::metrics;
+use crate::sync::manager::ExecutionState;
 use crate::sync::network_context::SyncNetworkContext;
-use beacon_chain::BeaconChainTypes;
+use beacon_chain::{parking_lot::RwLock, BeaconChainTypes};
 use fnv::FnvHashMap;
 use lighthouse_network::PeerId;
 use lighthouse_network::SyncInfo;
@@ -46,7 +47,6 @@ pub enum ChainState {
         from: Slot,
         to: Slot,
     },
-    WaitingOnExecution,
     Idle,
 }
 
@@ -60,17 +60,24 @@ pub struct ChainCollection<T: BeaconChainTypes, C> {
     head_chains: FnvHashMap<ChainId, SyncingChain<T>>,
     /// The current sync state of the process.
     state: RangeSyncState,
+    /// The status of the execution layer.
+    execution_state: Arc<RwLock<Option<ExecutionState>>>,
     /// Logger for the collection.
     log: slog::Logger,
 }
 
 impl<T: BeaconChainTypes, C: BlockStorage> ChainCollection<T, C> {
-    pub fn new(beacon_chain: Arc<C>, log: slog::Logger) -> Self {
+    pub fn new(
+        beacon_chain: Arc<C>,
+        execution_state: Arc<RwLock<Option<ExecutionState>>>,
+        log: slog::Logger,
+    ) -> Self {
         ChainCollection {
             beacon_chain,
             finalized_chains: FnvHashMap::default(),
             head_chains: FnvHashMap::default(),
             state: RangeSyncState::Idle,
+            execution_state,
             log,
         }
     }
@@ -235,18 +242,14 @@ impl<T: BeaconChainTypes, C: BlockStorage> ChainCollection<T, C> {
                     .finalized_chains
                     .get(syncing_id)
                     .ok_or("Finalized syncing chain not found")?;
-                if let ChainSyncingState::ExecutionStalled = chain.state {
-                    Ok(ChainState::WaitingOnExecution)
-                } else {
-                    Ok(ChainState::Range {
-                        range_type: RangeSyncType::Finalized,
-                        from: chain.start_epoch.start_slot(T::EthSpec::slots_per_epoch()),
-                        to: chain.target_head_slot,
-                    })
-                }
+
+                Ok(ChainState::Range {
+                    range_type: RangeSyncType::Finalized,
+                    from: chain.start_epoch.start_slot(T::EthSpec::slots_per_epoch()),
+                    to: chain.target_head_slot,
+                })
             }
             RangeSyncState::Head(ref syncing_head_ids) => {
-                let mut stalled = 0;
                 let mut range: Option<(Slot, Slot)> = None;
 
                 for id in syncing_head_ids {
@@ -254,9 +257,7 @@ impl<T: BeaconChainTypes, C: BlockStorage> ChainCollection<T, C> {
                         .head_chains
                         .get(id)
                         .ok_or("Head syncing chain not found")?;
-                    if let ChainSyncingState::ExecutionStalled = chain.state {
-                        stalled += 1;
-                    }
+
                     let start = chain.start_epoch.start_slot(T::EthSpec::slots_per_epoch());
                     let target = chain.target_head_slot;
 
@@ -264,18 +265,13 @@ impl<T: BeaconChainTypes, C: BlockStorage> ChainCollection<T, C> {
                         .map(|(min_start, max_slot)| (min_start.min(start), max_slot.max(target)))
                         .or(Some((start, target)));
                 }
-                // Return a stalled status if all head chains are stalled on execution
-                if stalled == syncing_head_ids.len() {
-                    Ok(ChainState::WaitingOnExecution)
-                } else {
-                    let (start_slot, target_slot) =
-                        range.ok_or("Syncing head with empty head ids")?;
-                    Ok(ChainState::Range {
-                        range_type: RangeSyncType::Head,
-                        from: start_slot,
-                        to: target_slot,
-                    })
-                }
+
+                let (start_slot, target_slot) = range.ok_or("Syncing head with empty head ids")?;
+                Ok(ChainState::Range {
+                    range_type: RangeSyncType::Head,
+                    from: start_slot,
+                    to: target_slot,
+                })
             }
             RangeSyncState::Idle => Ok(ChainState::Idle),
         }
@@ -532,6 +528,7 @@ impl<T: BeaconChainTypes, C: BlockStorage> ChainCollection<T, C> {
                     target_head_slot,
                     target_head_root,
                     peer,
+                    self.execution_state.clone(),
                     beacon_processor_send.clone(),
                     &self.log,
                 );
