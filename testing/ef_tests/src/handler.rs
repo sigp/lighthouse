@@ -122,6 +122,7 @@ macro_rules! bls_handler {
                 let fork_name = ForkName::Base;
                 let fork_name_str = fork_name.to_string();
                 let handler_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                    .join("consensus-spec-tests")
                     .join(Self::config_name())
                     .join(self.handler_name());
 

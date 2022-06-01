@@ -47,8 +47,12 @@ excluded_paths = [
     ".*\.DS_Store.*",
     # More Mac weirdness.
     "tests/mainnet/bellatrix/operations/deposit/pyspec_tests/deposit_with_previous_fork_version__valid_ineffective/._meta.yaml"
-    # bls tests are moved to another directory
-    "tests/general/phase0/bls"
+    # bls tests are moved to bls tests directory
+    "tests/general/phase0/bls",
+    # some bls tests are not included now
+    "bls12-381-tests/deserialization_G1",
+    "bls12-381-tests/deserialization_G2",
+    "bls12-381-tests/hash_to_G2"
 ]
 
 def normalize_path(path):

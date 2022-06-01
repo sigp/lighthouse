@@ -10,7 +10,7 @@ BLS_TEST_REPO_NAME := bls12-381-tests
 BLS_TEST_TAG := v0.1.1
 BLS_TEST = bls_tests_yaml
 BLS_TARBALL = $(patsubst %,%-$(BLS_TEST_TAG).tar.gz,$(BLS_TEST))
-BLS_OUTPUT_DIR := ./$(BLS_TEST_REPO_NAME)
+BLS_OUTPUT_DIR := $(OUTPUT_DIR)/$(BLS_TEST_REPO_NAME)
 BLS_BASE_URL := https://github.com/ethereum/$(BLS_TEST_REPO_NAME)/releases/download/$(BLS_TEST_TAG)
 
 all:
