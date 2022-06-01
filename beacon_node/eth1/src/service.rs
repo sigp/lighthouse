@@ -41,6 +41,13 @@ const GET_DEPOSIT_LOG_TIMEOUT_MILLIS: u64 = 60_000;
 
 const WARNING_MSG: &str = "BLOCK PROPOSALS WILL FAIL WITHOUT VALID, SYNCED ETH1 CONNECTION";
 
+/// Number of blocks to download if the node detects it is lagging behind due to an inaccurate
+/// relationship between block-number-based follow distance and time-based follow distance.
+const CATCHUP_BATCH_SIZE: u64 = 128;
+
+/// The absolute minimum follow distance to enforce when downloading catchup batches.
+const CATCHUP_MIN_FOLLOW_DISTANCE: u64 = 64;
+
 #[derive(Debug, PartialEq, Clone)]
 pub enum EndpointError {
     RequestFailed(String),
@@ -281,10 +288,18 @@ async fn get_remote_head_and_new_block_ranges(
         e
     };
     let new_deposit_block_numbers = service
-        .relevant_new_block_numbers(remote_head_block.number, HeadType::Deposit)
+        .relevant_new_block_numbers(
+            remote_head_block.number,
+            Some(remote_head_block.timestamp),
+            HeadType::Deposit,
+        )
         .map_err(handle_remote_not_synced)?;
     let new_block_cache_numbers = service
-        .relevant_new_block_numbers(remote_head_block.number, HeadType::BlockCache)
+        .relevant_new_block_numbers(
+            remote_head_block.number,
+            Some(remote_head_block.timestamp),
+            HeadType::BlockCache,
+        )
         .map_err(handle_remote_not_synced)?;
     Ok((
         remote_head_block,
@@ -304,7 +319,7 @@ async fn relevant_new_block_numbers_from_endpoint(
         get_block_number(endpoint, Duration::from_millis(BLOCK_NUMBER_TIMEOUT_MILLIS))
             .map_err(SingleEndpointError::GetBlockNumberFailed)
             .await?;
-    service.relevant_new_block_numbers(remote_highest_block, head_type)
+    service.relevant_new_block_numbers(remote_highest_block, None, head_type)
 }
 
 #[derive(Debug, PartialEq)]
@@ -841,6 +856,7 @@ impl Service {
     fn relevant_new_block_numbers(
         &self,
         remote_highest_block: u64,
+        remote_highest_block_timestamp: Option<u64>,
         head_type: HeadType,
     ) -> Result<Option<RangeInclusive<u64>>, SingleEndpointError> {
         let follow_distance = self.cache_follow_distance();
@@ -859,8 +875,16 @@ impl Service {
                 .map(|n| n + 1)
                 .unwrap_or_else(|| self.config().lowest_cached_block_number),
         };
+        let latest_cached_block = self.latest_cached_block();
 
-        relevant_block_range(remote_highest_block, next_required_block, follow_distance)
+        relevant_block_range(
+            remote_highest_block,
+            remote_highest_block_timestamp,
+            next_required_block,
+            follow_distance,
+            latest_cached_block.as_ref(),
+            &self.inner.spec,
+        )
     }
 
     /// Contacts the remote eth1 node and attempts to import deposit logs up to the configured
@@ -1196,15 +1220,39 @@ impl Service {
 /// Returns an error if `next_required_block > remote_highest_block + 1` which means the remote went
 /// backwards.
 fn relevant_block_range(
-    remote_highest_block: u64,
+    remote_highest_block_number: u64,
+    remote_highest_block_timestamp: Option<u64>,
     next_required_block: u64,
     cache_follow_distance: u64,
+    latest_cached_block: Option<&Eth1Block>,
+    spec: &ChainSpec,
 ) -> Result<Option<RangeInclusive<u64>>, SingleEndpointError> {
-    let remote_follow_block = remote_highest_block.saturating_sub(cache_follow_distance);
+    // If the latest cached block is lagging the head block by more than `cache_follow_distance`
+    // times the expected block time then the eth1 block time is likely quite different from what we
+    // assumed.
+    //
+    // In order to catch up, load batches of `CATCHUP_BATCH_SIZE` until the situation rights itself.
+    // Note that we need to check this condition before the regular follow distance condition
+    // or we will keep downloading small numbers of blocks.
+    if let (Some(remote_highest_block_timestamp), Some(latest_cached_block)) =
+        (remote_highest_block_timestamp, latest_cached_block)
+    {
+        let lagging = latest_cached_block.timestamp
+            + cache_follow_distance * spec.seconds_per_eth1_block
+            < remote_highest_block_timestamp;
+        let end_block = std::cmp::min(
+            remote_highest_block_number.saturating_sub(CATCHUP_MIN_FOLLOW_DISTANCE),
+            next_required_block + CATCHUP_BATCH_SIZE,
+        );
+        if lagging && next_required_block <= end_block {
+            return Ok(Some(next_required_block..=end_block));
+        }
+    }
 
+    let remote_follow_block = remote_highest_block_number.saturating_sub(cache_follow_distance);
     if next_required_block <= remote_follow_block {
         Ok(Some(next_required_block..=remote_follow_block))
-    } else if next_required_block > remote_highest_block + 1 {
+    } else if next_required_block > remote_highest_block_number + 1 {
         // If this is the case, the node must have gone "backwards" in terms of it's sync
         // (i.e., it's head block is lower than it was before).
         //
@@ -1212,7 +1260,7 @@ fn relevant_block_range(
         // happens, otherwise it is an error.
         Err(SingleEndpointError::RemoteNotSynced {
             next_required_block,
-            remote_highest_block,
+            remote_highest_block: remote_highest_block_number,
             cache_follow_distance,
         })
     } else {
