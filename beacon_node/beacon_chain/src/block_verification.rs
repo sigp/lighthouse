@@ -579,12 +579,12 @@ type PayloadVerificationHandle<E> =
 /// Note: a `ExecutionPendingBlock` is not _forever_ valid to be imported, it may later become invalid
 /// due to finality or some other event. A `ExecutionPendingBlock` should be imported into the
 /// `BeaconChain` immediately after it is instantiated.
-pub struct ExecutionPendingBlock<'a, T: BeaconChainTypes> {
+pub struct ExecutionPendingBlock<T: BeaconChainTypes> {
     pub block: SignedBeaconBlock<T::EthSpec>,
     pub block_root: Hash256,
     pub state: BeaconState<T::EthSpec>,
     pub parent_block: SignedBeaconBlock<T::EthSpec, BlindedPayload<T::EthSpec>>,
-    pub confirmation_db_batch: Vec<StoreOp<'a, T::EthSpec>>,
+    pub confirmed_state_roots: Vec<Hash256>,
     pub payload_verification_handle: PayloadVerificationHandle<T::EthSpec>,
 }
 
@@ -1014,7 +1014,7 @@ impl<T: BeaconChainTypes> IntoExecutionPendingBlock<T> for SignedBeaconBlock<T::
     }
 }
 
-impl<'a, T: BeaconChainTypes> ExecutionPendingBlock<'a, T> {
+impl<T: BeaconChainTypes> ExecutionPendingBlock<T> {
     /// Instantiates `Self`, a wrapper that indicates that the given `block` is fully valid. See
     /// the struct-level documentation for more information.
     ///
@@ -1072,7 +1072,7 @@ impl<'a, T: BeaconChainTypes> ExecutionPendingBlock<'a, T> {
 
         // Stage a batch of operations to be completed atomically if this block is imported
         // successfully.
-        let mut confirmation_db_batch = vec![];
+        let mut confirmed_state_roots = vec![];
 
         // The block must have a higher slot than its parent.
         if block.slot() <= parent.beacon_block.slot() {
@@ -1145,7 +1145,7 @@ impl<'a, T: BeaconChainTypes> ExecutionPendingBlock<'a, T> {
                 chain.store.do_atomically(state_batch)?;
                 drop(txn_lock);
 
-                confirmation_db_batch.push(StoreOp::DeleteStateTemporaryFlag(state_root));
+                confirmed_state_roots.push(state_root);
 
                 state_root
             };
@@ -1350,7 +1350,7 @@ impl<'a, T: BeaconChainTypes> ExecutionPendingBlock<'a, T> {
             block_root,
             state,
             parent_block: parent.beacon_block,
-            confirmation_db_batch,
+            confirmed_state_roots,
             payload_verification_handle,
         })
     }

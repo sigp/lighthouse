@@ -2470,14 +2470,14 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// (i.e., this function is not atomic).
     async fn import_execution_pending_block(
         self: Arc<Self>,
-        execution_pending_block: ExecutionPendingBlock<'static, T>,
+        execution_pending_block: ExecutionPendingBlock<T>,
     ) -> Result<Hash256, BlockError<T::EthSpec>> {
         let ExecutionPendingBlock {
             block,
             block_root,
             state,
             parent_block,
-            confirmation_db_batch,
+            confirmed_state_roots,
             payload_verification_handle,
         } = execution_pending_block;
 
@@ -2498,7 +2498,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         block,
                         block_root,
                         state,
-                        confirmation_db_batch,
+                        confirmed_state_roots,
                         payload_verification_status,
                     )
                 },
@@ -2521,7 +2521,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         signed_block: SignedBeaconBlock<T::EthSpec>,
         block_root: Hash256,
         mut state: BeaconState<T::EthSpec>,
-        mut ops: Vec<StoreOp<T::EthSpec>>,
+        mut confirmed_state_roots: Vec<Hash256>,
         payload_verification_status: PayloadVerificationStatus,
     ) -> Result<Hash256, BlockError<T::EthSpec>> {
         let current_slot = self.slot()?;
@@ -2838,6 +2838,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // If the write fails, revert fork choice to the version from disk, else we can
         // end up with blocks in fork choice that are missing from disk.
         // See https://github.com/sigp/lighthouse/issues/2028
+        let mut ops: Vec<_> = confirmed_state_roots
+            .into_iter()
+            .map(StoreOp::DeleteStateTemporaryFlag)
+            .collect();
         ops.push(StoreOp::PutBlock(block_root, Box::new(signed_block)));
         ops.push(StoreOp::PutState(block.state_root(), &state));
         let txn_lock = self.store.hot_db.begin_rw_transaction();
