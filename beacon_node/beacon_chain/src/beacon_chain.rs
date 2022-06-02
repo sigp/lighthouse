@@ -9,8 +9,8 @@ use crate::beacon_proposer_cache::BeaconProposerCache;
 use crate::block_times_cache::BlockTimesCache;
 use crate::block_verification::{
     check_block_is_finalized_descendant, check_block_relevancy, get_block_root,
-    signature_verify_chain_segment, BlockError, FullyVerifiedBlock, GossipVerifiedBlock,
-    IntoFullyVerifiedBlock,
+    signature_verify_chain_segment, BlockError, ExecutionPendingBlock, GossipVerifiedBlock,
+    IntoExecutionPendingBlock, PayloadVerificationOutcome, SignatureVerifiedBlock,
 };
 use crate::chain_config::ChainConfig;
 use crate::early_attester_cache::EarlyAttesterCache;
@@ -56,7 +56,7 @@ use eth2::types::{EventKind, SseBlock, SyncDuty};
 use execution_layer::{ExecutionLayer, PayloadAttributes, PayloadStatus};
 use fork_choice::{
     AttestationFromBlock, ExecutionStatus, ForkChoice, ForkchoiceUpdateParameters,
-    InvalidationOperation,
+    InvalidationOperation, PayloadVerificationStatus,
 };
 use futures::channel::mpsc::Sender;
 use itertools::process_results;
@@ -88,6 +88,7 @@ use store::{
     DatabaseBlock, Error as DBError, HotColdDB, KeyValueStore, KeyValueStoreOp, StoreItem, StoreOp,
 };
 use task_executor::{ShutdownReason, TaskExecutor};
+use tokio::sync::mpsc;
 use tree_hash::TreeHash;
 use types::beacon_state::CloneConfig;
 use types::*;
@@ -2156,12 +2157,88 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     ///
     /// This method is generally much more efficient than importing each block using
     /// `Self::process_block`.
-    pub fn process_chain_segment(
+    pub async fn process_chain_segment(
         self: &Arc<Self>,
         chain_segment: Vec<SignedBeaconBlock<T::EthSpec>>,
     ) -> ChainSegmentResult<T::EthSpec> {
-        let mut filtered_chain_segment = Vec::with_capacity(chain_segment.len());
         let mut imported_blocks = 0;
+        let (signature_verified_blocks_tx, mut signature_verified_blocks_rx) =
+            mpsc::unbounded_channel();
+
+        // Spawn the task that performs signature verification on the `chain_segment`. Each time it
+        // verifies a sub-segment of blocks, they will be sent to the
+        // `signature_verified_blocks_rx` so we can further verify and import them.
+        let chain = self.clone();
+        let signature_verify_handle = match self.task_executor.spawn_blocking_handle(
+            // The `signature_verify_chain_segment` function *must* be called from a blocking
+            // (non-async) context otherwise it will panic!
+            move || {
+                chain.signature_verify_chain_segment(chain_segment, signature_verified_blocks_tx)
+            },
+            "sig_verify_chain_segment",
+        ) {
+            Some(handle) => handle,
+            None => {
+                return ChainSegmentResult::Failed {
+                    imported_blocks,
+                    error: Error::RuntimeShutdown.into(),
+                }
+            }
+        };
+
+        // Keep waiting for more signature verified sub-segments. Once the
+        // `signature_verified_blocks_rx` returns `None` the sender has been dropped and we can
+        // continue to checking the response of the signature verification task.
+        while let Some(signature_verified_blocks) = signature_verified_blocks_rx.recv().await {
+            // Import the blocks into the chain.
+            for signature_verified_block in signature_verified_blocks {
+                match self.process_block(signature_verified_block).await {
+                    Ok(_) => imported_blocks += 1,
+                    Err(error) => {
+                        // Dropping the receiver will stop the signature verification task from
+                        // running. The code would be functionally equivalent without the explicit
+                        // `drop` but it is here to make the developers intentions clear.
+                        drop(signature_verified_blocks_rx);
+                        return ChainSegmentResult::Failed {
+                            imported_blocks,
+                            error,
+                        };
+                    }
+                }
+            }
+        }
+
+        // Check to see if the signature verification task returned an error.
+        match signature_verify_handle.await {
+            // The signature verification task completed successfully.
+            Ok(Ok(())) => ChainSegmentResult::Successful { imported_blocks },
+            // The signature verification task completed, but returned an error.
+            Ok(Err(error)) => ChainSegmentResult::Failed {
+                imported_blocks,
+                error,
+            },
+            // We don't know if the signature verification task completed since tokio returned an
+            // error.
+            Err(error) => ChainSegmentResult::Failed {
+                imported_blocks,
+                error: BeaconChainError::TokioJoin(error).into(),
+            },
+        }
+    }
+
+    /// Split the given `chain_segment` into one or more sub-segment that can be verified in a
+    /// batch of BLS signatures. Once a sub-segment has been verified, send it down the
+    /// `signature_verified_blocks_tx` channel for further verification and import.
+    ///
+    /// If the receiver for `signature_verified_blocks_tx` is dropped, exit early since this
+    /// indicates that some block failed further verification. If one block in a chain segment is
+    /// invalid, all following blocks must also be invalid.
+    fn signature_verify_chain_segment(
+        self: &Arc<Self>,
+        chain_segment: Vec<SignedBeaconBlock<T::EthSpec>>,
+        signature_verified_blocks_tx: mpsc::UnboundedSender<Vec<SignatureVerifiedBlock<T>>>,
+    ) -> Result<(), BlockError<T::EthSpec>> {
+        let mut filtered_chain_segment = Vec::with_capacity(chain_segment.len());
 
         // Produce a list of the parent root and slot of the child of each block.
         //
@@ -2174,12 +2251,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         for (i, block) in chain_segment.into_iter().enumerate() {
             // Ensure the block is the correct structure for the fork at `block.slot()`.
-            if let Err(e) = block.fork_name(&self.spec) {
-                return ChainSegmentResult::Failed {
-                    imported_blocks,
-                    error: BlockError::InconsistentFork(e),
-                };
-            }
+            block
+                .fork_name(&self.spec)
+                .map_err(BlockError::InconsistentFork)?;
 
             let block_root = get_block_root(&block);
 
@@ -2190,18 +2264,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 // Without this check it would be possible to have a block verified using the
                 // incorrect shuffling. That would be bad, mmkay.
                 if block_root != *child_parent_root {
-                    return ChainSegmentResult::Failed {
-                        imported_blocks,
-                        error: BlockError::NonLinearParentRoots,
-                    };
+                    return Err(BlockError::NonLinearParentRoots);
                 }
 
                 // Ensure that the slots are strictly increasing throughout the chain segment.
                 if *child_slot <= block.slot() {
-                    return ChainSegmentResult::Failed {
-                        imported_blocks,
-                        error: BlockError::NonLinearSlots,
-                    };
+                    return Err(BlockError::NonLinearSlots);
                 }
             }
 
@@ -2228,20 +2296,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 Err(BlockError::WouldRevertFinalizedSlot { .. }) => continue,
                 // The block has a known parent that does not descend from the finalized block.
                 // There is no need to process this block or any children.
-                Err(BlockError::NotFinalizedDescendant { block_parent_root }) => {
-                    return ChainSegmentResult::Failed {
-                        imported_blocks,
-                        error: BlockError::NotFinalizedDescendant { block_parent_root },
-                    };
-                }
+                Err(e @ BlockError::NotFinalizedDescendant { block_parent_root }) => return Err(e),
                 // If there was an error whilst determining if the block was invalid, return that
                 // error.
-                Err(BlockError::BeaconChainError(e)) => {
-                    return ChainSegmentResult::Failed {
-                        imported_blocks,
-                        error: BlockError::BeaconChainError(e),
-                    };
-                }
+                Err(e @ BlockError::BeaconChainError(_)) => return Err(e),
                 // If the block was decided to be irrelevant for any other reason, don't include
                 // this block or any of it's children in the filtered chain segment.
                 _ => break,
@@ -2267,32 +2325,26 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             let mut blocks = filtered_chain_segment.split_off(last_index);
             std::mem::swap(&mut blocks, &mut filtered_chain_segment);
 
-            // Verify the signature of the blocks, returning early if the signature is invalid.
-            let signature_verified_blocks = match signature_verify_chain_segment(blocks, self) {
-                Ok(blocks) => blocks,
-                Err(error) => {
-                    return ChainSegmentResult::Failed {
-                        imported_blocks,
-                        error,
-                    };
-                }
-            };
+            // Try to exit early if the upstream function has dropped the receiver, indicating an
+            // invalid block import.
+            if signature_verified_blocks_tx.is_closed() {
+                return Err(BlockError::BlockImportCancelled);
+            }
 
-            // Import the blocks into the chain.
-            for signature_verified_block in signature_verified_blocks {
-                match self.process_block(signature_verified_block) {
-                    Ok(_) => imported_blocks += 1,
-                    Err(error) => {
-                        return ChainSegmentResult::Failed {
-                            imported_blocks,
-                            error,
-                        };
-                    }
-                }
+            // Verify the signature of the blocks, returning early if the signature is invalid.
+            let signature_verified_blocks = signature_verify_chain_segment(blocks, self)?;
+
+            if let Err(e) = signature_verified_blocks_tx.send(signature_verified_blocks) {
+                debug!(
+                    self.log,
+                    "Aborted chain segment verification";
+                    "error" => %e
+                );
+                return Err(BlockError::BlockImportCancelled);
             }
         }
 
-        ChainSegmentResult::Successful { imported_blocks }
+        Ok(())
     }
 
     /// Returns `Ok(GossipVerifiedBlock)` if the supplied `block` should be forwarded onto the
@@ -2341,7 +2393,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// Returns `Ok(block_root)` if the given `unverified_block` was successfully verified and
     /// imported into the chain.
     ///
-    /// Items that implement `IntoFullyVerifiedBlock` include:
+    /// Items that implement `IntoExecutionPendingBlock` include:
     ///
     /// - `SignedBeaconBlock`
     /// - `GossipVerifiedBlock`
@@ -2350,7 +2402,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     ///
     /// Returns an `Err` if the given block was invalid, or an error was encountered during
     /// verification.
-    pub fn process_block<B: IntoFullyVerifiedBlock<T>>(
+    pub async fn process_block<B: IntoExecutionPendingBlock<T>>(
         self: &Arc<Self>,
         unverified_block: B,
     ) -> Result<Hash256, BlockError<T::EthSpec>> {
@@ -2364,13 +2416,17 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let block = unverified_block.block().clone();
 
         // A small closure to group the verification and import errors.
-        let import_block = |unverified_block: B| -> Result<Hash256, BlockError<T::EthSpec>> {
-            let fully_verified = unverified_block.into_fully_verified_block(self)?;
-            self.import_block(fully_verified)
+        let chain_a = self.clone();
+        let chain_b = self.clone();
+        let import_block = async move {
+            let execution_pending = unverified_block.into_execution_pending_block(&chain_a)?;
+            chain_b
+                .import_execution_pending_block(execution_pending)
+                .await
         };
 
         // Verify and import the block.
-        match import_block(unverified_block) {
+        match import_block.await {
             // The block was successfully verified and imported. Yay.
             Ok(block_root) => {
                 trace!(
@@ -2412,17 +2468,67 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     ///
     /// An error is returned if the block was unable to be imported. It may be partially imported
     /// (i.e., this function is not atomic).
+    async fn import_execution_pending_block(
+        self: Arc<Self>,
+        execution_pending_block: ExecutionPendingBlock<'static, T>,
+    ) -> Result<Hash256, BlockError<T::EthSpec>> {
+        let ExecutionPendingBlock {
+            block,
+            block_root,
+            state,
+            parent_block,
+            confirmation_db_batch,
+            payload_verification_handle,
+        } = execution_pending_block;
+
+        let PayloadVerificationOutcome {
+            payload_verification_status,
+            is_valid_merge_transition_block,
+        } = payload_verification_handle
+            .await
+            .map_err(BeaconChainError::TokioJoin)?
+            .ok_or(BeaconChainError::RuntimeShutdown)??;
+
+        let block_hash = self
+            .task_executor
+            .clone()
+            .spawn_blocking_handle(
+                move || {
+                    self.import_block(
+                        block,
+                        block_root,
+                        state,
+                        confirmation_db_batch,
+                        payload_verification_status,
+                    )
+                },
+                "payload_verification_handle",
+            )
+            .ok_or(BeaconChainError::RuntimeShutdown)?
+            .await
+            .map_err(BeaconChainError::TokioJoin)??;
+
+        Ok(block_hash)
+    }
+
+    /// Accepts a fully-verified block and imports it into the chain without performing any
+    /// additional verification.
+    ///
+    /// An error is returned if the block was unable to be imported. It may be partially imported
+    /// (i.e., this function is not atomic).
     fn import_block(
         &self,
-        fully_verified_block: FullyVerifiedBlock<T>,
+        signed_block: SignedBeaconBlock<T::EthSpec>,
+        block_root: Hash256,
+        mut state: BeaconState<T::EthSpec>,
+        mut ops: Vec<StoreOp<T::EthSpec>>,
+        payload_verification_status: PayloadVerificationStatus,
     ) -> Result<Hash256, BlockError<T::EthSpec>> {
-        let signed_block = fully_verified_block.block;
-        let block_root = fully_verified_block.block_root;
-        let mut state = fully_verified_block.state;
         let current_slot = self.slot()?;
         let current_epoch = current_slot.epoch(T::EthSpec::slots_per_epoch());
-        let mut ops = fully_verified_block.confirmation_db_batch;
-        let payload_verification_status = fully_verified_block.payload_verification_status;
+
+        current_slot = self.slot()?;
+        current_epoch = current_slot.epoch(T::EthSpec::slots_per_epoch());
 
         let attestation_observation_timer =
             metrics::start_timer(&metrics::BLOCK_PROCESSING_ATTESTATION_OBSERVATION);

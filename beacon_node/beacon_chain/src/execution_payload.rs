@@ -32,10 +32,10 @@ use types::*;
 /// contains a few extra checks by running `partially_verify_execution_payload` first:
 ///
 /// https://github.com/ethereum/consensus-specs/blob/v1.1.9/specs/bellatrix/beacon-chain.md#notify_new_payload
-pub fn notify_new_payload<T: BeaconChainTypes>(
+pub async fn notify_new_payload<'a, T: BeaconChainTypes>(
     chain: &Arc<BeaconChain<T>>,
     state: &BeaconState<T::EthSpec>,
-    block: BeaconBlockRef<T::EthSpec>,
+    block: BeaconBlockRef<'a, T::EthSpec>,
 ) -> Result<PayloadVerificationStatus, BlockError<T::EthSpec>> {
     if !is_execution_enabled(state, block.body()) {
         return Ok(PayloadVerificationStatus::Irrelevant);
@@ -54,9 +54,10 @@ pub fn notify_new_payload<T: BeaconChainTypes>(
         .execution_layer
         .as_ref()
         .ok_or(ExecutionPayloadError::NoExecutionConnection)?;
-    let new_payload_response = execution_layer.block_on(|execution_layer| {
-        execution_layer.notify_new_payload(&execution_payload.execution_payload)
-    });
+
+    let new_payload_response = execution_layer
+        .notify_new_payload(&execution_payload.execution_payload)
+        .await;
 
     match new_payload_response {
         Ok(status) => match status {
@@ -70,21 +71,13 @@ pub fn notify_new_payload<T: BeaconChainTypes>(
                 // This block has not yet been applied to fork choice, so the latest block that was
                 // imported to fork choice was the parent.
                 let latest_root = block.parent_root();
-                let inner_chain = chain.clone();
                 chain
-                    .task_executor
-                    // TODO(paul): revisit dangerous call
-                    .block_on_dangerous(
-                        inner_chain.process_invalid_execution_payload(
-                            &InvalidationOperation::InvalidateMany {
-                                head_block_root: latest_root,
-                                always_invalidate_head: false,
-                                latest_valid_ancestor: latest_valid_hash,
-                            },
-                        ),
-                        "process_invalid_execution_payload_new_payload",
-                    )
-                    .ok_or(BeaconChainError::RuntimeShutdown)??;
+                    .process_invalid_execution_payload(&InvalidationOperation::InvalidateMany {
+                        head_block_root: latest_root,
+                        always_invalidate_head: false,
+                        latest_valid_ancestor: latest_valid_hash,
+                    })
+                    .await?;
 
                 Err(ExecutionPayloadError::RejectedByExecutionEngine { status }.into())
             }
@@ -111,9 +104,9 @@ pub fn notify_new_payload<T: BeaconChainTypes>(
 /// Equivalent to the `validate_merge_block` function in the merge Fork Choice Changes:
 ///
 /// https://github.com/ethereum/consensus-specs/blob/v1.1.5/specs/merge/fork-choice.md#validate_merge_block
-pub fn validate_merge_block<T: BeaconChainTypes>(
+pub async fn validate_merge_block<'a, T: BeaconChainTypes>(
     chain: &BeaconChain<T>,
-    block: BeaconBlockRef<T::EthSpec>,
+    block: BeaconBlockRef<'a, T::EthSpec>,
 ) -> Result<(), BlockError<T::EthSpec>> {
     let spec = &chain.spec;
     let block_epoch = block.slot().epoch(T::EthSpec::slots_per_epoch());
@@ -145,9 +138,8 @@ pub fn validate_merge_block<T: BeaconChainTypes>(
         .ok_or(ExecutionPayloadError::NoExecutionConnection)?;
 
     let is_valid_terminal_pow_block = execution_layer
-        .block_on(|execution_layer| {
-            execution_layer.is_valid_terminal_pow_block_hash(execution_payload.parent_hash(), spec)
-        })
+        .is_valid_terminal_pow_block_hash(execution_payload.parent_hash(), spec)
+        .await
         .map_err(ExecutionPayloadError::from)?;
 
     match is_valid_terminal_pow_block {
