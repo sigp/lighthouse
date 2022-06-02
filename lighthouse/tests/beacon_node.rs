@@ -1,4 +1,4 @@
-use beacon_node::{ClientConfig as Config, ROPSTEN_DEFAULT_ETH1_CACHE_FOLLOW_DISTANCE};
+use beacon_node::ClientConfig as Config;
 
 use crate::exec::{CommandLineTestExec, CompletedTest};
 use lighthouse_network::PeerId;
@@ -242,22 +242,6 @@ fn eth1_cache_follow_distance_manual() {
         .with_config(|config| {
             assert_eq!(config.eth1.cache_follow_distance, Some(128));
             assert_eq!(config.eth1.cache_follow_distance(), 128);
-        });
-}
-#[test]
-fn eth1_cache_follow_distance_ropsten() {
-    CommandLineTest::new()
-        .flag("network", Some("ropsten"))
-        .run_with_zero_port()
-        .with_config(|config| {
-            assert_eq!(
-                config.eth1.cache_follow_distance,
-                Some(ROPSTEN_DEFAULT_ETH1_CACHE_FOLLOW_DISTANCE)
-            );
-            assert_eq!(
-                config.eth1.cache_follow_distance(),
-                ROPSTEN_DEFAULT_ETH1_CACHE_FOLLOW_DISTANCE
-            );
         });
 }
 
