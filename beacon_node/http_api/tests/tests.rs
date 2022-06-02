@@ -11,8 +11,9 @@ use eth2::{
     types::{BlockId as CoreBlockId, StateId as CoreStateId, *},
     BeaconNodeHttpClient, Error, StatusCode, Timeouts,
 };
-use execution_layer::test_utils::MockBuilderPool;
 use execution_layer::test_utils::MockExecutionLayer;
+use execution_layer::test_utils::Operation;
+use execution_layer::test_utils::TestingBuilder;
 use futures::stream::{Stream, StreamExt};
 use futures::FutureExt;
 use http_api::{BlockId, StateId};
@@ -73,7 +74,7 @@ struct ApiTester {
     // This is never directly accessed, but adding it creates a payload cache, which we use in tests here.
     #[allow(dead_code)]
     mock_el: Option<MockExecutionLayer<E>>,
-    mock_builder: Option<Arc<MockBuilderPool<E>>>,
+    mock_builder: Option<Arc<TestingBuilder<E>>>,
     _runtime: TestRuntime,
 }
 
@@ -497,6 +498,13 @@ impl ApiTester {
             mock_builder: harness.mock_builder,
             _runtime: harness.runtime,
         }
+    }
+
+    pub async fn new_mev_tester() -> Self {
+        Self::new_post_bellatrix()
+            .await
+            .test_post_validator_register_validator()
+            .await
     }
 
     fn skip_slots(self, count: u64) -> Self {
@@ -2505,7 +2513,7 @@ impl ApiTester {
         self
     }
 
-    pub async fn test_post_validator_register_validator(self) -> Self {
+    pub async fn test_post_validator_register_validator(mut self) -> Self {
         let mut registrations = vec![];
         let mut fee_recipients = vec![];
 
@@ -2517,13 +2525,15 @@ impl ApiTester {
             epoch: genesis_epoch,
         };
 
+        let expected_gas_limit = 30_000;
+
         for (val_index, keypair) in self.validator_keypairs.iter().enumerate() {
             let pubkey = keypair.pk.compress();
             let fee_recipient = Address::from_low_u64_be(val_index as u64);
 
             let data = ValidatorRegistrationData {
                 fee_recipient,
-                gas_limit: 0,
+                gas_limit: expected_gas_limit,
                 timestamp: 0,
                 pubkey,
             };
@@ -2540,7 +2550,6 @@ impl ApiTester {
                 message: data,
                 signature,
             };
-            dbg!(&signed);
             fee_recipients.push(fee_recipient);
             registrations.push(signed);
         }
@@ -2566,22 +2575,140 @@ impl ApiTester {
                 .get_suggested_fee_recipient(val_index as u64)
                 .await;
             assert_eq!(actual, fee_recipient);
-
-            let payload: BlindedPayload<E> =
-                beacon_chain::execution_payload::prepare_execution_payload(
-                    &self.chain,
-                    &head_state,
-                    val_index as u64,
-                    Some(val.pubkey),
-                )
-                .await
-                .unwrap()
-                .unwrap();
-            dbg!(&payload);
         }
-
         self
     }
+
+    pub async fn test_payload_respects_registration(mut self) -> Self {
+        let head_state = self.chain.head().unwrap().beacon_state;
+        let proposer_index = head_state
+            .get_beacon_proposer_index(head_state.slot(), &self.chain.spec)
+            .unwrap();
+        let proposer_pubkey = self
+            .chain
+            .validator_pubkey_bytes(proposer_index)
+            .unwrap()
+            .unwrap();
+
+        let payload: BlindedPayload<E> =
+            beacon_chain::execution_payload::prepare_execution_payload(
+                &self.chain,
+                &head_state,
+                proposer_index as u64,
+                Some(proposer_pubkey),
+            )
+            .await
+            .unwrap()
+            .unwrap();
+
+        let expected_fee_recipient = Address::from_low_u64_be(proposer_index as u64);
+        assert_eq!(
+            payload.execution_payload_header.fee_recipient,
+            expected_fee_recipient
+        );
+        assert_eq!(payload.execution_payload_header.gas_limit, 30_000_000);
+        self
+    }
+
+    pub async fn test_payload_rejects_mutated_gas_limit(mut self) -> Self {
+        let head_state = self.chain.head().unwrap().beacon_state;
+        let proposer_index = head_state
+            .get_beacon_proposer_index(head_state.slot(), &self.chain.spec)
+            .unwrap();
+        let proposer_pubkey = self
+            .chain
+            .validator_pubkey_bytes(proposer_index)
+            .unwrap()
+            .unwrap();
+
+        // Mutate gas limit.
+        self.mock_builder
+            .as_ref()
+            .unwrap()
+            .builder
+            .add_operation(Operation::GasLimit(30_000_000));
+
+        let payload: BlindedPayload<E> =
+            beacon_chain::execution_payload::prepare_execution_payload(
+                &self.chain,
+                &head_state,
+                proposer_index as u64,
+                Some(proposer_pubkey),
+            )
+            .await
+            .unwrap()
+            .unwrap();
+
+        let expected_fee_recipient = Address::from_low_u64_be(proposer_index as u64);
+        assert_eq!(
+            payload.execution_payload_header.fee_recipient,
+            expected_fee_recipient
+        );
+        assert_eq!(payload.execution_payload_header.gas_limit, 30_000_000);
+
+        // If this cache is populated, it indicates fallback to the local EE was correctly used.
+        assert!(self
+            .chain
+            .execution_layer
+            .unwrap()
+            .get_payload_by_root(&payload.tree_hash_root())
+            .is_some());
+        self
+    }
+
+    pub async fn test_payload_rejects_changed_fee_recipient(mut self) -> Self {
+        let head_state = self.chain.head().unwrap().beacon_state;
+        let proposer_index = head_state
+            .get_beacon_proposer_index(head_state.slot(), &self.chain.spec)
+            .unwrap();
+        let proposer_pubkey = self
+            .chain
+            .validator_pubkey_bytes(proposer_index)
+            .unwrap()
+            .unwrap();
+
+        // Mutate fee recipient.
+        self.mock_builder
+            .as_ref()
+            .unwrap()
+            .builder
+            .add_operation(Operation::FeeRecipient(
+                "0x4242424242424242424242424242424242424242"
+                    .parse::<Address>()
+                    .unwrap(),
+            ));
+
+        let payload: BlindedPayload<E> =
+            beacon_chain::execution_payload::prepare_execution_payload(
+                &self.chain,
+                &head_state,
+                proposer_index as u64,
+                Some(proposer_pubkey),
+            )
+            .await
+            .unwrap()
+            .unwrap();
+
+        let expected_fee_recipient = Address::from_low_u64_be(proposer_index as u64);
+        assert_eq!(
+            payload.execution_payload_header.fee_recipient,
+            expected_fee_recipient
+        );
+        assert_eq!(payload.execution_payload_header.gas_limit, 30_000_000);
+
+        // If this cache is populated, it indicates fallback to the local EE was correctly used.
+        assert!(self
+            .chain
+            .execution_layer
+            .unwrap()
+            .get_payload_by_root(&payload.tree_hash_root())
+            .is_some());
+        self
+    }
+
+    //TODO(sean) add tests for chain health and local payload value comparison. Also make the gas requirement looser according to the spec.
+
+    //TODO(sean) make sure to only use available ports in these tests.
 
     #[cfg(target_os = "linux")]
     pub async fn test_get_lighthouse_health(self) -> Self {
@@ -3437,10 +3564,26 @@ async fn get_validator_beacon_committee_subscriptions() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn post_validator_register_validator() {
-    ApiTester::new_post_bellatrix()
+async fn post_validator_register_valid() {
+    ApiTester::new_mev_tester()
         .await
-        .test_post_validator_register_validator()
+        .test_payload_respects_registration()
+        .await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn post_validator_register_gas_limit_mutation() {
+    ApiTester::new_mev_tester()
+        .await
+        .test_payload_rejects_mutated_gas_limit()
+        .await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn post_validator_register_fee_recipient_mutation() {
+    ApiTester::new_mev_tester()
+        .await
+        .test_payload_rejects_changed_fee_recipient()
         .await;
 }
 

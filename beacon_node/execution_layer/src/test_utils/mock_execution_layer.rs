@@ -1,4 +1,4 @@
-use crate::test_utils::mock_builder::{to_ssz_rs, MockBuilder, MockBuilderPool};
+use crate::test_utils::mock_builder::{to_ssz_rs, MockBuilder, TestingBuilder};
 use crate::{
     test_utils::{MockServer, DEFAULT_TERMINAL_BLOCK, DEFAULT_TERMINAL_DIFFICULTY, JWT_SECRET},
     Config, *,

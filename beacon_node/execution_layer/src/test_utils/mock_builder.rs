@@ -14,7 +14,7 @@ use mev_build_rs::{
     ExecutionPayload as ServerPayload, ExecutionPayloadHeader as ServerPayloadHeader,
     SignedBlindedBeaconBlock, SignedBuilderBid, SignedValidatorRegistration,
 };
-use parking_lot::RwLock;
+use parking_lot::{Mutex, RwLock};
 use sensitive_url::SensitiveUrl;
 use slog::info;
 use slot_clock::SlotClock;
@@ -29,13 +29,36 @@ use task_executor::TaskExecutor;
 use tempfile::NamedTempFile;
 use tree_hash::TreeHash;
 use types::{
-    Address, BeaconState, BlindedPayload, ChainSpec, EthSpec, ExecPayload, ExecutionBlockHash,
-    ExecutionPayload, Hash256, Slot, ValidatorRegistrationData,
+    Address, BeaconState, BlindedPayload, ChainSpec, Epoch, EthSpec, ExecPayload,
+    ExecutionBlockHash, ExecutionPayload, Hash256, Slot, Uint256, ValidatorRegistrationData,
 };
 
-pub struct MockBuilderPool<E: EthSpec>(ApiServer<MockBuilder<E>>);
+#[derive(Clone)]
+pub enum Operation {
+    FeeRecipient(Address),
+    GasLimit(usize),
+    Value(usize),
+}
 
-impl<E: EthSpec> MockBuilderPool<E> {
+impl Operation {
+    fn apply(self, bid: &mut BuilderBid) -> Result<(), Error> {
+        match self {
+            Operation::FeeRecipient(fee_recipient) => {
+                bid.header.fee_recipient = to_ssz_rs(&fee_recipient)?
+            }
+            Operation::GasLimit(gas_limit) => bid.header.gas_limit = gas_limit as u64,
+            Operation::Value(value) => bid.value = to_ssz_rs(&Uint256::from(value))?,
+        }
+        Ok(())
+    }
+}
+
+pub struct TestingBuilder<E: EthSpec> {
+    server: ApiServer<MockBuilder<E>>,
+    pub builder: MockBuilder<E>,
+}
+
+impl<E: EthSpec> TestingBuilder<E> {
     pub fn new(
         mock_el_url: SensitiveUrl,
         builder_url: SensitiveUrl,
@@ -79,12 +102,12 @@ impl<E: EthSpec> MockBuilderPool<E> {
             .to_string()
             .parse()
             .unwrap();
-        let server = ApiServer::new(host, port, builder);
-        Self(server)
+        let server = ApiServer::new(host, port, builder.clone());
+        Self { server, builder }
     }
 
     pub async fn run(&self) {
-        self.0.run().await
+        self.server.run().await
     }
 }
 
@@ -96,6 +119,7 @@ pub struct MockBuilder<E: EthSpec> {
     context: Arc<Context>,
     val_registration_cache: Arc<RwLock<HashMap<BlsPublicKey, SignedValidatorRegistration>>>,
     builder_sk: SecretKey,
+    operations: Arc<RwLock<Vec<Operation>>>,
 }
 
 impl<E: EthSpec> MockBuilder<E> {
@@ -114,7 +138,20 @@ impl<E: EthSpec> MockBuilder<E> {
             context: Arc::new(context),
             val_registration_cache: Arc::new(RwLock::new(HashMap::new())),
             builder_sk: sk,
+            operations: Arc::new(RwLock::new(vec![])),
         }
+    }
+
+    pub fn add_operation(&self, op: Operation) {
+        self.operations.write().push(op);
+    }
+
+    fn apply_operations(&self, bid: &mut BuilderBid) -> Result<(), Error> {
+        let mut guard = self.operations.write();
+        while let Some(op) = guard.pop() {
+            op.apply(bid)?;
+        }
+        Ok(())
     }
 }
 
@@ -254,6 +291,8 @@ impl<E: EthSpec> mev_build_rs::Builder for MockBuilder<E> {
             value: ssz_rs::U256::default(),
             public_key: self.builder_sk.public_key(),
         };
+
+        self.apply_operations(&mut message)?;
 
         let signature =
             sign_builder_message(&mut message, &self.builder_sk, self.context.as_ref())?;

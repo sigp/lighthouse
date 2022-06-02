@@ -13,7 +13,7 @@ use crate::{
 use bls::get_withdrawal_credentials;
 use execution_layer::{
     test_utils::{
-        ExecutionBlockGenerator, MockBuilderPool, MockExecutionLayer, DEFAULT_TERMINAL_BLOCK,
+        ExecutionBlockGenerator, MockExecutionLayer, TestingBuilder, DEFAULT_TERMINAL_BLOCK,
     },
     ExecutionLayer,
 };
@@ -152,7 +152,7 @@ pub struct Builder<T: BeaconChainTypes> {
     store_mutator: Option<BoxedMutator<T::EthSpec, T::HotStore, T::ColdStore>>,
     execution_layer: Option<ExecutionLayer<T::EthSpec>>,
     mock_execution_layer: Option<MockExecutionLayer<T::EthSpec>>,
-    mock_builder: Option<MockBuilderPool<T::EthSpec>>,
+    mock_builder: Option<TestingBuilder<T::EthSpec>>,
     runtime: TestRuntime,
     log: Logger,
 }
@@ -384,11 +384,12 @@ where
             spec.terminal_block_hash,
             spec.terminal_block_hash_activation_epoch,
             Some(builder_url.clone()),
-        );
+        )
+        .move_to_terminal_block();
 
         let mock_el_url = SensitiveUrl::parse(mock_el.server.url().as_str()).unwrap();
 
-        self.mock_builder = Some(MockBuilderPool::new(
+        self.mock_builder = Some(TestingBuilder::new(
             mock_el_url,
             builder_url,
             beacon_url,
@@ -488,7 +489,7 @@ pub struct BeaconChainHarness<T: BeaconChainTypes> {
     pub runtime: TestRuntime,
 
     pub mock_execution_layer: Option<MockExecutionLayer<T::EthSpec>>,
-    pub mock_builder: Option<Arc<MockBuilderPool<T::EthSpec>>>,
+    pub mock_builder: Option<Arc<TestingBuilder<T::EthSpec>>>,
 
     pub rng: Mutex<StdRng>,
 }
