@@ -48,6 +48,10 @@ const CATCHUP_BATCH_SIZE: u64 = 128;
 /// The absolute minimum follow distance to enforce when downloading catchup batches.
 const CATCHUP_MIN_FOLLOW_DISTANCE: u64 = 64;
 
+/// To account for fast PoW blocks requiring more blocks in the cache than the block-based follow
+/// distance would imply, we store `CACHE_FACTOR` more blocks in our cache.
+const CACHE_FACTOR: u64 = 2;
+
 #[derive(Debug, PartialEq, Clone)]
 pub enum EndpointError {
     RequestFailed(String),
@@ -437,7 +441,12 @@ impl Config {
 
         let length = voting_windows + extra_follow_distance_blocks;
 
-        self.block_cache_truncation = Some(length as usize);
+        // Allow for more blocks to account for blocks being generated faster than expected.
+        // The cache expiry should really be timestamp based, but that would require a more
+        // extensive refactor.
+        let cache_size = CACHE_FACTOR * length;
+
+        self.block_cache_truncation = Some(cache_size as usize);
     }
 
     /// The distance at which the cache should follow the head.
@@ -1351,6 +1360,6 @@ mod tests {
 
         let minimum_len = eth1_blocks_per_voting_period * 2 + cache_follow_distance_blocks;
 
-        assert!(len >= minimum_len as usize);
+        assert!(len > minimum_len as usize);
     }
 }
