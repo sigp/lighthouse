@@ -530,6 +530,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                 // Set the execution_state to offline
                 let stall_execution = if let FailureMode::ExecutionLayer { pause_sync } = mode {
                     if *pause_sync {
+                        debug!(self.log, "Execution layer offline"; "action" => "chain syncing stopped");
                         self.execution_status_handler.offline();
                         self.state = ChainSyncingState::Stopped;
                     }
@@ -537,6 +538,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                 } else {
                     false
                 };
+
                 if batch.processing_completed(BatchProcessingResult::Failed {
                     // do not count attempt if the error was due to execution layer being offline
                     count_attempt: !stall_execution,

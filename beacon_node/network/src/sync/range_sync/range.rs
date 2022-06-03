@@ -95,11 +95,7 @@ where
     ) -> Self {
         RangeSync {
             beacon_chain: beacon_chain.clone(),
-            chains: ChainCollection::new(
-                beacon_chain,
-                execution_status_handler.clone(),
-                log.clone(),
-            ),
+            chains: ChainCollection::new(beacon_chain, execution_status_handler, log.clone()),
             failed_chains: LRUTimeCache::new(std::time::Duration::from_secs(
                 FAILED_CHAINS_EXPIRY_SECONDS,
             )),
@@ -394,6 +390,7 @@ where
 #[cfg(test)]
 mod tests {
     use crate::service::RequestId;
+    use crate::sync::manager::ExecutionState;
     use crate::NetworkMessage;
 
     use super::*;
@@ -481,6 +478,10 @@ mod tests {
         cx: SyncNetworkContext<E>,
         /// To check what the network receives from Range.
         network_rx: mpsc::UnboundedReceiver<NetworkMessage<E>>,
+        /// State of execution layer
+        execution_status_handler: ExecutionStatusHandler,
+        /// Listen for execution layer status changes
+        execution_status_listener: mpsc::Receiver<()>,
         /// To modify what the network declares about various global variables, in particular about
         /// the sync state of a peer.
         globals: Arc<NetworkGlobals<E>>,
@@ -603,8 +604,12 @@ mod tests {
         let chain = Arc::new(FakeStorage::default());
         let log = build_log(slog::Level::Trace, log_enabled);
         let (beacon_processor_tx, beacon_processor_rx) = mpsc::channel(10);
+        let execution_state = Some(ExecutionState::Online);
+        let (execution_status_handler, execution_status_listener) =
+            ExecutionStatusHandler::new(execution_state, log.clone());
         let range_sync = RangeSync::<TestBeaconChainType, FakeStorage>::new(
             chain.clone(),
+            execution_status_handler.clone(),
             beacon_processor_tx,
             log.new(o!("component" => "range")),
         );
@@ -621,6 +626,8 @@ mod tests {
             chain,
             cx,
             network_rx,
+            execution_status_handler,
+            execution_status_listener,
             globals,
         };
         (test_rig, range_sync)
@@ -721,12 +728,15 @@ mod tests {
             },
         );
 
-        assert_eq!(range.state(), Ok(ChainState::WaitingOnExecution));
+        assert_eq!(
+            rig.execution_status_handler.status(),
+            Some(ExecutionState::Offline)
+        );
 
         slog::info!(rig.log, "Range status after EL failure"; "state" => ?range.state());
 
-        // Resume syncing
-        range.execution_ready(&mut rig.cx);
+        // Set execution status to true
+        rig.execution_status_handler.online();
 
         assert_eq!(
             range.state(),

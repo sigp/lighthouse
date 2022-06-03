@@ -20,6 +20,8 @@ type T = Witness<SystemTimeSlotClock, CachingEth1Backend<E>, E, MemoryStore<E>, 
 struct TestRig {
     beacon_processor_rx: mpsc::Receiver<WorkEvent<T>>,
     network_rx: mpsc::UnboundedReceiver<NetworkMessage<E>>,
+    execution_status_handler: ExecutionStatusHandler,
+    _execution_status_listener: mpsc::Receiver<()>,
     rng: XorShiftRng,
 }
 
@@ -42,13 +44,20 @@ impl TestRig {
         let (beacon_processor_tx, beacon_processor_rx) = mpsc::channel(100);
         let (network_tx, network_rx) = mpsc::unbounded_channel();
         let rng = XorShiftRng::from_seed([42; 16]);
+        let execution_state = Some(ExecutionState::Online);
+        let (execution_status_handler, execution_status_listener) =
+            ExecutionStatusHandler::new(execution_state, log.clone());
         let rig = TestRig {
             beacon_processor_rx,
             network_rx,
+            execution_status_handler: execution_status_handler.clone(),
+            _execution_status_listener: execution_status_listener,
             rng,
         };
+
         let bl = BlockLookups::new(
             beacon_processor_tx,
+            execution_status_handler,
             log.new(slog::o!("component" => "block_lookups")),
         );
         let cx = {
@@ -259,20 +268,21 @@ fn test_execution_layer_error_single_block_lookup() {
     assert_eq!(bl.single_block_lookups.len(), 1);
 
     // Peer should not be penalized, block_lookup should be waiting on execution after this.
+    bl.single_block_processed(
+        id,
+        Err(BlockError::ExecutionPayloadError(
+            ExecutionPayloadError::NoExecutionConnection,
+        )),
+        &mut cx,
+    );
     assert_eq!(
-        bl.single_block_processed(
-            id,
-            Err(BlockError::ExecutionPayloadError(
-                ExecutionPayloadError::NoExecutionConnection,
-            )),
-            &mut cx,
-        ),
-        BlockLookupStatus::WaitingOnExecution
+        rig.execution_status_handler.status(),
+        Some(ExecutionState::Offline)
     );
     assert_eq!(bl.single_block_lookups.len(), 0);
 
     // Set the status back to active and resend the request
-    bl.set_status(BlockLookupStatus::Activated);
+    rig.execution_status_handler.online();
 
     // Trigger the request
     bl.search_block(block.canonical_root(), peer_id, &mut cx);
@@ -287,10 +297,13 @@ fn test_execution_layer_error_single_block_lookup() {
     assert_eq!(bl.single_block_lookups.len(), 1);
 
     // Block_lookup should be successful.
+    bl.single_block_processed(id, Ok(()), &mut cx);
+
     assert_eq!(
-        bl.single_block_processed(id, Ok(()), &mut cx),
-        BlockLookupStatus::Activated
+        rig.execution_status_handler.status(),
+        Some(ExecutionState::Online)
     );
+
     assert_eq!(bl.single_block_lookups.len(), 0);
 }
 
@@ -458,21 +471,23 @@ fn test_execution_layer_error_parent_lookup() {
     rig.expect_empty_network();
 
     // Processing stalls because of execution layer error
+    bl.parent_block_processed(
+        chain_hash,
+        Err(BlockError::ExecutionPayloadError(
+            ExecutionPayloadError::NoExecutionConnection,
+        )),
+        &mut cx,
+    );
+
     assert_eq!(
-        bl.parent_block_processed(
-            chain_hash,
-            Err(BlockError::ExecutionPayloadError(
-                ExecutionPayloadError::NoExecutionConnection,
-            )),
-            &mut cx,
-        ),
-        BlockLookupStatus::WaitingOnExecution
+        rig.execution_status_handler.status(),
+        Some(ExecutionState::Offline)
     );
 
     assert_eq!(bl.parent_queue.len(), 0);
 
     // Set the status back to active and resend the request
-    bl.set_status(BlockLookupStatus::Activated);
+    rig.execution_status_handler.online();
 
     // Trigger the request
     bl.search_parent(Box::new(block), peer_id, &mut cx);
@@ -484,14 +499,14 @@ fn test_execution_layer_error_parent_lookup() {
     rig.expect_empty_network();
 
     // Processing succeeds, now the rest of the chain should be sent for processing.
-    assert_eq!(
-        bl.parent_block_processed(chain_hash, Err(BlockError::BlockIsAlreadyKnown), &mut cx),
-        BlockLookupStatus::Activated
-    );
+    bl.parent_block_processed(chain_hash, Err(BlockError::BlockIsAlreadyKnown), &mut cx);
+
     rig.expect_parent_chain_process();
+    bl.parent_chain_processed(chain_hash, BatchProcessResult::Success(true), &mut cx);
+
     assert_eq!(
-        bl.parent_chain_processed(chain_hash, BatchProcessResult::Success(true), &mut cx),
-        BlockLookupStatus::Activated
+        rig.execution_status_handler.status(),
+        Some(ExecutionState::Online)
     );
     assert_eq!(bl.parent_queue.len(), 0);
 }
