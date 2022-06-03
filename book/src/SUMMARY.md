@@ -43,6 +43,7 @@
     * [Running a Slasher](./slasher.md)
     * [Redundancy](./redundancy.md)
     * [Pre-Releases](./advanced-pre-releases.md)
+    * [Release Candidates](./advanced-release-candidates.md)
 * [Contributing](./contributing.md)
 	* [Development Environment](./setup.md)
 * [FAQs](./faq.md)
