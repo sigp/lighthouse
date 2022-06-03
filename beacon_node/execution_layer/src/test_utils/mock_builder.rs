@@ -1,23 +1,18 @@
-use crate::test_utils::{MockExecutionLayer, JWT_SECRET};
-use crate::{Config, ExecutionLayer, PayloadAttributes, PublicKeyBytes};
+use crate::test_utils::JWT_SECRET;
+use crate::{Config, ExecutionLayer, PayloadAttributes};
 use async_trait::async_trait;
 use eth2::types::{BlockId, StateId, ValidatorId};
 use eth2::{BeaconNodeHttpClient, Timeouts};
-use ethereum_consensus::builder::ValidatorRegistration;
 use ethereum_consensus::crypto::SecretKey;
 use ethereum_consensus::primitives::BlsPublicKey;
 pub use ethereum_consensus::state_transition::Context;
-use ethers_core::k256::elliptic_curve::consts::U256;
-use futures::AsyncReadExt;
 use mev_build_rs::{
     sign_builder_message, verify_signed_builder_message, ApiServer, BidRequest, BuilderBid, Error,
     ExecutionPayload as ServerPayload, ExecutionPayloadHeader as ServerPayloadHeader,
     SignedBlindedBeaconBlock, SignedBuilderBid, SignedValidatorRegistration,
 };
-use parking_lot::{Mutex, RwLock};
+use parking_lot::RwLock;
 use sensitive_url::SensitiveUrl;
-use slog::info;
-use slot_clock::SlotClock;
 use ssz::{Decode, Encode};
 use ssz_rs::{Merkleized, SimpleSerialize};
 use std::collections::HashMap;
@@ -28,10 +23,7 @@ use std::time::Duration;
 use task_executor::TaskExecutor;
 use tempfile::NamedTempFile;
 use tree_hash::TreeHash;
-use types::{
-    Address, BeaconState, BlindedPayload, ChainSpec, Epoch, EthSpec, ExecPayload,
-    ExecutionBlockHash, ExecutionPayload, Hash256, Slot, Uint256, ValidatorRegistrationData,
-};
+use types::{Address, BeaconState, BlindedPayload, ChainSpec, EthSpec, ExecPayload, Slot, Uint256};
 
 #[derive(Clone)]
 pub enum Operation {
@@ -71,7 +63,7 @@ impl<E: EthSpec> TestingBuilder<E> {
         std::fs::write(&path, hex::encode(JWT_SECRET)).unwrap();
 
         // This EL should not talk to a builder
-        let mut config = Config {
+        let config = Config {
             execution_endpoints: vec![mock_el_url],
             secret_files: vec![path],
             suggested_fee_recipient: None,

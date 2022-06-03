@@ -2607,6 +2607,15 @@ impl ApiTester {
             expected_fee_recipient
         );
         assert_eq!(payload.execution_payload_header.gas_limit, 30_000_000);
+
+        // If this cache is empty, it indicates fallback was not used, so the payload came from the
+        // mock builder.
+        assert!(self
+            .chain
+            .execution_layer
+            .unwrap()
+            .get_payload_by_root(&payload.tree_hash_root())
+            .is_none());
         self
     }
 
@@ -2706,7 +2715,8 @@ impl ApiTester {
         self
     }
 
-    //TODO(sean) add tests for chain health and local payload value comparison. Also make the gas requirement looser according to the spec.
+    //TODO(sean) add tests for chain health and local payload value comparison.
+    // Also make the gas requirement looser according to the spec.
 
     //TODO(sean) make sure to only use available ports in these tests.
 

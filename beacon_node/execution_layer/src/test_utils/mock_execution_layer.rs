@@ -1,15 +1,10 @@
-use crate::test_utils::mock_builder::{to_ssz_rs, MockBuilder, TestingBuilder};
 use crate::{
     test_utils::{MockServer, DEFAULT_TERMINAL_BLOCK, DEFAULT_TERMINAL_DIFFICULTY, JWT_SECRET},
     Config, *,
 };
-use eth2::BeaconNodeHttpClient;
-use ethereum_consensus::state_transition::Context;
-use mev_build_rs::{ApiServer, Builder};
 use sensitive_url::SensitiveUrl;
 use task_executor::TaskExecutor;
 use tempfile::NamedTempFile;
-use test_utils::Config as MockServerConfig;
 use tree_hash::TreeHash;
 use types::{Address, ChainSpec, Epoch, EthSpec, FullPayload, Hash256, Uint256};
 
@@ -60,7 +55,7 @@ impl<T: EthSpec> MockExecutionLayer<T> {
         let path = file.path().into();
         std::fs::write(&path, hex::encode(JWT_SECRET)).unwrap();
 
-        let mut config = Config {
+        let config = Config {
             execution_endpoints: vec![url],
             builder_url,
             secret_files: vec![path],
