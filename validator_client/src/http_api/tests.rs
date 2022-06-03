@@ -5,6 +5,7 @@ mod keystores;
 
 use crate::doppelganger_service::DoppelgangerService;
 use crate::{
+    fee_recipient_file::FeeRecipientFile,
     http_api::{ApiSecret, Config as HttpConfig, Context},
     initialized_validators::InitializedValidators,
     Config, ValidatorDefinitions, ValidatorStore,
@@ -28,6 +29,7 @@ use slot_clock::{SlotClock, TestingSlotClock};
 use std::future::Future;
 use std::marker::PhantomData;
 use std::net::{IpAddr, Ipv4Addr};
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 use task_executor::TaskExecutor;
@@ -36,6 +38,7 @@ use tokio::runtime::Runtime;
 use tokio::sync::oneshot;
 
 const PASSWORD_BYTES: &[u8] = &[42, 50, 37];
+pub const TEST_DEFAULT_FEE_RECIPIENT: Address = Address::repeat_byte(42);
 
 type E = MainnetEthSpec;
 
@@ -45,7 +48,7 @@ struct ApiTester {
     validator_store: Arc<ValidatorStore<TestingSlotClock, E>>,
     url: SensitiveUrl,
     _server_shutdown: oneshot::Sender<()>,
-    _validator_dir: TempDir,
+    validator_dir: TempDir,
     _runtime_shutdown: exit_future::Signal,
 }
 
@@ -65,6 +68,7 @@ impl ApiTester {
 
         let validator_dir = tempdir().unwrap();
         let secrets_dir = tempdir().unwrap();
+        let fee_recipient_file = validator_dir.path().join("fee_recipient_file.dat");
 
         let validator_defs = ValidatorDefinitions::open_or_create(validator_dir.path()).unwrap();
 
@@ -102,8 +106,8 @@ impl ApiTester {
             spec,
             Some(Arc::new(DoppelgangerService::new(log.clone()))),
             slot_clock,
-            None,
-            None,
+            Some(TEST_DEFAULT_FEE_RECIPIENT),
+            Some(FeeRecipientFile::new(fee_recipient_file.clone())),
             executor.clone(),
             log.clone(),
         ));
@@ -154,7 +158,7 @@ impl ApiTester {
             validator_store,
             url,
             _server_shutdown: shutdown_tx,
-            _validator_dir: validator_dir,
+            validator_dir,
             _runtime_shutdown: runtime_shutdown,
         }
     }
@@ -258,6 +262,10 @@ impl ApiTester {
     pub fn assert_validators_count(self, count: usize) -> Self {
         assert_eq!(self.vals_total(), count);
         self
+    }
+
+    pub fn fee_recipient_file_path(&self) -> PathBuf {
+        self.validator_dir.path().join("fee_recipient_file.dat")
     }
 
     pub async fn create_hd_validators(self, s: HdValidatorScenario) -> Self {
