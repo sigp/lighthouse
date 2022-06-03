@@ -40,6 +40,7 @@ environment = { path = "../../lighthouse/environment" }
 sensitive_url = { path = "../../common/sensitive_url" }
 logging = { path = "../../common/logging" }
 proto_array = { path = "../../consensus/proto_array" }
+unused_port = {path = "../../common/unused_port"}
 
 [[test]]
 name = "bn_http_api_tests"

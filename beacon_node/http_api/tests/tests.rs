@@ -316,7 +316,10 @@ impl ApiTester {
         let mut spec = E::default_spec();
         spec.altair_fork_epoch = Some(Epoch::new(0));
         spec.bellatrix_fork_epoch = Some(Epoch::new(0));
-        let beacon_url = SensitiveUrl::parse("http://127.0.0.1:42425").unwrap();
+
+        // Get a random unused port
+        let port = unused_port::unused_tcp_port().unwrap();
+        let beacon_url = SensitiveUrl::parse(format!("http://127.0.0.1:{port}").as_str()).unwrap();
 
         let harness = Arc::new(RwLock::new(
             BeaconChainHarness::builder(MainnetEthSpec)
@@ -448,7 +451,7 @@ impl ApiTester {
             network_rx,
             local_enr,
             external_peer_id,
-        } = create_api_server_on_port(chain.clone(), log, 42425).await;
+        } = create_api_server_on_port(chain.clone(), log, port).await;
 
         harness.runtime.task_executor.spawn(server, "api_server");
         let real_beacon_url = SensitiveUrl::parse(&format!(
@@ -2525,7 +2528,7 @@ impl ApiTester {
             epoch: genesis_epoch,
         };
 
-        let expected_gas_limit = 30_000;
+        let expected_gas_limit = 11_111_111;
 
         for (val_index, keypair) in self.validator_keypairs.iter().enumerate() {
             let pubkey = keypair.pk.compress();
@@ -2606,13 +2609,13 @@ impl ApiTester {
             payload.execution_payload_header.fee_recipient,
             expected_fee_recipient
         );
-        assert_eq!(payload.execution_payload_header.gas_limit, 30_000_000);
+        assert_eq!(payload.execution_payload_header.gas_limit, 11_111_111);
 
         // If this cache is empty, it indicates fallback was not used, so the payload came from the
         // mock builder.
         assert!(self
             .chain
-            .execution_layer
+            .execution_layer.as_ref()
             .unwrap()
             .get_payload_by_root(&payload.tree_hash_root())
             .is_none());
@@ -2653,12 +2656,12 @@ impl ApiTester {
             payload.execution_payload_header.fee_recipient,
             expected_fee_recipient
         );
-        assert_eq!(payload.execution_payload_header.gas_limit, 30_000_000);
+        assert_eq!(payload.execution_payload_header.gas_limit, 11_111_111);
 
         // If this cache is populated, it indicates fallback to the local EE was correctly used.
         assert!(self
             .chain
-            .execution_layer
+            .execution_layer.as_ref()
             .unwrap()
             .get_payload_by_root(&payload.tree_hash_root())
             .is_some());
@@ -2703,12 +2706,12 @@ impl ApiTester {
             payload.execution_payload_header.fee_recipient,
             expected_fee_recipient
         );
-        assert_eq!(payload.execution_payload_header.gas_limit, 30_000_000);
+        assert_eq!(payload.execution_payload_header.gas_limit, 11_111_111);
 
         // If this cache is populated, it indicates fallback to the local EE was correctly used.
         assert!(self
             .chain
-            .execution_layer
+            .execution_layer.as_ref()
             .unwrap()
             .get_payload_by_root(&payload.tree_hash_root())
             .is_some());
