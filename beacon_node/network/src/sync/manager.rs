@@ -144,42 +144,78 @@ pub enum BatchProcessResult {
     },
 }
 
-#[derive(Clone)]
 /// The state of the execution layer connection for block verification.
+#[derive(Clone)]
 pub enum ExecutionState {
     Online,
     Offline,
 }
 
+/// A wrapper struct containing a shared lock to the state of the execution layer.
+///
+/// This struct is passed around to the different sync types which allows them
+/// to change the state when the block processing fails due to execution layer
+/// failures.
+///
+/// It also allows them to communicate that the execution layer has gone offline to
+/// the sync manager. The sync manager will consequently setup an `ExecutionLayerNotifier`
+/// to notify sync when it comes back online.
 #[derive(Clone)]
 pub struct ExecutionStatusHandler {
+    /// Current state of the execution layer.
+    ///
+    /// A value of `None` indicates that execution isn't enabled.
     state: Arc<RwLock<Option<ExecutionState>>>,
-    tx: tokio::sync::mpsc::Sender<()>,
+    /// Sends to the sync manager receiver whenever the
+    /// execution status is changed to `Offline`.
+    sync_manager_tx: tokio::sync::mpsc::Sender<()>,
+    log: Logger,
 }
 
 impl ExecutionStatusHandler {
-    pub fn new(state: Option<ExecutionState>) -> (Self, tokio::sync::mpsc::Receiver<()>) {
+    pub fn new(
+        state: Option<ExecutionState>,
+        log: Logger,
+    ) -> (Self, tokio::sync::mpsc::Receiver<()>) {
         let (tx, rx) = tokio::sync::mpsc::channel(1);
         (
             Self {
                 state: Arc::new(RwLock::new(state)),
-                tx,
+                sync_manager_tx: tx,
+                log,
             },
             rx,
         )
     }
 
+    /// Returns the current execution status.
+    ///
+    /// `None` indicates that the execution layer isn't enabled.
     pub fn status(&self) -> Option<ExecutionState> {
         (*self.state.read()).clone()
     }
 
+    /// Sets the `ExecutionState` to offline after sending a message
+    /// over the mpsc channel indicating that the execution status has changed
+    /// to offline.
     pub fn offline(&self) {
-        *self.state.write() = Some(ExecutionState::Offline);
-        if let Err(e) = self.tx.try_send(()) {
-            dbg!("arre baapre", e);
+        // Prevent duplicate sends by only updating the state if
+        // the current state is online **and**
+        // if the send to the sync manager is successful.
+        if let Some(ExecutionState::Online) = self.status() {
+            if let Err(e) = self.sync_manager_tx.try_send(()) {
+                crit!(
+                    self.log,
+                    "Failed to send message to the sync manager";
+                    "error" => ?e
+                );
+            } else {
+                *self.state.write() = Some(ExecutionState::Offline);
+            }
         }
     }
 
+    /// Sets the `ExecutionState` to online.
     pub fn online(&self) {
         *self.state.write() = Some(ExecutionState::Online);
     }
@@ -220,6 +256,8 @@ pub struct SyncManager<T: BeaconChainTypes> {
     /// `None` implies that the chain is not merge enabled.
     execution_status_handler: ExecutionStatusHandler,
 
+    /// Listens to changes in the execution status from `RangeSync` and
+    /// `BlockLookups` and sets up the execution notifier if required.
     execution_status_listener: tokio::sync::mpsc::Receiver<()>,
 
     /// The logger for the import manager.
@@ -251,7 +289,7 @@ pub fn spawn<T: BeaconChainTypes>(
         None
     };
 
-    let (execution_status_handler, rx) = ExecutionStatusHandler::new(execution_state);
+    let (execution_status_handler, rx) = ExecutionStatusHandler::new(execution_state, log.clone());
 
     // create an instance of the SyncManager
     let mut sync_manager = SyncManager {
