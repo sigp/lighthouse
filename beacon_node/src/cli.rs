@@ -378,6 +378,16 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .takes_value(true)
         )
         .arg(
+            Arg::with_name("eth1-cache-follow-distance")
+                .long("eth1-cache-follow-distance")
+                .value_name("BLOCKS")
+                .help("Specifies the distance between the Eth1 chain head and the last block which \
+                       should be imported into the cache. Setting this value lower can help \
+                       compensate for irregular Proof-of-Work block times, but setting it too low \
+                       can make the node vulnerable to re-orgs.")
+                .takes_value(true)
+        )
+        .arg(
             Arg::with_name("slots-per-restore-point")
                 .long("slots-per-restore-point")
                 .value_name("SLOT_COUNT")
