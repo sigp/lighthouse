@@ -1353,7 +1353,7 @@ where
         block: SignedBeaconBlock<E>,
     ) -> Result<SignedBeaconBlockHash, BlockError<E>> {
         self.set_current_slot(slot);
-        let block_hash: SignedBeaconBlockHash = self.chain.process_block(block)?.into();
+        let block_hash: SignedBeaconBlockHash = self.chain.process_block(block).await?.into();
         self.chain.recompute_head_at_current_slot().await?;
         Ok(block_hash)
     }
@@ -1362,7 +1362,7 @@ where
         &self,
         block: SignedBeaconBlock<E>,
     ) -> Result<SignedBeaconBlockHash, BlockError<E>> {
-        let block_hash: SignedBeaconBlockHash = self.chain.process_block(block)?.into();
+        let block_hash: SignedBeaconBlockHash = self.chain.process_block(block).await?.into();
         self.chain.recompute_head_at_current_slot().await?;
         Ok(block_hash)
     }

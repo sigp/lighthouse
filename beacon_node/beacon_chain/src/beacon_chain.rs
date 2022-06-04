@@ -11,6 +11,7 @@ use crate::block_verification::{
     check_block_is_finalized_descendant, check_block_relevancy, get_block_root,
     signature_verify_chain_segment, BlockError, ExecutionPendingBlock, GossipVerifiedBlock,
     IntoExecutionPendingBlock, PayloadVerificationOutcome, SignatureVerifiedBlock,
+    POS_PANDA_BANNER,
 };
 use crate::chain_config::ChainConfig;
 use crate::early_attester_cache::EarlyAttesterCache;
@@ -2296,7 +2297,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 Err(BlockError::WouldRevertFinalizedSlot { .. }) => continue,
                 // The block has a known parent that does not descend from the finalized block.
                 // There is no need to process this block or any children.
-                Err(e @ BlockError::NotFinalizedDescendant { block_parent_root }) => return Err(e),
+                Err(e @ BlockError::NotFinalizedDescendant { .. }) => return Err(e),
                 // If there was an error whilst determining if the block was invalid, return that
                 // error.
                 Err(e @ BlockError::BeaconChainError(_)) => return Err(e),
@@ -2476,7 +2477,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             block,
             block_root,
             state,
-            parent_block,
+            parent_block: _,
             confirmed_state_roots,
             payload_verification_handle,
         } = execution_pending_block;
@@ -2488,6 +2489,36 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .await
             .map_err(BeaconChainError::TokioJoin)?
             .ok_or(BeaconChainError::RuntimeShutdown)??;
+
+        // Log the PoS pandas if a merge transition just occurred.
+        if is_valid_merge_transition_block {
+            info!(self.log, "{}", POS_PANDA_BANNER);
+            info!(
+                self.log,
+                "Proof of Stake Activated";
+                "slot" => block.slot()
+            );
+            info!(
+                self.log, "";
+                "Terminal POW Block Hash" => ?block
+                    .message()
+                    .execution_payload()?
+                    .parent_hash()
+                    .into_root()
+            );
+            info!(
+                self.log, "";
+                "Merge Transition Block Root" => ?block.message().tree_hash_root()
+            );
+            info!(
+                self.log, "";
+                "Merge Transition Execution Hash" => ?block
+                    .message()
+                    .execution_payload()?
+                    .block_hash()
+                    .into_root()
+            );
+        }
 
         let block_hash = self
             .task_executor
@@ -2521,14 +2552,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         signed_block: SignedBeaconBlock<T::EthSpec>,
         block_root: Hash256,
         mut state: BeaconState<T::EthSpec>,
-        mut confirmed_state_roots: Vec<Hash256>,
+        confirmed_state_roots: Vec<Hash256>,
         payload_verification_status: PayloadVerificationStatus,
     ) -> Result<Hash256, BlockError<T::EthSpec>> {
         let current_slot = self.slot()?;
         let current_epoch = current_slot.epoch(T::EthSpec::slots_per_epoch());
-
-        current_slot = self.slot()?;
-        current_epoch = current_slot.epoch(T::EthSpec::slots_per_epoch());
 
         let attestation_observation_timer =
             metrics::start_timer(&metrics::BLOCK_PROCESSING_ATTESTATION_OBSERVATION);

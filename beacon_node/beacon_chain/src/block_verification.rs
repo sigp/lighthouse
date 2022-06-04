@@ -86,7 +86,7 @@ use types::{
     RelativeEpoch, SignedBeaconBlock, SignedBeaconBlockHeader, Slot,
 };
 
-const POS_PANDA_BANNER: &str = r#"
+pub const POS_PANDA_BANNER: &str = r#"
     ,,,         ,,,                                               ,,,         ,,,
   ;"   ^;     ;'   ",                                           ;"   ^;     ;'   ",
   ;    s$$$$$$$s     ;                                          ;    s$$$$$$$s     ;
@@ -1164,9 +1164,14 @@ impl<T: BeaconChainTypes> ExecutionPendingBlock<T> {
             }
         }
 
+        let block_slot = block.slot();
+        let state_current_epoch = state.current_epoch();
+
         // Define a future that will verify the execution payload with an execution engine (but
         // don't execute it yet).
-        let payload_verification_future = async {
+        let inner_chain = chain.clone();
+        let payload_verification_future = async move {
+            let chain = inner_chain;
             // If this block triggers the merge, check to ensure that it references valid execution
             // blocks.
             //
@@ -1179,7 +1184,7 @@ impl<T: BeaconChainTypes> ExecutionPendingBlock<T> {
             //   calls to remote servers.
             let is_valid_merge_transition_block =
                 if is_merge_transition_block(&state, block.message().body()) {
-                    validate_merge_block(chain, block.message()).await?;
+                    validate_merge_block(&chain, block.message()).await?;
                     true
                 } else {
                     false
@@ -1192,7 +1197,7 @@ impl<T: BeaconChainTypes> ExecutionPendingBlock<T> {
             // It is important that this function is called *after* `per_slot_processing`, since the
             // `randao` may change.
             let payload_verification_status =
-                notify_new_payload(chain, &state, block.message()).await?;
+                notify_new_payload(&chain, &state, block.message()).await?;
 
             // If the payload did not validate or invalidate the block, check to see if this block is
             // valid for optimistic import.
@@ -1237,7 +1242,7 @@ impl<T: BeaconChainTypes> ExecutionPendingBlock<T> {
         // If the block is sufficiently recent, notify the validator monitor.
         if let Some(slot) = chain.slot_clock.now() {
             let epoch = slot.epoch(T::EthSpec::slots_per_epoch());
-            if block.slot().epoch(T::EthSpec::slots_per_epoch())
+            if block_slot.epoch(T::EthSpec::slots_per_epoch())
                 + VALIDATOR_MONITOR_HISTORIC_EPOCHS as u64
                 >= epoch
             {
@@ -1246,7 +1251,7 @@ impl<T: BeaconChainTypes> ExecutionPendingBlock<T> {
                 // the `validator_monitor` lock from being bounced or held for a long time whilst
                 // performing `per_slot_processing`.
                 for (i, summary) in summaries.iter().enumerate() {
-                    let epoch = state.current_epoch() - Epoch::from(summaries.len() - i);
+                    let epoch = state_current_epoch - Epoch::from(summaries.len() - i);
                     if let Err(e) =
                         validator_monitor.process_validator_statuses(epoch, summary, &chain.spec)
                     {
