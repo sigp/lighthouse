@@ -23,6 +23,52 @@ use state_processing::per_block_processing::{
 use std::sync::Arc;
 use types::*;
 
+pub struct PayloadNotifier<T: BeaconChainTypes> {
+    chain: Arc<BeaconChain<T>>,
+    block: Arc<SignedBeaconBlock<T::EthSpec>>,
+    payload_verification_status: Option<PayloadVerificationStatus>,
+}
+
+impl<T: BeaconChainTypes> PayloadNotifier<T> {
+    pub fn new(
+        chain: Arc<BeaconChain<T>>,
+        block: Arc<SignedBeaconBlock<T::EthSpec>>,
+        state: &BeaconState<T::EthSpec>,
+    ) -> Result<Self, BlockError<T::EthSpec>> {
+        let payload_verification_status = if is_execution_enabled(state, block.message().body()) {
+            // Perform the initial stages of payload verification.
+            //
+            // We will duplicate these checks again during `per_block_processing`, however these checks
+            // are cheap and doing them here ensures we protect the execution engine from junk.
+            partially_verify_execution_payload(
+                state,
+                block.message().execution_payload()?,
+                &chain.spec,
+            )
+            .map_err(BlockError::PerBlockProcessingError)?;
+            None
+        } else {
+            Some(PayloadVerificationStatus::Irrelevant)
+        };
+
+        Ok(Self {
+            chain,
+            block,
+            payload_verification_status,
+        })
+    }
+
+    pub async fn notify_new_payload(
+        self,
+    ) -> Result<PayloadVerificationStatus, BlockError<T::EthSpec>> {
+        if let Some(precomputed_status) = self.payload_verification_status {
+            Ok(precomputed_status)
+        } else {
+            notify_new_payload(&self.chain, self.block.message()).await
+        }
+    }
+}
+
 /// Verify that `execution_payload` contained by `block` is considered valid by an execution
 /// engine.
 ///
@@ -32,23 +78,11 @@ use types::*;
 /// contains a few extra checks by running `partially_verify_execution_payload` first:
 ///
 /// https://github.com/ethereum/consensus-specs/blob/v1.1.9/specs/bellatrix/beacon-chain.md#notify_new_payload
-pub async fn notify_new_payload<'a, T: BeaconChainTypes>(
+async fn notify_new_payload<'a, T: BeaconChainTypes>(
     chain: &Arc<BeaconChain<T>>,
-    state: &BeaconState<T::EthSpec>,
     block: BeaconBlockRef<'a, T::EthSpec>,
 ) -> Result<PayloadVerificationStatus, BlockError<T::EthSpec>> {
-    if !is_execution_enabled(state, block.body()) {
-        return Ok(PayloadVerificationStatus::Irrelevant);
-    }
-
     let execution_payload = block.execution_payload()?;
-
-    // Perform the initial stages of payload verification.
-    //
-    // We will duplicate these checks again during `per_block_processing`, however these checks
-    // are cheap and doing them here ensures we protect the execution payload from junk.
-    partially_verify_execution_payload(state, execution_payload, &chain.spec)
-        .map_err(BlockError::PerBlockProcessingError)?;
 
     let execution_layer = chain
         .execution_layer

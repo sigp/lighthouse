@@ -43,7 +43,7 @@
 //!
 //! ```
 use crate::execution_payload::{
-    notify_new_payload, validate_execution_payload_for_gossip, validate_merge_block,
+    validate_execution_payload_for_gossip, validate_merge_block, PayloadNotifier,
 };
 use crate::snapshot_cache::PreProcessingSnapshot;
 use crate::validator_monitor::HISTORIC_EPOCHS as VALIDATOR_MONITOR_HISTORIC_EPOCHS;
@@ -1164,12 +1164,14 @@ impl<T: BeaconChainTypes> ExecutionPendingBlock<T> {
             }
         }
 
+        let block = Arc::new(block);
         let block_slot = block.slot();
         let state_current_epoch = state.current_epoch();
 
         // Define a future that will verify the execution payload with an execution engine (but
         // don't execute it yet).
         let inner_chain = chain.clone();
+        let payload_notifier = PayloadNotifier::new(chain.clone(), block.clone(), &state)?;
         let payload_verification_future = async move {
             let chain = inner_chain;
             // If this block triggers the merge, check to ensure that it references valid execution
@@ -1196,8 +1198,7 @@ impl<T: BeaconChainTypes> ExecutionPendingBlock<T> {
             //
             // It is important that this function is called *after* `per_slot_processing`, since the
             // `randao` may change.
-            let payload_verification_status =
-                notify_new_payload(&chain, &state, block.message()).await?;
+            let payload_verification_status = payload_notifier.notify_new_payload().await?;
 
             // If the payload did not validate or invalidate the block, check to see if this block is
             // valid for optimistic import.
