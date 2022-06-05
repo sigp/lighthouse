@@ -898,7 +898,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         block_root: &Hash256,
     ) -> Result<Option<SignedBeaconBlock<T::EthSpec>>, Error> {
         if let Some(block) = self.early_attester_cache.get_block(*block_root) {
-            return Ok(Some(block));
+            return Ok(Some(block.as_ref().clone()));
         }
         self.get_block(block_root).await
     }
@@ -2160,7 +2160,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// `Self::process_block`.
     pub async fn process_chain_segment(
         self: &Arc<Self>,
-        chain_segment: Vec<SignedBeaconBlock<T::EthSpec>>,
+        chain_segment: Vec<Arc<SignedBeaconBlock<T::EthSpec>>>,
     ) -> ChainSegmentResult<T::EthSpec> {
         let mut imported_blocks = 0;
         let (signature_verified_blocks_tx, mut signature_verified_blocks_rx) =
@@ -2236,7 +2236,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// invalid, all following blocks must also be invalid.
     fn signature_verify_chain_segment(
         self: &Arc<Self>,
-        chain_segment: Vec<SignedBeaconBlock<T::EthSpec>>,
+        chain_segment: Vec<Arc<SignedBeaconBlock<T::EthSpec>>>,
         signature_verified_blocks_tx: mpsc::UnboundedSender<Vec<SignatureVerifiedBlock<T>>>,
     ) -> Result<(), BlockError<T::EthSpec>> {
         let mut filtered_chain_segment = Vec::with_capacity(chain_segment.len());
@@ -2360,7 +2360,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// Returns an `Err` if the given block was invalid, or an error was encountered during
     pub fn verify_block_for_gossip(
         &self,
-        block: SignedBeaconBlock<T::EthSpec>,
+        block: Arc<SignedBeaconBlock<T::EthSpec>>,
     ) -> Result<GossipVerifiedBlock<T>, BlockError<T::EthSpec>> {
         let slot = block.slot();
         let graffiti_string = block.message().body().graffiti().as_utf8_lossy();
@@ -2549,7 +2549,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// (i.e., this function is not atomic).
     fn import_block(
         &self,
-        signed_block: SignedBeaconBlock<T::EthSpec>,
+        signed_block: Arc<SignedBeaconBlock<T::EthSpec>>,
         block_root: Hash256,
         mut state: BeaconState<T::EthSpec>,
         confirmed_state_roots: Vec<Hash256>,
@@ -2637,7 +2637,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             &canonical_head_lock.fork_choice,
             &self.store,
         )?;
-        let (block, block_signature) = signed_block.clone().deconstruct();
+
+        let block = signed_block.message();
+        let block_signature = signed_block.signature().clone();
 
         // compare the existing finalized checkpoint with the incoming block's finalized checkpoint
         let old_finalized_checkpoint = canonical_head_lock.fork_choice.finalized_checkpoint();
@@ -2870,7 +2872,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .into_iter()
             .map(StoreOp::DeleteStateTemporaryFlag)
             .collect();
-        ops.push(StoreOp::PutBlock(block_root, Box::new(signed_block)));
+        ops.push(StoreOp::PutBlock(block_root, signed_block.clone()));
         ops.push(StoreOp::PutState(block.state_root(), &state));
         let txn_lock = self.store.hot_db.begin_rw_transaction();
 
@@ -2907,7 +2909,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         let parent_root = block.parent_root();
         let slot = block.slot();
-        let signed_block = SignedBeaconBlock::from_block(block, block_signature);
 
         self.snapshot_cache
             .try_write_for(BLOCK_PROCESSING_CACHE_LOCK_TIMEOUT)
@@ -2916,7 +2917,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 snapshot_cache.insert(
                     BeaconSnapshot {
                         beacon_state: state,
-                        beacon_block: signed_block.clone(),
+                        beacon_block: signed_block.as_ref().clone(),
                         beacon_block_root: block_root,
                     },
                     None,
