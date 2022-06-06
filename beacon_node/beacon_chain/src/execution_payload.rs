@@ -21,8 +21,13 @@ use state_processing::per_block_processing::{
     partially_verify_execution_payload,
 };
 use std::sync::Arc;
+use tokio::task::JoinHandle;
 use types::*;
 
+type PreparePayloadResult<Payload> = Result<Payload, BlockProductionError>;
+type PreparePayloadHandle<Payload> = JoinHandle<Option<PreparePayloadResult<Payload>>>;
+
+/// Used to await the result of executing payload with a remote EE.
 pub struct PayloadNotifier<T: BeaconChainTypes> {
     pub chain: Arc<BeaconChain<T>>,
     pub block: Arc<SignedBeaconBlock<T::EthSpec>>,
@@ -278,33 +283,49 @@ pub fn validate_execution_payload_for_gossip<T: BeaconChainTypes>(
 /// Equivalent to the `get_execution_payload` function in the Validator Guide:
 ///
 /// https://github.com/ethereum/consensus-specs/blob/v1.1.5/specs/merge/validator.md#block-proposal
-pub fn get_execution_payload<T: BeaconChainTypes, Payload: ExecPayload<T::EthSpec>>(
-    chain: &BeaconChain<T>,
+pub fn get_execution_payload<
+    T: BeaconChainTypes,
+    Payload: ExecPayload<T::EthSpec> + Default + Send + 'static,
+>(
+    chain: Arc<BeaconChain<T>>,
     state: &BeaconState<T::EthSpec>,
+    finalized_checkpoint: Checkpoint,
     proposer_index: u64,
-) -> Result<Payload, BlockProductionError> {
-    Ok(
-        prepare_execution_payload_blocking::<T, Payload>(chain, state, proposer_index)?
-            .unwrap_or_default(),
-    )
-}
+) -> Result<PreparePayloadHandle<Payload>, BlockProductionError> {
+    // Compute all required values from the `state` now to avoid needing to pass it into a spawned
+    // task.
+    let spec = &chain.spec;
+    let current_epoch = state.current_epoch();
+    let is_merge_transition_complete = is_merge_transition_complete(state);
+    let timestamp = compute_timestamp_at_slot(state, spec).map_err(BeaconStateError::from)?;
+    let random = *state.get_randao_mix(state.current_epoch())?;
+    let latest_execution_payload_header_block_hash =
+        state.latest_execution_payload_header()?.block_hash;
 
-/// Wraps the async `prepare_execution_payload` function as a blocking task.
-pub fn prepare_execution_payload_blocking<T: BeaconChainTypes, Payload: ExecPayload<T::EthSpec>>(
-    chain: &BeaconChain<T>,
-    state: &BeaconState<T::EthSpec>,
-    proposer_index: u64,
-) -> Result<Option<Payload>, BlockProductionError> {
-    let execution_layer = chain
-        .execution_layer
-        .as_ref()
-        .ok_or(BlockProductionError::ExecutionLayerMissing)?;
+    // Spawn a task to obtain the execution payload from the EL via a series of async calls. The
+    // `join_handle` can be used to await the result of the function.
+    let join_handle = chain
+        .task_executor
+        .clone()
+        .spawn_handle(
+            async move {
+                prepare_execution_payload::<T, Payload>(
+                    &chain,
+                    current_epoch,
+                    is_merge_transition_complete,
+                    timestamp,
+                    random,
+                    finalized_checkpoint,
+                    proposer_index,
+                    latest_execution_payload_header_block_hash,
+                )
+                .await
+            },
+            "get_execution_payload",
+        )
+        .ok_or(BlockProductionError::ShuttingDown)?;
 
-    execution_layer
-        .block_on_generic(|_| async {
-            prepare_execution_payload::<T, Payload>(chain, state, proposer_index).await
-        })
-        .map_err(BlockProductionError::BlockingFailed)?
+    Ok(join_handle)
 }
 
 /// Prepares an execution payload for inclusion in a block.
@@ -321,24 +342,35 @@ pub fn prepare_execution_payload_blocking<T: BeaconChainTypes, Payload: ExecPayl
 /// Equivalent to the `prepare_execution_payload` function in the Validator Guide:
 ///
 /// https://github.com/ethereum/consensus-specs/blob/v1.1.5/specs/merge/validator.md#block-proposal
-pub async fn prepare_execution_payload<T: BeaconChainTypes, Payload: ExecPayload<T::EthSpec>>(
+pub async fn prepare_execution_payload<T, Payload>(
     chain: &BeaconChain<T>,
-    state: &BeaconState<T::EthSpec>,
+    current_epoch: Epoch,
+    is_merge_transition_complete: bool,
+    timestamp: u64,
+    random: Hash256,
+    finalized_checkpoint: Checkpoint,
     proposer_index: u64,
-) -> Result<Option<Payload>, BlockProductionError> {
+    latest_execution_payload_header_block_hash: ExecutionBlockHash,
+) -> Result<Payload, BlockProductionError>
+where
+    T: BeaconChainTypes,
+    Payload: ExecPayload<T::EthSpec> + Default,
+{
     let spec = &chain.spec;
     let execution_layer = chain
         .execution_layer
         .as_ref()
         .ok_or(BlockProductionError::ExecutionLayerMissing)?;
 
-    let parent_hash = if !is_merge_transition_complete(state) {
+    let parent_hash = if is_merge_transition_complete {
         let is_terminal_block_hash_set = spec.terminal_block_hash != ExecutionBlockHash::zero();
         let is_activation_epoch_reached =
-            state.current_epoch() >= spec.terminal_block_hash_activation_epoch;
+            current_epoch >= spec.terminal_block_hash_activation_epoch;
 
         if is_terminal_block_hash_set && !is_activation_epoch_reached {
-            return Ok(None);
+            // Use the "empty" payload if there's a terminal block hash, but we haven't reached the
+            // terminal block epoch yet.
+            return Ok(<_>::default());
         }
 
         let terminal_pow_block_hash = execution_layer
@@ -349,15 +381,13 @@ pub async fn prepare_execution_payload<T: BeaconChainTypes, Payload: ExecPayload
         if let Some(terminal_pow_block_hash) = terminal_pow_block_hash {
             terminal_pow_block_hash
         } else {
-            return Ok(None);
+            // If the merge transition hasn't occurred yet and the EL hasn't found the terminal
+            // block, return an "empty" payload.
+            return Ok(<_>::default());
         }
     } else {
-        state.latest_execution_payload_header()?.block_hash
+        latest_execution_payload_header_block_hash
     };
-
-    let timestamp = compute_timestamp_at_slot(state, spec).map_err(BeaconStateError::from)?;
-    let random = *state.get_randao_mix(state.current_epoch())?;
-    let finalized_root = state.finalized_checkpoint().root;
 
     // The finalized block hash is not included in the specification, however we provide this
     // parameter so that the execution layer can produce a payload id if one is not already known
@@ -366,15 +396,17 @@ pub async fn prepare_execution_payload<T: BeaconChainTypes, Payload: ExecPayload
         .canonical_head
         .read()
         .fork_choice
-        .get_block(&finalized_root)
+        .get_block(&finalized_checkpoint.root)
     {
         block.execution_status.block_hash()
     } else {
         chain
             .store
-            .get_blinded_block(&finalized_root)
+            .get_blinded_block(&finalized_checkpoint.root)
             .map_err(BlockProductionError::FailedToReadFinalizedBlock)?
-            .ok_or(BlockProductionError::MissingFinalizedBlock(finalized_root))?
+            .ok_or(BlockProductionError::MissingFinalizedBlock(
+                finalized_checkpoint.root,
+            ))?
             .message()
             .body()
             .execution_payload()
@@ -383,6 +415,8 @@ pub async fn prepare_execution_payload<T: BeaconChainTypes, Payload: ExecPayload
     };
 
     // Note: the suggested_fee_recipient is stored in the `execution_layer`, it will add this parameter.
+    //
+    // This future is not executed here, it's up to the caller to await it.
     let execution_payload = execution_layer
         .get_payload::<T::EthSpec, Payload>(
             parent_hash,
@@ -394,5 +428,5 @@ pub async fn prepare_execution_payload<T: BeaconChainTypes, Payload: ExecPayload
         .await
         .map_err(BlockProductionError::GetPayloadFailed)?;
 
-    Ok(Some(execution_payload))
+    Ok(execution_payload)
 }

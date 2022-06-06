@@ -247,6 +247,7 @@ pub enum BlockProductionError {
     MissingFinalizedBlock(Hash256),
     BlockTooLarge(usize),
     ForkChoiceError(BeaconChainError),
+    ShuttingDown,
 }
 
 easy_from_to!(BlockProcessingError, BlockProductionError);
