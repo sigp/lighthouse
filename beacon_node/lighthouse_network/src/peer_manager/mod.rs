@@ -1015,18 +1015,17 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
                         let mut removed_peer_index = None;
                         for (index, (candidate_peer, info)) in peers_on_subnet.iter().enumerate() {
                             // Ensure we don't remove too many outbound peers
-                            if info.is_outbound_only() {
-                                if self.target_outbound_peers()
+                            if info.is_outbound_only()
+                                && self.target_outbound_peers()
                                     >= connected_outbound_peer_count
                                         .saturating_sub(outbound_peers_pruned)
-                                {
-                                    // Restart the main loop with the outbound peer removed from
-                                    // the list. This will lower the peers per subnet count and
-                                    // potentially a new subnet may be chosen to remove peers. This
-                                    // can occur recursively until we have no peers left to choose
-                                    // from.
-                                    continue;
-                                }
+                            {
+                                // Restart the main loop with the outbound peer removed from
+                                // the list. This will lower the peers per subnet count and
+                                // potentially a new subnet may be chosen to remove peers. This
+                                // can occur recursively until we have no peers left to choose
+                                // from.
+                                continue;
                             }
 
                             // Check the sync committee
