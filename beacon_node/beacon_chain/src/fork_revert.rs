@@ -183,11 +183,10 @@ pub fn reset_fork_choice_to_finalization<E: EthSpec, Hot: ItemStore<E>, Cold: It
         // This scenario is so rare that it seems OK to double-verify some blocks.
         let payload_verification_status = PayloadVerificationStatus::Optimistic;
 
-        let (block, _) = block.deconstruct();
         fork_choice
             .on_block(
                 block.slot(),
-                &block,
+                block.message(),
                 block.canonical_root(),
                 // Reward proposer boost. We are reinforcing the canonical chain.
                 Duration::from_secs(0),

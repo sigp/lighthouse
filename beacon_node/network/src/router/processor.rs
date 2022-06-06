@@ -177,7 +177,7 @@ impl<T: BeaconChainTypes> Processor<T> {
         &mut self,
         peer_id: PeerId,
         request_id: RequestId,
-        beacon_block: Option<Box<SignedBeaconBlock<T::EthSpec>>>,
+        beacon_block: Option<Arc<SignedBeaconBlock<T::EthSpec>>>,
     ) {
         let request_id = match request_id {
             RequestId::Sync(sync_id) => match sync_id {
@@ -208,7 +208,7 @@ impl<T: BeaconChainTypes> Processor<T> {
         &mut self,
         peer_id: PeerId,
         request_id: RequestId,
-        beacon_block: Option<Box<SignedBeaconBlock<T::EthSpec>>>,
+        beacon_block: Option<Arc<SignedBeaconBlock<T::EthSpec>>>,
     ) {
         let request_id = match request_id {
             RequestId::Sync(sync_id) => match sync_id {
@@ -243,7 +243,7 @@ impl<T: BeaconChainTypes> Processor<T> {
         message_id: MessageId,
         peer_id: PeerId,
         peer_client: Client,
-        block: Box<SignedBeaconBlock<T::EthSpec>>,
+        block: Arc<SignedBeaconBlock<T::EthSpec>>,
     ) {
         self.send_beacon_processor_work(BeaconWorkEvent::gossip_beacon_block(
             message_id,

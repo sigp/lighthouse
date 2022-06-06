@@ -11,7 +11,8 @@ use beacon_chain::{
     BeaconChainError, BeaconChainTypes, BlockError, ChainSegmentResult, HistoricalBlockError,
 };
 use lighthouse_network::PeerAction;
-use slog::{debug, error, info, warn};
+use slog::{debug, error, info, trace, warn};
+use std::sync::Arc;
 use tokio::sync::mpsc;
 use types::{Epoch, Hash256, SignedBeaconBlock};
 
@@ -45,9 +46,9 @@ pub enum FailureMode {
 
 impl<T: BeaconChainTypes> Worker<T> {
     /// Attempt to process a block received from a direct RPC request.
-    pub fn process_rpc_block(
+    pub async fn process_rpc_block(
         self,
-        block: SignedBeaconBlock<T::EthSpec>,
+        block: Arc<SignedBeaconBlock<T::EthSpec>>,
         seen_timestamp: Duration,
         process_type: BlockProcessType,
         reprocess_tx: mpsc::Sender<ReprocessQueueMessage<T>>,
@@ -66,7 +67,7 @@ impl<T: BeaconChainTypes> Worker<T> {
             }
         };
         let slot = block.slot();
-        let result = self.chain.process_block(block);
+        let result = self.chain.process_block(block).await;
 
         metrics::inc_counter(&metrics::BEACON_PROCESSOR_RPC_BLOCK_IMPORTED_TOTAL);
 
@@ -87,10 +88,21 @@ impl<T: BeaconChainTypes> Worker<T> {
                     None,
                     None,
                 );
-                // TODO(paul): use a SendOnDrop to keep the worker alive during this call.
-                self.chain
-                    .clone()
-                    .spawn_recompute_head_at_current_slot("process_rpc_block")
+
+                if let Err(e) = self.chain.recompute_head_at_current_slot().await {
+                    error!(
+                        self.log,
+                        "Fork choice failed";
+                        "error" => ?e,
+                        "location" => "process_rpc_block"
+                    )
+                } else {
+                    trace!(
+                        self.log,
+                        "Fork choice success";
+                        "location" => "process_rpc_block"
+                    )
+                }
             }
         }
         // Sync handles these results
@@ -105,10 +117,10 @@ impl<T: BeaconChainTypes> Worker<T> {
 
     /// Attempt to import the chain segment (`blocks`) to the beacon chain, informing the sync
     /// thread if more blocks are needed to process it.
-    pub fn process_chain_segment(
+    pub async fn process_chain_segment(
         &self,
         sync_type: ChainSegmentProcessId,
-        downloaded_blocks: Vec<SignedBeaconBlock<T::EthSpec>>,
+        downloaded_blocks: Vec<Arc<SignedBeaconBlock<T::EthSpec>>>,
     ) {
         let result = match sync_type {
             // this a request from the range sync
@@ -117,7 +129,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                 let end_slot = downloaded_blocks.last().map(|b| b.slot().as_u64());
                 let sent_blocks = downloaded_blocks.len();
 
-                match self.process_blocks(downloaded_blocks.iter()) {
+                match self.process_blocks(downloaded_blocks.iter()).await {
                     (_, Ok(_)) => {
                         debug!(self.log, "Batch processed";
                             "batch_epoch" => epoch,
@@ -186,7 +198,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                 );
                 // parent blocks are ordered from highest slot to lowest, so we need to process in
                 // reverse
-                match self.process_blocks(downloaded_blocks.iter().rev()) {
+                match self.process_blocks(downloaded_blocks.iter().rev()).await {
                     (imported_blocks, Err(e)) => {
                         debug!(self.log, "Parent lookup failed"; "error" => %e.message);
                         BatchProcessResult::Failed {
@@ -207,21 +219,30 @@ impl<T: BeaconChainTypes> Worker<T> {
     }
 
     /// Helper function to process blocks batches which only consumes the chain and blocks to process.
-    fn process_blocks<'a>(
+    async fn process_blocks<'a>(
         &self,
-        downloaded_blocks: impl Iterator<Item = &'a SignedBeaconBlock<T::EthSpec>>,
+        downloaded_blocks: impl Iterator<Item = &'a Arc<SignedBeaconBlock<T::EthSpec>>>,
     ) -> (usize, Result<(), ChainSegmentFailed>) {
-        let blocks = downloaded_blocks.cloned().collect::<Vec<_>>();
-        match self.chain.process_chain_segment(blocks) {
+        let blocks: Vec<Arc<_>> = downloaded_blocks.cloned().collect();
+        match self.chain.process_chain_segment(blocks).await {
             ChainSegmentResult::Successful { imported_blocks } => {
                 metrics::inc_counter(&metrics::BEACON_PROCESSOR_CHAIN_SEGMENT_SUCCESS_TOTAL);
                 if imported_blocks > 0 {
-                    // TODO(paul): use a SendOnDrop to keep the worker alive during this call.
-                    self.chain
-                        .clone()
-                        .spawn_recompute_head_at_current_slot("process_blocks_ok")
+                    if let Err(e) = self.chain.recompute_head_at_current_slot().await {
+                        error!(
+                            self.log,
+                            "Fork choice failed";
+                            "error" => ?e,
+                            "location" => "process_blocks_ok"
+                        )
+                    } else {
+                        trace!(
+                            self.log,
+                            "Fork choice success";
+                            "location" => "process_blocks_ok"
+                        )
+                    }
                 }
-
                 (imported_blocks, Ok(()))
             }
             ChainSegmentResult::Failed {
@@ -231,10 +252,20 @@ impl<T: BeaconChainTypes> Worker<T> {
                 metrics::inc_counter(&metrics::BEACON_PROCESSOR_CHAIN_SEGMENT_FAILED_TOTAL);
                 let r = self.handle_failed_chain_segment(error);
                 if imported_blocks > 0 {
-                    // TODO(paul): use a SendOnDrop to keep the worker alive during this call.
-                    self.chain
-                        .clone()
-                        .spawn_recompute_head_at_current_slot("process_blocks_err")
+                    if let Err(e) = self.chain.recompute_head_at_current_slot().await {
+                        error!(
+                            self.log,
+                            "Fork choice failed";
+                            "error" => ?e,
+                            "location" => "process_blocks_err"
+                        )
+                    } else {
+                        trace!(
+                            self.log,
+                            "Fork choice success";
+                            "location" => "process_blocks_err"
+                        )
+                    }
                 }
                 (imported_blocks, r)
             }
@@ -244,9 +275,12 @@ impl<T: BeaconChainTypes> Worker<T> {
     /// Helper function to process backfill block batches which only consumes the chain and blocks to process.
     fn process_backfill_blocks(
         &self,
-        blocks: Vec<SignedBeaconBlock<T::EthSpec>>,
+        blocks: Vec<Arc<SignedBeaconBlock<T::EthSpec>>>,
     ) -> (usize, Result<(), ChainSegmentFailed>) {
-        let blinded_blocks = blocks.into_iter().map(Into::into).collect();
+        let blinded_blocks = blocks
+            .iter()
+            .map(|full_block| full_block.clone_as_blinded())
+            .collect();
         match self.chain.import_historical_block_batch(blinded_blocks) {
             Ok(imported_blocks) => {
                 metrics::inc_counter(

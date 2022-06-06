@@ -425,8 +425,8 @@ impl<T: EthSpec> From<ArithError> for BlockError<T> {
 }
 
 pub struct PayloadVerificationOutcome {
-    payload_verification_status: PayloadVerificationStatus,
-    is_valid_merge_transition_block: bool,
+    pub payload_verification_status: PayloadVerificationStatus,
+    pub is_valid_merge_transition_block: bool,
 }
 
 /// Information about invalid blocks which might still be slashable despite being invalid.
@@ -1169,10 +1169,13 @@ impl<T: BeaconChainTypes> ExecutionPendingBlock<T> {
 
         // Define a future that will verify the execution payload with an execution engine (but
         // don't execute it yet).
-        let inner_chain = chain.clone();
         let payload_notifier = PayloadNotifier::new(chain.clone(), block.clone(), &state)?;
+        let is_valid_merge_transition_block =
+            is_merge_transition_block(&state, block.message().body());
         let payload_verification_future = async move {
-            let chain = inner_chain;
+            let chain = payload_notifier.chain.clone();
+            let block = payload_notifier.block.clone();
+
             // If this block triggers the merge, check to ensure that it references valid execution
             // blocks.
             //
@@ -1183,13 +1186,9 @@ impl<T: BeaconChainTypes> ExecutionPendingBlock<T> {
             //   early.
             // - Doing the check here means we can keep our fork-choice implementation "pure". I.e., no
             //   calls to remote servers.
-            let is_valid_merge_transition_block =
-                if is_merge_transition_block(&state, block.message().body()) {
-                    validate_merge_block(&chain, block.message()).await?;
-                    true
-                } else {
-                    false
-                };
+            if is_valid_merge_transition_block {
+                validate_merge_block(&chain, block.message()).await?;
+            };
 
             // The specification declares that this should be run *inside* `per_block_processing`,
             // however we run it here to keep `per_block_processing` pure (i.e., no calls to external

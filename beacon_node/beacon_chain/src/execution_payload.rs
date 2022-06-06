@@ -24,8 +24,8 @@ use std::sync::Arc;
 use types::*;
 
 pub struct PayloadNotifier<T: BeaconChainTypes> {
-    chain: Arc<BeaconChain<T>>,
-    block: Arc<SignedBeaconBlock<T::EthSpec>>,
+    pub chain: Arc<BeaconChain<T>>,
+    pub block: Arc<SignedBeaconBlock<T::EthSpec>>,
     payload_verification_status: Option<PayloadVerificationStatus>,
 }
 

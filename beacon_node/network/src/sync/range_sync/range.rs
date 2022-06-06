@@ -221,7 +221,7 @@ where
         chain_id: ChainId,
         batch_id: BatchId,
         request_id: Id,
-        beacon_block: Option<SignedBeaconBlock<T::EthSpec>>,
+        beacon_block: Option<Arc<SignedBeaconBlock<T::EthSpec>>>,
     ) {
         // check if this chunk removes the chain
         match self.chains.call_by_id(chain_id, |chain| {

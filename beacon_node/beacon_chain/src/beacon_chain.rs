@@ -896,11 +896,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     pub async fn get_block_checking_early_attester_cache(
         &self,
         block_root: &Hash256,
-    ) -> Result<Option<SignedBeaconBlock<T::EthSpec>>, Error> {
+    ) -> Result<Option<Arc<SignedBeaconBlock<T::EthSpec>>>, Error> {
         if let Some(block) = self.early_attester_cache.get_block(*block_root) {
-            return Ok(Some(block.as_ref().clone()));
+            return Ok(Some(block));
         }
-        self.get_block(block_root).await
+        Ok(self.get_block(block_root).await?.map(Arc::new))
     }
 
     /// Returns the block at the given root, if any.
@@ -2358,37 +2358,47 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// ## Errors
     ///
     /// Returns an `Err` if the given block was invalid, or an error was encountered during
-    pub fn verify_block_for_gossip(
-        &self,
+    pub async fn verify_block_for_gossip(
+        self: Arc<Self>,
         block: Arc<SignedBeaconBlock<T::EthSpec>>,
     ) -> Result<GossipVerifiedBlock<T>, BlockError<T::EthSpec>> {
-        let slot = block.slot();
-        let graffiti_string = block.message().body().graffiti().as_utf8_lossy();
+        self.task_executor
+            .clone()
+            .spawn_blocking_handle(
+                move || {
+                    let slot = block.slot();
+                    let graffiti_string = block.message().body().graffiti().as_utf8_lossy();
 
-        match GossipVerifiedBlock::new(block, self) {
-            Ok(verified) => {
-                debug!(
-                    self.log,
-                    "Successfully processed gossip block";
-                    "graffiti" => graffiti_string,
-                    "slot" => slot,
-                    "root" => ?verified.block_root(),
-                );
+                    match GossipVerifiedBlock::new(block, &self) {
+                        Ok(verified) => {
+                            debug!(
+                                self.log,
+                                "Successfully processed gossip block";
+                                "graffiti" => graffiti_string,
+                                "slot" => slot,
+                                "root" => ?verified.block_root(),
+                            );
 
-                Ok(verified)
-            }
-            Err(e) => {
-                debug!(
-                    self.log,
-                    "Rejected gossip block";
-                    "error" => e.to_string(),
-                    "graffiti" => graffiti_string,
-                    "slot" => slot,
-                );
+                            Ok(verified)
+                        }
+                        Err(e) => {
+                            debug!(
+                                self.log,
+                                "Rejected gossip block";
+                                "error" => e.to_string(),
+                                "graffiti" => graffiti_string,
+                                "slot" => slot,
+                            );
 
-                Err(e)
-            }
-        }
+                            Err(e)
+                        }
+                    }
+                },
+                "payload_verification_handle",
+            )
+            .ok_or(BeaconChainError::RuntimeShutdown)?
+            .await
+            .map_err(BeaconChainError::TokioJoin)?
     }
 
     /// Returns `Ok(block_root)` if the given `unverified_block` was successfully verified and
@@ -2639,7 +2649,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         )?;
 
         let block = signed_block.message();
-        let block_signature = signed_block.signature().clone();
 
         // compare the existing finalized checkpoint with the incoming block's finalized checkpoint
         let old_finalized_checkpoint = canonical_head_lock.fork_choice.finalized_checkpoint();
@@ -2689,7 +2698,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 .fork_choice
                 .on_block(
                     current_slot,
-                    &block,
+                    block,
                     block_root,
                     block_delay,
                     &state,

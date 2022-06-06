@@ -5,7 +5,7 @@ use std::cmp::Ordering;
 use std::marker::PhantomData;
 use std::time::Duration;
 use types::{
-    consts::merge::INTERVALS_PER_SLOT, AttestationShufflingId, BeaconBlock, BeaconState,
+    consts::merge::INTERVALS_PER_SLOT, AttestationShufflingId, BeaconBlockRef, BeaconState,
     BeaconStateError, ChainSpec, Checkpoint, Epoch, EthSpec, ExecPayload, ExecutionBlockHash,
     Hash256, IndexedAttestation, RelativeEpoch, SignedBeaconBlock, Slot,
 };
@@ -611,7 +611,7 @@ where
     pub fn on_block<Payload: ExecPayload<E>>(
         &mut self,
         current_slot: Slot,
-        block: &BeaconBlock<E, Payload>,
+        block: BeaconBlockRef<E, Payload>,
         block_root: Hash256,
         block_delay: Duration,
         state: &BeaconState<E>,

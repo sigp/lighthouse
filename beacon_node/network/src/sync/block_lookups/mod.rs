@@ -7,6 +7,7 @@ use lighthouse_network::{PeerAction, PeerId};
 use lru_cache::LRUTimeCache;
 use slog::{crit, debug, error, trace, warn, Logger};
 use smallvec::SmallVec;
+use std::sync::Arc;
 use store::{Hash256, SignedBeaconBlock};
 use tokio::sync::mpsc;
 
@@ -105,7 +106,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
 
     pub fn search_parent(
         &mut self,
-        block: Box<SignedBeaconBlock<T::EthSpec>>,
+        block: Arc<SignedBeaconBlock<T::EthSpec>>,
         peer_id: PeerId,
         cx: &mut SyncNetworkContext<T::EthSpec>,
     ) {
@@ -129,7 +130,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
             return;
         }
 
-        let parent_lookup = ParentLookup::new(*block, peer_id);
+        let parent_lookup = ParentLookup::new(block, peer_id);
         self.request_parent(parent_lookup, cx);
     }
 
@@ -139,7 +140,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         &mut self,
         id: Id,
         peer_id: PeerId,
-        block: Option<Box<SignedBeaconBlock<T::EthSpec>>>,
+        block: Option<Arc<SignedBeaconBlock<T::EthSpec>>>,
         seen_timestamp: Duration,
         cx: &mut SyncNetworkContext<T::EthSpec>,
     ) {
@@ -203,7 +204,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         &mut self,
         id: Id,
         peer_id: PeerId,
-        block: Option<Box<SignedBeaconBlock<T::EthSpec>>>,
+        block: Option<Arc<SignedBeaconBlock<T::EthSpec>>>,
         seen_timestamp: Duration,
         cx: &mut SyncNetworkContext<T::EthSpec>,
     ) {
@@ -496,7 +497,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
             Err(BlockError::ParentUnknown(block)) => {
                 // need to keep looking for parents
                 // add the block back to the queue and continue the search
-                parent_lookup.add_block(*block);
+                parent_lookup.add_block(block);
                 self.request_parent(parent_lookup, cx);
             }
             Ok(_) | Err(BlockError::BlockIsAlreadyKnown { .. }) => {
@@ -618,7 +619,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
 
     fn send_block_for_processing(
         &mut self,
-        block: Box<SignedBeaconBlock<T::EthSpec>>,
+        block: Arc<SignedBeaconBlock<T::EthSpec>>,
         duration: Duration,
         process_type: BlockProcessType,
     ) -> Result<(), ()> {

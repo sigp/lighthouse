@@ -541,6 +541,52 @@ impl_from!(BeaconBlockBase, <E, FullPayload<E>>, <E, BlindedPayload<E>>, |body: 
 impl_from!(BeaconBlockAltair, <E, FullPayload<E>>, <E, BlindedPayload<E>>, |body: BeaconBlockBodyAltair<_, _>| body.into());
 impl_from!(BeaconBlockMerge, <E, FullPayload<E>>, <E, BlindedPayload<E>>, |body: BeaconBlockBodyMerge<_, _>| body.into());
 
+// We can clone blocks with payloads to blocks without payloads, without cloning the payload.
+macro_rules! impl_clone_as_blinded {
+    ($ty_name:ident, <$($from_params:ty),*>, <$($to_params:ty),*>) => {
+        impl<E: EthSpec> $ty_name<$($from_params),*>
+        {
+            pub fn clone_as_blinded(&self) -> $ty_name<$($to_params),*> {
+                let $ty_name {
+                    slot,
+                    proposer_index,
+                    parent_root,
+                    state_root,
+                    body,
+                } = self;
+
+                $ty_name {
+                    slot: *slot,
+                    proposer_index: *proposer_index,
+                    parent_root: *parent_root,
+                    state_root: *state_root,
+                    body: body.clone_as_blinded(),
+                }
+            }
+        }
+    }
+}
+
+impl_clone_as_blinded!(BeaconBlockBase, <E, FullPayload<E>>, <E, BlindedPayload<E>>);
+impl_clone_as_blinded!(BeaconBlockAltair, <E, FullPayload<E>>, <E, BlindedPayload<E>>);
+impl_clone_as_blinded!(BeaconBlockMerge, <E, FullPayload<E>>, <E, BlindedPayload<E>>);
+
+// A reference to a full beacon block can be cloned into a blinded beacon block, without cloning the
+// execution payload.
+impl<'a, E: EthSpec> From<BeaconBlockRef<'a, E, FullPayload<E>>>
+    for BeaconBlock<E, BlindedPayload<E>>
+{
+    fn from(
+        full_block: BeaconBlockRef<'a, E, FullPayload<E>>,
+    ) -> BeaconBlock<E, BlindedPayload<E>> {
+        match full_block {
+            BeaconBlockRef::Base(block) => BeaconBlock::Base(block.clone_as_blinded()),
+            BeaconBlockRef::Altair(block) => BeaconBlock::Altair(block.clone_as_blinded()),
+            BeaconBlockRef::Merge(block) => BeaconBlock::Merge(block.clone_as_blinded()),
+        }
+    }
+}
+
 impl<E: EthSpec> From<BeaconBlock<E, FullPayload<E>>>
     for (
         BeaconBlock<E, BlindedPayload<E>>,

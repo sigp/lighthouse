@@ -9,7 +9,7 @@ use crate::{
 use eth2::types::{EventKind, SseChainReorg, SseFinalizedCheckpoint, SseHead, SseLateHead};
 use fork_choice::{ExecutionStatus, ForkChoiceView, ForkchoiceUpdateParameters, ProtoBlock};
 use parking_lot::RwLockWriteGuard;
-use slog::{crit, debug, error, trace, warn, Logger};
+use slog::{crit, debug, error, warn, Logger};
 use slot_clock::SlotClock;
 use std::mem;
 use std::sync::Arc;
@@ -18,6 +18,7 @@ use task_executor::{JoinHandle, ShutdownReason};
 use types::*;
 
 impl<T: BeaconChainTypes> BeaconChain<T> {
+    /*
     pub fn spawn_recompute_head_at_current_slot(self: Arc<Self>, call_location: &'static str) {
         self.task_executor.clone().spawn(
             async move {
@@ -39,6 +40,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             "spawn_recompute_head",
         )
     }
+    */
 
     /// Execute the fork choice algorithm and enthrone the result as the canonical head.
     pub async fn recompute_head_at_current_slot(self: &Arc<Self>) -> Result<(), Error> {

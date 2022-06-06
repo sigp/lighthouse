@@ -88,12 +88,12 @@ pub enum SyncMessage<T: EthSpec> {
     RpcBlock {
         request_id: RequestId,
         peer_id: PeerId,
-        beacon_block: Option<Box<SignedBeaconBlock<T>>>,
+        beacon_block: Option<Arc<SignedBeaconBlock<T>>>,
         seen_timestamp: Duration,
     },
 
     /// A block with an unknown parent has been received.
-    UnknownBlock(PeerId, Box<SignedBeaconBlock<T>>),
+    UnknownBlock(PeerId, Arc<SignedBeaconBlock<T>>),
 
     /// A peer has sent an object that references a block that is unknown. This triggers the
     /// manager to attempt to find the block matching the unknown hash.
@@ -562,7 +562,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
         &mut self,
         request_id: RequestId,
         peer_id: PeerId,
-        beacon_block: Option<Box<SignedBeaconBlock<T::EthSpec>>>,
+        beacon_block: Option<Arc<SignedBeaconBlock<T::EthSpec>>>,
         seen_timestamp: Duration,
     ) {
         match request_id {
@@ -590,7 +590,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                         batch_id,
                         &peer_id,
                         id,
-                        beacon_block.map(|b| *b),
+                        beacon_block,
                     ) {
                         Ok(ProcessResult::SyncCompleted) => self.update_sync_state(),
                         Ok(ProcessResult::Successful) => {}
@@ -612,7 +612,7 @@ impl<T: BeaconChainTypes> SyncManager<T> {
                         chain_id,
                         batch_id,
                         id,
-                        beacon_block.map(|b| *b),
+                        beacon_block,
                     );
                     self.update_sync_state();
                 }

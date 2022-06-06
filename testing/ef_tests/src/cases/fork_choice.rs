@@ -13,6 +13,8 @@ use parking_lot::RwLockReadGuard;
 use serde_derive::Deserialize;
 use ssz_derive::Decode;
 use state_processing::state_advance::complete_state_advance;
+use std::future::Future;
+use std::sync::Arc;
 use std::time::Duration;
 use types::{
     Attestation, BeaconBlock, BeaconState, Checkpoint, Epoch, EthSpec, ExecutionBlockHash,
@@ -288,17 +290,18 @@ impl<E: EthSpec> Tester<E> {
         Ok(self.spec.genesis_slot + slots_since_genesis)
     }
 
-    fn find_head(&self) -> Result<RwLockReadGuard<CanonicalHead<EphemeralHarnessType<E>>>, Error> {
-        let chain = self.harness.chain.clone();
+    fn block_on_dangerous<F: Future>(&self, future: F) -> Result<F::Output, Error> {
         self.harness
             .chain
             .task_executor
             .clone()
-            .block_on_dangerous(
-                chain.recompute_head_at_current_slot(),
-                "recompute_head_blocking",
-            )
-            .ok_or_else(|| Error::InternalError("runtime shutdown".into()))?
+            .block_on_dangerous(future, "ef_tests_block_on")
+            .ok_or_else(|| Error::InternalError("runtime shutdown".into()))
+    }
+
+    fn find_head(&self) -> Result<RwLockReadGuard<CanonicalHead<EphemeralHarnessType<E>>>, Error> {
+        let chain = self.harness.chain.clone();
+        self.block_on_dangerous(chain.recompute_head_at_current_slot())?
             .map_err(|e| Error::InternalError(format!("failed to find head with {:?}", e)))?;
         Ok(self.harness.chain.canonical_head.read())
     }
@@ -327,8 +330,9 @@ impl<E: EthSpec> Tester<E> {
     }
 
     pub fn process_block(&self, block: SignedBeaconBlock<E>, valid: bool) -> Result<(), Error> {
-        let result = self.harness.chain.process_block(block.clone());
         let block_root = block.canonical_root();
+        let block = Arc::new(block);
+        let result = self.block_on_dangerous(self.harness.chain.process_block(block.clone()))?;
         if result.is_ok() != valid {
             return Err(Error::DidntFail(format!(
                 "block with root {} was valid={} whilst test expects valid={}. result: {:?}",
@@ -373,7 +377,6 @@ impl<E: EthSpec> Tester<E> {
                     .seconds_from_current_slot_start(self.spec.seconds_per_slot)
                     .unwrap();
 
-                let (block, _) = block.deconstruct();
                 let result = self
                     .harness
                     .chain
@@ -382,7 +385,7 @@ impl<E: EthSpec> Tester<E> {
                     .fork_choice
                     .on_block(
                         self.harness.chain.slot().unwrap(),
-                        &block,
+                        block.message(),
                         block_root,
                         block_delay,
                         &state,
