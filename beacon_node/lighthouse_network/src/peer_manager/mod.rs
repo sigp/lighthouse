@@ -1017,11 +1017,9 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
                             // Ensure we don't remove too many outbound peers
                             if info.is_outbound_only() {
                                 if self.target_outbound_peers()
-                                    < connected_outbound_peer_count
+                                    >= connected_outbound_peer_count
                                         .saturating_sub(outbound_peers_pruned)
                                 {
-                                    outbound_peers_pruned += 1;
-                                } else {
                                     // Restart the main loop with the outbound peer removed from
                                     // the list. This will lower the peers per subnet count and
                                     // potentially a new subnet may be chosen to remove peers. This
@@ -1051,6 +1049,9 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
                                 }
                             }
 
+                            if info.is_outbound_only() {
+                                outbound_peers_pruned += 1;
+                            }
                             // This peer is suitable to be pruned
                             removed_peer_index = Some(index);
                             break;
