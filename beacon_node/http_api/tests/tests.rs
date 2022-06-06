@@ -108,12 +108,14 @@ impl ApiTester {
             "precondition: current slot is one after head"
         );
 
-        let (next_block, _next_state) =
-            harness.make_block(head.beacon_state.clone(), harness.chain.slot().unwrap());
+        let (next_block, _next_state) = harness
+            .make_block(head.beacon_state.clone(), harness.chain.slot().unwrap())
+            .await;
 
         // `make_block` adds random graffiti, so this will produce an alternate block
-        let (reorg_block, _reorg_state) =
-            harness.make_block(head.beacon_state.clone(), harness.chain.slot().unwrap());
+        let (reorg_block, _reorg_state) = harness
+            .make_block(head.beacon_state.clone(), harness.chain.slot().unwrap())
+            .await;
 
         let head_state_root = head.beacon_state_root();
         let attestations = harness
@@ -228,12 +230,14 @@ impl ApiTester {
 
         let head = harness.chain.head().unwrap();
 
-        let (next_block, _next_state) =
-            harness.make_block(head.beacon_state.clone(), harness.chain.slot().unwrap());
+        let (next_block, _next_state) = harness
+            .make_block(head.beacon_state.clone(), harness.chain.slot().unwrap())
+            .await;
 
         // `make_block` adds random graffiti, so this will produce an alternate block
-        let (reorg_block, _reorg_state) =
-            harness.make_block(head.beacon_state.clone(), harness.chain.slot().unwrap());
+        let (reorg_block, _reorg_state) = harness
+            .make_block(head.beacon_state.clone(), harness.chain.slot().unwrap())
+            .await;
 
         let head_state_root = head.beacon_state_root();
         let attestations = harness

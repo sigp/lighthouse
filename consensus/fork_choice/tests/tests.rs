@@ -16,9 +16,8 @@ use fork_choice::{
 };
 use store::MemoryStore;
 use types::{
-    test_utils::generate_deterministic_keypair, BeaconBlock, BeaconBlockRef, BeaconState,
-    ChainSpec, Checkpoint, Epoch, EthSpec, Hash256, IndexedAttestation, MainnetEthSpec, Slot,
-    SubnetId,
+    test_utils::generate_deterministic_keypair, BeaconBlockRef, BeaconState, ChainSpec, Checkpoint,
+    Epoch, EthSpec, Hash256, IndexedAttestation, MainnetEthSpec, SignedBeaconBlock, Slot, SubnetId,
 };
 
 pub type E = MainnetEthSpec;
@@ -198,7 +197,7 @@ impl ForkChoiceTest {
         let validators = self.harness.get_all_validators();
         loop {
             let slot = self.harness.get_current_slot();
-            let (block, state_) = self.harness.make_block(state, slot);
+            let (block, state_) = self.harness.make_block(state, slot).await;
             state = state_;
             if !predicate(block.message(), &state) {
                 break;
@@ -276,9 +275,9 @@ impl ForkChoiceTest {
     /// Applies a block directly to fork choice, bypassing the beacon chain.
     ///
     /// Asserts the block was applied successfully.
-    pub fn apply_block_directly_to_fork_choice<F>(self, mut func: F) -> Self
+    pub async fn apply_block_directly_to_fork_choice<F>(self, mut func: F) -> Self
     where
-        F: FnMut(&mut BeaconBlock<E>, &mut BeaconState<E>),
+        F: FnMut(&mut SignedBeaconBlock<E>, &mut BeaconState<E>),
     {
         let state = self
             .harness
@@ -289,9 +288,8 @@ impl ForkChoiceTest {
             )
             .unwrap();
         let slot = self.harness.get_current_slot();
-        let (signed_block, mut state) = self.harness.make_block(state, slot);
-        let (mut block, _) = signed_block.deconstruct();
-        func(&mut block, &mut state);
+        let (mut signed_block, mut state) = self.harness.make_block(state, slot).await;
+        func(&mut signed_block, &mut state);
         let current_slot = self.harness.get_current_slot();
         self.harness
             .chain
@@ -300,8 +298,8 @@ impl ForkChoiceTest {
             .fork_choice
             .on_block(
                 current_slot,
-                &block,
-                block.canonical_root(),
+                signed_block.message(),
+                signed_block.canonical_root(),
                 Duration::from_secs(0),
                 &state,
                 PayloadVerificationStatus::Verified,
@@ -314,13 +312,13 @@ impl ForkChoiceTest {
     /// Applies a block directly to fork choice, bypassing the beacon chain.
     ///
     /// Asserts that an error occurred and allows inspecting it via `comparison_func`.
-    pub fn apply_invalid_block_directly_to_fork_choice<F, G>(
+    pub async fn apply_invalid_block_directly_to_fork_choice<F, G>(
         self,
         mut mutation_func: F,
         mut comparison_func: G,
     ) -> Self
     where
-        F: FnMut(&mut BeaconBlock<E>, &mut BeaconState<E>),
+        F: FnMut(&mut SignedBeaconBlock<E>, &mut BeaconState<E>),
         G: FnMut(ForkChoiceError),
     {
         let state = self
@@ -332,9 +330,8 @@ impl ForkChoiceTest {
             )
             .unwrap();
         let slot = self.harness.get_current_slot();
-        let (signed_block, mut state) = self.harness.make_block(state, slot);
-        let (mut block, _) = signed_block.deconstruct();
-        mutation_func(&mut block, &mut state);
+        let (mut signed_block, mut state) = self.harness.make_block(state, slot).await;
+        mutation_func(&mut signed_block, &mut state);
         let current_slot = self.harness.get_current_slot();
         let err = self
             .harness
@@ -344,8 +341,8 @@ impl ForkChoiceTest {
             .fork_choice
             .on_block(
                 current_slot,
-                &block,
-                block.canonical_root(),
+                signed_block.message(),
+                signed_block.canonical_root(),
                 Duration::from_secs(0),
                 &state,
                 PayloadVerificationStatus::Verified,
@@ -593,6 +590,7 @@ async fn justified_checkpoint_updates_with_non_descendent_inside_safe_slots_with
                 .get_block_root(Epoch::new(1).start_slot(E::slots_per_epoch()))
                 .unwrap();
         })
+        .await
         .assert_justified_epoch(3)
         .assert_best_justified_epoch(3);
 }
@@ -621,6 +619,7 @@ async fn justified_checkpoint_updates_with_non_descendent_outside_safe_slots_wit
                 .get_block_root(Epoch::new(1).start_slot(E::slots_per_epoch()))
                 .unwrap();
         })
+        .await
         .assert_justified_epoch(2)
         .assert_best_justified_epoch(3);
 }
@@ -649,6 +648,7 @@ async fn justified_checkpoint_updates_with_non_descendent_outside_safe_slots_wit
                 .get_block_root(Epoch::new(1).start_slot(E::slots_per_epoch()))
                 .unwrap();
         })
+        .await
         .assert_justified_epoch(3)
         .assert_best_justified_epoch(3);
 }
@@ -689,7 +689,7 @@ async fn invalid_block_unknown_parent() {
         .await
         .apply_invalid_block_directly_to_fork_choice(
             |block, _| {
-                *block.parent_root_mut() = junk;
+                *block.message_mut().parent_root_mut() = junk;
             },
             |err| {
                 assert_invalid_block!(
@@ -698,7 +698,8 @@ async fn invalid_block_unknown_parent() {
                     if parent == junk
                 )
             },
-        );
+        )
+        .await;
 }
 
 /// Specification v0.12.1
@@ -711,10 +712,11 @@ async fn invalid_block_future_slot() {
         .await
         .apply_invalid_block_directly_to_fork_choice(
             |block, _| {
-                *block.slot_mut() += 1;
+                *block.message_mut().slot_mut() += 1;
             },
             |err| assert_invalid_block!(err, InvalidBlock::FutureSlot { .. }),
-        );
+        )
+        .await;
 }
 
 /// Specification v0.12.1
@@ -730,7 +732,8 @@ async fn invalid_block_finalized_slot() {
         .await
         .apply_invalid_block_directly_to_fork_choice(
             |block, _| {
-                *block.slot_mut() = Epoch::new(2).start_slot(E::slots_per_epoch()) - 1;
+                *block.message_mut().slot_mut() =
+                    Epoch::new(2).start_slot(E::slots_per_epoch()) - 1;
             },
             |err| {
                 assert_invalid_block!(
@@ -739,7 +742,8 @@ async fn invalid_block_finalized_slot() {
                     if finalized_slot == Epoch::new(2).start_slot(E::slots_per_epoch())
                 )
             },
-        );
+        )
+        .await;
 }
 
 /// Specification v0.12.1
@@ -763,7 +767,7 @@ async fn invalid_block_finalized_descendant() {
         .assert_finalized_epoch(2)
         .apply_invalid_block_directly_to_fork_choice(
             |block, state| {
-                *block.parent_root_mut() = *state
+                *block.message_mut().parent_root_mut() = *state
                     .get_block_root(Epoch::new(1).start_slot(E::slots_per_epoch()))
                     .unwrap();
                 *invalid_ancestor.lock().unwrap() = block.parent_root();
@@ -775,7 +779,8 @@ async fn invalid_block_finalized_descendant() {
                     if block_ancestor == Some(*invalid_ancestor.lock().unwrap())
                 )
             },
-        );
+        )
+        .await;
 }
 
 macro_rules! assert_invalid_attestation {

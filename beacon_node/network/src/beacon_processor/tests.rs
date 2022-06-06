@@ -45,7 +45,7 @@ const STANDARD_TIMEOUT: Duration = Duration::from_secs(10);
 /// Provides utilities for testing the `BeaconProcessor`.
 struct TestRig {
     chain: Arc<BeaconChain<T>>,
-    next_block: SignedBeaconBlock<E>,
+    next_block: Arc<SignedBeaconBlock<E>>,
     attestations: Vec<(Attestation<E>, SubnetId)>,
     next_block_attestations: Vec<(Attestation<E>, SubnetId)>,
     next_block_aggregate_attestations: Vec<SignedAggregateAndProof<E>>,
@@ -103,8 +103,9 @@ impl TestRig {
             "precondition: current slot is one after head"
         );
 
-        let (next_block, next_state) =
-            harness.make_block(head.beacon_state.clone(), harness.chain.slot().unwrap());
+        let (next_block, next_state) = harness
+            .make_block(head.beacon_state.clone(), harness.chain.slot().unwrap())
+            .await;
 
         let head_state_root = head.beacon_state_root();
         let attestations = harness
@@ -210,7 +211,7 @@ impl TestRig {
 
         Self {
             chain,
-            next_block,
+            next_block: Arc::new(next_block),
             attestations,
             next_block_attestations,
             next_block_aggregate_attestations,
@@ -239,7 +240,7 @@ impl TestRig {
                 junk_message_id(),
                 junk_peer_id(),
                 Client::default(),
-                Box::new(self.next_block.clone()),
+                self.next_block.clone(),
                 Duration::from_secs(0),
             ))
             .unwrap();
@@ -247,7 +248,7 @@ impl TestRig {
 
     pub fn enqueue_rpc_block(&self) {
         let event = WorkEvent::rpc_beacon_block(
-            Box::new(self.next_block.clone()),
+            self.next_block.clone(),
             std::time::Duration::default(),
             BlockProcessType::ParentLookup {
                 chain_hash: Hash256::random(),

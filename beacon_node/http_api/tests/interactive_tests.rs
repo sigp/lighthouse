@@ -66,7 +66,7 @@ pub async fn fork_choice_before_proposal() {
     let slot_d = slot_a + 3;
 
     let state_a = harness.get_current_state();
-    let (block_b, state_b) = harness.make_block(state_a.clone(), slot_b);
+    let (block_b, state_b) = harness.make_block(state_a.clone(), slot_b).await;
     let block_root_b = harness.process_block(slot_b, block_b).await.unwrap();
 
     // Create attestations to B but keep them in reserve until after C has been processed.
@@ -78,7 +78,7 @@ pub async fn fork_choice_before_proposal() {
         slot_b,
     );
 
-    let (block_c, state_c) = harness.make_block(state_a, slot_c);
+    let (block_c, state_c) = harness.make_block(state_a, slot_c).await;
     let block_root_c = harness
         .process_block(slot_c, block_c.clone())
         .await
