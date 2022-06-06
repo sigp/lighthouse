@@ -72,7 +72,7 @@ impl<T: BeaconChainTypes> CanonicalHead<T> {
         self.fork_choice_view.finalized_checkpoint
     }
 
-    /// Returns the finalized checkpoint, as determined by fork choice.
+    /// Returns the justified checkpoint, as determined by fork choice.
     ///
     /// ## Note
     ///
@@ -81,6 +81,6 @@ impl<T: BeaconChainTypes> CanonicalHead<T> {
     /// `head_snapshot.beacon_state` justified value is different to, but not conflicting with, the
     /// one returned here.
     pub fn justified_checkpoint(&self) -> Checkpoint {
-        self.fork_choice_view.finalized_checkpoint
+        self.fork_choice_view.justified_checkpoint
     }
 }
