@@ -248,6 +248,9 @@ pub enum BlockProductionError {
     BlockTooLarge(usize),
     ForkChoiceError(BeaconChainError),
     ShuttingDown,
+    MissingSyncAggregate,
+    MissingExecutionPayload,
+    TokioJoin(tokio::task::JoinError),
 }
 
 easy_from_to!(BlockProcessingError, BlockProductionError);

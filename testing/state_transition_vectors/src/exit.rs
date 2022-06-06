@@ -50,11 +50,12 @@ impl ExitTest {
         let validator_index = self.validator_index;
         let exit_epoch = self.exit_epoch;
 
-        let (signed_block, state) =
-            harness.make_block_with_modifier(state.clone(), state.slot() + 1, |block| {
+        let (signed_block, state) = harness
+            .make_block_with_modifier(state.clone(), state.slot() + 1, |block| {
                 harness.add_voluntary_exit(block, validator_index, exit_epoch);
                 block_modifier(&harness, block);
-            });
+            })
+            .await;
         (signed_block, state)
     }
 

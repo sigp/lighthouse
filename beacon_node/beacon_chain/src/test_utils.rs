@@ -580,7 +580,7 @@ where
         state.get_block_root(slot).unwrap() == state.get_block_root(slot - 1).unwrap()
     }
 
-    pub fn make_block(
+    pub async fn make_block(
         &self,
         mut state: BeaconState<E>,
         slot: Slot,
@@ -614,6 +614,7 @@ where
                 Some(graffiti),
                 ProduceBlockVerification::VerifyRandao,
             )
+            .await
             .unwrap();
 
         let signed_block = block.sign(
@@ -628,7 +629,7 @@ where
 
     /// Useful for the `per_block_processing` tests. Creates a block, and returns the state after
     /// caches are built but before the generated block is processed.
-    pub fn make_block_return_pre_state(
+    pub async fn make_block_return_pre_state(
         &self,
         mut state: BeaconState<E>,
         slot: Slot,
@@ -664,6 +665,7 @@ where
                 Some(graffiti),
                 ProduceBlockVerification::VerifyRandao,
             )
+            .await
             .unwrap();
 
         let signed_block = block.sign(
@@ -1250,7 +1252,7 @@ where
     /// Create a new block, apply `block_modifier` to it, sign it and return it.
     ///
     /// The state returned is a pre-block state at the same slot as the produced block.
-    pub fn make_block_with_modifier(
+    pub async fn make_block_with_modifier(
         &self,
         state: BeaconState<E>,
         slot: Slot,
@@ -1259,7 +1261,7 @@ where
         assert_ne!(slot, 0, "can't produce a block at slot 0");
         assert!(slot >= state.slot());
 
-        let (block, state) = self.make_block_return_pre_state(state, slot);
+        let (block, state) = self.make_block_return_pre_state(state, slot).await;
         let (mut block, _) = block.deconstruct();
 
         block_modifier(&mut block);
@@ -1426,7 +1428,7 @@ where
         state: BeaconState<E>,
     ) -> Result<(SignedBeaconBlockHash, SignedBeaconBlock<E>, BeaconState<E>), BlockError<E>> {
         self.set_current_slot(slot);
-        let (block, new_state) = self.make_block(state, slot);
+        let (block, new_state) = self.make_block(state, slot).await;
         let block_hash = self.process_block(slot, block.clone()).await?;
         Ok((block_hash, block, new_state))
     }
@@ -1616,13 +1618,13 @@ where
     /// Deprecated: Use make_block() instead
     ///
     /// Returns a newly created block, signed by the proposer for the given slot.
-    pub fn build_block(
+    pub async fn build_block(
         &self,
         state: BeaconState<E>,
         slot: Slot,
         _block_strategy: BlockStrategy,
     ) -> (SignedBeaconBlock<E>, BeaconState<E>) {
-        self.make_block(state, slot)
+        self.make_block(state, slot).await
     }
 
     /// Uses `Self::extend_chain` to build the chain out to the `target_slot`.

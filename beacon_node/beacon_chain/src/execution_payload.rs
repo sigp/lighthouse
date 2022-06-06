@@ -24,8 +24,8 @@ use std::sync::Arc;
 use tokio::task::JoinHandle;
 use types::*;
 
-type PreparePayloadResult<Payload> = Result<Payload, BlockProductionError>;
-type PreparePayloadHandle<Payload> = JoinHandle<Option<PreparePayloadResult<Payload>>>;
+pub type PreparePayloadResult<Payload> = Result<Payload, BlockProductionError>;
+pub type PreparePayloadHandle<Payload> = JoinHandle<Option<PreparePayloadResult<Payload>>>;
 
 /// Used to await the result of executing payload with a remote EE.
 pub struct PayloadNotifier<T: BeaconChainTypes> {
@@ -342,6 +342,7 @@ pub fn get_execution_payload<
 /// Equivalent to the `prepare_execution_payload` function in the Validator Guide:
 ///
 /// https://github.com/ethereum/consensus-specs/blob/v1.1.5/specs/merge/validator.md#block-proposal
+#[allow(clippy::too_many_arguments)]
 pub async fn prepare_execution_payload<T, Payload>(
     chain: &BeaconChain<T>,
     current_epoch: Epoch,

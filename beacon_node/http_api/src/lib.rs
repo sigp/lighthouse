@@ -1942,48 +1942,49 @@ pub fn serve<T: BeaconChainTypes>(
             |endpoint_version: EndpointVersion,
              slot: Slot,
              query: api_types::ValidatorBlocksQuery,
-             chain: Arc<BeaconChain<T>>| {
-                blocking_json_task(move || {
-                    let randao_reveal = query.randao_reveal.as_ref().map_or_else(
-                        || {
-                            if query.verify_randao {
-                                Err(warp_utils::reject::custom_bad_request(
-                                    "randao_reveal is mandatory unless verify_randao=false".into(),
-                                ))
-                            } else {
-                                Ok(Signature::empty())
-                            }
-                        },
-                        |sig_bytes| {
-                            sig_bytes.try_into().map_err(|e| {
-                                warp_utils::reject::custom_bad_request(format!(
-                                    "randao reveal is not a valid BLS signature: {:?}",
-                                    e
-                                ))
-                            })
-                        },
-                    )?;
+             chain: Arc<BeaconChain<T>>| async move {
+                let randao_reveal = query.randao_reveal.as_ref().map_or_else(
+                    || {
+                        if query.verify_randao {
+                            Err(warp_utils::reject::custom_bad_request(
+                                "randao_reveal is mandatory unless verify_randao=false".into(),
+                            ))
+                        } else {
+                            Ok(Signature::empty())
+                        }
+                    },
+                    |sig_bytes| {
+                        sig_bytes.try_into().map_err(|e| {
+                            warp_utils::reject::custom_bad_request(format!(
+                                "randao reveal is not a valid BLS signature: {:?}",
+                                e
+                            ))
+                        })
+                    },
+                )?;
 
-                    let randao_verification = if query.verify_randao {
-                        ProduceBlockVerification::VerifyRandao
-                    } else {
-                        ProduceBlockVerification::NoVerification
-                    };
+                let randao_verification = if query.verify_randao {
+                    ProduceBlockVerification::VerifyRandao
+                } else {
+                    ProduceBlockVerification::NoVerification
+                };
 
-                    let (block, _) = chain
-                        .produce_block_with_verification::<FullPayload<T::EthSpec>>(
-                            randao_reveal,
-                            slot,
-                            query.graffiti.map(Into::into),
-                            randao_verification,
-                        )
-                        .map_err(warp_utils::reject::block_production_error)?;
-                    let fork_name = block
-                        .to_ref()
-                        .fork_name(&chain.spec)
-                        .map_err(inconsistent_fork_rejection)?;
-                    fork_versioned_response(endpoint_version, fork_name, block)
-                })
+                let (block, _) = chain
+                    .produce_block_with_verification::<FullPayload<T::EthSpec>>(
+                        randao_reveal,
+                        slot,
+                        query.graffiti.map(Into::into),
+                        randao_verification,
+                    )
+                    .await
+                    .map_err(warp_utils::reject::block_production_error)?;
+                let fork_name = block
+                    .to_ref()
+                    .fork_name(&chain.spec)
+                    .map_err(inconsistent_fork_rejection)?;
+
+                fork_versioned_response(endpoint_version, fork_name, block)
+                    .map(|response| warp::reply::json(&response))
             },
         );
 
@@ -2004,48 +2005,48 @@ pub fn serve<T: BeaconChainTypes>(
             |endpoint_version: EndpointVersion,
              slot: Slot,
              query: api_types::ValidatorBlocksQuery,
-             chain: Arc<BeaconChain<T>>| {
-                blocking_json_task(move || {
-                    let randao_reveal = query.randao_reveal.as_ref().map_or_else(
-                        || {
-                            if query.verify_randao {
-                                Err(warp_utils::reject::custom_bad_request(
-                                    "randao_reveal is mandatory unless verify_randao=false".into(),
-                                ))
-                            } else {
-                                Ok(Signature::empty())
-                            }
-                        },
-                        |sig_bytes| {
-                            sig_bytes.try_into().map_err(|e| {
-                                warp_utils::reject::custom_bad_request(format!(
-                                    "randao reveal is not a valid BLS signature: {:?}",
-                                    e
-                                ))
-                            })
-                        },
-                    )?;
+             chain: Arc<BeaconChain<T>>| async move {
+                let randao_reveal = query.randao_reveal.as_ref().map_or_else(
+                    || {
+                        if query.verify_randao {
+                            Err(warp_utils::reject::custom_bad_request(
+                                "randao_reveal is mandatory unless verify_randao=false".into(),
+                            ))
+                        } else {
+                            Ok(Signature::empty())
+                        }
+                    },
+                    |sig_bytes| {
+                        sig_bytes.try_into().map_err(|e| {
+                            warp_utils::reject::custom_bad_request(format!(
+                                "randao reveal is not a valid BLS signature: {:?}",
+                                e
+                            ))
+                        })
+                    },
+                )?;
 
-                    let randao_verification = if query.verify_randao {
-                        ProduceBlockVerification::VerifyRandao
-                    } else {
-                        ProduceBlockVerification::NoVerification
-                    };
+                let randao_verification = if query.verify_randao {
+                    ProduceBlockVerification::VerifyRandao
+                } else {
+                    ProduceBlockVerification::NoVerification
+                };
 
-                    let (block, _) = chain
-                        .produce_block_with_verification::<BlindedPayload<T::EthSpec>>(
-                            randao_reveal,
-                            slot,
-                            query.graffiti.map(Into::into),
-                            randao_verification,
-                        )
-                        .map_err(warp_utils::reject::block_production_error)?;
-                    let fork_name = block
-                        .to_ref()
-                        .fork_name(&chain.spec)
-                        .map_err(inconsistent_fork_rejection)?;
-                    fork_versioned_response(endpoint_version, fork_name, block)
-                })
+                let (block, _) = chain
+                    .produce_block_with_verification::<BlindedPayload<T::EthSpec>>(
+                        randao_reveal,
+                        slot,
+                        query.graffiti.map(Into::into),
+                        randao_verification,
+                    )
+                    .await
+                    .map_err(warp_utils::reject::block_production_error)?;
+                let fork_name = block
+                    .to_ref()
+                    .fork_name(&chain.spec)
+                    .map_err(inconsistent_fork_rejection)?;
+                fork_versioned_response(endpoint_version, fork_name, block)
+                    .map(|response| warp::reply::json(&response))
             },
         );
 
