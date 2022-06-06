@@ -1886,8 +1886,22 @@ mod tests {
         assert!(!connected_peers.contains(&peers[2]));
     }
 
+    /// This test is for reproducing the issue:
+    /// https://github.com/sigp/lighthouse/pull/3236#issue-1256432659
+    ///
+    /// Whether the issue happens depends on `subnet_to_peer` (HashMap), since HashMap doesn't
+    /// guarantee a particular order of iteration. So we repeat the test case to try to reproduce
+    /// the issue.
+    #[tokio::test]
+    async fn test_peer_manager_prune_based_on_subnet_count_repeat() {
+        for _ in 0..100 {
+            test_peer_manager_prune_based_on_subnet_count().await;
+        }
+    }
+
     /// Test the pruning logic to prioritize peers with the most subnets. This test specifies
     /// the connection direction for the peers.
+    /// Either Peer 4 or 5 is expected to be removed in this test case.
     ///
     /// Create 8 peers.
     /// Peer0 (out) : Subnet 1, Sync-committee-1
@@ -1898,7 +1912,6 @@ mod tests {
     /// Peer5 (out) : Subnet 3
     /// Peer6 (in) : Subnet 4
     /// Peer7 (in) : Subnet 5
-    #[tokio::test]
     async fn test_peer_manager_prune_based_on_subnet_count() {
         let target = 7;
         let mut peer_manager = build_peer_manager(target).await;
