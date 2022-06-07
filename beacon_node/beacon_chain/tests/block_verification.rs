@@ -74,10 +74,11 @@ fn get_harness(validator_count: usize) -> BeaconChainHarness<EphemeralHarnessTyp
     harness
 }
 
-fn chain_segment_blocks(chain_segment: &[BeaconSnapshot<E>]) -> Vec<SignedBeaconBlock<E>> {
+fn chain_segment_blocks(chain_segment: &[BeaconSnapshot<E>]) -> Vec<Arc<SignedBeaconBlock<E>>> {
     chain_segment
         .iter()
         .map(|snapshot| snapshot.beacon_block.clone())
+        .map(Arc::new)
         .collect()
 }
 
@@ -145,12 +146,14 @@ async fn chain_segment_full_segment() {
     harness
         .chain
         .process_chain_segment(vec![])
+        .await
         .into_block_error()
         .expect("should import empty chain segment");
 
     harness
         .chain
         .process_chain_segment(blocks.clone())
+        .await
         .into_block_error()
         .expect("should import chain segment");
 
@@ -183,6 +186,7 @@ async fn chain_segment_varying_chunk_size() {
             harness
                 .chain
                 .process_chain_segment(chunk.to_vec())
+                .await
                 .into_block_error()
                 .unwrap_or_else(|_| panic!("should import chain segment of len {}", chunk_size));
         }
@@ -222,6 +226,7 @@ async fn chain_segment_non_linear_parent_roots() {
             harness
                 .chain
                 .process_chain_segment(blocks)
+                .await
                 .into_block_error(),
             Err(BlockError::NonLinearParentRoots)
         ),
@@ -232,15 +237,16 @@ async fn chain_segment_non_linear_parent_roots() {
      * Test with a modified parent root.
      */
     let mut blocks = chain_segment_blocks(&chain_segment);
-    let (mut block, signature) = blocks[3].clone().deconstruct();
+    let (mut block, signature) = blocks[3].as_ref().clone().deconstruct();
     *block.parent_root_mut() = Hash256::zero();
-    blocks[3] = SignedBeaconBlock::from_block(block, signature);
+    blocks[3] = Arc::new(SignedBeaconBlock::from_block(block, signature));
 
     assert!(
         matches!(
             harness
                 .chain
                 .process_chain_segment(blocks)
+                .await
                 .into_block_error(),
             Err(BlockError::NonLinearParentRoots)
         ),
@@ -262,15 +268,16 @@ async fn chain_segment_non_linear_slots() {
      */
 
     let mut blocks = chain_segment_blocks(&chain_segment);
-    let (mut block, signature) = blocks[3].clone().deconstruct();
+    let (mut block, signature) = blocks[3].as_ref().clone().deconstruct();
     *block.slot_mut() = Slot::new(0);
-    blocks[3] = SignedBeaconBlock::from_block(block, signature);
+    blocks[3] = Arc::new(SignedBeaconBlock::from_block(block, signature));
 
     assert!(
         matches!(
             harness
                 .chain
                 .process_chain_segment(blocks)
+                .await
                 .into_block_error(),
             Err(BlockError::NonLinearSlots)
         ),
@@ -282,15 +289,16 @@ async fn chain_segment_non_linear_slots() {
      */
 
     let mut blocks = chain_segment_blocks(&chain_segment);
-    let (mut block, signature) = blocks[3].clone().deconstruct();
+    let (mut block, signature) = blocks[3].as_ref().clone().deconstruct();
     *block.slot_mut() = blocks[2].slot();
-    blocks[3] = SignedBeaconBlock::from_block(block, signature);
+    blocks[3] = Arc::new(SignedBeaconBlock::from_block(block, signature));
 
     assert!(
         matches!(
             harness
                 .chain
                 .process_chain_segment(blocks)
+                .await
                 .into_block_error(),
             Err(BlockError::NonLinearSlots)
         ),
@@ -307,7 +315,7 @@ async fn assert_invalid_signature(
 ) {
     let blocks = snapshots
         .iter()
-        .map(|snapshot| snapshot.beacon_block.clone())
+        .map(|snapshot| Arc::new(snapshot.beacon_block.clone()))
         .collect();
 
     // Ensure the block will be rejected if imported in a chain segment.
@@ -316,6 +324,7 @@ async fn assert_invalid_signature(
             harness
                 .chain
                 .process_chain_segment(blocks)
+                .await
                 .into_block_error(),
             Err(BlockError::InvalidSignature)
         ),
@@ -328,15 +337,17 @@ async fn assert_invalid_signature(
         .iter()
         .take(block_index)
         .map(|snapshot| snapshot.beacon_block.clone())
+        .map(Arc::new)
         .collect();
     // We don't care if this fails, we just call this to ensure that all prior blocks have been
     // imported prior to this test.
-    let _ = harness.chain.process_chain_segment(ancestor_blocks);
+    let _ = harness.chain.process_chain_segment(ancestor_blocks).await;
     assert!(
         matches!(
             harness
                 .chain
-                .process_block(snapshots[block_index].beacon_block.clone()),
+                .process_block(Arc::new(snapshots[block_index].beacon_block.clone()))
+                .await,
             Err(BlockError::InvalidSignature)
         ),
         "should not import individual block with an invalid {} signature",
@@ -376,17 +387,23 @@ async fn invalid_signature_gossip_block() {
             .iter()
             .take(block_index)
             .map(|snapshot| snapshot.beacon_block.clone())
+            .map(Arc::new)
             .collect();
         harness
             .chain
             .process_chain_segment(ancestor_blocks)
+            .await
             .into_block_error()
             .expect("should import all blocks prior to the one being tested");
         assert!(
             matches!(
                 harness
                     .chain
-                    .process_block(SignedBeaconBlock::from_block(block, junk_signature())),
+                    .process_block(Arc::new(SignedBeaconBlock::from_block(
+                        block,
+                        junk_signature()
+                    )))
+                    .await,
                 Err(BlockError::InvalidSignature)
             ),
             "should not import individual block with an invalid gossip signature",
@@ -406,6 +423,7 @@ async fn invalid_signature_block_proposal() {
         let blocks = snapshots
             .iter()
             .map(|snapshot| snapshot.beacon_block.clone())
+            .map(Arc::new)
             .collect::<Vec<_>>();
         // Ensure the block will be rejected if imported in a chain segment.
         assert!(
@@ -413,6 +431,7 @@ async fn invalid_signature_block_proposal() {
                 harness
                     .chain
                     .process_chain_segment(blocks)
+                    .await
                     .into_block_error(),
                 Err(BlockError::InvalidSignature)
             ),
@@ -579,12 +598,14 @@ async fn invalid_signature_deposit() {
         let blocks = snapshots
             .iter()
             .map(|snapshot| snapshot.beacon_block.clone())
+            .map(Arc::new)
             .collect();
         assert!(
             !matches!(
                 harness
                     .chain
                     .process_chain_segment(blocks)
+                    .await
                     .into_block_error(),
                 Err(BlockError::InvalidSignature)
             ),
@@ -649,12 +670,14 @@ async fn block_gossip_verification() {
     for snapshot in &chain_segment[0..block_index] {
         let gossip_verified = harness
             .chain
-            .verify_block_for_gossip(snapshot.beacon_block.clone())
+            .verify_block_for_gossip(Arc::new(snapshot.beacon_block.clone()))
+            .await
             .expect("should obtain gossip verified block");
 
         harness
             .chain
             .process_block(gossip_verified)
+            .await
             .expect("should import valid gossip verified block");
     }
 
@@ -676,7 +699,7 @@ async fn block_gossip_verification() {
     *block.slot_mut() = expected_block_slot;
     assert!(
         matches!(
-            unwrap_err(harness.chain.verify_block_for_gossip(SignedBeaconBlock::from_block(block, signature))),
+            unwrap_err(harness.chain.verify_block_for_gossip(Arc::new(SignedBeaconBlock::from_block(block, signature))).await),
             BlockError::FutureSlot {
                 present_slot,
                 block_slot,
@@ -709,7 +732,7 @@ async fn block_gossip_verification() {
     *block.slot_mut() = expected_finalized_slot;
     assert!(
         matches!(
-            unwrap_err(harness.chain.verify_block_for_gossip(SignedBeaconBlock::from_block(block, signature))),
+            unwrap_err(harness.chain.verify_block_for_gossip(Arc::new(SignedBeaconBlock::from_block(block, signature))).await),
             BlockError::WouldRevertFinalizedSlot {
                 block_slot,
                 finalized_slot,
@@ -738,10 +761,11 @@ async fn block_gossip_verification() {
             unwrap_err(
                 harness
                     .chain
-                    .verify_block_for_gossip(SignedBeaconBlock::from_block(
+                    .verify_block_for_gossip(Arc::new(SignedBeaconBlock::from_block(
                         block,
                         junk_signature()
-                    ))
+                    )))
+                    .await
             ),
             BlockError::ProposalSignatureInvalid
         ),
@@ -764,7 +788,7 @@ async fn block_gossip_verification() {
     *block.parent_root_mut() = parent_root;
     assert!(
         matches!(
-            unwrap_err(harness.chain.verify_block_for_gossip(SignedBeaconBlock::from_block(block, signature))),
+            unwrap_err(harness.chain.verify_block_for_gossip(Arc::new(SignedBeaconBlock::from_block(block, signature))).await),
             BlockError::ParentUnknown(block)
             if block.parent_root() == parent_root
         ),
@@ -789,7 +813,7 @@ async fn block_gossip_verification() {
     *block.parent_root_mut() = parent_root;
     assert!(
         matches!(
-            unwrap_err(harness.chain.verify_block_for_gossip(SignedBeaconBlock::from_block(block, signature))),
+            unwrap_err(harness.chain.verify_block_for_gossip(Arc::new(SignedBeaconBlock::from_block(block, signature))).await),
             BlockError::NotFinalizedDescendant { block_parent_root }
             if block_parent_root == parent_root
         ),
@@ -826,7 +850,7 @@ async fn block_gossip_verification() {
     );
     assert!(
         matches!(
-            unwrap_err(harness.chain.verify_block_for_gossip(block.clone())),
+            unwrap_err(harness.chain.verify_block_for_gossip(Arc::new(block.clone())).await),
             BlockError::IncorrectBlockProposer {
                 block,
                 local_shuffling,
@@ -838,7 +862,7 @@ async fn block_gossip_verification() {
     // Check to ensure that we registered this is a valid block from this proposer.
     assert!(
         matches!(
-            unwrap_err(harness.chain.verify_block_for_gossip(block.clone())),
+            unwrap_err(harness.chain.verify_block_for_gossip(Arc::new(block.clone())).await),
             BlockError::RepeatProposal {
                 proposer,
                 slot,
@@ -850,7 +874,11 @@ async fn block_gossip_verification() {
 
     let block = chain_segment[block_index].beacon_block.clone();
     assert!(
-        harness.chain.verify_block_for_gossip(block).is_ok(),
+        harness
+            .chain
+            .verify_block_for_gossip(Arc::new(block))
+            .await
+            .is_ok(),
         "the valid block should be processed"
     );
 
@@ -868,7 +896,8 @@ async fn block_gossip_verification() {
         matches!(
             harness
                 .chain
-                .verify_block_for_gossip(block.clone())
+                .verify_block_for_gossip(Arc::new(block.clone()))
+                .await
                 .err()
                 .expect("should error when processing known block"),
             BlockError::RepeatProposal {
@@ -881,8 +910,8 @@ async fn block_gossip_verification() {
     );
 }
 
-#[test]
-fn verify_block_for_gossip_slashing_detection() {
+#[tokio::test]
+async fn verify_block_for_gossip_slashing_detection() {
     let slasher_dir = tempdir().unwrap();
     let slasher = Arc::new(
         Slasher::open(SlasherConfig::new(slasher_dir.path().into()), test_logger()).unwrap(),
@@ -899,12 +928,21 @@ fn verify_block_for_gossip_slashing_detection() {
     harness.advance_slot();
 
     let state = harness.get_current_state();
-    let (block1, _) = harness.make_block(state.clone(), Slot::new(1));
-    let (block2, _) = harness.make_block(state, Slot::new(1));
+    let (block1, _) = harness.make_block(state.clone(), Slot::new(1)).await;
+    let (block2, _) = harness.make_block(state, Slot::new(1)).await;
 
-    let verified_block = harness.chain.verify_block_for_gossip(block1).unwrap();
-    harness.chain.process_block(verified_block).unwrap();
-    unwrap_err(harness.chain.verify_block_for_gossip(block2));
+    let verified_block = harness
+        .chain
+        .verify_block_for_gossip(Arc::new(block1))
+        .await
+        .unwrap();
+    harness.chain.process_block(verified_block).await.unwrap();
+    unwrap_err(
+        harness
+            .chain
+            .verify_block_for_gossip(Arc::new(block2))
+            .await,
+    );
 
     // Slasher should have been handed the two conflicting blocks and crafted a slashing.
     slasher.process_queued(Epoch::new(0)).unwrap();
@@ -916,16 +954,20 @@ fn verify_block_for_gossip_slashing_detection() {
     slasher_dir.close().unwrap();
 }
 
-#[test]
-fn verify_block_for_gossip_doppelganger_detection() {
+#[tokio::test]
+async fn verify_block_for_gossip_doppelganger_detection() {
     let harness = get_harness(VALIDATOR_COUNT);
 
     let state = harness.get_current_state();
-    let (block, _) = harness.make_block(state.clone(), Slot::new(1));
+    let (block, _) = harness.make_block(state.clone(), Slot::new(1)).await;
 
-    let verified_block = harness.chain.verify_block_for_gossip(block).unwrap();
+    let verified_block = harness
+        .chain
+        .verify_block_for_gossip(Arc::new(block))
+        .await
+        .unwrap();
     let attestations = verified_block.block.message().body().attestations().clone();
-    harness.chain.process_block(verified_block).unwrap();
+    harness.chain.process_block(verified_block).await.unwrap();
 
     for att in attestations.iter() {
         let epoch = att.data.target.epoch;
@@ -995,7 +1037,7 @@ async fn add_base_block_to_altair_chain() {
     // Produce an Altair block.
     let state = harness.get_current_state();
     let slot = harness.get_current_slot();
-    let (altair_signed_block, _) = harness.make_block(state.clone(), slot);
+    let (altair_signed_block, _) = harness.make_block(state.clone(), slot).await;
     let altair_block = &altair_signed_block
         .as_altair()
         .expect("test expects an altair block")
@@ -1050,7 +1092,8 @@ async fn add_base_block_to_altair_chain() {
     assert!(matches!(
         harness
             .chain
-            .verify_block_for_gossip(base_block.clone())
+            .verify_block_for_gossip(Arc::new(base_block.clone()))
+            .await
             .err()
             .expect("should error when processing base block"),
         BlockError::InconsistentFork(InconsistentFork {
@@ -1063,7 +1106,8 @@ async fn add_base_block_to_altair_chain() {
     assert!(matches!(
         harness
             .chain
-            .process_block(base_block.clone())
+            .process_block(Arc::new(base_block.clone()))
+            .await
             .err()
             .expect("should error when processing base block"),
         BlockError::InconsistentFork(InconsistentFork {
@@ -1074,7 +1118,10 @@ async fn add_base_block_to_altair_chain() {
 
     // Ensure that it would be impossible to import via `BeaconChain::process_chain_segment`.
     assert!(matches!(
-        harness.chain.process_chain_segment(vec![base_block]),
+        harness
+            .chain
+            .process_chain_segment(vec![Arc::new(base_block)])
+            .await,
         ChainSegmentResult::Failed {
             imported_blocks: 0,
             error: BlockError::InconsistentFork(InconsistentFork {
@@ -1117,7 +1164,7 @@ async fn add_altair_block_to_base_chain() {
     // Produce an altair block.
     let state = harness.get_current_state();
     let slot = harness.get_current_slot();
-    let (base_signed_block, _) = harness.make_block(state.clone(), slot);
+    let (base_signed_block, _) = harness.make_block(state.clone(), slot).await;
     let base_block = &base_signed_block
         .as_base()
         .expect("test expects a base block")
@@ -1173,7 +1220,8 @@ async fn add_altair_block_to_base_chain() {
     assert!(matches!(
         harness
             .chain
-            .verify_block_for_gossip(altair_block.clone())
+            .verify_block_for_gossip(Arc::new(altair_block.clone()))
+            .await
             .err()
             .expect("should error when processing altair block"),
         BlockError::InconsistentFork(InconsistentFork {
@@ -1186,7 +1234,8 @@ async fn add_altair_block_to_base_chain() {
     assert!(matches!(
         harness
             .chain
-            .process_block(altair_block.clone())
+            .process_block(Arc::new(altair_block.clone()))
+            .await
             .err()
             .expect("should error when processing altair block"),
         BlockError::InconsistentFork(InconsistentFork {
@@ -1197,7 +1246,10 @@ async fn add_altair_block_to_base_chain() {
 
     // Ensure that it would be impossible to import via `BeaconChain::process_chain_segment`.
     assert!(matches!(
-        harness.chain.process_chain_segment(vec![altair_block]),
+        harness
+            .chain
+            .process_chain_segment(vec![Arc::new(altair_block)])
+            .await,
         ChainSegmentResult::Failed {
             imported_blocks: 0,
             error: BlockError::InconsistentFork(InconsistentFork {

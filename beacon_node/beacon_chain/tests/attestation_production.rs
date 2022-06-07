@@ -3,6 +3,7 @@
 use beacon_chain::test_utils::{AttestationStrategy, BeaconChainHarness, BlockStrategy};
 use beacon_chain::{StateSkipConfig, WhenSlotSkipped};
 use lazy_static::lazy_static;
+use std::sync::Arc;
 use tree_hash::TreeHash;
 use types::{AggregateSignature, EthSpec, Keypair, MainnetEthSpec, RelativeEpoch, Slot};
 
@@ -139,7 +140,13 @@ async fn produces_attestations() {
                     .unwrap();
                 chain
                     .early_attester_cache
-                    .add_head_block(block_root, block.clone(), proto_block, &state, &chain.spec)
+                    .add_head_block(
+                        block_root,
+                        Arc::new(block.clone()),
+                        proto_block,
+                        &state,
+                        &chain.spec,
+                    )
                     .unwrap();
                 chain
                     .early_attester_cache
@@ -192,7 +199,7 @@ async fn early_attester_cache_old_request() {
         .early_attester_cache
         .add_head_block(
             head.beacon_block_root,
-            head.beacon_block.clone(),
+            Arc::new(head.beacon_block.clone()),
             head_proto_block,
             &head.beacon_state,
             &harness.chain.spec,

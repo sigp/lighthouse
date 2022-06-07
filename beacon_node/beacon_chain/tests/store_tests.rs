@@ -1996,7 +1996,7 @@ async fn garbage_collect_temp_states_from_failed_block() {
 
     let genesis_state = harness.get_current_state();
     let block_slot = Slot::new(2 * slots_per_epoch);
-    let (signed_block, state) = harness.make_block(genesis_state, block_slot);
+    let (signed_block, state) = harness.make_block(genesis_state, block_slot).await;
 
     let (mut block, _) = signed_block.deconstruct();
 
@@ -2118,7 +2118,10 @@ async fn weak_subjectivity_sync() {
             .unwrap();
 
         beacon_chain.slot_clock.set_slot(block.slot().as_u64());
-        beacon_chain.process_block(full_block).unwrap();
+        beacon_chain
+            .process_block(Arc::new(full_block))
+            .await
+            .unwrap();
         beacon_chain.recompute_head_at_current_slot().await.unwrap();
 
         // Check that the new block's state can be loaded correctly.
@@ -2377,7 +2380,7 @@ async fn revert_minority_fork_on_resume() {
         harness1.process_attestations(attestations.clone());
         harness2.process_attestations(attestations);
 
-        let (block, new_state) = harness1.make_block(state, slot);
+        let (block, new_state) = harness1.make_block(state, slot).await;
 
         harness1.process_block(slot, block.clone()).await.unwrap();
         harness2.process_block(slot, block.clone()).await.unwrap();
@@ -2412,12 +2415,12 @@ async fn revert_minority_fork_on_resume() {
         harness2.process_attestations(attestations);
 
         // Minority chain block (no attesters).
-        let (block1, new_state1) = harness1.make_block(state1, slot);
+        let (block1, new_state1) = harness1.make_block(state1, slot).await;
         harness1.process_block(slot, block1).await.unwrap();
         state1 = new_state1;
 
         // Majority chain block (all attesters).
-        let (block2, new_state2) = harness2.make_block(state2, slot);
+        let (block2, new_state2) = harness2.make_block(state2, slot).await;
         harness2.process_block(slot, block2.clone()).await.unwrap();
 
         state2 = new_state2;

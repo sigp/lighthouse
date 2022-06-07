@@ -12,6 +12,7 @@ use execution_layer::{
 use fork_choice::{Error as ForkChoiceError, InvalidationOperation, PayloadVerificationStatus};
 use proto_array::{Error as ProtoArrayError, ExecutionStatus};
 use slot_clock::SlotClock;
+use std::sync::Arc;
 use std::time::Duration;
 use task_executor::ShutdownReason;
 use tree_hash::TreeHash;
@@ -205,7 +206,7 @@ impl InvalidPayloadRig {
         let head = self.harness.chain.head().unwrap();
         let state = head.beacon_state;
         let slot = state.slot() + 1;
-        let (block, post_state) = self.harness.make_block(state, slot);
+        let (block, post_state) = self.harness.make_block(state, slot).await;
         let block_root = block.canonical_root();
 
         let set_new_payload = |payload: Payload| match payload {
@@ -696,8 +697,13 @@ async fn invalidates_all_descendants() {
         .state_at_slot(fork_parent_slot, StateSkipConfig::WithStateRoots)
         .unwrap();
     assert_eq!(fork_parent_state.slot(), fork_parent_slot);
-    let (fork_block, _fork_post_state) = rig.harness.make_block(fork_parent_state, fork_slot);
-    let fork_block_root = rig.harness.chain.process_block(fork_block).unwrap();
+    let (fork_block, _fork_post_state) = rig.harness.make_block(fork_parent_state, fork_slot).await;
+    let fork_block_root = rig
+        .harness
+        .chain
+        .process_block(Arc::new(fork_block))
+        .await
+        .unwrap();
     rig.recompute_head().await;
 
     // The latest valid hash will be set to the grandparent of the fork block. This means that the
@@ -793,9 +799,14 @@ async fn switches_heads() {
         .state_at_slot(fork_parent_slot, StateSkipConfig::WithStateRoots)
         .unwrap();
     assert_eq!(fork_parent_state.slot(), fork_parent_slot);
-    let (fork_block, _fork_post_state) = rig.harness.make_block(fork_parent_state, fork_slot);
+    let (fork_block, _fork_post_state) = rig.harness.make_block(fork_parent_state, fork_slot).await;
     let fork_parent_root = fork_block.parent_root();
-    let fork_block_root = rig.harness.chain.process_block(fork_block).unwrap();
+    let fork_block_root = rig
+        .harness
+        .chain
+        .process_block(Arc::new(fork_block))
+        .await
+        .unwrap();
     rig.recompute_head().await;
 
     let latest_valid_slot = fork_parent_slot;
@@ -1018,7 +1029,8 @@ async fn invalid_parent() {
     // Produce another block atop the parent, but don't import yet.
     let slot = parent_block.slot() + 1;
     rig.harness.set_current_slot(slot);
-    let (block, state) = rig.harness.make_block(parent_state, slot);
+    let (block, state) = rig.harness.make_block(parent_state, slot).await;
+    let block = Arc::new(block);
     let block_root = block.canonical_root();
     assert_eq!(block.parent_root(), parent_root);
 
@@ -1028,24 +1040,23 @@ async fn invalid_parent() {
 
     // Ensure the block built atop an invalid payload is invalid for gossip.
     assert!(matches!(
-        rig.harness.chain.verify_block_for_gossip(block.clone()),
+        rig.harness.chain.clone().verify_block_for_gossip(block.clone()).await,
         Err(BlockError::ParentExecutionPayloadInvalid { parent_root: invalid_root })
         if invalid_root == parent_root
     ));
 
     // Ensure the block built atop an invalid payload is invalid for import.
     assert!(matches!(
-        rig.harness.chain.process_block(block.clone()),
+        rig.harness.chain.process_block(block.clone()).await,
         Err(BlockError::ParentExecutionPayloadInvalid { parent_root: invalid_root })
         if invalid_root == parent_root
     ));
 
     // Ensure the block built atop an invalid payload cannot be imported to fork choice.
-    let (block, _block_signature) = block.deconstruct();
     assert!(matches!(
         rig.harness.chain.canonical_head.write().fork_choice.on_block(
             slot,
-            &block,
+            block.message(),
             block_root,
             Duration::from_secs(0),
             &state,

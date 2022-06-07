@@ -2358,9 +2358,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     ///
     /// Returns an `Err` if the given block was invalid, or an error was encountered during
     pub async fn verify_block_for_gossip(
-        self: Arc<Self>,
+        self: &Arc<Self>,
         block: Arc<SignedBeaconBlock<T::EthSpec>>,
     ) -> Result<GossipVerifiedBlock<T>, BlockError<T::EthSpec>> {
+        let chain = self.clone();
         self.task_executor
             .clone()
             .spawn_blocking_handle(
@@ -2368,10 +2369,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     let slot = block.slot();
                     let graffiti_string = block.message().body().graffiti().as_utf8_lossy();
 
-                    match GossipVerifiedBlock::new(block, &self) {
+                    match GossipVerifiedBlock::new(block, &chain) {
                         Ok(verified) => {
                             debug!(
-                                self.log,
+                                chain.log,
                                 "Successfully processed gossip block";
                                 "graffiti" => graffiti_string,
                                 "slot" => slot,
@@ -2382,7 +2383,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         }
                         Err(e) => {
                             debug!(
-                                self.log,
+                                chain.log,
                                 "Rejected gossip block";
                                 "error" => e.to_string(),
                                 "graffiti" => graffiti_string,

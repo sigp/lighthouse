@@ -13,6 +13,7 @@ use operation_pool::PersistedOperationPool;
 use state_processing::{
     per_slot_processing, per_slot_processing::Error as SlotProcessingError, EpochProcessingError,
 };
+use std::sync::Arc;
 use types::{
     BeaconState, BeaconStateError, EthSpec, Hash256, Keypair, MinimalEthSpec, RelativeEpoch, Slot,
 };
@@ -691,14 +692,15 @@ async fn run_skip_slot_test(skip_slots: u64) {
     assert_eq!(
         harness_b
             .chain
-            .process_block(
+            .process_block(Arc::new(
                 harness_a
                     .chain
                     .head()
                     .expect("should get head")
                     .beacon_block
-                    .clone(),
-            )
+                    .clone()
+            ),)
+            .await
             .unwrap(),
         harness_a
             .chain
