@@ -2760,7 +2760,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 >= current_slot.as_u64()
             {
                 validator_monitor_read_lock.register_attestation_in_block(
-                    &indexed_attestation,
+                    indexed_attestation,
                     parent_proto_block.slot,
                     &self.spec,
                 )
