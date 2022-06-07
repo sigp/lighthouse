@@ -1,4 +1,7 @@
-use crate::{beacon_chain::BeaconForkChoice, BeaconChainTypes, BeaconSnapshot};
+use crate::{
+    beacon_chain::BeaconForkChoice, BeaconChain, BeaconChainError, BeaconChainTypes,
+    BeaconSnapshot, BeaconStore,
+};
 use fork_choice::{ExecutionStatus, ForkChoiceView};
 use types::*;
 
@@ -16,6 +19,37 @@ pub struct CanonicalHead<T: BeaconChainTypes> {
 }
 
 impl<T: BeaconChainTypes> CanonicalHead<T> {
+    pub fn load_from_store(
+        store: &BeaconStore<T>,
+        spec: &ChainSpec,
+    ) -> Result<Self, BeaconChainError> {
+        let fork_choice = <BeaconChain<T>>::load_fork_choice(store.clone(), spec)?
+            .ok_or(BeaconChainError::MissingPersistedForkChoice)?;
+        let fork_choice_view = fork_choice.cached_fork_choice_view();
+        let beacon_block_root = fork_choice_view.head_block_root;
+        let beacon_block = store
+            .get_full_block(&beacon_block_root)?
+            .ok_or(BeaconChainError::MissingBeaconBlock(beacon_block_root))?;
+        let beacon_state_root = beacon_block.state_root();
+        let beacon_state = store
+            .get_state(&beacon_state_root, Some(beacon_block.slot()))?
+            .ok_or(BeaconChainError::MissingBeaconState(beacon_state_root))?;
+        let head_proposer_shuffling_decision_root =
+            beacon_state.proposer_shuffling_decision_root(beacon_block_root)?;
+        let head_snapshot = BeaconSnapshot {
+            beacon_block_root,
+            beacon_block,
+            beacon_state,
+        };
+
+        Ok(Self {
+            fork_choice,
+            fork_choice_view,
+            head_snapshot,
+            head_proposer_shuffling_decision_root,
+        })
+    }
+
     /// Returns root of the block at the head of the beacon chain.
     pub fn head_block_root(&self) -> Hash256 {
         self.head_snapshot.beacon_block_root

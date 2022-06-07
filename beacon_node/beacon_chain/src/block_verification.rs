@@ -697,8 +697,8 @@ impl<T: BeaconChainTypes> GossipVerifiedBlock<T> {
         // Do not process a block that doesn't descend from the finalized root.
         //
         // We check this *before* we load the parent so that we can return a more detailed error.
-        let block = check_block_is_finalized_descendant::<T, _>(
-            block,
+        check_block_is_finalized_descendant::<T, _>(
+            &block,
             &chain.canonical_head.read().fork_choice,
             &chain.store,
         )?;
@@ -1426,12 +1426,12 @@ fn check_block_against_finalized_slot<T: BeaconChainTypes>(
 
 /// Returns `Ok(block)` if the block descends from the finalized root.
 pub fn check_block_is_finalized_descendant<T: BeaconChainTypes, F: ForkChoiceStore<T::EthSpec>>(
-    block: Arc<SignedBeaconBlock<T::EthSpec>>,
+    block: &Arc<SignedBeaconBlock<T::EthSpec>>,
     fork_choice: &ForkChoice<F, T::EthSpec>,
     store: &HotColdDB<T::EthSpec, T::HotStore, T::ColdStore>,
-) -> Result<Arc<SignedBeaconBlock<T::EthSpec>>, BlockError<T::EthSpec>> {
+) -> Result<(), BlockError<T::EthSpec>> {
     if fork_choice.is_descendant_of_finalized(block.parent_root()) {
-        Ok(block)
+        Ok(())
     } else {
         // If fork choice does *not* consider the parent to be a descendant of the finalized block,
         // then there are two more cases:
@@ -1449,7 +1449,7 @@ pub fn check_block_is_finalized_descendant<T: BeaconChainTypes, F: ForkChoiceSto
                 block_parent_root: block.parent_root(),
             })
         } else {
-            Err(BlockError::ParentUnknown(block))
+            Err(BlockError::ParentUnknown(block.clone()))
         }
     }
 }

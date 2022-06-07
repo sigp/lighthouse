@@ -197,6 +197,7 @@ pub enum BeaconChainError {
         execution_status: ExecutionStatus,
     },
     AttestationHeadNotInForkChoice(Hash256),
+    MissingPersistedForkChoice,
 }
 
 easy_from_to!(SlotProcessingError, BeaconChainError);

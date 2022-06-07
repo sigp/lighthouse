@@ -63,7 +63,7 @@ use futures::channel::mpsc::Sender;
 use itertools::process_results;
 use itertools::Itertools;
 use operation_pool::{OperationPool, PersistedOperationPool};
-use parking_lot::{Mutex, RwLock};
+use parking_lot::{Mutex, RwLock, RwLockWriteGuard};
 use safe_arith::SafeArith;
 use slasher::Slasher;
 use slog::{crit, debug, error, info, trace, warn, Logger};
@@ -2657,25 +2657,46 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 .map_err(BeaconChainError::from)?;
         }
 
-        let mut canonical_head_lock = self.canonical_head.write();
+        // Read some information from the canonical head, without holding the read-lock.
+        let (current_head_finalized_checkpoint, parent_proto_block) = {
+            let canonical_head_read_lock = self.canonical_head.read();
 
-        // Do not import a block that doesn't descend from the finalized root.
-        let signed_block = check_block_is_finalized_descendant::<T, _>(
-            signed_block,
-            &canonical_head_lock.fork_choice,
-            &self.store,
-        )?;
+            // Do not import a block that doesn't descend from the finalized root.
+            check_block_is_finalized_descendant::<T, _>(
+                &signed_block,
+                &canonical_head_read_lock.fork_choice,
+                &self.store,
+            )?;
+
+            // Load the parent proto block for later use.
+            let parent_proto_block = canonical_head_read_lock
+                .fork_choice
+                .get_block(&signed_block.parent_root())
+                .ok_or_else(|| BlockError::ParentUnknown(signed_block.clone()))?;
+
+            // Note: we're using the finalized checkpoint from the head state, rather than fork
+            // choice.
+            //
+            // We are doing this to ensure that we detect changes in finalization. It's possible
+            // that fork choice has already been updated to the finalized checkpoint in the block
+            // we're importing.
+            let current_head_finalized_checkpoint = canonical_head_read_lock
+                .head_snapshot
+                .beacon_state
+                .finalized_checkpoint();
+
+            (current_head_finalized_checkpoint, parent_proto_block)
+        };
 
         let block = signed_block.message();
 
         // compare the existing finalized checkpoint with the incoming block's finalized checkpoint
-        let old_finalized_checkpoint = canonical_head_lock.fork_choice.finalized_checkpoint();
         let new_finalized_checkpoint = state.finalized_checkpoint();
 
         // Only perform the weak subjectivity check if it was configured.
         if let Some(wss_checkpoint) = self.config.weak_subjectivity_checkpoint {
             // This ensures we only perform the check once.
-            if (old_finalized_checkpoint.epoch < wss_checkpoint.epoch)
+            if (current_head_finalized_checkpoint.epoch < wss_checkpoint.epoch)
                 && (wss_checkpoint.epoch <= new_finalized_checkpoint.epoch)
             {
                 if let Err(e) =
@@ -2687,7 +2708,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         "Weak subjectivity checkpoint verification failed while importing block!";
                         "block_root" => ?block_root,
                         "parent_root" => ?block.parent_root(),
-                        "old_finalized_epoch" => ?old_finalized_checkpoint.epoch,
+                        "old_finalized_epoch" => ?current_head_finalized_checkpoint.epoch,
                         "new_finalized_epoch" => ?new_finalized_checkpoint.epoch,
                         "weak_subjectivity_epoch" => ?wss_checkpoint.epoch,
                         "error" => ?e,
@@ -2703,6 +2724,112 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             }
         }
 
+        // Compute the indexed attestation for each attestation in the block for later use.
+        //
+        // Choosing to compute them now and allocate them on the heap rather than computing them
+        // and using them in the same loop is a trade-off between using memory and holding and
+        // interleaving read locks. We have chosen to use some memory to save us the lock
+        // complications.
+        let mut indexed_attestations = Vec::with_capacity(block.body().attestations().len());
+        for attestation in block.body().attestations() {
+            let _fork_choice_attestation_timer =
+                metrics::start_timer(&metrics::FORK_CHOICE_PROCESS_ATTESTATION_TIMES);
+
+            let committee =
+                state.get_beacon_committee(attestation.data.slot, attestation.data.index)?;
+            let indexed_attestation = get_indexed_attestation(committee.committee, attestation)
+                .map_err(|e| BlockError::BeaconChainError(e.into()))?;
+
+            indexed_attestations.push(indexed_attestation);
+        }
+
+        // Allow the validator monitor to learn about a new valid state.
+        self.validator_monitor
+            .write()
+            .process_valid_state(current_slot.epoch(T::EthSpec::slots_per_epoch()), &state);
+
+        // Hold the validator monitor lock whilst we update it.
+        let validator_monitor_read_lock = self.validator_monitor.read();
+
+        for indexed_attestation in &indexed_attestations {
+            // Register each indexed attestation with the validator monitor.
+            //
+            // Only register when the block is sufficiently close to the current slot.
+            if VALIDATOR_MONITOR_HISTORIC_EPOCHS as u64 * T::EthSpec::slots_per_epoch()
+                + block.slot().as_u64()
+                >= current_slot.as_u64()
+            {
+                validator_monitor_read_lock.register_attestation_in_block(
+                    &indexed_attestation,
+                    parent_proto_block.slot,
+                    &self.spec,
+                )
+            }
+        }
+
+        // Register sync aggregate with validator monitor
+        if let Ok(sync_aggregate) = block.body().sync_aggregate() {
+            // `SyncCommittee` for the sync_aggregate should correspond to the duty slot
+            let duty_epoch = block.slot().epoch(T::EthSpec::slots_per_epoch());
+            let sync_committee = self.sync_committee_at_epoch(duty_epoch)?;
+            let participant_pubkeys = sync_committee
+                .pubkeys
+                .iter()
+                .zip(sync_aggregate.sync_committee_bits.iter())
+                .filter_map(|(pubkey, bit)| bit.then(|| pubkey))
+                .collect::<Vec<_>>();
+
+            validator_monitor_read_lock.register_sync_aggregate_in_block(
+                block.slot(),
+                block.parent_root(),
+                participant_pubkeys,
+            );
+        }
+
+        // Register other operations with validator monitor.
+        for exit in block.body().voluntary_exits() {
+            validator_monitor_read_lock.register_block_voluntary_exit(&exit.message)
+        }
+        for slashing in block.body().attester_slashings() {
+            validator_monitor_read_lock.register_block_attester_slashing(slashing)
+        }
+        for slashing in block.body().proposer_slashings() {
+            validator_monitor_read_lock.register_block_proposer_slashing(slashing)
+        }
+
+        drop(validator_monitor_read_lock);
+
+        // Register some metrics about the block.
+        //
+        // Only present some metrics for blocks from the previous epoch or later.
+        //
+        // This helps avoid noise in the metrics during sync.
+        if block.slot().epoch(T::EthSpec::slots_per_epoch()) + 1 >= self.epoch()? {
+            metrics::observe(
+                &metrics::OPERATIONS_PER_BLOCK_ATTESTATION,
+                block.body().attestations().len() as f64,
+            );
+
+            if let Ok(sync_aggregate) = block.body().sync_aggregate() {
+                metrics::set_gauge(
+                    &metrics::BLOCK_SYNC_AGGREGATE_SET_BITS,
+                    sync_aggregate.num_set_bits() as i64,
+                );
+            }
+        }
+
+        // Take a write-lock on the canonical head so we can add the block and attestations to fork
+        // choice.
+        //
+        // Later, we will downgrade this lock to a read-lock and hold it whilst we write the block
+        // and states to disk.
+        //
+        // # WARNING
+        //
+        // It is important to avoid interleaving this canonical head write-lock with any other
+        // locks.
+        let mut canonical_head_write_lock = self.canonical_head.write();
+
         // Register the new block with the fork choice service.
         {
             let _fork_choice_block_timer =
@@ -2712,7 +2839,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 .seconds_from_current_slot_start(self.spec.seconds_per_slot)
                 .ok_or(Error::UnableToComputeTimeAtSlot)?;
 
-            canonical_head_lock
+            canonical_head_write_lock
                 .fork_choice
                 .on_block(
                     current_slot,
@@ -2726,24 +2853,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 .map_err(|e| BlockError::BeaconChainError(e.into()))?;
         }
 
-        // Allow the validator monitor to learn about a new valid state.
-        self.validator_monitor
-            .write()
-            .process_valid_state(current_slot.epoch(T::EthSpec::slots_per_epoch()), &state);
-        let validator_monitor = self.validator_monitor.read();
-
-        // Register each attestation in the block with the fork choice service.
-        for attestation in block.body().attestations() {
-            let _fork_choice_attestation_timer =
-                metrics::start_timer(&metrics::FORK_CHOICE_PROCESS_ATTESTATION_TIMES);
-            let attestation_target_epoch = attestation.data.target.epoch;
-
-            let committee =
-                state.get_beacon_committee(attestation.data.slot, attestation.data.index)?;
-            let indexed_attestation = get_indexed_attestation(committee.committee, attestation)
-                .map_err(|e| BlockError::BeaconChainError(e.into()))?;
-
-            match canonical_head_lock.fork_choice.on_attestation(
+        // Register each indexed attestation in the block with the fork choice service.
+        for indexed_attestation in indexed_attestations {
+            match canonical_head_write_lock.fork_choice.on_attestation(
                 current_slot,
                 &indexed_attestation,
                 AttestationFromBlock::True,
@@ -2754,44 +2866,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 Err(ForkChoiceError::InvalidAttestation(_)) => Ok(()),
                 Err(e) => Err(BlockError::BeaconChainError(e.into())),
             }?;
-
-            // To avoid slowing down sync, only register attestations for the
-            // `observed_block_attesters` if they are from the previous epoch or later.
-            if attestation_target_epoch + 1 >= current_epoch {
-                let mut observed_block_attesters = self.observed_block_attesters.write();
-                for &validator_index in &indexed_attestation.attesting_indices {
-                    if let Err(e) = observed_block_attesters
-                        .observe_validator(attestation_target_epoch, validator_index as usize)
-                    {
-                        debug!(
-                            self.log,
-                            "Failed to register observed block attester";
-                            "error" => ?e,
-                            "epoch" => attestation_target_epoch,
-                            "validator_index" => validator_index,
-                        )
-                    }
-                }
-            }
-
-            // Only register this with the validator monitor when the block is sufficiently close to
-            // the current slot.
-            if VALIDATOR_MONITOR_HISTORIC_EPOCHS as u64 * T::EthSpec::slots_per_epoch()
-                + block.slot().as_u64()
-                >= current_slot.as_u64()
-            {
-                match canonical_head_lock
-                    .fork_choice
-                    .get_block(&block.parent_root())
-                {
-                    Some(parent_block) => validator_monitor.register_attestation_in_block(
-                        &indexed_attestation,
-                        parent_block.slot,
-                        &self.spec,
-                    ),
-                    None => warn!(self.log, "Failed to get parent block"; "slot" => %block.slot()),
-                }
-            }
         }
 
         // If the block is recent enough and it was not optimistically imported, check to see if it
@@ -2808,13 +2882,15 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         if !payload_verification_status.is_optimistic()
             && block.slot() + EARLY_ATTESTER_CACHE_HISTORIC_SLOTS >= current_slot
         {
-            let new_head_root = canonical_head_lock
+            let new_head_root = canonical_head_write_lock
                 .fork_choice
                 .get_head(current_slot, &self.spec)
                 .map_err(BeaconChainError::from)?;
 
             if new_head_root == block_root {
-                if let Some(proto_block) = canonical_head_lock.fork_choice.get_block(&block_root) {
+                if let Some(proto_block) =
+                    canonical_head_write_lock.fork_choice.get_block(&block_root)
+                {
                     if let Err(e) = self.early_attester_cache.add_head_block(
                         block_root,
                         signed_block.clone(),
@@ -2838,97 +2914,64 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             }
         }
 
-        // Register sync aggregate with validator monitor
-        if let Ok(sync_aggregate) = block.body().sync_aggregate() {
-            // `SyncCommittee` for the sync_aggregate should correspond to the duty slot
-            let duty_epoch = block.slot().epoch(T::EthSpec::slots_per_epoch());
-            let sync_committee = self.sync_committee_at_epoch(duty_epoch)?;
-            let participant_pubkeys = sync_committee
-                .pubkeys
-                .iter()
-                .zip(sync_aggregate.sync_committee_bits.iter())
-                .filter_map(|(pubkey, bit)| bit.then(|| pubkey))
-                .collect::<Vec<_>>();
+        // This code is in braces to ensure the canonical head read-lock is dropped immediately
+        // after the database is updated.
+        {
+            let _db_write_timer = metrics::start_timer(&metrics::BLOCK_PROCESSING_DB_WRITE);
 
-            validator_monitor.register_sync_aggregate_in_block(
-                block.slot(),
-                block.parent_root(),
-                participant_pubkeys,
-            );
-        }
+            // Downgrade the canonical head lock and hold it whilst we write to the database. This
+            // ensures that there can be no modifications to the canonical head until the database has
+            // been updated. This helps to prevent inconsistencies between fork choice and the on-disk
+            // database.
+            let canonical_head_read_lock = RwLockWriteGuard::downgrade(canonical_head_write_lock);
 
-        for exit in block.body().voluntary_exits() {
-            validator_monitor.register_block_voluntary_exit(&exit.message)
-        }
+            // Store the block and its state, and execute the confirmation batch for the intermediate
+            // states, which will delete their temporary flags.
+            // If the write fails, revert fork choice to the version from disk, else we can
+            // end up with blocks in fork choice that are missing from disk.
+            // See https://github.com/sigp/lighthouse/issues/2028
+            let mut ops: Vec<_> = confirmed_state_roots
+                .into_iter()
+                .map(StoreOp::DeleteStateTemporaryFlag)
+                .collect();
+            ops.push(StoreOp::PutBlock(block_root, signed_block.clone()));
+            ops.push(StoreOp::PutState(block.state_root(), &state));
+            let txn_lock = self.store.hot_db.begin_rw_transaction();
 
-        for slashing in block.body().attester_slashings() {
-            validator_monitor.register_block_attester_slashing(slashing)
-        }
-
-        for slashing in block.body().proposer_slashings() {
-            validator_monitor.register_block_proposer_slashing(slashing)
-        }
-
-        drop(validator_monitor);
-
-        // Only present some metrics for blocks from the previous epoch or later.
-        //
-        // This helps avoid noise in the metrics during sync.
-        if block.slot().epoch(T::EthSpec::slots_per_epoch()) + 1 >= self.epoch()? {
-            metrics::observe(
-                &metrics::OPERATIONS_PER_BLOCK_ATTESTATION,
-                block.body().attestations().len() as f64,
-            );
-
-            if let Ok(sync_aggregate) = block.body().sync_aggregate() {
-                metrics::set_gauge(
-                    &metrics::BLOCK_SYNC_AGGREGATE_SET_BITS,
-                    sync_aggregate.num_set_bits() as i64,
+            if let Err(e) = self.store.do_atomically(ops) {
+                error!(
+                    self.log,
+                    "Database write failed!";
+                    "msg" => "Restoring fork choice from disk",
+                    "error" => ?e,
                 );
-            }
-        }
 
-        let db_write_timer = metrics::start_timer(&metrics::BLOCK_PROCESSING_DB_WRITE);
-
-        // Store the block and its state, and execute the confirmation batch for the intermediate
-        // states, which will delete their temporary flags.
-        // If the write fails, revert fork choice to the version from disk, else we can
-        // end up with blocks in fork choice that are missing from disk.
-        // See https://github.com/sigp/lighthouse/issues/2028
-        let mut ops: Vec<_> = confirmed_state_roots
-            .into_iter()
-            .map(StoreOp::DeleteStateTemporaryFlag)
-            .collect();
-        ops.push(StoreOp::PutBlock(block_root, signed_block.clone()));
-        ops.push(StoreOp::PutState(block.state_root(), &state));
-        let txn_lock = self.store.hot_db.begin_rw_transaction();
-
-        if let Err(e) = self.store.do_atomically(ops) {
-            error!(
-                self.log,
-                "Database write failed!";
-                "msg" => "Restoring fork choice from disk",
-                "error" => ?e,
-            );
-            match Self::load_fork_choice(self.store.clone(), &self.spec)? {
-                Some(persisted_fork_choice) => {
-                    canonical_head_lock.fork_choice = persisted_fork_choice;
-                }
-                None => {
-                    crit!(
-                        self.log,
-                        "No stored fork choice found to restore from";
-                        "warning" => "The database is likely corrupt now, consider --purge-db"
-                    );
+                // Since the write failed, try to revert the canonical head back to what was stored
+                // in the database. This attempts to prevent inconsistency between the database and
+                // fork choice.
+                match CanonicalHead::load_from_store(&self.store, &self.spec) {
+                    Ok(past_canonical_head) => {
+                        // Drop the read-lock on the head and then take a write-lock.
+                        //
+                        // We don't care if someone mutates the head between dropping the read-lock and
+                        // grabbing the write-lock since we're going to override it anyway.
+                        drop(canonical_head_read_lock);
+                        *self.canonical_head.write() = past_canonical_head
+                    }
+                    Err(e) => {
+                        crit!(
+                            self.log,
+                            "No stored fork choice found to restore from";
+                            "error" => ?e,
+                            "warning" => "The database is likely corrupt now, consider --purge-db"
+                        );
+                        return Err(BlockError::BeaconChainError(e));
+                    }
                 }
             }
-            return Err(e.into());
-        }
-        drop(txn_lock);
 
-        // The canonical head write-lock is dropped *after* the on-disk database has been updated.
-        // This prevents inconsistency between the two at the expense of concurrency.
-        drop(canonical_head_lock);
+            drop(txn_lock);
+        }
 
         // We're declaring the block "imported" at this point, since fork choice and the DB know
         // about it.
@@ -2972,8 +3015,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 }));
             }
         }
-
-        metrics::stop_timer(db_write_timer);
 
         metrics::inc_counter(&metrics::BLOCK_PROCESSING_SUCCESSES);
 
