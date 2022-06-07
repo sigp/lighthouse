@@ -223,7 +223,6 @@ easy_from_to!(BlockReplayError, BeaconChainError);
 
 #[derive(Debug)]
 pub enum BlockProductionError {
-    UnableToGetHeadInfo(BeaconChainError),
     UnableToGetBlockRootFromState,
     UnableToReadSlot,
     UnableToProduceAtSlot(Slot),
