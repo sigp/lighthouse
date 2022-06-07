@@ -2496,17 +2496,21 @@ impl ApiTester {
             epoch_transition: true,
         });
 
+        let finalized_block_root = self
+            .chain
+            .block_root_at_slot(next_slot - finalization_distance, WhenSlotSkipped::Prev)
+            .unwrap()
+            .unwrap();
+        let finalized_block = self
+            .chain
+            .get_blinded_block(&finalized_block_root)
+            .unwrap()
+            .unwrap();
+        let finalized_state_root = finalized_block.state_root();
+
         let expected_finalized = EventKind::FinalizedCheckpoint(SseFinalizedCheckpoint {
-            block: self
-                .chain
-                .block_root_at_slot(next_slot - finalization_distance, WhenSlotSkipped::Prev)
-                .unwrap()
-                .unwrap(),
-            state: self
-                .chain
-                .state_root_at_slot(next_slot - finalization_distance)
-                .unwrap()
-                .unwrap(),
+            block: finalized_block_root,
+            state: finalized_state_root,
             epoch: Epoch::new(3),
         });
 
@@ -2518,7 +2522,7 @@ impl ApiTester {
         let block_events = poll_events(&mut events_future, 3, Duration::from_millis(10000)).await;
         assert_eq!(
             block_events.as_slice(),
-            &[expected_block, expected_finalized, expected_head]
+            &[expected_block, expected_head, expected_finalized]
         );
 
         // Test a reorg event
