@@ -92,7 +92,8 @@ impl<T: BeaconChainTypes> CanonicalHead<T> {
     /// Returns the randao mix for the block at the head of the chain.
     pub fn head_random(&self) -> Result<Hash256, BeaconStateError> {
         let state = &self.head_snapshot.beacon_state;
-        state.get_randao_mix(state.current_epoch()).copied()
+        let root = *state.get_randao_mix(state.current_epoch())?;
+        Ok(root)
     }
 
     /// Returns the finalized checkpoint, as determined by fork choice.
