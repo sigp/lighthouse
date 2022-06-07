@@ -407,7 +407,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         current_duty_dependent_root,
                         previous_duty_dependent_root,
                         epoch_transition: is_epoch_transition,
-                        execution_optimistic: new_head_proto_block.execution_status.is_optimistic(),
                     }));
                 }
                 (Err(e), _) | (_, Err(e)) => {
@@ -435,7 +434,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     new_head_block: new_head.beacon_block_root,
                     new_head_state: new_head.beacon_state_root(),
                     epoch: head_slot.epoch(T::EthSpec::slots_per_epoch()),
-                    execution_optimistic: new_head_proto_block.execution_status.is_optimistic(),
                 }));
             }
         }
@@ -494,7 +492,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     epoch: new_view.finalized_checkpoint.epoch,
                     block: new_view.finalized_checkpoint.root,
                     state: finalized_proto_block.state_root,
-                    execution_optimistic: self.is_optimistic_head()?,
                 }));
             }
         }
@@ -781,7 +778,6 @@ fn observe_head_block_delays<E: EthSpec, S: SlotClock>(
                 observed_delay: block_delays.observed,
                 imported_delay: block_delays.imported,
                 set_as_head_delay: block_delays.set_as_head,
-                execution_optimistic: head_block.execution_status.is_optimistic(),
             }));
         }
     }

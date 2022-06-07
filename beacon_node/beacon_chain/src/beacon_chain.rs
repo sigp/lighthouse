@@ -55,7 +55,8 @@ use crate::{metrics, BeaconChainError};
 use eth2::types::{EventKind, SseBlock, SyncDuty};
 use execution_layer::{ExecutionLayer, PayloadAttributes, PayloadStatus};
 use fork_choice::{
-    AttestationFromBlock, ForkChoice, ForkchoiceUpdateParameters, InvalidationOperation,
+    AttestationFromBlock, ExecutionStatus, ForkChoice, ForkchoiceUpdateParameters,
+    InvalidationOperation,
 };
 use futures::channel::mpsc::Sender;
 use itertools::process_results;
@@ -1352,7 +1353,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         validator_indices: &[u64],
         epoch: Epoch,
         head_block_root: Hash256,
-    ) -> Result<(Vec<Option<AttestationDuty>>, Hash256, bool), Error> {
+    ) -> Result<(Vec<Option<AttestationDuty>>, Hash256, ExecutionStatus), Error> {
         self.with_committee_cache(head_block_root, epoch, |committee_cache, dependent_root| {
             let duties = validator_indices
                 .iter()
@@ -1362,15 +1363,14 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 })
                 .collect();
 
-            let execution_optimistic = self
+            let execution_status = self
                 .canonical_head
                 .read()
                 .fork_choice
                 .get_block_execution_status(&head_block_root)
-                .ok_or(Error::AttestationHeadNotInForkChoice(head_block_root))?
-                .is_optimistic();
+                .ok_or(Error::AttestationHeadNotInForkChoice(head_block_root))?;
 
-            Ok((duties, dependent_root, execution_optimistic))
+            Ok((duties, dependent_root, execution_status))
         })
     }
 
@@ -2803,7 +2803,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 event_handler.register(EventKind::Block(SseBlock {
                     slot,
                     block: block_root,
-                    execution_optimistic: self.is_optimistic_block(&signed_block)?,
                 }));
             }
         }
