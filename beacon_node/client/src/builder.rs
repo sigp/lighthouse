@@ -485,13 +485,8 @@ where
             .beacon_chain
             .clone()
             .ok_or("node timer requires a beacon chain")?;
-        let seconds_per_slot = self
-            .chain_spec
-            .as_ref()
-            .ok_or("node timer requires a chain spec")?
-            .seconds_per_slot;
 
-        spawn_timer(context.executor, beacon_chain, seconds_per_slot)
+        spawn_timer(context.executor, beacon_chain)
             .map_err(|e| format!("Unable to start node timer: {}", e))?;
 
         Ok(self)
