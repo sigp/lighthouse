@@ -22,6 +22,7 @@ mod checks;
 mod cli;
 mod eth1_sim;
 mod local_network;
+mod mev_sim;
 mod no_eth1_sim;
 mod sync_sim;
 
@@ -46,6 +47,13 @@ fn main() {
             }
         },
         ("no-eth1-sim", Some(matches)) => match no_eth1_sim::run_no_eth1_sim(matches) {
+            Ok(()) => println!("Simulation exited successfully"),
+            Err(e) => {
+                eprintln!("Simulation exited with error: {}", e);
+                std::process::exit(1)
+            }
+        },
+        ("mev-sim", Some(matches)) => match mev_sim::run_no_eth1_sim(matches) {
             Ok(()) => println!("Simulation exited successfully"),
             Err(e) => {
                 eprintln!("Simulation exited with error: {}", e);

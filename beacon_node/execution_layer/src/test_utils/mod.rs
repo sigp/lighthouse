@@ -32,6 +32,26 @@ mod execution_block_generator;
 mod handle_rpc;
 mod mock_execution_layer;
 
+/// Configuration for the MockExecutionLayer.
+#[derive(PartialEq, Debug, Clone, Serialize, Deserialize)]
+pub struct MockExecutionConfig {
+    pub server_config: Config,
+    pub terminal_difficulty: Uint256,
+    pub terminal_block: u64,
+    pub terminal_block_hash: ExecutionBlockHash,
+}
+
+impl Default for MockExecutionConfig {
+    fn default() -> Self {
+        Self {
+            terminal_difficulty: DEFAULT_TERMINAL_DIFFICULTY.into(),
+            terminal_block: DEFAULT_TERMINAL_BLOCK,
+            terminal_block_hash: ExecutionBlockHash::zero(),
+            server_config: Config::default(),
+        }
+    }
+}
+
 pub struct MockServer<T: EthSpec> {
     _shutdown_tx: oneshot::Sender<()>,
     listen_socket_addr: SocketAddr,
@@ -49,19 +69,20 @@ impl<T: EthSpec> MockServer<T> {
         )
     }
 
-    pub fn new(
-        handle: &runtime::Handle,
-        terminal_difficulty: Uint256,
-        terminal_block: u64,
-        terminal_block_hash: ExecutionBlockHash,
-    ) -> Self {
+    pub fn new_with_config(handle: &runtime::Handle, config: MockExecutionConfig) -> Self {
+        let MockExecutionConfig {
+            terminal_difficulty,
+            terminal_block,
+            terminal_block_hash,
+            server_config,
+        } = config;
         let last_echo_request = Arc::new(RwLock::new(None));
         let preloaded_responses = Arc::new(Mutex::new(vec![]));
         let execution_block_generator =
             ExecutionBlockGenerator::new(terminal_difficulty, terminal_block, terminal_block_hash);
 
         let ctx: Arc<Context<T>> = Arc::new(Context {
-            config: <_>::default(),
+            config: server_config,
             log: null_logger().unwrap(),
             last_echo_request: last_echo_request.clone(),
             execution_block_generator: RwLock::new(execution_block_generator),
@@ -97,6 +118,23 @@ impl<T: EthSpec> MockServer<T> {
             last_echo_request,
             ctx,
         }
+    }
+
+    pub fn new(
+        handle: &runtime::Handle,
+        terminal_difficulty: Uint256,
+        terminal_block: u64,
+        terminal_block_hash: ExecutionBlockHash,
+    ) -> Self {
+        Self::new_with_config(
+            handle,
+            MockExecutionConfig {
+                server_config: Config::default(),
+                terminal_difficulty,
+                terminal_block,
+                terminal_block_hash,
+            },
+        )
     }
 
     pub fn execution_block_generator(&self) -> RwLockWriteGuard<'_, ExecutionBlockGenerator<T>> {
@@ -523,7 +561,7 @@ pub fn serve<T: EthSpec>(
         });
 
     let routes = warp::post()
-        .and(auth_header_filter())
+        // .and(auth_header_filter())
         .and(root.or(echo))
         .recover(handle_rejection)
         // Add a `Server` header.

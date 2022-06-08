@@ -1,16 +1,27 @@
-use crate::{checks, LocalNetwork};
+use crate::{checks, local_network::EXECUTION_PORT, LocalNetwork};
 use clap::ArgMatches;
 use futures::prelude::*;
 use node_test_rig::{
     environment::{EnvironmentBuilder, LoggerConfig},
-    testing_client_config, testing_validator_config, ClientGenesis, ValidatorFiles,
+    testing_client_config, testing_validator_config, ClientGenesis, MockExecutionConfig,
+    MockServerConfig, ValidatorFiles,
 };
 use rayon::prelude::*;
+use sensitive_url::SensitiveUrl;
 use std::cmp::max;
 use std::net::{IpAddr, Ipv4Addr};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tokio::time::sleep;
 use types::{Epoch, EthSpec, MainnetEthSpec};
+
+const ALTAIR_FORK_EPOCH: u64 = 0;
+const BELLATRIX_FORK_EPOCH: u64 = 0;
+
+const SUGGESTED_FEE_RECIPIENT: [u8; 20] =
+    [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1];
+
+pub const TERMINAL_DIFFICULTY: u64 = 3200;
+pub const TERMINAL_BLOCK: u64 = 32;
 
 pub fn run_no_eth1_sim(matches: &ArgMatches) -> Result<(), String> {
     let node_count = value_t!(matches, "nodes", usize).expect("missing nodes default");
@@ -59,7 +70,7 @@ pub fn run_no_eth1_sim(matches: &ArgMatches) -> Result<(), String> {
 
     let eth1_block_time = Duration::from_millis(15_000 / speed_up_factor);
 
-    let spec = &mut env.eth2_config.spec;
+    let mut spec = &mut env.eth2_config.spec;
 
     let total_validator_count = validators_per_node * node_count;
 
@@ -70,6 +81,9 @@ pub fn run_no_eth1_sim(matches: &ArgMatches) -> Result<(), String> {
     spec.min_genesis_time = 0;
     spec.min_genesis_active_validator_count = total_validator_count as u64;
     spec.seconds_per_eth1_block = 1;
+    spec.altair_fork_epoch = Some(Epoch::new(ALTAIR_FORK_EPOCH));
+    spec.bellatrix_fork_epoch = Some(Epoch::new(BELLATRIX_FORK_EPOCH));
+    spec.terminal_total_difficulty = TERMINAL_DIFFICULTY.into();
 
     let genesis_delay = Duration::from_secs(5);
     let genesis_time = SystemTime::now()
@@ -78,6 +92,7 @@ pub fn run_no_eth1_sim(matches: &ArgMatches) -> Result<(), String> {
         + genesis_delay;
 
     let slot_duration = Duration::from_secs(spec.seconds_per_slot);
+    let seconds_per_slot = spec.seconds_per_slot;
 
     let context = env.core_context();
 
@@ -91,9 +106,25 @@ pub fn run_no_eth1_sim(matches: &ArgMatches) -> Result<(), String> {
     beacon_config.sync_eth1_chain = true;
 
     beacon_config.network.enr_address = Some(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)));
+    let mut el_config = execution_layer::Config::default();
+    el_config.execution_endpoints =
+        vec![SensitiveUrl::parse(&format!("http://localhost:{}", EXECUTION_PORT)).unwrap()];
+    beacon_config.execution_layer = Some(el_config);
 
     let main_future = async {
-        let network = LocalNetwork::new(context.clone(), beacon_config.clone(), None).await?;
+        let mock_execution_config = MockExecutionConfig {
+            server_config: MockServerConfig {
+                listen_port: EXECUTION_PORT,
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        let network = LocalNetwork::new(
+            context.clone(),
+            beacon_config.clone(),
+            Some(mock_execution_config),
+        )
+        .await?;
         /*
          * One by one, add beacon nodes to the network.
          */
@@ -111,6 +142,8 @@ pub fn run_no_eth1_sim(matches: &ArgMatches) -> Result<(), String> {
             let network_1 = network.clone();
             executor.spawn(
                 async move {
+                    let mut validator_config = testing_validator_config();
+                    validator_config.fee_recipient = Some(SUGGESTED_FEE_RECIPIENT.into());
                     println!("Adding validator client {}", i);
                     network_1
                         .add_validator_client(testing_validator_config(), i, files, i % 2 == 0)
@@ -124,6 +157,20 @@ pub fn run_no_eth1_sim(matches: &ArgMatches) -> Result<(), String> {
         let duration_to_genesis = network.duration_to_genesis().await;
         println!("Duration to genesis: {}", duration_to_genesis.as_secs());
         sleep(duration_to_genesis).await;
+
+        let executor = executor.clone();
+        let network_2 = network.clone();
+        executor.spawn(
+            async move {
+                println!("Mining pow blocks");
+                let mut interval = tokio::time::interval(Duration::from_secs(seconds_per_slot));
+                for i in 1..=TERMINAL_BLOCK {
+                    interval.tick().await;
+                    let _ = network_2.mine_pow_blocks(i);
+                }
+            },
+            "pow_mining",
+        );
 
         let (finalization, block_prod) = futures::join!(
             // Check that the chain finalizes at the first given opportunity.

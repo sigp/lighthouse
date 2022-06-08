@@ -140,7 +140,7 @@ pub fn run_eth1_sim(matches: &ArgMatches) -> Result<(), String> {
         /*
          * Create a new `LocalNetwork` with one beacon node.
          */
-        let network = LocalNetwork::new(context.clone(), beacon_config.clone()).await?;
+        let network = LocalNetwork::new(context.clone(), beacon_config.clone(), None).await?;
 
         /*
          * One by one, add beacon nodes to the network.

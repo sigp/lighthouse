@@ -1,7 +1,8 @@
 use node_test_rig::{
     environment::RuntimeContext,
     eth2::{types::StateId, BeaconNodeHttpClient},
-    ClientConfig, LocalBeaconNode, LocalValidatorClient, ValidatorConfig, ValidatorFiles,
+    ClientConfig, LocalBeaconNode, LocalValidatorClient, MockExecutionConfig, MockServer,
+    MockServerConfig, ValidatorConfig, ValidatorFiles,
 };
 use parking_lot::RwLock;
 use sensitive_url::SensitiveUrl;
@@ -14,6 +15,8 @@ use types::{Epoch, EthSpec};
 
 const BOOTNODE_PORT: u16 = 42424;
 pub const INVALID_ADDRESS: &str = "http://127.0.0.1:42423";
+
+pub const EXECUTION_PORT: u16 = 4000;
 
 /// Helper struct to reduce `Arc` usage.
 pub struct Inner<E: EthSpec> {
@@ -50,15 +53,28 @@ impl<E: EthSpec> LocalNetwork<E> {
     pub async fn new(
         context: RuntimeContext<E>,
         mut beacon_config: ClientConfig,
+        execution_layer_config: Option<MockExecutionConfig>,
     ) -> Result<Self, String> {
         beacon_config.network.discovery_port = BOOTNODE_PORT;
         beacon_config.network.libp2p_port = BOOTNODE_PORT;
         beacon_config.network.enr_udp_port = Some(BOOTNODE_PORT);
         beacon_config.network.enr_tcp_port = Some(BOOTNODE_PORT);
         beacon_config.network.discv5_config.table_filter = |_| true;
-        let beacon_node =
-            LocalBeaconNode::production(context.service_context("boot_node".into()), beacon_config)
-                .await?;
+
+        let execution_node = if let Some(config) = execution_layer_config {
+            Some(MockServer::new_with_config(
+                &context.executor.handle().unwrap(),
+                config,
+            ))
+        } else {
+            None
+        };
+        let beacon_node = LocalBeaconNode::production(
+            context.service_context("boot_node".into()),
+            beacon_config,
+            execution_node,
+        )
+        .await?;
         Ok(Self {
             inner: Arc::new(Inner {
                 context,
@@ -88,7 +104,7 @@ impl<E: EthSpec> LocalNetwork<E> {
     pub async fn add_beacon_node(&self, mut beacon_config: ClientConfig) -> Result<(), String> {
         let self_1 = self.clone();
         println!("Adding beacon node..");
-        {
+        let execution_node = {
             let read_lock = self.beacon_nodes.read();
 
             let boot_node = read_lock.first().expect("should have at least one node");
@@ -105,7 +121,23 @@ impl<E: EthSpec> LocalNetwork<E> {
             beacon_config.network.enr_udp_port = Some(BOOTNODE_PORT + count);
             beacon_config.network.enr_tcp_port = Some(BOOTNODE_PORT + count);
             beacon_config.network.discv5_config.table_filter = |_| true;
-        }
+
+            if boot_node.execution_node.is_some() {
+                let config = MockExecutionConfig {
+                    server_config: MockServerConfig {
+                        listen_port: EXECUTION_PORT + count,
+                        ..Default::default()
+                    },
+                    ..Default::default()
+                };
+                Some(MockServer::new_with_config(
+                    &self_1.inner.context.executor.handle().unwrap(),
+                    config,
+                ))
+            } else {
+                None
+            }
+        };
 
         // We create the beacon node without holding the lock, so that the lock isn't held
         // across the await. This is only correct if this function never runs in parallel
@@ -114,6 +146,7 @@ impl<E: EthSpec> LocalNetwork<E> {
         let beacon_node = LocalBeaconNode::production(
             self.context.service_context(format!("node_{}", index)),
             beacon_config,
+            execution_node,
         )
         .await?;
         self_1.beacon_nodes.write().push(beacon_node);
@@ -182,6 +215,21 @@ impl<E: EthSpec> LocalNetwork<E> {
             .await
             .map_err(|e| format!("Cannot get head: {:?}", e))
             .map(|body| body.unwrap().data.finalized.epoch)
+    }
+
+    pub fn mine_pow_blocks(&self, block_number: u64) -> Result<(), String> {
+        let beacon_nodes = self.beacon_nodes.read();
+        for bn in beacon_nodes.iter() {
+            if let Some(execution_node) = &bn.execution_node {
+                let mut block_gen = execution_node.ctx.execution_block_generator.write();
+                if let Err(e) = block_gen.insert_pow_block(block_number) {
+                    dbg!(e);
+                } else {
+                    println!("Successfully inserted pow block {}", block_number);
+                }
+            }
+        }
+        Ok(())
     }
 
     pub async fn duration_to_genesis(&self) -> Duration {
