@@ -2070,6 +2070,8 @@ mod tests {
             direction: Direction,
             attestation_subnets: Vec<AttestationSubnetId>,
             sync_committee_subnets: Vec<SyncCommitteeSubnetId>,
+            score: f64,
+            gossipsub_score: f64,
         }
 
         impl Arbitrary for PeerCondition {
@@ -2078,6 +2080,8 @@ mod tests {
                     direction: Direction::arbitrary(g),
                     attestation_subnets: Vec::arbitrary(g),
                     sync_committee_subnets: Vec::arbitrary(g),
+                    score: f64::arbitrary(g),
+                    gossipsub_score: f64::arbitrary(g),
                 }
             }
         }
@@ -2163,27 +2167,14 @@ mod tests {
                         syncnets,
                     };
 
-                    peer_manager
-                        .network_globals
-                        .peers
-                        .write()
-                        .peer_info_mut(&peer)
-                        .unwrap()
-                        .set_meta_data(MetaData::V2(metadata));
+                    let mut peer_db = peer_manager.network_globals.peers.write();
+                    let peer_info = peer_db.peer_info_mut(&peer).unwrap();
+                    peer_info.set_meta_data(MetaData::V2(metadata));
+                    peer_info.set_gossipsub_score(condition.gossipsub_score);
+                    peer_info.add_to_score(condition.score);
 
-                    let long_lived_subnets = peer_manager
-                        .network_globals
-                        .peers
-                        .read()
-                        .peer_info(&peer)
-                        .unwrap()
-                        .long_lived_subnets();
-                    for subnet in long_lived_subnets {
-                        peer_manager
-                            .network_globals
-                            .peers
-                            .write()
-                            .add_subscription(&peer, subnet);
+                    for subnet in peer_info.long_lived_subnets() {
+                        peer_db.add_subscription(&peer, subnet);
                     }
                 }
 
