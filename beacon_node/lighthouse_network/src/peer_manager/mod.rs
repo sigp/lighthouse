@@ -2051,4 +2051,157 @@ mod tests {
         assert!(connected_peers.contains(&peers[6]));
         assert!(connected_peers.contains(&peers[7]));
     }
+
+    // Test properties PeerManager should have using randomly generated input.
+    #[cfg(test)]
+    mod property_based_tests {
+        use crate::peer_manager::config::DEFAULT_TARGET_PEERS;
+        use crate::peer_manager::tests::build_peer_manager;
+        use crate::rpc::MetaData;
+        use libp2p::PeerId;
+        use quickcheck::{Arbitrary, Gen, TestResult};
+        use tokio::runtime::Runtime;
+        use types::Unsigned;
+        use types::{EthSpec, MainnetEthSpec as E};
+
+        #[derive(Clone, Debug)]
+        struct PeerCondition {
+            direction: Direction,
+            attestation_subnets: Vec<AttestationSubnetId>,
+            sync_committee_subnets: Vec<SyncCommitteeSubnetId>,
+        }
+
+        impl Arbitrary for PeerCondition {
+            fn arbitrary(g: &mut Gen) -> Self {
+                PeerCondition {
+                    direction: Direction::arbitrary(g),
+                    attestation_subnets: Vec::arbitrary(g),
+                    sync_committee_subnets: Vec::arbitrary(g),
+                }
+            }
+        }
+
+        #[derive(Clone, Debug)]
+        enum Direction {
+            Outgoing,
+            Incoming,
+        }
+
+        impl Arbitrary for Direction {
+            fn arbitrary(g: &mut Gen) -> Self {
+                g.choose(&[Direction::Outgoing, Direction::Incoming])
+                    .unwrap()
+                    .clone()
+            }
+        }
+
+        #[derive(Clone, Debug)]
+        struct AttestationSubnetId(usize);
+
+        impl Arbitrary for AttestationSubnetId {
+            fn arbitrary(g: &mut Gen) -> Self {
+                let len = <E as EthSpec>::SubnetBitfieldLength::to_usize();
+                let id_range = (0..len).collect::<Vec<usize>>();
+                AttestationSubnetId(*g.choose(&id_range).unwrap())
+            }
+        }
+
+        #[derive(Clone, Debug)]
+        struct SyncCommitteeSubnetId(usize);
+
+        impl Arbitrary for SyncCommitteeSubnetId {
+            fn arbitrary(g: &mut Gen) -> Self {
+                let len = <E as EthSpec>::SyncCommitteeSubnetCount::to_usize();
+                let id_range = (0..len).collect::<Vec<usize>>();
+                SyncCommitteeSubnetId(*g.choose(&id_range).unwrap())
+            }
+        }
+
+        #[quickcheck]
+        fn prune_excess_peers(peer_conditions: Vec<PeerCondition>) -> TestResult {
+            let target_peer_count = DEFAULT_TARGET_PEERS;
+            let rt = Runtime::new().unwrap();
+
+            rt.block_on(async move {
+                let mut peer_manager = build_peer_manager(target_peer_count).await;
+
+                // Create peers based on the randomly generated conditions.
+                for condition in &peer_conditions {
+                    let peer = PeerId::random();
+                    let mut attnets = crate::types::EnrAttestationBitfield::<E>::new();
+                    let mut syncnets = crate::types::EnrSyncCommitteeBitfield::<E>::new();
+
+                    match condition.direction {
+                        Direction::Incoming => {
+                            peer_manager.inject_connect_ingoing(
+                                &peer,
+                                "/ip4/0.0.0.0".parse().unwrap(),
+                                None,
+                            );
+                        }
+                        Direction::Outgoing => {
+                            peer_manager.inject_connect_outgoing(
+                                &peer,
+                                "/ip4/0.0.0.0".parse().unwrap(),
+                                None,
+                            );
+                        }
+                    }
+
+                    for id in &condition.attestation_subnets {
+                        attnets.set(id.0, true).unwrap();
+                    }
+
+                    for id in &condition.sync_committee_subnets {
+                        syncnets.set(id.0, true).unwrap();
+                    }
+
+                    let metadata = crate::rpc::MetaDataV2 {
+                        seq_number: 0,
+                        attnets,
+                        syncnets,
+                    };
+
+                    peer_manager
+                        .network_globals
+                        .peers
+                        .write()
+                        .peer_info_mut(&peer)
+                        .unwrap()
+                        .set_meta_data(MetaData::V2(metadata));
+
+                    let long_lived_subnets = peer_manager
+                        .network_globals
+                        .peers
+                        .read()
+                        .peer_info(&peer)
+                        .unwrap()
+                        .long_lived_subnets();
+                    for subnet in long_lived_subnets {
+                        peer_manager
+                            .network_globals
+                            .peers
+                            .write()
+                            .add_subscription(&peer, subnet);
+                    }
+                }
+
+                // Perform the heartbeat.
+                peer_manager.heartbeat();
+
+                if peer_conditions.len() <= target_peer_count {
+                    // We expect to keep the number of peers since no need to prune peers in this case.
+                    TestResult::from_bool(
+                        peer_manager.network_globals.connected_or_dialing_peers()
+                            == peer_conditions.len(),
+                    )
+                } else {
+                    TestResult::from_bool(
+                        peer_manager.network_globals.connected_or_dialing_peers()
+                            == target_peer_count,
+                    )
+                }
+            })
+        }
+    }
 }
