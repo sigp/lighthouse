@@ -664,17 +664,17 @@ impl<T: EthSpec> ExecutionLayer<T> {
                     (Err(e), Ok(local)) => {
                         warn!(self.log(),"Unable to retrieve a payload from a relay, falling back to the local execution client: {e:?}");
                         Ok(local)
-                    },
+                    }
                     (Ok(relay), Ok(local)) => {
                         //TODO(sean) check fork?
                         //TODO(sean) verify value vs local payload?
                         //TODO(sean) verify bid signature?
                         //TODO(sean) only use the blinded block flow if we have recent chain health
-                        let header = &relay.data.message.header;
+                        let header = relay.data.message.header;
                         if header.fee_recipient() != suggested_fee_recipient {
                             warn!(self.log(), "Incorrect fee recipient from connected builder, falling back to local execution engine.");
                             Ok(local)
-                        }  else if header.parent_hash() != parent_hash {
+                        } else if header.parent_hash() != parent_hash {
                             warn!(self.log(), "Invalid parent hash from connected builder, falling back to local execution engine.");
                             Ok(local)
                         } else if header.prev_randao() != prev_randao {
@@ -689,10 +689,12 @@ impl<T: EthSpec> ExecutionLayer<T> {
                         } else {
                             Ok(header)
                         }
-                    },
+                    }
                     (relay_reult, Err(local_error)) => {
                         warn!(self.log(), "Failure from local execution engine. Attempting to propose through connected builder"; "error" => ?local_error);
-                        relay_reult.map(|d|d.data.message.header).map_err(|e|Error::Builder(e))
+                        relay_reult
+                            .map(|d| d.data.message.header)
+                            .map_err(|e| Error::Builder(e))
                     }
                 }
             } else {
