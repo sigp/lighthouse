@@ -2060,6 +2060,7 @@ mod tests {
         use crate::rpc::MetaData;
         use libp2p::PeerId;
         use quickcheck::{Arbitrary, Gen, TestResult};
+        use quickcheck_macros::quickcheck;
         use tokio::runtime::Runtime;
         use types::Unsigned;
         use types::{EthSpec, MainnetEthSpec as E};
