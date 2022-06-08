@@ -991,7 +991,8 @@ async fn payload_preparation() {
 
     rig.harness
         .chain
-        .prepare_beacon_proposer_blocking()
+        .prepare_beacon_proposer(rig.harness.chain.slot().unwrap())
+        .await
         .unwrap();
 
     let payload_attributes = PayloadAttributes {
@@ -1116,7 +1117,7 @@ async fn payload_preparation_before_transition_block() {
 
     rig.harness
         .chain
-        .prepare_beacon_proposer_async(current_slot)
+        .prepare_beacon_proposer(current_slot)
         .await
         .unwrap();
     let forkchoice_update_params = rig
@@ -1129,7 +1130,7 @@ async fn payload_preparation_before_transition_block() {
         .unwrap();
     rig.harness
         .chain
-        .update_execution_engine_forkchoice_async(current_slot, forkchoice_update_params)
+        .update_execution_engine_forkchoice(current_slot, forkchoice_update_params)
         .await
         .unwrap();
 

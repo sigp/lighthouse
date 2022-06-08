@@ -517,16 +517,13 @@ fn spawn_execution_layer_updates<T: BeaconChainTypes>(
             async move {
                 // Avoids raising an error before Bellatrix.
                 //
-                // See `Self::prepare_beacon_proposer_async` for more detail.
+                // See `Self::prepare_beacon_proposer` for more detail.
                 if chain.slot_is_prior_to_bellatrix(current_slot + 1) {
                     return;
                 }
 
                 if let Err(e) = chain
-                    .update_execution_engine_forkchoice_async(
-                        current_slot,
-                        forkchoice_update_params,
-                    )
+                    .update_execution_engine_forkchoice(current_slot, forkchoice_update_params)
                     .await
                 {
                     crit!(
@@ -544,7 +541,7 @@ fn spawn_execution_layer_updates<T: BeaconChainTypes>(
                 //
                 // This seems OK. It's not a significant waste of EL<>CL bandwidth or resources, as far as I
                 // know.
-                if let Err(e) = chain.prepare_beacon_proposer_async(current_slot).await {
+                if let Err(e) = chain.prepare_beacon_proposer(current_slot).await {
                     crit!(
                         chain.log,
                         "Failed to prepare proposers after fork choice";

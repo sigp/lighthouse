@@ -3659,26 +3659,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         self.canonical_head.read().fork_choice.contains_block(root)
     }
 
-    pub fn prepare_beacon_proposer_blocking(self: &Arc<Self>) -> Result<(), Error> {
-        let current_slot = self.slot()?;
-
-        // Avoids raising an error before Bellatrix.
-        //
-        // See `Self::prepare_beacon_proposer_async` for more detail.
-        if self.slot_is_prior_to_bellatrix(current_slot + 1) {
-            return Ok(());
-        }
-
-        let execution_layer = self
-            .execution_layer
-            .as_ref()
-            .ok_or(Error::ExecutionLayerMissing)?;
-
-        execution_layer
-            .block_on_generic(|_| self.prepare_beacon_proposer_async(current_slot))
-            .map_err(Error::PrepareProposerBlockingFailed)?
-    }
-
     /// Determines the beacon proposer for the next slot. If that proposer is registered in the
     /// `execution_layer`, provide the `execution_layer` with the necessary information to produce
     /// `PayloadAttributes` for future calls to fork choice.
@@ -3691,7 +3671,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// 1. We're in the tail-end of the slot (as defined by PAYLOAD_PREPARATION_LOOKAHEAD_FACTOR)
     /// 2. The head block is one slot (or less) behind the prepare slot (e.g., we're preparing for
     ///    the next slot and the block at the current slot is already known).
-    pub async fn prepare_beacon_proposer_async(
+    pub async fn prepare_beacon_proposer(
         self: &Arc<Self>,
         current_slot: Slot,
     ) -> Result<(), Error> {
@@ -3897,14 +3877,14 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
             // Use the blocking method here so that we don't form a queue of these functions when
             // routinely calling them.
-            self.update_execution_engine_forkchoice_async(current_slot, forkchoice_update_params)
+            self.update_execution_engine_forkchoice(current_slot, forkchoice_update_params)
                 .await?;
         }
 
         Ok(())
     }
 
-    pub async fn update_execution_engine_forkchoice_async(
+    pub async fn update_execution_engine_forkchoice(
         self: &Arc<Self>,
         current_slot: Slot,
         params: ForkchoiceUpdateParameters,
