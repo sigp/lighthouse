@@ -2615,7 +2615,8 @@ impl ApiTester {
         // mock builder.
         assert!(self
             .chain
-            .execution_layer.as_ref()
+            .execution_layer
+            .as_ref()
             .unwrap()
             .get_payload_by_root(&payload.tree_hash_root())
             .is_none());
@@ -2661,7 +2662,8 @@ impl ApiTester {
         // If this cache is populated, it indicates fallback to the local EE was correctly used.
         assert!(self
             .chain
-            .execution_layer.as_ref()
+            .execution_layer
+            .as_ref()
             .unwrap()
             .get_payload_by_root(&payload.tree_hash_root())
             .is_some());
@@ -2711,7 +2713,8 @@ impl ApiTester {
         // If this cache is populated, it indicates fallback to the local EE was correctly used.
         assert!(self
             .chain
-            .execution_layer.as_ref()
+            .execution_layer
+            .as_ref()
             .unwrap()
             .get_payload_by_root(&payload.tree_hash_root())
             .is_some());

@@ -621,38 +621,62 @@ impl<T: EthSpec> ExecutionLayer<T> {
         pubkey_opt: Option<PublicKeyBytes>,
         slot: Slot,
     ) -> Result<Payload, Error> {
-        //TODO(sean) only use the blinded block flow if we have recent chain health
-
         // Don't attempt to outsource payload construction until after the merge transition has been
         // finalized. We want to be conservative with payload construction until then.
         if let (Some(builder), Some(pubkey)) = (self.builder(), pubkey_opt) {
             if finalized_block_hash != ExecutionBlockHash::zero() {
-                debug!(
+                info!(
                     self.log(),
                     "Requesting blinded header from connected builder";
                     "slot" => ?slot,
                     "pubkey" => ?pubkey,
                     "parent_hash" => ?parent_hash,
                 );
-                let result = builder
-                    .get_builder_header::<T, Payload>(slot, parent_hash, &pubkey)
-                    .await;
+                let (relay_result, local_result) = tokio::join!(
+                    builder.get_builder_header::<T, Payload>(slot, parent_hash, &pubkey),
+                    self.get_full_payload_caching(
+                        parent_hash,
+                        timestamp,
+                        prev_randao,
+                        finalized_block_hash,
+                        suggested_fee_recipient,
+                    )
+                );
 
-                match result {
-                    Err(e) => {
+                match (relay_result, local_result) {
+                    (Err(e), Ok(local)) => {
                         warn!(self.log(),"Unable to retrieve a payload from a relay, falling back to the local execution client: {e:?}");
-                        self.get_full_payload_caching(
-                            parent_hash,
-                            timestamp,
-                            prev_randao,
-                            finalized_block_hash,
-                            suggested_fee_recipient,
-                        )
-                        .await
+                        Ok(local)
+                    },
+                    (Ok(relay), Ok(local)) => {
+                        //TODO(sean) check fork?
+                        //TODO(sean) verify value vs local payload?
+                        //TODO(sean) verify bid signature?
+                        //TODO(sean) only use the blinded block flow if we have recent chain health
+                        let header = &relay.data.message.header;
+                        if header.fee_recipient() != suggested_fee_recipient {
+                            warn!(self.log(), "Incorrect fee recipient from connected builder, falling back to local execution engine.");
+                            Ok(local)
+                        }  else if header.parent_hash() != parent_hash {
+                            warn!(self.log(), "Invalid parent hash from connected builder, falling back to local execution engine.");
+                            Ok(local)
+                        } else if header.prev_randao() != prev_randao {
+                            warn!(self.log(), "Invalid prev randao from connected builder, falling back to local execution engine.");
+                            Ok(local)
+                        } else if header.timestamp() != local.timestamp() {
+                            warn!(self.log(), "Invalid timestamp from connected builder, falling back to local execution engine.");
+                            Ok(local)
+                        } else if header.block_number() != local.block_number() {
+                            warn!(self.log(), "Invalid block number from connected builder, falling back to local execution engine.");
+                            Ok(local)
+                        } else {
+                            Ok(header)
+                        }
+                    },
+                    (relay_reult, Err(local_error)) => {
+                        warn!(self.log(), "Failure from local execution engine. Attempting to propose through connected builder"; "error" => ?local_error);
+                        relay_reult.map(|d|d.data.message.header).map_err(|e|Error::Builder(e))
                     }
-                    //TODO(sean) check fork?
-                    //TODO(sean) verify value
-                    Ok(response) => Ok(response.data.message.header),
                 }
             } else {
                 self.get_full_payload_caching(

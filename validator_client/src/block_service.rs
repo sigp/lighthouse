@@ -363,6 +363,8 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
                 };
                 drop(get_timer);
 
+                //TODO(sean) check against local val registration. This means we have to move the val registration cache to validator store
+
                 if proposer_index != Some(block.proposer_index()) {
                     return Err(BlockError::Recoverable(
                         "Proposer index does not match block proposer. Beacon chain re-orged"
