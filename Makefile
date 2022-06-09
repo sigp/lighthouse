@@ -149,7 +149,7 @@ lint:
 # FIXME: fails if --release is added due to broken HTTP API tests
 nightly_lint:
 	cp .github/custom/clippy.toml .
-	cargo +$(CLIPPY_PINNED_NIGHTLY) clippy --workspace --tests --release -- \
+	cargo +$(CLIPPY_PINNED_NIGHTLY) clippy --workspace --tests -- \
 		-A clippy::all \
 		-D clippy::disallowed_from_async
 	rm clippy.toml
