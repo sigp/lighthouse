@@ -15,7 +15,7 @@ use nethermind::NethermindEngine;
 use test_rig::TestRig;
 
 /// Set to `false` to send logs to the console during tests. Logs are useful when debugging.
-const SUPPRESS_LOGS: bool = true;
+const SUPPRESS_LOGS: bool = false;
 
 fn main() {
     if cfg!(windows) {

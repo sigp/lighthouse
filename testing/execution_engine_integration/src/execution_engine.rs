@@ -22,7 +22,6 @@ pub struct ExecutionEngine<E> {
     engine: E,
     #[allow(dead_code)]
     datadir: TempDir,
-    http_port: u16,
     http_auth_port: u16,
     child: Child,
 }
@@ -46,14 +45,9 @@ impl<E: GenericExecutionEngine> ExecutionEngine<E> {
         Self {
             engine,
             datadir,
-            http_port,
             http_auth_port,
             child,
         }
-    }
-
-    pub fn http_url(&self) -> SensitiveUrl {
-        SensitiveUrl::parse(&format!("http://127.0.0.1:{}", self.http_port)).unwrap()
     }
 
     pub fn http_auth_url(&self) -> SensitiveUrl {
