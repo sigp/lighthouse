@@ -89,7 +89,7 @@ pub const MAX_WORK_EVENT_QUEUE_LEN: usize = 16_384;
 const MAX_IDLE_QUEUE_LEN: usize = 16_384;
 
 /// The maximum size of the channel for re-processing work events.
-const MAX_SCHEDULED_WORK_QUEUE_LEN: usize = 16_384;
+const MAX_SCHEDULED_WORK_QUEUE_LEN: usize = 3 * MAX_WORK_EVENT_QUEUE_LEN / 4;
 
 /// The maximum number of queued `Attestation` objects that will be stored before we start dropping
 /// them.

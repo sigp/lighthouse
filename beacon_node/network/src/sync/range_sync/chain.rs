@@ -1,4 +1,4 @@
-use super::batch::{BatchInfo, BatchState};
+use super::batch::{BatchInfo, BatchProcessingResult, BatchState};
 use crate::beacon_processor::ChainSegmentProcessId;
 use crate::beacon_processor::WorkEvent as BeaconWorkEvent;
 use crate::sync::{manager::Id, network_context::SyncNetworkContext, BatchProcessResult};
@@ -463,7 +463,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                     ))
                 })?;
 
-                batch.processing_completed(true)?;
+                batch.processing_completed(BatchProcessingResult::Success)?;
                 // If the processed batch was not empty, we can validate previous unvalidated
                 // blocks.
                 if *was_non_empty {
@@ -512,9 +512,12 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                         batch.state(),
                     ))
                 })?;
-                debug!(self.log, "Batch processing failed"; "imported_blocks" => imported_blocks,
+                debug!(self.log, "Batch processing failed"; "imported_blocks" => imported_blocks, "peer_penalty" => ?peer_action,
                     "batch_epoch" => batch_id, "peer" => %peer, "client" => %network.client_type(&peer));
-                if batch.processing_completed(false)? {
+
+                if batch.processing_completed(BatchProcessingResult::Failed {
+                    count_attempt: peer_action.is_some(),
+                })? {
                     // check that we have not exceeded the re-process retry counter
                     // If a batch has exceeded the invalid batch lookup attempts limit, it means
                     // that it is likely all peers in this chain are are sending invalid batches

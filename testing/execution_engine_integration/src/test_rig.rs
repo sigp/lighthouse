@@ -9,7 +9,7 @@ use types::{
     MainnetEthSpec, Slot, Uint256,
 };
 
-const EXECUTION_ENGINE_START_TIMEOUT: Duration = Duration::from_secs(10);
+const EXECUTION_ENGINE_START_TIMEOUT: Duration = Duration::from_secs(20);
 
 struct ExecutionPair<E> {
     /// The Lighthouse `ExecutionLayer` struct, connected to the `execution_engine` via HTTP.

@@ -240,7 +240,13 @@ pub fn get_config<E: EthSpec>(
         client_config.eth1.purge_cache = true;
     }
 
-    if cli_args.is_present("merge") || cli_args.is_present("execution-endpoint") {
+    if let Some(follow_distance) =
+        clap_utils::parse_optional(cli_args, "eth1-cache-follow-distance")?
+    {
+        client_config.eth1.cache_follow_distance = Some(follow_distance);
+    }
+
+    if cli_args.is_present("merge") || cli_args.is_present("execution-endpoints") {
         let mut el_config = execution_layer::Config::default();
 
         if let Some(endpoints) = cli_args.value_of("execution-endpoint") {

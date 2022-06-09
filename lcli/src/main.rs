@@ -6,6 +6,7 @@ mod create_payload_header;
 mod deploy_deposit_contract;
 mod eth1_genesis;
 mod generate_bootnode_enr;
+mod indexed_attestations;
 mod insecure_validators;
 mod interop_genesis;
 mod new_testnet;
@@ -102,7 +103,13 @@ fn main() {
                         .required(true)
                         .default_value("./output.ssz")
                         .help("Path to output a SSZ file."),
-                ),
+                )
+                .arg(
+                    Arg::with_name("no-signature-verification")
+                        .long("no-signature-verification")
+                        .takes_value(false)
+                        .help("Disable signature verification.")
+                )
         )
         .subcommand(
             SubCommand::with_name("pretty-ssz")
@@ -598,6 +605,26 @@ fn main() {
                         .help("The number of nodes to divide the validator keys to"),
                 )
         )
+        .subcommand(
+            SubCommand::with_name("indexed-attestations")
+                .about("Convert attestations to indexed form, using the committees from a state.")
+                .arg(
+                    Arg::with_name("state")
+                        .long("state")
+                        .value_name("SSZ_STATE")
+                        .takes_value(true)
+                        .required(true)
+                        .help("BeaconState to generate committees from (SSZ)"),
+                )
+                .arg(
+                    Arg::with_name("attestations")
+                        .long("attestations")
+                        .value_name("JSON_ATTESTATIONS")
+                        .takes_value(true)
+                        .required(true)
+                        .help("List of Attestations to convert to indexed form (JSON)"),
+                )
+        )
         .get_matches();
 
     let result = matches
@@ -679,6 +706,8 @@ fn run<T: EthSpec>(
             .map_err(|e| format!("Failed to run generate-bootnode-enr command: {}", e)),
         ("insecure-validators", Some(matches)) => insecure_validators::run(matches)
             .map_err(|e| format!("Failed to run insecure-validators command: {}", e)),
+        ("indexed-attestations", Some(matches)) => indexed_attestations::run::<T>(matches)
+            .map_err(|e| format!("Failed to run indexed-attestations command: {}", e)),
         (other, _) => Err(format!("Unknown subcommand {}. See --help.", other)),
     }
 }
