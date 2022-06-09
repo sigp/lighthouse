@@ -57,27 +57,56 @@ fn main() {
                     "Performs a state transition from some state across some number of skip slots",
                 )
                 .arg(
-                    Arg::with_name("pre-state")
-                        .value_name("BEACON_STATE")
+                    Arg::with_name("output-path")
+                        .long("output-path")
+                        .value_name("PATH")
                         .takes_value(true)
-                        .required(true)
+                        .help("Path to output a SSZ file."),
+                )
+                .arg(
+                    Arg::with_name("state-path")
+                        .long("state-path")
+                        .value_name("PATH")
+                        .takes_value(true)
+                        .conflicts_with("beacon-url")
                         .help("Path to a SSZ file of the pre-state."),
                 )
                 .arg(
-                    Arg::with_name("slots")
-                        .value_name("SLOT_COUNT")
+                    Arg::with_name("beacon-url")
+                        .long("beacon-url")
+                        .value_name("URL")
                         .takes_value(true)
-                        .required(true)
-                        .help("Number of slots to skip before outputting a state.."),
+                        .help("URL to a beacon-API provider."),
                 )
                 .arg(
-                    Arg::with_name("output")
-                        .value_name("SSZ_FILE")
+                    Arg::with_name("state-id")
+                        .long("state-id")
+                        .value_name("STATE_ID")
                         .takes_value(true)
-                        .required(true)
-                        .default_value("./output.ssz")
-                        .help("Path to output a SSZ file."),
-                ),
+                        .requires("beacon-url")
+                        .help("Identifier for a state as per beacon-API standards (slot, root, etc.)"),
+                )
+                .arg(
+                    Arg::with_name("runs")
+                        .long("runs")
+                        .value_name("INTEGER")
+                        .takes_value(true)
+                        .default_value("1")
+                        .help("Number of repeat runs, useful for benchmarking."),
+                )
+                .arg(
+                    Arg::with_name("slots")
+                        .long("slots")
+                        .value_name("INTEGER")
+                        .takes_value(true)
+                        .help("Number of slots to skip forward."),
+                )
+                .arg(
+                    Arg::with_name("partial-state-advance")
+                        .long("partial-state-advance")
+                        .takes_value(false)
+                        .help("If present, don't compute state roots when skipping forward."),
+                )
         )
         .subcommand(
             SubCommand::with_name("transition-blocks")
@@ -675,8 +704,9 @@ fn run<T: EthSpec>(
     match matches.subcommand() {
         ("transition-blocks", Some(matches)) => run_transition_blocks::<T>(testnet_dir, matches)
             .map_err(|e| format!("Failed to transition blocks: {}", e)),
-        ("skip-slots", Some(matches)) => skip_slots::run::<T>(testnet_dir, matches)
-            .map_err(|e| format!("Failed to skip slots: {}", e)),
+        ("skip-slots", Some(matches)) => {
+            skip_slots::run::<T>(env, matches).map_err(|e| format!("Failed to skip slots: {}", e))
+        }
         ("pretty-ssz", Some(matches)) => {
             run_parse_ssz::<T>(matches).map_err(|e| format!("Failed to pretty print hex: {}", e))
         }
