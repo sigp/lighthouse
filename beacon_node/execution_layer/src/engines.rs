@@ -234,7 +234,8 @@ impl Engines {
     pub async fn is_synced(&self) -> bool {
         *self.engine.state.read().await == EngineState::Synced
     }
-    /// Run the `EngineApi::upcheck` function if the node if offline.
+    /// Run the `EngineApi::upcheck` function if the node's last known state is not synced. This
+    /// might be used to recover the node if offline.
     pub async fn upcheck_not_synced(&self, logging: Logging) {
         let mut state_lock = self.engine.state.write().await;
         if *state_lock != EngineState::Synced {
