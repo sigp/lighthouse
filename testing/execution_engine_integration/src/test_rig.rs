@@ -68,7 +68,7 @@ impl<E: GenericExecutionEngine> TestRig<E> {
 
         let ee_b = {
             let execution_engine = ExecutionEngine::new(generic_engine);
-            let urls = vec![execution_engine.http_url()];
+            let urls = vec![execution_engine.http_auth_url()];
 
             let config = execution_layer::Config {
                 execution_endpoints: urls,
