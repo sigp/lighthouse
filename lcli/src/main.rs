@@ -95,6 +95,13 @@ fn main() {
                         .help("Number of repeat runs, useful for benchmarking."),
                 )
                 .arg(
+                    Arg::with_name("state-root")
+                        .long("state-root")
+                        .value_name("HASH256")
+                        .takes_value(true)
+                        .help("Tree hash root of the provided state, to avoid computing it."),
+                )
+                .arg(
                     Arg::with_name("slots")
                         .long("slots")
                         .value_name("INTEGER")

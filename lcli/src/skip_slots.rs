@@ -9,7 +9,7 @@ use std::fs::File;
 use std::io::prelude::*;
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
-use types::{BeaconState, CloneConfig, EthSpec};
+use types::{BeaconState, CloneConfig, EthSpec, Hash256};
 
 const HTTP_TIMEOUT: Duration = Duration::from_secs(10);
 
@@ -22,32 +22,39 @@ pub fn run<T: EthSpec>(mut env: Environment<T>, matches: &ArgMatches) -> Result<
     let beacon_url: Option<SensitiveUrl> = parse_optional(matches, "beacon-url")?;
     let runs: usize = parse_required(matches, "runs")?;
     let slots: u64 = parse_required(matches, "slots")?;
+    let cli_state_root: Option<Hash256> = parse_optional(matches, "state-root")?;
     let partial: bool = matches.is_present("partial-state-advance");
 
     info!("Using {} spec", T::spec_name());
     info!("Advancing {} slots", slots);
     info!("Doing {} runs", runs);
 
-    let mut state: BeaconState<T> = match (state_path, beacon_url) {
+    let (mut state, state_root) = match (state_path, beacon_url) {
         (Some(state_path), None) => {
             info!("State path: {:?}", state_path);
-            load_from_ssz_with(&state_path, spec, BeaconState::from_ssz_bytes)?
+            let state = load_from_ssz_with(&state_path, spec, BeaconState::from_ssz_bytes)?;
+            (state, None)
         }
         (None, Some(beacon_url)) => {
             let state_id: StateId = parse_required(matches, "state-id")?;
             let client = BeaconNodeHttpClient::new(beacon_url, Timeouts::set_all(HTTP_TIMEOUT));
-            executor
+            let state = executor
                 .handle()
                 .ok_or_else(|| "shut down in progress")?
                 .block_on(async move {
                     client
-                        .get_debug_beacon_states(state_id)
+                        .get_debug_beacon_states::<T>(state_id)
                         .await
                         .map_err(|e| format!("Failed to download state: {:?}", e))
                 })
                 .map_err(|e| format!("Failed to complete task: {:?}", e))?
                 .ok_or_else(|| format!("Unable to locate state at {:?}", state_id))?
-                .data
+                .data;
+            let state_root = match state_id {
+                StateId::Root(root) => Some(root),
+                _ => None,
+            };
+            (state, state_root)
         }
         _ => return Err("mut supply either --state-file or --beacon-url".into()),
     };
@@ -59,9 +66,13 @@ pub fn run<T: EthSpec>(mut env: Environment<T>, matches: &ArgMatches) -> Result<
         .build_all_caches(spec)
         .map_err(|e| format!("Unable to build caches: {:?}", e))?;
 
-    let state_root = state
-        .update_tree_hash_cache()
-        .map_err(|e| format!("Unable to build THC: {:?}", e))?;
+    let state_root = if let Some(root) = cli_state_root.or(state_root) {
+        root
+    } else {
+        state
+            .update_tree_hash_cache()
+            .map_err(|e| format!("Unable to build THC: {:?}", e))?
+    };
 
     for i in 0..runs {
         let mut state = state.clone_with(CloneConfig::committee_caches_only());
