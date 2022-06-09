@@ -420,31 +420,20 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                 BlockError::ParentUnknown(block) => {
                     self.search_parent(block, peer_id, cx);
                 }
-                BlockError::ExecutionPayloadError(e) => match e {
-                    ExecutionPayloadError::NoExecutionConnection
-                    | ExecutionPayloadError::RequestFailed(_) => {
-                        debug!(
-                            self.log,
-                            "Single block lookup failed. Execution layer is offline";
-                            "root" => %root,
-                            "error" => ?e
-                        );
-                    }
-                    err => {
-                        debug!(self.log,
-                            "Single block lookup failed. Invalid execution payload";
-                            "root" => %root,
-                            "peer_id" => %peer_id,
-                            "error" => ?err
-                        );
-                        cx.report_peer(
-                            peer_id,
-                            PeerAction::LowToleranceError,
-                            "single_block_lookup_failed_invalid_execution_payload",
-                        );
-                        req.register_failure();
-                    }
-                },
+
+                e @ BlockError::ExecutionPayloadError(ExecutionPayloadError::RequestFailed(_))
+                | e @ BlockError::ExecutionPayloadError(
+                    ExecutionPayloadError::NoExecutionConnection,
+                ) => {
+                    // These errors indicate that the execution layer is offline
+                    // and failed to validate the execution payload. Do not downscore peer.
+                    debug!(
+                        self.log,
+                        "Single block lookup failed. Execution layer is offline";
+                        "root" => %root,
+                        "error" => ?e
+                    );
+                }
                 other => {
                     warn!(self.log, "Peer sent invalid block in single block lookup"; "root" => %root, "error" => ?other, "peer_id" => %peer_id);
                     cx.report_peer(
@@ -531,34 +520,19 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                     }
                 }
             }
-            Err(BlockError::ExecutionPayloadError(e)) => match e {
-                ExecutionPayloadError::NoExecutionConnection
-                | ExecutionPayloadError::RequestFailed(_) => {
-                    debug!(
-                        self.log,
-                        "Parent lookup failed. Execution layer is offline";
-                        "outcome" => "pausing block lookup",
-                        "chain_hash" => %chain_hash,
-                        "error" => ?e
-                    );
-                }
-                err => {
-                    warn!(self.log,
-                        "Parent lookup failed. Invalid execution payload";
-                        "chain_hash" => %chain_hash,
-                        "peer_id" => %peer_id,
-                        "error" => ?err
-                    );
-                    cx.report_peer(
-                        peer_id,
-                        PeerAction::LowToleranceError,
-                        "parent_lookup_failed_invalid_execution_payload",
-                    );
-
-                    // Add this chain to cache of failed chains
-                    self.failed_chains.insert(chain_hash);
-                }
-            },
+            Err(e @ BlockError::ExecutionPayloadError(ExecutionPayloadError::RequestFailed(_)))
+            | Err(
+                e @ BlockError::ExecutionPayloadError(ExecutionPayloadError::NoExecutionConnection),
+            ) => {
+                // These errors indicate that the execution layer is offline
+                // and failed to validate the execution payload. Do not downscore peer.
+                debug!(
+                    self.log,
+                    "Parent lookup failed. Execution layer is offline";
+                    "chain_hash" => %chain_hash,
+                    "error" => ?e
+                );
+            }
             Err(outcome) => {
                 // all else we consider the chain a failure and downvote the peer that sent
                 // us the last block
