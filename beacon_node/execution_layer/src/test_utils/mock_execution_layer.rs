@@ -41,8 +41,10 @@ impl<T: EthSpec> MockExecutionLayer<T> {
         spec.terminal_block_hash = terminal_block_hash;
         spec.terminal_block_hash_activation_epoch = terminal_block_hash_activation_epoch;
 
+        let jwt_key = JwtKey::random();
         let server = MockServer::new(
             &handle,
+            jwt_key,
             terminal_total_difficulty,
             terminal_block,
             terminal_block_hash,

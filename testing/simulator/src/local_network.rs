@@ -18,6 +18,9 @@ pub const INVALID_ADDRESS: &str = "http://127.0.0.1:42423";
 
 pub const EXECUTION_PORT: u16 = 4000;
 
+pub const TERMINAL_DIFFICULTY: u64 = 3200;
+pub const TERMINAL_BLOCK: u64 = 32;
+
 /// Helper struct to reduce `Arc` usage.
 pub struct Inner<E: EthSpec> {
     pub context: RuntimeContext<E>,
@@ -128,6 +131,8 @@ impl<E: EthSpec> LocalNetwork<E> {
                         listen_port: EXECUTION_PORT + count,
                         ..Default::default()
                     },
+                    terminal_block: TERMINAL_BLOCK,
+                    terminal_difficulty: TERMINAL_DIFFICULTY.into(),
                     ..Default::default()
                 };
                 Some(MockServer::new_with_config(

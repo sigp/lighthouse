@@ -55,6 +55,15 @@ impl<E: EthSpec> LocalBeaconNode<E> {
 
         if let Some(el_config) = &mut client_config.execution_layer {
             el_config.default_datadir = client_config.data_dir.clone();
+            let file_path = el_config.default_datadir.join("jwt.hex");
+
+            if let Err(e) = std::fs::write(
+                &file_path,
+                execution_node.as_ref().unwrap().ctx.jwt_key.hex_string(),
+            ) {
+                panic!("Failed to write jwt file {}", e);
+            }
+            el_config.secret_files = vec![file_path];
             el_config.execution_endpoints = vec![SensitiveUrl::parse(
                 &execution_node
                     .as_ref()

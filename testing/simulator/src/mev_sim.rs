@@ -1,4 +1,8 @@
-use crate::{checks, local_network::EXECUTION_PORT, LocalNetwork};
+use crate::{
+    checks,
+    local_network::{EXECUTION_PORT, TERMINAL_BLOCK, TERMINAL_DIFFICULTY},
+    LocalNetwork,
+};
 use clap::ArgMatches;
 use futures::prelude::*;
 use node_test_rig::{
@@ -19,9 +23,6 @@ const BELLATRIX_FORK_EPOCH: u64 = 0;
 
 const SUGGESTED_FEE_RECIPIENT: [u8; 20] =
     [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1];
-
-pub const TERMINAL_DIFFICULTY: u64 = 3200;
-pub const TERMINAL_BLOCK: u64 = 32;
 
 pub fn run_no_eth1_sim(matches: &ArgMatches) -> Result<(), String> {
     let node_count = value_t!(matches, "nodes", usize).expect("missing nodes default");
@@ -117,6 +118,8 @@ pub fn run_no_eth1_sim(matches: &ArgMatches) -> Result<(), String> {
                 listen_port: EXECUTION_PORT,
                 ..Default::default()
             },
+            terminal_block: TERMINAL_BLOCK,
+            terminal_difficulty: TERMINAL_DIFFICULTY.into(),
             ..Default::default()
         };
         let network = LocalNetwork::new(
@@ -146,7 +149,7 @@ pub fn run_no_eth1_sim(matches: &ArgMatches) -> Result<(), String> {
                     validator_config.fee_recipient = Some(SUGGESTED_FEE_RECIPIENT.into());
                     println!("Adding validator client {}", i);
                     network_1
-                        .add_validator_client(testing_validator_config(), i, files, i % 2 == 0)
+                        .add_validator_client(validator_config, i, files, i % 2 == 0)
                         .await
                         .expect("should add validator");
                 },
@@ -164,7 +167,7 @@ pub fn run_no_eth1_sim(matches: &ArgMatches) -> Result<(), String> {
             async move {
                 println!("Mining pow blocks");
                 let mut interval = tokio::time::interval(Duration::from_secs(seconds_per_slot));
-                for i in 1..=TERMINAL_BLOCK {
+                for i in 1..=TERMINAL_BLOCK + 1 {
                     interval.tick().await;
                     let _ = network_2.mine_pow_blocks(i);
                 }
