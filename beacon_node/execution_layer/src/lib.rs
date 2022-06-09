@@ -165,6 +165,9 @@ impl ExecutionLayer {
             default_datadir,
         } = config;
 
+        if urls.len() > 1 {
+            info!(log, "Only the first execution engine url will be used");
+        }
         let execution_url = urls.into_iter().next().ok_or(Error::NoEngines)?;
 
         // Use the default jwt secret path if not provided via cli.
