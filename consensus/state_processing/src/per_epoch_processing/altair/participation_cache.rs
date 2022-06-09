@@ -121,13 +121,14 @@ impl SingleEpochParticipationCache {
         &mut self,
         val_index: usize,
         state: &BeaconState<T>,
+        current_epoch: Epoch,
         relative_epoch: RelativeEpoch,
     ) -> Result<(), BeaconStateError> {
         let val_balance = state.get_effective_balance(val_index)?;
         let validator = state.get_validator(val_index)?;
 
         // Sanity check to ensure the validator is active.
-        let epoch = relative_epoch.into_epoch(state.current_epoch());
+        let epoch = relative_epoch.into_epoch(current_epoch);
         if !validator.is_active_at(epoch) {
             return Err(BeaconStateError::ValidatorIsInactive { val_index });
         }
@@ -224,6 +225,7 @@ impl ParticipationCache {
                 current_epoch_participation.process_active_validator(
                     val_index,
                     state,
+                    current_epoch,
                     RelativeEpoch::Current,
                 )?;
             }
@@ -232,6 +234,7 @@ impl ParticipationCache {
                 previous_epoch_participation.process_active_validator(
                     val_index,
                     state,
+                    current_epoch,
                     RelativeEpoch::Previous,
                 )?;
             }

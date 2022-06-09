@@ -21,6 +21,25 @@ pub fn get_base_reward<T: EthSpec>(
 
 /// Returns the base reward for some validator.
 ///
+/// The function is "optimised" since it accepts the `base_reward_per_increment` without computing
+/// it each time.
+///
+/// Spec v1.1.0
+pub fn get_base_reward_optimised<T: EthSpec>(
+    state: &BeaconState<T>,
+    index: usize,
+    base_reward_per_increment: u64,
+    spec: &ChainSpec,
+) -> Result<u64, Error> {
+    state
+        .get_effective_balance(index)?
+        .safe_div(spec.effective_balance_increment)?
+        .safe_mul(base_reward_per_increment)
+        .map_err(Into::into)
+}
+
+/// Returns the base reward for some validator.
+///
 /// Spec v1.1.0
 pub fn get_base_reward_per_increment(
     total_active_balance: u64,
