@@ -60,7 +60,7 @@ impl JwtKey {
     }
 }
 
-fn strip_prefix(s: &str) -> &str {
+pub fn strip_prefix(s: &str) -> &str {
     if let Some(stripped) = s.strip_prefix("0x") {
         stripped
     } else {
