@@ -186,7 +186,6 @@ impl Engines {
     }
 
     async fn send_latest_forkchoice_state(&self) {
-        let engine = &self.engine;
         let latest_forkchoice_state = self.get_latest_forkchoice_state().await;
 
         if let Some(forkchoice_state) = latest_forkchoice_state {
@@ -195,7 +194,7 @@ impl Engines {
                     self.log,
                     "No need to call forkchoiceUpdated";
                     "msg" => "head does not have execution enabled",
-                    "id" => &engine.id,
+                    "id" => &self.engine.id,
                 );
                 return;
             }
@@ -204,12 +203,13 @@ impl Engines {
                 self.log,
                 "Issuing forkchoiceUpdated";
                 "forkchoice_state" => ?forkchoice_state,
-                "id" => &engine.id,
+                "id" => &self.engine.id,
             );
 
             // For simplicity, payload attributes are never included in this call. It may be
             // reasonable to include them in the future.
-            if let Err(e) = engine
+            if let Err(e) = self
+                .engine
                 .api
                 .forkchoice_updated_v1(forkchoice_state, None)
                 .await
@@ -218,14 +218,14 @@ impl Engines {
                     self.log,
                     "Failed to issue latest head to engine";
                     "error" => ?e,
-                    "id" => &engine.id,
+                    "id" => &self.engine.id,
                 );
             }
         } else {
             debug!(
                 self.log,
                 "No head, not sending to engine";
-                "id" => &engine.id,
+                "id" => &self.engine.id,
             );
         }
     }
@@ -336,38 +336,37 @@ impl Engines {
     {
         let mut errors = vec![];
 
-        let engine = &self.engine;
         let (engine_synced, engine_auth_failed) = {
-            let state = engine.state.read().await;
+            let state = self.engine.state.read().await;
             (
                 *state == EngineState::Synced,
                 *state == EngineState::AuthFailed,
             )
         };
         if engine_synced {
-            match func(engine).await {
+            match func(&self.engine).await {
                 Ok(result) => return Ok(result),
                 Err(error) => {
                     debug!(
                         self.log,
                         "Execution engine call failed";
                         "error" => ?error,
-                        "id" => &engine.id
+                        "id" => &&self.engine.id
                     );
-                    *engine.state.write().await = EngineState::Offline;
+                    *self.engine.state.write().await = EngineState::Offline;
                     errors.push(EngineError::Api {
-                        id: engine.id.clone(),
+                        id: self.engine.id.clone(),
                         error,
                     })
                 }
             }
         } else if engine_auth_failed {
             errors.push(EngineError::Auth {
-                id: engine.id.clone(),
+                id: self.engine.id.clone(),
             })
         } else {
             errors.push(EngineError::Offline {
-                id: engine.id.clone(),
+                id: self.engine.id.clone(),
             })
         }
 
