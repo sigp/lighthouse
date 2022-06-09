@@ -288,9 +288,7 @@ impl Engines {
             }
         }
 
-        let is_synced = *state_lock == EngineState::Synced;
-
-        if is_synced && logging.is_enabled() {
+        if *state_lock != EngineState::Synced && logging.is_enabled() {
             crit!(
                 self.log,
                 "No synced execution engines";
