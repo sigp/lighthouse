@@ -35,7 +35,7 @@ pub fn process_epoch<T: EthSpec>(
     // Justification and finalization.
     process_justification_and_finalization(state, &participation_cache)?;
 
-    process_inactivity_updates(state, &participation_cache, spec)?;
+    process_inactivity_updates(state, &mut participation_cache, spec)?;
 
     // Rewards and Penalties.
     process_rewards_and_penalties(state, &participation_cache, spec)?;

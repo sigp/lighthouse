@@ -9,13 +9,22 @@ use types::eth_spec::EthSpec;
 
 pub fn process_inactivity_updates<T: EthSpec>(
     state: &mut BeaconState<T>,
-    participation_cache: &ParticipationCache,
+    participation_cache: &mut ParticipationCache,
     spec: &ChainSpec,
 ) -> Result<(), EpochProcessingError> {
     // Score updates based on previous epoch participation, skip genesis epoch
     if state.current_epoch() == T::genesis_epoch() {
         return Ok(());
     }
+
+    // Fast path: inactivity scores have already been pre-computed.
+    if let Some(inactivity_score_updates) = participation_cache.inactivity_score_updates.take() {
+        state
+            .inactivity_scores_mut()?
+            .bulk_update(inactivity_score_updates)?;
+        return Ok(());
+    }
+
     let is_in_inactivity_leak = state.is_in_inactivity_leak(spec);
 
     let mut inactivity_scores = state.inactivity_scores_mut()?.iter_cow();
