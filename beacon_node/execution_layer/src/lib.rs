@@ -176,10 +176,9 @@ impl ExecutionLayer {
             .next()
             .unwrap_or_else(|| default_datadir.join(DEFAULT_JWT_FILE));
 
-        let jwt_path = secret_file.to_path_buf();
         let jwt_key = if secret_file.exists() {
             // Read secret from file if it already exists
-            std::fs::read_to_string(secret_file)
+            std::fs::read_to_string(&secret_file)
                 .map_err(|e| format!("Failed to read JWT secret file. Error: {:?}", e))
                 .and_then(|ref s| {
                     let secret = JwtKey::from_slice(
@@ -194,7 +193,7 @@ impl ExecutionLayer {
             std::fs::File::options()
                 .write(true)
                 .create_new(true)
-                .open(secret_file)
+                .open(&secret_file)
                 .map_err(|e| format!("Failed to open JWT secret file. Error: {:?}", e))
                 .and_then(|mut f| {
                     let secret = auth::JwtKey::random();
@@ -207,8 +206,8 @@ impl ExecutionLayer {
 
         let engine: Engine<EngineApi> = {
             let id = execution_url.to_string();
-            let auth = Auth::new(jwt_key, jwt_id.clone(), jwt_version.clone());
-            debug!(log, "Loaded execution endpoint"; "endpoint" => %id, "jwt_path" => ?jwt_path);
+            let auth = Auth::new(jwt_key, jwt_id, jwt_version);
+            debug!(log, "Loaded execution endpoint"; "endpoint" => %id, "jwt_path" => ?secret_file.as_path());
             let api = HttpJsonRpc::<EngineApi>::new_with_auth(execution_url, auth)
                 .map_err(Error::ApiError)?;
             Engine::<EngineApi>::new(id, api)
@@ -913,6 +912,7 @@ impl ExecutionLayer {
             .await;
 
         let mut errors = vec![];
+        // Having no fallbacks, the id of the used node is 0
         let i = 0usize;
         match broadcast_result {
             Ok(remote) => {
