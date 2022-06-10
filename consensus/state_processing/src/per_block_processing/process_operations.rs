@@ -1,7 +1,8 @@
 use super::*;
 use crate::common::{
-    altair::get_base_reward, get_attestation_participation_flag_indices, increase_balance,
-    initiate_validator_exit, slash_validator,
+    altair::{get_base_reward, BaseRewardPerIncrement},
+    get_attestation_participation_flag_indices, increase_balance, initiate_validator_exit,
+    slash_validator,
 };
 use crate::per_block_processing::errors::{BlockProcessingError, IntoWithIndex};
 use crate::VerifySignatures;
@@ -128,6 +129,7 @@ pub mod altair {
 
         // Update epoch participation flags.
         let total_active_balance = state.get_total_active_balance()?;
+        let base_reward_per_increment = BaseRewardPerIncrement::new(total_active_balance, spec)?;
         let mut proposer_reward_numerator = 0;
         for index in &indexed_attestation.attesting_indices {
             let index = *index as usize;
@@ -143,7 +145,7 @@ pub mod altair {
                 {
                     validator_participation.add_flag(flag_index)?;
                     proposer_reward_numerator.safe_add_assign(
-                        get_base_reward(state, index, total_active_balance, spec)?
+                        get_base_reward(state, index, base_reward_per_increment, spec)?
                             .safe_mul(weight)?,
                     )?;
                 }
