@@ -76,7 +76,8 @@ struct SingleEpochParticipationCache {
 }
 
 impl SingleEpochParticipationCache {
-    fn instantiate(num_validators: usize, spec: &ChainSpec) -> Self {
+    fn new<T: EthSpec>(state: &BeaconState<T>, spec: &ChainSpec) -> Self {
+        let num_validators = state.validators().len();
         let zero_balance = Balance::zero(spec.effective_balance_increment);
 
         Self {
@@ -199,10 +200,8 @@ impl ParticipationCache {
 
         // Both the current/previous epoch participations are set to a capacity that is slightly
         // larger than required. The difference will be due slashed-but-active validators.
-        let mut current_epoch_participation =
-            SingleEpochParticipationCache::instantiate(state.validators().len(), spec);
-        let mut previous_epoch_participation =
-            SingleEpochParticipationCache::instantiate(state.validators().len(), spec);
+        let mut current_epoch_participation = SingleEpochParticipationCache::new(state, spec);
+        let mut previous_epoch_participation = SingleEpochParticipationCache::new(state, spec);
         // Contains the set of validators which are either:
         //
         // - Active in the previous epoch.
