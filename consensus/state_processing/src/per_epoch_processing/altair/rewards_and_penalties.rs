@@ -73,7 +73,7 @@ pub fn get_flag_index_deltas<T: EthSpec>(
     let base_reward_per_increment = get_base_reward_per_increment(total_active_balance, spec)?;
 
     for &index in participation_cache.eligible_validator_indices() {
-        let base_reward = get_base_reward_optimised(state, index, base_reward_per_increment, spec)?;
+        let base_reward = get_base_reward_optimised(state, base_reward_per_increment, index, spec)?;
         let mut delta = Delta::default();
 
         if unslashed_participating_indices.contains(index as usize)? {

@@ -27,8 +27,8 @@ pub fn get_base_reward<T: EthSpec>(
 /// Spec v1.1.0
 pub fn get_base_reward_optimised<T: EthSpec>(
     state: &BeaconState<T>,
-    index: usize,
     base_reward_per_increment: u64,
+    index: usize,
     spec: &ChainSpec,
 ) -> Result<u64, Error> {
     state
