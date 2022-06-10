@@ -241,25 +241,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // Alias for readability.
         let new_head = &canonical_head_read_lock.head_snapshot;
 
-        // Update the execution layer since either the head or some finality parameters have
-        // changed.
-        //
-        // Since we're spawning these tasks here *without* awaiting them, they'll happen
-        // concurrently with the other calls in this function (e.g., cleaning caches and migrating
-        // things from the hot database into the cold database).
-        //
-        // Notably, we're spawning these tasks whilst holding a read-lock on `self.canonical_head`.
-        // There is a scenario where these spawned tasks will try to take a write-lock on
-        // `self.canonical_head` (e.g., when the execution status of a block changes). Whilst some
-        // lock contention might arise, this won't deadlock as long as we drop the read-lock on
-        // `self.canonical_head` before waiting for these tasks to complete.
-        let forkchoice_update_parameters = canonical_head_read_lock
-            .fork_choice
-            .get_forkchoice_update_parameters()
-            .ok_or(Error::ForkchoiceUpdateParamsMissing)?;
-        let el_update_handle =
-            spawn_execution_layer_updates(self.clone(), forkchoice_update_parameters)?;
-
         // If the head changed, perform some updates.
         if let Some((old_head, new_head_proto_block)) = &head_update_params {
             if let Err(e) = self.after_new_head(old_head, new_head, new_head_proto_block) {
@@ -282,10 +263,20 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             }
         }
 
-        // The read-lock on the canonical head *MUST* be dropped before awaiting the completion of
-        // the execution layer updates. Those updates might try to take a write-lock on the head, so
-        // holding the read-lock until they complete may result in a **deadlock**.
+        // Get the parameters toupdate the execution layer since either the head or some finality
+        // parameters have changed.
+        let forkchoice_update_parameters = canonical_head_read_lock
+            .fork_choice
+            .get_forkchoice_update_parameters()
+            .ok_or(Error::ForkchoiceUpdateParamsMissing)?;
+
+        // The read-lock on the canonical head *MUST* be dropped before spawning the execution
+        // layer update tasks since they might try to take a write-lock on the canonical head.
         drop(canonical_head_read_lock);
+
+        // The read-lock on the canonical head *MUST* be dropped before this call since it might try to take a write-lock on the canonical head.
+        let el_update_handle =
+            spawn_execution_layer_updates(self.clone(), forkchoice_update_parameters)?;
 
         Ok(Some(el_update_handle))
     }
