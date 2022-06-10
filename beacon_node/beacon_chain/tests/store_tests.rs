@@ -1987,40 +1987,45 @@ async fn pruning_test(
     check_no_blocks_exist(&harness, stray_blocks.values());
 }
 
-#[tokio::test]
-async fn garbage_collect_temp_states_from_failed_block() {
+#[test]
+fn garbage_collect_temp_states_from_failed_block() {
     let db_path = tempdir().unwrap();
     let store = get_store(&db_path);
     let harness = get_harness(store.clone(), LOW_VALIDATOR_COUNT);
-    let slots_per_epoch = E::slots_per_epoch();
 
-    let genesis_state = harness.get_current_state();
-    let block_slot = Slot::new(2 * slots_per_epoch);
-    let (signed_block, state) = harness.make_block(genesis_state, block_slot).await;
+    // Use a `block_on_dangerous` rather than an async test to stop spawned processes from holding
+    // a reference to the store.
+    harness.chain.task_executor.clone().block_on_dangerous(
+        async move {
+            let slots_per_epoch = E::slots_per_epoch();
 
-    let (mut block, _) = signed_block.deconstruct();
+            let genesis_state = harness.get_current_state();
+            let block_slot = Slot::new(2 * slots_per_epoch);
+            let (signed_block, state) = harness.make_block(genesis_state, block_slot).await;
 
-    // Mutate the block to make it invalid, and re-sign it.
-    *block.state_root_mut() = Hash256::repeat_byte(0xff);
-    let proposer_index = block.proposer_index() as usize;
-    let block = block.sign(
-        &harness.validator_keypairs[proposer_index].sk,
-        &state.fork(),
-        state.genesis_validators_root(),
-        &harness.spec,
+            let (mut block, _) = signed_block.deconstruct();
+
+            // Mutate the block to make it invalid, and re-sign it.
+            *block.state_root_mut() = Hash256::repeat_byte(0xff);
+            let proposer_index = block.proposer_index() as usize;
+            let block = block.sign(
+                &harness.validator_keypairs[proposer_index].sk,
+                &state.fork(),
+                state.genesis_validators_root(),
+                &harness.spec,
+            );
+
+            // The block should be rejected, but should store a bunch of temporary states.
+            harness.set_current_slot(block_slot);
+            harness.process_block_result(block).await.unwrap_err();
+
+            assert_eq!(
+                store.iter_temporary_state_roots().count(),
+                block_slot.as_usize() - 1
+            );
+        },
+        "test",
     );
-
-    // The block should be rejected, but should store a bunch of temporary states.
-    harness.set_current_slot(block_slot);
-    harness.process_block_result(block).await.unwrap_err();
-
-    assert_eq!(
-        store.iter_temporary_state_roots().count(),
-        block_slot.as_usize() - 1
-    );
-
-    drop(harness);
-    drop(store);
 
     // On startup, the store should garbage collect all the temporary states.
     let store = get_store(&db_path);
