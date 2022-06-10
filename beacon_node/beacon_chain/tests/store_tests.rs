@@ -2089,6 +2089,7 @@ async fn weak_subjectivity_sync() {
         BeaconChainBuilder::new(MinimalEthSpec)
             .store(store.clone())
             .custom_spec(test_spec::<E>())
+            .task_executor(harness.chain.task_executor.clone())
             .weak_subjectivity_state(wss_state, wss_block.clone(), genesis_state)
             .unwrap()
             .logger(log.clone())
