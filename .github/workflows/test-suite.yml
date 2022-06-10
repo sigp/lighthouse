@@ -268,7 +268,7 @@ jobs:
         cargo build --release --bin cargo-clippy --bin clippy-driver
         cargo build --release --bin cargo-clippy --bin clippy-driver -Zunstable-options --out-dir $(rustc --print=sysroot)/bin
     - name: Run Clippy with the disallowed-from-async lint
-      run: make nightly_lint
+      run: make nightly-lint
   check-msrv:
     name: check-msrv
     runs-on: ubuntu-latest

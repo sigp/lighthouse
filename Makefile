@@ -147,7 +147,7 @@ lint:
 		-A clippy::vec-init-then-push
 
 # FIXME: fails if --release is added due to broken HTTP API tests
-nightly_lint:
+nightly-lint:
 	cp .github/custom/clippy.toml .
 	cargo +$(CLIPPY_PINNED_NIGHTLY) clippy --workspace --tests -- \
 		-A clippy::all \
