@@ -18,30 +18,6 @@ use task_executor::{JoinHandle, ShutdownReason};
 use types::*;
 
 impl<T: BeaconChainTypes> BeaconChain<T> {
-    /*
-    pub fn spawn_recompute_head_at_current_slot(self: Arc<Self>, call_location: &'static str) {
-        self.task_executor.clone().spawn(
-            async move {
-                if let Err(e) = self.recompute_head_at_current_slot().await {
-                    error!(
-                        self.log,
-                        "Fork choice failed";
-                        "error" => ?e,
-                        "location" => call_location
-                    )
-                } else {
-                    trace!(
-                        self.log,
-                        "Fork choice success";
-                        "location" => call_location
-                    )
-                }
-            },
-            "spawn_recompute_head",
-        )
-    }
-    */
-
     /// Execute the fork choice algorithm and enthrone the result as the canonical head.
     pub async fn recompute_head_at_current_slot(self: &Arc<Self>) -> Result<(), Error> {
         let current_slot = self.slot()?;
