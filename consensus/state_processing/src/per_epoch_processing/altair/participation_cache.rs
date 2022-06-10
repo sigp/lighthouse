@@ -315,20 +315,20 @@ impl ParticipationCache {
      * Active/Unslashed
      */
 
-    pub fn is_active_unslashed_in_previous_epoch(&self, val_index: usize) -> bool {
+    /// Returns `None` for an unknown `val_index`.
+    pub fn is_active_unslashed_in_previous_epoch(&self, val_index: usize) -> Option<bool> {
         self.previous_epoch_participation
             .unslashed_participating_indices
             .get(val_index)
-            // TODO(paul): map_or should be an Err.
-            .map_or(false, |flags| flags.is_some())
+            .map(|flags| flags.is_some())
     }
 
-    pub fn is_active_unslashed_in_current_epoch(&self, val_index: usize) -> bool {
+    /// Returns `None` for an unknown `val_index`.
+    pub fn is_active_unslashed_in_current_epoch(&self, val_index: usize) -> Option<bool> {
         self.current_epoch_participation
             .unslashed_participating_indices
             .get(val_index)
-            // TODO(paul): map_or should be an Err.
-            .map_or(false, |flags| flags.is_some())
+            .map(|flags| flags.is_some())
     }
 
     /*
