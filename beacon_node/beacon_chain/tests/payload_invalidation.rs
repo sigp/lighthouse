@@ -980,14 +980,14 @@ async fn payload_preparation() {
     let fee_recipient = Address::repeat_byte(99);
 
     // Provide preparation data to the EL for `proposer`.
-    el.update_proposer_preparation_blocking(
+    el.update_proposer_preparation(
         Epoch::new(1),
         &[ProposerPreparationData {
             validator_index: proposer as u64,
             fee_recipient,
         }],
     )
-    .unwrap();
+    .await;
 
     rig.harness
         .chain
@@ -1082,16 +1082,14 @@ async fn payload_preparation_before_transition_block() {
     let el = rig.execution_layer();
 
     let head = rig.harness.chain.head().unwrap();
-    let head_execution_status = rig
-        .harness
-        .chain
-        .canonical_head
-        .read()
-        .head_execution_status()
-        .unwrap();
     assert_eq!(
-        head_execution_status.block_hash(),
-        Some(ExecutionBlockHash::zero()),
+        head.beacon_block
+            .message()
+            .body()
+            .execution_payload()
+            .unwrap()
+            .block_hash(),
+        ExecutionBlockHash::zero(),
         "the head block is post-bellatrix but pre-transition"
     );
 
@@ -1104,14 +1102,14 @@ async fn payload_preparation_before_transition_block() {
     let fee_recipient = Address::repeat_byte(99);
 
     // Provide preparation data to the EL for `proposer`.
-    el.update_proposer_preparation_blocking(
+    el.update_proposer_preparation(
         Epoch::new(0),
         &[ProposerPreparationData {
             validator_index: proposer as u64,
             fee_recipient,
         }],
     )
-    .unwrap();
+    .await;
 
     rig.move_to_terminal_block();
 

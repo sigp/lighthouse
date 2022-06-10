@@ -447,19 +447,7 @@ impl ExecutionLayer {
     }
 
     /// Updates the proposer preparation data provided by validators
-    pub fn update_proposer_preparation_blocking(
-        &self,
-        update_epoch: Epoch,
-        preparation_data: &[ProposerPreparationData],
-    ) -> Result<(), Error> {
-        self.block_on_generic(|_| async move {
-            self.update_proposer_preparation(update_epoch, preparation_data)
-                .await
-        })
-    }
-
-    /// Updates the proposer preparation data provided by validators
-    async fn update_proposer_preparation(
+    pub async fn update_proposer_preparation(
         &self,
         update_epoch: Epoch,
         preparation_data: &[ProposerPreparationData],
