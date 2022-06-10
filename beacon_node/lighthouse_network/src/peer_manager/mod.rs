@@ -457,10 +457,7 @@ impl<TSpec: EthSpec> PeerManager<TSpec> {
                 debug!(self.log, "Internal RPC Error"; "error" => %e, "peer_id" => %peer_id);
                 return;
             }
-            RPCError::HandlerRejected => {
-                // Our fault. Do nothing
-                return;
-            }
+            RPCError::HandlerRejected => PeerAction::Fatal,
             RPCError::InvalidData(_) => {
                 // Peer is not complying with the protocol. This is considered a malicious action
                 PeerAction::Fatal

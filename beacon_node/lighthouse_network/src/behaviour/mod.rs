@@ -1006,9 +1006,6 @@ where
                         proto,
                         error,
                     } => {
-                        if matches!(error, RPCError::HandlerRejected) {
-                            // this peer's request got canceled
-                        }
                         // Inform the peer manager of the error.
                         // An inbound error here means we sent an error to the peer, or the stream
                         // timed out.
