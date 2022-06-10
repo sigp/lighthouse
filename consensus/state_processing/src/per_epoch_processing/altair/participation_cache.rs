@@ -240,7 +240,7 @@ impl ParticipationCache {
 
             // Note: a validator might still be "eligible" whilst returning `false` to
             // `Validator::is_active_at`.
-            if state.is_eligible_validator(val_index)? {
+            if state.is_eligible_validator(previous_epoch, val_index)? {
                 eligible_indices.push(val_index)
             }
         }
