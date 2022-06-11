@@ -286,31 +286,6 @@ impl ExecutionLayer {
         self.inner.execution_engine_forkchoice_lock.lock().await
     }
 
-    /// Convenience function to allow calling async functions in a non-async context.
-    pub fn block_on<'a, T, U, V>(&'a self, generate_future: T) -> Result<V, Error>
-    where
-        T: Fn(&'a Self) -> U,
-        U: Future<Output = Result<V, Error>>,
-    {
-        let runtime = self.executor().handle().ok_or(Error::ShuttingDown)?;
-        // TODO(merge): respect the shutdown signal.
-        runtime.block_on(generate_future(self))
-    }
-
-    /// Convenience function to allow calling async functions in a non-async context.
-    ///
-    /// The function is "generic" since it does not enforce a particular return type on
-    /// `generate_future`.
-    pub fn block_on_generic<'a, T, U, V>(&'a self, generate_future: T) -> Result<V, Error>
-    where
-        T: Fn(&'a Self) -> U,
-        U: Future<Output = V>,
-    {
-        let runtime = self.executor().handle().ok_or(Error::ShuttingDown)?;
-        // TODO(merge): respect the shutdown signal.
-        Ok(runtime.block_on(generate_future(self)))
-    }
-
     /// Convenience function to allow spawning a task without waiting for the result.
     pub fn spawn<T, U>(&self, generate_future: T, name: &'static str)
     where
