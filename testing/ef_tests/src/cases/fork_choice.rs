@@ -17,8 +17,8 @@ use std::future::Future;
 use std::sync::Arc;
 use std::time::Duration;
 use types::{
-    Attestation, BeaconBlock, BeaconState, Checkpoint, Epoch, EthSpec, ExecutionBlockHash,
-    ForkName, Hash256, IndexedAttestation, SignedBeaconBlock, Slot, Uint256,
+    Attestation, BeaconBlock, BeaconState, Checkpoint, EthSpec, ExecutionBlockHash, ForkName,
+    Hash256, IndexedAttestation, SignedBeaconBlock, Slot, Uint256,
 };
 
 #[derive(Default, Debug, PartialEq, Clone, Deserialize, Decode)]
@@ -306,10 +306,6 @@ impl<E: EthSpec> Tester<E> {
         Ok(self.harness.chain.canonical_head.read())
     }
 
-    fn genesis_epoch(&self) -> Epoch {
-        self.spec.genesis_slot.epoch(E::slots_per_epoch())
-    }
-
     pub fn set_tick(&self, tick: u64) {
         self.harness
             .chain
@@ -471,12 +467,7 @@ impl<E: EthSpec> Tester<E> {
             .fork_choice
             .justified_checkpoint();
 
-        assert_checkpoints_eq(
-            "justified_checkpoint",
-            self.genesis_epoch(),
-            head_checkpoint,
-            fc_checkpoint,
-        );
+        assert_checkpoints_eq("justified_checkpoint", head_checkpoint, fc_checkpoint);
 
         check_equal("justified_checkpoint", fc_checkpoint, expected_checkpoint)
     }
@@ -494,12 +485,7 @@ impl<E: EthSpec> Tester<E> {
             .fork_choice
             .justified_checkpoint();
 
-        assert_checkpoints_eq(
-            "justified_checkpoint_root",
-            self.genesis_epoch(),
-            head_checkpoint,
-            fc_checkpoint,
-        );
+        assert_checkpoints_eq("justified_checkpoint_root", head_checkpoint, fc_checkpoint);
 
         check_equal(
             "justified_checkpoint_root",
@@ -518,12 +504,7 @@ impl<E: EthSpec> Tester<E> {
             .fork_choice
             .finalized_checkpoint();
 
-        assert_checkpoints_eq(
-            "finalized_checkpoint",
-            self.genesis_epoch(),
-            head_checkpoint,
-            fc_checkpoint,
-        );
+        assert_checkpoints_eq("finalized_checkpoint", head_checkpoint, fc_checkpoint);
 
         check_equal("finalized_checkpoint", fc_checkpoint, expected_checkpoint)
     }
@@ -571,20 +552,8 @@ impl<E: EthSpec> Tester<E> {
 /// This function is necessary due to a quirk documented in this issue:
 ///
 /// https://github.com/ethereum/consensus-specs/issues/2566
-fn assert_checkpoints_eq(name: &str, genesis_epoch: Epoch, head: Checkpoint, fc: Checkpoint) {
-    if fc.epoch == genesis_epoch {
-        assert_eq!(
-            head,
-            Checkpoint {
-                epoch: genesis_epoch,
-                root: Hash256::zero()
-            },
-            "{} (genesis)",
-            name
-        )
-    } else {
-        assert_eq!(head, fc, "{} (non-genesis)", name)
-    }
+fn assert_checkpoints_eq(name: &str, head: Checkpoint, fc: Checkpoint) {
+    assert_eq!(head, fc, "{}", name)
 }
 
 /// Convenience function to create `Error` messages.
