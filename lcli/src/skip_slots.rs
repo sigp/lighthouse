@@ -1,3 +1,49 @@
+//! # Skip-Slots
+//!
+//! Use this tool to process a `BeaconState` through empty slots. Useful for benchmarking or
+//! Troubleshooting consensus failures.
+//!
+//! It can load states from file or pull them from a beaconAPI. States pulled from a beaconAPI can
+//! be saved to disk to reduce future calls to that server.
+//!
+//! ## Examples
+//!
+//! ### Example 1.
+//!
+//! Download a state from a HTTP endpoint and skip forward an epoch, twice (the initial state is
+//! advanced 32 slots twice, rather than it being advanced 64 slots):
+//!
+//! ```ignore
+//! lcli skip-slots \
+//!     --beacon-url http://localhost:5052 \
+//!     --state-id 0x3cdc33cd02713d8d6cc33a6dbe2d3a5bf9af1d357de0d175a403496486ff845e \\
+//!     --slots 32 \
+//!     --runs 2
+//! ```
+//!
+//! ### Example 2.
+//!
+//! Download a state to a SSZ file (without modifying it):
+//!
+//! ```ignore
+//! lcli skip-slots \
+//!     --beacon-url http://localhost:5052 \
+//!     --state-id 0x3cdc33cd02713d8d6cc33a6dbe2d3a5bf9af1d357de0d175a403496486ff845e \
+//!     --slots 0 \
+//!     --runs 0 \
+//!     --output-path /tmp/state-0x3cdc.ssz
+//! ```
+//!
+//! ### Example 3.
+//!
+//! Do two runs over the state that was downloaded in the previous example:
+//!
+//! ```ignore
+//! lcli skip-slots \
+//!     --state-path /tmp/state-0x3cdc.ssz \
+//!     --slots 32 \
+//!     --runs 2
+//! ```
 use crate::transition_blocks::load_from_ssz_with;
 use clap::ArgMatches;
 use clap_utils::{parse_optional, parse_required};
