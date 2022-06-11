@@ -8,7 +8,7 @@
 //!
 //! ## Examples
 //!
-//! ### Example 1.
+//! ### Run using a block from a beaconAPI
 //!
 //! Download the 0x6c69 block and its pre-state (the state from its parent block) from the
 //! beaconAPI. Advance the pre-state to the slot of the 0x6c69 and apply that block to the
@@ -21,7 +21,7 @@
 //!     --runs 10
 //! ```
 //!
-//! ### Example 2.
+//! ### Download a block and pre-state from a beaconAPI to the filesystem
 //!
 //! Download a block and pre-state to the filesystem, without performing any transitions:
 //!
@@ -34,7 +34,7 @@
 //!     --pre-state-output-path /tmp/pre-state-0x6c69.ssz
 //! ```
 //!
-//! ### Example 3.
+//! ### Use a block and pre-state from the filesystem
 //!
 //! Do one run over the block and pre-state downloaded in the previous example and save the post
 //! state to file:
@@ -44,6 +44,19 @@
 //!     --block-path /tmp/block-0x6c69.ssz \
 //!     --pre-state-path /tmp/pre-state-0x6c69.ssz
 //!     --post-state-output-path /tmp/post-state-0x6c69.ssz
+//! ```
+//!
+//! ### Isolate block processing for benchmarking
+//!
+//! Try to isolate block processing as much as possible for benchmarking:
+//!
+//! ```ignore
+//! lcli transition-blocks \
+//!     --block-path /tmp/block-0x6c69.ssz \
+//!     --pre-state-path /tmp/pre-state-0x6c69.ssz \
+//!     --runs 10 \
+//!     --exclude-cache-builds \
+//!     --exclude-post-block-thc
 //! ```
 use clap::ArgMatches;
 use clap_utils::{parse_optional, parse_required};
@@ -60,7 +73,7 @@ use std::fs::File;
 use std::io::prelude::*;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
-use types::{BeaconState, ChainSpec, CloneConfig, EthSpec, SignedBeaconBlock};
+use types::{BeaconState, ChainSpec, CloneConfig, EthSpec, Hash256, SignedBeaconBlock};
 
 const HTTP_TIMEOUT: Duration = Duration::from_secs(10);
 
@@ -98,13 +111,14 @@ pub fn run<T: EthSpec>(mut env: Environment<T>, matches: &ArgMatches) -> Result<
     info!("Doing {} runs", runs);
     info!("{:?}", &config);
 
-    let (mut pre_state, block) = match (pre_state_path, block_path, beacon_url) {
+    let (mut pre_state, mut state_root_opt, block) = match (pre_state_path, block_path, beacon_url)
+    {
         (Some(pre_state_path), Some(block_path), None) => {
             info!("Block path: {:?}", pre_state_path);
             info!("Pre-state path: {:?}", block_path);
             let pre_state = load_from_ssz_with(&pre_state_path, spec, BeaconState::from_ssz_bytes)?;
             let block = load_from_ssz_with(&block_path, spec, SignedBeaconBlock::from_ssz_bytes)?;
-            (pre_state, block)
+            (pre_state, None, block)
         }
         (None, None, Some(beacon_url)) => {
             let block_id: BlockId = parse_required(matches, "block-id")?;
@@ -131,7 +145,8 @@ pub fn run<T: EthSpec>(mut env: Environment<T>, matches: &ArgMatches) -> Result<
                         .ok_or_else(|| format!("Unable to locate parent block at {:?}", block_id))?
                         .data;
 
-                    let state_id = StateId::Root(parent_block.state_root());
+                    let state_root = parent_block.state_root();
+                    let state_id = StateId::Root(state_root);
                     let pre_state = client
                         .get_debug_beacon_states::<T>(state_id)
                         .await
@@ -139,7 +154,7 @@ pub fn run<T: EthSpec>(mut env: Environment<T>, matches: &ArgMatches) -> Result<
                         .ok_or_else(|| format!("Unable to locate state at {:?}", state_id))?
                         .data;
 
-                    Ok((pre_state, block))
+                    Ok((pre_state, Some(state_root), block))
                 })
                 .map_err(|e| format!("Failed to complete task: {:?}", e))?
         }
@@ -155,9 +170,18 @@ pub fn run<T: EthSpec>(mut env: Environment<T>, matches: &ArgMatches) -> Result<
         pre_state
             .build_all_caches(spec)
             .map_err(|e| format!("Unable to build caches: {:?}", e))?;
-        pre_state
+        let state_root = pre_state
             .update_tree_hash_cache()
             .map_err(|e| format!("Unable to build THC: {:?}", e))?;
+
+        if state_root_opt.map_or(false, |expected| expected != state_root) {
+            return Err(format!(
+                "State root mismatch! Expected {}, computed {}",
+                state_root_opt.unwrap(),
+                state_root
+            ));
+        }
+        state_root_opt = Some(state_root);
     }
 
     let mut output_post_state = None;
@@ -168,7 +192,7 @@ pub fn run<T: EthSpec>(mut env: Environment<T>, matches: &ArgMatches) -> Result<
 
         let start = Instant::now();
 
-        let post_state = do_transition(pre_state, block, &config, spec)?;
+        let post_state = do_transition(pre_state, block, state_root_opt, &config, spec)?;
 
         let duration = Instant::now().duration_since(start);
         info!("Run {}: {:?}", i, duration);
@@ -218,6 +242,7 @@ pub fn run<T: EthSpec>(mut env: Environment<T>, matches: &ArgMatches) -> Result<
 fn do_transition<T: EthSpec>(
     mut pre_state: BeaconState<T>,
     block: SignedBeaconBlock<T>,
+    mut state_root_opt: Option<Hash256>,
     config: &Config,
     spec: &ChainSpec,
 ) -> Result<BeaconState<T>, String> {
@@ -226,34 +251,45 @@ fn do_transition<T: EthSpec>(
         pre_state
             .build_all_caches(spec)
             .map_err(|e| format!("Unable to build caches: {:?}", e))?;
-        debug!("Build caches: {}ms", t.elapsed().as_millis());
+        debug!("Build caches: {:?}", t.elapsed());
 
         let t = Instant::now();
-        pre_state
+        let state_root = pre_state
             .update_tree_hash_cache()
             .map_err(|e| format!("Unable to build tree hash cache: {:?}", e))?;
-        debug!("Initial tree hash: {}ms", t.elapsed().as_millis());
+        debug!("Initial tree hash: {:?}", t.elapsed());
+
+        if state_root_opt.map_or(false, |expected| expected != state_root) {
+            return Err(format!(
+                "State root mismatch! Expected {}, computed {}",
+                state_root_opt.unwrap(),
+                state_root
+            ));
+        }
+        state_root_opt = Some(state_root);
     }
+
+    let state_root = state_root_opt.ok_or("Failed to compute state root, internal error")?;
 
     // Transition the parent state to the block slot.
     let t = Instant::now();
     for i in pre_state.slot().as_u64()..block.slot().as_u64() {
-        per_slot_processing(&mut pre_state, None, spec)
+        per_slot_processing(&mut pre_state, Some(state_root), spec)
             .map_err(|e| format!("Failed to advance slot on iteration {}: {:?}", i, e))?;
     }
-    debug!("Slot processing: {}ms", t.elapsed().as_millis());
+    debug!("Slot processing: {:?}", t.elapsed());
 
     let t = Instant::now();
     pre_state
         .update_tree_hash_cache()
         .map_err(|e| format!("Unable to build tree hash cache: {:?}", e))?;
-    debug!("Pre-block tree hash: {}ms", t.elapsed().as_millis());
+    debug!("Pre-block tree hash: {:?}", t.elapsed());
 
     let t = Instant::now();
     pre_state
         .build_all_caches(spec)
         .map_err(|e| format!("Unable to build caches: {:?}", e))?;
-    debug!("Build all caches (again): {}ms", t.elapsed().as_millis());
+    debug!("Build all caches (again): {:?}", t.elapsed());
 
     let t = Instant::now();
     per_block_processing(
@@ -265,14 +301,14 @@ fn do_transition<T: EthSpec>(
         spec,
     )
     .map_err(|e| format!("State transition failed: {:?}", e))?;
-    debug!("Process block: {}ms", t.elapsed().as_millis());
+    debug!("Process block: {:?}", t.elapsed());
 
     if !config.exclude_post_block_thc {
         let t = Instant::now();
         pre_state
             .update_tree_hash_cache()
             .map_err(|e| format!("Unable to build tree hash cache: {:?}", e))?;
-        debug!("Post-block tree hash: {}ms", t.elapsed().as_millis());
+        debug!("Post-block tree hash: {:?}", t.elapsed());
     }
 
     Ok(pre_state)
@@ -290,10 +326,6 @@ pub fn load_from_ssz_with<T>(
         .map_err(|e| format!("Unable to read from file {:?}: {:?}", path, e))?;
     let t = Instant::now();
     let result = decoder(&bytes, spec).map_err(|e| format!("Ssz decode failed: {:?}", e));
-    debug!(
-        "SSZ decoding {}: {}ms",
-        path.display(),
-        t.elapsed().as_millis()
-    );
+    debug!("SSZ decoding {}: {:?}", path.display(), t.elapsed());
     result
 }
