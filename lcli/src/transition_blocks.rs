@@ -64,6 +64,13 @@ use types::{BeaconState, ChainSpec, CloneConfig, EthSpec, SignedBeaconBlock};
 
 const HTTP_TIMEOUT: Duration = Duration::from_secs(10);
 
+#[derive(Debug)]
+struct Config {
+    signature_strategy: BlockSignatureStrategy,
+    exclude_cache_builds: bool,
+    exclude_post_block_thc: bool,
+}
+
 pub fn run<T: EthSpec>(mut env: Environment<T>, matches: &ArgMatches) -> Result<(), String> {
     let spec = &T::default_spec();
     let executor = env.core_context().executor.clone();
@@ -76,9 +83,20 @@ pub fn run<T: EthSpec>(mut env: Environment<T>, matches: &ArgMatches) -> Result<
     let block_output_path: Option<PathBuf> = parse_optional(matches, "block-output-path")?;
     let beacon_url: Option<SensitiveUrl> = parse_optional(matches, "beacon-url")?;
     let runs: usize = parse_required(matches, "runs")?;
+    let no_signature_verification = matches.is_present("no-signature-verification");
+    let config = Config {
+        exclude_cache_builds: matches.is_present("exclude-cache-builds"),
+        exclude_post_block_thc: matches.is_present("exclude-post-block-thc"),
+        signature_strategy: if no_signature_verification {
+            BlockSignatureStrategy::NoVerification
+        } else {
+            BlockSignatureStrategy::VerifyBulk
+        },
+    };
 
     info!("Using {} spec", T::spec_name());
     info!("Doing {} runs", runs);
+    info!("{:?}", &config);
 
     let (mut pre_state, block) = match (pre_state_path, block_path, beacon_url) {
         (Some(pre_state_path), Some(block_path), None) => {
@@ -133,19 +151,14 @@ pub fn run<T: EthSpec>(mut env: Environment<T>, matches: &ArgMatches) -> Result<
         }
     };
 
-    let no_signature_verification = matches.is_present("no-signature-verification");
-    let signature_strategy = if no_signature_verification {
-        BlockSignatureStrategy::NoVerification
-    } else {
-        BlockSignatureStrategy::VerifyIndividual
-    };
-
-    pre_state
-        .build_all_caches(spec)
-        .map_err(|e| format!("Unable to build caches: {:?}", e))?;
-    pre_state
-        .update_tree_hash_cache()
-        .map_err(|e| format!("Unable to build THC: {:?}", e))?;
+    if config.exclude_cache_builds {
+        pre_state
+            .build_all_caches(spec)
+            .map_err(|e| format!("Unable to build caches: {:?}", e))?;
+        pre_state
+            .update_tree_hash_cache()
+            .map_err(|e| format!("Unable to build THC: {:?}", e))?;
+    }
 
     let mut output_post_state = None;
 
@@ -155,7 +168,7 @@ pub fn run<T: EthSpec>(mut env: Environment<T>, matches: &ArgMatches) -> Result<
 
         let start = Instant::now();
 
-        let post_state = do_transition(pre_state, block, signature_strategy, spec)?;
+        let post_state = do_transition(pre_state, block, &config, spec)?;
 
         let duration = Instant::now().duration_since(start);
         info!("Run {}: {:?}", i, duration);
@@ -205,20 +218,22 @@ pub fn run<T: EthSpec>(mut env: Environment<T>, matches: &ArgMatches) -> Result<
 fn do_transition<T: EthSpec>(
     mut pre_state: BeaconState<T>,
     block: SignedBeaconBlock<T>,
-    signature_strategy: BlockSignatureStrategy,
+    config: &Config,
     spec: &ChainSpec,
 ) -> Result<BeaconState<T>, String> {
-    let t = Instant::now();
-    pre_state
-        .build_all_caches(spec)
-        .map_err(|e| format!("Unable to build caches: {:?}", e))?;
-    debug!("Build caches: {}ms", t.elapsed().as_millis());
+    if !config.exclude_cache_builds {
+        let t = Instant::now();
+        pre_state
+            .build_all_caches(spec)
+            .map_err(|e| format!("Unable to build caches: {:?}", e))?;
+        debug!("Build caches: {}ms", t.elapsed().as_millis());
 
-    let t = Instant::now();
-    pre_state
-        .update_tree_hash_cache()
-        .map_err(|e| format!("Unable to build tree hash cache: {:?}", e))?;
-    debug!("Initial tree hash: {}ms", t.elapsed().as_millis());
+        let t = Instant::now();
+        pre_state
+            .update_tree_hash_cache()
+            .map_err(|e| format!("Unable to build tree hash cache: {:?}", e))?;
+        debug!("Initial tree hash: {}ms", t.elapsed().as_millis());
+    }
 
     // Transition the parent state to the block slot.
     let t = Instant::now();
@@ -245,18 +260,20 @@ fn do_transition<T: EthSpec>(
         &mut pre_state,
         &block,
         None,
-        signature_strategy,
+        config.signature_strategy,
         VerifyBlockRoot::True,
         spec,
     )
     .map_err(|e| format!("State transition failed: {:?}", e))?;
-    println!("Process block: {}ms", t.elapsed().as_millis());
+    debug!("Process block: {}ms", t.elapsed().as_millis());
 
-    let t = Instant::now();
-    pre_state
-        .update_tree_hash_cache()
-        .map_err(|e| format!("Unable to build tree hash cache: {:?}", e))?;
-    println!("Post-block tree hash: {}ms", t.elapsed().as_millis());
+    if !config.exclude_post_block_thc {
+        let t = Instant::now();
+        pre_state
+            .update_tree_hash_cache()
+            .map_err(|e| format!("Unable to build tree hash cache: {:?}", e))?;
+        debug!("Post-block tree hash: {}ms", t.elapsed().as_millis());
+    }
 
     Ok(pre_state)
 }

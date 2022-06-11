@@ -185,6 +185,20 @@ fn main() {
                         .takes_value(false)
                         .help("Disable signature verification.")
                 )
+                .arg(
+                    Arg::with_name("exclude-cache-builds")
+                        .long("exclude-cache-builds")
+                        .takes_value(false)
+                        .help("If present, pre-build the committee and tree-hash caches without \
+                            including them in the timings."),
+                )
+                .arg(
+                    Arg::with_name("exclude-post-block-thc")
+                        .long("exclude-post-block-thc")
+                        .takes_value(false)
+                        .help("If present, don't rebuild the tree-hash-cache after applying \
+                            the block."),
+                )
         )
         .subcommand(
             SubCommand::with_name("pretty-ssz")
