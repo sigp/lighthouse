@@ -2362,43 +2362,42 @@ pub fn serve<T: BeaconChainTypes>(
             |chain: Arc<BeaconChain<T>>,
              client_addr: Option<SocketAddr>,
              log: Logger,
-             preparation_data: Vec<ProposerPreparationData>| {
-                blocking_json_task(move || {
-                    let execution_layer = chain
-                        .execution_layer
-                        .as_ref()
-                        .ok_or(BeaconChainError::ExecutionLayerMissing)
-                        .map_err(warp_utils::reject::beacon_chain_error)?;
-                    let current_epoch = chain
-                        .epoch()
-                        .map_err(warp_utils::reject::beacon_chain_error)?;
+             preparation_data: Vec<ProposerPreparationData>| async move {
+                let execution_layer = chain
+                    .execution_layer
+                    .as_ref()
+                    .ok_or(BeaconChainError::ExecutionLayerMissing)
+                    .map_err(warp_utils::reject::beacon_chain_error)?;
 
-                    debug!(
-                        log,
-                        "Received proposer preparation data";
-                        "count" => preparation_data.len(),
-                        "client" => client_addr
-                            .map(|a| a.to_string())
-                            .unwrap_or_else(|| "unknown".to_string()),
-                    );
+                let current_slot = chain
+                    .slot()
+                    .map_err(warp_utils::reject::beacon_chain_error)?;
+                let current_epoch = current_slot.epoch(T::EthSpec::slots_per_epoch());
 
-                    execution_layer
-                        .update_proposer_preparation_blocking(current_epoch, &preparation_data)
-                        .map_err(|_e| {
-                            warp_utils::reject::custom_bad_request(
-                                "error processing proposer preparations".to_string(),
-                            )
-                        })?;
+                debug!(
+                    log,
+                    "Received proposer preparation data";
+                    "count" => preparation_data.len(),
+                    "client" => client_addr
+                        .map(|a| a.to_string())
+                        .unwrap_or_else(|| "unknown".to_string()),
+                );
 
-                    chain.prepare_beacon_proposer_blocking().map_err(|e| {
+                execution_layer
+                    .update_proposer_preparation(current_epoch, &preparation_data)
+                    .await;
+
+                chain
+                    .prepare_beacon_proposer(current_slot)
+                    .await
+                    .map_err(|e| {
                         warp_utils::reject::custom_bad_request(format!(
                             "error updating proposer preparations: {:?}",
                             e
                         ))
                     })?;
 
-                    Ok(())
-                })
+                Ok::<_, warp::reject::Rejection>(warp::reply::json(&()))
             },
         );
 
