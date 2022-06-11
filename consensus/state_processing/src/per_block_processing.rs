@@ -129,6 +129,10 @@ pub fn per_block_processing<T: EthSpec, Payload: ExecPayload<T>>(
         BlockSignatureStrategy::VerifyRandao => VerifySignatures::False,
     };
 
+    // Ensure the current and previous epoch caches are built.
+    state.build_committee_cache(RelativeEpoch::Previous, spec)?;
+    state.build_committee_cache(RelativeEpoch::Current, spec)?;
+
     let proposer_index = process_block_header(
         state,
         block.temporary_block_header(),
@@ -145,9 +149,6 @@ pub fn per_block_processing<T: EthSpec, Payload: ExecPayload<T>>(
     } else {
         verify_signatures
     };
-    // Ensure the current and previous epoch caches are built.
-    state.build_committee_cache(RelativeEpoch::Previous, spec)?;
-    state.build_committee_cache(RelativeEpoch::Current, spec)?;
 
     // The call to the `process_execution_payload` must happen before the call to the
     // `process_randao` as the former depends on the `randao_mix` computed with the reveal of the
@@ -198,7 +199,8 @@ pub fn process_block_header<T: EthSpec>(
 
     // Verify that proposer index is the correct index
     let proposer_index = block_header.proposer_index as usize;
-    let state_proposer_index = state.get_beacon_proposer_index(block_header.slot, spec)?;
+    let state_proposer_index =
+        state.get_beacon_proposer_index_using_committee_cache(block_header.slot, spec)?;
     verify!(
         proposer_index == state_proposer_index,
         HeaderInvalid::ProposerIndexMismatch {

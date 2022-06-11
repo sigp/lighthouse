@@ -2,6 +2,49 @@ use crate::Hash256;
 use eth2_hashing::{Context, Sha256Context};
 use std::cmp::max;
 
+enum Direction {
+    Shuffle,
+    Unshuffle,
+}
+
+/// Shuffles the `index` in the direction that is specified here:
+///
+/// https://github.com/ethereum/consensus-specs/blob/v1.1.10/specs/phase0/beacon-chain.md#compute_shuffled_index
+///
+/// For more information about this function, see the `compute_index` documentation.
+pub fn compute_shuffled_index(
+    index: usize,
+    list_size: usize,
+    seed: &[u8],
+    shuffle_round_count: u8,
+) -> Option<usize> {
+    compute_index(
+        index,
+        list_size,
+        seed,
+        shuffle_round_count,
+        Direction::Shuffle,
+    )
+}
+
+/// "Unshuffles" the `index`, in the opposite direction to the `compute_shuffled_index` function.
+///
+/// For more information about this function, see the `compute_index` documentation.
+pub fn compute_unshuffled_index(
+    index: usize,
+    list_size: usize,
+    seed: &[u8],
+    shuffle_round_count: u8,
+) -> Option<usize> {
+    compute_index(
+        index,
+        list_size,
+        seed,
+        shuffle_round_count,
+        Direction::Unshuffle,
+    )
+}
+
 /// Return `p(index)` in a pseudorandom permutation `p` of `0...list_size-1` with ``seed`` as entropy.
 ///
 /// Utilizes 'swap or not' shuffling found in
@@ -18,11 +61,12 @@ use std::cmp::max;
 ///  - `index >= list_size`
 ///  - `list_size > 2**24`
 ///  - `list_size > usize::max_value() / 2`
-pub fn compute_shuffled_index(
+fn compute_index(
     index: usize,
     list_size: usize,
     seed: &[u8],
     shuffle_round_count: u8,
+    direction: Direction,
 ) -> Option<usize> {
     if list_size == 0
         || index >= list_size
@@ -32,8 +76,13 @@ pub fn compute_shuffled_index(
         return None;
     }
 
+    let round_iter: Box<dyn Iterator<Item = u8>> = match direction {
+        Direction::Shuffle => Box::new(0..shuffle_round_count),
+        Direction::Unshuffle => Box::new((0..shuffle_round_count).rev()),
+    };
+
     let mut index = index;
-    for round in 0..shuffle_round_count {
+    for round in round_iter {
         let pivot = bytes_to_int64(&hash_with_round(seed, round)[..]) as usize % list_size;
         index = do_round(seed, index, pivot, round, list_size);
     }

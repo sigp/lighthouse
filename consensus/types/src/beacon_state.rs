@@ -16,7 +16,7 @@ use ssz_types::{typenum::Unsigned, BitVector, FixedVector};
 use std::convert::TryInto;
 use std::{fmt, mem, sync::Arc};
 use superstruct::superstruct;
-use swap_or_not_shuffle::compute_shuffled_index;
+use swap_or_not_shuffle::{compute_shuffled_index, compute_unshuffled_index};
 use test_random_derive::TestRandom;
 use tree_hash::TreeHash;
 use tree_hash_derive::TreeHash;
@@ -630,28 +630,27 @@ impl<T: EthSpec> BeaconState<T> {
     }
 
     /// Compute the proposer (not necessarily for the Beacon chain) from a list of indices.
-    pub fn compute_proposer_index(
+    pub fn compute_proposer_index<F: Fn(usize) -> Result<usize, Error>>(
         &self,
-        indices: &[usize],
+        num_active_validators: usize,
+        map_shuffling_index_to_validator_index: F,
         seed: &[u8],
         spec: &ChainSpec,
     ) -> Result<usize, Error> {
-        if indices.is_empty() {
+        if num_active_validators == 0 {
             return Err(Error::InsufficientValidators);
         }
 
         let mut i = 0;
         loop {
             let shuffled_index = compute_shuffled_index(
-                i.safe_rem(indices.len())?,
-                indices.len(),
+                i.safe_rem(num_active_validators)?,
+                num_active_validators,
                 seed,
                 spec.shuffle_round_count,
             )
             .ok_or(Error::UnableToShuffle)?;
-            let candidate_index = *indices
-                .get(shuffled_index)
-                .ok_or(Error::ShuffleIndexOutOfBounds(shuffled_index))?;
+            let candidate_index = map_shuffling_index_to_validator_index(shuffled_index)?;
             let random_byte = Self::shuffling_random_byte(i, seed)?;
             let effective_balance = self.get_effective_balance(candidate_index)?;
             if effective_balance.safe_mul(MAX_RANDOM_BYTE)?
@@ -708,6 +707,63 @@ impl<T: EthSpec> BeaconState<T> {
     ///
     /// Spec v0.12.1
     pub fn get_beacon_proposer_index(&self, slot: Slot, spec: &ChainSpec) -> Result<usize, Error> {
+        let indices = self.get_active_validator_indices(self.current_epoch(), spec)?;
+        let map_fn = |shuffled_index| {
+            indices
+                .get(shuffled_index)
+                .copied()
+                .ok_or(Error::ShuffleIndexOutOfBounds(shuffled_index))
+        };
+        self.get_beacon_proposer_index_parametric(indices.len(), map_fn, slot, spec)
+    }
+
+    /// Returns the beacon proposer index for the `slot` in the given `relative_epoch`.
+    ///
+    /// Will return an error if the current epoch committee cache is not built.
+    ///
+    /// Spec v0.12.1
+    pub fn get_beacon_proposer_index_using_committee_cache(
+        &self,
+        slot: Slot,
+        spec: &ChainSpec,
+    ) -> Result<usize, Error> {
+        let indices = self.get_cached_active_validator_indices(RelativeEpoch::Current)?;
+        let active_validator_count = indices.len();
+        let attester_shuffling_seed =
+            self.get_seed(self.current_epoch(), Domain::BeaconAttester, spec)?;
+
+        let map_fn = |position_in_active_validators: usize| {
+            let position_in_shuffling = compute_unshuffled_index(
+                position_in_active_validators,
+                active_validator_count,
+                attester_shuffling_seed.as_bytes(),
+                spec.shuffle_round_count,
+            )
+            .ok_or(Error::UnableToShuffle)?;
+            let validator_index = indices.get(position_in_shuffling).copied().ok_or(
+                Error::ShuffleIndexOutOfBounds(position_in_active_validators),
+            )?;
+            dbg!(
+                position_in_active_validators,
+                position_in_shuffling,
+                validator_index
+            );
+            Ok(validator_index)
+        };
+
+        self.get_beacon_proposer_index_parametric(active_validator_count, map_fn, slot, spec)
+    }
+
+    /// Returns the beacon proposer index for the `slot` in the given `relative_epoch`.
+    ///
+    /// Spec v0.12.1
+    fn get_beacon_proposer_index_parametric<F: Fn(usize) -> Result<usize, Error>>(
+        &self,
+        num_active_validators: usize,
+        map_shuffling_index_to_validator_index: F,
+        slot: Slot,
+        spec: &ChainSpec,
+    ) -> Result<usize, Error> {
         // Proposer indices are only known for the current epoch, due to the dependence on the
         // effective balances of validators, which change at every epoch transition.
         let epoch = slot.epoch(T::slots_per_epoch());
@@ -716,9 +772,12 @@ impl<T: EthSpec> BeaconState<T> {
         }
 
         let seed = self.get_beacon_proposer_seed(slot, spec)?;
-        let indices = self.get_active_validator_indices(epoch, spec)?;
-
-        self.compute_proposer_index(&indices, &seed, spec)
+        self.compute_proposer_index(
+            num_active_validators,
+            map_shuffling_index_to_validator_index,
+            &seed,
+            spec,
+        )
     }
 
     /// Returns the beacon proposer index for each `slot` in `self.current_epoch()`.
@@ -729,12 +788,18 @@ impl<T: EthSpec> BeaconState<T> {
     pub fn get_beacon_proposer_indices(&self, spec: &ChainSpec) -> Result<Vec<usize>, Error> {
         // Not using the cached validator indices since they are shuffled.
         let indices = self.get_active_validator_indices(self.current_epoch(), spec)?;
+        let map_fn = |shuffled_index| {
+            indices
+                .get(shuffled_index)
+                .copied()
+                .ok_or(Error::ShuffleIndexOutOfBounds(shuffled_index))
+        };
 
         self.current_epoch()
             .slot_iter(T::slots_per_epoch())
             .map(|slot| {
                 let seed = self.get_beacon_proposer_seed(slot, spec)?;
-                self.compute_proposer_index(&indices, &seed, spec)
+                self.compute_proposer_index(indices.len(), map_fn, &seed, spec)
             })
             .collect()
     }

@@ -114,6 +114,24 @@ impl CommitteeCache {
         &self.shuffling
     }
 
+    /// Returns the **unshuffled** list of active validator indices for the initialized epoch.
+    ///
+    /// The validator indices are in ascending order, this is useful for computing the proposer
+    /// index.
+    ///
+    /// Always returns `&[]` for a non-initialized epoch.
+    ///
+    /// Spec v0.12.1
+    pub fn unshuffled_active_validator_indices(&self) -> Vec<usize> {
+        let mut indices = Vec::with_capacity(self.shuffling.len());
+        for (val_index, position) in self.shuffling_positions.iter().enumerate() {
+            if position.0.is_some() {
+                indices.push(val_index)
+            }
+        }
+        indices
+    }
+
     /// Returns the shuffled list of active validator indices for the initialized epoch.
     ///
     /// Always returns `&[]` for a non-initialized epoch.
