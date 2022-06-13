@@ -2906,6 +2906,7 @@ name = "lcli"
 version = "2.3.2-rc.0"
 dependencies = [
  "account_utils",
+ "beacon_chain",
  "bls",
  "clap",
  "clap_utils",
@@ -2928,6 +2929,7 @@ dependencies = [
  "serde_json",
  "serde_yaml",
  "state_processing",
+ "store",
  "tree_hash",
  "types",
  "validator_dir",

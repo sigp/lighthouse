@@ -58,35 +58,68 @@
 //!     --exclude-cache-builds \
 //!     --exclude-post-block-thc
 //! ```
+use beacon_chain::{
+    test_utils::EphemeralHarnessType, validator_pubkey_cache::ValidatorPubkeyCache,
+};
 use clap::ArgMatches;
 use clap_utils::{parse_optional, parse_required};
-use environment::Environment;
+use environment::{null_logger, Environment};
 use eth2::{
     types::{BlockId, StateId},
     BeaconNodeHttpClient, SensitiveUrl, Timeouts,
 };
 use ssz::Encode;
 use state_processing::{
-    per_block_processing, per_slot_processing, BlockSignatureStrategy, VerifyBlockRoot,
+    block_signature_verifier::BlockSignatureVerifier, per_block_processing, per_slot_processing,
+    BlockSignatureStrategy, VerifyBlockRoot,
 };
+use std::borrow::Cow;
 use std::fs::File;
 use std::io::prelude::*;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
+use store::HotColdDB;
 use types::{BeaconState, ChainSpec, CloneConfig, EthSpec, Hash256, SignedBeaconBlock};
 
 const HTTP_TIMEOUT: Duration = Duration::from_secs(10);
 
 #[derive(Debug)]
 struct Config {
-    signature_strategy: BlockSignatureStrategy,
+    no_signature_verification: bool,
     exclude_cache_builds: bool,
     exclude_post_block_thc: bool,
 }
 
+/*
+struct PubkeyCache {
+    pubkeys: Vec<PublicKey>,
+    indices: HashMap<PublicKeyBytes, usize>,
+    pubkey_bytes: Vec<PublicKeyBytes>,
+}
+
+impl PubkeyCache {
+    pub fn new<T: EthSpec>(state: &BeaconState<T>) {
+        let validator_keys = state.validators().iter().map(|v| v.pubkey.clone());
+
+        self.pubkey_bytes.reserve(validator_keys.len());
+        self.pubkeys.reserve(validator_keys.len());
+        self.indices.reserve(validator_keys.len());
+
+        for pubkey in validator_keys {
+        }
+
+    }
+}
+*/
+
 pub fn run<T: EthSpec>(mut env: Environment<T>, matches: &ArgMatches) -> Result<(), String> {
     let spec = &T::default_spec();
     let executor = env.core_context().executor.clone();
+
+    /*
+     * Parse (most) CLI arguments.
+     */
 
     let pre_state_path: Option<PathBuf> = parse_optional(matches, "pre-state-path")?;
     let block_path: Option<PathBuf> = parse_optional(matches, "block-path")?;
@@ -96,20 +129,19 @@ pub fn run<T: EthSpec>(mut env: Environment<T>, matches: &ArgMatches) -> Result<
     let block_output_path: Option<PathBuf> = parse_optional(matches, "block-output-path")?;
     let beacon_url: Option<SensitiveUrl> = parse_optional(matches, "beacon-url")?;
     let runs: usize = parse_required(matches, "runs")?;
-    let no_signature_verification = matches.is_present("no-signature-verification");
     let config = Config {
+        no_signature_verification: matches.is_present("no-signature-verification"),
         exclude_cache_builds: matches.is_present("exclude-cache-builds"),
         exclude_post_block_thc: matches.is_present("exclude-post-block-thc"),
-        signature_strategy: if no_signature_verification {
-            BlockSignatureStrategy::NoVerification
-        } else {
-            BlockSignatureStrategy::VerifyBulk
-        },
     };
 
     info!("Using {} spec", T::spec_name());
     info!("Doing {} runs", runs);
     info!("{:?}", &config);
+
+    /*
+     * Load the block and pre-state from disk or beaconAPI URL.
+     */
 
     let (mut pre_state, mut state_root_opt, block) = match (pre_state_path, block_path, beacon_url)
     {
@@ -166,6 +198,30 @@ pub fn run<T: EthSpec>(mut env: Environment<T>, matches: &ArgMatches) -> Result<
         }
     };
 
+    // Compute the block root.
+    let block_root = block.canonical_root();
+
+    /*
+     * Create a `BeaconStore` and `ValidatorPubkeyCache` for block signature verification.
+     */
+
+    let store = HotColdDB::open_ephemeral(
+        <_>::default(),
+        spec.clone(),
+        null_logger().map_err(|e| format!("Failed to create null_logger: {:?}", e))?,
+    )
+    .map_err(|e| format!("Failed to create ephemeral store: {:?}", e))?;
+    let store = Arc::new(store);
+
+    debug!("Building pubkey cache (might take some time)");
+    let validator_pubkey_cache = ValidatorPubkeyCache::new(&pre_state, store)
+        .map_err(|e| format!("Failed to create pubkey cache: {:?}", e))?;
+
+    /*
+     * If cache builds are excluded from the timings, build them early so they are available for
+     * each run.
+     */
+
     if config.exclude_cache_builds {
         pre_state
             .build_all_caches(spec)
@@ -184,15 +240,26 @@ pub fn run<T: EthSpec>(mut env: Environment<T>, matches: &ArgMatches) -> Result<
         state_root_opt = Some(state_root);
     }
 
-    let mut output_post_state = None;
+    /*
+     * Perform the core "runs".
+     */
 
+    let mut output_post_state = None;
     for i in 0..runs {
         let pre_state = pre_state.clone_with(CloneConfig::all());
         let block = block.clone();
 
         let start = Instant::now();
 
-        let post_state = do_transition(pre_state, block, state_root_opt, &config, spec)?;
+        let post_state = do_transition(
+            pre_state,
+            block_root,
+            block,
+            state_root_opt,
+            &config,
+            &validator_pubkey_cache,
+            spec,
+        )?;
 
         let duration = Instant::now().duration_since(start);
         info!("Run {}: {:?}", i, duration);
@@ -201,6 +268,10 @@ pub fn run<T: EthSpec>(mut env: Environment<T>, matches: &ArgMatches) -> Result<
             output_post_state = Some(post_state)
         }
     }
+
+    /*
+     * Write artefacts to disk, if required.
+     */
 
     if let Some(path) = post_state_output_path {
         let output_post_state = output_post_state.ok_or_else(|| {
@@ -241,9 +312,11 @@ pub fn run<T: EthSpec>(mut env: Environment<T>, matches: &ArgMatches) -> Result<
 
 fn do_transition<T: EthSpec>(
     mut pre_state: BeaconState<T>,
+    block_root: Hash256,
     block: SignedBeaconBlock<T>,
     mut state_root_opt: Option<Hash256>,
     config: &Config,
+    validator_pubkey_cache: &ValidatorPubkeyCache<EphemeralHarnessType<T>>,
     spec: &ChainSpec,
 ) -> Result<BeaconState<T>, String> {
     if !config.exclude_cache_builds {
@@ -291,12 +364,39 @@ fn do_transition<T: EthSpec>(
         .map_err(|e| format!("Unable to build caches: {:?}", e))?;
     debug!("Build all caches (again): {:?}", t.elapsed());
 
+    if !config.no_signature_verification {
+        let get_pubkey = move |validator_index| {
+            validator_pubkey_cache
+                .get(validator_index)
+                .map(Cow::Borrowed)
+        };
+
+        let decompressor = move |pk_bytes| {
+            // Map compressed pubkey to validator index.
+            let validator_index = validator_pubkey_cache.get_index(pk_bytes)?;
+            // Map validator index to pubkey (respecting guard on unknown validators).
+            get_pubkey(validator_index)
+        };
+
+        let t = Instant::now();
+        BlockSignatureVerifier::verify_entire_block(
+            &pre_state,
+            get_pubkey,
+            decompressor,
+            &block,
+            Some(block_root),
+            spec,
+        )
+        .map_err(|e| format!("Invalid block signature: {:?}", e))?;
+        debug!("Batch verify block signatures: {:?}", t.elapsed());
+    }
+
     let t = Instant::now();
     per_block_processing(
         &mut pre_state,
         &block,
         None,
-        config.signature_strategy,
+        BlockSignatureStrategy::NoVerification,
         VerifyBlockRoot::True,
         spec,
     )
