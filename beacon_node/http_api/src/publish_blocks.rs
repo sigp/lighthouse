@@ -247,15 +247,7 @@ fn reconstruct_block<T: BeaconChainTypes>(
                 execution_payload_header,
             } = execution_payload;
 
-            //TODO: should probably remove this. Maybe just log out the tx root?
-            let blinded_payload_json =
-                serde_json::to_string(&execution_payload_header).map_err(|e| {
-                    warp_utils::reject::custom_server_error(format!(
-                        "Unable to deserialize payload from validator: {}",
-                        e
-                    ))
-                })?;
-            debug!(log, "Blinded payload before reconstruction"; "block" => blinded_payload_json);
+            debug!(log, "Blinded payload before reconstruction"; "execution_payload_header" => ?execution_payload_header);
 
             let ExecutionPayloadHeader {
                 parent_hash,
@@ -278,36 +270,25 @@ fn reconstruct_block<T: BeaconChainTypes>(
             let full_payload = if block_hash == ExecutionBlockHash::zero() {
                 ExecutionPayload::default()
             // If we already have an execution payload with this transactions root cached, use it.
-            } else if let Some(cached_payload) = el.get_payload_by_root(&payload_root) {
-                let el = chain.execution_layer.as_ref().ok_or_else(|| {
-                    warp_utils::reject::custom_server_error("Missing execution layer".to_string())
-                })?;
+            } else if let Some(cached_payload) = chain
+                .execution_layer
+                .as_ref()
+                .map(|el| el.get_payload_by_root(&payload_root))
+                .flatten()
+            {
                 cached_payload
+            // Otherwise, this means we are attempting a blind block proposal.
             } else {
-                // Otherwise, this means we are attempting a blind block proposal.
                 let el = chain.execution_layer.as_ref().ok_or_else(|| {
                     warp_utils::reject::custom_server_error("Missing execution layer".to_string())
                 })?;
-                let builder_payload = el
-                    .block_on(|el| el.propose_blinded_beacon_block(&block_clone))
+                el.block_on(|el| el.propose_blinded_beacon_block(&block_clone))
                     .map_err(|e| {
                         warp_utils::reject::custom_server_error(format!(
                             "Blind block proposal failed: {:?}",
                             e
                         ))
-                    })?;
-
-                // Logging out the whole payload might seem excessive but it seems like it will be
-                // important to have for relay reputation.
-                let builder_payload_json =
-                    serde_json::to_string(&builder_payload).map_err(|e| {
-                        warp_utils::reject::custom_server_error(format!(
-                            "Unable to deserialize payload from builder: {}",
-                            e
-                        ))
-                    })?;
-                debug!(log, "Payload revealed by builder"; "payload" => builder_payload_json);
-                builder_payload
+                    })?
             };
 
             SignedBeaconBlock::Merge(SignedBeaconBlockMerge {
