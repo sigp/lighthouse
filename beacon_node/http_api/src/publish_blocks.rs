@@ -266,22 +266,18 @@ fn reconstruct_block<T: BeaconChainTypes>(
                 transactions_root: _transactions_root,
             } = execution_payload_header;
 
+            let el = chain.execution_layer.as_ref().ok_or_else(|| {
+                warp_utils::reject::custom_server_error("Missing execution layer".to_string())
+            })?;
+
             // If the execution block hash is zero, use an empty payload.
             let full_payload = if block_hash == ExecutionBlockHash::zero() {
                 ExecutionPayload::default()
             // If we already have an execution payload with this transactions root cached, use it.
-            } else if let Some(cached_payload) = chain
-                .execution_layer
-                .as_ref()
-                .map(|el| el.get_payload_by_root(&payload_root))
-                .flatten()
-            {
+            } else if let Some(cached_payload) = el.get_payload_by_root(&payload_root) {
                 cached_payload
             // Otherwise, this means we are attempting a blind block proposal.
             } else {
-                let el = chain.execution_layer.as_ref().ok_or_else(|| {
-                    warp_utils::reject::custom_server_error("Missing execution layer".to_string())
-                })?;
                 el.block_on(|el| el.propose_blinded_beacon_block(&block_clone))
                     .map_err(|e| {
                         warp_utils::reject::custom_server_error(format!(
