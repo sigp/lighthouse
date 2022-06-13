@@ -11,7 +11,7 @@ use tokio::sync::mpsc::UnboundedSender;
 use tree_hash::TreeHash;
 use types::{
     BeaconBlockAltair, BeaconBlockBase, BeaconBlockBodyAltair, BeaconBlockBodyBase,
-    BeaconBlockBodyMerge, BeaconBlockMerge, BlindedPayload, ExecutionPayload,
+    BeaconBlockBodyMerge, BeaconBlockMerge, BlindedPayload, ExecutionBlockHash, ExecutionPayload,
     ExecutionPayloadHeader, FullPayload, SignedBeaconBlock, SignedBeaconBlockAltair,
     SignedBeaconBlockBase, SignedBeaconBlockMerge,
 };
@@ -274,15 +274,20 @@ fn reconstruct_block<T: BeaconChainTypes>(
                 transactions_root: _transactions_root,
             } = execution_payload_header;
 
-            let el = chain.execution_layer.as_ref().ok_or_else(|| {
-                warp_utils::reject::custom_server_error("Missing execution layer".to_string())
-            })?;
-
+            // If the execution block hash is zero, use an empty payload.
+            let full_payload = if block_hash == ExecutionBlockHash::zero() {
+                ExecutionPayload::default()
             // If we already have an execution payload with this transactions root cached, use it.
-            let full_payload = if let Some(cached_payload) = el.get_payload_by_root(&payload_root) {
+            } else if let Some(cached_payload) = el.get_payload_by_root(&payload_root) {
+                let el = chain.execution_layer.as_ref().ok_or_else(|| {
+                    warp_utils::reject::custom_server_error("Missing execution layer".to_string())
+                })?;
                 cached_payload
             } else {
-                // Otherwise, this likely means we are attempting a blind block proposal.
+                // Otherwise, this means we are attempting a blind block proposal.
+                let el = chain.execution_layer.as_ref().ok_or_else(|| {
+                    warp_utils::reject::custom_server_error("Missing execution layer".to_string())
+                })?;
                 let builder_payload = el
                     .block_on(|el| el.propose_blinded_beacon_block(&block_clone))
                     .map_err(|e| {

@@ -2623,7 +2623,7 @@ impl ApiTester {
         self
     }
 
-    pub async fn test_payload_rejects_mutated_gas_limit(mut self) -> Self {
+    pub async fn test_payload_accepts_mutated_gas_limit(mut self) -> Self {
         let head_state = self.chain.head().unwrap().beacon_state;
         let proposer_index = head_state
             .get_beacon_proposer_index(head_state.slot(), &self.chain.spec)
@@ -2657,7 +2657,7 @@ impl ApiTester {
             payload.execution_payload_header.fee_recipient,
             expected_fee_recipient
         );
-        assert_eq!(payload.execution_payload_header.gas_limit, 11_111_111);
+        assert_eq!(payload.execution_payload_header.gas_limit, 30_000_000);
 
         // If this cache is populated, it indicates fallback to the local EE was correctly used.
         assert!(self
@@ -2708,7 +2708,6 @@ impl ApiTester {
             payload.execution_payload_header.fee_recipient,
             expected_fee_recipient
         );
-        assert_eq!(payload.execution_payload_header.gas_limit, 11_111_111);
 
         // If this cache is populated, it indicates fallback to the local EE was correctly used.
         assert!(self
@@ -3591,7 +3590,7 @@ async fn post_validator_register_valid() {
 async fn post_validator_register_gas_limit_mutation() {
     ApiTester::new_mev_tester()
         .await
-        .test_payload_rejects_mutated_gas_limit()
+        .test_payload_accepts_mutated_gas_limit()
         .await;
 }
 
