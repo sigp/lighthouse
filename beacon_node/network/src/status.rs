@@ -1,4 +1,5 @@
 use beacon_chain::{BeaconChain, BeaconChainTypes};
+use types::{EthSpec, Hash256};
 
 use lighthouse_network::rpc::StatusMessage;
 /// Trait to produce a `StatusMessage` representing the state of the given `beacon_chain`.
@@ -11,16 +12,28 @@ pub trait ToStatusMessage {
 
 impl<T: BeaconChainTypes> ToStatusMessage for BeaconChain<T> {
     fn status_message(&self) -> StatusMessage {
-        let fork_digest = self.enr_fork_id().fork_digest;
-        let head = self.canonical_head.read();
-        let finalized_checkpoint = head.finalized_checkpoint();
+        status_message(self)
+    }
+}
 
-        StatusMessage {
-            fork_digest,
-            finalized_root: finalized_checkpoint.root,
-            finalized_epoch: finalized_checkpoint.epoch,
-            head_root: head.head_block_root(),
-            head_slot: head.head_slot(),
-        }
+/// Build a `StatusMessage` representing the state of the given `beacon_chain`.
+pub(crate) fn status_message<T: BeaconChainTypes>(beacon_chain: &BeaconChain<T>) -> StatusMessage {
+    let fork_digest = beacon_chain.enr_fork_id().fork_digest;
+    let head = beacon_chain.canonical_head.read();
+    let mut finalized_checkpoint = head.finalized_checkpoint();
+
+    // Alias the genesis checkpoint root to `0x00`.
+    let spec = &beacon_chain.spec;
+    let genesis_epoch = spec.genesis_slot.epoch(T::EthSpec::slots_per_epoch());
+    if finalized_checkpoint.epoch == genesis_epoch {
+        finalized_checkpoint.root = Hash256::zero();
+    }
+
+    StatusMessage {
+        fork_digest,
+        finalized_root: finalized_checkpoint.root,
+        finalized_epoch: finalized_checkpoint.epoch,
+        head_root: head.head_block_root(),
+        head_slot: head.head_slot(),
     }
 }

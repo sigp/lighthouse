@@ -2,6 +2,7 @@ use crate::beacon_processor::{
     BeaconProcessor, WorkEvent as BeaconWorkEvent, MAX_WORK_EVENT_QUEUE_LEN,
 };
 use crate::service::{NetworkMessage, RequestId};
+use crate::status::status_message;
 use crate::sync::manager::RequestId as SyncId;
 use crate::sync::SyncMessage;
 use beacon_chain::{BeaconChain, BeaconChainTypes};
@@ -366,21 +367,6 @@ impl<T: BeaconChainTypes> Processor<T> {
                 error!(&self.log, "Unable to send message to the beacon processor";
                     "error" => %e, "type" => work_type)
             })
-    }
-}
-
-/// Build a `StatusMessage` representing the state of the given `beacon_chain`.
-pub(crate) fn status_message<T: BeaconChainTypes>(beacon_chain: &BeaconChain<T>) -> StatusMessage {
-    let fork_digest = beacon_chain.enr_fork_id().fork_digest;
-    let head = beacon_chain.canonical_head.read();
-    let finalized_checkpoint = head.finalized_checkpoint();
-
-    StatusMessage {
-        fork_digest,
-        finalized_root: finalized_checkpoint.root,
-        finalized_epoch: finalized_checkpoint.epoch,
-        head_root: head.head_block_root(),
-        head_slot: head.head_slot(),
     }
 }
 
