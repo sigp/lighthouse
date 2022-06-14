@@ -732,10 +732,6 @@ where
         let canonical_head = CanonicalHead {
             fork_choice,
             fork_choice_view,
-            head_proposer_shuffling_decision_root: head_snapshot
-                .beacon_state
-                .proposer_shuffling_decision_root(head_snapshot.beacon_block_root)
-                .map_err(|e| format!("Failed to determine shuffling root: {:?}", e))?,
             head_snapshot,
         };
 

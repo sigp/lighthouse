@@ -36,8 +36,6 @@ pub struct CanonicalHead<T: BeaconChainTypes> {
     pub fork_choice_view: ForkChoiceView,
     /// Provides the head block and state from the last time the head was updated.
     pub head_snapshot: BeaconSnapshot<T::EthSpec>,
-    /// This value is pre-computed to make life simpler for downstream users.
-    pub head_proposer_shuffling_decision_root: Hash256,
 }
 
 impl<T: BeaconChainTypes> CanonicalHead<T> {
@@ -53,8 +51,6 @@ impl<T: BeaconChainTypes> CanonicalHead<T> {
         let beacon_state = store
             .get_state(&beacon_state_root, Some(beacon_block.slot()))?
             .ok_or(Error::MissingBeaconState(beacon_state_root))?;
-        let head_proposer_shuffling_decision_root =
-            beacon_state.proposer_shuffling_decision_root(beacon_block_root)?;
         let head_snapshot = BeaconSnapshot {
             beacon_block_root,
             beacon_block,
@@ -65,7 +61,6 @@ impl<T: BeaconChainTypes> CanonicalHead<T> {
             fork_choice,
             fork_choice_view,
             head_snapshot,
-            head_proposer_shuffling_decision_root,
         })
     }
 
@@ -340,9 +335,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 })?;
 
             // Enshrine the new value as the head.
-            canonical_head_write_lock.head_proposer_shuffling_decision_root = new_head
-                .beacon_state
-                .proposer_shuffling_decision_root(new_head.beacon_block_root)?;
             let old_head = mem::replace(&mut canonical_head_write_lock.head_snapshot, new_head);
 
             // Clear the early attester cache in case it conflicts with `self.canonical_head`.

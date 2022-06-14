@@ -3698,10 +3698,15 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // any longer than necessary.
         let (head_slot, head_root, head_decision_root, head_random, forkchoice_update_params) = {
             let canonical_head = self.canonical_head.read();
+            let head_block_root = canonical_head.head_block_root();
+            let decision_root = canonical_head
+                .head_snapshot
+                .beacon_state
+                .proposer_shuffling_decision_root(head_block_root)?;
             (
                 canonical_head.head_slot(),
-                canonical_head.head_block_root(),
-                canonical_head.head_proposer_shuffling_decision_root,
+                head_block_root,
+                decision_root,
                 canonical_head.head_random()?,
                 canonical_head
                     .fork_choice
