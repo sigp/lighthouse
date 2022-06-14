@@ -30,8 +30,8 @@ use task_executor::ShutdownReason;
 use tokio::sync::mpsc;
 use tokio::time::Sleep;
 use types::{
-    AttestationShufflingId, ChainSpec, EthSpec, ForkContext, Slot, SubnetId,
-    SyncCommitteeSubscription, SyncSubnetId, Unsigned, ValidatorSubscription,
+    ChainSpec, EthSpec, ForkContext, RelativeEpoch, Slot, SubnetId, SyncCommitteeSubscription,
+    SyncSubnetId, Unsigned, ValidatorSubscription,
 };
 
 mod tests;
@@ -42,9 +42,6 @@ const METRIC_UPDATE_INTERVAL: u64 = 5;
 const SUBSCRIBE_DELAY_SLOTS: u64 = 2;
 /// Delay after a fork where we unsubscribe from pre-fork topics.
 const UNSUBSCRIBE_DELAY_EPOCHS: u64 = 2;
-
-/// The time to wait on the shuffling cache whilst trying to count the active validator indices.
-const SHUFFLING_CACHE_TIMEOUT: Duration = Duration::from_millis(100);
 
 /// Application level requests sent to the network.
 #[derive(Debug, Clone, Copy)]
@@ -724,7 +721,7 @@ impl<T: BeaconChainTypes> NetworkService<T> {
                     );
                 }
             } else {
-                warn!(
+                error!(
                     self.log,
                     "Failed to update gossipsub params";
                     "msg" => "unable to get active validator count"
@@ -735,25 +732,25 @@ impl<T: BeaconChainTypes> NetworkService<T> {
 
     /// Returns the number of active validators in the head state.
     ///
-    /// This method relies on the shuffling cache to return the active validator count. It's
-    /// possible (but unlikely) that the values for the head block are not present in the shuffling
-    /// cache. When that happens, this method will return `None`.
+    /// It *should* be impossible for this function to return `None`.
     fn get_active_validator_count(&self) -> Option<usize> {
-        let (head_slot, shuffling_decision_block) = {
-            let head = self.beacon_chain.canonical_head.read();
-            (head.head_slot(), head.head_proposer_shuffling_decision_root)
-        };
-        let head_epoch = head_slot.epoch(T::EthSpec::slots_per_epoch());
-        let shuffling_id = AttestationShufflingId {
-            shuffling_epoch: head_epoch,
-            shuffling_decision_block,
-        };
-        let mut shuffling_cache = self
-            .beacon_chain
-            .shuffling_cache
-            .try_write_for(SHUFFLING_CACHE_TIMEOUT)?;
-        let shuffling = shuffling_cache.get(&shuffling_id)?;
-        Some(shuffling.active_validator_indices().len())
+        let head = self.beacon_chain.canonical_head.read();
+        let state = &head.head_snapshot.beacon_state;
+        if let Ok(cached_indices) =
+            state.get_cached_active_validator_indices(RelativeEpoch::Current)
+        {
+            Some(cached_indices.len())
+        } else {
+            error!(
+                self.log,
+                "Cache missing from head beacon state";
+                "msg" => "computing value manually, please report this error"
+            );
+            let indices = state
+                .get_active_validator_indices(state.current_epoch(), &self.beacon_chain.spec)
+                .ok()?;
+            Some(indices.len())
+        }
     }
 
     fn on_attestation_service_msg(&mut self, msg: SubnetServiceMessage) {
