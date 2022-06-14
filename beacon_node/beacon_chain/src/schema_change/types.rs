@@ -12,7 +12,7 @@ four_byte_option_impl!(four_byte_option_usize, usize);
 four_byte_option_impl!(four_byte_option_checkpoint, Checkpoint);
 
 #[superstruct(
-    variants(V1, V6, V7, V9),
+    variants(V1, V6, V7, V10),
     variant_attributes(derive(Clone, PartialEq, Debug, Encode, Decode)),
     no_enum
 )]
@@ -30,23 +30,23 @@ pub struct ProtoNode {
     #[superstruct(only(V1, V6))]
     pub finalized_epoch: Epoch,
     #[ssz(with = "four_byte_option_checkpoint")]
-    #[superstruct(only(V7, V9))]
+    #[superstruct(only(V7, V10))]
     pub justified_checkpoint: Option<Checkpoint>,
     #[ssz(with = "four_byte_option_checkpoint")]
-    #[superstruct(only(V7, V9))]
+    #[superstruct(only(V7, V10))]
     pub finalized_checkpoint: Option<Checkpoint>,
     pub weight: u64,
     #[ssz(with = "four_byte_option_usize")]
     pub best_child: Option<usize>,
     #[ssz(with = "four_byte_option_usize")]
     pub best_descendant: Option<usize>,
-    #[superstruct(only(V6, V7, V9))]
+    #[superstruct(only(V6, V7, V10))]
     pub execution_status: ExecutionStatus,
     #[ssz(with = "four_byte_option_checkpoint")]
-    #[superstruct(only(V9))]
+    #[superstruct(only(V10))]
     pub unrealized_justified_checkpoint: Option<Checkpoint>,
     #[ssz(with = "four_byte_option_checkpoint")]
-    #[superstruct(only(V9))]
+    #[superstruct(only(V10))]
     pub unrealized_finalized_checkpoint: Option<Checkpoint>,
 }
 
@@ -94,9 +94,9 @@ impl Into<ProtoNodeV7> for ProtoNodeV6 {
     }
 }
 
-impl Into<ProtoNodeV9> for ProtoNodeV7 {
-    fn into(self) -> ProtoNodeV9 {
-        ProtoNodeV9 {
+impl Into<ProtoNodeV10> for ProtoNodeV7 {
+    fn into(self) -> ProtoNodeV10 {
+        ProtoNodeV10 {
             slot: self.slot,
             state_root: self.state_root,
             target_root: self.target_root,
@@ -116,7 +116,7 @@ impl Into<ProtoNodeV9> for ProtoNodeV7 {
     }
 }
 
-impl Into<ProtoNode> for ProtoNodeV9 {
+impl Into<ProtoNode> for ProtoNodeV10 {
     fn into(self) -> ProtoNode {
         ProtoNode {
             slot: self.slot,
@@ -159,7 +159,7 @@ impl From<ProtoNode> for ProtoNodeV7 {
 }
 
 #[superstruct(
-    variants(V1, V6, V7, V9),
+    variants(V1, V6, V7, V10),
     variant_attributes(derive(Encode, Decode)),
     no_enum
 )]
@@ -172,9 +172,9 @@ pub struct SszContainer {
     pub justified_epoch: Epoch,
     #[superstruct(only(V1, V6))]
     pub finalized_epoch: Epoch,
-    #[superstruct(only(V7, V9))]
+    #[superstruct(only(V7, V10))]
     pub justified_checkpoint: Checkpoint,
-    #[superstruct(only(V7, V9))]
+    #[superstruct(only(V7, V10))]
     pub finalized_checkpoint: Checkpoint,
     #[superstruct(only(V1))]
     pub nodes: Vec<ProtoNodeV1>,
@@ -182,10 +182,10 @@ pub struct SszContainer {
     pub nodes: Vec<ProtoNodeV6>,
     #[superstruct(only(V7))]
     pub nodes: Vec<ProtoNodeV7>,
-    #[superstruct(only(V9))]
-    pub nodes: Vec<ProtoNodeV9>,
+    #[superstruct(only(V10))]
+    pub nodes: Vec<ProtoNodeV10>,
     pub indices: Vec<(Hash256, usize)>,
-    #[superstruct(only(V7, V9))]
+    #[superstruct(only(V7, V10))]
     pub previous_proposer_boost: ProposerBoost,
 }
 
@@ -226,11 +226,11 @@ impl SszContainerV6 {
     }
 }
 
-impl Into<SszContainerV9> for SszContainerV7 {
-    fn into(self) -> SszContainerV9 {
+impl Into<SszContainerV10> for SszContainerV7 {
+    fn into(self) -> SszContainerV10 {
         let nodes = self.nodes.into_iter().map(Into::into).collect();
 
-        SszContainerV9 {
+        SszContainerV10 {
             votes: self.votes,
             balances: self.balances,
             prune_threshold: self.prune_threshold,
@@ -243,7 +243,7 @@ impl Into<SszContainerV9> for SszContainerV7 {
     }
 }
 
-impl Into<SszContainer> for SszContainerV9 {
+impl Into<SszContainer> for SszContainerV10 {
     fn into(self) -> SszContainer {
         let nodes = self.nodes.into_iter().map(Into::into).collect();
 

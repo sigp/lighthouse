@@ -2,7 +2,7 @@
 use crate::beacon_chain::BeaconChainTypes;
 use crate::beacon_fork_choice_store::{PersistedForkChoiceStoreV1, PersistedForkChoiceStoreV7};
 use crate::persisted_fork_choice::{PersistedForkChoiceV1, PersistedForkChoiceV7};
-use crate::schema_change::types::{ProtoNodeV6, SszContainerV6, SszContainerV7, SszContainerV9};
+use crate::schema_change::types::{ProtoNodeV6, SszContainerV10, SszContainerV6, SszContainerV7};
 use crate::types::{Checkpoint, Epoch, Hash256};
 use crate::types::{EthSpec, Slot};
 use crate::{BeaconForkChoiceStore, BeaconSnapshot};
@@ -82,8 +82,8 @@ pub(crate) fn update_fork_choice<T: BeaconChainTypes>(
     // to `None`.
     let ssz_container_v7: SszContainerV7 =
         ssz_container_v6.into_ssz_container_v7(justified_checkpoint, finalized_checkpoint);
-    let ssz_container_v9: SszContainerV9 = ssz_container_v7.into();
-    let ssz_container: SszContainer = ssz_container_v9.into();
+    let ssz_container_v10: SszContainerV10 = ssz_container_v7.into();
+    let ssz_container: SszContainer = ssz_container_v10.into();
     let mut fork_choice: ProtoArrayForkChoice = ssz_container.into();
 
     update_checkpoints::<T>(finalized_checkpoint.root, &nodes_v6, &mut fork_choice, db)

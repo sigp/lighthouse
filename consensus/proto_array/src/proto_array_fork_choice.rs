@@ -262,6 +262,7 @@ impl ProtoArrayForkChoice {
         finalized_checkpoint: Checkpoint,
         justified_state_balances: &[u64],
         proposer_boost_root: Hash256,
+        current_slot: Slot,
         spec: &ChainSpec,
     ) -> Result<Hash256, String> {
         let old_balances = &mut self.balances;
@@ -283,6 +284,7 @@ impl ProtoArrayForkChoice {
                 finalized_checkpoint,
                 new_balances,
                 proposer_boost_root,
+                current_slot,
                 spec,
             )
             .map_err(|e| format!("find_head apply_score_changes failed: {:?}", e))?;
