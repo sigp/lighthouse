@@ -141,7 +141,7 @@ pub fn per_block_processing<T: EthSpec, Payload: ExecPayload<T>>(
     )?;
 
     if verify_signatures.is_true() {
-        verify_block_signature(state, signed_block, block_root, spec)?;
+        verify_block_signature(state, signed_block, block_root, proposer_index, spec)?;
     }
 
     let verify_randao = if let BlockSignatureStrategy::VerifyRandao = block_signature_strategy {
@@ -158,7 +158,7 @@ pub fn per_block_processing<T: EthSpec, Payload: ExecPayload<T>>(
         process_execution_payload(state, payload, spec)?;
     }
 
-    process_randao(state, block, verify_randao, spec)?;
+    process_randao(state, block, verify_randao, proposer_index, spec)?;
     process_eth1_data(state, block.body().eth1_data())?;
     process_operations(state, block.body(), proposer_index, verify_signatures, spec)?;
 
@@ -238,6 +238,7 @@ pub fn verify_block_signature<T: EthSpec, Payload: ExecPayload<T>>(
     state: &BeaconState<T>,
     block: &SignedBeaconBlock<T, Payload>,
     block_root: Option<Hash256>,
+    proposer_index: u64,
     spec: &ChainSpec,
 ) -> Result<(), BlockOperationError<HeaderInvalid>> {
     verify!(
@@ -246,6 +247,7 @@ pub fn verify_block_signature<T: EthSpec, Payload: ExecPayload<T>>(
             |i| get_pubkey_from_state(state, i),
             block,
             block_root,
+            proposer_index,
             spec
         )?
         .verify(),
@@ -261,12 +263,20 @@ pub fn process_randao<T: EthSpec, Payload: ExecPayload<T>>(
     state: &mut BeaconState<T>,
     block: BeaconBlockRef<'_, T, Payload>,
     verify_signatures: VerifySignatures,
+    proposer_index: u64,
     spec: &ChainSpec,
 ) -> Result<(), BlockProcessingError> {
     if verify_signatures.is_true() {
         // Verify RANDAO reveal signature.
         block_verify!(
-            randao_signature_set(state, |i| get_pubkey_from_state(state, i), block, spec)?.verify(),
+            randao_signature_set(
+                state,
+                |i| get_pubkey_from_state(state, i),
+                block,
+                proposer_index,
+                spec
+            )?
+            .verify(),
             BlockProcessingError::RandaoSignatureInvalid
         );
     }
