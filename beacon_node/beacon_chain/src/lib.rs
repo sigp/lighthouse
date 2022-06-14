@@ -31,7 +31,6 @@ mod persisted_beacon_chain;
 mod persisted_fork_choice;
 mod pre_finalization_cache;
 pub mod proposer_prep_service;
-pub mod recompute_head;
 pub mod schema_change;
 mod shuffling_cache;
 mod snapshot_cache;
