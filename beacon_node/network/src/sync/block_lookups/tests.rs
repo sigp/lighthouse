@@ -316,7 +316,7 @@ fn test_parent_lookup_wrong_response() {
     rig.expect_block_process();
 
     // Processing succeeds, now the rest of the chain should be sent for processing.
-    bl.parent_block_processed(chain_hash, Ok(()), &mut cx);
+    bl.parent_block_processed(chain_hash, Ok(()).into(), &mut cx);
     rig.expect_parent_chain_process();
     bl.parent_chain_processed(chain_hash, BatchProcessResult::Success(true), &mut cx);
     assert_eq!(bl.parent_queue.len(), 0);
@@ -345,7 +345,7 @@ fn test_parent_lookup_empty_response() {
     rig.expect_block_process();
 
     // Processing succeeds, now the rest of the chain should be sent for processing.
-    bl.parent_block_processed(chain_hash, Ok(()), &mut cx);
+    bl.parent_block_processed(chain_hash, Ok(()).into(), &mut cx);
     rig.expect_parent_chain_process();
     bl.parent_chain_processed(chain_hash, BatchProcessResult::Success(true), &mut cx);
     assert_eq!(bl.parent_queue.len(), 0);
@@ -373,7 +373,7 @@ fn test_parent_lookup_rpc_failure() {
     rig.expect_block_process();
 
     // Processing succeeds, now the rest of the chain should be sent for processing.
-    bl.parent_block_processed(chain_hash, Ok(()), &mut cx);
+    bl.parent_block_processed(chain_hash, Ok(()).into(), &mut cx);
     rig.expect_parent_chain_process();
     bl.parent_chain_processed(chain_hash, BatchProcessResult::Success(true), &mut cx);
     assert_eq!(bl.parent_queue.len(), 0);
@@ -444,7 +444,7 @@ fn test_parent_lookup_too_deep() {
         // the processing result
         bl.parent_block_processed(
             chain_hash,
-            Err(BlockError::ParentUnknown(Box::new(block))),
+            BlockError::ParentUnknown(Box::new(block)).into(),
             &mut cx,
         )
     }
