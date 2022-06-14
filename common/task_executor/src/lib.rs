@@ -322,12 +322,44 @@ impl TaskExecutor {
     pub fn block_on_dangerous<F: Future>(
         &self,
         future: F,
-        _name: &'static str,
+        name: &'static str,
     ) -> Option<F::Output>
 where {
+        let timer = metrics::start_timer_vec(&metrics::BLOCK_ON_TASKS_HISTOGRAM, &[name]);
+        metrics::inc_gauge_vec(&metrics::BLOCK_ON_TASKS_COUNT, &[name]);
+        let log = self.log.clone();
         let handle = self.handle()?;
-        // TODO(paul): respect the shutdown signal and the name.
-        Some(handle.block_on(future))
+        let exit = self.exit.clone();
+
+        debug!(
+            log,
+            "Starting block_on task";
+            "name" => name
+        );
+
+        handle.block_on(async {
+            let output = tokio::select! {
+                output = future => {
+                    debug!(
+                        log,
+                        "Completed block_on task";
+                        "name" => name
+                    );
+                    Some(output)
+                },
+                _ = exit => {
+                    debug!(
+                        log,
+                        "Cancelled block_on task";
+                        "name" => name,
+                    );
+                    None
+                }
+            };
+            metrics::dec_gauge_vec(&metrics::BLOCK_ON_TASKS_COUNT, &[name]);
+            drop(timer);
+            output
+        })
     }
 
     /// Returns a `Handle` to the current runtime.
