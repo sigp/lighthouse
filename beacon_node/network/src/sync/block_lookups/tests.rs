@@ -168,7 +168,7 @@ fn test_single_block_lookup_happy_path() {
     // Send the stream termination. Peer should have not been penalized, and the request removed
     // after processing.
     bl.single_block_lookup_response(id, peer_id, None, D, &mut cx);
-    bl.single_block_processed(id, Ok(()), &mut cx);
+    bl.single_block_processed(id, Ok(()).into(), &mut cx);
     rig.expect_empty_network();
     assert_eq!(bl.single_block_lookups.len(), 0);
 }
@@ -252,7 +252,11 @@ fn test_single_block_lookup_becomes_parent_request() {
 
     // Send the stream termination. Peer should have not been penalized, and the request moved to a
     // parent request after processing.
-    bl.single_block_processed(id, Err(BlockError::ParentUnknown(Box::new(block))), &mut cx);
+    bl.single_block_processed(
+        id,
+        BlockError::ParentUnknown(Box::new(block)).into(),
+        &mut cx,
+    );
     assert_eq!(bl.single_block_lookups.len(), 0);
     rig.expect_parent_request();
     rig.expect_empty_network();
@@ -278,7 +282,7 @@ fn test_parent_lookup_happy_path() {
     rig.expect_empty_network();
 
     // Processing succeeds, now the rest of the chain should be sent for processing.
-    bl.parent_block_processed(chain_hash, Err(BlockError::BlockIsAlreadyKnown), &mut cx);
+    bl.parent_block_processed(chain_hash, BlockError::BlockIsAlreadyKnown.into(), &mut cx);
     rig.expect_parent_chain_process();
     bl.parent_chain_processed(chain_hash, BatchProcessResult::Success(true), &mut cx);
     assert_eq!(bl.parent_queue.len(), 0);

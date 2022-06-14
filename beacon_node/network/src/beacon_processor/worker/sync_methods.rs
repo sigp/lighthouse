@@ -50,7 +50,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                 // Sync handles these results
                 self.send_sync_message(SyncMessage::BlockProcessed {
                     process_type,
-                    result: Err(BlockError::BlockIsAlreadyKnown),
+                    result: crate::sync::manager::BlockProcessResult::Ignored,
                 });
                 return;
             }
@@ -83,7 +83,7 @@ impl<T: BeaconChainTypes> Worker<T> {
         // Sync handles these results
         self.send_sync_message(SyncMessage::BlockProcessed {
             process_type,
-            result: result.map(|_| ()),
+            result: result.into(),
         });
 
         // Drop the handle to remove the entry from the cache
