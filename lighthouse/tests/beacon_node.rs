@@ -109,6 +109,26 @@ fn disable_lock_timeouts_flag() {
 }
 
 #[test]
+fn fork_choice_before_proposal_timeout_default() {
+    CommandLineTest::new()
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert_eq!(
+                config.chain.fork_choice_before_proposal_timeout_ms,
+                beacon_node::beacon_chain::chain_config::DEFAULT_FORK_CHOICE_BEFORE_PROPOSAL_TIMEOUT
+            )
+        });
+}
+
+#[test]
+fn fork_choice_before_proposal_timeout_zero() {
+    CommandLineTest::new()
+        .flag("fork-choice-before-proposal-timeout", Some("0"))
+        .run_with_zero_port()
+        .with_config(|config| assert_eq!(config.chain.fork_choice_before_proposal_timeout_ms, 0));
+}
+
+#[test]
 fn freezer_dir_flag() {
     let dir = TempDir::new().expect("Unable to create temporary directory");
     CommandLineTest::new()
@@ -204,6 +224,25 @@ fn eth1_purge_cache_flag() {
         .flag("eth1-purge-cache", None)
         .run_with_zero_port()
         .with_config(|config| assert!(config.eth1.purge_cache));
+}
+#[test]
+fn eth1_cache_follow_distance_default() {
+    CommandLineTest::new()
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert_eq!(config.eth1.cache_follow_distance, None);
+            assert_eq!(config.eth1.cache_follow_distance(), 3 * 2048 / 4);
+        });
+}
+#[test]
+fn eth1_cache_follow_distance_manual() {
+    CommandLineTest::new()
+        .flag("eth1-cache-follow-distance", Some("128"))
+        .run_with_zero_port()
+        .with_config(|config| {
+            assert_eq!(config.eth1.cache_follow_distance, Some(128));
+            assert_eq!(config.eth1.cache_follow_distance(), 128);
+        });
 }
 
 // Tests for Bellatrix flags.

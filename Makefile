@@ -12,6 +12,7 @@ AARCH64_TAG = "aarch64-unknown-linux-gnu"
 BUILD_PATH_AARCH64 = "target/$(AARCH64_TAG)/release"
 
 PINNED_NIGHTLY ?= nightly
+CLIPPY_PINNED_NIGHTLY=nightly-2022-05-19
 
 # List of all hard forks. This list is used to set env variables for several tests so that
 # they run for different forks.
@@ -144,6 +145,14 @@ lint:
 		-A clippy::from-over-into \
 		-A clippy::upper-case-acronyms \
 		-A clippy::vec-init-then-push
+
+# FIXME: fails if --release is added due to broken HTTP API tests
+nightly-lint:
+	cp .github/custom/clippy.toml .
+	cargo +$(CLIPPY_PINNED_NIGHTLY) clippy --workspace --tests -- \
+		-A clippy::all \
+		-D clippy::disallowed_from_async
+	rm clippy.toml
 
 # Runs the makefile in the `ef_tests` repo.
 #

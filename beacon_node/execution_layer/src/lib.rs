@@ -17,7 +17,7 @@ use payload_status::process_multiple_payload_statuses;
 pub use payload_status::PayloadStatus;
 use sensitive_url::SensitiveUrl;
 use serde::{Deserialize, Serialize};
-use slog::{crit, debug, error, info, trace, Logger};
+use slog::{crit, debug, error, info, trace, warn, Logger};
 use slot_clock::SlotClock;
 use std::collections::HashMap;
 use std::convert::TryInto;
@@ -268,7 +268,7 @@ impl ExecutionLayer {
         &self.inner.builders
     }
 
-    fn executor(&self) -> &TaskExecutor {
+    pub fn executor(&self) -> &TaskExecutor {
         &self.inner.executor
     }
 
@@ -304,11 +304,7 @@ impl ExecutionLayer {
         T: Fn(&'a Self) -> U,
         U: Future<Output = Result<V, Error>>,
     {
-        let runtime = self
-            .executor()
-            .runtime()
-            .upgrade()
-            .ok_or(Error::ShuttingDown)?;
+        let runtime = self.executor().handle().ok_or(Error::ShuttingDown)?;
         // TODO(merge): respect the shutdown signal.
         runtime.block_on(generate_future(self))
     }
@@ -322,11 +318,7 @@ impl ExecutionLayer {
         T: Fn(&'a Self) -> U,
         U: Future<Output = V>,
     {
-        let runtime = self
-            .executor()
-            .runtime()
-            .upgrade()
-            .ok_or(Error::ShuttingDown)?;
+        let runtime = self.executor().handle().ok_or(Error::ShuttingDown)?;
         // TODO(merge): respect the shutdown signal.
         Ok(runtime.block_on(generate_future(self)))
     }
@@ -539,6 +531,23 @@ impl ExecutionLayer {
         if let Some(preparation_data_entry) =
             self.proposer_preparation_data().await.get(&proposer_index)
         {
+            if let Some(suggested_fee_recipient) = self.inner.suggested_fee_recipient {
+                if preparation_data_entry.preparation_data.fee_recipient != suggested_fee_recipient
+                {
+                    warn!(
+                        self.log(),
+                        "Inconsistent fee recipient";
+                        "msg" => "The fee recipient returned from the Execution Engine differs \
+                        from the suggested_fee_recipient set on the beacon node. This could \
+                        indicate that fees are being diverted to another address. Please \
+                        ensure that the value of suggested_fee_recipient is set correctly and \
+                        that the Execution Engine is trusted.",
+                        "proposer_index" => ?proposer_index,
+                        "fee_recipient" => ?preparation_data_entry.preparation_data.fee_recipient,
+                        "suggested_fee_recipient" => ?suggested_fee_recipient,
+                    )
+                }
+            }
             // The values provided via the API have first priority.
             preparation_data_entry.preparation_data.fee_recipient
         } else if let Some(address) = self.inner.suggested_fee_recipient {
@@ -668,25 +677,28 @@ impl ExecutionLayer {
                                 suggested_fee_recipient,
                             };
 
-                            engine
+                            let response = engine
                                 .notify_forkchoice_updated(
                                     fork_choice_state,
                                     Some(payload_attributes),
                                     self.log(),
                                 )
-                                .await
-                                .map(|response| response.payload_id)?
-                                .ok_or_else(|| {
+                                .await?;
+
+                            match response.payload_id {
+                                Some(payload_id) => payload_id,
+                                None => {
                                     error!(
                                         self.log(),
                                         "Exec engine unable to produce payload";
                                         "msg" => "No payload ID, the engine is likely syncing. \
                                                   This has the potential to cause a missed block \
                                                   proposal.",
+                                        "status" => ?response.payload_status
                                     );
-
-                                    ApiError::PayloadIdUnavailable
-                                })?
+                                    return Err(ApiError::PayloadIdUnavailable);
+                                }
+                            }
                         };
 
                         engine
@@ -1183,6 +1195,64 @@ impl ExecutionLayer {
         }
     }
 
+    pub async fn get_payload_by_block_hash<T: EthSpec>(
+        &self,
+        hash: ExecutionBlockHash,
+    ) -> Result<Option<ExecutionPayload<T>>, Error> {
+        self.engines()
+            .first_success(|engine| async move {
+                self.get_payload_by_block_hash_from_engine(engine, hash)
+                    .await
+            })
+            .await
+            .map_err(Error::EngineErrors)
+    }
+
+    async fn get_payload_by_block_hash_from_engine<T: EthSpec>(
+        &self,
+        engine: &Engine<EngineApi>,
+        hash: ExecutionBlockHash,
+    ) -> Result<Option<ExecutionPayload<T>>, ApiError> {
+        let _timer = metrics::start_timer(&metrics::EXECUTION_LAYER_GET_PAYLOAD_BY_BLOCK_HASH);
+
+        if hash == ExecutionBlockHash::zero() {
+            return Ok(Some(ExecutionPayload::default()));
+        }
+
+        let block = if let Some(block) = engine.api.get_block_by_hash_with_txns::<T>(hash).await? {
+            block
+        } else {
+            return Ok(None);
+        };
+
+        let transactions = VariableList::new(
+            block
+                .transactions
+                .into_iter()
+                .map(|transaction| VariableList::new(transaction.rlp().to_vec()))
+                .collect::<Result<_, _>>()
+                .map_err(ApiError::DeserializeTransaction)?,
+        )
+        .map_err(ApiError::DeserializeTransactions)?;
+
+        Ok(Some(ExecutionPayload {
+            parent_hash: block.parent_hash,
+            fee_recipient: block.fee_recipient,
+            state_root: block.state_root,
+            receipts_root: block.receipts_root,
+            logs_bloom: block.logs_bloom,
+            prev_randao: block.prev_randao,
+            block_number: block.block_number,
+            gas_limit: block.gas_limit,
+            gas_used: block.gas_used,
+            timestamp: block.timestamp,
+            extra_data: block.extra_data,
+            base_fee_per_gas: block.base_fee_per_gas,
+            block_hash: block.block_hash,
+            transactions,
+        }))
+    }
+
     pub async fn propose_blinded_beacon_block<T: EthSpec>(
         &self,
         block: &SignedBeaconBlock<T, BlindedPayload<T>>,
@@ -1205,13 +1275,15 @@ impl ExecutionLayer {
 mod test {
     use super::*;
     use crate::test_utils::MockExecutionLayer as GenericMockExecutionLayer;
+    use task_executor::test_utils::TestRuntime;
     use types::MainnetEthSpec;
 
     type MockExecutionLayer = GenericMockExecutionLayer<MainnetEthSpec>;
 
     #[tokio::test]
     async fn produce_three_valid_pos_execution_blocks() {
-        MockExecutionLayer::default_params()
+        let runtime = TestRuntime::default();
+        MockExecutionLayer::default_params(runtime.task_executor.clone())
             .move_to_terminal_block()
             .produce_valid_execution_payload_on_head()
             .await
@@ -1223,7 +1295,8 @@ mod test {
 
     #[tokio::test]
     async fn finds_valid_terminal_block_hash() {
-        MockExecutionLayer::default_params()
+        let runtime = TestRuntime::default();
+        MockExecutionLayer::default_params(runtime.task_executor.clone())
             .move_to_block_prior_to_terminal_block()
             .with_terminal_block(|spec, el, _| async move {
                 el.engines().upcheck_not_synced(Logging::Disabled).await;
@@ -1242,7 +1315,8 @@ mod test {
 
     #[tokio::test]
     async fn verifies_valid_terminal_block_hash() {
-        MockExecutionLayer::default_params()
+        let runtime = TestRuntime::default();
+        MockExecutionLayer::default_params(runtime.task_executor.clone())
             .move_to_terminal_block()
             .with_terminal_block(|spec, el, terminal_block| async move {
                 el.engines().upcheck_not_synced(Logging::Disabled).await;
@@ -1258,7 +1332,8 @@ mod test {
 
     #[tokio::test]
     async fn rejects_invalid_terminal_block_hash() {
-        MockExecutionLayer::default_params()
+        let runtime = TestRuntime::default();
+        MockExecutionLayer::default_params(runtime.task_executor.clone())
             .move_to_terminal_block()
             .with_terminal_block(|spec, el, terminal_block| async move {
                 el.engines().upcheck_not_synced(Logging::Disabled).await;
@@ -1276,7 +1351,8 @@ mod test {
 
     #[tokio::test]
     async fn rejects_unknown_terminal_block_hash() {
-        MockExecutionLayer::default_params()
+        let runtime = TestRuntime::default();
+        MockExecutionLayer::default_params(runtime.task_executor.clone())
             .move_to_terminal_block()
             .with_terminal_block(|spec, el, _| async move {
                 el.engines().upcheck_not_synced(Logging::Disabled).await;

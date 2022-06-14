@@ -407,7 +407,6 @@ impl<T: BeaconChainTypes, C: BlockStorage> ChainCollection<T, C> {
         local_info: &SyncInfo,
         awaiting_head_peers: &mut HashMap<PeerId, SyncInfo>,
     ) {
-        debug!(self.log, "Purging chains");
         let local_finalized_slot = local_info
             .finalized_epoch
             .start_slot(T::EthSpec::slots_per_epoch());
@@ -416,10 +415,7 @@ impl<T: BeaconChainTypes, C: BlockStorage> ChainCollection<T, C> {
         let log_ref = &self.log;
 
         let is_outdated = |target_slot: &Slot, target_root: &Hash256| {
-            let is =
-                target_slot <= &local_finalized_slot || beacon_chain.is_block_known(target_root);
-            debug!(log_ref, "Chain is outdated {}", is);
-            is
+            target_slot <= &local_finalized_slot || beacon_chain.is_block_known(target_root)
         };
 
         // Retain only head peers that remain relevant

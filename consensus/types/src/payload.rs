@@ -15,7 +15,9 @@ pub enum BlockType {
 }
 
 pub trait ExecPayload<T: EthSpec>:
-    Encode
+    Debug
+    + Clone
+    + Encode
     + Decode
     + TestRandom
     + TreeHash
@@ -37,6 +39,7 @@ pub trait ExecPayload<T: EthSpec>:
     // More fields can be added here if you wish.
     fn parent_hash(&self) -> ExecutionBlockHash;
     fn prev_randao(&self) -> Hash256;
+    fn block_number(&self) -> u64;
     fn timestamp(&self) -> u64;
     fn block_hash(&self) -> ExecutionBlockHash;
 }
@@ -56,6 +59,10 @@ impl<T: EthSpec> ExecPayload<T> for FullPayload<T> {
 
     fn prev_randao(&self) -> Hash256 {
         self.execution_payload.prev_randao
+    }
+
+    fn block_number(&self) -> u64 {
+        self.execution_payload.block_number
     }
 
     fn timestamp(&self) -> u64 {
@@ -84,6 +91,10 @@ impl<T: EthSpec> ExecPayload<T> for BlindedPayload<T> {
         self.execution_payload_header.prev_randao
     }
 
+    fn block_number(&self) -> u64 {
+        self.execution_payload_header.block_number
+    }
+
     fn timestamp(&self) -> u64 {
         self.execution_payload_header.timestamp
     }
@@ -93,11 +104,26 @@ impl<T: EthSpec> ExecPayload<T> for BlindedPayload<T> {
     }
 }
 
-#[derive(Default, Debug, Clone, TestRandom, Serialize, Deserialize, Derivative)]
+#[derive(Debug, Clone, TestRandom, Serialize, Deserialize, Derivative)]
 #[derivative(PartialEq, Hash(bound = "T: EthSpec"))]
 #[serde(bound = "T: EthSpec")]
 pub struct BlindedPayload<T: EthSpec> {
     pub execution_payload_header: ExecutionPayloadHeader<T>,
+}
+
+// NOTE: the `Default` implementation for `BlindedPayload` needs to be different from the `Default`
+// implementation for `ExecutionPayloadHeader` because payloads are checked for equality against the
+// default payload in `is_merge_transition_block` to determine whether the merge has occurred.
+//
+// The default `BlindedPayload` is therefore the payload header that results from blinding the
+// default `ExecutionPayload`, which differs from the default `ExecutionPayloadHeader` in that
+// its `transactions_root` is the hash of the empty list rather than 0x0.
+impl<T: EthSpec> Default for BlindedPayload<T> {
+    fn default() -> Self {
+        Self {
+            execution_payload_header: ExecutionPayloadHeader::from(&ExecutionPayload::default()),
+        }
+    }
 }
 
 impl<T: EthSpec> From<ExecutionPayloadHeader<T>> for BlindedPayload<T> {

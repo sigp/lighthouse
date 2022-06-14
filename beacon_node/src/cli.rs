@@ -378,6 +378,16 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .takes_value(true)
         )
         .arg(
+            Arg::with_name("eth1-cache-follow-distance")
+                .long("eth1-cache-follow-distance")
+                .value_name("BLOCKS")
+                .help("Specifies the distance between the Eth1 chain head and the last block which \
+                       should be imported into the cache. Setting this value lower can help \
+                       compensate for irregular Proof-of-Work block times, but setting it too low \
+                       can make the node vulnerable to re-orgs.")
+                .takes_value(true)
+        )
+        .arg(
             Arg::with_name("slots-per-restore-point")
                 .long("slots-per-restore-point")
                 .value_name("SLOT_COUNT")
@@ -685,5 +695,14 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                        lead to less spurious failures on slow hardware but is considered \
                        experimental as it may obscure performance issues.")
                 .takes_value(false)
+        )
+        .arg(
+            Arg::with_name("fork-choice-before-proposal-timeout")
+                .long("fork-choice-before-proposal-timeout")
+                .help("Set the maximum number of milliseconds to wait for fork choice before \
+                       proposing a block. You can prevent waiting at all by setting the timeout \
+                       to 0, however you risk proposing atop the wrong parent block.")
+                .default_value("250")
+                .takes_value(true)
         )
 }

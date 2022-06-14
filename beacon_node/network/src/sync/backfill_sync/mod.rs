@@ -11,7 +11,7 @@
 use crate::beacon_processor::{ChainSegmentProcessId, WorkEvent as BeaconWorkEvent};
 use crate::sync::manager::{BatchProcessResult, Id};
 use crate::sync::network_context::SyncNetworkContext;
-use crate::sync::range_sync::{BatchConfig, BatchId, BatchInfo, BatchState};
+use crate::sync::range_sync::{BatchConfig, BatchId, BatchInfo, BatchProcessingResult, BatchState};
 use beacon_chain::{BeaconChain, BeaconChainTypes};
 use lighthouse_network::types::{BackFillState, NetworkGlobals};
 use lighthouse_network::{PeerAction, PeerId};
@@ -606,7 +606,7 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
                     }
                 };
 
-                if let Err(e) = batch.processing_completed(true) {
+                if let Err(e) = batch.processing_completed(BatchProcessingResult::Success) {
                     self.fail_sync(BackFillError::BatchInvalidState(batch_id, e.0))?;
                 }
                 // If the processed batch was not empty, we can validate previous unvalidated
@@ -664,7 +664,9 @@ impl<T: BeaconChainTypes> BackFillSync<T> {
                 };
                 debug!(self.log, "Batch processing failed"; "imported_blocks" => imported_blocks,
                     "batch_epoch" => batch_id, "peer" => %peer, "client" => %network.client_type(&peer));
-                match batch.processing_completed(false) {
+                match batch.processing_completed(BatchProcessingResult::Failed {
+                    count_attempt: peer_action.is_some(),
+                }) {
                     Err(e) => {
                         // Batch was in the wrong state
                         self.fail_sync(BackFillError::BatchInvalidState(batch_id, e.0))

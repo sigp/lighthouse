@@ -6,7 +6,10 @@ use types::consts::altair::{
 };
 use types::{BeaconState, ChainSpec, EthSpec};
 
-use crate::common::{altair::get_base_reward, decrease_balance, increase_balance};
+use crate::common::{
+    altair::{get_base_reward, BaseRewardPerIncrement},
+    decrease_balance, increase_balance,
+};
 use crate::per_epoch_processing::{Delta, Error};
 
 /// Apply attester and proposer rewards.
@@ -67,13 +70,14 @@ pub fn get_flag_index_deltas<T: EthSpec>(
     let unslashed_participating_increments =
         unslashed_participating_balance.safe_div(spec.effective_balance_increment)?;
     let active_increments = total_active_balance.safe_div(spec.effective_balance_increment)?;
+    let base_reward_per_increment = BaseRewardPerIncrement::new(total_active_balance, spec)?;
 
     for &index in participation_cache.eligible_validator_indices() {
-        let base_reward = get_base_reward(state, index, total_active_balance, spec)?;
+        let base_reward = get_base_reward(state, index, base_reward_per_increment, spec)?;
         let mut delta = Delta::default();
 
         if unslashed_participating_indices.contains(index as usize)? {
-            if !state.is_in_inactivity_leak(spec) {
+            if !state.is_in_inactivity_leak(previous_epoch, spec) {
                 let reward_numerator = base_reward
                     .safe_mul(weight)?
                     .safe_mul(unslashed_participating_increments)?;

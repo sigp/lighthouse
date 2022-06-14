@@ -1,4 +1,4 @@
-use crate::common::{altair::get_base_reward_per_increment, decrease_balance, increase_balance};
+use crate::common::{altair::BaseRewardPerIncrement, decrease_balance, increase_balance};
 use crate::per_block_processing::errors::{BlockProcessingError, SyncAggregateInvalid};
 use crate::{signature_sets::sync_aggregate_signature_set, VerifySignatures};
 use safe_arith::SafeArith;
@@ -72,7 +72,8 @@ pub fn compute_sync_aggregate_rewards<T: EthSpec>(
     let total_active_balance = state.get_total_active_balance()?;
     let total_active_increments =
         total_active_balance.safe_div(spec.effective_balance_increment)?;
-    let total_base_rewards = get_base_reward_per_increment(total_active_balance, spec)?
+    let total_base_rewards = BaseRewardPerIncrement::new(total_active_balance, spec)?
+        .as_u64()
         .safe_mul(total_active_increments)?;
     let max_participant_rewards = total_base_rewards
         .safe_mul(SYNC_REWARD_WEIGHT)?

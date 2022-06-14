@@ -19,12 +19,12 @@ use crate::{
     BeaconState, BeaconStateError, ChainSpec, Epoch, EthSpec, ParticipationFlags, RelativeEpoch,
 };
 use safe_arith::{ArithError, SafeArith};
-use std::collections::HashMap;
 use std::sync::Arc;
 
 #[derive(Debug, PartialEq)]
 pub enum Error {
     InvalidFlagIndex(usize),
+    InvalidValidatorIndex(usize),
 }
 
 /// A balance which will never be below the specified `minimum`.
@@ -65,7 +65,7 @@ struct SingleEpochParticipationCache {
     /// It would be ideal to maintain a reference to the `BeaconState` here rather than copying the
     /// `ParticipationFlags`, however that would cause us to run into mutable reference limitations
     /// upstream.
-    unslashed_participating_indices: HashMap<usize, ParticipationFlags>,
+    unslashed_participating_indices: Vec<Option<ParticipationFlags>>,
     /// Stores the sum of the balances for all validators in `self.unslashed_participating_indices`
     /// for all flags in `NUM_FLAG_INDICES`.
     ///
@@ -77,11 +77,12 @@ struct SingleEpochParticipationCache {
 }
 
 impl SingleEpochParticipationCache {
-    fn new(hashmap_len: usize, spec: &ChainSpec) -> Self {
+    fn new<T: EthSpec>(state: &BeaconState<T>, spec: &ChainSpec) -> Self {
+        let num_validators = state.validators().len();
         let zero_balance = Balance::zero(spec.effective_balance_increment);
 
         Self {
-            unslashed_participating_indices: HashMap::with_capacity(hashmap_len),
+            unslashed_participating_indices: vec![None; num_validators],
             total_flag_balances: [zero_balance; NUM_FLAG_INDICES],
             total_active_balance: zero_balance,
         }
@@ -101,7 +102,11 @@ impl SingleEpochParticipationCache {
     ///
     /// May return an error if `flag_index` is out-of-bounds.
     fn has_flag(&self, val_index: usize, flag_index: usize) -> Result<bool, Error> {
-        if let Some(participation_flags) = self.unslashed_participating_indices.get(&val_index) {
+        let participation_flags = self
+            .unslashed_participating_indices
+            .get(val_index)
+            .ok_or(Error::InvalidValidatorIndex(val_index))?;
+        if let Some(participation_flags) = participation_flags {
             participation_flags
                 .has_flag(flag_index)
                 .map_err(|_| Error::InvalidFlagIndex(flag_index))
@@ -122,13 +127,14 @@ impl SingleEpochParticipationCache {
         &mut self,
         val_index: usize,
         state: &BeaconState<T>,
+        current_epoch: Epoch,
         relative_epoch: RelativeEpoch,
     ) -> Result<(), BeaconStateError> {
         let val_balance = state.get_effective_balance(val_index)?;
         let validator = state.get_validator(val_index)?;
 
         // Sanity check to ensure the validator is active.
-        let epoch = relative_epoch.into_epoch(state.current_epoch());
+        let epoch = relative_epoch.into_epoch(current_epoch);
         if !validator.is_active_at(epoch) {
             return Err(BeaconStateError::ValidatorIsInactive { val_index });
         }
@@ -150,8 +156,10 @@ impl SingleEpochParticipationCache {
         }
 
         // Add their `ParticipationFlags` to the map.
-        self.unslashed_participating_indices
-            .insert(val_index, *epoch_participation);
+        *self
+            .unslashed_participating_indices
+            .get_mut(val_index)
+            .ok_or(BeaconStateError::UnknownValidator(val_index))? = Some(*epoch_participation);
 
         // Iterate through all the flags and increment the total flag balances for whichever flags
         // are set for `val_index`.
@@ -186,16 +194,12 @@ impl PreviousParticipationCache {
         state: &BeaconState<T>,
         spec: &ChainSpec,
     ) -> Result<Self, BeaconStateError> {
+        let current_epoch = state.current_epoch();
         let previous_epoch = state.previous_epoch();
-
-        let num_previous_epoch_active_vals = state
-            .get_cached_active_validator_indices(RelativeEpoch::Previous)?
-            .len();
 
         // Both the current/previous epoch participations are set to a capacity that is slightly
         // larger than required. The difference will be due slashed-but-active validators.
-        let mut previous_epoch_participation =
-            SingleEpochParticipationCache::new(num_previous_epoch_active_vals, spec);
+        let mut previous_epoch_participation = SingleEpochParticipationCache::new(state, spec);
         // Contains the set of validators which are either:
         //
         // - Active in the previous epoch.
@@ -217,19 +221,20 @@ impl PreviousParticipationCache {
                 previous_epoch_participation.process_active_validator(
                     val_index,
                     state,
+                    current_epoch,
                     RelativeEpoch::Previous,
                 )?;
             }
 
             // Note: a validator might still be "eligible" whilst returning `false` to
             // `Validator::is_active_at`.
-            if state.is_eligible_validator(val_index)? {
+            if state.is_eligible_validator(previous_epoch, val_index)? {
                 eligible_indices.push(val_index)
             }
         }
 
         Ok(Self {
-            initialized_epoch: state.current_epoch(),
+            initialized_epoch: current_epoch,
             previous_epoch,
             previous_epoch_participation: Arc::new(previous_epoch_participation),
             eligible_indices: Arc::new(eligible_indices),
@@ -253,16 +258,13 @@ impl CurrentEpochParticipationCache {
         spec: &ChainSpec,
     ) -> Result<Self, BeaconStateError> {
         let current_epoch = state.current_epoch();
-        let num_current_epoch_active_vals = state
-            .get_cached_active_validator_indices(RelativeEpoch::Current)?
-            .len();
-        let mut current_epoch_participation =
-            SingleEpochParticipationCache::new(num_current_epoch_active_vals, spec);
+        let mut current_epoch_participation = SingleEpochParticipationCache::new(state, spec);
         for (val_index, val) in state.validators().iter().enumerate() {
             if val.is_active_at(current_epoch) {
                 current_epoch_participation.process_active_validator(
                     val_index,
                     state,
+                    current_epoch,
                     RelativeEpoch::Current,
                 )?;
             }
@@ -282,10 +284,12 @@ impl CurrentEpochParticipationCache {
             .total_flag_balance(TIMELY_TARGET_FLAG_INDEX)
     }
 
-    pub fn is_active_unslashed_in_current_epoch(&self, val_index: usize) -> bool {
+    /// Returns `None` for an unknown `val_index`.
+    pub fn is_active_unslashed_in_current_epoch(&self, val_index: usize) -> Option<bool> {
         self.current_epoch_participation
             .unslashed_participating_indices
-            .contains_key(&val_index)
+            .get(val_index)
+            .map(|flags| flags.is_some())
     }
 
     /// Always returns false for a slashed validator.
@@ -396,10 +400,12 @@ impl ParticipationCache {
      * Active/Unslashed
      */
 
-    pub fn is_active_unslashed_in_previous_epoch(&self, val_index: usize) -> bool {
+    /// Returns `None` for an unknown `val_index`.
+    pub fn is_active_unslashed_in_previous_epoch(&self, val_index: usize) -> Option<bool> {
         self.previous_epoch_participation
             .unslashed_participating_indices
-            .contains_key(&val_index)
+            .get(val_index)
+            .map(|flags| flags.is_some())
     }
 
     /*
@@ -439,10 +445,12 @@ impl ParticipationCache {
             .total_flag_balance(TIMELY_TARGET_FLAG_INDEX)
     }
 
-    pub fn is_active_unslashed_in_current_epoch(&self, val_index: usize) -> bool {
+    /// Returns `None` for an unknown `val_index`.
+    pub fn is_active_unslashed_in_current_epoch(&self, val_index: usize) -> Option<bool> {
         self.current_epoch_participation
             .unslashed_participating_indices
-            .contains_key(&val_index)
+            .get(val_index)
+            .map(|flags| flags.is_some())
     }
 
     /// Always returns false for a slashed validator.

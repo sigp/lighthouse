@@ -42,6 +42,7 @@ use crate::sync::manager::BlockProcessType;
 use crate::{metrics, service::NetworkMessage, sync::SyncMessage};
 use beacon_chain::parking_lot::Mutex;
 use beacon_chain::{BeaconChain, BeaconChainTypes, GossipVerifiedBlock};
+use derivative::Derivative;
 use futures::stream::{Stream, StreamExt};
 use futures::task::Poll;
 use lighthouse_network::{
@@ -51,7 +52,6 @@ use lighthouse_network::{
 use logging::TimeLatch;
 use slog::{crit, debug, error, trace, warn, Logger};
 use std::collections::VecDeque;
-use std::fmt;
 use std::pin::Pin;
 use std::sync::{Arc, Weak};
 use std::task::Context;
@@ -89,7 +89,7 @@ pub const MAX_WORK_EVENT_QUEUE_LEN: usize = 16_384;
 const MAX_IDLE_QUEUE_LEN: usize = 16_384;
 
 /// The maximum size of the channel for re-processing work events.
-const MAX_SCHEDULED_WORK_QUEUE_LEN: usize = 16_384;
+const MAX_SCHEDULED_WORK_QUEUE_LEN: usize = 3 * MAX_WORK_EVENT_QUEUE_LEN / 4;
 
 /// The maximum number of queued `Attestation` objects that will be stored before we start dropping
 /// them.
@@ -331,15 +331,11 @@ impl DuplicateCache {
 }
 
 /// An event to be processed by the manager task.
+#[derive(Derivative)]
+#[derivative(Debug(bound = "T: BeaconChainTypes"))]
 pub struct WorkEvent<T: BeaconChainTypes> {
     drop_during_sync: bool,
     work: Work<T>,
-}
-
-impl<T: BeaconChainTypes> fmt::Debug for WorkEvent<T> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{:?}", self)
-    }
 }
 
 impl<T: BeaconChainTypes> WorkEvent<T> {
@@ -615,7 +611,8 @@ impl<T: BeaconChainTypes> std::convert::From<ReadyWork<T>> for WorkEvent<T> {
 }
 
 /// A consensus message (or multiple) from the network that requires processing.
-#[derive(Debug)]
+#[derive(Derivative)]
+#[derivative(Debug(bound = "T: BeaconChainTypes"))]
 pub enum Work<T: BeaconChainTypes> {
     GossipAttestation {
         message_id: MessageId,
@@ -872,6 +869,7 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
         // Using a FIFO queue since blocks need to be imported sequentially.
         let mut rpc_block_queue = FifoQueue::new(MAX_RPC_BLOCK_QUEUE_LEN);
         let mut chain_segment_queue = FifoQueue::new(MAX_CHAIN_SEGMENT_QUEUE_LEN);
+        let mut backfill_chain_segment = FifoQueue::new(MAX_CHAIN_SEGMENT_QUEUE_LEN);
         let mut gossip_block_queue = FifoQueue::new(MAX_GOSSIP_BLOCK_QUEUE_LEN);
         let mut delayed_block_queue = FifoQueue::new(MAX_DELAYED_BLOCK_QUEUE_LEN);
 
@@ -1113,6 +1111,9 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                         // Check exits last since our validators don't get rewards from them.
                         } else if let Some(item) = gossip_voluntary_exit_queue.pop() {
                             self.spawn_worker(item, toolbox);
+                        // Handle backfill sync chain segments.
+                        } else if let Some(item) = backfill_chain_segment.pop() {
+                            self.spawn_worker(item, toolbox);
                         // This statement should always be the final else statement.
                         } else {
                             // Let the journal know that a worker is freed and there's nothing else
@@ -1198,9 +1199,15 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                                 sync_contribution_queue.push(work)
                             }
                             Work::RpcBlock { .. } => rpc_block_queue.push(work, work_id, &self.log),
-                            Work::ChainSegment { .. } => {
-                                chain_segment_queue.push(work, work_id, &self.log)
-                            }
+                            Work::ChainSegment { ref process_id, .. } => match process_id {
+                                ChainSegmentProcessId::RangeBatchId { .. }
+                                | ChainSegmentProcessId::ParentLookup { .. } => {
+                                    chain_segment_queue.push(work, work_id, &self.log)
+                                }
+                                ChainSegmentProcessId::BackSyncBatchId { .. } => {
+                                    backfill_chain_segment.push(work, work_id, &self.log)
+                                }
+                            },
                             Work::Status { .. } => status_queue.push(work, work_id, &self.log),
                             Work::BlocksByRangeRequest { .. } => {
                                 bbrange_queue.push(work, work_id, &self.log)
@@ -1249,6 +1256,10 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                 metrics::set_gauge(
                     &metrics::BEACON_PROCESSOR_CHAIN_SEGMENT_QUEUE_TOTAL,
                     chain_segment_queue.len() as i64,
+                );
+                metrics::set_gauge(
+                    &metrics::BEACON_PROCESSOR_BACKFILL_CHAIN_SEGMENT_QUEUE_TOTAL,
+                    backfill_chain_segment.len() as i64,
                 );
                 metrics::set_gauge(
                     &metrics::BEACON_PROCESSOR_EXIT_QUEUE_TOTAL,
@@ -1344,6 +1355,7 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
             "worker" => worker_id,
         );
 
+        let sub_executor = executor.clone();
         executor.spawn_blocking(
             move || {
                 let _worker_timer = worker_timer;
@@ -1520,7 +1532,15 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                         peer_id,
                         request_id,
                         request,
-                    } => worker.handle_blocks_by_range_request(peer_id, request_id, request),
+                    } => {
+                        return worker.handle_blocks_by_range_request(
+                            sub_executor,
+                            send_idle_on_drop,
+                            peer_id,
+                            request_id,
+                            request,
+                        )
+                    }
                     /*
                      * Processing of blocks by roots requests from other peers.
                      */
@@ -1528,7 +1548,15 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                         peer_id,
                         request_id,
                         request,
-                    } => worker.handle_blocks_by_root_request(peer_id, request_id, request),
+                    } => {
+                        return worker.handle_blocks_by_root_request(
+                            sub_executor,
+                            send_idle_on_drop,
+                            peer_id,
+                            request_id,
+                            request,
+                        )
+                    }
                     Work::UnknownBlockAttestation {
                         message_id,
                         peer_id,

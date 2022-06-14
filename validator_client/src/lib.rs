@@ -306,8 +306,18 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
             &http_metrics::metrics::ETH2_FALLBACK_CONFIGURED,
             num_nodes.saturating_sub(1) as i64,
         );
-        // Initialize the number of connected, synced fallbacks to 0.
+        // Set the total beacon node count.
+        set_gauge(
+            &http_metrics::metrics::TOTAL_BEACON_NODES_COUNT,
+            num_nodes as i64,
+        );
+
+        // Initialize the number of connected, synced beacon nodes to 0.
         set_gauge(&http_metrics::metrics::ETH2_FALLBACK_CONNECTED, 0);
+        set_gauge(&http_metrics::metrics::SYNCED_BEACON_NODES_COUNT, 0);
+        // Initialize the number of connected, avaliable beacon nodes to 0.
+        set_gauge(&http_metrics::metrics::AVAILABLE_BEACON_NODES_COUNT, 0);
+
         let mut beacon_nodes: BeaconNodeFallback<_, T> =
             BeaconNodeFallback::new(candidates, context.eth2_config.spec.clone(), log.clone());
 
@@ -498,7 +508,7 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
 
         self.http_api_listen_addr = if self.config.http_api.enabled {
             let ctx = Arc::new(http_api::Context {
-                runtime: self.context.executor.runtime(),
+                task_executor: self.context.executor.clone(),
                 api_secret,
                 validator_store: Some(self.validator_store.clone()),
                 validator_dir: Some(self.config.validator_dir.clone()),

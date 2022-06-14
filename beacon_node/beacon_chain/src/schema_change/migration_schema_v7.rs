@@ -31,7 +31,7 @@ pub(crate) fn update_with_reinitialized_fork_choice<T: BeaconChainTypes>(
         .finalized_checkpoint
         .root;
     let anchor_block = db
-        .get_block(&anchor_block_root)
+        .get_full_block_prior_to_v9(&anchor_block_root)
         .map_err(|e| format!("{:?}", e))?
         .ok_or_else(|| "Missing anchor beacon block".to_string())?;
     let anchor_state = db

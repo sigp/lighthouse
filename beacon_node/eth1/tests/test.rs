@@ -107,7 +107,7 @@ mod eth1_cache {
         async {
             let log = null_logger();
 
-            for follow_distance in 0..2 {
+            for follow_distance in 0..3 {
                 let eth1 = new_ganache_instance()
                     .await
                     .expect("should start eth1 environment");
@@ -116,17 +116,16 @@ mod eth1_cache {
 
                 let initial_block_number = get_block_number(&web3).await;
 
-                let service = Service::new(
-                    Config {
-                        endpoints: vec![SensitiveUrl::parse(eth1.endpoint().as_str()).unwrap()],
-                        deposit_contract_address: deposit_contract.address(),
-                        lowest_cached_block_number: initial_block_number,
-                        follow_distance,
-                        ..Config::default()
-                    },
-                    log.clone(),
-                    MainnetEthSpec::default_spec(),
-                );
+                let config = Config {
+                    endpoints: vec![SensitiveUrl::parse(eth1.endpoint().as_str()).unwrap()],
+                    deposit_contract_address: deposit_contract.address(),
+                    lowest_cached_block_number: initial_block_number,
+                    follow_distance,
+                    ..Config::default()
+                };
+                let cache_follow_distance = config.cache_follow_distance();
+
+                let service = Service::new(config, log.clone(), MainnetEthSpec::default_spec());
 
                 // Create some blocks and then consume them, performing the test `rounds` times.
                 for round in 0..2 {
@@ -139,7 +138,7 @@ mod eth1_cache {
                             .blocks()
                             .read()
                             .highest_block_number()
-                            .map(|n| n + follow_distance)
+                            .map(|n| n + cache_follow_distance)
                             .expect("should have a latest block after the first round")
                     };
 
@@ -168,12 +167,13 @@ mod eth1_cache {
                             .blocks()
                             .read()
                             .highest_block_number()
-                            .map(|n| n + follow_distance),
+                            .map(|n| n + cache_follow_distance),
                         Some(initial + blocks),
-                        "should update {} blocks in round {} (follow {})",
+                        "should update {} blocks in round {} (follow {} i.e. {})",
                         blocks,
                         round,
                         follow_distance,
+                        cache_follow_distance
                     );
                 }
             }

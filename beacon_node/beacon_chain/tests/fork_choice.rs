@@ -147,15 +147,23 @@ fn chooses_highest_justified_checkpoint_n_plus_2() {
     for i in 0..15 {
         slashings.push(harness.make_proposer_slashing(i as u64));
     }
-    let (block, pre_state) = harness.make_block_with_modifier(head.beacon_state, slot_a, |block| {
-        block.body_altair_mut().unwrap().proposer_slashings  = VariableList::<ProposerSlashing, U16>::new(slashings).unwrap();
-    });
+    let (block, _pre_state) =
+        harness.make_block_with_modifier(head.beacon_state, slot_a, |block| {
+            block.body_altair_mut().unwrap().proposer_slashings =
+                VariableList::<ProposerSlashing, U16>::new(slashings).unwrap();
+        });
 
     // Process the block containing the slashings at the slot before the epoch transition and attest to it.
     harness.process_block(slot_a, block).unwrap();
     let head = harness.chain.head().unwrap();
     let vals = (15..VALIDATOR_COUNT).collect::<Vec<usize>>();
-    harness.attest_block( &head.beacon_state, head.beacon_state.canonical_root(), SignedBeaconBlockHash::from(head.beacon_block_root), &head.beacon_block, vals.as_slice());
+    harness.attest_block(
+        &head.beacon_state,
+        head.beacon_state.canonical_root(),
+        SignedBeaconBlockHash::from(head.beacon_block_root),
+        &head.beacon_block,
+        vals.as_slice(),
+    );
 
     assert_eq!(head.beacon_block.slot(), slot_a);
     assert_eq!(

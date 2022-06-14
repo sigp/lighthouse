@@ -41,6 +41,10 @@ pub enum Error {
         computed: Hash256,
     },
     BlockReplayError(BlockReplayError),
+    AddPayloadLogicError,
+    ResyncRequiredForExecutionPayloadSeparation,
+    SlotClockUnavailableForMigration,
+    V9MigrationFailure(Hash256),
 }
 
 pub trait HandleUnavailable<T> {

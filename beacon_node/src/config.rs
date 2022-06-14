@@ -236,6 +236,12 @@ pub fn get_config<E: EthSpec>(
         client_config.eth1.purge_cache = true;
     }
 
+    if let Some(follow_distance) =
+        clap_utils::parse_optional(cli_args, "eth1-cache-follow-distance")?
+    {
+        client_config.eth1.cache_follow_distance = Some(follow_distance);
+    }
+
     if cli_args.is_present("merge") || cli_args.is_present("execution-endpoints") {
         let mut el_config = execution_layer::Config::default();
 
@@ -579,6 +585,12 @@ pub fn get_config<E: EthSpec>(
 
     if cli_args.is_present("disable-lock-timeouts") {
         client_config.chain.enable_lock_timeouts = false;
+    }
+
+    if let Some(timeout) =
+        clap_utils::parse_optional(cli_args, "fork-choice-before-proposal-timeout")?
+    {
+        client_config.chain.fork_choice_before_proposal_timeout_ms = timeout;
     }
 
     Ok(client_config)

@@ -37,7 +37,9 @@ use tree_hash_derive::TreeHash;
     ref_attributes(
         derive(Debug, PartialEq, TreeHash),
         tree_hash(enum_behaviour = "transparent")
-    )
+    ),
+    map_ref_into(BeaconBlockBodyRef),
+    map_ref_mut_into(BeaconBlockBodyRefMut)
 )]
 #[derive(Debug, Clone, Serialize, Deserialize, Encode, TreeHash, Derivative)]
 #[derivative(PartialEq, Hash(bound = "T: EthSpec"))]
@@ -199,20 +201,17 @@ impl<'a, T: EthSpec, Payload: ExecPayload<T>> BeaconBlockRef<'a, T, Payload> {
 
     /// Convenience accessor for the `body` as a `BeaconBlockBodyRef`.
     pub fn body(&self) -> BeaconBlockBodyRef<'a, T, Payload> {
-        match self {
-            BeaconBlockRef::Base(block) => BeaconBlockBodyRef::Base(&block.body),
-            BeaconBlockRef::Altair(block) => BeaconBlockBodyRef::Altair(&block.body),
-            BeaconBlockRef::Merge(block) => BeaconBlockBodyRef::Merge(&block.body),
-        }
+        map_beacon_block_ref_into_beacon_block_body_ref!(&'a _, *self, |block, cons| cons(
+            &block.body
+        ))
     }
 
     /// Return the tree hash root of the block's body.
     pub fn body_root(&self) -> Hash256 {
-        match self {
-            BeaconBlockRef::Base(block) => block.body.tree_hash_root(),
-            BeaconBlockRef::Altair(block) => block.body.tree_hash_root(),
-            BeaconBlockRef::Merge(block) => block.body.tree_hash_root(),
-        }
+        map_beacon_block_ref!(&'a _, *self, |block, cons| {
+            let _: Self = cons(block);
+            block.body.tree_hash_root()
+        })
     }
 
     /// Returns the epoch corresponding to `self.slot()`.
@@ -249,11 +248,9 @@ impl<'a, T: EthSpec, Payload: ExecPayload<T>> BeaconBlockRef<'a, T, Payload> {
 impl<'a, T: EthSpec, Payload: ExecPayload<T>> BeaconBlockRefMut<'a, T, Payload> {
     /// Convert a mutable reference to a beacon block to a mutable ref to its body.
     pub fn body_mut(self) -> BeaconBlockBodyRefMut<'a, T, Payload> {
-        match self {
-            BeaconBlockRefMut::Base(block) => BeaconBlockBodyRefMut::Base(&mut block.body),
-            BeaconBlockRefMut::Altair(block) => BeaconBlockBodyRefMut::Altair(&mut block.body),
-            BeaconBlockRefMut::Merge(block) => BeaconBlockBodyRefMut::Merge(&mut block.body),
-        }
+        map_beacon_block_ref_mut_into_beacon_block_body_ref_mut!(&'a _, self, |block, cons| cons(
+            &mut block.body
+        ))
     }
 }
 
@@ -462,6 +459,99 @@ impl<T: EthSpec, Payload: ExecPayload<T>> BeaconBlockMerge<T, Payload> {
                 execution_payload: Payload::default(),
             },
         }
+    }
+}
+
+// We can convert pre-Bellatrix blocks without payloads into blocks "with" payloads.
+impl<E: EthSpec> From<BeaconBlockBase<E, BlindedPayload<E>>>
+    for BeaconBlockBase<E, FullPayload<E>>
+{
+    fn from(block: BeaconBlockBase<E, BlindedPayload<E>>) -> Self {
+        let BeaconBlockBase {
+            slot,
+            proposer_index,
+            parent_root,
+            state_root,
+            body,
+        } = block;
+
+        BeaconBlockBase {
+            slot,
+            proposer_index,
+            parent_root,
+            state_root,
+            body: body.into(),
+        }
+    }
+}
+
+impl<E: EthSpec> From<BeaconBlockAltair<E, BlindedPayload<E>>>
+    for BeaconBlockAltair<E, FullPayload<E>>
+{
+    fn from(block: BeaconBlockAltair<E, BlindedPayload<E>>) -> Self {
+        let BeaconBlockAltair {
+            slot,
+            proposer_index,
+            parent_root,
+            state_root,
+            body,
+        } = block;
+
+        BeaconBlockAltair {
+            slot,
+            proposer_index,
+            parent_root,
+            state_root,
+            body: body.into(),
+        }
+    }
+}
+
+// We can convert blocks with payloads to blocks without payloads, and an optional payload.
+macro_rules! impl_from {
+    ($ty_name:ident, <$($from_params:ty),*>, <$($to_params:ty),*>, $body_expr:expr) => {
+        impl<E: EthSpec> From<$ty_name<$($from_params),*>>
+            for ($ty_name<$($to_params),*>, Option<ExecutionPayload<E>>)
+        {
+            #[allow(clippy::redundant_closure_call)]
+            fn from(block: $ty_name<$($from_params),*>) -> Self {
+                let $ty_name {
+                    slot,
+                    proposer_index,
+                    parent_root,
+                    state_root,
+                    body,
+                } = block;
+
+                let (body, payload) = ($body_expr)(body);
+
+                ($ty_name {
+                    slot,
+                    proposer_index,
+                    parent_root,
+                    state_root,
+                    body,
+                }, payload)
+            }
+        }
+    }
+}
+
+impl_from!(BeaconBlockBase, <E, FullPayload<E>>, <E, BlindedPayload<E>>, |body: BeaconBlockBodyBase<_, _>| body.into());
+impl_from!(BeaconBlockAltair, <E, FullPayload<E>>, <E, BlindedPayload<E>>, |body: BeaconBlockBodyAltair<_, _>| body.into());
+impl_from!(BeaconBlockMerge, <E, FullPayload<E>>, <E, BlindedPayload<E>>, |body: BeaconBlockBodyMerge<_, _>| body.into());
+
+impl<E: EthSpec> From<BeaconBlock<E, FullPayload<E>>>
+    for (
+        BeaconBlock<E, BlindedPayload<E>>,
+        Option<ExecutionPayload<E>>,
+    )
+{
+    fn from(block: BeaconBlock<E, FullPayload<E>>) -> Self {
+        map_beacon_block!(block, |inner, cons| {
+            let (block, payload) = inner.into();
+            (cons(block), payload)
+        })
     }
 }
 

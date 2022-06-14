@@ -5,8 +5,8 @@ mod check_deposit_data;
 mod create_payload_header;
 mod deploy_deposit_contract;
 mod eth1_genesis;
-mod etl;
 mod generate_bootnode_enr;
+mod indexed_attestations;
 mod insecure_validators;
 mod interop_genesis;
 mod new_testnet;
@@ -103,7 +103,13 @@ fn main() {
                         .required(true)
                         .default_value("./output.ssz")
                         .help("Path to output a SSZ file."),
-                ),
+                )
+                .arg(
+                    Arg::with_name("no-signature-verification")
+                        .long("no-signature-verification")
+                        .takes_value(false)
+                        .help("Disable signature verification.")
+                )
         )
         .subcommand(
             SubCommand::with_name("pretty-ssz")
@@ -600,60 +606,23 @@ fn main() {
                 )
         )
         .subcommand(
-            SubCommand::with_name("etl-block-efficiency")
-                .about(
-                    "Performs ETL analysis of block efficiency. Requires a Beacon Node API to \
-                    extract data from.",
+            SubCommand::with_name("indexed-attestations")
+                .about("Convert attestations to indexed form, using the committees from a state.")
+                .arg(
+                    Arg::with_name("state")
+                        .long("state")
+                        .value_name("SSZ_STATE")
+                        .takes_value(true)
+                        .required(true)
+                        .help("BeaconState to generate committees from (SSZ)"),
                 )
                 .arg(
-                    Arg::with_name("endpoint")
-                        .long("endpoint")
-                        .short("e")
+                    Arg::with_name("attestations")
+                        .long("attestations")
+                        .value_name("JSON_ATTESTATIONS")
                         .takes_value(true)
-                        .default_value("http://localhost:5052")
-                        .help(
-                            "The endpoint of the Beacon Node API."
-                        ),
-                )
-                .arg(
-                    Arg::with_name("output")
-                        .long("output")
-                        .short("o")
-                        .takes_value(true)
-                        .help("The path of the output data in CSV file.")
-                        .required(true),
-                )
-                .arg(
-                    Arg::with_name("start-epoch")
-                        .long("start-epoch")
-                        .takes_value(true)
-                        .help(
-                            "The first epoch in the range of epochs to be evaluated. Use with \
-                            --end-epoch.",
-                        )
-                        .required(true),
-                )
-                .arg(
-                    Arg::with_name("end-epoch")
-                        .long("end-epoch")
-                        .takes_value(true)
-                        .help(
-                            "The last epoch in the range of epochs to be evaluated. Use with \
-                            --start-epoch.",
-                        )
-                        .required(true),
-                )
-                .arg(
-                    Arg::with_name("offline-window")
-                        .long("offline-window")
-                        .takes_value(true)
-                        .default_value("3")
-                        .help(
-                            "If a validator does not submit an attestion within this many epochs, \
-                            they are deemed offline. For example, for a offline window of 3, if a \
-                            validator does not attest in epochs 4, 5 or 6, it is deemed offline \
-                            during epoch 6. A value of 0 will skip these checks."
-                        )
+                        .required(true)
+                        .help("List of Attestations to convert to indexed form (JSON)"),
                 )
         )
         .get_matches();
@@ -737,10 +706,8 @@ fn run<T: EthSpec>(
             .map_err(|e| format!("Failed to run generate-bootnode-enr command: {}", e)),
         ("insecure-validators", Some(matches)) => insecure_validators::run(matches)
             .map_err(|e| format!("Failed to run insecure-validators command: {}", e)),
-        ("etl-block-efficiency", Some(matches)) => env
-            .runtime()
-            .block_on(etl::block_efficiency::run::<T>(matches))
-            .map_err(|e| format!("Failed to run etl-block_efficiency: {}", e)),
+        ("indexed-attestations", Some(matches)) => indexed_attestations::run::<T>(matches)
+            .map_err(|e| format!("Failed to run indexed-attestations command: {}", e)),
         (other, _) => Err(format!("Unknown subcommand {}. See --help.", other)),
     }
 }

@@ -131,6 +131,22 @@ lazy_static::lazy_static! {
         &["endpoint"]
     );
 
+    /*
+    * Beacon node availability metrics
+    */
+    pub static ref AVAILABLE_BEACON_NODES_COUNT: Result<IntGauge> = try_create_int_gauge(
+        "vc_beacon_nodes_available_count",
+        "Number of available beacon nodes",
+    );
+    pub static ref SYNCED_BEACON_NODES_COUNT: Result<IntGauge> = try_create_int_gauge(
+        "vc_beacon_nodes_synced_count",
+        "Number of synced beacon nodes",
+    );
+    pub static ref TOTAL_BEACON_NODES_COUNT: Result<IntGauge> = try_create_int_gauge(
+        "vc_beacon_nodes_total_count",
+        "Total number of beacon nodes",
+    );
+
     pub static ref ETH2_FALLBACK_CONFIGURED: Result<IntGauge> = try_create_int_gauge(
         "sync_eth2_fallback_configured",
         "The number of configured eth2 fallbacks",

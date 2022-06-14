@@ -53,6 +53,7 @@ use crate::{
     },
     metrics, BeaconChain, BeaconChainError, BeaconChainTypes,
 };
+use derivative::Derivative;
 use eth2::types::EventKind;
 use execution_layer::PayloadStatus;
 use fork_choice::{ForkChoice, ForkChoiceStore, PayloadVerificationStatus};
@@ -72,14 +73,15 @@ use state_processing::{
 use std::borrow::Cow;
 use std::fs;
 use std::io::Write;
+use std::sync::Arc;
 use std::time::Duration;
 use store::{Error as DBError, HotColdDB, HotStateSummary, KeyValueStore, StoreOp};
 use tree_hash::TreeHash;
 use types::ExecPayload;
 use types::{
-    BeaconBlockRef, BeaconState, BeaconStateError, ChainSpec, CloneConfig, Epoch, EthSpec,
-    ExecutionBlockHash, Hash256, InconsistentFork, PublicKey, PublicKeyBytes, RelativeEpoch,
-    SignedBeaconBlock, SignedBeaconBlockHeader, Slot,
+    BeaconBlockRef, BeaconState, BeaconStateError, BlindedPayload, ChainSpec, CloneConfig, Epoch,
+    EthSpec, ExecutionBlockHash, Hash256, InconsistentFork, PublicKey, PublicKeyBytes,
+    RelativeEpoch, SignedBeaconBlock, SignedBeaconBlockHeader, Slot,
 };
 
 const POS_PANDA_BANNER: &str = r#"
@@ -536,7 +538,8 @@ pub fn signature_verify_chain_segment<T: BeaconChainTypes>(
 
 /// A wrapper around a `SignedBeaconBlock` that indicates it has been approved for re-gossiping on
 /// the p2p network.
-#[derive(Debug)]
+#[derive(Derivative)]
+#[derivative(Debug(bound = "T: BeaconChainTypes"))]
 pub struct GossipVerifiedBlock<T: BeaconChainTypes> {
     pub block: SignedBeaconBlock<T::EthSpec>,
     pub block_root: Hash256,
@@ -566,7 +569,7 @@ pub struct FullyVerifiedBlock<'a, T: BeaconChainTypes> {
     pub block: SignedBeaconBlock<T::EthSpec>,
     pub block_root: Hash256,
     pub state: BeaconState<T::EthSpec>,
-    pub parent_block: SignedBeaconBlock<T::EthSpec>,
+    pub parent_block: SignedBeaconBlock<T::EthSpec, BlindedPayload<T::EthSpec>>,
     pub confirmation_db_batch: Vec<StoreOp<'a, T::EthSpec>>,
     pub payload_verification_status: PayloadVerificationStatus,
 }
@@ -577,7 +580,7 @@ pub struct FullyVerifiedBlock<'a, T: BeaconChainTypes> {
 pub trait IntoFullyVerifiedBlock<T: BeaconChainTypes>: Sized {
     fn into_fully_verified_block(
         self,
-        chain: &BeaconChain<T>,
+        chain: &Arc<BeaconChain<T>>,
     ) -> Result<FullyVerifiedBlock<T>, BlockError<T::EthSpec>> {
         self.into_fully_verified_block_slashable(chain)
             .map(|fully_verified| {
@@ -593,7 +596,7 @@ pub trait IntoFullyVerifiedBlock<T: BeaconChainTypes>: Sized {
     /// Convert the block to fully-verified form while producing data to aid checking slashability.
     fn into_fully_verified_block_slashable(
         self,
-        chain: &BeaconChain<T>,
+        chain: &Arc<BeaconChain<T>>,
     ) -> Result<FullyVerifiedBlock<T>, BlockSlashInfo<BlockError<T::EthSpec>>>;
 
     fn block(&self) -> &SignedBeaconBlock<T::EthSpec>;
@@ -828,7 +831,7 @@ impl<T: BeaconChainTypes> IntoFullyVerifiedBlock<T> for GossipVerifiedBlock<T> {
     /// Completes verification of the wrapped `block`.
     fn into_fully_verified_block_slashable(
         self,
-        chain: &BeaconChain<T>,
+        chain: &Arc<BeaconChain<T>>,
     ) -> Result<FullyVerifiedBlock<T>, BlockSlashInfo<BlockError<T::EthSpec>>> {
         let fully_verified =
             SignatureVerifiedBlock::from_gossip_verified_block_check_slashable(self, chain)?;
@@ -948,7 +951,7 @@ impl<T: BeaconChainTypes> IntoFullyVerifiedBlock<T> for SignatureVerifiedBlock<T
     /// Completes verification of the wrapped `block`.
     fn into_fully_verified_block_slashable(
         self,
-        chain: &BeaconChain<T>,
+        chain: &Arc<BeaconChain<T>>,
     ) -> Result<FullyVerifiedBlock<T>, BlockSlashInfo<BlockError<T::EthSpec>>> {
         let header = self.block.signed_block_header();
         let (parent, block) = if let Some(parent) = self.parent {
@@ -977,7 +980,7 @@ impl<T: BeaconChainTypes> IntoFullyVerifiedBlock<T> for SignedBeaconBlock<T::Eth
     /// and then using that implementation of `IntoFullyVerifiedBlock` to complete verification.
     fn into_fully_verified_block_slashable(
         self,
-        chain: &BeaconChain<T>,
+        chain: &Arc<BeaconChain<T>>,
     ) -> Result<FullyVerifiedBlock<T>, BlockSlashInfo<BlockError<T::EthSpec>>> {
         // Perform an early check to prevent wasting time on irrelevant blocks.
         let block_root = check_block_relevancy(&self, None, chain)
@@ -1004,7 +1007,7 @@ impl<'a, T: BeaconChainTypes> FullyVerifiedBlock<'a, T> {
         block: SignedBeaconBlock<T::EthSpec>,
         block_root: Hash256,
         parent: PreProcessingSnapshot<T::EthSpec>,
-        chain: &BeaconChain<T>,
+        chain: &Arc<BeaconChain<T>>,
     ) -> Result<Self, BlockError<T::EthSpec>> {
         if let Some(parent) = chain.fork_choice.read().get_block(&block.parent_root()) {
             // Reject any block where the parent has an invalid payload. It's impossible for a valid
@@ -1568,7 +1571,7 @@ fn load_parent<T: BeaconChainTypes>(
         // indicate that we don't yet know the parent.
         let root = block.parent_root();
         let parent_block = chain
-            .get_block(&block.parent_root())
+            .get_blinded_block(&block.parent_root())
             .map_err(BlockError::BeaconChainError)?
             .ok_or_else(|| {
                 // Return a `MissingBeaconBlock` error instead of a `ParentUnknown` error since
