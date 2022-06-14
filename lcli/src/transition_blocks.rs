@@ -354,12 +354,6 @@ fn do_transition<T: EthSpec>(
 
     let t = Instant::now();
     pre_state
-        .update_tree_hash_cache()
-        .map_err(|e| format!("Unable to build tree hash cache: {:?}", e))?;
-    debug!("Pre-block tree hash: {:?}", t.elapsed());
-
-    let t = Instant::now();
-    pre_state
         .build_all_caches(spec)
         .map_err(|e| format!("Unable to build caches: {:?}", e))?;
     debug!("Build all caches (again): {:?}", t.elapsed());
