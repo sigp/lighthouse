@@ -408,23 +408,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         // If the finalized checkpoint changed, perform some updates.
         if new_view.finalized_checkpoint != old_view.finalized_checkpoint {
-            // The store migration task requires the *state at the slot of the finalized epoch*,
-            // rather than the state of the latest finalized block. These two values will only
-            // differ when the first slot of the finalized epoch is a skip slot.
-            let new_finalized_slot = new_view
-                .finalized_checkpoint
-                .epoch
-                .start_slot(T::EthSpec::slots_per_epoch());
-            let new_finalized_state_root = self
-                .state_root_at_slot(new_finalized_slot)?
-                .ok_or(Error::MissingFinalizedStateRoot(new_finalized_slot))?;
-
-            if let Err(e) = self.after_finalization(
-                new_head,
-                new_view,
-                finalized_proto_block,
-                new_finalized_state_root,
-            ) {
+            if let Err(e) = self.after_finalization(new_head, new_view, finalized_proto_block) {
                 crit!(
                     self.log,
                     "Error updating finalization";
@@ -613,7 +597,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         new_head: &BeaconSnapshot<T::EthSpec>,
         new_view: ForkChoiceView,
         finalized_proto_block: ProtoBlock,
-        new_finalized_state_root: Hash256,
     ) -> Result<(), Error> {
         self.op_pool
             .prune_all(&new_head.beacon_state, self.epoch()?);
@@ -648,6 +631,20 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     );
                 });
 
+            // The store migration task requires the *state at the slot of the finalized epoch*,
+            // rather than the state of the latest finalized block. These two values will only
+            // differ when the first slot of the finalized epoch is a skip slot.
+            //
+            // The `BeaconChain::state_root_at_slot` might take a read-lock on the canonical head.
+            // Another read-lock on the canonical head is being held whilst the function is called,
+            // but that's OK since read-locks alone don't deadlock.
+            let new_finalized_slot = new_view
+                .finalized_checkpoint
+                .epoch
+                .start_slot(T::EthSpec::slots_per_epoch());
+            let new_finalized_state_root = chain
+                .state_root_at_slot(new_finalized_slot)?
+                .ok_or(Error::MissingFinalizedStateRoot(new_finalized_slot))?;
             chain.store_migrator.process_finalization(
                 new_finalized_state_root.into(),
                 new_view.finalized_checkpoint,
