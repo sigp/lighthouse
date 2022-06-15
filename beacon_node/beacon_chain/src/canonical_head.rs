@@ -168,6 +168,8 @@ impl<T: BeaconChainTypes> CanonicalHead<T> {
 
 impl<T: BeaconChainTypes> BeaconChain<T> {
     /// Execute the fork choice algorithm and enthrone the result as the canonical head.
+    ///
+    /// This method replaces the old `BeaconChain::fork_choice` method.
     pub async fn recompute_head_at_current_slot(self: &Arc<Self>) -> Result<(), Error> {
         let current_slot = self.slot()?;
         self.recompute_head_at_slot(current_slot).await
@@ -394,7 +396,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         // If the finalized checkpoint changed, perform some updates.
         if new_view.finalized_checkpoint != old_view.finalized_checkpoint {
-            if let Err(e) = self.after_finalization(new_head, new_view, &finalized_proto_block) {
+            if let Err(e) = self.after_finalization(new_head, new_view, finalized_proto_block) {
                 crit!(
                     self.log,
                     "Error updating finalization";
@@ -560,12 +562,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 if let Err(e) = concurrent_task() {
                     error!(
                         log,
-                        "Error in after updating head";
+                        "Error after updating head";
                         "error" => ?e
                     );
                 }
             },
-            "snapshot_cache_head_update",
+            "after_head",
         );
 
         Ok(())
@@ -579,59 +581,81 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// Taking a write lock on the `self.canonical_head` in this function will result in a deadlock!
     /// This is because `Self::recompute_head_internal` will already be holding a read-lock.
     fn after_finalization(
-        &self,
+        self: &Arc<Self>,
         new_head: &BeaconSnapshot<T::EthSpec>,
         new_view: ForkChoiceView,
-        finalized_proto_block: &ProtoBlock,
+        finalized_proto_block: ProtoBlock,
     ) -> Result<(), Error> {
-        self.observed_block_producers.write().prune(
-            new_view
-                .finalized_checkpoint
-                .epoch
-                .start_slot(T::EthSpec::slots_per_epoch()),
-        );
-
-        self.snapshot_cache
-            .try_write_for(BLOCK_PROCESSING_CACHE_LOCK_TIMEOUT)
-            .map(|mut snapshot_cache| {
-                snapshot_cache.prune(new_view.finalized_checkpoint.epoch);
-                debug!(
-                    self.log,
-                    "Snapshot cache pruned";
-                    "new_len" => snapshot_cache.len(),
-                    "remaining_roots" => ?snapshot_cache.beacon_block_roots(),
-                );
-            })
-            .unwrap_or_else(|| {
-                error!(
-                    self.log,
-                    "Failed to obtain cache write lock";
-                    "lock" => "snapshot_cache",
-                    "task" => "prune"
-                );
-            });
-
         self.op_pool
             .prune_all(&new_head.beacon_state, self.epoch()?);
 
-        self.store_migrator.process_finalization(
-            finalized_proto_block.state_root.into(),
-            new_view.finalized_checkpoint,
-            self.head_tracker.clone(),
-        )?;
+        let chain = self.clone();
+        let concurrent_task = move || {
+            chain.observed_block_producers.write().prune(
+                new_view
+                    .finalized_checkpoint
+                    .epoch
+                    .start_slot(T::EthSpec::slots_per_epoch()),
+            );
 
-        self.attester_cache
-            .prune_below(new_view.finalized_checkpoint.epoch);
+            chain
+                .snapshot_cache
+                .try_write_for(BLOCK_PROCESSING_CACHE_LOCK_TIMEOUT)
+                .map(|mut snapshot_cache| {
+                    snapshot_cache.prune(new_view.finalized_checkpoint.epoch);
+                    debug!(
+                        chain.log,
+                        "Snapshot cache pruned";
+                        "new_len" => snapshot_cache.len(),
+                        "remaining_roots" => ?snapshot_cache.beacon_block_roots(),
+                    );
+                })
+                .unwrap_or_else(|| {
+                    error!(
+                        chain.log,
+                        "Failed to obtain cache write lock";
+                        "lock" => "snapshot_cache",
+                        "task" => "prune"
+                    );
+                });
 
-        if let Some(event_handler) = self.event_handler.as_ref() {
-            if event_handler.has_finalized_subscribers() {
-                event_handler.register(EventKind::FinalizedCheckpoint(SseFinalizedCheckpoint {
-                    epoch: new_view.finalized_checkpoint.epoch,
-                    block: new_view.finalized_checkpoint.root,
-                    state: finalized_proto_block.state_root,
-                }));
+            chain.store_migrator.process_finalization(
+                finalized_proto_block.state_root.into(),
+                new_view.finalized_checkpoint,
+                chain.head_tracker.clone(),
+            )?;
+
+            chain
+                .attester_cache
+                .prune_below(new_view.finalized_checkpoint.epoch);
+
+            if let Some(event_handler) = chain.event_handler.as_ref() {
+                if event_handler.has_finalized_subscribers() {
+                    event_handler.register(EventKind::FinalizedCheckpoint(
+                        SseFinalizedCheckpoint {
+                            epoch: new_view.finalized_checkpoint.epoch,
+                            block: new_view.finalized_checkpoint.root,
+                            state: finalized_proto_block.state_root,
+                        },
+                    ));
+                }
             }
-        }
+
+            Ok::<_, Error>(())
+        };
+        let log = self.log.clone();
+        self.task_executor.spawn_blocking(
+            move || {
+                if let Err(e) = concurrent_task() {
+                    error!(
+                        log,
+                        "Error after updating finalization";
+                        "error" => ?e
+                    );
+                }
+            },
+            "after_finalization",
+        );
 
         Ok(())
     }
@@ -690,11 +714,10 @@ fn check_against_finality_reversion(
     if finalization_equal || finalization_advanced {
         Ok(())
     } else {
-        // Exit now with an error
-        return Err(Error::RevertedFinalizedEpoch {
+        Err(Error::RevertedFinalizedEpoch {
             old: old_view.finalized_checkpoint,
             new: new_view.finalized_checkpoint,
-        });
+        })
     }
 }
 
