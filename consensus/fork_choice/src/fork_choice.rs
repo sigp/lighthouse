@@ -1011,6 +1011,11 @@ where
         }
     }
 
+    /// Returns the weight for the given block root.
+    pub fn get_block_weight(&self, block_root: &Hash256) -> Option<u64> {
+        self.proto_array.get_weight(block_root)
+    }
+
     /// Returns the `ProtoBlock` for the justified checkpoint.
     ///
     /// ## Notes

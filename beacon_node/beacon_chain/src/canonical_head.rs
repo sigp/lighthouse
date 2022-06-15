@@ -304,8 +304,20 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // Exit early if the head or justified/finalized checkpoints have not changed, there's
         // nothing to do.
         if new_view == old_view {
+            debug!(
+                self.log,
+                "No change in canonical head";
+                "head" => ?new_view.head_block_root
+            );
             return Ok(None);
         }
+
+        perform_debug_logging::<T>(
+            &old_view,
+            &new_view,
+            &canonical_head_write_lock.fork_choice,
+            &self.log,
+        );
 
         // Update the checkpoints on the `canonical_head`.
         canonical_head_write_lock.justified_checkpoint = new_view.justified_checkpoint;
@@ -738,6 +750,46 @@ fn check_against_finality_reversion(
             old: old_view.finalized_checkpoint,
             new: new_view.finalized_checkpoint,
         })
+    }
+}
+
+fn perform_debug_logging<T: BeaconChainTypes>(
+    old_view: &ForkChoiceView,
+    new_view: &ForkChoiceView,
+    fork_choice: &BeaconForkChoice<T>,
+    log: &Logger,
+) {
+    if new_view.head_block_root != old_view.head_block_root {
+        debug!(
+            log,
+            "Fork choice updated head";
+            "new_head_weight" => ?fork_choice
+                .get_block_weight(&new_view.head_block_root),
+            "new_head" => ?new_view.head_block_root,
+            "old_head_weight" => ?fork_choice
+                .get_block_weight(&old_view.head_block_root),
+            "old_head" => ?old_view.head_block_root,
+        )
+    }
+    if new_view.justified_checkpoint != old_view.justified_checkpoint {
+        debug!(
+            log,
+            "Fork choice justified";
+            "new_root" => ?new_view.justified_checkpoint.root,
+            "new_epoch" => new_view.justified_checkpoint.epoch,
+            "old_root" => ?old_view.justified_checkpoint.root,
+            "old_epoch" => old_view.justified_checkpoint.epoch,
+        )
+    }
+    if new_view.finalized_checkpoint != old_view.finalized_checkpoint {
+        debug!(
+            log,
+            "Fork choice finalized";
+            "new_root" => ?new_view.finalized_checkpoint.root,
+            "new_epoch" => new_view.finalized_checkpoint.epoch,
+            "old_root" => ?old_view.finalized_checkpoint.root,
+            "old_epoch" => old_view.finalized_checkpoint.epoch,
+        )
     }
 }
 
