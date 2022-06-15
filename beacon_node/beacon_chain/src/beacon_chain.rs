@@ -2447,6 +2447,14 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
                 Ok(block_root)
             }
+            Err(e @ BlockError::BeaconChainError(BeaconChainError::TokioJoin(_))) => {
+                debug!(
+                    self.log,
+                    "Beacon block processing cancelled";
+                    "error" => ?e,
+                );
+                Err(e)
+            }
             // There was an error whilst attempting to verify and import the block. The block might
             // be partially verified or partially imported.
             Err(BlockError::BeaconChainError(e)) => {
