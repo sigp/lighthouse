@@ -187,7 +187,7 @@ impl ApiTester {
         missing_token_client.send_authorization_header(false);
         match func(missing_token_client).await {
             Err(ApiError::ServerMessage(ApiErrorMessage {
-                code: 400, message, ..
+                code: 401, message, ..
             })) if message.contains("missing Authorization header") => (),
             Err(other) => panic!("expected missing header error, got {:?}", other),
             Ok(_) => panic!("expected missing header error, got Ok"),
