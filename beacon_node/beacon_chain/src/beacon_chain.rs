@@ -2936,6 +2936,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 // fork choice.
                 match CanonicalHead::load_from_store(&self.store, &self.spec) {
                     Ok(past_canonical_head) => {
+                        // Drop the transaction lock, it's no longer required and a deadlock risk since we
+                        // may interact with the canonical_head lock again in this code path.
+                        drop(txn_lock);
+
                         // Drop the read-lock on the head and then take a write-lock.
                         //
                         // We don't care if someone mutates the head between dropping the read-lock and
@@ -2954,8 +2958,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     }
                 }
             }
-
-            drop(txn_lock);
         }
 
         // We're declaring the block "imported" at this point, since fork choice and the DB know
