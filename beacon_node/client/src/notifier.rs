@@ -271,7 +271,7 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
                             "Head is optimistic";
                             "info" => "chain not fully verified, \
                                 block and attestation production temporarily disabled",
-                            "execution_block_hash" => hash,
+                            "execution_block_hash" => ?hash,
                         );
                         format!("{} (unverified)", hash)
                     }
@@ -280,7 +280,7 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
                             log,
                             "Head execution payload is invalid";
                             "msg" => "this scenario may be unrecoverable",
-                            "execution_block_hash" => hash,
+                            "execution_block_hash" => ?hash,
                         );
                         format!("{} (invalid)", hash)
                     }
