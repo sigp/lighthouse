@@ -247,7 +247,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                 | VerifyError::ExtraBlocksReturned => {
                     let e = e.into();
                     warn!(self.log, "Peer sent invalid response to parent request.";
-                        "peer_id" => %peer_id, "reason" => e);
+                        "peer_id" => %peer_id, "reason" => %e);
 
                     // We do not tolerate these kinds of errors. We will accept a few but these are signs
                     // of a faulty peer.
@@ -441,7 +441,17 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                 trace!(self.log, "Single block processing succeeded"; "block" => %root);
             }
             BlockProcessResult::Ignored => {
-                todo!()
+                // Request this block again over the network
+                warn!(
+                    self.log,
+                    "Single block processing was ignored,cpu might be overloaded"
+                );
+                if let Ok((peer_id, request)) = req.request_block() {
+                    if let Ok(request_id) = cx.single_block_lookup_request(peer_id, request) {
+                        // insert with the new id
+                        self.single_block_lookups.insert(request_id, req);
+                    }
+                }
             }
         }
 
@@ -485,8 +495,12 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                 trace!(self.log, "Parent block processing failed"; &parent_lookup, "error" => %e)
             }
             BlockProcessResult::Ignored => {
-                trace!(self.log, "Parent block processing job was ignored"; &parent_lookup);
-                todo!("log what will happen with the parent lookup")
+                trace!(
+                    self.log,
+                    "Parent block processing job was ignored";
+                    "action" => "re-requesting block",
+                    &parent_lookup
+                );
             }
         }
 
@@ -537,7 +551,12 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                 cx.report_peer(peer_id, PeerAction::MidToleranceError, "parent_request_err");
             }
             BlockProcessResult::Ignored => {
-                todo!()
+                // re-request the same block in the parent lookup
+                warn!(
+                    self.log,
+                    "Parent block processing was ignored,cpu might be overloaded"
+                );
+                self.request_parent(parent_lookup, cx);
             }
         }
 
