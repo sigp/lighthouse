@@ -1,6 +1,5 @@
 use crate::{
     doppelganger_service::DoppelgangerService,
-    fee_recipient_file::{Error as FRFError, FeeRecipientFile},
     http_metrics::metrics,
     initialized_validators::InitializedValidators,
     signing_method::{Error as SigningError, SignableMessage, SigningContext, SigningMethod},
@@ -89,7 +88,6 @@ pub struct ValidatorStore<T, E: EthSpec> {
     doppelganger_service: Option<Arc<DoppelgangerService>>,
     slot_clock: T,
     fee_recipient_process: Option<Address>,
-    fee_recipient_file: Option<Arc<RwLock<FeeRecipientFile>>>,
     task_executor: TaskExecutor,
     _phantom: PhantomData<E>,
 }
@@ -106,7 +104,6 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
         doppelganger_service: Option<Arc<DoppelgangerService>>,
         slot_clock: T,
         fee_recipient_process: Option<Address>,
-        fee_recipient_file: Option<FeeRecipientFile>,
         task_executor: TaskExecutor,
         log: Logger,
     ) -> Self {
@@ -120,7 +117,6 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
             doppelganger_service,
             slot_clock,
             fee_recipient_process,
-            fee_recipient_file: fee_recipient_file.map(|frf| Arc::new(RwLock::new(frf))),
             task_executor,
             _phantom: PhantomData,
         }
@@ -364,62 +360,16 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
         self.validators.read().graffiti(validator_pubkey)
     }
 
-    /// Returns the fee recipient for the given public key. This function WILL NOT RELOAD
-    /// the fee_recipient_file from disk. The priority order for fetching the fee
-    /// recipient is:
+    /// Returns the fee recipient for the given public key. The priority order for fetching
+    /// the fee recipient is:
     /// 1. validator_definitions.yml
-    /// 2. fee recipient file
-    /// 3. process level fee recipient
+    /// 2. process level fee recipient
     pub fn get_fee_recipient(&self, validator_pubkey: &PublicKeyBytes) -> Option<Address> {
         // If there is a `suggested_fee_recipient` in the validator definitions yaml
         // file, use that value.
         self.suggested_fee_recipient(validator_pubkey)
-            .or_else(|| {
-                // If there's nothing in the validator defs file, check the fee
-                // recipient file.
-                self.fee_recipient_file
-                    .as_ref()?
-                    .read()
-                    .get_fee_recipient(validator_pubkey)
-            })
             // If there's nothing in the file, try the process-level default value.
             .or(self.fee_recipient_process)
-    }
-
-    /// Returns the fee recipient for the given public key. This function WILL potentially
-    /// RELOAD the `fee_recipient_file` from disk if a fee recipient isn't provided in
-    /// `validator_definitions.yml` for this public key. The priority order for fetching
-    /// the fee recipient is:
-    /// 1. validator_definitions.yml
-    /// 2. fee recipient file
-    /// 3. process level fee recipient
-    pub fn load_fee_recipient(&self, validator_pubkey: &PublicKeyBytes) -> Option<Address> {
-        // If there is a `suggested_fee_recipient` in the validator definitions yaml
-        // file, use that value.
-        self.suggested_fee_recipient(validator_pubkey)
-            .or_else(|| {
-                // If there's nothing in the validator defs file, check the fee
-                // recipient file.
-                self.fee_recipient_file
-                    .as_ref()?
-                    .write()
-                    .load_fee_recipient(validator_pubkey)
-                    .ok()?
-            })
-            // If there's nothing in the file, try the process-level default value.
-            .or(self.fee_recipient_process)
-    }
-
-    /// Reloads the `fee_recipient_file` from disk. When reading the fee_recipient of
-    /// multiple validators in a loop, it's best to call this function before the loop
-    /// and then call `get_fee_recipient` inside the loop instead of calling
-    /// `load_fee_recipient` so that the `fee_recipient_file` isn't read in every
-    /// loop iteration.
-    pub fn read_fee_recipient_file(&self) -> Result<(), FRFError> {
-        self.fee_recipient_file
-            .as_ref()
-            .map(|frf| frf.as_ref().write().read_fee_recipient_file())
-            .unwrap_or(Ok(()))
     }
 
     /// Returns the suggested_fee_recipient from `validator_definitions.yml` if any.

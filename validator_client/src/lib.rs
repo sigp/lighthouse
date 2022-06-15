@@ -5,7 +5,6 @@ mod check_synced;
 mod cli;
 mod config;
 mod duties_service;
-mod fee_recipient_file;
 mod graffiti_file;
 mod http_metrics;
 mod key_cache;
@@ -361,7 +360,6 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
             doppelganger_service.clone(),
             slot_clock.clone(),
             config.fee_recipient,
-            config.fee_recipient_file.clone(),
             context.executor.clone(),
             log.clone(),
         ));

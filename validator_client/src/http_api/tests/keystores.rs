@@ -588,30 +588,6 @@ fn import_invalid_slashing_protection() {
     })
 }
 
-// Create a fee-recipient file in the required format and return a path to the file.
-fn write_fee_recipient_file(
-    path: PathBuf,
-    entries: &HashMap<String, Address>,
-) -> Result<(), std::io::Error> {
-    use std::{
-        fs::OpenOptions,
-        io::{LineWriter, Write},
-    };
-    let file = OpenOptions::new()
-        .create(true)
-        .write(true)
-        .append(false)
-        .open(&path)?;
-
-    let mut fee_recipient_file = LineWriter::new(file);
-    for (pubkey_string, address) in entries.iter() {
-        fee_recipient_file.write_all(format!("{}: {:?}\n", pubkey_string, address).as_bytes())?;
-    }
-    fee_recipient_file.flush()?;
-
-    Ok(())
-}
-
 #[test]
 fn check_get_set_fee_recipient() {
     run_test(|tester: ApiTester| async move {
@@ -656,8 +632,6 @@ fn check_get_set_fee_recipient() {
         }
 
         use std::str::FromStr;
-        let fee_recipient_file_default =
-            Address::from_str("0x00000000219ab540356cbb839cbe05303d7705fa").unwrap();
         let fee_recipient_public_key_1 =
             Address::from_str("0x25c4a76E7d118705e7Ea2e9b7d8C59930d8aCD3b").unwrap();
         let fee_recipient_public_key_2 =
@@ -665,17 +639,17 @@ fn check_get_set_fee_recipient() {
         let fee_recipient_override =
             Address::from_str("0x0123456789abcdef0123456789abcdef01234567").unwrap();
 
-        // set fee recipient for public key 1 in fee recipient file
-        let mut fee_recipients = [(
-            all_pubkeys[1].as_hex_string(),
-            fee_recipient_public_key_1.clone(),
-        )]
-        .iter()
-        .cloned()
-        .collect();
-
-        write_fee_recipient_file(tester.fee_recipient_file_path(), &fee_recipients)
-            .expect("should write fee recipient file");
+        // set the fee recipient for pubkey[1] using the API
+        tester
+            .client
+            .post_fee_recipient(
+                &all_pubkeys[1],
+                &UpdateFeeRecipientRequest {
+                    ethaddress: fee_recipient_public_key_1.clone(),
+                },
+            )
+            .await
+            .expect("should update fee recipient");
         // now everything but pubkey[1] should be TEST_DEFAULT_FEE_RECIPIENT
         for (i, pubkey) in all_pubkeys.iter().enumerate() {
             let get_res = tester
@@ -687,31 +661,6 @@ fn check_get_set_fee_recipient() {
                 fee_recipient_public_key_1.clone()
             } else {
                 TEST_DEFAULT_FEE_RECIPIENT
-            };
-            assert_eq!(
-                get_res,
-                GetFeeRecipientResponse {
-                    pubkey: pubkey.clone(),
-                    ethaddress: expected,
-                }
-            );
-        }
-
-        // add a default to the fee recipient file
-        fee_recipients.insert("default".to_string(), fee_recipient_file_default.clone());
-        write_fee_recipient_file(tester.fee_recipient_file_path(), &fee_recipients)
-            .expect("should write fee recipient file");
-        // now everything but pubkey[1] should be fee_recipient_file_default
-        for (i, pubkey) in all_pubkeys.iter().enumerate() {
-            let get_res = tester
-                .client
-                .get_fee_recipient(pubkey)
-                .await
-                .expect("should get fee recipient");
-            let expected = if i == 1 {
-                fee_recipient_public_key_1.clone()
-            } else {
-                fee_recipient_file_default.clone()
             };
             assert_eq!(
                 get_res,
@@ -745,7 +694,7 @@ fn check_get_set_fee_recipient() {
             } else if i == 2 {
                 fee_recipient_public_key_2.clone()
             } else {
-                fee_recipient_file_default.clone()
+                TEST_DEFAULT_FEE_RECIPIENT
             };
             assert_eq!(
                 get_res,
@@ -756,7 +705,7 @@ fn check_get_set_fee_recipient() {
             );
         }
 
-        // setting fee recipient via API should override fee_recipient_file
+        // should be able to override previous fee_recipient
         tester
             .client
             .post_fee_recipient(
@@ -778,7 +727,34 @@ fn check_get_set_fee_recipient() {
             } else if i == 2 {
                 fee_recipient_public_key_2.clone()
             } else {
-                fee_recipient_file_default.clone()
+                TEST_DEFAULT_FEE_RECIPIENT
+            };
+            assert_eq!(
+                get_res,
+                GetFeeRecipientResponse {
+                    pubkey: pubkey.clone(),
+                    ethaddress: expected,
+                }
+            );
+        }
+
+        // delete fee recipient for pubkey[1] using the API
+        tester
+            .client
+            .delete_fee_recipient(&all_pubkeys[1])
+            .await
+            .expect("should delete fee recipient");
+        // now everything but pubkey[2] should be TEST_DEFAULT_FEE_RECIPIENT
+        for (i, pubkey) in all_pubkeys.iter().enumerate() {
+            let get_res = tester
+                .client
+                .get_fee_recipient(pubkey)
+                .await
+                .expect("should get fee recipient");
+            let expected = if i == 2 {
+                fee_recipient_public_key_2.clone()
+            } else {
+                TEST_DEFAULT_FEE_RECIPIENT
             };
             assert_eq!(
                 get_res,

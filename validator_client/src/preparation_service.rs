@@ -280,17 +280,6 @@ impl<T: SlotClock + 'static, E: EthSpec> PreparationService<T, E> {
     {
         let log = self.context.log();
 
-        self.validator_store
-            .read_fee_recipient_file()
-            .map_err(|e| {
-                error!(
-                    log,
-                    "Error loading fee-recipient file";
-                    "error" => ?e
-                );
-            })
-            .unwrap_or(());
-
         let all_pubkeys: Vec<_> = self
             .validator_store
             .voting_pubkeys(DoppelgangerStatus::ignored);
@@ -300,7 +289,6 @@ impl<T: SlotClock + 'static, E: EthSpec> PreparationService<T, E> {
             .filter_map(|pubkey| {
                 // Ignore fee recipients for keys without indices, they are inactive.
                 let validator_index = self.validator_store.validator_index(&pubkey)?;
-
                 let fee_recipient = self.validator_store.get_fee_recipient(&pubkey);
 
                 if let Some(fee_recipient) = fee_recipient {
