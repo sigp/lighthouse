@@ -265,7 +265,16 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
                 let block_hash = match beacon_chain.canonical_head.read().head_execution_status() {
                     Ok(ExecutionStatus::Irrelevant(_)) => "n/a".to_string(),
                     Ok(ExecutionStatus::Valid(hash)) => format!("{} (verified)", hash),
-                    Ok(ExecutionStatus::Optimistic(hash)) => format!("{} (unverified)", hash),
+                    Ok(ExecutionStatus::Optimistic(hash)) => {
+                        warn!(
+                            log,
+                            "Head is optimistic";
+                            "info" => "chain not fully verified, \
+                                block and attestation production temporarily disabled",
+                            "execution_block_hash" => ?hash,
+                        );
+                        format!("{} (unverified)", hash)
+                    }
                     Ok(ExecutionStatus::Invalid(hash)) => {
                         crit!(
                             log,
