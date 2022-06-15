@@ -927,9 +927,10 @@ impl<T: BeaconChainTypes> Worker<T> {
                     )
                 };
 
-                trace!(
+                debug!(
                     self.log,
                     "Gossipsub block processed";
+                    "block" => ?block_root,
                     "peer_id" => %peer_id
                 );
 
@@ -941,9 +942,10 @@ impl<T: BeaconChainTypes> Worker<T> {
                         "location" => "block_gossip"
                     )
                 } else {
-                    trace!(
+                    debug!(
                         self.log,
                         "Fork choice success";
+                        "block" => ?block_root,
                         "location" => "block_gossip"
                     )
                 }
