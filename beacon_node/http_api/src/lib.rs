@@ -680,23 +680,43 @@ pub fn serve<T: BeaconChainTypes>(
         .and(warp::path::end())
         .and_then(
             |state_id: StateId, chain: Arc<BeaconChain<T>>, query: api_types::CommitteesQuery| {
-                // the api spec says if the epoch is not present then the epoch of the state should be used
-                let query_state_id = query.epoch.map_or(state_id, |epoch| {
-                    StateId::slot(epoch.start_slot(T::EthSpec::slots_per_epoch()))
-                });
-
                 blocking_json_task(move || {
-                    query_state_id.map_state(&chain, |state| {
-                        let epoch = state.slot().epoch(T::EthSpec::slots_per_epoch());
+                    let query_state_id = query
+                        .epoch
+                        .map_or(Ok(state_id), |epoch| {
+                            // If an epoch is provided work out whether it's in range of the head
+                            // state, and if not, locate the first restore point that follows it.
+                            let randao_epoch = epoch - chain.spec.min_seed_lookahead - 1;
+                            let head_min_randao_epoch = chain
+                                .with_head(|head| Ok(head.beacon_state.min_randao_epoch()))
+                                .map_err(|x: BeaconChainError| x)?;
 
-                        let committee_cache = if state
-                            .committee_cache_is_initialized(RelativeEpoch::Current)
+                            if randao_epoch >= head_min_randao_epoch {
+                                Ok(StateId::head())
+                            } else {
+                                let max_sprp = T::EthSpec::slots_per_historical_root() as u64;
+                                let first_subsequent_restore_point_slot =
+                                    ((epoch.start_slot(T::EthSpec::slots_per_epoch()) / max_sprp)
+                                        + 1)
+                                        * max_sprp;
+                                Ok(StateId::slot(first_subsequent_restore_point_slot))
+                            }
+                        })
+                        .map_err(warp_utils::reject::beacon_chain_error)?;
+
+                    query_state_id.map_state(&chain, |state| {
+                        let current_epoch = state.current_epoch();
+                        let epoch = query.epoch.unwrap_or(current_epoch);
+
+                        let committee_cache = match RelativeEpoch::from_epoch(current_epoch, epoch)
                         {
-                            state
-                                .committee_cache(RelativeEpoch::Current)
-                                .map(Cow::Borrowed)
-                        } else {
-                            CommitteeCache::initialized(state, epoch, &chain.spec).map(Cow::Owned)
+                            Ok(relative_epoch)
+                                if state.committee_cache_is_initialized(relative_epoch) =>
+                            {
+                                state.committee_cache(relative_epoch).map(Cow::Borrowed)
+                            }
+                            _ => CommitteeCache::initialized(state, epoch, &chain.spec)
+                                .map(Cow::Owned),
                         }
                         .map_err(BeaconChainError::BeaconStateError)
                         .map_err(warp_utils::reject::beacon_chain_error)?;

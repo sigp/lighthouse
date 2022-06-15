@@ -963,6 +963,13 @@ impl<T: EthSpec> BeaconState<T> {
         }
     }
 
+    /// Return the minimum epoch for which `get_randao_mix` will return a non-error value.
+    pub fn min_randao_epoch(&self) -> Epoch {
+        self.current_epoch()
+            .saturating_add(1u64)
+            .saturating_sub(T::EpochsPerHistoricalVector::to_u64())
+    }
+
     /// XOR-assigns the existing `epoch` randao mix with the hash of the `signature`.
     ///
     /// # Errors:
