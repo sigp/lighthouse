@@ -804,7 +804,7 @@ pub fn serve<T: BeaconChainTypes>(
                         (None, None) => chain
                             .head_beacon_block()
                             .map_err(warp_utils::reject::beacon_chain_error)
-                            .map(|block| (block.canonical_root(), block.into()))?,
+                            .map(|block| (block.canonical_root(), block.clone_as_blinded()))?,
                         // Only the parent root parameter, do a forwards-iterator lookup.
                         (None, Some(parent_root)) => {
                             let parent = BlockId::from_root(parent_root).blinded_block(&chain)?;
@@ -2741,7 +2741,7 @@ pub fn serve<T: BeaconChainTypes>(
         .and(chain_filter.clone())
         .and(log_filter.clone())
         .and_then(
-            |blocks: Vec<SignedBlindedBeaconBlock<T::EthSpec>>,
+            |blocks: Vec<Arc<SignedBlindedBeaconBlock<T::EthSpec>>>,
              chain: Arc<BeaconChain<T>>,
              log: Logger| {
                 info!(

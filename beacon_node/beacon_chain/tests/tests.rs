@@ -13,7 +13,6 @@ use operation_pool::PersistedOperationPool;
 use state_processing::{
     per_slot_processing, per_slot_processing::Error as SlotProcessingError, EpochProcessingError,
 };
-use std::sync::Arc;
 use types::{
     BeaconState, BeaconStateError, EthSpec, Hash256, Keypair, MinimalEthSpec, RelativeEpoch, Slot,
 };
@@ -153,7 +152,7 @@ fn find_reorg_slot(
         let old_block_root = head.head_block_root();
         (old_state, old_block_root)
     };
-    beacon_chain::recompute_head::find_reorg_slot(
+    beacon_chain::canonical_head::find_reorg_slot(
         &old_state,
         old_block_root,
         new_state,
@@ -692,14 +691,14 @@ async fn run_skip_slot_test(skip_slots: u64) {
     assert_eq!(
         harness_b
             .chain
-            .process_block(Arc::new(
+            .process_block(
                 harness_a
                     .chain
                     .head()
                     .expect("should get head")
                     .beacon_block
                     .clone()
-            ),)
+            )
             .await
             .unwrap(),
         harness_a

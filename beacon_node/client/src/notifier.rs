@@ -263,10 +263,10 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
                 };
 
                 let block_hash = match beacon_chain.canonical_head.read().head_execution_status() {
-                    Some(ExecutionStatus::Irrelevant(_)) => "n/a".to_string(),
-                    Some(ExecutionStatus::Valid(hash)) => format!("{} (verified)", hash),
-                    Some(ExecutionStatus::Optimistic(hash)) => format!("{} (unverified)", hash),
-                    Some(ExecutionStatus::Invalid(hash)) => {
+                    Ok(ExecutionStatus::Irrelevant(_)) => "n/a".to_string(),
+                    Ok(ExecutionStatus::Valid(hash)) => format!("{} (verified)", hash),
+                    Ok(ExecutionStatus::Optimistic(hash)) => format!("{} (unverified)", hash),
+                    Ok(ExecutionStatus::Invalid(hash)) => {
                         crit!(
                             log,
                             "Head execution payload is invalid";
@@ -275,7 +275,7 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
                         );
                         format!("{} (invalid)", hash)
                     }
-                    None => "unknown".to_string(),
+                    Err(_) => "unknown".to_string(),
                 };
 
                 info!(

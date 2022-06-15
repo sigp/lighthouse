@@ -1015,7 +1015,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// Returns the beacon block at the head of the canonical chain.
     ///
     /// See `Self::head` for more information.
-    pub fn head_beacon_block(&self) -> Result<SignedBeaconBlock<T::EthSpec>, Error> {
+    pub fn head_beacon_block(&self) -> Result<Arc<SignedBeaconBlock<T::EthSpec>>, Error> {
         self.with_head(|s| Ok(s.beacon_block.clone()))
     }
 
@@ -2964,7 +2964,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 snapshot_cache.insert(
                     BeaconSnapshot {
                         beacon_state: state,
-                        beacon_block: signed_block.as_ref().clone(),
+                        beacon_block: signed_block.clone(),
                         beacon_block_root: block_root,
                     },
                     None,
@@ -4446,10 +4446,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     ) -> Result<Vec<BeaconSnapshot<T::EthSpec, BlindedPayload<T::EthSpec>>>, Error> {
         let mut dump = vec![];
 
-        let mut last_slot = BeaconSnapshot {
-            beacon_block: self.head()?.beacon_block.into(),
-            beacon_block_root: self.head()?.beacon_block_root,
-            beacon_state: self.head()?.beacon_state,
+        let mut last_slot = {
+            let head = self.canonical_head.read();
+            BeaconSnapshot {
+                beacon_block: Arc::new(head.head_snapshot.beacon_block.clone_as_blinded()),
+                beacon_block_root: head.head_snapshot.beacon_block_root,
+                beacon_state: head.head_snapshot.beacon_state.clone(),
+            }
         };
 
         dump.push(last_slot.clone());
@@ -4476,7 +4479,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 })?;
 
             let slot = BeaconSnapshot {
-                beacon_block,
+                beacon_block: Arc::new(beacon_block),
                 beacon_block_root,
                 beacon_state,
             };

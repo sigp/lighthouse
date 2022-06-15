@@ -199,7 +199,7 @@ async fn early_attester_cache_old_request() {
         .early_attester_cache
         .add_head_block(
             head.beacon_block_root,
-            Arc::new(head.beacon_block.clone()),
+            head.beacon_block.clone(),
             head_proto_block,
             &head.beacon_state,
             &harness.chain.spec,

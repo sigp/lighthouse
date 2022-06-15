@@ -796,6 +796,8 @@ async fn multiple_attestations_per_block() {
         assert_eq!(
             snapshot
                 .beacon_block
+                .as_ref()
+                .clone()
                 .deconstruct()
                 .0
                 .body()
@@ -2120,7 +2122,7 @@ async fn weak_subjectivity_sync() {
         let full_block = harness
             .chain
             .store
-            .make_full_block(&snapshot.beacon_block_root, block.clone())
+            .make_full_block(&snapshot.beacon_block_root, block.as_ref().clone())
             .unwrap();
 
         beacon_chain.slot_clock.set_slot(block.slot().as_u64());

@@ -338,7 +338,7 @@ where
         Ok((
             BeaconSnapshot {
                 beacon_block_root,
-                beacon_block,
+                beacon_block: Arc::new(beacon_block),
                 beacon_state,
             },
             self,
@@ -459,7 +459,7 @@ where
 
         let snapshot = BeaconSnapshot {
             beacon_block_root: weak_subj_block_root,
-            beacon_block: weak_subj_block,
+            beacon_block: Arc::new(weak_subj_block),
             beacon_state: weak_subj_state,
         };
 
@@ -652,7 +652,7 @@ where
 
         let mut head_snapshot = BeaconSnapshot {
             beacon_block_root: head_block_root,
-            beacon_block: head_block,
+            beacon_block: Arc::new(head_block),
             beacon_state: head_state,
         };
 
@@ -728,12 +728,8 @@ where
         let genesis_validators_root = head_snapshot.beacon_state.genesis_validators_root();
         let genesis_time = head_snapshot.beacon_state.genesis_time();
         let head_for_snapshot_cache = head_snapshot.clone();
-        let fork_choice_view = fork_choice.cached_fork_choice_view();
-        let canonical_head = CanonicalHead {
-            fork_choice,
-            fork_choice_view,
-            head_snapshot,
-        };
+        let canonical_head = CanonicalHead::new(fork_choice, head_snapshot)
+            .map_err(|e| format!("Error creating canonical head: {:?}", e))?;
 
         let beacon_chain = BeaconChain {
             spec: self.spec,
@@ -1027,7 +1023,7 @@ mod test {
                 .get_blinded_block(&Hash256::zero())
                 .expect("should read db")
                 .expect("should find genesis block"),
-            block.clone().into(),
+            block.clone_as_blinded(),
             "should store genesis block under zero hash alias"
         );
         assert_eq!(

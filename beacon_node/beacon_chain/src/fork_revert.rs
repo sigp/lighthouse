@@ -139,7 +139,7 @@ pub fn reset_fork_choice_to_finalization<E: EthSpec, Hot: ItemStore<E>, Cold: It
     })?;
     let finalized_snapshot = BeaconSnapshot {
         beacon_block_root: finalized_block_root,
-        beacon_block: finalized_block,
+        beacon_block: Arc::new(finalized_block),
         beacon_state: finalized_state,
     };
 

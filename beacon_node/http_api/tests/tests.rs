@@ -1926,7 +1926,10 @@ impl ApiTester {
 
             self.client.post_beacon_blocks(&signed_block).await.unwrap();
 
-            assert_eq!(self.chain.head_beacon_block().unwrap(), signed_block);
+            assert_eq!(
+                self.chain.head_beacon_block().unwrap().as_ref(),
+                &signed_block
+            );
 
             self.chain.slot_clock.set_slot(slot.as_u64() + 1);
         }

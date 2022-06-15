@@ -280,6 +280,7 @@ impl<T: BeaconChainTypes> Worker<T> {
         let blinded_blocks = blocks
             .iter()
             .map(|full_block| full_block.clone_as_blinded())
+            .map(Arc::new)
             .collect();
         match self.chain.import_historical_block_batch(blinded_blocks) {
             Ok(imported_blocks) => {

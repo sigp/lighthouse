@@ -39,7 +39,7 @@ pub(crate) fn update_with_reinitialized_fork_choice<T: BeaconChainTypes>(
         .map_err(|e| format!("{:?}", e))?
         .ok_or_else(|| "Missing anchor beacon state".to_string())?;
     let snapshot = BeaconSnapshot {
-        beacon_block: anchor_block,
+        beacon_block: Arc::new(anchor_block),
         beacon_block_root: anchor_block_root,
         beacon_state: anchor_state,
     };

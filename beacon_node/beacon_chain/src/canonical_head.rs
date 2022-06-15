@@ -31,14 +31,47 @@ pub struct CanonicalHead<T: BeaconChainTypes> {
     /// Provides an in-memory representation of the non-finalized block tree and is used to run the
     /// fork choice algorithm and determine the canonical head.
     pub fork_choice: BeaconForkChoice<T>,
-    /// The view of the LMD head and FFG checkpoints, cached from the last time the head was
-    /// updated.
-    pub fork_choice_view: ForkChoiceView,
+    /// The justified checkpoint as per `self.fork_choice`.
+    ///
+    /// This value may be distinct to the `self.head_snapshot.beacon_state.justified_checkpoint`.
+    /// This value should be used over the beacon state value in practically all circumstances.
+    justified_checkpoint: Checkpoint,
+    /// The finalized checkpoint as per `self.fork_choice`.
+    ///
+    /// This value may be distinct to the `self.head_snapshot.beacon_state.finalized_checkpoint`.
+    /// This value should be used over the beacon state value in practically all circumstances.
+    finalized_checkpoint: Checkpoint,
     /// Provides the head block and state from the last time the head was updated.
     pub head_snapshot: BeaconSnapshot<T::EthSpec>,
 }
 
 impl<T: BeaconChainTypes> CanonicalHead<T> {
+    /// Instantiate `Self`.
+    ///
+    /// An error will be returned if the cached head of `fork_choice` is not equal to the given
+    /// `head_snapshot`.
+    pub fn new(
+        fork_choice: BeaconForkChoice<T>,
+        head_snapshot: BeaconSnapshot<T::EthSpec>,
+    ) -> Result<Self, Error> {
+        let fork_choice_view = fork_choice.cached_fork_choice_view();
+
+        if fork_choice_view.head_block_root != head_snapshot.beacon_block_root {
+            return Err(Error::InconsistentForkChoiceView {
+                view: fork_choice_view.head_block_root,
+                snapshot: head_snapshot.beacon_block_root,
+            });
+        }
+
+        Ok(Self {
+            fork_choice,
+            justified_checkpoint: fork_choice_view.justified_checkpoint,
+            finalized_checkpoint: fork_choice_view.finalized_checkpoint,
+            head_snapshot,
+        })
+    }
+
+    /// Instantiate `Self`, loading the latest persisted `fork_choice` from the `store`.
     pub fn load_from_store(store: &BeaconStore<T>, spec: &ChainSpec) -> Result<Self, Error> {
         let fork_choice = <BeaconChain<T>>::load_fork_choice(store.clone(), spec)?
             .ok_or(Error::MissingPersistedForkChoice)?;
@@ -51,17 +84,14 @@ impl<T: BeaconChainTypes> CanonicalHead<T> {
         let beacon_state = store
             .get_state(&beacon_state_root, Some(beacon_block.slot()))?
             .ok_or(Error::MissingBeaconState(beacon_state_root))?;
+
         let head_snapshot = BeaconSnapshot {
             beacon_block_root,
-            beacon_block,
+            beacon_block: Arc::new(beacon_block),
             beacon_state,
         };
 
-        Ok(Self {
-            fork_choice,
-            fork_choice_view,
-            head_snapshot,
-        })
+        Self::new(fork_choice, head_snapshot)
     }
 
     /// Returns root of the block at the head of the beacon chain.
@@ -95,12 +125,14 @@ impl<T: BeaconChainTypes> CanonicalHead<T> {
 
     /// Returns the execution status of the block at the head of the beacon chain.
     ///
-    /// ## Notes
-    ///
-    ///
-    pub fn head_execution_status(&self) -> Option<ExecutionStatus> {
+    /// This will only return `Err` in the scenario where `self.fork_choice` has advanced
+    /// significantly past the cached `head_snapshot`. In such a scenario is it likely prudent to
+    /// run `BeaconChain::recompute_head` to update the cached values.
+    pub fn head_execution_status(&self) -> Result<ExecutionStatus, Error> {
+        let head_block_root = self.head_block_root();
         self.fork_choice
-            .get_block_execution_status(&self.head_block_root())
+            .get_block_execution_status(&head_block_root)
+            .ok_or(Error::HeadMissingFromForkChoice(head_block_root))
     }
 
     /// Returns the randao mix for the block at the head of the chain.
@@ -118,7 +150,7 @@ impl<T: BeaconChainTypes> CanonicalHead<T> {
     /// best finalized checkpoint that has been observed by `self.fork_choice`. It is possible that
     /// the `head_snapshot.beacon_state` finalized value is earlier than the one returned here.
     pub fn finalized_checkpoint(&self) -> Checkpoint {
-        self.fork_choice_view.finalized_checkpoint
+        self.finalized_checkpoint
     }
 
     /// Returns the justified checkpoint, as determined by fork choice.
@@ -130,7 +162,7 @@ impl<T: BeaconChainTypes> CanonicalHead<T> {
     /// `head_snapshot.beacon_state` justified value is different to, but not conflicting with, the
     /// one returned here.
     pub fn justified_checkpoint(&self) -> Checkpoint {
-        self.fork_choice_view.justified_checkpoint
+        self.justified_checkpoint
     }
 }
 
@@ -142,6 +174,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     }
 
     /// Execute the fork choice algorithm and enthrone the result as the canonical head.
+    ///
+    /// The `current_slot` is specified rather than relying on the wall-clock slot. Using a
+    /// different slot to the wall-clock can be useful for pushing fork choice into the next slot
+    /// *just* before the start of the slot. This ensures that block production can use the correct
+    /// head value without being delayed.
     pub async fn recompute_head_at_slot(self: &Arc<Self>, current_slot: Slot) -> Result<(), Error> {
         metrics::inc_counter(&metrics::FORK_CHOICE_REQUESTS);
         let _timer = metrics::start_timer(&metrics::FORK_CHOICE_TIMES);
@@ -191,7 +228,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         }
     }
 
-    pub fn recompute_head_at_slot_internal(
+    /// A non-async (blocking) function which recomputes the canonical head and spawns async tasks.
+    ///
+    /// This function performs long-running, heavy-lifting tasks which should not be performed on
+    /// the core `tokio` executor.
+    fn recompute_head_at_slot_internal(
         self: &Arc<Self>,
         current_slot: Slot,
     ) -> Result<Option<JoinHandle<Option<()>>>, Error> {
@@ -201,8 +242,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         //
         // It is important to read the `fork_choice_view` from the canonical head rather than from
         // fork choice, since the fork choice value might have changed between calls to this
-        // function.
-        let old_view = canonical_head_write_lock.fork_choice_view;
+        // function. We are interested in the changes since we last cached the head values, not
+        // since fork choice was last run.
+        let old_view = ForkChoiceView {
+            head_block_root: canonical_head_write_lock.head_block_root(),
+            finalized_checkpoint: canonical_head_write_lock.finalized_checkpoint(),
+            justified_checkpoint: canonical_head_write_lock.justified_checkpoint(),
+        };
 
         // Recompute the current head via the fork choice algorithm.
         canonical_head_write_lock
@@ -219,42 +265,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let finalized_proto_block = canonical_head_write_lock
             .fork_choice
             .get_finalized_block()?;
-        if let ExecutionStatus::Invalid(block_hash) = finalized_proto_block.execution_status {
-            crit!(
-                self.log,
-                "Finalized block has an invalid payload";
-                "msg" => "You must use the `--purge-db` flag to clear the database and restart sync. \
-                You may be on a hostile network.",
-                "block_hash" => ?block_hash
-            );
-            let mut shutdown_sender = self.shutdown_sender();
-            shutdown_sender
-                .try_send(ShutdownReason::Failure(
-                    "Finalized block has an invalid execution payload.",
-                ))
-                .map_err(Error::InvalidFinalizedPayloadShutdownError)?;
-
-            // Exit now, the node is in an invalid state.
-            return Err(Error::InvalidFinalizedPayload {
-                finalized_root: finalized_proto_block.root,
-                execution_block_hash: block_hash,
-            });
-        }
+        check_finalized_payload_validity(self, &finalized_proto_block)?;
 
         // Sanity check the finalized checkpoint.
         //
         // The new finalized checkpoint must be either equal to or better than the previous
         // finalized checkpoint.
-        let valid_finalization_transition = new_view.finalized_checkpoint.epoch
-            > old_view.finalized_checkpoint.epoch
-            || new_view.finalized_checkpoint == old_view.finalized_checkpoint;
-        if !valid_finalization_transition {
-            // Exit now with an error
-            return Err(Error::RevertedFinalizedEpoch {
-                old: old_view.finalized_checkpoint,
-                new: new_view.finalized_checkpoint,
-            });
-        }
+        check_against_finality_reversion(&old_view, &new_view)?;
 
         let new_head_proto_block = canonical_head_write_lock
             .fork_choice
@@ -288,8 +305,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             return Ok(None);
         }
 
-        // Update the fork choice view on the `canonical_head`.
-        canonical_head_write_lock.fork_choice_view = new_view;
+        // Update the checkpoints on the `canonical_head`.
+        canonical_head_write_lock.justified_checkpoint = new_view.justified_checkpoint;
+        canonical_head_write_lock.finalized_checkpoint = new_view.finalized_checkpoint;
 
         // If the head has changed, update `self.canonical_head`.
         let head_update_params = if new_view.head_block_root != old_view.head_block_root {
@@ -297,6 +315,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
             // Try and obtain the snapshot for `beacon_block_root` from the snapshot cache, falling
             // back to a database read if that fails.
+            //
+            // ## Note
+            //
+            // the snapshot cache read-lock is being held whilst we have a lock on the
+            // `canonical_head`. This is a deadlock risk.
+            //
+            // TODO(paul): check all other uses of the snapshot cache.
             let new_head = self
                 .snapshot_cache
                 .try_read_for(BLOCK_PROCESSING_CACHE_LOCK_TIMEOUT)
@@ -319,7 +344,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         .ok_or(Error::MissingBeaconState(beacon_state_root))?;
 
                     Ok(BeaconSnapshot {
-                        beacon_block,
+                        beacon_block: Arc::new(beacon_block),
                         beacon_block_root: new_view.head_block_root,
                         beacon_state,
                     })
@@ -345,7 +370,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             None
         };
 
-        // Downgrade the write-lock to a read-lock, without allowing any other writers access.
+        // Downgrade the write-lock to a read-lock, without allowing any other writers access during
+        // the process.
         //
         // Holding the write-lock any longer than is required creates the risk of contention and
         // deadlocks. This is especially relevant since later parts of this function will interact
@@ -356,8 +382,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let new_head = &canonical_head_read_lock.head_snapshot;
 
         // If the head changed, perform some updates.
-        if let Some((old_head, new_head_proto_block)) = &head_update_params {
-            if let Err(e) = self.after_new_head(old_head, new_head, new_head_proto_block) {
+        if let Some((old_head, new_head_proto_block)) = head_update_params {
+            if let Err(e) = self.after_new_head(&old_head, new_head, new_head_proto_block) {
                 crit!(
                     self.log,
                     "Error updating canonical head";
@@ -405,7 +431,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         self: &Arc<Self>,
         old_head: &BeaconSnapshot<T::EthSpec>,
         new_head: &BeaconSnapshot<T::EthSpec>,
-        new_head_proto_block: &ProtoBlock,
+        new_head_proto_block: ProtoBlock,
     ) -> Result<(), Error> {
         // Detect and potentially report any re-orgs.
         let reorg_distance = detect_reorg(
@@ -437,92 +463,121 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .beacon_state
             .attester_shuffling_decision_root(self.genesis_block_root, RelativeEpoch::Current);
 
-        // Update the snapshot cache with the latest head value.
-        //
-        // TODO(paul): do this when we're mutating the snapshot cache to get the head?
-        self.snapshot_cache
-            .try_write_for(BLOCK_PROCESSING_CACHE_LOCK_TIMEOUT)
-            .map(|mut snapshot_cache| {
-                snapshot_cache.update_head(new_head.beacon_block_root);
-            })
-            .unwrap_or_else(|| {
-                error!(
-                    self.log,
-                    "Failed to obtain cache write lock";
-                    "lock" => "snapshot_cache",
-                    "task" => "update head"
-                );
-            });
+        // The rest of this function is spawned in another task, since we don't need to wait for it
+        // to complete and it doesn't require a reference to the beacon state.
+        let chain = self.clone();
+        let old_head_block: Arc<_> = old_head.beacon_block.clone();
+        let old_head_block_root = old_head.beacon_block_root;
+        let new_head_block_root = new_head.beacon_block_root;
+        let new_head_block: Arc<_> = new_head.beacon_block.clone();
+        let concurrent_task = move || {
+            // Update the snapshot cache with the latest head value.
+            //
+            // This *could* be done inside `recompute_head`, however updating the head on the snapshot
+            // cache is not critical so we avoid placing it on a critical path. Note that this function
+            // will not return an error if the update fails, it will just log an error.
+            chain
+                .snapshot_cache
+                .try_write_for(BLOCK_PROCESSING_CACHE_LOCK_TIMEOUT)
+                .map(|mut snapshot_cache| {
+                    snapshot_cache.update_head(new_head_block_root);
+                })
+                .unwrap_or_else(|| {
+                    error!(
+                        chain.log,
+                        "Failed to obtain cache write lock";
+                        "lock" => "snapshot_cache",
+                        "task" => "update head"
+                    );
+                });
 
-        observe_head_block_delays(
-            &mut self.block_times_cache.write(),
-            new_head_proto_block,
-            new_head.beacon_block.message().proposer_index(),
-            new_head
-                .beacon_block
-                .message()
-                .body()
-                .graffiti()
-                .as_utf8_lossy(),
-            &self.slot_clock,
-            self.event_handler.as_ref(),
-            &self.log,
-        );
+            observe_head_block_delays(
+                &mut chain.block_times_cache.write(),
+                &new_head_proto_block,
+                new_head_block.message().proposer_index(),
+                new_head_block.message().body().graffiti().as_utf8_lossy(),
+                &chain.slot_clock,
+                chain.event_handler.as_ref(),
+                &chain.log,
+            );
 
-        if is_epoch_transition || reorg_distance.is_some() {
-            self.persist_head_and_fork_choice()?;
-            self.op_pool.prune_attestations(self.epoch()?);
-        }
+            if is_epoch_transition || reorg_distance.is_some() {
+                chain.persist_head_and_fork_choice()?;
+                chain.op_pool.prune_attestations(chain.epoch()?);
+            }
 
-        // Register server-sent-events for a new head.
-        if let Some(event_handler) = self
-            .event_handler
-            .as_ref()
-            .filter(|handler| handler.has_head_subscribers())
-        {
-            match (dependent_root, prev_dependent_root) {
-                (Ok(current_duty_dependent_root), Ok(previous_duty_dependent_root)) => {
-                    event_handler.register(EventKind::Head(SseHead {
+            // Register server-sent-events for a new head.
+            if let Some(event_handler) = chain
+                .event_handler
+                .as_ref()
+                .filter(|handler| handler.has_head_subscribers())
+            {
+                match (dependent_root, prev_dependent_root) {
+                    (Ok(current_duty_dependent_root), Ok(previous_duty_dependent_root)) => {
+                        event_handler.register(EventKind::Head(SseHead {
+                            slot: head_slot,
+                            block: new_head_block_root,
+                            state: state_root,
+                            current_duty_dependent_root,
+                            previous_duty_dependent_root,
+                            epoch_transition: is_epoch_transition,
+                        }));
+                    }
+                    (Err(e), _) | (_, Err(e)) => {
+                        warn!(
+                            chain.log,
+                            "Unable to find dependent roots, cannot register head event";
+                            "error" => ?e
+                        );
+                    }
+                }
+            }
+
+            // Register a server-sent-event for a reorg (if necessary).
+            if let Some(depth) = reorg_distance {
+                if let Some(event_handler) = chain
+                    .event_handler
+                    .as_ref()
+                    .filter(|handler| handler.has_reorg_subscribers())
+                {
+                    event_handler.register(EventKind::ChainReorg(SseChainReorg {
                         slot: head_slot,
-                        block: new_head.beacon_block_root,
-                        state: state_root,
-                        current_duty_dependent_root,
-                        previous_duty_dependent_root,
-                        epoch_transition: is_epoch_transition,
+                        depth: depth.as_u64(),
+                        old_head_block: old_head_block_root,
+                        old_head_state: old_head_block.state_root(),
+                        new_head_block: new_head_block_root,
+                        new_head_state: new_head_block.state_root(),
+                        epoch: head_slot.epoch(T::EthSpec::slots_per_epoch()),
                     }));
                 }
-                (Err(e), _) | (_, Err(e)) => {
-                    warn!(
-                        self.log,
-                        "Unable to find dependent roots, cannot register head event";
+            }
+
+            Ok::<_, Error>(())
+        };
+        let log = self.log.clone();
+        self.task_executor.spawn_blocking(
+            move || {
+                if let Err(e) = concurrent_task() {
+                    error!(
+                        log,
+                        "Error in after updating head";
                         "error" => ?e
                     );
                 }
-            }
-        }
-
-        // Register a server-sent-event for a reorg (if necessary).
-        if let Some(depth) = reorg_distance {
-            if let Some(event_handler) = self
-                .event_handler
-                .as_ref()
-                .filter(|handler| handler.has_reorg_subscribers())
-            {
-                event_handler.register(EventKind::ChainReorg(SseChainReorg {
-                    slot: head_slot,
-                    depth: depth.as_u64(),
-                    old_head_block: old_head.beacon_block_root,
-                    old_head_state: old_head.beacon_state_root(),
-                    new_head_block: new_head.beacon_block_root,
-                    new_head_state: new_head.beacon_state_root(),
-                    epoch: head_slot.epoch(T::EthSpec::slots_per_epoch()),
-                }));
-            }
-        }
+            },
+            "snapshot_cache_head_update",
+        );
 
         Ok(())
     }
 
+    /// Perform updates to caches and other components after the finalized checkpoint has been
+    /// changed.
+    ///
+    /// # Deadlock Warning
+    ///
+    /// Taking a write lock on the `self.canonical_head` in this function will result in a deadlock!
+    /// This is because `Self::recompute_head_internal` will already be holding a read-lock.
     fn after_finalization(
         &self,
         new_head: &BeaconSnapshot<T::EthSpec>,
@@ -579,6 +634,67 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         }
 
         Ok(())
+    }
+}
+
+/// Check to see if the `finalized_proto_block` has an invalid execution payload. If so, shut down
+/// Lighthouse.
+///
+/// ## Notes
+///
+/// This function is called whilst holding a write-lock on the `canonical_head`. To ensure dead-lock
+/// safety, **do not take any other locks inside this function**.
+fn check_finalized_payload_validity<T: BeaconChainTypes>(
+    chain: &BeaconChain<T>,
+    finalized_proto_block: &ProtoBlock,
+) -> Result<(), Error> {
+    if let ExecutionStatus::Invalid(block_hash) = finalized_proto_block.execution_status {
+        crit!(
+            chain.log,
+            "Finalized block has an invalid payload";
+            "msg" => "You must use the `--purge-db` flag to clear the database and restart sync. \
+            You may be on a hostile network.",
+            "block_hash" => ?block_hash
+        );
+        let mut shutdown_sender = chain.shutdown_sender();
+        shutdown_sender
+            .try_send(ShutdownReason::Failure(
+                "Finalized block has an invalid execution payload.",
+            ))
+            .map_err(Error::InvalidFinalizedPayloadShutdownError)?;
+
+        // Exit now, the node is in an invalid state.
+        return Err(Error::InvalidFinalizedPayload {
+            finalized_root: finalized_proto_block.root,
+            execution_block_hash: block_hash,
+        });
+    }
+
+    Ok(())
+}
+
+/// Check to ensure that the transition from `old_view` to `new_view` will not revert finality.
+///
+/// ## Notes
+///
+/// This function is called whilst holding a write-lock on the `canonical_head`. To ensure dead-lock
+/// safety, **do not take any other locks inside this function**.
+fn check_against_finality_reversion(
+    old_view: &ForkChoiceView,
+    new_view: &ForkChoiceView,
+) -> Result<(), Error> {
+    let finalization_equal = new_view.finalized_checkpoint == old_view.finalized_checkpoint;
+    let finalization_advanced =
+        new_view.finalized_checkpoint.epoch > old_view.finalized_checkpoint.epoch;
+
+    if finalization_equal || finalization_advanced {
+        Ok(())
+    } else {
+        // Exit now with an error
+        return Err(Error::RevertedFinalizedEpoch {
+            old: old_view.finalized_checkpoint,
+            new: new_view.finalized_checkpoint,
+        });
     }
 }
 

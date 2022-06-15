@@ -49,11 +49,14 @@ async fn get_chain_segment() -> Vec<BeaconSnapshot<E>> {
             let full_block = harness
                 .chain
                 .store
-                .make_full_block(&snapshot.beacon_block_root, snapshot.beacon_block)
+                .make_full_block(
+                    &snapshot.beacon_block_root,
+                    snapshot.beacon_block.as_ref().clone(),
+                )
                 .unwrap();
             BeaconSnapshot {
                 beacon_block_root: snapshot.beacon_block_root,
-                beacon_block: full_block,
+                beacon_block: Arc::new(full_block),
                 beacon_state: snapshot.beacon_state,
             }
         })
@@ -78,7 +81,6 @@ fn chain_segment_blocks(chain_segment: &[BeaconSnapshot<E>]) -> Vec<Arc<SignedBe
     chain_segment
         .iter()
         .map(|snapshot| snapshot.beacon_block.clone())
-        .map(Arc::new)
         .collect()
 }
 
@@ -110,13 +112,13 @@ fn update_proposal_signatures(
             .get(proposer_index)
             .expect("proposer keypair should be available");
 
-        let (block, _) = snapshot.beacon_block.clone().deconstruct();
-        snapshot.beacon_block = block.sign(
+        let (block, _) = snapshot.beacon_block.as_ref().clone().deconstruct();
+        snapshot.beacon_block = Arc::new(block.sign(
             &keypair.sk,
             &state.fork(),
             state.genesis_validators_root(),
             spec,
-        );
+        ));
     }
 }
 
@@ -124,9 +126,9 @@ fn update_parent_roots(snapshots: &mut [BeaconSnapshot<E>]) {
     for i in 0..snapshots.len() {
         let root = snapshots[i].beacon_block.canonical_root();
         if let Some(child) = snapshots.get_mut(i + 1) {
-            let (mut block, signature) = child.beacon_block.clone().deconstruct();
+            let (mut block, signature) = child.beacon_block.as_ref().clone().deconstruct();
             *block.parent_root_mut() = root;
-            child.beacon_block = SignedBeaconBlock::from_block(block, signature)
+            child.beacon_block = Arc::new(SignedBeaconBlock::from_block(block, signature))
         }
     }
 }
@@ -315,7 +317,7 @@ async fn assert_invalid_signature(
 ) {
     let blocks = snapshots
         .iter()
-        .map(|snapshot| Arc::new(snapshot.beacon_block.clone()))
+        .map(|snapshot| snapshot.beacon_block.clone())
         .collect();
 
     // Ensure the block will be rejected if imported in a chain segment.
@@ -337,7 +339,6 @@ async fn assert_invalid_signature(
         .iter()
         .take(block_index)
         .map(|snapshot| snapshot.beacon_block.clone())
-        .map(Arc::new)
         .collect();
     // We don't care if this fails, we just call this to ensure that all prior blocks have been
     // imported prior to this test.
@@ -346,7 +347,7 @@ async fn assert_invalid_signature(
         matches!(
             harness
                 .chain
-                .process_block(Arc::new(snapshots[block_index].beacon_block.clone()))
+                .process_block(snapshots[block_index].beacon_block.clone())
                 .await,
             Err(BlockError::InvalidSignature)
         ),
@@ -379,15 +380,20 @@ async fn invalid_signature_gossip_block() {
         // Ensure the block will be rejected if imported on its own (without gossip checking).
         let harness = get_invalid_sigs_harness(&chain_segment).await;
         let mut snapshots = chain_segment.clone();
-        let (block, _) = snapshots[block_index].beacon_block.clone().deconstruct();
-        snapshots[block_index].beacon_block =
-            SignedBeaconBlock::from_block(block.clone(), junk_signature());
+        let (block, _) = snapshots[block_index]
+            .beacon_block
+            .as_ref()
+            .clone()
+            .deconstruct();
+        snapshots[block_index].beacon_block = Arc::new(SignedBeaconBlock::from_block(
+            block.clone(),
+            junk_signature(),
+        ));
         // Import all the ancestors before the `block_index` block.
         let ancestor_blocks = chain_segment
             .iter()
             .take(block_index)
             .map(|snapshot| snapshot.beacon_block.clone())
-            .map(Arc::new)
             .collect();
         harness
             .chain
@@ -417,13 +423,18 @@ async fn invalid_signature_block_proposal() {
     for &block_index in BLOCK_INDICES {
         let harness = get_invalid_sigs_harness(&chain_segment).await;
         let mut snapshots = chain_segment.clone();
-        let (block, _) = snapshots[block_index].beacon_block.clone().deconstruct();
-        snapshots[block_index].beacon_block =
-            SignedBeaconBlock::from_block(block.clone(), junk_signature());
+        let (block, _) = snapshots[block_index]
+            .beacon_block
+            .as_ref()
+            .clone()
+            .deconstruct();
+        snapshots[block_index].beacon_block = Arc::new(SignedBeaconBlock::from_block(
+            block.clone(),
+            junk_signature(),
+        ));
         let blocks = snapshots
             .iter()
             .map(|snapshot| snapshot.beacon_block.clone())
-            .map(Arc::new)
             .collect::<Vec<_>>();
         // Ensure the block will be rejected if imported in a chain segment.
         assert!(
@@ -446,9 +457,14 @@ async fn invalid_signature_randao_reveal() {
     for &block_index in BLOCK_INDICES {
         let harness = get_invalid_sigs_harness(&chain_segment).await;
         let mut snapshots = chain_segment.clone();
-        let (mut block, signature) = snapshots[block_index].beacon_block.clone().deconstruct();
+        let (mut block, signature) = snapshots[block_index]
+            .beacon_block
+            .as_ref()
+            .clone()
+            .deconstruct();
         *block.body_mut().randao_reveal_mut() = junk_signature();
-        snapshots[block_index].beacon_block = SignedBeaconBlock::from_block(block, signature);
+        snapshots[block_index].beacon_block =
+            Arc::new(SignedBeaconBlock::from_block(block, signature));
         update_parent_roots(&mut snapshots);
         update_proposal_signatures(&mut snapshots, &harness);
         assert_invalid_signature(&chain_segment, &harness, block_index, &snapshots, "randao").await;
@@ -461,7 +477,11 @@ async fn invalid_signature_proposer_slashing() {
     for &block_index in BLOCK_INDICES {
         let harness = get_invalid_sigs_harness(&chain_segment).await;
         let mut snapshots = chain_segment.clone();
-        let (mut block, signature) = snapshots[block_index].beacon_block.clone().deconstruct();
+        let (mut block, signature) = snapshots[block_index]
+            .beacon_block
+            .as_ref()
+            .clone()
+            .deconstruct();
         let proposer_slashing = ProposerSlashing {
             signed_header_1: SignedBeaconBlockHeader {
                 message: block.block_header(),
@@ -477,7 +497,8 @@ async fn invalid_signature_proposer_slashing() {
             .proposer_slashings_mut()
             .push(proposer_slashing)
             .expect("should update proposer slashing");
-        snapshots[block_index].beacon_block = SignedBeaconBlock::from_block(block, signature);
+        snapshots[block_index].beacon_block =
+            Arc::new(SignedBeaconBlock::from_block(block, signature));
         update_parent_roots(&mut snapshots);
         update_proposal_signatures(&mut snapshots, &harness);
         assert_invalid_signature(
@@ -518,13 +539,18 @@ async fn invalid_signature_attester_slashing() {
             attestation_1: indexed_attestation.clone(),
             attestation_2: indexed_attestation,
         };
-        let (mut block, signature) = snapshots[block_index].beacon_block.clone().deconstruct();
+        let (mut block, signature) = snapshots[block_index]
+            .beacon_block
+            .as_ref()
+            .clone()
+            .deconstruct();
         block
             .body_mut()
             .attester_slashings_mut()
             .push(attester_slashing)
             .expect("should update attester slashing");
-        snapshots[block_index].beacon_block = SignedBeaconBlock::from_block(block, signature);
+        snapshots[block_index].beacon_block =
+            Arc::new(SignedBeaconBlock::from_block(block, signature));
         update_parent_roots(&mut snapshots);
         update_proposal_signatures(&mut snapshots, &harness);
         assert_invalid_signature(
@@ -546,10 +572,15 @@ async fn invalid_signature_attestation() {
     for &block_index in BLOCK_INDICES {
         let harness = get_invalid_sigs_harness(&chain_segment).await;
         let mut snapshots = chain_segment.clone();
-        let (mut block, signature) = snapshots[block_index].beacon_block.clone().deconstruct();
+        let (mut block, signature) = snapshots[block_index]
+            .beacon_block
+            .as_ref()
+            .clone()
+            .deconstruct();
         if let Some(attestation) = block.body_mut().attestations_mut().get_mut(0) {
             attestation.signature = junk_aggregate_signature();
-            snapshots[block_index].beacon_block = SignedBeaconBlock::from_block(block, signature);
+            snapshots[block_index].beacon_block =
+                Arc::new(SignedBeaconBlock::from_block(block, signature));
             update_parent_roots(&mut snapshots);
             update_proposal_signatures(&mut snapshots, &harness);
             assert_invalid_signature(
@@ -586,19 +617,23 @@ async fn invalid_signature_deposit() {
                 signature: junk_signature().into(),
             },
         };
-        let (mut block, signature) = snapshots[block_index].beacon_block.clone().deconstruct();
+        let (mut block, signature) = snapshots[block_index]
+            .beacon_block
+            .as_ref()
+            .clone()
+            .deconstruct();
         block
             .body_mut()
             .deposits_mut()
             .push(deposit)
             .expect("should update deposit");
-        snapshots[block_index].beacon_block = SignedBeaconBlock::from_block(block, signature);
+        snapshots[block_index].beacon_block =
+            Arc::new(SignedBeaconBlock::from_block(block, signature));
         update_parent_roots(&mut snapshots);
         update_proposal_signatures(&mut snapshots, &harness);
         let blocks = snapshots
             .iter()
             .map(|snapshot| snapshot.beacon_block.clone())
-            .map(Arc::new)
             .collect();
         assert!(
             !matches!(
@@ -621,7 +656,11 @@ async fn invalid_signature_exit() {
         let harness = get_invalid_sigs_harness(&chain_segment).await;
         let mut snapshots = chain_segment.clone();
         let epoch = snapshots[block_index].beacon_state.current_epoch();
-        let (mut block, signature) = snapshots[block_index].beacon_block.clone().deconstruct();
+        let (mut block, signature) = snapshots[block_index]
+            .beacon_block
+            .as_ref()
+            .clone()
+            .deconstruct();
         block
             .body_mut()
             .voluntary_exits_mut()
@@ -633,7 +672,8 @@ async fn invalid_signature_exit() {
                 signature: junk_signature(),
             })
             .expect("should update deposit");
-        snapshots[block_index].beacon_block = SignedBeaconBlock::from_block(block, signature);
+        snapshots[block_index].beacon_block =
+            Arc::new(SignedBeaconBlock::from_block(block, signature));
         update_parent_roots(&mut snapshots);
         update_proposal_signatures(&mut snapshots, &harness);
         assert_invalid_signature(
@@ -670,7 +710,7 @@ async fn block_gossip_verification() {
     for snapshot in &chain_segment[0..block_index] {
         let gossip_verified = harness
             .chain
-            .verify_block_for_gossip(Arc::new(snapshot.beacon_block.clone()))
+            .verify_block_for_gossip(snapshot.beacon_block.clone())
             .await
             .expect("should obtain gossip verified block");
 
@@ -693,6 +733,7 @@ async fn block_gossip_verification() {
 
     let (mut block, signature) = chain_segment[block_index]
         .beacon_block
+        .as_ref()
         .clone()
         .deconstruct();
     let expected_block_slot = block.slot() + 1;
@@ -723,6 +764,7 @@ async fn block_gossip_verification() {
 
     let (mut block, signature) = chain_segment[block_index]
         .beacon_block
+        .as_ref()
         .clone()
         .deconstruct();
     let expected_finalized_slot = harness
@@ -753,6 +795,7 @@ async fn block_gossip_verification() {
 
     let block = chain_segment[block_index]
         .beacon_block
+        .as_ref()
         .clone()
         .deconstruct()
         .0;
@@ -782,6 +825,7 @@ async fn block_gossip_verification() {
 
     let (mut block, signature) = chain_segment[block_index]
         .beacon_block
+        .as_ref()
         .clone()
         .deconstruct();
     let parent_root = Hash256::from_low_u64_be(42);
@@ -807,6 +851,7 @@ async fn block_gossip_verification() {
 
     let (mut block, signature) = chain_segment[block_index]
         .beacon_block
+        .as_ref()
         .clone()
         .deconstruct();
     let parent_root = chain_segment[0].beacon_block_root;
@@ -833,6 +878,7 @@ async fn block_gossip_verification() {
 
     let mut block = chain_segment[block_index]
         .beacon_block
+        .as_ref()
         .clone()
         .deconstruct()
         .0;
@@ -874,11 +920,7 @@ async fn block_gossip_verification() {
 
     let block = chain_segment[block_index].beacon_block.clone();
     assert!(
-        harness
-            .chain
-            .verify_block_for_gossip(Arc::new(block))
-            .await
-            .is_ok(),
+        harness.chain.verify_block_for_gossip(block).await.is_ok(),
         "the valid block should be processed"
     );
 
@@ -896,7 +938,7 @@ async fn block_gossip_verification() {
         matches!(
             harness
                 .chain
-                .verify_block_for_gossip(Arc::new(block.clone()))
+                .verify_block_for_gossip(block.clone())
                 .await
                 .err()
                 .expect("should error when processing known block"),
