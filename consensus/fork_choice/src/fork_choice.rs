@@ -592,6 +592,7 @@ where
             self.fc_store.set_proposer_boost_root(block_root);
         }
 
+        // Update store with checkpoints if necessary
         self.update_checkpoints(
             state.current_justified_checkpoint(),
             state.finalized_checkpoint(),
@@ -602,7 +603,7 @@ where
 
         // Update unrealized justified/finalized checkpoints.
         let (unrealized_justified_checkpoint, unrealized_finalized_checkpoint) = {
-            if !matches!(block, BeaconBlock::Base(_)) {
+            if !matches!(block, BeaconBlock::Merge(_)) {
                 let (justifiable_beacon_state, _) =
                     state_processing::per_epoch_processing::altair::process_justifiable(
                         state, spec,
@@ -717,7 +718,7 @@ where
             execution_status,
             unrealized_justified_checkpoint,
             unrealized_finalized_checkpoint,
-        })?;
+        }, current_slot)?;
 
         Ok(())
     }

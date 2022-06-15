@@ -103,6 +103,7 @@ impl ForkChoiceTestDefinition {
                             finalized_checkpoint,
                             &justified_state_balances,
                             Hash256::zero(),
+                            Slot::new(0),
                             &spec,
                         )
                         .map_err(|e| e)
@@ -130,6 +131,7 @@ impl ForkChoiceTestDefinition {
                             finalized_checkpoint,
                             &justified_state_balances,
                             proposer_boost_root,
+                            Slot::new(0),
                             &spec,
                         )
                         .map_err(|e| e)
@@ -154,6 +156,7 @@ impl ForkChoiceTestDefinition {
                         finalized_checkpoint,
                         &justified_state_balances,
                         Hash256::zero(),
+                        Slot::new(0),
                         &spec,
                     );
 
@@ -195,7 +198,7 @@ impl ForkChoiceTestDefinition {
                         unrealized_justified_checkpoint: None,
                         unrealized_finalized_checkpoint: None,
                     };
-                    fork_choice.process_block(block).unwrap_or_else(|e| {
+                    fork_choice.process_block(block, slot).unwrap_or_else(|e| {
                         panic!(
                             "process_block op at index {} returned error: {:?}",
                             op_index, e

@@ -200,7 +200,7 @@ impl ProtoArrayForkChoice {
         };
 
         proto_array
-            .on_block(block)
+            .on_block(block, finalized_block_slot)
             .map_err(|e| format!("Failed to add finalized block to proto_array: {:?}", e))?;
 
         Ok(Self {
@@ -246,13 +246,13 @@ impl ProtoArrayForkChoice {
         Ok(())
     }
 
-    pub fn process_block(&mut self, block: Block) -> Result<(), String> {
+    pub fn process_block(&mut self, block: Block, current_slot:Slot) -> Result<(), String> {
         if block.parent_root.is_none() {
             return Err("Missing parent root".to_string());
         }
 
         self.proto_array
-            .on_block(block)
+            .on_block(block, current_slot)
             .map_err(|e| format!("process_block_error: {:?}", e))
     }
 
@@ -292,7 +292,7 @@ impl ProtoArrayForkChoice {
         *old_balances = new_balances.to_vec();
 
         self.proto_array
-            .find_head(&justified_checkpoint.root)
+            .find_head(&justified_checkpoint.root, current_slot)
             .map_err(|e| format!("find_head failed: {:?}", e))
     }
 

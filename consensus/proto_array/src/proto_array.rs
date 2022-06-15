@@ -291,7 +291,7 @@ impl ProtoArray {
     /// Register a block with the fork choice.
     ///
     /// It is only sane to supply a `None` parent for the genesis block.
-    pub fn on_block(&mut self, block: Block) -> Result<(), Error> {
+    pub fn on_block(&mut self, block: Block, current_slot:Slot) -> Result<(), Error> {
         // If the block is already known, simply ignore it.
         if self.indices.contains_key(&block.root) {
             return Ok(());
@@ -338,7 +338,7 @@ impl ProtoArray {
         self.nodes.push(node.clone());
 
         if let Some(parent_index) = node.parent {
-            self.maybe_update_best_child_and_descendant(parent_index, node_index)?;
+            self.maybe_update_best_child_and_descendant(parent_index, node_index, current_slot)?;
 
             if matches!(block.execution_status, ExecutionStatus::Valid(_)) {
                 self.propagate_execution_payload_validation_by_index(parent_index)?;
@@ -857,8 +857,6 @@ impl ProtoArray {
             return false;
         }
 
-        let node_epoch = node.slot.epoch(MainnetEthSpec::slots_per_epoch());
-
         let checkpoint_match_predicate =
             |node_justified_checkpoint: Checkpoint, node_finalized_checkpoint: Checkpoint| {
                 let correct_justified = node_justified_checkpoint == self.justified_checkpoint
@@ -879,17 +877,12 @@ impl ProtoArray {
             node.justified_checkpoint,
             node.finalized_checkpoint,
         ) {
-            if justified_checkpoint.epoch < self.justified_checkpoint.epoch
-                && finalized_checkpoint.epoch < self.finalized_checkpoint.epoch
+            if node.slot.epoch(MainnetEthSpec::slots_per_epoch()) < current_slot.epoch(MainnetEthSpec::slots_per_epoch())
             {
                 checkpoint_match_predicate(
                     unrealized_justified_checkpoint,
                     unrealized_finalized_checkpoint,
                 )
-            } else if justified_checkpoint.epoch < self.justified_checkpoint.epoch {
-                checkpoint_match_predicate(unrealized_justified_checkpoint, finalized_checkpoint)
-            } else if finalized_checkpoint.epoch < self.finalized_checkpoint.epoch {
-                checkpoint_match_predicate(justified_checkpoint, unrealized_finalized_checkpoint)
             } else {
                 checkpoint_match_predicate(justified_checkpoint, finalized_checkpoint)
             }
