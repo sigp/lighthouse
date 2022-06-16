@@ -279,8 +279,8 @@ impl ProtocolId {
                 <GoodbyeReason as Encode>::ssz_fixed_len(),
             ),
             Protocol::BlocksByRange => RpcLimits::new(
-                <BlocksByRangeRequest as Encode>::ssz_fixed_len(),
-                <BlocksByRangeRequest as Encode>::ssz_fixed_len(),
+                <OldBlocksByRangeRequest as Encode>::ssz_fixed_len(),
+                <OldBlocksByRangeRequest as Encode>::ssz_fixed_len(),
             ),
             Protocol::BlocksByRoot => {
                 RpcLimits::new(*BLOCKS_BY_ROOT_REQUEST_MIN, *BLOCKS_BY_ROOT_REQUEST_MAX)
