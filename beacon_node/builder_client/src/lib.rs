@@ -12,6 +12,8 @@ use serde::de::DeserializeOwned;
 use serde::Serialize;
 use std::time::Duration;
 
+pub const DEFAULT_GET_HEADER_TIMEOUT_MILLIS: u64 = 500;
+
 #[derive(Clone)]
 pub struct Timeouts {
     get_header: Duration,
@@ -20,7 +22,7 @@ pub struct Timeouts {
 impl Default for Timeouts {
     fn default() -> Self {
         Self {
-            get_header: Duration::from_millis(500),
+            get_header: Duration::from_millis(DEFAULT_GET_HEADER_TIMEOUT_MILLIS),
         }
     }
 }

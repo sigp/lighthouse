@@ -74,11 +74,15 @@ impl<E: EthSpec> TestingBuilder<E> {
             ExecutionLayer::from_config(config, executor.clone(), executor.log().clone()).unwrap();
 
         // This should probably be done for all fields, we only update ones we are testing with so far.
-        let mut context = Context::default();
-        context.terminal_total_difficulty = to_ssz_rs(&spec.terminal_total_difficulty).unwrap();
-        context.terminal_block_hash = to_ssz_rs(&spec.terminal_block_hash).unwrap();
-        context.terminal_block_hash_activation_epoch =
-            to_ssz_rs(&spec.terminal_block_hash_activation_epoch).unwrap();
+        let context = Context {
+            terminal_total_difficulty: to_ssz_rs(&spec.terminal_total_difficulty).unwrap(),
+            terminal_block_hash: to_ssz_rs(&spec.terminal_block_hash).unwrap(),
+            terminal_block_hash_activation_epoch: to_ssz_rs(
+                &spec.terminal_block_hash_activation_epoch,
+            )
+            .unwrap(),
+            ..Default::default()
+        };
 
         let builder = MockBuilder::new(
             el,
@@ -180,7 +184,7 @@ impl<E: EthSpec> mev_build_rs::Builder for MockBuilder<E> {
             .val_registration_cache
             .read()
             .get(&bid_request.public_key)
-            .ok_or(convert_err("missing registration"))?
+            .ok_or_else(|| convert_err("missing registration"))?
             .clone();
         let cached_data = signed_cached_data.message;
 
@@ -189,7 +193,7 @@ impl<E: EthSpec> mev_build_rs::Builder for MockBuilder<E> {
             .get_beacon_blocks::<E>(BlockId::Head)
             .await
             .map_err(convert_err)?
-            .ok_or(convert_err("missing head block"))?;
+            .ok_or_else(|| convert_err("missing head block"))?;
 
         let block = head.data.message_merge().map_err(convert_err)?;
         let head_block_root = block.tree_hash_root();
@@ -206,7 +210,7 @@ impl<E: EthSpec> mev_build_rs::Builder for MockBuilder<E> {
             .get_beacon_blocks::<E>(BlockId::Finalized)
             .await
             .map_err(convert_err)?
-            .ok_or(convert_err("missing finalized block"))?
+            .ok_or_else(|| convert_err("missing finalized block"))?
             .data
             .message_merge()
             .map_err(convert_err)?
@@ -223,7 +227,7 @@ impl<E: EthSpec> mev_build_rs::Builder for MockBuilder<E> {
             )
             .await
             .map_err(convert_err)?
-            .ok_or(convert_err("missing validator from state"))?
+            .ok_or_else(|| convert_err("missing validator from state"))?
             .data
             .index;
         let fee_recipient = from_ssz_rs(&cached_data.fee_recipient)?;
@@ -243,7 +247,7 @@ impl<E: EthSpec> mev_build_rs::Builder for MockBuilder<E> {
             .get_debug_beacon_states(StateId::Head)
             .await
             .map_err(convert_err)?
-            .ok_or(Error::Custom("missing head state".to_string()))?
+            .ok_or_else(|| Error::Custom("missing head state".to_string()))?
             .data;
         let prev_randao = head_state
             .get_randao_mix(head_state.current_epoch())
@@ -307,7 +311,7 @@ impl<E: EthSpec> mev_build_rs::Builder for MockBuilder<E> {
                     .hash_tree_root()
                     .map_err(convert_err)?,
             )?)
-            .ok_or(convert_err("missing payload for tx root"))?;
+            .ok_or_else(|| convert_err("missing payload for tx root"))?;
 
         let json_payload = serde_json::to_string(&payload).map_err(convert_err)?;
         serde_json::from_str(json_payload.as_str()).map_err(convert_err)

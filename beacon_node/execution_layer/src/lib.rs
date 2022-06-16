@@ -694,7 +694,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
                         warn!(self.log(), "Failure from local execution engine. Attempting to propose through connected builder"; "error" => ?local_error);
                         relay_reult
                             .map(|d| d.data.message.header)
-                            .map_err(|e| Error::Builder(e))
+                            .map_err(Error::Builder)
                     }
                 }
             } else {
