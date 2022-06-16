@@ -35,6 +35,10 @@ impl<T> CanonicalHeadRwLock<T> {
         self.0.read()
     }
 
+    pub fn try_read_for(&self, timeout: Duration) -> Option<RwLockReadGuard<T>> {
+        self.0.try_read_for(timeout)
+    }
+
     pub fn write(&self) -> RwLockWriteGuard<T> {
         self.0.write()
     }
