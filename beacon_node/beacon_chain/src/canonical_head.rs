@@ -9,7 +9,7 @@ use crate::{
 use eth2::types::{EventKind, SseChainReorg, SseFinalizedCheckpoint, SseHead, SseLateHead};
 use fork_choice::{ExecutionStatus, ForkChoiceView, ForkchoiceUpdateParameters, ProtoBlock};
 use itertools::process_results;
-use parking_lot::{RwLock, RwLockReadGuard, RwLockWriteGuard};
+use parking_lot::{RwLock, RwLockReadGuard, RwLockUpgradableReadGuard, RwLockWriteGuard};
 use slog::{crit, debug, error, warn, Logger};
 use slot_clock::SlotClock;
 use std::mem;
@@ -408,8 +408,30 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         canonical_head_write_lock.finalized_checkpoint = new_view.finalized_checkpoint;
 
         // If the head has changed, update `self.canonical_head`.
-        let head_update_params = if new_view.head_block_root != old_view.head_block_root {
+        //
+        //  Regarding the returned read-lock, the `parking_lot` docs have this to say about
+        //  downgraded write locks:
+        //
+        // > Note that if there are any writers currently waiting to take the lock then other >
+        // readers may not be able to acquire the lock even if it was downgraded.
+        //
+        // This means that it's dangerous to take another read-lock on the `canonical_head` in this
+        // thread.
+        let (canonical_head_read_lock, head_update_params) = if new_view.head_block_root
+            != old_view.head_block_root
+        {
             metrics::inc_counter(&metrics::FORK_CHOICE_CHANGED_HEAD);
+
+            // Downgrade the write-lock to a read lock to avoid preventing all access to the head
+            // whilst the head snapshot is loaded. The docs note:
+            //
+            // > Note that if there are any writers currently waiting to take the lock then other
+            // > readers may not be able to acquire the lock even if it was downgraded.
+            //
+            // This means that other readers are not *guaranteed* access during this period, but
+            // there's a decent chance that there are no other writers and they'll be able to read.
+            let canonical_head_read_lock =
+                RwLockWriteGuard::downgrade_to_upgradable(canonical_head_write_lock);
 
             // Try and obtain the snapshot for `beacon_block_root` from the snapshot cache, falling
             // back to a database read if that fails.
@@ -457,35 +479,47 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         .map(|()| snapshot)
                 })?;
 
+            // Upgrade the read lock to a write lock, without allowing any other writers access in
+            // the meantime.
+            let mut canonical_head_write_lock =
+                RwLockUpgradableReadGuard::upgrade(canonical_head_read_lock);
+
             // Enshrine the new value as the head.
             let old_head = mem::replace(&mut canonical_head_write_lock.head_snapshot, new_head);
+
+            // Downgrade the write-lock to a read-lock, without allowing any other writers access during
+            // the process.
+            let canonical_head_read_lock = RwLockWriteGuard::downgrade(canonical_head_write_lock);
 
             // Clear the early attester cache in case it conflicts with `self.canonical_head`.
             self.early_attester_cache.clear();
 
-            Some((old_head, new_head_proto_block))
+            (
+                canonical_head_read_lock,
+                Some((old_head, new_head_proto_block)),
+            )
         } else {
-            None
+            let canonical_head_read_lock = RwLockWriteGuard::downgrade(canonical_head_write_lock);
+            (canonical_head_read_lock, None)
         };
-
-        // Downgrade the write-lock to a read-lock, without allowing any other writers access during
-        // the process.
-        //
-        // Holding the write-lock any longer than is required creates the risk of contention and
-        // deadlocks. This is especially relevant since later parts of this function will interact
-        // with other locks and potentially perform long-running operations.
-        //
-        // Regarding downgrading, the `parking_lot` docs have this to say:
-        //
-        // > Note that if there are any writers currently waiting to take the lock then other
-        // > readers may not be able to acquire the lock even if it was downgraded.
-        //
-        // This means that it's dangerous to take another read-lock on the `canonical_head` whilst
-        // holding this read lock.
-        let canonical_head_read_lock = RwLockWriteGuard::downgrade(canonical_head_write_lock);
 
         // Alias for readability.
         let new_head = &canonical_head_read_lock.head_snapshot;
+
+        // Update the fast canonical head, whilst holding the lock on the canonical head.
+        //
+        // Doing it whilst holding the read-lock ensures that the `canonical_head` and
+        // `fast_canonical_head` stay consistent.
+        *self.fast_canonical_head.write() = FastCanonicalHead {
+            head_block_root: new_view.head_block_root,
+            head_block_slot: new_head.beacon_block.slot(),
+            justified_checkpoint: new_view.justified_checkpoint,
+            finalized_checkpoint: new_view.finalized_checkpoint,
+            active_validator_count: new_head
+                .beacon_state
+                .get_cached_active_validator_indices(RelativeEpoch::Current)?
+                .len(),
+        };
 
         // If the head changed, perform some updates.
         if let Some((old_head, new_head_proto_block)) = head_update_params {
@@ -544,24 +578,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .fork_choice
             .get_forkchoice_update_parameters()
             .ok_or(Error::ForkchoiceUpdateParamsMissing)?;
-
-        let active_validator_count = new_head
-            .beacon_state
-            .get_cached_active_validator_indices(RelativeEpoch::Current)?
-            .len();
-        let head_block_slot = new_head.beacon_block.slot();
-
-        // Update the fast canonical head, whilst holding the lock on the canonical head.
-        //
-        // Doing it whilst holding the read-lock ensures that the `canonical_head` and
-        // `fast_canonical_head` stay consistent.
-        *self.fast_canonical_head.write() = FastCanonicalHead {
-            head_block_root: new_view.head_block_root,
-            head_block_slot,
-            justified_checkpoint: new_view.justified_checkpoint,
-            finalized_checkpoint: new_view.finalized_checkpoint,
-            active_validator_count,
-        };
 
         // The read-lock on the canonical head *MUST* be dropped before spawning the execution
         // layer update tasks since they might try to take a write-lock on the canonical head.
