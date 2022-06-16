@@ -31,16 +31,77 @@ impl<T> From<RwLock<T>> for CanonicalHeadRwLock<T> {
 }
 
 impl<T> CanonicalHeadRwLock<T> {
-    pub fn new(inner: T) -> Self {
-        Self(RwLock::new(inner))
-    }
-
     pub fn read(&self) -> RwLockReadGuard<T> {
         self.0.read()
     }
 
     pub fn write(&self) -> RwLockWriteGuard<T> {
         self.0.write()
+    }
+}
+
+/// A simple wrapper around an `RwLock` to prevent access to the lock from anywhere else other than
+/// this file.
+pub struct FastCanonicalHeadRwLock<T>(RwLock<T>);
+
+impl<T> From<RwLock<T>> for FastCanonicalHeadRwLock<T> {
+    fn from(rw_lock: RwLock<T>) -> Self {
+        Self(rw_lock)
+    }
+}
+
+impl<T> FastCanonicalHeadRwLock<T> {
+    /// Do not make this function public without considering the risk of deadlocks when interacting
+    /// with the `canonical_head` lock.
+    fn read(&self) -> RwLockReadGuard<T> {
+        self.0.read()
+    }
+
+    /// Do not make this function public without considering the risk of deadlocks when interacting
+    /// with the `canonical_head` lock.
+    fn write(&self) -> RwLockWriteGuard<T> {
+        self.0.write()
+    }
+}
+
+/// A smaller version of `CanonicalHead` designed to have very little lock contention but with the
+/// downside of sometimes being slightly behind the `CanonicalHead`.
+#[derive(Clone, Debug, PartialEq)]
+pub struct FastCanonicalHead {
+    pub head_block_root: Hash256,
+    pub head_block_slot: Slot,
+    pub justified_checkpoint: Checkpoint,
+    pub finalized_checkpoint: Checkpoint,
+    pub active_validator_count: usize,
+}
+
+impl FastCanonicalHead {
+    pub fn new<T: BeaconChainTypes>(
+        fork_choice: &BeaconForkChoice<T>,
+        head_snapshot: &BeaconSnapshot<T::EthSpec>,
+        spec: &ChainSpec,
+    ) -> Result<Self, Error> {
+        let state = &head_snapshot.beacon_state;
+        let fork_choice_view = fork_choice.cached_fork_choice_view();
+
+        if fork_choice_view.head_block_root != head_snapshot.beacon_block_root {
+            return Err(Error::InconsistentForkChoiceView {
+                view: fork_choice_view.head_block_root,
+                snapshot: head_snapshot.beacon_block_root,
+            });
+        }
+
+        let active_validator_count = state
+            .get_active_validator_indices(state.current_epoch(), spec)?
+            .len();
+
+        Ok(Self {
+            head_block_root: fork_choice_view.head_block_root,
+            head_block_slot: head_snapshot.beacon_block.slot(),
+            justified_checkpoint: fork_choice_view.justified_checkpoint,
+            finalized_checkpoint: fork_choice_view.finalized_checkpoint,
+            active_validator_count,
+        })
     }
 }
 
@@ -194,6 +255,16 @@ impl<T: BeaconChainTypes> CanonicalHead<T> {
 }
 
 impl<T: BeaconChainTypes> BeaconChain<T> {
+    /// Returns a summary of the `CanonicalHead`. It is "fast" since it lives behind it's own
+    /// `RwLock` which should have very little contention. The downsides are that it only has
+    /// limited information about the head and it might lag behind the `CanonicalHead` very slightly
+    /// (generally on the order of milliseconds).
+    ///
+    /// This method should be used by tasks which are very sensitive to delays caused by lock
+    /// contention, like the networking stack.
+    pub fn fast_canonical_head(&self) -> FastCanonicalHead {
+        self.fast_canonical_head.read().clone()
+    }
     /// Execute the fork choice algorithm and enthrone the result as the canonical head.
     ///
     /// This method replaces the old `BeaconChain::fork_choice` method.
@@ -487,6 +558,24 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .fork_choice
             .get_forkchoice_update_parameters()
             .ok_or(Error::ForkchoiceUpdateParamsMissing)?;
+
+        let active_validator_count = new_head
+            .beacon_state
+            .get_cached_active_validator_indices(RelativeEpoch::Current)?
+            .len();
+        let head_block_slot = new_head.beacon_block.slot();
+
+        // Update the fast canonical head, whilst holding the lock on the canonical head.
+        //
+        // Doing it whilst holding the read-lock ensures that the `canonical_head` and
+        // `fast_canonical_head` stay consistent.
+        *self.fast_canonical_head.write() = FastCanonicalHead {
+            head_block_root: new_view.head_block_root,
+            head_block_slot,
+            justified_checkpoint: new_view.justified_checkpoint,
+            finalized_checkpoint: new_view.finalized_checkpoint,
+            active_validator_count,
+        };
 
         // The read-lock on the canonical head *MUST* be dropped before spawning the execution
         // layer update tasks since they might try to take a write-lock on the canonical head.

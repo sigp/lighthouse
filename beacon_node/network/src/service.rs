@@ -30,8 +30,8 @@ use task_executor::ShutdownReason;
 use tokio::sync::mpsc;
 use tokio::time::Sleep;
 use types::{
-    ChainSpec, EthSpec, ForkContext, RelativeEpoch, Slot, SubnetId, SyncCommitteeSubscription,
-    SyncSubnetId, Unsigned, ValidatorSubscription,
+    ChainSpec, EthSpec, ForkContext, Slot, SubnetId, SyncCommitteeSubscription, SyncSubnetId,
+    Unsigned, ValidatorSubscription,
 };
 
 mod tests;
@@ -706,50 +706,23 @@ impl<T: BeaconChainTypes> NetworkService<T> {
 
     fn update_gossipsub_parameters(&mut self) {
         if let Ok(slot) = self.beacon_chain.slot() {
-            if let Some(active_validators) = self.get_active_validator_count() {
-                if self
-                    .libp2p
-                    .swarm
-                    .behaviour_mut()
-                    .update_gossipsub_parameters(active_validators, slot)
-                    .is_err()
-                {
-                    error!(
-                        self.log,
-                        "Failed to update gossipsub parameters";
-                        "active_validators" => active_validators
-                    );
-                }
-            } else {
+            let active_validators = self
+                .beacon_chain
+                .fast_canonical_head()
+                .active_validator_count;
+            if self
+                .libp2p
+                .swarm
+                .behaviour_mut()
+                .update_gossipsub_parameters(active_validators, slot)
+                .is_err()
+            {
                 error!(
                     self.log,
-                    "Failed to update gossipsub params";
-                    "msg" => "unable to get active validator count"
-                )
+                    "Failed to update gossipsub parameters";
+                    "active_validators" => active_validators
+                );
             }
-        }
-    }
-
-    /// Returns the number of active validators in the head state.
-    ///
-    /// It *should* be impossible for this function to return `None`.
-    fn get_active_validator_count(&self) -> Option<usize> {
-        let head = self.beacon_chain.canonical_head.read();
-        let state = &head.head_snapshot.beacon_state;
-        if let Ok(cached_indices) =
-            state.get_cached_active_validator_indices(RelativeEpoch::Current)
-        {
-            Some(cached_indices.len())
-        } else {
-            error!(
-                self.log,
-                "Cache missing from head beacon state";
-                "msg" => "computing value manually, please report this error"
-            );
-            let indices = state
-                .get_active_validator_indices(state.current_epoch(), &self.beacon_chain.spec)
-                .ok()?;
-            Some(indices.len())
         }
     }
 

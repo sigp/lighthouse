@@ -92,7 +92,9 @@ use tree_hash::TreeHash;
 use types::beacon_state::CloneConfig;
 use types::*;
 
-pub use crate::canonical_head::{CanonicalHead, CanonicalHeadRwLock};
+pub use crate::canonical_head::{
+    CanonicalHead, CanonicalHeadRwLock, FastCanonicalHead, FastCanonicalHeadRwLock,
+};
 
 pub type ForkChoiceError = fork_choice::Error<crate::ForkChoiceStoreError>;
 
@@ -321,6 +323,12 @@ pub struct BeaconChain<T: BeaconChainTypes> {
     /// Stores information about the canonical head and finalized/justified checkpoints of the
     /// chain. Also contains the fork choice struct, for computing the canonical head.
     pub canonical_head: CanonicalHeadRwLock<CanonicalHead<T>>,
+    /// A smaller version of `CanonicalHead` designed to have very little lock contention but with the
+    /// downside of sometimes being slightly behind the `CanonicalHead`.
+    ///
+    /// To help prevent deadlocks, do not make this field public and only access it via the
+    /// `BeaconChain::fast_canonical_head` function.
+    pub(crate) fast_canonical_head: FastCanonicalHeadRwLock<FastCanonicalHead>,
     /// The root of the genesis block.
     pub genesis_block_root: Hash256,
     /// The root of the genesis state.

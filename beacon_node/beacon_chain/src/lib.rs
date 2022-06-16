@@ -53,7 +53,7 @@ pub use self::historical_blocks::HistoricalBlockError;
 pub use attestation_verification::Error as AttestationError;
 pub use beacon_fork_choice_store::{BeaconForkChoiceStore, Error as ForkChoiceStoreError};
 pub use block_verification::{BlockError, ExecutionPayloadError, GossipVerifiedBlock};
-pub use canonical_head::{CanonicalHead, CanonicalHeadRwLock};
+pub use canonical_head::{CanonicalHead, CanonicalHeadRwLock, FastCanonicalHead};
 pub use eth1_chain::{Eth1Chain, Eth1ChainBackend};
 pub use events::ServerSentEventHandler;
 pub use fork_choice::ExecutionStatus;
