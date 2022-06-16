@@ -14,7 +14,6 @@ use crate::{
 use execution_layer::PayloadStatus;
 use fork_choice::{InvalidationOperation, PayloadVerificationStatus};
 use proto_array::{Block as ProtoBlock, ExecutionStatus};
-use slog::debug;
 use slot_clock::SlotClock;
 use state_processing::per_block_processing::{
     compute_timestamp_at_slot, is_execution_enabled, is_merge_transition_complete,
@@ -144,7 +143,7 @@ async fn notify_new_payload<'a, T: BeaconChainTypes>(
 ///
 /// https://github.com/ethereum/consensus-specs/blob/v1.1.5/specs/merge/fork-choice.md#validate_merge_block
 pub async fn validate_merge_block<'a, T: BeaconChainTypes>(
-    chain: &BeaconChain<T>,
+    chain: &Arc<BeaconChain<T>>,
     block: BeaconBlockRef<'a, T::EthSpec>,
 ) -> Result<(), BlockError<T::EthSpec>> {
     let spec = &chain.spec;
@@ -187,36 +186,9 @@ pub async fn validate_merge_block<'a, T: BeaconChainTypes>(
             parent_hash: execution_payload.parent_hash(),
         }
         .into()),
-        None => {
-            let current_slot = chain
-                .slot_clock
-                .now()
-                .ok_or(BeaconChainError::UnableToReadSlot)?;
-
-            // Ensure the block is a candidate for optimistic import.
-            if chain
-                .canonical_head
-                .read()
-                .fork_choice
-                .is_optimistic_candidate_block(
-                    current_slot,
-                    block.slot(),
-                    &block.parent_root(),
-                    &chain.spec,
-                )
-                .map_err(BeaconChainError::from)?
-            {
-                debug!(
-                    chain.log,
-                    "Optimistically accepting terminal block";
-                    "block_hash" => ?execution_payload.parent_hash(),
-                    "msg" => "the terminal block/parent was unavailable"
-                );
-                Ok(())
-            } else {
-                Err(ExecutionPayloadError::UnverifiedNonOptimisticCandidate.into())
-            }
-        }
+        // Allow optimistic blocks here, the caller must ensure that the block is an optimistic
+        // candidate.
+        None => Ok(()),
     }
 }
 
@@ -344,7 +316,7 @@ pub fn get_execution_payload<
 /// https://github.com/ethereum/consensus-specs/blob/v1.1.5/specs/merge/validator.md#block-proposal
 #[allow(clippy::too_many_arguments)]
 pub async fn prepare_execution_payload<T, Payload>(
-    chain: &BeaconChain<T>,
+    chain: &Arc<BeaconChain<T>>,
     current_epoch: Epoch,
     is_merge_transition_complete: bool,
     timestamp: u64,
@@ -390,15 +362,29 @@ where
         latest_execution_payload_header_block_hash
     };
 
+    // Try to obtain the finalized proto block from fork choice.
+    //
+    // Use a blocking task to interact with the `canonical_head` lock otherwise we risk blocking the
+    // core `tokio` executor.
+    let inner_chain = chain.clone();
+    let finalized_proto_block = chain
+        .spawn_blocking_handle(
+            move || {
+                inner_chain
+                    .canonical_head
+                    .read()
+                    .fork_choice
+                    .get_block(&finalized_checkpoint.root)
+            },
+            "prepare_execution_payload_finalized_hash",
+        )
+        .await
+        .map_err(BlockProductionError::BeaconChain)?;
+
     // The finalized block hash is not included in the specification, however we provide this
     // parameter so that the execution layer can produce a payload id if one is not already known
     // (e.g., due to a recent reorg).
-    let finalized_block_hash = if let Some(block) = chain
-        .canonical_head
-        .read()
-        .fork_choice
-        .get_block(&finalized_checkpoint.root)
-    {
+    let finalized_block_hash = if let Some(block) = finalized_proto_block {
         block.execution_status.block_hash()
     } else {
         chain

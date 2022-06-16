@@ -255,6 +255,7 @@ pub enum BlockProductionError {
     MissingSyncAggregate,
     MissingExecutionPayload,
     TokioJoin(tokio::task::JoinError),
+    BeaconChain(BeaconChainError),
 }
 
 easy_from_to!(BlockProcessingError, BlockProductionError);

@@ -62,7 +62,7 @@ use fork_choice::{ForkChoice, ForkChoiceStore, PayloadVerificationStatus};
 use parking_lot::RwLockReadGuard;
 use proto_array::Block as ProtoBlock;
 use safe_arith::ArithError;
-use slog::{debug, error, Logger};
+use slog::{debug, error, info, warn, Logger};
 use slot_clock::SlotClock;
 use ssz::Encode;
 use state_processing::per_block_processing::is_merge_transition_block;
@@ -1206,18 +1206,51 @@ impl<T: BeaconChainTypes> ExecutionPendingBlock<T> {
                     .now()
                     .ok_or(BeaconChainError::UnableToReadSlot)?;
 
-                if !chain
-                    .canonical_head
-                    .read()
-                    .fork_choice
-                    .is_optimistic_candidate_block(
-                        current_slot,
-                        block.slot(),
-                        &block.parent_root(),
-                        &chain.spec,
+                // Use a blocking task to check if the block is an optimistic candidate. Interacting
+                // with the `canonical_head` lock in an async task can block the core executor.
+                let inner_chain = chain.clone();
+                let block_parent_root = block.parent_root();
+                let block_slot = block.slot();
+                let is_optimistic_candidate = chain
+                    .spawn_blocking_handle(
+                        move || {
+                            inner_chain
+                                .canonical_head
+                                .read()
+                                .fork_choice
+                                .is_optimistic_candidate_block(
+                                    current_slot,
+                                    block_slot,
+                                    &block_parent_root,
+                                    &inner_chain.spec,
+                                )
+                        },
+                        "validate_merge_block_optimistic_candidate",
                     )
+                    .await
                     .map_err(BeaconChainError::from)?
-                {
+                    .map_err(BeaconChainError::from)?;
+
+                let block_hash_opt = block
+                    .message()
+                    .body()
+                    .execution_payload()
+                    .map(|full_payload| full_payload.execution_payload.block_hash);
+                // Ensure the block is a candidate for optimistic import.
+                if !is_optimistic_candidate {
+                    info!(
+                        chain.log,
+                        "Optimistically accepting terminal block";
+                        "block_hash" => ?block_hash_opt,
+                        "msg" => "the terminal block/parent was unavailable"
+                    );
+                } else {
+                    warn!(
+                        chain.log,
+                        "Rejecting optimistic terminal block";
+                        "block_hash" => ?block_hash_opt,
+                        "msg" => "the execution engine is not synced"
+                    );
                     return Err(ExecutionPayloadError::UnverifiedNonOptimisticCandidate.into());
                 }
             }

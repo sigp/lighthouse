@@ -9,7 +9,7 @@ use crate::{
 use eth2::types::{EventKind, SseChainReorg, SseFinalizedCheckpoint, SseHead, SseLateHead};
 use fork_choice::{ExecutionStatus, ForkChoiceView, ForkchoiceUpdateParameters, ProtoBlock};
 use itertools::process_results;
-use parking_lot::RwLockWriteGuard;
+use parking_lot::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 use slog::{crit, debug, error, warn, Logger};
 use slot_clock::SlotClock;
 use std::mem;
@@ -18,6 +18,31 @@ use std::time::Duration;
 use store::iter::StateRootsIterator;
 use task_executor::{JoinHandle, ShutdownReason};
 use types::*;
+
+/// A simple wrapper around an `RwLock` which allows us to use the `disallowed-from-async` lint to
+/// prevent this lock being used from async threads. Using this lock from an async thread can block
+/// the core `tokio` executor.
+pub struct CanonicalHeadRwLock<T>(RwLock<T>);
+
+impl<T> From<RwLock<T>> for CanonicalHeadRwLock<T> {
+    fn from(rw_lock: RwLock<T>) -> Self {
+        Self(rw_lock)
+    }
+}
+
+impl<T> CanonicalHeadRwLock<T> {
+    pub fn new(inner: T) -> Self {
+        Self(RwLock::new(inner))
+    }
+
+    pub fn read(&self) -> RwLockReadGuard<T> {
+        self.0.read()
+    }
+
+    pub fn write(&self) -> RwLockWriteGuard<T> {
+        self.0.write()
+    }
+}
 
 /// Represents the "canonical head" of the beacon chain.
 ///
@@ -392,6 +417,14 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // Holding the write-lock any longer than is required creates the risk of contention and
         // deadlocks. This is especially relevant since later parts of this function will interact
         // with other locks and potentially perform long-running operations.
+        //
+        // Regarding downgrading, the `parking_lot` docs have this to say:
+        //
+        // > Note that if there are any writers currently waiting to take the lock then other
+        // > readers may not be able to acquire the lock even if it was downgraded.
+        //
+        // This means that it's dangerous to take another read-lock on the `canonical_head` whilst
+        // holding this read lock.
         let canonical_head_read_lock = RwLockWriteGuard::downgrade(canonical_head_write_lock);
 
         // Alias for readability.

@@ -769,7 +769,7 @@ where
             execution_layer: self.execution_layer,
             genesis_validators_root,
             genesis_time,
-            canonical_head: RwLock::new(canonical_head),
+            canonical_head: RwLock::new(canonical_head).into(),
             genesis_block_root,
             genesis_state_root,
             fork_choice_signal_tx,

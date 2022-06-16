@@ -92,7 +92,7 @@ use tree_hash::TreeHash;
 use types::beacon_state::CloneConfig;
 use types::*;
 
-pub use crate::canonical_head::CanonicalHead;
+pub use crate::canonical_head::{CanonicalHead, CanonicalHeadRwLock};
 
 pub type ForkChoiceError = fork_choice::Error<crate::ForkChoiceStoreError>;
 
@@ -320,7 +320,7 @@ pub struct BeaconChain<T: BeaconChainTypes> {
     pub execution_layer: Option<ExecutionLayer>,
     /// Stores information about the canonical head and finalized/justified checkpoints of the
     /// chain. Also contains the fork choice struct, for computing the canonical head.
-    pub canonical_head: RwLock<CanonicalHead<T>>,
+    pub canonical_head: CanonicalHeadRwLock<CanonicalHead<T>>,
     /// The root of the genesis block.
     pub genesis_block_root: Hash256,
     /// The root of the genesis state.
@@ -2147,7 +2147,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
     /// A convenience method for spawning a blocking task. It maps an `Option` and
     /// `tokio::JoinError` into a single `BeaconChainError`.
-    async fn spawn_blocking_handle<F, R>(&self, task: F, name: &'static str) -> Result<R, Error>
+    pub(crate) async fn spawn_blocking_handle<F, R>(
+        &self,
+        task: F,
+        name: &'static str,
+    ) -> Result<R, Error>
     where
         F: FnOnce() -> R + Send + 'static,
         R: Send + 'static,
@@ -3599,13 +3603,27 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             "block_root" => ?op.block_root(),
         );
 
+        // Update the execution status in fork choice.
+        //
+        // Use a blocking task since it interacts with the `canonical_head` lock. Lock contention
+        // on the core executor is bad.
+        let chain = self.clone();
+        let inner_op = op.clone();
+        let fork_choice_result = self
+            .spawn_blocking_handle(
+                move || {
+                    chain
+                        .canonical_head
+                        .write()
+                        .fork_choice
+                        .on_invalid_execution_payload(&inner_op)
+                },
+                "invalid_payload_fork_choice_update",
+            )
+            .await?;
+
         // Update fork choice.
-        if let Err(e) = self
-            .canonical_head
-            .write()
-            .fork_choice
-            .on_invalid_execution_payload(op)
-        {
+        if let Err(e) = fork_choice_result {
             crit!(
                 self.log,
                 "Failed to process invalid payload";
@@ -3628,12 +3646,23 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             );
         }
 
-        // Atomically obtain the justified root from fork choice.
+        // Obtain the justified root from fork choice.
+        //
+        // Use a blocking task since it interacts with the `canonical_head` lock. Lock contention
+        // on the core executor is bad.
+        let chain = self.clone();
         let justified_block = self
-            .canonical_head
-            .read()
-            .fork_choice
-            .get_justified_block()?;
+            .spawn_blocking_handle(
+                move || {
+                    chain
+                        .canonical_head
+                        .read()
+                        .fork_choice
+                        .get_justified_block()
+                },
+                "invalid_payload_fork_choice_get_justified",
+            )
+            .await??;
 
         if justified_block.execution_status.is_invalid() {
             crit!(
@@ -3706,24 +3735,33 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         // Atomically read some values from the canonical head, whilst avoiding taking the read-lock
         // any longer than necessary.
-        let (head_slot, head_root, head_decision_root, head_random, forkchoice_update_params) = {
-            let canonical_head = self.canonical_head.read();
-            let head_block_root = canonical_head.head_block_root();
-            let decision_root = canonical_head
-                .head_snapshot
-                .beacon_state
-                .proposer_shuffling_decision_root(head_block_root)?;
-            (
-                canonical_head.head_slot(),
-                head_block_root,
-                decision_root,
-                canonical_head.head_random()?,
-                canonical_head
-                    .fork_choice
-                    .get_forkchoice_update_parameters()
-                    .ok_or(Error::ForkchoiceUpdateParamsMissing)?,
+        //
+        // Use a blocking task since blocking the core executor on the canonical head read lock can
+        // block the core tokio executor.
+        let chain = self.clone();
+        let (head_slot, head_root, head_decision_root, head_random, forkchoice_update_params) =
+            self.spawn_blocking_handle(
+                move || {
+                    let canonical_head = chain.canonical_head.read();
+                    let head_block_root = canonical_head.head_block_root();
+                    let decision_root = canonical_head
+                        .head_snapshot
+                        .beacon_state
+                        .proposer_shuffling_decision_root(head_block_root)?;
+                    Ok::<_, Error>((
+                        canonical_head.head_slot(),
+                        head_block_root,
+                        decision_root,
+                        canonical_head.head_random()?,
+                        canonical_head
+                            .fork_choice
+                            .get_forkchoice_update_parameters()
+                            .ok_or(Error::ForkchoiceUpdateParamsMissing)?,
+                    ))
+                },
+                "prepare_beacon_proposer_fork_choice_read",
             )
-        };
+            .await??;
         let head_epoch = head_slot.epoch(T::EthSpec::slots_per_epoch());
 
         // Don't bother with proposer prep if the head is more than
@@ -4005,12 +4043,20 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             Ok(status) => match status {
                 PayloadStatus::Valid => {
                     // Ensure that fork choice knows that the block is no longer optimistic.
-                    if let Err(e) = self
-                        .canonical_head
-                        .write()
-                        .fork_choice
-                        .on_valid_execution_payload(head_block_root)
-                    {
+                    let chain = self.clone();
+                    let fork_choice_update_result = self
+                        .spawn_blocking_handle(
+                            move || {
+                                chain
+                                    .canonical_head
+                                    .write()
+                                    .fork_choice
+                                    .on_valid_execution_payload(head_block_root)
+                            },
+                            "update_execution_engine_invalid_payload",
+                        )
+                        .await?;
+                    if let Err(e) = fork_choice_update_result {
                         error!(
                             self.log,
                             "Failed to validate payload";
