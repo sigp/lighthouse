@@ -198,10 +198,6 @@ pub enum BeaconChainError {
     },
     AttestationHeadNotInForkChoice(Hash256),
     MissingPersistedForkChoice,
-    InconsistentForkChoiceView {
-        view: Hash256,
-        snapshot: Hash256,
-    },
 }
 
 easy_from_to!(SlotProcessingError, BeaconChainError);

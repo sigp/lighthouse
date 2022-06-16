@@ -1798,8 +1798,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let _timer = metrics::start_timer(&metrics::FORK_CHOICE_PROCESS_ATTESTATION_TIMES);
 
         self.canonical_head
-            // TODO(paul): consider the implications of each attestation taking a write-lock on
-            // fork choice.
             .write()
             .fork_choice
             .on_attestation(

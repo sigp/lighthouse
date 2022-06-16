@@ -84,19 +84,12 @@ impl FastCanonicalHead {
         let state = &head_snapshot.beacon_state;
         let fork_choice_view = fork_choice.cached_fork_choice_view();
 
-        if fork_choice_view.head_block_root != head_snapshot.beacon_block_root {
-            return Err(Error::InconsistentForkChoiceView {
-                view: fork_choice_view.head_block_root,
-                snapshot: head_snapshot.beacon_block_root,
-            });
-        }
-
         let active_validator_count = state
             .get_active_validator_indices(state.current_epoch(), spec)?
             .len();
 
         Ok(Self {
-            head_block_root: fork_choice_view.head_block_root,
+            head_block_root: head_snapshot.beacon_block_root,
             head_block_slot: head_snapshot.beacon_block.slot(),
             justified_checkpoint: fork_choice_view.justified_checkpoint,
             finalized_checkpoint: fork_choice_view.finalized_checkpoint,
@@ -143,13 +136,6 @@ impl<T: BeaconChainTypes> CanonicalHead<T> {
         head_snapshot: BeaconSnapshot<T::EthSpec>,
     ) -> Result<Self, Error> {
         let fork_choice_view = fork_choice.cached_fork_choice_view();
-
-        if fork_choice_view.head_block_root != head_snapshot.beacon_block_root {
-            return Err(Error::InconsistentForkChoiceView {
-                view: fork_choice_view.head_block_root,
-                snapshot: head_snapshot.beacon_block_root,
-            });
-        }
 
         Ok(Self {
             fork_choice,
