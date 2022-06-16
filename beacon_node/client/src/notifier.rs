@@ -100,16 +100,10 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
                 current_sync_state = sync_state;
             }
 
-            // Atomically collect info about the head, avoiding holding the `canonical_head` lock
-            // any longer than necessary.
-            let (head_slot, head_root, finalized_checkpoint) = {
-                let head_lock = beacon_chain.canonical_head.read();
-                (
-                    head_lock.head_slot(),
-                    head_lock.head_block_root(),
-                    head_lock.finalized_checkpoint(),
-                )
-            };
+            let fast_head = beacon_chain.fast_canonical_head();
+            let head_slot = fast_head.head_block_slot;
+            let head_root = fast_head.head_block_root;
+            let finalized_checkpoint = fast_head.finalized_checkpoint;
 
             metrics::set_gauge(&metrics::NOTIFIER_HEAD_SLOT, head_slot.as_u64() as i64);
 
