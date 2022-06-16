@@ -415,7 +415,7 @@ where
 pub enum InboundRequest<TSpec: EthSpec> {
     Status(StatusMessage),
     Goodbye(GoodbyeReason),
-    BlocksByRange(BlocksByRangeRequest),
+    BlocksByRange(OldBlocksByRangeRequest),
     BlocksByRoot(BlocksByRootRequest),
     Ping(Ping),
     MetaData(PhantomData<TSpec>),

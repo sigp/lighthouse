@@ -461,7 +461,7 @@ fn handle_v1_request<T: EthSpec>(
             GoodbyeReason::from_ssz_bytes(decoded_buffer)?,
         ))),
         Protocol::BlocksByRange => Ok(Some(InboundRequest::BlocksByRange(
-            BlocksByRangeRequest::from_ssz_bytes(decoded_buffer)?,
+            OldBlocksByRangeRequest::from_ssz_bytes(decoded_buffer)?,
         ))),
         Protocol::BlocksByRoot => Ok(Some(InboundRequest::BlocksByRoot(BlocksByRootRequest {
             block_roots: VariableList::from_ssz_bytes(decoded_buffer)?,
@@ -493,7 +493,7 @@ fn handle_v2_request<T: EthSpec>(
 ) -> Result<Option<InboundRequest<T>>, RPCError> {
     match protocol {
         Protocol::BlocksByRange => Ok(Some(InboundRequest::BlocksByRange(
-            BlocksByRangeRequest::from_ssz_bytes(decoded_buffer)?,
+            OldBlocksByRangeRequest::from_ssz_bytes(decoded_buffer)?,
         ))),
         Protocol::BlocksByRoot => Ok(Some(InboundRequest::BlocksByRoot(BlocksByRootRequest {
             block_roots: VariableList::from_ssz_bytes(decoded_buffer)?,
