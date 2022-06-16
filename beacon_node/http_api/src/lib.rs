@@ -678,33 +678,14 @@ pub fn serve<T: BeaconChainTypes>(
         .and(warp::path("committees"))
         .and(warp::query::<api_types::CommitteesQuery>())
         .and(warp::path::end())
+        .and(log_filter.clone())
         .and_then(
-            |state_id: StateId, chain: Arc<BeaconChain<T>>, query: api_types::CommitteesQuery| {
+            |state_id: StateId,
+             chain: Arc<BeaconChain<T>>,
+             query: api_types::CommitteesQuery,
+             log: Logger| {
                 blocking_json_task(move || {
-                    let query_state_id = query
-                        .epoch
-                        .map_or(Ok(state_id), |epoch| {
-                            // If an epoch is provided work out whether it's in range of the head
-                            // state, and if not, locate the first restore point that follows it.
-                            let randao_epoch = epoch - chain.spec.min_seed_lookahead - 1;
-                            let head_min_randao_epoch = chain
-                                .with_head(|head| Ok(head.beacon_state.min_randao_epoch()))
-                                .map_err(|x: BeaconChainError| x)?;
-
-                            if randao_epoch >= head_min_randao_epoch {
-                                Ok(StateId::head())
-                            } else {
-                                let max_sprp = T::EthSpec::slots_per_historical_root() as u64;
-                                let first_subsequent_restore_point_slot =
-                                    ((epoch.start_slot(T::EthSpec::slots_per_epoch()) / max_sprp)
-                                        + 1)
-                                        * max_sprp;
-                                Ok(StateId::slot(first_subsequent_restore_point_slot))
-                            }
-                        })
-                        .map_err(warp_utils::reject::beacon_chain_error)?;
-
-                    query_state_id.map_state(&chain, |state| {
+                    state_id.map_state(&chain, |state| {
                         let current_epoch = state.current_epoch();
                         let epoch = query.epoch.unwrap_or(current_epoch);
 
@@ -719,7 +700,19 @@ pub fn serve<T: BeaconChainTypes>(
                                 .map(Cow::Owned),
                         }
                         .map_err(BeaconChainError::BeaconStateError)
-                        .map_err(warp_utils::reject::beacon_chain_error)?;
+                        .map_err(|e| {
+                            let max_sprp = T::EthSpec::slots_per_historical_root() as u64;
+                            let first_subsequent_restore_point_slot =
+                                ((epoch.start_slot(T::EthSpec::slots_per_epoch()) / max_sprp) + 1)
+                                    * max_sprp;
+                            warn!(
+                                log,
+                                "For epoch {} committees use state at slot {}",
+                                epoch,
+                                first_subsequent_restore_point_slot
+                            );
+                            warp_utils::reject::beacon_chain_error(e)
+                        })?;
 
                         // Use either the supplied slot or all slots in the epoch.
                         let slots = query.slot.map(|slot| vec![slot]).unwrap_or_else(|| {

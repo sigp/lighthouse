@@ -8,10 +8,6 @@ use types::{BeaconState, EthSpec, Fork, Hash256, Slot};
 pub struct StateId(CoreStateId);
 
 impl StateId {
-    pub fn head() -> Self {
-        Self(CoreStateId::Head)
-    }
-
     pub fn slot(slot: Slot) -> Self {
         Self(CoreStateId::Slot(slot))
     }
