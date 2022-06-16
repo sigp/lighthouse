@@ -369,7 +369,7 @@ pub fn serve<T: BeaconChainTypes>(
                       chain: Arc<BeaconChain<T>>| async move {
                     match *network_globals.sync_state.read() {
                         SyncState::SyncingFinalized { .. } => {
-                            let head_slot = chain.canonical_head.read().head_slot();
+                            let head_slot = chain.fast_canonical_head().head_slot;
 
                             let current_slot =
                                 chain.slot_clock.now_or_genesis().ok_or_else(|| {
@@ -1691,7 +1691,7 @@ pub fn serve<T: BeaconChainTypes>(
         .and_then(
             |network_globals: Arc<NetworkGlobals<T::EthSpec>>, chain: Arc<BeaconChain<T>>| {
                 blocking_json_task(move || {
-                    let head_slot = chain.canonical_head.read().head_slot();
+                    let head_slot = chain.fast_canonical_head().head_slot;
                     let current_slot = chain.slot_clock.now_or_genesis().ok_or_else(|| {
                         warp_utils::reject::custom_server_error("Unable to read slot clock".into())
                     })?;
