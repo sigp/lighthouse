@@ -17,7 +17,7 @@
 //! `cached_head` so we always have the head block and state on hand. It also involves pruning
 //! caches, sending SSE events, pruning the database and other things.
 //!
-//! ## Developer Notes
+//! ## The Three Rules
 //!
 //! There are three locks managed by this function:
 //!
@@ -38,6 +38,11 @@
 //! the other two locks and cause a deadlock. Whilst we maintain the three rules, external functions
 //! are dead-lock safe. Unfortunately, this module has no such guarantees, proceed with extreme
 //! caution when managing locks in this module.
+//!
+//! The downside of Rule #1 is that we must re-expose every function on `BeaconForkChoice` on the
+//! `CanonicalHead`. This prevents users from being able to hold and interleave the fork choice lock
+//! with the canonical head lock. It's annoying when working on this file, but hopefully the
+//! long-term safety benefits will pay off.
 //!
 //! Like all good rules, we have some exceptions. The first violates rule #1 via exposing the
 //! `BlockProcessingForkChoiceWriteLock`. This exposes a write-lock on the `BeaconForkChoice` for
