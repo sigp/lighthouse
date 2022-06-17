@@ -695,30 +695,33 @@ where
 
         // This does not apply a vote to the block, it just makes fork choice aware of the block so
         // it can still be identified as the head even if it doesn't have any votes.
-        self.proto_array.process_block(ProtoBlock {
-            slot: block.slot(),
-            root: block_root,
-            parent_root: Some(block.parent_root()),
-            target_root,
-            current_epoch_shuffling_id: AttestationShufflingId::new(
-                block_root,
-                state,
-                RelativeEpoch::Current,
-            )
-            .map_err(Error::BeaconStateError)?,
-            next_epoch_shuffling_id: AttestationShufflingId::new(
-                block_root,
-                state,
-                RelativeEpoch::Next,
-            )
-            .map_err(Error::BeaconStateError)?,
-            state_root: block.state_root(),
-            justified_checkpoint: state.current_justified_checkpoint(),
-            finalized_checkpoint: state.finalized_checkpoint(),
-            execution_status,
-            unrealized_justified_checkpoint,
-            unrealized_finalized_checkpoint,
-        }, current_slot)?;
+        self.proto_array.process_block(
+            ProtoBlock {
+                slot: block.slot(),
+                root: block_root,
+                parent_root: Some(block.parent_root()),
+                target_root,
+                current_epoch_shuffling_id: AttestationShufflingId::new(
+                    block_root,
+                    state,
+                    RelativeEpoch::Current,
+                )
+                .map_err(Error::BeaconStateError)?,
+                next_epoch_shuffling_id: AttestationShufflingId::new(
+                    block_root,
+                    state,
+                    RelativeEpoch::Next,
+                )
+                .map_err(Error::BeaconStateError)?,
+                state_root: block.state_root(),
+                justified_checkpoint: state.current_justified_checkpoint(),
+                finalized_checkpoint: state.finalized_checkpoint(),
+                execution_status,
+                unrealized_justified_checkpoint,
+                unrealized_finalized_checkpoint,
+            },
+            current_slot,
+        )?;
 
         Ok(())
     }
@@ -1150,6 +1153,14 @@ where
     /// "best justified checkpoint" value should only be used internally or for testing.
     pub fn best_justified_checkpoint(&self) -> Checkpoint {
         *self.fc_store.best_justified_checkpoint()
+    }
+
+    pub fn unrealized_justified_checkpoint(&self) -> Checkpoint {
+        *self.fc_store.unrealized_justified_checkpoint()
+    }
+
+    pub fn unrealized_finalized_checkpoint(&self) -> Checkpoint {
+        *self.fc_store.unrealized_finalized_checkpoint()
     }
 
     /// Returns the latest message for a given validator, if any.

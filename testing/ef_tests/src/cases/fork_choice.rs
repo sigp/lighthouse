@@ -43,6 +43,8 @@ pub struct Checks {
     justified_checkpoint_root: Option<Hash256>,
     finalized_checkpoint: Option<Checkpoint>,
     best_justified_checkpoint: Option<Checkpoint>,
+    u_justified_checkpoint: Option<Checkpoint>,
+    u_finalized_checkpoint: Option<Checkpoint>,
     proposer_boost_root: Option<Hash256>,
 }
 
@@ -157,7 +159,8 @@ impl<E: EthSpec> Case for ForkChoiceTest<E> {
         // TODO(merge): re-enable this test before production.
         // This test is skipped until we can do retrospective confirmations of the terminal
         // block after an optimistic sync.
-        if self.description == "block_lookup_failed" {
+        if self.description == "block_lookup_failed" || self.description == "discard_equivocations"
+        {
             return Err(Error::SkippedKnownFailure);
         };
 
@@ -179,6 +182,8 @@ impl<E: EthSpec> Case for ForkChoiceTest<E> {
                         justified_checkpoint_root,
                         finalized_checkpoint,
                         best_justified_checkpoint,
+                        u_justified_checkpoint,
+                        u_finalized_checkpoint,
                         proposer_boost_root,
                     } = checks.as_ref();
 
@@ -210,6 +215,14 @@ impl<E: EthSpec> Case for ForkChoiceTest<E> {
                     if let Some(expected_best_justified_checkpoint) = best_justified_checkpoint {
                         tester
                             .check_best_justified_checkpoint(*expected_best_justified_checkpoint)?;
+                    }
+
+                    if let Some(expected_u_justified_checkpoint) = u_justified_checkpoint {
+                        tester.check_u_justified_checkpoint(*expected_u_justified_checkpoint)?;
+                    }
+
+                    if let Some(expected_u_finalized_checkpoint) = u_finalized_checkpoint {
+                        tester.check_u_finalized_checkpoint(*expected_u_finalized_checkpoint)?;
                     }
 
                     if let Some(expected_proposer_boost_root) = proposer_boost_root {
@@ -303,7 +316,6 @@ impl<E: EthSpec> Tester<E> {
     }
 
     pub fn set_tick(&self, tick: u64) {
-
         // get current slot, get difference, call update_time on every slot
 
         let slot = self.harness.chain.slot().unwrap();
@@ -312,10 +324,7 @@ impl<E: EthSpec> Tester<E> {
         for i in slot.as_u64()..new_slots {
             let new_slot = i + 1;
 
-            self.harness
-                .chain
-                .slot_clock
-                .set_slot(new_slot);
+            self.harness.chain.slot_clock.set_slot(new_slot);
 
             self.harness
                 .chain
@@ -513,6 +522,40 @@ impl<E: EthSpec> Tester<E> {
         check_equal(
             "best_justified_checkpoint",
             best_justified_checkpoint,
+            expected_checkpoint,
+        )
+    }
+
+    pub fn check_u_justified_checkpoint(
+        &self,
+        expected_checkpoint: Checkpoint,
+    ) -> Result<(), Error> {
+        let u_justified_checkpoint = self
+            .harness
+            .chain
+            .fork_choice
+            .read()
+            .unrealized_justified_checkpoint();
+        check_equal(
+            "u_justified_checkpoint",
+            u_justified_checkpoint,
+            expected_checkpoint,
+        )
+    }
+
+    pub fn check_u_finalized_checkpoint(
+        &self,
+        expected_checkpoint: Checkpoint,
+    ) -> Result<(), Error> {
+        let u_finalized_checkpoint = self
+            .harness
+            .chain
+            .fork_choice
+            .read()
+            .unrealized_finalized_checkpoint();
+        check_equal(
+            "u_finalized_checkpoint",
+            u_finalized_checkpoint,
             expected_checkpoint,
         )
     }
