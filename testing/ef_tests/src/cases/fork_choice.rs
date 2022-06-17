@@ -316,23 +316,15 @@ impl<E: EthSpec> Tester<E> {
     }
 
     pub fn set_tick(&self, tick: u64) {
-        // get current slot, get difference, call update_time on every slot
+        let new_slot = tick.checked_div(self.spec.seconds_per_slot).unwrap();
 
-        let slot = self.harness.chain.slot().unwrap();
-        let new_slots = tick.checked_div(self.spec.seconds_per_slot).unwrap();
-
-        for i in slot.as_u64()..new_slots {
-            let new_slot = i + 1;
-
-            self.harness.chain.slot_clock.set_slot(new_slot);
-
-            self.harness
-                .chain
-                .fork_choice
-                .write()
-                .update_time(Slot::new(new_slot))
-                .unwrap();
-        }
+        self.harness.chain.slot_clock.set_slot(new_slot);
+        self.harness
+            .chain
+            .fork_choice
+            .write()
+            .update_time(Slot::new(new_slot))
+            .unwrap();
     }
 
     pub fn process_block(&self, block: SignedBeaconBlock<E>, valid: bool) -> Result<(), Error> {

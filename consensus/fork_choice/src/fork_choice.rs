@@ -4,6 +4,7 @@ use ssz_derive::{Decode, Encode};
 use std::cmp::Ordering;
 use std::marker::PhantomData;
 use std::time::Duration;
+use types::MainnetEthSpec;
 use types::{
     consts::merge::INTERVALS_PER_SLOT, AttestationShufflingId, BeaconBlock, BeaconState,
     BeaconStateError, ChainSpec, Checkpoint, Epoch, EthSpec, ExecPayload, ExecutionBlockHash,
@@ -603,7 +604,7 @@ where
 
         // Update unrealized justified/finalized checkpoints.
         let (unrealized_justified_checkpoint, unrealized_finalized_checkpoint) = {
-            if !matches!(block, BeaconBlock::Merge(_)) {
+            if matches!(block, BeaconBlock::Merge(_)) {
                 let (justifiable_beacon_state, _) =
                     state_processing::per_epoch_processing::altair::process_justifiable(
                         state, spec,
@@ -953,6 +954,9 @@ where
             // Note: we are relying upon `on_tick` to update `fc_store.time` to ensure we don't
             // get stuck in a loop.
             //TODO(sean) fix chain spec
+            if (previous_slot + 1) % MainnetEthSpec::slots_per_epoch() == 0 {
+                dbg!("hitting epoch boundary");
+            }
             self.on_tick(previous_slot + 1, &ChainSpec::mainnet())?
         }
 
