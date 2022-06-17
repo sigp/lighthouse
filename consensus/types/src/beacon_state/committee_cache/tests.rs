@@ -144,7 +144,7 @@ fn shuffles_for_the_right_epoch() {
 #[test]
 fn min_randao_epoch_correct() {
     let num_validators = MinimalEthSpec::minimum_validator_count() * 2;
-    let current_epoch = Epoch::new(MinimalEthSpec::slots_per_historical_root() as u64 * 2);
+    let current_epoch = Epoch::new(MinimalEthSpec::epochs_per_historical_vector() as u64 * 2);
 
     let mut state = new_state::<MinimalEthSpec>(
         num_validators,

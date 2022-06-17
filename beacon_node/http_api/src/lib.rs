@@ -702,10 +702,16 @@ pub fn serve<T: BeaconChainTypes>(
                                     ((epoch.start_slot(T::EthSpec::slots_per_epoch()) / max_sprp)
                                         + 1)
                                         * max_sprp;
-                                warp_utils::reject::custom_bad_request(format!(
-                                    "epoch out of bounds, consider using state at slot {} instead",
-                                    first_subsequent_restore_point_slot,
-                                ))
+                                if epoch < current_epoch {
+                                    warp_utils::reject::custom_bad_request(format!(
+                                        "epoch out of bounds, try state at slot {}",
+                                        first_subsequent_restore_point_slot,
+                                    ))
+                                } else {
+                                    warp_utils::reject::custom_bad_request(format!(
+                                        "epoch out of bounds, too far in future"
+                                    ))
+                                }
                             }
                             _ => warp_utils::reject::beacon_chain_error(e.into()),
                         })?;
