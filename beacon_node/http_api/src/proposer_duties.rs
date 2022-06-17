@@ -89,10 +89,10 @@ fn try_proposer_duties_from_cache<T: BeaconChainTypes>(
     chain: &BeaconChain<T>,
 ) -> Result<Option<ApiDuties>, warp::reject::Rejection> {
     let (head_slot, head_block_root, head_decision_root) = {
-        let head = chain.canonical_head.read();
+        let head = chain.canonical_head.cached_head_read_lock();
         let head_block_root = head.head_block_root();
         let decision_root = head
-            .head_snapshot
+            .snapshot
             .beacon_state
             .proposer_shuffling_decision_root(head_block_root)
             .map_err(warp_utils::reject::beacon_state_error)?;

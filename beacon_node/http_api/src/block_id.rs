@@ -24,10 +24,21 @@ impl BlockId {
         chain: &BeaconChain<T>,
     ) -> Result<Hash256, warp::Rejection> {
         match &self.0 {
-            CoreBlockId::Head => Ok(chain.canonical_head.read().head_block_root()),
+            CoreBlockId::Head => Ok(chain
+                .canonical_head
+                .cached_head_read_lock()
+                .head_block_root()),
             CoreBlockId::Genesis => Ok(chain.genesis_block_root),
-            CoreBlockId::Finalized => Ok(chain.canonical_head.read().finalized_checkpoint().root),
-            CoreBlockId::Justified => Ok(chain.canonical_head.read().justified_checkpoint().root),
+            CoreBlockId::Finalized => Ok(chain
+                .canonical_head
+                .cached_head_read_lock()
+                .finalized_checkpoint()
+                .root),
+            CoreBlockId::Justified => Ok(chain
+                .canonical_head
+                .cached_head_read_lock()
+                .justified_checkpoint()
+                .root),
             CoreBlockId::Slot(slot) => chain
                 .block_root_at_slot(*slot, WhenSlotSkipped::None)
                 .map_err(warp_utils::reject::beacon_chain_error)

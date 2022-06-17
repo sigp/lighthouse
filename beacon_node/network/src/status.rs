@@ -19,8 +19,8 @@ impl<T: BeaconChainTypes> ToStatusMessage for BeaconChain<T> {
 /// Build a `StatusMessage` representing the state of the given `beacon_chain`.
 pub(crate) fn status_message<T: BeaconChainTypes>(beacon_chain: &BeaconChain<T>) -> StatusMessage {
     let fork_digest = beacon_chain.enr_fork_id().fork_digest;
-    let fast_head = beacon_chain.fast_canonical_head();
-    let mut finalized_checkpoint = fast_head.finalized_checkpoint;
+    let cached_head = beacon_chain.canonical_head.cached_head_read_lock();
+    let mut finalized_checkpoint = cached_head.finalized_checkpoint();
 
     // Alias the genesis checkpoint root to `0x00`.
     let spec = &beacon_chain.spec;
@@ -33,7 +33,7 @@ pub(crate) fn status_message<T: BeaconChainTypes>(beacon_chain: &BeaconChain<T>)
         fork_digest,
         finalized_root: finalized_checkpoint.root,
         finalized_epoch: finalized_checkpoint.epoch,
-        head_root: fast_head.head_block_root,
-        head_slot: fast_head.head_block_slot,
+        head_root: cached_head.head_block_root(),
+        head_slot: cached_head.head_slot(),
     }
 }

@@ -684,16 +684,13 @@ where
             if let Some(execution_layer) = beacon_chain.execution_layer.as_ref() {
                 // Only send a head update *after* genesis.
                 if let Ok(current_slot) = beacon_chain.slot() {
-                    if let Some(params) = beacon_chain
+                    let params = beacon_chain
                         .canonical_head
-                        .read()
-                        .fork_choice
-                        .get_forkchoice_update_parameters()
-                        .filter(|params| {
-                            params
-                                .head_hash
-                                .map_or(false, |hash| hash != ExecutionBlockHash::zero())
-                        })
+                        .cached_head_read_lock()
+                        .forkchoice_update_parameters();
+                    if params
+                        .head_hash
+                        .map_or(false, |hash| hash != ExecutionBlockHash::zero())
                     {
                         // Spawn a new task using the "async" fork choice update method, rather than
                         // using the "blocking" method.

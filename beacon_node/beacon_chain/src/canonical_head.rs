@@ -112,6 +112,14 @@ impl<E: EthSpec> CachedHead<E> {
         Ok(root)
     }
 
+    pub fn active_validator_count(&self) -> Option<usize> {
+        self.snapshot
+            .beacon_state
+            .get_cached_active_validator_indices(RelativeEpoch::Current)
+            .map(|indices| indices.len())
+            .ok()
+    }
+
     /// Returns the finalized checkpoint, as determined by fork choice.
     ///
     /// ## Note
@@ -323,12 +331,20 @@ impl<T: BeaconChainTypes> CanonicalHead<T> {
         self.cached_head.write()
     }
 
-    pub fn fork_choice_read_lock(&self) -> RwLockReadGuard<BeaconForkChoice<T>> {
+    fn fork_choice_read_lock(&self) -> RwLockReadGuard<BeaconForkChoice<T>> {
         self.fork_choice.read()
+    }
+
+    pub fn fork_choice_read_lock_testing_only(&self) -> RwLockReadGuard<BeaconForkChoice<T>> {
+        self.fork_choice_read_lock()
     }
 
     fn fork_choice_write_lock(&self) -> RwLockWriteGuard<BeaconForkChoice<T>> {
         self.fork_choice.write()
+    }
+
+    pub fn fork_choice_write_lock_testing_only(&self) -> RwLockWriteGuard<BeaconForkChoice<T>> {
+        self.fork_choice_write_lock()
     }
 
     pub fn on_valid_execution_payload(&self, block_root: Hash256) -> Result<(), ForkChoiceError> {
@@ -414,6 +430,15 @@ impl<T: BeaconChainTypes> CanonicalHead<T> {
             .iter_block_roots(block_root)
             .find(|(_, slot)| *slot <= target_slot)
             .map(|(block_root, _)| block_root)
+    }
+
+    pub fn proto_array_json(&self) -> Result<serde_json::Value, serde_json::Error> {
+        serde_json::to_value(
+            &self
+                .fork_choice_read_lock()
+                .proto_array()
+                .core_proto_array(),
+        )
     }
 }
 

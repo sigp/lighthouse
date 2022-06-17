@@ -706,21 +706,30 @@ impl<T: BeaconChainTypes> NetworkService<T> {
 
     fn update_gossipsub_parameters(&mut self) {
         if let Ok(slot) = self.beacon_chain.slot() {
-            let active_validators = self
+            let active_validators_opt = self
                 .beacon_chain
-                .fast_canonical_head()
-                .active_validator_count;
-            if self
-                .libp2p
-                .swarm
-                .behaviour_mut()
-                .update_gossipsub_parameters(active_validators, slot)
-                .is_err()
-            {
+                .canonical_head
+                .cached_head_read_lock()
+                .active_validator_count();
+            if let Some(active_validators) = active_validators_opt {
+                if self
+                    .libp2p
+                    .swarm
+                    .behaviour_mut()
+                    .update_gossipsub_parameters(active_validators, slot)
+                    .is_err()
+                {
+                    error!(
+                        self.log,
+                        "Failed to update gossipsub parameters";
+                        "active_validators" => active_validators
+                    );
+                }
+            } else {
                 error!(
                     self.log,
-                    "Failed to update gossipsub parameters";
-                    "active_validators" => active_validators
+                    "Active validator count unavailable";
+                    "info" => "please report this bug"
                 );
             }
         }

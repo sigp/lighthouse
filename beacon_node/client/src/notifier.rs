@@ -100,10 +100,10 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
                 current_sync_state = sync_state;
             }
 
-            let fast_head = beacon_chain.fast_canonical_head();
-            let head_slot = fast_head.head_block_slot;
-            let head_root = fast_head.head_block_root;
-            let finalized_checkpoint = fast_head.finalized_checkpoint;
+            let cached_head = beacon_chain.canonical_head.cached_head_read_lock();
+            let head_slot = cached_head.head_slot();
+            let head_root = cached_head.head_block_root();
+            let finalized_checkpoint = cached_head.finalized_checkpoint();
 
             metrics::set_gauge(&metrics::NOTIFIER_HEAD_SLOT, head_slot.as_u64() as i64);
 
@@ -256,7 +256,7 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
                     head_root.to_string()
                 };
 
-                let block_hash = match beacon_chain.canonical_head.read().head_execution_status() {
+                let block_hash = match beacon_chain.canonical_head.head_execution_status() {
                     Ok(ExecutionStatus::Irrelevant(_)) => "n/a".to_string(),
                     Ok(ExecutionStatus::Valid(hash)) => format!("{} (verified)", hash),
                     Ok(ExecutionStatus::Optimistic(hash)) => {

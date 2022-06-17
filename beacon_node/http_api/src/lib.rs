@@ -369,7 +369,8 @@ pub fn serve<T: BeaconChainTypes>(
                       chain: Arc<BeaconChain<T>>| async move {
                     match *network_globals.sync_state.read() {
                         SyncState::SyncingFinalized { .. } => {
-                            let head_slot = chain.fast_canonical_head().head_block_slot;
+                            let head_slot =
+                                chain.canonical_head.cached_head_read_lock().head_slot();
 
                             let current_slot =
                                 chain.slot_clock.now_or_genesis().ok_or_else(|| {
@@ -1691,7 +1692,7 @@ pub fn serve<T: BeaconChainTypes>(
         .and_then(
             |network_globals: Arc<NetworkGlobals<T::EthSpec>>, chain: Arc<BeaconChain<T>>| {
                 blocking_json_task(move || {
-                    let head_slot = chain.fast_canonical_head().head_block_slot;
+                    let head_slot = chain.canonical_head.cached_head_read_lock().head_slot();
                     let current_slot = chain.slot_clock.now_or_genesis().ok_or_else(|| {
                         warp_utils::reject::custom_server_error("Unable to read slot clock".into())
                     })?;
@@ -2558,13 +2559,14 @@ pub fn serve<T: BeaconChainTypes>(
         .and(chain_filter.clone())
         .and_then(|chain: Arc<BeaconChain<T>>| {
             blocking_task(move || {
+                let json = chain.canonical_head.proto_array_json().map_err(|e| {
+                    warp_utils::reject::custom_server_error(format!(
+                        "Unable to serialize proto array: {:?}",
+                        e
+                    ))
+                })?;
                 Ok::<_, warp::Rejection>(warp::reply::json(&api_types::GenericResponseRef::from(
-                    chain
-                        .canonical_head
-                        .read()
-                        .fork_choice
-                        .proto_array()
-                        .core_proto_array(),
+                    &json,
                 )))
             })
         });
