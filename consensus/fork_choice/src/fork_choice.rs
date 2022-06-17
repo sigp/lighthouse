@@ -248,6 +248,7 @@ fn dequeue_attestations(
 /// Equivalent to the `is_from_block` `bool` in:
 ///
 /// https://github.com/ethereum/consensus-specs/blob/dev/specs/phase0/fork-choice.md#validate_on_attestation
+#[derive(Clone, Copy)]
 pub enum AttestationFromBlock {
     True,
     False,
@@ -286,7 +287,7 @@ pub struct ForkChoice<T, E> {
     /// Attestations that arrived at the current slot and must be queued for later processing.
     queued_attestations: Vec<QueuedAttestation>,
     /// Stores a cache of the values required to be sent to the execution layer.
-    forkchoice_update_parameters: Option<ForkchoiceUpdateParameters>,
+    forkchoice_update_parameters: ForkchoiceUpdateParameters,
     /// The most recent result of running `Self::get_head`.
     head_block_root: Hash256,
     _phantom: PhantomData<E>,
@@ -368,7 +369,12 @@ where
             fc_store,
             proto_array,
             queued_attestations: vec![],
-            forkchoice_update_parameters: None,
+            // This will be updated during the next call to `Self::get_head`.
+            forkchoice_update_parameters: ForkchoiceUpdateParameters {
+                head_hash: None,
+                finalized_hash: None,
+                head_root: Hash256::zero(),
+            },
             // This will be updated during the next call to `Self::get_head`.
             head_block_root: Hash256::zero(),
             _phantom: PhantomData,
@@ -403,9 +409,8 @@ where
     /// Returns cached information that can be used to issue a `forkchoiceUpdated` message to an
     /// execution engine.
     ///
-    /// These values are updated each time `Self::get_head` is called. May return `None` if
-    /// `Self::get_head` has not yet been called.
-    pub fn get_forkchoice_update_parameters(&self) -> Option<ForkchoiceUpdateParameters> {
+    /// These values are updated each time `Self::get_head` is called.
+    pub fn get_forkchoice_update_parameters(&self) -> ForkchoiceUpdateParameters {
         self.forkchoice_update_parameters
     }
 
@@ -488,11 +493,11 @@ where
         let finalized_hash = self
             .get_block(&finalized_root)
             .and_then(|b| b.execution_status.block_hash());
-        self.forkchoice_update_parameters = Some(ForkchoiceUpdateParameters {
+        self.forkchoice_update_parameters = ForkchoiceUpdateParameters {
             head_root,
             head_hash,
             finalized_hash,
-        });
+        };
 
         Ok(head_root)
     }
@@ -1203,7 +1208,12 @@ where
             fc_store,
             proto_array,
             queued_attestations: persisted.queued_attestations,
-            forkchoice_update_parameters: None,
+            // Will be updated in the following call to `Self::get_head`.
+            forkchoice_update_parameters: ForkchoiceUpdateParameters {
+                head_hash: None,
+                finalized_hash: None,
+                head_root: Hash256::zero(),
+            },
             // Will be updated in the following call to `Self::get_head`.
             head_block_root: Hash256::zero(),
             _phantom: PhantomData,

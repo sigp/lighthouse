@@ -1,21 +1,27 @@
+use crate::persisted_fork_choice::PersistedForkChoice;
 use crate::{
-    beacon_chain::{BeaconForkChoice, BeaconStore, BLOCK_PROCESSING_CACHE_LOCK_TIMEOUT},
+    beacon_chain::{
+        BeaconForkChoice, BeaconStore, BLOCK_PROCESSING_CACHE_LOCK_TIMEOUT, FORK_CHOICE_DB_KEY,
+    },
     block_times_cache::BlockTimesCache,
     events::ServerSentEventHandler,
     metrics,
     validator_monitor::{get_slot_delay_ms, timestamp_now},
-    BeaconChain, BeaconChainError as Error, BeaconChainTypes, BeaconSnapshot,
+    BeaconChain, BeaconChainError as Error, BeaconChainTypes, BeaconSnapshot, ForkChoiceError,
 };
 use eth2::types::{EventKind, SseChainReorg, SseFinalizedCheckpoint, SseHead, SseLateHead};
-use fork_choice::{ExecutionStatus, ForkChoiceView, ForkchoiceUpdateParameters, ProtoBlock};
+use fork_choice::{
+    AttestationFromBlock, ExecutionStatus, ForkChoiceView, ForkchoiceUpdateParameters,
+    InvalidationOperation, PayloadVerificationStatus, ProtoBlock,
+};
 use itertools::process_results;
-use parking_lot::{RwLock, RwLockReadGuard, RwLockUpgradableReadGuard, RwLockWriteGuard};
+use parking_lot::{Mutex, RwLock, RwLockReadGuard, RwLockWriteGuard};
 use slog::{crit, debug, error, warn, Logger};
 use slot_clock::SlotClock;
 use std::mem;
 use std::sync::Arc;
 use std::time::Duration;
-use store::iter::StateRootsIterator;
+use store::{iter::StateRootsIterator, KeyValueStoreOp, StoreItem};
 use task_executor::{JoinHandle, ShutdownReason};
 use types::*;
 
@@ -30,7 +36,12 @@ impl<T> From<RwLock<T>> for CanonicalHeadRwLock<T> {
     }
 }
 
+// TODO(paul): make all these functions private.
 impl<T> CanonicalHeadRwLock<T> {
+    fn new(item: T) -> Self {
+        Self::from(RwLock::new(item))
+    }
+
     pub fn read(&self) -> RwLockReadGuard<T> {
         self.0.read()
     }
@@ -44,78 +55,9 @@ impl<T> CanonicalHeadRwLock<T> {
     }
 }
 
-/// A simple wrapper around an `RwLock` to prevent access to the lock from anywhere else other than
-/// this file.
-pub struct FastCanonicalHeadRwLock<T>(RwLock<T>);
-
-impl<T> From<RwLock<T>> for FastCanonicalHeadRwLock<T> {
-    fn from(rw_lock: RwLock<T>) -> Self {
-        Self(rw_lock)
-    }
-}
-
-impl<T> FastCanonicalHeadRwLock<T> {
-    /// Do not make this function public without considering the risk of deadlocks when interacting
-    /// with the `canonical_head` lock.
-    fn read(&self) -> RwLockReadGuard<T> {
-        self.0.read()
-    }
-
-    /// Do not make this function public without considering the risk of deadlocks when interacting
-    /// with the `canonical_head` lock.
-    fn write(&self) -> RwLockWriteGuard<T> {
-        self.0.write()
-    }
-}
-
-/// A smaller version of `CanonicalHead` designed to have very little lock contention but with the
-/// downside of sometimes being slightly behind the `CanonicalHead`.
-#[derive(Clone, Debug, PartialEq)]
-pub struct FastCanonicalHead {
-    pub head_block_root: Hash256,
-    pub head_block_slot: Slot,
-    pub justified_checkpoint: Checkpoint,
-    pub finalized_checkpoint: Checkpoint,
-    pub active_validator_count: usize,
-}
-
-impl FastCanonicalHead {
-    pub fn new<T: BeaconChainTypes>(
-        fork_choice: &BeaconForkChoice<T>,
-        head_snapshot: &BeaconSnapshot<T::EthSpec>,
-        spec: &ChainSpec,
-    ) -> Result<Self, Error> {
-        let state = &head_snapshot.beacon_state;
-        let fork_choice_view = fork_choice.cached_fork_choice_view();
-
-        let active_validator_count = state
-            .get_active_validator_indices(state.current_epoch(), spec)?
-            .len();
-
-        Ok(Self {
-            head_block_root: head_snapshot.beacon_block_root,
-            head_block_slot: head_snapshot.beacon_block.slot(),
-            justified_checkpoint: fork_choice_view.justified_checkpoint,
-            finalized_checkpoint: fork_choice_view.finalized_checkpoint,
-            active_validator_count,
-        })
-    }
-}
-
-/// Represents the "canonical head" of the beacon chain.
-///
-/// The canonical head and justified/finalized checkpoints are elected by the `fork_choice`
-/// algorithm contained in this struct. Once elected, they are cached in the `fork_choice_view` and
-/// `head_snapshot`.
-///
-/// There is no guarantee that the state of the `fork_choice` struct will always represent the
-/// cached values (we may call `fork_choice` *without* updating the cached values), however there is
-/// a guarantee that the cached values represent some past state of `fork_choice` (i.e.
-/// `fork_choice` never lags behind the cached values).
-pub struct CanonicalHead<T: BeaconChainTypes> {
-    /// Provides an in-memory representation of the non-finalized block tree and is used to run the
-    /// fork choice algorithm and determine the canonical head.
-    pub fork_choice: BeaconForkChoice<T>,
+pub struct CachedHead<E: EthSpec> {
+    /// Provides the head block and state from the last time the head was updated.
+    pub snapshot: BeaconSnapshot<E>,
     /// The justified checkpoint as per `self.fork_choice`.
     ///
     /// This value may be distinct to the `self.head_snapshot.beacon_state.justified_checkpoint`.
@@ -126,55 +68,17 @@ pub struct CanonicalHead<T: BeaconChainTypes> {
     /// This value may be distinct to the `self.head_snapshot.beacon_state.finalized_checkpoint`.
     /// This value should be used over the beacon state value in practically all circumstances.
     finalized_checkpoint: Checkpoint,
-    /// Provides the head block and state from the last time the head was updated.
-    pub head_snapshot: BeaconSnapshot<T::EthSpec>,
+    /// The `execution_payload.block_hash` of the block at the head of the chain. Set to `None`
+    /// before Bellatrix.
+    head_hash: Option<ExecutionBlockHash>,
+    /// The `execution_payload.block_hash` of the finalized block. Set to `None` before Bellatrix.
+    finalized_hash: Option<ExecutionBlockHash>,
 }
 
-impl<T: BeaconChainTypes> CanonicalHead<T> {
-    /// Instantiate `Self`.
-    ///
-    /// An error will be returned if the cached head of `fork_choice` is not equal to the given
-    /// `head_snapshot`.
-    pub fn new(
-        fork_choice: BeaconForkChoice<T>,
-        head_snapshot: BeaconSnapshot<T::EthSpec>,
-    ) -> Result<Self, Error> {
-        let fork_choice_view = fork_choice.cached_fork_choice_view();
-
-        Ok(Self {
-            fork_choice,
-            justified_checkpoint: fork_choice_view.justified_checkpoint,
-            finalized_checkpoint: fork_choice_view.finalized_checkpoint,
-            head_snapshot,
-        })
-    }
-
-    /// Instantiate `Self`, loading the latest persisted `fork_choice` from the `store`.
-    pub fn load_from_store(store: &BeaconStore<T>, spec: &ChainSpec) -> Result<Self, Error> {
-        let fork_choice = <BeaconChain<T>>::load_fork_choice(store.clone(), spec)?
-            .ok_or(Error::MissingPersistedForkChoice)?;
-        let fork_choice_view = fork_choice.cached_fork_choice_view();
-        let beacon_block_root = fork_choice_view.head_block_root;
-        let beacon_block = store
-            .get_full_block(&beacon_block_root)?
-            .ok_or(Error::MissingBeaconBlock(beacon_block_root))?;
-        let beacon_state_root = beacon_block.state_root();
-        let beacon_state = store
-            .get_state(&beacon_state_root, Some(beacon_block.slot()))?
-            .ok_or(Error::MissingBeaconState(beacon_state_root))?;
-
-        let head_snapshot = BeaconSnapshot {
-            beacon_block_root,
-            beacon_block: Arc::new(beacon_block),
-            beacon_state,
-        };
-
-        Self::new(fork_choice, head_snapshot)
-    }
-
+impl<E: EthSpec> CachedHead<E> {
     /// Returns root of the block at the head of the beacon chain.
     pub fn head_block_root(&self) -> Hash256 {
-        self.head_snapshot.beacon_block_root
+        self.snapshot.beacon_block_root
     }
 
     /// Returns root of the `BeaconState` at the head of the beacon chain.
@@ -184,7 +88,7 @@ impl<T: BeaconChainTypes> CanonicalHead<T> {
     /// This `BeaconState` has *not* been advanced to the current slot, it has the same slot as the
     /// head block.
     pub fn head_state_root(&self) -> Hash256 {
-        self.head_snapshot.beacon_state_root()
+        self.snapshot.beacon_state_root()
     }
 
     /// Returns slot of the block at the head of the beacon chain.
@@ -193,29 +97,17 @@ impl<T: BeaconChainTypes> CanonicalHead<T> {
     ///
     /// This is *not* the current slot as per the system clock.
     pub fn head_slot(&self) -> Slot {
-        self.head_snapshot.beacon_block.slot()
+        self.snapshot.beacon_block.slot()
     }
 
     /// Returns the `Fork` from the `BeaconState` at the head of the chain.
     pub fn head_fork(&self) -> Fork {
-        self.head_snapshot.beacon_state.fork()
-    }
-
-    /// Returns the execution status of the block at the head of the beacon chain.
-    ///
-    /// This will only return `Err` in the scenario where `self.fork_choice` has advanced
-    /// significantly past the cached `head_snapshot`. In such a scenario is it likely prudent to
-    /// run `BeaconChain::recompute_head` to update the cached values.
-    pub fn head_execution_status(&self) -> Result<ExecutionStatus, Error> {
-        let head_block_root = self.head_block_root();
-        self.fork_choice
-            .get_block_execution_status(&head_block_root)
-            .ok_or(Error::HeadMissingFromForkChoice(head_block_root))
+        self.snapshot.beacon_state.fork()
     }
 
     /// Returns the randao mix for the block at the head of the chain.
     pub fn head_random(&self) -> Result<Hash256, BeaconStateError> {
-        let state = &self.head_snapshot.beacon_state;
+        let state = &self.snapshot.beacon_state;
         let root = *state.get_randao_mix(state.current_epoch())?;
         Ok(root)
     }
@@ -242,19 +134,290 @@ impl<T: BeaconChainTypes> CanonicalHead<T> {
     pub fn justified_checkpoint(&self) -> Checkpoint {
         self.justified_checkpoint
     }
+
+    pub fn forkchoice_update_parameters(&self) -> ForkchoiceUpdateParameters {
+        ForkchoiceUpdateParameters {
+            head_root: self.snapshot.beacon_block_root,
+            head_hash: self.head_hash,
+            finalized_hash: self.finalized_hash,
+        }
+    }
+}
+
+pub struct BlockProcessingForkChoiceWriteLock<'a, T: BeaconChainTypes> {
+    fork_choice: RwLockWriteGuard<'a, BeaconForkChoice<T>>,
+}
+
+impl<'a, T: BeaconChainTypes> BlockProcessingForkChoiceWriteLock<'a, T> {
+    pub fn get_block(&self, block_root: &Hash256) -> Option<ProtoBlock> {
+        self.fork_choice.get_block(block_root)
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn on_block<Payload: ExecPayload<T::EthSpec>>(
+        &mut self,
+        current_slot: Slot,
+        block: BeaconBlockRef<T::EthSpec, Payload>,
+        block_root: Hash256,
+        block_delay: Duration,
+        state: &BeaconState<T::EthSpec>,
+        payload_verification_status: PayloadVerificationStatus,
+        spec: &ChainSpec,
+    ) -> Result<(), ForkChoiceError> {
+        self.fork_choice.on_block(
+            current_slot,
+            block,
+            block_root,
+            block_delay,
+            state,
+            payload_verification_status,
+            spec,
+        )
+    }
+
+    pub fn on_attestations(
+        &mut self,
+        current_slot: Slot,
+        attestations: &[IndexedAttestation<T::EthSpec>],
+        is_from_block: AttestationFromBlock,
+    ) -> Result<(), ForkChoiceError> {
+        for indexed_attestation in attestations {
+            self.fork_choice
+                .on_attestation(current_slot, indexed_attestation, is_from_block)?
+        }
+        Ok(())
+    }
+
+    pub fn get_head(
+        &mut self,
+        current_slot: Slot,
+        spec: &ChainSpec,
+    ) -> Result<Hash256, ForkChoiceError> {
+        self.fork_choice.get_head(current_slot, spec)
+    }
+}
+
+/// Represents the "canonical head" of the beacon chain.
+///
+/// The canonical head and justified/finalized checkpoints are elected by the `fork_choice`
+/// algorithm contained in this struct. Once elected, they are cached in the `fork_choice_view` and
+/// `head_snapshot`.
+///
+/// There is no guarantee that the state of the `fork_choice` struct will always represent the
+/// cached values (we may call `fork_choice` *without* updating the cached values), however there is
+/// a guarantee that the cached values represent some past state of `fork_choice` (i.e.
+/// `fork_choice` never lags behind the cached values).
+pub struct CanonicalHead<T: BeaconChainTypes> {
+    /// Provides an in-memory representation of the non-finalized block tree and is used to run the
+    /// fork choice algorithm and determine the canonical head.
+    pub fork_choice: CanonicalHeadRwLock<BeaconForkChoice<T>>,
+    /// Provides values cached from a previous execution of `self.fork_choice.get_head`.
+    ///
+    /// Although `self.fork_choice` might be slightly more advanced that this value, it is safe to
+    /// consider that these values represent the "canonical head" of the beacon chain.
+    pub cached_head: CanonicalHeadRwLock<CachedHead<T::EthSpec>>,
+    /// A lock used to prevent concurrent runs of `BeaconChain::recompute_head`.
+    ///
+    /// This lock *should not* be made public, it should only be accessed via designated getter
+    /// methods.
+    recompute_head_lock: Mutex<()>,
+}
+
+impl<T: BeaconChainTypes> CanonicalHead<T> {
+    /// Instantiate `Self`.
+    ///
+    /// An error will be returned if the cached head of `fork_choice` is not equal to the given
+    /// `head_snapshot`.
+    pub fn new(
+        fork_choice: BeaconForkChoice<T>,
+        snapshot: BeaconSnapshot<T::EthSpec>,
+    ) -> Result<Self, Error> {
+        let fork_choice_view = fork_choice.cached_fork_choice_view();
+        let forkchoice_update_params = fork_choice.get_forkchoice_update_parameters();
+        let cached_head = CachedHead {
+            snapshot,
+            justified_checkpoint: fork_choice_view.justified_checkpoint,
+            finalized_checkpoint: fork_choice_view.finalized_checkpoint,
+            head_hash: forkchoice_update_params.head_hash,
+            finalized_hash: forkchoice_update_params.finalized_hash,
+        };
+
+        Ok(Self {
+            fork_choice: CanonicalHeadRwLock::new(fork_choice),
+            cached_head: CanonicalHeadRwLock::new(cached_head),
+            recompute_head_lock: Mutex::new(()),
+        })
+    }
+
+    pub(crate) fn restore_from_store(
+        &self,
+        block_processing_guard: BlockProcessingForkChoiceWriteLock<T>,
+        store: &BeaconStore<T>,
+        spec: &ChainSpec,
+    ) -> Result<(), Error> {
+        // We don't actually *need* the block processing guard, but we just pass it because the only
+        // place that calls this function is block processing and we'll get a deadlock if this guard
+        // isn't dropped.
+        drop(block_processing_guard);
+
+        let fork_choice = <BeaconChain<T>>::load_fork_choice(store.clone(), spec)?
+            .ok_or(Error::MissingPersistedForkChoice)?;
+        let fork_choice_view = fork_choice.cached_fork_choice_view();
+        let beacon_block_root = fork_choice_view.head_block_root;
+        let beacon_block = store
+            .get_full_block(&beacon_block_root)?
+            .ok_or(Error::MissingBeaconBlock(beacon_block_root))?;
+        let beacon_state_root = beacon_block.state_root();
+        let beacon_state = store
+            .get_state(&beacon_state_root, Some(beacon_block.slot()))?
+            .ok_or(Error::MissingBeaconState(beacon_state_root))?;
+
+        let snapshot = BeaconSnapshot {
+            beacon_block_root,
+            beacon_block: Arc::new(beacon_block),
+            beacon_state,
+        };
+
+        let fork_choice_view = fork_choice.cached_fork_choice_view();
+        let forkchoice_update_params = fork_choice.get_forkchoice_update_parameters();
+        let cached_head = CachedHead {
+            snapshot,
+            justified_checkpoint: fork_choice_view.justified_checkpoint,
+            finalized_checkpoint: fork_choice_view.finalized_checkpoint,
+            head_hash: forkchoice_update_params.head_hash,
+            finalized_hash: forkchoice_update_params.finalized_hash,
+        };
+
+        *self.fork_choice.write() = fork_choice;
+        *self.cached_head.write() = cached_head;
+
+        Ok(())
+    }
+
+    pub(crate) fn block_processing_fork_choice_write_lock(
+        &self,
+    ) -> BlockProcessingForkChoiceWriteLock<T> {
+        BlockProcessingForkChoiceWriteLock {
+            fork_choice: self.fork_choice_write_lock(),
+        }
+    }
+
+    /// Returns the execution status of the block at the head of the beacon chain.
+    ///
+    /// This will only return `Err` in the scenario where `self.fork_choice` has advanced
+    /// significantly past the cached `head_snapshot`. In such a scenario is it likely prudent to
+    /// run `BeaconChain::recompute_head` to update the cached values.
+    pub fn head_execution_status(&self) -> Result<ExecutionStatus, Error> {
+        let head_block_root = self.cached_head.read().head_block_root();
+        self.fork_choice
+            .read()
+            .get_block_execution_status(&head_block_root)
+            .ok_or(Error::HeadMissingFromForkChoice(head_block_root))
+    }
+
+    pub fn cached_head_read_lock(&self) -> RwLockReadGuard<CachedHead<T::EthSpec>> {
+        self.cached_head.read()
+    }
+
+    fn cached_head_write_lock(&self) -> RwLockWriteGuard<CachedHead<T::EthSpec>> {
+        self.cached_head.write()
+    }
+
+    pub fn fork_choice_read_lock(&self) -> RwLockReadGuard<BeaconForkChoice<T>> {
+        self.fork_choice.read()
+    }
+
+    fn fork_choice_write_lock(&self) -> RwLockWriteGuard<BeaconForkChoice<T>> {
+        self.fork_choice.write()
+    }
+
+    pub fn on_valid_execution_payload(&self, block_root: Hash256) -> Result<(), ForkChoiceError> {
+        self.fork_choice_write_lock()
+            .on_valid_execution_payload(block_root)
+    }
+
+    pub fn on_invalid_execution_payload(
+        &self,
+        op: &InvalidationOperation,
+    ) -> Result<(), ForkChoiceError> {
+        self.fork_choice_write_lock()
+            .on_invalid_execution_payload(op)
+    }
+
+    pub fn contains_block(&self, block_root: &Hash256) -> bool {
+        self.fork_choice_read_lock().contains_block(block_root)
+    }
+
+    pub fn get_block(&self, block_root: &Hash256) -> Option<ProtoBlock> {
+        self.fork_choice_read_lock().get_block(block_root)
+    }
+
+    pub fn get_block_execution_status(&self, block_root: &Hash256) -> Option<ExecutionStatus> {
+        self.fork_choice_read_lock()
+            .get_block_execution_status(block_root)
+    }
+
+    pub fn get_justified_block(&self) -> Result<ProtoBlock, ForkChoiceError> {
+        self.fork_choice_read_lock().get_justified_block()
+    }
+
+    pub fn is_optimistic_candidate_block(
+        &self,
+        current_slot: Slot,
+        block_slot: Slot,
+        block_parent_root: &Hash256,
+        spec: &ChainSpec,
+    ) -> Result<bool, ForkChoiceError> {
+        self.fork_choice_read_lock().is_optimistic_candidate_block(
+            current_slot,
+            block_slot,
+            block_parent_root,
+            spec,
+        )
+    }
+
+    pub fn is_optimistic_block(&self, block_root: &Hash256) -> Result<bool, ForkChoiceError> {
+        self.fork_choice_read_lock().is_optimistic_block(block_root)
+    }
+
+    pub fn is_optimistic_block_no_fallback(
+        &self,
+        block_root: &Hash256,
+    ) -> Result<bool, ForkChoiceError> {
+        self.fork_choice_read_lock()
+            .is_optimistic_block_no_fallback(block_root)
+    }
+
+    pub fn is_descendant_of_finalized(&self, block_root: Hash256) -> bool {
+        self.fork_choice_read_lock()
+            .is_descendant_of_finalized(block_root)
+    }
+
+    pub fn on_attestation(
+        &self,
+        current_slot: Slot,
+        attestation: &IndexedAttestation<T::EthSpec>,
+        is_from_block: AttestationFromBlock,
+    ) -> Result<(), ForkChoiceError> {
+        self.fork_choice_write_lock()
+            .on_attestation(current_slot, attestation, is_from_block)
+    }
+
+    pub fn get_ancestor_at_or_below_slot(
+        &self,
+        block_root: &Hash256,
+        target_slot: Slot,
+    ) -> Option<Hash256> {
+        self.fork_choice_read_lock()
+            .proto_array()
+            .core_proto_array()
+            .iter_block_roots(block_root)
+            .find(|(_, slot)| *slot <= target_slot)
+            .map(|(block_root, _)| block_root)
+    }
 }
 
 impl<T: BeaconChainTypes> BeaconChain<T> {
-    /// Returns a summary of the `CanonicalHead`. It is "fast" since it lives behind it's own
-    /// `RwLock` which should have very little contention. The downsides are that it only has
-    /// limited information about the head and it might lag behind the `CanonicalHead` very slightly
-    /// (generally on the order of milliseconds).
-    ///
-    /// This method should be used by tasks which are very sensitive to delays caused by lock
-    /// contention, like the networking stack.
-    pub fn fast_canonical_head(&self) -> FastCanonicalHead {
-        self.fast_canonical_head.read().clone()
-    }
     /// Execute the fork choice algorithm and enthrone the result as the canonical head.
     ///
     /// This method replaces the old `BeaconChain::fork_choice` method.
@@ -326,35 +489,38 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         self: &Arc<Self>,
         current_slot: Slot,
     ) -> Result<Option<JoinHandle<Option<()>>>, Error> {
-        let mut canonical_head_write_lock = self.canonical_head.write();
+        let recompute_head_lock = self.canonical_head.recompute_head_lock.lock();
 
-        // Take note of the last-known head and finalization values.
+        // Atomically read the cached head and FFG checkpoints.
         //
-        // It is important to read the `fork_choice_view` from the canonical head rather than from
+        // It is important to read the `fork_choice_view` from the cached head rather than from
         // fork choice, since the fork choice value might have changed between calls to this
         // function. We are interested in the changes since we last cached the head values, not
         // since fork choice was last run.
-        let old_view = ForkChoiceView {
-            head_block_root: canonical_head_write_lock.head_block_root(),
-            finalized_checkpoint: canonical_head_write_lock.finalized_checkpoint(),
-            justified_checkpoint: canonical_head_write_lock.justified_checkpoint(),
+        let old_view = {
+            let cached_head = self.canonical_head.cached_head_read_lock();
+            ForkChoiceView {
+                head_block_root: cached_head.head_block_root(),
+                justified_checkpoint: cached_head.justified_checkpoint(),
+                finalized_checkpoint: cached_head.finalized_checkpoint(),
+            }
         };
 
+        let mut fork_choice_write_lock = self.canonical_head.fork_choice_write_lock();
+
         // Recompute the current head via the fork choice algorithm.
-        canonical_head_write_lock
-            .fork_choice
-            .get_head(current_slot, &self.spec)?;
+        fork_choice_write_lock.get_head(current_slot, &self.spec)?;
 
         // Read the current head value from the fork choice algorithm.
-        let new_view = canonical_head_write_lock
-            .fork_choice
-            .cached_fork_choice_view();
+        let new_view = fork_choice_write_lock.cached_fork_choice_view();
+
+        // Downgrade the fork choice write-lock to a read lock, without allowing access to any
+        // other writers.
+        let fork_choice_read_lock = RwLockWriteGuard::downgrade(fork_choice_write_lock);
 
         // Check to ensure that the finalized block hasn't been marked as invalid. If it has,
         // shut down Lighthouse.
-        let finalized_proto_block = canonical_head_write_lock
-            .fork_choice
-            .get_finalized_block()?;
+        let finalized_proto_block = fork_choice_read_lock.get_finalized_block()?;
         check_finalized_payload_validity(self, &finalized_proto_block)?;
 
         // Sanity check the finalized checkpoint.
@@ -363,8 +529,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // finalized checkpoint.
         check_against_finality_reversion(&old_view, &new_view)?;
 
-        let new_head_proto_block = canonical_head_write_lock
-            .fork_choice
+        let new_head_proto_block = fork_choice_read_lock
             .get_block(&new_view.head_block_root)
             .ok_or(Error::HeadBlockMissingFromForkChoice(
                 new_view.head_block_root,
@@ -400,28 +565,20 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             return Ok(None);
         }
 
-        perform_debug_logging::<T>(
-            &old_view,
-            &new_view,
-            &canonical_head_write_lock.fork_choice,
-            &self.log,
-        );
+        // Get the parameters to update the execution layer since either the head or some finality
+        // parameters have changed.
+        let forkchoice_update_parameters = fork_choice_read_lock.get_forkchoice_update_parameters();
+
+        perform_debug_logging::<T>(&old_view, &new_view, &fork_choice_read_lock, &self.log);
+
+        // Drop the read lock, it's no longer required and holding it any longer than necessary
+        // will just cause lock contention.
+        drop(fork_choice_read_lock);
 
         // If the head has changed, update `self.canonical_head`.
-        let (mut canonical_head_write_lock, head_update_params) =
+        let (cached_head_read_lock, head_update_params) =
             if new_view.head_block_root != old_view.head_block_root {
                 metrics::inc_counter(&metrics::FORK_CHOICE_CHANGED_HEAD);
-
-                // Downgrade the write-lock to a read lock to avoid preventing all access to the head
-                // whilst the head snapshot is loaded. The docs note:
-                //
-                // > Note that if there are any writers currently waiting to take the lock then other
-                // > readers may not be able to acquire the lock even if it was downgraded.
-                //
-                // This means that other readers are not *guaranteed* access during this period, but
-                // there's a decent chance that there are no other writers and they'll be able to read.
-                let canonical_head_read_lock =
-                    RwLockWriteGuard::downgrade_to_upgradable(canonical_head_write_lock);
 
                 // Try and obtain the snapshot for `beacon_block_root` from the snapshot cache, falling
                 // back to a database read if that fails.
@@ -469,63 +626,42 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                             .map(|()| snapshot)
                     })?;
 
-                // Upgrade the read lock to a write lock, without allowing any other writers access in
-                // the meantime.
-                let mut canonical_head_write_lock =
-                    RwLockUpgradableReadGuard::upgrade(canonical_head_read_lock);
+                // Now the new snapshot has been obtained, take a write-lock on the cached head so
+                // we can update it quickly.
+                let mut cached_head_write_lock = self.canonical_head.cached_head_write_lock();
 
-                // Enshrine the new value as the head.
-                let old_head = mem::replace(&mut canonical_head_write_lock.head_snapshot, new_head);
+                // Enshrine the new snapshot as the head, keeping the old snapshot for later reference.
+                let old_head = mem::replace(&mut cached_head_write_lock.snapshot, new_head);
+                // Update the FFG values, since they might have also changed.
+                cached_head_write_lock.justified_checkpoint = new_view.justified_checkpoint;
+                cached_head_write_lock.finalized_checkpoint = new_view.finalized_checkpoint;
+
+                // Downgrade the cached head write-lock to a read-lock.
+                let cached_head_read_lock = RwLockWriteGuard::downgrade(cached_head_write_lock);
 
                 // Clear the early attester cache in case it conflicts with `self.canonical_head`.
                 self.early_attester_cache.clear();
 
                 (
-                    canonical_head_write_lock,
+                    cached_head_read_lock,
                     Some((old_head, new_head_proto_block)),
                 )
             } else {
-                (canonical_head_write_lock, None)
+                let mut cached_head_write_lock = self.canonical_head.cached_head_write_lock();
+
+                // Update the FFG values, since at least one of them changed if we're at this point
+                // in the function and the head didn't change.
+                cached_head_write_lock.justified_checkpoint = new_view.justified_checkpoint;
+                cached_head_write_lock.finalized_checkpoint = new_view.finalized_checkpoint;
+
+                // Downgrade the cached head write-lock to a read-lock.
+                let cached_head_read_lock = RwLockWriteGuard::downgrade(cached_head_write_lock);
+
+                (cached_head_read_lock, None)
             };
 
-        // Update the FFG checkpoints on the `canonical_head`.
-        canonical_head_write_lock.justified_checkpoint = new_view.justified_checkpoint;
-        canonical_head_write_lock.finalized_checkpoint = new_view.finalized_checkpoint;
-
-        // Downgrade the write-lock to a read-lock, without allowing any other writers access
-        // during the process.
-        //
-        // Holding the write-lock any longer than is required creates the risk of contention and
-        // deadlocks. This is especially relevant since later parts of this function will interact
-        // with other locks and potentially perform long-running operations.
-        //
-        // The `parking_lot` docs have this to say about downgraded write-locks:
-        //
-        // > Note that if there are any writers currently waiting to take the lock then other >
-        // readers may not be able to acquire the lock even if it was downgraded.
-        //
-        // This means that it's dangerous to take another read-lock on the `canonical_head` whilst
-        // we're holding this read-lock.
-        let canonical_head_read_lock = RwLockWriteGuard::downgrade(canonical_head_write_lock);
-
         // Alias for readability.
-        let new_head = &canonical_head_read_lock.head_snapshot;
-
-        // Update the fast canonical head, whilst holding the lock on the canonical head.
-        //
-        // Doing it whilst holding the read-lock ensures that the `canonical_head` and
-        // `fast_canonical_head` stay consistent (although the fast head might lag slightly behind
-        // the canonical head).
-        *self.fast_canonical_head.write() = FastCanonicalHead {
-            head_block_root: new_view.head_block_root,
-            head_block_slot: new_head.beacon_block.slot(),
-            justified_checkpoint: new_view.justified_checkpoint,
-            finalized_checkpoint: new_view.finalized_checkpoint,
-            active_validator_count: new_head
-                .beacon_state
-                .get_cached_active_validator_indices(RelativeEpoch::Current)?
-                .len(),
-        };
+        let new_head = &cached_head_read_lock.snapshot;
 
         // If the head changed, perform some updates.
         if let Some((old_head, new_head_proto_block)) = head_update_params {
@@ -578,20 +714,17 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             }
         }
 
-        // Get the parameters toupdate the execution layer since either the head or some finality
-        // parameters have changed.
-        let forkchoice_update_parameters = canonical_head_read_lock
-            .fork_choice
-            .get_forkchoice_update_parameters()
-            .ok_or(Error::ForkchoiceUpdateParamsMissing)?;
+        // The read-lock on the cached head *MUST* be dropped before spawning the execution layer
+        // update tasks since they might try to take a write-lock on the cached head.
+        drop(cached_head_read_lock);
 
-        // The read-lock on the canonical head *MUST* be dropped before spawning the execution
-        // layer update tasks since they might try to take a write-lock on the canonical head.
-        drop(canonical_head_read_lock);
-
-        // The read-lock on the canonical head *MUST* be dropped before this call since it might try to take a write-lock on the canonical head.
+        // The read-lock on the cached head *MUST* be dropped before this call since it might try to take a write-lock on the canonical head.
         let el_update_handle =
             spawn_execution_layer_updates(self.clone(), forkchoice_update_parameters)?;
+
+        // We have completed recomputing the head and it's now valid for another process to do the
+        // same.
+        drop(recompute_head_lock);
 
         Ok(Some(el_update_handle))
     }
@@ -835,6 +968,22 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         );
 
         Ok(())
+    }
+
+    /// Return a database operation for writing fork choice to disk.
+    pub fn persist_fork_choice_in_batch(&self) -> KeyValueStoreOp {
+        Self::persist_fork_choice_in_batch_standalone(&self.canonical_head.fork_choice_read_lock())
+    }
+
+    /// Return a database operation for writing fork choice to disk.
+    pub fn persist_fork_choice_in_batch_standalone(
+        fork_choice: &BeaconForkChoice<T>,
+    ) -> KeyValueStoreOp {
+        let persisted_fork_choice = PersistedForkChoice {
+            fork_choice: fork_choice.to_persisted(),
+            fork_choice_store: fork_choice.fc_store().to_persisted(),
+        };
+        persisted_fork_choice.as_kv_store_op(FORK_CHOICE_DB_KEY)
     }
 }
 

@@ -977,8 +977,6 @@ fn verify_head_block_is_known<T: BeaconChainTypes>(
 ) -> Result<ProtoBlock, Error> {
     let block_opt = chain
         .canonical_head
-        .read()
-        .fork_choice
         .get_block(&attestation.data.beacon_block_root)
         .or_else(|| {
             chain
@@ -1246,11 +1244,7 @@ where
     // processing an attestation that does not include our latest finalized block in its chain.
     //
     // We do not delay consideration for later, we simply drop the attestation.
-    if !chain
-        .canonical_head
-        .read()
-        .fork_choice
-        .contains_block(&target.root)
+    if !chain.canonical_head.contains_block(&target.root)
         && !chain.early_attester_cache.contains_block(target.root)
     {
         return Err(Error::UnknownTargetRoot(target.root));

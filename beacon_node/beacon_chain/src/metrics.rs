@@ -1,6 +1,6 @@
 use crate::observed_attesters::SlotSubcommitteeIndex;
 use crate::types::consts::altair::SYNC_COMMITTEE_SUBNET_COUNT;
-use crate::{BeaconChain, BeaconChainTypes};
+use crate::{BeaconChain, BeaconChainError, BeaconChainTypes};
 use lazy_static::lazy_static;
 pub use lighthouse_metrics::*;
 use slot_clock::SlotClock;
@@ -9,9 +9,6 @@ use types::{BeaconState, Epoch, EthSpec, Hash256, Slot};
 
 /// The maximum time to wait for the snapshot cache lock during a metrics scrape.
 const SNAPSHOT_CACHE_TIMEOUT: Duration = Duration::from_millis(100);
-
-/// The time to wait for the canonical head lock before just proceeding with other metrics.
-const CANONICAL_HEAD_LOCK_TIMEOUT: Duration = Duration::from_secs(1);
 
 lazy_static! {
     /*
@@ -930,13 +927,10 @@ lazy_static! {
 /// Scrape the `beacon_chain` for metrics that are not constantly updated (e.g., the present slot,
 /// head state info, etc) and update the Prometheus `DEFAULT_REGISTRY`.
 pub fn scrape_for_metrics<T: BeaconChainTypes>(beacon_chain: &BeaconChain<T>) {
-    if let Some(canonical_head) = beacon_chain
-        .canonical_head
-        .try_read_for(CANONICAL_HEAD_LOCK_TIMEOUT)
-    {
-        let head = &canonical_head.head_snapshot;
+    let _ = beacon_chain.with_head(|head| {
         scrape_head_state(&head.beacon_state, head.beacon_state_root());
-    }
+        Ok::<_, BeaconChainError>(())
+    });
 
     if let Some(slot) = beacon_chain.slot_clock.now() {
         scrape_attestation_observation(slot, beacon_chain);

@@ -140,21 +140,22 @@ pub fn compute_proposer_duties_from_head<T: BeaconChainTypes>(
 ) -> Result<(Vec<usize>, Hash256, ExecutionStatus, Fork), BeaconChainError> {
     // Atomically collect information about the head whilst hogging the `canonical_head_lock` as
     // little as possible.
-    let (mut state, head_state_root, execution_status) = {
-        let head = chain.canonical_head.read();
+    let (mut state, head_state_root, head_block_root) = {
+        let head = chain.canonical_head.cached_head_read_lock();
         // Take a copy of the head state.
         let head_state = head
-            .head_snapshot
+            .snapshot
             .beacon_state
             .clone_with(CloneConfig::committee_caches_only());
         let head_state_root = head.head_state_root();
         let head_block_root = head.head_block_root();
-        let execution_status = head
-            .fork_choice
-            .get_block_execution_status(&head_block_root)
-            .ok_or(BeaconChainError::HeadMissingFromForkChoice(head_block_root))?;
-        (head_state, head_state_root, execution_status)
+        (head_state, head_state_root, head_block_root)
     };
+
+    let execution_status = chain
+        .canonical_head
+        .get_block_execution_status(&head_block_root)
+        .ok_or(BeaconChainError::HeadMissingFromForkChoice(head_block_root))?;
 
     // Advance the state into the requested epoch.
     ensure_state_is_in_epoch(&mut state, head_state_root, current_epoch, &chain.spec)?;

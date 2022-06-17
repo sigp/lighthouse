@@ -14,6 +14,7 @@ use crate::{
 use execution_layer::PayloadStatus;
 use fork_choice::{InvalidationOperation, PayloadVerificationStatus};
 use proto_array::{Block as ProtoBlock, ExecutionStatus};
+use slog::debug;
 use slot_clock::SlotClock;
 use state_processing::per_block_processing::{
     compute_timestamp_at_slot, is_execution_enabled, is_merge_transition_complete,
@@ -186,9 +187,44 @@ pub async fn validate_merge_block<'a, T: BeaconChainTypes>(
             parent_hash: execution_payload.parent_hash(),
         }
         .into()),
-        // Allow optimistic blocks here, the caller must ensure that the block is an optimistic
-        // candidate.
-        None => Ok(()),
+        None => {
+            let current_slot = chain
+                .slot_clock
+                .now()
+                .ok_or(BeaconChainError::UnableToReadSlot)?;
+            // Use a blocking task to check if the block is an optimistic candidate. Interacting
+            // with the `canonical_head` lock in an async task can block the core executor.
+            let inner_chain = chain.clone();
+            let block_parent_root = block.parent_root();
+            let block_slot = block.slot();
+            let is_optimistic_candidate = chain
+                .spawn_blocking_handle(
+                    move || {
+                        inner_chain.canonical_head.is_optimistic_candidate_block(
+                            current_slot,
+                            block_slot,
+                            &block_parent_root,
+                            &inner_chain.spec,
+                        )
+                    },
+                    "validate_merge_block_optimistic_candidate",
+                )
+                .await
+                .map_err(BeaconChainError::from)?
+                .map_err(BeaconChainError::from)?;
+
+            if is_optimistic_candidate {
+                debug!(
+                    chain.log,
+                    "Optimistically accepting terminal block";
+                    "block_hash" => ?execution_payload.parent_hash(),
+                    "msg" => "the terminal block/parent was unavailable"
+                );
+                Ok(())
+            } else {
+                Err(ExecutionPayloadError::UnverifiedNonOptimisticCandidate.into())
+            }
+        }
     }
 }
 
@@ -372,8 +408,6 @@ where
             move || {
                 inner_chain
                     .canonical_head
-                    .read()
-                    .fork_choice
                     .get_block(&finalized_checkpoint.root)
             },
             "prepare_execution_payload_finalized_hash",

@@ -258,7 +258,10 @@ fn advance_head<T: BeaconChainTypes>(
     //
     // Fork-choice is not run *before* this function to avoid unnecessary calls whilst syncing.
     {
-        let head_slot = beacon_chain.canonical_head.read().head_slot();
+        let head_slot = beacon_chain
+            .canonical_head
+            .cached_head_read_lock()
+            .head_slot();
 
         // Don't run this when syncing or if lagging too far behind.
         if head_slot + MAX_ADVANCE_DISTANCE < current_slot {
@@ -278,7 +281,10 @@ fn advance_head<T: BeaconChainTypes>(
     // TODO(paul): try and re-enable this.
     // beacon_chain.fork_choice()?;
 
-    let head_root = beacon_chain.canonical_head.read().head_block_root();
+    let head_root = beacon_chain
+        .canonical_head
+        .cached_head_read_lock()
+        .head_block_root();
 
     let (head_slot, head_state_root, mut state) = match beacon_chain
         .snapshot_cache

@@ -58,7 +58,7 @@ use crate::{
 use derivative::Derivative;
 use eth2::types::EventKind;
 use execution_layer::PayloadStatus;
-use fork_choice::{ForkChoice, ForkChoiceStore, PayloadVerificationStatus};
+use fork_choice::PayloadVerificationStatus;
 use parking_lot::RwLockReadGuard;
 use proto_array::Block as ProtoBlock;
 use safe_arith::ArithError;
@@ -77,7 +77,7 @@ use std::fs;
 use std::io::Write;
 use std::sync::Arc;
 use std::time::Duration;
-use store::{Error as DBError, HotColdDB, HotStateSummary, KeyValueStore, StoreOp};
+use store::{Error as DBError, HotStateSummary, KeyValueStore, StoreOp};
 use task_executor::JoinHandle;
 use tree_hash::TreeHash;
 use types::{
@@ -672,12 +672,7 @@ impl<T: BeaconChainTypes> GossipVerifiedBlock<T> {
         // reboot if the `observed_block_producers` cache is empty. In that case, without this
         // check, we will load the parent and state from disk only to find out later that we
         // already know this block.
-        if chain
-            .canonical_head
-            .read()
-            .fork_choice
-            .contains_block(&block_root)
-        {
+        if chain.canonical_head.contains_block(&block_root) {
             return Err(BlockError::BlockIsAlreadyKnown);
         }
 
@@ -697,11 +692,7 @@ impl<T: BeaconChainTypes> GossipVerifiedBlock<T> {
         // Do not process a block that doesn't descend from the finalized root.
         //
         // We check this *before* we load the parent so that we can return a more detailed error.
-        check_block_is_finalized_descendant::<T, _>(
-            &block,
-            &chain.canonical_head.read().fork_choice,
-            &chain.store,
-        )?;
+        check_block_is_finalized_descendant(chain, &block)?;
 
         let block_epoch = block.slot().epoch(T::EthSpec::slots_per_epoch());
         let (parent_block, block) = verify_parent_block_is_known(chain, block)?;
@@ -1028,12 +1019,7 @@ impl<T: BeaconChainTypes> ExecutionPendingBlock<T> {
         parent: PreProcessingSnapshot<T::EthSpec>,
         chain: &Arc<BeaconChain<T>>,
     ) -> Result<Self, BlockError<T::EthSpec>> {
-        if let Some(parent) = chain
-            .canonical_head
-            .read()
-            .fork_choice
-            .get_block(&block.parent_root())
-        {
+        if let Some(parent) = chain.canonical_head.get_block(&block.parent_root()) {
             // Reject any block where the parent has an invalid payload. It's impossible for a valid
             // block to descend from an invalid parent.
             if parent.execution_status.is_invalid() {
@@ -1214,16 +1200,12 @@ impl<T: BeaconChainTypes> ExecutionPendingBlock<T> {
                 let is_optimistic_candidate = chain
                     .spawn_blocking_handle(
                         move || {
-                            inner_chain
-                                .canonical_head
-                                .read()
-                                .fork_choice
-                                .is_optimistic_candidate_block(
-                                    current_slot,
-                                    block_slot,
-                                    &block_parent_root,
-                                    &inner_chain.spec,
-                                )
+                            inner_chain.canonical_head.is_optimistic_candidate_block(
+                                current_slot,
+                                block_slot,
+                                &block_parent_root,
+                                &inner_chain.spec,
+                            )
                         },
                         "validate_merge_block_optimistic_candidate",
                     )
@@ -1441,7 +1423,7 @@ fn check_block_against_finalized_slot<T: BeaconChainTypes>(
 ) -> Result<(), BlockError<T::EthSpec>> {
     let finalized_slot = chain
         .canonical_head
-        .read()
+        .cached_head_read_lock()
         .finalized_checkpoint()
         .epoch
         .start_slot(T::EthSpec::slots_per_epoch());
@@ -1458,12 +1440,14 @@ fn check_block_against_finalized_slot<T: BeaconChainTypes>(
 }
 
 /// Returns `Ok(block)` if the block descends from the finalized root.
-pub fn check_block_is_finalized_descendant<T: BeaconChainTypes, F: ForkChoiceStore<T::EthSpec>>(
+pub fn check_block_is_finalized_descendant<T: BeaconChainTypes>(
+    chain: &BeaconChain<T>,
     block: &Arc<SignedBeaconBlock<T::EthSpec>>,
-    fork_choice: &ForkChoice<F, T::EthSpec>,
-    store: &HotColdDB<T::EthSpec, T::HotStore, T::ColdStore>,
 ) -> Result<(), BlockError<T::EthSpec>> {
-    if fork_choice.is_descendant_of_finalized(block.parent_root()) {
+    if chain
+        .canonical_head
+        .is_descendant_of_finalized(block.parent_root())
+    {
         Ok(())
     } else {
         // If fork choice does *not* consider the parent to be a descendant of the finalized block,
@@ -1474,7 +1458,8 @@ pub fn check_block_is_finalized_descendant<T: BeaconChainTypes, F: ForkChoiceSto
         //    pre-finalization or conflicting with finalization.
         // 2. The parent is unknown to us, we probably want to download it since it might actually
         //    descend from the finalized root.
-        if store
+        if chain
+            .store
             .block_exists(&block.parent_root())
             .map_err(|e| BlockError::BeaconChainError(e.into()))?
         {
@@ -1527,12 +1512,7 @@ pub fn check_block_relevancy<T: BeaconChainTypes>(
 
     // Check if the block is already known. We know it is post-finalization, so it is
     // sufficient to check the fork choice.
-    if chain
-        .canonical_head
-        .read()
-        .fork_choice
-        .contains_block(&block_root)
-    {
+    if chain.canonical_head.contains_block(&block_root) {
         return Err(BlockError::BlockIsAlreadyKnown);
     }
 
@@ -1561,8 +1541,6 @@ fn verify_parent_block_is_known<T: BeaconChainTypes>(
 ) -> Result<(ProtoBlock, Arc<SignedBeaconBlock<T::EthSpec>>), BlockError<T::EthSpec>> {
     if let Some(proto_block) = chain
         .canonical_head
-        .read()
-        .fork_choice
         .get_block(&block.message().parent_root())
     {
         Ok((proto_block, block))
@@ -1598,12 +1576,7 @@ fn load_parent<T: BeaconChainTypes>(
     //  because it will revert finalization. Note that the finalized block is stored in fork
     //  choice, so we will not reject any child of the finalized block (this is relevant during
     //  genesis).
-    if !chain
-        .canonical_head
-        .read()
-        .fork_choice
-        .contains_block(&block.parent_root())
-    {
+    if !chain.canonical_head.contains_block(&block.parent_root()) {
         return Err(BlockError::ParentUnknown(block));
     }
 
@@ -1799,7 +1772,7 @@ fn verify_header_signature<T: BeaconChainTypes>(
         .get(header.message.proposer_index as usize)
         .cloned()
         .ok_or(BlockError::UnknownValidator(header.message.proposer_index))?;
-    let head_fork = chain.canonical_head.read().head_fork();
+    let head_fork = chain.canonical_head.cached_head_read_lock().head_fork();
 
     if header.verify_signature::<T::EthSpec>(
         &proposer_pubkey,

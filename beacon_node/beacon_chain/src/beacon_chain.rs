@@ -62,7 +62,7 @@ use futures::channel::mpsc::Sender;
 use itertools::process_results;
 use itertools::Itertools;
 use operation_pool::{OperationPool, PersistedOperationPool};
-use parking_lot::{Mutex, RwLock, RwLockWriteGuard};
+use parking_lot::{Mutex, RwLock};
 use safe_arith::SafeArith;
 use slasher::Slasher;
 use slog::{crit, debug, error, info, trace, warn, Logger};
@@ -92,9 +92,7 @@ use tree_hash::TreeHash;
 use types::beacon_state::CloneConfig;
 use types::*;
 
-pub use crate::canonical_head::{
-    CanonicalHead, CanonicalHeadRwLock, FastCanonicalHead, FastCanonicalHeadRwLock,
-};
+pub use crate::canonical_head::{CanonicalHead, CanonicalHeadRwLock};
 
 pub type ForkChoiceError = fork_choice::Error<crate::ForkChoiceStoreError>;
 
@@ -322,13 +320,7 @@ pub struct BeaconChain<T: BeaconChainTypes> {
     pub execution_layer: Option<ExecutionLayer>,
     /// Stores information about the canonical head and finalized/justified checkpoints of the
     /// chain. Also contains the fork choice struct, for computing the canonical head.
-    pub canonical_head: CanonicalHeadRwLock<CanonicalHead<T>>,
-    /// A smaller version of `CanonicalHead` designed to have very little lock contention but with the
-    /// downside of sometimes being slightly behind the `CanonicalHead`.
-    ///
-    /// To help prevent deadlocks, do not make this field public and only access it via the
-    /// `BeaconChain::fast_canonical_head` function.
-    pub(crate) fast_canonical_head: FastCanonicalHeadRwLock<FastCanonicalHead>,
+    pub canonical_head: CanonicalHead<T>,
     /// The root of the genesis block.
     pub genesis_block_root: Hash256,
     /// The root of the genesis state.
@@ -419,22 +411,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     ) -> KeyValueStoreOp {
         Self::make_persisted_head(genesis_block_root, head_tracker)
             .as_kv_store_op(BEACON_CHAIN_DB_KEY)
-    }
-
-    /// Return a database operation for writing fork choice to disk.
-    pub fn persist_fork_choice_in_batch(&self) -> KeyValueStoreOp {
-        Self::persist_fork_choice_in_batch_standalone(&self.canonical_head.read().fork_choice)
-    }
-
-    /// Return a database operation for writing fork choice to disk.
-    pub fn persist_fork_choice_in_batch_standalone(
-        fork_choice: &BeaconForkChoice<T>,
-    ) -> KeyValueStoreOp {
-        let persisted_fork_choice = PersistedForkChoice {
-            fork_choice: fork_choice.to_persisted(),
-            fork_choice_store: fork_choice.fc_store().to_persisted(),
-        };
-        persisted_fork_choice.as_kv_store_op(FORK_CHOICE_DB_KEY)
     }
 
     /// Load fork choice from disk, returning `None` if it isn't found.
@@ -1009,8 +985,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     where
         E: From<Error>,
     {
-        let head_lock = self.canonical_head.read();
-        f(&head_lock.head_snapshot)
+        let head_lock = self.canonical_head.cached_head_read_lock();
+        f(&head_lock.snapshot)
     }
 
     /// Returns the beacon block root at the head of the canonical chain.
@@ -1218,7 +1194,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
     /// Returns the slot of the highest block in the canonical chain.
     pub fn best_slot(&self) -> Slot {
-        self.canonical_head.read().head_snapshot.beacon_block.slot()
+        self.canonical_head.cached_head_read_lock().head_slot()
     }
 
     /// Returns the validator index (if any) for the given public key.
@@ -1372,8 +1348,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
             let execution_status = self
                 .canonical_head
-                .read()
-                .fork_choice
                 .get_block_execution_status(&head_block_root)
                 .ok_or(Error::AttestationHeadNotInForkChoice(head_block_root))?;
 
@@ -1426,8 +1400,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let beacon_block_root = attestation.data.beacon_block_root;
         match self
             .canonical_head
-            .read()
-            .fork_choice
             .get_block_execution_status(&beacon_block_root)
         {
             // The attestation references a block that is not in fork choice, it must be
@@ -1511,8 +1483,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let beacon_block_root;
         let beacon_state_root;
         let head_timer = metrics::start_timer(&metrics::ATTESTATION_PRODUCTION_HEAD_SCRAPE_SECONDS);
-        let canonical_head_lock = self.canonical_head.read();
-        let head = &canonical_head_lock.head_snapshot;
+        let cached_head_lock = self.canonical_head.cached_head_read_lock();
+        let head = &cached_head_lock.snapshot;
         let head_state = &head.beacon_state;
         let head_state_slot = head_state.slot();
 
@@ -1588,9 +1560,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             AttesterCacheKey::new(request_epoch, head_state, beacon_block_root)?;
         drop(head_timer);
 
+        // Drop the head lock ASAP to prevent lock contention.
+        drop(cached_head_lock);
+
         // Only attest to a block if it is fully verified (i.e. not optimistic or invalid).
-        match canonical_head_lock
-            .fork_choice
+        match self
+            .canonical_head
             .get_block_execution_status(&beacon_block_root)
         {
             Some(execution_status) if execution_status.is_valid_or_irrelevant() => (),
@@ -1602,9 +1577,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             }
             None => return Err(Error::HeadMissingFromForkChoice(beacon_block_root)),
         };
-
-        // Drop the head lock ASAP to prevent lock contention.
-        drop(canonical_head_lock);
 
         /*
          *  Phase 2/2:
@@ -1798,8 +1770,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let _timer = metrics::start_timer(&metrics::FORK_CHOICE_PROCESS_ATTESTATION_TIMES);
 
         self.canonical_head
-            .write()
-            .fork_choice
             .on_attestation(
                 self.slot()?,
                 verified.indexed_attestation(),
@@ -1934,7 +1904,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // If there's no eth1 chain then it's impossible to produce blocks and therefore
         // useless to put things in the op pool.
         if self.eth1_chain.is_some() {
-            let fork = self.canonical_head.read().head_fork();
+            let fork = self.canonical_head.cached_head_read_lock().head_fork();
 
             self.op_pool
                 .insert_attestation(
@@ -2039,15 +2009,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // pivot block is the same as the current state's pivot block. If it is, then the
         // attestation's shuffling is the same as the current state's.
         // To account for skipped slots, find the first block at *or before* the pivot slot.
-        let canonical_head_lock = self.canonical_head.read();
-        let pivot_block_root = canonical_head_lock
-            .fork_choice
-            .proto_array()
-            .core_proto_array()
-            .iter_block_roots(block_root)
-            .find(|(_, slot)| *slot <= pivot_slot)
-            .map(|(block_root, _)| block_root);
-        drop(canonical_head_lock);
+        let pivot_block_root = self
+            .canonical_head
+            .get_ancestor_at_or_below_slot(block_root, pivot_slot);
 
         match pivot_block_root {
             Some(root) => root == state_pivot_block_root,
@@ -2133,8 +2097,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         attester_slashing: SigVerifiedOp<AttesterSlashing<T::EthSpec>>,
     ) {
         if self.eth1_chain.is_some() {
-            self.op_pool
-                .insert_attester_slashing(attester_slashing, self.canonical_head.read().head_fork())
+            self.op_pool.insert_attester_slashing(
+                attester_slashing,
+                self.canonical_head.cached_head_read_lock().head_fork(),
+            )
         }
     }
 
@@ -2652,36 +2618,25 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 .map_err(BeaconChainError::from)?;
         }
 
-        // Read some information from the canonical head, without holding the read-lock.
-        let (current_head_finalized_checkpoint, parent_proto_block) = {
-            let canonical_head_read_lock = self.canonical_head.read();
+        // Do not import a block that doesn't descend from the finalized root.
+        check_block_is_finalized_descendant(self, &signed_block)?;
 
-            // Do not import a block that doesn't descend from the finalized root.
-            check_block_is_finalized_descendant::<T, _>(
-                &signed_block,
-                &canonical_head_read_lock.fork_choice,
-                &self.store,
-            )?;
+        // Load the parent proto block for later use.
+        let parent_proto_block = self
+            .canonical_head
+            .get_block(&signed_block.parent_root())
+            .ok_or_else(|| BlockError::ParentUnknown(signed_block.clone()))?;
 
-            // Load the parent proto block for later use.
-            let parent_proto_block = canonical_head_read_lock
-                .fork_choice
-                .get_block(&signed_block.parent_root())
-                .ok_or_else(|| BlockError::ParentUnknown(signed_block.clone()))?;
-
-            // Note: we're using the finalized checkpoint from the head state, rather than fork
-            // choice.
-            //
-            // We are doing this to ensure that we detect changes in finalization. It's possible
-            // that fork choice has already been updated to the finalized checkpoint in the block
-            // we're importing.
-            let current_head_finalized_checkpoint = canonical_head_read_lock
-                .head_snapshot
-                .beacon_state
-                .finalized_checkpoint();
-
-            (current_head_finalized_checkpoint, parent_proto_block)
-        };
+        // Note: we're using the finalized checkpoint from the head state, rather than fork
+        // choice.
+        //
+        // We are doing this to ensure that we detect changes in finalization. It's possible
+        // that fork choice has already been updated to the finalized checkpoint in the block
+        // we're importing.
+        let current_head_finalized_checkpoint = self
+            .canonical_head
+            .cached_head_read_lock()
+            .finalized_checkpoint();
 
         let block = signed_block.message();
 
@@ -2813,17 +2768,16 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             }
         }
 
-        // Take a write-lock on the canonical head so we can add the block and attestations to fork
+        // Take a write-lock on fork choice so we can add the block and attestations to fork
         // choice.
-        //
-        // Later, we will downgrade this lock to a read-lock and hold it whilst we write the block
-        // and states to disk.
         //
         // # WARNING
         //
-        // It is important to avoid interleaving this canonical head write-lock with any other
-        // locks.
-        let mut canonical_head_write_lock = self.canonical_head.write();
+        // It is important to avoid interleaving this write-lock with any other locks, *especially*
+        // the `canonical_head.cached_head` lock.
+        let mut fork_choice_write_lock = self
+            .canonical_head
+            .block_processing_fork_choice_write_lock();
 
         // Register the new block with the fork choice service.
         {
@@ -2834,8 +2788,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 .seconds_from_current_slot_start(self.spec.seconds_per_slot)
                 .ok_or(Error::UnableToComputeTimeAtSlot)?;
 
-            canonical_head_write_lock
-                .fork_choice
+            fork_choice_write_lock
                 .on_block(
                     current_slot,
                     block,
@@ -2849,19 +2802,17 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         }
 
         // Register each indexed attestation in the block with the fork choice service.
-        for indexed_attestation in indexed_attestations {
-            match canonical_head_write_lock.fork_choice.on_attestation(
-                current_slot,
-                &indexed_attestation,
-                AttestationFromBlock::True,
-            ) {
-                Ok(()) => Ok(()),
-                // Ignore invalid attestations whilst importing attestations from a block. The
-                // block might be very old and therefore the attestations useless to fork choice.
-                Err(ForkChoiceError::InvalidAttestation(_)) => Ok(()),
-                Err(e) => Err(BlockError::BeaconChainError(e.into())),
-            }?;
-        }
+        match fork_choice_write_lock.on_attestations(
+            current_slot,
+            &indexed_attestations,
+            AttestationFromBlock::True,
+        ) {
+            Ok(()) => Ok(()),
+            // Ignore invalid attestations whilst importing attestations from a block. The
+            // block might be very old and therefore the attestations useless to fork choice.
+            Err(ForkChoiceError::InvalidAttestation(_)) => Ok(()),
+            Err(e) => Err(BlockError::BeaconChainError(e.into())),
+        }?;
 
         // If the block is recent enough and it was not optimistically imported, check to see if it
         // becomes the head block. If so, apply it to the early attester cache. This will allow
@@ -2877,15 +2828,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         if !payload_verification_status.is_optimistic()
             && block.slot() + EARLY_ATTESTER_CACHE_HISTORIC_SLOTS >= current_slot
         {
-            let new_head_root = canonical_head_write_lock
-                .fork_choice
+            let new_head_root = fork_choice_write_lock
                 .get_head(current_slot, &self.spec)
                 .map_err(BeaconChainError::from)?;
 
             if new_head_root == block_root {
-                if let Some(proto_block) =
-                    canonical_head_write_lock.fork_choice.get_block(&block_root)
-                {
+                if let Some(proto_block) = fork_choice_write_lock.get_block(&block_root) {
                     if let Err(e) = self.early_attester_cache.add_head_block(
                         block_root,
                         signed_block.clone(),
@@ -2914,12 +2862,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         {
             let _db_write_timer = metrics::start_timer(&metrics::BLOCK_PROCESSING_DB_WRITE);
 
-            // Downgrade the canonical head lock and hold it whilst we write to the database. This
-            // ensures that there can be no modifications to the canonical head until the database has
-            // been updated. This helps to prevent inconsistencies between fork choice and the on-disk
-            // database.
-            let canonical_head_read_lock = RwLockWriteGuard::downgrade(canonical_head_write_lock);
-
             // Store the block and its state, and execute the confirmation batch for the intermediate
             // states, which will delete their temporary flags.
             // If the write fails, revert fork choice to the version from disk, else we can
@@ -2944,31 +2886,29 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 // Since the write failed, try to revert the canonical head back to what was stored
                 // in the database. This attempts to prevent inconsistency between the database and
                 // fork choice.
-                match CanonicalHead::load_from_store(&self.store, &self.spec) {
-                    Ok(past_canonical_head) => {
-                        // Drop the transaction lock, it's no longer required and a deadlock risk since we
-                        // may interact with the canonical_head lock again in this code path.
-                        drop(txn_lock);
-
-                        // Drop the read-lock on the head and then take a write-lock.
-                        //
-                        // We don't care if someone mutates the head between dropping the read-lock and
-                        // grabbing the write-lock since we're going to override it anyway.
-                        drop(canonical_head_read_lock);
-                        *self.canonical_head.write() = past_canonical_head
-                    }
-                    Err(e) => {
-                        crit!(
-                            self.log,
-                            "No stored fork choice found to restore from";
-                            "error" => ?e,
-                            "warning" => "The database is likely corrupt now, consider --purge-db"
-                        );
-                        return Err(BlockError::BeaconChainError(e));
-                    }
+                if let Err(e) = self.canonical_head.restore_from_store(
+                    fork_choice_write_lock,
+                    &self.store,
+                    &self.spec,
+                ) {
+                    crit!(
+                        self.log,
+                        "No stored fork choice found to restore from";
+                        "error" => ?e,
+                        "warning" => "The database is likely corrupt now, consider --purge-db"
+                    );
+                    return Err(BlockError::BeaconChainError(e));
                 }
+
+                return Err(e.into());
             }
+
+            drop(txn_lock);
         }
+
+        // The fork choice write-lock is dropped *after* the on-disk database has been updated. This
+        // prevents inconsistency between the two at the expense of concurrency.
+        drop(fork_choice_write_lock);
 
         // We're declaring the block "imported" at this point, since fork choice and the DB know
         // about it.
@@ -3182,7 +3122,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // Atomically read some values from the head whilst avoiding holding the read-lock any
         // longer than necessary.
         let (head_slot, head_block_root) = {
-            let head = self.canonical_head.read();
+            let head = self.canonical_head.cached_head_read_lock();
             (head.head_slot(), head.head_block_root())
         };
         let (state, state_root_opt) = if head_slot < slot {
@@ -3617,13 +3557,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let inner_op = op.clone();
         let fork_choice_result = self
             .spawn_blocking_handle(
-                move || {
-                    chain
-                        .canonical_head
-                        .write()
-                        .fork_choice
-                        .on_invalid_execution_payload(&inner_op)
-                },
+                move || chain.canonical_head.on_invalid_execution_payload(&inner_op),
                 "invalid_payload_fork_choice_update",
             )
             .await?;
@@ -3659,13 +3593,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let chain = self.clone();
         let justified_block = self
             .spawn_blocking_handle(
-                move || {
-                    chain
-                        .canonical_head
-                        .read()
-                        .fork_choice
-                        .get_justified_block()
-                },
+                move || chain.canonical_head.get_justified_block(),
                 "invalid_payload_fork_choice_get_justified",
             )
             .await??;
@@ -3701,7 +3629,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     }
 
     pub fn block_is_known_to_fork_choice(&self, root: &Hash256) -> bool {
-        self.canonical_head.read().fork_choice.contains_block(root)
+        self.canonical_head.contains_block(root)
     }
 
     /// Determines the beacon proposer for the next slot. If that proposer is registered in the
@@ -3748,21 +3676,18 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let (head_slot, head_root, head_decision_root, head_random, forkchoice_update_params) =
             self.spawn_blocking_handle(
                 move || {
-                    let canonical_head = chain.canonical_head.read();
-                    let head_block_root = canonical_head.head_block_root();
-                    let decision_root = canonical_head
-                        .head_snapshot
+                    let cached_head = chain.canonical_head.cached_head_read_lock();
+                    let head_block_root = cached_head.head_block_root();
+                    let decision_root = cached_head
+                        .snapshot
                         .beacon_state
                         .proposer_shuffling_decision_root(head_block_root)?;
                     Ok::<_, Error>((
-                        canonical_head.head_slot(),
+                        cached_head.head_slot(),
                         head_block_root,
                         decision_root,
-                        canonical_head.head_random()?,
-                        canonical_head
-                            .fork_choice
-                            .get_forkchoice_update_parameters()
-                            .ok_or(Error::ForkchoiceUpdateParamsMissing)?,
+                        cached_head.head_random()?,
+                        cached_head.forkchoice_update_parameters(),
                     ))
                 },
                 "prepare_beacon_proposer_fork_choice_read",
@@ -4055,8 +3980,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                             move || {
                                 chain
                                     .canonical_head
-                                    .write()
-                                    .fork_choice
                                     .on_valid_execution_payload(head_block_root)
                             },
                             "update_execution_engine_invalid_payload",
@@ -4153,8 +4076,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             Ok(false)
         } else {
             self.canonical_head
-                .read()
-                .fork_choice
                 .is_optimistic_block(&block.canonical_root())
                 .map_err(BeaconChainError::ForkChoiceError)
         }
@@ -4180,8 +4101,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             Ok(false)
         } else {
             self.canonical_head
-                .read()
-                .fork_choice
                 .is_optimistic_block_no_fallback(&head_block.canonical_root())
                 .map_err(BeaconChainError::ForkChoiceError)
         }
@@ -4196,17 +4115,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// There is a potential race condition when syncing where the block root of `head_info` could
     /// be pruned from the fork choice store before being read.
     pub fn is_optimistic_head(&self) -> Result<bool, BeaconChainError> {
-        let canonical_head_lock = self.canonical_head.read();
-        let head = &canonical_head_lock.head_snapshot;
-
-        if self.slot_is_prior_to_bellatrix(head.beacon_block.slot()) {
-            Ok(false)
-        } else {
-            canonical_head_lock
-                .fork_choice
-                .is_optimistic_block_no_fallback(&head.beacon_block_root)
-                .map_err(BeaconChainError::ForkChoiceError)
-        }
+        self.canonical_head
+            .head_execution_status()
+            .map(|status| status.is_optimistic())
     }
 
     pub fn is_optimistic_block_root(
@@ -4219,8 +4130,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             Ok(false)
         } else {
             self.canonical_head
-                .read()
-                .fork_choice
                 .is_optimistic_block_no_fallback(block_root)
                 .map_err(BeaconChainError::ForkChoiceError)
         }
@@ -4362,8 +4271,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     {
         let head_block = self
             .canonical_head
-            .read()
-            .fork_choice
             .get_block(&head_block_root)
             .ok_or(Error::MissingBeaconBlock(head_block_root))?;
 
@@ -4509,11 +4416,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let mut dump = vec![];
 
         let mut last_slot = {
-            let head = self.canonical_head.read();
+            let head = self.canonical_head.cached_head_read_lock();
             BeaconSnapshot {
-                beacon_block: Arc::new(head.head_snapshot.beacon_block.clone_as_blinded()),
-                beacon_block_root: head.head_snapshot.beacon_block_root,
-                beacon_state: head.head_snapshot.beacon_state.clone(),
+                beacon_block: Arc::new(head.snapshot.beacon_block.clone_as_blinded()),
+                beacon_block_root: head.snapshot.beacon_block_root,
+                beacon_state: head.snapshot.beacon_state.clone(),
             }
         };
 
@@ -4579,7 +4486,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     }
 
     pub fn dump_as_dot<W: Write>(&self, output: &mut W) {
-        let canonical_head_hash = self.canonical_head.read().head_snapshot.beacon_block_root;
+        let canonical_head_hash = self
+            .canonical_head
+            .cached_head_read_lock()
+            .head_block_root();
         let mut visited: HashSet<Hash256> = HashSet::new();
         let mut finalized_blocks: HashSet<Hash256> = HashSet::new();
         let mut justified_blocks: HashSet<Hash256> = HashSet::new();
