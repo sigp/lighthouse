@@ -678,12 +678,8 @@ pub fn serve<T: BeaconChainTypes>(
         .and(warp::path("committees"))
         .and(warp::query::<api_types::CommitteesQuery>())
         .and(warp::path::end())
-        .and(log_filter.clone())
         .and_then(
-            |state_id: StateId,
-             chain: Arc<BeaconChain<T>>,
-             query: api_types::CommitteesQuery,
-             log: Logger| {
+            |state_id: StateId, chain: Arc<BeaconChain<T>>, query: api_types::CommitteesQuery| {
                 blocking_json_task(move || {
                     state_id.map_state(&chain, |state| {
                         let current_epoch = state.current_epoch();
@@ -699,19 +695,19 @@ pub fn serve<T: BeaconChainTypes>(
                             _ => CommitteeCache::initialized(state, epoch, &chain.spec)
                                 .map(Cow::Owned),
                         }
-                        .map_err(BeaconChainError::BeaconStateError)
-                        .map_err(|e| {
-                            let max_sprp = T::EthSpec::slots_per_historical_root() as u64;
-                            let first_subsequent_restore_point_slot =
-                                ((epoch.start_slot(T::EthSpec::slots_per_epoch()) / max_sprp) + 1)
-                                    * max_sprp;
-                            warn!(
-                                log,
-                                "For epoch {} committees use state at slot {}",
-                                epoch,
-                                first_subsequent_restore_point_slot
-                            );
-                            warp_utils::reject::beacon_chain_error(e)
+                        .map_err(|e| match e {
+                            BeaconStateError::EpochOutOfBounds => {
+                                let max_sprp = T::EthSpec::slots_per_historical_root() as u64;
+                                let first_subsequent_restore_point_slot =
+                                    ((epoch.start_slot(T::EthSpec::slots_per_epoch()) / max_sprp)
+                                        + 1)
+                                        * max_sprp;
+                                warp_utils::reject::custom_bad_request(format!(
+                                    "epoch out of bounds, consider using state at slot {} instead",
+                                    first_subsequent_restore_point_slot,
+                                ))
+                            }
+                            _ => warp_utils::reject::beacon_chain_error(e.into()),
                         })?;
 
                         // Use either the supplied slot or all slots in the epoch.
