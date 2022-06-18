@@ -79,7 +79,6 @@ pub struct ForkChoiceTest<E: EthSpec> {
 /// This function can be deleted once `ChainSpec::mainnet` enables proposer boosting by default.
 pub fn fork_choice_spec<E: EthSpec>(fork_name: ForkName) -> ChainSpec {
     let mut spec = testing_spec::<E>(fork_name);
-    spec.proposer_score_boost = Some(70);
     spec
 }
 
@@ -160,7 +159,6 @@ impl<E: EthSpec> Case for ForkChoiceTest<E> {
         // This test is skipped until we can do retrospective confirmations of the terminal
         // block after an optimistic sync.
         if self.description == "block_lookup_failed"
-            || !(self.description == "proposer_boost_root_same_slot_untimely_block")
         {
             return Err(Error::SkippedKnownFailure);
         };

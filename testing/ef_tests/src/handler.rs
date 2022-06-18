@@ -468,7 +468,7 @@ impl<E: EthSpec + TypeName> Handler for ForkChoiceHandler<E> {
             return false;
         }
 
-        if ForkName::Base == fork_name {
+        if ForkName::Merge != fork_name {
             return false;
         }
 
