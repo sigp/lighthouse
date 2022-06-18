@@ -708,9 +708,9 @@ pub fn serve<T: BeaconChainTypes>(
                                         first_subsequent_restore_point_slot,
                                     ))
                                 } else {
-                                    warp_utils::reject::custom_bad_request(format!(
-                                        "epoch out of bounds, too far in future"
-                                    ))
+                                    warp_utils::reject::custom_bad_request(
+                                        "epoch out of bounds, too far in future".into(),
+                                    )
                                 }
                             }
                             _ => warp_utils::reject::beacon_chain_error(e.into()),
