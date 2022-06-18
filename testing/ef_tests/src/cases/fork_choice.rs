@@ -159,7 +159,8 @@ impl<E: EthSpec> Case for ForkChoiceTest<E> {
         // TODO(merge): re-enable this test before production.
         // This test is skipped until we can do retrospective confirmations of the terminal
         // block after an optimistic sync.
-        if self.description == "block_lookup_failed" || self.description == "discard_equivocations"
+        if self.description == "block_lookup_failed"
+            || !(self.description == "proposer_boost_root_same_slot_untimely_block")
         {
             return Err(Error::SkippedKnownFailure);
         };
@@ -316,14 +317,20 @@ impl<E: EthSpec> Tester<E> {
     }
 
     pub fn set_tick(&self, tick: u64) {
-        let new_slot = tick.checked_div(self.spec.seconds_per_slot).unwrap();
+        self.harness
+            .chain
+            .slot_clock
+            .set_current_time(Duration::from_secs(tick));
 
-        self.harness.chain.slot_clock.set_slot(new_slot);
+        // Compute the slot time manually to ensure the slot clock is correct.
+        let slot = self.tick_to_slot(tick).unwrap();
+        assert_eq!(slot, self.harness.chain.slot().unwrap());
+
         self.harness
             .chain
             .fork_choice
             .write()
-            .update_time(Slot::new(new_slot))
+            .update_time(slot)
             .unwrap();
     }
 

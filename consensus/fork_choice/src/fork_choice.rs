@@ -954,7 +954,8 @@ where
             // Note: we are relying upon `on_tick` to update `fc_store.time` to ensure we don't
             // get stuck in a loop.
             //TODO(sean) fix chain spec
-            if (previous_slot + 1) % MainnetEthSpec::slots_per_epoch() == 0 {
+            dbg!(&previous_slot);
+            if (previous_slot) % MainnetEthSpec::slots_per_epoch() == 0 {
                 dbg!("hitting epoch boundary");
             }
             self.on_tick(previous_slot + 1, &ChainSpec::mainnet())?
