@@ -25,9 +25,6 @@ use crate::metrics;
 /// slot is less than this number, skip the peer discovery process.
 /// Subnet discovery query takes at most 30 secs, 2 slots take 24s.
 const MIN_PEER_DISCOVERY_SLOT_LOOK_AHEAD: u64 = 2;
-/// The time (in slots) before a last seen validator is considered absent and we unsubscribe from the random
-/// gossip topics that we subscribed to due to the validator connection.
-const LAST_SEEN_VALIDATOR_TIMEOUT: u32 = 150;
 /// The fraction of a slot that we subscribe to a subnet before the required slot.
 ///
 /// Note: The time is calculated as `time = seconds_per_slot / ADVANCE_SUBSCRIPTION_TIME`.
@@ -64,12 +61,6 @@ pub struct AttestationService<T: BeaconChainTypes> {
     /// A collection timeouts to track the existence of aggregate validator subscriptions at an `ExactSubnet`.
     aggregate_validators_on_subnet: HashSetDelay<ExactSubnet>,
 
-    /// A collection of seen validators. These dictate how many random subnets we should be
-    /// subscribed to. As these time out, we unsubscribe for the required random subnets and update
-    /// our ENR.
-    /// This is a set of validator indices.
-    known_validators: HashSetDelay<u64>,
-
     /// The waker for the current thread.
     waker: Option<std::task::Waker>,
 
@@ -104,10 +95,6 @@ impl<T: BeaconChainTypes> AttestationService<T> {
             .saturating_mul(T::EthSpec::slots_per_epoch())
             .saturating_mul(slot_duration.as_millis() as u64);
 
-        // Panics on overflow. Ensure LAST_SEEN_VALIDATOR_TIMEOUT is not too large.
-        let last_seen_val_timeout = slot_duration
-            .checked_mul(LAST_SEEN_VALIDATOR_TIMEOUT)
-            .expect("LAST_SEEN_VALIDATOR_TIMEOUT must not be ridiculously large");
         let default_timeout = slot_duration
             .checked_mul(DEFAULT_EXPIRATION_TIMEOUT)
             .expect("DEFAULT_EXPIRATION_TIMEOUT must not be ridiculoustly large");
@@ -119,7 +106,6 @@ impl<T: BeaconChainTypes> AttestationService<T> {
             subscriptions: HashSet::new(),
             unsubscriptions: HashSetDelay::new(default_timeout),
             aggregate_validators_on_subnet: HashSetDelay::new(default_timeout),
-            known_validators: HashSetDelay::new(last_seen_val_timeout),
             waker: None,
             subscribe_all_subnets: config.subscribe_all_subnets,
             import_all_attestations: config.import_all_attestations,
@@ -159,14 +145,6 @@ impl<T: BeaconChainTypes> AttestationService<T> {
         for subscription in subscriptions {
             metrics::inc_counter(&metrics::SUBNET_SUBSCRIPTION_REQUESTS);
             //NOTE: We assume all subscriptions have been verified before reaching this service
-
-            // Registers the validator with the attestation service.
-            // This will subscribe to long-lived random subnets if required.
-            trace!(self.log,
-                "Validator subscription";
-                "subscription" => ?subscription,
-            );
-            self.add_known_validator(subscription.validator_index);
 
             let subnet_id = match SubnetId::compute_subnet::<T::EthSpec>(
                 subscription.slot,
@@ -374,27 +352,6 @@ impl<T: BeaconChainTypes> AttestationService<T> {
         Ok(())
     }
 
-    /// Updates the `known_validators` mapping and subscribes to a set of random subnets if required.
-    ///
-    /// This also updates the ENR to indicate our long-lived subscription to the subnet
-    fn add_known_validator(&mut self, validator_index: u64) {
-        if self.known_validators.get(&validator_index).is_none() && !self.subscribe_all_subnets {
-            // New validator has subscribed
-            // Subscribe to random topics and update the ENR if needed.
-
-            let spec = &self.beacon_chain.spec;
-
-            if self.random_subnets.len() < spec.attestation_subnet_count as usize {
-                // Still room for subscriptions
-                self.subscribe_to_random_subnets(
-                    self.beacon_chain.spec.random_subnets_per_validator as usize,
-                );
-            }
-        }
-        // add the new validator or update the current timeout for a known validator
-        self.known_validators.insert(validator_index);
-    }
-
     /// Subscribe to long-lived random subnets and update the local ENR bitfield.
     fn subscribe_to_random_subnets(&mut self, no_subnets_to_subscribe: usize) {
         let subnet_count = self.beacon_chain.spec.attestation_subnet_count;
@@ -544,49 +501,6 @@ impl<T: BeaconChainTypes> AttestationService<T> {
         // Subscribe to a new random subnet
         self.subscribe_to_random_subnets(1);
     }
-
-    /// A known validator has not sent a subscription in a while. They are considered offline and the
-    /// beacon node no longer needs to be subscribed to the allocated random subnets.
-    ///
-    /// We don't keep track of a specific validator to random subnet, rather the ratio of active
-    /// validators to random subnets. So when a validator goes offline, we can simply remove the
-    /// allocated amount of random subnets.
-    fn handle_known_validator_expiry(&mut self) {
-        let spec = &self.beacon_chain.spec;
-        let subnet_count = spec.attestation_subnet_count;
-        let random_subnets_per_validator = spec.random_subnets_per_validator;
-        if self.known_validators.len() as u64 * random_subnets_per_validator >= subnet_count {
-            // have too many validators, ignore
-            return;
-        }
-
-        let subscribed_subnets = self.random_subnets.keys().cloned().collect::<Vec<_>>();
-        let to_remove_subnets = subscribed_subnets.choose_multiple(
-            &mut rand::thread_rng(),
-            random_subnets_per_validator as usize,
-        );
-
-        for subnet_id in to_remove_subnets {
-            // If there are no unsubscription events for `subnet_id`, we unsubscribe immediately.
-            if !self
-                .unsubscriptions
-                .keys()
-                .any(|s| s.subnet_id == *subnet_id)
-            {
-                self.events
-                    .push_back(SubnetServiceMessage::Unsubscribe(Subnet::Attestation(
-                        *subnet_id,
-                    )));
-            }
-            // as the long lasting subnet subscription is being removed, remove the subnet_id from
-            // the ENR bitfield
-            self.events
-                .push_back(SubnetServiceMessage::EnrRemove(Subnet::Attestation(
-                    *subnet_id,
-                )));
-            self.random_subnets.remove(subnet_id);
-        }
-    }
 }
 
 impl<T: BeaconChainTypes> Stream for AttestationService<T> {
@@ -620,16 +534,6 @@ impl<T: BeaconChainTypes> Stream for AttestationService<T> {
             Poll::Ready(None) | Poll::Pending => {}
         }
 
-        // process any known validator expiries
-        match self.known_validators.poll_next_unpin(cx) {
-            Poll::Ready(Some(Ok(_validator_index))) => {
-                let _ = self.handle_known_validator_expiry();
-            }
-            Poll::Ready(Some(Err(e))) => {
-                error!(self.log, "Failed to check for random subnet cycles"; "error"=> e);
-            }
-            Poll::Ready(None) | Poll::Pending => {}
-        }
         // poll to remove entries on expiration, no need to act on expiration events
         if let Poll::Ready(Some(Err(e))) = self.aggregate_validators_on_subnet.poll_next_unpin(cx) {
             error!(self.log, "Failed to check for aggregate validator on subnet expirations"; "error"=> e);
