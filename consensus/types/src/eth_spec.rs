@@ -55,6 +55,7 @@ pub trait EthSpec: 'static + Default + Sync + Send + Clone + Debug + PartialEq +
     type GenesisEpoch: Unsigned + Clone + Sync + Send + Debug + PartialEq;
     type JustificationBitsLength: Unsigned + Clone + Sync + Send + Debug + PartialEq + Default;
     type SubnetBitfieldLength: Unsigned + Clone + Sync + Send + Debug + PartialEq + Default;
+    type SubnetsPerNode: Unsigned + Clone + Sync + Send + Debug + PartialEq + Default;
     /*
      * Misc
      */
@@ -119,6 +120,10 @@ pub trait EthSpec: 'static + Default + Sync + Send + Clone + Debug + PartialEq +
 
     fn genesis_epoch() -> Epoch {
         Epoch::new(Self::GenesisEpoch::to_u64())
+    }
+
+    fn subnets_per_node() -> usize {
+        Self::SubnetsPerNode::to_usize()
     }
 
     /// Return the number of committees per slot.
@@ -240,6 +245,7 @@ pub struct MainnetEthSpec;
 impl EthSpec for MainnetEthSpec {
     type JustificationBitsLength = U4;
     type SubnetBitfieldLength = U64;
+    type SubnetsPerNode = U2;
     type MaxValidatorsPerCommittee = U2048;
     type GenesisEpoch = U0;
     type SlotsPerEpoch = U32;
@@ -294,6 +300,7 @@ impl EthSpec for MinimalEthSpec {
     params_from_eth_spec!(MainnetEthSpec {
         JustificationBitsLength,
         SubnetBitfieldLength,
+        SubnetsPerNode,
         SyncCommitteeSubnetCount,
         MaxValidatorsPerCommittee,
         GenesisEpoch,
@@ -329,6 +336,7 @@ pub struct GnosisEthSpec;
 impl EthSpec for GnosisEthSpec {
     type JustificationBitsLength = U4;
     type SubnetBitfieldLength = U64;
+    type SubnetsPerNode = U2;
     type MaxValidatorsPerCommittee = U2048;
     type GenesisEpoch = U0;
     type SlotsPerEpoch = U16;

@@ -1,8 +1,12 @@
 //! Identifies each shard by an integer identifier.
-use crate::{AttestationData, ChainSpec, CommitteeIndex, EthSpec, Slot};
+use crate::{AttestationData, ChainSpec, CommitteeIndex, Epoch, EthSpec, Slot};
+use eth2_hashing::hash;
+use ethereum_types::U256;
+use int_to_bytes::int_to_bytes32;
 use safe_arith::{ArithError, SafeArith};
 use serde_derive::{Deserialize, Serialize};
 use std::ops::{Deref, DerefMut};
+use swap_or_not_shuffle::compute_shuffled_index;
 
 const MAX_SUBNET_ID: usize = 64;
 
@@ -70,6 +74,38 @@ impl SubnetId {
             .safe_add(committee_index)?
             .safe_rem(spec.attestation_subnet_count)?
             .into())
+    }
+
+    pub fn compute_subnets_for_epoch<T: EthSpec>(
+        node_id: U256,
+        epoch: Epoch,
+        spec: &ChainSpec,
+    ) -> Vec<SubnetId> {
+        const ATTESTATION_SUBNET_EXTRA_BITS: usize = 6;
+        const SUBNETS_PER_NODE: usize = 2;
+        const ATTESTATION_SUBNET_PREFIX_BITS: usize = 7;
+        const SUBNET_DURATION_IN_EPOCHS: u64 = 30;
+        // ceil(log2(SUBNETS_PER_NODE)) + ATTESTATION_SUBNET_EXTRA_BITS;
+
+        // ATTESTATION_SUBNET_EXTRA_BITS needs to be <= usize::BITS;
+        let node_id_prefix = (node_id >> (256 - ATTESTATION_SUBNET_EXTRA_BITS)).as_usize();
+        let permutation_seed = eth2_hashing::hash(&int_to_bytes::int_to_bytes8(
+            epoch.as_u64() / SUBNET_DURATION_IN_EPOCHS,
+        ));
+        let num_subnets = 1 << ATTESTATION_SUBNET_PREFIX_BITS;
+
+        let permutated_prefix = compute_shuffled_index(
+            node_id_prefix,
+            num_subnets,
+            &permutation_seed,
+            spec.shuffle_round_count,
+        )
+        .expect("Every shuffling condition is met ¿?") as u64;
+        (0..SUBNETS_PER_NODE)
+            .map(|idx| {
+                SubnetId::new((permutated_prefix + idx as u64) % spec.attestation_subnet_count)
+            })
+            .collect()
     }
 }
 
