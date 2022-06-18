@@ -2067,58 +2067,40 @@ mod tests {
 
         #[derive(Clone, Debug)]
         struct PeerCondition {
-            direction: Direction,
-            attestation_subnets: Vec<AttestationSubnetId>,
-            sync_committee_subnets: Vec<SyncCommitteeSubnetId>,
+            outgoing: bool,
+            attestation_net_bitfield: Vec<bool>,
+            sync_committee_net_bitfield: Vec<bool>,
             score: f64,
             gossipsub_score: f64,
         }
 
         impl Arbitrary for PeerCondition {
-            fn arbitrary(g: &mut Gen) -> Self {
+            fn arbitrary<G: Gen>(g: &mut G) -> Self {
+                let attestation_net_bitfield = {
+                    let len = <E as EthSpec>::SubnetBitfieldLength::to_usize();
+                    let mut bitfield = vec![];
+                    for _ in 0..len {
+                        bitfield.push(bool::arbitrary(g));
+                    }
+                    bitfield
+                };
+
+                let sync_committee_net_bitfield = {
+                    let len = <E as EthSpec>::SyncCommitteeSubnetCount::to_usize();
+                    let mut bitfield = vec![];
+                    for _ in 0..len {
+                        bitfield.push(bool::arbitrary(g));
+                    }
+                    bitfield
+                };
+
                 PeerCondition {
-                    direction: Direction::arbitrary(g),
-                    attestation_subnets: Vec::arbitrary(g),
-                    sync_committee_subnets: Vec::arbitrary(g),
+                    outgoing: bool::arbitrary(g),
+                    attestation_net_bitfield,
+                    sync_committee_net_bitfield,
                     score: f64::arbitrary(g),
                     gossipsub_score: f64::arbitrary(g),
                 }
-            }
-        }
-
-        #[derive(Clone, Debug)]
-        enum Direction {
-            Outgoing,
-            Incoming,
-        }
-
-        impl Arbitrary for Direction {
-            fn arbitrary(g: &mut Gen) -> Self {
-                g.choose(&[Direction::Outgoing, Direction::Incoming])
-                    .unwrap()
-                    .clone()
-            }
-        }
-
-        #[derive(Clone, Debug)]
-        struct AttestationSubnetId(usize);
-
-        impl Arbitrary for AttestationSubnetId {
-            fn arbitrary(g: &mut Gen) -> Self {
-                let len = <E as EthSpec>::SubnetBitfieldLength::to_usize();
-                let id_range = (0..len).collect::<Vec<usize>>();
-                AttestationSubnetId(*g.choose(&id_range).unwrap())
-            }
-        }
-
-        #[derive(Clone, Debug)]
-        struct SyncCommitteeSubnetId(usize);
-
-        impl Arbitrary for SyncCommitteeSubnetId {
-            fn arbitrary(g: &mut Gen) -> Self {
-                let len = <E as EthSpec>::SyncCommitteeSubnetCount::to_usize();
-                let id_range = (0..len).collect::<Vec<usize>>();
-                SyncCommitteeSubnetId(*g.choose(&id_range).unwrap())
             }
         }
 
@@ -2136,29 +2118,26 @@ mod tests {
                     let mut attnets = crate::types::EnrAttestationBitfield::<E>::new();
                     let mut syncnets = crate::types::EnrSyncCommitteeBitfield::<E>::new();
 
-                    match condition.direction {
-                        Direction::Incoming => {
-                            peer_manager.inject_connect_ingoing(
-                                &peer,
-                                "/ip4/0.0.0.0".parse().unwrap(),
-                                None,
-                            );
-                        }
-                        Direction::Outgoing => {
-                            peer_manager.inject_connect_outgoing(
-                                &peer,
-                                "/ip4/0.0.0.0".parse().unwrap(),
-                                None,
-                            );
-                        }
+                    if condition.outgoing {
+                        peer_manager.inject_connect_outgoing(
+                            &peer,
+                            "/ip4/0.0.0.0".parse().unwrap(),
+                            None,
+                        );
+                    } else {
+                        peer_manager.inject_connect_ingoing(
+                            &peer,
+                            "/ip4/0.0.0.0".parse().unwrap(),
+                            None,
+                        );
                     }
 
-                    for id in &condition.attestation_subnets {
-                        attnets.set(id.0, true).unwrap();
+                    for (i, value) in condition.attestation_net_bitfield.iter().enumerate() {
+                        attnets.set(i, *value).unwrap();
                     }
 
-                    for id in &condition.sync_committee_subnets {
-                        syncnets.set(id.0, true).unwrap();
+                    for (i, value) in condition.sync_committee_net_bitfield.iter().enumerate() {
+                        syncnets.set(i, *value).unwrap();
                     }
 
                     let metadata = crate::rpc::MetaDataV2 {
