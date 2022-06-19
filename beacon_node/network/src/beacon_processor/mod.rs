@@ -75,7 +75,9 @@ mod work_reprocessing_queue;
 mod worker;
 
 use crate::beacon_processor::work_reprocessing_queue::QueuedBlock;
-pub use worker::{ChainSegmentProcessId, GossipAggregatePackage, GossipAttestationPackage};
+pub use worker::{
+    ChainSegmentProcessId, FailureMode, GossipAggregatePackage, GossipAttestationPackage,
+};
 
 /// The maximum size of the channel for work events to the `BeaconProcessor`.
 ///
