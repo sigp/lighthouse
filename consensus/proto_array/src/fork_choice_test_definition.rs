@@ -78,7 +78,7 @@ impl ForkChoiceTestDefinition {
 
         let junk_shuffling_id =
             AttestationShufflingId::from_components(Epoch::new(0), Hash256::zero());
-        let mut fork_choice = ProtoArrayForkChoice::new(
+        let mut fork_choice = ProtoArrayForkChoice::new::<MainnetEthSpec>(
             self.finalized_block_slot,
             Hash256::zero(),
             self.justified_checkpoint,
@@ -198,12 +198,14 @@ impl ForkChoiceTestDefinition {
                         unrealized_justified_checkpoint: None,
                         unrealized_finalized_checkpoint: None,
                     };
-                    fork_choice.process_block(block, slot).unwrap_or_else(|e| {
-                        panic!(
-                            "process_block op at index {} returned error: {:?}",
-                            op_index, e
-                        )
-                    });
+                    fork_choice
+                        .process_block::<MainnetEthSpec>(block, slot)
+                        .unwrap_or_else(|e| {
+                            panic!(
+                                "process_block op at index {} returned error: {:?}",
+                                op_index, e
+                            )
+                        });
                     check_bytes_round_trip(&fork_choice);
                 }
                 Operation::ProcessAttestation {

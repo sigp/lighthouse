@@ -284,7 +284,7 @@ impl ProtoArray {
 
             // If the node has a parent, try to update its best-child and best-descendant.
             if let Some(parent_index) = node.parent {
-                self.maybe_update_best_child_and_descendant(
+                self.maybe_update_best_child_and_descendant::<E>(
                     parent_index,
                     node_index,
                     current_slot,
@@ -298,7 +298,7 @@ impl ProtoArray {
     /// Register a block with the fork choice.
     ///
     /// It is only sane to supply a `None` parent for the genesis block.
-    pub fn on_block(&mut self, block: Block, current_slot: Slot) -> Result<(), Error> {
+    pub fn on_block<E: EthSpec>(&mut self, block: Block, current_slot: Slot) -> Result<(), Error> {
         // If the block is already known, simply ignore it.
         if self.indices.contains_key(&block.root) {
             return Ok(());
@@ -345,7 +345,11 @@ impl ProtoArray {
         self.nodes.push(node.clone());
 
         if let Some(parent_index) = node.parent {
-            self.maybe_update_best_child_and_descendant(parent_index, node_index, current_slot)?;
+            self.maybe_update_best_child_and_descendant::<E>(
+                parent_index,
+                node_index,
+                current_slot,
+            )?;
 
             if matches!(block.execution_status, ExecutionStatus::Valid(_)) {
                 self.propagate_execution_payload_validation_by_index(parent_index)?;
@@ -617,7 +621,7 @@ impl ProtoArray {
     /// been called without a subsequent `Self::apply_score_changes` call. This is because
     /// `on_new_block` does not attempt to walk backwards through the tree and update the
     /// best-child/best-descendant links.
-    pub fn find_head(
+    pub fn find_head<E: EthSpec>(
         &self,
         justified_root: &Hash256,
         current_slot: Slot,
@@ -654,7 +658,7 @@ impl ProtoArray {
             .ok_or(Error::InvalidBestDescendant(best_descendant_index))?;
 
         // Perform a sanity check that the node is indeed valid to be the head.
-        if !self.node_is_viable_for_head(best_node, current_slot) {
+        if !self.node_is_viable_for_head::<E>(best_node, current_slot) {
             return Err(Error::InvalidBestNode(Box::new(InvalidBestNodeInfo {
                 start_root: *justified_root,
                 justified_checkpoint: self.justified_checkpoint,
@@ -750,7 +754,7 @@ impl ProtoArray {
     ///     best-descendant.
     /// - The child is not the best child but becomes the best child.
     /// - The child is not the best child and does not become the best child.
-    fn maybe_update_best_child_and_descendant(
+    fn maybe_update_best_child_and_descendant<E: EthSpec>(
         &mut self,
         parent_index: usize,
         child_index: usize,
@@ -766,7 +770,8 @@ impl ProtoArray {
             .get(parent_index)
             .ok_or(Error::InvalidNodeIndex(parent_index))?;
 
-        let child_leads_to_viable_head = self.node_leads_to_viable_head(child, current_slot)?;
+        let child_leads_to_viable_head =
+            self.node_leads_to_viable_head::<E>(child, current_slot)?;
 
         // These three variables are aliases to the three options that we may set the
         // `parent.best_child` and `parent.best_descendant` to.
@@ -796,7 +801,7 @@ impl ProtoArray {
                         .ok_or(Error::InvalidBestDescendant(best_child_index))?;
 
                     let best_child_leads_to_viable_head =
-                        self.node_leads_to_viable_head(best_child, current_slot)?;
+                        self.node_leads_to_viable_head::<E>(best_child, current_slot)?;
 
                     if child_leads_to_viable_head && !best_child_leads_to_viable_head {
                         // The child leads to a viable head, but the current best-child doesn't.
@@ -841,7 +846,7 @@ impl ProtoArray {
 
     /// Indicates if the node itself is viable for the head, or if it's best descendant is viable
     /// for the head.
-    fn node_leads_to_viable_head(
+    fn node_leads_to_viable_head<E: EthSpec>(
         &self,
         node: &ProtoNode,
         current_slot: Slot,
@@ -853,12 +858,13 @@ impl ProtoArray {
                     .get(best_descendant_index)
                     .ok_or(Error::InvalidBestDescendant(best_descendant_index))?;
 
-                self.node_is_viable_for_head(best_descendant, current_slot)
+                self.node_is_viable_for_head::<E>(best_descendant, current_slot)
             } else {
                 false
             };
 
-        Ok(best_descendant_is_viable_for_head || self.node_is_viable_for_head(node, current_slot))
+        Ok(best_descendant_is_viable_for_head
+            || self.node_is_viable_for_head::<E>(node, current_slot))
     }
 
     /// This is the equivalent to the `filter_block_tree` function in the eth2 spec:
@@ -867,7 +873,7 @@ impl ProtoArray {
     ///
     /// Any node that has a different finalized or justified epoch should not be viable for the
     /// head.
-    fn node_is_viable_for_head(&self, node: &ProtoNode, current_slot: Slot) -> bool {
+    fn node_is_viable_for_head<E: EthSpec>(&self, node: &ProtoNode, current_slot: Slot) -> bool {
         if node.execution_status.is_invalid() {
             return false;
         }
@@ -892,9 +898,7 @@ impl ProtoArray {
             node.justified_checkpoint,
             node.finalized_checkpoint,
         ) {
-            if node.slot.epoch(MainnetEthSpec::slots_per_epoch())
-                < current_slot.epoch(MainnetEthSpec::slots_per_epoch())
-            {
+            if node.slot.epoch(E::slots_per_epoch()) < current_slot.epoch(E::slots_per_epoch()) {
                 checkpoint_match_predicate(
                     unrealized_justified_checkpoint,
                     unrealized_finalized_checkpoint,

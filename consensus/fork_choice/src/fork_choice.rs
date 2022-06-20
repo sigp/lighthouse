@@ -303,7 +303,7 @@ where
             },
         );
 
-        let proto_array = ProtoArrayForkChoice::new(
+        let proto_array = ProtoArrayForkChoice::new::<E>(
             finalized_block_slot,
             finalized_block_state_root,
             *fc_store.justified_checkpoint(),
@@ -695,7 +695,7 @@ where
 
         // This does not apply a vote to the block, it just makes fork choice aware of the block so
         // it can still be identified as the head even if it doesn't have any votes.
-        self.proto_array.process_block(
+        self.proto_array.process_block::<E>(
             ProtoBlock {
                 slot: block.slot(),
                 root: block_root,
