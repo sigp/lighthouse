@@ -253,12 +253,11 @@ impl<T: EthSpec> SnapshotCache<T> {
             .position(|snapshot| snapshot.beacon_block_root == block_root)
             .map(|i| {
                 if let Some(cache) = self.snapshots.get(i) {
-                    if block_slot > cache.beacon_block.slot() + 1 {
-                        return (cache.clone_as_pre_state(), true);
-                    }
+                    // Avoid cloning the block during sync (when the `block_delay` is `None`).
                     if let Some(delay) = block_delay {
                         if delay >= MINIMUM_BLOCK_DELAY_FOR_CLONE
                             && delay <= Duration::from_secs(spec.seconds_per_slot) * 4
+                            || block_slot > cache.beacon_block.slot() + 1
                         {
                             return (cache.clone_as_pre_state(), true);
                         }
