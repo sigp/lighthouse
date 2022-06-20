@@ -438,7 +438,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
         )
         .arg(
             Arg::with_name("execution-jwt-id")
-                .long("excution-jwt-id")
+                .long("execution-jwt-id")
                 .value_name("EXECUTION-JWT-ID")
                 .alias("jwt-id")
                 .help("Used by the beacon node to communicate a unique identifier to execution nodes \

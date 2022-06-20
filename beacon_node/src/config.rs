@@ -275,7 +275,7 @@ pub fn get_config<E: EthSpec>(
                 .map_err(|e| format!("payload-builders contains an invalid URL {:?}", e))?;
         }
 
-        // jwt-secret has to be specified if `--merge` or `execution-endpoints` is specified
+        // `--execution-jwt` has to be specified if `--merge` or `--execution-endpoint` is specified
         let secret_files: String = clap_utils::parse_required(cli_args, "execution-jwt")?;
         let mut secret_files: Vec<PathBuf> = secret_files
             .split(',')
