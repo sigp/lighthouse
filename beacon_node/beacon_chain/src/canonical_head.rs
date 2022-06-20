@@ -619,11 +619,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     }
 
     /// Perform updates to caches and other components after the canonical head has been changed.
-    ///
-    /// # Deadlock Warning
-    ///
-    /// Taking a write lock on the `self.canonical_head` in this function will result in a deadlock!
-    /// This is because `Self::recompute_head_internal` will already be holding a read-lock.
     fn after_new_head(
         self: &Arc<Self>,
         old_cached_head: &CachedHead<T::EthSpec>,
@@ -753,11 +748,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
     /// Perform updates to caches and other components after the finalized checkpoint has been
     /// changed.
-    ///
-    /// # Deadlock Warning
-    ///
-    /// Taking a write lock on the `self.canonical_head` in this function will result in a deadlock!
-    /// This is because `Self::recompute_head_internal` will already be holding a read-lock.
     fn after_finalization(
         self: &Arc<Self>,
         new_cached_head: &CachedHead<T::EthSpec>,
@@ -899,11 +889,6 @@ fn check_finalized_payload_validity<T: BeaconChainTypes>(
 }
 
 /// Check to ensure that the transition from `old_view` to `new_view` will not revert finality.
-///
-/// ## Notes
-///
-/// This function is called whilst holding a write-lock on the `canonical_head`. To ensure dead-lock
-/// safety, **do not take any other locks inside this function**.
 fn check_against_finality_reversion(
     old_view: &ForkChoiceView,
     new_view: &ForkChoiceView,

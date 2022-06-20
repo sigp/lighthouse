@@ -138,8 +138,8 @@ pub fn compute_proposer_duties_from_head<T: BeaconChainTypes>(
     current_epoch: Epoch,
     chain: &BeaconChain<T>,
 ) -> Result<(Vec<usize>, Hash256, ExecutionStatus, Fork), BeaconChainError> {
-    // Atomically collect information about the head whilst hogging the `canonical_head_lock` as
-    // little as possible.
+    // Atomically collect information about the head whilst holding the canonical head `Arc` as
+    // short as possible.
     let (mut state, head_state_root, head_block_root) = {
         let head = chain.canonical_head.cached_head();
         // Take a copy of the head state.

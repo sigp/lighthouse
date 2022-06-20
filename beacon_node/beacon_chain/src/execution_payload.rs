@@ -193,7 +193,7 @@ pub async fn validate_merge_block<'a, T: BeaconChainTypes>(
                 .now()
                 .ok_or(BeaconChainError::UnableToReadSlot)?;
             // Use a blocking task to check if the block is an optimistic candidate. Interacting
-            // with the `canonical_head` lock in an async task can block the core executor.
+            // with the `fork_choice` lock in an async task can block the core executor.
             let inner_chain = chain.clone();
             let block_parent_root = block.parent_root();
             let block_slot = block.slot();
@@ -403,7 +403,7 @@ where
 
     // Try to obtain the finalized proto block from fork choice.
     //
-    // Use a blocking task to interact with the `canonical_head` lock otherwise we risk blocking the
+    // Use a blocking task to interact with the `fork_choice` lock otherwise we risk blocking the
     // core `tokio` executor.
     let inner_chain = chain.clone();
     let finalized_proto_block = chain
