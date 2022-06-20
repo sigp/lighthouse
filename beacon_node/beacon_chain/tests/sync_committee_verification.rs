@@ -408,7 +408,7 @@ async fn aggregated_gossip_verification() {
                 valid_aggregate.message.contribution.clone(),
                 None,
                 &non_aggregator_sk,
-                &harness.chain.canonical_head.read().head_fork(),
+                &harness.chain.canonical_head.cached_head().head_fork(),
                 harness.chain.genesis_validators_root,
                 &harness.chain.spec,
             )

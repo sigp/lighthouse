@@ -78,8 +78,7 @@ impl ForkChoiceTest {
                 .harness
                 .chain
                 .canonical_head
-                .read()
-                .fork_choice
+                .fork_choice_read_lock()
                 .fc_store(),
         )
     }
@@ -116,15 +115,7 @@ impl ForkChoiceTest {
 
     /// Assert the given slot is greater than the head slot.
     pub fn assert_finalized_epoch_is_less_than(self, epoch: Epoch) -> Self {
-        assert!(
-            self.harness
-                .chain
-                .canonical_head
-                .read()
-                .finalized_checkpoint()
-                .epoch
-                < epoch
-        );
+        assert!(self.harness.finalized_checkpoint().epoch < epoch);
         self
     }
 
@@ -158,16 +149,14 @@ impl ForkChoiceTest {
         self.harness
             .chain
             .canonical_head
-            .write()
-            .fork_choice
+            .fork_choice_write_lock()
             .update_time(self.harness.chain.slot().unwrap())
             .unwrap();
         func(
             self.harness
                 .chain
                 .canonical_head
-                .read()
-                .fork_choice
+                .fork_choice_read_lock()
                 .queued_attestations(),
         );
         self
@@ -294,8 +283,7 @@ impl ForkChoiceTest {
         self.harness
             .chain
             .canonical_head
-            .write()
-            .fork_choice
+            .fork_choice_write_lock()
             .on_block(
                 current_slot,
                 signed_block.message(),
@@ -337,8 +325,7 @@ impl ForkChoiceTest {
             .harness
             .chain
             .canonical_head
-            .write()
-            .fork_choice
+            .fork_choice_write_lock()
             .on_block(
                 current_slot,
                 signed_block.message(),
@@ -358,8 +345,7 @@ impl ForkChoiceTest {
     /// database.
     fn check_justified_balances(&self) {
         let harness = &self.harness;
-        let head_lock = self.harness.chain.canonical_head.read();
-        let fc = &head_lock.fork_choice;
+        let fc = self.harness.chain.canonical_head.fork_choice_read_lock();
 
         let state_root = harness
             .chain
@@ -484,12 +470,12 @@ impl ForkChoiceTest {
 
     /// Check to ensure that we can read the finalized block. This is a regression test.
     pub fn check_finalized_block_is_accessible(self) -> Self {
-        let canonical_head = self.harness.chain.canonical_head.write();
-        canonical_head
-            .fork_choice
-            .get_block(&canonical_head.finalized_checkpoint().root)
+        self.harness
+            .chain
+            .canonical_head
+            .fork_choice_read_lock()
+            .get_block(&self.harness.finalized_checkpoint().root)
             .unwrap();
-        drop(canonical_head);
 
         self
     }
@@ -502,8 +488,7 @@ fn is_safe_to_update(slot: Slot, spec: &ChainSpec) -> bool {
 #[test]
 fn justified_and_finalized_blocks() {
     let tester = ForkChoiceTest::new();
-    let head_lock = tester.harness.chain.canonical_head.read();
-    let fork_choice = &head_lock.fork_choice;
+    let fork_choice = tester.harness.chain.canonical_head.fork_choice_read_lock();
 
     let justified_checkpoint = fork_choice.justified_checkpoint();
     assert_eq!(justified_checkpoint.epoch, 0);
@@ -1118,12 +1103,7 @@ async fn weak_subjectivity_check_passes() {
         .await
         .assert_finalized_epoch(2);
 
-    let checkpoint = setup_harness
-        .harness
-        .chain
-        .canonical_head
-        .read()
-        .finalized_checkpoint();
+    let checkpoint = setup_harness.harness.finalized_checkpoint();
 
     let chain_config = ChainConfig {
         weak_subjectivity_checkpoint: Some(checkpoint),
@@ -1150,12 +1130,7 @@ async fn weak_subjectivity_check_fails_early_epoch() {
         .await
         .assert_finalized_epoch(2);
 
-    let mut checkpoint = setup_harness
-        .harness
-        .chain
-        .canonical_head
-        .read()
-        .finalized_checkpoint();
+    let mut checkpoint = setup_harness.harness.finalized_checkpoint();
 
     checkpoint.epoch = checkpoint.epoch - 1;
 
@@ -1182,12 +1157,7 @@ async fn weak_subjectivity_check_fails_late_epoch() {
         .await
         .assert_finalized_epoch(2);
 
-    let mut checkpoint = setup_harness
-        .harness
-        .chain
-        .canonical_head
-        .read()
-        .finalized_checkpoint();
+    let mut checkpoint = setup_harness.harness.finalized_checkpoint();
 
     checkpoint.epoch = checkpoint.epoch + 1;
 
@@ -1214,12 +1184,7 @@ async fn weak_subjectivity_check_fails_incorrect_root() {
         .await
         .assert_finalized_epoch(2);
 
-    let mut checkpoint = setup_harness
-        .harness
-        .chain
-        .canonical_head
-        .read()
-        .finalized_checkpoint();
+    let mut checkpoint = setup_harness.harness.finalized_checkpoint();
 
     checkpoint.root = Hash256::zero();
 
@@ -1245,12 +1210,7 @@ async fn weak_subjectivity_check_epoch_boundary_is_skip_slot() {
         .unwrap();
 
     // get the head, it will become the finalized root of epoch 4
-    let checkpoint_root = setup_harness
-        .harness
-        .chain
-        .canonical_head
-        .read()
-        .head_block_root();
+    let checkpoint_root = setup_harness.harness.head_block_root();
 
     setup_harness
         // epoch 3 will be entirely skip slots
@@ -1297,12 +1257,7 @@ async fn weak_subjectivity_check_epoch_boundary_is_skip_slot_failure() {
         .unwrap();
 
     // get the head, it will become the finalized root of epoch 4
-    let checkpoint_root = setup_harness
-        .harness
-        .chain
-        .canonical_head
-        .read()
-        .head_block_root();
+    let checkpoint_root = setup_harness.harness.head_block_root();
 
     setup_harness
         // epoch 3 will be entirely skip slots

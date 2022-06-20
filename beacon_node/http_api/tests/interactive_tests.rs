@@ -99,7 +99,7 @@ pub async fn fork_choice_before_proposal() {
 
     // Due to proposer boost, the head should be C during slot C.
     assert_eq!(
-        harness.chain.canonical_head.read().head_block_root(),
+        harness.chain.canonical_head.cached_head().head_block_root(),
         block_root_c.into()
     );
 
@@ -124,7 +124,7 @@ pub async fn fork_choice_before_proposal() {
 
     // Head is now B.
     assert_eq!(
-        harness.chain.canonical_head.read().head_block_root(),
+        harness.chain.canonical_head.cached_head().head_block_root(),
         block_root_b.into()
     );
     // D's parent is B.

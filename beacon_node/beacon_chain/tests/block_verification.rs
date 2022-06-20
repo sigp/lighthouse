@@ -890,7 +890,7 @@ async fn block_gossip_verification() {
     *block.proposer_index_mut() = other_proposer;
     let block = block.sign(
         &generate_deterministic_keypair(other_proposer as usize).sk,
-        &harness.chain.canonical_head.read().head_fork(),
+        &harness.chain.canonical_head.cached_head().head_fork(),
         harness.chain.genesis_validators_root,
         &harness.chain.spec,
     );

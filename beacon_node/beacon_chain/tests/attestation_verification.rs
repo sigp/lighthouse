@@ -615,7 +615,7 @@ async fn aggregated_gossip_verification() {
                     tester.valid_aggregate.message.aggregate.clone(),
                     None,
                     &sk,
-                    &chain.canonical_head.read().head_fork(),
+                    &chain.canonical_head.cached_head().head_fork(),
                     chain.genesis_validators_root,
                     &chain.spec,
                 )

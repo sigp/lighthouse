@@ -166,12 +166,20 @@ impl ApiTester {
         let chain = harness.chain.clone();
 
         assert_eq!(
-            chain.canonical_head.read().finalized_checkpoint().epoch,
+            chain
+                .canonical_head
+                .cached_head()
+                .finalized_checkpoint()
+                .epoch,
             2,
             "precondition: finality"
         );
         assert_eq!(
-            chain.canonical_head.read().justified_checkpoint().epoch,
+            chain
+                .canonical_head
+                .cached_head()
+                .justified_checkpoint()
+                .epoch,
             3,
             "precondition: justification"
         );
@@ -328,7 +336,7 @@ impl ApiTester {
             StateId::Root(Hash256::zero()),
         ];
         ids.push(StateId::Root(
-            self.chain.canonical_head.read().head_state_root(),
+            self.chain.canonical_head.cached_head().head_state_root(),
         ));
         ids
     }
@@ -348,7 +356,7 @@ impl ApiTester {
             BlockId::Root(Hash256::zero()),
         ];
         ids.push(BlockId::Root(
-            self.chain.canonical_head.read().head_block_root(),
+            self.chain.canonical_head.cached_head().head_block_root(),
         ));
         ids
     }
@@ -364,7 +372,7 @@ impl ApiTester {
                 let finalized_slot = self
                     .chain
                     .canonical_head
-                    .read()
+                    .cached_head()
                     .finalized_checkpoint()
                     .epoch
                     .start_slot(E::slots_per_epoch());
@@ -381,7 +389,7 @@ impl ApiTester {
                 let justified_slot = self
                     .chain
                     .canonical_head
-                    .read()
+                    .cached_head()
                     .justified_checkpoint()
                     .epoch
                     .start_slot(E::slots_per_epoch());
@@ -428,13 +436,13 @@ impl ApiTester {
                 .map(|res| res.data.root);
 
             let expected = match state_id {
-                StateId::Head => Some(self.chain.canonical_head.read().head_state_root()),
+                StateId::Head => Some(self.chain.canonical_head.cached_head().head_state_root()),
                 StateId::Genesis => Some(self.chain.genesis_state_root),
                 StateId::Finalized => {
                     let finalized_slot = self
                         .chain
                         .canonical_head
-                        .read()
+                        .cached_head()
                         .finalized_checkpoint()
                         .epoch
                         .start_slot(E::slots_per_epoch());
@@ -445,7 +453,7 @@ impl ApiTester {
                     let justified_slot = self
                         .chain
                         .canonical_head
-                        .read()
+                        .cached_head()
                         .justified_checkpoint()
                         .epoch
                         .start_slot(E::slots_per_epoch());
@@ -756,14 +764,22 @@ impl ApiTester {
 
     fn get_block_root(&self, block_id: BlockId) -> Option<Hash256> {
         match block_id {
-            BlockId::Head => Some(self.chain.canonical_head.read().head_block_root()),
+            BlockId::Head => Some(self.chain.canonical_head.cached_head().head_block_root()),
             BlockId::Genesis => Some(self.chain.genesis_block_root),
-            BlockId::Finalized => {
-                Some(self.chain.canonical_head.read().finalized_checkpoint().root)
-            }
-            BlockId::Justified => {
-                Some(self.chain.canonical_head.read().justified_checkpoint().root)
-            }
+            BlockId::Finalized => Some(
+                self.chain
+                    .canonical_head
+                    .cached_head()
+                    .finalized_checkpoint()
+                    .root,
+            ),
+            BlockId::Justified => Some(
+                self.chain
+                    .canonical_head
+                    .cached_head()
+                    .justified_checkpoint()
+                    .root,
+            ),
             BlockId::Slot(slot) => self
                 .chain
                 .block_root_at_slot(slot, WhenSlotSkipped::None)
@@ -1322,7 +1338,7 @@ impl ApiTester {
 
     pub async fn test_get_node_syncing(self) -> Self {
         let result = self.client.get_node_syncing().await.unwrap().data;
-        let head_slot = self.chain.canonical_head.read().head_slot();
+        let head_slot = self.chain.canonical_head.cached_head().head_slot();
         let sync_distance = self.chain.slot().unwrap() - head_slot;
 
         let expected = SyncingData {
@@ -1878,7 +1894,7 @@ impl ApiTester {
     }
 
     pub async fn test_block_production(self) -> Self {
-        let fork = self.chain.canonical_head.read().head_fork();
+        let fork = self.chain.canonical_head.cached_head().head_fork();
         let genesis_validators_root = self.chain.genesis_validators_root;
 
         for _ in 0..E::slots_per_epoch() * 3 {
@@ -1960,7 +1976,7 @@ impl ApiTester {
     }
 
     pub async fn test_block_production_verify_randao_invalid(self) -> Self {
-        let fork = self.chain.canonical_head.read().head_fork();
+        let fork = self.chain.canonical_head.cached_head().head_fork();
         let genesis_validators_root = self.chain.genesis_validators_root;
 
         for _ in 0..E::slots_per_epoch() {

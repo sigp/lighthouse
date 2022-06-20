@@ -134,8 +134,7 @@ async fn produces_attestations() {
             let early_attestation = {
                 let proto_block = chain
                     .canonical_head
-                    .read()
-                    .fork_choice
+                    .fork_choice_read_lock()
                     .get_block(&block_root)
                     .unwrap();
                 chain
@@ -189,8 +188,7 @@ async fn early_attester_cache_old_request() {
     let head_proto_block = harness
         .chain
         .canonical_head
-        .read()
-        .fork_choice
+        .fork_choice_read_lock()
         .get_block(&head.beacon_block_root)
         .unwrap();
 

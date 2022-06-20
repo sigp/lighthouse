@@ -2529,13 +2529,11 @@ fn assert_chains_pretty_much_the_same<T: BeaconChainTypes>(a: &BeaconChain<T>, b
     let spec = T::EthSpec::default_spec();
     assert!(
         a.canonical_head
-            .write()
-            .fork_choice
+            .fork_choice_write_lock()
             .get_head(slot, &spec)
             .unwrap()
             == b.canonical_head
-                .write()
-                .fork_choice
+                .fork_choice_write_lock()
                 .get_head(slot, &spec)
                 .unwrap(),
         "fork_choice heads should be equal"

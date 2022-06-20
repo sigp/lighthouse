@@ -147,8 +147,8 @@ fn find_reorg_slot(
     new_block_root: Hash256,
 ) -> Slot {
     let (old_state, old_block_root) = {
-        let head = chain.canonical_head.read();
-        let old_state = head.head_snapshot.beacon_state.clone();
+        let head = chain.canonical_head.cached_head();
+        let old_state = head.snapshot.beacon_state.clone();
         let old_block_root = head.head_block_root();
         (old_state, old_block_root)
     };
@@ -491,8 +491,7 @@ async fn unaggregated_attestations_added_to_fork_choice_some_none() {
         .await;
 
     let state = &harness.chain.head().expect("should get head").beacon_state;
-    let mut canonical_head = harness.chain.canonical_head.write();
-    let fork_choice = &mut canonical_head.fork_choice;
+    let mut fork_choice = harness.chain.canonical_head.fork_choice_write_lock();
 
     // Move forward a slot so all queued attestations can be processed.
     harness.advance_slot();
@@ -605,8 +604,7 @@ async fn unaggregated_attestations_added_to_fork_choice_all_updated() {
         .await;
 
     let state = &harness.chain.head().expect("should get head").beacon_state;
-    let mut canonical_head = harness.chain.canonical_head.write();
-    let fork_choice = &mut canonical_head.fork_choice;
+    let mut fork_choice = harness.chain.canonical_head.fork_choice_write_lock();
 
     // Move forward a slot so all queued attestations can be processed.
     harness.advance_slot();

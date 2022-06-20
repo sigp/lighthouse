@@ -86,8 +86,7 @@ impl InvalidPayloadRig {
         self.harness
             .chain
             .canonical_head
-            .read()
-            .fork_choice
+            .fork_choice_read_lock()
             .get_block(&block_root)
             .unwrap()
             .execution_status
@@ -156,12 +155,7 @@ impl InvalidPayloadRig {
         let slots_till_justification = E::slots_per_epoch() * 3;
         self.build_blocks(slots_till_justification, is_valid).await;
 
-        let justified_checkpoint = self
-            .harness
-            .chain
-            .canonical_head
-            .read()
-            .justified_checkpoint();
+        let justified_checkpoint = self.harness.justified_checkpoint();
         assert_eq!(justified_checkpoint.epoch, 2);
     }
 
@@ -189,8 +183,7 @@ impl InvalidPayloadRig {
         self.harness
             .chain
             .canonical_head
-            .write()
-            .fork_choice
+            .fork_choice_write_lock()
             .on_valid_execution_payload(block_root)
             .unwrap();
     }
@@ -328,8 +321,7 @@ impl InvalidPayloadRig {
                     .harness
                     .chain
                     .canonical_head
-                    .read()
-                    .fork_choice
+                    .fork_choice_read_lock()
                     .get_block(&block_root);
                 if let Payload::Invalid { .. } = new_payload_response {
                     // A block found to be immediately invalid should not end up in fork choice.
@@ -402,10 +394,7 @@ async fn invalid_payload_invalidates_parent() {
     assert!(rig.execution_status(roots[1]).is_invalid());
     assert!(rig.execution_status(roots[2]).is_invalid());
 
-    assert_eq!(
-        rig.harness.chain.canonical_head.read().head_block_root(),
-        roots[0]
-    );
+    assert_eq!(rig.harness.head_block_root(), roots[0]);
 }
 
 /// Test invalidation of a payload via the fork choice updated message.
@@ -431,10 +420,7 @@ async fn immediate_forkchoice_update_invalid_test(
     .await;
 
     // The head should be the latest valid block.
-    assert_eq!(
-        rig.harness.chain.canonical_head.read().head_block_root(),
-        valid_head_root
-    );
+    assert_eq!(rig.harness.head_block_root(), valid_head_root);
 }
 
 #[tokio::test]
@@ -463,12 +449,7 @@ async fn justified_checkpoint_becomes_invalid() {
     rig.import_block(Payload::Valid).await; // Import a valid transition block.
     rig.move_to_first_justification(Payload::Syncing).await;
 
-    let justified_checkpoint = rig
-        .harness
-        .chain
-        .canonical_head
-        .read()
-        .justified_checkpoint();
+    let justified_checkpoint = rig.harness.justified_checkpoint();
     let parent_root_of_justified = rig
         .harness
         .chain
@@ -516,15 +497,7 @@ async fn pre_finalized_latest_valid_hash() {
     blocks.push(rig.import_block(Payload::Valid).await); // Import a valid transition block.
     blocks.extend(rig.build_blocks(num_blocks - 1, Payload::Syncing).await);
 
-    assert_eq!(
-        rig.harness
-            .chain
-            .canonical_head
-            .read()
-            .finalized_checkpoint()
-            .epoch,
-        finalized_epoch
-    );
+    assert_eq!(rig.harness.finalized_checkpoint().epoch, finalized_epoch);
 
     let pre_finalized_block_root = rig.block_root_at_slot(Slot::new(1)).unwrap();
     let pre_finalized_block_hash = rig.block_hash(pre_finalized_block_root);
@@ -539,10 +512,7 @@ async fn pre_finalized_latest_valid_hash() {
     .await;
 
     // The latest imported block should be the head.
-    assert_eq!(
-        rig.harness.chain.canonical_head.read().head_block_root(),
-        *blocks.last().unwrap()
-    );
+    assert_eq!(rig.harness.head_block_root(), *blocks.last().unwrap());
 
     // The beacon chain should *not* have triggered a shutdown.
     assert_eq!(rig.harness.shutdown_reasons(), vec![]);
@@ -584,10 +554,7 @@ async fn latest_valid_hash_will_validate() {
     })
     .await;
 
-    assert_eq!(
-        rig.harness.chain.canonical_head.read().head_slot(),
-        LATEST_VALID_SLOT
-    );
+    assert_eq!(rig.harness.head_slot(), LATEST_VALID_SLOT);
 
     for slot in 0..=5 {
         let slot = Slot::new(slot);
@@ -622,15 +589,7 @@ async fn latest_valid_hash_is_junk() {
     blocks.push(rig.import_block(Payload::Valid).await); // Import a valid transition block.
     blocks.extend(rig.build_blocks(num_blocks, Payload::Syncing).await);
 
-    assert_eq!(
-        rig.harness
-            .chain
-            .canonical_head
-            .read()
-            .finalized_checkpoint()
-            .epoch,
-        finalized_epoch
-    );
+    assert_eq!(rig.harness.finalized_checkpoint().epoch, finalized_epoch);
 
     // No service should have triggered a shutdown, yet.
     assert!(rig.harness.shutdown_reasons().is_empty());
@@ -642,10 +601,7 @@ async fn latest_valid_hash_is_junk() {
     .await;
 
     // The latest imported block should be the head.
-    assert_eq!(
-        rig.harness.chain.canonical_head.read().head_block_root(),
-        *blocks.last().unwrap()
-    );
+    assert_eq!(rig.harness.head_block_root(), *blocks.last().unwrap());
 
     // The beacon chain should *not* have triggered a shutdown.
     assert_eq!(rig.harness.shutdown_reasons(), vec![]);
@@ -674,19 +630,8 @@ async fn invalidates_all_descendants() {
     rig.import_block(Payload::Valid).await; // Import a valid transition block.
     let blocks = rig.build_blocks(num_blocks, Payload::Syncing).await;
 
-    assert_eq!(
-        rig.harness
-            .chain
-            .canonical_head
-            .read()
-            .finalized_checkpoint()
-            .epoch,
-        finalized_epoch
-    );
-    assert_eq!(
-        rig.harness.chain.canonical_head.read().head_block_root(),
-        *blocks.last().unwrap()
-    );
+    assert_eq!(rig.harness.finalized_checkpoint().epoch, finalized_epoch);
+    assert_eq!(rig.harness.head_block_root(), *blocks.last().unwrap());
 
     // Apply a block which conflicts with the canonical chain.
     let fork_slot = Slot::new(4 * E::slots_per_epoch() + 3);
@@ -719,10 +664,7 @@ async fn invalidates_all_descendants() {
     let latest_valid_hash = rig.block_hash(latest_valid_root);
 
     // The new block should not become the head, the old head should remain.
-    assert_eq!(
-        rig.harness.chain.canonical_head.read().head_block_root(),
-        *blocks.last().unwrap()
-    );
+    assert_eq!(rig.harness.head_block_root(), *blocks.last().unwrap());
 
     rig.import_block(Payload::Invalid {
         latest_valid_hash: Some(latest_valid_hash),
@@ -730,10 +672,7 @@ async fn invalidates_all_descendants() {
     .await;
 
     // The block before the fork should become the head.
-    assert_eq!(
-        rig.harness.chain.canonical_head.read().head_block_root(),
-        latest_valid_root
-    );
+    assert_eq!(rig.harness.head_block_root(), latest_valid_root);
 
     // The fork block should be invalidated, even though it's not an ancestor of the block that
     // triggered the INVALID response from the EL.
@@ -776,19 +715,8 @@ async fn switches_heads() {
     rig.import_block(Payload::Valid).await; // Import a valid transition block.
     let blocks = rig.build_blocks(num_blocks, Payload::Syncing).await;
 
-    assert_eq!(
-        rig.harness
-            .chain
-            .canonical_head
-            .read()
-            .finalized_checkpoint()
-            .epoch,
-        finalized_epoch
-    );
-    assert_eq!(
-        rig.harness.chain.canonical_head.read().head_block_root(),
-        *blocks.last().unwrap()
-    );
+    assert_eq!(rig.harness.finalized_checkpoint().epoch, finalized_epoch);
+    assert_eq!(rig.harness.head_block_root(), *blocks.last().unwrap());
 
     // Apply a block which conflicts with the canonical chain.
     let fork_slot = Slot::new(4 * E::slots_per_epoch() + 3);
@@ -813,10 +741,7 @@ async fn switches_heads() {
     let latest_valid_hash = rig.block_hash(fork_parent_root);
 
     // The new block should not become the head, the old head should remain.
-    assert_eq!(
-        rig.harness.chain.canonical_head.read().head_block_root(),
-        *blocks.last().unwrap()
-    );
+    assert_eq!(rig.harness.head_block_root(), *blocks.last().unwrap());
 
     rig.import_block(Payload::Invalid {
         latest_valid_hash: Some(latest_valid_hash),
@@ -824,10 +749,7 @@ async fn switches_heads() {
     .await;
 
     // The fork block should become the head.
-    assert_eq!(
-        rig.harness.chain.canonical_head.read().head_block_root(),
-        fork_block_root
-    );
+    assert_eq!(rig.harness.head_block_root(), fork_block_root);
 
     // The fork block has not yet been validated.
     assert!(rig.execution_status(fork_block_root).is_optimistic());
@@ -884,7 +806,7 @@ async fn invalid_during_processing() {
         None
     );
     // 2 should be the head.
-    let head_block_root = rig.harness.chain.canonical_head.read().head_block_root();
+    let head_block_root = rig.harness.head_block_root();
     assert_eq!(head_block_root, roots[2]);
 }
 
@@ -905,7 +827,7 @@ async fn invalid_after_optimistic_sync() {
     }
 
     // 2 should be the head.
-    let head = rig.harness.chain.canonical_head.read().head_block_root();
+    let head = rig.harness.head_block_root();
     assert_eq!(head, roots[2]);
 
     roots.push(
@@ -919,7 +841,7 @@ async fn invalid_after_optimistic_sync() {
     rig.recompute_head().await;
 
     // 1 should be the head, since 2 was invalidated.
-    let head = rig.harness.chain.canonical_head.read().head_block_root();
+    let head = rig.harness.head_block_root();
     assert_eq!(head, roots[1]);
 }
 
@@ -1055,7 +977,7 @@ async fn invalid_parent() {
 
     // Ensure the block built atop an invalid payload cannot be imported to fork choice.
     assert!(matches!(
-        rig.harness.chain.canonical_head.write().fork_choice.on_block(
+        rig.harness.chain.canonical_head.fork_choice_write_lock().on_block(
             slot,
             block.message(),
             block_root,
@@ -1122,10 +1044,8 @@ async fn payload_preparation_before_transition_block() {
         .harness
         .chain
         .canonical_head
-        .read()
-        .fork_choice
-        .get_forkchoice_update_parameters()
-        .unwrap();
+        .fork_choice_read_lock()
+        .get_forkchoice_update_parameters();
     rig.harness
         .chain
         .update_execution_engine_forkchoice(current_slot, forkchoice_update_params)
