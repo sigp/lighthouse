@@ -1,4 +1,5 @@
 use super::Context;
+use malloc_utils::scrape_allocator_metrics;
 use slot_clock::SlotClock;
 use std::time::{SystemTime, UNIX_EPOCH};
 use types::EthSpec;
@@ -204,6 +205,12 @@ pub fn gather_prometheus_metrics<T: EthSpec>(
                 );
             }
         }
+    }
+
+    // It's important to ensure these metrics are explicitly enabled in the case that users aren't
+    // using glibc and this function causes panics.
+    if ctx.config.allocator_metrics_enabled {
+        scrape_allocator_metrics();
     }
 
     warp_utils::metrics::scrape_health_metrics();
