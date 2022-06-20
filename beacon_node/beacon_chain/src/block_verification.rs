@@ -1203,8 +1203,7 @@ impl<T: BeaconChainTypes> ExecutionPendingBlock<T> {
                     .map(|full_payload| full_payload.execution_payload.block_hash);
 
                 // Ensure the block is a candidate for optimistic import.
-                if !is_optimistic_candidate_block(&chain, block.slot(), block.parent_root()).await?
-                {
+                if is_optimistic_candidate_block(&chain, block.slot(), block.parent_root()).await? {
                     info!(
                         chain.log,
                         "Optimistically accepting terminal block";
