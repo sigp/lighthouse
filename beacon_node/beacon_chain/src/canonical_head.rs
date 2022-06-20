@@ -1,64 +1,35 @@
 //! This module provides all functionality for finding the canonical head, updating all necessary
 //! components see (e.g. caches) and also maintaining a cached head block and state.
 //!
-//! ## Usage
+//! For practically all applications, the "canonical head" can be read using
+//! `beacon_chain.canonical_head.cached_head()`.
 //!
-//! This module primarily provides the following:
+//! The canonical head can be updated using `beacon_chain.recompute_head()`.
 //!
-//! ### The `CanonicalHead` struct.
+//! ## Deadlock safety
 //!
-//! Use this to access values from fork choice or from the `cached_head`, which is a cached block
-//! and state from the last time fork choice was run.
-//!
-//! ### The `BeaconChain::recompute_head` method.
-//!
-//! This method was formally known as `BeaconChain::fork_choice`. It runs the fork choice
-//! algorithm and then enshrines the result as the "canonical head". This involves updating the
-//! `cached_head` so we always have the head block and state on hand. It also involves pruning
-//! caches, sending SSE events, pruning the database and other things.
-//!
-//! ## The Three Rules
-//!
-//! There are three locks managed by this function:
+//! This module contains three locks:
 //!
 //! 1. `RwLock<BeaconForkChoice>`: Contains `proto_array` fork choice.
 //! 2. `RwLock<CachedHead>`: Contains a cached block/state from the last run of `proto_array`.
 //! 3. `Mutex<()>`: Is used to prevent concurrent execution of `BeaconChain::recompute_head`.
 //!
-//! The code in this module is designed specifically to prevent dead-locks through improper use of
-//! these locks. There are three primary "rules" which, if followed, will prevent *other modules* from
-//! causing dead-locks. The rules are:
+//! This module has to take great efforts to avoid causing a deadlock with these three methods. Any
+//! developers working in this module should tread carefully and seek a detailed review.
 //!
-//! Rule #1: Never expose a *read or write* lock for `RwLock<BeaconForkChoice>` outside this module.
-//! Rule #2: Functions external to this module may hold a *read lock* for `RwLock<CachedHead>`
-//!          (never a write-lock).
-//! Rule #3: Never expose a read or write lock for `Mutex<()>` outside this module.
-//!
-//! Since users can only access a `RwLock<CachedHead>` outside this function, they cannot interleave
-//! the other two locks and cause a deadlock. Whilst we maintain the three rules, external functions
-//! are dead-lock safe. Unfortunately, this module has no such guarantees, proceed with extreme
-//! caution when managing locks in this module.
-//!
-//! The downside of Rule #1 is that we must re-expose every function on `BeaconForkChoice` on the
-//! `CanonicalHead`. This prevents users from being able to hold and interleave the fork choice lock
-//! with the canonical head lock. It's annoying when working on this file, but hopefully the
-//! long-term safety benefits will pay off.
-//!
-//! Like all good rules, we have some exceptions. The first violates rule #1 via exposing the
-//! `BlockProcessingForkChoiceWriteLock`. This exposes a write-lock on the `BeaconForkChoice` for
-//! use during block processing. We *need* an exclusive lock here so we block access to fork choice
-//! until we've written to the database; this helps prevent corruption. This struct is *clearly*
-//! labelled for use only with block processing and it has a limited set of functionality to give
-//! this module control over what happens with it.
+//! To encourage safe use of this module, it should **only ever return a read or write lock for the
+//! fork choice lock (lock 1)**. Whilst public functions might utilise locks (2) and (3), the
+//! fundamental `RwLockWriteGuard` or `RwLockReadGuard` should never be exposed. This prevents
+//! external functions from acquiring these locks in conflicting orders and causing a deadlock.
 //!
 //! ## Design Considerations
 //!
 //! We separate the `BeaconForkChoice` and `CachedHead` into two `RwLocks` because we want to ensure
 //! fast access to the `CachedHead`. If we were to put them both under the same lock, we would need
 //! to take an exclusive write-lock on it in order to run `ForkChoice::get_head`. This can take tens
-//! of milliseconds and would block all downstream functions that want to know the head block root.
-//! This is unacceptable for fast-responding functions like the networking stack. Believe me, I have
-//! tried to put them under the same lock and it did not work well :(
+//! of milliseconds and would block all downstream functions that want to know simple things like
+//! the head block root. This is unacceptable for fast-responding functions like the networking
+//! stack.
 
 use crate::persisted_fork_choice::PersistedForkChoice;
 use crate::{
@@ -69,13 +40,10 @@ use crate::{
     events::ServerSentEventHandler,
     metrics,
     validator_monitor::{get_slot_delay_ms, timestamp_now},
-    BeaconChain, BeaconChainError as Error, BeaconChainTypes, BeaconSnapshot, ForkChoiceError,
+    BeaconChain, BeaconChainError as Error, BeaconChainTypes, BeaconSnapshot,
 };
 use eth2::types::{EventKind, SseChainReorg, SseFinalizedCheckpoint, SseHead, SseLateHead};
-use fork_choice::{
-    AttestationFromBlock, ExecutionStatus, ForkChoiceView, ForkchoiceUpdateParameters,
-    InvalidationOperation, PayloadVerificationStatus, ProtoBlock,
-};
+use fork_choice::{ExecutionStatus, ForkChoiceView, ForkchoiceUpdateParameters, ProtoBlock};
 use itertools::process_results;
 use parking_lot::{Mutex, RwLock, RwLockReadGuard, RwLockWriteGuard};
 use slog::{crit, debug, error, warn, Logger};
@@ -222,76 +190,6 @@ impl<E: EthSpec> CachedHead<E> {
     }
 }
 
-/// This struct provides a write-lock on the `BeaconForkChoice` is is **only for use during block
-/// processing**.
-///
-/// It provides a limited set of functionality that is required for processing blocks and
-/// maintaining consistency between the database and fork choice.
-pub struct BlockProcessingForkChoiceWriteLock<'a, T: BeaconChainTypes> {
-    fork_choice: RwLockWriteGuard<'a, BeaconForkChoice<T>>,
-}
-
-impl<'a, T: BeaconChainTypes> BlockProcessingForkChoiceWriteLock<'a, T> {
-    /// Get a `ProtoBlock` from proto array. Contains a limited, but useful set of information about
-    /// the block.
-    pub fn get_block(&self, block_root: &Hash256) -> Option<ProtoBlock> {
-        self.fork_choice.get_block(block_root)
-    }
-
-    /// Apply a block to fork choice.
-    #[allow(clippy::too_many_arguments)]
-    pub fn on_block<Payload: ExecPayload<T::EthSpec>>(
-        &mut self,
-        current_slot: Slot,
-        block: BeaconBlockRef<T::EthSpec, Payload>,
-        block_root: Hash256,
-        block_delay: Duration,
-        state: &BeaconState<T::EthSpec>,
-        payload_verification_status: PayloadVerificationStatus,
-        spec: &ChainSpec,
-    ) -> Result<(), ForkChoiceError> {
-        self.fork_choice.on_block(
-            current_slot,
-            block,
-            block_root,
-            block_delay,
-            state,
-            payload_verification_status,
-            spec,
-        )
-    }
-
-    /// Apply some attestations to fork choice.
-    pub fn on_attestations(
-        &mut self,
-        current_slot: Slot,
-        attestations: &[IndexedAttestation<T::EthSpec>],
-        is_from_block: AttestationFromBlock,
-    ) -> Result<(), ForkChoiceError> {
-        for indexed_attestation in attestations {
-            self.fork_choice
-                .on_attestation(current_slot, indexed_attestation, is_from_block)?
-        }
-        Ok(())
-    }
-
-    /// Recompute the head of the beacon chain.
-    ///
-    /// ## Note
-    ///
-    /// Exposing this function means that the `canonical_head.fork_choice` can get ahead of
-    /// `canonical_head.cached_head`! We deem this to be OK, it's required for use to achieve the
-    /// `early_attester_cache` and we ensure that we make minimal assumptions about fork choice
-    /// being at the same place as the `cached_head`.
-    pub fn get_head(
-        &mut self,
-        current_slot: Slot,
-        spec: &ChainSpec,
-    ) -> Result<Hash256, ForkChoiceError> {
-        self.fork_choice.get_head(current_slot, spec)
-    }
-}
-
 /// Represents the "canonical head" of the beacon chain.
 ///
 /// The `cached_head` is elected by the `fork_choice` algorithm contained in this struct.
@@ -345,15 +243,15 @@ impl<T: BeaconChainTypes> CanonicalHead<T> {
     /// save-point.
     pub(crate) fn restore_from_store(
         &self,
-        // We don't actually *need* the block processing guard, but we pass it because the only
-        // place that calls this function is block processing and we'll get a deadlock if it isn't
-        // dropped before this function runs.
-        block_processing_guard: BlockProcessingForkChoiceWriteLock<T>,
+        // We don't actually need this value, however it's always present when we call this function
+        // and it needs to be dropped to prevent a dead-lock. Requiring it to be passed here is
+        // defensive programming.
+        fork_choice_write_lock: RwLockWriteGuard<BeaconForkChoice<T>>,
         store: &BeaconStore<T>,
         spec: &ChainSpec,
     ) -> Result<(), Error> {
-        // Failing to drop this will result in a dead-lock.
-        drop(block_processing_guard);
+        // Drop the lock to prevent a deadlock later in the function.
+        drop(fork_choice_write_lock);
 
         let fork_choice = <BeaconChain<T>>::load_fork_choice(store.clone(), spec)?
             .ok_or(Error::MissingPersistedForkChoice)?;
@@ -389,25 +287,13 @@ impl<T: BeaconChainTypes> CanonicalHead<T> {
         Ok(())
     }
 
-    /// Only for use in block processing. Do not use this function unless you are *certain* you know
-    /// what you are doing.
-    ///
-    /// See `BlockProcessingForkChoiceWriteLock` for more detail.
-    pub(crate) fn block_processing_fork_choice_write_lock(
-        &self,
-    ) -> BlockProcessingForkChoiceWriteLock<T> {
-        BlockProcessingForkChoiceWriteLock {
-            fork_choice: self.fork_choice_write_lock(),
-        }
-    }
-
     /// Returns the execution status of the block at the head of the beacon chain.
     ///
     /// This will only return `Err` in the scenario where `self.fork_choice` has advanced
     /// significantly past the cached `head_snapshot`. In such a scenario is it likely prudent to
     /// run `BeaconChain::recompute_head` to update the cached values.
     pub fn head_execution_status(&self) -> Result<ExecutionStatus, Error> {
-        let head_block_root = self.cached_head.read().head_block_root();
+        let head_block_root = self.cached_head().head_block_root();
         self.fork_choice
             .read()
             .get_block_execution_status(&head_block_root)
@@ -426,177 +312,20 @@ impl<T: BeaconChainTypes> CanonicalHead<T> {
 
     /// Access a write-lock for the cached head.
     ///
-    /// This function **must not be made public**. (See "Rule #2")
+    /// This function is **not safe** to be public. See the module-level documentation for more
+    /// information about protecting from deadlocks.
     fn cached_head_write_lock(&self) -> RwLockWriteGuard<CachedHead<T::EthSpec>> {
         self.cached_head.write()
     }
 
     /// Access a read-lock for fork choice.
-    ///
-    /// This function **must not be made public**. (See "Rule #1")
-    fn fork_choice_read_lock(&self) -> RwLockReadGuard<BeaconForkChoice<T>> {
+    pub fn fork_choice_read_lock(&self) -> RwLockReadGuard<BeaconForkChoice<T>> {
         self.fork_choice.read()
     }
 
-    /// Access a read-lock for fork choice.
-    ///
-    /// This function **must only be used in testing**. (See "Rule #1")
-    pub fn fork_choice_read_lock_testing_only(&self) -> RwLockReadGuard<BeaconForkChoice<T>> {
-        self.fork_choice_read_lock()
-    }
-
     /// Access a write-lock for fork choice.
-    ///
-    /// This function **must not be made public**. (See "Rule #1")
-    fn fork_choice_write_lock(&self) -> RwLockWriteGuard<BeaconForkChoice<T>> {
+    pub fn fork_choice_write_lock(&self) -> RwLockWriteGuard<BeaconForkChoice<T>> {
         self.fork_choice.write()
-    }
-
-    /// Access a write-lock for fork choice.
-    ///
-    /// This function **must only be used in testing**. (See "Rule #1")
-    pub fn fork_choice_write_lock_testing_only(&self) -> RwLockWriteGuard<BeaconForkChoice<T>> {
-        self.fork_choice_write_lock()
-    }
-
-    /// Update fork choice to inform it about a valid execution payload.
-    ///
-    /// Mutates fork choice.
-    pub fn on_valid_execution_payload(&self, block_root: Hash256) -> Result<(), ForkChoiceError> {
-        self.fork_choice_write_lock()
-            .on_valid_execution_payload(block_root)
-    }
-
-    /// Update fork choice to inform it about an invalid execution payload.
-    ///
-    /// Mutates fork choice.
-    pub fn on_invalid_execution_payload(
-        &self,
-        op: &InvalidationOperation,
-    ) -> Result<(), ForkChoiceError> {
-        self.fork_choice_write_lock()
-            .on_invalid_execution_payload(op)
-    }
-
-    /// Returns `true` if fork choice is aware of a block with `block_root`.
-    ///
-    /// Does not mutate fork choice.
-    pub fn contains_block(&self, block_root: &Hash256) -> bool {
-        self.fork_choice_read_lock().contains_block(block_root)
-    }
-
-    /// Returns the `ProtoBlock` identified by `block_root`, if known to fork choice.
-    ///
-    /// Does not mutate fork choice.
-    pub fn get_block(&self, block_root: &Hash256) -> Option<ProtoBlock> {
-        self.fork_choice_read_lock().get_block(block_root)
-    }
-
-    /// Returns the `ExecutionStatus` for the `block_root`, if known to fork choice.
-    ///
-    /// Does not mutate fork choice.
-    pub fn get_block_execution_status(&self, block_root: &Hash256) -> Option<ExecutionStatus> {
-        self.fork_choice_read_lock()
-            .get_block_execution_status(block_root)
-    }
-
-    /// Returns the `ProtoBlock` of the justified block.
-    ///
-    /// This *may not* be the same block as `self.cached_head.justified_checkpoint`, since it uses
-    /// fork choice and it might be ahead of the cached head.
-    ///
-    /// Does not mutate fork choice.
-    pub fn get_justified_block(&self) -> Result<ProtoBlock, ForkChoiceError> {
-        self.fork_choice_read_lock().get_justified_block()
-    }
-
-    /// Returns `true` if some block with the given parameters is safe to be imported
-    /// optimistically.
-    ///
-    /// Does not mutate fork choice.
-    pub fn is_optimistic_candidate_block(
-        &self,
-        current_slot: Slot,
-        block_slot: Slot,
-        block_parent_root: &Hash256,
-        spec: &ChainSpec,
-    ) -> Result<bool, ForkChoiceError> {
-        self.fork_choice_read_lock().is_optimistic_candidate_block(
-            current_slot,
-            block_slot,
-            block_parent_root,
-            spec,
-        )
-    }
-
-    /// See `ForkChoice::is_optimistic_block` for documentation.
-    ///
-    /// Does not mutate fork choice.
-    pub fn is_optimistic_block(&self, block_root: &Hash256) -> Result<bool, ForkChoiceError> {
-        self.fork_choice_read_lock().is_optimistic_block(block_root)
-    }
-
-    /// See `ForkChoice::is_optimistic_block_no_fallback` for documentation.
-    ///
-    /// Does not mutate fork choice.
-    pub fn is_optimistic_block_no_fallback(
-        &self,
-        block_root: &Hash256,
-    ) -> Result<bool, ForkChoiceError> {
-        self.fork_choice_read_lock()
-            .is_optimistic_block_no_fallback(block_root)
-    }
-
-    /// Returns `true` if the `block_root` is a known descendant of the finalized block.
-    ///
-    /// The finalized block used is per fork choice and might be later than (but not conflicting
-    /// with) `self.cached_head.finalized_checkpoint`.
-    ///
-    /// Does not mutate fork choice.
-    pub fn is_descendant_of_finalized(&self, block_root: Hash256) -> bool {
-        self.fork_choice_read_lock()
-            .is_descendant_of_finalized(block_root)
-    }
-
-    /// Applies an attestation to fork choice.
-    ///
-    /// Mutates fork choice.
-    pub fn on_attestation(
-        &self,
-        current_slot: Slot,
-        attestation: &IndexedAttestation<T::EthSpec>,
-        is_from_block: AttestationFromBlock,
-    ) -> Result<(), ForkChoiceError> {
-        self.fork_choice_write_lock()
-            .on_attestation(current_slot, attestation, is_from_block)
-    }
-
-    /// Gets the ancestor of `block_root` at a slot equal to or less than `target_slot`, if any.
-    ///
-    /// Does not mutate fork choice.
-    pub fn get_ancestor_at_or_below_slot(
-        &self,
-        block_root: &Hash256,
-        target_slot: Slot,
-    ) -> Option<Hash256> {
-        self.fork_choice_read_lock()
-            .proto_array()
-            .core_proto_array()
-            .iter_block_roots(block_root)
-            .find(|(_, slot)| *slot <= target_slot)
-            .map(|(block_root, _)| block_root)
-    }
-
-    /// Returns the core `ProtoArray` struct as JSON. Useful for the HTTP API.
-    ///
-    /// Does not mutate fork choice.
-    pub fn proto_array_json(&self) -> Result<serde_json::Value, serde_json::Error> {
-        serde_json::to_value(
-            &self
-                .fork_choice_read_lock()
-                .proto_array()
-                .core_proto_array(),
-        )
     }
 }
 

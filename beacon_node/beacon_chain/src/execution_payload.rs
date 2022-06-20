@@ -200,12 +200,15 @@ pub async fn validate_merge_block<'a, T: BeaconChainTypes>(
             let is_optimistic_candidate = chain
                 .spawn_blocking_handle(
                     move || {
-                        inner_chain.canonical_head.is_optimistic_candidate_block(
-                            current_slot,
-                            block_slot,
-                            &block_parent_root,
-                            &inner_chain.spec,
-                        )
+                        inner_chain
+                            .canonical_head
+                            .fork_choice_read_lock()
+                            .is_optimistic_candidate_block(
+                                current_slot,
+                                block_slot,
+                                &block_parent_root,
+                                &inner_chain.spec,
+                            )
                     },
                     "validate_merge_block_optimistic_candidate",
                 )
@@ -408,6 +411,7 @@ where
             move || {
                 inner_chain
                     .canonical_head
+                    .fork_choice_read_lock()
                     .get_block(&finalized_checkpoint.root)
             },
             "prepare_execution_payload_finalized_hash",

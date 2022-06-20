@@ -2558,14 +2558,12 @@ pub fn serve<T: BeaconChainTypes>(
         .and(chain_filter.clone())
         .and_then(|chain: Arc<BeaconChain<T>>| {
             blocking_task(move || {
-                let json = chain.canonical_head.proto_array_json().map_err(|e| {
-                    warp_utils::reject::custom_server_error(format!(
-                        "Unable to serialize proto array: {:?}",
-                        e
-                    ))
-                })?;
                 Ok::<_, warp::Rejection>(warp::reply::json(&api_types::GenericResponseRef::from(
-                    &json,
+                    chain
+                        .canonical_head
+                        .fork_choice_read_lock()
+                        .proto_array()
+                        .core_proto_array(),
                 )))
             })
         });

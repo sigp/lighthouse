@@ -318,7 +318,7 @@ impl<E: EthSpec> Tester<E> {
         self.harness
             .chain
             .canonical_head
-            .fork_choice_write_lock_testing_only()
+            .fork_choice_write_lock()
             .update_time(slot)
             .unwrap();
     }
@@ -375,7 +375,7 @@ impl<E: EthSpec> Tester<E> {
                     .harness
                     .chain
                     .canonical_head
-                    .fork_choice_write_lock_testing_only()
+                    .fork_choice_write_lock()
                     .on_block(
                         self.harness.chain.slot().unwrap(),
                         block.message(),
@@ -460,7 +460,7 @@ impl<E: EthSpec> Tester<E> {
             .harness
             .chain
             .canonical_head
-            .fork_choice_read_lock_testing_only()
+            .fork_choice_read_lock()
             .justified_checkpoint();
 
         assert_checkpoints_eq("justified_checkpoint", head_checkpoint, fc_checkpoint);
@@ -477,7 +477,7 @@ impl<E: EthSpec> Tester<E> {
             .harness
             .chain
             .canonical_head
-            .fork_choice_read_lock_testing_only()
+            .fork_choice_read_lock()
             .justified_checkpoint();
 
         assert_checkpoints_eq("justified_checkpoint_root", head_checkpoint, fc_checkpoint);
@@ -495,7 +495,7 @@ impl<E: EthSpec> Tester<E> {
             .harness
             .chain
             .canonical_head
-            .fork_choice_read_lock_testing_only()
+            .fork_choice_read_lock()
             .finalized_checkpoint();
 
         assert_checkpoints_eq("finalized_checkpoint", head_checkpoint, fc_checkpoint);
@@ -511,7 +511,7 @@ impl<E: EthSpec> Tester<E> {
             .harness
             .chain
             .canonical_head
-            .fork_choice_read_lock_testing_only()
+            .fork_choice_read_lock()
             .best_justified_checkpoint();
         check_equal(
             "best_justified_checkpoint",
@@ -528,7 +528,7 @@ impl<E: EthSpec> Tester<E> {
             .harness
             .chain
             .canonical_head
-            .fork_choice_read_lock_testing_only()
+            .fork_choice_read_lock()
             .proposer_boost_root();
         check_equal(
             "proposer_boost_root",
