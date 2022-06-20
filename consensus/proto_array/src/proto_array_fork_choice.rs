@@ -246,7 +246,7 @@ impl ProtoArrayForkChoice {
         Ok(())
     }
 
-    pub fn process_block(&mut self, block: Block, current_slot:Slot) -> Result<(), String> {
+    pub fn process_block(&mut self, block: Block, current_slot: Slot) -> Result<(), String> {
         if block.parent_root.is_none() {
             return Err("Missing parent root".to_string());
         }

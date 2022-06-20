@@ -406,7 +406,7 @@ where
         current_slot: Slot,
         spec: &ChainSpec,
     ) -> Result<Hash256, Error<T::Error>> {
-        self.update_time(current_slot)?;
+        self.update_time(current_slot, spec)?;
 
         let store = &mut self.fc_store;
 
@@ -451,8 +451,7 @@ where
         current_slot: Slot,
         spec: &ChainSpec,
     ) -> Result<bool, Error<T::Error>> {
-        //TODO(sean) update_time -> on_tick -> update_checkpoints -> should_update_justified_checkpoint -> update_time
-        self.update_time(current_slot)?;
+        self.update_time(current_slot, spec)?;
 
         if compute_slots_since_epoch_start::<E>(self.fc_store.get_current_slot())
             < spec.safe_slots_to_update_justified
@@ -537,7 +536,7 @@ where
         payload_verification_status: PayloadVerificationStatus,
         spec: &ChainSpec,
     ) -> Result<(), Error<T::Error>> {
-        let current_slot = self.update_time(current_slot)?;
+        let current_slot = self.update_time(current_slot, spec)?;
 
         // Parent block must be known.
         if !self.proto_array.contains_block(&block.parent_root()) {
@@ -901,9 +900,10 @@ where
         current_slot: Slot,
         attestation: &IndexedAttestation<E>,
         is_from_block: AttestationFromBlock,
+        spec: &ChainSpec,
     ) -> Result<(), Error<T::Error>> {
         // Ensure the store is up-to-date.
-        self.update_time(current_slot)?;
+        self.update_time(current_slot, spec)?;
 
         // Ignore any attestations to the zero hash.
         //
@@ -948,17 +948,16 @@ where
 
     /// Call `on_tick` for all slots between `fc_store.get_current_slot()` and the provided
     /// `current_slot`. Returns the value of `self.fc_store.get_current_slot`.
-    pub fn update_time(&mut self, current_slot: Slot) -> Result<Slot, Error<T::Error>> {
+    pub fn update_time(
+        &mut self,
+        current_slot: Slot,
+        spec: &ChainSpec,
+    ) -> Result<Slot, Error<T::Error>> {
         while self.fc_store.get_current_slot() < current_slot {
             let previous_slot = self.fc_store.get_current_slot();
             // Note: we are relying upon `on_tick` to update `fc_store.time` to ensure we don't
             // get stuck in a loop.
-            //TODO(sean) fix chain spec
-            dbg!(&previous_slot);
-            if (previous_slot) % MainnetEthSpec::slots_per_epoch() == 0 {
-                dbg!("hitting epoch boundary");
-            }
-            self.on_tick(previous_slot + 1, &ChainSpec::mainnet())?
+            self.on_tick(previous_slot + 1, spec)?
         }
 
         // Process any attestations that might now be eligible.

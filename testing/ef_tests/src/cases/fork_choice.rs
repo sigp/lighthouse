@@ -14,8 +14,8 @@ use ssz_derive::Decode;
 use state_processing::state_advance::complete_state_advance;
 use std::time::Duration;
 use types::{
-    Attestation, BeaconBlock, BeaconState, Checkpoint, Epoch, EthSpec, ExecutionBlockHash,
-    ForkName, Hash256, IndexedAttestation, SignedBeaconBlock, Slot, Uint256,
+    Attestation, AttesterSlashing, BeaconBlock, BeaconState, Checkpoint, Epoch, EthSpec,
+    ExecutionBlockHash, ForkName, Hash256, IndexedAttestation, SignedBeaconBlock, Slot, Uint256,
 };
 
 #[derive(Default, Debug, PartialEq, Clone, Deserialize, Decode)]
@@ -50,12 +50,13 @@ pub struct Checks {
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(untagged, deny_unknown_fields)]
-pub enum Step<B, A, P> {
+pub enum Step<B, A, P, S> {
     Tick { tick: u64 },
     ValidBlock { block: B },
     MaybeValidBlock { block: B, valid: bool },
     Attestation { attestation: A },
     PowBlock { pow_block: P },
+    AttesterSlashing { attester_slashing: S },
     Checks { checks: Box<Checks> },
 }
 
@@ -71,7 +72,7 @@ pub struct ForkChoiceTest<E: EthSpec> {
     pub description: String,
     pub anchor_state: BeaconState<E>,
     pub anchor_block: BeaconBlock<E>,
-    pub steps: Vec<Step<SignedBeaconBlock<E>, Attestation<E>, PowBlock>>,
+    pub steps: Vec<Step<SignedBeaconBlock<E>, Attestation<E>, PowBlock, AttesterSlashing<E>>>,
 }
 
 /// Spec for fork choice tests, with proposer boosting enabled.
@@ -92,7 +93,8 @@ impl<E: EthSpec> LoadCase for ForkChoiceTest<E> {
             .expect("path must be valid OsStr")
             .to_string();
         let spec = &fork_choice_spec::<E>(fork_name);
-        let steps: Vec<Step<String, String, String>> = yaml_decode_file(&path.join("steps.yaml"))?;
+        let steps: Vec<Step<String, String, String, String>> =
+            yaml_decode_file(&path.join("steps.yaml"))?;
         // Resolve the object names in `steps.yaml` into actual decoded block/attestation objects.
         let steps = steps
             .into_iter()
@@ -117,6 +119,10 @@ impl<E: EthSpec> LoadCase for ForkChoiceTest<E> {
                 Step::PowBlock { pow_block } => {
                     ssz_decode_file(&path.join(format!("{}.ssz_snappy", pow_block)))
                         .map(|pow_block| Step::PowBlock { pow_block })
+                }
+                Step::AttesterSlashing { attester_slashing } => {
+                    ssz_decode_file(&path.join(format!("{}.ssz_snappy", attester_slashing)))
+                        .map(|attester_slashing| Step::AttesterSlashing { attester_slashing })
                 }
                 Step::Checks { checks } => Ok(Step::Checks { checks }),
             })
@@ -159,6 +165,8 @@ impl<E: EthSpec> Case for ForkChoiceTest<E> {
         // This test is skipped until we can do retrospective confirmations of the terminal
         // block after an optimistic sync.
         if self.description == "block_lookup_failed"
+            //TODO(sean): enable once we implement equivocation logic (https://github.com/ethereum/consensus-specs/pull/2845)
+            || self.description == "discard_equivocations"
         {
             return Err(Error::SkippedKnownFailure);
         };
@@ -172,6 +180,10 @@ impl<E: EthSpec> Case for ForkChoiceTest<E> {
                 }
                 Step::Attestation { attestation } => tester.process_attestation(attestation)?,
                 Step::PowBlock { pow_block } => tester.process_pow_block(pow_block),
+                //TODO(sean): enable once we implement equivocation logic (https://github.com/ethereum/consensus-specs/pull/2845)
+                Step::AttesterSlashing {
+                    attester_slashing: _,
+                } => (),
                 Step::Checks { checks } => {
                     let Checks {
                         head,
@@ -328,7 +340,7 @@ impl<E: EthSpec> Tester<E> {
             .chain
             .fork_choice
             .write()
-            .update_time(slot)
+            .update_time(slot, &self.harness.spec)
             .unwrap();
     }
 
