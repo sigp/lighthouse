@@ -43,7 +43,8 @@
 //!
 //! ```
 use crate::execution_payload::{
-    validate_execution_payload_for_gossip, validate_merge_block, PayloadNotifier,
+    is_optimistic_candidate_block, validate_execution_payload_for_gossip, validate_merge_block,
+    PayloadNotifier,
 };
 use crate::snapshot_cache::PreProcessingSnapshot;
 use crate::validator_monitor::HISTORIC_EPOCHS as VALIDATOR_MONITOR_HISTORIC_EPOCHS;
@@ -1195,42 +1196,15 @@ impl<T: BeaconChainTypes> ExecutionPendingBlock<T> {
             // If the payload did not validate or invalidate the block, check to see if this block is
             // valid for optimistic import.
             if payload_verification_status.is_optimistic() {
-                let current_slot = chain
-                    .slot_clock
-                    .now()
-                    .ok_or(BeaconChainError::UnableToReadSlot)?;
-
-                // Use a blocking task to check if the block is an optimistic candidate. Interacting
-                // with the `canonical_head` lock in an async task can block the core executor.
-                let inner_chain = chain.clone();
-                let block_parent_root = block.parent_root();
-                let block_slot = block.slot();
-                let is_optimistic_candidate = chain
-                    .spawn_blocking_handle(
-                        move || {
-                            inner_chain
-                                .canonical_head
-                                .fork_choice_read_lock()
-                                .is_optimistic_candidate_block(
-                                    current_slot,
-                                    block_slot,
-                                    &block_parent_root,
-                                    &inner_chain.spec,
-                                )
-                        },
-                        "validate_merge_block_optimistic_candidate",
-                    )
-                    .await
-                    .map_err(BeaconChainError::from)?
-                    .map_err(BeaconChainError::from)?;
-
                 let block_hash_opt = block
                     .message()
                     .body()
                     .execution_payload()
                     .map(|full_payload| full_payload.execution_payload.block_hash);
+
                 // Ensure the block is a candidate for optimistic import.
-                if !is_optimistic_candidate {
+                if !is_optimistic_candidate_block(&chain, block.slot(), block.parent_root()).await?
+                {
                     info!(
                         chain.log,
                         "Optimistically accepting terminal block";
