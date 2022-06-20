@@ -58,3 +58,4 @@ sensitive_url = { path = "../common/sensitive_url" }
 task_executor = { path = "../common/task_executor" }
 reqwest = { version = "0.11.0", features = ["json","stream"] }
 url = "2.2.2"
+malloc_utils = { path = "../common/malloc_utils" }
