@@ -18,22 +18,17 @@ impl StateId {
         chain: &BeaconChain<T>,
     ) -> Result<Hash256, warp::Rejection> {
         let slot = match &self.0 {
-            CoreStateId::Head => {
-                return Ok(chain
-                    .canonical_head
-                    .cached_head_read_lock()
-                    .head_state_root())
-            }
+            CoreStateId::Head => return Ok(chain.canonical_head.cached_head().head_state_root()),
             CoreStateId::Genesis => return Ok(chain.genesis_state_root),
             CoreStateId::Finalized => chain
                 .canonical_head
-                .cached_head_read_lock()
+                .cached_head()
                 .finalized_checkpoint()
                 .epoch
                 .start_slot(T::EthSpec::slots_per_epoch()),
             CoreStateId::Justified => chain
                 .canonical_head
-                .cached_head_read_lock()
+                .cached_head()
                 .justified_checkpoint()
                 .epoch
                 .start_slot(T::EthSpec::slots_per_epoch()),

@@ -709,7 +709,7 @@ impl<T: BeaconChainTypes> NetworkService<T> {
             let active_validators_opt = self
                 .beacon_chain
                 .canonical_head
-                .cached_head_read_lock()
+                .cached_head()
                 .active_validator_count();
             if let Some(active_validators) = active_validators_opt {
                 if self

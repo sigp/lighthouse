@@ -100,7 +100,7 @@ pub fn spawn_notifier<T: BeaconChainTypes>(
                 current_sync_state = sync_state;
             }
 
-            let cached_head = beacon_chain.canonical_head.cached_head_read_lock();
+            let cached_head = beacon_chain.canonical_head.cached_head();
             let head_slot = cached_head.head_slot();
             let head_root = cached_head.head_block_root();
             let finalized_checkpoint = cached_head.finalized_checkpoint();

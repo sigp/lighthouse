@@ -9,7 +9,6 @@ use beacon_chain::{
     test_utils::{BeaconChainHarness, EphemeralHarnessType},
     BeaconChainTypes, CachedHead,
 };
-use parking_lot::RwLockReadGuard;
 use serde_derive::Deserialize;
 use ssz_derive::Decode;
 use state_processing::state_advance::complete_state_advance;
@@ -299,11 +298,11 @@ impl<E: EthSpec> Tester<E> {
             .ok_or_else(|| Error::InternalError("runtime shutdown".into()))
     }
 
-    fn find_head(&self) -> Result<RwLockReadGuard<CachedHead<E>>, Error> {
+    fn find_head(&self) -> Result<CachedHead<E>, Error> {
         let chain = self.harness.chain.clone();
         self.block_on_dangerous(chain.recompute_head_at_current_slot())?
             .map_err(|e| Error::InternalError(format!("failed to find head with {:?}", e)))?;
-        Ok(self.harness.chain.canonical_head.cached_head_read_lock())
+        Ok(self.harness.chain.canonical_head.cached_head())
     }
 
     pub fn set_tick(&self, tick: u64) {

@@ -985,7 +985,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     where
         E: From<Error>,
     {
-        let head_lock = self.canonical_head.cached_head_read_lock();
+        let head_lock = self.canonical_head.cached_head();
         f(&head_lock.snapshot)
     }
 
@@ -1194,7 +1194,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
     /// Returns the slot of the highest block in the canonical chain.
     pub fn best_slot(&self) -> Slot {
-        self.canonical_head.cached_head_read_lock().head_slot()
+        self.canonical_head.cached_head().head_slot()
     }
 
     /// Returns the validator index (if any) for the given public key.
@@ -1483,7 +1483,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let beacon_block_root;
         let beacon_state_root;
         let head_timer = metrics::start_timer(&metrics::ATTESTATION_PRODUCTION_HEAD_SCRAPE_SECONDS);
-        let cached_head_lock = self.canonical_head.cached_head_read_lock();
+        let cached_head_lock = self.canonical_head.cached_head();
         let head = &cached_head_lock.snapshot;
         let head_state = &head.beacon_state;
         let head_state_slot = head_state.slot();
@@ -1904,7 +1904,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // If there's no eth1 chain then it's impossible to produce blocks and therefore
         // useless to put things in the op pool.
         if self.eth1_chain.is_some() {
-            let fork = self.canonical_head.cached_head_read_lock().head_fork();
+            let fork = self.canonical_head.cached_head().head_fork();
 
             self.op_pool
                 .insert_attestation(
@@ -2099,7 +2099,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         if self.eth1_chain.is_some() {
             self.op_pool.insert_attester_slashing(
                 attester_slashing,
-                self.canonical_head.cached_head_read_lock().head_fork(),
+                self.canonical_head.cached_head().head_fork(),
             )
         }
     }
@@ -2633,10 +2633,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // We are doing this to ensure that we detect changes in finalization. It's possible
         // that fork choice has already been updated to the finalized checkpoint in the block
         // we're importing.
-        let current_head_finalized_checkpoint = self
-            .canonical_head
-            .cached_head_read_lock()
-            .finalized_checkpoint();
+        let current_head_finalized_checkpoint =
+            self.canonical_head.cached_head().finalized_checkpoint();
 
         let block = signed_block.message();
 
@@ -3122,7 +3120,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // Atomically read some values from the head whilst avoiding holding the read-lock any
         // longer than necessary.
         let (head_slot, head_block_root) = {
-            let head = self.canonical_head.cached_head_read_lock();
+            let head = self.canonical_head.cached_head();
             (head.head_slot(), head.head_block_root())
         };
         let (state, state_root_opt) = if head_slot < slot {
@@ -3676,7 +3674,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let (head_slot, head_root, head_decision_root, head_random, forkchoice_update_params) =
             self.spawn_blocking_handle(
                 move || {
-                    let cached_head = chain.canonical_head.cached_head_read_lock();
+                    let cached_head = chain.canonical_head.cached_head();
                     let head_block_root = cached_head.head_block_root();
                     let decision_root = cached_head
                         .snapshot
@@ -4416,7 +4414,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let mut dump = vec![];
 
         let mut last_slot = {
-            let head = self.canonical_head.cached_head_read_lock();
+            let head = self.canonical_head.cached_head();
             BeaconSnapshot {
                 beacon_block: Arc::new(head.snapshot.beacon_block.clone_as_blinded()),
                 beacon_block_root: head.snapshot.beacon_block_root,
@@ -4486,10 +4484,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     }
 
     pub fn dump_as_dot<W: Write>(&self, output: &mut W) {
-        let canonical_head_hash = self
-            .canonical_head
-            .cached_head_read_lock()
-            .head_block_root();
+        let canonical_head_hash = self.canonical_head.cached_head().head_block_root();
         let mut visited: HashSet<Hash256> = HashSet::new();
         let mut finalized_blocks: HashSet<Hash256> = HashSet::new();
         let mut justified_blocks: HashSet<Hash256> = HashSet::new();

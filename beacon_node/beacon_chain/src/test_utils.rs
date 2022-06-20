@@ -524,30 +524,24 @@ where
     }
 
     pub fn head_slot(&self) -> Slot {
-        self.chain
-            .canonical_head
-            .cached_head_read_lock()
-            .head_slot()
+        self.chain.canonical_head.cached_head().head_slot()
     }
 
     pub fn head_block_root(&self) -> Hash256 {
-        self.chain
-            .canonical_head
-            .cached_head_read_lock()
-            .head_block_root()
+        self.chain.canonical_head.cached_head().head_block_root()
     }
 
     pub fn finalized_checkpoint(&self) -> Checkpoint {
         self.chain
             .canonical_head
-            .cached_head_read_lock()
+            .cached_head()
             .finalized_checkpoint()
     }
 
     pub fn justified_checkpoint(&self) -> Checkpoint {
         self.chain
             .canonical_head
-            .cached_head_read_lock()
+            .cached_head()
             .justified_checkpoint()
     }
 
@@ -1127,11 +1121,7 @@ where
         let mut attestation_2 = attestation_1.clone();
         attestation_2.data.index += 1;
 
-        let fork = self
-            .chain
-            .canonical_head
-            .cached_head_read_lock()
-            .head_fork();
+        let fork = self.chain.canonical_head.cached_head().head_fork();
         for attestation in &mut [&mut attestation_1, &mut attestation_2] {
             for &i in &attestation.attesting_indices {
                 let sk = &self.validator_keypairs[i as usize].sk;
@@ -1189,11 +1179,7 @@ where
 
         attestation_2.data.index += 1;
 
-        let fork = self
-            .chain
-            .canonical_head
-            .cached_head_read_lock()
-            .head_fork();
+        let fork = self.chain.canonical_head.cached_head().head_fork();
         for attestation in &mut [&mut attestation_1, &mut attestation_2] {
             for &i in &attestation.attesting_indices {
                 let sk = &self.validator_keypairs[i as usize].sk;
@@ -1231,11 +1217,7 @@ where
         block_header_2.state_root = Hash256::zero();
 
         let sk = &self.validator_keypairs[validator_index as usize].sk;
-        let fork = self
-            .chain
-            .canonical_head
-            .cached_head_read_lock()
-            .head_fork();
+        let fork = self.chain.canonical_head.cached_head().head_fork();
         let genesis_validators_root = self.chain.genesis_validators_root;
 
         let mut signed_block_headers = vec![block_header_1, block_header_2]
@@ -1253,11 +1235,7 @@ where
 
     pub fn make_voluntary_exit(&self, validator_index: u64, epoch: Epoch) -> SignedVoluntaryExit {
         let sk = &self.validator_keypairs[validator_index as usize].sk;
-        let fork = self
-            .chain
-            .canonical_head
-            .cached_head_read_lock()
-            .head_fork();
+        let fork = self.chain.canonical_head.cached_head().head_fork();
         let genesis_validators_root = self.chain.genesis_validators_root;
 
         VoluntaryExit {
@@ -1657,13 +1635,7 @@ where
 
     /// Uses `Self::extend_chain` to build the chain out to the `target_slot`.
     pub async fn extend_to_slot(&self, target_slot: Slot) -> Hash256 {
-        if self.chain.slot().unwrap()
-            == self
-                .chain
-                .canonical_head
-                .cached_head_read_lock()
-                .head_slot()
-        {
+        if self.chain.slot().unwrap() == self.chain.canonical_head.cached_head().head_slot() {
             self.advance_slot();
         }
 
@@ -1684,13 +1656,7 @@ where
     ///  - BlockStrategy::OnCanonicalHead,
     ///  - AttestationStrategy::AllValidators,
     pub async fn extend_slots(&self, num_slots: usize) -> Hash256 {
-        if self.chain.slot().unwrap()
-            == self
-                .chain
-                .canonical_head
-                .cached_head_read_lock()
-                .head_slot()
-        {
+        if self.chain.slot().unwrap() == self.chain.canonical_head.cached_head().head_slot() {
             self.advance_slot();
         }
 

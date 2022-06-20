@@ -141,7 +141,7 @@ pub fn compute_proposer_duties_from_head<T: BeaconChainTypes>(
     // Atomically collect information about the head whilst hogging the `canonical_head_lock` as
     // little as possible.
     let (mut state, head_state_root, head_block_root) = {
-        let head = chain.canonical_head.cached_head_read_lock();
+        let head = chain.canonical_head.cached_head();
         // Take a copy of the head state.
         let head_state = head
             .snapshot

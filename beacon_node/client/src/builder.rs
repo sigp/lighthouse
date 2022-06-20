@@ -686,7 +686,7 @@ where
                 if let Ok(current_slot) = beacon_chain.slot() {
                     let params = beacon_chain
                         .canonical_head
-                        .cached_head_read_lock()
+                        .cached_head()
                         .forkchoice_update_parameters();
                     if params
                         .head_hash
