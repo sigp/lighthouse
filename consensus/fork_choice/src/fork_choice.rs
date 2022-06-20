@@ -603,49 +603,52 @@ where
 
         // Update unrealized justified/finalized checkpoints.
         let (unrealized_justified_checkpoint, unrealized_finalized_checkpoint) = {
-            if !matches!(block, BeaconBlock::Merge(_)) {
-                let (justifiable_beacon_state, _) =
+            let justifiable_beacon_state = match block {
+                BeaconBlock::Merge(_) | BeaconBlock::Altair(_) => {
                     state_processing::per_epoch_processing::altair::process_justifiable(
                         state, spec,
-                    )?;
-                let unrealized_justified_checkpoint =
-                    justifiable_beacon_state.current_justified_checkpoint;
-                let unrealized_finalized_checkpoint = justifiable_beacon_state.finalized_checkpoint;
-
-                // Update best known unrealized justified & finalized checkpoints
-                if unrealized_justified_checkpoint.epoch
-                    > self.fc_store.unrealized_justified_checkpoint().epoch
-                {
-                    self.fc_store
-                        .set_unrealized_justified_checkpoint(unrealized_justified_checkpoint);
+                    )?
+                    .0
                 }
-                if unrealized_finalized_checkpoint.epoch
-                    > self.fc_store.unrealized_finalized_checkpoint().epoch
-                {
-                    self.fc_store
-                        .set_unrealized_finalized_checkpoint(unrealized_finalized_checkpoint);
+                BeaconBlock::Base(_) => {
+                    state_processing::per_epoch_processing::base::process_justifiable(state, spec)?
+                        .0
                 }
+            };
 
-                // If block is from past epochs, try to update store's justified & finalized checkpoints right away
-                if block.slot().epoch(E::slots_per_epoch())
-                    < current_slot.epoch(E::slots_per_epoch())
-                {
-                    self.update_checkpoints(
-                        unrealized_justified_checkpoint,
-                        unrealized_finalized_checkpoint,
-                        state.slot(),
-                        current_slot,
-                        spec,
-                    )?;
-                }
+            let unrealized_justified_checkpoint =
+                justifiable_beacon_state.current_justified_checkpoint;
+            let unrealized_finalized_checkpoint = justifiable_beacon_state.finalized_checkpoint;
 
-                (
-                    Some(unrealized_justified_checkpoint),
-                    Some(unrealized_finalized_checkpoint),
-                )
-            } else {
-                (None, None)
+            // Update best known unrealized justified & finalized checkpoints
+            if unrealized_justified_checkpoint.epoch
+                > self.fc_store.unrealized_justified_checkpoint().epoch
+            {
+                self.fc_store
+                    .set_unrealized_justified_checkpoint(unrealized_justified_checkpoint);
             }
+            if unrealized_finalized_checkpoint.epoch
+                > self.fc_store.unrealized_finalized_checkpoint().epoch
+            {
+                self.fc_store
+                    .set_unrealized_finalized_checkpoint(unrealized_finalized_checkpoint);
+            }
+
+            // If block is from past epochs, try to update store's justified & finalized checkpoints right away
+            if block.slot().epoch(E::slots_per_epoch()) < current_slot.epoch(E::slots_per_epoch()) {
+                self.update_checkpoints(
+                    unrealized_justified_checkpoint,
+                    unrealized_finalized_checkpoint,
+                    state.slot(),
+                    current_slot,
+                    spec,
+                )?;
+            }
+
+            (
+                Some(unrealized_justified_checkpoint),
+                Some(unrealized_finalized_checkpoint),
+            )
         };
 
         let target_slot = block
@@ -695,30 +698,33 @@ where
 
         // This does not apply a vote to the block, it just makes fork choice aware of the block so
         // it can still be identified as the head even if it doesn't have any votes.
-        self.proto_array.process_block(ProtoBlock {
-            slot: block.slot(),
-            root: block_root,
-            parent_root: Some(block.parent_root()),
-            target_root,
-            current_epoch_shuffling_id: AttestationShufflingId::new(
-                block_root,
-                state,
-                RelativeEpoch::Current,
-            )
-            .map_err(Error::BeaconStateError)?,
-            next_epoch_shuffling_id: AttestationShufflingId::new(
-                block_root,
-                state,
-                RelativeEpoch::Next,
-            )
-            .map_err(Error::BeaconStateError)?,
-            state_root: block.state_root(),
-            justified_checkpoint: state.current_justified_checkpoint(),
-            finalized_checkpoint: state.finalized_checkpoint(),
-            execution_status,
-            unrealized_justified_checkpoint,
-            unrealized_finalized_checkpoint,
-        }, current_slot)?;
+        self.proto_array.process_block(
+            ProtoBlock {
+                slot: block.slot(),
+                root: block_root,
+                parent_root: Some(block.parent_root()),
+                target_root,
+                current_epoch_shuffling_id: AttestationShufflingId::new(
+                    block_root,
+                    state,
+                    RelativeEpoch::Current,
+                )
+                .map_err(Error::BeaconStateError)?,
+                next_epoch_shuffling_id: AttestationShufflingId::new(
+                    block_root,
+                    state,
+                    RelativeEpoch::Next,
+                )
+                .map_err(Error::BeaconStateError)?,
+                state_root: block.state_root(),
+                justified_checkpoint: state.current_justified_checkpoint(),
+                finalized_checkpoint: state.finalized_checkpoint(),
+                execution_status,
+                unrealized_justified_checkpoint,
+                unrealized_finalized_checkpoint,
+            },
+            current_slot,
+        )?;
 
         Ok(())
     }

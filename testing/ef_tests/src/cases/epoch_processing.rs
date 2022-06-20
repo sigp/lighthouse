@@ -89,11 +89,13 @@ impl<E: EthSpec> EpochTransition<E> for JustificationAndFinalization {
             BeaconState::Base(_) => {
                 let mut validator_statuses = base::ValidatorStatuses::new(state, spec)?;
                 validator_statuses.process_attestations(state)?;
-                base::process_justification_and_finalization(
+                let justifiable_beacon_state = base::process_justification_and_finalization(
                     state,
                     &validator_statuses.total_balances,
                     spec,
-                )
+                )?;
+                state.update_justifiable(justifiable_beacon_state);
+                Ok(())
             }
             BeaconState::Altair(_) | BeaconState::Merge(_) => {
                 let prev_participation_cache =

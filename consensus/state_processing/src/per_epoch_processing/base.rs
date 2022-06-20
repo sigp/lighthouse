@@ -7,6 +7,7 @@ use crate::per_epoch_processing::{
 pub use justification_and_finalization::process_justification_and_finalization;
 pub use participation_record_updates::process_participation_record_updates;
 pub use rewards_and_penalties::process_rewards_and_penalties;
+use types::justifiable_beacon_state::JustifiableBeaconState;
 use types::{BeaconState, ChainSpec, EthSpec, RelativeEpoch};
 pub use validator_statuses::{TotalBalances, ValidatorStatus, ValidatorStatuses};
 
@@ -20,18 +21,10 @@ pub fn process_epoch<T: EthSpec>(
     spec: &ChainSpec,
 ) -> Result<EpochProcessingSummary<T>, Error> {
     // Ensure the committee caches are built.
-    state.build_committee_cache(RelativeEpoch::Previous, spec)?;
-    state.build_committee_cache(RelativeEpoch::Current, spec)?;
     state.build_committee_cache(RelativeEpoch::Next, spec)?;
 
-    // Load the struct we use to assign validators into sets based on their participation.
-    //
-    // E.g., attestation in the previous epoch, attested to the head, etc.
-    let mut validator_statuses = ValidatorStatuses::new(state, spec)?;
-    validator_statuses.process_attestations(state)?;
-
-    // Justification and finalization.
-    process_justification_and_finalization(state, &validator_statuses.total_balances, spec)?;
+    let (justifiable_beacon_state, mut validator_statuses) = process_justifiable(state, spec)?;
+    state.update_justifiable(justifiable_beacon_state);
 
     // Rewards and Penalties.
     process_rewards_and_penalties(state, &mut validator_statuses, spec)?;
@@ -71,4 +64,25 @@ pub fn process_epoch<T: EthSpec>(
         total_balances: validator_statuses.total_balances,
         statuses: validator_statuses.statuses,
     })
+}
+
+pub fn process_justifiable<T: EthSpec>(
+    state: &mut BeaconState<T>,
+    spec: &ChainSpec,
+) -> Result<(JustifiableBeaconState<T>, ValidatorStatuses), Error> {
+    // Ensure the committee caches are built.
+    state.build_committee_cache(RelativeEpoch::Previous, spec)?;
+    state.build_committee_cache(RelativeEpoch::Current, spec)?;
+
+    // Load the struct we use to assign validators into sets based on their participation.
+    //
+    // E.g., attestation in the previous epoch, attested to the head, etc.
+    let mut validator_statuses = ValidatorStatuses::new(state, spec)?;
+    validator_statuses.process_attestations(state)?;
+
+    // Justification and finalization.
+    let justifiable_beacon_state =
+        process_justification_and_finalization(state, &validator_statuses.total_balances, spec)?;
+
+    Ok((justifiable_beacon_state, validator_statuses))
 }
