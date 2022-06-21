@@ -158,8 +158,8 @@ pub struct ChainSpec {
     pub target_aggregators_per_committee: u64,
     pub attestation_subnet_count: u64,
     pub subnets_per_node: u8,
-    pub random_subnets_per_validator: u64,
-    pub epochs_per_random_subnet_subscription: u64,
+    pub epochs_per_subnet_subscription: u64,
+    pub attestation_subnet_extra_bits: u8,
 }
 
 impl ChainSpec {
@@ -409,6 +409,19 @@ impl ChainSpec {
         Hash256::from(domain)
     }
 
+    pub const fn attestation_subnet_prefix_bits(&self) -> u32 {
+        // maybe use log2 when stable https://github.com/rust-lang/rust/issues/70887
+        // current code is prone to errors if self.attestation_subnet_count's type is changed and
+        // no warning will be raised by the compiler.
+        let attestation_subnet_count_bits = if self.attestation_subnet_count == 0 {
+            0
+        } else {
+            63 - self.attestation_subnet_count.leading_zeros()
+        };
+
+        self.attestation_subnet_extra_bits as u32 + attestation_subnet_count_bits
+    }
+
     /// Returns a `ChainSpec` compatible with the Ethereum Foundation specification.
     pub fn mainnet() -> Self {
         Self {
@@ -563,10 +576,10 @@ impl ChainSpec {
             attestation_propagation_slot_range: 32,
             attestation_subnet_count: 64,
             subnets_per_node: 1,
-            random_subnets_per_validator: 1,
             maximum_gossip_clock_disparity_millis: 500,
             target_aggregators_per_committee: 16,
-            epochs_per_random_subnet_subscription: 256,
+            epochs_per_subnet_subscription: 256,
+            attestation_subnet_extra_bits: 6,
         }
     }
 
@@ -762,10 +775,10 @@ impl ChainSpec {
             attestation_propagation_slot_range: 32,
             attestation_subnet_count: 64,
             subnets_per_node: 1,
-            random_subnets_per_validator: 1,
             maximum_gossip_clock_disparity_millis: 500,
             target_aggregators_per_committee: 16,
-            epochs_per_random_subnet_subscription: 256,
+            epochs_per_subnet_subscription: 256,
+            attestation_subnet_extra_bits: 6,
         }
     }
 }

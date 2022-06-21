@@ -91,7 +91,7 @@ impl<T: BeaconChainTypes> AttestationService<T> {
         let spec = &beacon_chain.spec;
         let slot_duration = beacon_chain.slot_clock.slot_duration();
         let random_subnet_duration_millis = spec
-            .epochs_per_random_subnet_subscription
+            .epochs_per_subnet_subscription
             .saturating_mul(T::EthSpec::slots_per_epoch())
             .saturating_mul(slot_duration.as_millis() as u64);
 
