@@ -1342,7 +1342,7 @@ mod tests {
             OutboundRequest::BlocksByRoot(bbroot_request()),
             OutboundRequest::MetaData(PhantomData::<Spec>),
         ];
-        for req in requests.into_iter() {
+        for req in requests.iter() {
             for fork_name in ForkName::list_all() {
                 encode_then_decode_request(req.clone(), fork_name);
             }
