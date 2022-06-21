@@ -35,4 +35,3 @@ fs2 = "0.4.3"
 beacon_chain = { path = "../../beacon_node/beacon_chain" }
 store = { path = "../../beacon_node/store" }
 fork_choice = { path = "../../consensus/fork_choice" }
-parking_lot = "0.12.0"

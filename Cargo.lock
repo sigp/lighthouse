@@ -1373,7 +1373,6 @@ dependencies = [
  "fork_choice",
  "fs2",
  "hex",
- "parking_lot 0.12.1",
  "rayon",
  "serde",
  "serde_derive",
