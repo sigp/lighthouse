@@ -1607,13 +1607,21 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
     }
 }
 
-pub struct TaskSpawner {
+/// Spawns tasks that are either:
+///
+/// - Blocking (i.e. intensive methods that shouldn't run on the core `tokio` executor)
+/// - Async (i.e. `async` methods)
+///
+/// Takes a `SendOnDrop` and ensures it is dropped after the task completes. This frees the beacon
+/// processor worker so a new task can be started.
+struct TaskSpawner {
     executor: TaskExecutor,
     send_idle_on_drop: SendOnDrop,
 }
 
 impl TaskSpawner {
-    pub fn spawn_async(self, task: impl Future<Output = ()> + Send + 'static) {
+    /// Spawn an async task, dropping the `SendOnDrop` after the task has completed.
+    fn spawn_async(self, task: impl Future<Output = ()> + Send + 'static) {
         self.executor.spawn(
             async {
                 task.await;
@@ -1623,7 +1631,8 @@ impl TaskSpawner {
         )
     }
 
-    pub fn spawn_blocking<F>(self, task: F)
+    /// Spawn a blocking task, dropping the `SendOnDrop` after the task has completed.
+    fn spawn_blocking<F>(self, task: F)
     where
         F: FnOnce() + Send + 'static,
     {
@@ -1636,6 +1645,11 @@ impl TaskSpawner {
         )
     }
 
+    /// Spawn a blocking task, passing the `SendOnDrop` into the task.
+    ///
+    /// ## Notes
+    ///
+    /// Users must ensure the `SendOnDrop` is dropped at the appropriate time!
     pub fn spawn_blocking_with_manual_send_idle<F>(self, task: F)
     where
         F: FnOnce(SendOnDrop) + Send + 'static,
