@@ -318,7 +318,15 @@ impl TaskExecutor {
     ///
     /// ## Warning
     ///
-    /// This method is "dangerous" since calling it from a non-async thread will result in a panic!
+    /// This method is "dangerous" since calling it from an async thread will result in a panic! Any
+    /// use of this outside of testing should be very deeply considered as Lighthouse has been
+    /// burned by this function in the past.
+    ///
+    /// Determining what is an "async thread" is rather challenging; just because a function isn't
+    /// marked as `async` doesn't mean it's not being called from an `async` function or there isn't
+    /// a `tokio` context present in the thread-local storage due to some `rayon` funkiness. Talk to
+    /// @paulhauner if you plan to use this function in production. He has put metrics in here to
+    /// track any use of it, so don't think you can pull a sneaky one on him.
     pub fn block_on_dangerous<F: Future>(
         &self,
         future: F,
