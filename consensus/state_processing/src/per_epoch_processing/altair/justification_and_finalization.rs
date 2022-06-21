@@ -12,12 +12,7 @@ pub fn process_justification_and_finalization<T: EthSpec>(
     participation_cache: &ParticipationCache,
 ) -> Result<JustifiableBeaconState<T>, Error> {
     if state.current_epoch() <= T::genesis_epoch().safe_add(1)? {
-        return Ok(JustifiableBeaconState {
-            current_justified_checkpoint: state.current_justified_checkpoint(),
-            previous_justified_checkpoint: state.previous_justified_checkpoint(),
-            justification_bits: state.justification_bits().clone(),
-            finalized_checkpoint: state.finalized_checkpoint(),
-        });
+        return Ok(JustifiableBeaconState::from(state));
     }
 
     let previous_epoch = state.previous_epoch();
