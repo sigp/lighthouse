@@ -726,6 +726,8 @@ impl<T: BeaconChainTypes> NetworkService<T> {
                     );
                 }
             } else {
+                // This scenario will only happen if the caches on the cached canonical head aren't
+                // built. That should never be the case.
                 error!(
                     self.log,
                     "Active validator count unavailable";
