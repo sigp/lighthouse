@@ -2506,10 +2506,22 @@ async fn revert_minority_fork_on_resume() {
 fn assert_chains_pretty_much_the_same<T: BeaconChainTypes>(a: &BeaconChain<T>, b: &BeaconChain<T>) {
     assert_eq!(a.spec, b.spec, "spec should be equal");
     assert_eq!(a.op_pool, b.op_pool, "op_pool should be equal");
+    let a_head = a.head_snapshot();
+    let b_head = b.head_snapshot();
     assert_eq!(
-        a.head_snapshot(),
-        b.head_snapshot(),
-        "head_snapshot() should be equal"
+        a_head.beacon_block_root, b_head.beacon_block_root,
+        "head block roots should be equal"
+    );
+    assert_eq!(
+        a_head.beacon_block, b_head.beacon_block,
+        "head blocks should be equal"
+    );
+    // Clone with committee caches only to prevent other caches from messing with the equality
+    // check.
+    assert_eq!(
+        a_head.beacon_state.clone_with_only_committee_caches(),
+        b_head.beacon_state.clone_with_only_committee_caches(),
+        "head states should be equal"
     );
     assert_eq!(a.heads(), b.heads(), "heads() should be equal");
     assert_eq!(
