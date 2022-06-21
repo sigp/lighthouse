@@ -842,10 +842,12 @@ mod tests {
                 fork_context.clone(),
             );
 
-            let decoded = inbound_codec.decode(&mut buf).unwrap().expect(&format!(
-                "Should correctly decode the request {} over protocol {:?} and fork {}",
-                req, protocol, fork_name
-            ));
+            let decoded = inbound_codec.decode(&mut buf).unwrap().unwrap_or_else(|| {
+                panic!(
+                    "Should correctly decode the request {} over protocol {:?} and fork {}",
+                    req, protocol, fork_name
+                )
+            });
             match req.clone() {
                 OutboundRequest::Status(status) => {
                     assert_eq!(decoded, InboundRequest::Status(status))
