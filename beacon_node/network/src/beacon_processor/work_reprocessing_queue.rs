@@ -43,7 +43,7 @@ const ADDITIONAL_QUEUED_BLOCK_DELAY: Duration = Duration::from_millis(5);
 pub const QUEUED_ATTESTATION_DELAY: Duration = Duration::from_secs(12);
 
 /// For how long to queue rpc blocks before sending them back for reprocessing.
-pub const QUEUED_RPC_BLOCK_DELAY: Duration = Duration::from_secs(12);
+pub const QUEUED_RPC_BLOCK_DELAY: Duration = Duration::from_secs(3);
 
 /// Set an arbitrary upper-bound on the number of queued blocks to avoid DoS attacks. The fact that
 /// we signature-verify blocks before putting them in the queue *should* protect against this, but
@@ -110,6 +110,9 @@ pub struct QueuedRpcBlock<T: EthSpec> {
     pub block: Box<SignedBeaconBlock<T>>,
     pub process_type: BlockProcessType,
     pub seen_timestamp: Duration,
+    /// Indicates if the beacon chain should process this block or not.
+    /// We use this to ignore block processing when rpc block queues are full.
+    pub should_process: bool,
 }
 
 /// Unifies the different messages processed by the block delay queue.
@@ -143,7 +146,6 @@ struct ReprocessQueue<T: BeaconChainTypes> {
     /* Queued items */
     /// Queued blocks.
     queued_gossip_block_roots: HashSet<Hash256>,
-    /// TODO(pawan): check if we need a separate queued_block_roots for rpc blocks.
     queued_rpc_block_roots: HashSet<Hash256>,
     /// Queued aggregated attestations.
     queued_aggregates: FnvHashMap<usize, (QueuedAggregate<T::EthSpec>, DelayKey)>,
@@ -349,10 +351,10 @@ impl<T: BeaconChainTypes> ReprocessQueue<T> {
                 }
             }
             // A rpc block arrived for processing at the same time when a gossip block
-            // for the same block hash is being imported. We wait for the block to be imported
-            // by gossip and send the block processing result to the sync process that requested the rpc
-            // block or send the block for reprocessing after the delay expires.
-            InboundEvent::Msg(RpcBlock(rpc_block)) => {
+            // for the same block hash is being imported. We wait for `QUEUED_RPC_BLOCK_DELAY`
+            // and then send the rpc block back for processing assuming the gossip import
+            // has completed by then.
+            InboundEvent::Msg(RpcBlock(mut rpc_block)) => {
                 let block_root = rpc_block.block.canonical_root();
 
                 // Don't add the same block to the queue twice. This prevents DoS attacks.
@@ -370,8 +372,19 @@ impl<T: BeaconChainTypes> ReprocessQueue<T> {
                             "msg" => "check system clock"
                         );
                     }
-                    // Drop the block.
-                    // TODO(pawan): can't drop here, what's the alternative?
+                    // Return the block to the beacon processor signalling to
+                    // ignore processing for this block
+                    rpc_block.should_process = false;
+                    if self
+                        .ready_work_tx
+                        .try_send(ReadyWork::RpcBlock(rpc_block))
+                        .is_err()
+                    {
+                        error!(
+                            log,
+                            "Failed to send rpc block to beacon processor";
+                        );
+                    }
                     return;
                 }
 
@@ -381,6 +394,11 @@ impl<T: BeaconChainTypes> ReprocessQueue<T> {
                     .insert(rpc_block, QUEUED_RPC_BLOCK_DELAY);
             }
             InboundEvent::ReadyRpcBlock(queued_rpc_block) => {
+                debug!(
+                    log,
+                    "Sending rpc block for reprocessing";
+                    "block_root" => %queued_rpc_block.block.canonical_root()
+                );
                 if self
                     .ready_work_tx
                     .try_send(ReadyWork::RpcBlock(queued_rpc_block))
