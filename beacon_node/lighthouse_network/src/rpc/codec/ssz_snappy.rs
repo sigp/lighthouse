@@ -137,6 +137,9 @@ impl<TSpec: EthSpec> Decoder for SSZSnappyInboundCodec<TSpec> {
     type Error = RPCError;
 
     fn decode(&mut self, src: &mut BytesMut) -> Result<Option<Self::Item>, Self::Error> {
+        if self.protocol.message_name == Protocol::MetaData {
+            return Ok(Some(InboundRequest::MetaData(PhantomData)));
+        }
         let length = match handle_length(&mut self.inner, &mut self.len, src)? {
             Some(len) => len,
             None => return Ok(None),
