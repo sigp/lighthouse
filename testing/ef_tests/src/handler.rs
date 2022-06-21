@@ -31,7 +31,7 @@ pub trait Handler {
     }
 
     fn use_rayon() -> bool {
-        false
+        true
     }
 
     fn run_for_fork(&self, fork_name: ForkName) {
