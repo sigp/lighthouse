@@ -162,9 +162,9 @@ async fn state_advance_timer<T: BeaconChainTypes>(
             let beacon_chain = beacon_chain.clone();
             let is_running = is_running.clone();
 
-            executor.spawn_blocking(
-                move || {
-                    match advance_head(&beacon_chain, &log) {
+            executor.spawn(
+                async move {
+                    match maybe_advance_head(&beacon_chain, &log).await {
                         Ok(()) => (),
                         Err(Error::BeaconChain(e)) => error!(
                             log,
@@ -242,12 +242,9 @@ async fn state_advance_timer<T: BeaconChainTypes>(
     }
 }
 
-/// Reads the `snapshot_cache` from the `beacon_chain` and attempts to take a clone of the
-/// `BeaconState` of the head block. If it obtains this clone, the state will be advanced a single
-/// slot then placed back in the `snapshot_cache` to be used for block verification.
-///
-/// See the module-level documentation for rationale.
-fn advance_head<T: BeaconChainTypes>(
+/// Checks to see if the head should be advanced. If so, re-runs fork choice and then spawns a
+/// blocking task to perform the state advance.
+async fn maybe_advance_head<T: BeaconChainTypes>(
     beacon_chain: &Arc<BeaconChain<T>>,
     log: &Logger,
 ) -> Result<(), Error> {
@@ -275,9 +272,33 @@ fn advance_head<T: BeaconChainTypes>(
     // after receiving the latest gossip block, but not necessarily after we've received the
     // majority of attestations.
     //
-    // TODO(paul): try and re-enable this.
-    // beacon_chain.fork_choice()?;
+    beacon_chain.recompute_head_at_current_slot().await?;
 
+    let chain = beacon_chain.clone();
+    let log = log.clone();
+    beacon_chain
+        .task_executor
+        .spawn_blocking_handle(
+            move || advance_head(current_slot, &chain, &log),
+            "advance_head",
+        )
+        .ok_or(BeaconChainError::RuntimeShutdown)?
+        .await
+        .map_err(BeaconChainError::TokioJoin)??;
+
+    Ok(())
+}
+
+/// Reads the `snapshot_cache` from the `beacon_chain` and attempts to take a clone of the
+/// `BeaconState` of the head block. If it obtains this clone, the state will be advanced a single
+/// slot then placed back in the `snapshot_cache` to be used for block verification.
+///
+/// See the module-level documentation for rationale.
+fn advance_head<T: BeaconChainTypes>(
+    current_slot: Slot,
+    beacon_chain: &Arc<BeaconChain<T>>,
+    log: &Logger,
+) -> Result<(), Error> {
     let head_root = beacon_chain.canonical_head.cached_head().head_block_root();
 
     let (head_slot, head_state_root, mut state) = match beacon_chain
