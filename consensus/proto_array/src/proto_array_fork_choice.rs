@@ -164,7 +164,7 @@ pub struct ProtoArrayForkChoice {
 
 impl ProtoArrayForkChoice {
     #[allow(clippy::too_many_arguments)]
-    pub fn new(
+    pub fn new<E: EthSpec>(
         finalized_block_slot: Slot,
         finalized_block_state_root: Hash256,
         justified_checkpoint: Checkpoint,
@@ -200,7 +200,7 @@ impl ProtoArrayForkChoice {
         };
 
         proto_array
-            .on_block(block, finalized_block_slot)
+            .on_block::<E>(block, finalized_block_slot)
             .map_err(|e| format!("Failed to add finalized block to proto_array: {:?}", e))?;
 
         Ok(Self {
@@ -246,13 +246,17 @@ impl ProtoArrayForkChoice {
         Ok(())
     }
 
-    pub fn process_block(&mut self, block: Block, current_slot:Slot) -> Result<(), String> {
+    pub fn process_block<E: EthSpec>(
+        &mut self,
+        block: Block,
+        current_slot: Slot,
+    ) -> Result<(), String> {
         if block.parent_root.is_none() {
             return Err("Missing parent root".to_string());
         }
 
         self.proto_array
-            .on_block(block, current_slot)
+            .on_block::<E>(block, current_slot)
             .map_err(|e| format!("process_block_error: {:?}", e))
     }
 
@@ -292,7 +296,7 @@ impl ProtoArrayForkChoice {
         *old_balances = new_balances.to_vec();
 
         self.proto_array
-            .find_head(&justified_checkpoint.root, current_slot)
+            .find_head::<E>(&justified_checkpoint.root, current_slot)
             .map_err(|e| format!("find_head failed: {:?}", e))
     }
 
@@ -493,6 +497,7 @@ fn compute_deltas(
 #[cfg(test)]
 mod test_compute_deltas {
     use super::*;
+    use types::MainnetEthSpec;
 
     /// Gives a hash that is not the zero hash (unless i is `usize::max_value)`.
     fn hash_from_index(i: usize) -> Hash256 {
@@ -518,7 +523,7 @@ mod test_compute_deltas {
             root: finalized_root,
         };
 
-        let mut fc = ProtoArrayForkChoice::new(
+        let mut fc = ProtoArrayForkChoice::new::<MainnetEthSpec>(
             genesis_slot,
             state_root,
             genesis_checkpoint,
@@ -531,7 +536,7 @@ mod test_compute_deltas {
 
         // Add block that is a finalized descendant.
         fc.proto_array
-            .on_block(Block {
+            .on_block::<MainnetEthSpec>(Block {
                 slot: genesis_slot + 1,
                 root: finalized_desc,
                 parent_root: Some(finalized_root),
@@ -549,7 +554,7 @@ mod test_compute_deltas {
 
         // Add block that is *not* a finalized descendant.
         fc.proto_array
-            .on_block(Block {
+            .on_block::<MainnetEthSpec>(Block {
                 slot: genesis_slot + 1,
                 root: not_finalized_desc,
                 parent_root: None,

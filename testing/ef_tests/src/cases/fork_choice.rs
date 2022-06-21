@@ -14,8 +14,8 @@ use ssz_derive::Decode;
 use state_processing::state_advance::complete_state_advance;
 use std::time::Duration;
 use types::{
-    Attestation, BeaconBlock, BeaconState, Checkpoint, Epoch, EthSpec, ExecutionBlockHash,
-    ForkName, Hash256, IndexedAttestation, SignedBeaconBlock, Slot, Uint256,
+    Attestation, AttesterSlashing, BeaconBlock, BeaconState, Checkpoint, Epoch, EthSpec,
+    ExecutionBlockHash, ForkName, Hash256, IndexedAttestation, SignedBeaconBlock, Slot, Uint256,
 };
 
 #[derive(Default, Debug, PartialEq, Clone, Deserialize, Decode)]
@@ -43,17 +43,20 @@ pub struct Checks {
     justified_checkpoint_root: Option<Hash256>,
     finalized_checkpoint: Option<Checkpoint>,
     best_justified_checkpoint: Option<Checkpoint>,
+    u_justified_checkpoint: Option<Checkpoint>,
+    u_finalized_checkpoint: Option<Checkpoint>,
     proposer_boost_root: Option<Hash256>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(untagged, deny_unknown_fields)]
-pub enum Step<B, A, P> {
+pub enum Step<B, A, P, S> {
     Tick { tick: u64 },
     ValidBlock { block: B },
     MaybeValidBlock { block: B, valid: bool },
     Attestation { attestation: A },
     PowBlock { pow_block: P },
+    AttesterSlashing { attester_slashing: S },
     Checks { checks: Box<Checks> },
 }
 
@@ -69,7 +72,7 @@ pub struct ForkChoiceTest<E: EthSpec> {
     pub description: String,
     pub anchor_state: BeaconState<E>,
     pub anchor_block: BeaconBlock<E>,
-    pub steps: Vec<Step<SignedBeaconBlock<E>, Attestation<E>, PowBlock>>,
+    pub steps: Vec<Step<SignedBeaconBlock<E>, Attestation<E>, PowBlock, AttesterSlashing<E>>>,
 }
 
 /// Spec for fork choice tests, with proposer boosting enabled.
@@ -77,7 +80,6 @@ pub struct ForkChoiceTest<E: EthSpec> {
 /// This function can be deleted once `ChainSpec::mainnet` enables proposer boosting by default.
 pub fn fork_choice_spec<E: EthSpec>(fork_name: ForkName) -> ChainSpec {
     let mut spec = testing_spec::<E>(fork_name);
-    spec.proposer_score_boost = Some(70);
     spec
 }
 
@@ -91,7 +93,8 @@ impl<E: EthSpec> LoadCase for ForkChoiceTest<E> {
             .expect("path must be valid OsStr")
             .to_string();
         let spec = &fork_choice_spec::<E>(fork_name);
-        let steps: Vec<Step<String, String, String>> = yaml_decode_file(&path.join("steps.yaml"))?;
+        let steps: Vec<Step<String, String, String, String>> =
+            yaml_decode_file(&path.join("steps.yaml"))?;
         // Resolve the object names in `steps.yaml` into actual decoded block/attestation objects.
         let steps = steps
             .into_iter()
@@ -116,6 +119,10 @@ impl<E: EthSpec> LoadCase for ForkChoiceTest<E> {
                 Step::PowBlock { pow_block } => {
                     ssz_decode_file(&path.join(format!("{}.ssz_snappy", pow_block)))
                         .map(|pow_block| Step::PowBlock { pow_block })
+                }
+                Step::AttesterSlashing { attester_slashing } => {
+                    ssz_decode_file(&path.join(format!("{}.ssz_snappy", attester_slashing)))
+                        .map(|attester_slashing| Step::AttesterSlashing { attester_slashing })
                 }
                 Step::Checks { checks } => Ok(Step::Checks { checks }),
             })
@@ -157,7 +164,10 @@ impl<E: EthSpec> Case for ForkChoiceTest<E> {
         // TODO(merge): re-enable this test before production.
         // This test is skipped until we can do retrospective confirmations of the terminal
         // block after an optimistic sync.
-        if self.description == "block_lookup_failed" {
+        if self.description == "block_lookup_failed"
+            //TODO(sean): enable once we implement equivocation logic (https://github.com/ethereum/consensus-specs/pull/2845)
+            || self.description == "discard_equivocations"
+        {
             return Err(Error::SkippedKnownFailure);
         };
 
@@ -170,6 +180,10 @@ impl<E: EthSpec> Case for ForkChoiceTest<E> {
                 }
                 Step::Attestation { attestation } => tester.process_attestation(attestation)?,
                 Step::PowBlock { pow_block } => tester.process_pow_block(pow_block),
+                //TODO(sean): enable once we implement equivocation logic (https://github.com/ethereum/consensus-specs/pull/2845)
+                Step::AttesterSlashing {
+                    attester_slashing: _,
+                } => (),
                 Step::Checks { checks } => {
                     let Checks {
                         head,
@@ -179,6 +193,8 @@ impl<E: EthSpec> Case for ForkChoiceTest<E> {
                         justified_checkpoint_root,
                         finalized_checkpoint,
                         best_justified_checkpoint,
+                        u_justified_checkpoint,
+                        u_finalized_checkpoint,
                         proposer_boost_root,
                     } = checks.as_ref();
 
@@ -210,6 +226,14 @@ impl<E: EthSpec> Case for ForkChoiceTest<E> {
                     if let Some(expected_best_justified_checkpoint) = best_justified_checkpoint {
                         tester
                             .check_best_justified_checkpoint(*expected_best_justified_checkpoint)?;
+                    }
+
+                    if let Some(expected_u_justified_checkpoint) = u_justified_checkpoint {
+                        tester.check_u_justified_checkpoint(*expected_u_justified_checkpoint)?;
+                    }
+
+                    if let Some(expected_u_finalized_checkpoint) = u_finalized_checkpoint {
+                        tester.check_u_finalized_checkpoint(*expected_u_finalized_checkpoint)?;
                     }
 
                     if let Some(expected_proposer_boost_root) = proposer_boost_root {
@@ -303,27 +327,21 @@ impl<E: EthSpec> Tester<E> {
     }
 
     pub fn set_tick(&self, tick: u64) {
+        self.harness
+            .chain
+            .slot_clock
+            .set_current_time(Duration::from_secs(tick));
 
-        // get current slot, get difference, call update_time on every slot
+        // Compute the slot time manually to ensure the slot clock is correct.
+        let slot = self.tick_to_slot(tick).unwrap();
+        assert_eq!(slot, self.harness.chain.slot().unwrap());
 
-        let slot = self.harness.chain.slot().unwrap();
-        let new_slots = tick.checked_div(self.spec.seconds_per_slot).unwrap();
-
-        for i in slot.as_u64()..new_slots {
-            let new_slot = i + 1;
-
-            self.harness
-                .chain
-                .slot_clock
-                .set_slot(new_slot);
-
-            self.harness
-                .chain
-                .fork_choice
-                .write()
-                .update_time(Slot::new(new_slot))
-                .unwrap();
-        }
+        self.harness
+            .chain
+            .fork_choice
+            .write()
+            .update_time(slot, &self.harness.spec)
+            .unwrap();
     }
 
     pub fn process_block(&self, block: SignedBeaconBlock<E>, valid: bool) -> Result<(), Error> {
@@ -513,6 +531,40 @@ impl<E: EthSpec> Tester<E> {
         check_equal(
             "best_justified_checkpoint",
             best_justified_checkpoint,
+            expected_checkpoint,
+        )
+    }
+
+    pub fn check_u_justified_checkpoint(
+        &self,
+        expected_checkpoint: Checkpoint,
+    ) -> Result<(), Error> {
+        let u_justified_checkpoint = self
+            .harness
+            .chain
+            .fork_choice
+            .read()
+            .unrealized_justified_checkpoint();
+        check_equal(
+            "u_justified_checkpoint",
+            u_justified_checkpoint,
+            expected_checkpoint,
+        )
+    }
+
+    pub fn check_u_finalized_checkpoint(
+        &self,
+        expected_checkpoint: Checkpoint,
+    ) -> Result<(), Error> {
+        let u_finalized_checkpoint = self
+            .harness
+            .chain
+            .fork_choice
+            .read()
+            .unrealized_finalized_checkpoint();
+        check_equal(
+            "u_finalized_checkpoint",
+            u_finalized_checkpoint,
             expected_checkpoint,
         )
     }

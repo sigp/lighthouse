@@ -4,6 +4,7 @@ use ssz_derive::{Decode, Encode};
 use std::cmp::Ordering;
 use std::marker::PhantomData;
 use std::time::Duration;
+use types::MainnetEthSpec;
 use types::{
     consts::merge::INTERVALS_PER_SLOT, AttestationShufflingId, BeaconBlock, BeaconState,
     BeaconStateError, ChainSpec, Checkpoint, Epoch, EthSpec, ExecPayload, ExecutionBlockHash,
@@ -302,7 +303,7 @@ where
             },
         );
 
-        let proto_array = ProtoArrayForkChoice::new(
+        let proto_array = ProtoArrayForkChoice::new::<E>(
             finalized_block_slot,
             finalized_block_state_root,
             *fc_store.justified_checkpoint(),
@@ -405,7 +406,7 @@ where
         current_slot: Slot,
         spec: &ChainSpec,
     ) -> Result<Hash256, Error<T::Error>> {
-        self.update_time(current_slot)?;
+        self.update_time(current_slot, spec)?;
 
         let store = &mut self.fc_store;
 
@@ -450,8 +451,7 @@ where
         current_slot: Slot,
         spec: &ChainSpec,
     ) -> Result<bool, Error<T::Error>> {
-        //TODO(sean) update_time -> on_tick -> update_checkpoints -> should_update_justified_checkpoint -> update_time
-        self.update_time(current_slot)?;
+        self.update_time(current_slot, spec)?;
 
         if compute_slots_since_epoch_start::<E>(self.fc_store.get_current_slot())
             < spec.safe_slots_to_update_justified
@@ -536,7 +536,7 @@ where
         payload_verification_status: PayloadVerificationStatus,
         spec: &ChainSpec,
     ) -> Result<(), Error<T::Error>> {
-        let current_slot = self.update_time(current_slot)?;
+        let current_slot = self.update_time(current_slot, spec)?;
 
         // Parent block must be known.
         if !self.proto_array.contains_block(&block.parent_root()) {
@@ -698,7 +698,7 @@ where
 
         // This does not apply a vote to the block, it just makes fork choice aware of the block so
         // it can still be identified as the head even if it doesn't have any votes.
-        self.proto_array.process_block(
+        self.proto_array.process_block::<E>(
             ProtoBlock {
                 slot: block.slot(),
                 root: block_root,
@@ -903,9 +903,10 @@ where
         current_slot: Slot,
         attestation: &IndexedAttestation<E>,
         is_from_block: AttestationFromBlock,
+        spec: &ChainSpec,
     ) -> Result<(), Error<T::Error>> {
         // Ensure the store is up-to-date.
-        self.update_time(current_slot)?;
+        self.update_time(current_slot, spec)?;
 
         // Ignore any attestations to the zero hash.
         //
@@ -950,13 +951,16 @@ where
 
     /// Call `on_tick` for all slots between `fc_store.get_current_slot()` and the provided
     /// `current_slot`. Returns the value of `self.fc_store.get_current_slot`.
-    pub fn update_time(&mut self, current_slot: Slot) -> Result<Slot, Error<T::Error>> {
+    pub fn update_time(
+        &mut self,
+        current_slot: Slot,
+        spec: &ChainSpec,
+    ) -> Result<Slot, Error<T::Error>> {
         while self.fc_store.get_current_slot() < current_slot {
             let previous_slot = self.fc_store.get_current_slot();
             // Note: we are relying upon `on_tick` to update `fc_store.time` to ensure we don't
             // get stuck in a loop.
-            //TODO(sean) fix chain spec
-            self.on_tick(previous_slot + 1, &ChainSpec::mainnet())?
+            self.on_tick(previous_slot + 1, spec)?
         }
 
         // Process any attestations that might now be eligible.
@@ -1156,6 +1160,14 @@ where
     /// "best justified checkpoint" value should only be used internally or for testing.
     pub fn best_justified_checkpoint(&self) -> Checkpoint {
         *self.fc_store.best_justified_checkpoint()
+    }
+
+    pub fn unrealized_justified_checkpoint(&self) -> Checkpoint {
+        *self.fc_store.unrealized_justified_checkpoint()
+    }
+
+    pub fn unrealized_finalized_checkpoint(&self) -> Checkpoint {
+        *self.fc_store.unrealized_finalized_checkpoint()
     }
 
     /// Returns the latest message for a given validator, if any.

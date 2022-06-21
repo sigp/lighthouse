@@ -152,7 +152,7 @@ impl ForkChoiceTest {
             .chain
             .fork_choice
             .write()
-            .update_time(self.harness.chain.slot().unwrap())
+            .update_time(self.harness.chain.slot().unwrap(), &self.harness.spec)
             .unwrap();
         func(self.harness.chain.fork_choice.read().queued_attestations());
         self

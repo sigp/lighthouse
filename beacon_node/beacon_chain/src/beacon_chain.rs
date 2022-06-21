@@ -1919,6 +1919,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 self.slot()?,
                 verified.indexed_attestation(),
                 AttestationFromBlock::False,
+                &self.spec,
             )
             .map_err(Into::into)
     }
@@ -2701,6 +2702,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 current_slot,
                 &indexed_attestation,
                 AttestationFromBlock::True,
+                &self.spec,
             ) {
                 Ok(()) => Ok(()),
                 // Ignore invalid attestations whilst importing attestations from a block. The
