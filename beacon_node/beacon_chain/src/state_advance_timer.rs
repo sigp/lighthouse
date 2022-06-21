@@ -162,9 +162,9 @@ async fn state_advance_timer<T: BeaconChainTypes>(
             let beacon_chain = beacon_chain.clone();
             let is_running = is_running.clone();
 
-            executor.spawn(
-                async move {
-                    match maybe_advance_head(&beacon_chain, &log).await {
+            executor.spawn_blocking(
+                move || {
+                    match advance_head(&beacon_chain, &log) {
                         Ok(()) => (),
                         Err(Error::BeaconChain(e)) => error!(
                             log,
@@ -213,38 +213,47 @@ async fn state_advance_timer<T: BeaconChainTypes>(
         let log = log.clone();
         let beacon_chain = beacon_chain.clone();
         let next_slot = current_slot + 1;
+        executor.spawn_blocking(
+            move || {
+                // Don't run fork choice during sync.
+                if beacon_chain.best_slot().map_or(true, |head_slot| {
+                    head_slot + MAX_FORK_CHOICE_DISTANCE < current_slot
+                }) {
+                    return;
+                }
 
-        // Don't run fork choice during sync.
-        if beacon_chain.best_slot() + MAX_FORK_CHOICE_DISTANCE < current_slot {
-            return;
-        }
+                if let Err(e) = beacon_chain.fork_choice_at_slot(next_slot) {
+                    warn!(
+                        log,
+                        "Error updating fork choice for next slot";
+                        "error" => ?e,
+                        "slot" => next_slot,
+                    );
+                }
 
-        if let Err(e) = beacon_chain.recompute_head_at_slot(next_slot).await {
-            warn!(
-                log,
-                "Error updating fork choice for next slot";
-                "error" => ?e,
-                "slot" => next_slot,
-            );
-        }
-
-        // Signal block proposal for the next slot (if it happens to be waiting).
-        if let Some(tx) = &beacon_chain.fork_choice_signal_tx {
-            if let Err(e) = tx.notify_fork_choice_complete(next_slot) {
-                warn!(
-                    log,
-                    "Error signalling fork choice waiter";
-                    "error" => ?e,
-                    "slot" => next_slot,
-                );
-            }
-        }
+                // Signal block proposal for the next slot (if it happens to be waiting).
+                if let Some(tx) = &beacon_chain.fork_choice_signal_tx {
+                    if let Err(e) = tx.notify_fork_choice_complete(next_slot) {
+                        warn!(
+                            log,
+                            "Error signalling fork choice waiter";
+                            "error" => ?e,
+                            "slot" => next_slot,
+                        );
+                    }
+                }
+            },
+            "fork_choice_advance",
+        );
     }
 }
 
-/// Checks to see if the head should be advanced. If so, re-runs fork choice and then spawns a
-/// blocking task to perform the state advance.
-async fn maybe_advance_head<T: BeaconChainTypes>(
+/// Reads the `snapshot_cache` from the `beacon_chain` and attempts to take a clone of the
+/// `BeaconState` of the head block. If it obtains this clone, the state will be advanced a single
+/// slot then placed back in the `snapshot_cache` to be used for block verification.
+///
+/// See the module-level documentation for rationale.
+fn advance_head<T: BeaconChainTypes>(
     beacon_chain: &Arc<BeaconChain<T>>,
     log: &Logger,
 ) -> Result<(), Error> {
@@ -255,7 +264,7 @@ async fn maybe_advance_head<T: BeaconChainTypes>(
     //
     // Fork-choice is not run *before* this function to avoid unnecessary calls whilst syncing.
     {
-        let head_slot = beacon_chain.canonical_head.cached_head().head_slot();
+        let head_slot = beacon_chain.head_info()?.slot;
 
         // Don't run this when syncing or if lagging too far behind.
         if head_slot + MAX_ADVANCE_DISTANCE < current_slot {
@@ -266,40 +275,7 @@ async fn maybe_advance_head<T: BeaconChainTypes>(
         }
     }
 
-    // Run fork choice so we get the latest view of the head.
-    //
-    // This is useful since it's quite likely that the last time we ran fork choice was shortly
-    // after receiving the latest gossip block, but not necessarily after we've received the
-    // majority of attestations.
-    //
-    beacon_chain.recompute_head_at_current_slot().await?;
-
-    let chain = beacon_chain.clone();
-    let log = log.clone();
-    beacon_chain
-        .task_executor
-        .spawn_blocking_handle(
-            move || advance_head(current_slot, &chain, &log),
-            "advance_head",
-        )
-        .ok_or(BeaconChainError::RuntimeShutdown)?
-        .await
-        .map_err(BeaconChainError::TokioJoin)??;
-
-    Ok(())
-}
-
-/// Reads the `snapshot_cache` from the `beacon_chain` and attempts to take a clone of the
-/// `BeaconState` of the head block. If it obtains this clone, the state will be advanced a single
-/// slot then placed back in the `snapshot_cache` to be used for block verification.
-///
-/// See the module-level documentation for rationale.
-fn advance_head<T: BeaconChainTypes>(
-    current_slot: Slot,
-    beacon_chain: &Arc<BeaconChain<T>>,
-    log: &Logger,
-) -> Result<(), Error> {
-    let head_root = beacon_chain.canonical_head.cached_head().head_block_root();
+    let head_root = beacon_chain.head_info()?.block_root;
 
     let (head_slot, head_state_root, mut state) = match beacon_chain
         .snapshot_cache

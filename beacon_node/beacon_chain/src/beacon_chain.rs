@@ -1146,11 +1146,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         self.state_at_slot(self.slot()?, StateSkipConfig::WithStateRoots)
     }
 
-    /// Returns the slot of the highest block in the canonical chain.
-    pub fn best_slot(&self) -> Slot {
-        self.canonical_head.cached_head().head_slot()
-    }
-
     /// Returns the validator index (if any) for the given public key.
     ///
     /// ## Notes

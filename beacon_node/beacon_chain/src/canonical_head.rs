@@ -373,6 +373,15 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .beacon_block_root
     }
 
+    /// Returns the slot of the highest block in the canonical chain.
+    pub fn best_slot(&self) -> Slot {
+        self.canonical_head
+            .cached_head_read_lock()
+            .snapshot
+            .beacon_block
+            .slot()
+    }
+
     /// Returns a `Arc` of the `BeaconSnapshot` at the head of the canonical chain.
     ///
     /// See `Self::head` for more information.
