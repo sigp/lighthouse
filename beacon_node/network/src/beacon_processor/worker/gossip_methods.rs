@@ -24,7 +24,7 @@ use types::{
 
 use super::{
     super::work_reprocessing_queue::{
-        QueuedAggregate, QueuedBlock, QueuedUnaggregate, ReprocessQueueMessage,
+        QueuedAggregate, QueuedGossipBlock, QueuedUnaggregate, ReprocessQueueMessage,
     },
     Worker,
 };
@@ -852,7 +852,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                 metrics::inc_counter(&metrics::BEACON_PROCESSOR_GOSSIP_BLOCK_REQUEUED_TOTAL);
 
                 if reprocess_tx
-                    .try_send(ReprocessQueueMessage::EarlyBlock(QueuedBlock {
+                    .try_send(ReprocessQueueMessage::EarlyBlock(QueuedGossipBlock {
                         peer_id,
                         block: Box::new(verified_block),
                         seen_timestamp: seen_duration,

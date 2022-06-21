@@ -65,7 +65,7 @@ use types::{
     SyncCommitteeMessage, SyncSubnetId,
 };
 use work_reprocessing_queue::{
-    spawn_reprocess_scheduler, QueuedAggregate, QueuedUnaggregate, ReadyWork,
+    spawn_reprocess_scheduler, QueuedAggregate, QueuedRpcBlock, QueuedUnaggregate, ReadyWork,
 };
 
 use worker::{Toolbox, Worker};
@@ -74,7 +74,7 @@ mod tests;
 mod work_reprocessing_queue;
 mod worker;
 
-use crate::beacon_processor::work_reprocessing_queue::QueuedBlock;
+use crate::beacon_processor::work_reprocessing_queue::QueuedGossipBlock;
 pub use worker::{ChainSegmentProcessId, GossipAggregatePackage, GossipAttestationPackage};
 
 /// The maximum size of the channel for work events to the `BeaconProcessor`.
@@ -562,7 +562,7 @@ impl<T: BeaconChainTypes> WorkEvent<T> {
 impl<T: BeaconChainTypes> std::convert::From<ReadyWork<T>> for WorkEvent<T> {
     fn from(ready_work: ReadyWork<T>) -> Self {
         match ready_work {
-            ReadyWork::Block(QueuedBlock {
+            ReadyWork::Block(QueuedGossipBlock {
                 peer_id,
                 block,
                 seen_timestamp,
@@ -572,6 +572,18 @@ impl<T: BeaconChainTypes> std::convert::From<ReadyWork<T>> for WorkEvent<T> {
                     peer_id,
                     block,
                     seen_timestamp,
+                },
+            },
+            ReadyWork::RpcBlock(QueuedRpcBlock {
+                block,
+                seen_timestamp,
+                process_type,
+            }) => Self {
+                drop_during_sync: false,
+                work: Work::RpcBlock {
+                    block,
+                    seen_timestamp,
+                    process_type,
                 },
             },
             ReadyWork::Unaggregate(QueuedUnaggregate {
@@ -1508,7 +1520,7 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                         process_type,
                     } => {
                         worker.process_rpc_block(
-                            *block,
+                            block,
                             seen_timestamp,
                             process_type,
                             work_reprocessing_tx.clone(),

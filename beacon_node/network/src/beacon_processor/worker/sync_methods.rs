@@ -1,6 +1,7 @@
 use std::time::Duration;
 
 use super::{super::work_reprocessing_queue::ReprocessQueueMessage, Worker};
+use crate::beacon_processor::work_reprocessing_queue::QueuedRpcBlock;
 use crate::beacon_processor::worker::FUTURE_SLOT_TOLERANCE;
 use crate::beacon_processor::DuplicateCache;
 use crate::metrics;
@@ -37,7 +38,7 @@ impl<T: BeaconChainTypes> Worker<T> {
     /// Attempt to process a block received from a direct RPC request.
     pub fn process_rpc_block(
         self,
-        block: SignedBeaconBlock<T::EthSpec>,
+        block: Box<SignedBeaconBlock<T::EthSpec>>,
         seen_timestamp: Duration,
         process_type: BlockProcessType,
         reprocess_tx: mpsc::Sender<ReprocessQueueMessage<T>>,
@@ -47,16 +48,30 @@ impl<T: BeaconChainTypes> Worker<T> {
         let handle = match duplicate_cache.check_and_insert(block.canonical_root()) {
             Some(handle) => handle,
             None => {
-                // Sync handles these results
-                self.send_sync_message(SyncMessage::BlockProcessed {
+                // Send message to work reprocess queue to retry the tx after one slot duration
+                // **or** when the corresponding gossip block is imported
+
+                let reprocess_msg = ReprocessQueueMessage::RpcBlock(QueuedRpcBlock {
+                    block: block.clone(),
                     process_type,
-                    result: crate::sync::manager::BlockProcessResult::Ignored,
+                    seen_timestamp,
                 });
+
+                if reprocess_tx.try_send(reprocess_msg).is_err() {
+                    error!(self.log, "Failed to inform block import"; "source" => "rpc", "block_root" => %block.canonical_root())
+                };
                 return;
+
+                // // Sync handles these results
+                // self.send_sync_message(SyncMessage::BlockProcessed {
+                //     process_type,
+                //     result: crate::sync::manager::BlockProcessResult::Ignored,
+                // });
+                // return;
             }
         };
         let slot = block.slot();
-        let result = self.chain.process_block(block);
+        let result = self.chain.process_block(*block);
 
         metrics::inc_counter(&metrics::BEACON_PROCESSOR_RPC_BLOCK_IMPORTED_TOTAL);
 
