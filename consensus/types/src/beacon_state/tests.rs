@@ -57,8 +57,7 @@ async fn build_state<E: EthSpec>(validator_count: usize) -> BeaconState<E> {
     get_harness(validator_count, Slot::new(0))
         .await
         .chain
-        .head_beacon_state()
-        .unwrap()
+        .head_beacon_state_cloned()
 }
 
 async fn test_beacon_proposer_index<T: EthSpec>() {
@@ -406,8 +405,7 @@ mod get_outstanding_deposit_len {
         get_harness(16, Slot::new(0))
             .await
             .chain
-            .head_beacon_state()
-            .unwrap()
+            .head_beacon_state_cloned()
     }
 
     #[tokio::test]

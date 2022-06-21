@@ -211,7 +211,6 @@ async fn valid_4_deposits() {
     let mut head_block = harness
         .chain
         .head_beacon_block()
-        .unwrap()
         .as_ref()
         .clone()
         .deconstruct()
@@ -236,7 +235,6 @@ async fn invalid_deposit_deposit_count_too_big() {
     let mut head_block = harness
         .chain
         .head_beacon_block()
-        .unwrap()
         .as_ref()
         .clone()
         .deconstruct()
@@ -269,7 +267,6 @@ async fn invalid_deposit_count_too_small() {
     let mut head_block = harness
         .chain
         .head_beacon_block()
-        .unwrap()
         .as_ref()
         .clone()
         .deconstruct()
@@ -302,7 +299,6 @@ async fn invalid_deposit_bad_merkle_proof() {
     let mut head_block = harness
         .chain
         .head_beacon_block()
-        .unwrap()
         .as_ref()
         .clone()
         .deconstruct()
@@ -338,7 +334,6 @@ async fn invalid_deposit_wrong_sig() {
     let mut head_block = harness
         .chain
         .head_beacon_block()
-        .unwrap()
         .as_ref()
         .clone()
         .deconstruct()
@@ -363,7 +358,6 @@ async fn invalid_deposit_invalid_pub_key() {
     let mut head_block = harness
         .chain
         .head_beacon_block()
-        .unwrap()
         .as_ref()
         .clone()
         .deconstruct()
@@ -385,7 +379,6 @@ async fn invalid_attestation_no_committee_for_index() {
     let mut head_block = harness
         .chain
         .head_beacon_block()
-        .unwrap()
         .as_ref()
         .clone()
         .deconstruct()
@@ -420,7 +413,6 @@ async fn invalid_attestation_wrong_justified_checkpoint() {
     let mut head_block = harness
         .chain
         .head_beacon_block()
-        .unwrap()
         .as_ref()
         .clone()
         .deconstruct()
@@ -464,7 +456,6 @@ async fn invalid_attestation_bad_aggregation_bitfield_len() {
     let mut head_block = harness
         .chain
         .head_beacon_block()
-        .unwrap()
         .as_ref()
         .clone()
         .deconstruct()
@@ -498,7 +489,6 @@ async fn invalid_attestation_bad_signature() {
     let mut head_block = harness
         .chain
         .head_beacon_block()
-        .unwrap()
         .as_ref()
         .clone()
         .deconstruct()
@@ -533,7 +523,6 @@ async fn invalid_attestation_included_too_early() {
     let mut head_block = harness
         .chain
         .head_beacon_block()
-        .unwrap()
         .as_ref()
         .clone()
         .deconstruct()
@@ -576,7 +565,6 @@ async fn invalid_attestation_included_too_late() {
     let mut head_block = harness
         .chain
         .head_beacon_block()
-        .unwrap()
         .as_ref()
         .clone()
         .deconstruct()
@@ -616,7 +604,6 @@ async fn invalid_attestation_target_epoch_slot_mismatch() {
     let mut head_block = harness
         .chain
         .head_beacon_block()
-        .unwrap()
         .as_ref()
         .clone()
         .deconstruct()

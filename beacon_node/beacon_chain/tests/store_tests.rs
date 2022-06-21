@@ -124,7 +124,7 @@ async fn randomised_skips() {
         }
     }
 
-    let state = &harness.chain.head().expect("should get head").beacon_state;
+    let state = &harness.chain.head_snapshot().beacon_state;
 
     assert_eq!(
         state.slot(),
@@ -203,8 +203,7 @@ async fn randao_genesis_storage() {
     // Check we have a non-trivial genesis value
     let genesis_value = *harness
         .chain
-        .head()
-        .expect("should get head")
+        .head_snapshot()
         .beacon_state
         .get_randao_mix(Epoch::new(0))
         .expect("randao mix ok");
@@ -221,8 +220,7 @@ async fn randao_genesis_storage() {
     // Check that genesis value is still present
     assert!(harness
         .chain
-        .head()
-        .expect("should get head")
+        .head_snapshot()
         .beacon_state
         .randao_mixes()
         .iter()
@@ -240,8 +238,7 @@ async fn randao_genesis_storage() {
         .await;
     assert!(harness
         .chain
-        .head()
-        .expect("should get head")
+        .head_snapshot()
         .beacon_state
         .randao_mixes()
         .iter()
@@ -307,7 +304,7 @@ async fn epoch_boundary_state_attestation_processing() {
             )
             .await;
 
-        let head = harness.chain.head().expect("head ok");
+        let head = harness.chain.head_snapshot();
         late_attestations.extend(harness.get_unaggregated_attestations(
             &AttestationStrategy::SomeValidators(late_validators.clone()),
             &head.beacon_state,
@@ -784,7 +781,7 @@ async fn multiple_attestations_per_block() {
         )
         .await;
 
-    let head = harness.chain.head().unwrap();
+    let head = harness.chain.head_snapshot();
     let committees_per_slot = head
         .beacon_state
         .get_committee_count_at_slot(head.beacon_state.slot())
@@ -2253,8 +2250,7 @@ async fn finalizes_after_resuming_from_db() {
     assert!(
         harness
             .chain
-            .head()
-            .expect("should read head")
+            .head_snapshot()
             .beacon_state
             .finalized_checkpoint()
             .epoch
@@ -2304,11 +2300,7 @@ async fn finalizes_after_resuming_from_db() {
         )
         .await;
 
-    let state = &resumed_harness
-        .chain
-        .head()
-        .expect("should read head")
-        .beacon_state;
+    let state = &resumed_harness.chain.head_snapshot().beacon_state;
     assert_eq!(
         state.slot(),
         num_blocks_produced,
@@ -2515,9 +2507,9 @@ fn assert_chains_pretty_much_the_same<T: BeaconChainTypes>(a: &BeaconChain<T>, b
     assert_eq!(a.spec, b.spec, "spec should be equal");
     assert_eq!(a.op_pool, b.op_pool, "op_pool should be equal");
     assert_eq!(
-        a.head().unwrap(),
-        b.head().unwrap(),
-        "head() should be equal"
+        a.head_snapshot(),
+        b.head_snapshot(),
+        "head_snapshot() should be equal"
     );
     assert_eq!(a.heads(), b.heads(), "heads() should be equal");
     assert_eq!(
@@ -2542,7 +2534,7 @@ fn assert_chains_pretty_much_the_same<T: BeaconChainTypes>(a: &BeaconChain<T>, b
 
 /// Check that the head state's slot matches `expected_slot`.
 fn check_slot(harness: &TestHarness, expected_slot: u64) {
-    let state = &harness.chain.head().expect("should get head").beacon_state;
+    let state = &harness.chain.head_snapshot().beacon_state;
 
     assert_eq!(
         state.slot(),
@@ -2553,7 +2545,7 @@ fn check_slot(harness: &TestHarness, expected_slot: u64) {
 
 /// Check that the chain has finalized under best-case assumptions, and check the head slot.
 fn check_finalization(harness: &TestHarness, expected_slot: u64) {
-    let state = &harness.chain.head().expect("should get head").beacon_state;
+    let state = &harness.chain.head_snapshot().beacon_state;
 
     check_slot(harness, expected_slot);
 
@@ -2575,8 +2567,7 @@ fn check_split_slot(harness: &TestHarness, store: Arc<HotColdDB<E, LevelDB<E>, L
     assert_eq!(
         harness
             .chain
-            .head()
-            .expect("should get head")
+            .head_snapshot()
             .beacon_state
             .finalized_checkpoint()
             .epoch

@@ -393,7 +393,7 @@ impl ForkChoiceTest {
         F: FnMut(&mut IndexedAttestation<E>, &BeaconChain<EphemeralHarnessType<E>>),
         G: FnMut(Result<(), BeaconChainError>),
     {
-        let head = self.harness.chain.head().expect("should get head");
+        let head = self.harness.chain.head_snapshot();
         let current_slot = self.harness.chain.slot().expect("should get slot");
 
         let mut attestation = self

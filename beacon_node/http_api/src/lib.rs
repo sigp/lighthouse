@@ -801,10 +801,10 @@ pub fn serve<T: BeaconChainTypes>(
                 blocking_json_task(move || {
                     let (root, block) = match (query.slot, query.parent_root) {
                         // No query parameters, return the canonical head block.
-                        (None, None) => chain
-                            .head_beacon_block()
-                            .map_err(warp_utils::reject::beacon_chain_error)
-                            .map(|block| (block.canonical_root(), block.clone_as_blinded()))?,
+                        (None, None) => {
+                            let block = chain.head_beacon_block();
+                            (block.canonical_root(), block.clone_as_blinded())
+                        }
                         // Only the parent root parameter, do a forwards-iterator lookup.
                         (None, Some(parent_root)) => {
                             let parent = BlockId::from_root(parent_root).blinded_block(&chain)?;

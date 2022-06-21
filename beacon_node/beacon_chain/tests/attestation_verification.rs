@@ -56,7 +56,7 @@ fn get_harness(validator_count: usize) -> BeaconChainHarness<EphemeralHarnessTyp
 fn get_valid_unaggregated_attestation<T: BeaconChainTypes>(
     chain: &BeaconChain<T>,
 ) -> (Attestation<T::EthSpec>, usize, usize, SecretKey, SubnetId) {
-    let head = chain.head().expect("should get head");
+    let head = chain.head_snapshot();
     let current_slot = chain.slot().expect("should get slot");
 
     let mut valid_attestation = chain
@@ -106,7 +106,8 @@ fn get_valid_aggregated_attestation<T: BeaconChainTypes>(
     chain: &BeaconChain<T>,
     aggregate: Attestation<T::EthSpec>,
 ) -> (SignedAggregateAndProof<T::EthSpec>, usize, SecretKey) {
-    let state = &chain.head().expect("should get head").beacon_state;
+    let head = chain.head_snapshot();
+    let state = &head.beacon_state;
     let current_slot = chain.slot().expect("should get slot");
 
     let committee = state
@@ -155,7 +156,8 @@ fn get_non_aggregator<T: BeaconChainTypes>(
     chain: &BeaconChain<T>,
     aggregate: &Attestation<T::EthSpec>,
 ) -> (usize, SecretKey) {
-    let state = &chain.head().expect("should get head").beacon_state;
+    let head = chain.head_snapshot();
+    let state = &head.beacon_state;
     let current_slot = chain.slot().expect("should get slot");
 
     let committee = state
@@ -514,8 +516,7 @@ async fn aggregated_gossip_verification() {
                 let committee_len = tester
                     .harness
                     .chain
-                    .head()
-                    .unwrap()
+                    .head_snapshot()
                     .beacon_state
                     .get_beacon_committee(tester.slot(), a.message.aggregate.data.index)
                     .expect("should get committees")
@@ -688,8 +689,7 @@ async fn unaggregated_gossip_verification() {
                 a.data.index = tester
                     .harness
                     .chain
-                    .head()
-                    .unwrap()
+                    .head_snapshot()
                     .beacon_state
                     .get_committee_count_at_slot(a.data.slot)
                     .unwrap()

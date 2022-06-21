@@ -58,11 +58,7 @@ impl StateId {
         chain: &BeaconChain<T>,
     ) -> Result<BeaconState<T::EthSpec>, warp::Rejection> {
         let (state_root, slot_opt) = match &self.0 {
-            CoreStateId::Head => {
-                return chain
-                    .head_beacon_state()
-                    .map_err(warp_utils::reject::beacon_chain_error)
-            }
+            CoreStateId::Head => return Ok(chain.head_beacon_state_cloned()),
             CoreStateId::Slot(slot) => (self.root(chain)?, Some(*slot)),
             _ => (self.root(chain)?, None),
         };

@@ -57,10 +57,7 @@ impl BlockId {
         chain: &BeaconChain<T>,
     ) -> Result<SignedBeaconBlock<T::EthSpec, BlindedPayload<T::EthSpec>>, warp::Rejection> {
         match &self.0 {
-            CoreBlockId::Head => chain
-                .head_beacon_block()
-                .map(|block| block.clone_as_blinded())
-                .map_err(warp_utils::reject::beacon_chain_error),
+            CoreBlockId::Head => Ok(chain.head_beacon_block().clone_as_blinded()),
             CoreBlockId::Slot(slot) => {
                 let root = self.root(chain)?;
                 chain
@@ -105,9 +102,7 @@ impl BlockId {
         chain: &BeaconChain<T>,
     ) -> Result<Arc<SignedBeaconBlock<T::EthSpec>>, warp::Rejection> {
         match &self.0 {
-            CoreBlockId::Head => chain
-                .head_beacon_block()
-                .map_err(warp_utils::reject::beacon_chain_error),
+            CoreBlockId::Head => Ok(chain.head_beacon_block()),
             CoreBlockId::Slot(slot) => {
                 let root = self.root(chain)?;
                 chain

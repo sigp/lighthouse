@@ -508,11 +508,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             ));
         }
 
-        let local_head = self.head()?;
+        let local_head = self.head_snapshot();
 
         let iter = self.store.forwards_block_roots_iterator(
             start_slot,
-            local_head.beacon_state,
+            local_head.beacon_state.clone_with(CloneConfig::none()),
             local_head.beacon_block_root,
             &self.spec,
         )?;
@@ -612,12 +612,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         &self,
         start_slot: Slot,
     ) -> Result<impl Iterator<Item = Result<(Hash256, Slot), Error>> + '_, Error> {
-        let local_head = self.head()?;
+        let local_head = self.head_snapshot();
 
         let iter = self.store.forwards_state_roots_iterator(
             start_slot,
             local_head.beacon_state_root(),
-            local_head.beacon_state,
+            local_head.beacon_state.clone_with(CloneConfig::none()),
             &self.spec,
         )?;
 
@@ -967,52 +967,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         Ok(self.store.get_state(state_root, slot)?)
     }
 
-    /// Returns a `Checkpoint` representing the head block and state. Contains the "best block";
-    /// the head of the canonical `BeaconChain`.
-    ///
-    /// It is important to note that the `beacon_state` returned may not match the present slot. It
-    /// is the state as it was when the head block was received, which could be some slots prior to
-    /// now.
-    pub fn head(&self) -> Result<BeaconSnapshot<T::EthSpec>, Error> {
-        self.with_head(|head| Ok(head.clone_with(CloneConfig::committee_caches_only())))
-    }
-
-    /// Apply a function to the canonical head without cloning it.
-    pub fn with_head<U, E>(
-        &self,
-        f: impl FnOnce(&BeaconSnapshot<T::EthSpec>) -> Result<U, E>,
-    ) -> Result<U, E>
-    where
-        E: From<Error>,
-    {
-        let head_lock = self.canonical_head.cached_head();
-        f(&head_lock.snapshot)
-    }
-
-    /// Returns the beacon block root at the head of the canonical chain.
-    ///
-    /// See `Self::head` for more information.
-    pub fn head_beacon_block_root(&self) -> Result<Hash256, Error> {
-        self.with_head(|s| Ok(s.beacon_block_root))
-    }
-
-    /// Returns the beacon block at the head of the canonical chain.
-    ///
-    /// See `Self::head` for more information.
-    pub fn head_beacon_block(&self) -> Result<Arc<SignedBeaconBlock<T::EthSpec>>, Error> {
-        self.with_head(|s| Ok(s.beacon_block.clone()))
-    }
-
-    /// Returns the beacon state at the head of the canonical chain.
-    ///
-    /// See `Self::head` for more information.
-    pub fn head_beacon_state(&self) -> Result<BeaconState<T::EthSpec>, Error> {
-        self.with_head(|s| {
-            Ok(s.beacon_state
-                .clone_with(CloneConfig::committee_caches_only()))
-        })
-    }
-
     /// Return the sync committee at `slot + 1` from the canonical chain.
     ///
     /// This is useful when dealing with sync committee messages, because messages are signed
@@ -1107,7 +1061,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         slot: Slot,
         config: StateSkipConfig,
     ) -> Result<BeaconState<T::EthSpec>, Error> {
-        let head_state = self.head()?.beacon_state;
+        let head_state = self.head_beacon_state_cloned();
 
         match slot.cmp(&head_state.slot()) {
             Ordering::Equal => Ok(head_state),

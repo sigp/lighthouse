@@ -314,6 +314,14 @@ impl<T: BeaconChainTypes> CanonicalHead<T> {
     ///
     /// This function is **not safe** to be public. See the module-level documentation for more
     /// information about protecting from deadlocks.
+    fn cached_head_read_lock(&self) -> RwLockReadGuard<CachedHead<T::EthSpec>> {
+        self.cached_head.read()
+    }
+
+    /// Access a write-lock for the cached head.
+    ///
+    /// This function is **not safe** to be public. See the module-level documentation for more
+    /// information about protecting from deadlocks.
     fn cached_head_write_lock(&self) -> RwLockWriteGuard<CachedHead<T::EthSpec>> {
         self.cached_head.write()
     }
@@ -330,6 +338,66 @@ impl<T: BeaconChainTypes> CanonicalHead<T> {
 }
 
 impl<T: BeaconChainTypes> BeaconChain<T> {
+    /// Contains the "best block"; the head of the canonical `BeaconChain`.
+    ///
+    /// It is important to note that the `snapshot.beacon_state` returned may not match the present slot. It
+    /// is the state as it was when the head block was received, which could be some slots prior to
+    /// now.
+    pub fn head(&self) -> CachedHead<T::EthSpec> {
+        self.canonical_head.cached_head()
+    }
+
+    /// Apply a function to an `Arc`-clone of the canonical head snapshot.
+    ///
+    /// This method is a relic from an old implementation where the canonical head was not behind
+    /// an `Arc` and the canonical head lock had to be held whenever it was read. This method is
+    /// fine to be left here, it just seems a bit weird.
+    pub fn with_head<U, E>(
+        &self,
+        f: impl FnOnce(&BeaconSnapshot<T::EthSpec>) -> Result<U, E>,
+    ) -> Result<U, E>
+    where
+        E: From<Error>,
+    {
+        let head_snapshot = self.head_snapshot();
+        f(&head_snapshot)
+    }
+
+    /// Returns the beacon block root at the head of the canonical chain.
+    ///
+    /// See `Self::head` for more information.
+    pub fn head_beacon_block_root(&self) -> Hash256 {
+        self.canonical_head
+            .cached_head_read_lock()
+            .snapshot
+            .beacon_block_root
+    }
+
+    /// Returns a `Arc` of the `BeaconSnapshot` at the head of the canonical chain.
+    ///
+    /// See `Self::head` for more information.
+    pub fn head_snapshot(&self) -> Arc<BeaconSnapshot<T::EthSpec>> {
+        self.canonical_head.cached_head_read_lock().snapshot.clone()
+    }
+
+    /// Returns the beacon block at the head of the canonical chain.
+    ///
+    /// See `Self::head` for more information.
+    pub fn head_beacon_block(&self) -> Arc<SignedBeaconBlock<T::EthSpec>> {
+        self.head_snapshot().beacon_block.clone()
+    }
+
+    /// Returns a clone of the beacon state at the head of the canonical chain.
+    ///
+    /// Cloning the head state is expensive and should generally be avoided outside of tests.
+    ///
+    /// See `Self::head` for more information.
+    pub fn head_beacon_state_cloned(&self) -> BeaconState<T::EthSpec> {
+        self.head_snapshot()
+            .beacon_state
+            .clone_with(CloneConfig::committee_caches_only())
+    }
+
     /// Execute the fork choice algorithm and enthrone the result as the canonical head.
     ///
     /// This method replaces the old `BeaconChain::fork_choice` method.

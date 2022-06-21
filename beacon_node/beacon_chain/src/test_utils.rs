@@ -514,13 +514,16 @@ where
     }
 
     pub fn get_current_state(&self) -> BeaconState<E> {
-        self.chain.head().unwrap().beacon_state
+        self.chain.head_beacon_state_cloned()
     }
 
     pub fn get_current_state_and_root(&self) -> (BeaconState<E>, Hash256) {
-        let head = self.chain.head().unwrap();
+        let head = self.chain.head_snapshot();
         let state_root = head.beacon_state_root();
-        (head.beacon_state, state_root)
+        (
+            head.beacon_state.clone_with_only_committee_caches(),
+            state_root,
+        )
     }
 
     pub fn head_slot(&self) -> Slot {
@@ -1205,12 +1208,7 @@ where
     }
 
     pub fn make_proposer_slashing(&self, validator_index: u64) -> ProposerSlashing {
-        let mut block_header_1 = self
-            .chain
-            .head_beacon_block()
-            .unwrap()
-            .message()
-            .block_header();
+        let mut block_header_1 = self.chain.head_beacon_block().message().block_header();
         block_header_1.proposer_index = validator_index;
 
         let mut block_header_2 = block_header_1.clone();
@@ -1737,12 +1735,7 @@ where
         honest_fork_blocks: usize,
         faulty_fork_blocks: usize,
     ) -> (Hash256, Hash256) {
-        let initial_head_slot = self
-            .chain
-            .head()
-            .expect("should get head")
-            .beacon_block
-            .slot();
+        let initial_head_slot = self.chain.head_snapshot().beacon_block.slot();
 
         // Move to the next slot so we may produce some more blocks on the head.
         self.advance_slot();

@@ -385,7 +385,7 @@ mod test {
     fn get_snapshot(i: u64) -> BeaconSnapshot<MainnetEthSpec> {
         let spec = MainnetEthSpec::default_spec();
 
-        let beacon_state = get_harness().chain.head_beacon_state().unwrap();
+        let beacon_state = get_harness().chain.head_beacon_state_cloned();
 
         let signed_beacon_block = SignedBeaconBlock::from_block(
             BeaconBlock::empty(&spec),

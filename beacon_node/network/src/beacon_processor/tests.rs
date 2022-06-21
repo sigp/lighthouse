@@ -92,7 +92,7 @@ impl TestRig {
             harness.advance_slot();
         }
 
-        let head = harness.chain.head().unwrap();
+        let head = harness.chain.head_snapshot();
 
         assert_eq!(
             harness.chain.slot().unwrap(),
@@ -220,7 +220,7 @@ impl TestRig {
     }
 
     pub fn head_root(&self) -> Hash256 {
-        self.chain.head().unwrap().beacon_block_root
+        self.chain.head_snapshot().beacon_block_root
     }
 
     pub fn enqueue_gossip_block(&self) {

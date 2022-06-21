@@ -796,9 +796,7 @@ where
             validator_monitor: RwLock::new(validator_monitor),
         };
 
-        let head = beacon_chain
-            .head()
-            .map_err(|e| format!("Failed to get head: {:?}", e))?;
+        let head = beacon_chain.head_snapshot();
 
         // Prime the attester cache with the head state.
         beacon_chain
@@ -1001,10 +999,10 @@ mod test {
             .build()
             .expect("should build");
 
-        let head = chain.head().expect("should get head");
+        let head = chain.head_snapshot();
 
-        let state = head.beacon_state;
-        let block = head.beacon_block;
+        let state = &head.beacon_state;
+        let block = &head.beacon_block;
 
         assert_eq!(state.slot(), Slot::new(0), "should start from genesis");
         assert_eq!(
