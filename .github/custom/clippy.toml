@@ -9,8 +9,6 @@ disallowed-from-async-methods = [
     "tokio::sync::oneshot::Receiver::blocking_recv",
     "tokio::sync::mpsc::Sender::blocking_send",
     "tokio::sync::RwLock::blocking_write",
-    "beacon_chain::canonical_head::CanonicalHeadRwLock::read",
-    "beacon_chain::canonical_head::CanonicalHeadRwLock::write",
 ]
 async-wrapper-methods = [
     "tokio::runtime::Handle::spawn_blocking",
