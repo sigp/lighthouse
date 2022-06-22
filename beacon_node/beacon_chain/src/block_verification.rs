@@ -63,7 +63,7 @@ use fork_choice::PayloadVerificationStatus;
 use parking_lot::RwLockReadGuard;
 use proto_array::Block as ProtoBlock;
 use safe_arith::ArithError;
-use slog::{debug, error, info, warn, Logger};
+use slog::{debug, error, warn, Logger};
 use slot_clock::SlotClock;
 use ssz::Encode;
 use state_processing::per_block_processing::is_merge_transition_block;
@@ -1203,17 +1203,11 @@ impl<T: BeaconChainTypes> ExecutionPendingBlock<T> {
                     .map(|full_payload| full_payload.execution_payload.block_hash);
 
                 // Ensure the block is a candidate for optimistic import.
-                if is_optimistic_candidate_block(&chain, block.slot(), block.parent_root()).await? {
-                    info!(
-                        chain.log,
-                        "Optimistically accepting terminal block";
-                        "block_hash" => ?block_hash_opt,
-                        "msg" => "the terminal block/parent was unavailable"
-                    );
-                } else {
+                if !is_optimistic_candidate_block(&chain, block.slot(), block.parent_root()).await?
+                {
                     warn!(
                         chain.log,
-                        "Rejecting optimistic terminal block";
+                        "Rejecting optimistic block";
                         "block_hash" => ?block_hash_opt,
                         "msg" => "the execution engine is not synced"
                     );
