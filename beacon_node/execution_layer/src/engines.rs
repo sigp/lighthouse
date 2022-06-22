@@ -156,8 +156,9 @@ impl Builder for Engine<BuilderApi> {
     }
 }
 
-/// Holds multiple execution engines and provides functionality for managing them in a fallback
-/// manner.
+// This structure used to hold multiple execution engines managed in a fallback manner. This
+// functionality has been removed following https://github.com/sigp/lighthouse/issues/3118 and this
+// struct will likely be removed in the future.
 pub struct Engines {
     pub engine: Engine<EngineApi>,
     pub latest_forkchoice_state: RwLock<Option<ForkChoiceState>>,
