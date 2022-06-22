@@ -51,7 +51,7 @@ use crate::validator_monitor::HISTORIC_EPOCHS as VALIDATOR_MONITOR_HISTORIC_EPOC
 use crate::validator_pubkey_cache::ValidatorPubkeyCache;
 use crate::{
     beacon_chain::{
-        BLOCK_PROCESSING_CACHE_LOCK_TIMEOUT, MAXIMUM_GOSSIP_CLOCK_DISPARITY,
+        BeaconForkChoice, BLOCK_PROCESSING_CACHE_LOCK_TIMEOUT, MAXIMUM_GOSSIP_CLOCK_DISPARITY,
         VALIDATOR_PUBKEY_CACHE_LOCK_TIMEOUT,
     },
     metrics, BeaconChain, BeaconChainError, BeaconChainTypes,
@@ -695,7 +695,11 @@ impl<T: BeaconChainTypes> GossipVerifiedBlock<T> {
         // Do not process a block that doesn't descend from the finalized root.
         //
         // We check this *before* we load the parent so that we can return a more detailed error.
-        check_block_is_finalized_descendant(chain, &block)?;
+        check_block_is_finalized_descendant(
+            chain,
+            &chain.canonical_head.fork_choice_write_lock(),
+            &block,
+        )?;
 
         let block_epoch = block.slot().epoch(T::EthSpec::slots_per_epoch());
         let (parent_block, block) = verify_parent_block_is_known(chain, block)?;
@@ -1416,15 +1420,16 @@ fn check_block_against_finalized_slot<T: BeaconChainTypes>(
 }
 
 /// Returns `Ok(block)` if the block descends from the finalized root.
+///
+/// ## Warning
+///
+/// Taking a lock on the `chain.canonical_head.fork_choice` might cause a deadlock here.
 pub fn check_block_is_finalized_descendant<T: BeaconChainTypes>(
     chain: &BeaconChain<T>,
+    fork_choice: &BeaconForkChoice<T>,
     block: &Arc<SignedBeaconBlock<T::EthSpec>>,
 ) -> Result<(), BlockError<T::EthSpec>> {
-    if chain
-        .canonical_head
-        .fork_choice_read_lock()
-        .is_descendant_of_finalized(block.parent_root())
-    {
+    if fork_choice.is_descendant_of_finalized(block.parent_root()) {
         Ok(())
     } else {
         // If fork choice does *not* consider the parent to be a descendant of the finalized block,
