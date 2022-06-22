@@ -292,8 +292,7 @@ impl<T: BeaconChainTypes> CanonicalHead<T> {
     /// run `BeaconChain::recompute_head` to update the cached values.
     pub fn head_execution_status(&self) -> Result<ExecutionStatus, Error> {
         let head_block_root = self.cached_head().head_block_root();
-        self.fork_choice
-            .read()
+        self.fork_choice_read_lock()
             .get_block_execution_status(&head_block_root)
             .ok_or(Error::HeadMissingFromForkChoice(head_block_root))
     }
@@ -305,7 +304,7 @@ impl<T: BeaconChainTypes> CanonicalHead<T> {
     ///
     /// This function is safe to be public since it does not expose any locks.
     pub fn cached_head(&self) -> CachedHead<T::EthSpec> {
-        self.cached_head.read().clone()
+        self.cached_head_read_lock().clone()
     }
 
     /// Access a write-lock for the cached head.
@@ -866,6 +865,22 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 );
             });
 
+        self.attester_cache
+            .prune_below(new_view.finalized_checkpoint.epoch);
+
+        if let Some(event_handler) = self.event_handler.as_ref() {
+            if event_handler.has_finalized_subscribers() {
+                event_handler.register(EventKind::FinalizedCheckpoint(SseFinalizedCheckpoint {
+                    epoch: new_view.finalized_checkpoint.epoch,
+                    block: new_view.finalized_checkpoint.root,
+                    // Provide the state root of the latest finalized block, rather than the
+                    // specific state root at the first slot of the finalized epoch (which
+                    // might be a skip slot).
+                    state: finalized_proto_block.state_root,
+                }));
+            }
+        }
+
         // The store migration task requires the *state at the slot of the finalized epoch*,
         // rather than the state of the latest finalized block. These two values will only
         // differ when the first slot of the finalized epoch is a skip slot.
@@ -895,22 +910,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             new_view.finalized_checkpoint,
             self.head_tracker.clone(),
         )?;
-
-        self.attester_cache
-            .prune_below(new_view.finalized_checkpoint.epoch);
-
-        if let Some(event_handler) = self.event_handler.as_ref() {
-            if event_handler.has_finalized_subscribers() {
-                event_handler.register(EventKind::FinalizedCheckpoint(SseFinalizedCheckpoint {
-                    epoch: new_view.finalized_checkpoint.epoch,
-                    block: new_view.finalized_checkpoint.root,
-                    // Provide the state root of the latest finalized block, rather than the
-                    // specific state root at the first slot of the finalized epoch (which
-                    // might be a skip slot).
-                    state: finalized_proto_block.state_root,
-                }));
-            }
-        }
 
         Ok(())
     }
