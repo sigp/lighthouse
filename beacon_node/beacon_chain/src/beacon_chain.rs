@@ -96,6 +96,9 @@ pub use crate::canonical_head::{CanonicalHead, CanonicalHeadRwLock};
 
 pub type ForkChoiceError = fork_choice::Error<crate::ForkChoiceStoreError>;
 
+/// Alias to appease clippy.
+type HashBlockTuple<E> = (Hash256, Arc<SignedBeaconBlock<E>>);
+
 /// The time-out before failure during an operation to take a read/write RwLock on the block
 /// processing cache.
 pub const BLOCK_PROCESSING_CACHE_LOCK_TIMEOUT: Duration = Duration::from_secs(1);
@@ -2100,6 +2103,104 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         handle.await.map_err(Error::TokioJoin)
     }
 
+    /// Accepts a `chain_segment` and filters out any uninteresting blocks (e.g., pre-finalization
+    /// or already-known).
+    pub fn filter_chain_segment(
+        self: &Arc<Self>,
+        chain_segment: Vec<Arc<SignedBeaconBlock<T::EthSpec>>>,
+    ) -> Result<Vec<HashBlockTuple<T::EthSpec>>, ChainSegmentResult<T::EthSpec>> {
+        // This function will never import any blocks.
+        let imported_blocks = 0;
+        let mut filtered_chain_segment = Vec::with_capacity(chain_segment.len());
+
+        // Produce a list of the parent root and slot of the child of each block.
+        //
+        // E.g., `children[0] == (chain_segment[1].parent_root(), chain_segment[1].slot())`
+        let children = chain_segment
+            .iter()
+            .skip(1)
+            .map(|block| (block.parent_root(), block.slot()))
+            .collect::<Vec<_>>();
+
+        for (i, block) in chain_segment.into_iter().enumerate() {
+            // Ensure the block is the correct structure for the fork at `block.slot()`.
+            if let Err(e) = block.fork_name(&self.spec) {
+                return Err(ChainSegmentResult::Failed {
+                    imported_blocks,
+                    error: BlockError::InconsistentFork(e),
+                });
+            }
+
+            let block_root = get_block_root(&block);
+
+            if let Some((child_parent_root, child_slot)) = children.get(i) {
+                // If this block has a child in this chain segment, ensure that its parent root matches
+                // the root of this block.
+                //
+                // Without this check it would be possible to have a block verified using the
+                // incorrect shuffling. That would be bad, mmkay.
+                if block_root != *child_parent_root {
+                    return Err(ChainSegmentResult::Failed {
+                        imported_blocks,
+                        error: BlockError::NonLinearParentRoots,
+                    });
+                }
+
+                // Ensure that the slots are strictly increasing throughout the chain segment.
+                if *child_slot <= block.slot() {
+                    return Err(ChainSegmentResult::Failed {
+                        imported_blocks,
+                        error: BlockError::NonLinearSlots,
+                    });
+                }
+            }
+
+            match check_block_relevancy(&block, Some(block_root), self) {
+                // If the block is relevant, add it to the filtered chain segment.
+                Ok(_) => filtered_chain_segment.push((block_root, block)),
+                // If the block is already known, simply ignore this block.
+                Err(BlockError::BlockIsAlreadyKnown) => continue,
+                // If the block is the genesis block, simply ignore this block.
+                Err(BlockError::GenesisBlock) => continue,
+                // If the block is is for a finalized slot, simply ignore this block.
+                //
+                // The block is either:
+                //
+                // 1. In the canonical finalized chain.
+                // 2. In some non-canonical chain at a slot that has been finalized already.
+                //
+                // In the case of (1), there's no need to re-import and later blocks in this
+                // segement might be useful.
+                //
+                // In the case of (2), skipping the block is valid since we should never import it.
+                // However, we will potentially get a `ParentUnknown` on a later block. The sync
+                // protocol will need to ensure this is handled gracefully.
+                Err(BlockError::WouldRevertFinalizedSlot { .. }) => continue,
+                // The block has a known parent that does not descend from the finalized block.
+                // There is no need to process this block or any children.
+                Err(BlockError::NotFinalizedDescendant { block_parent_root }) => {
+                    return Err(ChainSegmentResult::Failed {
+                        imported_blocks,
+                        error: BlockError::NotFinalizedDescendant { block_parent_root },
+                    });
+                }
+                // If there was an error whilst determining if the block was invalid, return that
+                // error.
+                Err(BlockError::BeaconChainError(e)) => {
+                    return Err(ChainSegmentResult::Failed {
+                        imported_blocks,
+                        error: BlockError::BeaconChainError(e),
+                    });
+                }
+                // If the block was decided to be irrelevant for any other reason, don't include
+                // this block or any of it's children in the filtered chain segment.
+                _ => break,
+            }
+        }
+
+        Ok(filtered_chain_segment)
+    }
+
     /// Attempt to verify and import a chain of blocks to `self`.
     ///
     /// The provided blocks _must_ each reference the previous block via `block.parent_root` (i.e.,
@@ -2118,99 +2219,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         let chain = self.clone();
         let filtered_chain_segment_future = self.spawn_blocking_handle(
-            move || {
-                let mut filtered_chain_segment = Vec::with_capacity(chain_segment.len());
-
-                // Produce a list of the parent root and slot of the child of each block.
-                //
-                // E.g., `children[0] == (chain_segment[1].parent_root(), chain_segment[1].slot())`
-                let children = chain_segment
-                    .iter()
-                    .skip(1)
-                    .map(|block| (block.parent_root(), block.slot()))
-                    .collect::<Vec<_>>();
-
-                for (i, block) in chain_segment.into_iter().enumerate() {
-                    // Ensure the block is the correct structure for the fork at `block.slot()`.
-                    if let Err(e) = block.fork_name(&chain.spec) {
-                        return Err(ChainSegmentResult::Failed {
-                            imported_blocks,
-                            error: BlockError::InconsistentFork(e),
-                        });
-                    }
-
-                    let block_root = get_block_root(&block);
-
-                    if let Some((child_parent_root, child_slot)) = children.get(i) {
-                        // If this block has a child in this chain segment, ensure that its parent root matches
-                        // the root of this block.
-                        //
-                        // Without this check it would be possible to have a block verified using the
-                        // incorrect shuffling. That would be bad, mmkay.
-                        if block_root != *child_parent_root {
-                            return Err(ChainSegmentResult::Failed {
-                                imported_blocks,
-                                error: BlockError::NonLinearParentRoots,
-                            });
-                        }
-
-                        // Ensure that the slots are strictly increasing throughout the chain segment.
-                        if *child_slot <= block.slot() {
-                            return Err(ChainSegmentResult::Failed {
-                                imported_blocks,
-                                error: BlockError::NonLinearSlots,
-                            });
-                        }
-                    }
-
-                    match check_block_relevancy(&block, Some(block_root), &chain) {
-                        // If the block is relevant, add it to the filtered chain segment.
-                        Ok(_) => filtered_chain_segment.push((block_root, block)),
-                        // If the block is already known, simply ignore this block.
-                        Err(BlockError::BlockIsAlreadyKnown) => continue,
-                        // If the block is the genesis block, simply ignore this block.
-                        Err(BlockError::GenesisBlock) => continue,
-                        // If the block is is for a finalized slot, simply ignore this block.
-                        //
-                        // The block is either:
-                        //
-                        // 1. In the canonical finalized chain.
-                        // 2. In some non-canonical chain at a slot that has been finalized already.
-                        //
-                        // In the case of (1), there's no need to re-import and later blocks in this
-                        // segement might be useful.
-                        //
-                        // In the case of (2), skipping the block is valid since we should never import it.
-                        // However, we will potentially get a `ParentUnknown` on a later block. The sync
-                        // protocol will need to ensure this is handled gracefully.
-                        Err(BlockError::WouldRevertFinalizedSlot { .. }) => continue,
-                        // The block has a known parent that does not descend from the finalized block.
-                        // There is no need to process this block or any children.
-                        Err(BlockError::NotFinalizedDescendant { block_parent_root }) => {
-                            return Err(ChainSegmentResult::Failed {
-                                imported_blocks,
-                                error: BlockError::NotFinalizedDescendant { block_parent_root },
-                            });
-                        }
-                        // If there was an error whilst determining if the block was invalid, return that
-                        // error.
-                        Err(BlockError::BeaconChainError(e)) => {
-                            return Err(ChainSegmentResult::Failed {
-                                imported_blocks,
-                                error: BlockError::BeaconChainError(e),
-                            });
-                        }
-                        // If the block was decided to be irrelevant for any other reason, don't include
-                        // this block or any of it's children in the filtered chain segment.
-                        _ => break,
-                    }
-                }
-
-                Ok(filtered_chain_segment)
-            },
-            "filter_chain_segement",
+            move || chain.filter_chain_segment(chain_segment),
+            "filter_chain_segment",
         );
-
         let mut filtered_chain_segment = match filtered_chain_segment_future.await {
             Ok(Ok(filtered_segment)) => filtered_segment,
             Ok(Err(segment_result)) => return segment_result,
