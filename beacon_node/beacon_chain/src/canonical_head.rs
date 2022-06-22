@@ -143,7 +143,7 @@ impl<E: EthSpec> CachedHead<E> {
 
     /// Returns the active validator count for the current epoch of the head state.
     ///
-    /// Should only return `None` if the caches have not been build on the head state (this should
+    /// Should only return `None` if the caches have not been built on the head state (this should
     /// never happen).
     pub fn active_validator_count(&self) -> Option<usize> {
         self.snapshot
@@ -288,7 +288,7 @@ impl<T: BeaconChainTypes> CanonicalHead<T> {
     /// Returns the execution status of the block at the head of the beacon chain.
     ///
     /// This will only return `Err` in the scenario where `self.fork_choice` has advanced
-    /// significantly past the cached `head_snapshot`. In such a scenario is it likely prudent to
+    /// significantly past the cached `head_snapshot`. In such a scenario it is likely prudent to
     /// run `BeaconChain::recompute_head` to update the cached values.
     pub fn head_execution_status(&self) -> Result<ExecutionStatus, Error> {
         let head_block_root = self.cached_head().head_block_root();
@@ -307,7 +307,7 @@ impl<T: BeaconChainTypes> CanonicalHead<T> {
         self.cached_head_read_lock().clone()
     }
 
-    /// Access a write-lock for the cached head.
+    /// Access a read-lock for the cached head.
     ///
     /// This function is **not safe** to be public. See the module-level documentation for more
     /// information about protecting from deadlocks.
@@ -669,7 +669,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             }
         }
 
-        // Drop the old cache head nice and early to try free the memory as soon as possible.
+        // Drop the old cache head nice and early to try and free the memory as soon as possible.
         drop(old_cached_head);
 
         // If the finalized checkpoint changed, perform some updates.
