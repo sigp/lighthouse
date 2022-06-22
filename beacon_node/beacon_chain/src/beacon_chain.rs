@@ -2105,6 +2105,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
     /// Accepts a `chain_segment` and filters out any uninteresting blocks (e.g., pre-finalization
     /// or already-known).
+    ///
+    /// This method is potentially long-running and should not run on the core executor.
     pub fn filter_chain_segment(
         self: &Arc<Self>,
         chain_segment: Vec<Arc<SignedBeaconBlock<T::EthSpec>>>,
@@ -2217,6 +2219,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     ) -> ChainSegmentResult<T::EthSpec> {
         let mut imported_blocks = 0;
 
+        // Filter uninteresting blocks from the chain segment in a blocking task.
         let chain = self.clone();
         let filtered_chain_segment_future = self.spawn_blocking_handle(
             move || chain.filter_chain_segment(chain_segment),
@@ -2482,12 +2485,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             );
         }
 
+        let chain = self.clone();
         let block_hash = self
-            .task_executor
-            .clone()
             .spawn_blocking_handle(
                 move || {
-                    self.import_block(
+                    chain.import_block(
                         block,
                         block_root,
                         state,
@@ -2497,9 +2499,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 },
                 "payload_verification_handle",
             )
-            .ok_or(BeaconChainError::RuntimeShutdown)?
-            .await
-            .map_err(BeaconChainError::TokioJoin)??;
+            .await??;
 
         Ok(block_hash)
     }
@@ -3079,7 +3079,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // signed. If we miss the cache or we're producing a block that conflicts with the head,
         // fall back to getting the head from `slot - 1`.
         let state_load_timer = metrics::start_timer(&metrics::BLOCK_PRODUCTION_STATE_LOAD_TIMES);
-        // Atomically read some values from the head whilst avoiding holding the read-lock any
+        // Atomically read some values from the head whilst avoiding holding cached head `Arc` any
         // longer than necessary.
         let (head_slot, head_block_root) = {
             let head = self.canonical_head.cached_head();
@@ -3250,8 +3250,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let prepare_payload_handle = match &state {
             BeaconState::Base(_) | BeaconState::Altair(_) => None,
             BeaconState::Merge(_) => {
-                // TODO(paul): should this be from fork choice instead?
-                let finalized_checkpoint = state.finalized_checkpoint();
+                let finalized_checkpoint = self.canonical_head.cached_head().finalized_checkpoint();
                 let prepare_payload_handle = get_execution_payload(
                     self.clone(),
                     &state,
@@ -3375,6 +3374,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             deposits,
             voluntary_exits,
             sync_aggregate,
+            // We don't need the prepare payload handle since the `execution_payload` is passed into
+            // this function. We can assume that the handle has already been consumed in order to
+            // produce said `execution_payload`.
             prepare_payload_handle: _,
         } = partial_beacon_block;
 
@@ -3639,8 +3641,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             return Ok(());
         }
 
-        // Atomically read some values from the canonical head, whilst avoiding taking the read-lock
-        // any longer than necessary.
+        // Atomically read some values from the canonical head, whilst avoiding holding the cached
+        // head `Arc` any longer than necessary.
         //
         // Use a blocking task since blocking the core executor on the canonical head read lock can
         // block the core tokio executor.
