@@ -1,5 +1,5 @@
 //! This module provides all functionality for finding the canonical head, updating all necessary
-//! components see (e.g. caches) and also maintaining a cached head block and state.
+//! components (e.g. caches) and maintaining a cached head block and state.
 //!
 //! For practically all applications, the "canonical head" can be read using
 //! `beacon_chain.canonical_head.cached_head()`.
@@ -18,8 +18,8 @@
 //! developers working in this module should tread carefully and seek a detailed review.
 //!
 //! To encourage safe use of this module, it should **only ever return a read or write lock for the
-//! fork choice lock (lock 1)**. Whilst public functions might utilise locks (2) and (3), the
-//! fundamental `RwLockWriteGuard` or `RwLockReadGuard` should never be exposed. This prevents
+//! fork choice lock (lock 1)**. Whilst public functions might indirectly utilise locks (2) and (3),
+//! the fundamental `RwLockWriteGuard` or `RwLockReadGuard` should never be exposed. This prevents
 //! external functions from acquiring these locks in conflicting orders and causing a deadlock.
 //!
 //! ## Design Considerations
@@ -55,10 +55,7 @@ use task_executor::{JoinHandle, ShutdownReason};
 use types::*;
 
 /// Simple wrapper around `RwLock` that uses private visibility to prevent any other modules from
-/// accessing the contained lock.
-///
-/// Whilst we prevent external functions from accessing this lock, we can guarantee them dead-lock
-/// safety.
+/// accessing the contained lock without it being explicitly noted in this module.
 pub struct CanonicalHeadRwLock<T>(RwLock<T>);
 
 impl<T> From<RwLock<T>> for CanonicalHeadRwLock<T> {
@@ -126,7 +123,8 @@ impl<E: EthSpec> CachedHead<E> {
     ///
     /// ## Notes
     ///
-    /// This is *not* the current slot as per the system clock.
+    /// This is *not* the current slot as per the system clock. Use `BeaconChain::slot` for the
+    /// system clock (aka "wall clock") slot.
     pub fn head_slot(&self) -> Slot {
         self.snapshot.beacon_block.slot()
     }
@@ -305,7 +303,7 @@ impl<T: BeaconChainTypes> CanonicalHead<T> {
     /// Takes a read-lock on `self.cached_head` for a short time (just long enough to clone an
     /// `Arc`).
     ///
-    /// This function is safe to be public. (See "Rule #2")
+    /// This function is safe to be public since it does not expose any locks.
     pub fn cached_head(&self) -> CachedHead<T::EthSpec> {
         self.cached_head.read().clone()
     }
@@ -402,7 +400,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     ///
     /// See `Self::head` for more information.
     pub fn head_beacon_state_cloned(&self) -> BeaconState<T::EthSpec> {
-        self.head_snapshot()
+        // Don't clone whilst holding the read-lock, take an Arc-clone to reduce lock contention.
+        let snapshot: Arc<_> = self.head_snapshot();
+        snapshot
             .beacon_state
             .clone_with(CloneConfig::committee_caches_only())
     }
@@ -534,8 +534,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // 4. This function elects an invalid block as the head.
         // 5. GOTO 2
         //
-        // In theory, this function should never select an invalid head (i.e., step #3 is
-        // impossible). However, this check is cheap.
+        // In theory, fork choice should never select an invalid head (i.e., step #3 is impossible).
+        // However, this check is cheap.
         if new_head_proto_block.execution_status.is_invalid() {
             return Err(Error::HeadHasInvalidPayload {
                 block_root: new_head_proto_block.root,
@@ -632,8 +632,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
             new_head
         } else {
-            let mut cached_head_write_lock = self.canonical_head.cached_head_write_lock();
-
             let new_cached_head = CachedHead {
                 // The head hasn't changed, take a relatively cheap `Arc`-clone of the existing
                 // head.
@@ -643,6 +641,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 head_hash: new_forkchoice_update_parameters.head_hash,
                 finalized_hash: new_forkchoice_update_parameters.finalized_hash,
             };
+
+            let mut cached_head_write_lock = self.canonical_head.cached_head_write_lock();
 
             // Enshrine the new head as the canonical cached head. Whilst the head block hasn't
             // changed, the FFG checkpoints must have changed.
@@ -669,6 +669,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 );
             }
         }
+
+        // Drop the old cache head nice and early to try free the memory as soon as possible.
+        drop(old_cached_head);
 
         // If the finalized checkpoint changed, perform some updates.
         if new_view.finalized_checkpoint != old_view.finalized_checkpoint {
