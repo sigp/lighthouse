@@ -1434,8 +1434,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let beacon_block_root;
         let beacon_state_root;
         let head_timer = metrics::start_timer(&metrics::ATTESTATION_PRODUCTION_HEAD_SCRAPE_SECONDS);
-        let cached_head_lock = self.canonical_head.cached_head();
-        let head = &cached_head_lock.snapshot;
+        let cached_head = self.canonical_head.cached_head();
+        let head = &cached_head.snapshot;
         let head_state = &head.beacon_state;
         let head_state_slot = head_state.slot();
 
@@ -1511,8 +1511,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             AttesterCacheKey::new(request_epoch, head_state, beacon_block_root)?;
         drop(head_timer);
 
-        // Drop the head lock ASAP to prevent lock contention.
-        drop(cached_head_lock);
+        // Drop the `Arc` to avoid keeping the reference alive any longer than required.
+        drop(cached_head);
 
         // Only attest to a block if it is fully verified (i.e. not optimistic or invalid).
         match self
@@ -2356,11 +2356,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let block = unverified_block.block().clone();
 
         // A small closure to group the verification and import errors.
-        let chain_a = self.clone();
-        let chain_b = self.clone();
+        let chain = self.clone();
         let import_block = async move {
-            let execution_pending = unverified_block.into_execution_pending_block(&chain_a)?;
-            chain_b
+            let execution_pending = unverified_block.into_execution_pending_block(&chain)?;
+            chain
                 .import_execution_pending_block(execution_pending)
                 .await
         };

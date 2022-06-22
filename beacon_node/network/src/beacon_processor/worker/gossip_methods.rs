@@ -754,15 +754,6 @@ impl<T: BeaconChainTypes> Worker<T> {
                 self.send_sync_message(SyncMessage::UnknownBlock(peer_id, block));
                 return None;
             }
-            Err(e @ BlockError::BlockImportCancelled) => {
-                crit!(
-                    self.log,
-                    "Unexpected block import error";
-                    "error" => ?e,
-                );
-                self.propagate_validation_result(message_id, peer_id, MessageAcceptance::Ignore);
-                return None;
-            }
             Err(e @ BlockError::BeaconChainError(_)) => {
                 debug!(
                     self.log,

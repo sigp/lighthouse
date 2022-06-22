@@ -277,9 +277,6 @@ pub enum BlockError<T: EthSpec> {
     /// The peer sent us an invalid block, but I'm not really sure how to score this in an
     /// "optimistic" sync world.
     ParentExecutionPayloadInvalid { parent_root: Hash256 },
-    /// A block import was cancelled. This error should never be surfaced, it indicates an error in
-    /// our programming.
-    BlockImportCancelled,
 }
 
 /// Returned when block validation failed due to some issue verifying
@@ -425,6 +422,7 @@ impl<T: EthSpec> From<ArithError> for BlockError<T> {
     }
 }
 
+/// Stores information about verifying a payload against an execution engine.
 pub struct PayloadVerificationOutcome {
     pub payload_verification_status: PayloadVerificationStatus,
     pub is_valid_merge_transition_block: bool,
