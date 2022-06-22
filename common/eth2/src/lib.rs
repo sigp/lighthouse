@@ -1491,7 +1491,7 @@ impl BeaconNodeHttpClient {
 
 /// Returns `Ok(response)` if the response is a `200 OK` response. Otherwise, creates an
 /// appropriate error message.
-async fn ok_or_error(response: Response) -> Result<Response, Error> {
+pub async fn ok_or_error(response: Response) -> Result<Response, Error> {
     let status = response.status();
 
     if status == StatusCode::OK {

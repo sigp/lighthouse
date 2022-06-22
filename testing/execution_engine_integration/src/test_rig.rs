@@ -11,9 +11,9 @@ use types::{
 
 const EXECUTION_ENGINE_START_TIMEOUT: Duration = Duration::from_secs(20);
 
-struct ExecutionPair<E> {
+struct ExecutionPair<E, T: EthSpec> {
     /// The Lighthouse `ExecutionLayer` struct, connected to the `execution_engine` via HTTP.
-    execution_layer: ExecutionLayer,
+    execution_layer: ExecutionLayer<T>,
     /// A handle to external EE process, once this is dropped the process will be killed.
     #[allow(dead_code)]
     execution_engine: ExecutionEngine<E>,
@@ -23,11 +23,11 @@ struct ExecutionPair<E> {
 ///
 /// There are two EEs held here so that we can test out-of-order application of payloads, and other
 /// edge-cases.
-pub struct TestRig<E> {
+pub struct TestRig<E, T: EthSpec = MainnetEthSpec> {
     #[allow(dead_code)]
     runtime: Arc<tokio::runtime::Runtime>,
-    ee_a: ExecutionPair<E>,
-    ee_b: ExecutionPair<E>,
+    ee_a: ExecutionPair<E, T>,
+    ee_b: ExecutionPair<E, T>,
     spec: ChainSpec,
     _runtime_shutdown: exit_future::Signal,
 }
@@ -172,12 +172,14 @@ impl<E: GenericExecutionEngine> TestRig<E> {
         let valid_payload = self
             .ee_a
             .execution_layer
-            .get_payload::<MainnetEthSpec, FullPayload<MainnetEthSpec>>(
+            .get_payload::<FullPayload<MainnetEthSpec>>(
                 parent_hash,
                 timestamp,
                 prev_randao,
                 finalized_block_hash,
                 proposer_index,
+                None,
+                Slot::new(0),
             )
             .await
             .unwrap()
@@ -265,12 +267,14 @@ impl<E: GenericExecutionEngine> TestRig<E> {
         let second_payload = self
             .ee_a
             .execution_layer
-            .get_payload::<MainnetEthSpec, FullPayload<MainnetEthSpec>>(
+            .get_payload::<FullPayload<MainnetEthSpec>>(
                 parent_hash,
                 timestamp,
                 prev_randao,
                 finalized_block_hash,
                 proposer_index,
+                None,
+                Slot::new(0),
             )
             .await
             .unwrap()
@@ -400,7 +404,7 @@ impl<E: GenericExecutionEngine> TestRig<E> {
 ///
 /// Panic if payload reconstruction fails.
 async fn check_payload_reconstruction<E: GenericExecutionEngine>(
-    ee: &ExecutionPair<E>,
+    ee: &ExecutionPair<E, MainnetEthSpec>,
     payload: &ExecutionPayload<MainnetEthSpec>,
 ) {
     let reconstructed = ee

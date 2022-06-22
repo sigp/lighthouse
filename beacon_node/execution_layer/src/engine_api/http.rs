@@ -10,7 +10,7 @@ use serde::de::DeserializeOwned;
 use serde_json::json;
 use std::marker::PhantomData;
 use std::time::Duration;
-use types::{BlindedPayload, EthSpec, ExecutionPayloadHeader, SignedBeaconBlock};
+use types::EthSpec;
 
 pub use reqwest::Client;
 
@@ -41,12 +41,6 @@ pub const ENGINE_EXCHANGE_TRANSITION_CONFIGURATION_V1: &str =
     "engine_exchangeTransitionConfigurationV1";
 pub const ENGINE_EXCHANGE_TRANSITION_CONFIGURATION_V1_TIMEOUT: Duration =
     Duration::from_millis(500);
-
-pub const BUILDER_GET_PAYLOAD_HEADER_V1: &str = "builder_getPayloadHeaderV1";
-pub const BUILDER_GET_PAYLOAD_HEADER_TIMEOUT: Duration = Duration::from_secs(2);
-
-pub const BUILDER_PROPOSE_BLINDED_BLOCK_V1: &str = "builder_proposeBlindedBlockV1";
-pub const BUILDER_PROPOSE_BLINDED_BLOCK_TIMEOUT: Duration = Duration::from_secs(2);
 
 pub struct HttpJsonRpc<T = EngineApi> {
     pub client: Client,
@@ -233,62 +227,6 @@ impl HttpJsonRpc<EngineApi> {
     }
 }
 
-impl HttpJsonRpc<BuilderApi> {
-    pub async fn get_payload_header_v1<T: EthSpec>(
-        &self,
-        payload_id: PayloadId,
-    ) -> Result<ExecutionPayloadHeader<T>, Error> {
-        let params = json!([JsonPayloadIdRequest::from(payload_id)]);
-
-        let response: JsonExecutionPayloadHeaderV1<T> = self
-            .rpc_request(
-                BUILDER_GET_PAYLOAD_HEADER_V1,
-                params,
-                BUILDER_GET_PAYLOAD_HEADER_TIMEOUT,
-            )
-            .await?;
-
-        Ok(response.into())
-    }
-
-    pub async fn forkchoice_updated_v1(
-        &self,
-        forkchoice_state: ForkChoiceState,
-        payload_attributes: Option<PayloadAttributes>,
-    ) -> Result<ForkchoiceUpdatedResponse, Error> {
-        let params = json!([
-            JsonForkChoiceStateV1::from(forkchoice_state),
-            payload_attributes.map(JsonPayloadAttributesV1::from)
-        ]);
-
-        let response: JsonForkchoiceUpdatedV1Response = self
-            .rpc_request(
-                ENGINE_FORKCHOICE_UPDATED_V1,
-                params,
-                ENGINE_FORKCHOICE_UPDATED_TIMEOUT,
-            )
-            .await?;
-
-        Ok(response.into())
-    }
-
-    pub async fn propose_blinded_block_v1<T: EthSpec>(
-        &self,
-        block: SignedBeaconBlock<T, BlindedPayload<T>>,
-    ) -> Result<ExecutionPayload<T>, Error> {
-        let params = json!([block]);
-
-        let response: JsonExecutionPayloadV1<T> = self
-            .rpc_request(
-                BUILDER_PROPOSE_BLINDED_BLOCK_V1,
-                params,
-                BUILDER_PROPOSE_BLINDED_BLOCK_TIMEOUT,
-            )
-            .await?;
-
-        Ok(response.into())
-    }
-}
 #[cfg(test)]
 mod test {
     use super::auth::JwtKey;

@@ -334,7 +334,7 @@ pub struct BeaconChain<T: BeaconChainTypes> {
     /// Provides information from the Ethereum 1 (PoW) chain.
     pub eth1_chain: Option<Eth1Chain<T::Eth1Chain, T::EthSpec>>,
     /// Interfaces with the execution client.
-    pub execution_layer: Option<ExecutionLayer>,
+    pub execution_layer: Option<ExecutionLayer<T::EthSpec>>,
     /// Stores a "snapshot" of the chain at the time the head-of-the-chain block was received.
     pub(crate) canonical_head: TimeoutRwLock<BeaconSnapshot<T::EthSpec>>,
     /// The root of the genesis block.
@@ -3218,6 +3218,14 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let slot = state.slot();
         let proposer_index = state.get_beacon_proposer_index(state.slot(), &self.spec)? as u64;
 
+        let pubkey_opt = match self.validator_pubkey_bytes(proposer_index as usize) {
+            Ok(p) => p,
+            Err(e) => {
+                warn!(self.log, "Can't access proposer's pubkey, cannot use external builder"; "error" => ?e);
+                None
+            }
+        };
+
         // Closure to fetch a sync aggregate in cases where it is required.
         let get_sync_aggregate = || -> Result<SyncAggregate<_>, BlockProductionError> {
             Ok(self
@@ -3276,7 +3284,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             BeaconState::Merge(_) => {
                 let sync_aggregate = get_sync_aggregate()?;
                 let execution_payload =
-                    get_execution_payload::<T, Payload>(self, &state, proposer_index)?;
+                    get_execution_payload::<T, Payload>(self, &state, proposer_index, pubkey_opt)?;
                 BeaconBlock::Merge(BeaconBlockMerge {
                     slot,
                     proposer_index,
