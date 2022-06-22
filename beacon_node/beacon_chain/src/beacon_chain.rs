@@ -1431,88 +1431,93 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
          * the head-lock is not desirable.
          */
 
+        let head_state_slot;
         let beacon_block_root;
         let beacon_state_root;
+        let target;
+        let current_epoch_attesting_info: Option<(Checkpoint, usize)>;
+        let attester_cache_key;
         let head_timer = metrics::start_timer(&metrics::ATTESTATION_PRODUCTION_HEAD_SCRAPE_SECONDS);
-        let cached_head = self.canonical_head.cached_head();
-        let head = &cached_head.snapshot;
-        let head_state = &head.beacon_state;
-        let head_state_slot = head_state.slot();
+        // The following braces are to prevent the `cached_head` Arc from being held for longer than
+        // required. It also helps reduce the diff for a very large PR (#3244).
+        {
+            let head = self.head_snapshot();
+            let head_state = &head.beacon_state;
+            head_state_slot = head_state.slot();
 
-        // There is no value in producing an attestation to a block that is pre-finalization and
-        // it is likely to cause expensive and pointless reads to the freezer database. Exit
-        // early if this is the case.
-        let finalized_slot = head_state
-            .finalized_checkpoint()
-            .epoch
-            .start_slot(slots_per_epoch);
-        if request_slot < finalized_slot {
-            return Err(Error::AttestingToFinalizedSlot {
-                finalized_slot,
-                request_slot,
-            });
+            // There is no value in producing an attestation to a block that is pre-finalization and
+            // it is likely to cause expensive and pointless reads to the freezer database. Exit
+            // early if this is the case.
+            let finalized_slot = head_state
+                .finalized_checkpoint()
+                .epoch
+                .start_slot(slots_per_epoch);
+            if request_slot < finalized_slot {
+                return Err(Error::AttestingToFinalizedSlot {
+                    finalized_slot,
+                    request_slot,
+                });
+            }
+
+            // This function will eventually fail when trying to access a slot which is
+            // out-of-bounds of `state.block_roots`. This explicit error is intended to provide a
+            // clearer message to the user than an ambiguous `SlotOutOfBounds` error.
+            let slots_per_historical_root = T::EthSpec::slots_per_historical_root() as u64;
+            let lowest_permissible_slot =
+                head_state.slot().saturating_sub(slots_per_historical_root);
+            if request_slot < lowest_permissible_slot {
+                return Err(Error::AttestingToAncientSlot {
+                    lowest_permissible_slot,
+                    request_slot,
+                });
+            }
+
+            if request_slot >= head_state.slot() {
+                // When attesting to the head slot or later, always use the head of the chain.
+                beacon_block_root = head.beacon_block_root;
+                beacon_state_root = head.beacon_state_root();
+            } else {
+                // Permit attesting to slots *prior* to the current head. This is desirable when
+                // the VC and BN are out-of-sync due to time issues or overloading.
+                beacon_block_root = *head_state.get_block_root(request_slot)?;
+                beacon_state_root = *head_state.get_state_root(request_slot)?;
+            };
+
+            let target_slot = request_epoch.start_slot(T::EthSpec::slots_per_epoch());
+            let target_root = if head_state.slot() <= target_slot {
+                // If the state is earlier than the target slot then the target *must* be the head
+                // block root.
+                beacon_block_root
+            } else {
+                *head_state.get_block_root(target_slot)?
+            };
+            target = Checkpoint {
+                epoch: request_epoch,
+                root: target_root,
+            };
+
+            current_epoch_attesting_info = if head_state.current_epoch() == request_epoch {
+                // When the head state is in the same epoch as the request, all the information
+                // required to attest is available on the head state.
+                Some((
+                    head_state.current_justified_checkpoint(),
+                    head_state
+                        .get_beacon_committee(request_slot, request_index)?
+                        .committee
+                        .len(),
+                ))
+            } else {
+                // If the head state is in a *different* epoch to the request, more work is required
+                // to determine the justified checkpoint and committee length.
+                None
+            };
+
+            // Determine the key for `self.attester_cache`, in case it is required later in this
+            // routine.
+            attester_cache_key =
+                AttesterCacheKey::new(request_epoch, head_state, beacon_block_root)?;
         }
-
-        // This function will eventually fail when trying to access a slot which is
-        // out-of-bounds of `state.block_roots`. This explicit error is intended to provide a
-        // clearer message to the user than an ambiguous `SlotOutOfBounds` error.
-        let slots_per_historical_root = T::EthSpec::slots_per_historical_root() as u64;
-        let lowest_permissible_slot = head_state.slot().saturating_sub(slots_per_historical_root);
-        if request_slot < lowest_permissible_slot {
-            return Err(Error::AttestingToAncientSlot {
-                lowest_permissible_slot,
-                request_slot,
-            });
-        }
-
-        if request_slot >= head_state.slot() {
-            // When attesting to the head slot or later, always use the head of the chain.
-            beacon_block_root = head.beacon_block_root;
-            beacon_state_root = head.beacon_state_root();
-        } else {
-            // Permit attesting to slots *prior* to the current head. This is desirable when
-            // the VC and BN are out-of-sync due to time issues or overloading.
-            beacon_block_root = *head_state.get_block_root(request_slot)?;
-            beacon_state_root = *head_state.get_state_root(request_slot)?;
-        };
-
-        let target_slot = request_epoch.start_slot(T::EthSpec::slots_per_epoch());
-        let target_root = if head_state.slot() <= target_slot {
-            // If the state is earlier than the target slot then the target *must* be the head
-            // block root.
-            beacon_block_root
-        } else {
-            *head_state.get_block_root(target_slot)?
-        };
-        let target = Checkpoint {
-            epoch: request_epoch,
-            root: target_root,
-        };
-
-        let current_epoch_attesting_info = if head_state.current_epoch() == request_epoch {
-            // When the head state is in the same epoch as the request, all the information
-            // required to attest is available on the head state.
-            Some((
-                head_state.current_justified_checkpoint(),
-                head_state
-                    .get_beacon_committee(request_slot, request_index)?
-                    .committee
-                    .len(),
-            ))
-        } else {
-            // If the head state is in a *different* epoch to the request, more work is required
-            // to determine the justified checkpoint and committee length.
-            None
-        };
-
-        // Determine the key for `self.attester_cache`, in case it is required later in this
-        // routine.
-        let attester_cache_key =
-            AttesterCacheKey::new(request_epoch, head_state, beacon_block_root)?;
         drop(head_timer);
-
-        // Drop the `Arc` to avoid keeping the reference alive any longer than required.
-        drop(cached_head);
 
         // Only attest to a block if it is fully verified (i.e. not optimistic or invalid).
         match self
