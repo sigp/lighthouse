@@ -3393,6 +3393,7 @@ dependencies = [
  "directory",
  "env_logger 0.9.0",
  "environment",
+ "eth1",
  "eth2_hashing",
  "eth2_network_config",
  "futures",

@@ -10,6 +10,7 @@ use sensitive_url::SensitiveUrl;
 use slog::{info, warn, Logger};
 use std::cmp;
 use std::cmp::max;
+use std::fmt::Debug;
 use std::fs;
 use std::net::{IpAddr, Ipv4Addr, ToSocketAddrs};
 use std::path::{Path, PathBuf};
@@ -246,64 +247,78 @@ pub fn get_config<E: EthSpec>(
         client_config.eth1.cache_follow_distance = Some(follow_distance);
     }
 
-    if cli_args.is_present("merge") || cli_args.is_present("execution-endpoints") {
+    if cli_args.is_present("merge") {
+        if cli_args.is_present("execution-endpoint") {
+            warn!(
+                log,
+                "The --merge flag is deprecated";
+                "info" => "the --execution-endpoint flag automatically enables this feature"
+            )
+        } else {
+            return Err("The --merge flag is deprecated. \
+                Supply a value to --execution-endpoint instead."
+                .into());
+        }
+    }
+
+    if let Some(endpoints) = cli_args.value_of("execution-endpoint") {
         let mut el_config = execution_layer::Config::default();
 
-        if let Some(endpoints) = cli_args.value_of("execution-endpoint") {
-            client_config.sync_eth1_chain = true;
-            let mut execution_endpoints: Vec<SensitiveUrl> = endpoints
-                .split(',')
-                .map(SensitiveUrl::parse)
-                .collect::<Result<_, _>>()
-                .map_err(|e| format!("execution-endpoints contains an invalid URL {:?}", e))?;
-            // Retain only first element since we don't support multiple execution engines
-            execution_endpoints.truncate(1);
-            el_config.execution_endpoints = execution_endpoints;
-        } else if cli_args.is_present("merge") {
-            el_config.execution_endpoints =
-                vec![
-                    SensitiveUrl::parse(execution_layer::DEFAULT_EXECUTION_ENDPOINT)
-                        .expect("DEFAULT_EXECUTION_ENDPOINT is a valid endpoint"),
-                ];
-        }
+        // Always follow the deposit contract when there is an execution endpoint.
+        //
+        // This is wasteful for non-staking nodes as they have no need to process deposit contract
+        // logs and build an "eth1" cache. The alternative is to explicitly require the `--eth1` or
+        // `--staking` flags, however that poses a risk to stakers since they cannot produce blocks
+        // without "eth1".
+        //
+        // The waste for non-staking nodes is relatively small so we err on the side of safety for
+        // stakers. The merge is already complicated enough.
+        client_config.sync_eth1_chain = true;
 
-        if let Some(endpoints) = cli_args.value_of("payload-builders") {
-            el_config.builder_endpoints = endpoints
-                .split(',')
-                .map(SensitiveUrl::parse)
-                .collect::<Result<_, _>>()
-                .map_err(|e| format!("payload-builders contains an invalid URL {:?}", e))?;
-        }
+        // Parse a single execution endpoint, logging warnings if multiple endpoints are supplied.
+        let execution_endpoint =
+            parse_only_one_value(endpoints, SensitiveUrl::parse, "--execution-endpoint", log)?;
 
-        // `--execution-jwt` has to be specified if `--merge` or `--execution-endpoint` is specified
+        // Parse a single JWT secret, logging warnings if multiple are supplied.
+        //
+        // JWTs are required if `--execution-endpoint` is supplied.
         let secret_files: String = clap_utils::parse_required(cli_args, "execution-jwt")?;
-        let mut secret_files: Vec<PathBuf> = secret_files
-            .split(',')
-            .map(PathBuf::from)
-            .collect::<Vec<_>>();
-        // Retain only first element
-        secret_files.truncate(1);
-        el_config.secret_files = secret_files;
+        let secret_file =
+            parse_only_one_value(&secret_files, PathBuf::from_str, "--execution-jwt", log)?;
 
-        client_config.eth1.endpoints = Eth1Endpoint::Auth {
-            jwt_path: el_config
-                .secret_files
-                .first()
-                .expect("jwt-path must exist")
-                .clone(),
-            endpoint: el_config
-                .execution_endpoints
-                .first()
-                .expect("execution-endpoints should use default value if not provided")
-                .clone(),
-        };
+        // Parse and set the payload builder, if any.
+        if let Some(endpoints) = cli_args.value_of("payload-builder") {
+            let payload_builder =
+                parse_only_one_value(endpoints, SensitiveUrl::parse, "--payload-builder", log)?;
+            el_config.builder_endpoints = vec![payload_builder];
+        }
 
+        // Set config values from parse values.
+        el_config.secret_files = vec![secret_file.clone()];
+        el_config.execution_endpoints = vec![execution_endpoint.clone()];
         el_config.suggested_fee_recipient =
             clap_utils::parse_optional(cli_args, "suggested-fee-recipient")?;
         el_config.jwt_id = clap_utils::parse_optional(cli_args, "execution-jwt-id")?;
         el_config.jwt_version = clap_utils::parse_optional(cli_args, "execution-jwt-version")?;
         el_config.default_datadir = client_config.data_dir.clone();
+
+        // Store the EL config in the client config.
         client_config.execution_layer = Some(el_config);
+
+        // If `--execution-endpoint` is provided, we should ignore any `--eth1-endpoints` values and
+        // use `--execution-endpoint` instead. Also, log a deprecation warning.
+        if cli_args.is_present("eth1-endpoints") || cli_args.is_present("eth1-endpoint") {
+            warn!(
+                log,
+                "Ignoring --eth1-endpoints flag";
+                "info" => "the value for --execution-endpoint will be used instead. \
+                    --eth1-endpoints has been deprecated for post-merge configurations"
+            );
+        }
+        client_config.eth1.endpoints = Eth1Endpoint::Auth {
+            endpoint: execution_endpoint,
+            jwt_path: secret_file,
+        };
     }
 
     if let Some(freezer_dir) = cli_args.value_of("freezer-dir") {
@@ -862,4 +877,39 @@ pub fn get_slots_per_restore_point<E: EthSpec>(
         );
         Ok((default, false))
     }
+}
+
+/// Parses the `cli_value` as a comma-separated string of values to be parsed with `parser`.
+///
+/// If there is more than one value, log a warning. If there are no values, return an error.
+pub fn parse_only_one_value<F, T, E>(
+    cli_value: &str,
+    parser: F,
+    flag_name: &str,
+    log: &Logger,
+) -> Result<T, String>
+where
+    F: Fn(&str) -> Result<T, E>,
+    E: Debug,
+{
+    let values = cli_value
+        .split(',')
+        .map(parser)
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| format!("{} contains an invalid value {:?}", flag_name, e))?;
+
+    if values.len() > 1 {
+        warn!(
+            log,
+            "Multiple values provided";
+            "info" => "multiple values are deprecated, only the first value will be used",
+            "count" => values.len(),
+            "flag" => flag_name
+        );
+    }
+
+    values
+        .into_iter()
+        .next()
+        .ok_or(format!("Must provide at least one value to {}", flag_name))
 }

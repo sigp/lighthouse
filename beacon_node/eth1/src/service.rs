@@ -361,7 +361,7 @@ pub struct DepositCacheUpdateOutcome {
 
 /// Supports either one authenticated jwt JSON-RPC endpoint **or**
 /// multiple non-authenticated endpoints with fallback.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum Eth1Endpoint {
     Auth {
         jwt_path: PathBuf,

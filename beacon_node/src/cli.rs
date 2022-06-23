@@ -409,10 +409,9 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
         .arg(
             Arg::with_name("merge")
                 .long("merge")
-                .help("Enable the features necessary to run merge testnets. This feature \
-                       is unstable and is for developers only.")
+                .help("Deprecated. The feature activates automatically when --execution-endpoint \
+                    is supplied.")
                 .takes_value(false)
-                .conflicts_with("eth1-endpoints")
         )
         .arg(
             Arg::with_name("execution-endpoint")
@@ -423,7 +422,6 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                        JSON-RPC connection. Uses the same endpoint to populate the \
                        deposit cache. Also enables the --merge flag.\
                        If not provided, uses the default value of http://127.0.0.1:8551")
-                .conflicts_with("eth1-endpoints")
                 .takes_value(true)
                 .requires("execution-jwt")
         )
@@ -450,7 +448,7 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
             Arg::with_name("execution-jwt-version")
                 .long("execution-jwt-version")
                 .value_name("EXECUTION-JWT-VERSION")
-                .long("jwt-version")
+                .alias("jwt-version")
                 .help("Used by the beacon node to communicate a client version to execution nodes \
                        during JWT authentication. It corresponds to the 'clv' field in the JWT claims object.\
                        Set to empty by deafult")
@@ -464,14 +462,15 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                        collected from any blocks produced by this node. Defaults to a junk \
                        address whilst the merge is in development stages. THE DEFAULT VALUE \
                        WILL BE REMOVED BEFORE THE MERGE ENTERS PRODUCTION")
-                .requires("merge")
+                .requires("execution-endpoint")
                 .takes_value(true)
         )
         .arg(
-            Arg::with_name("payload-builders")
-                .long("payload-builders")
+            Arg::with_name("payload-builder")
+                .long("payload-builder")
+                .alias("payload-builders")
                 .help("The URL of a service compatible with the MEV-boost API.")
-                .requires("merge")
+                .requires("execution-endpoint")
                 .takes_value(true)
         )
 
