@@ -332,7 +332,9 @@ fn run_execution_endpoints_overrides_eth1_endpoints_test(eth1_flag: &str, execut
                 config.eth1.endpoints,
                 Eth1Endpoint::Auth {
                     endpoint: SensitiveUrl::parse(execution_endpoint).unwrap(),
-                    jwt_path: jwt_path.clone()
+                    jwt_path: jwt_path.clone(),
+                    jwt_id: None,
+                    jwt_version: None,
                 }
             );
         });
@@ -390,17 +392,32 @@ fn merge_fee_recipient_flag() {
         });
 }
 fn run_jwt_optional_flags_test(jwt_flag: &str, jwt_id_flag: &str, jwt_version_flag: &str) {
+    use sensitive_url::SensitiveUrl;
+
     let dir = TempDir::new().expect("Unable to create temporary directory");
+    let execution_endpoint = "http://meow.cats";
+    let jwt_file = "jwt-file";
+    let id = "bn-1";
+    let version = "Lighthouse-v2.1.3";
     CommandLineTest::new()
-        .flag("execution-endpoint", Some("http://meow.cats"))
-        .flag(jwt_flag, dir.path().join("jwt-file").as_os_str().to_str())
-        .flag(jwt_id_flag, Some("bn-1"))
-        .flag(jwt_version_flag, Some("Lighthouse-v2.1.3"))
+        .flag("execution-endpoint", Some(execution_endpoint.clone()))
+        .flag(jwt_flag, dir.path().join(jwt_file).as_os_str().to_str())
+        .flag(jwt_id_flag, Some(id))
+        .flag(jwt_version_flag, Some(version))
         .run_with_zero_port()
         .with_config(|config| {
-            let config = config.execution_layer.as_ref().unwrap();
-            assert_eq!(config.jwt_id, Some("bn-1".to_string()));
-            assert_eq!(config.jwt_version, Some("Lighthouse-v2.1.3".to_string()));
+            let el_config = config.execution_layer.as_ref().unwrap();
+            assert_eq!(el_config.jwt_id, Some(id.to_string()));
+            assert_eq!(el_config.jwt_version, Some(version.to_string()));
+            assert_eq!(
+                config.eth1.endpoints,
+                Eth1Endpoint::Auth {
+                    endpoint: SensitiveUrl::parse(execution_endpoint).unwrap(),
+                    jwt_path: dir.path().join(jwt_file),
+                    jwt_id: Some(id.to_string()),
+                    jwt_version: Some(version.to_string()),
+                }
+            );
         });
 }
 #[test]
