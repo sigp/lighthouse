@@ -2104,6 +2104,9 @@ mod tests {
         #[quickcheck]
         fn prune_excess_peers(peer_conditions: Vec<PeerCondition>) -> TestResult {
             let target_peer_count = DEFAULT_TARGET_PEERS;
+            if peer_conditions.len() < target_peer_count {
+                return TestResult::discard();
+            }
             let rt = Runtime::new().unwrap();
 
             rt.block_on(async move {
