@@ -244,13 +244,10 @@ impl<T: BeaconChainTypes> CanonicalHead<T> {
         // We don't actually need this value, however it's always present when we call this function
         // and it needs to be dropped to prevent a dead-lock. Requiring it to be passed here is
         // defensive programming.
-        fork_choice_write_lock: RwLockWriteGuard<BeaconForkChoice<T>>,
+        mut fork_choice_write_lock: RwLockWriteGuard<BeaconForkChoice<T>>,
         store: &BeaconStore<T>,
         spec: &ChainSpec,
     ) -> Result<(), Error> {
-        // Drop the lock to prevent a deadlock later in the function.
-        drop(fork_choice_write_lock);
-
         let fork_choice = <BeaconChain<T>>::load_fork_choice(store.clone(), spec)?
             .ok_or(Error::MissingPersistedForkChoice)?;
         let fork_choice_view = fork_choice.cached_fork_choice_view();
@@ -279,7 +276,9 @@ impl<T: BeaconChainTypes> CanonicalHead<T> {
             finalized_hash: forkchoice_update_params.finalized_hash,
         };
 
-        *self.fork_choice.write() = fork_choice;
+        *fork_choice_write_lock = fork_choice;
+        // Avoid interleaving the fork choice and cached head locks.
+        drop(fork_choice_write_lock);
         *self.cached_head.write() = cached_head;
 
         Ok(())
