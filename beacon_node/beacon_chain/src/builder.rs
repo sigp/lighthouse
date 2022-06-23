@@ -728,8 +728,7 @@ where
         let genesis_validators_root = head_snapshot.beacon_state.genesis_validators_root();
         let genesis_time = head_snapshot.beacon_state.genesis_time();
         let head_for_snapshot_cache = head_snapshot.clone();
-        let canonical_head = CanonicalHead::new(fork_choice, Arc::new(head_snapshot))
-            .map_err(|e| format!("Error creating canonical head: {:?}", e))?;
+        let canonical_head = CanonicalHead::new(fork_choice, Arc::new(head_snapshot));
 
         let beacon_chain = BeaconChain {
             spec: self.spec,

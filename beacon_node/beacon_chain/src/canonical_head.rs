@@ -216,7 +216,7 @@ impl<T: BeaconChainTypes> CanonicalHead<T> {
     pub fn new(
         fork_choice: BeaconForkChoice<T>,
         snapshot: Arc<BeaconSnapshot<T::EthSpec>>,
-    ) -> Result<Self, Error> {
+    ) -> Self {
         let fork_choice_view = fork_choice.cached_fork_choice_view();
         let forkchoice_update_params = fork_choice.get_forkchoice_update_parameters();
         let cached_head = CachedHead {
@@ -227,11 +227,11 @@ impl<T: BeaconChainTypes> CanonicalHead<T> {
             finalized_hash: forkchoice_update_params.finalized_hash,
         };
 
-        Ok(Self {
+        Self {
             fork_choice: CanonicalHeadRwLock::new(fork_choice),
             cached_head: CanonicalHeadRwLock::new(cached_head),
             recompute_head_lock: Mutex::new(()),
-        })
+        }
     }
 
     /// Load a persisted version of `BeaconForkChoice` from the `store` and restore `self` to that
@@ -296,10 +296,11 @@ impl<T: BeaconChainTypes> CanonicalHead<T> {
             .ok_or(Error::HeadMissingFromForkChoice(head_block_root))
     }
 
-    /// Returns a cloned `Arc` to `self.cached_head`.
+    /// Returns a clone of `self.cached_head`.
     ///
-    /// Takes a read-lock on `self.cached_head` for a short time (just long enough to clone an
-    /// `Arc`).
+    /// Takes a read-lock on `self.cached_head` for a short time (just long enough to clone it).
+    /// The `CachedHead` is designed to be fast-to-clone so this is preferred to passing back a
+    /// `RwLockReadGuard`, which may cause deadlock issues (see module-level documentation).
     ///
     /// This function is safe to be public since it does not expose any locks.
     pub fn cached_head(&self) -> CachedHead<T::EthSpec> {
