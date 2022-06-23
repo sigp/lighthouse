@@ -302,9 +302,6 @@ pub fn get_config<E: EthSpec>(
         el_config.jwt_version = clap_utils::parse_optional(cli_args, "execution-jwt-version")?;
         el_config.default_datadir = client_config.data_dir.clone();
 
-        // Store the EL config in the client config.
-        client_config.execution_layer = Some(el_config);
-
         // If `--execution-endpoint` is provided, we should ignore any `--eth1-endpoints` values and
         // use `--execution-endpoint` instead. Also, log a deprecation warning.
         if cli_args.is_present("eth1-endpoints") || cli_args.is_present("eth1-endpoint") {
@@ -318,7 +315,12 @@ pub fn get_config<E: EthSpec>(
         client_config.eth1.endpoints = Eth1Endpoint::Auth {
             endpoint: execution_endpoint,
             jwt_path: secret_file,
+            jwt_id: el_config.jwt_id.clone(),
+            jwt_version: el_config.jwt_version.clone(),
         };
+
+        // Store the EL config in the client config.
+        client_config.execution_layer = Some(el_config);
     }
 
     if let Some(freezer_dir) = cli_args.value_of("freezer-dir") {

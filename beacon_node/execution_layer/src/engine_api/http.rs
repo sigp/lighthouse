@@ -354,7 +354,7 @@ pub mod deposit_methods {
             let hash: Hash256 = if hash.len() == 32 {
                 Hash256::from_slice(&hash)
             } else {
-                return Err(format!("Block has was not 32 bytes: {:?}", hash));
+                return Err(format!("Block hash was not 32 bytes: {:?}", hash));
             };
 
             let timestamp = hex_to_u64_be(
@@ -465,12 +465,12 @@ pub mod deposit_methods {
                 format!("0x{:x}", block_number)
             ]);
 
-            let response: String = self
+            let response: Option<String> = self
                 .rpc_request("eth_call", params, timeout)
                 .await
                 .map_err(|e| format!("eth_call call failed {:?}", e))?;
 
-            Ok(Some(hex_to_bytes(&response)?))
+            response.map(|s| hex_to_bytes(&s)).transpose()
         }
 
         /// Returns logs for the `DEPOSIT_EVENT_TOPIC`, for the given `address` in the given

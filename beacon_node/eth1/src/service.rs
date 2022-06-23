@@ -364,8 +364,10 @@ pub struct DepositCacheUpdateOutcome {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum Eth1Endpoint {
     Auth {
-        jwt_path: PathBuf,
         endpoint: SensitiveUrl,
+        jwt_path: PathBuf,
+        jwt_id: Option<String>,
+        jwt_version: Option<String>,
     },
     NoAuth(Vec<SensitiveUrl>),
 }
@@ -682,8 +684,13 @@ impl Service {
         let config_chain_id = self.config().chain_id.clone();
 
         let servers = match endpoints {
-            Eth1Endpoint::Auth { jwt_path, endpoint } => {
-                let auth = Auth::new_with_path(jwt_path, None, None)
+            Eth1Endpoint::Auth {
+                jwt_path,
+                endpoint,
+                jwt_id,
+                jwt_version,
+            } => {
+                let auth = Auth::new_with_path(jwt_path, jwt_id, jwt_version)
                     .map_err(|e| format!("Failed to initialize jwt auth: {:?}", e))?;
                 vec![HttpJsonRpc::new_with_auth(endpoint, auth)
                     .map_err(|e| format!("Failed to build auth enabled json rpc {:?}", e))?]
@@ -1223,7 +1230,7 @@ impl Service {
                 "latest_block_age" => latest_block_mins,
                 "latest_block" => block_cache.highest_block_number(),
                 "total_cached_blocks" => block_cache.len(),
-                "new" => blocks_imported
+                "new" => %blocks_imported
             );
         } else {
             debug!(
