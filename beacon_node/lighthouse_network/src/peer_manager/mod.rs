@@ -2161,7 +2161,6 @@ mod tests {
                     peer_manager.network_globals.connected_or_dialing_peers()
                         == target_peer_count.min(peer_conditions.len()),
                 )
-                }
             })
         }
     }
