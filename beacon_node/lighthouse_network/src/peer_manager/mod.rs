@@ -2160,17 +2160,10 @@ mod tests {
                 // Perform the heartbeat.
                 peer_manager.heartbeat();
 
-                if peer_conditions.len() <= target_peer_count {
-                    // We expect to keep the number of peers since no need to prune peers in this case.
-                    TestResult::from_bool(
-                        peer_manager.network_globals.connected_or_dialing_peers()
-                            == peer_conditions.len(),
-                    )
-                } else {
-                    TestResult::from_bool(
-                        peer_manager.network_globals.connected_or_dialing_peers()
-                            == target_peer_count,
-                    )
+                TestResult::from_bool(
+                    peer_manager.network_globals.connected_or_dialing_peers()
+                        == target_peer_count.min(peer_conditions.len()),
+                )
                 }
             })
         }
