@@ -10,6 +10,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         block: BeaconBlockRef<'_, T::EthSpec, Payload>,
         block_root: Hash256,
         state: &BeaconState<T::EthSpec>,
+        include_attestations: bool,
     ) -> Result<BlockReward, BeaconChainError> {
         if block.slot() != state.slot() {
             return Err(BeaconChainError::BlockRewardSlotError);
@@ -60,11 +61,24 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .map(|cover| cover.fresh_validators_rewards)
             .collect();
 
+        // Add the attestation data if desired.
+        let attestations = if include_attestations {
+            block
+                .body()
+                .attestations()
+                .iter()
+                .map(|a| a.data.clone())
+                .collect()
+        } else {
+            vec![]
+        };
+
         let attestation_rewards = AttestationRewards {
             total: attestation_total,
             prev_epoch_total,
             curr_epoch_total,
             per_attestation_rewards,
+            attestations,
         };
 
         // Sync committee rewards.

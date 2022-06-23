@@ -50,8 +50,12 @@ pub fn get_block_rewards<T: BeaconChainTypes>(
     let block_replayer = BlockReplayer::new(state, &chain.spec)
         .pre_block_hook(Box::new(|state, block| {
             // Compute block reward.
-            let block_reward =
-                chain.compute_block_reward(block.message(), block.canonical_root(), state)?;
+            let block_reward = chain.compute_block_reward(
+                block.message(),
+                block.canonical_root(),
+                state,
+                query.include_attestations,
+            )?;
             block_rewards.push(block_reward);
             Ok(())
         }))
