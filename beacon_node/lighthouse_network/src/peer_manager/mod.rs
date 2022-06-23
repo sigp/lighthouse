@@ -2087,7 +2087,7 @@ mod tests {
 
                 let sync_committee_net_bitfield = {
                     let len = <E as EthSpec>::SyncCommitteeSubnetCount::to_usize();
-                    let mut bitfield = vec![];
+                    let mut bitfield = Vec::with_capacity(len);
                     for _ in 0..len {
                         bitfield.push(bool::arbitrary(g));
                     }
