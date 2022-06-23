@@ -12,7 +12,7 @@ pub use engine_api::{http, http::deposit_methods, http::HttpJsonRpc};
 pub use engines::ForkChoiceState;
 use engines::{Engine, EngineError, Engines, Logging};
 use lru::LruCache;
-use payload_status::process_multiple_payload_statuses;
+use payload_status::process_payload_status;
 pub use payload_status::PayloadStatus;
 use sensitive_url::SensitiveUrl;
 use serde::{Deserialize, Serialize};
@@ -68,11 +68,10 @@ pub enum Error {
     NoPayloadBuilder,
     ApiError(ApiError),
     Builder(builder_client::Error),
-    EngineErrors(Vec<EngineError>),
+    EngineError(EngineError),
     NotSynced,
     ShuttingDown,
     FeeRecipientUnspecified,
-    ConsensusFailure,
     MissingLatestValidHash,
     InvalidJWTSecret(String),
 }
@@ -746,7 +745,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
                     })
             })
             .await
-            .map_err(Error::EngineErrors)
+            .map_err(Error::EngineError)
     }
 
     /// Maps to the `engine_newPayload` JSON-RPC call.
@@ -779,16 +778,13 @@ impl<T: EthSpec> ExecutionLayer<T> {
             "block_number" => execution_payload.block_number,
         );
 
-        let broadcast_results = self
+        let broadcast_result = self
             .engines()
             .broadcast(|engine| engine.api.new_payload_v1(execution_payload.clone()))
             .await;
 
-        process_multiple_payload_statuses(
-            execution_payload.block_hash,
-            Some(broadcast_results).into_iter(),
-            self.log(),
-        )
+        process_payload_status(execution_payload.block_hash, broadcast_result, self.log())
+            .map_err(Error::EngineError)
     }
 
     /// Register that the given `validator_index` is going to produce a block at `slot`.
@@ -916,7 +912,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
             .set_latest_forkchoice_state(forkchoice_state)
             .await;
 
-        let broadcast_results = self
+        let broadcast_result = self
             .engines()
             .broadcast(|engine| async move {
                 engine
@@ -925,13 +921,12 @@ impl<T: EthSpec> ExecutionLayer<T> {
             })
             .await;
 
-        process_multiple_payload_statuses(
+        process_payload_status(
             head_block_hash,
-            Some(broadcast_results)
-                .into_iter()
-                .map(|result| result.map(|response| response.payload_status)),
+            broadcast_result.map(|response| response.payload_status),
             self.log(),
         )
+        .map_err(Error::EngineError)
     }
 
     pub async fn exchange_transition_configuration(&self, spec: &ChainSpec) -> Result<(), Error> {
@@ -946,7 +941,6 @@ impl<T: EthSpec> ExecutionLayer<T> {
             .broadcast(|engine| engine.api.exchange_transition_configuration_v1(local))
             .await;
 
-        let mut errors = vec![];
         // Having no fallbacks, the id of the used node is 0
         let i = 0usize;
         match broadcast_result {
@@ -963,16 +957,17 @@ impl<T: EthSpec> ExecutionLayer<T> {
                         "remote" => ?remote,
                         "local" => ?local,
                     );
-                    errors.push(EngineError::Api {
+                    Err(Error::EngineError(EngineError::Api {
                         id: i.to_string(),
                         error: ApiError::TransitionConfigurationMismatch,
-                    });
+                    }))
                 } else {
                     debug!(
                         self.log(),
                         "Execution client config is OK";
                         "execution_endpoint" => i
                     );
+                    Ok(())
                 }
             }
             Err(e) => {
@@ -982,14 +977,8 @@ impl<T: EthSpec> ExecutionLayer<T> {
                     "error" => ?e,
                     "execution_endpoint" => i,
                 );
-                errors.push(e);
+                Err(Error::EngineError(e))
             }
-        }
-
-        if errors.is_empty() {
-            Ok(())
-        } else {
-            Err(Error::EngineErrors(errors))
         }
     }
 
@@ -1029,7 +1018,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
                     .await
             })
             .await
-            .map_err(Error::EngineErrors)?;
+            .map_err(Error::EngineError)?;
 
         if let Some(hash) = &hash_opt {
             info!(
@@ -1139,7 +1128,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
                 Ok(None)
             })
             .await
-            .map_err(|e| Error::EngineErrors(vec![e]))
+            .map_err(Error::EngineError)
     }
 
     /// This function should remain internal.
@@ -1197,7 +1186,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
                     .await
             })
             .await
-            .map_err(Error::EngineErrors)
+            .map_err(Error::EngineError)
     }
 
     async fn get_payload_by_block_hash_from_engine(

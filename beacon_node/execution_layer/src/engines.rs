@@ -261,45 +261,35 @@ impl Engines {
         }
     }
 
-    /// Run `func` on all engines, in the order in which they are defined, returning the first
-    /// successful result that is found.
+    /// Run `func` on the node.
     ///
-    /// This function might try to run `func` twice. If all nodes return an error on the first time
-    /// it runs, it will try to upcheck all offline nodes and then run the function again.
-    pub async fn first_success<'a, F, G, H>(&'a self, func: F) -> Result<H, Vec<EngineError>>
+    /// This function might try to run `func` twice. If the node returns an error it will try to
+    /// upcheck it and then run the function again.
+    pub async fn first_success<'a, F, G, H>(&'a self, func: F) -> Result<H, EngineError>
     where
         F: Fn(&'a Engine<EngineApi>) -> G + Copy,
         G: Future<Output = Result<H, EngineApiError>>,
     {
         match self.first_success_without_retry(func).await {
             Ok(result) => Ok(result),
-            Err(mut first_errors) => {
+            Err(_e) => {
                 // Try to recover some nodes.
                 self.upcheck_not_synced(Logging::Enabled).await;
                 // Retry the call on all nodes.
-                match self.first_success_without_retry(func).await {
-                    Ok(result) => Ok(result),
-                    Err(second_errors) => {
-                        first_errors.extend(second_errors);
-                        Err(first_errors)
-                    }
-                }
+                self.first_success_without_retry(func).await
             }
         }
     }
 
-    /// Run `func` on all engines, in the order in which they are defined, returning the first
-    /// successful result that is found.
+    /// Run `func` on the node.
     pub async fn first_success_without_retry<'a, F, G, H>(
         &'a self,
         func: F,
-    ) -> Result<H, Vec<EngineError>>
+    ) -> Result<H, EngineError>
     where
         F: Fn(&'a Engine<EngineApi>) -> G,
         G: Future<Output = Result<H, EngineApiError>>,
     {
-        let mut errors = vec![];
-
         let (engine_synced, engine_auth_failed) = {
             let state = self.engine.state.read().await;
             (
@@ -309,7 +299,7 @@ impl Engines {
         };
         if engine_synced {
             match func(&self.engine).await {
-                Ok(result) => return Ok(result),
+                Ok(result) => Ok(result),
                 Err(error) => {
                     debug!(
                         self.log,
@@ -318,23 +308,21 @@ impl Engines {
                         "id" => &&self.engine.id
                     );
                     *self.engine.state.write().await = EngineState::Offline;
-                    errors.push(EngineError::Api {
+                    Err(EngineError::Api {
                         id: self.engine.id.clone(),
                         error,
                     })
                 }
             }
         } else if engine_auth_failed {
-            errors.push(EngineError::Auth {
+            Err(EngineError::Auth {
                 id: self.engine.id.clone(),
             })
         } else {
-            errors.push(EngineError::Offline {
+            Err(EngineError::Offline {
                 id: self.engine.id.clone(),
             })
         }
-
-        Err(errors)
     }
 
     /// Runs `func` on the node.
