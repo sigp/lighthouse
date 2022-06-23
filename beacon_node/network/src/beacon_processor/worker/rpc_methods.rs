@@ -7,7 +7,7 @@ use itertools::process_results;
 use lighthouse_network::rpc::StatusMessage;
 use lighthouse_network::rpc::*;
 use lighthouse_network::{PeerId, PeerRequestId, ReportSource, Response, SyncInfo};
-use slog::{debug, error, warn};
+use slog::{debug, error};
 use slot_clock::SlotClock;
 use task_executor::TaskExecutor;
 use types::{Epoch, EthSpec, Hash256, Slot};
@@ -196,15 +196,11 @@ impl<T: BeaconChainTypes> Worker<T> {
             "peer_id" => %peer_id,
             "count" => req.count,
             "start_slot" => req.start_slot,
-            "step" => req.step);
+        );
 
         // Should not send more than max request blocks
         if req.count > MAX_REQUEST_BLOCKS {
             req.count = MAX_REQUEST_BLOCKS;
-        }
-        if req.step == 0 {
-            self.goodbye_peer(peer_id, GoodbyeReason::Fault);
-            return warn!(self.log, "Peer sent invalid range request"; "error" => "Step sent was 0");
         }
 
         let forwards_block_root_iter = match self
@@ -229,29 +225,21 @@ impl<T: BeaconChainTypes> Worker<T> {
             Err(e) => return error!(self.log, "Unable to obtain root iter"; "error" => ?e),
         };
 
-        // Pick out the required blocks, ignoring skip-slots and stepping by the step parameter.
-        //
-        // NOTE: We don't mind if req.count * req.step overflows as it just ends the iterator early and
-        // the peer will get less blocks.
-        // The step parameter is quadratically weighted in the filter, so large values should be
-        // prevented before reaching this point.
+        // Pick out the required blocks, ignoring skip-slots.
         let mut last_block_root = None;
         let maybe_block_roots = process_results(forwards_block_root_iter, |iter| {
-            iter.take_while(|(_, slot)| {
-                slot.as_u64() < req.start_slot.saturating_add(req.count * req.step)
-            })
-            // map skip slots to None
-            .map(|(root, _)| {
-                let result = if Some(root) == last_block_root {
-                    None
-                } else {
-                    Some(root)
-                };
-                last_block_root = Some(root);
-                result
-            })
-            .step_by(req.step as usize)
-            .collect::<Vec<Option<Hash256>>>()
+            iter.take_while(|(_, slot)| slot.as_u64() < req.start_slot.saturating_add(req.count))
+                // map skip slots to None
+                .map(|(root, _)| {
+                    let result = if Some(root) == last_block_root {
+                        None
+                    } else {
+                        Some(root)
+                    };
+                    last_block_root = Some(root);
+                    result
+                })
+                .collect::<Vec<Option<Hash256>>>()
         });
 
         let block_roots = match maybe_block_roots {
@@ -273,7 +261,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                             // Due to skip slots, blocks could be out of the range, we ensure they
                             // are in the range before sending
                             if block.slot() >= req.start_slot
-                                && block.slot() < req.start_slot + req.count * req.step
+                                && block.slot() < req.start_slot + req.count
                             {
                                 blocks_sent += 1;
                                 self.send_network_message(NetworkMessage::SendResponse {

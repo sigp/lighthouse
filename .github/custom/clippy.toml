@@ -1,0 +1,21 @@
+disallowed-from-async-methods = [
+    "tokio::runtime::Handle::block_on",
+    "tokio::runtime::Runtime::block_on",
+    "tokio::task::LocalSet::block_on",
+    "tokio::sync::Mutex::blocking_lock",
+    "tokio::sync::RwLock::blocking_read",
+    "tokio::sync::mpsc::Receiver::blocking_recv",
+    "tokio::sync::mpsc::UnboundedReceiver::blocking_recv",
+    "tokio::sync::oneshot::Receiver::blocking_recv",
+    "tokio::sync::mpsc::Sender::blocking_send",
+    "tokio::sync::RwLock::blocking_write",
+]
+async-wrapper-methods = [
+    "tokio::runtime::Handle::spawn_blocking",
+    "task_executor::TaskExecutor::spawn_blocking",
+    "task_executor::TaskExecutor::spawn_blocking_handle",
+    "warp_utils::task::blocking_task",
+    "warp_utils::task::blocking_json_task",
+    "validator_client::http_api::blocking_signed_json_task",
+    "execution_layer::test_utils::MockServer::new",
+]

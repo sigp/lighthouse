@@ -42,7 +42,7 @@ prometheus-client = "0.16.0"
 unused_port = { path = "../../common/unused_port" }
 
 [dependencies.libp2p]
-version = "0.45.0"
+version = "0.45.1"
 default-features = false
 features = ["websocket", "identify", "mplex", "yamux", "noise", "gossipsub", "dns-tokio", "tcp-tokio", "plaintext", "secp256k1"]
 

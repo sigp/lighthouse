@@ -78,6 +78,7 @@ pub fn get_attestation_deltas<T: EthSpec>(
     validator_statuses: &ValidatorStatuses,
     spec: &ChainSpec,
 ) -> Result<Vec<AttestationDelta>, Error> {
+    let previous_epoch = state.previous_epoch();
     let finality_delay = state
         .previous_epoch()
         .safe_sub(state.finalized_checkpoint().epoch)?
@@ -92,7 +93,7 @@ pub fn get_attestation_deltas<T: EthSpec>(
         // `get_inclusion_delay_deltas`. It's safe to do so here because any validator that is in
         // the unslashed indices of the matching source attestations is active, and therefore
         // eligible.
-        if !state.is_eligible_validator(index)? {
+        if !state.is_eligible_validator(previous_epoch, index)? {
             continue;
         }
 

@@ -426,9 +426,14 @@ fn metrics_allow_origin_all_flag() {
 pub fn malloc_tuning_flag() {
     CommandLineTest::new()
         .flag("disable-malloc-tuning", None)
-        // Simply ensure that the node can start with this flag, it's very difficult to observe the
-        // effects of it.
-        .run();
+        .run()
+        .with_config(|config| assert_eq!(config.http_metrics.allocator_metrics_enabled, false));
+}
+#[test]
+pub fn malloc_tuning_default() {
+    CommandLineTest::new()
+        .run()
+        .with_config(|config| assert_eq!(config.http_metrics.allocator_metrics_enabled, true));
 }
 #[test]
 fn doppelganger_protection_flag() {
