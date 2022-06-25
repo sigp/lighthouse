@@ -3450,6 +3450,8 @@ dependencies = [
  "lru",
  "parking_lot 0.12.1",
  "prometheus-client",
+ "quickcheck",
+ "quickcheck_macros",
  "rand 0.8.5",
  "regex",
  "serde",
