@@ -943,6 +943,16 @@ impl<T: BeaconChainTypes> Worker<T> {
                 );
                 self.send_sync_message(SyncMessage::UnknownBlock(peer_id, block));
             }
+            Err(e @ BlockError::ExecutionPayloadError(ExecutionPayloadError::RequestFailed(_)))
+            | Err(
+                e @ BlockError::ExecutionPayloadError(ExecutionPayloadError::NoExecutionConnection),
+            ) => {
+                debug!(
+                    self.log,
+                    "Failed to verify execution payload";
+                    "error" => %e
+                );
+            }
             other => {
                 debug!(
                     self.log,

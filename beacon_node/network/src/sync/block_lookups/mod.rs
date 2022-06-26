@@ -1,7 +1,7 @@
 use std::collections::hash_map::Entry;
 use std::time::Duration;
 
-use beacon_chain::{BeaconChainTypes, BlockError};
+use beacon_chain::{BeaconChainTypes, BlockError, ExecutionPayloadError};
 use fnv::FnvHashMap;
 use lighthouse_network::{PeerAction, PeerId};
 use lru_cache::LRUTimeCache;
@@ -10,7 +10,7 @@ use smallvec::SmallVec;
 use store::{Hash256, SignedBeaconBlock};
 use tokio::sync::mpsc;
 
-use crate::beacon_processor::{ChainSegmentProcessId, WorkEvent};
+use crate::beacon_processor::{ChainSegmentProcessId, FailureMode, WorkEvent};
 use crate::metrics;
 
 use self::{
@@ -404,6 +404,18 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         };
 
         match result {
+            BlockProcessResult::Ok => {
+                trace!(self.log, "Single block processing succeeded"; "block" => %root);
+            }
+            BlockProcessResult::Ignored => {
+                // Beacon processor signalled to ignore the block processing result.
+                // This implies that the cpu is overloaded. Drop the request.
+                warn!(
+                    self.log,
+                    "Single block processing was ignored, cpu might be overloaded";
+                    "action" => "dropping single block request"
+                );
+            }
             BlockProcessResult::Err(e) => {
                 trace!(self.log, "Single block processing failed"; "block" => %root, "error" => %e);
                 match e {
@@ -417,6 +429,21 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                     BlockError::ParentUnknown(block) => {
                         self.search_parent(block, peer_id, cx);
                     }
+                    e @ BlockError::ExecutionPayloadError(ExecutionPayloadError::RequestFailed(
+                        _,
+                    ))
+                    | e @ BlockError::ExecutionPayloadError(
+                        ExecutionPayloadError::NoExecutionConnection,
+                    ) => {
+                        // These errors indicate that the execution layer is offline
+                        // and failed to validate the execution payload. Do not downscore peer.
+                        debug!(
+                            self.log,
+                            "Single block lookup failed. Execution layer is offline";
+                            "root" => %root,
+                            "error" => ?e
+                        );
+                    }
                     other => {
                         warn!(self.log, "Peer sent invalid block in single block lookup"; "root" => %root, "error" => ?other, "peer_id" => %peer_id);
                         cx.report_peer(
@@ -424,7 +451,6 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                             PeerAction::MidToleranceError,
                             "single_block_failure",
                         );
-
                         // Try it again if possible.
                         req.register_failure();
                         if let Ok((peer_id, request)) = req.request_block() {
@@ -436,18 +462,6 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                         }
                     }
                 }
-            }
-            BlockProcessResult::Ok => {
-                trace!(self.log, "Single block processing succeeded"; "block" => %root);
-            }
-            BlockProcessResult::Ignored => {
-                // Beacon processor signalled to ignore the block processing result.
-                // This implies that the cpu is overloaded. Drop the request.
-                warn!(
-                    self.log,
-                    "Single block processing was ignored, cpu might be overloaded";
-                    "action" => "dropping single block request"
-                );
             }
         }
 
@@ -529,6 +543,21 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                     }
                 }
             }
+            BlockProcessResult::Err(
+                e @ BlockError::ExecutionPayloadError(ExecutionPayloadError::RequestFailed(_)),
+            )
+            | BlockProcessResult::Err(
+                e @ BlockError::ExecutionPayloadError(ExecutionPayloadError::NoExecutionConnection),
+            ) => {
+                // These errors indicate that the execution layer is offline
+                // and failed to validate the execution payload. Do not downscore peer.
+                debug!(
+                    self.log,
+                    "Parent lookup failed. Execution layer is offline";
+                    "chain_hash" => %chain_hash,
+                    "error" => ?e
+                );
+            }
             BlockProcessResult::Err(outcome) => {
                 // all else we consider the chain a failure and downvote the peer that sent
                 // us the last block
@@ -593,11 +622,21 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
             BatchProcessResult::Failed {
                 imported_blocks: _,
                 peer_action,
+                mode,
             } => {
-                self.failed_chains.insert(parent_lookup.chain_hash());
-                if let Some(peer_action) = peer_action {
-                    for &peer_id in parent_lookup.used_peers() {
-                        cx.report_peer(peer_id, peer_action, "parent_chain_failure")
+                if let FailureMode::ExecutionLayer { pause_sync: _ } = mode {
+                    debug!(
+                        self.log,
+                        "Chain segment processing failed. Execution layer is offline";
+                        "chain_hash" => %chain_hash,
+                        "error" => ?mode
+                    );
+                } else {
+                    self.failed_chains.insert(parent_lookup.chain_hash());
+                    if let Some(peer_action) = peer_action {
+                        for &peer_id in parent_lookup.used_peers() {
+                            cx.report_peer(peer_id, peer_action, "parent_chain_failure")
+                        }
                     }
                 }
             }

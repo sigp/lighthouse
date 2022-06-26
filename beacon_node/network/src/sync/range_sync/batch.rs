@@ -199,7 +199,6 @@ impl<T: EthSpec, B: BatchConfig> BatchInfo<T, B> {
         BlocksByRangeRequest {
             start_slot: self.start_slot.into(),
             count: self.end_slot.sub(self.start_slot).into(),
-            step: 1,
         }
     }
 

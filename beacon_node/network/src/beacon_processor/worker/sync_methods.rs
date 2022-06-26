@@ -7,6 +7,7 @@ use crate::beacon_processor::DuplicateCache;
 use crate::metrics;
 use crate::sync::manager::{BlockProcessType, SyncMessage};
 use crate::sync::{BatchProcessResult, ChainId};
+use beacon_chain::ExecutionPayloadError;
 use beacon_chain::{
     BeaconChainError, BeaconChainTypes, BlockError, ChainSegmentResult, HistoricalBlockError,
 };
@@ -32,6 +33,15 @@ struct ChainSegmentFailed {
     message: String,
     /// Used to penalize peers.
     peer_action: Option<PeerAction>,
+    /// Failure mode
+    mode: FailureMode,
+}
+
+/// Represents if a block processing failure was on the consensus or execution side.
+#[derive(Debug)]
+pub enum FailureMode {
+    ExecutionLayer { pause_sync: bool },
+    ConsensusLayer,
 }
 
 impl<T: BeaconChainTypes> Worker<T> {
@@ -150,6 +160,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                         BatchProcessResult::Failed {
                             imported_blocks: imported_blocks > 0,
                             peer_action: e.peer_action,
+                            mode: e.mode,
                         }
                     }
                 }
@@ -180,6 +191,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                         BatchProcessResult::Failed {
                             imported_blocks: false,
                             peer_action: e.peer_action,
+                            mode: e.mode,
                         }
                     }
                 }
@@ -199,6 +211,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                         BatchProcessResult::Failed {
                             imported_blocks: imported_blocks > 0,
                             peer_action: e.peer_action,
+                            mode: e.mode,
                         }
                     }
                     (imported_blocks, Ok(_)) => {
@@ -279,6 +292,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                                 message: String::from("mismatched_block_root"),
                                 // The peer is faulty if they send blocks with bad roots.
                                 peer_action: Some(PeerAction::LowToleranceError),
+                                mode: FailureMode::ConsensusLayer,
                             }
                         }
                         HistoricalBlockError::InvalidSignature
@@ -293,6 +307,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                                 message: "invalid_signature".into(),
                                 // The peer is faulty if they bad signatures.
                                 peer_action: Some(PeerAction::LowToleranceError),
+                                mode: FailureMode::ConsensusLayer,
                             }
                         }
                         HistoricalBlockError::ValidatorPubkeyCacheTimeout => {
@@ -306,6 +321,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                                 message: "pubkey_cache_timeout".into(),
                                 // This is an internal error, do not penalize the peer.
                                 peer_action: None,
+                                mode: FailureMode::ConsensusLayer,
                             }
                         }
                         HistoricalBlockError::NoAnchorInfo => {
@@ -316,6 +332,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                                 // There is no need to do a historical sync, this is not a fault of
                                 // the peer.
                                 peer_action: None,
+                                mode: FailureMode::ConsensusLayer,
                             }
                         }
                         HistoricalBlockError::IndexOutOfBounds => {
@@ -328,6 +345,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                                 message: String::from("logic_error"),
                                 // This should never occur, don't penalize the peer.
                                 peer_action: None,
+                                mode: FailureMode::ConsensusLayer,
                             }
                         }
                         HistoricalBlockError::BlockOutOfRange { .. } => {
@@ -340,6 +358,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                                 message: String::from("unexpected_error"),
                                 // This should never occur, don't penalize the peer.
                                 peer_action: None,
+                                mode: FailureMode::ConsensusLayer,
                             }
                         }
                     },
@@ -349,6 +368,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                             message: format!("{:?}", other),
                             // This is an internal error, don't penalize the peer.
                             peer_action: None,
+                            mode: FailureMode::ConsensusLayer,
                         }
                     }
                 };
@@ -387,6 +407,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                     message: format!("Block has an unknown parent: {}", block.parent_root()),
                     // Peers are faulty if they send non-sequential blocks.
                     peer_action: Some(PeerAction::LowToleranceError),
+                    mode: FailureMode::ConsensusLayer,
                 })
             }
             BlockError::BlockIsAlreadyKnown => {
@@ -424,6 +445,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                     ),
                     // Peers are faulty if they send blocks from the future.
                     peer_action: Some(PeerAction::LowToleranceError),
+                    mode: FailureMode::ConsensusLayer,
                 })
             }
             BlockError::WouldRevertFinalizedSlot { .. } => {
@@ -445,8 +467,41 @@ impl<T: BeaconChainTypes> Worker<T> {
                     message: format!("Internal error whilst processing block: {:?}", e),
                     // Do not penalize peers for internal errors.
                     peer_action: None,
+                    mode: FailureMode::ConsensusLayer,
                 })
             }
+            BlockError::ExecutionPayloadError(e) => match &e {
+                ExecutionPayloadError::NoExecutionConnection { .. }
+                | ExecutionPayloadError::RequestFailed { .. } => {
+                    // These errors indicate an issue with the EL and not the `ChainSegment`.
+                    // Pause the syncing while the EL recovers
+                    debug!(self.log,
+                        "Execution layer verification failed";
+                        "outcome" => "pausing sync",
+                        "err" => ?e
+                    );
+                    Err(ChainSegmentFailed {
+                        message: format!("Execution layer offline. Reason: {:?}", e),
+                        // Do not penalize peers for internal errors.
+                        peer_action: None,
+                        mode: FailureMode::ExecutionLayer { pause_sync: true },
+                    })
+                }
+                err => {
+                    debug!(self.log,
+                        "Invalid execution payload";
+                        "error" => ?err
+                    );
+                    Err(ChainSegmentFailed {
+                        message: format!(
+                            "Peer sent a block containing invalid execution payload. Reason: {:?}",
+                            err
+                        ),
+                        peer_action: Some(PeerAction::LowToleranceError),
+                        mode: FailureMode::ExecutionLayer { pause_sync: false },
+                    })
+                }
+            },
             other => {
                 debug!(
                     self.log, "Invalid block received";
@@ -458,6 +513,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                     message: format!("Peer sent invalid block. Reason: {:?}", other),
                     // Do not penalize peers for internal errors.
                     peer_action: None,
+                    mode: FailureMode::ConsensusLayer,
                 })
             }
         }
