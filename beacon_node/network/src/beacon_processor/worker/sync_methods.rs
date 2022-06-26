@@ -43,31 +43,38 @@ impl<T: BeaconChainTypes> Worker<T> {
         process_type: BlockProcessType,
         reprocess_tx: mpsc::Sender<ReprocessQueueMessage<T>>,
         duplicate_cache: DuplicateCache,
+        should_process: bool,
     ) {
+        if !should_process {
+            // Sync handles these results
+            self.send_sync_message(SyncMessage::BlockProcessed {
+                process_type,
+                result: crate::sync::manager::BlockProcessResult::Ignored,
+            });
+            return;
+        }
         // Check if the block is already being imported through another source
         let handle = match duplicate_cache.check_and_insert(block.canonical_root()) {
             Some(handle) => handle,
             None => {
-                // Send message to work reprocess queue to retry the tx after one slot duration
-                // **or** when the corresponding gossip block is imported
-
+                debug!(
+                    self.log,
+                    "Gossip block is being processed";
+                    "action" => "sending rpc block to reprocessing queue",
+                    "block_root" => %block.canonical_root(),
+                );
+                // Send message to work reprocess queue to retry the block
                 let reprocess_msg = ReprocessQueueMessage::RpcBlock(QueuedRpcBlock {
                     block: block.clone(),
                     process_type,
                     seen_timestamp,
+                    should_process: true,
                 });
 
                 if reprocess_tx.try_send(reprocess_msg).is_err() {
                     error!(self.log, "Failed to inform block import"; "source" => "rpc", "block_root" => %block.canonical_root())
                 };
                 return;
-
-                // // Sync handles these results
-                // self.send_sync_message(SyncMessage::BlockProcessed {
-                //     process_type,
-                //     result: crate::sync::manager::BlockProcessResult::Ignored,
-                // });
-                // return;
             }
         };
         let slot = block.slot();

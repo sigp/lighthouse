@@ -498,6 +498,7 @@ impl<T: BeaconChainTypes> WorkEvent<T> {
                 block,
                 seen_timestamp,
                 process_type,
+                should_process: true,
             },
         }
     }
@@ -578,12 +579,14 @@ impl<T: BeaconChainTypes> std::convert::From<ReadyWork<T>> for WorkEvent<T> {
                 block,
                 seen_timestamp,
                 process_type,
+                should_process,
             }) => Self {
                 drop_during_sync: false,
                 work: Work::RpcBlock {
                     block,
                     seen_timestamp,
                     process_type,
+                    should_process,
                 },
             },
             ReadyWork::Unaggregate(QueuedUnaggregate {
@@ -704,6 +707,7 @@ pub enum Work<T: BeaconChainTypes> {
         block: Box<SignedBeaconBlock<T::EthSpec>>,
         seen_timestamp: Duration,
         process_type: BlockProcessType,
+        should_process: bool,
     },
     ChainSegment {
         process_id: ChainSegmentProcessId,
@@ -1518,6 +1522,7 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                         block,
                         seen_timestamp,
                         process_type,
+                        should_process,
                     } => {
                         worker.process_rpc_block(
                             block,
@@ -1525,6 +1530,7 @@ impl<T: BeaconChainTypes> BeaconProcessor<T> {
                             process_type,
                             work_reprocessing_tx.clone(),
                             duplicate_cache,
+                            should_process,
                         );
                     }
                     /*

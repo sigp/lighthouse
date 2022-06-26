@@ -441,17 +441,13 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                 trace!(self.log, "Single block processing succeeded"; "block" => %root);
             }
             BlockProcessResult::Ignored => {
-                // Request this block again over the network
+                // Beacon processor signalled to ignore the block processing result.
+                // This implies that the cpu is overloaded. Drop the request.
                 warn!(
                     self.log,
-                    "Single block processing was ignored,cpu might be overloaded"
+                    "Single block processing was ignored, cpu might be overloaded";
+                    "action" => "dropping single block request"
                 );
-                if let Ok((peer_id, request)) = req.request_block() {
-                    if let Ok(request_id) = cx.single_block_lookup_request(peer_id, request) {
-                        // insert with the new id
-                        self.single_block_lookups.insert(request_id, req);
-                    }
-                }
             }
         }
 
@@ -551,12 +547,13 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                 cx.report_peer(peer_id, PeerAction::MidToleranceError, "parent_request_err");
             }
             BlockProcessResult::Ignored => {
-                // re-request the same block in the parent lookup
+                // Beacon processor signalled to ignore the block processing result.
+                // This implies that the cpu is overloaded. Drop the request.
                 warn!(
                     self.log,
-                    "Parent block processing was ignored,cpu might be overloaded"
+                    "Parent block processing was ignored, cpu might be overloaded";
+                    "action" => "dropping parent request"
                 );
-                self.request_parent(parent_lookup, cx);
             }
         }
 
