@@ -17,8 +17,10 @@ pub struct SingleBlockRequest<const MAX_ATTEMPTS: u8> {
     pub available_peers: HashSet<PeerId>,
     /// Peers from which we have requested this block.
     pub used_peers: HashSet<PeerId>,
-    /// How many times have we attempted this block.
-    pub failed_attempts: u8,
+    /// How many times have we attempted to process this block.
+    failed_processing: u8,
+    /// How many times have we attempted to download this block.
+    failed_downloading: u8,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -37,7 +39,11 @@ pub enum VerifyError {
 
 #[derive(Debug, PartialEq, Eq, IntoStaticStr)]
 pub enum LookupRequestError {
-    TooManyAttempts,
+    /// Too many failed attempts
+    TooManyAttempts {
+        /// The failed attempts were primarily due to processing failures.
+        cannot_process: bool,
+    },
     NoPeers,
 }
 
@@ -48,13 +54,26 @@ impl<const MAX_ATTEMPTS: u8> SingleBlockRequest<MAX_ATTEMPTS> {
             state: State::AwaitingDownload,
             available_peers: HashSet::from([peer_id]),
             used_peers: HashSet::default(),
-            failed_attempts: 0,
+            failed_processing: 0,
+            failed_downloading: 0,
         }
     }
 
-    pub fn register_failure(&mut self) {
-        self.failed_attempts += 1;
+    /// Registers a failure in processing a block.
+    pub fn register_failure_processing(&mut self) {
+        self.failed_processing += 1;
         self.state = State::AwaitingDownload;
+    }
+
+    /// Registers a failure in downloading a block.
+    pub fn register_failure_downloading(&mut self) {
+        self.failed_downloading += 1;
+        self.state = State::AwaitingDownload;
+    }
+
+    /// The total number of failures, whether it be processing or downloading.
+    pub fn failed_attempts(&self) -> u8 {
+        self.failed_processing + self.failed_downloading
     }
 
     pub fn add_peer(&mut self, hash: &Hash256, peer_id: &PeerId) -> bool {
@@ -71,7 +90,7 @@ impl<const MAX_ATTEMPTS: u8> SingleBlockRequest<MAX_ATTEMPTS> {
         if let State::Downloading { peer_id } = &self.state {
             if peer_id == dc_peer_id {
                 // Peer disconnected before providing a block
-                self.register_failure();
+                self.register_failure_downloading();
                 return Err(());
             }
         }
@@ -86,14 +105,14 @@ impl<const MAX_ATTEMPTS: u8> SingleBlockRequest<MAX_ATTEMPTS> {
     ) -> Result<Option<Box<SignedBeaconBlock<T>>>, VerifyError> {
         match self.state {
             State::AwaitingDownload => {
-                self.register_failure();
+                self.register_failure_downloading();
                 Err(VerifyError::ExtraBlocksReturned)
             }
             State::Downloading { peer_id } => match block {
                 Some(block) => {
                     if block.canonical_root() != self.hash {
                         // return an error and drop the block
-                        self.register_failure();
+                        self.register_failure_downloading();
                         Err(VerifyError::RootMismatch)
                     } else {
                         // Return the block for processing.
@@ -102,14 +121,14 @@ impl<const MAX_ATTEMPTS: u8> SingleBlockRequest<MAX_ATTEMPTS> {
                     }
                 }
                 None => {
-                    self.register_failure();
+                    self.register_failure_downloading();
                     Err(VerifyError::NoBlockReturned)
                 }
             },
             State::Processing { peer_id: _ } => match block {
                 Some(_) => {
                     // We sent the block for processing and received an extra block.
-                    self.register_failure();
+                    self.register_failure_downloading();
                     Err(VerifyError::ExtraBlocksReturned)
                 }
                 None => {
@@ -123,7 +142,7 @@ impl<const MAX_ATTEMPTS: u8> SingleBlockRequest<MAX_ATTEMPTS> {
 
     pub fn request_block(&mut self) -> Result<(PeerId, BlocksByRootRequest), LookupRequestError> {
         debug_assert!(matches!(self.state, State::AwaitingDownload));
-        if self.failed_attempts <= MAX_ATTEMPTS {
+        if self.failed_attempts() <= MAX_ATTEMPTS {
             if let Some(&peer_id) = self.available_peers.iter().choose(&mut rand::thread_rng()) {
                 let request = BlocksByRootRequest {
                     block_roots: VariableList::from(vec![self.hash]),
@@ -135,7 +154,9 @@ impl<const MAX_ATTEMPTS: u8> SingleBlockRequest<MAX_ATTEMPTS> {
                 Err(LookupRequestError::NoPeers)
             }
         } else {
-            Err(LookupRequestError::TooManyAttempts)
+            Err(LookupRequestError::TooManyAttempts {
+                cannot_process: self.failed_processing > self.failed_downloading,
+            })
         }
     }
 
@@ -196,14 +217,5 @@ mod tests {
         let mut sl = SingleBlockRequest::<4>::new(block.canonical_root(), peer_id);
         sl.request_block().unwrap();
         sl.verify_block(Some(Box::new(block))).unwrap().unwrap();
-    }
-
-    #[test]
-    fn test_max_attempts() {
-        let peer_id = PeerId::random();
-        let block = rand_block();
-
-        let mut sl = SingleBlockRequest::<4>::new(block.canonical_root(), peer_id);
-        sl.register_failure();
     }
 }

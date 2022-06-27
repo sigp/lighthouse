@@ -9,7 +9,7 @@ use crate::sync::{
 
 use super::single_block_lookup::{self, SingleBlockRequest};
 
-/// How many attempts we try to find a parent of a block before we give up trying .
+/// How many attempts we try to find a parent of a block before we give up trying.
 pub(crate) const PARENT_FAIL_TOLERANCE: u8 = 5;
 /// The maximum depth we will search for a parent block. In principle we should have sync'd any
 /// canonical chain to its head once the peer connects. A chain should not appear where it's depth
@@ -40,7 +40,12 @@ pub enum VerifyError {
 pub enum RequestError {
     SendFailed(&'static str),
     ChainTooLong,
-    TooManyAttempts,
+    /// We witnessed too many failures trying to complete this parent lookup.
+    TooManyAttempts {
+        /// We received more failures trying to process the blocks than downloading them
+        /// from peers.
+        cannot_process: bool,
+    },
     NoPeers,
 }
 
@@ -104,7 +109,7 @@ impl<T: EthSpec> ParentLookup<T> {
     }
 
     pub fn download_failed(&mut self) {
-        self.current_parent_request.register_failure();
+        self.current_parent_request.register_failure_downloading();
         self.current_parent_request_id = None;
     }
 
@@ -125,7 +130,7 @@ impl<T: EthSpec> ParentLookup<T> {
         // be dropped and the peer downscored.
         if let Some(parent_root) = block.as_ref().map(|block| block.parent_root()) {
             if failed_chains.contains(&parent_root) {
-                self.current_parent_request.register_failure();
+                self.current_parent_request.register_failure_downloading();
                 self.current_parent_request_id = None;
                 return Err(VerifyError::PreviousFailure { parent_root });
             }
@@ -143,7 +148,7 @@ impl<T: EthSpec> ParentLookup<T> {
 
     #[cfg(test)]
     pub fn failed_attempts(&self) -> u8 {
-        self.current_parent_request.failed_attempts
+        self.current_parent_request.failed_attempts()
     }
 
     pub fn add_peer(&mut self, block_root: &Hash256, peer_id: &PeerId) -> bool {
@@ -170,7 +175,9 @@ impl From<super::single_block_lookup::LookupRequestError> for RequestError {
     fn from(e: super::single_block_lookup::LookupRequestError) -> Self {
         use super::single_block_lookup::LookupRequestError as E;
         match e {
-            E::TooManyAttempts => RequestError::TooManyAttempts,
+            E::TooManyAttempts { cannot_process } => {
+                RequestError::TooManyAttempts { cannot_process }
+            }
             E::NoPeers => RequestError::NoPeers,
         }
     }
@@ -194,7 +201,10 @@ impl RequestError {
         match self {
             RequestError::SendFailed(e) => e,
             RequestError::ChainTooLong => "chain_too_long",
-            RequestError::TooManyAttempts => "too_many_attempts",
+            RequestError::TooManyAttempts { cannot_process } if *cannot_process == true => {
+                "too_many_processing_attempts"
+            }
+            RequestError::TooManyAttempts { cannot_process: _ } => "too_many_downloading_attempts",
             RequestError::NoPeers => "no_peers",
         }
     }
