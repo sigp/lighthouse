@@ -353,7 +353,6 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
             let mut parent_lookup = self.parent_queue.remove(pos);
             parent_lookup.download_failed();
             trace!(self.log, "Parent lookup request failed"; &parent_lookup);
-            //
             self.request_parent(parent_lookup, cx);
         } else {
             return debug!(self.log, "RPC failure for a parent lookup request that was not found"; "peer_id" => %peer_id);
