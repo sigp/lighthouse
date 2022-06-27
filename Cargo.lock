@@ -2521,6 +2521,7 @@ dependencies = [
  "lighthouse_network",
  "lighthouse_version",
  "logging",
+ "lru",
  "network",
  "parking_lot 0.12.1",
  "safe_arith",

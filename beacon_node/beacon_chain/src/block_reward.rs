@@ -2,7 +2,7 @@ use crate::{BeaconChain, BeaconChainError, BeaconChainTypes};
 use eth2::lighthouse::{AttestationRewards, BlockReward, BlockRewardMeta};
 use operation_pool::{AttMaxCover, MaxCover};
 use state_processing::per_block_processing::altair::sync_committee::compute_sync_aggregate_rewards;
-use types::{BeaconBlockRef, BeaconState, EthSpec, ExecPayload, Hash256, RelativeEpoch};
+use types::{BeaconBlockRef, BeaconState, EthSpec, ExecPayload, Hash256};
 
 impl<T: BeaconChainTypes> BeaconChain<T> {
     pub fn compute_block_reward<Payload: ExecPayload<T::EthSpec>>(
@@ -16,8 +16,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             return Err(BeaconChainError::BlockRewardSlotError);
         }
 
-        let active_indices = state.get_cached_active_validator_indices(RelativeEpoch::Current)?;
-        let total_active_balance = state.get_total_balance(active_indices, &self.spec)?;
+        let total_active_balance = state.get_total_active_balance()?;
         let mut per_attestation_rewards = block
             .body()
             .attestations()
