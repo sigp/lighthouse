@@ -201,7 +201,7 @@ impl RequestError {
         match self {
             RequestError::SendFailed(e) => e,
             RequestError::ChainTooLong => "chain_too_long",
-            RequestError::TooManyAttempts { cannot_process } if *cannot_process == true => {
+            RequestError::TooManyAttempts { cannot_process } if *cannot_process => {
                 "too_many_processing_attempts"
             }
             RequestError::TooManyAttempts { cannot_process: _ } => "too_many_downloading_attempts",
