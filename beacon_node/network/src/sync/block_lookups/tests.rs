@@ -381,7 +381,6 @@ fn test_parent_lookup_too_many_attempts() {
 
     let parent = rig.rand_block();
     let block = rig.block_with_parent(parent.canonical_root());
-    let chain_hash = block.canonical_root();
     let peer_id = PeerId::random();
 
     // Trigger the request
@@ -407,7 +406,6 @@ fn test_parent_lookup_too_many_attempts() {
     }
 
     assert_eq!(bl.parent_queue.len(), 0);
-    assert!(bl.failed_chains.contains(&chain_hash));
 }
 
 #[test]
