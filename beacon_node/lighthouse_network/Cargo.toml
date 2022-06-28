@@ -52,6 +52,8 @@ slog-async = "2.5.0"
 tempfile = "3.1.0"
 exit-future = "0.2.0"
 void = "1"
+quickcheck = "0.9.2"
+quickcheck_macros = "0.9.1"
 
 [features]
 libp2p-websocket = []

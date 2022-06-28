@@ -768,12 +768,32 @@ impl Service {
         *self.inner.remote_head_block.write() = Some(remote_head_block);
 
         let update_deposit_cache = async {
-            let outcome = self
+            let outcome_result = self
                 .update_deposit_cache(Some(new_block_numbers_deposit), &endpoints)
-                .await
-                .map_err(|e| {
-                    format!("Failed to update eth1 deposit cache: {:?}", process_err(e))
-                })?;
+                .await;
+
+            // Reset the `last_procesed block` to the last valid deposit's block number.
+            // This will ensure that the next batch of blocks fetched is immediately after
+            // the last cached valid deposit allowing us to recover from scenarios where
+            // the deposit cache gets corrupted due to invalid responses from eth1 nodes.
+            if let Err(Error::FailedToInsertDeposit(DepositCacheError::NonConsecutive {
+                log_index: _,
+                expected: _,
+            })) = &outcome_result
+            {
+                let mut deposit_cache = self.inner.deposit_cache.write();
+                debug!(
+                    self.log,
+                    "Resetting last processed block";
+                    "old_block_number" => deposit_cache.last_processed_block,
+                    "new_block_number" => deposit_cache.cache.latest_block_number(),
+                );
+                deposit_cache.last_processed_block = deposit_cache.cache.latest_block_number();
+            }
+
+            let outcome = outcome_result.map_err(|e| {
+                format!("Failed to update eth1 deposit cache: {:?}", process_err(e))
+            })?;
 
             trace!(
                 self.log,
@@ -1206,7 +1226,7 @@ impl Service {
                 "latest_block_age" => latest_block_mins,
                 "latest_block" => block_cache.highest_block_number(),
                 "total_cached_blocks" => block_cache.len(),
-                "new" => blocks_imported
+                "new" => %blocks_imported
             );
         } else {
             debug!(

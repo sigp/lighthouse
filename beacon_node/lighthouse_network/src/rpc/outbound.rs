@@ -36,7 +36,7 @@ pub struct OutboundRequestContainer<TSpec: EthSpec> {
 pub enum OutboundRequest<TSpec: EthSpec> {
     Status(StatusMessage),
     Goodbye(GoodbyeReason),
-    BlocksByRange(BlocksByRangeRequest),
+    BlocksByRange(OldBlocksByRangeRequest),
     BlocksByRoot(BlocksByRootRequest),
     Ping(Ping),
     MetaData(PhantomData<TSpec>),

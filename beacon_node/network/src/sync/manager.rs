@@ -38,7 +38,7 @@ use super::block_lookups::BlockLookups;
 use super::network_context::SyncNetworkContext;
 use super::peer_sync_info::{remote_sync_type, PeerSyncType};
 use super::range_sync::{RangeSync, RangeSyncType, EPOCHS_PER_BATCH};
-use crate::beacon_processor::{ChainSegmentProcessId, WorkEvent as BeaconWorkEvent};
+use crate::beacon_processor::{ChainSegmentProcessId, FailureMode, WorkEvent as BeaconWorkEvent};
 use crate::service::NetworkMessage;
 use crate::status::ToStatusMessage;
 use beacon_chain::{BeaconChain, BeaconChainTypes, BlockError};
@@ -137,6 +137,7 @@ pub enum BatchProcessResult {
     Failed {
         imported_blocks: bool,
         peer_action: Option<PeerAction>,
+        mode: FailureMode,
     },
 }
 
