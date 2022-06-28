@@ -391,6 +391,37 @@ fn merge_fee_recipient_flag() {
             );
         });
 }
+fn run_payload_builder_flag_test(flag: &str, builders: &str) {
+    use sensitive_url::SensitiveUrl;
+
+    let dir = TempDir::new().expect("Unable to create temporary directory");
+    let all_builders: Vec<_> = builders
+        .split(",")
+        .map(|builder| SensitiveUrl::parse(builder).expect("valid builder url"))
+        .collect();
+    CommandLineTest::new()
+        .flag("execution-endpoint", Some("http://meow.cats"))
+        .flag(
+            "execution-jwt",
+            dir.path().join("jwt-file").as_os_str().to_str(),
+        )
+        .flag(flag, Some(builders))
+        .run_with_zero_port()
+        .with_config(|config| {
+            let config = config.execution_layer.as_ref().unwrap();
+            // Only first provided endpoint is parsed as we don't support
+            // redundancy.
+            assert_eq!(&config.builder_endpoints, &all_builders[..1]);
+        });
+}
+
+#[test]
+fn payload_builder_flags() {
+    run_payload_builder_flag_test("payload-builder", "http://meow.cats");
+    run_payload_builder_flag_test("payload-builders", "http://meow.cats,http://woof.dogs");
+    run_payload_builder_flag_test("payload-builders", "http://meow.cats,http://woof.dogs");
+}
+
 fn run_jwt_optional_flags_test(jwt_flag: &str, jwt_id_flag: &str, jwt_version_flag: &str) {
     use sensitive_url::SensitiveUrl;
 
