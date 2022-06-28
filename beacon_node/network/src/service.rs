@@ -250,8 +250,9 @@ impl<T: BeaconChainTypes> NetworkService<T> {
         )?;
 
         // attestation subnet service
+        let node_id = network_globals.local_enr().node_id().raw();
         let attestation_service =
-            AttestationService::new(beacon_chain.clone(), config, &network_log);
+            AttestationService::new(beacon_chain.clone(), config, node_id, &network_log);
 
         // sync committee subnet service
         let sync_committee_service =

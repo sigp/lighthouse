@@ -98,8 +98,9 @@ fn get_attestation_service() -> AttestationService<TestBeaconChainType> {
     let config = NetworkConfig::default();
 
     let beacon_chain = CHAIN.chain.clone();
+    let node_id = lighthouse_network::discv5::enr::NodeId::random().raw();
 
-    AttestationService::new(beacon_chain, &config, &log)
+    AttestationService::new(beacon_chain, &config, node_id, &log)
 }
 
 fn get_sync_committee_service() -> SyncCommitteeService<TestBeaconChainType> {
@@ -237,9 +238,10 @@ mod attestation_service {
 
         // If the long lived and short lived subnets are the same, there should be no more events
         // as we don't resubscribe already subscribed subnets.
-        if !attestation_service.random_subnets.contains(&subnet_id) {
-            assert_eq!(expected[..], events[3..]);
-        }
+        todo!("fix");
+        // if !attestation_service.random_subnets.contains(&subnet_id) {
+        //     assert_eq!(expected[..], events[3..]);
+        // }
         // Should be subscribed to only 1 long lived subnet after unsubscription.
         assert_eq!(attestation_service.subscription_count(), 1);
     }
@@ -320,25 +322,27 @@ mod attestation_service {
         let expected = SubnetServiceMessage::Subscribe(Subnet::Attestation(subnet_id1));
 
         // Should be still subscribed to 1 long lived and 1 short lived subnet if both are different.
-        if !attestation_service.random_subnets.contains(&subnet_id1) {
-            assert_eq!(expected, events[3]);
-            assert_eq!(attestation_service.subscription_count(), 2);
-        } else {
-            assert_eq!(attestation_service.subscription_count(), 1);
-        }
+        todo!("fix");
+        // if !attestation_service.random_subnets.contains(&subnet_id1) {
+        //     assert_eq!(expected, events[3]);
+        //     assert_eq!(attestation_service.subscription_count(), 2);
+        // } else {
+        //     assert_eq!(attestation_service.subscription_count(), 1);
+        // }
 
         // Get event for 1 more slot duration, we should get the unsubscribe event now.
         let unsubscribe_event = get_events(&mut attestation_service, None, 1).await;
 
         // If the long lived and short lived subnets are different, we should get an unsubscription event.
-        if !attestation_service.random_subnets.contains(&subnet_id1) {
-            assert_eq!(
-                [SubnetServiceMessage::Unsubscribe(Subnet::Attestation(
-                    subnet_id1
-                ))],
-                unsubscribe_event[..]
-            );
-        }
+        todo!("fix");
+        // if !attestation_service.random_subnets.contains(&subnet_id1) {
+        //     assert_eq!(
+        //         [SubnetServiceMessage::Unsubscribe(Subnet::Attestation(
+        //             subnet_id1
+        //         ))],
+        //         unsubscribe_event[..]
+        //     );
+        // }
 
         // Should be subscribed to only 1 long lived subnet after unsubscription.
         assert_eq!(attestation_service.subscription_count(), 1);
