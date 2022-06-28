@@ -7,7 +7,6 @@ use compare_fields_derive::CompareFields;
 use derivative::Derivative;
 use eth2_hashing::hash;
 use int_to_bytes::{int_to_bytes4, int_to_bytes8};
-use participation_cache::PreviousParticipationCache;
 use pubkey_cache::PubkeyCache;
 use safe_arith::{ArithError, SafeArith};
 use serde_derive::{Deserialize, Serialize};
@@ -26,7 +25,6 @@ pub use self::committee_cache::{
     compute_committee_index_in_epoch, compute_committee_range_in_epoch, epoch_committee_count,
     CommitteeCache,
 };
-use crate::justifiable_beacon_state::JustifiableBeaconState;
 pub use clone_config::CloneConfig;
 pub use eth_spec::*;
 pub use iter::BlockRootsIter;
@@ -37,7 +35,6 @@ mod committee_cache;
 mod clone_config;
 mod exit_cache;
 mod iter;
-pub mod participation_cache;
 mod pubkey_cache;
 mod tests;
 mod tree_hash_cache;
@@ -314,12 +311,6 @@ where
     #[test_random(default)]
     #[derivative(Clone(clone_with = "clone_default"))]
     pub tree_hash_cache: BeaconTreeHashCache<T>,
-    #[serde(skip_serializing, skip_deserializing)]
-    #[ssz(skip_serializing, skip_deserializing)]
-    #[tree_hash(skip_hashing)]
-    #[test_random(default)]
-    #[derivative(Clone(clone_with = "clone_default"))]
-    pub previous_epoch_participation_cache: Option<PreviousParticipationCache>,
 }
 
 impl<T: EthSpec> Clone for BeaconState<T> {
@@ -385,7 +376,6 @@ impl<T: EthSpec> BeaconState<T> {
             pubkey_cache: PubkeyCache::default(),
             exit_cache: ExitCache::default(),
             tree_hash_cache: <_>::default(),
-            previous_epoch_participation_cache: <_>::default(),
         })
     }
 
@@ -1360,30 +1350,7 @@ impl<T: EthSpec> BeaconState<T> {
         self.drop_pubkey_cache();
         self.drop_tree_hash_cache();
         *self.exit_cache_mut() = ExitCache::default();
-        *self.previous_epoch_participation_cache_mut() = None;
         Ok(())
-    }
-
-    pub fn get_previous_epoch_participation_cache(
-        &mut self,
-        spec: &ChainSpec,
-    ) -> Result<PreviousParticipationCache, BeaconStateError> {
-        let next_slot_epoch = self
-            .slot()
-            .saturating_add(Slot::new(1))
-            .epoch(T::slots_per_epoch());
-
-        // Check cache if it was initialized in the states current epoch.
-        if let Some(cache) = self.previous_epoch_participation_cache() {
-            if cache.initialized_epoch() == next_slot_epoch {
-                return Ok(cache.clone());
-            }
-        }
-
-        // Rebuild the cache.
-        let cache = PreviousParticipationCache::new(self, spec)?;
-        *self.previous_epoch_participation_cache_mut() = Some(cache.clone());
-        Ok(cache)
     }
 
     /// Returns `true` if the committee cache for `relative_epoch` is built and ready to use.
@@ -1674,15 +1641,6 @@ impl<T: EthSpec> BeaconState<T> {
             self.next_sync_committee()?.clone()
         };
         Ok(sync_committee)
-    }
-
-    pub fn update_justifiable(&mut self, justifiable_beacon_state: JustifiableBeaconState<T>) {
-        *self.current_justified_checkpoint_mut() =
-            justifiable_beacon_state.current_justified_checkpoint;
-        *self.previous_justified_checkpoint_mut() =
-            justifiable_beacon_state.previous_justified_checkpoint;
-        *self.finalized_checkpoint_mut() = justifiable_beacon_state.finalized_checkpoint;
-        *self.justification_bits_mut() = justifiable_beacon_state.justification_bits;
     }
 }
 

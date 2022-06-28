@@ -2,7 +2,6 @@ use crate::per_epoch_processing::base::TotalBalances;
 use crate::per_epoch_processing::weigh_justification_and_finalization;
 use crate::per_epoch_processing::Error;
 use safe_arith::SafeArith;
-use types::justifiable_beacon_state::JustifiableBeaconState;
 use types::{BeaconState, ChainSpec, EthSpec};
 
 /// Update the justified and finalized checkpoints for matching target attestations.
@@ -10,9 +9,9 @@ pub fn process_justification_and_finalization<T: EthSpec>(
     state: &mut BeaconState<T>,
     total_balances: &TotalBalances,
     _spec: &ChainSpec,
-) -> Result<JustifiableBeaconState<T>, Error> {
+) -> Result<(), Error> {
     if state.current_epoch() <= T::genesis_epoch().safe_add(1)? {
-        return Ok(JustifiableBeaconState::from(&*state));
+        return Ok(());
     }
 
     weigh_justification_and_finalization(

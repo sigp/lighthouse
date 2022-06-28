@@ -1,4 +1,4 @@
-use types::beacon_state::participation_cache::Error as ParticipationCacheError;
+use crate::per_epoch_processing::altair::participation_cache::Error as ParticipationCacheError;
 use types::{BeaconStateError, InconsistentFork};
 
 #[derive(Debug, PartialEq)]

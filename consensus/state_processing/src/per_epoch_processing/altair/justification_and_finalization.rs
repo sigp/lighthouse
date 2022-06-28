@@ -3,16 +3,15 @@ use crate::per_epoch_processing::weigh_justification_and_finalization;
 use crate::per_epoch_processing::Error;
 use safe_arith::SafeArith;
 use types::consts::altair::TIMELY_TARGET_FLAG_INDEX;
-use types::justifiable_beacon_state::JustifiableBeaconState;
 use types::{BeaconState, EthSpec};
 
 /// Update the justified and finalized checkpoints for matching target attestations.
 pub fn process_justification_and_finalization<T: EthSpec>(
-    state: &BeaconState<T>,
+    state: &mut BeaconState<T>,
     participation_cache: &ParticipationCache,
-) -> Result<JustifiableBeaconState<T>, Error> {
+) -> Result<(), Error> {
     if state.current_epoch() <= T::genesis_epoch().safe_add(1)? {
-        return Ok(state.into());
+        return Ok(());
     }
 
     let previous_epoch = state.previous_epoch();

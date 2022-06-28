@@ -32,9 +32,8 @@ pub use genesis::{
     process_activations,
 };
 pub use per_block_processing::{
-    altair::sync_committee, block_signature_verifier, errors::BlockProcessingError,
-    per_block_processing, signature_sets, BlockSignatureStrategy, BlockSignatureVerifier,
-    VerifyBlockRoot, VerifySignatures,
+    block_signature_verifier, errors::BlockProcessingError, per_block_processing, signature_sets,
+    BlockSignatureStrategy, BlockSignatureVerifier, VerifyBlockRoot, VerifySignatures,
 };
 pub use per_epoch_processing::{
     errors::EpochProcessingError, process_epoch as per_epoch_processing,
