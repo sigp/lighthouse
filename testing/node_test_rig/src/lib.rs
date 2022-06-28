@@ -31,7 +31,6 @@ const HTTP_TIMEOUT: Duration = Duration::from_secs(4);
 /// Intended for use in testing and simulation. Not for production.
 pub struct LocalBeaconNode<E: EthSpec> {
     pub client: ProductionClient<E>,
-    pub execution_node: Option<MockServer<E>>,
     pub datadir: TempDir,
 }
 
@@ -42,7 +41,6 @@ impl<E: EthSpec> LocalBeaconNode<E> {
     pub async fn production(
         context: RuntimeContext<E>,
         mut client_config: ClientConfig,
-        execution_node: Option<MockServer<E>>,
     ) -> Result<Self, String> {
         // Creates a temporary directory that will be deleted once this `TempDir` is dropped.
         let datadir = TempBuilder::new()
@@ -53,31 +51,10 @@ impl<E: EthSpec> LocalBeaconNode<E> {
         client_config.data_dir = datadir.path().into();
         client_config.network.network_dir = PathBuf::from(datadir.path()).join("network");
 
-        if let Some(el_config) = &mut client_config.execution_layer {
-            el_config.default_datadir = client_config.data_dir.clone();
-            let file_path = el_config.default_datadir.join("jwt.hex");
-
-            if let Err(e) = std::fs::write(
-                &file_path,
-                execution_node.as_ref().unwrap().ctx.jwt_key.hex_string(),
-            ) {
-                panic!("Failed to write jwt file {}", e);
-            }
-            el_config.secret_files = vec![file_path];
-            el_config.execution_endpoints = vec![SensitiveUrl::parse(
-                &execution_node
-                    .as_ref()
-                    .expect("mock server is Some if execution config is Some")
-                    .url(),
-            )
-            .unwrap()];
-        }
-
         ProductionBeaconNode::new(context, client_config)
             .await
             .map(move |client| Self {
                 client: client.into_inner(),
-                execution_node,
                 datadir,
             })
     }
@@ -235,5 +212,31 @@ impl<E: EthSpec> LocalValidatorClient<E> {
                     .expect("should start validator services");
                 Self { client, files }
             })
+    }
+}
+
+/// Provides an execution engine api server that is running in the current process on a given tokio executor (it
+/// is _local_ to this process).
+///
+/// Intended for use in testing and simulation. Not for production.
+pub struct LocalExecutionNode<E: EthSpec> {
+    pub server: MockServer<E>,
+    pub datadir: TempDir,
+}
+
+impl<E: EthSpec> LocalExecutionNode<E> {
+    pub fn new(context: RuntimeContext<E>, config: MockExecutionConfig) -> Self {
+        let datadir = TempBuilder::new()
+            .prefix("lighthouse_node_test_rig_el")
+            .tempdir()
+            .expect("should create temp directory for client datadir");
+        let jwt_file_path = datadir.path().join("jwt.hex");
+        if let Err(e) = std::fs::write(&jwt_file_path, config.jwt_key.hex_string()) {
+            panic!("Failed to write jwt file {}", e);
+        }
+        Self {
+            server: MockServer::new_with_config(&context.executor.handle().unwrap(), config),
+            datadir,
+        }
     }
 }

@@ -7,8 +7,7 @@ use clap::ArgMatches;
 use futures::prelude::*;
 use node_test_rig::{
     environment::{EnvironmentBuilder, LoggerConfig},
-    testing_client_config, testing_validator_config, ClientGenesis, MockExecutionConfig,
-    MockServerConfig, ValidatorFiles,
+    testing_client_config, testing_validator_config, ClientGenesis, ValidatorFiles,
 };
 use rayon::prelude::*;
 use sensitive_url::SensitiveUrl;
@@ -113,21 +112,7 @@ pub fn run_no_eth1_sim(matches: &ArgMatches) -> Result<(), String> {
     beacon_config.execution_layer = Some(el_config);
 
     let main_future = async {
-        let mock_execution_config = MockExecutionConfig {
-            server_config: MockServerConfig {
-                listen_port: EXECUTION_PORT,
-                ..Default::default()
-            },
-            terminal_block: TERMINAL_BLOCK,
-            terminal_difficulty: TERMINAL_DIFFICULTY.into(),
-            ..Default::default()
-        };
-        let network = LocalNetwork::new(
-            context.clone(),
-            beacon_config.clone(),
-            Some(mock_execution_config),
-        )
-        .await?;
+        let network = LocalNetwork::new(context.clone(), beacon_config.clone()).await?;
         /*
          * One by one, add beacon nodes to the network.
          */

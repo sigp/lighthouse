@@ -101,7 +101,7 @@ fn syncing_sim(
         /*
          * Create a new `LocalNetwork` with one beacon node.
          */
-        let network = LocalNetwork::new(context, beacon_config.clone(), None).await?;
+        let network = LocalNetwork::new(context, beacon_config.clone()).await?;
 
         /*
          * Add a validator client which handles all validators from the genesis state.
