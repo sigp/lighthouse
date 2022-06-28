@@ -149,19 +149,19 @@ pub async fn verify_fork_version<E: EthSpec>(
     network: LocalNetwork<E>,
     fork_epoch: Epoch,
     slot_duration: Duration,
-    altair_fork_version: [u8; 4],
+    fork_version: [u8; 4],
 ) -> Result<(), String> {
     epoch_delay(fork_epoch, slot_duration, E::slots_per_epoch()).await;
     for remote_node in network.remote_nodes()? {
-        let fork_version = remote_node
+        let remote_fork_version = remote_node
             .get_beacon_states_fork(StateId::Head)
             .await
             .map(|resp| resp.unwrap().data.current_version)
             .map_err(|e| format!("Failed to get fork from beacon node: {:?}", e))?;
-        if fork_version != altair_fork_version {
+        if fork_version != remote_fork_version {
             return Err(format!(
                 "Fork version after FORK_EPOCH is incorrect, got: {:?}, expected: {:?}",
-                fork_version, altair_fork_version,
+                remote_fork_version, fork_version,
             ));
         }
     }

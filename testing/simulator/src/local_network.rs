@@ -18,8 +18,8 @@ pub const INVALID_ADDRESS: &str = "http://127.0.0.1:42423";
 
 pub const EXECUTION_PORT: u16 = 4000;
 
-pub const TERMINAL_DIFFICULTY: u64 = 3200;
-pub const TERMINAL_BLOCK: u64 = 32;
+pub const TERMINAL_DIFFICULTY: u64 = 6400;
+pub const TERMINAL_BLOCK: u64 = 64;
 
 /// Helper struct to reduce `Arc` usage.
 pub struct Inner<E: EthSpec> {
