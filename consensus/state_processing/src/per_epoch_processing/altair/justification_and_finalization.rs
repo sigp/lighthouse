@@ -12,7 +12,7 @@ pub fn process_justification_and_finalization<T: EthSpec>(
     state: &BeaconState<T>,
     participation_cache: &ParticipationCache,
 ) -> Result<JustificationAndFinalizationState<T>, Error> {
-    let justification_and_finalization_state = JustificationAndFinalizationState::new(state)?;
+    let justification_and_finalization_state = JustificationAndFinalizationState::new(state);
 
     if state.current_epoch() <= T::genesis_epoch().safe_add(1)? {
         return Ok(justification_and_finalization_state);

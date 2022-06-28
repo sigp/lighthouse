@@ -24,7 +24,7 @@ pub fn weigh_justification_and_finalization<T: EthSpec>(
     if previous_target_balance.safe_mul(3)? >= total_active_balance.safe_mul(2)? {
         *state.current_justified_checkpoint_mut() = Checkpoint {
             epoch: previous_epoch,
-            root: *state.get_block_root_at_epoch(previous_epoch)?,
+            root: state.get_block_root_at_epoch(previous_epoch)?,
         };
         state.justification_bits_mut().set(1, true)?;
     }
@@ -32,7 +32,7 @@ pub fn weigh_justification_and_finalization<T: EthSpec>(
     if current_target_balance.safe_mul(3)? >= total_active_balance.safe_mul(2)? {
         *state.current_justified_checkpoint_mut() = Checkpoint {
             epoch: current_epoch,
-            root: *state.get_block_root_at_epoch(current_epoch)?,
+            root: state.get_block_root_at_epoch(current_epoch)?,
         };
         state.justification_bits_mut().set(0, true)?;
     }
