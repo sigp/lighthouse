@@ -33,7 +33,9 @@ pub fn process_epoch<T: EthSpec>(
     let sync_committee = state.current_sync_committee()?.clone();
 
     // Justification and finalization.
-    process_justification_and_finalization(state, &participation_cache)?;
+    let justification_and_finalization_state =
+        process_justification_and_finalization(state, &participation_cache)?;
+    justification_and_finalization_state.apply_changes_to_state(state);
 
     process_inactivity_updates(state, &participation_cache, spec)?;
 

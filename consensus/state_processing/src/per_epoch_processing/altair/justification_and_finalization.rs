@@ -1,6 +1,8 @@
 use super::ParticipationCache;
-use crate::per_epoch_processing::weigh_justification_and_finalization;
 use crate::per_epoch_processing::Error;
+use crate::per_epoch_processing::{
+    weigh_justification_and_finalization, JustificationAndFinalizationState,
+};
 use safe_arith::SafeArith;
 use types::consts::altair::TIMELY_TARGET_FLAG_INDEX;
 use types::{BeaconState, EthSpec};
@@ -9,9 +11,11 @@ use types::{BeaconState, EthSpec};
 pub fn process_justification_and_finalization<T: EthSpec>(
     state: &mut BeaconState<T>,
     participation_cache: &ParticipationCache,
-) -> Result<(), Error> {
+) -> Result<JustificationAndFinalizationState<T>, Error> {
+    let justification_and_finalization_state = JustificationAndFinalizationState::new(state)?;
+
     if state.current_epoch() <= T::genesis_epoch().safe_add(1)? {
-        return Ok(());
+        return Ok(justification_and_finalization_state);
     }
 
     let previous_epoch = state.previous_epoch();
@@ -24,7 +28,7 @@ pub fn process_justification_and_finalization<T: EthSpec>(
     let previous_target_balance = previous_indices.total_balance()?;
     let current_target_balance = current_indices.total_balance()?;
     weigh_justification_and_finalization(
-        state,
+        justification_and_finalization_state,
         total_active_balance,
         previous_target_balance,
         current_target_balance,

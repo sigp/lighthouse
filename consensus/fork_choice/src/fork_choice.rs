@@ -1,6 +1,7 @@
 use crate::{ForkChoiceStore, InvalidationOperation};
 use proto_array::{Block as ProtoBlock, ExecutionStatus, ProtoArrayForkChoice};
 use ssz_derive::{Decode, Encode};
+use state_processing::per_epoch_processing;
 use std::cmp::Ordering;
 use std::marker::PhantomData;
 use std::time::Duration;
@@ -52,6 +53,8 @@ pub enum Error<T> {
         finalized_checkpoint: Checkpoint,
     },
     UnrealizedVoteProcessing(state_processing::EpochProcessingError),
+    ParticipationCacheBuild(BeaconStateError),
+    ValidatorStatuses(BeaconStateError),
 }
 
 impl<T> From<InvalidAttestation> for Error<T> {
@@ -652,22 +655,35 @@ where
 
         // Update unrealized justified/finalized checkpoints.
         let (unrealized_justified_checkpoint, unrealized_finalized_checkpoint) = {
-            let justifiable_beacon_state = match block {
+            let justification_and_finalization_state = match block {
                 BeaconBlockRef::Merge(_) | BeaconBlockRef::Altair(_) => {
-                    state_processing::per_epoch_processing::altair::process_justifiable(
-                        state, spec,
+                    let participation_cache =
+                        per_epoch_processing::altair::ParticipationCache::new(state, spec)
+                            .map_err(Error::ParticipationCacheBuild)?;
+                    per_epoch_processing::altair::process_justification_and_finalization(
+                        state,
+                        &participation_cache,
                     )?
-                    .0
                 }
                 BeaconBlockRef::Base(_) => {
-                    state_processing::per_epoch_processing::base::process_justifiable(state, spec)?
-                        .0
+                    let mut validator_statuses =
+                        per_epoch_processing::base::ValidatorStatuses::new(state, spec)
+                            .map_err(Error::ValidatorStatuses)?;
+                    validator_statuses
+                        .process_attestations(state)
+                        .map_err(Error::ValidatorStatuses)?;
+                    per_epoch_processing::base::process_justification_and_finalization(
+                        state,
+                        &validator_statuses.total_balances,
+                        spec,
+                    )?
                 }
             };
 
             let unrealized_justified_checkpoint =
-                justifiable_beacon_state.current_justified_checkpoint;
-            let unrealized_finalized_checkpoint = justifiable_beacon_state.finalized_checkpoint;
+                justification_and_finalization_state.current_justified_checkpoint();
+            let unrealized_finalized_checkpoint =
+                justification_and_finalization_state.finalized_checkpoint();
 
             // Update best known unrealized justified & finalized checkpoints
             if unrealized_justified_checkpoint.epoch
