@@ -225,7 +225,7 @@ pub trait BeaconChainTypes: Send + Sync + 'static {
     type EthSpec: types::EthSpec;
 }
 
-/// Used internally to split block production into discreet functions.
+/// Used internally to split block production into discrete functions.
 struct PartialBeaconBlock<E: EthSpec, Payload> {
     state: BeaconState<E>,
     slot: Slot,
@@ -3197,7 +3197,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         verification,
                     )
                 },
-                "produce_partial_beacon_block",
+                "complete_partial_beacon_block",
             )
             .ok_or(BlockProductionError::ShuttingDown)?
             .await
@@ -3957,7 +3957,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                                     .fork_choice_write_lock()
                                     .on_valid_execution_payload(head_block_root)
                             },
-                            "update_execution_engine_invalid_payload",
+                            "update_execution_engine_valid_payload",
                         )
                         .await?;
                     if let Err(e) = fork_choice_update_result {
