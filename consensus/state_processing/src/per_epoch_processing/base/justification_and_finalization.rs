@@ -8,7 +8,7 @@ use types::{BeaconState, ChainSpec, EthSpec};
 
 /// Update the justified and finalized checkpoints for matching target attestations.
 pub fn process_justification_and_finalization<T: EthSpec>(
-    state: &mut BeaconState<T>,
+    state: &BeaconState<T>,
     total_balances: &TotalBalances,
     _spec: &ChainSpec,
 ) -> Result<JustificationAndFinalizationState<T>, Error> {

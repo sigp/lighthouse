@@ -403,7 +403,7 @@ impl<E: EthSpec> Tester<E> {
                         block.message(),
                         block_root,
                         block_delay,
-                        &mut state,
+                        &state,
                         PayloadVerificationStatus::Irrelevant,
                         &self.harness.chain.spec,
                     );

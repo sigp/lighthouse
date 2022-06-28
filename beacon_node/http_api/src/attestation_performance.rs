@@ -3,10 +3,10 @@ use eth2::lighthouse::{
     AttestationPerformance, AttestationPerformanceQuery, AttestationPerformanceStatistics,
 };
 use state_processing::{
+    per_epoch_processing::altair::participation_cache::Error as ParticipationCacheError,
     per_epoch_processing::EpochProcessingSummary, BlockReplayError, BlockReplayer,
 };
 use std::sync::Arc;
-use types::beacon_state::participation_cache::Error as ParticipationCacheError;
 use types::{BeaconState, BeaconStateError, EthSpec, Hash256};
 use warp_utils::reject::{beacon_chain_error, custom_bad_request, custom_server_error};
 

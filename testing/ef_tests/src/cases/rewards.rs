@@ -14,7 +14,6 @@ use state_processing::{
     EpochProcessingError,
 };
 use std::path::{Path, PathBuf};
-use types::participation_cache::{CurrentEpochParticipationCache, PreviousParticipationCache};
 use types::{
     consts::altair::{TIMELY_HEAD_FLAG_INDEX, TIMELY_SOURCE_FLAG_INDEX, TIMELY_TARGET_FLAG_INDEX},
     BeaconState, EthSpec, ForkName,
@@ -190,14 +189,12 @@ fn compute_altair_flag_deltas<E: EthSpec>(
     spec: &ChainSpec,
 ) -> Result<Deltas, EpochProcessingError> {
     let mut deltas = vec![Delta::default(); state.validators().len()];
-    let prev_participation_cache = PreviousParticipationCache::new(state, spec)?;
-    let current_participation_cache = CurrentEpochParticipationCache::new(state, spec)?;
     get_flag_index_deltas(
         &mut deltas,
         state,
         flag_index,
         total_active_balance,
-        &ParticipationCache::new(prev_participation_cache, current_participation_cache),
+        &ParticipationCache::new(state, spec).unwrap(),
         spec,
     )?;
     Ok(convert_altair_deltas(deltas))
@@ -208,12 +205,10 @@ fn compute_altair_inactivity_deltas<E: EthSpec>(
     spec: &ChainSpec,
 ) -> Result<Deltas, EpochProcessingError> {
     let mut deltas = vec![Delta::default(); state.validators().len()];
-    let prev_participation_cache = PreviousParticipationCache::new(state, spec)?;
-    let current_participation_cache = CurrentEpochParticipationCache::new(state, spec)?;
     altair::rewards_and_penalties::get_inactivity_penalty_deltas(
         &mut deltas,
         state,
-        &ParticipationCache::new(prev_participation_cache, current_participation_cache),
+        &ParticipationCache::new(state, spec).unwrap(),
         spec,
     )?;
     Ok(convert_altair_deltas(deltas))

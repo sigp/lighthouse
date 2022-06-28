@@ -47,7 +47,6 @@ pub mod free_attestation;
 pub mod graffiti;
 pub mod historical_batch;
 pub mod indexed_attestation;
-pub mod justifiable_beacon_state;
 pub mod pending_attestation;
 pub mod proposer_preparation_data;
 pub mod proposer_slashing;

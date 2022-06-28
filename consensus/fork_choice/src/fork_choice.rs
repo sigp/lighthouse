@@ -584,7 +584,7 @@ where
         block: BeaconBlockRef<E, Payload>,
         block_root: Hash256,
         block_delay: Duration,
-        state: &mut BeaconState<E>,
+        state: &BeaconState<E>,
         payload_verification_status: PayloadVerificationStatus,
         spec: &ChainSpec,
     ) -> Result<(), Error<T::Error>> {

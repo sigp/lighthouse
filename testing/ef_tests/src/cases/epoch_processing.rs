@@ -15,7 +15,6 @@ use state_processing::per_epoch_processing::{
 use state_processing::EpochProcessingError;
 use std::marker::PhantomData;
 use std::path::{Path, PathBuf};
-use types::participation_cache::{CurrentEpochParticipationCache, PreviousParticipationCache};
 use types::{BeaconState, ChainSpec, EthSpec, ForkName};
 
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -89,26 +88,22 @@ impl<E: EthSpec> EpochTransition<E> for JustificationAndFinalization {
             BeaconState::Base(_) => {
                 let mut validator_statuses = base::ValidatorStatuses::new(state, spec)?;
                 validator_statuses.process_attestations(state)?;
-                let justifiable_beacon_state = base::process_justification_and_finalization(
-                    state,
-                    &validator_statuses.total_balances,
-                    spec,
-                )?;
-                state.update_justifiable(justifiable_beacon_state);
+                let justification_and_finalization_state =
+                    base::process_justification_and_finalization(
+                        state,
+                        &validator_statuses.total_balances,
+                        spec,
+                    )?;
+                justification_and_finalization_state.apply_changes_to_state(state);
                 Ok(())
             }
             BeaconState::Altair(_) | BeaconState::Merge(_) => {
-                let prev_participation_cache =
-                    state.get_previous_epoch_participation_cache(spec)?;
-                let current_participation_cache = CurrentEpochParticipationCache::new(state, spec)?;
-                let justifiable_beacon_state = altair::process_justification_and_finalization(
-                    state,
-                    &altair::ParticipationCache::new(
-                        prev_participation_cache,
-                        current_participation_cache,
-                    ),
-                )?;
-                state.update_justifiable(justifiable_beacon_state);
+                let justification_and_finalization_state =
+                    altair::process_justification_and_finalization(
+                        state,
+                        &altair::ParticipationCache::new(state, spec).unwrap(),
+                    )?;
+                justification_and_finalization_state.apply_changes_to_state(state);
                 Ok(())
             }
         }
@@ -124,15 +119,9 @@ impl<E: EthSpec> EpochTransition<E> for RewardsAndPenalties {
                 base::process_rewards_and_penalties(state, &mut validator_statuses, spec)
             }
             BeaconState::Altair(_) | BeaconState::Merge(_) => {
-                let prev_participation_cache =
-                    state.get_previous_epoch_participation_cache(spec)?;
-                let current_participation_cache = CurrentEpochParticipationCache::new(state, spec)?;
                 altair::process_rewards_and_penalties(
                     state,
-                    &altair::ParticipationCache::new(
-                        prev_participation_cache,
-                        current_participation_cache,
-                    ),
+                    &altair::ParticipationCache::new(state, spec).unwrap(),
                     spec,
                 )
             }
@@ -159,15 +148,11 @@ impl<E: EthSpec> EpochTransition<E> for Slashings {
                 )?;
             }
             BeaconState::Altair(_) | BeaconState::Merge(_) => {
-                let prev_participation_cache = PreviousParticipationCache::new(state, spec)?;
-                let current_participation_cache = CurrentEpochParticipationCache::new(state, spec)?;
                 process_slashings(
                     state,
-                    altair::ParticipationCache::new(
-                        prev_participation_cache,
-                        current_participation_cache,
-                    )
-                    .current_epoch_total_active_balance(),
+                    altair::ParticipationCache::new(state, spec)
+                        .unwrap()
+                        .current_epoch_total_active_balance(),
                     spec,
                 )?;
             }
@@ -231,18 +216,11 @@ impl<E: EthSpec> EpochTransition<E> for InactivityUpdates {
     fn run(state: &mut BeaconState<E>, spec: &ChainSpec) -> Result<(), EpochProcessingError> {
         match state {
             BeaconState::Base(_) => Ok(()),
-            BeaconState::Altair(_) | BeaconState::Merge(_) => {
-                let prev_participation_cache = PreviousParticipationCache::new(state, spec)?;
-                let current_participation_cache = CurrentEpochParticipationCache::new(state, spec)?;
-                altair::process_inactivity_updates(
-                    state,
-                    &altair::ParticipationCache::new(
-                        prev_participation_cache,
-                        current_participation_cache,
-                    ),
-                    spec,
-                )
-            }
+            BeaconState::Altair(_) | BeaconState::Merge(_) => altair::process_inactivity_updates(
+                state,
+                &altair::ParticipationCache::new(state, spec).unwrap(),
+                spec,
+            ),
         }
     }
 }

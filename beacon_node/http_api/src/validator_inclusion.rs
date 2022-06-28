@@ -4,8 +4,10 @@ use eth2::{
     lighthouse::{GlobalValidatorInclusionData, ValidatorInclusionData},
     types::ValidatorId,
 };
-use state_processing::per_epoch_processing::{process_epoch, EpochProcessingSummary};
-use types::beacon_state::participation_cache::Error as ParticipationCacheError;
+use state_processing::per_epoch_processing::{
+    altair::participation_cache::Error as ParticipationCacheError, process_epoch,
+    EpochProcessingSummary,
+};
 use types::{BeaconState, ChainSpec, Epoch, EthSpec};
 
 /// Returns the state in the last slot of `epoch`.

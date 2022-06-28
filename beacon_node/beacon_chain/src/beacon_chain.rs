@@ -2657,7 +2657,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     block,
                     block_root,
                     block_delay,
-                    &mut state,
+                    &state,
                     payload_verification_status,
                     &self.spec,
                 )
