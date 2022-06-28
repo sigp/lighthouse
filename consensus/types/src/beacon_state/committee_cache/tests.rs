@@ -34,32 +34,34 @@ fn default_values() {
     assert!(cache.get_beacon_committees_at_slot(Slot::new(0)).is_err());
 }
 
-fn new_state<T: EthSpec>(validator_count: usize, slot: Slot) -> BeaconState<T> {
+async fn new_state<T: EthSpec>(validator_count: usize, slot: Slot) -> BeaconState<T> {
     let harness = get_harness(validator_count);
     let head_state = harness.get_current_state();
     if slot > Slot::new(0) {
-        harness.add_attested_blocks_at_slots(
-            head_state,
-            Hash256::zero(),
-            (1..slot.as_u64())
-                .map(Slot::new)
-                .collect::<Vec<_>>()
-                .as_slice(),
-            (0..validator_count).collect::<Vec<_>>().as_slice(),
-        );
+        harness
+            .add_attested_blocks_at_slots(
+                head_state,
+                Hash256::zero(),
+                (1..slot.as_u64())
+                    .map(Slot::new)
+                    .collect::<Vec<_>>()
+                    .as_slice(),
+                (0..validator_count).collect::<Vec<_>>().as_slice(),
+            )
+            .await;
     }
     harness.get_current_state()
 }
 
-#[test]
+#[tokio::test]
 #[should_panic]
-fn fails_without_validators() {
-    new_state::<MinimalEthSpec>(0, Slot::new(0));
+async fn fails_without_validators() {
+    new_state::<MinimalEthSpec>(0, Slot::new(0)).await;
 }
 
-#[test]
-fn initializes_with_the_right_epoch() {
-    let state = new_state::<MinimalEthSpec>(16, Slot::new(0));
+#[tokio::test]
+async fn initializes_with_the_right_epoch() {
+    let state = new_state::<MinimalEthSpec>(16, Slot::new(0)).await;
     let spec = &MinimalEthSpec::default_spec();
 
     let cache = CommitteeCache::default();
@@ -75,13 +77,13 @@ fn initializes_with_the_right_epoch() {
     assert!(cache.is_initialized_at(state.next_epoch().unwrap()));
 }
 
-#[test]
-fn shuffles_for_the_right_epoch() {
+#[tokio::test]
+async fn shuffles_for_the_right_epoch() {
     let num_validators = MinimalEthSpec::minimum_validator_count() * 2;
     let epoch = Epoch::new(6);
     let slot = epoch.start_slot(MinimalEthSpec::slots_per_epoch());
 
-    let mut state = new_state::<MinimalEthSpec>(num_validators, slot);
+    let mut state = new_state::<MinimalEthSpec>(num_validators, slot).await;
     let spec = &MinimalEthSpec::default_spec();
 
     let distinct_hashes: Vec<Hash256> = (0..MinimalEthSpec::epochs_per_historical_vector())

@@ -529,10 +529,10 @@ fn handle_v1_response<T: EthSpec>(
         Protocol::Goodbye => Err(RPCError::InvalidData(
             "Goodbye RPC message has no valid response".to_string(),
         )),
-        Protocol::BlocksByRange => Ok(Some(RPCResponse::BlocksByRange(Box::new(
+        Protocol::BlocksByRange => Ok(Some(RPCResponse::BlocksByRange(Arc::new(
             SignedBeaconBlock::Base(SignedBeaconBlockBase::from_ssz_bytes(decoded_buffer)?),
         )))),
-        Protocol::BlocksByRoot => Ok(Some(RPCResponse::BlocksByRoot(Box::new(
+        Protocol::BlocksByRoot => Ok(Some(RPCResponse::BlocksByRoot(Arc::new(
             SignedBeaconBlock::Base(SignedBeaconBlockBase::from_ssz_bytes(decoded_buffer)?),
         )))),
         Protocol::Ping => Ok(Some(RPCResponse::Pong(Ping {
@@ -569,31 +569,31 @@ fn handle_v2_response<T: EthSpec>(
         })?;
         match protocol {
             Protocol::BlocksByRange => match fork_name {
-                ForkName::Altair => Ok(Some(RPCResponse::BlocksByRange(Box::new(
+                ForkName::Altair => Ok(Some(RPCResponse::BlocksByRange(Arc::new(
                     SignedBeaconBlock::Altair(SignedBeaconBlockAltair::from_ssz_bytes(
                         decoded_buffer,
                     )?),
                 )))),
 
-                ForkName::Base => Ok(Some(RPCResponse::BlocksByRange(Box::new(
+                ForkName::Base => Ok(Some(RPCResponse::BlocksByRange(Arc::new(
                     SignedBeaconBlock::Base(SignedBeaconBlockBase::from_ssz_bytes(decoded_buffer)?),
                 )))),
-                ForkName::Merge => Ok(Some(RPCResponse::BlocksByRange(Box::new(
+                ForkName::Merge => Ok(Some(RPCResponse::BlocksByRange(Arc::new(
                     SignedBeaconBlock::Merge(SignedBeaconBlockMerge::from_ssz_bytes(
                         decoded_buffer,
                     )?),
                 )))),
             },
             Protocol::BlocksByRoot => match fork_name {
-                ForkName::Altair => Ok(Some(RPCResponse::BlocksByRoot(Box::new(
+                ForkName::Altair => Ok(Some(RPCResponse::BlocksByRoot(Arc::new(
                     SignedBeaconBlock::Altair(SignedBeaconBlockAltair::from_ssz_bytes(
                         decoded_buffer,
                     )?),
                 )))),
-                ForkName::Base => Ok(Some(RPCResponse::BlocksByRoot(Box::new(
+                ForkName::Base => Ok(Some(RPCResponse::BlocksByRoot(Arc::new(
                     SignedBeaconBlock::Base(SignedBeaconBlockBase::from_ssz_bytes(decoded_buffer)?),
                 )))),
-                ForkName::Merge => Ok(Some(RPCResponse::BlocksByRoot(Box::new(
+                ForkName::Merge => Ok(Some(RPCResponse::BlocksByRoot(Arc::new(
                     SignedBeaconBlock::Merge(SignedBeaconBlockMerge::from_ssz_bytes(
                         decoded_buffer,
                     )?),
@@ -832,10 +832,10 @@ mod tests {
             encode_then_decode(
                 Protocol::BlocksByRange,
                 Version::V1,
-                RPCCodedResponse::Success(RPCResponse::BlocksByRange(Box::new(empty_base_block()))),
+                RPCCodedResponse::Success(RPCResponse::BlocksByRange(Arc::new(empty_base_block()))),
                 ForkName::Base,
             ),
-            Ok(Some(RPCResponse::BlocksByRange(Box::new(
+            Ok(Some(RPCResponse::BlocksByRange(Arc::new(
                 empty_base_block()
             ))))
         );
@@ -845,7 +845,7 @@ mod tests {
                 encode_then_decode(
                     Protocol::BlocksByRange,
                     Version::V1,
-                    RPCCodedResponse::Success(RPCResponse::BlocksByRange(Box::new(altair_block()))),
+                    RPCCodedResponse::Success(RPCResponse::BlocksByRange(Arc::new(altair_block()))),
                     ForkName::Altair,
                 )
                 .unwrap_err(),
@@ -858,11 +858,11 @@ mod tests {
             encode_then_decode(
                 Protocol::BlocksByRoot,
                 Version::V1,
-                RPCCodedResponse::Success(RPCResponse::BlocksByRoot(Box::new(empty_base_block()))),
+                RPCCodedResponse::Success(RPCResponse::BlocksByRoot(Arc::new(empty_base_block()))),
                 ForkName::Base,
             ),
             Ok(Some(RPCResponse::BlocksByRoot(
-                Box::new(empty_base_block())
+                Arc::new(empty_base_block())
             )))
         );
 
@@ -871,7 +871,7 @@ mod tests {
                 encode_then_decode(
                     Protocol::BlocksByRoot,
                     Version::V1,
-                    RPCCodedResponse::Success(RPCResponse::BlocksByRoot(Box::new(altair_block()))),
+                    RPCCodedResponse::Success(RPCResponse::BlocksByRoot(Arc::new(altair_block()))),
                     ForkName::Altair,
                 )
                 .unwrap_err(),
@@ -947,10 +947,10 @@ mod tests {
             encode_then_decode(
                 Protocol::BlocksByRange,
                 Version::V2,
-                RPCCodedResponse::Success(RPCResponse::BlocksByRange(Box::new(empty_base_block()))),
+                RPCCodedResponse::Success(RPCResponse::BlocksByRange(Arc::new(empty_base_block()))),
                 ForkName::Base,
             ),
-            Ok(Some(RPCResponse::BlocksByRange(Box::new(
+            Ok(Some(RPCResponse::BlocksByRange(Arc::new(
                 empty_base_block()
             ))))
         );
@@ -962,10 +962,10 @@ mod tests {
             encode_then_decode(
                 Protocol::BlocksByRange,
                 Version::V2,
-                RPCCodedResponse::Success(RPCResponse::BlocksByRange(Box::new(empty_base_block()))),
+                RPCCodedResponse::Success(RPCResponse::BlocksByRange(Arc::new(empty_base_block()))),
                 ForkName::Altair,
             ),
-            Ok(Some(RPCResponse::BlocksByRange(Box::new(
+            Ok(Some(RPCResponse::BlocksByRange(Arc::new(
                 empty_base_block()
             ))))
         );
@@ -974,10 +974,10 @@ mod tests {
             encode_then_decode(
                 Protocol::BlocksByRange,
                 Version::V2,
-                RPCCodedResponse::Success(RPCResponse::BlocksByRange(Box::new(altair_block()))),
+                RPCCodedResponse::Success(RPCResponse::BlocksByRange(Arc::new(altair_block()))),
                 ForkName::Altair,
             ),
-            Ok(Some(RPCResponse::BlocksByRange(Box::new(altair_block()))))
+            Ok(Some(RPCResponse::BlocksByRange(Arc::new(altair_block()))))
         );
 
         let merge_block_small = merge_block_small(&fork_context(ForkName::Merge));
@@ -987,12 +987,12 @@ mod tests {
             encode_then_decode(
                 Protocol::BlocksByRange,
                 Version::V2,
-                RPCCodedResponse::Success(RPCResponse::BlocksByRange(Box::new(
+                RPCCodedResponse::Success(RPCResponse::BlocksByRange(Arc::new(
                     merge_block_small.clone()
                 ))),
                 ForkName::Merge,
             ),
-            Ok(Some(RPCResponse::BlocksByRange(Box::new(
+            Ok(Some(RPCResponse::BlocksByRange(Arc::new(
                 merge_block_small.clone()
             ))))
         );
@@ -1019,11 +1019,11 @@ mod tests {
             encode_then_decode(
                 Protocol::BlocksByRoot,
                 Version::V2,
-                RPCCodedResponse::Success(RPCResponse::BlocksByRoot(Box::new(empty_base_block()))),
+                RPCCodedResponse::Success(RPCResponse::BlocksByRoot(Arc::new(empty_base_block()))),
                 ForkName::Base,
             ),
             Ok(Some(RPCResponse::BlocksByRoot(
-                Box::new(empty_base_block())
+                Arc::new(empty_base_block())
             ))),
         );
 
@@ -1034,11 +1034,11 @@ mod tests {
             encode_then_decode(
                 Protocol::BlocksByRoot,
                 Version::V2,
-                RPCCodedResponse::Success(RPCResponse::BlocksByRoot(Box::new(empty_base_block()))),
+                RPCCodedResponse::Success(RPCResponse::BlocksByRoot(Arc::new(empty_base_block()))),
                 ForkName::Altair,
             ),
             Ok(Some(RPCResponse::BlocksByRoot(
-                Box::new(empty_base_block())
+                Arc::new(empty_base_block())
             )))
         );
 
@@ -1046,22 +1046,22 @@ mod tests {
             encode_then_decode(
                 Protocol::BlocksByRoot,
                 Version::V2,
-                RPCCodedResponse::Success(RPCResponse::BlocksByRoot(Box::new(altair_block()))),
+                RPCCodedResponse::Success(RPCResponse::BlocksByRoot(Arc::new(altair_block()))),
                 ForkName::Altair,
             ),
-            Ok(Some(RPCResponse::BlocksByRoot(Box::new(altair_block()))))
+            Ok(Some(RPCResponse::BlocksByRoot(Arc::new(altair_block()))))
         );
 
         assert_eq!(
             encode_then_decode(
                 Protocol::BlocksByRoot,
                 Version::V2,
-                RPCCodedResponse::Success(RPCResponse::BlocksByRoot(Box::new(
+                RPCCodedResponse::Success(RPCResponse::BlocksByRoot(Arc::new(
                     merge_block_small.clone()
                 ))),
                 ForkName::Merge,
             ),
-            Ok(Some(RPCResponse::BlocksByRoot(Box::new(merge_block_small))))
+            Ok(Some(RPCResponse::BlocksByRoot(Arc::new(merge_block_small))))
         );
 
         let mut encoded =
@@ -1113,7 +1113,7 @@ mod tests {
         let mut encoded_bytes = encode(
             Protocol::BlocksByRange,
             Version::V2,
-            RPCCodedResponse::Success(RPCResponse::BlocksByRange(Box::new(empty_base_block()))),
+            RPCCodedResponse::Success(RPCResponse::BlocksByRange(Arc::new(empty_base_block()))),
             ForkName::Base,
         )
         .unwrap();
@@ -1134,7 +1134,7 @@ mod tests {
         let mut encoded_bytes = encode(
             Protocol::BlocksByRoot,
             Version::V2,
-            RPCCodedResponse::Success(RPCResponse::BlocksByRoot(Box::new(empty_base_block()))),
+            RPCCodedResponse::Success(RPCResponse::BlocksByRoot(Arc::new(empty_base_block()))),
             ForkName::Base,
         )
         .unwrap();
@@ -1156,7 +1156,7 @@ mod tests {
         let mut encoded_bytes = encode(
             Protocol::BlocksByRange,
             Version::V2,
-            RPCCodedResponse::Success(RPCResponse::BlocksByRange(Box::new(empty_base_block()))),
+            RPCCodedResponse::Success(RPCResponse::BlocksByRange(Arc::new(empty_base_block()))),
             ForkName::Altair,
         )
         .unwrap();
@@ -1181,7 +1181,7 @@ mod tests {
         let mut encoded_bytes = encode(
             Protocol::BlocksByRoot,
             Version::V2,
-            RPCCodedResponse::Success(RPCResponse::BlocksByRoot(Box::new(altair_block()))),
+            RPCCodedResponse::Success(RPCResponse::BlocksByRoot(Arc::new(altair_block()))),
             ForkName::Altair,
         )
         .unwrap();
@@ -1226,7 +1226,7 @@ mod tests {
         let mut encoded_bytes = encode(
             Protocol::BlocksByRoot,
             Version::V2,
-            RPCCodedResponse::Success(RPCResponse::BlocksByRoot(Box::new(empty_base_block()))),
+            RPCCodedResponse::Success(RPCResponse::BlocksByRoot(Arc::new(empty_base_block()))),
             ForkName::Altair,
         )
         .unwrap();
@@ -1250,7 +1250,7 @@ mod tests {
         let mut encoded_bytes = encode(
             Protocol::BlocksByRoot,
             Version::V2,
-            RPCCodedResponse::Success(RPCResponse::BlocksByRoot(Box::new(empty_base_block()))),
+            RPCCodedResponse::Success(RPCResponse::BlocksByRoot(Arc::new(empty_base_block()))),
             ForkName::Altair,
         )
         .unwrap();

@@ -56,7 +56,7 @@ fn get_harness(validator_count: usize) -> BeaconChainHarness<EphemeralHarnessTyp
 fn get_valid_unaggregated_attestation<T: BeaconChainTypes>(
     chain: &BeaconChain<T>,
 ) -> (Attestation<T::EthSpec>, usize, usize, SecretKey, SubnetId) {
-    let head = chain.head().expect("should get head");
+    let head = chain.head_snapshot();
     let current_slot = chain.slot().expect("should get slot");
 
     let mut valid_attestation = chain
@@ -106,7 +106,8 @@ fn get_valid_aggregated_attestation<T: BeaconChainTypes>(
     chain: &BeaconChain<T>,
     aggregate: Attestation<T::EthSpec>,
 ) -> (SignedAggregateAndProof<T::EthSpec>, usize, SecretKey) {
-    let state = &chain.head().expect("should get head").beacon_state;
+    let head = chain.head_snapshot();
+    let state = &head.beacon_state;
     let current_slot = chain.slot().expect("should get slot");
 
     let committee = state
@@ -155,7 +156,8 @@ fn get_non_aggregator<T: BeaconChainTypes>(
     chain: &BeaconChain<T>,
     aggregate: &Attestation<T::EthSpec>,
 ) -> (usize, SecretKey) {
-    let state = &chain.head().expect("should get head").beacon_state;
+    let head = chain.head_snapshot();
+    let state = &head.beacon_state;
     let current_slot = chain.slot().expect("should get slot");
 
     let committee = state
@@ -213,15 +215,17 @@ struct GossipTester {
 }
 
 impl GossipTester {
-    pub fn new() -> Self {
+    pub async fn new() -> Self {
         let harness = get_harness(VALIDATOR_COUNT);
 
         // Extend the chain out a few epochs so we have some chain depth to play with.
-        harness.extend_chain(
-            MainnetEthSpec::slots_per_epoch() as usize * 3 - 1,
-            BlockStrategy::OnCanonicalHead,
-            AttestationStrategy::AllValidators,
-        );
+        harness
+            .extend_chain(
+                MainnetEthSpec::slots_per_epoch() as usize * 3 - 1,
+                BlockStrategy::OnCanonicalHead,
+                AttestationStrategy::AllValidators,
+            )
+            .await;
 
         // Advance into a slot where there have not been blocks or attestations produced.
         harness.advance_slot();
@@ -395,9 +399,10 @@ impl GossipTester {
     }
 }
 /// Tests verification of `SignedAggregateAndProof` from the gossip network.
-#[test]
-fn aggregated_gossip_verification() {
+#[tokio::test]
+async fn aggregated_gossip_verification() {
     GossipTester::new()
+        .await
         /*
          * The following two tests ensure:
          *
@@ -511,8 +516,7 @@ fn aggregated_gossip_verification() {
                 let committee_len = tester
                     .harness
                     .chain
-                    .head()
-                    .unwrap()
+                    .head_snapshot()
                     .beacon_state
                     .get_beacon_committee(tester.slot(), a.message.aggregate.data.index)
                     .expect("should get committees")
@@ -612,7 +616,7 @@ fn aggregated_gossip_verification() {
                     tester.valid_aggregate.message.aggregate.clone(),
                     None,
                     &sk,
-                    &chain.head_info().unwrap().fork,
+                    &chain.canonical_head.cached_head().head_fork(),
                     chain.genesis_validators_root,
                     &chain.spec,
                 )
@@ -669,9 +673,10 @@ fn aggregated_gossip_verification() {
 }
 
 /// Tests the verification conditions for an unaggregated attestation on the gossip network.
-#[test]
-fn unaggregated_gossip_verification() {
+#[tokio::test]
+async fn unaggregated_gossip_verification() {
     GossipTester::new()
+        .await
         /*
          * The following test ensures:
          *
@@ -684,8 +689,7 @@ fn unaggregated_gossip_verification() {
                 a.data.index = tester
                     .harness
                     .chain
-                    .head()
-                    .unwrap()
+                    .head_snapshot()
                     .beacon_state
                     .get_committee_count_at_slot(a.data.slot)
                     .unwrap()
@@ -924,16 +928,18 @@ fn unaggregated_gossip_verification() {
 /// Ensures that an attestation that skips epochs can still be processed.
 ///
 /// This also checks that we can do a state lookup if we don't get a hit from the shuffling cache.
-#[test]
-fn attestation_that_skips_epochs() {
+#[tokio::test]
+async fn attestation_that_skips_epochs() {
     let harness = get_harness(VALIDATOR_COUNT);
 
     // Extend the chain out a few epochs so we have some chain depth to play with.
-    harness.extend_chain(
-        MainnetEthSpec::slots_per_epoch() as usize * 3 + 1,
-        BlockStrategy::OnCanonicalHead,
-        AttestationStrategy::SomeValidators(vec![]),
-    );
+    harness
+        .extend_chain(
+            MainnetEthSpec::slots_per_epoch() as usize * 3 + 1,
+            BlockStrategy::OnCanonicalHead,
+            AttestationStrategy::SomeValidators(vec![]),
+        )
+        .await;
 
     let current_slot = harness.chain.slot().expect("should get slot");
     let current_epoch = harness.chain.epoch().expect("should get epoch");
@@ -992,16 +998,18 @@ fn attestation_that_skips_epochs() {
         .expect("should gossip verify attestation that skips slots");
 }
 
-#[test]
-fn attestation_to_finalized_block() {
+#[tokio::test]
+async fn attestation_to_finalized_block() {
     let harness = get_harness(VALIDATOR_COUNT);
 
     // Extend the chain out a few epochs so we have some chain depth to play with.
-    harness.extend_chain(
-        MainnetEthSpec::slots_per_epoch() as usize * 4 + 1,
-        BlockStrategy::OnCanonicalHead,
-        AttestationStrategy::AllValidators,
-    );
+    harness
+        .extend_chain(
+            MainnetEthSpec::slots_per_epoch() as usize * 4 + 1,
+            BlockStrategy::OnCanonicalHead,
+            AttestationStrategy::AllValidators,
+        )
+        .await;
 
     let finalized_checkpoint = harness
         .chain
@@ -1067,16 +1075,18 @@ fn attestation_to_finalized_block() {
         .contains(earlier_block_root));
 }
 
-#[test]
-fn verify_aggregate_for_gossip_doppelganger_detection() {
+#[tokio::test]
+async fn verify_aggregate_for_gossip_doppelganger_detection() {
     let harness = get_harness(VALIDATOR_COUNT);
 
     // Extend the chain out a few epochs so we have some chain depth to play with.
-    harness.extend_chain(
-        MainnetEthSpec::slots_per_epoch() as usize * 3 - 1,
-        BlockStrategy::OnCanonicalHead,
-        AttestationStrategy::AllValidators,
-    );
+    harness
+        .extend_chain(
+            MainnetEthSpec::slots_per_epoch() as usize * 3 - 1,
+            BlockStrategy::OnCanonicalHead,
+            AttestationStrategy::AllValidators,
+        )
+        .await;
 
     // Advance into a slot where there have not been blocks or attestations produced.
     harness.advance_slot();
@@ -1124,16 +1134,18 @@ fn verify_aggregate_for_gossip_doppelganger_detection() {
         .expect("should check if gossip aggregator was observed"));
 }
 
-#[test]
-fn verify_attestation_for_gossip_doppelganger_detection() {
+#[tokio::test]
+async fn verify_attestation_for_gossip_doppelganger_detection() {
     let harness = get_harness(VALIDATOR_COUNT);
 
     // Extend the chain out a few epochs so we have some chain depth to play with.
-    harness.extend_chain(
-        MainnetEthSpec::slots_per_epoch() as usize * 3 - 1,
-        BlockStrategy::OnCanonicalHead,
-        AttestationStrategy::AllValidators,
-    );
+    harness
+        .extend_chain(
+            MainnetEthSpec::slots_per_epoch() as usize * 3 - 1,
+            BlockStrategy::OnCanonicalHead,
+            AttestationStrategy::AllValidators,
+        )
+        .await;
 
     // Advance into a slot where there have not been blocks or attestations produced.
     harness.advance_slot();

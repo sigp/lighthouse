@@ -98,10 +98,9 @@ impl<E: GenericExecutionEngine> TestRig<E> {
     }
 
     pub fn perform_tests_blocking(&self) {
-        self.ee_a
-            .execution_layer
-            .block_on_generic(|_| async { self.perform_tests().await })
-            .unwrap()
+        self.runtime
+            .handle()
+            .block_on(async { self.perform_tests().await });
     }
 
     pub async fn wait_until_synced(&self) {

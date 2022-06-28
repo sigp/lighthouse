@@ -158,7 +158,7 @@ fn test_single_block_lookup_happy_path() {
 
     // The peer provides the correct block, should not be penalized. Now the block should be sent
     // for processing.
-    bl.single_block_lookup_response(id, peer_id, Some(Box::new(block)), D, &mut cx);
+    bl.single_block_lookup_response(id, peer_id, Some(Arc::new(block)), D, &mut cx);
     rig.expect_empty_network();
     rig.expect_block_process();
 
@@ -204,7 +204,7 @@ fn test_single_block_lookup_wrong_response() {
 
     // Peer sends something else. It should be penalized.
     let bad_block = rig.rand_block();
-    bl.single_block_lookup_response(id, peer_id, Some(Box::new(bad_block)), D, &mut cx);
+    bl.single_block_lookup_response(id, peer_id, Some(Arc::new(bad_block)), D, &mut cx);
     rig.expect_penalty();
     rig.expect_block_request(); // should be retried
 
@@ -243,7 +243,7 @@ fn test_single_block_lookup_becomes_parent_request() {
 
     // The peer provides the correct block, should not be penalized. Now the block should be sent
     // for processing.
-    bl.single_block_lookup_response(id, peer_id, Some(Box::new(block.clone())), D, &mut cx);
+    bl.single_block_lookup_response(id, peer_id, Some(Arc::new(block.clone())), D, &mut cx);
     rig.expect_empty_network();
     rig.expect_block_process();
 
@@ -252,7 +252,7 @@ fn test_single_block_lookup_becomes_parent_request() {
 
     // Send the stream termination. Peer should have not been penalized, and the request moved to a
     // parent request after processing.
-    bl.single_block_processed(id, Err(BlockError::ParentUnknown(Box::new(block))), &mut cx);
+    bl.single_block_processed(id, Err(BlockError::ParentUnknown(Arc::new(block))), &mut cx);
     assert_eq!(bl.single_block_lookups.len(), 0);
     rig.expect_parent_request();
     rig.expect_empty_network();
@@ -269,11 +269,11 @@ fn test_parent_lookup_happy_path() {
     let peer_id = PeerId::random();
 
     // Trigger the request
-    bl.search_parent(Box::new(block), peer_id, &mut cx);
+    bl.search_parent(Arc::new(block), peer_id, &mut cx);
     let id = rig.expect_parent_request();
 
     // Peer sends the right block, it should be sent for processing. Peer should not be penalized.
-    bl.parent_lookup_response(id, peer_id, Some(Box::new(parent)), D, &mut cx);
+    bl.parent_lookup_response(id, peer_id, Some(Arc::new(parent)), D, &mut cx);
     rig.expect_block_process();
     rig.expect_empty_network();
 
@@ -294,12 +294,12 @@ fn test_parent_lookup_wrong_response() {
     let peer_id = PeerId::random();
 
     // Trigger the request
-    bl.search_parent(Box::new(block), peer_id, &mut cx);
+    bl.search_parent(Arc::new(block), peer_id, &mut cx);
     let id1 = rig.expect_parent_request();
 
     // Peer sends the wrong block, peer should be penalized and the block re-requested.
     let bad_block = rig.rand_block();
-    bl.parent_lookup_response(id1, peer_id, Some(Box::new(bad_block)), D, &mut cx);
+    bl.parent_lookup_response(id1, peer_id, Some(Arc::new(bad_block)), D, &mut cx);
     rig.expect_penalty();
     let id2 = rig.expect_parent_request();
 
@@ -308,7 +308,7 @@ fn test_parent_lookup_wrong_response() {
     rig.expect_empty_network();
 
     // Send the right block this time.
-    bl.parent_lookup_response(id2, peer_id, Some(Box::new(parent)), D, &mut cx);
+    bl.parent_lookup_response(id2, peer_id, Some(Arc::new(parent)), D, &mut cx);
     rig.expect_block_process();
 
     // Processing succeeds, now the rest of the chain should be sent for processing.
@@ -328,7 +328,7 @@ fn test_parent_lookup_empty_response() {
     let peer_id = PeerId::random();
 
     // Trigger the request
-    bl.search_parent(Box::new(block), peer_id, &mut cx);
+    bl.search_parent(Arc::new(block), peer_id, &mut cx);
     let id1 = rig.expect_parent_request();
 
     // Peer sends an empty response, peer should be penalized and the block re-requested.
@@ -337,7 +337,7 @@ fn test_parent_lookup_empty_response() {
     let id2 = rig.expect_parent_request();
 
     // Send the right block this time.
-    bl.parent_lookup_response(id2, peer_id, Some(Box::new(parent)), D, &mut cx);
+    bl.parent_lookup_response(id2, peer_id, Some(Arc::new(parent)), D, &mut cx);
     rig.expect_block_process();
 
     // Processing succeeds, now the rest of the chain should be sent for processing.
@@ -357,7 +357,7 @@ fn test_parent_lookup_rpc_failure() {
     let peer_id = PeerId::random();
 
     // Trigger the request
-    bl.search_parent(Box::new(block), peer_id, &mut cx);
+    bl.search_parent(Arc::new(block), peer_id, &mut cx);
     let id1 = rig.expect_parent_request();
 
     // The request fails. It should be tried again.
@@ -365,7 +365,7 @@ fn test_parent_lookup_rpc_failure() {
     let id2 = rig.expect_parent_request();
 
     // Send the right block this time.
-    bl.parent_lookup_response(id2, peer_id, Some(Box::new(parent)), D, &mut cx);
+    bl.parent_lookup_response(id2, peer_id, Some(Arc::new(parent)), D, &mut cx);
     rig.expect_block_process();
 
     // Processing succeeds, now the rest of the chain should be sent for processing.
@@ -385,7 +385,7 @@ fn test_parent_lookup_too_many_attempts() {
     let peer_id = PeerId::random();
 
     // Trigger the request
-    bl.search_parent(Box::new(block), peer_id, &mut cx);
+    bl.search_parent(Arc::new(block), peer_id, &mut cx);
     for i in 1..=parent_lookup::PARENT_FAIL_TOLERANCE + 1 {
         let id = rig.expect_parent_request();
         match i % 2 {
@@ -397,7 +397,7 @@ fn test_parent_lookup_too_many_attempts() {
             _ => {
                 // Send a bad block this time. It should be tried again.
                 let bad_block = rig.rand_block();
-                bl.parent_lookup_response(id, peer_id, Some(Box::new(bad_block)), D, &mut cx);
+                bl.parent_lookup_response(id, peer_id, Some(Arc::new(bad_block)), D, &mut cx);
                 rig.expect_penalty();
             }
         }
@@ -427,12 +427,12 @@ fn test_parent_lookup_too_deep() {
     let peer_id = PeerId::random();
     let trigger_block = blocks.pop().unwrap();
     let chain_hash = trigger_block.canonical_root();
-    bl.search_parent(Box::new(trigger_block), peer_id, &mut cx);
+    bl.search_parent(Arc::new(trigger_block), peer_id, &mut cx);
 
     for block in blocks.into_iter().rev() {
         let id = rig.expect_parent_request();
         // the block
-        bl.parent_lookup_response(id, peer_id, Some(Box::new(block.clone())), D, &mut cx);
+        bl.parent_lookup_response(id, peer_id, Some(Arc::new(block.clone())), D, &mut cx);
         // the stream termination
         bl.parent_lookup_response(id, peer_id, None, D, &mut cx);
         // the processing request
@@ -440,7 +440,7 @@ fn test_parent_lookup_too_deep() {
         // the processing result
         bl.parent_block_processed(
             chain_hash,
-            Err(BlockError::ParentUnknown(Box::new(block))),
+            Err(BlockError::ParentUnknown(Arc::new(block))),
             &mut cx,
         )
     }
@@ -454,7 +454,7 @@ fn test_parent_lookup_disconnection() {
     let (mut bl, mut cx, mut rig) = TestRig::test_setup(None);
     let peer_id = PeerId::random();
     let trigger_block = rig.rand_block();
-    bl.search_parent(Box::new(trigger_block), peer_id, &mut cx);
+    bl.search_parent(Arc::new(trigger_block), peer_id, &mut cx);
     bl.peer_disconnected(&peer_id, &mut cx);
     assert!(bl.parent_queue.is_empty());
 }

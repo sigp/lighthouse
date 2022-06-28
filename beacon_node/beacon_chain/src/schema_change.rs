@@ -10,6 +10,7 @@ use crate::beacon_chain::{BeaconChainTypes, FORK_CHOICE_DB_KEY};
 use crate::persisted_fork_choice::{
     PersistedForkChoiceV1, PersistedForkChoiceV7, PersistedForkChoiceV8,
 };
+use crate::types::ChainSpec;
 use slog::{warn, Logger};
 use std::path::Path;
 use std::sync::Arc;
@@ -24,6 +25,7 @@ pub fn migrate_schema<T: BeaconChainTypes>(
     from: SchemaVersion,
     to: SchemaVersion,
     log: Logger,
+    spec: &ChainSpec,
 ) -> Result<(), StoreError> {
     match (from, to) {
         // Migrating from the current schema version to iself is always OK, a no-op.
@@ -31,8 +33,8 @@ pub fn migrate_schema<T: BeaconChainTypes>(
         // Upgrade across multiple versions by recursively migrating one step at a time.
         (_, _) if from.as_u64() + 1 < to.as_u64() => {
             let next = SchemaVersion(from.as_u64() + 1);
-            migrate_schema::<T>(db.clone(), datadir, from, next, log.clone())?;
-            migrate_schema::<T>(db, datadir, next, to, log)
+            migrate_schema::<T>(db.clone(), datadir, from, next, log.clone(), spec)?;
+            migrate_schema::<T>(db, datadir, next, to, log, spec)
         }
 
         //
@@ -92,6 +94,7 @@ pub fn migrate_schema<T: BeaconChainTypes>(
                     migration_schema_v7::update_with_reinitialized_fork_choice::<T>(
                         &mut persisted_fork_choice_v7,
                         db.clone(),
+                        spec,
                     )
                     .map_err(StoreError::SchemaMigrationError)?;
                 }

@@ -213,16 +213,14 @@ async fn state_advance_timer<T: BeaconChainTypes>(
         let log = log.clone();
         let beacon_chain = beacon_chain.clone();
         let next_slot = current_slot + 1;
-        executor.spawn_blocking(
-            move || {
+        executor.spawn(
+            async move {
                 // Don't run fork choice during sync.
-                if beacon_chain.best_slot().map_or(true, |head_slot| {
-                    head_slot + MAX_FORK_CHOICE_DISTANCE < current_slot
-                }) {
+                if beacon_chain.best_slot() + MAX_FORK_CHOICE_DISTANCE < current_slot {
                     return;
                 }
 
-                if let Err(e) = beacon_chain.fork_choice_at_slot(next_slot) {
+                if let Err(e) = beacon_chain.recompute_head_at_slot(next_slot).await {
                     warn!(
                         log,
                         "Error updating fork choice for next slot";
@@ -231,17 +229,24 @@ async fn state_advance_timer<T: BeaconChainTypes>(
                     );
                 }
 
-                // Signal block proposal for the next slot (if it happens to be waiting).
-                if let Some(tx) = &beacon_chain.fork_choice_signal_tx {
-                    if let Err(e) = tx.notify_fork_choice_complete(next_slot) {
-                        warn!(
-                            log,
-                            "Error signalling fork choice waiter";
-                            "error" => ?e,
-                            "slot" => next_slot,
-                        );
-                    }
-                }
+                // Use a blocking task to avoid blocking the core executor whilst waiting for locks
+                // in `ForkChoiceSignalTx`.
+                beacon_chain.task_executor.clone().spawn_blocking(
+                    move || {
+                        // Signal block proposal for the next slot (if it happens to be waiting).
+                        if let Some(tx) = &beacon_chain.fork_choice_signal_tx {
+                            if let Err(e) = tx.notify_fork_choice_complete(next_slot) {
+                                warn!(
+                                    log,
+                                    "Error signalling fork choice waiter";
+                                    "error" => ?e,
+                                    "slot" => next_slot,
+                                );
+                            }
+                        }
+                    },
+                    "fork_choice_advance_signal_tx",
+                );
             },
             "fork_choice_advance",
         );
@@ -264,7 +269,7 @@ fn advance_head<T: BeaconChainTypes>(
     //
     // Fork-choice is not run *before* this function to avoid unnecessary calls whilst syncing.
     {
-        let head_slot = beacon_chain.head_info()?.slot;
+        let head_slot = beacon_chain.best_slot();
 
         // Don't run this when syncing or if lagging too far behind.
         if head_slot + MAX_ADVANCE_DISTANCE < current_slot {
@@ -275,7 +280,7 @@ fn advance_head<T: BeaconChainTypes>(
         }
     }
 
-    let head_root = beacon_chain.head_info()?.block_root;
+    let head_root = beacon_chain.head_beacon_block_root();
 
     let (head_slot, head_state_root, mut state) = match beacon_chain
         .snapshot_cache

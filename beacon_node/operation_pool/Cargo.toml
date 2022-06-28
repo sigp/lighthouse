@@ -21,3 +21,4 @@ store = { path = "../store" }
 
 [dev-dependencies]
 beacon_chain =  { path = "../beacon_chain" }
+tokio = { version = "1.14.0", features = ["rt-multi-thread"] }
