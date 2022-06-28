@@ -138,7 +138,6 @@ pub fn compute_block_rewards<T: BeaconChainTypes>(
                     ))
                 })?;
 
-            // FIXME(sproul): use state root of parent block, or maybe zeroes :O
             let block_replayer = BlockReplayer::new(parent_state, &chain.spec)
                 .no_signature_verification()
                 .state_root_iter([Ok((parent_block.state_root(), parent_block.slot()))].into_iter())
