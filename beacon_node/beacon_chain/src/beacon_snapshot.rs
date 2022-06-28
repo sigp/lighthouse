@@ -1,4 +1,5 @@
 use serde_derive::Serialize;
+use std::sync::Arc;
 use types::{
     beacon_state::CloneConfig, BeaconState, EthSpec, ExecPayload, FullPayload, Hash256,
     SignedBeaconBlock,
@@ -8,7 +9,7 @@ use types::{
 /// head, justified head and finalized head.
 #[derive(Clone, Serialize, PartialEq, Debug)]
 pub struct BeaconSnapshot<E: EthSpec, Payload: ExecPayload<E> = FullPayload<E>> {
-    pub beacon_block: SignedBeaconBlock<E, Payload>,
+    pub beacon_block: Arc<SignedBeaconBlock<E, Payload>>,
     pub beacon_block_root: Hash256,
     pub beacon_state: BeaconState<E>,
 }
@@ -16,7 +17,7 @@ pub struct BeaconSnapshot<E: EthSpec, Payload: ExecPayload<E> = FullPayload<E>> 
 impl<E: EthSpec, Payload: ExecPayload<E>> BeaconSnapshot<E, Payload> {
     /// Create a new checkpoint.
     pub fn new(
-        beacon_block: SignedBeaconBlock<E, Payload>,
+        beacon_block: Arc<SignedBeaconBlock<E, Payload>>,
         beacon_block_root: Hash256,
         beacon_state: BeaconState<E>,
     ) -> Self {
@@ -39,7 +40,7 @@ impl<E: EthSpec, Payload: ExecPayload<E>> BeaconSnapshot<E, Payload> {
     /// Update all fields of the checkpoint.
     pub fn update(
         &mut self,
-        beacon_block: SignedBeaconBlock<E, Payload>,
+        beacon_block: Arc<SignedBeaconBlock<E, Payload>>,
         beacon_block_root: Hash256,
         beacon_state: BeaconState<E>,
     ) {

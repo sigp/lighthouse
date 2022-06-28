@@ -12,7 +12,7 @@ pub fn process_justification_and_finalization<T: EthSpec>(
     _spec: &ChainSpec,
 ) -> Result<JustifiableBeaconState<T>, Error> {
     if state.current_epoch() <= T::genesis_epoch().safe_add(1)? {
-        return Ok(JustifiableBeaconState::from(state));
+        return Ok(JustifiableBeaconState::from(&*state));
     }
 
     weigh_justification_and_finalization(

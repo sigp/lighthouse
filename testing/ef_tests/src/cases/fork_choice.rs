@@ -7,14 +7,16 @@ use beacon_chain::{
         obtain_indexed_attestation_and_committees_per_slot, VerifiedAttestation,
     },
     test_utils::{BeaconChainHarness, EphemeralHarnessType},
-    BeaconChainTypes, HeadInfo,
+    BeaconChainTypes, CachedHead,
 };
 use serde_derive::Deserialize;
 use ssz_derive::Decode;
 use state_processing::state_advance::complete_state_advance;
+use std::future::Future;
+use std::sync::Arc;
 use std::time::Duration;
 use types::{
-    Attestation, AttesterSlashing, BeaconBlock, BeaconState, Checkpoint, Epoch, EthSpec,
+    Attestation, AttesterSlashing, BeaconBlock, BeaconState, Checkpoint, EthSpec,
     ExecutionBlockHash, ForkName, Hash256, IndexedAttestation, SignedBeaconBlock, Slot, Uint256,
 };
 
@@ -72,15 +74,13 @@ pub struct ForkChoiceTest<E: EthSpec> {
     pub description: String,
     pub anchor_state: BeaconState<E>,
     pub anchor_block: BeaconBlock<E>,
+    #[allow(clippy::type_complexity)]
     pub steps: Vec<Step<SignedBeaconBlock<E>, Attestation<E>, PowBlock, AttesterSlashing<E>>>,
 }
 
-/// Spec for fork choice tests, with proposer boosting enabled.
-///
-/// This function can be deleted once `ChainSpec::mainnet` enables proposer boosting by default.
+/// Spec to be used for fork choice tests.
 pub fn fork_choice_spec<E: EthSpec>(fork_name: ForkName) -> ChainSpec {
-    let mut spec = testing_spec::<E>(fork_name);
-    spec
+    testing_spec::<E>(fork_name)
 }
 
 impl<E: EthSpec> LoadCase for ForkChoiceTest<E> {
@@ -311,19 +311,20 @@ impl<E: EthSpec> Tester<E> {
         Ok(self.spec.genesis_slot + slots_since_genesis)
     }
 
-    fn find_head(&self) -> Result<HeadInfo, Error> {
+    fn block_on_dangerous<F: Future>(&self, future: F) -> Result<F::Output, Error> {
         self.harness
             .chain
-            .fork_choice()
-            .map_err(|e| Error::InternalError(format!("failed to find head with {:?}", e)))?;
-        self.harness
-            .chain
-            .head_info()
-            .map_err(|e| Error::InternalError(format!("failed to read head with {:?}", e)))
+            .task_executor
+            .clone()
+            .block_on_dangerous(future, "ef_tests_block_on")
+            .ok_or_else(|| Error::InternalError("runtime shutdown".into()))
     }
 
-    fn genesis_epoch(&self) -> Epoch {
-        self.spec.genesis_slot.epoch(E::slots_per_epoch())
+    fn find_head(&self) -> Result<CachedHead<E>, Error> {
+        let chain = self.harness.chain.clone();
+        self.block_on_dangerous(chain.recompute_head_at_current_slot())?
+            .map_err(|e| Error::InternalError(format!("failed to find head with {:?}", e)))?;
+        Ok(self.harness.chain.canonical_head.cached_head())
     }
 
     pub fn set_tick(&self, tick: u64) {
@@ -338,15 +339,16 @@ impl<E: EthSpec> Tester<E> {
 
         self.harness
             .chain
-            .fork_choice
-            .write()
+            .canonical_head
+            .fork_choice_write_lock()
             .update_time(slot, &self.harness.spec)
             .unwrap();
     }
 
     pub fn process_block(&self, block: SignedBeaconBlock<E>, valid: bool) -> Result<(), Error> {
-        let result = self.harness.chain.process_block(block.clone());
         let block_root = block.canonical_root();
+        let block = Arc::new(block);
+        let result = self.block_on_dangerous(self.harness.chain.process_block(block.clone()))?;
         if result.is_ok() != valid {
             return Err(Error::DidntFail(format!(
                 "block with root {} was valid={} whilst test expects valid={}. result: {:?}",
@@ -391,16 +393,20 @@ impl<E: EthSpec> Tester<E> {
                     .seconds_from_current_slot_start(self.spec.seconds_per_slot)
                     .unwrap();
 
-                let (block, _) = block.deconstruct();
-                let result = self.harness.chain.fork_choice.write().on_block(
-                    self.harness.chain.slot().unwrap(),
-                    &block,
-                    block_root,
-                    block_delay,
-                    &mut state,
-                    PayloadVerificationStatus::Irrelevant,
-                    &self.harness.chain.spec,
-                );
+                let result = self
+                    .harness
+                    .chain
+                    .canonical_head
+                    .fork_choice_write_lock()
+                    .on_block(
+                        self.harness.chain.slot().unwrap(),
+                        block.message(),
+                        block_root,
+                        block_delay,
+                        &mut state,
+                        PayloadVerificationStatus::Irrelevant,
+                        &self.harness.chain.spec,
+                    );
 
                 if result.is_ok() {
                     return Err(Error::DidntFail(format!(
@@ -448,10 +454,11 @@ impl<E: EthSpec> Tester<E> {
     }
 
     pub fn check_head(&self, expected_head: Head) -> Result<(), Error> {
-        let chain_head = self.find_head().map(|head| Head {
-            slot: head.slot,
-            root: head.block_root,
-        })?;
+        let head = self.find_head()?;
+        let chain_head = Head {
+            slot: head.head_slot(),
+            root: head.head_block_root(),
+        };
 
         check_equal("head", chain_head, expected_head)
     }
@@ -470,15 +477,15 @@ impl<E: EthSpec> Tester<E> {
     }
 
     pub fn check_justified_checkpoint(&self, expected_checkpoint: Checkpoint) -> Result<(), Error> {
-        let head_checkpoint = self.find_head()?.current_justified_checkpoint;
-        let fc_checkpoint = self.harness.chain.fork_choice.read().justified_checkpoint();
+        let head_checkpoint = self.find_head()?.justified_checkpoint();
+        let fc_checkpoint = self
+            .harness
+            .chain
+            .canonical_head
+            .fork_choice_read_lock()
+            .justified_checkpoint();
 
-        assert_checkpoints_eq(
-            "justified_checkpoint",
-            self.genesis_epoch(),
-            head_checkpoint,
-            fc_checkpoint,
-        );
+        assert_checkpoints_eq("justified_checkpoint", head_checkpoint, fc_checkpoint);
 
         check_equal("justified_checkpoint", fc_checkpoint, expected_checkpoint)
     }
@@ -487,15 +494,15 @@ impl<E: EthSpec> Tester<E> {
         &self,
         expected_checkpoint_root: Hash256,
     ) -> Result<(), Error> {
-        let head_checkpoint = self.find_head()?.current_justified_checkpoint;
-        let fc_checkpoint = self.harness.chain.fork_choice.read().justified_checkpoint();
+        let head_checkpoint = self.find_head()?.justified_checkpoint();
+        let fc_checkpoint = self
+            .harness
+            .chain
+            .canonical_head
+            .fork_choice_read_lock()
+            .justified_checkpoint();
 
-        assert_checkpoints_eq(
-            "justified_checkpoint_root",
-            self.genesis_epoch(),
-            head_checkpoint,
-            fc_checkpoint,
-        );
+        assert_checkpoints_eq("justified_checkpoint_root", head_checkpoint, fc_checkpoint);
 
         check_equal(
             "justified_checkpoint_root",
@@ -505,15 +512,15 @@ impl<E: EthSpec> Tester<E> {
     }
 
     pub fn check_finalized_checkpoint(&self, expected_checkpoint: Checkpoint) -> Result<(), Error> {
-        let head_checkpoint = self.find_head()?.finalized_checkpoint;
-        let fc_checkpoint = self.harness.chain.fork_choice.read().finalized_checkpoint();
+        let head_checkpoint = self.find_head()?.finalized_checkpoint();
+        let fc_checkpoint = self
+            .harness
+            .chain
+            .canonical_head
+            .fork_choice_read_lock()
+            .finalized_checkpoint();
 
-        assert_checkpoints_eq(
-            "finalized_checkpoint",
-            self.genesis_epoch(),
-            head_checkpoint,
-            fc_checkpoint,
-        );
+        assert_checkpoints_eq("finalized_checkpoint", head_checkpoint, fc_checkpoint);
 
         check_equal("finalized_checkpoint", fc_checkpoint, expected_checkpoint)
     }
@@ -525,8 +532,8 @@ impl<E: EthSpec> Tester<E> {
         let best_justified_checkpoint = self
             .harness
             .chain
-            .fork_choice
-            .read()
+            .canonical_head
+            .fork_choice_read_lock()
             .best_justified_checkpoint();
         check_equal(
             "best_justified_checkpoint",
@@ -542,8 +549,8 @@ impl<E: EthSpec> Tester<E> {
         let u_justified_checkpoint = self
             .harness
             .chain
-            .fork_choice
-            .read()
+            .canonical_head
+            .fork_choice_read_lock()
             .unrealized_justified_checkpoint();
         check_equal(
             "u_justified_checkpoint",
@@ -559,8 +566,8 @@ impl<E: EthSpec> Tester<E> {
         let u_finalized_checkpoint = self
             .harness
             .chain
-            .fork_choice
-            .read()
+            .canonical_head
+            .fork_choice_read_lock()
             .unrealized_finalized_checkpoint();
         check_equal(
             "u_finalized_checkpoint",
@@ -573,7 +580,12 @@ impl<E: EthSpec> Tester<E> {
         &self,
         expected_proposer_boost_root: Hash256,
     ) -> Result<(), Error> {
-        let proposer_boost_root = self.harness.chain.fork_choice.read().proposer_boost_root();
+        let proposer_boost_root = self
+            .harness
+            .chain
+            .canonical_head
+            .fork_choice_read_lock()
+            .proposer_boost_root();
         check_equal(
             "proposer_boost_root",
             proposer_boost_root,
@@ -588,20 +600,8 @@ impl<E: EthSpec> Tester<E> {
 /// This function is necessary due to a quirk documented in this issue:
 ///
 /// https://github.com/ethereum/consensus-specs/issues/2566
-fn assert_checkpoints_eq(name: &str, genesis_epoch: Epoch, head: Checkpoint, fc: Checkpoint) {
-    if fc.epoch == genesis_epoch {
-        assert_eq!(
-            head,
-            Checkpoint {
-                epoch: genesis_epoch,
-                root: Hash256::zero()
-            },
-            "{} (genesis)",
-            name
-        )
-    } else {
-        assert_eq!(head, fc, "{} (non-genesis)", name)
-    }
+fn assert_checkpoints_eq(name: &str, head: Checkpoint, fc: Checkpoint) {
+    assert_eq!(head, fc, "{}", name)
 }
 
 /// Convenience function to create `Error` messages.

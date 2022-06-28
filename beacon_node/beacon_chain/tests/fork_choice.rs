@@ -7,8 +7,8 @@ use types::*;
 
 const VALIDATOR_COUNT: usize = 24;
 
-#[test]
-fn chooses_highest_justified_checkpoint() {
+#[tokio::test]
+async fn chooses_highest_justified_checkpoint() {
     let slots_per_epoch = MainnetEthSpec::slots_per_epoch();
     let mut spec = MainnetEthSpec::default_spec();
     spec.altair_fork_epoch = Some(Epoch::new(0));
@@ -21,7 +21,7 @@ fn chooses_highest_justified_checkpoint() {
 
     harness.advance_slot();
 
-    let head = harness.chain.head().unwrap();
+    let head = harness.chain.head_snapshot();
     assert_eq!(head.beacon_block.slot(), 0, "the chain head is at genesis");
     assert_eq!(
         head.beacon_state.finalized_checkpoint().epoch,
@@ -30,13 +30,15 @@ fn chooses_highest_justified_checkpoint() {
     );
 
     let slot_a = Slot::from(slots_per_epoch * 4 + slots_per_epoch - 1);
-    harness.extend_chain(
-        slot_a.as_usize(),
-        BlockStrategy::OnCanonicalHead,
-        AttestationStrategy::AllValidators,
-    );
+    harness
+        .extend_chain(
+            slot_a.as_usize(),
+            BlockStrategy::OnCanonicalHead,
+            AttestationStrategy::AllValidators,
+        )
+        .await;
 
-    let head = harness.chain.head().unwrap();
+    let head = harness.chain.head_snapshot();
     assert_eq!(head.beacon_block.slot(), slot_a);
     assert_eq!(
         head.beacon_block.slot() % slots_per_epoch,
@@ -67,7 +69,7 @@ fn chooses_highest_justified_checkpoint() {
         .get_state(&fork_parent_block.state_root(), Some(fork_parent_slot))
         .unwrap()
         .unwrap();
-    let (fork_block, fork_state) = harness.make_block(fork_parent_state, slot_a + 1);
+    let (fork_block, fork_state) = harness.make_block(fork_parent_state, slot_a + 1).await;
 
     assert_eq!(
         fork_state.current_justified_checkpoint().epoch,
@@ -85,12 +87,13 @@ fn chooses_highest_justified_checkpoint() {
         fork_block_root,
         harness
             .process_block(fork_block.slot(), fork_block)
+            .await
             .unwrap()
             .into()
     );
 
     {
-        let fork_choice = harness.chain.fork_choice.read();
+        let fork_choice = harness.chain.canonical_head.fork_choice_read_lock();
         let proto_array = fork_choice.proto_array();
         assert_eq!(
             proto_array.get_weight(&fork_block_root).unwrap(),
@@ -103,15 +106,15 @@ fn chooses_highest_justified_checkpoint() {
         );
     }
 
-    let head = harness.chain.head().unwrap();
+    let head = harness.chain.head_snapshot();
     assert_eq!(
         head.beacon_block_root, slot_a_root,
         "the fork block has not become the head"
     );
 }
 
-#[test]
-fn chooses_highest_justified_checkpoint_n_plus_2() {
+#[tokio::test]
+async fn chooses_highest_justified_checkpoint_n_plus_2() {
     let slots_per_epoch = MainnetEthSpec::slots_per_epoch();
     let mut spec = MainnetEthSpec::default_spec();
     spec.altair_fork_epoch = Some(Epoch::new(0));
@@ -124,7 +127,7 @@ fn chooses_highest_justified_checkpoint_n_plus_2() {
 
     harness.advance_slot();
 
-    let head = harness.chain.head().unwrap();
+    let head = harness.chain.head_snapshot();
     assert_eq!(head.beacon_block.slot(), 0, "the chain head is at genesis");
     assert_eq!(
         head.beacon_state.finalized_checkpoint().epoch,
@@ -135,27 +138,34 @@ fn chooses_highest_justified_checkpoint_n_plus_2() {
     let slot_a = Slot::from(slots_per_epoch * 4 + slots_per_epoch - 1);
 
     // Extend the chain to the slot before `slot_a`
-    harness.extend_chain(
-        slot_a.as_usize() - 1,
-        BlockStrategy::OnCanonicalHead,
-        AttestationStrategy::AllValidators,
-    );
+    harness
+        .extend_chain(
+            slot_a.as_usize() - 1,
+            BlockStrategy::OnCanonicalHead,
+            AttestationStrategy::AllValidators,
+        )
+        .await;
 
     // Make slashings to include in the block at `slot_a`.
-    let head = harness.chain.head().unwrap();
+    let head = harness.chain.head_snapshot();
     let mut slashings = vec![];
     for i in 0..15 {
         slashings.push(harness.make_proposer_slashing(i as u64));
     }
-    let (block, _pre_state) =
-        harness.make_block_with_modifier(head.beacon_state, slot_a, |block| {
-            block.body_altair_mut().unwrap().proposer_slashings =
-                VariableList::<ProposerSlashing, U16>::new(slashings).unwrap();
-        });
+    let (block, _pre_state) = harness
+        .make_block_with_modifier(
+            head.beacon_state.clone_with_only_committee_caches(),
+            slot_a,
+            |block| {
+                block.body_altair_mut().unwrap().proposer_slashings =
+                    VariableList::<ProposerSlashing, U16>::new(slashings).unwrap();
+            },
+        )
+        .await;
 
     // Process the block containing the slashings at the slot before the epoch transition and attest to it.
-    harness.process_block(slot_a, block).unwrap();
-    let head = harness.chain.head().unwrap();
+    harness.process_block(slot_a, block).await.unwrap();
+    let head = harness.chain.head_snapshot();
     let vals = (15..VALIDATOR_COUNT).collect::<Vec<usize>>();
     harness.attest_block(
         &head.beacon_state,
@@ -201,7 +211,9 @@ fn chooses_highest_justified_checkpoint_n_plus_2() {
         .get_state(&fork_parent_block.state_root(), Some(fork_parent_slot))
         .unwrap()
         .unwrap();
-    let (fork_block, fork_state) = harness.make_block(fork_parent_state, slot_a + slots_per_epoch);
+    let (fork_block, fork_state) = harness
+        .make_block(fork_parent_state, slot_a + slots_per_epoch)
+        .await;
 
     assert_eq!(
         fork_state.current_justified_checkpoint().epoch,
@@ -219,12 +231,13 @@ fn chooses_highest_justified_checkpoint_n_plus_2() {
         fork_block_root,
         harness
             .process_block(fork_block.slot(), fork_block)
+            .await
             .unwrap()
             .into()
     );
 
     {
-        let fork_choice = harness.chain.fork_choice.read();
+        let fork_choice = harness.chain.canonical_head.fork_choice_read_lock();
         let proto_array = fork_choice.proto_array();
         assert_eq!(
             proto_array.get_weight(&fork_block_root).unwrap(),
@@ -237,7 +250,7 @@ fn chooses_highest_justified_checkpoint_n_plus_2() {
         );
     }
 
-    let head = harness.chain.head().unwrap();
+    let head = harness.chain.head_snapshot();
     assert_eq!(
         head.beacon_block_root, slot_a_root,
         "the fork block has not become the head"

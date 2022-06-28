@@ -7,7 +7,7 @@ use ssz_derive::{Decode, Encode};
 use std::collections::{HashMap, HashSet};
 use types::{
     AttestationShufflingId, ChainSpec, Checkpoint, Epoch, EthSpec, ExecutionBlockHash, Hash256,
-    MainnetEthSpec, Slot,
+    Slot,
 };
 
 // Define a "legacy" implementation of `Option<usize>` which uses four bytes for encoding the union
@@ -16,6 +16,7 @@ four_byte_option_impl!(four_byte_option_usize, usize);
 four_byte_option_impl!(four_byte_option_checkpoint, Checkpoint);
 
 /// Defines an operation which may invalidate the `execution_status` of some nodes.
+#[derive(Clone)]
 pub enum InvalidationOperation {
     /// Invalidate only `block_root` and it's descendants. Don't invalidate any ancestors.
     InvalidateOne { block_root: Hash256 },
@@ -143,6 +144,7 @@ impl ProtoArray {
     /// - Compare the current node with the parents best-child, updating it if the current node
     /// should become the best child.
     /// - If required, update the parents best-descendant with the current node or its best-descendant.
+    #[allow(clippy::too_many_arguments)]
     pub fn apply_score_changes<E: EthSpec>(
         &mut self,
         mut deltas: Vec<i64>,

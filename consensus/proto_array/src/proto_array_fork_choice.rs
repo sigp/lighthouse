@@ -536,38 +536,44 @@ mod test_compute_deltas {
 
         // Add block that is a finalized descendant.
         fc.proto_array
-            .on_block::<MainnetEthSpec>(Block {
-                slot: genesis_slot + 1,
-                root: finalized_desc,
-                parent_root: Some(finalized_root),
-                state_root,
-                target_root: finalized_root,
-                current_epoch_shuffling_id: junk_shuffling_id.clone(),
-                next_epoch_shuffling_id: junk_shuffling_id.clone(),
-                justified_checkpoint: genesis_checkpoint,
-                finalized_checkpoint: genesis_checkpoint,
-                execution_status,
-                unrealized_justified_checkpoint: Some(genesis_checkpoint),
-                unrealized_finalized_checkpoint: Some(genesis_checkpoint),
-            })
+            .on_block::<MainnetEthSpec>(
+                Block {
+                    slot: genesis_slot + 1,
+                    root: finalized_desc,
+                    parent_root: Some(finalized_root),
+                    state_root,
+                    target_root: finalized_root,
+                    current_epoch_shuffling_id: junk_shuffling_id.clone(),
+                    next_epoch_shuffling_id: junk_shuffling_id.clone(),
+                    justified_checkpoint: genesis_checkpoint,
+                    finalized_checkpoint: genesis_checkpoint,
+                    execution_status,
+                    unrealized_justified_checkpoint: Some(genesis_checkpoint),
+                    unrealized_finalized_checkpoint: Some(genesis_checkpoint),
+                },
+                genesis_slot + 1,
+            )
             .unwrap();
 
         // Add block that is *not* a finalized descendant.
         fc.proto_array
-            .on_block::<MainnetEthSpec>(Block {
-                slot: genesis_slot + 1,
-                root: not_finalized_desc,
-                parent_root: None,
-                state_root,
-                target_root: finalized_root,
-                current_epoch_shuffling_id: junk_shuffling_id.clone(),
-                next_epoch_shuffling_id: junk_shuffling_id,
-                justified_checkpoint: genesis_checkpoint,
-                finalized_checkpoint: genesis_checkpoint,
-                execution_status,
-                unrealized_justified_checkpoint: None,
-                unrealized_finalized_checkpoint: None,
-            })
+            .on_block::<MainnetEthSpec>(
+                Block {
+                    slot: genesis_slot + 1,
+                    root: not_finalized_desc,
+                    parent_root: None,
+                    state_root,
+                    target_root: finalized_root,
+                    current_epoch_shuffling_id: junk_shuffling_id.clone(),
+                    next_epoch_shuffling_id: junk_shuffling_id,
+                    justified_checkpoint: genesis_checkpoint,
+                    finalized_checkpoint: genesis_checkpoint,
+                    execution_status,
+                    unrealized_justified_checkpoint: None,
+                    unrealized_finalized_checkpoint: None,
+                },
+                genesis_slot + 1,
+            )
             .unwrap();
 
         assert!(!fc.is_descendant(unknown, unknown));

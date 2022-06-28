@@ -8,8 +8,8 @@ pub struct JustifiableBeaconState<E: EthSpec> {
     pub finalized_checkpoint: Checkpoint,
 }
 
-impl<E: EthSpec> From<&mut BeaconState<E>> for JustifiableBeaconState<E> {
-    fn from(state: &mut BeaconState<E>) -> Self {
+impl<E: EthSpec> From<&BeaconState<E>> for JustifiableBeaconState<E> {
+    fn from(state: &BeaconState<E>) -> Self {
         Self {
             current_justified_checkpoint: state.current_justified_checkpoint(),
             previous_justified_checkpoint: state.previous_justified_checkpoint(),

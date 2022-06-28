@@ -7,6 +7,7 @@ use state_processing::{
 };
 use std::borrow::Cow;
 use std::iter;
+use std::sync::Arc;
 use std::time::Duration;
 use store::{chunked_vector::BlockRoots, AnchorInfo, ChunkWriter, KeyValueStore};
 use types::{Hash256, SignedBlindedBeaconBlock, Slot};
@@ -58,7 +59,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// Return the number of blocks successfully imported.
     pub fn import_historical_block_batch(
         &self,
-        blocks: Vec<SignedBlindedBeaconBlock<T::EthSpec>>,
+        blocks: Vec<Arc<SignedBlindedBeaconBlock<T::EthSpec>>>,
     ) -> Result<usize, Error> {
         let anchor_info = self
             .store

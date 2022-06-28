@@ -20,7 +20,6 @@ use slot_clock::SlotClock;
 use state_processing::per_slot_processing;
 use std::convert::TryInto;
 use std::sync::Arc;
-use task_executor::test_utils::TestRuntime;
 use tokio::sync::{mpsc, oneshot};
 use tokio::time::Duration;
 use tree_hash::TreeHash;
@@ -50,6 +49,7 @@ const SKIPPED_SLOTS: &[u64] = &[
 ];
 
 struct ApiTester {
+    harness: Arc<BeaconChainHarness<EphemeralHarnessType<E>>>,
     chain: Arc<BeaconChain<EphemeralHarnessType<E>>>,
     client: BeaconNodeHttpClient,
     next_block: SignedBeaconBlock<E>,
@@ -60,11 +60,9 @@ struct ApiTester {
     proposer_slashing: ProposerSlashing,
     voluntary_exit: SignedVoluntaryExit,
     _server_shutdown: oneshot::Sender<()>,
-    validator_keypairs: Vec<Keypair>,
     network_rx: mpsc::UnboundedReceiver<NetworkMessage<E>>,
     local_enr: Enr,
     external_peer_id: PeerId,
-    _runtime: TestRuntime,
 }
 
 impl ApiTester {
@@ -76,11 +74,13 @@ impl ApiTester {
     }
 
     pub async fn new_from_spec(spec: ChainSpec) -> Self {
-        let harness = BeaconChainHarness::builder(MainnetEthSpec)
-            .spec(spec.clone())
-            .deterministic_keypairs(VALIDATOR_COUNT)
-            .fresh_ephemeral_store()
-            .build();
+        let harness = Arc::new(
+            BeaconChainHarness::builder(MainnetEthSpec)
+                .spec(spec.clone())
+                .deterministic_keypairs(VALIDATOR_COUNT)
+                .fresh_ephemeral_store()
+                .build(),
+        );
 
         harness.advance_slot();
 
@@ -88,17 +88,19 @@ impl ApiTester {
             let slot = harness.chain.slot().unwrap().as_u64();
 
             if !SKIPPED_SLOTS.contains(&slot) {
-                harness.extend_chain(
-                    1,
-                    BlockStrategy::OnCanonicalHead,
-                    AttestationStrategy::AllValidators,
-                );
+                harness
+                    .extend_chain(
+                        1,
+                        BlockStrategy::OnCanonicalHead,
+                        AttestationStrategy::AllValidators,
+                    )
+                    .await;
             }
 
             harness.advance_slot();
         }
 
-        let head = harness.chain.head().unwrap();
+        let head = harness.chain.head_snapshot();
 
         assert_eq!(
             harness.chain.slot().unwrap(),
@@ -106,12 +108,14 @@ impl ApiTester {
             "precondition: current slot is one after head"
         );
 
-        let (next_block, _next_state) =
-            harness.make_block(head.beacon_state.clone(), harness.chain.slot().unwrap());
+        let (next_block, _next_state) = harness
+            .make_block(head.beacon_state.clone(), harness.chain.slot().unwrap())
+            .await;
 
         // `make_block` adds random graffiti, so this will produce an alternate block
-        let (reorg_block, _reorg_state) =
-            harness.make_block(head.beacon_state.clone(), harness.chain.slot().unwrap());
+        let (reorg_block, _reorg_state) = harness
+            .make_block(head.beacon_state.clone(), harness.chain.slot().unwrap())
+            .await;
 
         let head_state_root = head.beacon_state_root();
         let attestations = harness
@@ -162,15 +166,19 @@ impl ApiTester {
         let chain = harness.chain.clone();
 
         assert_eq!(
-            chain.head_info().unwrap().finalized_checkpoint.epoch,
+            chain
+                .canonical_head
+                .cached_head()
+                .finalized_checkpoint()
+                .epoch,
             2,
             "precondition: finality"
         );
         assert_eq!(
             chain
-                .head_info()
-                .unwrap()
-                .current_justified_checkpoint
+                .canonical_head
+                .cached_head()
+                .justified_checkpoint()
                 .epoch,
             3,
             "precondition: justification"
@@ -200,6 +208,7 @@ impl ApiTester {
         );
 
         Self {
+            harness,
             chain,
             client,
             next_block,
@@ -210,31 +219,33 @@ impl ApiTester {
             proposer_slashing,
             voluntary_exit,
             _server_shutdown: shutdown_tx,
-            validator_keypairs: harness.validator_keypairs,
             network_rx,
             local_enr,
             external_peer_id,
-            _runtime: harness.runtime,
         }
     }
 
     pub async fn new_from_genesis() -> Self {
-        let harness = BeaconChainHarness::builder(MainnetEthSpec)
-            .default_spec()
-            .deterministic_keypairs(VALIDATOR_COUNT)
-            .fresh_ephemeral_store()
-            .build();
+        let harness = Arc::new(
+            BeaconChainHarness::builder(MainnetEthSpec)
+                .default_spec()
+                .deterministic_keypairs(VALIDATOR_COUNT)
+                .fresh_ephemeral_store()
+                .build(),
+        );
 
         harness.advance_slot();
 
-        let head = harness.chain.head().unwrap();
+        let head = harness.chain.head_snapshot();
 
-        let (next_block, _next_state) =
-            harness.make_block(head.beacon_state.clone(), harness.chain.slot().unwrap());
+        let (next_block, _next_state) = harness
+            .make_block(head.beacon_state.clone(), harness.chain.slot().unwrap())
+            .await;
 
         // `make_block` adds random graffiti, so this will produce an alternate block
-        let (reorg_block, _reorg_state) =
-            harness.make_block(head.beacon_state.clone(), harness.chain.slot().unwrap());
+        let (reorg_block, _reorg_state) = harness
+            .make_block(head.beacon_state.clone(), harness.chain.slot().unwrap())
+            .await;
 
         let head_state_root = head.beacon_state_root();
         let attestations = harness
@@ -279,6 +290,7 @@ impl ApiTester {
         );
 
         Self {
+            harness,
             chain,
             client,
             next_block,
@@ -289,12 +301,14 @@ impl ApiTester {
             proposer_slashing,
             voluntary_exit,
             _server_shutdown: shutdown_tx,
-            validator_keypairs: harness.validator_keypairs,
             network_rx,
             local_enr,
             external_peer_id,
-            _runtime: harness.runtime,
         }
+    }
+
+    fn validator_keypairs(&self) -> &[Keypair] {
+        &self.harness.validator_keypairs
     }
 
     fn skip_slots(self, count: u64) -> Self {
@@ -321,7 +335,9 @@ impl ApiTester {
             StateId::Slot(Slot::from(SKIPPED_SLOTS[3])),
             StateId::Root(Hash256::zero()),
         ];
-        ids.push(StateId::Root(self.chain.head_info().unwrap().state_root));
+        ids.push(StateId::Root(
+            self.chain.canonical_head.cached_head().head_state_root(),
+        ));
         ids
     }
 
@@ -339,13 +355,20 @@ impl ApiTester {
             BlockId::Slot(Slot::from(SKIPPED_SLOTS[3])),
             BlockId::Root(Hash256::zero()),
         ];
-        ids.push(BlockId::Root(self.chain.head_info().unwrap().block_root));
+        ids.push(BlockId::Root(
+            self.chain.canonical_head.cached_head().head_block_root(),
+        ));
         ids
     }
 
     fn get_state(&self, state_id: StateId) -> Option<BeaconState<E>> {
         match state_id {
-            StateId::Head => Some(self.chain.head().unwrap().beacon_state),
+            StateId::Head => Some(
+                self.chain
+                    .head_snapshot()
+                    .beacon_state
+                    .clone_with_only_committee_caches(),
+            ),
             StateId::Genesis => self
                 .chain
                 .get_state(&self.chain.genesis_state_root, None)
@@ -353,9 +376,9 @@ impl ApiTester {
             StateId::Finalized => {
                 let finalized_slot = self
                     .chain
-                    .head_info()
-                    .unwrap()
-                    .finalized_checkpoint
+                    .canonical_head
+                    .cached_head()
+                    .finalized_checkpoint()
                     .epoch
                     .start_slot(E::slots_per_epoch());
 
@@ -370,9 +393,9 @@ impl ApiTester {
             StateId::Justified => {
                 let justified_slot = self
                     .chain
-                    .head_info()
-                    .unwrap()
-                    .current_justified_checkpoint
+                    .canonical_head
+                    .cached_head()
+                    .justified_checkpoint()
                     .epoch
                     .start_slot(E::slots_per_epoch());
 
@@ -396,7 +419,7 @@ impl ApiTester {
     pub async fn test_beacon_genesis(self) -> Self {
         let result = self.client.get_beacon_genesis().await.unwrap().data;
 
-        let state = self.chain.head().unwrap().beacon_state;
+        let state = &self.chain.head_snapshot().beacon_state;
         let expected = GenesisData {
             genesis_time: state.genesis_time(),
             genesis_validators_root: state.genesis_validators_root(),
@@ -418,14 +441,14 @@ impl ApiTester {
                 .map(|res| res.data.root);
 
             let expected = match state_id {
-                StateId::Head => Some(self.chain.head_info().unwrap().state_root),
+                StateId::Head => Some(self.chain.canonical_head.cached_head().head_state_root()),
                 StateId::Genesis => Some(self.chain.genesis_state_root),
                 StateId::Finalized => {
                     let finalized_slot = self
                         .chain
-                        .head_info()
-                        .unwrap()
-                        .finalized_checkpoint
+                        .canonical_head
+                        .cached_head()
+                        .finalized_checkpoint()
                         .epoch
                         .start_slot(E::slots_per_epoch());
 
@@ -434,9 +457,9 @@ impl ApiTester {
                 StateId::Justified => {
                     let justified_slot = self
                         .chain
-                        .head_info()
-                        .unwrap()
-                        .current_justified_checkpoint
+                        .canonical_head
+                        .cached_head()
+                        .justified_checkpoint()
                         .epoch
                         .start_slot(E::slots_per_epoch());
 
@@ -746,14 +769,20 @@ impl ApiTester {
 
     fn get_block_root(&self, block_id: BlockId) -> Option<Hash256> {
         match block_id {
-            BlockId::Head => Some(self.chain.head_info().unwrap().block_root),
+            BlockId::Head => Some(self.chain.canonical_head.cached_head().head_block_root()),
             BlockId::Genesis => Some(self.chain.genesis_block_root),
-            BlockId::Finalized => Some(self.chain.head_info().unwrap().finalized_checkpoint.root),
+            BlockId::Finalized => Some(
+                self.chain
+                    .canonical_head
+                    .cached_head()
+                    .finalized_checkpoint()
+                    .root,
+            ),
             BlockId::Justified => Some(
                 self.chain
-                    .head_info()
-                    .unwrap()
-                    .current_justified_checkpoint
+                    .canonical_head
+                    .cached_head()
+                    .justified_checkpoint()
                     .root,
             ),
             BlockId::Slot(slot) => self
@@ -1314,7 +1343,7 @@ impl ApiTester {
 
     pub async fn test_get_node_syncing(self) -> Self {
         let result = self.client.get_node_syncing().await.unwrap().data;
-        let head_slot = self.chain.head_info().unwrap().slot;
+        let head_slot = self.chain.canonical_head.cached_head().head_slot();
         let sync_distance = self.chain.slot().unwrap() - head_slot;
 
         let expected = SyncingData {
@@ -1528,7 +1557,7 @@ impl ApiTester {
     }
 
     fn validator_count(&self) -> usize {
-        self.chain.head().unwrap().beacon_state.validators().len()
+        self.chain.head_snapshot().beacon_state.validators().len()
     }
 
     fn interesting_validator_indices(&self) -> Vec<Vec<u64>> {
@@ -1613,7 +1642,7 @@ impl ApiTester {
                         WhenSlotSkipped::Prev,
                     )
                     .unwrap()
-                    .unwrap_or(self.chain.head_beacon_block_root().unwrap());
+                    .unwrap_or(self.chain.head_beacon_block_root());
 
                 assert_eq!(results.dependent_root, dependent_root);
 
@@ -1688,7 +1717,7 @@ impl ApiTester {
                     WhenSlotSkipped::Prev,
                 )
                 .unwrap()
-                .unwrap_or(self.chain.head_beacon_block_root().unwrap());
+                .unwrap_or(self.chain.head_beacon_block_root());
 
             // Presently, the beacon chain harness never runs the code that primes the proposer
             // cache. If this changes in the future then we'll need some smarter logic here, but
@@ -1816,7 +1845,7 @@ impl ApiTester {
                 WhenSlotSkipped::Prev,
             )
             .unwrap()
-            .unwrap_or(self.chain.head_beacon_block_root().unwrap());
+            .unwrap_or(self.chain.head_beacon_block_root());
 
         self.client
             .get_validator_duties_proposer(current_epoch)
@@ -1870,7 +1899,7 @@ impl ApiTester {
     }
 
     pub async fn test_block_production(self) -> Self {
-        let fork = self.chain.head_info().unwrap().fork;
+        let fork = self.chain.canonical_head.cached_head().head_fork();
         let genesis_validators_root = self.chain.genesis_validators_root;
 
         for _ in 0..E::slots_per_epoch() * 3 {
@@ -1890,7 +1919,7 @@ impl ApiTester {
             let proposer_pubkey = (&proposer_pubkey_bytes).try_into().unwrap();
 
             let sk = self
-                .validator_keypairs
+                .validator_keypairs()
                 .iter()
                 .find(|kp| kp.pk == proposer_pubkey)
                 .map(|kp| kp.sk.clone())
@@ -1918,7 +1947,7 @@ impl ApiTester {
 
             self.client.post_beacon_blocks(&signed_block).await.unwrap();
 
-            assert_eq!(self.chain.head_beacon_block().unwrap(), signed_block);
+            assert_eq!(self.chain.head_beacon_block().as_ref(), &signed_block);
 
             self.chain.slot_clock.set_slot(slot.as_u64() + 1);
         }
@@ -1949,7 +1978,7 @@ impl ApiTester {
     }
 
     pub async fn test_block_production_verify_randao_invalid(self) -> Self {
-        let fork = self.chain.head_info().unwrap().fork;
+        let fork = self.chain.canonical_head.cached_head().head_fork();
         let genesis_validators_root = self.chain.genesis_validators_root;
 
         for _ in 0..E::slots_per_epoch() {
@@ -1969,7 +1998,7 @@ impl ApiTester {
             let proposer_pubkey = (&proposer_pubkey_bytes).try_into().unwrap();
 
             let sk = self
-                .validator_keypairs
+                .validator_keypairs()
                 .iter()
                 .find(|kp| kp.pk == proposer_pubkey)
                 .map(|kp| kp.sk.clone())
@@ -2032,7 +2061,7 @@ impl ApiTester {
     }
 
     pub async fn test_get_validator_attestation_data(self) -> Self {
-        let mut state = self.chain.head_beacon_state().unwrap();
+        let mut state = self.chain.head_beacon_state_cloned();
         let slot = state.slot();
         state
             .build_committee_cache(RelativeEpoch::Current, &self.chain.spec)
@@ -2062,7 +2091,6 @@ impl ApiTester {
         let attestation = self
             .chain
             .head_beacon_block()
-            .unwrap()
             .message()
             .body()
             .attestations()[0]
@@ -2090,7 +2118,7 @@ impl ApiTester {
         let slot = self.chain.slot().unwrap();
         let epoch = self.chain.epoch().unwrap();
 
-        let mut head = self.chain.head().unwrap();
+        let mut head = self.chain.head_snapshot().as_ref().clone();
         while head.beacon_state.current_epoch() < epoch {
             per_slot_processing(&mut head.beacon_state, None, &self.chain.spec).unwrap();
         }
@@ -2106,7 +2134,7 @@ impl ApiTester {
             .client
             .post_validator_duties_attester(
                 epoch,
-                (0..self.validator_keypairs.len() as u64)
+                (0..self.validator_keypairs().len() as u64)
                     .collect::<Vec<u64>>()
                     .as_slice(),
             )
@@ -2115,7 +2143,7 @@ impl ApiTester {
             .data;
 
         let (i, kp, duty, proof) = self
-            .validator_keypairs
+            .validator_keypairs()
             .iter()
             .enumerate()
             .find_map(|(i, kp)| {
@@ -2348,7 +2376,7 @@ impl ApiTester {
 
     pub async fn test_post_lighthouse_liveness(self) -> Self {
         let epoch = self.chain.epoch().unwrap();
-        let head_state = self.chain.head_beacon_state().unwrap();
+        let head_state = self.chain.head_beacon_state_cloned();
         let indices = (0..head_state.validators().len())
             .map(|i| i as u64)
             .collect::<Vec<_>>();
@@ -2465,7 +2493,7 @@ impl ApiTester {
         let block_root = self.next_block.canonical_root();
 
         // current_duty_dependent_root = block root because this is the first slot of the epoch
-        let current_duty_dependent_root = self.chain.head_beacon_block_root().unwrap();
+        let current_duty_dependent_root = self.chain.head_beacon_block_root();
         let current_slot = self.chain.slot().unwrap();
         let next_slot = self.next_block.slot();
         let finalization_distance = E::slots_per_epoch() * 2;
@@ -2488,17 +2516,21 @@ impl ApiTester {
             epoch_transition: true,
         });
 
+        let finalized_block_root = self
+            .chain
+            .block_root_at_slot(next_slot - finalization_distance, WhenSlotSkipped::Prev)
+            .unwrap()
+            .unwrap();
+        let finalized_block = self
+            .chain
+            .get_blinded_block(&finalized_block_root)
+            .unwrap()
+            .unwrap();
+        let finalized_state_root = finalized_block.state_root();
+
         let expected_finalized = EventKind::FinalizedCheckpoint(SseFinalizedCheckpoint {
-            block: self
-                .chain
-                .block_root_at_slot(next_slot - finalization_distance, WhenSlotSkipped::Prev)
-                .unwrap()
-                .unwrap(),
-            state: self
-                .chain
-                .state_root_at_slot(next_slot - finalization_distance)
-                .unwrap()
-                .unwrap(),
+            block: finalized_block_root,
+            state: finalized_state_root,
             epoch: Epoch::new(3),
         });
 
@@ -2510,7 +2542,7 @@ impl ApiTester {
         let block_events = poll_events(&mut events_future, 3, Duration::from_millis(10000)).await;
         assert_eq!(
             block_events.as_slice(),
-            &[expected_block, expected_finalized, expected_head]
+            &[expected_block, expected_head, expected_finalized]
         );
 
         // Test a reorg event
