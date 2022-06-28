@@ -3061,7 +3061,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         .await
     }
 
-    /// Same as `produce_block` but allowing for configuration of RANDAO-verification.
+    /// Load a beacon state from the database for block production. This is a long-running process
+    /// that should not be performed in an `async` context.
     fn load_state_for_block_production<Payload: ExecPayload<T::EthSpec>>(
         self: &Arc<Self>,
         slot: Slot,
