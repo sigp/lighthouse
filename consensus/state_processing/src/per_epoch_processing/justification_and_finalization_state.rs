@@ -1,4 +1,3 @@
-use crate::per_epoch_processing::Error;
 use types::{BeaconState, BeaconStateError, BitVector, Checkpoint, Epoch, EthSpec, Hash256};
 
 #[must_use = "this value must be applied to a state or explicitly dropped"]
@@ -7,9 +6,9 @@ pub struct JustificationAndFinalizationState<T: EthSpec> {
      * Immutable fields.
      */
     previous_epoch: Epoch,
-    previous_epoch_target_root: Hash256,
+    previous_epoch_target_root: Result<Hash256, BeaconStateError>,
     current_epoch: Epoch,
-    current_epoch_target_root: Hash256,
+    current_epoch_target_root: Result<Hash256, BeaconStateError>,
     /*
      * Mutable fields.
      */
@@ -20,19 +19,19 @@ pub struct JustificationAndFinalizationState<T: EthSpec> {
 }
 
 impl<T: EthSpec> JustificationAndFinalizationState<T> {
-    pub fn new(state: &BeaconState<T>) -> Result<Self, Error> {
+    pub fn new(state: &BeaconState<T>) -> Self {
         let previous_epoch = state.previous_epoch();
         let current_epoch = state.current_epoch();
-        Ok(Self {
+        Self {
             previous_epoch,
-            previous_epoch_target_root: *state.get_block_root_at_epoch(previous_epoch)?,
+            previous_epoch_target_root: state.get_block_root_at_epoch(previous_epoch).copied(),
             current_epoch,
-            current_epoch_target_root: *state.get_block_root_at_epoch(current_epoch)?,
+            current_epoch_target_root: state.get_block_root_at_epoch(current_epoch).copied(),
             previous_justified_checkpoint: state.previous_justified_checkpoint(),
             current_justified_checkpoint: state.current_justified_checkpoint(),
             finalized_checkpoint: state.finalized_checkpoint(),
             justification_bits: state.justification_bits().clone(),
-        })
+        }
     }
 
     pub fn apply_changes_to_state(self, state: &mut BeaconState<T>) {
@@ -67,11 +66,11 @@ impl<T: EthSpec> JustificationAndFinalizationState<T> {
         self.current_epoch
     }
 
-    pub fn get_block_root_at_epoch(&self, epoch: Epoch) -> Result<&Hash256, BeaconStateError> {
+    pub fn get_block_root_at_epoch(&self, epoch: Epoch) -> Result<Hash256, BeaconStateError> {
         if epoch == self.previous_epoch {
-            Ok(&self.previous_epoch_target_root)
+            self.previous_epoch_target_root.clone()
         } else if epoch == self.current_epoch {
-            Ok(&self.current_epoch_target_root)
+            self.current_epoch_target_root.clone()
         } else {
             Err(BeaconStateError::SlotOutOfBounds)
         }
