@@ -1279,7 +1279,7 @@ impl<T: BeaconChainTypes> ExecutionPendingBlock<T> {
         if let Some(ref event_handler) = chain.event_handler {
             if event_handler.has_block_reward_subscribers() {
                 let block_reward =
-                    chain.compute_block_reward(block.message(), block_root, &state)?;
+                    chain.compute_block_reward(block.message(), block_root, &state, true)?;
                 event_handler.register(EventKind::BlockReward(block_reward));
             }
         }

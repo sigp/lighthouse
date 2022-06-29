@@ -413,7 +413,7 @@ dependencies = [
 
 [[package]]
 name = "beacon_node"
-version = "2.3.1"
+version = "2.3.2-rc.0"
 dependencies = [
  "beacon_chain",
  "clap",
@@ -570,7 +570,7 @@ dependencies = [
 
 [[package]]
 name = "boot_node"
-version = "2.3.1"
+version = "2.3.2-rc.0"
 dependencies = [
  "beacon_node",
  "clap",
@@ -840,6 +840,7 @@ dependencies = [
  "sensitive_url",
  "serde",
  "serde_derive",
+ "serde_yaml",
  "slasher",
  "slasher_service",
  "slog",
@@ -849,7 +850,6 @@ dependencies = [
  "time 0.3.9",
  "timer",
  "tokio",
- "toml",
  "types",
 ]
 
@@ -1626,6 +1626,7 @@ dependencies = [
  "eth2",
  "eth2_ssz",
  "eth2_ssz_derive",
+ "execution_layer",
  "fallback",
  "futures",
  "hex",
@@ -1637,12 +1638,12 @@ dependencies = [
  "sensitive_url",
  "serde",
  "serde_json",
+ "serde_yaml",
  "slog",
  "sloggers",
  "state_processing",
  "task_executor",
  "tokio",
- "toml",
  "tree_hash",
  "types",
  "web3",
@@ -2021,6 +2022,7 @@ dependencies = [
  "serde_json",
  "slog",
  "slot_clock",
+ "state_processing",
  "ssz-rs",
  "task_executor",
  "tempfile",
@@ -2654,6 +2656,7 @@ dependencies = [
  "lighthouse_network",
  "lighthouse_version",
  "logging",
+ "lru",
  "network",
  "parking_lot 0.12.1",
  "proto_array",
@@ -3021,7 +3024,7 @@ checksum = "830d08ce1d1d941e6b30645f1a0eb5643013d835ce3779a5fc208261dbe10f55"
 
 [[package]]
 name = "lcli"
-version = "2.3.1"
+version = "2.3.2-rc.0"
 dependencies = [
  "account_utils",
  "bls",
@@ -3556,7 +3559,7 @@ dependencies = [
 
 [[package]]
 name = "lighthouse"
-version = "2.3.1"
+version = "2.3.2-rc.0"
 dependencies = [
  "account_manager",
  "account_utils",
@@ -3569,6 +3572,7 @@ dependencies = [
  "directory",
  "env_logger 0.9.0",
  "environment",
+ "eth1",
  "eth2_hashing",
  "eth2_network_config",
  "futures",
@@ -5875,6 +5879,7 @@ dependencies = [
  "env_logger 0.9.0",
  "eth1",
  "eth1_test_rig",
+ "execution_layer",
  "futures",
  "node_test_rig",
  "parking_lot 0.12.1",

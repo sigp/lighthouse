@@ -4,7 +4,7 @@
 //! dir in the root of the `lighthouse` repo.
 #![cfg(test)]
 use environment::{Environment, EnvironmentBuilder};
-use eth1::{DEFAULT_CHAIN_ID, DEFAULT_NETWORK_ID};
+use eth1::{Eth1Endpoint, DEFAULT_CHAIN_ID};
 use eth1_test_rig::{DelayThenDeposit, GanacheEth1Instance};
 use genesis::{Eth1Config, Eth1GenesisService};
 use sensitive_url::SensitiveUrl;
@@ -29,7 +29,7 @@ fn basic() {
     let mut spec = env.eth2_config().spec.clone();
 
     env.runtime().block_on(async {
-        let eth1 = GanacheEth1Instance::new(DEFAULT_NETWORK_ID.into(), DEFAULT_CHAIN_ID.into())
+        let eth1 = GanacheEth1Instance::new(DEFAULT_CHAIN_ID.into())
             .await
             .expect("should start eth1 environment");
         let deposit_contract = &eth1.deposit_contract;
@@ -44,7 +44,10 @@ fn basic() {
 
         let service = Eth1GenesisService::new(
             Eth1Config {
-                endpoints: vec![SensitiveUrl::parse(eth1.endpoint().as_str()).unwrap()],
+                endpoints: Eth1Endpoint::NoAuth(vec![SensitiveUrl::parse(
+                    eth1.endpoint().as_str(),
+                )
+                .unwrap()]),
                 deposit_contract_address: deposit_contract.address(),
                 deposit_contract_deploy_block: now,
                 lowest_cached_block_number: now,

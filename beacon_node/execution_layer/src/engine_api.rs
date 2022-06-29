@@ -1,6 +1,8 @@
 use crate::engines::ForkChoiceState;
 use eth1::http::RpcError;
+use async_trait::async_trait;
 pub use ethers_core::types::Transaction;
+use http::deposit_methods::RpcError;
 pub use json_structures::TransitionConfigurationV1;
 use reqwest::StatusCode;
 use serde::{Deserialize, Serialize};
