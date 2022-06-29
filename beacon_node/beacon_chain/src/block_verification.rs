@@ -1401,9 +1401,13 @@ fn check_block_against_finalized_slot<T: BeaconChainTypes>(
     block_root: Hash256,
     chain: &BeaconChain<T>,
 ) -> Result<(), BlockError<T::EthSpec>> {
+    // The finalized checkpoint is being read from fork choice, rather than the cached head.
+    //
+    // Fork choice has the most up-to-date view of finalization and there's no point importing a
+    // block which conflicts with the fork-choice view of finalization.
     let finalized_slot = chain
         .canonical_head
-        .cached_head()
+        .fork_choice_read_lock()
         .finalized_checkpoint()
         .epoch
         .start_slot(T::EthSpec::slots_per_epoch());
