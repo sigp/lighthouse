@@ -791,6 +791,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         current_duty_dependent_root,
                         previous_duty_dependent_root,
                         epoch_transition: is_epoch_transition,
+                        execution_optimistic: new_head_proto_block.execution_status.is_optimistic(),
                     }));
                 }
                 (Err(e), _) | (_, Err(e)) => {
@@ -818,6 +819,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     new_head_block: new_snapshot.beacon_block_root,
                     new_head_state: new_snapshot.beacon_state_root(),
                     epoch: head_slot.epoch(T::EthSpec::slots_per_epoch()),
+                    execution_optimistic: new_head_proto_block.execution_status.is_optimistic(),
                 }));
             }
         }
@@ -877,6 +879,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     // specific state root at the first slot of the finalized epoch (which
                     // might be a skip slot).
                     state: finalized_proto_block.state_root,
+                    //FIXME(sean) - we'd never finalized an optimistic block would we?
+                    execution_optimistic: finalized_proto_block.execution_status.is_optimistic(),
                 }));
             }
         }
@@ -1301,6 +1305,7 @@ fn observe_head_block_delays<E: EthSpec, S: SlotClock>(
                 observed_delay: block_delays.observed,
                 imported_delay: block_delays.imported,
                 set_as_head_delay: block_delays.set_as_head,
+                execution_optimistic: head_block.execution_status.is_optimistic(),
             }));
         }
     }

@@ -332,7 +332,7 @@ pub fn get_execution_payload<
                     finalized_checkpoint,
                     proposer_index,
                     latest_execution_payload_header_block_hash,
-                    pubkey
+                    pubkey,
                 )
                 .await
             },
@@ -455,7 +455,7 @@ where
             finalized_block_hash.unwrap_or_else(ExecutionBlockHash::zero),
             proposer_index,
             pubkey,
-            state.slot(),
+            chain.slot().map_err(BlockProductionError::BeaconChain)?,
         )
         .await
         .map_err(BlockProductionError::GetPayloadFailed)?;

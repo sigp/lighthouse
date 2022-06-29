@@ -411,7 +411,7 @@ fn run_payload_builder_flag_test(flag: &str, builders: &str) {
             let config = config.execution_layer.as_ref().unwrap();
             // Only first provided endpoint is parsed as we don't support
             // redundancy.
-            assert_eq!(&config.builder_endpoints, &all_builders[..1]);
+            assert_eq!(config.builder_url, all_builders.get(0).cloned());
         });
 }
 

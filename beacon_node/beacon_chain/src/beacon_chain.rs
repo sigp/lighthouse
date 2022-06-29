@@ -3265,7 +3265,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     &state,
                     finalized_checkpoint,
                     proposer_index,
-                    pubkey_opt
+                    pubkey_opt,
                 )?;
                 Some(prepare_payload_handle)
             }

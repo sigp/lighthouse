@@ -55,10 +55,16 @@ pub fn proposer_duties<T: BeaconChainTypes>(
             .safe_add(1)
             .map_err(warp_utils::reject::arith_error)?
     {
-        let (proposers, dependent_root, _execution_status, _fork) =
+        let (proposers, dependent_root, execution_status, _fork) =
             compute_proposer_duties_from_head(request_epoch, chain)
                 .map_err(warp_utils::reject::beacon_chain_error)?;
-        convert_to_api_response(chain, request_epoch, dependent_root, execution_status.is_optimistic(), proposers)
+        convert_to_api_response(
+            chain,
+            request_epoch,
+            dependent_root,
+            execution_status.is_optimistic(),
+            proposers,
+        )
     } else if request_epoch
         > current_epoch
             .safe_add(1)
@@ -115,7 +121,7 @@ fn try_proposer_duties_from_cache<T: BeaconChainTypes>(
     };
 
     let execution_optimistic = chain
-        .is_optimistic_head(Some(&head))
+        .is_optimistic_head()
         .map_err(warp_utils::reject::beacon_chain_error)?;
 
     chain

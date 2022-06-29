@@ -167,7 +167,7 @@ impl BlockId {
     pub async fn full_block_and_execution_optimistic<T: BeaconChainTypes>(
         &self,
         chain: &BeaconChain<T>,
-    ) -> Result<(SignedBeaconBlock<T::EthSpec>, bool), warp::Rejection> {
+    ) -> Result<(Arc<SignedBeaconBlock<T::EthSpec>>, bool), warp::Rejection> {
         let block = self.full_block(chain).await?;
         let execution_optimistic = match self.0 {
             // Genesis block is inherently verified.
@@ -191,7 +191,7 @@ impl BlockId {
             // If the slot is supplied we cannot use `block`. Instead we compute the
             // head and use that to determine the status.
             CoreBlockId::Slot(_) => chain
-                .is_optimistic_head(None)
+                .is_optimistic_head()
                 .map_err(warp_utils::reject::beacon_chain_error)?,
             // If the root is explicitly given, compute its status directly.
             CoreBlockId::Root(_) => chain

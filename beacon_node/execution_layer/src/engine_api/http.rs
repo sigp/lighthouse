@@ -43,7 +43,6 @@ pub const ENGINE_EXCHANGE_TRANSITION_CONFIGURATION_V1: &str =
 pub const ENGINE_EXCHANGE_TRANSITION_CONFIGURATION_V1_TIMEOUT: Duration =
     Duration::from_millis(500);
 
-
 /// This error is returned during a `chainId` call by Geth.
 pub const EIP155_ERROR_STR: &str = "chain not synced beyond EIP-155 replay-protection fork block";
 

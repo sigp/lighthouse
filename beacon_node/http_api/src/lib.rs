@@ -20,11 +20,9 @@ mod validator_inclusion;
 mod version;
 
 use beacon_chain::{
-    attestation_verification::VerifiedAttestation,
-    observed_operations::ObservationOutcome,
-    validator_monitor::{get_block_delay_ms, timestamp_now},
-    AttestationError as AttnError, BeaconChain, BeaconChainError, BeaconChainTypes,
-    ProduceBlockVerification, WhenSlotSkipped,
+    attestation_verification::VerifiedAttestation, observed_operations::ObservationOutcome,
+    validator_monitor::timestamp_now, AttestationError as AttnError, BeaconChain, BeaconChainError,
+    BeaconChainTypes, ProduceBlockVerification, WhenSlotSkipped,
 };
 pub use block_id::BlockId;
 use eth2::types::{self as api_types, EndpointVersion, ValidatorId};
@@ -870,32 +868,34 @@ pub fn serve<T: BeaconChainTypes>(
         .and(chain_filter.clone())
         .and_then(
             |query: api_types::HeadersQuery, chain: Arc<BeaconChain<T>>| async move {
-                    let (root, block, uses_head) = match (query.slot, query.parent_root) {
-                        // No query parameters, return the canonical head block.
-                        (None, None) => {
-                            let block = chain.head_beacon_block();
-                            (block.canonical_root(), block.clone_as_blinded(),                                 HeaderComputationType::UsesHeadWithBlock,
-                             HeaderComputationType::UsesHeadWithBlock,
-                            HeaderComputationType::UsesHeadWithBlock)
-                        }
-                        // Only the parent root parameter, do a forwards-iterator lookup.
-                        (None, Some(parent_root)) => {
-                            let parent = BlockId::from_root(parent_root).blinded_block(&chain)?;
-                            let (root, _slot) = chain
-                                .forwards_iter_block_roots(parent.slot())
-                                .map_err(warp_utils::reject::beacon_chain_error)?
-                                // Ignore any skip-slots immediately following the parent.
-                                .find(|res| {
-                                    res.as_ref().map_or(false, |(root, _)| *root != parent_root)
-                                })
-                                .transpose()
-                                .map_err(warp_utils::reject::beacon_chain_error)?
-                                .ok_or_else(|| {
-                                    warp_utils::reject::custom_not_found(format!(
-                                        "child of block with root {}",
-                                        parent_root
-                                    ))
-                                })?;
+                let (root, block, uses_head) = match (query.slot, query.parent_root) {
+                    // No query parameters, return the canonical head block.
+                    (None, None) => {
+                        let block = chain.head_beacon_block();
+                        (
+                            block.canonical_root(),
+                            block,
+                            HeaderComputationType::UsesHeadWithBlock,
+                        )
+                    }
+                    // Only the parent root parameter, do a forwards-iterator lookup.
+                    (None, Some(parent_root)) => {
+                        let parent = BlockId::from_root(parent_root).full_block(&chain).await?;
+                        let (root, _slot) = chain
+                            .forwards_iter_block_roots(parent.slot())
+                            .map_err(warp_utils::reject::beacon_chain_error)?
+                            // Ignore any skip-slots immediately following the parent.
+                            .find(|res| {
+                                res.as_ref().map_or(false, |(root, _)| *root != parent_root)
+                            })
+                            .transpose()
+                            .map_err(warp_utils::reject::beacon_chain_error)?
+                            .ok_or_else(|| {
+                                warp_utils::reject::custom_not_found(format!(
+                                    "child of block with root {}",
+                                    parent_root
+                                ))
+                            })?;
 
                         BlockId::from_root(root)
                             .full_block(&chain)
@@ -933,7 +933,7 @@ pub fn serve<T: BeaconChainTypes>(
                     HeaderComputationType::UsesHeadWithBlock => {
                         chain.is_optimistic_head_block(&block)
                     }
-                    HeaderComputationType::UsesHeadNoBlock => chain.is_optimistic_head(None),
+                    HeaderComputationType::UsesHeadNoBlock => chain.is_optimistic_head(),
                 }
                 .map_err(warp_utils::reject::beacon_chain_error)?;
 
@@ -1010,8 +1010,9 @@ pub fn serve<T: BeaconChainTypes>(
              chain: Arc<BeaconChain<T>>,
              network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>,
              log: Logger| async move {
-                    publish_blocks::publish_block(block, chain, &network_tx, log).await
-
+                publish_blocks::publish_block(block, chain, &network_tx, log)
+                    .await
+                    .map(|()| warp::reply())
             },
         );
 
@@ -1029,13 +1030,14 @@ pub fn serve<T: BeaconChainTypes>(
         .and(network_tx_filter.clone())
         .and(log_filter.clone())
         .and_then(
-            |block: Arc<SignedBeaconBlock<T::EthSpec, BlindedPayload<_>>>,
+            |block: SignedBeaconBlock<T::EthSpec, BlindedPayload<_>>,
              chain: Arc<BeaconChain<T>>,
              network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>,
-             log: Logger|
-                async move {
-                    publish_blocks::publish_blinded_block(block, chain, &network_tx, log).await
-                }
+             log: Logger| async move {
+                publish_blocks::publish_blinded_block(block, chain, &network_tx, log)
+                    .await
+                    .map(|()| warp::reply())
+            },
         );
 
     let block_id_or_err = warp::path::param::<BlockId>().or_else(|_| async {
@@ -2440,7 +2442,7 @@ pub fn serve<T: BeaconChainTypes>(
                     // sure we have a local payload to fall back to in the event of the blinded block
                     // flow failing.
                     chain
-                        .prepare_beacon_proposer_async(
+                        .prepare_beacon_proposer(
                             chain
                                 .slot()
                                 .map_err(warp_utils::reject::beacon_chain_error)?,

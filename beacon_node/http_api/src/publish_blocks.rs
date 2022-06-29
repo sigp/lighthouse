@@ -18,8 +18,8 @@ use types::{
 use warp::Rejection;
 
 /// Handles a request from the HTTP API for full blocks.
-pub fn publish_block<T: BeaconChainTypes>(
-    block: SignedBeaconBlock<T::EthSpec>,
+pub async fn publish_block<T: BeaconChainTypes>(
+    block: Arc<SignedBeaconBlock<T::EthSpec>>,
     chain: Arc<BeaconChain<T>>,
     network_tx: &UnboundedSender<NetworkMessage<T::EthSpec>>,
     log: Logger,
@@ -28,16 +28,13 @@ pub fn publish_block<T: BeaconChainTypes>(
 
     // Send the block, regardless of whether or not it is valid. The API
     // specification is very clear that this is the desired behaviour.
-    crate::publish_pubsub_message(
-        network_tx,
-        PubsubMessage::BeaconBlock(Box::new(block.clone())),
-    )?;
+    crate::publish_pubsub_message(network_tx, PubsubMessage::BeaconBlock(block.clone()))?;
 
     // Determine the delay after the start of the slot, register it with metrics.
     let delay = get_block_delay_ms(seen_timestamp, block.message(), &chain.slot_clock);
     metrics::observe_duration(&metrics::HTTP_API_BLOCK_BROADCAST_DELAY_TIMES, delay);
 
-    match chain.process_block(block.clone()) {
+    match chain.process_block(block.clone()).await {
         Ok(root) => {
             info!(
                 log,
@@ -59,7 +56,8 @@ pub fn publish_block<T: BeaconChainTypes>(
             // Update the head since it's likely this block will become the new
             // head.
             chain
-                .fork_choice()
+                .recompute_head_at_current_slot()
+                .await
                 .map_err(warp_utils::reject::beacon_chain_error)?;
 
             // Perform some logging to inform users if their blocks are being produced
@@ -105,25 +103,24 @@ pub fn publish_block<T: BeaconChainTypes>(
 
 /// Handles a request from the HTTP API for blinded blocks. This converts blinded blocks into full
 /// blocks before publishing.
-pub fn publish_blinded_block<T: BeaconChainTypes>(
+pub async fn publish_blinded_block<T: BeaconChainTypes>(
     block: SignedBeaconBlock<T::EthSpec, BlindedPayload<T::EthSpec>>,
     chain: Arc<BeaconChain<T>>,
     network_tx: &UnboundedSender<NetworkMessage<T::EthSpec>>,
     log: Logger,
 ) -> Result<(), Rejection> {
-    let full_block = reconstruct_block(chain.clone(), block, log.clone())?;
-    publish_block::<T>(full_block, chain, network_tx, log)
+    let full_block = reconstruct_block(chain.clone(), block, log.clone()).await?;
+    publish_block::<T>(Arc::new(full_block), chain, network_tx, log).await
 }
 
 /// Deconstruct the given blinded block, and construct a full block. This attempts to use the
 /// execution layer's payload cache, and if that misses, attempts a blind block proposal to retrieve
 /// the full payload.
-fn reconstruct_block<T: BeaconChainTypes>(
+async fn reconstruct_block<T: BeaconChainTypes>(
     chain: Arc<BeaconChain<T>>,
     block: SignedBeaconBlock<T::EthSpec, BlindedPayload<T::EthSpec>>,
     log: Logger,
 ) -> Result<SignedBeaconBlock<T::EthSpec, FullPayload<T::EthSpec>>, Rejection> {
-    let block_clone = block.clone();
     let full_block = match block {
         SignedBeaconBlock::Base(b) => {
             let SignedBeaconBlockBase { message, signature } = b;
@@ -217,7 +214,7 @@ fn reconstruct_block<T: BeaconChainTypes>(
                 signature,
             })
         }
-        SignedBeaconBlock::Merge(b) => {
+        SignedBeaconBlock::Merge(ref b) => {
             let SignedBeaconBlockMerge { message, signature } = b;
 
             let BeaconBlockMerge {
@@ -271,59 +268,58 @@ fn reconstruct_block<T: BeaconChainTypes>(
             })?;
 
             // If the execution block hash is zero, use an empty payload.
-            let full_payload = if block_hash == ExecutionBlockHash::zero() {
+            let full_payload = if *block_hash == ExecutionBlockHash::zero() {
                 ExecutionPayload::default()
             // If we already have an execution payload with this transactions root cached, use it.
             } else if let Some(cached_payload) = el.get_payload_by_root(&payload_root) {
                 cached_payload
             // Otherwise, this means we are attempting a blind block proposal.
             } else {
-                el.block_on(|el| el.propose_blinded_beacon_block(&block_clone))
-                    .map_err(|e| {
-                        warp_utils::reject::custom_server_error(format!(
-                            "Blind block proposal failed: {:?}",
-                            e
-                        ))
-                    })?
+                el.propose_blinded_beacon_block(&block).await.map_err(|e| {
+                    warp_utils::reject::custom_server_error(format!(
+                        "Blind block proposal failed: {:?}",
+                        e
+                    ))
+                })?
             };
 
             SignedBeaconBlock::Merge(SignedBeaconBlockMerge {
                 message: BeaconBlockMerge {
-                    slot,
-                    proposer_index,
-                    parent_root,
-                    state_root,
+                    slot: *slot,
+                    proposer_index: *proposer_index,
+                    parent_root: *parent_root,
+                    state_root: *state_root,
                     body: BeaconBlockBodyMerge {
-                        randao_reveal,
-                        eth1_data,
-                        graffiti,
-                        proposer_slashings,
-                        attester_slashings,
-                        attestations,
-                        deposits,
-                        voluntary_exits,
-                        sync_aggregate,
+                        randao_reveal: randao_reveal.clone(),
+                        eth1_data: eth1_data.clone(),
+                        graffiti: *graffiti,
+                        proposer_slashings: proposer_slashings.clone(),
+                        attester_slashings: attester_slashings.clone(),
+                        attestations: attestations.clone(),
+                        deposits: deposits.clone(),
+                        voluntary_exits: voluntary_exits.clone(),
+                        sync_aggregate: sync_aggregate.clone(),
                         execution_payload: FullPayload {
                             execution_payload: ExecutionPayload {
-                                parent_hash,
-                                fee_recipient,
-                                state_root: payload_state_root,
-                                receipts_root,
-                                logs_bloom,
-                                prev_randao,
-                                block_number,
-                                gas_limit,
-                                gas_used,
-                                timestamp,
-                                extra_data,
-                                base_fee_per_gas,
-                                block_hash,
+                                parent_hash: *parent_hash,
+                                fee_recipient: *fee_recipient,
+                                state_root: *payload_state_root,
+                                receipts_root: *receipts_root,
+                                logs_bloom: logs_bloom.clone(),
+                                prev_randao: *prev_randao,
+                                block_number: *block_number,
+                                gas_limit: *gas_limit,
+                                gas_used: *gas_used,
+                                timestamp: *timestamp,
+                                extra_data: extra_data.clone(),
+                                base_fee_per_gas: *base_fee_per_gas,
+                                block_hash: *block_hash,
                                 transactions: full_payload.transactions,
                             },
                         },
                     },
                 },
-                signature,
+                signature: signature.clone(),
             })
         }
     };

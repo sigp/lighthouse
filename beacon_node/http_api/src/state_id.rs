@@ -124,12 +124,7 @@ impl StateId {
         F: Fn(&BeaconState<T::EthSpec>, bool) -> Result<U, warp::Rejection>,
     {
         let state = match &self.0 {
-            CoreStateId::Head => {
-                chain
-                    .head()
-                    .map_err(warp_utils::reject::beacon_chain_error)?
-                    .beacon_state
-            }
+            CoreStateId::Head => chain.head_beacon_state_cloned(),
             _ => self.state(chain)?,
         };
 
@@ -139,7 +134,7 @@ impl StateId {
             | CoreStateId::Slot(_)
             | CoreStateId::Finalized
             | CoreStateId::Justified => chain
-                .is_optimistic_head(None)
+                .is_optimistic_head()
                 .map_err(warp_utils::reject::beacon_chain_error)?,
             CoreStateId::Root(_) => {
                 let state_root = self.root(chain)?;

@@ -71,9 +71,6 @@ struct ApiTester {
     network_rx: mpsc::UnboundedReceiver<NetworkMessage<E>>,
     local_enr: Enr,
     external_peer_id: PeerId,
-    // This is never directly accessed, but adding it creates a payload cache, which we use in tests here.
-    #[allow(dead_code)]
-    mock_el: Option<MockExecutionLayer<E>>,
     mock_builder: Option<Arc<TestingBuilder<E>>>,
 }
 
@@ -234,7 +231,6 @@ impl ApiTester {
             network_rx,
             local_enr,
             external_peer_id,
-            mock_el: None,
             mock_builder: None,
         }
     }
@@ -318,7 +314,6 @@ impl ApiTester {
             network_rx,
             local_enr,
             external_peer_id,
-            mock_el: None,
             mock_builder: None,
         }
     }
@@ -356,64 +351,73 @@ impl ApiTester {
         let next_block_inner = next_block.clone();
         let reorg_block_inner = reorg_block.clone();
 
-        executor
-            .spawn_blocking_handle(
-                move || {
-                    for _ in 0..CHAIN_LENGTH {
-                        let slot = harness_inner.read().unwrap().chain.slot().unwrap().as_u64();
+        for _ in 0..CHAIN_LENGTH {
+            let slot = harness_inner.read().unwrap().chain.slot().unwrap().as_u64();
 
-                        if !SKIPPED_SLOTS.contains(&slot) {
-                            harness_inner.read().unwrap().extend_chain(
-                                1,
-                                BlockStrategy::OnCanonicalHead,
-                                AttestationStrategy::AllValidators,
-                            );
-                        }
+            if !SKIPPED_SLOTS.contains(&slot) {
+                harness_inner
+                    .read()
+                    .unwrap()
+                    .extend_chain(
+                        1,
+                        BlockStrategy::OnCanonicalHead,
+                        AttestationStrategy::AllValidators,
+                    )
+                    .await;
+            }
 
-                        harness_inner.read().unwrap().advance_slot();
-                    }
+            harness_inner.read().unwrap().advance_slot();
+        }
 
-                    let head = harness_inner.read().unwrap().chain.head().unwrap();
+        let head = harness_inner.read().unwrap().chain.head();
 
-                    assert_eq!(
-                        harness_inner.read().unwrap().chain.slot().unwrap(),
-                        head.beacon_block.slot() + 1,
-                        "precondition: current slot is one after head"
-                    );
+        assert_eq!(
+            harness_inner.read().unwrap().chain.slot().unwrap(),
+            head.head_slot() + 1,
+            "precondition: current slot is one after head"
+        );
 
-                    let (next_block, _next_state) = harness_inner.read().unwrap().make_block(
-                        head.beacon_state.clone(),
-                        harness_inner.read().unwrap().chain.slot().unwrap(),
-                    );
-                    let mut next_block_mut = next_block_inner.write().unwrap();
-                    *next_block_mut = Some(next_block);
-
-                    // `make_block` adds random graffiti, so this will produce an alternate block
-                    let (reorg_block, _reorg_state) = harness_inner.read().unwrap().make_block(
-                        head.beacon_state.clone(),
-                        harness_inner.read().unwrap().chain.slot().unwrap(),
-                    );
-                    let mut reorg_block_mut = reorg_block_inner.write().unwrap();
-                    *reorg_block_mut = Some(reorg_block);
-                },
-                "test_extend_chain",
-            )
+        let head_state = harness_inner
+            .read()
             .unwrap()
-            .await
-            .unwrap();
+            .chain
+            .head_beacon_state_cloned();
+
+        let (next_block, _next_state) = harness_inner
+            .read()
+            .unwrap()
+            .make_block(
+                head_state.clone(),
+                harness_inner.read().unwrap().chain.slot().unwrap(),
+            )
+            .await;
+        let mut next_block_mut = next_block_inner.write().unwrap();
+        *next_block_mut = Some(next_block.clone());
+
+        // `make_block` adds random graffiti, so this will produce an alternate block
+        let (reorg_block, _reorg_state) = harness_inner
+            .read()
+            .unwrap()
+            .make_block(
+                head_state.clone(),
+                harness_inner.read().unwrap().chain.slot().unwrap(),
+            )
+            .await;
+        let mut reorg_block_mut = reorg_block_inner.write().unwrap();
+        *reorg_block_mut = Some(reorg_block.clone());
 
         // This operation requires `BeaconChainHarness` implements `Debug`.
         let harness = Arc::try_unwrap(harness).unwrap().into_inner().unwrap();
 
-        let head = harness.chain.head().unwrap();
+        let head = harness.chain.head();
 
-        let head_state_root = head.beacon_state_root();
+        let head_state_root = head.head_state_root();
         let attestations = harness
             .get_unaggregated_attestations(
                 &AttestationStrategy::AllValidators,
-                &head.beacon_state,
+                &head_state,
                 head_state_root,
-                head.beacon_block_root,
+                head.head_block_root(),
                 harness.chain.slot().unwrap(),
             )
             .into_iter()
@@ -427,7 +431,7 @@ impl ApiTester {
 
         let contribution_and_proofs = harness
             .make_sync_contributions(
-                &head.beacon_state,
+                &head_state,
                 head_state_root,
                 harness.chain.slot().unwrap(),
                 RelativeSyncCommittee::Current,
@@ -443,15 +447,19 @@ impl ApiTester {
         let chain = harness.chain.clone();
 
         assert_eq!(
-            chain.head_info().unwrap().finalized_checkpoint.epoch,
+            chain
+                .canonical_head
+                .cached_head()
+                .finalized_checkpoint()
+                .epoch,
             2,
             "precondition: finality"
         );
         assert_eq!(
             chain
-                .head_info()
-                .unwrap()
-                .current_justified_checkpoint
+                .canonical_head
+                .cached_head()
+                .justified_checkpoint()
                 .epoch,
             3,
             "precondition: justification"
@@ -486,18 +494,10 @@ impl ApiTester {
             "mock_builder_server",
         );
 
-        let next_block = Arc::try_unwrap(next_block)
-            .unwrap()
-            .into_inner()
-            .unwrap()
-            .unwrap();
-        let reorg_block = Arc::try_unwrap(reorg_block)
-            .unwrap()
-            .into_inner()
-            .unwrap()
-            .unwrap();
+        let mock_builder = harness.mock_builder.clone();
 
         Self {
+            harness: Arc::new(harness),
             chain,
             client,
             next_block,
@@ -508,13 +508,10 @@ impl ApiTester {
             proposer_slashing,
             voluntary_exit,
             _server_shutdown: shutdown_tx,
-            validator_keypairs: harness.validator_keypairs,
             network_rx,
             local_enr,
             external_peer_id,
-            mock_el: harness.mock_execution_layer,
-            mock_builder: harness.mock_builder,
-            _runtime: harness.runtime,
+            mock_builder,
         }
     }
 
@@ -549,9 +546,9 @@ impl ApiTester {
             StateId(CoreStateId::Slot(Slot::from(SKIPPED_SLOTS[3]))),
             StateId(CoreStateId::Root(Hash256::zero())),
         ];
-        ids.push(StateId::Root(
+        ids.push(StateId(CoreStateId::Root(
             self.chain.canonical_head.cached_head().head_state_root(),
-        ));
+        )));
         ids
     }
 
@@ -569,65 +566,10 @@ impl ApiTester {
             BlockId(CoreBlockId::Slot(Slot::from(SKIPPED_SLOTS[3]))),
             BlockId(CoreBlockId::Root(Hash256::zero())),
         ];
-        ids.push(BlockId::Root(
+        ids.push(BlockId(CoreBlockId::Root(
             self.chain.canonical_head.cached_head().head_block_root(),
-        ));
+        )));
         ids
-    }
-
-    fn get_state(&self, state_id: StateId) -> Option<BeaconState<E>> {
-        match state_id {
-            StateId::Head => Some(
-                self.chain
-                    .head_snapshot()
-                    .beacon_state
-                    .clone_with_only_committee_caches(),
-            ),
-            StateId::Genesis => self
-                .chain
-                .get_state(&self.chain.genesis_state_root, None)
-                .unwrap(),
-            StateId::Finalized => {
-                let finalized_slot = self
-                    .chain
-                    .canonical_head
-                    .cached_head()
-                    .finalized_checkpoint()
-                    .epoch
-                    .start_slot(E::slots_per_epoch());
-
-                let root = self
-                    .chain
-                    .state_root_at_slot(finalized_slot)
-                    .unwrap()
-                    .unwrap();
-
-                self.chain.get_state(&root, Some(finalized_slot)).unwrap()
-            }
-            StateId::Justified => {
-                let justified_slot = self
-                    .chain
-                    .canonical_head
-                    .cached_head()
-                    .justified_checkpoint()
-                    .epoch
-                    .start_slot(E::slots_per_epoch());
-
-                let root = self
-                    .chain
-                    .state_root_at_slot(justified_slot)
-                    .unwrap()
-                    .unwrap();
-
-                self.chain.get_state(&root, Some(justified_slot)).unwrap()
-            }
-            StateId::Slot(slot) => {
-                let root = self.chain.state_root_at_slot(slot).unwrap().unwrap();
-
-                self.chain.get_state(&root, Some(slot)).unwrap()
-            }
-            StateId::Root(root) => self.chain.get_state(&root, None).unwrap(),
-        }
     }
 
     pub async fn test_beacon_genesis(self) -> Self {
@@ -654,34 +596,7 @@ impl ApiTester {
                 .unwrap()
                 .map(|res| res.data.root);
 
-            let expected = match state_id {
-                StateId::Head => Some(self.chain.canonical_head.cached_head().head_state_root()),
-                StateId::Genesis => Some(self.chain.genesis_state_root),
-                StateId::Finalized => {
-                    let finalized_slot = self
-                        .chain
-                        .canonical_head
-                        .cached_head()
-                        .finalized_checkpoint()
-                        .epoch
-                        .start_slot(E::slots_per_epoch());
-
-                    self.chain.state_root_at_slot(finalized_slot).unwrap()
-                }
-                StateId::Justified => {
-                    let justified_slot = self
-                        .chain
-                        .canonical_head
-                        .cached_head()
-                        .justified_checkpoint()
-                        .epoch
-                        .start_slot(E::slots_per_epoch());
-
-                    self.chain.state_root_at_slot(justified_slot).unwrap()
-                }
-                StateId::Slot(slot) => self.chain.state_root_at_slot(slot).unwrap(),
-                StateId::Root(root) => Some(root),
-            };
+            let expected = state_id.root(&self.chain).ok();
 
             assert_eq!(result, expected, "{:?}", state_id);
         }
@@ -982,37 +897,6 @@ impl ApiTester {
         self
     }
 
-    fn get_block_root(&self, block_id: BlockId) -> Option<Hash256> {
-        match block_id {
-            BlockId::Head => Some(self.chain.canonical_head.cached_head().head_block_root()),
-            BlockId::Genesis => Some(self.chain.genesis_block_root),
-            BlockId::Finalized => Some(
-                self.chain
-                    .canonical_head
-                    .cached_head()
-                    .finalized_checkpoint()
-                    .root,
-            ),
-            BlockId::Justified => Some(
-                self.chain
-                    .canonical_head
-                    .cached_head()
-                    .justified_checkpoint()
-                    .root,
-            ),
-            BlockId::Slot(slot) => self
-                .chain
-                .block_root_at_slot(slot, WhenSlotSkipped::None)
-                .unwrap(),
-            BlockId::Root(root) => Some(root),
-        }
-    }
-
-    async fn get_block(&self, block_id: BlockId) -> Option<SignedBeaconBlock<E>> {
-        let root = self.get_block_root(block_id)?;
-        self.chain.get_block(&root).await.unwrap()
-    }
-
     pub async fn test_beacon_headers_all_slots(self) -> Self {
         for slot in 0..CHAIN_LENGTH {
             let slot = Slot::from(slot);
@@ -1191,7 +1075,13 @@ impl ApiTester {
 
     pub async fn test_beacon_blocks(self) -> Self {
         for block_id in self.interesting_block_ids() {
-            let expected = block_id.full_block(&self.chain).await.ok();
+            let expected = block_id
+                .full_block(&self.chain)
+                .await
+                .ok()
+                .map(Arc::try_unwrap)
+                .transpose()
+                .unwrap();
 
             if let CoreBlockId::Slot(slot) = block_id.0 {
                 if expected.is_none() {
@@ -2281,7 +2171,7 @@ impl ApiTester {
     }
 
     pub async fn test_blinded_block_production<Payload: ExecPayload<E>>(&self) {
-        let fork = self.chain.head_info().unwrap().fork;
+        let fork = self.chain.canonical_head.cached_head().head_fork();
         let genesis_validators_root = self.chain.genesis_validators_root;
 
         for _ in 0..E::slots_per_epoch() * 3 {
@@ -2301,7 +2191,7 @@ impl ApiTester {
             let proposer_pubkey = (&proposer_pubkey_bytes).try_into().unwrap();
 
             let sk = self
-                .validator_keypairs
+                .validator_keypairs()
                 .iter()
                 .find(|kp| kp.pk == proposer_pubkey)
                 .map(|kp| kp.sk.clone())
@@ -2367,7 +2257,7 @@ impl ApiTester {
     pub async fn test_blinded_block_production_verify_randao_invalid<Payload: ExecPayload<E>>(
         self,
     ) -> Self {
-        let fork = self.chain.head_info().unwrap().fork;
+        let fork = self.chain.canonical_head.cached_head().head_fork();
         let genesis_validators_root = self.chain.genesis_validators_root;
 
         for _ in 0..E::slots_per_epoch() {
@@ -2387,7 +2277,7 @@ impl ApiTester {
             let proposer_pubkey = (&proposer_pubkey_bytes).try_into().unwrap();
 
             let sk = self
-                .validator_keypairs
+                .validator_keypairs()
                 .iter()
                 .find(|kp| kp.pk == proposer_pubkey)
                 .map(|kp| kp.sk.clone())
@@ -2643,7 +2533,7 @@ impl ApiTester {
         self
     }
 
-    pub async fn test_post_validator_register_validator(mut self) -> Self {
+    pub async fn test_post_validator_register_validator(self) -> Self {
         let mut registrations = vec![];
         let mut fee_recipients = vec![];
 
@@ -2657,7 +2547,7 @@ impl ApiTester {
 
         let expected_gas_limit = 11_111_111;
 
-        for (val_index, keypair) in self.validator_keypairs.iter().enumerate() {
+        for (val_index, keypair) in self.validator_keypairs().iter().enumerate() {
             let pubkey = keypair.pk.compress();
             let fee_recipient = Address::from_low_u64_be(val_index as u64);
 
@@ -2689,7 +2579,7 @@ impl ApiTester {
             .await
             .unwrap();
 
-        let head_state = self.chain.head().unwrap().beacon_state;
+        let head_state = self.chain.head_beacon_state_cloned();
 
         for (val_index, (val, fee_recipient)) in head_state
             .validators()
@@ -2710,7 +2600,7 @@ impl ApiTester {
     }
 
     pub async fn test_payload_respects_registration(mut self) -> Self {
-        let head_state = self.chain.head().unwrap().beacon_state;
+        let head_state = self.chain.head_beacon_state_cloned();
         let proposer_index = head_state
             .get_beacon_proposer_index(head_state.slot(), &self.chain.spec)
             .unwrap();
@@ -2720,16 +2610,24 @@ impl ApiTester {
             .unwrap()
             .unwrap();
 
-        let payload: BlindedPayload<E> =
-            beacon_chain::execution_payload::prepare_execution_payload(
-                &self.chain,
-                &head_state,
-                proposer_index as u64,
-                Some(proposer_pubkey),
-            )
-            .await
-            .unwrap()
-            .unwrap();
+        let finalized_checkpoint = self
+            .chain
+            .canonical_head
+            .cached_head()
+            .finalized_checkpoint();
+
+        let payload: BlindedPayload<E> = beacon_chain::execution_payload::get_execution_payload(
+            self.chain.clone(),
+            &head_state,
+            finalized_checkpoint,
+            proposer_index as u64,
+            Some(proposer_pubkey),
+        )
+        .unwrap()
+        .await
+        .unwrap()
+        .unwrap()
+        .unwrap();
 
         let expected_fee_recipient = Address::from_low_u64_be(proposer_index as u64);
         assert_eq!(
@@ -2751,7 +2649,7 @@ impl ApiTester {
     }
 
     pub async fn test_payload_accepts_mutated_gas_limit(mut self) -> Self {
-        let head_state = self.chain.head().unwrap().beacon_state;
+        let head_state = self.chain.head_beacon_state_cloned();
         let proposer_index = head_state
             .get_beacon_proposer_index(head_state.slot(), &self.chain.spec)
             .unwrap();
@@ -2768,16 +2666,24 @@ impl ApiTester {
             .builder
             .add_operation(Operation::GasLimit(30_000_000));
 
-        let payload: BlindedPayload<E> =
-            beacon_chain::execution_payload::prepare_execution_payload(
-                &self.chain,
-                &head_state,
-                proposer_index as u64,
-                Some(proposer_pubkey),
-            )
-            .await
-            .unwrap()
-            .unwrap();
+        let finalized_checkpoint = self
+            .chain
+            .canonical_head
+            .cached_head()
+            .finalized_checkpoint();
+
+        let payload: BlindedPayload<E> = beacon_chain::execution_payload::get_execution_payload(
+            self.chain.clone(),
+            &head_state,
+            finalized_checkpoint,
+            proposer_index as u64,
+            Some(proposer_pubkey),
+        )
+        .unwrap()
+        .await
+        .unwrap()
+        .unwrap()
+        .unwrap();
 
         let expected_fee_recipient = Address::from_low_u64_be(proposer_index as u64);
         assert_eq!(
@@ -2798,7 +2704,7 @@ impl ApiTester {
     }
 
     pub async fn test_payload_rejects_changed_fee_recipient(mut self) -> Self {
-        let head_state = self.chain.head().unwrap().beacon_state;
+        let head_state = self.chain.head_beacon_state_cloned();
         let proposer_index = head_state
             .get_beacon_proposer_index(head_state.slot(), &self.chain.spec)
             .unwrap();
@@ -2819,16 +2725,24 @@ impl ApiTester {
                     .unwrap(),
             ));
 
-        let payload: BlindedPayload<E> =
-            beacon_chain::execution_payload::prepare_execution_payload(
-                &self.chain,
-                &head_state,
-                proposer_index as u64,
-                Some(proposer_pubkey),
-            )
-            .await
-            .unwrap()
-            .unwrap();
+        let finalized_checkpoint = self
+            .chain
+            .canonical_head
+            .cached_head()
+            .finalized_checkpoint();
+
+        let payload: BlindedPayload<E> = beacon_chain::execution_payload::get_execution_payload(
+            self.chain.clone(),
+            &head_state,
+            finalized_checkpoint,
+            proposer_index as u64,
+            Some(proposer_pubkey),
+        )
+        .unwrap()
+        .await
+        .unwrap()
+        .unwrap()
+        .unwrap();
 
         let expected_fee_recipient = Address::from_low_u64_be(proposer_index as u64);
         assert_eq!(
@@ -3265,8 +3179,8 @@ impl ApiTester {
 
         // Change head to be optimistic.
         self.chain
-            .fork_choice
-            .write()
+            .canonical_head
+            .fork_choice_write_lock()
             .proto_array_mut()
             .core_proto_array_mut()
             .nodes

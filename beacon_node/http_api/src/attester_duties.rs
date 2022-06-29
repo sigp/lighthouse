@@ -60,7 +60,7 @@ fn cached_attestation_duties<T: BeaconChainTypes>(
 ) -> Result<ApiDuties, warp::reject::Rejection> {
     let head_block_root = chain.canonical_head.cached_head().head_block_root();
 
-    let (duties, dependent_root, _execution_status) = chain
+    let (duties, dependent_root, execution_status) = chain
         .validator_attestation_duties(request_indices, request_epoch, head_block_root)
         .map_err(warp_utils::reject::beacon_chain_error)?;
 
@@ -68,7 +68,7 @@ fn cached_attestation_duties<T: BeaconChainTypes>(
         duties,
         request_indices,
         dependent_root,
-        execution_optimistic,
+        execution_status.is_optimistic(),
         chain,
     )
 }
