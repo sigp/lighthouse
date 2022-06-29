@@ -2823,6 +2823,18 @@ pub fn serve<T: BeaconChainTypes>(
             blocking_json_task(move || block_rewards::get_block_rewards(query, chain, log))
         });
 
+    // POST lighthouse/analysis/block_rewards
+    let post_lighthouse_block_rewards = warp::path("lighthouse")
+        .and(warp::path("analysis"))
+        .and(warp::path("block_rewards"))
+        .and(warp::body::json())
+        .and(warp::path::end())
+        .and(chain_filter.clone())
+        .and(log_filter.clone())
+        .and_then(|blocks, chain, log| {
+            blocking_json_task(move || block_rewards::compute_block_rewards(blocks, chain, log))
+        });
+
     // GET lighthouse/analysis/attestation_performance/{index}
     let get_lighthouse_attestation_performance = warp::path("lighthouse")
         .and(warp::path("analysis"))
@@ -2998,7 +3010,8 @@ pub fn serve<T: BeaconChainTypes>(
                 .or(post_validator_prepare_beacon_proposer.boxed())
                 .or(post_lighthouse_liveness.boxed())
                 .or(post_lighthouse_database_reconstruct.boxed())
-                .or(post_lighthouse_database_historical_blocks.boxed()),
+                .or(post_lighthouse_database_historical_blocks.boxed())
+                .or(post_lighthouse_block_rewards.boxed()),
         ))
         .recover(warp_utils::reject::handle_rejection)
         .with(slog_logging(log.clone()))
