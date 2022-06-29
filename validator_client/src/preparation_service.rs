@@ -483,7 +483,7 @@ impl<T: SlotClock + 'static, E: EthSpec> PreparationService<T, E> {
 
             match self
                 .beacon_nodes
-                .first_success(RequireSynced::No, |beacon_node| async move {
+                .first_success(RequireSynced::Yes, |beacon_node| async move {
                     beacon_node
                         .post_validator_register_validator(signed_ref)
                         .await

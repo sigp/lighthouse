@@ -2397,12 +2397,10 @@ pub fn serve<T: BeaconChainTypes>(
         .and(warp::path::end())
         .and(not_while_syncing_filter.clone())
         .and(chain_filter.clone())
-        .and(warp::addr::remote())
         .and(log_filter.clone())
         .and(warp::body::json())
         .and_then(
             |chain: Arc<BeaconChain<T>>,
-             client_addr: Option<SocketAddr>,
              log: Logger,
              preparation_data: Vec<ProposerPreparationData>| {
                 blocking_json_task(move || {
@@ -2419,9 +2417,6 @@ pub fn serve<T: BeaconChainTypes>(
                         log,
                         "Received proposer preparation data";
                         "count" => preparation_data.len(),
-                        "client" => client_addr
-                            .map(|a| a.to_string())
-                            .unwrap_or_else(|| "unknown".to_string()),
                     );
 
                     execution_layer
@@ -2450,12 +2445,10 @@ pub fn serve<T: BeaconChainTypes>(
         .and(warp::path("register_validator"))
         .and(warp::path::end())
         .and(chain_filter.clone())
-        .and(warp::addr::remote())
         .and(log_filter.clone())
         .and(warp::body::json())
         .and_then(
             |chain: Arc<BeaconChain<T>>,
-             client_addr: Option<SocketAddr>,
              log: Logger,
              register_val_data: Vec<SignedValidatorRegistrationData>| {
                 blocking_json_task(move || {
@@ -2472,9 +2465,6 @@ pub fn serve<T: BeaconChainTypes>(
                         log,
                         "Received register validator request";
                         "count" => register_val_data.len(),
-                        "client" => client_addr
-                            .map(|a| a.to_string())
-                            .unwrap_or_else(|| "unknown".to_string()),
                     );
 
                     let preparation_data = register_val_data
@@ -2491,11 +2481,11 @@ pub fn serve<T: BeaconChainTypes>(
                         })
                         .collect::<Vec<_>>();
 
-debug!(
-    log,
-    "Resolved validator request pubkeys";
-    "count" => preparation_data.len()
-);
+                    debug!(
+                        log,
+                        "Resolved validator request pubkeys";
+                        "count" => preparation_data.len()
+                    );
 
                     // Update the prepare beacon proposer cache based on this request.
                     execution_layer

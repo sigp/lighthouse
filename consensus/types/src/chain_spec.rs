@@ -1,4 +1,4 @@
-use crate::application_domain::ApplicationDomain;
+use crate::application_domain::{ApplicationDomain, APPLICATION_DOMAIN_BUILDER};
 use crate::*;
 use eth2_serde_utils::quoted_u64::MaybeQuoted;
 use int_to_bytes::int_to_bytes4;
@@ -588,7 +588,7 @@ impl ChainSpec {
             /*
              * Application specific
              */
-            domain_application_mask: 16777216, // Little endian hex: 0x00000001, Binary: 1000000000000000000000000
+            domain_application_mask: APPLICATION_DOMAIN_BUILDER,
         }
     }
 
@@ -791,7 +791,7 @@ impl ChainSpec {
             /*
              * Application specific
              */
-            domain_application_mask: 16777216, // Little endian hex: 0x00000001, Binary: 1000000000000000000000000
+            domain_application_mask: APPLICATION_DOMAIN_BUILDER,
         }
     }
 }
