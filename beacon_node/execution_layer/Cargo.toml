@@ -42,5 +42,4 @@ builder_client = { path = "../builder_client" }
 mev-build-rs = {git = "https://github.com/ralexstokes/mev-rs", tag = "v0.1.0"}
 ethereum-consensus = {git = "https://github.com/ralexstokes/ethereum-consensus"} 
 ssz-rs = {git = "https://github.com/ralexstokes/ssz-rs"}
-eth2 = { path = "../../common/eth2" }
 
