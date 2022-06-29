@@ -118,7 +118,9 @@ pub struct QueuedRpcBlock<T: EthSpec> {
 /// Unifies the different messages processed by the block delay queue.
 enum InboundEvent<T: BeaconChainTypes> {
     /// A gossip block that was queued for later processing and is ready for import.
-    ReadyBlock(QueuedGossipBlock<T>),
+    ReadyGossipBlock(QueuedGossipBlock<T>),
+    /// A rpc block that was queued because the same gossip block was being imported
+    /// will now be retried for import.
     ReadyRpcBlock(QueuedRpcBlock<T::EthSpec>),
     /// An aggregated or unaggregated attestation is ready for re-processing.
     ReadyAttestation(QueuedAttestationId),
@@ -193,7 +195,9 @@ impl<T: BeaconChainTypes> Stream for ReprocessQueue<T> {
         // existing blocks before new ones.
         match self.gossip_block_delay_queue.poll_expired(cx) {
             Poll::Ready(Some(Ok(queued_block))) => {
-                return Poll::Ready(Some(InboundEvent::ReadyBlock(queued_block.into_inner())));
+                return Poll::Ready(Some(InboundEvent::ReadyGossipBlock(
+                    queued_block.into_inner(),
+                )));
             }
             Poll::Ready(Some(Err(e))) => {
                 return Poll::Ready(Some(InboundEvent::DelayQueueError(e, "block_queue")));
@@ -522,7 +526,7 @@ impl<T: BeaconChainTypes> ReprocessQueue<T> {
                 }
             }
             // A block that was queued for later processing is now ready to be processed.
-            InboundEvent::ReadyBlock(ready_block) => {
+            InboundEvent::ReadyGossipBlock(ready_block) => {
                 let block_root = ready_block.block.block_root;
 
                 if !self.queued_gossip_block_roots.remove(&block_root) {
