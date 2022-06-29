@@ -15,6 +15,7 @@ use std::sync::Arc;
 use std::time::{Duration, SystemTime};
 use store::config::StoreConfig;
 use store::{HotColdDB, MemoryStore};
+use task_executor::test_utils::TestRuntime;
 use types::{
     CommitteeIndex, Epoch, EthSpec, Hash256, MainnetEthSpec, Slot, SubnetId,
     SyncCommitteeSubscription, SyncSubnetId, ValidatorSubscription,
@@ -32,6 +33,7 @@ type TestBeaconChainType = Witness<
 
 pub struct TestBeaconChain {
     chain: Arc<BeaconChain<TestBeaconChainType>>,
+    _test_runtime: TestRuntime,
 }
 
 impl TestBeaconChain {
@@ -46,11 +48,14 @@ impl TestBeaconChain {
 
         let (shutdown_tx, _) = futures::channel::mpsc::channel(1);
 
+        let test_runtime = TestRuntime::default();
+
         let chain = Arc::new(
             BeaconChainBuilder::new(MainnetEthSpec)
                 .logger(log.clone())
                 .custom_spec(spec.clone())
                 .store(Arc::new(store))
+                .task_executor(test_runtime.task_executor.clone())
                 .genesis_state(
                     interop_genesis_state::<MainnetEthSpec>(
                         &keypairs,
@@ -74,7 +79,10 @@ impl TestBeaconChain {
                 .build()
                 .expect("should build"),
         );
-        Self { chain }
+        Self {
+            chain,
+            _test_runtime: test_runtime,
+        }
     }
 }
 

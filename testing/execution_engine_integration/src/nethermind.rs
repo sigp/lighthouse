@@ -75,7 +75,7 @@ impl GenericExecutionEngine for NethermindEngine {
 
     fn start_client(
         datadir: &TempDir,
-        http_port: u16,
+        _http_port: u16,
         http_auth_port: u16,
         jwt_secret_path: PathBuf,
     ) -> Child {
@@ -89,11 +89,14 @@ impl GenericExecutionEngine for NethermindEngine {
             .arg("--Merge.TerminalTotalDifficulty")
             .arg("0")
             .arg("--JsonRpc.AdditionalRpcUrls")
-            .arg(format!("http://localhost:{}|http;ws|net;eth;subscribe;engine;web3;client|no-auth,http://localhost:{}|http;ws|net;eth;subscribe;engine;web3;client", http_port, http_auth_port))
+            .arg(format!(
+                "http://localhost:{}|http;ws|net;eth;subscribe;engine;web3;client",
+                http_auth_port
+            ))
             .arg("--JsonRpc.EnabledModules")
             .arg("net,eth,subscribe,web3,admin,engine")
             .arg("--JsonRpc.Port")
-            .arg(http_port.to_string())
+            .arg(http_auth_port.to_string())
             .arg("--Network.DiscoveryPort")
             .arg(network_port.to_string())
             .arg("--Network.P2PPort")

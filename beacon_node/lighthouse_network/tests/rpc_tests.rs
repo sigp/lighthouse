@@ -167,7 +167,6 @@ fn test_blocks_by_range_chunked_rpc() {
         let rpc_request = Request::BlocksByRange(BlocksByRangeRequest {
             start_slot: 0,
             count: messages_to_send,
-            step: 0,
         });
 
         let spec = E::default_spec();
@@ -175,15 +174,15 @@ fn test_blocks_by_range_chunked_rpc() {
         // BlocksByRange Response
         let full_block = BeaconBlock::Base(BeaconBlockBase::<E>::full(&spec));
         let signed_full_block = SignedBeaconBlock::from_block(full_block, Signature::empty());
-        let rpc_response_base = Response::BlocksByRange(Some(Box::new(signed_full_block)));
+        let rpc_response_base = Response::BlocksByRange(Some(Arc::new(signed_full_block)));
 
         let full_block = BeaconBlock::Altair(BeaconBlockAltair::<E>::full(&spec));
         let signed_full_block = SignedBeaconBlock::from_block(full_block, Signature::empty());
-        let rpc_response_altair = Response::BlocksByRange(Some(Box::new(signed_full_block)));
+        let rpc_response_altair = Response::BlocksByRange(Some(Arc::new(signed_full_block)));
 
         let full_block = merge_block_small(&common::fork_context(ForkName::Merge));
         let signed_full_block = SignedBeaconBlock::from_block(full_block, Signature::empty());
-        let rpc_response_merge_small = Response::BlocksByRange(Some(Box::new(signed_full_block)));
+        let rpc_response_merge_small = Response::BlocksByRange(Some(Arc::new(signed_full_block)));
 
         // keep count of the number of messages received
         let mut messages_received = 0;
@@ -307,13 +306,12 @@ fn test_blocks_by_range_over_limit() {
         let rpc_request = Request::BlocksByRange(BlocksByRangeRequest {
             start_slot: 0,
             count: messages_to_send,
-            step: 0,
         });
 
         // BlocksByRange Response
         let full_block = merge_block_large(&common::fork_context(ForkName::Merge));
         let signed_full_block = SignedBeaconBlock::from_block(full_block, Signature::empty());
-        let rpc_response_merge_large = Response::BlocksByRange(Some(Box::new(signed_full_block)));
+        let rpc_response_merge_large = Response::BlocksByRange(Some(Arc::new(signed_full_block)));
 
         let request_id = messages_to_send as usize;
         // build the sender future
@@ -405,14 +403,13 @@ fn test_blocks_by_range_chunked_rpc_terminates_correctly() {
         let rpc_request = Request::BlocksByRange(BlocksByRangeRequest {
             start_slot: 0,
             count: messages_to_send,
-            step: 0,
         });
 
         // BlocksByRange Response
         let spec = E::default_spec();
         let empty_block = BeaconBlock::empty(&spec);
         let empty_signed = SignedBeaconBlock::from_block(empty_block, Signature::empty());
-        let rpc_response = Response::BlocksByRange(Some(Box::new(empty_signed)));
+        let rpc_response = Response::BlocksByRange(Some(Arc::new(empty_signed)));
 
         // keep count of the number of messages received
         let mut messages_received: u64 = 0;
@@ -537,14 +534,13 @@ fn test_blocks_by_range_single_empty_rpc() {
         let rpc_request = Request::BlocksByRange(BlocksByRangeRequest {
             start_slot: 0,
             count: 10,
-            step: 0,
         });
 
         // BlocksByRange Response
         let spec = E::default_spec();
         let empty_block = BeaconBlock::empty(&spec);
         let empty_signed = SignedBeaconBlock::from_block(empty_block, Signature::empty());
-        let rpc_response = Response::BlocksByRange(Some(Box::new(empty_signed)));
+        let rpc_response = Response::BlocksByRange(Some(Arc::new(empty_signed)));
 
         let messages_to_send = 1;
 
@@ -664,15 +660,15 @@ fn test_blocks_by_root_chunked_rpc() {
         // BlocksByRoot Response
         let full_block = BeaconBlock::Base(BeaconBlockBase::<E>::full(&spec));
         let signed_full_block = SignedBeaconBlock::from_block(full_block, Signature::empty());
-        let rpc_response_base = Response::BlocksByRoot(Some(Box::new(signed_full_block)));
+        let rpc_response_base = Response::BlocksByRoot(Some(Arc::new(signed_full_block)));
 
         let full_block = BeaconBlock::Altair(BeaconBlockAltair::<E>::full(&spec));
         let signed_full_block = SignedBeaconBlock::from_block(full_block, Signature::empty());
-        let rpc_response_altair = Response::BlocksByRoot(Some(Box::new(signed_full_block)));
+        let rpc_response_altair = Response::BlocksByRoot(Some(Arc::new(signed_full_block)));
 
         let full_block = merge_block_small(&common::fork_context(ForkName::Merge));
         let signed_full_block = SignedBeaconBlock::from_block(full_block, Signature::empty());
-        let rpc_response_merge_small = Response::BlocksByRoot(Some(Box::new(signed_full_block)));
+        let rpc_response_merge_small = Response::BlocksByRoot(Some(Arc::new(signed_full_block)));
 
         // keep count of the number of messages received
         let mut messages_received = 0;
@@ -807,7 +803,7 @@ fn test_blocks_by_root_chunked_rpc_terminates_correctly() {
         // BlocksByRoot Response
         let full_block = BeaconBlock::Base(BeaconBlockBase::<E>::full(&spec));
         let signed_full_block = SignedBeaconBlock::from_block(full_block, Signature::empty());
-        let rpc_response = Response::BlocksByRoot(Some(Box::new(signed_full_block)));
+        let rpc_response = Response::BlocksByRoot(Some(Arc::new(signed_full_block)));
 
         // keep count of the number of messages received
         let mut messages_received = 0;

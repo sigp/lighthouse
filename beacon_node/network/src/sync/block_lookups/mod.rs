@@ -1,16 +1,17 @@
 use std::collections::hash_map::Entry;
 use std::time::Duration;
 
-use beacon_chain::{BeaconChainTypes, BlockError};
+use beacon_chain::{BeaconChainTypes, BlockError, ExecutionPayloadError};
 use fnv::FnvHashMap;
 use lighthouse_network::{PeerAction, PeerId};
 use lru_cache::LRUTimeCache;
 use slog::{crit, debug, error, trace, warn, Logger};
 use smallvec::SmallVec;
+use std::sync::Arc;
 use store::{Hash256, SignedBeaconBlock};
 use tokio::sync::mpsc;
 
-use crate::beacon_processor::{ChainSegmentProcessId, WorkEvent};
+use crate::beacon_processor::{ChainSegmentProcessId, FailureMode, WorkEvent};
 use crate::metrics;
 
 use self::{
@@ -105,7 +106,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
 
     pub fn search_parent(
         &mut self,
-        block: Box<SignedBeaconBlock<T::EthSpec>>,
+        block: Arc<SignedBeaconBlock<T::EthSpec>>,
         peer_id: PeerId,
         cx: &mut SyncNetworkContext<T::EthSpec>,
     ) {
@@ -129,7 +130,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
             return;
         }
 
-        let parent_lookup = ParentLookup::new(*block, peer_id);
+        let parent_lookup = ParentLookup::new(block, peer_id);
         self.request_parent(parent_lookup, cx);
     }
 
@@ -139,7 +140,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         &mut self,
         id: Id,
         peer_id: PeerId,
-        block: Option<Box<SignedBeaconBlock<T::EthSpec>>>,
+        block: Option<Arc<SignedBeaconBlock<T::EthSpec>>>,
         seen_timestamp: Duration,
         cx: &mut SyncNetworkContext<T::EthSpec>,
     ) {
@@ -203,7 +204,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         &mut self,
         id: Id,
         peer_id: PeerId,
-        block: Option<Box<SignedBeaconBlock<T::EthSpec>>>,
+        block: Option<Arc<SignedBeaconBlock<T::EthSpec>>>,
         seen_timestamp: Duration,
         cx: &mut SyncNetworkContext<T::EthSpec>,
     ) {
@@ -420,6 +421,20 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                 BlockError::ParentUnknown(block) => {
                     self.search_parent(block, peer_id, cx);
                 }
+
+                e @ BlockError::ExecutionPayloadError(ExecutionPayloadError::RequestFailed(_))
+                | e @ BlockError::ExecutionPayloadError(
+                    ExecutionPayloadError::NoExecutionConnection,
+                ) => {
+                    // These errors indicate that the execution layer is offline
+                    // and failed to validate the execution payload. Do not downscore peer.
+                    debug!(
+                        self.log,
+                        "Single block lookup failed. Execution layer is offline";
+                        "root" => %root,
+                        "error" => ?e
+                    );
+                }
                 other => {
                     warn!(self.log, "Peer sent invalid block in single block lookup"; "root" => %root, "error" => ?other, "peer_id" => %peer_id);
                     cx.report_peer(
@@ -482,7 +497,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
             Err(BlockError::ParentUnknown(block)) => {
                 // need to keep looking for parents
                 // add the block back to the queue and continue the search
-                parent_lookup.add_block(*block);
+                parent_lookup.add_block(block);
                 self.request_parent(parent_lookup, cx);
             }
             Ok(_) | Err(BlockError::BlockIsAlreadyKnown { .. }) => {
@@ -505,6 +520,19 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                         );
                     }
                 }
+            }
+            Err(e @ BlockError::ExecutionPayloadError(ExecutionPayloadError::RequestFailed(_)))
+            | Err(
+                e @ BlockError::ExecutionPayloadError(ExecutionPayloadError::NoExecutionConnection),
+            ) => {
+                // These errors indicate that the execution layer is offline
+                // and failed to validate the execution payload. Do not downscore peer.
+                debug!(
+                    self.log,
+                    "Parent lookup failed. Execution layer is offline";
+                    "chain_hash" => %chain_hash,
+                    "error" => ?e
+                );
             }
             Err(outcome) => {
                 // all else we consider the chain a failure and downvote the peer that sent
@@ -561,11 +589,21 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
             BatchProcessResult::Failed {
                 imported_blocks: _,
                 peer_action,
+                mode,
             } => {
-                self.failed_chains.insert(parent_lookup.chain_hash());
-                if let Some(peer_action) = peer_action {
-                    for &peer_id in parent_lookup.used_peers() {
-                        cx.report_peer(peer_id, peer_action, "parent_chain_failure")
+                if let FailureMode::ExecutionLayer { pause_sync: _ } = mode {
+                    debug!(
+                        self.log,
+                        "Chain segment processing failed. Execution layer is offline";
+                        "chain_hash" => %chain_hash,
+                        "error" => ?mode
+                    );
+                } else {
+                    self.failed_chains.insert(parent_lookup.chain_hash());
+                    if let Some(peer_action) = peer_action {
+                        for &peer_id in parent_lookup.used_peers() {
+                            cx.report_peer(peer_id, peer_action, "parent_chain_failure")
+                        }
                     }
                 }
             }
@@ -581,7 +619,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
 
     fn send_block_for_processing(
         &mut self,
-        block: Box<SignedBeaconBlock<T::EthSpec>>,
+        block: Arc<SignedBeaconBlock<T::EthSpec>>,
         duration: Duration,
         process_type: BlockProcessType,
     ) -> Result<(), ()> {

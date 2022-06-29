@@ -90,6 +90,8 @@ impl<'a, T: EthSpec> AttMaxCover<'a, T> {
         let att_participation_flags =
             get_attestation_participation_flag_indices(state, &att.data, inclusion_delay, spec)
                 .ok()?;
+        let base_reward_per_increment =
+            altair::BaseRewardPerIncrement::new(total_active_balance, spec).ok()?;
 
         let fresh_validators_rewards = attesting_indices
             .iter()
@@ -98,7 +100,7 @@ impl<'a, T: EthSpec> AttMaxCover<'a, T> {
                 let participation = participation_list.get(index)?;
 
                 let base_reward =
-                    altair::get_base_reward(state, index, total_active_balance, spec).ok()?;
+                    altair::get_base_reward(state, index, base_reward_per_increment, spec).ok()?;
 
                 for (flag_index, weight) in PARTICIPATION_FLAG_WEIGHTS.iter().enumerate() {
                     if att_participation_flags.contains(&flag_index)

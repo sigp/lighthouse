@@ -47,6 +47,12 @@ impl ShufflingCache {
     }
 }
 
+impl Default for ShufflingCache {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 /// Contains the shuffling IDs for a beacon block.
 pub struct BlockShufflingIds {
     pub current: AttestationShufflingId,

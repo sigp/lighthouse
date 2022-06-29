@@ -42,7 +42,7 @@ prometheus-client = "0.16.0"
 unused_port = { path = "../../common/unused_port" }
 
 [dependencies.libp2p]
-version = "0.45.0"
+version = "0.45.1"
 default-features = false
 features = ["websocket", "identify", "mplex", "yamux", "noise", "gossipsub", "dns-tokio", "tcp-tokio", "plaintext", "secp256k1"]
 
@@ -52,6 +52,8 @@ slog-async = "2.5.0"
 tempfile = "3.1.0"
 exit-future = "0.2.0"
 void = "1"
+quickcheck = "0.9.2"
+quickcheck_macros = "0.9.1"
 
 [features]
 libp2p-websocket = []

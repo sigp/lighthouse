@@ -55,16 +55,10 @@ pub fn proposer_duties<T: BeaconChainTypes>(
             .safe_add(1)
             .map_err(warp_utils::reject::arith_error)?
     {
-        let (proposers, dependent_root, execution_optimistic, _) =
+        let (proposers, dependent_root, _execution_status, _fork) =
             compute_proposer_duties_from_head(request_epoch, chain)
                 .map_err(warp_utils::reject::beacon_chain_error)?;
-        convert_to_api_response(
-            chain,
-            request_epoch,
-            dependent_root,
-            execution_optimistic,
-            proposers,
-        )
+        convert_to_api_response(chain, request_epoch, dependent_root, execution_status.is_optimistic(), proposers)
     } else if request_epoch
         > current_epoch
             .safe_add(1)
@@ -94,16 +88,23 @@ fn try_proposer_duties_from_cache<T: BeaconChainTypes>(
     request_epoch: Epoch,
     chain: &BeaconChain<T>,
 ) -> Result<Option<ApiDuties>, warp::reject::Rejection> {
-    let head = chain
-        .head_info()
-        .map_err(warp_utils::reject::beacon_chain_error)?;
-    let head_epoch = head.slot.epoch(T::EthSpec::slots_per_epoch());
+    let (head_slot, head_block_root, head_decision_root) = {
+        let head = chain.canonical_head.cached_head();
+        let head_block_root = head.head_block_root();
+        let decision_root = head
+            .snapshot
+            .beacon_state
+            .proposer_shuffling_decision_root(head_block_root)
+            .map_err(warp_utils::reject::beacon_state_error)?;
+        (head.head_slot(), head_block_root, decision_root)
+    };
+    let head_epoch = head_slot.epoch(T::EthSpec::slots_per_epoch());
 
     let dependent_root = match head_epoch.cmp(&request_epoch) {
         // head_epoch == request_epoch
-        Ordering::Equal => head.proposer_shuffling_decision_root,
+        Ordering::Equal => head_decision_root,
         // head_epoch < request_epoch
-        Ordering::Less => head.block_root,
+        Ordering::Less => head_block_root,
         // head_epoch > request_epoch
         Ordering::Greater => {
             return Err(warp_utils::reject::custom_server_error(format!(
@@ -148,7 +149,7 @@ fn compute_and_cache_proposer_duties<T: BeaconChainTypes>(
     current_epoch: Epoch,
     chain: &BeaconChain<T>,
 ) -> Result<ApiDuties, warp::reject::Rejection> {
-    let (indices, dependent_root, execution_optimistic, fork) =
+    let (indices, dependent_root, execution_status, fork) =
         compute_proposer_duties_from_head(current_epoch, chain)
             .map_err(warp_utils::reject::beacon_chain_error)?;
 
@@ -164,7 +165,7 @@ fn compute_and_cache_proposer_duties<T: BeaconChainTypes>(
         chain,
         current_epoch,
         dependent_root,
-        execution_optimistic,
+        execution_status.is_optimistic(),
         indices,
     )
 }
