@@ -909,7 +909,11 @@ impl BeaconNodeHttpClient {
             .push("validator")
             .push("contribution_and_proofs");
 
-        self.post_with_timeout(path, &signed_contributions, self.timeouts.sync_committee_contribution)  
+        self.post_with_timeout(
+            path,
+            &signed_contributions,
+            self.timeouts.sync_committee_contribution,
+        )
         .await?;
 
         Ok(())
