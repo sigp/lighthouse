@@ -1,7 +1,9 @@
 #![cfg(not(debug_assertions))] // Tests are too slow in debug.
 #![cfg(test)]
 
-use crate::beacon_processor::work_reprocessing_queue::{QUEUED_ATTESTATION_DELAY, QUEUED_RPC_BLOCK_DELAY};
+use crate::beacon_processor::work_reprocessing_queue::{
+    QUEUED_ATTESTATION_DELAY, QUEUED_RPC_BLOCK_DELAY,
+};
 use crate::beacon_processor::*;
 use crate::{service::NetworkMessage, sync::SyncMessage};
 use beacon_chain::test_utils::{
@@ -257,7 +259,7 @@ impl TestRig {
         let event = WorkEvent::rpc_beacon_block(
             Box::new(self.next_block.clone()),
             std::time::Duration::default(),
-            BlockProcessType::SingleBlock {id: 1},
+            BlockProcessType::SingleBlock { id: 1 },
         );
         self.beacon_processor_tx.try_send(event).unwrap();
     }
@@ -855,7 +857,7 @@ fn test_rpc_block_reprocessing() {
     rig.enqueue_single_lookup_rpc_block();
 
     rig.assert_event_journal(&[RPC_BLOCK, WORKER_FREED, NOTHING_TO_DO]);
-    // next_block shouldn't be processed since it couldn't get the 
+    // next_block shouldn't be processed since it couldn't get the
     // duplicate cache handle
     assert_ne!(next_block_root, rig.head_root());
 
@@ -864,13 +866,13 @@ fn test_rpc_block_reprocessing() {
     // The block should arrive at the beacon processor again after
     // the specified delay.
     rig.handle().block_on(async {
-        tokio::time::sleep(QUEUED_RPC_BLOCK_DELAY).await;        
+        tokio::time::sleep(QUEUED_RPC_BLOCK_DELAY).await;
     });
 
     rig.assert_event_journal(&[RPC_BLOCK]);
     // Add an extra delay for block processing
     rig.handle().block_on(async {
-        tokio::time::sleep(Duration::from_millis(10)).await;        
+        tokio::time::sleep(Duration::from_millis(10)).await;
     });
     // head should update to next block now since the duplicate
     // cache handle was dropped.
