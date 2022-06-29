@@ -1070,14 +1070,18 @@ where
         }
 
         if store.best_justified_checkpoint().epoch > store.justified_checkpoint().epoch {
-            store
-                .set_justified_checkpoint(*store.best_justified_checkpoint())
-                .map_err(Error::ForkChoiceStoreError)?;
+            let store = &self.fc_store;
+            if self.is_descendant_of_finalized(store.best_justified_checkpoint().root) {
+                let store = &mut self.fc_store;
+                store
+                    .set_justified_checkpoint(*store.best_justified_checkpoint())
+                    .map_err(Error::ForkChoiceStoreError)?;
+            }
         }
 
         // Update store.justified_checkpoint if a better unrealized justified checkpoint is known
-        let unrealized_justified_checkpoint = *store.unrealized_justified_checkpoint();
-        let unrealized_finalized_checkpoint = *store.unrealized_finalized_checkpoint();
+        let unrealized_justified_checkpoint = *self.fc_store.unrealized_justified_checkpoint();
+        let unrealized_finalized_checkpoint = *self.fc_store.unrealized_finalized_checkpoint();
         self.update_checkpoints(
             unrealized_justified_checkpoint,
             unrealized_finalized_checkpoint,
