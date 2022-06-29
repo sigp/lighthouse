@@ -721,6 +721,13 @@ async fn block_gossip_verification() {
             .expect("should import valid gossip verified block");
     }
 
+    // Recompute the head to ensure we cache the latest view of fork choice.
+    harness
+        .chain
+        .recompute_head_at_current_slot()
+        .await
+        .unwrap();
+
     /*
      * This test ensures that:
      *
