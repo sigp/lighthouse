@@ -462,3 +462,56 @@ fn test_parent_lookup_disconnection() {
     bl.peer_disconnected(&peer_id, &mut cx);
     assert!(bl.parent_queue.is_empty());
 }
+
+#[test]
+fn test_single_block_lookup_ignored_response() {
+    let (mut bl, mut cx, mut rig) = TestRig::test_setup(None);
+
+    let block = rig.rand_block();
+    let peer_id = PeerId::random();
+
+    // Trigger the request
+    bl.search_block(block.canonical_root(), peer_id, &mut cx);
+    let id = rig.expect_block_request();
+
+    // The peer provides the correct block, should not be penalized. Now the block should be sent
+    // for processing.
+    bl.single_block_lookup_response(id, peer_id, Some(Box::new(block)), D, &mut cx);
+    rig.expect_empty_network();
+    rig.expect_block_process();
+
+    // The request should still be active.
+    assert_eq!(bl.single_block_lookups.len(), 1);
+
+    // Send the stream termination. Peer should have not been penalized, and the request removed
+    // after processing.
+    bl.single_block_lookup_response(id, peer_id, None, D, &mut cx);
+    // Send an Ignored response, the request should be dropped
+    bl.single_block_processed(id, BlockProcessResult::Ignored, &mut cx);
+    rig.expect_empty_network();
+    assert_eq!(bl.single_block_lookups.len(), 0);
+}
+
+#[test]
+fn test_parent_lookup_ignored_response() {
+    let (mut bl, mut cx, mut rig) = TestRig::test_setup(None);
+
+    let parent = rig.rand_block();
+    let block = rig.block_with_parent(parent.canonical_root());
+    let chain_hash = block.canonical_root();
+    let peer_id = PeerId::random();
+
+    // Trigger the request
+    bl.search_parent(Box::new(block), peer_id, &mut cx);
+    let id = rig.expect_parent_request();
+
+    // Peer sends the right block, it should be sent for processing. Peer should not be penalized.
+    bl.parent_lookup_response(id, peer_id, Some(Box::new(parent)), D, &mut cx);
+    rig.expect_block_process();
+    rig.expect_empty_network();
+
+    // Return an Ignored result. The request should be dropped
+    bl.parent_block_processed(chain_hash, BlockProcessResult::Ignored, &mut cx);
+    rig.expect_empty_network();
+    assert_eq!(bl.parent_queue.len(), 0);
+}

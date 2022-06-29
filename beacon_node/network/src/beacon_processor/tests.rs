@@ -1,7 +1,7 @@
 #![cfg(not(debug_assertions))] // Tests are too slow in debug.
 #![cfg(test)]
 
-use crate::beacon_processor::work_reprocessing_queue::QUEUED_ATTESTATION_DELAY;
+use crate::beacon_processor::work_reprocessing_queue::{QUEUED_ATTESTATION_DELAY, QUEUED_RPC_BLOCK_DELAY};
 use crate::beacon_processor::*;
 use crate::{service::NetworkMessage, sync::SyncMessage};
 use beacon_chain::test_utils::{
@@ -56,6 +56,7 @@ struct TestRig {
     work_journal_rx: mpsc::Receiver<&'static str>,
     _network_rx: mpsc::UnboundedReceiver<NetworkMessage<E>>,
     _sync_rx: mpsc::UnboundedReceiver<SyncMessage<E>>,
+    duplicate_cache: DuplicateCache,
     environment: Option<Environment<E>>,
 }
 
@@ -193,6 +194,7 @@ impl TestRig {
 
         let (work_journal_tx, work_journal_rx) = mpsc::channel(16_364);
 
+        let duplicate_cache = DuplicateCache::default();
         BeaconProcessor {
             beacon_chain: Arc::downgrade(&chain),
             network_tx,
@@ -201,7 +203,7 @@ impl TestRig {
             executor,
             max_workers: cmp::max(1, num_cpus::get()),
             current_workers: 0,
-            importing_blocks: Default::default(),
+            importing_blocks: duplicate_cache.clone(),
             log: log.clone(),
         }
         .spawn_manager(beacon_processor_rx, Some(work_journal_tx));
@@ -219,6 +221,7 @@ impl TestRig {
             work_journal_rx,
             _network_rx,
             _sync_rx,
+            duplicate_cache,
             environment: Some(environment),
         }
     }
@@ -246,6 +249,15 @@ impl TestRig {
             BlockProcessType::ParentLookup {
                 chain_hash: Hash256::random(),
             },
+        );
+        self.beacon_processor_tx.try_send(event).unwrap();
+    }
+
+    pub fn enqueue_single_lookup_rpc_block(&self) {
+        let event = WorkEvent::rpc_beacon_block(
+            Box::new(self.next_block.clone()),
+            std::time::Duration::default(),
+            BlockProcessType::SingleBlock {id: 1},
         );
         self.beacon_processor_tx.try_send(event).unwrap();
     }
@@ -830,4 +842,37 @@ fn import_misc_gossip_ops() {
         initial_voluntary_exits + 1,
         "op pool should have one more exit"
     );
+}
+
+/// Ensure that rpc block going to the reprocessing queue flow
+/// works when the duplicate cache handle is held by another task.
+#[test]
+fn test_rpc_block_reprocessing() {
+    let mut rig = TestRig::new(SMALL_CHAIN);
+    let next_block_root = rig.next_block.canonical_root();
+    // Insert the next block into the duplicate cache manually
+    let handle = rig.duplicate_cache.check_and_insert(next_block_root);
+    rig.enqueue_single_lookup_rpc_block();
+
+    rig.assert_event_journal(&[RPC_BLOCK, WORKER_FREED, NOTHING_TO_DO]);
+    // next_block shouldn't be processed since it couldn't get the 
+    // duplicate cache handle
+    assert_ne!(next_block_root, rig.head_root());
+
+    drop(handle);
+
+    // The block should arrive at the beacon processor again after
+    // the specified delay.
+    rig.handle().block_on(async {
+        tokio::time::sleep(QUEUED_RPC_BLOCK_DELAY).await;        
+    });
+
+    rig.assert_event_journal(&[RPC_BLOCK]);
+    // Add an extra delay for block processing
+    rig.handle().block_on(async {
+        tokio::time::sleep(Duration::from_millis(10)).await;        
+    });
+    // head should update to next block now since the duplicate
+    // cache handle was dropped.
+    assert_eq!(next_block_root, rig.head_root());
 }
