@@ -2465,8 +2465,11 @@ pub fn serve<T: BeaconChainTypes>(
                         .ok_or(BeaconChainError::ExecutionLayerMissing)
                         .map_err(warp_utils::reject::beacon_chain_error)?;
                     let current_epoch = chain
-                        .epoch()
-                        .map_err(warp_utils::reject::beacon_chain_error)?;
+                        .slot_clock
+                        .now_or_genesis()
+                        .ok_or(BeaconChainError::UnableToReadSlot)
+                        .map_err(warp_utils::reject::beacon_chain_error)?
+                        .epoch(T::EthSpec::slots_per_epoch());
 
                     debug!(
                         log,
