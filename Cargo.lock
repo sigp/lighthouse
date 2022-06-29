@@ -328,7 +328,7 @@ dependencies = [
 
 [[package]]
 name = "beacon_node"
-version = "2.3.0"
+version = "2.3.2-rc.0"
 dependencies = [
  "beacon_chain",
  "clap",
@@ -485,7 +485,7 @@ dependencies = [
 
 [[package]]
 name = "boot_node"
-version = "2.3.1"
+version = "2.3.2-rc.0"
 dependencies = [
  "beacon_node",
  "clap",
@@ -535,17 +535,6 @@ checksum = "b953a6887648bb07a535631f2bc00fbdb2a2216f135552cb3f534ed136b9c07f"
 dependencies = [
  "memchr",
  "safemem",
-]
-
-[[package]]
-name = "builder_client"
-version = "0.1.0"
-dependencies = [
- "eth2",
- "reqwest",
- "sensitive_url",
- "serde",
- "serde_json",
 ]
 
 [[package]]
@@ -755,6 +744,7 @@ dependencies = [
  "sensitive_url",
  "serde",
  "serde_derive",
+ "serde_yaml",
  "slasher",
  "slasher_service",
  "slog",
@@ -764,7 +754,6 @@ dependencies = [
  "time 0.3.9",
  "timer",
  "tokio",
- "toml",
  "types",
 ]
 
@@ -1541,6 +1530,7 @@ dependencies = [
  "eth2",
  "eth2_ssz",
  "eth2_ssz_derive",
+ "execution_layer",
  "fallback",
  "futures",
  "hex",
@@ -1552,12 +1542,12 @@ dependencies = [
  "sensitive_url",
  "serde",
  "serde_json",
+ "serde_yaml",
  "slog",
  "sloggers",
  "state_processing",
  "task_executor",
  "tokio",
- "toml",
  "tree_hash",
  "types",
  "web3",
@@ -1886,11 +1876,11 @@ name = "execution_layer"
 version = "0.1.0"
 dependencies = [
  "async-trait",
- "builder_client",
  "bytes",
  "environment",
- "eth1",
+ "eth2",
  "eth2_serde_utils",
+ "eth2_ssz",
  "eth2_ssz_types",
  "ethers-core",
  "exit-future",
@@ -1908,6 +1898,7 @@ dependencies = [
  "serde_json",
  "slog",
  "slot_clock",
+ "state_processing",
  "task_executor",
  "tempfile",
  "tokio",
@@ -2533,6 +2524,7 @@ dependencies = [
  "lighthouse_network",
  "lighthouse_version",
  "logging",
+ "lru",
  "network",
  "parking_lot 0.12.1",
  "safe_arith",
@@ -2897,7 +2889,7 @@ checksum = "830d08ce1d1d941e6b30645f1a0eb5643013d835ce3779a5fc208261dbe10f55"
 
 [[package]]
 name = "lcli"
-version = "2.3.1"
+version = "2.3.2-rc.0"
 dependencies = [
  "account_utils",
  "bls",
@@ -3395,7 +3387,7 @@ dependencies = [
 
 [[package]]
 name = "lighthouse"
-version = "2.3.1"
+version = "2.3.2-rc.0"
 dependencies = [
  "account_manager",
  "account_utils",
@@ -3408,6 +3400,7 @@ dependencies = [
  "directory",
  "env_logger 0.9.0",
  "environment",
+ "eth1",
  "eth2_hashing",
  "eth2_network_config",
  "futures",
@@ -3462,6 +3455,8 @@ dependencies = [
  "lru",
  "parking_lot 0.12.1",
  "prometheus-client",
+ "quickcheck",
+ "quickcheck_macros",
  "rand 0.8.5",
  "regex",
  "serde",
@@ -5510,28 +5505,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "serde_with"
-version = "1.14.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "678b5a069e50bf00ecd22d0cd8ddf7c236f68581b03db652061ed5eb13a312ff"
-dependencies = [
- "serde",
- "serde_with_macros",
-]
-
-[[package]]
-name = "serde_with_macros"
-version = "1.5.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e182d6ec6f05393cc0e5ed1bf81ad6db3a8feedf8ee515ecdd369809bcce8082"
-dependencies = [
- "darling",
- "proc-macro2",
- "quote",
- "syn",
-]
-
-[[package]]
 name = "serde_yaml"
 version = "0.8.24"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5667,6 +5640,7 @@ dependencies = [
  "env_logger 0.9.0",
  "eth1",
  "eth1_test_rig",
+ "execution_layer",
  "futures",
  "node_test_rig",
  "parking_lot 0.12.1",
@@ -6680,7 +6654,6 @@ dependencies = [
  "serde",
  "serde_derive",
  "serde_json",
- "serde_with",
  "serde_yaml",
  "slog",
  "smallvec",

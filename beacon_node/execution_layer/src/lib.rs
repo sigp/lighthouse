@@ -4,11 +4,13 @@
 //! This crate only provides useful functionality for "The Merge", it does not provide any of the
 //! deposit-contract functionality that the `beacon_node/eth1` crate already provides.
 
-use auth::{Auth, JwtKey};
+use crate::engine_api::Builder;
+use crate::engines::Builders;
+use auth::{strip_prefix, Auth, JwtKey};
 use builder_client::BuilderHttpClient;
 use engine_api::Error as ApiError;
 pub use engine_api::*;
-pub use engine_api::{http, http::HttpJsonRpc};
+pub use engine_api::{http, http::deposit_methods, http::HttpJsonRpc};
 pub use engines::ForkChoiceState;
 use engines::{Engine, EngineError, Engines, Logging};
 use lru::LruCache;
@@ -39,6 +41,9 @@ mod engines;
 mod metrics;
 mod payload_status;
 pub mod test_utils;
+
+/// Indicates the default jwt authenticated execution endpoint.
+pub const DEFAULT_EXECUTION_ENDPOINT: &str = "http://localhost:8551/";
 
 /// Name for the default file used for the jwt secret.
 pub const DEFAULT_JWT_FILE: &str = "jwt.hex";
@@ -128,14 +133,6 @@ pub struct Config {
     pub jwt_version: Option<String>,
     /// Default directory for the jwt secret if not provided through cli.
     pub default_datadir: PathBuf,
-}
-
-fn strip_prefix(s: &str) -> &str {
-    if let Some(stripped) = s.strip_prefix("0x") {
-        stripped
-    } else {
-        s
-    }
 }
 
 /// Provides access to one or more execution engines and provides a neat interface for consumption

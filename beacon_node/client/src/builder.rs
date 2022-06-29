@@ -276,6 +276,8 @@ where
                     BeaconNodeHttpClient::new(url, Timeouts::set_all(CHECKPOINT_SYNC_HTTP_TIMEOUT));
                 let slots_per_epoch = TEthSpec::slots_per_epoch();
 
+                debug!(context.log(), "Downloading finalized block");
+
                 // Find a suitable finalized block on an epoch boundary.
                 let mut block = remote
                     .get_beacon_blocks_ssz::<TEthSpec>(BlockId::Finalized, &spec)
@@ -290,6 +292,8 @@ where
                     })?
                     .ok_or("Finalized block missing from remote, it returned 404")?;
 
+                debug!(context.log(), "Downloaded finalized block");
+
                 let mut block_slot = block.slot();
 
                 while block.slot() % slots_per_epoch != 0 {
@@ -299,6 +303,12 @@ where
                         context.log(),
                         "Searching for aligned checkpoint block";
                         "block_slot" => block_slot,
+                    );
+
+                    debug!(
+                        context.log(),
+                        "Searching for aligned checkpoint block";
+                        "block_slot" => block_slot
                     );
 
                     if let Some(found_block) = remote
@@ -312,7 +322,19 @@ where
                     }
                 }
 
+                debug!(
+                    context.log(),
+                    "Downloaded aligned finalized block";
+                    "block_root" => ?block.canonical_root(),
+                    "block_slot" => block.slot(),
+                );
+
                 let state_root = block.state_root();
+                debug!(
+                    context.log(),
+                    "Downloading finalized state";
+                    "state_root" => ?state_root
+                );
                 let state = remote
                     .get_debug_beacon_states_ssz::<TEthSpec>(StateId::Root(state_root), &spec)
                     .await
@@ -325,6 +347,8 @@ where
                     .ok_or_else(|| {
                         format!("Checkpoint state missing from remote: {:?}", state_root)
                     })?;
+
+                debug!(context.log(), "Downloaded finalized state");
 
                 let genesis_state = BeaconState::from_ssz_bytes(&genesis_state_bytes, &spec)
                     .map_err(|e| format!("Unable to parse genesis state SSZ: {:?}", e))?;
