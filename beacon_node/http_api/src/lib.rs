@@ -2491,6 +2491,12 @@ pub fn serve<T: BeaconChainTypes>(
                         })
                         .collect::<Vec<_>>();
 
+debug!(
+    log,
+    "Resolved validator request pubkeys";
+    "count" => preparation_data.len()
+);
+
                     // Update the prepare beacon proposer cache based on this request.
                     execution_layer
                         .update_proposer_preparation_blocking(current_epoch, &preparation_data)
