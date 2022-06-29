@@ -4,8 +4,6 @@
 //! This crate only provides useful functionality for "The Merge", it does not provide any of the
 //! deposit-contract functionality that the `beacon_node/eth1` crate already provides.
 
-use crate::engine_api::Builder;
-use crate::engines::Builders;
 use auth::{strip_prefix, Auth, JwtKey};
 use builder_client::BuilderHttpClient;
 use engine_api::Error as ApiError;
@@ -611,7 +609,34 @@ impl<T: EthSpec> ExecutionLayer<T> {
         pubkey_opt: Option<PublicKeyBytes>,
         slot: Slot,
     ) -> Result<Payload, Error> {
-        todo!("sean")
+        //FIXME(sean) fallback logic included in PR #3134
+
+        // Don't attempt to outsource payload construction until after the merge transition has been
+        // finalized. We want to be conservative with payload construction until then.
+        if let (Some(builder), Some(pubkey)) = (self.builder(), pubkey_opt) {
+            if finalized_block_hash != ExecutionBlockHash::zero() {
+                info!(
+                    self.log(),
+                    "Requesting blinded header from connected builder";
+                    "slot" => ?slot,
+                    "pubkey" => ?pubkey,
+                    "parent_hash" => ?parent_hash,
+                );
+                return builder
+                    .get_builder_header::<T, Payload>(slot, parent_hash, &pubkey)
+                    .await
+                    .map(|d| d.data.message.header)
+                    .map_err(Error::Builder);
+            }
+        }
+        self.get_full_payload::<Payload>(
+            parent_hash,
+            timestamp,
+            prev_randao,
+            finalized_block_hash,
+            suggested_fee_recipient,
+        )
+        .await
     }
 
     /// Get a full payload without caching its result in the execution layer's payload cache.
@@ -1337,15 +1362,6 @@ mod test {
             })
             .await;
     }
-
-    // test fallback
-
-    // test normal flow used when
-    // - merge hasn't finalized
-    // - bad chain health (finalization not advancing?)
-    // - gas_limit not what you sent builder
-    // - fee recipient not what you sent builder
-    // - timeout?
 }
 
 fn noop<T: EthSpec>(_: &ExecutionLayer<T>, _: &ExecutionPayload<T>) -> Option<ExecutionPayload<T>> {

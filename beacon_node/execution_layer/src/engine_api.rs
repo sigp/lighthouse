@@ -1,6 +1,4 @@
 use crate::engines::ForkChoiceState;
-use async_trait::async_trait;
-use eth1::http::RpcError;
 pub use ethers_core::types::Transaction;
 use http::deposit_methods::RpcError;
 pub use json_structures::TransitionConfigurationV1;
