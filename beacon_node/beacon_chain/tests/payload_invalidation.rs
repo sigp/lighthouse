@@ -952,7 +952,7 @@ async fn invalid_parent() {
     // Produce another block atop the parent, but don't import yet.
     let slot = parent_block.slot() + 1;
     rig.harness.set_current_slot(slot);
-    let (block, mut state) = rig.harness.make_block(parent_state, slot).await;
+    let (block, state) = rig.harness.make_block(parent_state, slot).await;
     let block = Arc::new(block);
     let block_root = block.canonical_root();
     assert_eq!(block.parent_root(), parent_root);
@@ -982,7 +982,7 @@ async fn invalid_parent() {
             block.message(),
             block_root,
             Duration::from_secs(0),
-            &mut state,
+            &state,
             PayloadVerificationStatus::Optimistic,
             &rig.harness.chain.spec
         ),
