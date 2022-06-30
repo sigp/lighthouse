@@ -411,12 +411,15 @@ impl ChainSpec {
 
     pub const fn attestation_subnet_prefix_bits(&self) -> u32 {
         // maybe use log2 when stable https://github.com/rust-lang/rust/issues/70887
-        // current code is prone to errors if self.attestation_subnet_count's type is changed and
+
+        // NOTE: this line is here simply to guarantee that if self.attestation_subnet_count type
+        // is changed, a compiler warning will be raised. This code depends on the type being u64.
+        let attestation_subnet_count: u64 = self.attestation_subnet_count;
         // no warning will be raised by the compiler.
-        let attestation_subnet_count_bits = if self.attestation_subnet_count == 0 {
+        let attestation_subnet_count_bits = if attestation_subnet_count == 0 {
             0
         } else {
-            63 - self.attestation_subnet_count.leading_zeros()
+            63 - attestation_subnet_count.leading_zeros()
         };
 
         self.attestation_subnet_extra_bits as u32 + attestation_subnet_count_bits
