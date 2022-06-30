@@ -49,8 +49,8 @@ use types::{
     BlindedPayload, CommitteeCache, ConfigAndPreset, Epoch, EthSpec, ForkName, FullPayload,
     ProposerPreparationData, ProposerSlashing, RelativeEpoch, Signature, SignedAggregateAndProof,
     SignedBeaconBlock, SignedBeaconBlockMerge, SignedBlindedBeaconBlock,
-    SignedContributionAndProof, SignedVoluntaryExit, Slot, SyncCommitteeMessage,
-    SyncContributionData,
+    SignedContributionAndProof, SignedValidatorRegistrationData, SignedVoluntaryExit, Slot,
+    SyncCommitteeMessage, SyncContributionData,
 };
 use version::{
     add_consensus_version_header, fork_versioned_response, inconsistent_fork_rejection,
@@ -200,18 +200,29 @@ pub fn prometheus_metrics() -> warp::filters::log::Log<impl Fn(warp::filters::lo
 
             // First line covers `POST /v1/beacon/blocks` only
             equals("v1/beacon/blocks")
-                .or_else(|| starts_with("v1/validator/duties/attester"))
-                .or_else(|| starts_with("v1/validator/duties/proposer"))
-                .or_else(|| starts_with("v1/validator/attestation_data"))
                 .or_else(|| starts_with("v1/validator/blocks"))
                 .or_else(|| starts_with("v2/validator/blocks"))
+                .or_else(|| starts_with("v1/validator/blinded_blocks"))
+                .or_else(|| starts_with("v1/validator/duties/attester"))
+                .or_else(|| starts_with("v1/validator/duties/proposer"))
+                .or_else(|| starts_with("v1/validator/duties/sync"))
+                .or_else(|| starts_with("v1/validator/attestation_data"))
                 .or_else(|| starts_with("v1/validator/aggregate_attestation"))
                 .or_else(|| starts_with("v1/validator/aggregate_and_proofs"))
+                .or_else(|| starts_with("v1/validator/sync_committee_contribution"))
+                .or_else(|| starts_with("v1/validator/contribution_and_proofs"))
                 .or_else(|| starts_with("v1/validator/beacon_committee_subscriptions"))
+                .or_else(|| starts_with("v1/validator/sync_committee_subscriptions"))
+                .or_else(|| starts_with("v1/beacon/pool/attestations"))
+                .or_else(|| starts_with("v1/beacon/pool/sync_committees"))
+                .or_else(|| starts_with("v1/beacon/blocks/head/root"))
+                .or_else(|| starts_with("v1/validator/prepare_beacon_proposer"))
+                .or_else(|| starts_with("v1/validator/register_validator"))
                 .or_else(|| starts_with("v1/beacon/"))
                 .or_else(|| starts_with("v2/beacon/"))
                 .or_else(|| starts_with("v1/config/"))
                 .or_else(|| starts_with("v1/debug/"))
+                .or_else(|| starts_with("v2/debug/"))
                 .or_else(|| starts_with("v1/events/"))
                 .or_else(|| starts_with("v1/node/"))
                 .or_else(|| starts_with("v1/validator/"))
@@ -2399,12 +2410,10 @@ pub fn serve<T: BeaconChainTypes>(
         .and(warp::path::end())
         .and(not_while_syncing_filter.clone())
         .and(chain_filter.clone())
-        .and(warp::addr::remote())
         .and(log_filter.clone())
         .and(warp::body::json())
         .and_then(
             |chain: Arc<BeaconChain<T>>,
-             client_addr: Option<SocketAddr>,
              log: Logger,
              preparation_data: Vec<ProposerPreparationData>| {
                 blocking_json_task(move || {
@@ -2421,9 +2430,6 @@ pub fn serve<T: BeaconChainTypes>(
                         log,
                         "Received proposer preparation data";
                         "count" => preparation_data.len(),
-                        "client" => client_addr
-                            .map(|a| a.to_string())
-                            .unwrap_or_else(|| "unknown".to_string()),
                     );
 
                     execution_layer
@@ -2446,6 +2452,82 @@ pub fn serve<T: BeaconChainTypes>(
             },
         );
 
+    // POST validator/register_validator
+    let post_validator_register_validator = eth1_v1
+        .and(warp::path("validator"))
+        .and(warp::path("register_validator"))
+        .and(warp::path::end())
+        .and(chain_filter.clone())
+        .and(log_filter.clone())
+        .and(warp::body::json())
+        .and_then(
+            |chain: Arc<BeaconChain<T>>,
+             log: Logger,
+             register_val_data: Vec<SignedValidatorRegistrationData>| {
+                blocking_json_task(move || {
+                    let execution_layer = chain
+                        .execution_layer
+                        .as_ref()
+                        .ok_or(BeaconChainError::ExecutionLayerMissing)
+                        .map_err(warp_utils::reject::beacon_chain_error)?;
+                    let current_epoch = chain
+                        .slot_clock
+                        .now_or_genesis()
+                        .ok_or(BeaconChainError::UnableToReadSlot)
+                        .map_err(warp_utils::reject::beacon_chain_error)?
+                        .epoch(T::EthSpec::slots_per_epoch());
+
+                    debug!(
+                        log,
+                        "Received register validator request";
+                        "count" => register_val_data.len(),
+                    );
+
+                    let preparation_data = register_val_data
+                        .iter()
+                        .filter_map(|register_data| {
+                            chain
+                                .validator_index(&register_data.message.pubkey)
+                                .ok()
+                                .flatten()
+                                .map(|validator_index| ProposerPreparationData {
+                                    validator_index: validator_index as u64,
+                                    fee_recipient: register_data.message.fee_recipient,
+                                })
+                        })
+                        .collect::<Vec<_>>();
+
+                    debug!(
+                        log,
+                        "Resolved validator request pubkeys";
+                        "count" => preparation_data.len()
+                    );
+
+                    // Update the prepare beacon proposer cache based on this request.
+                    execution_layer
+                        .update_proposer_preparation_blocking(current_epoch, &preparation_data)
+                        .map_err(|_e| {
+                            warp_utils::reject::custom_bad_request(
+                                "error processing proposer preparations".to_string(),
+                            )
+                        })?;
+
+                    // Call prepare beacon proposer blocking with the latest update in order to make
+                    // sure we have a local payload to fall back to in the event of the blined block
+                    // flow failing.
+                    chain.prepare_beacon_proposer_blocking().map_err(|e| {
+                        warp_utils::reject::custom_bad_request(format!(
+                            "error updating proposer preparations: {:?}",
+                            e
+                        ))
+                    })?;
+
+                    //TODO(sean): In the MEV-boost PR, add a call here to send the update request to the builder
+
+                    Ok(())
+                })
+            },
+        );
     // POST validator/sync_committee_subscriptions
     let post_validator_sync_committee_subscriptions = eth1_v1
         .and(warp::path("validator"))
@@ -2814,6 +2896,18 @@ pub fn serve<T: BeaconChainTypes>(
             blocking_json_task(move || block_rewards::get_block_rewards(query, chain, log))
         });
 
+    // POST lighthouse/analysis/block_rewards
+    let post_lighthouse_block_rewards = warp::path("lighthouse")
+        .and(warp::path("analysis"))
+        .and(warp::path("block_rewards"))
+        .and(warp::body::json())
+        .and(warp::path::end())
+        .and(chain_filter.clone())
+        .and(log_filter.clone())
+        .and_then(|blocks, chain, log| {
+            blocking_json_task(move || block_rewards::compute_block_rewards(blocks, chain, log))
+        });
+
     // GET lighthouse/analysis/attestation_performance/{index}
     let get_lighthouse_attestation_performance = warp::path("lighthouse")
         .and(warp::path("analysis"))
@@ -2987,9 +3081,11 @@ pub fn serve<T: BeaconChainTypes>(
                 .or(post_validator_beacon_committee_subscriptions.boxed())
                 .or(post_validator_sync_committee_subscriptions.boxed())
                 .or(post_validator_prepare_beacon_proposer.boxed())
+                .or(post_validator_register_validator.boxed())
                 .or(post_lighthouse_liveness.boxed())
                 .or(post_lighthouse_database_reconstruct.boxed())
-                .or(post_lighthouse_database_historical_blocks.boxed()),
+                .or(post_lighthouse_database_historical_blocks.boxed())
+                .or(post_lighthouse_block_rewards.boxed()),
         ))
         .recover(warp_utils::reject::handle_rejection)
         .with(slog_logging(log.clone()))

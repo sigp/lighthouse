@@ -485,7 +485,10 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
 
         self.preparation_service
             .clone()
-            .start_update_service(&self.context.eth2_config.spec)
+            .start_update_service(
+                self.config.private_tx_proposals,
+                &self.context.eth2_config.spec,
+            )
             .map_err(|e| format!("Unable to start preparation service: {}", e))?;
 
         if let Some(doppelganger_service) = self.doppelganger_service.clone() {

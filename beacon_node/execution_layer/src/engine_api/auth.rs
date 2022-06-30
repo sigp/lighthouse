@@ -1,3 +1,5 @@
+use std::path::PathBuf;
+
 use jsonwebtoken::{encode, get_current_timestamp, Algorithm, EncodingKey, Header};
 use rand::Rng;
 use serde::{Deserialize, Serialize};
@@ -13,6 +15,7 @@ pub const JWT_SECRET_LENGTH: usize = 32;
 pub enum Error {
     JWT(jsonwebtoken::errors::Error),
     InvalidToken,
+    InvalidKey(String),
 }
 
 impl From<jsonwebtoken::errors::Error> for Error {
@@ -57,6 +60,14 @@ impl JwtKey {
     }
 }
 
+pub fn strip_prefix(s: &str) -> &str {
+    if let Some(stripped) = s.strip_prefix("0x") {
+        stripped
+    } else {
+        s
+    }
+}
+
 /// Contains the JWT secret and claims parameters.
 pub struct Auth {
     key: EncodingKey,
@@ -71,6 +82,28 @@ impl Auth {
             id,
             clv,
         }
+    }
+
+    /// Create a new `Auth` struct given the path to the file containing the hex
+    /// encoded jwt key.
+    pub fn new_with_path(
+        jwt_path: PathBuf,
+        id: Option<String>,
+        clv: Option<String>,
+    ) -> Result<Self, Error> {
+        std::fs::read_to_string(&jwt_path)
+            .map_err(|e| {
+                Error::InvalidKey(format!(
+                    "Failed to read JWT secret file {:?}, error: {:?}",
+                    jwt_path, e
+                ))
+            })
+            .and_then(|ref s| {
+                let secret_bytes = hex::decode(strip_prefix(s.trim_end()))
+                    .map_err(|e| Error::InvalidKey(format!("Invalid hex string: {:?}", e)))?;
+                let secret = JwtKey::from_slice(&secret_bytes).map_err(Error::InvalidKey)?;
+                Ok(Self::new(secret, id, clv))
+            })
     }
 
     /// Generate a JWT token with `claims.iat` set to current time.

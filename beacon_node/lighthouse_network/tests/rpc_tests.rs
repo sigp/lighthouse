@@ -167,7 +167,6 @@ fn test_blocks_by_range_chunked_rpc() {
         let rpc_request = Request::BlocksByRange(BlocksByRangeRequest {
             start_slot: 0,
             count: messages_to_send,
-            step: 0,
         });
 
         let spec = E::default_spec();
@@ -307,7 +306,6 @@ fn test_blocks_by_range_over_limit() {
         let rpc_request = Request::BlocksByRange(BlocksByRangeRequest {
             start_slot: 0,
             count: messages_to_send,
-            step: 0,
         });
 
         // BlocksByRange Response
@@ -405,7 +403,6 @@ fn test_blocks_by_range_chunked_rpc_terminates_correctly() {
         let rpc_request = Request::BlocksByRange(BlocksByRangeRequest {
             start_slot: 0,
             count: messages_to_send,
-            step: 0,
         });
 
         // BlocksByRange Response
@@ -537,7 +534,6 @@ fn test_blocks_by_range_single_empty_rpc() {
         let rpc_request = Request::BlocksByRange(BlocksByRangeRequest {
             start_slot: 0,
             count: 10,
-            step: 0,
         });
 
         // BlocksByRange Response

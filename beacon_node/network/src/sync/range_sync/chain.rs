@@ -1,6 +1,6 @@
 use super::batch::{BatchInfo, BatchProcessingResult, BatchState};
-use crate::beacon_processor::ChainSegmentProcessId;
 use crate::beacon_processor::WorkEvent as BeaconWorkEvent;
+use crate::beacon_processor::{ChainSegmentProcessId, FailureMode};
 use crate::sync::{manager::Id, network_context::SyncNetworkContext, BatchProcessResult};
 use beacon_chain::BeaconChainTypes;
 use fnv::FnvHashMap;
@@ -320,6 +320,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
                 &BatchProcessResult::Failed {
                     imported_blocks: false,
                     peer_action: None,
+                    mode: FailureMode::ConsensusLayer,
                 },
             )
         } else {
@@ -499,6 +500,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
             BatchProcessResult::Failed {
                 imported_blocks,
                 peer_action,
+                mode: _,
             } => {
                 let batch = self.batches.get_mut(&batch_id).ok_or_else(|| {
                     RemoveChain::WrongChainState(format!(

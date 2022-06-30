@@ -2,7 +2,7 @@ use crate::fee_recipient_file::FeeRecipientFile;
 use crate::graffiti_file::GraffitiFile;
 use crate::{http_api, http_metrics};
 use clap::ArgMatches;
-use clap_utils::{parse_optional, parse_required};
+use clap_utils::{flags::DISABLE_MALLOC_TUNING_FLAG, parse_optional, parse_required};
 use directory::{
     get_network_dir, DEFAULT_HARDCODED_NETWORK, DEFAULT_ROOT_DIR, DEFAULT_SECRET_DIR,
     DEFAULT_VALIDATOR_DIR,
@@ -293,6 +293,11 @@ impl Config {
 
             config.http_metrics.allow_origin = Some(allow_origin.to_string());
         }
+
+        if cli_args.is_present(DISABLE_MALLOC_TUNING_FLAG) {
+            config.http_metrics.allocator_metrics_enabled = false;
+        }
+
         /*
          * Explorer metrics
          */

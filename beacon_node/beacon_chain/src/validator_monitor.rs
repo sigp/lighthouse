@@ -231,6 +231,11 @@ impl MonitoredValidator {
             }
         }
     }
+
+    /// Ensure epoch summary is added to the summaries map
+    fn touch_epoch_summary(&self, epoch: Epoch) {
+        self.with_epoch_summary(epoch, |_| {});
+    }
 }
 
 /// Holds a collection of `MonitoredValidator` and is notified about a variety of events on the P2P
@@ -306,6 +311,7 @@ impl<T: EthSpec> ValidatorMonitor<T> {
         // Update metrics for individual validators.
         for monitored_validator in self.validators.values() {
             if let Some(i) = monitored_validator.index {
+                monitored_validator.touch_epoch_summary(current_epoch);
                 let i = i as usize;
                 let id = &monitored_validator.id;
 
