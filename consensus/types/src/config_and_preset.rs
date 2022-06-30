@@ -78,8 +78,12 @@ impl ConfigAndPreset {
                 spec.target_aggregators_per_committee.to_string(),
             ),
             (
+                "random_subnets_per_validator",
+                spec.random_subnets_per_validator.to_string(),
+            ),
+            (
                 "epochs_per_random_subnet_subscription",
-                spec.epochs_per_subnet_subscription.to_string(),
+                spec.epochs_per_random_subnet_subscription.to_string(),
             ),
         ];
         for (key, value) in fields {
