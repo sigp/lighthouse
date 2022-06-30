@@ -240,7 +240,7 @@ impl ProtoArray {
                 // not exist.
                 node.weight = node
                     .weight
-                    .checked_sub(node_delta.abs() as u64)
+                    .checked_sub(node_delta.unsigned_abs())
                     .ok_or(Error::DeltaOverflow(node_index))?;
             } else {
                 node.weight = node
