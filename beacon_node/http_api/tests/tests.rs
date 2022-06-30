@@ -11,7 +11,6 @@ use eth2::{
     types::{BlockId as CoreBlockId, StateId as CoreStateId, *},
     BeaconNodeHttpClient, Error, StatusCode, Timeouts,
 };
-use execution_layer::test_utils::MockExecutionLayer;
 use execution_layer::test_utils::Operation;
 use execution_layer::test_utils::TestingBuilder;
 use futures::stream::{Stream, StreamExt};
@@ -26,7 +25,6 @@ use state_processing::per_slot_processing;
 use std::convert::TryInto;
 use std::sync::Arc;
 use std::sync::RwLock;
-use task_executor::test_utils::TestRuntime;
 use tokio::sync::{mpsc, oneshot};
 use tokio::time::Duration;
 use tree_hash::TreeHash;
@@ -342,7 +340,6 @@ impl ApiTester {
 
         harness.read().unwrap().advance_slot();
 
-        let executor = harness.read().unwrap().runtime.task_executor.clone();
         let harness_inner = harness.clone();
 
         let next_block = Arc::new(RwLock::new(None));
@@ -2581,7 +2578,7 @@ impl ApiTester {
 
         let head_state = self.chain.head_beacon_state_cloned();
 
-        for (val_index, (val, fee_recipient)) in head_state
+        for (val_index, (_, fee_recipient)) in head_state
             .validators()
             .into_iter()
             .zip(fee_recipients.into_iter())
@@ -2599,7 +2596,7 @@ impl ApiTester {
         self
     }
 
-    pub async fn test_payload_respects_registration(mut self) -> Self {
+    pub async fn test_payload_respects_registration(self) -> Self {
         let head_state = self.chain.head_beacon_state_cloned();
         let proposer_index = head_state
             .get_beacon_proposer_index(head_state.slot(), &self.chain.spec)
@@ -2648,7 +2645,7 @@ impl ApiTester {
         self
     }
 
-    pub async fn test_payload_accepts_mutated_gas_limit(mut self) -> Self {
+    pub async fn test_payload_accepts_mutated_gas_limit(self) -> Self {
         let head_state = self.chain.head_beacon_state_cloned();
         let proposer_index = head_state
             .get_beacon_proposer_index(head_state.slot(), &self.chain.spec)
@@ -2703,7 +2700,7 @@ impl ApiTester {
         self
     }
 
-    pub async fn test_payload_rejects_changed_fee_recipient(mut self) -> Self {
+    pub async fn test_payload_rejects_changed_fee_recipient(self) -> Self {
         let head_state = self.chain.head_beacon_state_cloned();
         let proposer_index = head_state
             .get_beacon_proposer_index(head_state.slot(), &self.chain.spec)
