@@ -1717,14 +1717,13 @@ fn verify_header_signature<T: BeaconChainTypes>(
         .get(header.message.proposer_index as usize)
         .cloned()
         .ok_or(BlockError::UnknownValidator(header.message.proposer_index))?;
-    let (fork, genesis_validators_root) = chain
-        .with_head(|head| {
+    let (fork, genesis_validators_root) =
+        chain.with_head::<_, BlockError<T::EthSpec>, _>(|head| {
             Ok((
                 head.beacon_state.fork(),
                 head.beacon_state.genesis_validators_root(),
             ))
-        })
-        .map_err(|e: BlockError<T::EthSpec>| e)?;
+        })?;
 
     if header.verify_signature::<T::EthSpec>(
         &proposer_pubkey,
