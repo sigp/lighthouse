@@ -398,6 +398,18 @@ impl<T: BeaconChainTypes> ReprocessQueue<T> {
                     .insert(rpc_block, QUEUED_RPC_BLOCK_DELAY);
             }
             InboundEvent::ReadyRpcBlock(queued_rpc_block) => {
+                let block_root = queued_rpc_block.block.canonical_root();
+
+                if !self.queued_rpc_block_roots.remove(&block_root) {
+                    // Log an error to alert that we've made a bad assumption about how this
+                    // program works, but still process the block anyway.
+                    error!(
+                        log,
+                        "Unknown block in rpc delay queue";
+                        "block_root" => ?block_root
+                    );
+                }
+
                 debug!(
                     log,
                     "Sending rpc block for reprocessing";
