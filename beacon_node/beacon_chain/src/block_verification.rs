@@ -535,7 +535,10 @@ pub fn signature_verify_chain_segment<T: BeaconChainTypes>(
     let mut signature_verifier = get_signature_verifier(&state, &pubkey_cache, &chain.spec);
 
     for (block_root, block) in &chain_segment {
-        signature_verifier.include_all_signatures(block, Some(*block_root))?;
+        let proposer_index = state
+            .get_beacon_proposer_index_using_committee_cache(block.slot(), &chain.spec)?
+            as u64;
+        signature_verifier.include_all_signatures(block, Some(*block_root), proposer_index)?;
     }
 
     if signature_verifier.verify().is_err() {
@@ -909,7 +912,11 @@ impl<T: BeaconChainTypes> SignatureVerifiedBlock<T> {
 
         let mut signature_verifier = get_signature_verifier(&state, &pubkey_cache, &chain.spec);
 
-        signature_verifier.include_all_signatures(&block, Some(block_root))?;
+        let proposer_index = state
+            .get_beacon_proposer_index_using_committee_cache(block.slot(), &chain.spec)?
+            as u64;
+
+        signature_verifier.include_all_signatures(&block, Some(block_root), proposer_index)?;
 
         if signature_verifier.verify().is_ok() {
             Ok(Self {
@@ -955,7 +962,11 @@ impl<T: BeaconChainTypes> SignatureVerifiedBlock<T> {
 
         let mut signature_verifier = get_signature_verifier(&state, &pubkey_cache, &chain.spec);
 
-        signature_verifier.include_all_signatures_except_proposal(&block)?;
+        // Assume that the proposer index is accurate since gossip processing has checked the
+        // proposer index.
+        let proposer_index = block.message().proposer_index();
+
+        signature_verifier.include_all_signatures_except_proposal(&block, proposer_index)?;
 
         if signature_verifier.verify().is_ok() {
             Ok(Self {

@@ -743,11 +743,6 @@ impl<T: EthSpec> BeaconState<T> {
             let validator_index = indices.get(position_in_shuffling).copied().ok_or(
                 Error::ShuffleIndexOutOfBounds(position_in_active_validators),
             )?;
-            dbg!(
-                position_in_active_validators,
-                position_in_shuffling,
-                validator_index
-            );
             Ok(validator_index)
         };
 

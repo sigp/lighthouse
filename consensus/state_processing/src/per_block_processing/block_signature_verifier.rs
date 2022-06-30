@@ -74,7 +74,6 @@ where
     state: &'a BeaconState<T>,
     spec: &'a ChainSpec,
     sets: ParallelSignatureSets<'a>,
-    proposer_index: Option<usize>,
 }
 
 #[derive(Default)]
@@ -108,30 +107,6 @@ where
             state,
             spec,
             sets: ParallelSignatureSets::default(),
-            proposer_index: None,
-        }
-    }
-
-    pub fn proposer_index<Payload: ExecPayload<T>>(
-        &mut self,
-        block: &'a SignedBeaconBlock<T, Payload>,
-    ) -> Result<usize> {
-        if let Some(index) = self.proposer_index {
-            Ok(index)
-        } else {
-            let proposer_index = self
-                .state
-                .get_beacon_proposer_index_using_committee_cache(block.slot(), self.spec)?;
-
-            if proposer_index != block.message().proposer_index() as usize {
-                return Err(Error::IncorrectBlockProposer {
-                    block: block.message().proposer_index(),
-                    local_shuffling: proposer_index as u64,
-                });
-            }
-
-            self.proposer_index = Some(proposer_index);
-            Ok(proposer_index)
         }
     }
 
@@ -148,10 +123,11 @@ where
         decompressor: D,
         block: &'a SignedBeaconBlock<T, Payload>,
         block_root: Option<Hash256>,
+        proposer_index: u64,
         spec: &'a ChainSpec,
     ) -> Result<()> {
         let mut verifier = Self::new(state, get_pubkey, decompressor, spec);
-        verifier.include_all_signatures(block, block_root)?;
+        verifier.include_all_signatures(block, block_root, proposer_index)?;
         verifier.verify()
     }
 
@@ -160,10 +136,10 @@ where
         &mut self,
         block: &'a SignedBeaconBlock<T, Payload>,
         block_root: Option<Hash256>,
+        proposer_index: u64,
     ) -> Result<()> {
-        let proposer_index = self.proposer_index(block)?;
         self.include_block_proposal(block, block_root, proposer_index)?;
-        self.include_all_signatures_except_proposal(block)?;
+        self.include_all_signatures_except_proposal(block, proposer_index)?;
 
         Ok(())
     }
@@ -173,8 +149,8 @@ where
     pub fn include_all_signatures_except_proposal<Payload: ExecPayload<T>>(
         &mut self,
         block: &'a SignedBeaconBlock<T, Payload>,
+        proposer_index: u64,
     ) -> Result<()> {
-        let proposer_index = self.proposer_index(block)?;
         self.include_randao_reveal(block, proposer_index)?;
         self.include_proposer_slashings(block)?;
         self.include_attester_slashings(block)?;
@@ -191,7 +167,7 @@ where
         &mut self,
         block: &'a SignedBeaconBlock<T, Payload>,
         block_root: Option<Hash256>,
-        proposer_index: usize,
+        proposer_index: u64,
     ) -> Result<()> {
         let set = block_proposal_signature_set(
             self.state,
@@ -209,7 +185,7 @@ where
     pub fn include_randao_reveal<Payload: ExecPayload<T>>(
         &mut self,
         block: &'a SignedBeaconBlock<T, Payload>,
-        proposer_index: usize,
+        proposer_index: u64,
     ) -> Result<()> {
         let set = randao_signature_set(
             self.state,

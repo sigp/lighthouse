@@ -107,6 +107,17 @@ pub fn per_block_processing<T: EthSpec, Payload: ExecPayload<T>>(
         .fork_name(spec)
         .map_err(BlockProcessingError::InconsistentStateFork)?;
 
+    // Ensure the current and previous epoch caches are built.
+    state.build_committee_cache(RelativeEpoch::Previous, spec)?;
+    state.build_committee_cache(RelativeEpoch::Current, spec)?;
+
+    let proposer_index = process_block_header(
+        state,
+        block.temporary_block_header(),
+        verify_block_root,
+        spec,
+    )?;
+
     let verify_signatures = match block_signature_strategy {
         BlockSignatureStrategy::VerifyBulk => {
             // Verify all signatures in the block at once.
@@ -117,6 +128,7 @@ pub fn per_block_processing<T: EthSpec, Payload: ExecPayload<T>>(
                     |pk_bytes| pk_bytes.decompress().ok().map(Cow::Owned),
                     signed_block,
                     block_root,
+                    proposer_index,
                     spec
                 )
                 .is_ok(),
@@ -128,17 +140,6 @@ pub fn per_block_processing<T: EthSpec, Payload: ExecPayload<T>>(
         BlockSignatureStrategy::NoVerification => VerifySignatures::False,
         BlockSignatureStrategy::VerifyRandao => VerifySignatures::False,
     };
-
-    // Ensure the current and previous epoch caches are built.
-    state.build_committee_cache(RelativeEpoch::Previous, spec)?;
-    state.build_committee_cache(RelativeEpoch::Current, spec)?;
-
-    let proposer_index = process_block_header(
-        state,
-        block.temporary_block_header(),
-        verify_block_root,
-        spec,
-    )?;
 
     if verify_signatures.is_true() {
         verify_block_signature(state, signed_block, block_root, proposer_index, spec)?;
