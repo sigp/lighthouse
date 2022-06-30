@@ -200,7 +200,7 @@ impl<T: BeaconChainTypes> Stream for ReprocessQueue<T> {
                 )));
             }
             Poll::Ready(Some(Err(e))) => {
-                return Poll::Ready(Some(InboundEvent::DelayQueueError(e, "block_queue")));
+                return Poll::Ready(Some(InboundEvent::DelayQueueError(e, "gossip_block_queue")));
             }
             // `Poll::Ready(None)` means that there are no more entries in the delay queue and we
             // will continue to get this result until something else is added into the queue.
@@ -212,7 +212,7 @@ impl<T: BeaconChainTypes> Stream for ReprocessQueue<T> {
                 return Poll::Ready(Some(InboundEvent::ReadyRpcBlock(queued_block.into_inner())));
             }
             Poll::Ready(Some(Err(e))) => {
-                return Poll::Ready(Some(InboundEvent::DelayQueueError(e, "block_queue")));
+                return Poll::Ready(Some(InboundEvent::DelayQueueError(e, "rpc_block_queue")));
             }
             // `Poll::Ready(None)` means that there are no more entries in the delay queue and we
             // will continue to get this result until something else is added into the queue.
