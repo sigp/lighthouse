@@ -11,6 +11,7 @@ use slog::{info, warn, Logger};
 use std::cmp;
 use std::cmp::max;
 use std::fmt::Debug;
+use std::fmt::Write;
 use std::fs;
 use std::net::{IpAddr, Ipv4Addr, ToSocketAddrs};
 use std::path::{Path, PathBuf};
@@ -784,7 +785,8 @@ pub fn set_network_config(
                             None
                         })
                 {
-                    addr.push_str(&format!(":{}", enr_udp_port));
+                    write!(addr, ":{}", enr_udp_port)
+                        .map_err(|e| format!("Failed to write enr address {}", e))?;
                 } else {
                     return Err(
                         "enr-udp-port must be set for node to be discoverable with dns address"
