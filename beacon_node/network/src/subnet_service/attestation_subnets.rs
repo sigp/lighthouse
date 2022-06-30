@@ -7,11 +7,12 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use std::pin::Pin;
 use std::sync::Arc;
 use std::task::{Context, Poll};
-use std::time::{Duration, Instant};
 
 use futures::prelude::*;
-use rand::seq::SliceRandom;
+
 use slog::{debug, error, o, trace, warn};
+#[cfg(old_long_lived_attnets)]
+use ::{rand::seq::SliceRandom, std::time::Duration, std::time::Instant};
 
 use beacon_chain::{BeaconChain, BeaconChainTypes};
 use hashset_delay::HashSetDelay;
@@ -27,10 +28,12 @@ use crate::metrics;
 const MIN_PEER_DISCOVERY_SLOT_LOOK_AHEAD: u64 = 2;
 /// The time (in slots) before a last seen validator is considered absent and we unsubscribe from the random
 /// gossip topics that we subscribed to due to the validator connection.
+#[cfg(old_long_lived_attnets)]
 const LAST_SEEN_VALIDATOR_TIMEOUT: u32 = 150;
 /// The fraction of a slot that we subscribe to a subnet before the required slot.
 ///
 /// Note: The time is calculated as `time = seconds_per_slot / ADVANCE_SUBSCRIPTION_TIME`.
+#[cfg(old_long_lived_attnets)]
 const ADVANCE_SUBSCRIBE_TIME: u32 = 3;
 /// The default number of slots before items in hash delay sets used by this class should expire.
 ///  36s at 12s slot time
@@ -62,6 +65,7 @@ pub struct AttestationService<T: BeaconChainTypes> {
     pub(crate) beacon_chain: Arc<BeaconChain<T>>,
 
     /// The collection of currently subscribed random subnets mapped to their expiry deadline.
+    #[cfg(old_long_lived_attnets)]
     pub(crate) random_subnets: HashSetDelay<SubnetId>,
 
     /// The collection of all currently subscribed subnets (long-lived **and** short-lived).
@@ -77,6 +81,7 @@ pub struct AttestationService<T: BeaconChainTypes> {
     /// subscribed to. As these time out, we unsubscribe for the required random subnets and update
     /// our ENR.
     /// This is a set of validator indices.
+    #[cfg(old_long_lived_attnets)]
     known_validators: HashSetDelay<u64>,
 
     /// The waker for the current thread.
@@ -107,17 +112,21 @@ impl<T: BeaconChainTypes> AttestationService<T> {
         let log = log.new(o!("service" => "attestation_service"));
 
         // calculate the random subnet duration from the spec constants
-        let spec = &beacon_chain.spec;
         let slot_duration = beacon_chain.slot_clock.slot_duration();
-        let random_subnet_duration_millis = spec
-            .epochs_per_random_subnet_subscription
-            .saturating_mul(T::EthSpec::slots_per_epoch())
-            .saturating_mul(slot_duration.as_millis() as u64);
+        #[cfg(old_long_lived_attnets)]
+        {
+            let spec = &beacon_chain.spec;
+            let random_subnet_duration_millis = spec
+                .epochs_per_random_subnet_subscription
+                .saturating_mul(T::EthSpec::slots_per_epoch())
+                .saturating_mul(slot_duration.as_millis() as u64);
 
-        // Panics on overflow. Ensure LAST_SEEN_VALIDATOR_TIMEOUT is not too large.
-        let last_seen_val_timeout = slot_duration
-            .checked_mul(LAST_SEEN_VALIDATOR_TIMEOUT)
-            .expect("LAST_SEEN_VALIDATOR_TIMEOUT must not be ridiculously large");
+            // Panics on overflow. Ensure LAST_SEEN_VALIDATOR_TIMEOUT is not too large.
+            let last_seen_val_timeout = slot_duration
+                .checked_mul(LAST_SEEN_VALIDATOR_TIMEOUT)
+                .expect("LAST_SEEN_VALIDATOR_TIMEOUT must not be ridiculously large");
+        }
+
         let default_timeout = slot_duration
             .checked_mul(DEFAULT_EXPIRATION_TIMEOUT)
             .expect("DEFAULT_EXPIRATION_TIMEOUT must not be ridiculously large");
@@ -138,10 +147,12 @@ impl<T: BeaconChainTypes> AttestationService<T> {
             next_epoch: Box::pin(sleep),
             long_lived_subnets: HashSet::default(),
             beacon_chain,
+            #[cfg(old_long_lived_attnets)]
             random_subnets: HashSetDelay::new(Duration::from_millis(random_subnet_duration_millis)),
             subscriptions: HashSet::new(),
             unsubscriptions: HashSetDelay::new(default_timeout),
             aggregate_validators_on_subnet: HashSetDelay::new(default_timeout),
+            #[cfg(old_long_lived_attnets)]
             known_validators: HashSetDelay::new(last_seen_val_timeout),
             waker: None,
             subscribe_all_subnets: config.subscribe_all_subnets,
@@ -245,6 +256,8 @@ impl<T: BeaconChainTypes> AttestationService<T> {
                 "Validator subscription";
                 "subscription" => ?subscription,
             );
+
+            #[cfg(old_long_lived_attnets)]
             self.add_known_validator(subscription.validator_index);
 
             let subnet_id = match SubnetId::compute_subnet::<T::EthSpec>(
@@ -456,6 +469,7 @@ impl<T: BeaconChainTypes> AttestationService<T> {
     /// Updates the `known_validators` mapping and subscribes to a set of random subnets if required.
     ///
     /// This also updates the ENR to indicate our long-lived subscription to the subnet
+    #[cfg(old_long_lived_attnets)]
     fn add_known_validator(&mut self, validator_index: u64) {
         if self.known_validators.get(&validator_index).is_none() && !self.subscribe_all_subnets {
             // New validator has subscribed
@@ -475,6 +489,7 @@ impl<T: BeaconChainTypes> AttestationService<T> {
     }
 
     /// Subscribe to long-lived random subnets and update the local ENR bitfield.
+    #[cfg(old_long_lived_attnets)]
     fn subscribe_to_random_subnets(&mut self, no_subnets_to_subscribe: usize) {
         let subnet_count = self.beacon_chain.spec.attestation_subnet_count;
 
@@ -540,6 +555,7 @@ impl<T: BeaconChainTypes> AttestationService<T> {
     /// still subscribed at the time the event fires, we don't re-subscribe.
     fn handle_subscriptions(&mut self, exact_subnet: ExactSubnet) {
         // Check if the subnet currently exists as a long-lasting random subnet
+        #[cfg(old_long_lived_attnets)]
         if let Some(expiry) = self.random_subnets.get(&exact_subnet.subnet_id) {
             // we are subscribed via a random subnet, if this is to expire during the time we need
             // to be subscribed, just extend the expiry
@@ -555,19 +571,20 @@ impl<T: BeaconChainTypes> AttestationService<T> {
                 self.random_subnets
                     .update_timeout(&exact_subnet.subnet_id, expected_end_subscription_duration);
             }
-        } else {
-            // we are also not un-subscribing from a subnet if the next slot requires us to be
-            // subscribed. Therefore there could be the case that we are already still subscribed
-            // to the required subnet. In which case we do not issue another subscription request.
-            if !self.subscriptions.contains(&exact_subnet.subnet_id) {
-                // we are not already subscribed
-                debug!(self.log, "Subscribing to subnet"; "subnet" => *exact_subnet.subnet_id, "target_slot" => exact_subnet.slot.as_u64());
-                self.subscriptions.insert(exact_subnet.subnet_id);
-                self.events
-                    .push_back(SubnetServiceMessage::Subscribe(Subnet::Attestation(
-                        exact_subnet.subnet_id,
-                    )));
-            }
+            return;
+        }
+
+        // we are also not un-subscribing from a subnet if the next slot requires us to be
+        // subscribed. Therefore there could be the case that we are already still subscribed
+        // to the required subnet. In which case we do not issue another subscription request.
+        if !self.subscriptions.contains(&exact_subnet.subnet_id) {
+            // we are not already subscribed
+            debug!(self.log, "Subscribing to subnet"; "subnet" => *exact_subnet.subnet_id, "target_slot" => exact_subnet.slot.as_u64());
+            self.subscriptions.insert(exact_subnet.subnet_id);
+            self.events
+                .push_back(SubnetServiceMessage::Subscribe(Subnet::Attestation(
+                    exact_subnet.subnet_id,
+                )));
         }
     }
 
@@ -577,6 +594,7 @@ impl<T: BeaconChainTypes> AttestationService<T> {
     /// a random subnet is present, we do not unsubscribe from it.
     fn handle_unsubscriptions(&mut self, exact_subnet: ExactSubnet) {
         // Check if the subnet currently exists as a long-lasting random subnet
+        #[cfg(old_long_lived_attnets)]
         if self.random_subnets.contains(&exact_subnet.subnet_id) {
             return;
         }
@@ -594,6 +612,7 @@ impl<T: BeaconChainTypes> AttestationService<T> {
     ///
     /// This function selects a new subnet to join, or extends the expiry if there are no more
     /// available subnets to choose from.
+    #[cfg(old_long_lived_attnets)]
     fn handle_random_subnet_expiry(&mut self, subnet_id: SubnetId) {
         let subnet_count = self.beacon_chain.spec.attestation_subnet_count;
         if self.random_subnets.len() == (subnet_count - 1) as usize {
@@ -630,6 +649,7 @@ impl<T: BeaconChainTypes> AttestationService<T> {
     /// We don't keep track of a specific validator to random subnet, rather the ratio of active
     /// validators to random subnets. So when a validator goes offline, we can simply remove the
     /// allocated amount of random subnets.
+    #[cfg(old_long_lived_attnets)]
     fn handle_known_validator_expiry(&mut self) {
         let spec = &self.beacon_chain.spec;
         let subnet_count = spec.attestation_subnet_count;
@@ -694,6 +714,7 @@ impl<T: BeaconChainTypes> Stream for AttestationService<T> {
         }
 
         // process any random subnet expiries
+        #[cfg(old_long_lived_attnets)]
         match self.random_subnets.poll_next_unpin(cx) {
             Poll::Ready(Some(Ok(subnet))) => self.handle_random_subnet_expiry(subnet),
             Poll::Ready(Some(Err(e))) => {
@@ -703,6 +724,7 @@ impl<T: BeaconChainTypes> Stream for AttestationService<T> {
         }
 
         // process any known validator expiries
+        #[cfg(old_long_lived_attnets)]
         match self.known_validators.poll_next_unpin(cx) {
             Poll::Ready(Some(Ok(_validator_index))) => {
                 self.handle_known_validator_expiry();
