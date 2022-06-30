@@ -2361,8 +2361,6 @@ pub fn serve<T: BeaconChainTypes>(
             },
         );
 
-    // TODO: is this needed?
-    // Think not?
     // POST validator/beacon_committee_subscriptions
     let post_validator_beacon_committee_subscriptions = eth1_v1
         .and(warp::path("validator"))
