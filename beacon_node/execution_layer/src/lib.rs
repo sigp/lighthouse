@@ -68,7 +68,7 @@ pub enum Error {
     NoPayloadBuilder,
     ApiError(ApiError),
     Builder(builder_client::Error),
-    EngineError(EngineError),
+    EngineError(Box<EngineError>),
     NotSynced,
     ShuttingDown,
     FeeRecipientUnspecified,
@@ -745,6 +745,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
                     })
             })
             .await
+            .map_err(Box::new)
             .map_err(Error::EngineError)
     }
 
@@ -784,6 +785,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
             .await;
 
         process_payload_status(execution_payload.block_hash, broadcast_result, self.log())
+            .map_err(Box::new)
             .map_err(Error::EngineError)
     }
 
@@ -926,6 +928,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
             broadcast_result.map(|response| response.payload_status),
             self.log(),
         )
+        .map_err(Box::new)
         .map_err(Error::EngineError)
     }
 
@@ -957,10 +960,10 @@ impl<T: EthSpec> ExecutionLayer<T> {
                         "remote" => ?remote,
                         "local" => ?local,
                     );
-                    Err(Error::EngineError(EngineError::Api {
+                    Err(Error::EngineError(Box::new(EngineError::Api {
                         id: i.to_string(),
                         error: ApiError::TransitionConfigurationMismatch,
-                    }))
+                    })))
                 } else {
                     debug!(
                         self.log(),
@@ -977,7 +980,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
                     "error" => ?e,
                     "execution_endpoint" => i,
                 );
-                Err(Error::EngineError(e))
+                Err(Error::EngineError(Box::new(e)))
             }
         }
     }
@@ -1018,6 +1021,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
                     .await
             })
             .await
+            .map_err(Box::new)
             .map_err(Error::EngineError)?;
 
         if let Some(hash) = &hash_opt {
@@ -1128,6 +1132,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
                 Ok(None)
             })
             .await
+            .map_err(Box::new)
             .map_err(Error::EngineError)
     }
 
@@ -1186,6 +1191,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
                     .await
             })
             .await
+            .map_err(Box::new)
             .map_err(Error::EngineError)
     }
 
