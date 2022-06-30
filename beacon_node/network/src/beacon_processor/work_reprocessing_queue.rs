@@ -32,7 +32,8 @@ use tokio_util::time::delay_queue::{DelayQueue, Key as DelayKey};
 use types::{Attestation, EthSpec, Hash256, SignedAggregateAndProof, SignedBeaconBlock, SubnetId};
 
 const TASK_NAME: &str = "beacon_processor_reprocess_queue";
-const BLOCKS: &str = "blocks";
+const GOSSIP_BLOCKS: &str = "gossip_blocks";
+const RPC_BLOCKS: &str = "rpc_blocks";
 const ATTESTATIONS: &str = "attestations";
 
 /// Queue blocks for re-processing with an `ADDITIONAL_QUEUED_BLOCK_DELAY` after the slot starts.
@@ -614,8 +615,13 @@ impl<T: BeaconChainTypes> ReprocessQueue<T> {
 
         metrics::set_gauge_vec(
             &metrics::BEACON_PROCESSOR_REPROCESSING_QUEUE_TOTAL,
-            &[BLOCKS],
+            &[GOSSIP_BLOCKS],
             self.gossip_block_delay_queue.len() as i64,
+        );
+        metrics::set_gauge_vec(
+            &metrics::BEACON_PROCESSOR_REPROCESSING_QUEUE_TOTAL,
+            &[RPC_BLOCKS],
+            self.rpc_block_delay_queue.len() as i64,
         );
         metrics::set_gauge_vec(
             &metrics::BEACON_PROCESSOR_REPROCESSING_QUEUE_TOTAL,
