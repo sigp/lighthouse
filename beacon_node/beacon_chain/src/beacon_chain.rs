@@ -3218,13 +3218,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let slot = state.slot();
         let proposer_index = state.get_beacon_proposer_index(state.slot(), &self.spec)? as u64;
 
-        let pubkey_opt = match self.validator_pubkey_bytes(proposer_index as usize) {
-            Ok(p) => p,
-            Err(e) => {
-                warn!(self.log, "Can't access proposer's pubkey, cannot use external builder"; "error" => ?e);
-                None
-            }
-        };
+        let pubkey_opt = state
+            .validators()
+            .get(proposer_index as usize)
+            .map(|v| v.pubkey);
 
         // Closure to fetch a sync aggregate in cases where it is required.
         let get_sync_aggregate = || -> Result<SyncAggregate<_>, BlockProductionError> {
