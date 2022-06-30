@@ -73,13 +73,15 @@ impl SubnetId {
             .into())
     }
 
+    #[allow(clippy::integer_arithmetic)]
+    // TODO: get someone to review this
     pub fn compute_subnets_for_epoch<'a, T: EthSpec>(
         node_id: ethereum_types::U256,
         epoch: Epoch,
         spec: &'a ChainSpec,
     ) -> Result<impl Iterator<Item = SubnetId> + 'a, &'static str> {
         let node_id_prefix =
-            (node_id >> (256 - spec.attestation_subnet_extra_bits as usize)).as_usize();
+            (node_id >> (256 - spec.attestation_subnet_prefix_bits() as usize)).as_usize();
 
         let permutation_seed = eth2_hashing::hash(&int_to_bytes::int_to_bytes8(
             epoch.as_u64() / spec.epochs_per_subnet_subscription,

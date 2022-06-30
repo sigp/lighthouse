@@ -163,7 +163,7 @@ pub struct ChainSpec {
     pub epochs_per_random_subnet_subscription: u64,
     pub subnets_per_node: u8,
     pub epochs_per_subnet_subscription: u64,
-    pub attestation_subnet_extra_bits: u8,
+    attestation_subnet_extra_bits: u8,
 
     /*
      * Application params
@@ -430,13 +430,13 @@ impl ChainSpec {
         Hash256::from(domain)
     }
 
+    #[allow(clippy::integer_arithmetic)]
     pub const fn attestation_subnet_prefix_bits(&self) -> u32 {
         // maybe use log2 when stable https://github.com/rust-lang/rust/issues/70887
 
         // NOTE: this line is here simply to guarantee that if self.attestation_subnet_count type
         // is changed, a compiler warning will be raised. This code depends on the type being u64.
         let attestation_subnet_count: u64 = self.attestation_subnet_count;
-        // no warning will be raised by the compiler.
         let attestation_subnet_count_bits = if attestation_subnet_count == 0 {
             0
         } else {
