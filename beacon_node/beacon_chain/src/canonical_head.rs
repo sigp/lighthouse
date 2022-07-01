@@ -266,7 +266,6 @@ impl<T: BeaconChainTypes> CanonicalHead<T> {
             beacon_state,
         };
 
-        let fork_choice_view = fork_choice.cached_fork_choice_view();
         let forkchoice_update_params = fork_choice.get_forkchoice_update_parameters();
         let cached_head = CachedHead {
             snapshot: Arc::new(snapshot),
@@ -390,7 +389,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     ///
     /// See `Self::head` for more information.
     pub fn head_beacon_block(&self) -> Arc<SignedBeaconBlock<T::EthSpec>> {
-        self.head_snapshot().beacon_block.clone()
+        self.canonical_head
+            .cached_head_read_lock()
+            .snapshot
+            .beacon_block
+            .clone()
     }
 
     /// Returns a clone of the beacon state at the head of the canonical chain.
@@ -426,14 +429,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         let chain = self.clone();
         match self
-            .task_executor
             .spawn_blocking_handle(
                 move || chain.recompute_head_at_slot_internal(current_slot),
                 "recompute_head_internal",
             )
-            .ok_or(Error::RuntimeShutdown)?
-            .await
-            .map_err(Error::TokioJoin)?
+            .await?
         {
             // Fork choice returned successfully and did not need to update the EL.
             Ok(None) => Ok(()),
@@ -499,12 +499,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // Recompute the current head via the fork choice algorithm.
         fork_choice_write_lock.get_head(current_slot, &self.spec)?;
 
-        // Read the current head value from the fork choice algorithm.
-        let new_view = fork_choice_write_lock.cached_fork_choice_view();
-
         // Downgrade the fork choice write-lock to a read lock, without allowing access to any
         // other writers.
         let fork_choice_read_lock = RwLockWriteGuard::downgrade(fork_choice_write_lock);
+
+        // Read the current head value from the fork choice algorithm.
+        let new_view = fork_choice_read_lock.cached_fork_choice_view();
 
         // Check to ensure that the finalized block hasn't been marked as invalid. If it has,
         // shut down Lighthouse.

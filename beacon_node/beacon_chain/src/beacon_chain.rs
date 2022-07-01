@@ -2590,11 +2590,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 .map_err(BeaconChainError::from)?;
         }
 
-        let mut fork_choice = self.canonical_head.fork_choice_write_lock();
-
-        // Do not import a block that doesn't descend from the finalized root.
-        check_block_is_finalized_descendant(self, &fork_choice, &signed_block)?;
-
         // Alias for readability.
         let block = signed_block.message();
 
@@ -2639,6 +2634,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 }
             }
         }
+
+        // Take an exclusive write-lock on fork choice. It's very important prevent deadlocks by
+        // avoiding taking other locks whilst holding this lock.
+        let mut fork_choice = self.canonical_head.fork_choice_write_lock();
+
+        // Do not import a block that doesn't descend from the finalized root.
+        check_block_is_finalized_descendant(self, &fork_choice, &signed_block)?;
 
         // Register the new block with the fork choice service.
         {
