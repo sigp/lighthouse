@@ -11,7 +11,6 @@ use eth2::{
     types::*,
     BeaconNodeHttpClient, Error, StatusCode, Timeouts,
 };
-use execution_layer::test_utils::MockExecutionLayer;
 use futures::stream::{Stream, StreamExt};
 use futures::FutureExt;
 use lighthouse_network::{Enr, EnrExt, PeerId};
@@ -2261,9 +2260,9 @@ impl ApiTester {
         let mut registrations = vec![];
         let mut fee_recipients = vec![];
 
-        let fork = self.chain.head().unwrap().beacon_state.fork();
+        let fork = self.chain.head_snapshot().beacon_state.fork();
 
-        for (val_index, keypair) in self.validator_keypairs.iter().enumerate() {
+        for (val_index, keypair) in self.validator_keypairs().iter().enumerate() {
             let pubkey = keypair.pk.compress();
             let fee_recipient = Address::from_low_u64_be(val_index as u64);
 
@@ -2296,8 +2295,7 @@ impl ApiTester {
 
         for (val_index, (_, fee_recipient)) in self
             .chain
-            .head()
-            .unwrap()
+            .head_snapshot()
             .beacon_state
             .validators()
             .into_iter()
