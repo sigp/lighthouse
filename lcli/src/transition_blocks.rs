@@ -91,28 +91,6 @@ struct Config {
     exclude_post_block_thc: bool,
 }
 
-/*
-struct PubkeyCache {
-    pubkeys: Vec<PublicKey>,
-    indices: HashMap<PublicKeyBytes, usize>,
-    pubkey_bytes: Vec<PublicKeyBytes>,
-}
-
-impl PubkeyCache {
-    pub fn new<T: EthSpec>(state: &BeaconState<T>) {
-        let validator_keys = state.validators().iter().map(|v| v.pubkey.clone());
-
-        self.pubkey_bytes.reserve(validator_keys.len());
-        self.pubkeys.reserve(validator_keys.len());
-        self.indices.reserve(validator_keys.len());
-
-        for pubkey in validator_keys {
-        }
-
-    }
-}
-*/
-
 pub fn run<T: EthSpec>(mut env: Environment<T>, matches: &ArgMatches) -> Result<(), String> {
     let spec = &T::default_spec();
     let executor = env.core_context().executor.clone();
