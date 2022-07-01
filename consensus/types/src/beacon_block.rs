@@ -38,7 +38,7 @@ use tree_hash_derive::TreeHash;
         derive(Debug, PartialEq, TreeHash),
         tree_hash(enum_behaviour = "transparent")
     ),
-    map_ref_into(BeaconBlockBodyRef),
+    map_ref_into(BeaconBlockBodyRef, BeaconBlock),
     map_ref_mut_into(BeaconBlockBodyRefMut)
 )]
 #[derive(Debug, Clone, Serialize, Deserialize, Encode, TreeHash, Derivative)]

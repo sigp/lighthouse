@@ -254,13 +254,15 @@ impl<E: EthSpec> From<BeaconBlockBodyMerge<E, FullPayload<E>>>
 // We can clone a full block into a blinded block, without cloning the payload.
 impl<E: EthSpec> BeaconBlockBodyBase<E, FullPayload<E>> {
     pub fn clone_as_blinded(&self) -> BeaconBlockBodyBase<E, BlindedPayload<E>> {
-        self.clone().into()
+        let (block_body, _payload) = self.clone().into();
+        block_body
     }
 }
 
 impl<E: EthSpec> BeaconBlockBodyAltair<E, FullPayload<E>> {
     pub fn clone_as_blinded(&self) -> BeaconBlockBodyAltair<E, BlindedPayload<E>> {
-        self.clone().into()
+        let (block_body, _payload) = self.clone().into();
+        block_body
     }
 }
 

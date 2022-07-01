@@ -3330,7 +3330,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let sync_aggregate = if matches!(&state, BeaconState::Base(_)) {
             None
         } else {
-            self
+            let sync_aggregate = self
                 .op_pool
                 .get_sync_aggregate(&state)
                 .map_err(BlockProductionError::OpPoolError)?
@@ -3341,9 +3341,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         "slot" => state.slot(),
                     );
                     SyncAggregate::new()
-                })
+                });
+            Some(sync_aggregate)
         };
-
 
         Ok(PartialBeaconBlock {
             state,
