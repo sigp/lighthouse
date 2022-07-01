@@ -4188,30 +4188,41 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             self.block_times_cache.write().prune(slot);
 
             // Don't run heavy-weight tasks during sync.
-            if self.best_slot() + MAX_PER_SLOT_FORK_CHOICE_DISTANCE >= slot {
-                // Run fork choice and signal to any waiting task that it has completed.
-                if let Err(e) = self.recompute_head_at_current_slot().await {
-                    error!(
-                        self.log,
-                        "Fork choice error at slot start";
-                        "error" => ?e,
-                        "slot" => slot,
-                    );
-                }
+            if self.best_slot() + MAX_PER_SLOT_FORK_CHOICE_DISTANCE < slot {
+                return;
+            }
+
+            // Run fork choice and signal to any waiting task that it has completed.
+            if let Err(e) = self.recompute_head_at_current_slot().await {
+                error!(
+                    self.log,
+                    "Fork choice error at slot start";
+                    "error" => ?e,
+                    "slot" => slot,
+                );
             }
 
             // Send the notification regardless of fork choice success, this is a "best effort"
             // notification and we don't want block production to hit the timeout in case of error.
-            if let Some(tx) = &self.fork_choice_signal_tx {
-                if let Err(e) = tx.notify_fork_choice_complete(slot) {
-                    warn!(
-                        self.log,
-                        "Error signalling fork choice waiter";
-                        "error" => ?e,
-                        "slot" => slot,
-                    );
-                }
-            }
+            // Use a blocking task to avoid blocking the core executor whilst waiting for locks
+            // in `ForkChoiceSignalTx`.
+            let chain = self.clone();
+            self.task_executor.clone().spawn_blocking(
+                move || {
+                    // Signal block proposal for the next slot (if it happens to be waiting).
+                    if let Some(tx) = &chain.fork_choice_signal_tx {
+                        if let Err(e) = tx.notify_fork_choice_complete(slot) {
+                            warn!(
+                                chain.log,
+                                "Error signalling fork choice waiter";
+                                "error" => ?e,
+                                "slot" => slot,
+                            );
+                        }
+                    }
+                },
+                "per_slot_task_fc_signal_tx",
+            );
         }
     }
 
