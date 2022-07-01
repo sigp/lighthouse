@@ -38,3 +38,4 @@ zeroize = { version = "1.4.2", features = ["zeroize_derive"] }
 lighthouse_metrics = { path = "../../common/lighthouse_metrics" }
 lazy_static = "1.4.0"
 ethers-core = { git = "https://github.com/gakonst/ethers-rs", rev = "02ad93a1cfb7b62eb051c77c61dc4c0218428e4a" }
+builder_client = { path = "../builder_client" }

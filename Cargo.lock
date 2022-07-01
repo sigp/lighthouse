@@ -538,6 +538,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "builder_client"
+version = "0.1.0"
+dependencies = [
+ "eth2",
+ "reqwest",
+ "sensitive_url",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "bumpalo"
 version = "3.10.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1876,6 +1887,7 @@ name = "execution_layer"
 version = "0.1.0"
 dependencies = [
  "async-trait",
+ "builder_client",
  "bytes",
  "environment",
  "eth2",
@@ -5506,6 +5518,28 @@ dependencies = [
 ]
 
 [[package]]
+name = "serde_with"
+version = "1.14.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "678b5a069e50bf00ecd22d0cd8ddf7c236f68581b03db652061ed5eb13a312ff"
+dependencies = [
+ "serde",
+ "serde_with_macros",
+]
+
+[[package]]
+name = "serde_with_macros"
+version = "1.5.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e182d6ec6f05393cc0e5ed1bf81ad6db3a8feedf8ee515ecdd369809bcce8082"
+dependencies = [
+ "darling",
+ "proc-macro2",
+ "quote",
+ "syn",
+]
+
+[[package]]
 name = "serde_yaml"
 version = "0.8.24"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6655,6 +6689,7 @@ dependencies = [
  "serde",
  "serde_derive",
  "serde_json",
+ "serde_with",
  "serde_yaml",
  "slog",
  "smallvec",
