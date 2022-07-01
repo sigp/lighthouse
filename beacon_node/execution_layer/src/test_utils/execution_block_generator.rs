@@ -193,8 +193,7 @@ impl<T: EthSpec> ExecutionBlockGenerator<T> {
         hash: ExecutionBlockHash,
     ) -> Option<ExecutionBlockWithTransactions<T>> {
         self.block_by_hash(hash)
-            .map(|block| block.as_execution_block_with_tx())
-            .flatten()
+            .and_then(|block| block.as_execution_block_with_tx())
     }
 
     pub fn move_to_block_prior_to_terminal_block(&mut self) -> Result<(), String> {

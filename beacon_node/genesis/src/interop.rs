@@ -75,7 +75,7 @@ pub fn interop_genesis_state<T: EthSpec>(
 /// these set of validators.
 ///
 /// TODO(pawan): improve docs
-pub fn initialize_state_with_validators<T: EthSpec>(
+pub fn _initialize_state_with_validators<T: EthSpec>(
     keypairs: &[Keypair],
     genesis_time: u64,
     eth1_block_hash: Hash256,
@@ -96,7 +96,7 @@ pub fn initialize_state_with_validators<T: EthSpec>(
     // Seed RANDAO with Eth1 entropy
     state.fill_randao_mixes_with(eth1_block_hash);
 
-    for keypair in keypairs.into_iter() {
+    for keypair in keypairs.iter() {
         let withdrawal_credentials = |pubkey: &PublicKey| {
             let mut credentials = hash(&pubkey.as_ssz_bytes());
             credentials[0] = spec.bls_withdrawal_prefix_byte;
