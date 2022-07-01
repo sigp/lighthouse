@@ -3842,8 +3842,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 "prepare_slot" => prepare_slot
             );
 
-            // Use the blocking method here so that we don't form a queue of these functions when
-            // routinely calling them.
             self.update_execution_engine_forkchoice(current_slot, forkchoice_update_params)
                 .await?;
         }
