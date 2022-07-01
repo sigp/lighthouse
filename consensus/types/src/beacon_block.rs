@@ -579,11 +579,9 @@ impl<'a, E: EthSpec> From<BeaconBlockRef<'a, E, FullPayload<E>>>
     fn from(
         full_block: BeaconBlockRef<'a, E, FullPayload<E>>,
     ) -> BeaconBlock<E, BlindedPayload<E>> {
-        match full_block {
-            BeaconBlockRef::Base(block) => BeaconBlock::Base(block.clone_as_blinded()),
-            BeaconBlockRef::Altair(block) => BeaconBlock::Altair(block.clone_as_blinded()),
-            BeaconBlockRef::Merge(block) => BeaconBlock::Merge(block.clone_as_blinded()),
-        }
+        map_beacon_block_ref_into_beacon_block!(&'a _, full_block, |inner, cons| {
+            cons(inner.clone_as_blinded())
+        })
     }
 }
 

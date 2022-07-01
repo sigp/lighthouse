@@ -88,12 +88,12 @@ pub struct CachedHead<E: EthSpec> {
     pub snapshot: Arc<BeaconSnapshot<E>>,
     /// The justified checkpoint as per `self.fork_choice`.
     ///
-    /// This value may be distinct to the `self.head_snapshot.beacon_state.justified_checkpoint`.
+    /// This value may be distinct to the `self.snapshot.beacon_state.justified_checkpoint`.
     /// This value should be used over the beacon state value in practically all circumstances.
     justified_checkpoint: Checkpoint,
     /// The finalized checkpoint as per `self.fork_choice`.
     ///
-    /// This value may be distinct to the `self.head_snapshot.beacon_state.finalized_checkpoint`.
+    /// This value may be distinct to the `self.snapshot.beacon_state.finalized_checkpoint`.
     /// This value should be used over the beacon state value in practically all circumstances.
     finalized_checkpoint: Checkpoint,
     /// The `execution_payload.block_hash` of the block at the head of the chain. Set to `None`

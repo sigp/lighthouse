@@ -3050,7 +3050,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         // Part 2/2 (async, with some blocking components)
         //
-        // Produce the blopck upon the state
+        // Produce the block upon the state
         self.produce_block_on_state::<Payload>(
             state,
             state_root_opt,
@@ -3327,24 +3327,23 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let slot = state.slot();
         let proposer_index = state.get_beacon_proposer_index(state.slot(), &self.spec)? as u64;
 
-        let sync_aggregate = match &state {
-            BeaconState::Base(_) => None,
-            BeaconState::Altair(_) | BeaconState::Merge(_) => {
-                let sync_aggregate = self
-                    .op_pool
-                    .get_sync_aggregate(&state)
-                    .map_err(BlockProductionError::OpPoolError)?
-                    .unwrap_or_else(|| {
-                        warn!(
-                            self.log,
-                            "Producing block with no sync contributions";
-                            "slot" => state.slot(),
-                        );
-                        SyncAggregate::new()
-                    });
-                Some(sync_aggregate)
-            }
+        let sync_aggregate = if matches!(&state, BeaconState::Base(_)) {
+            None
+        } else {
+            self
+                .op_pool
+                .get_sync_aggregate(&state)
+                .map_err(BlockProductionError::OpPoolError)?
+                .unwrap_or_else(|| {
+                    warn!(
+                        self.log,
+                        "Producing block with no sync contributions";
+                        "slot" => state.slot(),
+                    );
+                    SyncAggregate::new()
+                })
         };
+
 
         Ok(PartialBeaconBlock {
             state,
