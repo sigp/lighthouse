@@ -7,7 +7,6 @@ use std::{env, fs::File};
 use tempfile::TempDir;
 use unused_port::unused_tcp_port;
 
-const GETH_BRANCH: &str = "master";
 const GETH_REPO_URL: &str = "https://github.com/ethereum/go-ethereum";
 
 pub fn build_result(repo_dir: &Path) -> Output {
@@ -23,20 +22,17 @@ pub fn build(execution_clients_dir: &Path) {
 
     if !repo_dir.exists() {
         // Clone the repo
-        assert!(build_utils::clone_repo(
-            execution_clients_dir,
-            GETH_REPO_URL
-        ));
+        build_utils::clone_repo(execution_clients_dir, GETH_REPO_URL).unwrap();
     }
 
-    // Checkout the correct branch
-    assert!(build_utils::checkout_branch(&repo_dir, GETH_BRANCH));
-
-    // Update the branch
-    assert!(build_utils::update_branch(&repo_dir, GETH_BRANCH));
+    // Get the latest tag on the branch
+    let last_release = build_utils::get_latest_release(&repo_dir).unwrap();
+    build_utils::checkout(&repo_dir, &last_release).unwrap();
 
     // Build geth
-    build_utils::check_command_output(build_result(&repo_dir), "make failed");
+    build_utils::check_command_output(build_result(&repo_dir), || {
+        format!("geth make failed using release {last_release}")
+    });
 }
 
 /*
@@ -75,7 +71,7 @@ impl GenericExecutionEngine for GethEngine {
             .output()
             .expect("failed to init geth");
 
-        build_utils::check_command_output(output, "geth init failed");
+        build_utils::check_command_output(output, || "geth init failed".into());
 
         datadir
     }
