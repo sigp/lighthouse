@@ -17,7 +17,7 @@ PRIVATE_TX_PROPOSALS=
 # Get options
 while getopts "pd:" flag; do
   case "${flag}" in
-    p) PRIVATE_TX_PROPOSALS="--private-tx-proposals";;
+    p) PRIVATE_TX_PROPOSALS="--builder-proposals";;
     d) DEBUG_LEVEL=${OPTARG};;
   esac
 done

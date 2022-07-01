@@ -15,7 +15,7 @@ lighthouse bn --builder https://mainnet-builder.test
 ```
 
 ```
-lighthouse vc --private-tx-proposals
+lighthouse vc --builder-proposals
 ```
 
 ## Multiple builders

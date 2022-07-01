@@ -70,6 +70,7 @@ pub enum Error {
     NoPayloadBuilder,
     ApiError(ApiError),
     Builder(builder_client::Error),
+    NoHeaderFromBuilder,
     EngineErrors(Vec<EngineError>),
     NotSynced,
     ShuttingDown,
@@ -608,10 +609,14 @@ impl<T: EthSpec> ExecutionLayer<T> {
 
                 match (relay_result, local_result) {
                     (Err(e), Ok(local)) => {
-                        warn!(self.log(),"Unable to retrieve a payload from a relay, falling back to the local execution client: {e:?}");
+                        warn!(self.log(),"Unable to retrieve a payload from a connected builder, falling back to the local execution client: {e:?}");
                         Ok(local)
                     }
-                    (Ok(relay), Ok(local)) => {
+                    (Ok(None), Ok(local)) => {
+                        warn!(self.log(), "No payload provided by connected builder. Attempting to propose through local execution engine");
+                        Ok(local)
+                    }
+                    (Ok(Some(relay)), Ok(local)) => {
                         //TODO(sean) check fork?
                         //TODO(sean) verify value vs local payload?
                         //TODO(sean) verify bid signature?
@@ -636,11 +641,12 @@ impl<T: EthSpec> ExecutionLayer<T> {
                             Ok(header)
                         }
                     }
-                    (relay_reult, Err(local_error)) => {
+                    (relay_result, Err(local_error)) => {
                         warn!(self.log(), "Failure from local execution engine. Attempting to propose through connected builder"; "error" => ?local_error);
-                        relay_reult
+                        relay_result
+                            .map_err(Error::Builder)?
+                            .ok_or(Error::NoHeaderFromBuilder)
                             .map(|d| d.data.message.header)
-                            .map_err(Error::Builder)
                     }
                 }
             } else {

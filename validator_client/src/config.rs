@@ -313,7 +313,7 @@ impl Config {
             config.enable_doppelganger_protection = true;
         }
 
-        if cli_args.is_present("private-tx-proposals") {
+        if cli_args.is_present("builder-proposals") {
             config.private_tx_proposals = true;
         }
 

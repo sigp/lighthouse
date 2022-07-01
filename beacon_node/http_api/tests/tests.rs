@@ -329,18 +329,14 @@ impl ApiTester {
         let port = unused_port::unused_tcp_port().unwrap();
         let beacon_url = SensitiveUrl::parse(format!("http://127.0.0.1:{port}").as_str()).unwrap();
 
-        let harness = Arc::new(RwLock::new(
-            BeaconChainHarness::builder(MainnetEthSpec)
-                .spec(spec.clone())
-                .deterministic_keypairs(VALIDATOR_COUNT)
-                .fresh_ephemeral_store()
-                .mock_execution_layer_with_builder(beacon_url)
-                .build(),
-        ));
+        let harness = BeaconChainHarness::builder(MainnetEthSpec)
+            .spec(spec.clone())
+            .deterministic_keypairs(VALIDATOR_COUNT)
+            .fresh_ephemeral_store()
+            .mock_execution_layer_with_builder(beacon_url)
+            .build();
 
-        harness.read().unwrap().advance_slot();
-
-        let harness_inner = harness.clone();
+        harness.advance_slot();
 
         let next_block = Arc::new(RwLock::new(None));
         let reorg_block = Arc::new(RwLock::new(None));
@@ -349,12 +345,10 @@ impl ApiTester {
         let reorg_block_inner = reorg_block.clone();
 
         for _ in 0..CHAIN_LENGTH {
-            let slot = harness_inner.read().unwrap().chain.slot().unwrap().as_u64();
+            let slot = harness.chain.slot().unwrap().as_u64();
 
             if !SKIPPED_SLOTS.contains(&slot) {
-                harness_inner
-                    .read()
-                    .unwrap()
+                harness
                     .extend_chain(
                         1,
                         BlockStrategy::OnCanonicalHead,
@@ -363,48 +357,31 @@ impl ApiTester {
                     .await;
             }
 
-            harness_inner.read().unwrap().advance_slot();
+            harness.advance_slot();
         }
 
-        let head = harness_inner.read().unwrap().chain.head();
+        let head = harness.chain.head();
 
         assert_eq!(
-            harness_inner.read().unwrap().chain.slot().unwrap(),
+            harness.chain.slot().unwrap(),
             head.head_slot() + 1,
             "precondition: current slot is one after head"
         );
 
-        let head_state = harness_inner
-            .read()
-            .unwrap()
-            .chain
-            .head_beacon_state_cloned();
+        let head_state = harness.chain.head_beacon_state_cloned();
 
-        let (next_block, _next_state) = harness_inner
-            .read()
-            .unwrap()
-            .make_block(
-                head_state.clone(),
-                harness_inner.read().unwrap().chain.slot().unwrap(),
-            )
+        let (next_block, _next_state) = harness
+            .make_block(head_state.clone(), harness.chain.slot().unwrap())
             .await;
         let mut next_block_mut = next_block_inner.write().unwrap();
         *next_block_mut = Some(next_block.clone());
 
         // `make_block` adds random graffiti, so this will produce an alternate block
-        let (reorg_block, _reorg_state) = harness_inner
-            .read()
-            .unwrap()
-            .make_block(
-                head_state.clone(),
-                harness_inner.read().unwrap().chain.slot().unwrap(),
-            )
+        let (reorg_block, _reorg_state) = harness
+            .make_block(head_state.clone(), harness.chain.slot().unwrap())
             .await;
         let mut reorg_block_mut = reorg_block_inner.write().unwrap();
         *reorg_block_mut = Some(reorg_block.clone());
-
-        // This operation requires `BeaconChainHarness` implements `Debug`.
-        let harness = Arc::try_unwrap(harness).unwrap().into_inner().unwrap();
 
         let head = harness.chain.head();
 
@@ -2596,35 +2573,52 @@ impl ApiTester {
         self
     }
 
+    //TODO(sean) factor out randao reveal method for all block production tests
+    //TODO(sean) add tests for chain health
     pub async fn test_payload_respects_registration(self) -> Self {
-        let head_state = self.chain.head_beacon_state_cloned();
-        let proposer_index = head_state
-            .get_beacon_proposer_index(head_state.slot(), &self.chain.spec)
-            .unwrap();
-        let proposer_pubkey = self
-            .chain
-            .validator_pubkey_bytes(proposer_index)
+        let slot = self.chain.slot().unwrap();
+        let epoch = self.chain.epoch().unwrap();
+        let fork = self.chain.canonical_head.cached_head().head_fork();
+        let genesis_validators_root = self.chain.genesis_validators_root;
+
+        let (proposer_pubkey_bytes, proposer_index) = self
+            .client
+            .get_validator_duties_proposer(epoch)
+            .await
             .unwrap()
+            .data
+            .into_iter()
+            .find(|duty| duty.slot == slot)
+            .map(|duty| (duty.pubkey, duty.validator_index))
+            .unwrap();
+        let proposer_pubkey = (&proposer_pubkey_bytes).try_into().unwrap();
+
+        let sk = self
+            .validator_keypairs()
+            .iter()
+            .find(|kp| kp.pk == proposer_pubkey)
+            .map(|kp| kp.sk.clone())
             .unwrap();
 
-        let finalized_checkpoint = self
-            .chain
-            .canonical_head
-            .cached_head()
-            .finalized_checkpoint();
+        let randao_reveal = {
+            let domain =
+                self.chain
+                    .spec
+                    .get_domain(epoch, Domain::Randao, &fork, genesis_validators_root);
+            let message = epoch.signing_root(domain);
+            sk.sign(message).into()
+        };
 
-        let payload: BlindedPayload<E> = beacon_chain::execution_payload::get_execution_payload(
-            self.chain.clone(),
-            &head_state,
-            finalized_checkpoint,
-            proposer_index as u64,
-            Some(proposer_pubkey),
-        )
-        .unwrap()
-        .await
-        .unwrap()
-        .unwrap()
-        .unwrap();
+        let payload = self
+            .client
+            .get_validator_blinded_blocks::<E, BlindedPayload<E>>(slot, &randao_reveal, None)
+            .await
+            .unwrap()
+            .data
+            .body()
+            .execution_payload()
+            .unwrap()
+            .clone();
 
         let expected_fee_recipient = Address::from_low_u64_be(proposer_index as u64);
         assert_eq!(
@@ -2646,16 +2640,6 @@ impl ApiTester {
     }
 
     pub async fn test_payload_accepts_mutated_gas_limit(self) -> Self {
-        let head_state = self.chain.head_beacon_state_cloned();
-        let proposer_index = head_state
-            .get_beacon_proposer_index(head_state.slot(), &self.chain.spec)
-            .unwrap();
-        let proposer_pubkey = self
-            .chain
-            .validator_pubkey_bytes(proposer_index)
-            .unwrap()
-            .unwrap();
-
         // Mutate gas limit.
         self.mock_builder
             .as_ref()
@@ -2663,24 +2647,49 @@ impl ApiTester {
             .builder
             .add_operation(Operation::GasLimit(30_000_000));
 
-        let finalized_checkpoint = self
-            .chain
-            .canonical_head
-            .cached_head()
-            .finalized_checkpoint();
+        let slot = self.chain.slot().unwrap();
+        let epoch = self.chain.epoch().unwrap();
+        let fork = self.chain.canonical_head.cached_head().head_fork();
+        let genesis_validators_root = self.chain.genesis_validators_root;
 
-        let payload: BlindedPayload<E> = beacon_chain::execution_payload::get_execution_payload(
-            self.chain.clone(),
-            &head_state,
-            finalized_checkpoint,
-            proposer_index as u64,
-            Some(proposer_pubkey),
-        )
-        .unwrap()
-        .await
-        .unwrap()
-        .unwrap()
-        .unwrap();
+        let (proposer_pubkey_bytes, proposer_index) = self
+            .client
+            .get_validator_duties_proposer(epoch)
+            .await
+            .unwrap()
+            .data
+            .into_iter()
+            .find(|duty| duty.slot == slot)
+            .map(|duty| (duty.pubkey, duty.validator_index))
+            .unwrap();
+        let proposer_pubkey = (&proposer_pubkey_bytes).try_into().unwrap();
+
+        let sk = self
+            .validator_keypairs()
+            .iter()
+            .find(|kp| kp.pk == proposer_pubkey)
+            .map(|kp| kp.sk.clone())
+            .unwrap();
+
+        let randao_reveal = {
+            let domain =
+                self.chain
+                    .spec
+                    .get_domain(epoch, Domain::Randao, &fork, genesis_validators_root);
+            let message = epoch.signing_root(domain);
+            sk.sign(message).into()
+        };
+
+        let payload = self
+            .client
+            .get_validator_blinded_blocks::<E, BlindedPayload<E>>(slot, &randao_reveal, None)
+            .await
+            .unwrap()
+            .data
+            .body()
+            .execution_payload()
+            .unwrap()
+            .clone();
 
         let expected_fee_recipient = Address::from_low_u64_be(proposer_index as u64);
         assert_eq!(
@@ -2689,28 +2698,18 @@ impl ApiTester {
         );
         assert_eq!(payload.execution_payload_header.gas_limit, 30_000_000);
 
-        // If this cache is populated, it indicates fallback to the local EE was correctly used.
+        // This cache should not be populated because fallback should not have been used.
         assert!(self
             .chain
             .execution_layer
             .as_ref()
             .unwrap()
             .get_payload_by_root(&payload.tree_hash_root())
-            .is_some());
+            .is_none());
         self
     }
 
     pub async fn test_payload_rejects_changed_fee_recipient(self) -> Self {
-        let head_state = self.chain.head_beacon_state_cloned();
-        let proposer_index = head_state
-            .get_beacon_proposer_index(head_state.slot(), &self.chain.spec)
-            .unwrap();
-        let proposer_pubkey = self
-            .chain
-            .validator_pubkey_bytes(proposer_index)
-            .unwrap()
-            .unwrap();
-
         // Mutate fee recipient.
         self.mock_builder
             .as_ref()
@@ -2722,24 +2721,49 @@ impl ApiTester {
                     .unwrap(),
             ));
 
-        let finalized_checkpoint = self
-            .chain
-            .canonical_head
-            .cached_head()
-            .finalized_checkpoint();
+        let slot = self.chain.slot().unwrap();
+        let epoch = self.chain.epoch().unwrap();
+        let fork = self.chain.canonical_head.cached_head().head_fork();
+        let genesis_validators_root = self.chain.genesis_validators_root;
 
-        let payload: BlindedPayload<E> = beacon_chain::execution_payload::get_execution_payload(
-            self.chain.clone(),
-            &head_state,
-            finalized_checkpoint,
-            proposer_index as u64,
-            Some(proposer_pubkey),
-        )
-        .unwrap()
-        .await
-        .unwrap()
-        .unwrap()
-        .unwrap();
+        let (proposer_pubkey_bytes, proposer_index) = self
+            .client
+            .get_validator_duties_proposer(epoch)
+            .await
+            .unwrap()
+            .data
+            .into_iter()
+            .find(|duty| duty.slot == slot)
+            .map(|duty| (duty.pubkey, duty.validator_index))
+            .unwrap();
+        let proposer_pubkey = (&proposer_pubkey_bytes).try_into().unwrap();
+
+        let sk = self
+            .validator_keypairs()
+            .iter()
+            .find(|kp| kp.pk == proposer_pubkey)
+            .map(|kp| kp.sk.clone())
+            .unwrap();
+
+        let randao_reveal = {
+            let domain =
+                self.chain
+                    .spec
+                    .get_domain(epoch, Domain::Randao, &fork, genesis_validators_root);
+            let message = epoch.signing_root(domain);
+            sk.sign(message).into()
+        };
+
+        let payload = self
+            .client
+            .get_validator_blinded_blocks::<E, BlindedPayload<E>>(slot, &randao_reveal, None)
+            .await
+            .unwrap()
+            .data
+            .body()
+            .execution_payload()
+            .unwrap()
+            .clone();
 
         let expected_fee_recipient = Address::from_low_u64_be(proposer_index as u64);
         assert_eq!(
@@ -2757,11 +2781,6 @@ impl ApiTester {
             .is_some());
         self
     }
-
-    //TODO(sean) add tests for chain health and local payload value comparison.
-    // Also make the gas requirement looser according to the spec.
-
-    //TODO(sean) make sure to only use available ports in these tests.
 
     #[cfg(target_os = "linux")]
     pub async fn test_get_lighthouse_health(self) -> Self {
