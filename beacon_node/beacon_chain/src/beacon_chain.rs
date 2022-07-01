@@ -4190,18 +4190,16 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             self.block_times_cache.write().prune(slot);
 
             // Don't run heavy-weight tasks during sync.
-            if self.best_slot() + MAX_PER_SLOT_FORK_CHOICE_DISTANCE < slot {
-                return;
-            }
-
-            // Run fork choice and signal to any waiting task that it has completed.
-            if let Err(e) = self.recompute_head_at_current_slot().await {
-                error!(
-                    self.log,
-                    "Fork choice error at slot start";
-                    "error" => ?e,
-                    "slot" => slot,
-                );
+            if self.best_slot() + MAX_PER_SLOT_FORK_CHOICE_DISTANCE >= slot {
+                // Run fork choice and signal to any waiting task that it has completed.
+                if let Err(e) = self.recompute_head_at_current_slot().await {
+                    error!(
+                        self.log,
+                        "Fork choice error at slot start";
+                        "error" => ?e,
+                        "slot" => slot,
+                    );
+                }
             }
 
             // Send the notification regardless of fork choice success, this is a "best effort"
