@@ -16,17 +16,11 @@ pub struct GanacheInstance {
     pub port: u16,
     child: Child,
     pub web3: Web3<Http>,
-    network_id: u64,
     chain_id: u64,
 }
 
 impl GanacheInstance {
-    fn new_from_child(
-        mut child: Child,
-        port: u16,
-        network_id: u64,
-        chain_id: u64,
-    ) -> Result<Self, String> {
+    fn new_from_child(mut child: Child, port: u16, chain_id: u64) -> Result<Self, String> {
         let stdout = child
             .stdout
             .ok_or("Unable to get stdout for ganache child process")?;
@@ -64,14 +58,13 @@ impl GanacheInstance {
             port,
             child,
             web3,
-            network_id,
             chain_id,
         })
     }
 
     /// Start a new `ganache` process, waiting until it indicates that it is ready to accept
     /// RPC connections.
-    pub fn new(network_id: u64, chain_id: u64) -> Result<Self, String> {
+    pub fn new(chain_id: u64) -> Result<Self, String> {
         let port = unused_tcp_port()?;
         let binary = match cfg!(windows) {
             true => "ganache.cmd",
@@ -89,8 +82,6 @@ impl GanacheInstance {
             .arg(format!("{}", port))
             .arg("--mnemonic")
             .arg("\"vast thought differ pull jewel broom cook wrist tribe word before omit\"")
-            .arg("--networkId")
-            .arg(format!("{}", network_id))
             .arg("--chain.chainId")
             .arg(format!("{}", chain_id))
             .spawn()
@@ -102,7 +93,7 @@ impl GanacheInstance {
                 )
             })?;
 
-        Self::new_from_child(child, port, network_id, chain_id)
+        Self::new_from_child(child, port, chain_id)
     }
 
     pub fn fork(&self) -> Result<Self, String> {
@@ -128,17 +119,12 @@ impl GanacheInstance {
                 )
             })?;
 
-        Self::new_from_child(child, port, self.network_id, self.chain_id)
+        Self::new_from_child(child, port, self.chain_id)
     }
 
     /// Returns the endpoint that this instance is listening on.
     pub fn endpoint(&self) -> String {
         endpoint(self.port)
-    }
-
-    /// Returns the network id of the ganache instance
-    pub fn network_id(&self) -> u64 {
-        self.network_id
     }
 
     /// Returns the chain id of the ganache instance

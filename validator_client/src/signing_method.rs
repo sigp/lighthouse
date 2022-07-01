@@ -30,6 +30,7 @@ pub enum Error {
     ShuttingDown,
     TokioJoin(String),
     MergeForkNotSupported,
+    GenesisForkVersionRequired,
 }
 
 /// Enumerates all messages that can be signed by a validator.
@@ -45,6 +46,7 @@ pub enum SignableMessage<'a, T: EthSpec, Payload: ExecPayload<T> = FullPayload<T
         slot: Slot,
     },
     SignedContributionAndProof(&'a ContributionAndProof<T>),
+    ValidatorRegistration(&'a ValidatorRegistrationData),
 }
 
 impl<'a, T: EthSpec, Payload: ExecPayload<T>> SignableMessage<'a, T, Payload> {
@@ -64,6 +66,7 @@ impl<'a, T: EthSpec, Payload: ExecPayload<T>> SignableMessage<'a, T, Payload> {
                 beacon_block_root, ..
             } => beacon_block_root.signing_root(domain),
             SignableMessage::SignedContributionAndProof(c) => c.signing_root(domain),
+            SignableMessage::ValidatorRegistration(v) => v.signing_root(domain),
         }
     }
 }
@@ -129,6 +132,22 @@ impl SigningMethod {
 
         let signing_root = signable_message.signing_root(domain_hash);
 
+        let fork_info = Some(ForkInfo {
+            fork,
+            genesis_validators_root,
+        });
+
+        self.get_signature_from_root(signable_message, signing_root, executor, fork_info)
+            .await
+    }
+
+    pub async fn get_signature_from_root<T: EthSpec, Payload: ExecPayload<T>>(
+        &self,
+        signable_message: SignableMessage<'_, T, Payload>,
+        signing_root: Hash256,
+        executor: &TaskExecutor,
+        fork_info: Option<ForkInfo>,
+    ) -> Result<Signature, Error> {
         match self {
             SigningMethod::LocalKeystore { voting_keypair, .. } => {
                 let _timer =
@@ -181,21 +200,21 @@ impl SigningMethod {
                     SignableMessage::SignedContributionAndProof(c) => {
                         Web3SignerObject::ContributionAndProof(c)
                     }
+                    SignableMessage::ValidatorRegistration(v) => {
+                        Web3SignerObject::ValidatorRegistration(v)
+                    }
                 };
 
                 // Determine the Web3Signer message type.
                 let message_type = object.message_type();
 
-                // The `fork_info` field is not required for deposits since they sign across the
-                // genesis fork version.
-                let fork_info = if let Web3SignerObject::Deposit { .. } = &object {
-                    None
-                } else {
-                    Some(ForkInfo {
-                        fork,
-                        genesis_validators_root,
-                    })
-                };
+                if matches!(
+                    object,
+                    Web3SignerObject::Deposit { .. } | Web3SignerObject::ValidatorRegistration(_)
+                ) && fork_info.is_some()
+                {
+                    return Err(Error::GenesisForkVersionRequired);
+                }
 
                 let request = SigningRequest {
                     message_type,

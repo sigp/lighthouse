@@ -198,7 +198,8 @@ mod tests {
     #[test]
     fn serde() {
         let config = Config::default();
-        let serialized = toml::to_string(&config).expect("should serde encode default config");
-        toml::from_str::<Config>(&serialized).expect("should serde decode default config");
+        let serialized =
+            serde_yaml::to_string(&config).expect("should serde encode default config");
+        serde_yaml::from_str::<Config>(&serialized).expect("should serde decode default config");
     }
 }

@@ -623,7 +623,7 @@ impl<T: BeaconChainTypes> Stream for AttestationService<T> {
         // process any known validator expiries
         match self.known_validators.poll_next_unpin(cx) {
             Poll::Ready(Some(Ok(_validator_index))) => {
-                let _ = self.handle_known_validator_expiry();
+                self.handle_known_validator_expiry();
             }
             Poll::Ready(Some(Err(e))) => {
                 error!(self.log, "Failed to check for random subnet cycles"; "error"=> e);

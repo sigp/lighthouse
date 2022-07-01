@@ -1235,7 +1235,7 @@ impl<'a, T: BeaconChainTypes> FullyVerifiedBlock<'a, T> {
         if let Some(ref event_handler) = chain.event_handler {
             if event_handler.has_block_reward_subscribers() {
                 let block_reward =
-                    chain.compute_block_reward(block.message(), block_root, &state)?;
+                    chain.compute_block_reward(block.message(), block_root, &state, true)?;
                 event_handler.register(EventKind::BlockReward(block_reward));
             }
         }
@@ -1717,14 +1717,13 @@ fn verify_header_signature<T: BeaconChainTypes>(
         .get(header.message.proposer_index as usize)
         .cloned()
         .ok_or(BlockError::UnknownValidator(header.message.proposer_index))?;
-    let (fork, genesis_validators_root) = chain
-        .with_head(|head| {
+    let (fork, genesis_validators_root) =
+        chain.with_head::<_, BlockError<T::EthSpec>, _>(|head| {
             Ok((
                 head.beacon_state.fork(),
                 head.beacon_state.genesis_validators_root(),
             ))
-        })
-        .map_err(|e: BlockError<T::EthSpec>| e)?;
+        })?;
 
     if header.verify_signature::<T::EthSpec>(
         &proposer_pubkey,

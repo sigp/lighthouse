@@ -11,5 +11,4 @@ exec ganache \
 	--mnemonic "$ETH1_NETWORK_MNEMONIC" \
 	--port 8545 \
 	--blockTime $SECONDS_PER_ETH1_BLOCK \
-	--networkId "$NETWORK_ID" \
-	--chain.chainId "$NETWORK_ID"
+	--chain.chainId "$CHAIN_ID"
