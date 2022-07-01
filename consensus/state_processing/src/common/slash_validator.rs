@@ -10,7 +10,7 @@ use types::{
 pub fn slash_validator<T: EthSpec>(
     state: &mut BeaconState<T>,
     slashed_index: usize,
-    opt_whistleblower_index: Option<usize>,
+    proposer_index: usize,
     spec: &ChainSpec,
 ) -> Result<(), Error> {
     let epoch = state.current_epoch();
@@ -39,8 +39,7 @@ pub fn slash_validator<T: EthSpec>(
     )?;
 
     // Apply proposer and whistleblower rewards
-    let proposer_index = state.get_beacon_proposer_index(state.slot(), spec)?;
-    let whistleblower_index = opt_whistleblower_index.unwrap_or(proposer_index);
+    let whistleblower_index = proposer_index;
     let whistleblower_reward =
         validator_effective_balance.safe_div(spec.whistleblower_reward_quotient)?;
     let proposer_reward = match state {

@@ -20,12 +20,14 @@ pub fn process_operations<'a, T: EthSpec, Payload: ExecPayload<T>>(
         state,
         block_body.proposer_slashings(),
         verify_signatures,
+        proposer_index as usize,
         spec,
     )?;
     process_attester_slashings(
         state,
         block_body.attester_slashings(),
         verify_signatures,
+        proposer_index as usize,
         spec,
     )?;
     process_attestations(state, block_body, proposer_index, verify_signatures, spec)?;
@@ -45,12 +47,11 @@ pub mod base {
         state: &mut BeaconState<T>,
         attestations: &[Attestation<T>],
         verify_signatures: VerifySignatures,
+        proposer_index: u64,
         spec: &ChainSpec,
     ) -> Result<(), BlockProcessingError> {
         // Ensure the previous epoch cache exists.
         state.build_committee_cache(RelativeEpoch::Previous, spec)?;
-
-        let proposer_index = state.get_beacon_proposer_index(state.slot(), spec)? as u64;
 
         // Verify and apply each attestation.
         for (i, attestation) in attestations.iter().enumerate() {
@@ -170,6 +171,7 @@ pub fn process_proposer_slashings<T: EthSpec>(
     state: &mut BeaconState<T>,
     proposer_slashings: &[ProposerSlashing],
     verify_signatures: VerifySignatures,
+    proposer_index: usize,
     spec: &ChainSpec,
 ) -> Result<(), BlockProcessingError> {
     // Verify and apply proposer slashings in series.
@@ -185,7 +187,7 @@ pub fn process_proposer_slashings<T: EthSpec>(
             slash_validator(
                 state,
                 proposer_slashing.signed_header_1.message.proposer_index as usize,
-                None,
+                proposer_index,
                 spec,
             )?;
 
@@ -201,6 +203,7 @@ pub fn process_attester_slashings<T: EthSpec>(
     state: &mut BeaconState<T>,
     attester_slashings: &[AttesterSlashing<T>],
     verify_signatures: VerifySignatures,
+    proposer_index: usize,
     spec: &ChainSpec,
 ) -> Result<(), BlockProcessingError> {
     for (i, attester_slashing) in attester_slashings.iter().enumerate() {
@@ -211,7 +214,7 @@ pub fn process_attester_slashings<T: EthSpec>(
             get_slashable_indices(state, attester_slashing).map_err(|e| e.into_with_index(i))?;
 
         for i in slashable_indices {
-            slash_validator(state, i as usize, None, spec)?;
+            slash_validator(state, i as usize, proposer_index, spec)?;
         }
     }
 
@@ -228,7 +231,13 @@ pub fn process_attestations<'a, T: EthSpec, Payload: ExecPayload<T>>(
 ) -> Result<(), BlockProcessingError> {
     match block_body {
         BeaconBlockBodyRef::Base(_) => {
-            base::process_attestations(state, block_body.attestations(), verify_signatures, spec)?;
+            base::process_attestations(
+                state,
+                block_body.attestations(),
+                verify_signatures,
+                proposer_index,
+                spec,
+            )?;
         }
         BeaconBlockBodyRef::Altair(_) | BeaconBlockBodyRef::Merge(_) => {
             altair::process_attestations(
