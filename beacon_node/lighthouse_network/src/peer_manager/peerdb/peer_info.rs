@@ -477,7 +477,7 @@ pub enum ConnectionDirection {
 }
 
 /// Connection Status of the peer.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub enum PeerConnectionStatus {
     /// The peer is connected.
     Connected {
@@ -507,6 +507,7 @@ pub enum PeerConnectionStatus {
         since: Instant,
     },
     /// The connection status has not been specified.
+    #[default]
     Unknown,
 }
 
@@ -559,11 +560,5 @@ impl Serialize for PeerConnectionStatus {
                 s.end()
             }
         }
-    }
-}
-
-impl Default for PeerConnectionStatus {
-    fn default() -> Self {
-        PeerConnectionStatus::Unknown
     }
 }

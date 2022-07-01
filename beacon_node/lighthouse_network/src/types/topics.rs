@@ -78,16 +78,11 @@ impl std::fmt::Display for GossipKind {
 }
 
 /// The known encoding types for gossipsub messages.
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq, Hash)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq, Hash, Default)]
 pub enum GossipEncoding {
     /// Messages are encoded with SSZSnappy.
+    #[default]
     SSZSnappy,
-}
-
-impl Default for GossipEncoding {
-    fn default() -> Self {
-        GossipEncoding::SSZSnappy
-    }
 }
 
 impl GossipTopic {
