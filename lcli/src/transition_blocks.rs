@@ -1,7 +1,7 @@
 //! # Transition Blocks
 //!
 //! Use this tool to apply a `SignedBeaconBlock` to a `BeaconState`. Useful for benchmarking or
-//! Troubleshooting consensus failures.
+//! troubleshooting consensus failures.
 //!
 //! It can load states and blocks from file or pull them from a beaconAPI. Objects pulled from a
 //! beaconAPI can be saved to disk to reduce future calls to that server.

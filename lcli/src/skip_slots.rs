@@ -1,7 +1,7 @@
 //! # Skip-Slots
 //!
 //! Use this tool to process a `BeaconState` through empty slots. Useful for benchmarking or
-//! Troubleshooting consensus failures.
+//! troubleshooting consensus failures.
 //!
 //! It can load states from file or pull them from a beaconAPI. States pulled from a beaconAPI can
 //! be saved to disk to reduce future calls to that server.
