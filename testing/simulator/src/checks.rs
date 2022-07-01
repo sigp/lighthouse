@@ -1,7 +1,7 @@
 use crate::local_network::LocalNetwork;
 use node_test_rig::eth2::types::{BlockId, StateId};
 use std::time::Duration;
-use types::{Epoch, EthSpec, Slot, Unsigned};
+use types::{Epoch, EthSpec, ExecutionBlockHash, Hash256, Slot, Unsigned};
 
 /// Checks that all of the validators have on-boarded by the start of the second eth1 voting
 /// period.
@@ -206,4 +206,40 @@ pub async fn verify_full_sync_aggregates_up_to<E: EthSpec>(
     }
 
     Ok(())
+}
+
+/// Verify that the first merged PoS block got finalized.
+pub async fn verify_transition_block_finalized<E: EthSpec>(
+    network: LocalNetwork<E>,
+    transition_epoch: Epoch,
+    slot_duration: Duration,
+    should_verify: bool,
+) -> Result<(), String> {
+    if !should_verify {
+        return Ok(());
+    }
+    epoch_delay(transition_epoch + 2, slot_duration, E::slots_per_epoch()).await;
+    let mut block_hashes = Vec::new();
+    for remote_node in network.remote_nodes()?.iter() {
+        let execution_block_hash: ExecutionBlockHash = remote_node
+            .get_beacon_blocks::<E>(BlockId::Finalized)
+            .await
+            .map(|body| body.unwrap().data)
+            .map_err(|e| format!("Get state root via http failed: {:?}", e))?
+            .message()
+            .execution_payload()
+            .map(|payload| payload.execution_payload.block_hash)
+            .map_err(|e| format!("Execution payload does not exist: {:?}", e))?;
+        block_hashes.push(execution_block_hash);
+    }
+
+    let first = block_hashes[0];
+    if first.into_root() != Hash256::zero() && block_hashes.iter().all(|&item| item == first) {
+        return Ok(());
+    } else {
+        return Err(format!(
+            "Terminal block not finalized on all nodes Finalized block hashes:{:?}",
+            block_hashes
+        ));
+    }
 }

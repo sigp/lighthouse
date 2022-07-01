@@ -1,10 +1,14 @@
-use crate::engine_api::{
-    json_structures::{
-        JsonForkchoiceUpdatedV1Response, JsonPayloadStatusV1, JsonPayloadStatusV1Status,
-    },
-    ExecutionBlock, PayloadAttributes, PayloadId, PayloadStatusV1, PayloadStatusV1Status,
-};
 use crate::engines::ForkChoiceState;
+use crate::{
+    engine_api::{
+        json_structures::{
+            JsonForkchoiceUpdatedV1Response, JsonPayloadStatusV1, JsonPayloadStatusV1Status,
+        },
+        ExecutionBlock, PayloadAttributes, PayloadId, PayloadStatusV1, PayloadStatusV1Status,
+    },
+    ExecutionBlockWithTransactions,
+};
+use ethers_core::types::Transaction;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use tree_hash::TreeHash;
@@ -64,6 +68,37 @@ impl<T: EthSpec> Block<T> {
                 parent_hash: payload.parent_hash,
                 total_difficulty,
             },
+        }
+    }
+
+    pub fn as_execution_block_with_tx(&self) -> Option<ExecutionBlockWithTransactions<T>> {
+        match self {
+            Block::PoS(payload) => {
+                // We are not checking for transaction validity.
+                // So we use a default txs for testing purposes.
+                let txs = payload
+                    .transactions
+                    .iter()
+                    .map(|_| Transaction::default())
+                    .collect();
+                Some(ExecutionBlockWithTransactions {
+                    parent_hash: payload.parent_hash,
+                    fee_recipient: payload.fee_recipient,
+                    state_root: payload.state_root,
+                    receipts_root: payload.receipts_root,
+                    logs_bloom: payload.logs_bloom.clone(),
+                    prev_randao: payload.prev_randao,
+                    block_number: payload.block_number,
+                    gas_limit: payload.gas_limit,
+                    gas_used: payload.gas_used,
+                    timestamp: payload.timestamp,
+                    extra_data: payload.extra_data.clone(),
+                    base_fee_per_gas: payload.base_fee_per_gas,
+                    block_hash: payload.block_hash,
+                    transactions: txs,
+                })
+            }
+            Block::PoW(_) => None,
         }
     }
 }
@@ -151,6 +186,15 @@ impl<T: EthSpec> ExecutionBlockGenerator<T> {
     pub fn execution_block_by_hash(&self, hash: ExecutionBlockHash) -> Option<ExecutionBlock> {
         self.block_by_hash(hash)
             .map(|block| block.as_execution_block(self.terminal_total_difficulty))
+    }
+
+    pub fn execution_block_with_txs_by_hash(
+        &self,
+        hash: ExecutionBlockHash,
+    ) -> Option<ExecutionBlockWithTransactions<T>> {
+        self.block_by_hash(hash)
+            .map(|block| block.as_execution_block_with_tx())
+            .flatten()
     }
 
     pub fn move_to_block_prior_to_terminal_block(&mut self) -> Result<(), String> {

@@ -225,7 +225,16 @@ pub fn run_eth1_sim(matches: &ArgMatches) -> Result<(), String> {
          * tests start at the right time. Whilst this is works well for now, it's subject to
          * breakage by changes to the VC.
          */
-        let (finalization, block_prod, validator_count, onboarding, fork, sync_aggregate) = futures::join!(
+
+        let (
+            finalization,
+            block_prod,
+            validator_count,
+            onboarding,
+            fork,
+            sync_aggregate,
+            transition,
+        ) = futures::join!(
             // Check that the chain finalizes at the first given opportunity.
             checks::verify_first_finalization(network.clone(), slot_duration),
             // Check that a block is produced at every slot.
@@ -262,6 +271,13 @@ pub fn run_eth1_sim(matches: &ArgMatches) -> Result<(), String> {
                 Epoch::new(ALTAIR_FORK_EPOCH + 1).start_slot(MinimalEthSpec::slots_per_epoch()),
                 Epoch::new(END_EPOCH).start_slot(MinimalEthSpec::slots_per_epoch()),
                 slot_duration,
+            ),
+            // Check that the transition block is finalized.
+            checks::verify_transition_block_finalized(
+                network.clone(),
+                Epoch::new(8),
+                slot_duration,
+                post_merge_sim
             )
         );
 
@@ -271,6 +287,7 @@ pub fn run_eth1_sim(matches: &ArgMatches) -> Result<(), String> {
         onboarding?;
         fork?;
         sync_aggregate?;
+        transition?;
 
         // The `final_future` either completes immediately or never completes, depending on the value
         // of `continue_after_checks`.
