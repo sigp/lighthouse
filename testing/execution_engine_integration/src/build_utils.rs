@@ -23,7 +23,7 @@ pub fn clone_repo(repo_dir: &Path, repo_url: &str) -> Result<(), String> {
             .arg("--recursive")
             .current_dir(repo_dir)
             .output()
-            .map_err(|_| format!("failed to clone repo at {}", repo_url))?,
+            .map_err(|_| format!("failed to clone repo at {repo_url}"))?,
         |_| {},
     )
 }
