@@ -37,8 +37,7 @@ pub fn checkout(repo_dir: &Path, revision_or_branch: &str) -> Result<(), String>
             .output()
             .map_err(|_| {
                 format!(
-                    "failed to checkout branch or revision at {:?}/{}",
-                    repo_dir, revision_or_branch,
+                    "failed to checkout branch or revision at {repo_dir:?}/{revision_or_branch}",
                 )
             })?,
         |_| {},
@@ -55,7 +54,7 @@ pub fn get_latest_release(repo_dir: &Path) -> Result<String, String> {
             .arg("--tags")
             .current_dir(repo_dir)
             .output()
-            .map_err(|e| format!("Failed to fetch tags for {repo_dir:?}: Err: {}", e))?,
+            .map_err(|e| format!("Failed to fetch tags for {repo_dir:?}: Err: {e}"))?,
         |_| {},
     )?;
     output_to_result(
@@ -65,7 +64,7 @@ pub fn get_latest_release(repo_dir: &Path) -> Result<String, String> {
             .arg("--tags")
             .current_dir(repo_dir)
             .output()
-            .map_err(|e| format!("Failed to get latest tag for {repo_dir:?}: Err: {}", e))?,
+            .map_err(|e| format!("Failed to get latest tag for {repo_dir:?}: Err: {e}"))?,
         |stdout| {
             let tag = String::from_utf8_lossy(&stdout);
             tag.trim().to_string()
