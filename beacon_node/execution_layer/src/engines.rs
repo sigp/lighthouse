@@ -1,12 +1,9 @@
 //! Provides generic behaviour for multiple execution engines, specifically fallback behaviour.
 
 use crate::engine_api::{
-    Builder, EngineApi, Error as EngineApiError, ForkchoiceUpdatedResponse, PayloadAttributes,
-    PayloadId,
+    EngineApi, Error as EngineApiError, ForkchoiceUpdatedResponse, PayloadAttributes, PayloadId,
 };
-use crate::{BuilderApi, HttpJsonRpc};
-use async_trait::async_trait;
-use futures::future::join_all;
+use crate::HttpJsonRpc;
 use lru::LruCache;
 use slog::{crit, debug, info, warn, Logger};
 use std::future::Future;
@@ -97,9 +94,8 @@ impl<T> Engine<T> {
     }
 }
 
-#[async_trait]
-impl Builder for Engine<EngineApi> {
-    async fn notify_forkchoice_updated(
+impl Engine<EngineApi> {
+    pub async fn notify_forkchoice_updated(
         &self,
         forkchoice_state: ForkChoiceState,
         payload_attributes: Option<PayloadAttributes>,
@@ -128,34 +124,6 @@ impl Builder for Engine<EngineApi> {
     }
 }
 
-#[async_trait]
-impl Builder for Engine<BuilderApi> {
-    async fn notify_forkchoice_updated(
-        &self,
-        forkchoice_state: ForkChoiceState,
-        pa: Option<PayloadAttributes>,
-        log: &Logger,
-    ) -> Result<ForkchoiceUpdatedResponse, EngineApiError> {
-        let payload_attributes = pa.ok_or(EngineApiError::InvalidBuilderQuery)?;
-        let response = self
-            .api
-            .forkchoice_updated_v1(forkchoice_state, Some(payload_attributes))
-            .await?;
-
-        if let Some(payload_id) = response.payload_id {
-            let key = PayloadIdCacheKey::new(&forkchoice_state, &payload_attributes);
-            self.payload_id_cache.lock().await.put(key, payload_id);
-        } else {
-            warn!(
-                log,
-                "Builder should have returned a payload_id for attributes {:?}", payload_attributes
-            );
-        }
-
-        Ok(response)
-    }
-}
-
 // This structure used to hold multiple execution engines managed in a fallback manner. This
 // functionality has been removed following https://github.com/sigp/lighthouse/issues/3118 and this
 // struct will likely be removed in the future.
@@ -165,15 +133,11 @@ pub struct Engines {
     pub log: Logger,
 }
 
-pub struct Builders {
-    pub builders: Vec<Engine<BuilderApi>>,
-    pub log: Logger,
-}
-
 #[derive(Debug)]
 pub enum EngineError {
     Offline { id: String },
     Api { id: String, error: EngineApiError },
+    BuilderApi { error: EngineApiError },
     Auth { id: String },
 }
 
@@ -419,66 +383,6 @@ impl Engines {
                 }
             }
         }
-    }
-}
-
-impl Builders {
-    pub async fn first_success_without_retry<'a, F, G, H>(
-        &'a self,
-        func: F,
-    ) -> Result<H, Vec<EngineError>>
-    where
-        F: Fn(&'a Engine<BuilderApi>) -> G,
-        G: Future<Output = Result<H, EngineApiError>>,
-    {
-        let mut errors = vec![];
-
-        for builder in &self.builders {
-            match func(builder).await {
-                Ok(result) => return Ok(result),
-                Err(error) => {
-                    debug!(
-                        self.log,
-                        "Builder call failed";
-                        "error" => ?error,
-                        "id" => &builder.id
-                    );
-                    errors.push(EngineError::Api {
-                        id: builder.id.clone(),
-                        error,
-                    })
-                }
-            }
-        }
-
-        Err(errors)
-    }
-
-    pub async fn broadcast_without_retry<'a, F, G, H>(
-        &'a self,
-        func: F,
-    ) -> Vec<Result<H, EngineError>>
-    where
-        F: Fn(&'a Engine<BuilderApi>) -> G,
-        G: Future<Output = Result<H, EngineApiError>>,
-    {
-        let func = &func;
-        let futures = self.builders.iter().map(|engine| async move {
-            func(engine).await.map_err(|error| {
-                debug!(
-                    self.log,
-                    "Builder call failed";
-                    "error" => ?error,
-                    "id" => &engine.id
-                );
-                EngineError::Api {
-                    id: engine.id.clone(),
-                    error,
-                }
-            })
-        });
-
-        join_all(futures).await
     }
 }
 

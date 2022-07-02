@@ -724,7 +724,7 @@ where
                     execution_layer.spawn_watchdog_routine(beacon_chain.slot_clock.clone());
 
                     // Spawn a routine that removes expired proposer preparations.
-                    execution_layer.spawn_clean_proposer_caches_routine::<TSlotClock, TEthSpec>(
+                    execution_layer.spawn_clean_proposer_caches_routine::<TSlotClock>(
                         beacon_chain.slot_clock.clone(),
                     );
 
