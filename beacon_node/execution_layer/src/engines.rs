@@ -267,9 +267,9 @@ impl Engines {
         match self.first_success_without_retry(func).await {
             Ok(result) => Ok(result),
             Err(_e) => {
-                // Try to recover some nodes.
+                // Try to recover the node.
                 self.upcheck_not_synced(Logging::Enabled).await;
-                // Retry again.
+                // Try again.
                 self.first_success_without_retry(func).await
             }
         }

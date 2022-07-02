@@ -23,25 +23,7 @@ pub enum PayloadStatus {
     },
 }
 
-/// Processes the responses from multiple execution engines, finding the "best" status and returning
-/// it (if any).
-///
-/// This function has the following basic goals:
-///
-/// - Detect a consensus failure between nodes.
-/// - Find the most-synced node by preferring a definite response (valid/invalid) over a
-///     syncing/accepted response or error.
-///
-/// # Details
-///
-/// - If there are conflicting valid/invalid responses, always return an error.
-/// - If there are syncing/accepted responses but valid/invalid responses exist, return the
-///     valid/invalid responses since they're definite.
-/// - If there are multiple valid responses, return the first one processed.
-/// - If there are multiple invalid responses, return the first one processed.
-/// - Syncing/accepted responses are grouped, if there are multiple of them, return the first one
-///     processed.
-/// - If there are no responses (only errors or nothing), return an error.
+/// Processes the response the execution engine.
 pub fn process_payload_status(
     head_block_hash: ExecutionBlockHash,
     status: Result<PayloadStatusV1, EngineError>,
@@ -50,9 +32,9 @@ pub fn process_payload_status(
     match status {
         Err(error) => {
             warn!(
-                log,
-                "Error whilst processing payload status";
-                "error" => ?error,
+            log,
+            "Error whilst processing payload status";
+            "error" => ?error,
             );
             Err(error)
         }
@@ -66,16 +48,14 @@ pub fn process_payload_status(
                     // equal to the provided `block_hash`.
                     Ok(PayloadStatus::Valid)
                 } else {
-                    let e =EngineError::Api {
-                            error: ApiError::BadResponse(
-                                format!(
-                                    "new_payload: response.status = VALID but invalid latest_valid_hash. Expected({:?}) Found({:?})",
-                                    head_block_hash,
-                                    response.latest_valid_hash,
-                                )
-                            ),
-                        };
-                    Err(e)
+                    let error = format!(
+                        "new_payload: response.status = VALID but invalid latest_valid_hash. Expected({:?}) Found({:?})",
+                        head_block_hash,
+                        response.latest_valid_hash
+                    );
+                    Err(EngineError::Api {
+                        error: ApiError::BadResponse(error),
+                    })
                 }
             }
             PayloadStatusV1Status::Invalid => {
@@ -99,10 +79,10 @@ pub fn process_payload_status(
                 // warning here.
                 if response.latest_valid_hash.is_some() {
                     warn!(
-                        log,
-                        "Malformed response from execution engine";
-                        "msg" => "expected a null latest_valid_hash",
-                        "status" => ?response.status
+                    log,
+                    "Malformed response from execution engine";
+                    "msg" => "expected a null latest_valid_hash",
+                    "status" => ?response.status
                     )
                 }
 
@@ -115,10 +95,10 @@ pub fn process_payload_status(
                 // warning here.
                 if response.latest_valid_hash.is_some() {
                     warn!(
-                        log,
-                        "Malformed response from execution engine";
-                        "msg" => "expected a null latest_valid_hash",
-                        "status" => ?response.status
+                    log,
+                    "Malformed response from execution engine";
+                    "msg" => "expected a null latest_valid_hash",
+                    "status" => ?response.status
                     )
                 }
 
@@ -131,10 +111,10 @@ pub fn process_payload_status(
                 // warning here.
                 if response.latest_valid_hash.is_some() {
                     warn!(
-                        log,
-                        "Malformed response from execution engine";
-                        "msg" => "expected a null latest_valid_hash",
-                        "status" => ?response.status
+                    log,
+                    "Malformed response from execution engine";
+                    "msg" => "expected a null latest_valid_hash",
+                    "status" => ?response.status
                     )
                 }
 
@@ -145,10 +125,10 @@ pub fn process_payload_status(
                 // warning here.
                 if response.latest_valid_hash.is_some() {
                     warn!(
-                        log,
-                        "Malformed response from execution engine";
-                        "msg" => "expected a null latest_valid_hash",
-                        "status" => ?response.status
+                    log,
+                    "Malformed response from execution engine";
+                    "msg" => "expected a null latest_valid_hash",
+                    "status" => ?response.status
                     )
                 }
 
