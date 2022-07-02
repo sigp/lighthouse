@@ -10,15 +10,15 @@ use std::task::{Context, Poll};
 
 use futures::prelude::*;
 
-use slog::{debug, error, o, trace, warn};
-#[cfg(old_long_lived_attnets)]
-use ::{rand::seq::SliceRandom, std::time::Duration, std::time::Instant};
-
 use beacon_chain::{BeaconChain, BeaconChainTypes};
 use hashset_delay::HashSetDelay;
 use lighthouse_network::{NetworkConfig, Subnet, SubnetDiscovery};
+use slog::{debug, error, o, trace, warn};
 use slot_clock::SlotClock;
+use std::time::Duration;
 use types::{Attestation, EthSpec, Slot, SubnetId, ValidatorSubscription};
+#[cfg(old_long_lived_attnets)]
+use ::{rand::seq::SliceRandom, std::time::Instant};
 
 use crate::metrics;
 
@@ -59,7 +59,7 @@ pub struct AttestationService<T: BeaconChainTypes> {
     long_lived_subnets: HashSet<SubnetId>,
 
     /// Future used to manage subscribing and unsubscribing from long lived subnets.
-    next_epoch: Pin<Box<tokio::time::Sleep>>,
+    next_long_lived_subscription_event: Pin<Box<tokio::time::Sleep>>,
 
     /// A reference to the beacon chain to process received attestations.
     pub(crate) beacon_chain: Arc<BeaconChain<T>>,
@@ -131,34 +131,29 @@ impl<T: BeaconChainTypes> AttestationService<T> {
             .checked_mul(DEFAULT_EXPIRATION_TIMEOUT)
             .expect("DEFAULT_EXPIRATION_TIMEOUT must not be ridiculously large");
 
-        let sleep = tokio::time::sleep(
-            beacon_chain
-                .slot_clock
-                .duration_to_next_epoch(T::EthSpec::slots_per_epoch())
-                .unwrap_or_else(|| {
-                    // on failure, wait one slot before retrying
-                    beacon_chain.slot_clock.slot_duration()
-                }),
-        );
         let node_id = ethereum_types::U256::from(node_id);
+        // Set a dummy sleep. Calculating the current subnet subscriptions will update this value
+        // with a smarter timing
+        let next_long_lived_subscription_event =
+            Box::pin(tokio::time::sleep(Duration::from_secs(1)));
         let mut service = AttestationService {
             events: VecDeque::with_capacity(10),
             node_id,
-            next_epoch: Box::pin(sleep),
             long_lived_subnets: HashSet::default(),
+            next_long_lived_subscription_event,
             beacon_chain,
-            #[cfg(old_long_lived_attnets)]
-            random_subnets: HashSetDelay::new(Duration::from_millis(random_subnet_duration_millis)),
             subscriptions: HashSet::new(),
             unsubscriptions: HashSetDelay::new(default_timeout),
             aggregate_validators_on_subnet: HashSetDelay::new(default_timeout),
-            #[cfg(old_long_lived_attnets)]
-            known_validators: HashSetDelay::new(last_seen_val_timeout),
             waker: None,
+            discovery_disabled: config.disable_discovery,
             subscribe_all_subnets: config.subscribe_all_subnets,
             import_all_attestations: config.import_all_attestations,
-            discovery_disabled: config.disable_discovery,
             log,
+            #[cfg(old_long_lived_attnets)]
+            random_subnets: HashSetDelay::new(Duration::from_millis(random_subnet_duration_millis)),
+            #[cfg(old_long_lived_attnets)]
+            known_validators: HashSetDelay::new(last_seen_val_timeout),
         };
 
         // do the first subnet subscription and unsubscription pass
@@ -184,7 +179,8 @@ impl<T: BeaconChainTypes> AttestationService<T> {
             Err(_) => time_to_next_epoch.min(self.beacon_chain.slot_clock.slot_duration()),
         };
 
-        self.next_epoch = Box::pin(tokio::time::sleep(time_to_next_subscription));
+        self.next_long_lived_subscription_event =
+            Box::pin(tokio::time::sleep(time_to_next_subscription));
         if let Some(waker) = self.waker.as_ref() {
             waker.wake_by_ref();
         }
@@ -202,15 +198,29 @@ impl<T: BeaconChainTypes> AttestationService<T> {
         )
         .map_err(|e| error!(self.log, "Could not compute subnets for current epoch"; "err" => e))?
         .collect();
-        let subnets_to_unsubscribe = self.long_lived_subnets.difference(&subnets).map(|subnet| {
-            debug!(self.log, "Unsubscribing from long lived subnet"; "subnet" => ?subnet);
-            SubnetServiceMessage::Unsubscribe(Subnet::Attestation(*subnet))
-        });
+        let subnets_to_unsubscribe =
+            self.long_lived_subnets
+                .difference(&subnets)
+                .flat_map(|subnet| {
+                    debug!(self.log, "Unsubscribing from long lived subnet"; "subnet" => ?subnet);
+                    let subnet = Subnet::Attestation(*subnet);
+                    [
+                        SubnetServiceMessage::Unsubscribe(subnet),
+                        SubnetServiceMessage::EnrRemove(subnet),
+                    ]
+                });
 
-        let subnets_to_subscribe = subnets.difference(&self.long_lived_subnets).map(|subnet| {
-            debug!(self.log, "Subscribing to long lived subnet"; "subnet" => ?subnet);
-            SubnetServiceMessage::Subscribe(Subnet::Attestation(*subnet))
-        });
+        let subnets_to_subscribe =
+            subnets
+                .difference(&self.long_lived_subnets)
+                .flat_map(|subnet| {
+                    debug!(self.log, "Subscribing to long lived subnet"; "subnet" => ?subnet);
+                    let subnet = Subnet::Attestation(*subnet);
+                    [
+                        SubnetServiceMessage::Subscribe(subnet),
+                        SubnetServiceMessage::EnrAdd(subnet),
+                    ]
+                });
 
         self.events.extend(subnets_to_unsubscribe);
         self.events.extend(subnets_to_subscribe);
@@ -701,7 +711,7 @@ impl<T: BeaconChainTypes> Stream for AttestationService<T> {
             self.waker = Some(cx.waker().clone());
         }
 
-        if let Poll::Ready(()) = self.next_epoch.poll_unpin(cx) {
+        if let Poll::Ready(()) = self.next_long_lived_subscription_event.poll_unpin(cx) {
             self.recompute_long_lived_subnets();
         }
         // process any un-subscription events
