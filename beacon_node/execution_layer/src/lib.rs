@@ -199,12 +199,11 @@ impl<T: EthSpec> ExecutionLayer<T> {
         }?;
 
         let engine: Engine<EngineApi> = {
-            let id = execution_url.to_string();
             let auth = Auth::new(jwt_key, jwt_id, jwt_version);
-            debug!(log, "Loaded execution endpoint"; "endpoint" => %id, "jwt_path" => ?secret_file.as_path());
+            debug!(log, "Loaded execution endpoint"; "endpoint" => %execution_url, "jwt_path" => ?secret_file.as_path());
             let api = HttpJsonRpc::<EngineApi>::new_with_auth(execution_url, auth)
                 .map_err(Error::ApiError)?;
-            Engine::<EngineApi>::new(id, api)
+            Engine::<EngineApi>::new(api)
         };
 
         let builder = builder_url
@@ -944,8 +943,6 @@ impl<T: EthSpec> ExecutionLayer<T> {
             .broadcast(|engine| engine.api.exchange_transition_configuration_v1(local))
             .await;
 
-        // Having no fallbacks, the id of the used node is 0
-        let i = 0usize;
         match broadcast_result {
             Ok(remote) => {
                 if local.terminal_total_difficulty != remote.terminal_total_difficulty
@@ -956,19 +953,16 @@ impl<T: EthSpec> ExecutionLayer<T> {
                         "Execution client config mismatch";
                         "msg" => "ensure lighthouse and the execution client are up-to-date and \
                                   configured consistently",
-                        "execution_endpoint" => i,
                         "remote" => ?remote,
                         "local" => ?local,
                     );
                     Err(Error::EngineError(Box::new(EngineError::Api {
-                        id: i.to_string(),
                         error: ApiError::TransitionConfigurationMismatch,
                     })))
                 } else {
                     debug!(
                         self.log(),
                         "Execution client config is OK";
-                        "execution_endpoint" => i
                     );
                     Ok(())
                 }
@@ -978,7 +972,6 @@ impl<T: EthSpec> ExecutionLayer<T> {
                     self.log(),
                     "Unable to get transition config";
                     "error" => ?e,
-                    "execution_endpoint" => i,
                 );
                 Err(Error::EngineError(Box::new(e)))
             }

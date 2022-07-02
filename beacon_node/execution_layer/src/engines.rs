@@ -57,7 +57,6 @@ struct PayloadIdCacheKey {
 
 /// An execution engine.
 pub struct Engine<T> {
-    pub id: String,
     pub api: HttpJsonRpc<T>,
     payload_id_cache: Mutex<LruCache<PayloadIdCacheKey, PayloadId>>,
     state: RwLock<EngineState>,
@@ -65,9 +64,8 @@ pub struct Engine<T> {
 
 impl<T> Engine<T> {
     /// Creates a new, offline engine.
-    pub fn new(id: String, api: HttpJsonRpc<T>) -> Self {
+    pub fn new(api: HttpJsonRpc<T>) -> Self {
         Self {
-            id,
             api,
             payload_id_cache: Mutex::new(LruCache::new(PAYLOAD_ID_LRU_CACHE_SIZE)),
             state: RwLock::new(EngineState::Offline),
@@ -135,10 +133,10 @@ pub struct Engines {
 
 #[derive(Debug)]
 pub enum EngineError {
-    Offline { id: String },
-    Api { id: String, error: EngineApiError },
+    Offline,
+    Api { error: EngineApiError },
     BuilderApi { error: EngineApiError },
-    Auth { id: String },
+    Auth,
 }
 
 impl Engines {
@@ -159,7 +157,6 @@ impl Engines {
                     self.log,
                     "No need to call forkchoiceUpdated";
                     "msg" => "head does not have execution enabled",
-                    "id" => &self.engine.id,
                 );
                 return;
             }
@@ -168,7 +165,6 @@ impl Engines {
                 self.log,
                 "Issuing forkchoiceUpdated";
                 "forkchoice_state" => ?forkchoice_state,
-                "id" => &self.engine.id,
             );
 
             // For simplicity, payload attributes are never included in this call. It may be
@@ -183,14 +179,12 @@ impl Engines {
                     self.log,
                     "Failed to issue latest head to engine";
                     "error" => ?e,
-                    "id" => &self.engine.id,
                 );
             }
         } else {
             debug!(
                 self.log,
                 "No head, not sending to engine";
-                "id" => &self.engine.id,
             );
         }
     }
@@ -275,7 +269,7 @@ impl Engines {
             Err(_e) => {
                 // Try to recover some nodes.
                 self.upcheck_not_synced(Logging::Enabled).await;
-                // Retry the call on all nodes.
+                // Retry again.
                 self.first_success_without_retry(func).await
             }
         }
@@ -305,23 +299,15 @@ impl Engines {
                         self.log,
                         "Execution engine call failed";
                         "error" => ?error,
-                        "id" => &&self.engine.id
                     );
                     *self.engine.state.write().await = EngineState::Offline;
-                    Err(EngineError::Api {
-                        id: self.engine.id.clone(),
-                        error,
-                    })
+                    Err(EngineError::Api { error })
                 }
             }
         } else if engine_auth_failed {
-            Err(EngineError::Auth {
-                id: self.engine.id.clone(),
-            })
+            Err(EngineError::Auth)
         } else {
-            Err(EngineError::Offline {
-                id: self.engine.id.clone(),
-            })
+            Err(EngineError::Offline)
         }
     }
 
@@ -351,9 +337,7 @@ impl Engines {
     {
         let func = &func;
         if *self.engine.state.read().await == EngineState::Offline {
-            Err(EngineError::Offline {
-                id: self.engine.id.clone(),
-            })
+            Err(EngineError::Offline)
         } else {
             match func(&self.engine).await {
                 Ok(res) => Ok(res),
@@ -364,10 +348,7 @@ impl Engines {
                         "error" => ?error,
                     );
                     *self.engine.state.write().await = EngineState::Offline;
-                    Err(EngineError::Api {
-                        id: self.engine.id.clone(),
-                        error,
-                    })
+                    Err(EngineError::Api { error })
                 }
             }
         }

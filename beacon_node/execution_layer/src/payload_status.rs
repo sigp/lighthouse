@@ -66,16 +66,16 @@ pub fn process_payload_status(
                     // equal to the provided `block_hash`.
                     Ok(PayloadStatus::Valid)
                 } else {
-                    Err(EngineError::Api {
-                                id: "unknown".to_string(),
-                                error: ApiError::BadResponse(
-                                    format!(
-                                        "new_payload: response.status = VALID but invalid latest_valid_hash. Expected({:?}) Found({:?})",
-                                        head_block_hash,
-                                        response.latest_valid_hash,
-                                    )
-                                ),
-                            })
+                    let e =EngineError::Api {
+                            error: ApiError::BadResponse(
+                                format!(
+                                    "new_payload: response.status = VALID but invalid latest_valid_hash. Expected({:?}) Found({:?})",
+                                    head_block_hash,
+                                    response.latest_valid_hash,
+                                )
+                            ),
+                        };
+                    Err(e)
                 }
             }
             PayloadStatusV1Status::Invalid => {
@@ -87,7 +87,6 @@ pub fn process_payload_status(
                     })
                 } else {
                     Err(EngineError::Api {
-                        id: "unknown".to_string(),
                         error: ApiError::BadResponse(
                             "new_payload: response.status = INVALID but null latest_valid_hash"
                                 .to_string(),
