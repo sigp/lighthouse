@@ -4,11 +4,11 @@
 /// - `mod tests`: runs all the test vectors locally.
 macro_rules! vectors_and_tests {
     ($($name: ident, $test: expr),*) => {
-        pub fn vectors() -> Vec<TestVector> {
+        pub async fn vectors() -> Vec<TestVector> {
             let mut vec = vec![];
 
             $(
-                vec.push($test.test_vector(stringify!($name).into()));
+                vec.push($test.test_vector(stringify!($name).into()).await);
             )*
 
             vec
@@ -18,9 +18,9 @@ macro_rules! vectors_and_tests {
         mod tests {
             use super::*;
             $(
-                #[test]
-                fn $name() {
-                    $test.run();
+                #[tokio::test]
+                async fn $name() {
+                    $test.run().await;
                 }
             )*
         }

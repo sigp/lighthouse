@@ -2,9 +2,10 @@ use crate::beacon_processor::{
     BeaconProcessor, WorkEvent as BeaconWorkEvent, MAX_WORK_EVENT_QUEUE_LEN,
 };
 use crate::service::{NetworkMessage, RequestId};
+use crate::status::status_message;
 use crate::sync::manager::RequestId as SyncId;
 use crate::sync::SyncMessage;
-use beacon_chain::{BeaconChain, BeaconChainError, BeaconChainTypes};
+use beacon_chain::{BeaconChain, BeaconChainTypes};
 use lighthouse_network::rpc::*;
 use lighthouse_network::{
     Client, MessageId, NetworkGlobals, PeerId, PeerRequestId, Request, Response,
@@ -114,11 +115,10 @@ impl<T: BeaconChainTypes> Processor<T> {
     /// Called when we first connect to a peer, or when the PeerManager determines we need to
     /// re-status.
     pub fn send_status(&mut self, peer_id: PeerId) {
-        if let Ok(status_message) = status_message(&self.chain) {
-            debug!(self.log, "Sending Status Request"; "peer" => %peer_id, &status_message);
-            self.network
-                .send_processor_request(peer_id, Request::Status(status_message));
-        }
+        let status_message = status_message(&self.chain);
+        debug!(self.log, "Sending Status Request"; "peer" => %peer_id, &status_message);
+        self.network
+            .send_processor_request(peer_id, Request::Status(status_message));
     }
 
     /// Handle a `Status` request.
@@ -132,12 +132,12 @@ impl<T: BeaconChainTypes> Processor<T> {
     ) {
         debug!(self.log, "Received Status Request"; "peer_id" => %peer_id, &status);
 
-        // ignore status responses if we are shutting down
-        if let Ok(status_message) = status_message(&self.chain) {
-            // Say status back.
-            self.network
-                .send_response(peer_id, Response::Status(status_message), request_id);
-        }
+        // Say status back.
+        self.network.send_response(
+            peer_id,
+            Response::Status(status_message(&self.chain)),
+            request_id,
+        );
 
         self.send_beacon_processor_work(BeaconWorkEvent::status_message(peer_id, status))
     }
@@ -178,7 +178,7 @@ impl<T: BeaconChainTypes> Processor<T> {
         &mut self,
         peer_id: PeerId,
         request_id: RequestId,
-        beacon_block: Option<Box<SignedBeaconBlock<T::EthSpec>>>,
+        beacon_block: Option<Arc<SignedBeaconBlock<T::EthSpec>>>,
     ) {
         let request_id = match request_id {
             RequestId::Sync(sync_id) => match sync_id {
@@ -209,7 +209,7 @@ impl<T: BeaconChainTypes> Processor<T> {
         &mut self,
         peer_id: PeerId,
         request_id: RequestId,
-        beacon_block: Option<Box<SignedBeaconBlock<T::EthSpec>>>,
+        beacon_block: Option<Arc<SignedBeaconBlock<T::EthSpec>>>,
     ) {
         let request_id = match request_id {
             RequestId::Sync(sync_id) => match sync_id {
@@ -244,7 +244,7 @@ impl<T: BeaconChainTypes> Processor<T> {
         message_id: MessageId,
         peer_id: PeerId,
         peer_client: Client,
-        block: Box<SignedBeaconBlock<T::EthSpec>>,
+        block: Arc<SignedBeaconBlock<T::EthSpec>>,
     ) {
         self.send_beacon_processor_work(BeaconWorkEvent::gossip_beacon_block(
             message_id,
@@ -368,22 +368,6 @@ impl<T: BeaconChainTypes> Processor<T> {
                     "error" => %e, "type" => work_type)
             })
     }
-}
-
-/// Build a `StatusMessage` representing the state of the given `beacon_chain`.
-pub(crate) fn status_message<T: BeaconChainTypes>(
-    beacon_chain: &BeaconChain<T>,
-) -> Result<StatusMessage, BeaconChainError> {
-    let head_info = beacon_chain.head_info()?;
-    let fork_digest = beacon_chain.enr_fork_id().fork_digest;
-
-    Ok(StatusMessage {
-        fork_digest,
-        finalized_root: head_info.finalized_checkpoint.root,
-        finalized_epoch: head_info.finalized_checkpoint.epoch,
-        head_root: head_info.block_root,
-        head_slot: head_info.slot,
-    })
 }
 
 /// Wraps a Network Channel to employ various RPC related network functionality for the

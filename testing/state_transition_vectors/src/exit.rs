@@ -37,11 +37,12 @@ impl Default for ExitTest {
 }
 
 impl ExitTest {
-    fn block_and_pre_state(self) -> (SignedBeaconBlock<E>, BeaconState<E>) {
+    async fn block_and_pre_state(self) -> (SignedBeaconBlock<E>, BeaconState<E>) {
         let harness = get_harness::<E>(
             self.state_epoch.start_slot(E::slots_per_epoch()),
             VALIDATOR_COUNT,
-        );
+        )
+        .await;
         let mut state = harness.get_current_state();
         (self.state_modifier)(&mut state);
 
@@ -49,11 +50,12 @@ impl ExitTest {
         let validator_index = self.validator_index;
         let exit_epoch = self.exit_epoch;
 
-        let (signed_block, state) =
-            harness.make_block_with_modifier(state.clone(), state.slot() + 1, |block| {
+        let (signed_block, state) = harness
+            .make_block_with_modifier(state.clone(), state.slot() + 1, |block| {
                 harness.add_voluntary_exit(block, validator_index, exit_epoch);
                 block_modifier(&harness, block);
-            });
+            })
+            .await;
         (signed_block, state)
     }
 
@@ -72,12 +74,12 @@ impl ExitTest {
     }
 
     #[cfg(all(test, not(debug_assertions)))]
-    fn run(self) -> BeaconState<E> {
+    async fn run(self) -> BeaconState<E> {
         let spec = &E::default_spec();
         let expected = self.expected.clone();
         assert_eq!(STATE_EPOCH, spec.shard_committee_period);
 
-        let (block, mut state) = self.block_and_pre_state();
+        let (block, mut state) = self.block_and_pre_state().await;
 
         let result = Self::process(&block, &mut state);
 
@@ -86,8 +88,8 @@ impl ExitTest {
         state
     }
 
-    fn test_vector(self, title: String) -> TestVector {
-        let (block, pre_state) = self.block_and_pre_state();
+    async fn test_vector(self, title: String) -> TestVector {
+        let (block, pre_state) = self.block_and_pre_state().await;
         let mut post_state = pre_state.clone();
         let (post_state, error) = match Self::process(&block, &mut post_state) {
             Ok(_) => (Some(post_state), None),
@@ -334,14 +336,14 @@ mod custom_tests {
         );
     }
 
-    #[test]
-    fn valid() {
-        let state = ExitTest::default().run();
+    #[tokio::test]
+    async fn valid() {
+        let state = ExitTest::default().run().await;
         assert_exited(&state, VALIDATOR_INDEX as usize);
     }
 
-    #[test]
-    fn valid_three() {
+    #[tokio::test]
+    async fn valid_three() {
         let state = ExitTest {
             block_modifier: Box::new(|harness, block| {
                 harness.add_voluntary_exit(block, 1, STATE_EPOCH);
@@ -349,7 +351,8 @@ mod custom_tests {
             }),
             ..ExitTest::default()
         }
-        .run();
+        .run()
+        .await;
 
         for i in &[VALIDATOR_INDEX, 1, 2] {
             assert_exited(&state, *i as usize);

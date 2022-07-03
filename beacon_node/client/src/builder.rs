@@ -684,26 +684,20 @@ where
             if let Some(execution_layer) = beacon_chain.execution_layer.as_ref() {
                 // Only send a head update *after* genesis.
                 if let Ok(current_slot) = beacon_chain.slot() {
-                    let head = beacon_chain
-                        .head_info()
-                        .map_err(|e| format!("Unable to read beacon chain head: {:?}", e))?;
-
-                    // Issue the head to the execution engine on startup. This ensures it can start
-                    // syncing.
-                    if head
-                        .execution_payload_block_hash
-                        .map_or(false, |h| h != ExecutionBlockHash::zero())
+                    let params = beacon_chain
+                        .canonical_head
+                        .cached_head()
+                        .forkchoice_update_parameters();
+                    if params
+                        .head_hash
+                        .map_or(false, |hash| hash != ExecutionBlockHash::zero())
                     {
-                        // Spawn a new task using the "async" fork choice update method, rather than
-                        // using the "blocking" method.
-                        //
-                        // Using the blocking method may cause a panic if this code is run inside an
-                        // async context.
+                        // Spawn a new task to update the EE without waiting for it to complete.
                         let inner_chain = beacon_chain.clone();
                         runtime_context.executor.spawn(
                             async move {
                                 let result = inner_chain
-                                    .update_execution_engine_forkchoice_async(current_slot)
+                                    .update_execution_engine_forkchoice(current_slot, params)
                                     .await;
 
                                 // No need to exit early if setting the head fails. It will be set again if/when the
@@ -811,8 +805,16 @@ where
         self.db_path = Some(hot_path.into());
         self.freezer_db_path = Some(cold_path.into());
 
+        let inner_spec = spec.clone();
         let schema_upgrade = |db, from, to| {
-            migrate_schema::<Witness<TSlotClock, TEth1Backend, _, _, _>>(db, datadir, from, to, log)
+            migrate_schema::<Witness<TSlotClock, TEth1Backend, _, _, _>>(
+                db,
+                datadir,
+                from,
+                to,
+                log,
+                &inner_spec,
+            )
         };
 
         let store = HotColdDB::open(

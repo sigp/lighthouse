@@ -59,7 +59,7 @@ pub fn remote_sync_type<T: BeaconChainTypes>(
             if remote.head_slot < near_range_start {
                 PeerSyncType::Behind
             } else if remote.head_slot > near_range_end
-                && !chain.fork_choice.read().contains_block(&remote.head_root)
+                && !chain.block_is_known_to_fork_choice(&remote.head_root)
             {
                 // This peer has a head ahead enough of ours and we have no knowledge of their best
                 // block.
@@ -74,7 +74,7 @@ pub fn remote_sync_type<T: BeaconChainTypes>(
             if (local.finalized_epoch + 1 == remote.finalized_epoch
                 && near_range_start <= remote.head_slot
                 && remote.head_slot <= near_range_end)
-                || chain.fork_choice.read().contains_block(&remote.head_root)
+                || chain.block_is_known_to_fork_choice(&remote.head_root)
             {
                 // This peer is near enough to us to be considered synced, or
                 // we have already synced up to this peer's head
