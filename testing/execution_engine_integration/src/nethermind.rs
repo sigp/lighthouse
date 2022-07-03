@@ -25,24 +25,23 @@ pub fn build(execution_clients_dir: &Path) {
 
     if !repo_dir.exists() {
         // Clone the repo
-        assert!(build_utils::clone_repo(
-            execution_clients_dir,
-            NETHERMIND_REPO_URL
-        ));
+        build_utils::clone_repo(execution_clients_dir, NETHERMIND_REPO_URL).unwrap()
     }
 
-    // Checkout the correct branch
-    assert!(build_utils::checkout_branch(&repo_dir, NETHERMIND_BRANCH));
-
-    // Update the branch
-    assert!(build_utils::update_branch(&repo_dir, NETHERMIND_BRANCH));
+    // Get the latest tag
+    let last_release = build_utils::get_latest_release(&repo_dir, NETHERMIND_BRANCH).unwrap();
+    build_utils::checkout(&repo_dir, dbg!(&last_release)).unwrap();
 
     // Build nethermind
-    build_utils::check_command_output(build_result(&repo_dir), "dotnet build failed");
+    build_utils::check_command_output(build_result(&repo_dir), || {
+        format!("nethermind build failed using release {last_release}")
+    });
 
     // Build nethermind a second time to enable Merge-related features.
     // Not sure why this is necessary.
-    build_utils::check_command_output(build_result(&repo_dir), "dotnet build failed");
+    build_utils::check_command_output(build_result(&repo_dir), || {
+        format!("nethermind build failed using release {last_release}")
+    });
 }
 
 /*
