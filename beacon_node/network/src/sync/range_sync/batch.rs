@@ -4,6 +4,7 @@ use lighthouse_network::PeerId;
 use std::collections::HashSet;
 use std::hash::{Hash, Hasher};
 use std::ops::Sub;
+use std::sync::Arc;
 use types::{Epoch, EthSpec, SignedBeaconBlock, Slot};
 
 /// The number of times to retry a batch before it is considered failed.
@@ -46,7 +47,7 @@ pub trait BatchConfig {
     /// Note that simpler hashing functions considered in the past (hash of first block, hash of last
     /// block, number of received blocks) are not good enough to differentiate attempts. For this
     /// reason, we hash the complete set of blocks both in RangeSync and BackFillSync.
-    fn batch_attempt_hash<T: EthSpec>(blocks: &[SignedBeaconBlock<T>]) -> u64;
+    fn batch_attempt_hash<T: EthSpec>(blocks: &[Arc<SignedBeaconBlock<T>>]) -> u64;
 }
 
 pub struct RangeSyncBatchConfig {}
@@ -58,7 +59,7 @@ impl BatchConfig for RangeSyncBatchConfig {
     fn max_batch_processing_attempts() -> u8 {
         MAX_BATCH_PROCESSING_ATTEMPTS
     }
-    fn batch_attempt_hash<T: EthSpec>(blocks: &[SignedBeaconBlock<T>]) -> u64 {
+    fn batch_attempt_hash<T: EthSpec>(blocks: &[Arc<SignedBeaconBlock<T>>]) -> u64 {
         let mut hasher = std::collections::hash_map::DefaultHasher::new();
         blocks.hash(&mut hasher);
         hasher.finish()
@@ -100,9 +101,9 @@ pub enum BatchState<T: EthSpec> {
     /// The batch has failed either downloading or processing, but can be requested again.
     AwaitingDownload,
     /// The batch is being downloaded.
-    Downloading(PeerId, Vec<SignedBeaconBlock<T>>, Id),
+    Downloading(PeerId, Vec<Arc<SignedBeaconBlock<T>>>, Id),
     /// The batch has been completely downloaded and is ready for processing.
-    AwaitingProcessing(PeerId, Vec<SignedBeaconBlock<T>>),
+    AwaitingProcessing(PeerId, Vec<Arc<SignedBeaconBlock<T>>>),
     /// The batch is being processed.
     Processing(Attempt),
     /// The batch was successfully processed and is waiting to be validated.
@@ -211,7 +212,7 @@ impl<T: EthSpec, B: BatchConfig> BatchInfo<T, B> {
     }
 
     /// Adds a block to a downloading batch.
-    pub fn add_block(&mut self, block: SignedBeaconBlock<T>) -> Result<(), WrongState> {
+    pub fn add_block(&mut self, block: Arc<SignedBeaconBlock<T>>) -> Result<(), WrongState> {
         match self.state.poison() {
             BatchState::Downloading(peer, mut blocks, req_id) => {
                 blocks.push(block);
@@ -337,7 +338,7 @@ impl<T: EthSpec, B: BatchConfig> BatchInfo<T, B> {
         }
     }
 
-    pub fn start_processing(&mut self) -> Result<Vec<SignedBeaconBlock<T>>, WrongState> {
+    pub fn start_processing(&mut self) -> Result<Vec<Arc<SignedBeaconBlock<T>>>, WrongState> {
         match self.state.poison() {
             BatchState::AwaitingProcessing(peer, blocks) => {
                 self.state = BatchState::Processing(Attempt::new::<B, T>(peer, &blocks));
@@ -436,7 +437,10 @@ pub struct Attempt {
 }
 
 impl Attempt {
-    fn new<B: BatchConfig, T: EthSpec>(peer_id: PeerId, blocks: &[SignedBeaconBlock<T>]) -> Self {
+    fn new<B: BatchConfig, T: EthSpec>(
+        peer_id: PeerId,
+        blocks: &[Arc<SignedBeaconBlock<T>>],
+    ) -> Self {
         let hash = B::batch_attempt_hash(blocks);
         Attempt { peer_id, hash }
     }

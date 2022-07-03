@@ -9,6 +9,7 @@ use rand::seq::SliceRandom;
 use slog::{crit, debug, o, warn};
 use std::collections::{btree_map::Entry, BTreeMap, HashSet};
 use std::hash::{Hash, Hasher};
+use std::sync::Arc;
 use tokio::sync::mpsc::Sender;
 use types::{Epoch, EthSpec, Hash256, SignedBeaconBlock, Slot};
 
@@ -216,7 +217,7 @@ impl<T: BeaconChainTypes> SyncingChain<T> {
         batch_id: BatchId,
         peer_id: &PeerId,
         request_id: Id,
-        beacon_block: Option<SignedBeaconBlock<T::EthSpec>>,
+        beacon_block: Option<Arc<SignedBeaconBlock<T::EthSpec>>>,
     ) -> ProcessingResult {
         // check if we have this batch
         let batch = match self.batches.get_mut(&batch_id) {

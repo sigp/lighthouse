@@ -9,6 +9,7 @@ use ssz_types::{
     VariableList,
 };
 use std::ops::Deref;
+use std::sync::Arc;
 use strum::IntoStaticStr;
 use superstruct::superstruct;
 use types::{Epoch, EthSpec, Hash256, SignedBeaconBlock, Slot};
@@ -237,10 +238,10 @@ pub enum RPCResponse<T: EthSpec> {
 
     /// A response to a get BLOCKS_BY_RANGE request. A None response signifies the end of the
     /// batch.
-    BlocksByRange(Box<SignedBeaconBlock<T>>),
+    BlocksByRange(Arc<SignedBeaconBlock<T>>),
 
     /// A response to a get BLOCKS_BY_ROOT request.
-    BlocksByRoot(Box<SignedBeaconBlock<T>>),
+    BlocksByRoot(Arc<SignedBeaconBlock<T>>),
 
     /// A PONG response to a PING request.
     Pong(Ping),

@@ -251,6 +251,53 @@ impl<E: EthSpec> From<BeaconBlockBodyMerge<E, FullPayload<E>>>
     }
 }
 
+// We can clone a full block into a blinded block, without cloning the payload.
+impl<E: EthSpec> BeaconBlockBodyBase<E, FullPayload<E>> {
+    pub fn clone_as_blinded(&self) -> BeaconBlockBodyBase<E, BlindedPayload<E>> {
+        let (block_body, _payload) = self.clone().into();
+        block_body
+    }
+}
+
+impl<E: EthSpec> BeaconBlockBodyAltair<E, FullPayload<E>> {
+    pub fn clone_as_blinded(&self) -> BeaconBlockBodyAltair<E, BlindedPayload<E>> {
+        let (block_body, _payload) = self.clone().into();
+        block_body
+    }
+}
+
+impl<E: EthSpec> BeaconBlockBodyMerge<E, FullPayload<E>> {
+    pub fn clone_as_blinded(&self) -> BeaconBlockBodyMerge<E, BlindedPayload<E>> {
+        let BeaconBlockBodyMerge {
+            randao_reveal,
+            eth1_data,
+            graffiti,
+            proposer_slashings,
+            attester_slashings,
+            attestations,
+            deposits,
+            voluntary_exits,
+            sync_aggregate,
+            execution_payload: FullPayload { execution_payload },
+        } = self;
+
+        BeaconBlockBodyMerge {
+            randao_reveal: randao_reveal.clone(),
+            eth1_data: eth1_data.clone(),
+            graffiti: *graffiti,
+            proposer_slashings: proposer_slashings.clone(),
+            attester_slashings: attester_slashings.clone(),
+            attestations: attestations.clone(),
+            deposits: deposits.clone(),
+            voluntary_exits: voluntary_exits.clone(),
+            sync_aggregate: sync_aggregate.clone(),
+            execution_payload: BlindedPayload {
+                execution_payload_header: From::from(execution_payload),
+            },
+        }
+    }
+}
+
 impl<E: EthSpec> From<BeaconBlockBody<E, FullPayload<E>>>
     for (
         BeaconBlockBody<E, BlindedPayload<E>>,

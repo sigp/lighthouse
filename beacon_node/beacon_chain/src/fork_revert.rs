@@ -97,6 +97,7 @@ pub fn reset_fork_choice_to_finalization<E: EthSpec, Hot: ItemStore<E>, Cold: It
     head_block_root: Hash256,
     head_state: &BeaconState<E>,
     store: Arc<HotColdDB<E, Hot, Cold>>,
+    current_slot: Option<Slot>,
     spec: &ChainSpec,
 ) -> Result<ForkChoice<BeaconForkChoiceStore<E, Hot, Cold>, E>, String> {
     // Fetch finalized block.
@@ -138,7 +139,7 @@ pub fn reset_fork_choice_to_finalization<E: EthSpec, Hot: ItemStore<E>, Cold: It
     })?;
     let finalized_snapshot = BeaconSnapshot {
         beacon_block_root: finalized_block_root,
-        beacon_block: finalized_block,
+        beacon_block: Arc::new(finalized_block),
         beacon_state: finalized_state,
     };
 
@@ -149,6 +150,8 @@ pub fn reset_fork_choice_to_finalization<E: EthSpec, Hot: ItemStore<E>, Cold: It
         finalized_block_root,
         &finalized_snapshot.beacon_block,
         &finalized_snapshot.beacon_state,
+        current_slot,
+        spec,
     )
     .map_err(|e| format!("Unable to reset fork choice for revert: {:?}", e))?;
 
@@ -180,11 +183,10 @@ pub fn reset_fork_choice_to_finalization<E: EthSpec, Hot: ItemStore<E>, Cold: It
         // This scenario is so rare that it seems OK to double-verify some blocks.
         let payload_verification_status = PayloadVerificationStatus::Optimistic;
 
-        let (block, _) = block.deconstruct();
         fork_choice
             .on_block(
                 block.slot(),
-                &block,
+                block.message(),
                 block.canonical_root(),
                 // Reward proposer boost. We are reinforcing the canonical chain.
                 Duration::from_secs(0),
