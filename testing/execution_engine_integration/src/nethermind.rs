@@ -30,7 +30,7 @@ pub fn build(execution_clients_dir: &Path) {
 
     // Get the latest tag
     let last_release = build_utils::get_latest_release(&repo_dir, NETHERMIND_BRANCH).unwrap();
-    build_utils::checkout(&repo_dir, &last_release).unwrap();
+    build_utils::checkout(&repo_dir, dbg!(&last_release)).unwrap();
 
     // Build nethermind
     build_utils::check_command_output(build_result(&repo_dir), || {
