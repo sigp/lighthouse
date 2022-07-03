@@ -45,7 +45,7 @@ pub fn checkout(repo_dir: &Path, revision_or_branch: &str) -> Result<(), String>
 }
 
 /// Gets the last annotated tag of the given repo.
-pub fn get_latest_release(repo_dir: &Path) -> Result<String, String> {
+pub fn get_latest_release(repo_dir: &Path, branch_name: &str) -> Result<String, String> {
     // If the directory was already present it is possible we don't have the most recent tags.
     // Fetch them
     output_to_result(
@@ -60,8 +60,7 @@ pub fn get_latest_release(repo_dir: &Path) -> Result<String, String> {
     output_to_result(
         Command::new("git")
             .arg("describe")
-            .arg("--abbrev=0")
-            .arg("--tags")
+            .arg(format!("origin/{branch_name}"))
             .current_dir(repo_dir)
             .output()
             .map_err(|e| format!("Failed to get latest tag for {repo_dir:?}: Err: {e}"))?,

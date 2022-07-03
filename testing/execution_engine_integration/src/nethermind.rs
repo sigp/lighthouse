@@ -6,6 +6,7 @@ use std::process::{Child, Command, Output};
 use tempfile::TempDir;
 use unused_port::unused_tcp_port;
 
+const NETHERMIND_BRANCH: &str = "master";
 const NETHERMIND_REPO_URL: &str = "https://github.com/NethermindEth/nethermind";
 
 fn build_result(repo_dir: &Path) -> Output {
@@ -28,7 +29,7 @@ pub fn build(execution_clients_dir: &Path) {
     }
 
     // Get the latest tag
-    let last_release = build_utils::get_latest_release(&repo_dir).unwrap();
+    let last_release = build_utils::get_latest_release(&repo_dir, NETHERMIND_BRANCH).unwrap();
     build_utils::checkout(&repo_dir, &last_release).unwrap();
 
     // Build nethermind
