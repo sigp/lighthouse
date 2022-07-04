@@ -151,7 +151,8 @@ async fn min_randao_epoch_correct() {
     let mut state = new_state::<MinimalEthSpec>(
         num_validators,
         Epoch::new(1).start_slot(MinimalEthSpec::slots_per_epoch()),
-    ).await;
+    )
+    .await;
 
     // Override the epoch so that there's some room to move.
     *state.slot_mut() = current_epoch.start_slot(MinimalEthSpec::slots_per_epoch());
