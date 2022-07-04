@@ -93,7 +93,7 @@ struct Config {
 
 pub fn run<T: EthSpec>(mut env: Environment<T>, matches: &ArgMatches) -> Result<(), String> {
     let spec = &T::default_spec();
-    let executor = env.core_context().executor.clone();
+    let executor = env.core_context().executor;
 
     /*
      * Parse (most) CLI arguments.
@@ -135,7 +135,7 @@ pub fn run<T: EthSpec>(mut env: Environment<T>, matches: &ArgMatches) -> Result<
             let client = BeaconNodeHttpClient::new(beacon_url, Timeouts::set_all(HTTP_TIMEOUT));
             executor
                 .handle()
-                .ok_or_else(|| "shut down in progress")?
+                .ok_or("shut down in progress")?
                 .block_on(async move {
                     let block = client
                         .get_beacon_blocks(block_id)

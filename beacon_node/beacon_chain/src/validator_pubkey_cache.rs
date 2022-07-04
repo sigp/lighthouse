@@ -156,6 +156,11 @@ impl<T: BeaconChainTypes> ValidatorPubkeyCache<T> {
     pub fn len(&self) -> usize {
         self.indices.len()
     }
+
+    /// Returns `true` if there are no validators in the cache.
+    pub fn is_empty(&self) -> bool {
+        self.indices.is_empty()
+    }
 }
 
 /// Wrapper for a public key stored in the database.

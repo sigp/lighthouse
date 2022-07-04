@@ -61,7 +61,7 @@ const HTTP_TIMEOUT: Duration = Duration::from_secs(10);
 
 pub fn run<T: EthSpec>(mut env: Environment<T>, matches: &ArgMatches) -> Result<(), String> {
     let spec = &T::default_spec();
-    let executor = env.core_context().executor.clone();
+    let executor = env.core_context().executor;
 
     let output_path: Option<PathBuf> = parse_optional(matches, "output-path")?;
     let state_path: Option<PathBuf> = parse_optional(matches, "state-path")?;
@@ -86,7 +86,7 @@ pub fn run<T: EthSpec>(mut env: Environment<T>, matches: &ArgMatches) -> Result<
             let client = BeaconNodeHttpClient::new(beacon_url, Timeouts::set_all(HTTP_TIMEOUT));
             let state = executor
                 .handle()
-                .ok_or_else(|| "shut down in progress")?
+                .ok_or("shut down in progress")?
                 .block_on(async move {
                     client
                         .get_debug_beacon_states::<T>(state_id)
