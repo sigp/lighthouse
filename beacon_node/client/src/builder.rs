@@ -276,6 +276,8 @@ where
                     BeaconNodeHttpClient::new(url, Timeouts::set_all(CHECKPOINT_SYNC_HTTP_TIMEOUT));
                 let slots_per_epoch = TEthSpec::slots_per_epoch();
 
+                debug!(context.log(), "Downloading finalized block");
+
                 // Find a suitable finalized block on an epoch boundary.
                 let mut block = remote
                     .get_beacon_blocks_ssz::<TEthSpec>(BlockId::Finalized, &spec)
@@ -290,6 +292,8 @@ where
                     })?
                     .ok_or("Finalized block missing from remote, it returned 404")?;
 
+                debug!(context.log(), "Downloaded finalized block");
+
                 let mut block_slot = block.slot();
 
                 while block.slot() % slots_per_epoch != 0 {
@@ -299,6 +303,12 @@ where
                         context.log(),
                         "Searching for aligned checkpoint block";
                         "block_slot" => block_slot,
+                    );
+
+                    debug!(
+                        context.log(),
+                        "Searching for aligned checkpoint block";
+                        "block_slot" => block_slot
                     );
 
                     if let Some(found_block) = remote
@@ -312,7 +322,19 @@ where
                     }
                 }
 
+                debug!(
+                    context.log(),
+                    "Downloaded aligned finalized block";
+                    "block_root" => ?block.canonical_root(),
+                    "block_slot" => block.slot(),
+                );
+
                 let state_root = block.state_root();
+                debug!(
+                    context.log(),
+                    "Downloading finalized state";
+                    "state_root" => ?state_root
+                );
                 let state = remote
                     .get_debug_beacon_states_ssz::<TEthSpec>(StateId::Root(state_root), &spec)
                     .await
@@ -325,6 +347,8 @@ where
                     .ok_or_else(|| {
                         format!("Checkpoint state missing from remote: {:?}", state_root)
                     })?;
+
+                debug!(context.log(), "Downloaded finalized state");
 
                 let genesis_state = BeaconState::from_ssz_bytes(&genesis_state_bytes, &spec)
                     .map_err(|e| format!("Unable to parse genesis state SSZ: {:?}", e))?;
@@ -660,26 +684,20 @@ where
             if let Some(execution_layer) = beacon_chain.execution_layer.as_ref() {
                 // Only send a head update *after* genesis.
                 if let Ok(current_slot) = beacon_chain.slot() {
-                    let head = beacon_chain
-                        .head_info()
-                        .map_err(|e| format!("Unable to read beacon chain head: {:?}", e))?;
-
-                    // Issue the head to the execution engine on startup. This ensures it can start
-                    // syncing.
-                    if head
-                        .execution_payload_block_hash
-                        .map_or(false, |h| h != ExecutionBlockHash::zero())
+                    let params = beacon_chain
+                        .canonical_head
+                        .cached_head()
+                        .forkchoice_update_parameters();
+                    if params
+                        .head_hash
+                        .map_or(false, |hash| hash != ExecutionBlockHash::zero())
                     {
-                        // Spawn a new task using the "async" fork choice update method, rather than
-                        // using the "blocking" method.
-                        //
-                        // Using the blocking method may cause a panic if this code is run inside an
-                        // async context.
+                        // Spawn a new task to update the EE without waiting for it to complete.
                         let inner_chain = beacon_chain.clone();
                         runtime_context.executor.spawn(
                             async move {
                                 let result = inner_chain
-                                    .update_execution_engine_forkchoice_async(current_slot)
+                                    .update_execution_engine_forkchoice(current_slot, params)
                                     .await;
 
                                 // No need to exit early if setting the head fails. It will be set again if/when the
@@ -700,7 +718,7 @@ where
                     execution_layer.spawn_watchdog_routine(beacon_chain.slot_clock.clone());
 
                     // Spawn a routine that removes expired proposer preparations.
-                    execution_layer.spawn_clean_proposer_caches_routine::<TSlotClock, TEthSpec>(
+                    execution_layer.spawn_clean_proposer_caches_routine::<TSlotClock>(
                         beacon_chain.slot_clock.clone(),
                     );
 
@@ -787,8 +805,16 @@ where
         self.db_path = Some(hot_path.into());
         self.freezer_db_path = Some(cold_path.into());
 
+        let inner_spec = spec.clone();
         let schema_upgrade = |db, from, to| {
-            migrate_schema::<Witness<TSlotClock, TEth1Backend, _, _, _>>(db, datadir, from, to, log)
+            migrate_schema::<Witness<TSlotClock, TEth1Backend, _, _, _>>(
+                db,
+                datadir,
+                from,
+                to,
+                log,
+                &inner_spec,
+            )
         };
 
         let store = HotColdDB::open(

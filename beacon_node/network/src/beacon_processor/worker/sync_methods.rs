@@ -6,11 +6,13 @@ use crate::beacon_processor::DuplicateCache;
 use crate::metrics;
 use crate::sync::manager::{BlockProcessType, SyncMessage};
 use crate::sync::{BatchProcessResult, ChainId};
+use beacon_chain::ExecutionPayloadError;
 use beacon_chain::{
     BeaconChainError, BeaconChainTypes, BlockError, ChainSegmentResult, HistoricalBlockError,
 };
 use lighthouse_network::PeerAction;
-use slog::{debug, error, info, trace, warn};
+use slog::{debug, error, info, warn};
+use std::sync::Arc;
 use tokio::sync::mpsc;
 use types::{Epoch, Hash256, SignedBeaconBlock};
 
@@ -31,13 +33,22 @@ struct ChainSegmentFailed {
     message: String,
     /// Used to penalize peers.
     peer_action: Option<PeerAction>,
+    /// Failure mode
+    mode: FailureMode,
+}
+
+/// Represents if a block processing failure was on the consensus or execution side.
+#[derive(Debug)]
+pub enum FailureMode {
+    ExecutionLayer { pause_sync: bool },
+    ConsensusLayer,
 }
 
 impl<T: BeaconChainTypes> Worker<T> {
     /// Attempt to process a block received from a direct RPC request.
-    pub fn process_rpc_block(
+    pub async fn process_rpc_block(
         self,
-        block: SignedBeaconBlock<T::EthSpec>,
+        block: Arc<SignedBeaconBlock<T::EthSpec>>,
         seen_timestamp: Duration,
         process_type: BlockProcessType,
         reprocess_tx: mpsc::Sender<ReprocessQueueMessage<T>>,
@@ -56,7 +67,7 @@ impl<T: BeaconChainTypes> Worker<T> {
             }
         };
         let slot = block.slot();
-        let result = self.chain.process_block(block);
+        let result = self.chain.process_block(block).await;
 
         metrics::inc_counter(&metrics::BEACON_PROCESSOR_RPC_BLOCK_IMPORTED_TOTAL);
 
@@ -77,7 +88,8 @@ impl<T: BeaconChainTypes> Worker<T> {
                     None,
                     None,
                 );
-                self.run_fork_choice()
+
+                self.recompute_head("process_rpc_block").await;
             }
         }
         // Sync handles these results
@@ -92,10 +104,10 @@ impl<T: BeaconChainTypes> Worker<T> {
 
     /// Attempt to import the chain segment (`blocks`) to the beacon chain, informing the sync
     /// thread if more blocks are needed to process it.
-    pub fn process_chain_segment(
+    pub async fn process_chain_segment(
         &self,
         sync_type: ChainSegmentProcessId,
-        downloaded_blocks: Vec<SignedBeaconBlock<T::EthSpec>>,
+        downloaded_blocks: Vec<Arc<SignedBeaconBlock<T::EthSpec>>>,
     ) {
         let result = match sync_type {
             // this a request from the range sync
@@ -104,7 +116,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                 let end_slot = downloaded_blocks.last().map(|b| b.slot().as_u64());
                 let sent_blocks = downloaded_blocks.len();
 
-                match self.process_blocks(downloaded_blocks.iter()) {
+                match self.process_blocks(downloaded_blocks.iter()).await {
                     (_, Ok(_)) => {
                         debug!(self.log, "Batch processed";
                             "batch_epoch" => epoch,
@@ -128,6 +140,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                         BatchProcessResult::Failed {
                             imported_blocks: imported_blocks > 0,
                             peer_action: e.peer_action,
+                            mode: e.mode,
                         }
                     }
                 }
@@ -158,6 +171,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                         BatchProcessResult::Failed {
                             imported_blocks: false,
                             peer_action: e.peer_action,
+                            mode: e.mode,
                         }
                     }
                 }
@@ -171,12 +185,13 @@ impl<T: BeaconChainTypes> Worker<T> {
                 );
                 // parent blocks are ordered from highest slot to lowest, so we need to process in
                 // reverse
-                match self.process_blocks(downloaded_blocks.iter().rev()) {
+                match self.process_blocks(downloaded_blocks.iter().rev()).await {
                     (imported_blocks, Err(e)) => {
                         debug!(self.log, "Parent lookup failed"; "error" => %e.message);
                         BatchProcessResult::Failed {
                             imported_blocks: imported_blocks > 0,
                             peer_action: e.peer_action,
+                            mode: e.mode,
                         }
                     }
                     (imported_blocks, Ok(_)) => {
@@ -191,19 +206,17 @@ impl<T: BeaconChainTypes> Worker<T> {
     }
 
     /// Helper function to process blocks batches which only consumes the chain and blocks to process.
-    fn process_blocks<'a>(
+    async fn process_blocks<'a>(
         &self,
-        downloaded_blocks: impl Iterator<Item = &'a SignedBeaconBlock<T::EthSpec>>,
+        downloaded_blocks: impl Iterator<Item = &'a Arc<SignedBeaconBlock<T::EthSpec>>>,
     ) -> (usize, Result<(), ChainSegmentFailed>) {
-        let blocks = downloaded_blocks.cloned().collect::<Vec<_>>();
-        match self.chain.process_chain_segment(blocks) {
+        let blocks: Vec<Arc<_>> = downloaded_blocks.cloned().collect();
+        match self.chain.process_chain_segment(blocks).await {
             ChainSegmentResult::Successful { imported_blocks } => {
                 metrics::inc_counter(&metrics::BEACON_PROCESSOR_CHAIN_SEGMENT_SUCCESS_TOTAL);
                 if imported_blocks > 0 {
-                    // Batch completed successfully with at least one block, run fork choice.
-                    self.run_fork_choice();
+                    self.recompute_head("process_blocks_ok").await;
                 }
-
                 (imported_blocks, Ok(()))
             }
             ChainSegmentResult::Failed {
@@ -213,7 +226,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                 metrics::inc_counter(&metrics::BEACON_PROCESSOR_CHAIN_SEGMENT_FAILED_TOTAL);
                 let r = self.handle_failed_chain_segment(error);
                 if imported_blocks > 0 {
-                    self.run_fork_choice();
+                    self.recompute_head("process_blocks_err").await;
                 }
                 (imported_blocks, r)
             }
@@ -223,9 +236,13 @@ impl<T: BeaconChainTypes> Worker<T> {
     /// Helper function to process backfill block batches which only consumes the chain and blocks to process.
     fn process_backfill_blocks(
         &self,
-        blocks: Vec<SignedBeaconBlock<T::EthSpec>>,
+        blocks: Vec<Arc<SignedBeaconBlock<T::EthSpec>>>,
     ) -> (usize, Result<(), ChainSegmentFailed>) {
-        let blinded_blocks = blocks.into_iter().map(Into::into).collect();
+        let blinded_blocks = blocks
+            .iter()
+            .map(|full_block| full_block.clone_as_blinded())
+            .map(Arc::new)
+            .collect();
         match self.chain.import_historical_block_batch(blinded_blocks) {
             Ok(imported_blocks) => {
                 metrics::inc_counter(
@@ -257,6 +274,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                                 message: String::from("mismatched_block_root"),
                                 // The peer is faulty if they send blocks with bad roots.
                                 peer_action: Some(PeerAction::LowToleranceError),
+                                mode: FailureMode::ConsensusLayer,
                             }
                         }
                         HistoricalBlockError::InvalidSignature
@@ -271,6 +289,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                                 message: "invalid_signature".into(),
                                 // The peer is faulty if they bad signatures.
                                 peer_action: Some(PeerAction::LowToleranceError),
+                                mode: FailureMode::ConsensusLayer,
                             }
                         }
                         HistoricalBlockError::ValidatorPubkeyCacheTimeout => {
@@ -284,6 +303,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                                 message: "pubkey_cache_timeout".into(),
                                 // This is an internal error, do not penalize the peer.
                                 peer_action: None,
+                                mode: FailureMode::ConsensusLayer,
                             }
                         }
                         HistoricalBlockError::NoAnchorInfo => {
@@ -294,6 +314,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                                 // There is no need to do a historical sync, this is not a fault of
                                 // the peer.
                                 peer_action: None,
+                                mode: FailureMode::ConsensusLayer,
                             }
                         }
                         HistoricalBlockError::IndexOutOfBounds => {
@@ -306,6 +327,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                                 message: String::from("logic_error"),
                                 // This should never occur, don't penalize the peer.
                                 peer_action: None,
+                                mode: FailureMode::ConsensusLayer,
                             }
                         }
                         HistoricalBlockError::BlockOutOfRange { .. } => {
@@ -318,6 +340,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                                 message: String::from("unexpected_error"),
                                 // This should never occur, don't penalize the peer.
                                 peer_action: None,
+                                mode: FailureMode::ConsensusLayer,
                             }
                         }
                     },
@@ -327,6 +350,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                             message: format!("{:?}", other),
                             // This is an internal error, don't penalize the peer.
                             peer_action: None,
+                            mode: FailureMode::ConsensusLayer,
                         }
                     }
                 };
@@ -337,18 +361,18 @@ impl<T: BeaconChainTypes> Worker<T> {
 
     /// Runs fork-choice on a given chain. This is used during block processing after one successful
     /// block import.
-    fn run_fork_choice(&self) {
-        match self.chain.fork_choice() {
-            Ok(()) => trace!(
+    async fn recompute_head(&self, location: &str) {
+        match self.chain.recompute_head_at_current_slot().await {
+            Ok(()) => debug!(
                 self.log,
                 "Fork choice success";
-                "location" => "batch processing"
+                "location" => location
             ),
             Err(e) => error!(
                 self.log,
                 "Fork choice failed";
                 "error" => ?e,
-                "location" => "batch import error"
+                "location" => location
             ),
         }
     }
@@ -365,6 +389,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                     message: format!("Block has an unknown parent: {}", block.parent_root()),
                     // Peers are faulty if they send non-sequential blocks.
                     peer_action: Some(PeerAction::LowToleranceError),
+                    mode: FailureMode::ConsensusLayer,
                 })
             }
             BlockError::BlockIsAlreadyKnown => {
@@ -402,6 +427,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                     ),
                     // Peers are faulty if they send blocks from the future.
                     peer_action: Some(PeerAction::LowToleranceError),
+                    mode: FailureMode::ConsensusLayer,
                 })
             }
             BlockError::WouldRevertFinalizedSlot { .. } => {
@@ -423,8 +449,41 @@ impl<T: BeaconChainTypes> Worker<T> {
                     message: format!("Internal error whilst processing block: {:?}", e),
                     // Do not penalize peers for internal errors.
                     peer_action: None,
+                    mode: FailureMode::ConsensusLayer,
                 })
             }
+            BlockError::ExecutionPayloadError(e) => match &e {
+                ExecutionPayloadError::NoExecutionConnection { .. }
+                | ExecutionPayloadError::RequestFailed { .. } => {
+                    // These errors indicate an issue with the EL and not the `ChainSegment`.
+                    // Pause the syncing while the EL recovers
+                    debug!(self.log,
+                        "Execution layer verification failed";
+                        "outcome" => "pausing sync",
+                        "err" => ?e
+                    );
+                    Err(ChainSegmentFailed {
+                        message: format!("Execution layer offline. Reason: {:?}", e),
+                        // Do not penalize peers for internal errors.
+                        peer_action: None,
+                        mode: FailureMode::ExecutionLayer { pause_sync: true },
+                    })
+                }
+                err => {
+                    debug!(self.log,
+                        "Invalid execution payload";
+                        "error" => ?err
+                    );
+                    Err(ChainSegmentFailed {
+                        message: format!(
+                            "Peer sent a block containing invalid execution payload. Reason: {:?}",
+                            err
+                        ),
+                        peer_action: Some(PeerAction::LowToleranceError),
+                        mode: FailureMode::ExecutionLayer { pause_sync: false },
+                    })
+                }
+            },
             other => {
                 debug!(
                     self.log, "Invalid block received";
@@ -436,6 +495,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                     message: format!("Peer sent invalid block. Reason: {:?}", other),
                     // Do not penalize peers for internal errors.
                     peer_action: None,
+                    mode: FailureMode::ConsensusLayer,
                 })
             }
         }

@@ -70,6 +70,10 @@ impl ConfigAndPreset {
                 u32_hex(spec.domain_aggregate_and_proof),
             ),
             (
+                "domain_application_mask",
+                u32_hex(spec.domain_application_mask),
+            ),
+            (
                 "target_aggregators_per_committee",
                 spec.target_aggregators_per_committee.to_string(),
             ),

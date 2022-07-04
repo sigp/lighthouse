@@ -1065,11 +1065,33 @@ where
                         // propagate the STATUS message upwards
                         self.propagate_request(peer_request_id, peer_id, Request::Status(msg))
                     }
-                    InboundRequest::BlocksByRange(req) => self.propagate_request(
-                        peer_request_id,
-                        peer_id,
-                        Request::BlocksByRange(req),
-                    ),
+                    InboundRequest::BlocksByRange(req) => {
+                        let methods::OldBlocksByRangeRequest {
+                            start_slot,
+                            mut count,
+                            step,
+                        } = req;
+                        // Still disconnect the peer if the request is naughty.
+                        if step == 0 {
+                            self.peer_manager.handle_rpc_error(
+                                &peer_id,
+                                Protocol::BlocksByRange,
+                                &RPCError::InvalidData(
+                                    "Blocks by range with 0 step parameter".into(),
+                                ),
+                                ConnectionDirection::Incoming,
+                            );
+                        }
+                        // return just one block in case the step parameter is used. https://github.com/ethereum/consensus-specs/pull/2856
+                        if step > 1 {
+                            count = 1;
+                        }
+                        self.propagate_request(
+                            peer_request_id,
+                            peer_id,
+                            Request::BlocksByRange(BlocksByRangeRequest { start_slot, count }),
+                        );
+                    }
                     InboundRequest::BlocksByRoot(req) => {
                         self.propagate_request(peer_request_id, peer_id, Request::BlocksByRoot(req))
                     }
@@ -1313,7 +1335,13 @@ impl<TSpec: EthSpec> std::convert::From<Request> for OutboundRequest<TSpec> {
     fn from(req: Request) -> OutboundRequest<TSpec> {
         match req {
             Request::BlocksByRoot(r) => OutboundRequest::BlocksByRoot(r),
-            Request::BlocksByRange(r) => OutboundRequest::BlocksByRange(r),
+            Request::BlocksByRange(BlocksByRangeRequest { start_slot, count }) => {
+                OutboundRequest::BlocksByRange(methods::OldBlocksByRangeRequest {
+                    start_slot,
+                    count,
+                    step: 1,
+                })
+            }
             Request::Status(s) => OutboundRequest::Status(s),
         }
     }
@@ -1330,9 +1358,9 @@ pub enum Response<TSpec: EthSpec> {
     /// A Status message.
     Status(StatusMessage),
     /// A response to a get BLOCKS_BY_RANGE request. A None response signals the end of the batch.
-    BlocksByRange(Option<Box<SignedBeaconBlock<TSpec>>>),
+    BlocksByRange(Option<Arc<SignedBeaconBlock<TSpec>>>),
     /// A response to a get BLOCKS_BY_ROOT request.
-    BlocksByRoot(Option<Box<SignedBeaconBlock<TSpec>>>),
+    BlocksByRoot(Option<Arc<SignedBeaconBlock<TSpec>>>),
 }
 
 impl<TSpec: EthSpec> std::convert::From<Response<TSpec>> for RPCCodedResponse<TSpec> {

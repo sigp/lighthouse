@@ -1,4 +1,5 @@
 use super::Context;
+use malloc_utils::scrape_allocator_metrics;
 use slot_clock::SlotClock;
 use std::time::{SystemTime, UNIX_EPOCH};
 use types::EthSpec;
@@ -82,6 +83,11 @@ lazy_static::lazy_static! {
     pub static ref SIGNED_SYNC_SELECTION_PROOFS_TOTAL: Result<IntCounterVec> = try_create_int_counter_vec(
         "vc_signed_sync_selection_proofs_total",
         "Total count of attempted SyncSelectionProof signings",
+        &["status"]
+    );
+    pub static ref SIGNED_VALIDATOR_REGISTRATIONS_TOTAL: Result<IntCounterVec> = try_create_int_counter_vec(
+        "builder_validator_registrations_total",
+        "Total count of ValidatorRegistrationData signings",
         &["status"]
     );
     pub static ref DUTIES_SERVICE_TIMES: Result<HistogramVec> = try_create_histogram_vec(
@@ -204,6 +210,12 @@ pub fn gather_prometheus_metrics<T: EthSpec>(
                 );
             }
         }
+    }
+
+    // It's important to ensure these metrics are explicitly enabled in the case that users aren't
+    // using glibc and this function causes panics.
+    if ctx.config.allocator_metrics_enabled {
+        scrape_allocator_metrics();
     }
 
     warp_utils::metrics::scrape_health_metrics();

@@ -779,14 +779,14 @@ impl<T: EthSpec> BeaconState<T> {
         &mut self,
         sync_committee: &SyncCommittee<T>,
     ) -> Result<Vec<usize>, Error> {
-        sync_committee
-            .pubkeys
-            .iter()
-            .map(|pubkey| {
+        let mut indices = Vec::with_capacity(sync_committee.pubkeys.len());
+        for pubkey in sync_committee.pubkeys.iter() {
+            indices.push(
                 self.get_validator_index(pubkey)?
-                    .ok_or(Error::PubkeyCacheInconsistent)
-            })
-            .collect()
+                    .ok_or(Error::PubkeyCacheInconsistent)?,
+            )
+        }
+        Ok(indices)
     }
 
     /// Compute the sync committee indices for the next sync committee.

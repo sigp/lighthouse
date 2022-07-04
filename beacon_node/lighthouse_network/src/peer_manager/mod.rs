@@ -2048,4 +2048,123 @@ mod tests {
         assert!(connected_peers.contains(&peers[6]));
         assert!(connected_peers.contains(&peers[7]));
     }
+
+    // Test properties PeerManager should have using randomly generated input.
+    #[cfg(test)]
+    mod property_based_tests {
+        use crate::peer_manager::config::DEFAULT_TARGET_PEERS;
+        use crate::peer_manager::tests::build_peer_manager;
+        use crate::rpc::MetaData;
+        use libp2p::PeerId;
+        use quickcheck::{Arbitrary, Gen, TestResult};
+        use quickcheck_macros::quickcheck;
+        use tokio::runtime::Runtime;
+        use types::Unsigned;
+        use types::{EthSpec, MainnetEthSpec as E};
+
+        #[derive(Clone, Debug)]
+        struct PeerCondition {
+            outgoing: bool,
+            attestation_net_bitfield: Vec<bool>,
+            sync_committee_net_bitfield: Vec<bool>,
+            score: f64,
+            gossipsub_score: f64,
+        }
+
+        impl Arbitrary for PeerCondition {
+            fn arbitrary<G: Gen>(g: &mut G) -> Self {
+                let attestation_net_bitfield = {
+                    let len = <E as EthSpec>::SubnetBitfieldLength::to_usize();
+                    let mut bitfield = Vec::with_capacity(len);
+                    for _ in 0..len {
+                        bitfield.push(bool::arbitrary(g));
+                    }
+                    bitfield
+                };
+
+                let sync_committee_net_bitfield = {
+                    let len = <E as EthSpec>::SyncCommitteeSubnetCount::to_usize();
+                    let mut bitfield = Vec::with_capacity(len);
+                    for _ in 0..len {
+                        bitfield.push(bool::arbitrary(g));
+                    }
+                    bitfield
+                };
+
+                PeerCondition {
+                    outgoing: bool::arbitrary(g),
+                    attestation_net_bitfield,
+                    sync_committee_net_bitfield,
+                    score: f64::arbitrary(g),
+                    gossipsub_score: f64::arbitrary(g),
+                }
+            }
+        }
+
+        #[quickcheck]
+        fn prune_excess_peers(peer_conditions: Vec<PeerCondition>) -> TestResult {
+            let target_peer_count = DEFAULT_TARGET_PEERS;
+            if peer_conditions.len() < target_peer_count {
+                return TestResult::discard();
+            }
+            let rt = Runtime::new().unwrap();
+
+            rt.block_on(async move {
+                let mut peer_manager = build_peer_manager(target_peer_count).await;
+
+                // Create peers based on the randomly generated conditions.
+                for condition in &peer_conditions {
+                    let peer = PeerId::random();
+                    let mut attnets = crate::types::EnrAttestationBitfield::<E>::new();
+                    let mut syncnets = crate::types::EnrSyncCommitteeBitfield::<E>::new();
+
+                    if condition.outgoing {
+                        peer_manager.inject_connect_outgoing(
+                            &peer,
+                            "/ip4/0.0.0.0".parse().unwrap(),
+                            None,
+                        );
+                    } else {
+                        peer_manager.inject_connect_ingoing(
+                            &peer,
+                            "/ip4/0.0.0.0".parse().unwrap(),
+                            None,
+                        );
+                    }
+
+                    for (i, value) in condition.attestation_net_bitfield.iter().enumerate() {
+                        attnets.set(i, *value).unwrap();
+                    }
+
+                    for (i, value) in condition.sync_committee_net_bitfield.iter().enumerate() {
+                        syncnets.set(i, *value).unwrap();
+                    }
+
+                    let metadata = crate::rpc::MetaDataV2 {
+                        seq_number: 0,
+                        attnets,
+                        syncnets,
+                    };
+
+                    let mut peer_db = peer_manager.network_globals.peers.write();
+                    let peer_info = peer_db.peer_info_mut(&peer).unwrap();
+                    peer_info.set_meta_data(MetaData::V2(metadata));
+                    peer_info.set_gossipsub_score(condition.gossipsub_score);
+                    peer_info.add_to_score(condition.score);
+
+                    for subnet in peer_info.long_lived_subnets() {
+                        peer_db.add_subscription(&peer, subnet);
+                    }
+                }
+
+                // Perform the heartbeat.
+                peer_manager.heartbeat();
+
+                TestResult::from_bool(
+                    peer_manager.network_globals.connected_or_dialing_peers()
+                        == target_peer_count.min(peer_conditions.len()),
+                )
+            })
+        }
+    }
 }
