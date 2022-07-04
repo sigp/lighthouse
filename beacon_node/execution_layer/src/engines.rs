@@ -266,7 +266,8 @@ impl Engines {
     {
         match self.first_success_without_retry(func).await {
             Ok(result) => Ok(result),
-            Err(_e) => {
+            Err(e) => {
+                debug!(self.log, "First engine call failed. Retrying"; "err" => ?e);
                 // Try to recover the node.
                 self.upcheck_not_synced(Logging::Enabled).await;
                 // Try again.
