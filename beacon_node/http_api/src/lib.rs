@@ -657,26 +657,41 @@ pub fn serve<T: BeaconChainTypes>(
         .and(warp::path::end())
         .and_then(
             |state_id: StateId, chain: Arc<BeaconChain<T>>, query: api_types::CommitteesQuery| {
-                // the api spec says if the epoch is not present then the epoch of the state should be used
-                let query_state_id = query.epoch.map_or(state_id, |epoch| {
-                    StateId::slot(epoch.start_slot(T::EthSpec::slots_per_epoch()))
-                });
-
                 blocking_json_task(move || {
-                    query_state_id.map_state(&chain, |state| {
-                        let epoch = state.slot().epoch(T::EthSpec::slots_per_epoch());
+                    state_id.map_state(&chain, |state| {
+                        let current_epoch = state.current_epoch();
+                        let epoch = query.epoch.unwrap_or(current_epoch);
 
-                        let committee_cache = if state
-                            .committee_cache_is_initialized(RelativeEpoch::Current)
+                        let committee_cache = match RelativeEpoch::from_epoch(current_epoch, epoch)
                         {
-                            state
-                                .committee_cache(RelativeEpoch::Current)
-                                .map(Cow::Borrowed)
-                        } else {
-                            CommitteeCache::initialized(state, epoch, &chain.spec).map(Cow::Owned)
+                            Ok(relative_epoch)
+                                if state.committee_cache_is_initialized(relative_epoch) =>
+                            {
+                                state.committee_cache(relative_epoch).map(Cow::Borrowed)
+                            }
+                            _ => CommitteeCache::initialized(state, epoch, &chain.spec)
+                                .map(Cow::Owned),
                         }
-                        .map_err(BeaconChainError::BeaconStateError)
-                        .map_err(warp_utils::reject::beacon_chain_error)?;
+                        .map_err(|e| match e {
+                            BeaconStateError::EpochOutOfBounds => {
+                                let max_sprp = T::EthSpec::slots_per_historical_root() as u64;
+                                let first_subsequent_restore_point_slot =
+                                    ((epoch.start_slot(T::EthSpec::slots_per_epoch()) / max_sprp)
+                                        + 1)
+                                        * max_sprp;
+                                if epoch < current_epoch {
+                                    warp_utils::reject::custom_bad_request(format!(
+                                        "epoch out of bounds, try state at slot {}",
+                                        first_subsequent_restore_point_slot,
+                                    ))
+                                } else {
+                                    warp_utils::reject::custom_bad_request(
+                                        "epoch out of bounds, too far in future".into(),
+                                    )
+                                }
+                            }
+                            _ => warp_utils::reject::beacon_chain_error(e.into()),
+                        })?;
 
                         // Use either the supplied slot or all slots in the epoch.
                         let slots = query.slot.map(|slot| vec![slot]).unwrap_or_else(|| {
