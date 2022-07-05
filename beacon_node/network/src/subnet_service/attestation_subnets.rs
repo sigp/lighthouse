@@ -52,12 +52,15 @@ pub struct AttestationService<T: BeaconChainTypes> {
     events: VecDeque<SubnetServiceMessage>,
 
     /// Our Discv5 node_id.
+    #[cfg(not(feature = "old_long_lived_attnets"))]
     node_id: ethereum_types::U256,
 
     /// Long lived subnets for which we are currently subscribed.
+    #[cfg(not(feature = "old_long_lived_attnets"))]
     long_lived_subnets: HashSet<SubnetId>,
 
     /// Future used to manage subscribing and unsubscribing from long lived subnets.
+    #[cfg(not(feature = "old_long_lived_attnets"))]
     next_long_lived_subscription_event: Pin<Box<tokio::time::Sleep>>,
 
     /// A reference to the beacon chain to process received attestations.
@@ -133,8 +136,11 @@ impl<T: BeaconChainTypes> AttestationService<T> {
             Box::pin(tokio::time::sleep(Duration::from_secs(1)));
         let mut service = AttestationService {
             events: VecDeque::with_capacity(10),
+            #[cfg(not(feature = "old_long_lived_attnets"))]
             node_id,
+            #[cfg(not(feature = "old_long_lived_attnets"))]
             long_lived_subnets: HashSet::default(),
+            #[cfg(not(feature = "old_long_lived_attnets"))]
             next_long_lived_subscription_event,
             beacon_chain,
             subscriptions: HashSet::new(),
@@ -151,10 +157,12 @@ impl<T: BeaconChainTypes> AttestationService<T> {
         };
 
         // do the first subnet subscription and unsubscription pass
+        #[cfg(not(feature = "old_long_lived_attnets"))]
         service.recompute_long_lived_subnets();
         service
     }
 
+    #[cfg(not(feature = "old_long_lived_attnets"))]
     fn recompute_long_lived_subnets(&mut self) {
         let time_to_next_epoch = self
             .beacon_chain
@@ -181,6 +189,7 @@ impl<T: BeaconChainTypes> AttestationService<T> {
     }
 
     /// Gets the long lived subnets the node should be subscribed to during the current epoch.
+    #[cfg(not(feature = "old_long_lived_attnets"))]
     fn recompute_long_lived_subnets_inner(&mut self) -> Result<(), ()> {
         let current_epoch = self.beacon_chain.epoch().map_err(
             |e| error!(self.log, "Failed to get the current epoch from clock"; "err" => ?e),
@@ -704,6 +713,7 @@ impl<T: BeaconChainTypes> Stream for AttestationService<T> {
             self.waker = Some(cx.waker().clone());
         }
 
+        #[cfg(not(feature = "old_long_lived_attnets"))]
         if let Poll::Ready(()) = self.next_long_lived_subscription_event.poll_unpin(cx) {
             self.recompute_long_lived_subnets();
         }
