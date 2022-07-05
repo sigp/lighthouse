@@ -20,7 +20,7 @@ use types::{
     SyncSubnetId, ValidatorSubscription,
 };
 
-#[cfg(old_long_lived_attnets)]
+#[cfg(feature = "old_long_lived_attnets")]
 use types::SubnetId;
 
 const SLOT_DURATION_MILLIS: u64 = 400;
@@ -183,7 +183,7 @@ mod attestation_service {
 
     #[tokio::test]
     // TODO: understand and fix?
-    #[cfg(old_long_lived_attnets)]
+    #[cfg(feature = "old_long_lived_attnets")]
     async fn subscribe_current_slot_wait_for_unsubscribe() {
         // subscription config
         let validator_index = 1;
@@ -252,7 +252,7 @@ mod attestation_service {
 
     /// Test to verify that we are not unsubscribing to a subnet before a required subscription.
     #[tokio::test]
-    #[cfg(old_long_lived_attnets)]
+    #[cfg(feature = "old_long_lived_attnets")]
     // TODO: understand and fix?
     async fn test_same_subnet_unsubscription() {
         // subscription config
