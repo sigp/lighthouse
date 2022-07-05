@@ -1290,7 +1290,18 @@ where
         )
         .unwrap();
 
-        signed_block.message_altair_mut().unwrap().state_root = state.canonical_root();
+        match state {
+            BeaconState::Base(_) => {
+                signed_block.message_base_mut().unwrap().state_root = state.canonical_root()
+            }
+            BeaconState::Altair(_) => {
+                signed_block.message_altair_mut().unwrap().state_root = state.canonical_root()
+            }
+            BeaconState::Merge(_) => {
+                signed_block.message_merge_mut().unwrap().state_root = state.canonical_root()
+            }
+        }
+
         let (block, _) = signed_block.deconstruct();
 
         let proposer_index = state.get_beacon_proposer_index(slot, &self.spec).unwrap();
