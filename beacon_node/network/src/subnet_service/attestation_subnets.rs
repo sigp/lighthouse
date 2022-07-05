@@ -120,6 +120,7 @@ impl<T: BeaconChainTypes> AttestationService<T> {
             .epochs_per_random_subnet_subscription
             .saturating_mul(T::EthSpec::slots_per_epoch())
             .saturating_mul(slot_duration.as_millis() as u64);
+
         // Panics on overflow. Ensure LAST_SEEN_VALIDATOR_TIMEOUT is not too large.
         let last_seen_val_timeout = slot_duration
             .checked_mul(LAST_SEEN_VALIDATOR_TIMEOUT)
@@ -142,17 +143,17 @@ impl<T: BeaconChainTypes> AttestationService<T> {
                 Box::pin(tokio::time::sleep(Duration::from_secs(1)))
             },
             beacon_chain,
+            #[cfg(not(feature = "deterministic_long_lived_attnets"))]
+            random_subnets: HashSetDelay::new(Duration::from_millis(random_subnet_duration_millis)),
             subscriptions: HashSet::new(),
             unsubscriptions: HashSetDelay::new(default_timeout),
             aggregate_validators_on_subnet: HashSetDelay::new(default_timeout),
+            known_validators: HashSetDelay::new(last_seen_val_timeout),
             waker: None,
-            discovery_disabled: config.disable_discovery,
             subscribe_all_subnets: config.subscribe_all_subnets,
             import_all_attestations: config.import_all_attestations,
+            discovery_disabled: config.disable_discovery,
             log,
-            #[cfg(not(feature = "deterministic_long_lived_attnets"))]
-            random_subnets: HashSetDelay::new(Duration::from_millis(random_subnet_duration_millis)),
-            known_validators: HashSetDelay::new(last_seen_val_timeout),
         };
 
         // do the first subnet subscription and unsubscription pass
@@ -292,7 +293,6 @@ impl<T: BeaconChainTypes> AttestationService<T> {
                 "Validator subscription";
                 "subscription" => ?subscription,
             );
-
             self.add_known_validator(subscription.validator_index);
 
             let subnet_id = match SubnetId::compute_subnet::<T::EthSpec>(
@@ -509,10 +509,9 @@ impl<T: BeaconChainTypes> AttestationService<T> {
             // New validator has subscribed
             // Subscribe to random topics and update the ENR if needed.
 
-            let spec = &self.beacon_chain.spec;
-
             #[cfg(not(feature = "deterministic_long_lived_attnets"))]
-            if self.random_subnets.len() < spec.attestation_subnet_count as usize {
+            if self.random_subnets.len() < self.beacon_chain.spec.attestation_subnet_count as usize
+            {
                 // Still room for subscriptions
                 self.subscribe_to_random_subnets(
                     self.beacon_chain.spec.random_subnets_per_validator as usize,
@@ -760,9 +759,9 @@ impl<T: BeaconChainTypes> Stream for AttestationService<T> {
         }
 
         // process any known validator expiries
-        #[cfg(not(feature = "deterministic_long_lived_attnets"))]
         match self.known_validators.poll_next_unpin(cx) {
             Poll::Ready(Some(Ok(_validator_index))) => {
+                #[cfg(not(feature = "deterministic_long_lived_attnets"))]
                 self.handle_known_validator_expiry();
             }
             Poll::Ready(Some(Err(e))) => {
