@@ -130,42 +130,56 @@ impl<T: BeaconChainTypes> AttestationService<T> {
             .checked_mul(DEFAULT_EXPIRATION_TIMEOUT)
             .expect("DEFAULT_EXPIRATION_TIMEOUT must not be ridiculously large");
 
-        let service = AttestationService {
-            events: VecDeque::with_capacity(10),
-            #[cfg(feature = "deterministic_long_lived_attnets")]
-            node_id: ethereum_types::U256::from(node_id),
-            #[cfg(feature = "deterministic_long_lived_attnets")]
-            long_lived_subnets: HashSet::default(),
-            #[cfg(feature = "deterministic_long_lived_attnets")]
-            next_long_lived_subscription_event: {
-                // Set a dummy sleep. Calculating the current subnet subscriptions will update this
-                // value with a smarter timing
-                Box::pin(tokio::time::sleep(Duration::from_secs(1)))
-            },
-            beacon_chain,
-            #[cfg(not(feature = "deterministic_long_lived_attnets"))]
-            random_subnets: HashSetDelay::new(Duration::from_millis(random_subnet_duration_millis)),
-            subscriptions: HashSet::new(),
-            unsubscriptions: HashSetDelay::new(default_timeout),
-            aggregate_validators_on_subnet: HashSetDelay::new(default_timeout),
-            known_validators: HashSetDelay::new(last_seen_val_timeout),
-            waker: None,
-            subscribe_all_subnets: config.subscribe_all_subnets,
-            import_all_attestations: config.import_all_attestations,
-            discovery_disabled: config.disable_discovery,
-            log,
-        };
-
-        // do the first subnet subscription and unsubscription pass
+        #[cfg(not(feature = "deterministic_long_lived_attnets"))]
+        {
+            AttestationService {
+                events: VecDeque::with_capacity(10),
+                beacon_chain,
+                random_subnets: HashSetDelay::new(Duration::from_millis(
+                    random_subnet_duration_millis,
+                )),
+                subscriptions: HashSet::new(),
+                unsubscriptions: HashSetDelay::new(default_timeout),
+                aggregate_validators_on_subnet: HashSetDelay::new(default_timeout),
+                known_validators: HashSetDelay::new(last_seen_val_timeout),
+                waker: None,
+                subscribe_all_subnets: config.subscribe_all_subnets,
+                import_all_attestations: config.import_all_attestations,
+                discovery_disabled: config.disable_discovery,
+                log,
+            }
+        }
         #[cfg(feature = "deterministic_long_lived_attnets")]
         {
-            let mut service = service;
+            let mut service = AttestationService {
+                events: VecDeque::with_capacity(10),
+                node_id: ethereum_types::U256::from(node_id),
+                long_lived_subnets: HashSet::default(),
+                next_long_lived_subscription_event: {
+                    // Set a dummy sleep. Calculating the current subnet subscriptions will update this
+                    // value with a smarter timing
+                    Box::pin(tokio::time::sleep(Duration::from_secs(1)))
+                },
+                beacon_chain,
+                #[cfg(not(feature = "deterministic_long_lived_attnets"))]
+                random_subnets: HashSetDelay::new(Duration::from_millis(
+                    random_subnet_duration_millis,
+                )),
+                subscriptions: HashSet::new(),
+                unsubscriptions: HashSetDelay::new(default_timeout),
+                aggregate_validators_on_subnet: HashSetDelay::new(default_timeout),
+                known_validators: HashSetDelay::new(last_seen_val_timeout),
+                waker: None,
+                subscribe_all_subnets: config.subscribe_all_subnets,
+                import_all_attestations: config.import_all_attestations,
+                discovery_disabled: config.disable_discovery,
+                log,
+            };
+
+            // do the first subnet subscription and unsubscription pass
             service.recompute_long_lived_subnets();
             service
         }
-
-        #[cfg(not(feature = "deterministic_long_lived_attnets"))]
-        service
     }
 
     #[cfg(feature = "deterministic_long_lived_attnets")]
