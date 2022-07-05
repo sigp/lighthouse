@@ -87,8 +87,11 @@ pub fn run_eth1_sim(matches: &ArgMatches) -> Result<(), String> {
     spec.min_genesis_active_validator_count = total_validator_count as u64;
     spec.seconds_per_eth1_block = eth1_block_time.as_secs();
     spec.altair_fork_epoch = Some(Epoch::new(ALTAIR_FORK_EPOCH));
-    spec.bellatrix_fork_epoch = Some(Epoch::new(BELLATRIX_FORK_EPOCH));
-    spec.terminal_total_difficulty = TERMINAL_DIFFICULTY.into();
+    // Set these parameters only if we are doing a merge simulation
+    if post_merge_sim {
+        spec.terminal_total_difficulty = TERMINAL_DIFFICULTY.into();
+        spec.bellatrix_fork_epoch = Some(Epoch::new(BELLATRIX_FORK_EPOCH));
+    }
 
     let seconds_per_slot = spec.seconds_per_slot;
     let slot_duration = Duration::from_secs(spec.seconds_per_slot);
