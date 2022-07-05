@@ -75,17 +75,19 @@ impl SubnetId {
 
     #[allow(clippy::integer_arithmetic)]
     // TODO: get someone to review this
+    /// Computes the set of subnets the node should be subscribed to during the current epoch,
+    /// along with the first epoch in which these subscriptions are no longer valid.
     pub fn compute_subnets_for_epoch<'a, T: EthSpec>(
         node_id: ethereum_types::U256,
         epoch: Epoch,
         spec: &'a ChainSpec,
-    ) -> Result<impl Iterator<Item = SubnetId> + 'a, &'static str> {
+    ) -> Result<(impl Iterator<Item = SubnetId> + 'a, Epoch), &'static str> {
         let node_id_prefix =
             (node_id >> (256 - spec.attestation_subnet_prefix_bits() as usize)).as_usize();
 
-        let permutation_seed = eth2_hashing::hash(&int_to_bytes::int_to_bytes8(
-            epoch.as_u64() / spec.epochs_per_subnet_subscription,
-        ));
+        let subscription_event_idx = epoch.as_u64() / spec.epochs_per_subnet_subscription;
+        let permutation_seed =
+            eth2_hashing::hash(&int_to_bytes::int_to_bytes8(subscription_event_idx));
 
         let num_subnets = 1 << spec.attestation_subnet_prefix_bits();
 
@@ -96,9 +98,11 @@ impl SubnetId {
             spec.shuffle_round_count,
         )
         .ok_or("Unable to shuffle")? as u64;
-        Ok((0..spec.subnets_per_node).map(move |idx| {
+        let subnet_set_generator = (0..spec.subnets_per_node).map(move |idx| {
             SubnetId::new((permutated_prefix + idx as u64) % spec.attestation_subnet_count)
-        }))
+        });
+        let valid_until_epoch = (subscription_event_idx + 1) * spec.epochs_per_subnet_subscription;
+        Ok((subnet_set_generator, valid_until_epoch.into()))
     }
 }
 

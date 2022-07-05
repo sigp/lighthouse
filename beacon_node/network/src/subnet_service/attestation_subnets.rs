@@ -107,7 +107,7 @@ impl<T: BeaconChainTypes> AttestationService<T> {
     pub fn new(
         beacon_chain: Arc<BeaconChain<T>>,
         config: &NetworkConfig,
-        node_id: [u8; 32],
+        #[cfg(not(feature = "old_long_lived_attnets"))] node_id: [u8; 32],
         log: &slog::Logger,
     ) -> Self {
         let log = log.new(o!("service" => "attestation_service"));
@@ -129,19 +129,18 @@ impl<T: BeaconChainTypes> AttestationService<T> {
             .checked_mul(DEFAULT_EXPIRATION_TIMEOUT)
             .expect("DEFAULT_EXPIRATION_TIMEOUT must not be ridiculously large");
 
-        let node_id = ethereum_types::U256::from(node_id);
-        // Set a dummy sleep. Calculating the current subnet subscriptions will update this value
-        // with a smarter timing
-        let next_long_lived_subscription_event =
-            Box::pin(tokio::time::sleep(Duration::from_secs(1)));
-        let mut service = AttestationService {
+        let service = AttestationService {
             events: VecDeque::with_capacity(10),
             #[cfg(not(feature = "old_long_lived_attnets"))]
-            node_id,
+            node_id: ethereum_types::U256::from(node_id),
             #[cfg(not(feature = "old_long_lived_attnets"))]
             long_lived_subnets: HashSet::default(),
             #[cfg(not(feature = "old_long_lived_attnets"))]
-            next_long_lived_subscription_event,
+            next_long_lived_subscription_event: {
+                // Set a dummy sleep. Calculating the current subnet subscriptions will update this
+                // value with a smarter timing
+                Box::pin(tokio::time::sleep(Duration::from_secs(1)))
+            },
             beacon_chain,
             subscriptions: HashSet::new(),
             unsubscriptions: HashSetDelay::new(default_timeout),
@@ -158,7 +157,13 @@ impl<T: BeaconChainTypes> AttestationService<T> {
 
         // do the first subnet subscription and unsubscription pass
         #[cfg(not(feature = "old_long_lived_attnets"))]
-        service.recompute_long_lived_subnets();
+        {
+            let mut service = service;
+            service.recompute_long_lived_subnets();
+            service
+        }
+
+        #[cfg(feature = "old_long_lived_attnets")]
         service
     }
 
@@ -194,13 +199,28 @@ impl<T: BeaconChainTypes> AttestationService<T> {
         let current_epoch = self.beacon_chain.epoch().map_err(
             |e| error!(self.log, "Failed to get the current epoch from clock"; "err" => ?e),
         )?;
-        let subnets: HashSet<SubnetId> = SubnetId::compute_subnets_for_epoch::<T::EthSpec>(
+
+        let (subnets, next_subscription_epoch) = SubnetId::compute_subnets_for_epoch::<T::EthSpec>(
             self.node_id,
             current_epoch,
             &self.beacon_chain.spec,
         )
-        .map_err(|e| error!(self.log, "Could not compute subnets for current epoch"; "err" => e))?
-        .collect();
+        .map(|(iter, epoch)| (iter.collect::<HashSet<SubnetId>>(), epoch))
+        .map_err(|e| error!(self.log, "Could not compute subnets for current epoch"; "err" => e))?;
+
+        let next_subscription_slot =
+            next_subscription_epoch.start_slot(T::EthSpec::slots_per_epoch());
+        let next_subscription_event = self
+            .beacon_chain
+            .slot_clock
+            .duration_to_slot(next_subscription_slot)
+            .ok_or_else(|| {
+                error!(
+                    self.log,
+                    "Failed to compute duration to next to long lived subscription event"
+                )
+            })?;
+
         let subnets_to_unsubscribe =
             self.long_lived_subnets
                 .difference(&subnets)
@@ -227,6 +247,9 @@ impl<T: BeaconChainTypes> AttestationService<T> {
 
         self.events.extend(subnets_to_unsubscribe);
         self.events.extend(subnets_to_subscribe);
+
+        self.next_long_lived_subscription_event =
+            Box::pin(tokio::time::sleep(next_subscription_event));
 
         Ok(())
     }

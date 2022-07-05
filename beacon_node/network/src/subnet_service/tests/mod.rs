@@ -109,9 +109,14 @@ fn get_attestation_service() -> AttestationService<TestBeaconChainType> {
     let config = NetworkConfig::default();
 
     let beacon_chain = CHAIN.chain.clone();
-    let node_id = lighthouse_network::discv5::enr::NodeId::random().raw();
 
-    AttestationService::new(beacon_chain, &config, node_id, &log)
+    AttestationService::new(
+        beacon_chain,
+        &config,
+        #[cfg(not(feature = "old_long_lived_attnets"))]
+        lighthouse_network::discv5::enr::NodeId::random().raw(),
+        &log,
+    )
 }
 
 fn get_sync_committee_service() -> SyncCommitteeService<TestBeaconChainType> {
