@@ -159,12 +159,12 @@ pub struct Claims {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_utils::JWT_SECRET;
+    use crate::test_utils::DEFAULT_JWT_SECRET;
 
     #[test]
     fn test_roundtrip() {
         let auth = Auth::new(
-            JwtKey::from_slice(&JWT_SECRET).unwrap(),
+            JwtKey::from_slice(&DEFAULT_JWT_SECRET).unwrap(),
             Some("42".into()),
             Some("Lighthouse".into()),
         );
@@ -172,7 +172,7 @@ mod tests {
         let token = auth.generate_token_with_claims(&claims).unwrap();
 
         assert_eq!(
-            Auth::validate_token(&token, &JwtKey::from_slice(&JWT_SECRET).unwrap())
+            Auth::validate_token(&token, &JwtKey::from_slice(&DEFAULT_JWT_SECRET).unwrap())
                 .unwrap()
                 .claims,
             claims

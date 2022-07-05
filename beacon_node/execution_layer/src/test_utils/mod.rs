@@ -26,7 +26,7 @@ pub use mock_execution_layer::MockExecutionLayer;
 
 pub const DEFAULT_TERMINAL_DIFFICULTY: u64 = 6400;
 pub const DEFAULT_TERMINAL_BLOCK: u64 = 64;
-pub const JWT_SECRET: [u8; 32] = [42; 32];
+pub const DEFAULT_JWT_SECRET: [u8; 32] = [42; 32];
 
 mod execution_block_generator;
 mod handle_rpc;
@@ -64,7 +64,7 @@ impl<T: EthSpec> MockServer<T> {
     pub fn unit_testing() -> Self {
         Self::new(
             &runtime::Handle::current(),
-            JwtKey::from_slice(&JWT_SECRET).unwrap(),
+            JwtKey::from_slice(&DEFAULT_JWT_SECRET).unwrap(),
             DEFAULT_TERMINAL_DIFFICULTY.into(),
             DEFAULT_TERMINAL_BLOCK,
             ExecutionBlockHash::zero(),
