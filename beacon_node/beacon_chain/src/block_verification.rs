@@ -1279,7 +1279,7 @@ impl<T: BeaconChainTypes> ExecutionPendingBlock<T> {
         if let Some(ref event_handler) = chain.event_handler {
             if event_handler.has_block_reward_subscribers() {
                 let block_reward =
-                    chain.compute_block_reward(block.message(), block_root, &state)?;
+                    chain.compute_block_reward(block.message(), block_root, &state, true)?;
                 event_handler.register(EventKind::BlockReward(block_reward));
             }
         }
@@ -1407,7 +1407,7 @@ fn check_block_against_finalized_slot<T: BeaconChainTypes>(
     // block which conflicts with the fork-choice view of finalization.
     let finalized_slot = chain
         .canonical_head
-        .fork_choice_read_lock()
+        .cached_head()
         .finalized_checkpoint()
         .epoch
         .start_slot(T::EthSpec::slots_per_epoch());

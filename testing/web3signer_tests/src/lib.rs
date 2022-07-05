@@ -67,6 +67,7 @@ mod tests {
     impl SignedObject for SyncSelectionProof {}
     impl SignedObject for SyncCommitteeMessage {}
     impl SignedObject for SignedContributionAndProof<E> {}
+    impl SignedObject for SignedValidatorRegistrationData {}
 
     /// A file format used by Web3Signer to discover and unlock keystores.
     #[derive(Serialize)]
@@ -448,6 +449,18 @@ mod tests {
         }
     }
 
+    //TODO: remove this once the consensys web3signer includes the `validator_registration` method
+    #[allow(dead_code)]
+    fn get_validator_registration(pubkey: PublicKeyBytes) -> ValidatorRegistrationData {
+        let fee_recipient = Address::repeat_byte(42);
+        ValidatorRegistrationData {
+            fee_recipient,
+            gas_limit: 30_000_000,
+            timestamp: 100,
+            pubkey,
+        }
+    }
+
     /// Test all the "base" (phase 0) types.
     async fn test_base_types(network: &str, listen_port: u16) {
         let network_config = Eth2NetworkConfig::constant(network).unwrap().unwrap();
@@ -499,6 +512,16 @@ mod tests {
                     .await
                     .unwrap()
             })
+            //TODO: uncomment this once the consensys web3signer includes the `validator_registration` method
+            //
+            // .await
+            // .assert_signatures_match("validator_registration", |pubkey, validator_store| async move {
+            //     let val_reg_data = get_validator_registration(pubkey);
+            //     validator_store
+            //         .sign_validator_registration_data(val_reg_data)
+            //         .await
+            //         .unwrap()
+            // })
             .await;
     }
 
@@ -575,6 +598,16 @@ mod tests {
                         .unwrap()
                 },
             )
+            //TODO: uncomment this once the consensys web3signer includes the `validator_registration` method
+            //
+            // .await
+            // .assert_signatures_match("validator_registration", |pubkey, validator_store| async move {
+            //     let val_reg_data = get_validator_registration(pubkey);
+            //     validator_store
+            //         .sign_validator_registration_data(val_reg_data)
+            //         .await
+            //         .unwrap()
+            // })
             .await;
     }
 

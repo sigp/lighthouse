@@ -88,12 +88,12 @@ pub struct CachedHead<E: EthSpec> {
     pub snapshot: Arc<BeaconSnapshot<E>>,
     /// The justified checkpoint as per `self.fork_choice`.
     ///
-    /// This value may be distinct to the `self.head_snapshot.beacon_state.justified_checkpoint`.
+    /// This value may be distinct to the `self.snapshot.beacon_state.justified_checkpoint`.
     /// This value should be used over the beacon state value in practically all circumstances.
     justified_checkpoint: Checkpoint,
     /// The finalized checkpoint as per `self.fork_choice`.
     ///
-    /// This value may be distinct to the `self.head_snapshot.beacon_state.finalized_checkpoint`.
+    /// This value may be distinct to the `self.snapshot.beacon_state.finalized_checkpoint`.
     /// This value should be used over the beacon state value in practically all circumstances.
     finalized_checkpoint: Checkpoint,
     /// The `execution_payload.block_hash` of the block at the head of the chain. Set to `None`
@@ -266,7 +266,6 @@ impl<T: BeaconChainTypes> CanonicalHead<T> {
             beacon_state,
         };
 
-        let fork_choice_view = fork_choice.cached_fork_choice_view();
         let forkchoice_update_params = fork_choice.get_forkchoice_update_parameters();
         let cached_head = CachedHead {
             snapshot: Arc::new(snapshot),
@@ -390,7 +389,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     ///
     /// See `Self::head` for more information.
     pub fn head_beacon_block(&self) -> Arc<SignedBeaconBlock<T::EthSpec>> {
-        self.head_snapshot().beacon_block.clone()
+        self.canonical_head
+            .cached_head_read_lock()
+            .snapshot
+            .beacon_block
+            .clone()
     }
 
     /// Returns a clone of the beacon state at the head of the canonical chain.
@@ -426,14 +429,11 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         let chain = self.clone();
         match self
-            .task_executor
             .spawn_blocking_handle(
                 move || chain.recompute_head_at_slot_internal(current_slot),
                 "recompute_head_internal",
             )
-            .ok_or(Error::RuntimeShutdown)?
-            .await
-            .map_err(Error::TokioJoin)?
+            .await?
         {
             // Fork choice returned successfully and did not need to update the EL.
             Ok(None) => Ok(()),
@@ -499,12 +499,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // Recompute the current head via the fork choice algorithm.
         fork_choice_write_lock.get_head(current_slot, &self.spec)?;
 
-        // Read the current head value from the fork choice algorithm.
-        let new_view = fork_choice_write_lock.cached_fork_choice_view();
-
         // Downgrade the fork choice write-lock to a read lock, without allowing access to any
         // other writers.
         let fork_choice_read_lock = RwLockWriteGuard::downgrade(fork_choice_write_lock);
+
+        // Read the current head value from the fork choice algorithm.
+        let new_view = fork_choice_read_lock.cached_fork_choice_view();
 
         // Check to ensure that the finalized block hasn't been marked as invalid. If it has,
         // shut down Lighthouse.

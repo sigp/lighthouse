@@ -304,14 +304,16 @@ pub fn get_execution_payload<
     state: &BeaconState<T::EthSpec>,
     finalized_checkpoint: Checkpoint,
     proposer_index: u64,
+    pubkey: Option<PublicKeyBytes>,
 ) -> Result<PreparePayloadHandle<Payload>, BlockProductionError> {
     // Compute all required values from the `state` now to avoid needing to pass it into a spawned
     // task.
     let spec = &chain.spec;
+    let slot = state.slot();
     let current_epoch = state.current_epoch();
     let is_merge_transition_complete = is_merge_transition_complete(state);
     let timestamp = compute_timestamp_at_slot(state, spec).map_err(BeaconStateError::from)?;
-    let random = *state.get_randao_mix(state.current_epoch())?;
+    let random = *state.get_randao_mix(current_epoch)?;
     let latest_execution_payload_header_block_hash =
         state.latest_execution_payload_header()?.block_hash;
 
@@ -324,12 +326,13 @@ pub fn get_execution_payload<
             async move {
                 prepare_execution_payload::<T, Payload>(
                     &chain,
-                    current_epoch,
+                    slot,
                     is_merge_transition_complete,
                     timestamp,
                     random,
                     finalized_checkpoint,
                     proposer_index,
+                    pubkey,
                     latest_execution_payload_header_block_hash,
                 )
                 .await
@@ -358,18 +361,20 @@ pub fn get_execution_payload<
 #[allow(clippy::too_many_arguments)]
 pub async fn prepare_execution_payload<T, Payload>(
     chain: &Arc<BeaconChain<T>>,
-    current_epoch: Epoch,
+    slot: Slot,
     is_merge_transition_complete: bool,
     timestamp: u64,
     random: Hash256,
     finalized_checkpoint: Checkpoint,
     proposer_index: u64,
+    pubkey: Option<PublicKeyBytes>,
     latest_execution_payload_header_block_hash: ExecutionBlockHash,
 ) -> Result<Payload, BlockProductionError>
 where
     T: BeaconChainTypes,
     Payload: ExecPayload<T::EthSpec> + Default,
 {
+    let current_epoch = slot.epoch(T::EthSpec::slots_per_epoch());
     let spec = &chain.spec;
     let execution_layer = chain
         .execution_layer
@@ -445,12 +450,14 @@ where
     //
     // This future is not executed here, it's up to the caller to await it.
     let execution_payload = execution_layer
-        .get_payload::<T::EthSpec, Payload>(
+        .get_payload::<Payload>(
             parent_hash,
             timestamp,
             random,
             finalized_block_hash.unwrap_or_else(ExecutionBlockHash::zero),
             proposer_index,
+            pubkey,
+            slot,
         )
         .await
         .map_err(BlockProductionError::GetPayloadFailed)?;

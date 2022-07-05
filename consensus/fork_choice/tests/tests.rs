@@ -150,7 +150,7 @@ impl ForkChoiceTest {
             .chain
             .canonical_head
             .fork_choice_write_lock()
-            .update_time(self.harness.chain.slot().unwrap(), &self.harness.spec)
+            .update_time(self.harness.chain.slot().unwrap())
             .unwrap();
         func(
             self.harness

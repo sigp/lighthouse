@@ -89,7 +89,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                     None,
                 );
 
-                self.recompute_head("process_head").await;
+                self.recompute_head("process_rpc_block").await;
             }
         }
         // Sync handles these results

@@ -112,7 +112,7 @@ impl Eth1GenesisService {
             "Importing eth1 deposit logs";
         );
 
-        let endpoints = eth1_service.init_endpoints();
+        let endpoints = eth1_service.init_endpoints()?;
 
         loop {
             let update_result = eth1_service

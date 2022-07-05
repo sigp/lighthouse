@@ -38,8 +38,18 @@ impl CommitteeCache {
         epoch: Epoch,
         spec: &ChainSpec,
     ) -> Result<CommitteeCache, Error> {
-        RelativeEpoch::from_epoch(state.current_epoch(), epoch)
-            .map_err(|_| Error::EpochOutOfBounds)?;
+        // Check that the cache is being built for an in-range epoch.
+        //
+        // We allow caches to be constructed for historic epochs, per:
+        //
+        // https://github.com/sigp/lighthouse/issues/3270
+        let reqd_randao_epoch = epoch
+            .saturating_sub(spec.min_seed_lookahead)
+            .saturating_sub(1u64);
+
+        if reqd_randao_epoch < state.min_randao_epoch() || epoch > state.current_epoch() + 1 {
+            return Err(Error::EpochOutOfBounds);
+        }
 
         // May cause divide-by-zero errors.
         if T::slots_per_epoch() == 0 {

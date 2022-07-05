@@ -692,11 +692,7 @@ where
                         .head_hash
                         .map_or(false, |hash| hash != ExecutionBlockHash::zero())
                     {
-                        // Spawn a new task using the "async" fork choice update method, rather than
-                        // using the "blocking" method.
-                        //
-                        // Using the blocking method may cause a panic if this code is run inside an
-                        // async context.
+                        // Spawn a new task to update the EE without waiting for it to complete.
                         let inner_chain = beacon_chain.clone();
                         runtime_context.executor.spawn(
                             async move {
@@ -722,7 +718,7 @@ where
                     execution_layer.spawn_watchdog_routine(beacon_chain.slot_clock.clone());
 
                     // Spawn a routine that removes expired proposer preparations.
-                    execution_layer.spawn_clean_proposer_caches_routine::<TSlotClock, TEthSpec>(
+                    execution_layer.spawn_clean_proposer_caches_routine::<TSlotClock>(
                         beacon_chain.slot_clock.clone(),
                     );
 

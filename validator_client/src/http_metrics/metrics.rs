@@ -85,6 +85,11 @@ lazy_static::lazy_static! {
         "Total count of attempted SyncSelectionProof signings",
         &["status"]
     );
+    pub static ref SIGNED_VALIDATOR_REGISTRATIONS_TOTAL: Result<IntCounterVec> = try_create_int_counter_vec(
+        "builder_validator_registrations_total",
+        "Total count of ValidatorRegistrationData signings",
+        &["status"]
+    );
     pub static ref DUTIES_SERVICE_TIMES: Result<HistogramVec> = try_create_histogram_vec(
         "vc_duties_service_task_times_seconds",
         "Duration to perform duties service tasks",

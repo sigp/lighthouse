@@ -49,8 +49,8 @@ use types::{
     BlindedPayload, CommitteeCache, ConfigAndPreset, Epoch, EthSpec, ForkName, FullPayload,
     ProposerPreparationData, ProposerSlashing, RelativeEpoch, Signature, SignedAggregateAndProof,
     SignedBeaconBlock, SignedBeaconBlockMerge, SignedBlindedBeaconBlock,
-    SignedContributionAndProof, SignedVoluntaryExit, Slot, SyncCommitteeMessage,
-    SyncContributionData,
+    SignedContributionAndProof, SignedValidatorRegistrationData, SignedVoluntaryExit, Slot,
+    SyncCommitteeMessage, SyncContributionData,
 };
 use version::{
     add_consensus_version_header, fork_versioned_response, inconsistent_fork_rejection,
@@ -657,26 +657,41 @@ pub fn serve<T: BeaconChainTypes>(
         .and(warp::path::end())
         .and_then(
             |state_id: StateId, chain: Arc<BeaconChain<T>>, query: api_types::CommitteesQuery| {
-                // the api spec says if the epoch is not present then the epoch of the state should be used
-                let query_state_id = query.epoch.map_or(state_id, |epoch| {
-                    StateId::slot(epoch.start_slot(T::EthSpec::slots_per_epoch()))
-                });
-
                 blocking_json_task(move || {
-                    query_state_id.map_state(&chain, |state| {
-                        let epoch = state.slot().epoch(T::EthSpec::slots_per_epoch());
+                    state_id.map_state(&chain, |state| {
+                        let current_epoch = state.current_epoch();
+                        let epoch = query.epoch.unwrap_or(current_epoch);
 
-                        let committee_cache = if state
-                            .committee_cache_is_initialized(RelativeEpoch::Current)
+                        let committee_cache = match RelativeEpoch::from_epoch(current_epoch, epoch)
                         {
-                            state
-                                .committee_cache(RelativeEpoch::Current)
-                                .map(Cow::Borrowed)
-                        } else {
-                            CommitteeCache::initialized(state, epoch, &chain.spec).map(Cow::Owned)
+                            Ok(relative_epoch)
+                                if state.committee_cache_is_initialized(relative_epoch) =>
+                            {
+                                state.committee_cache(relative_epoch).map(Cow::Borrowed)
+                            }
+                            _ => CommitteeCache::initialized(state, epoch, &chain.spec)
+                                .map(Cow::Owned),
                         }
-                        .map_err(BeaconChainError::BeaconStateError)
-                        .map_err(warp_utils::reject::beacon_chain_error)?;
+                        .map_err(|e| match e {
+                            BeaconStateError::EpochOutOfBounds => {
+                                let max_sprp = T::EthSpec::slots_per_historical_root() as u64;
+                                let first_subsequent_restore_point_slot =
+                                    ((epoch.start_slot(T::EthSpec::slots_per_epoch()) / max_sprp)
+                                        + 1)
+                                        * max_sprp;
+                                if epoch < current_epoch {
+                                    warp_utils::reject::custom_bad_request(format!(
+                                        "epoch out of bounds, try state at slot {}",
+                                        first_subsequent_restore_point_slot,
+                                    ))
+                                } else {
+                                    warp_utils::reject::custom_bad_request(
+                                        "epoch out of bounds, too far in future".into(),
+                                    )
+                                }
+                            }
+                            _ => warp_utils::reject::beacon_chain_error(e.into()),
+                        })?;
 
                         // Use either the supplied slot or all slots in the epoch.
                         let slots = query.slot.map(|slot| vec![slot]).unwrap_or_else(|| {
@@ -2350,12 +2365,10 @@ pub fn serve<T: BeaconChainTypes>(
         .and(warp::path::end())
         .and(not_while_syncing_filter.clone())
         .and(chain_filter.clone())
-        .and(warp::addr::remote())
         .and(log_filter.clone())
         .and(warp::body::json())
         .and_then(
             |chain: Arc<BeaconChain<T>>,
-             client_addr: Option<SocketAddr>,
              log: Logger,
              preparation_data: Vec<ProposerPreparationData>| async move {
                 let execution_layer = chain
@@ -2373,9 +2386,6 @@ pub fn serve<T: BeaconChainTypes>(
                     log,
                     "Received proposer preparation data";
                     "count" => preparation_data.len(),
-                    "client" => client_addr
-                        .map(|a| a.to_string())
-                        .unwrap_or_else(|| "unknown".to_string()),
                 );
 
                 execution_layer
@@ -2396,6 +2406,79 @@ pub fn serve<T: BeaconChainTypes>(
             },
         );
 
+    // POST validator/register_validator
+    let post_validator_register_validator = eth1_v1
+        .and(warp::path("validator"))
+        .and(warp::path("register_validator"))
+        .and(warp::path::end())
+        .and(chain_filter.clone())
+        .and(log_filter.clone())
+        .and(warp::body::json())
+        .and_then(
+            |chain: Arc<BeaconChain<T>>,
+             log: Logger,
+             register_val_data: Vec<SignedValidatorRegistrationData>| async move {
+                let execution_layer = chain
+                    .execution_layer
+                    .as_ref()
+                    .ok_or(BeaconChainError::ExecutionLayerMissing)
+                    .map_err(warp_utils::reject::beacon_chain_error)?;
+                let current_slot = chain
+                    .slot_clock
+                    .now_or_genesis()
+                    .ok_or(BeaconChainError::UnableToReadSlot)
+                    .map_err(warp_utils::reject::beacon_chain_error)?;
+                let current_epoch = current_slot.epoch(T::EthSpec::slots_per_epoch());
+
+                debug!(
+                    log,
+                    "Received register validator request";
+                    "count" => register_val_data.len(),
+                );
+
+                let preparation_data = register_val_data
+                    .iter()
+                    .filter_map(|register_data| {
+                        chain
+                            .validator_index(&register_data.message.pubkey)
+                            .ok()
+                            .flatten()
+                            .map(|validator_index| ProposerPreparationData {
+                                validator_index: validator_index as u64,
+                                fee_recipient: register_data.message.fee_recipient,
+                            })
+                    })
+                    .collect::<Vec<_>>();
+
+                debug!(
+                    log,
+                    "Resolved validator request pubkeys";
+                    "count" => preparation_data.len()
+                );
+
+                // Update the prepare beacon proposer cache based on this request.
+                execution_layer
+                    .update_proposer_preparation(current_epoch, &preparation_data)
+                    .await;
+
+                // Call prepare beacon proposer blocking with the latest update in order to make
+                // sure we have a local payload to fall back to in the event of the blined block
+                // flow failing.
+                chain
+                    .prepare_beacon_proposer(current_slot)
+                    .await
+                    .map_err(|e| {
+                        warp_utils::reject::custom_bad_request(format!(
+                            "error updating proposer preparations: {:?}",
+                            e
+                        ))
+                    })?;
+
+                //TODO(sean): In the MEV-boost PR, add a call here to send the update request to the builder
+
+                Ok::<_, warp::Rejection>(warp::reply::json(&()))
+            },
+        );
     // POST validator/sync_committee_subscriptions
     let post_validator_sync_committee_subscriptions = eth1_v1
         .and(warp::path("validator"))
@@ -2765,6 +2848,18 @@ pub fn serve<T: BeaconChainTypes>(
             blocking_json_task(move || block_rewards::get_block_rewards(query, chain, log))
         });
 
+    // POST lighthouse/analysis/block_rewards
+    let post_lighthouse_block_rewards = warp::path("lighthouse")
+        .and(warp::path("analysis"))
+        .and(warp::path("block_rewards"))
+        .and(warp::body::json())
+        .and(warp::path::end())
+        .and(chain_filter.clone())
+        .and(log_filter.clone())
+        .and_then(|blocks, chain, log| {
+            blocking_json_task(move || block_rewards::compute_block_rewards(blocks, chain, log))
+        });
+
     // GET lighthouse/analysis/attestation_performance/{index}
     let get_lighthouse_attestation_performance = warp::path("lighthouse")
         .and(warp::path("analysis"))
@@ -2938,9 +3033,11 @@ pub fn serve<T: BeaconChainTypes>(
                 .or(post_validator_beacon_committee_subscriptions.boxed())
                 .or(post_validator_sync_committee_subscriptions.boxed())
                 .or(post_validator_prepare_beacon_proposer.boxed())
+                .or(post_validator_register_validator.boxed())
                 .or(post_lighthouse_liveness.boxed())
                 .or(post_lighthouse_database_reconstruct.boxed())
-                .or(post_lighthouse_database_historical_blocks.boxed()),
+                .or(post_lighthouse_database_historical_blocks.boxed())
+                .or(post_lighthouse_block_rewards.boxed()),
         ))
         .recover(warp_utils::reject::handle_rejection)
         .with(slog_logging(log.clone()))

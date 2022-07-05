@@ -148,7 +148,7 @@ pub struct Builder<T: BeaconChainTypes> {
     store: Option<Arc<HotColdDB<T::EthSpec, T::HotStore, T::ColdStore>>>,
     initial_mutator: Option<BoxedMutator<T::EthSpec, T::HotStore, T::ColdStore>>,
     store_mutator: Option<BoxedMutator<T::EthSpec, T::HotStore, T::ColdStore>>,
-    execution_layer: Option<ExecutionLayer>,
+    execution_layer: Option<ExecutionLayer<T::EthSpec>>,
     mock_execution_layer: Option<MockExecutionLayer<T::EthSpec>>,
     runtime: TestRuntime,
     log: Logger,
@@ -362,6 +362,7 @@ where
             DEFAULT_TERMINAL_BLOCK,
             spec.terminal_block_hash,
             spec.terminal_block_hash_activation_epoch,
+            None,
         );
         self.execution_layer = Some(mock.el.clone());
         self.mock_execution_layer = Some(mock);
@@ -1266,7 +1267,7 @@ where
         assert_ne!(slot, 0, "can't produce a block at slot 0");
         assert!(slot >= state.slot());
 
-        let (block, pre_state) = self.make_block_return_pre_state(state, slot).await;
+        let (block, state) = self.make_block_return_pre_state(state, slot).await;
         let (mut block, _) = block.deconstruct();
 
         let mut state = pre_state.clone();

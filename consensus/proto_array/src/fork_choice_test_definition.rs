@@ -106,7 +106,6 @@ impl ForkChoiceTestDefinition {
                             Slot::new(0),
                             &spec,
                         )
-                        .map_err(|e| e)
                         .unwrap_or_else(|e| {
                             panic!("find_head op at index {} returned error {}", op_index, e)
                         });
@@ -134,7 +133,6 @@ impl ForkChoiceTestDefinition {
                             Slot::new(0),
                             &spec,
                         )
-                        .map_err(|e| e)
                         .unwrap_or_else(|e| {
                             panic!("find_head op at index {} returned error {}", op_index, e)
                         });

@@ -1,12 +1,9 @@
 //! Provides generic behaviour for multiple execution engines, specifically fallback behaviour.
 
 use crate::engine_api::{
-    Builder, EngineApi, Error as EngineApiError, ForkchoiceUpdatedResponse, PayloadAttributes,
-    PayloadId,
+    EngineApi, Error as EngineApiError, ForkchoiceUpdatedResponse, PayloadAttributes, PayloadId,
 };
-use crate::{BuilderApi, HttpJsonRpc};
-use async_trait::async_trait;
-use futures::future::join_all;
+use crate::HttpJsonRpc;
 use lru::LruCache;
 use slog::{crit, debug, info, warn, Logger};
 use std::future::Future;
@@ -60,7 +57,6 @@ struct PayloadIdCacheKey {
 
 /// An execution engine.
 pub struct Engine<T> {
-    pub id: String,
     pub api: HttpJsonRpc<T>,
     payload_id_cache: Mutex<LruCache<PayloadIdCacheKey, PayloadId>>,
     state: RwLock<EngineState>,
@@ -68,9 +64,8 @@ pub struct Engine<T> {
 
 impl<T> Engine<T> {
     /// Creates a new, offline engine.
-    pub fn new(id: String, api: HttpJsonRpc<T>) -> Self {
+    pub fn new(api: HttpJsonRpc<T>) -> Self {
         Self {
-            id,
             api,
             payload_id_cache: Mutex::new(LruCache::new(PAYLOAD_ID_LRU_CACHE_SIZE)),
             state: RwLock::new(EngineState::Offline),
@@ -97,9 +92,8 @@ impl<T> Engine<T> {
     }
 }
 
-#[async_trait]
-impl Builder for Engine<EngineApi> {
-    async fn notify_forkchoice_updated(
+impl Engine<EngineApi> {
+    pub async fn notify_forkchoice_updated(
         &self,
         forkchoice_state: ForkChoiceState,
         payload_attributes: Option<PayloadAttributes>,
@@ -128,34 +122,6 @@ impl Builder for Engine<EngineApi> {
     }
 }
 
-#[async_trait]
-impl Builder for Engine<BuilderApi> {
-    async fn notify_forkchoice_updated(
-        &self,
-        forkchoice_state: ForkChoiceState,
-        pa: Option<PayloadAttributes>,
-        log: &Logger,
-    ) -> Result<ForkchoiceUpdatedResponse, EngineApiError> {
-        let payload_attributes = pa.ok_or(EngineApiError::InvalidBuilderQuery)?;
-        let response = self
-            .api
-            .forkchoice_updated_v1(forkchoice_state, Some(payload_attributes))
-            .await?;
-
-        if let Some(payload_id) = response.payload_id {
-            let key = PayloadIdCacheKey::new(&forkchoice_state, &payload_attributes);
-            self.payload_id_cache.lock().await.put(key, payload_id);
-        } else {
-            warn!(
-                log,
-                "Builder should have returned a payload_id for attributes {:?}", payload_attributes
-            );
-        }
-
-        Ok(response)
-    }
-}
-
 // This structure used to hold multiple execution engines managed in a fallback manner. This
 // functionality has been removed following https://github.com/sigp/lighthouse/issues/3118 and this
 // struct will likely be removed in the future.
@@ -165,16 +131,12 @@ pub struct Engines {
     pub log: Logger,
 }
 
-pub struct Builders {
-    pub builders: Vec<Engine<BuilderApi>>,
-    pub log: Logger,
-}
-
 #[derive(Debug)]
 pub enum EngineError {
-    Offline { id: String },
-    Api { id: String, error: EngineApiError },
-    Auth { id: String },
+    Offline,
+    Api { error: EngineApiError },
+    BuilderApi { error: EngineApiError },
+    Auth,
 }
 
 impl Engines {
@@ -195,7 +157,6 @@ impl Engines {
                     self.log,
                     "No need to call forkchoiceUpdated";
                     "msg" => "head does not have execution enabled",
-                    "id" => &self.engine.id,
                 );
                 return;
             }
@@ -204,7 +165,6 @@ impl Engines {
                 self.log,
                 "Issuing forkchoiceUpdated";
                 "forkchoice_state" => ?forkchoice_state,
-                "id" => &self.engine.id,
             );
 
             // For simplicity, payload attributes are never included in this call. It may be
@@ -219,14 +179,12 @@ impl Engines {
                     self.log,
                     "Failed to issue latest head to engine";
                     "error" => ?e,
-                    "id" => &self.engine.id,
                 );
             }
         } else {
             debug!(
                 self.log,
                 "No head, not sending to engine";
-                "id" => &self.engine.id,
             );
         }
     }
@@ -297,45 +255,36 @@ impl Engines {
         }
     }
 
-    /// Run `func` on all engines, in the order in which they are defined, returning the first
-    /// successful result that is found.
+    /// Run `func` on the node.
     ///
-    /// This function might try to run `func` twice. If all nodes return an error on the first time
-    /// it runs, it will try to upcheck all offline nodes and then run the function again.
-    pub async fn first_success<'a, F, G, H>(&'a self, func: F) -> Result<H, Vec<EngineError>>
+    /// This function might try to run `func` twice. If the node returns an error it will try to
+    /// upcheck it and then run the function again.
+    pub async fn first_success<'a, F, G, H>(&'a self, func: F) -> Result<H, EngineError>
     where
         F: Fn(&'a Engine<EngineApi>) -> G + Copy,
         G: Future<Output = Result<H, EngineApiError>>,
     {
         match self.first_success_without_retry(func).await {
             Ok(result) => Ok(result),
-            Err(mut first_errors) => {
-                // Try to recover some nodes.
+            Err(e) => {
+                debug!(self.log, "First engine call failed. Retrying"; "err" => ?e);
+                // Try to recover the node.
                 self.upcheck_not_synced(Logging::Enabled).await;
-                // Retry the call on all nodes.
-                match self.first_success_without_retry(func).await {
-                    Ok(result) => Ok(result),
-                    Err(second_errors) => {
-                        first_errors.extend(second_errors);
-                        Err(first_errors)
-                    }
-                }
+                // Try again.
+                self.first_success_without_retry(func).await
             }
         }
     }
 
-    /// Run `func` on all engines, in the order in which they are defined, returning the first
-    /// successful result that is found.
+    /// Run `func` on the node.
     pub async fn first_success_without_retry<'a, F, G, H>(
         &'a self,
         func: F,
-    ) -> Result<H, Vec<EngineError>>
+    ) -> Result<H, EngineError>
     where
         F: Fn(&'a Engine<EngineApi>) -> G,
         G: Future<Output = Result<H, EngineApiError>>,
     {
-        let mut errors = vec![];
-
         let (engine_synced, engine_auth_failed) = {
             let state = self.engine.state.read().await;
             (
@@ -345,32 +294,22 @@ impl Engines {
         };
         if engine_synced {
             match func(&self.engine).await {
-                Ok(result) => return Ok(result),
+                Ok(result) => Ok(result),
                 Err(error) => {
                     debug!(
                         self.log,
                         "Execution engine call failed";
                         "error" => ?error,
-                        "id" => &&self.engine.id
                     );
                     *self.engine.state.write().await = EngineState::Offline;
-                    errors.push(EngineError::Api {
-                        id: self.engine.id.clone(),
-                        error,
-                    })
+                    Err(EngineError::Api { error })
                 }
             }
         } else if engine_auth_failed {
-            errors.push(EngineError::Auth {
-                id: self.engine.id.clone(),
-            })
+            Err(EngineError::Auth)
         } else {
-            errors.push(EngineError::Offline {
-                id: self.engine.id.clone(),
-            })
+            Err(EngineError::Offline)
         }
-
-        Err(errors)
     }
 
     /// Runs `func` on the node.
@@ -399,9 +338,7 @@ impl Engines {
     {
         let func = &func;
         if *self.engine.state.read().await == EngineState::Offline {
-            Err(EngineError::Offline {
-                id: self.engine.id.clone(),
-            })
+            Err(EngineError::Offline)
         } else {
             match func(&self.engine).await {
                 Ok(res) => Ok(res),
@@ -412,73 +349,10 @@ impl Engines {
                         "error" => ?error,
                     );
                     *self.engine.state.write().await = EngineState::Offline;
-                    Err(EngineError::Api {
-                        id: self.engine.id.clone(),
-                        error,
-                    })
+                    Err(EngineError::Api { error })
                 }
             }
         }
-    }
-}
-
-impl Builders {
-    pub async fn first_success_without_retry<'a, F, G, H>(
-        &'a self,
-        func: F,
-    ) -> Result<H, Vec<EngineError>>
-    where
-        F: Fn(&'a Engine<BuilderApi>) -> G,
-        G: Future<Output = Result<H, EngineApiError>>,
-    {
-        let mut errors = vec![];
-
-        for builder in &self.builders {
-            match func(builder).await {
-                Ok(result) => return Ok(result),
-                Err(error) => {
-                    debug!(
-                        self.log,
-                        "Builder call failed";
-                        "error" => ?error,
-                        "id" => &builder.id
-                    );
-                    errors.push(EngineError::Api {
-                        id: builder.id.clone(),
-                        error,
-                    })
-                }
-            }
-        }
-
-        Err(errors)
-    }
-
-    pub async fn broadcast_without_retry<'a, F, G, H>(
-        &'a self,
-        func: F,
-    ) -> Vec<Result<H, EngineError>>
-    where
-        F: Fn(&'a Engine<BuilderApi>) -> G,
-        G: Future<Output = Result<H, EngineApiError>>,
-    {
-        let func = &func;
-        let futures = self.builders.iter().map(|engine| async move {
-            func(engine).await.map_err(|error| {
-                debug!(
-                    self.log,
-                    "Builder call failed";
-                    "error" => ?error,
-                    "id" => &engine.id
-                );
-                EngineError::Api {
-                    id: engine.id.clone(),
-                    error,
-                }
-            })
-        });
-
-        join_all(futures).await
     }
 }
 

@@ -23,6 +23,7 @@ use std::sync::Arc;
 use tokio::sync::{mpsc, oneshot};
 use tokio::time::Duration;
 use tree_hash::TreeHash;
+use types::application_domain::ApplicationDomain;
 use types::{
     AggregateSignature, BeaconState, BitList, Domain, EthSpec, Hash256, Keypair, MainnetEthSpec,
     RelativeEpoch, SelectionProof, SignedRoot, Slot,
@@ -79,6 +80,7 @@ impl ApiTester {
                 .spec(spec.clone())
                 .deterministic_keypairs(VALIDATOR_COUNT)
                 .fresh_ephemeral_store()
+                .mock_execution_layer()
                 .build(),
         );
 
@@ -2254,6 +2256,65 @@ impl ApiTester {
         self
     }
 
+    pub async fn test_post_validator_register_validator(self) -> Self {
+        let mut registrations = vec![];
+        let mut fee_recipients = vec![];
+
+        let fork = self.chain.head_snapshot().beacon_state.fork();
+
+        for (val_index, keypair) in self.validator_keypairs().iter().enumerate() {
+            let pubkey = keypair.pk.compress();
+            let fee_recipient = Address::from_low_u64_be(val_index as u64);
+
+            let data = ValidatorRegistrationData {
+                fee_recipient,
+                gas_limit: 0,
+                timestamp: 0,
+                pubkey,
+            };
+            let domain = self.chain.spec.get_domain(
+                Epoch::new(0),
+                Domain::ApplicationMask(ApplicationDomain::Builder),
+                &fork,
+                Hash256::zero(),
+            );
+            let message = data.signing_root(domain);
+            let signature = keypair.sk.sign(message);
+
+            fee_recipients.push(fee_recipient);
+            registrations.push(SignedValidatorRegistrationData {
+                message: data,
+                signature,
+            });
+        }
+
+        self.client
+            .post_validator_register_validator(&registrations)
+            .await
+            .unwrap();
+
+        for (val_index, (_, fee_recipient)) in self
+            .chain
+            .head_snapshot()
+            .beacon_state
+            .validators()
+            .into_iter()
+            .zip(fee_recipients.into_iter())
+            .enumerate()
+        {
+            let actual = self
+                .chain
+                .execution_layer
+                .as_ref()
+                .unwrap()
+                .get_suggested_fee_recipient(val_index as u64)
+                .await;
+            assert_eq!(actual, fee_recipient);
+        }
+
+        self
+    }
+
     #[cfg(target_os = "linux")]
     pub async fn test_get_lighthouse_health(self) -> Self {
         self.client.get_lighthouse_health().await.unwrap();
@@ -3002,6 +3063,14 @@ async fn get_validator_beacon_committee_subscriptions() {
     ApiTester::new()
         .await
         .test_get_validator_beacon_committee_subscriptions()
+        .await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn post_validator_register_validator() {
+    ApiTester::new()
+        .await
+        .test_post_validator_register_validator()
         .await;
 }
 

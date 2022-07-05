@@ -929,6 +929,23 @@ impl BeaconNodeHttpClient {
         Ok(())
     }
 
+    /// `POST validator/register_validator`
+    pub async fn post_validator_register_validator(
+        &self,
+        registration_data: &[SignedValidatorRegistrationData],
+    ) -> Result<(), Error> {
+        let mut path = self.eth_path(V1)?;
+
+        path.path_segments_mut()
+            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
+            .push("validator")
+            .push("register_validator");
+
+        self.post(path, &registration_data).await?;
+
+        Ok(())
+    }
+
     /// `GET config/fork_schedule`
     pub async fn get_config_fork_schedule(&self) -> Result<GenericResponse<Vec<Fork>>, Error> {
         let mut path = self.eth_path(V1)?;
@@ -1491,7 +1508,7 @@ impl BeaconNodeHttpClient {
 
 /// Returns `Ok(response)` if the response is a `200 OK` response. Otherwise, creates an
 /// appropriate error message.
-async fn ok_or_error(response: Response) -> Result<Response, Error> {
+pub async fn ok_or_error(response: Response) -> Result<Response, Error> {
     let status = response.status();
 
     if status == StatusCode::OK {

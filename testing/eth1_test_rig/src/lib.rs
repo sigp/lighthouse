@@ -30,8 +30,8 @@ pub struct GanacheEth1Instance {
 }
 
 impl GanacheEth1Instance {
-    pub async fn new(network_id: u64, chain_id: u64) -> Result<Self, String> {
-        let ganache = GanacheInstance::new(network_id, chain_id)?;
+    pub async fn new(chain_id: u64) -> Result<Self, String> {
+        let ganache = GanacheInstance::new(chain_id)?;
         DepositContract::deploy(ganache.web3.clone(), 0, None)
             .await
             .map(|deposit_contract| Self {

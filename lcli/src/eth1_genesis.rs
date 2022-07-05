@@ -1,7 +1,7 @@
 use clap::ArgMatches;
 use environment::Environment;
 use eth2_network_config::Eth2NetworkConfig;
-use genesis::{Eth1Config, Eth1GenesisService};
+use genesis::{Eth1Config, Eth1Endpoint, Eth1GenesisService};
 use sensitive_url::SensitiveUrl;
 use ssz::Encode;
 use std::cmp::max;
@@ -35,11 +35,12 @@ pub fn run<T: EthSpec>(
 
     let mut config = Eth1Config::default();
     if let Some(v) = endpoints.clone() {
-        config.endpoints = v
+        let endpoints = v
             .iter()
             .map(|s| SensitiveUrl::parse(s))
             .collect::<Result<_, _>>()
             .map_err(|e| format!("Unable to parse eth1 endpoint URL: {:?}", e))?;
+        config.endpoints = Eth1Endpoint::NoAuth(endpoints);
     }
     config.deposit_contract_address = format!("{:?}", spec.deposit_contract_address);
     config.deposit_contract_deploy_block = eth2_network_config.deposit_contract_deploy_block;

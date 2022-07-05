@@ -4,23 +4,21 @@
 //! This crate only provides useful functionality for "The Merge", it does not provide any of the
 //! deposit-contract functionality that the `beacon_node/eth1` crate already provides.
 
-use crate::engine_api::Builder;
-use crate::engines::Builders;
-use auth::{Auth, JwtKey};
+use auth::{strip_prefix, Auth, JwtKey};
+use builder_client::BuilderHttpClient;
 use engine_api::Error as ApiError;
 pub use engine_api::*;
-pub use engine_api::{http, http::HttpJsonRpc};
+pub use engine_api::{http, http::deposit_methods, http::HttpJsonRpc};
 pub use engines::ForkChoiceState;
 use engines::{Engine, EngineError, Engines, Logging};
 use lru::LruCache;
-use payload_status::process_multiple_payload_statuses;
+use payload_status::process_payload_status;
 pub use payload_status::PayloadStatus;
 use sensitive_url::SensitiveUrl;
 use serde::{Deserialize, Serialize};
 use slog::{crit, debug, error, info, trace, warn, Logger};
 use slot_clock::SlotClock;
 use std::collections::HashMap;
-use std::convert::TryInto;
 use std::future::Future;
 use std::io::Write;
 use std::path::PathBuf;
@@ -33,7 +31,7 @@ use tokio::{
 };
 use types::{
     BlindedPayload, BlockType, ChainSpec, Epoch, ExecPayload, ExecutionBlockHash,
-    ProposerPreparationData, SignedBeaconBlock, Slot,
+    ProposerPreparationData, PublicKeyBytes, SignedBeaconBlock, Slot,
 };
 
 mod engine_api;
@@ -41,6 +39,9 @@ mod engines;
 mod metrics;
 mod payload_status;
 pub mod test_utils;
+
+/// Indicates the default jwt authenticated execution endpoint.
+pub const DEFAULT_EXECUTION_ENDPOINT: &str = "http://localhost:8551/";
 
 /// Name for the default file used for the jwt secret.
 pub const DEFAULT_JWT_FILE: &str = "jwt.hex";
@@ -66,11 +67,11 @@ pub enum Error {
     NoEngines,
     NoPayloadBuilder,
     ApiError(ApiError),
-    EngineErrors(Vec<EngineError>),
+    Builder(builder_client::Error),
+    EngineError(Box<EngineError>),
     NotSynced,
     ShuttingDown,
     FeeRecipientUnspecified,
-    ConsensusFailure,
     MissingLatestValidHash,
     InvalidJWTSecret(String),
 }
@@ -99,15 +100,16 @@ pub struct Proposer {
     payload_attributes: PayloadAttributes,
 }
 
-struct Inner {
+struct Inner<E: EthSpec> {
     engines: Engines,
-    builders: Builders,
+    builder: Option<BuilderHttpClient>,
     execution_engine_forkchoice_lock: Mutex<()>,
     suggested_fee_recipient: Option<Address>,
     proposer_preparation_data: Mutex<HashMap<u64, ProposerPreparationDataEntry>>,
     execution_blocks: Mutex<LruCache<ExecutionBlockHash, ExecutionBlock>>,
     proposers: RwLock<HashMap<ProposerKey, Proposer>>,
     executor: TaskExecutor,
+    phantom: std::marker::PhantomData<E>,
     log: Logger,
 }
 
@@ -116,7 +118,7 @@ pub struct Config {
     /// Endpoint urls for EL nodes that are running the engine api.
     pub execution_endpoints: Vec<SensitiveUrl>,
     /// Endpoint urls for services providing the builder api.
-    pub builder_endpoints: Vec<SensitiveUrl>,
+    pub builder_url: Option<SensitiveUrl>,
     /// JWT secrets for the above endpoints running the engine api.
     pub secret_files: Vec<PathBuf>,
     /// The default fee recipient to use on the beacon node if none if provided from
@@ -130,14 +132,6 @@ pub struct Config {
     pub default_datadir: PathBuf,
 }
 
-fn strip_prefix(s: &str) -> &str {
-    if let Some(stripped) = s.strip_prefix("0x") {
-        stripped
-    } else {
-        s
-    }
-}
-
 /// Provides access to one or more execution engines and provides a neat interface for consumption
 /// by the `BeaconChain`.
 ///
@@ -148,16 +142,16 @@ fn strip_prefix(s: &str) -> &str {
 ///
 /// The fallback nodes have an ordering. The first supplied will be the first contacted, and so on.
 #[derive(Clone)]
-pub struct ExecutionLayer {
-    inner: Arc<Inner>,
+pub struct ExecutionLayer<T: EthSpec> {
+    inner: Arc<Inner<T>>,
 }
 
-impl ExecutionLayer {
+impl<T: EthSpec> ExecutionLayer<T> {
     /// Instantiate `Self` with Execution engines specified using `Config`, all using the JSON-RPC via HTTP.
     pub fn from_config(config: Config, executor: TaskExecutor, log: Logger) -> Result<Self, Error> {
         let Config {
             execution_endpoints: urls,
-            builder_endpoints: builder_urls,
+            builder_url,
             secret_files,
             suggested_fee_recipient,
             jwt_id,
@@ -205,22 +199,16 @@ impl ExecutionLayer {
         }?;
 
         let engine: Engine<EngineApi> = {
-            let id = execution_url.to_string();
             let auth = Auth::new(jwt_key, jwt_id, jwt_version);
-            debug!(log, "Loaded execution endpoint"; "endpoint" => %id, "jwt_path" => ?secret_file.as_path());
+            debug!(log, "Loaded execution endpoint"; "endpoint" => %execution_url, "jwt_path" => ?secret_file.as_path());
             let api = HttpJsonRpc::<EngineApi>::new_with_auth(execution_url, auth)
                 .map_err(Error::ApiError)?;
-            Engine::<EngineApi>::new(id, api)
+            Engine::<EngineApi>::new(api)
         };
 
-        let builders: Vec<Engine<BuilderApi>> = builder_urls
-            .into_iter()
-            .map(|url| {
-                let id = url.to_string();
-                let api = HttpJsonRpc::<BuilderApi>::new(url)?;
-                Ok(Engine::<BuilderApi>::new(id, api))
-            })
-            .collect::<Result<_, ApiError>>()?;
+        let builder = builder_url
+            .map(|url| BuilderHttpClient::new(url).map_err(Error::Builder))
+            .transpose()?;
 
         let inner = Inner {
             engines: Engines {
@@ -228,16 +216,14 @@ impl ExecutionLayer {
                 latest_forkchoice_state: <_>::default(),
                 log: log.clone(),
             },
-            builders: Builders {
-                builders,
-                log: log.clone(),
-            },
+            builder,
             execution_engine_forkchoice_lock: <_>::default(),
             suggested_fee_recipient,
             proposer_preparation_data: Mutex::new(HashMap::new()),
             proposers: RwLock::new(HashMap::new()),
             execution_blocks: Mutex::new(LruCache::new(EXECUTION_BLOCKS_LRU_CACHE_SIZE)),
             executor,
+            phantom: std::marker::PhantomData,
             log,
         };
 
@@ -247,13 +233,13 @@ impl ExecutionLayer {
     }
 }
 
-impl ExecutionLayer {
+impl<T: EthSpec> ExecutionLayer<T> {
     fn engines(&self) -> &Engines {
         &self.inner.engines
     }
 
-    fn builders(&self) -> &Builders {
-        &self.inner.builders
+    pub fn builder(&self) -> &Option<BuilderHttpClient> {
+        &self.inner.builder
     }
 
     pub fn executor(&self) -> &TaskExecutor {
@@ -287,9 +273,9 @@ impl ExecutionLayer {
     }
 
     /// Convenience function to allow spawning a task without waiting for the result.
-    pub fn spawn<T, U>(&self, generate_future: T, name: &'static str)
+    pub fn spawn<F, U>(&self, generate_future: F, name: &'static str)
     where
-        T: FnOnce(Self) -> U,
+        F: FnOnce(Self) -> U,
         U: Future<Output = ()> + Send + 'static,
     {
         self.executor().spawn(generate_future(self.clone()), name);
@@ -297,12 +283,12 @@ impl ExecutionLayer {
 
     /// Spawns a routine which attempts to keep the execution engines online.
     pub fn spawn_watchdog_routine<S: SlotClock + 'static>(&self, slot_clock: S) {
-        let watchdog = |el: ExecutionLayer| async move {
+        let watchdog = |el: ExecutionLayer<T>| async move {
             // Run one task immediately.
             el.watchdog_task().await;
 
             let recurring_task =
-                |el: ExecutionLayer, now: Instant, duration_to_next_slot: Duration| async move {
+                |el: ExecutionLayer<T>, now: Instant, duration_to_next_slot: Duration| async move {
                     // We run the task three times per slot.
                     //
                     // The interval between each task is 1/3rd of the slot duration. This matches nicely
@@ -357,11 +343,8 @@ impl ExecutionLayer {
     }
 
     /// Spawns a routine which cleans the cached proposer data periodically.
-    pub fn spawn_clean_proposer_caches_routine<S: SlotClock + 'static, T: EthSpec>(
-        &self,
-        slot_clock: S,
-    ) {
-        let preparation_cleaner = |el: ExecutionLayer| async move {
+    pub fn spawn_clean_proposer_caches_routine<S: SlotClock + 'static>(&self, slot_clock: S) {
+        let preparation_cleaner = |el: ExecutionLayer<T>| async move {
             // Start the loop to periodically clean proposer preparation cache.
             loop {
                 if let Some(duration_to_next_epoch) =
@@ -375,7 +358,7 @@ impl ExecutionLayer {
                         .map(|slot| slot.epoch(T::slots_per_epoch()))
                     {
                         Some(current_epoch) => el
-                            .clean_proposer_caches::<T>(current_epoch)
+                            .clean_proposer_caches(current_epoch)
                             .await
                             .map_err(|e| {
                                 error!(
@@ -400,7 +383,7 @@ impl ExecutionLayer {
 
     /// Spawns a routine that polls the `exchange_transition_configuration` endpoint.
     pub fn spawn_transition_configuration_poll(&self, spec: ChainSpec) {
-        let routine = |el: ExecutionLayer| async move {
+        let routine = |el: ExecutionLayer<T>| async move {
             loop {
                 if let Err(e) = el.exchange_transition_configuration(&spec).await {
                     error!(
@@ -444,7 +427,7 @@ impl ExecutionLayer {
     }
 
     /// Removes expired entries from proposer_preparation_data and proposers caches
-    async fn clean_proposer_caches<T: EthSpec>(&self, current_epoch: Epoch) -> Result<(), Error> {
+    async fn clean_proposer_caches(&self, current_epoch: Epoch) -> Result<(), Error> {
         let mut proposer_preparation_data = self.proposer_preparation_data().await;
 
         // Keep all entries that have been updated in the last 2 epochs
@@ -529,104 +512,164 @@ impl ExecutionLayer {
     ///
     /// The result will be returned from the first node that returns successfully. No more nodes
     /// will be contacted.
-    pub async fn get_payload<T: EthSpec, Payload: ExecPayload<T>>(
+    #[allow(clippy::too_many_arguments)]
+    pub async fn get_payload<Payload: ExecPayload<T>>(
         &self,
         parent_hash: ExecutionBlockHash,
         timestamp: u64,
         prev_randao: Hash256,
         finalized_block_hash: ExecutionBlockHash,
         proposer_index: u64,
+        pubkey: Option<PublicKeyBytes>,
+        slot: Slot,
     ) -> Result<Payload, Error> {
-        let _timer = metrics::start_timer_vec(
-            &metrics::EXECUTION_LAYER_REQUEST_TIMES,
-            &[metrics::GET_PAYLOAD],
-        );
-
         let suggested_fee_recipient = self.get_suggested_fee_recipient(proposer_index).await;
 
         match Payload::block_type() {
             BlockType::Blinded => {
-                debug!(
-                    self.log(),
-                    "Issuing builder_getPayloadHeader";
-                    "suggested_fee_recipient" => ?suggested_fee_recipient,
-                    "prev_randao" => ?prev_randao,
-                    "timestamp" => timestamp,
-                    "parent_hash" => ?parent_hash,
+                let _timer = metrics::start_timer_vec(
+                    &metrics::EXECUTION_LAYER_REQUEST_TIMES,
+                    &[metrics::GET_BLINDED_PAYLOAD],
                 );
-                self.builders()
-                    .first_success_without_retry(|engine| async move {
-                        let payload_id = engine
-                            .get_payload_id(
-                                parent_hash,
-                                timestamp,
-                                prev_randao,
-                                suggested_fee_recipient,
-                            )
-                            .await
-                            .ok_or(ApiError::MissingPayloadId {
-                                parent_hash,
-                                timestamp,
-                                prev_randao,
-                                suggested_fee_recipient,
-                            })?;
-                        engine
-                            .api
-                            .get_payload_header_v1::<T>(payload_id)
-                            .await?
-                            .try_into()
-                            .map_err(|_| ApiError::PayloadConversionLogicFlaw)
-                    })
-                    .await
-                    .map_err(Error::EngineErrors)
+                self.get_blinded_payload(
+                    parent_hash,
+                    timestamp,
+                    prev_randao,
+                    finalized_block_hash,
+                    suggested_fee_recipient,
+                    pubkey,
+                    slot,
+                )
+                .await
             }
             BlockType::Full => {
-                debug!(
+                let _timer = metrics::start_timer_vec(
+                    &metrics::EXECUTION_LAYER_REQUEST_TIMES,
+                    &[metrics::GET_PAYLOAD],
+                );
+                self.get_full_payload(
+                    parent_hash,
+                    timestamp,
+                    prev_randao,
+                    finalized_block_hash,
+                    suggested_fee_recipient,
+                )
+                .await
+            }
+        }
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    async fn get_blinded_payload<Payload: ExecPayload<T>>(
+        &self,
+        parent_hash: ExecutionBlockHash,
+        timestamp: u64,
+        prev_randao: Hash256,
+        finalized_block_hash: ExecutionBlockHash,
+        suggested_fee_recipient: Address,
+        pubkey_opt: Option<PublicKeyBytes>,
+        slot: Slot,
+    ) -> Result<Payload, Error> {
+        //FIXME(sean) fallback logic included in PR #3134
+
+        // Don't attempt to outsource payload construction until after the merge transition has been
+        // finalized. We want to be conservative with payload construction until then.
+        if let (Some(builder), Some(pubkey)) = (self.builder(), pubkey_opt) {
+            if finalized_block_hash != ExecutionBlockHash::zero() {
+                info!(
                     self.log(),
-                    "Issuing engine_getPayload";
-                    "suggested_fee_recipient" => ?suggested_fee_recipient,
-                    "prev_randao" => ?prev_randao,
-                    "timestamp" => timestamp,
+                    "Requesting blinded header from connected builder";
+                    "slot" => ?slot,
+                    "pubkey" => ?pubkey,
                     "parent_hash" => ?parent_hash,
                 );
-                self.engines()
-                    .first_success(|engine| async move {
-                        let payload_id = if let Some(id) = engine
-                            .get_payload_id(
-                                parent_hash,
-                                timestamp,
-                                prev_randao,
-                                suggested_fee_recipient,
-                            )
-                            .await
-                        {
-                            // The payload id has been cached for this engine.
-                            metrics::inc_counter_vec(
-                                &metrics::EXECUTION_LAYER_PRE_PREPARED_PAYLOAD_ID,
-                                &[metrics::HIT],
-                            );
-                            id
-                        } else {
-                            // The payload id has *not* been cached for this engine. Trigger an artificial
-                            // fork choice update to retrieve a payload ID.
-                            //
-                            // TODO(merge): a better algorithm might try to favour a node that already had a
-                            // cached payload id, since a payload that has had more time to produce is
-                            // likely to be more profitable.
-                            metrics::inc_counter_vec(
-                                &metrics::EXECUTION_LAYER_PRE_PREPARED_PAYLOAD_ID,
-                                &[metrics::MISS],
-                            );
-                            let fork_choice_state = ForkChoiceState {
-                                head_block_hash: parent_hash,
-                                safe_block_hash: parent_hash,
-                                finalized_block_hash,
-                            };
-                            let payload_attributes = PayloadAttributes {
-                                timestamp,
-                                prev_randao,
-                                suggested_fee_recipient,
-                            };
+                return builder
+                    .get_builder_header::<T, Payload>(slot, parent_hash, &pubkey)
+                    .await
+                    .map(|d| d.data.message.header)
+                    .map_err(Error::Builder);
+            }
+        }
+        self.get_full_payload::<Payload>(
+            parent_hash,
+            timestamp,
+            prev_randao,
+            finalized_block_hash,
+            suggested_fee_recipient,
+        )
+        .await
+    }
+
+    /// Get a full payload without caching its result in the execution layer's payload cache.
+    async fn get_full_payload<Payload: ExecPayload<T>>(
+        &self,
+        parent_hash: ExecutionBlockHash,
+        timestamp: u64,
+        prev_randao: Hash256,
+        finalized_block_hash: ExecutionBlockHash,
+        suggested_fee_recipient: Address,
+    ) -> Result<Payload, Error> {
+        self.get_full_payload_with(
+            parent_hash,
+            timestamp,
+            prev_randao,
+            finalized_block_hash,
+            suggested_fee_recipient,
+            noop,
+        )
+        .await
+    }
+
+    async fn get_full_payload_with<Payload: ExecPayload<T>>(
+        &self,
+        parent_hash: ExecutionBlockHash,
+        timestamp: u64,
+        prev_randao: Hash256,
+        finalized_block_hash: ExecutionBlockHash,
+        suggested_fee_recipient: Address,
+        f: fn(&ExecutionLayer<T>, &ExecutionPayload<T>) -> Option<ExecutionPayload<T>>,
+    ) -> Result<Payload, Error> {
+        debug!(
+            self.log(),
+            "Issuing engine_getPayload";
+            "suggested_fee_recipient" => ?suggested_fee_recipient,
+            "prev_randao" => ?prev_randao,
+            "timestamp" => timestamp,
+            "parent_hash" => ?parent_hash,
+        );
+        self.engines()
+            .first_success(|engine| async move {
+                let payload_id = if let Some(id) = engine
+                    .get_payload_id(parent_hash, timestamp, prev_randao, suggested_fee_recipient)
+                    .await
+                {
+                    // The payload id has been cached for this engine.
+                    metrics::inc_counter_vec(
+                        &metrics::EXECUTION_LAYER_PRE_PREPARED_PAYLOAD_ID,
+                        &[metrics::HIT],
+                    );
+                    id
+                } else {
+                    // The payload id has *not* been cached for this engine. Trigger an artificial
+                    // fork choice update to retrieve a payload ID.
+                    //
+                    // TODO(merge): a better algorithm might try to favour a node that already had a
+                    // cached payload id, since a payload that has had more time to produce is
+                    // likely to be more profitable.
+                    metrics::inc_counter_vec(
+                        &metrics::EXECUTION_LAYER_PRE_PREPARED_PAYLOAD_ID,
+                        &[metrics::MISS],
+                    );
+                    let fork_choice_state = ForkChoiceState {
+                        head_block_hash: parent_hash,
+                        safe_block_hash: parent_hash,
+                        finalized_block_hash,
+                    };
+                    let payload_attributes = PayloadAttributes {
+                        timestamp,
+                        prev_randao,
+                        suggested_fee_recipient,
+                    };
 
                             let response = engine
                                 .notify_forkchoice_updated(
@@ -652,16 +695,20 @@ impl ExecutionLayer {
                             }
                         };
 
-                        engine
-                            .api
-                            .get_payload_v1::<T>(payload_id)
-                            .await
-                            .map(Into::into)
-                    })
+                engine
+                    .api
+                    .get_payload_v1::<T>(payload_id)
                     .await
-                    .map_err(Error::EngineErrors)
-            }
-        }
+                    .map(|full_payload| {
+                        if f(self, &full_payload).is_some() {
+                            warn!(self.log(), "Duplicate payload cached, this might indicate redundant proposal attempts.");
+                        }
+                        full_payload.into()
+                    })
+            })
+            .await
+            .map_err(Box::new)
+            .map_err(Error::EngineError)
     }
 
     /// Maps to the `engine_newPayload` JSON-RPC call.
@@ -677,7 +724,7 @@ impl ExecutionLayer {
     /// - Invalid, if any nodes return invalid.
     /// - Syncing, if any nodes return syncing.
     /// - An error, if all nodes return an error.
-    pub async fn notify_new_payload<T: EthSpec>(
+    pub async fn notify_new_payload(
         &self,
         execution_payload: &ExecutionPayload<T>,
     ) -> Result<PayloadStatus, Error> {
@@ -694,16 +741,14 @@ impl ExecutionLayer {
             "block_number" => execution_payload.block_number,
         );
 
-        let broadcast_results = self
+        let broadcast_result = self
             .engines()
             .broadcast(|engine| engine.api.new_payload_v1(execution_payload.clone()))
             .await;
 
-        process_multiple_payload_statuses(
-            execution_payload.block_hash,
-            Some(broadcast_results).into_iter(),
-            self.log(),
-        )
+        process_payload_status(execution_payload.block_hash, broadcast_result, self.log())
+            .map_err(Box::new)
+            .map_err(Error::EngineError)
     }
 
     /// Register that the given `validator_index` is going to produce a block at `slot`.
@@ -831,7 +876,7 @@ impl ExecutionLayer {
             .set_latest_forkchoice_state(forkchoice_state)
             .await;
 
-        let broadcast_results = self
+        let broadcast_result = self
             .engines()
             .broadcast(|engine| async move {
                 engine
@@ -840,26 +885,13 @@ impl ExecutionLayer {
             })
             .await;
 
-        // Only query builders with payload attributes populated.
-        let builder_broadcast_results = if payload_attributes.is_some() {
-            self.builders()
-                .broadcast_without_retry(|engine| async move {
-                    engine
-                        .notify_forkchoice_updated(forkchoice_state, payload_attributes, self.log())
-                        .await
-                })
-                .await
-        } else {
-            vec![]
-        };
-        process_multiple_payload_statuses(
+        process_payload_status(
             head_block_hash,
-            Some(broadcast_results)
-                .into_iter()
-                .chain(builder_broadcast_results.into_iter())
-                .map(|result| result.map(|response| response.payload_status)),
+            broadcast_result.map(|response| response.payload_status),
             self.log(),
         )
+        .map_err(Box::new)
+        .map_err(Error::EngineError)
     }
 
     pub async fn exchange_transition_configuration(&self, spec: &ChainSpec) -> Result<(), Error> {
@@ -874,9 +906,6 @@ impl ExecutionLayer {
             .broadcast(|engine| engine.api.exchange_transition_configuration_v1(local))
             .await;
 
-        let mut errors = vec![];
-        // Having no fallbacks, the id of the used node is 0
-        let i = 0usize;
         match broadcast_result {
             Ok(remote) => {
                 if local.terminal_total_difficulty != remote.terminal_total_difficulty
@@ -887,20 +916,18 @@ impl ExecutionLayer {
                         "Execution client config mismatch";
                         "msg" => "ensure lighthouse and the execution client are up-to-date and \
                                   configured consistently",
-                        "execution_endpoint" => i,
                         "remote" => ?remote,
                         "local" => ?local,
                     );
-                    errors.push(EngineError::Api {
-                        id: i.to_string(),
+                    Err(Error::EngineError(Box::new(EngineError::Api {
                         error: ApiError::TransitionConfigurationMismatch,
-                    });
+                    })))
                 } else {
                     debug!(
                         self.log(),
                         "Execution client config is OK";
-                        "execution_endpoint" => i
                     );
+                    Ok(())
                 }
             }
             Err(e) => {
@@ -908,16 +935,9 @@ impl ExecutionLayer {
                     self.log(),
                     "Unable to get transition config";
                     "error" => ?e,
-                    "execution_endpoint" => i,
                 );
-                errors.push(e);
+                Err(Error::EngineError(Box::new(e)))
             }
-        }
-
-        if errors.is_empty() {
-            Ok(())
-        } else {
-            Err(Error::EngineErrors(errors))
         }
     }
 
@@ -957,7 +977,8 @@ impl ExecutionLayer {
                     .await
             })
             .await
-            .map_err(Error::EngineErrors)?;
+            .map_err(Box::new)
+            .map_err(Error::EngineError)?;
 
         if let Some(hash) = &hash_opt {
             info!(
@@ -1067,7 +1088,8 @@ impl ExecutionLayer {
                 Ok(None)
             })
             .await
-            .map_err(|e| Error::EngineErrors(vec![e]))
+            .map_err(Box::new)
+            .map_err(Error::EngineError)
     }
 
     /// This function should remain internal.
@@ -1115,7 +1137,7 @@ impl ExecutionLayer {
         }
     }
 
-    pub async fn get_payload_by_block_hash<T: EthSpec>(
+    pub async fn get_payload_by_block_hash(
         &self,
         hash: ExecutionBlockHash,
     ) -> Result<Option<ExecutionPayload<T>>, Error> {
@@ -1125,10 +1147,11 @@ impl ExecutionLayer {
                     .await
             })
             .await
-            .map_err(Error::EngineErrors)
+            .map_err(Box::new)
+            .map_err(Error::EngineError)
     }
 
-    async fn get_payload_by_block_hash_from_engine<T: EthSpec>(
+    async fn get_payload_by_block_hash_from_engine(
         &self,
         engine: &Engine<EngineApi>,
         hash: ExecutionBlockHash,
@@ -1173,21 +1196,24 @@ impl ExecutionLayer {
         }))
     }
 
-    pub async fn propose_blinded_beacon_block<T: EthSpec>(
+    pub async fn propose_blinded_beacon_block(
         &self,
         block: &SignedBeaconBlock<T, BlindedPayload<T>>,
     ) -> Result<ExecutionPayload<T>, Error> {
         debug!(
             self.log(),
-            "Issuing builder_proposeBlindedBlock";
+            "Sending block to builder";
             "root" => ?block.canonical_root(),
         );
-        self.builders()
-            .first_success_without_retry(|engine| async move {
-                engine.api.propose_blinded_block_v1(block.clone()).await
-            })
-            .await
-            .map_err(Error::EngineErrors)
+        if let Some(builder) = self.builder() {
+            builder
+                .post_builder_blinded_blocks(block)
+                .await
+                .map_err(Error::Builder)
+                .map(|d| d.data)
+        } else {
+            Err(Error::NoPayloadBuilder)
+        }
     }
 }
 
@@ -1287,4 +1313,8 @@ mod test {
             })
             .await;
     }
+}
+
+fn noop<T: EthSpec>(_: &ExecutionLayer<T>, _: &ExecutionPayload<T>) -> Option<ExecutionPayload<T>> {
+    None
 }
