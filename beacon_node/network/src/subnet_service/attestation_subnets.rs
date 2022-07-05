@@ -184,25 +184,24 @@ impl<T: BeaconChainTypes> AttestationService<T> {
 
     #[cfg(feature = "deterministic_long_lived_attnets")]
     fn recompute_long_lived_subnets(&mut self) {
-        let time_to_next_epoch = self
-            .beacon_chain
-            .slot_clock
-            .duration_to_next_epoch(T::EthSpec::slots_per_epoch())
-            .unwrap_or_else(|| {
-                error!(
-                    self.log,
-                    "Failed to get duration to next epoch for long lived subnet subscription"
-                );
-                self.beacon_chain.slot_clock.slot_duration()
-            });
+        if self.recompute_long_lived_subnets_inner().is_err() {
+            // On failure, try again in the next slot
+            let time_to_next_slot = self
+                .beacon_chain
+                .slot_clock
+                .duration_to_next_slot(T::EthSpec::slots_per_epoch())
+                .unwrap_or_else(|| {
+                    error!(
+                        self.log,
+                        "Failed to get duration to next epoch for long lived subnet subscription"
+                    );
+                    self.beacon_chain.slot_clock.slot_duration()
+                });
 
-        let time_to_next_subscription = match self.recompute_long_lived_subnets_inner() {
-            Ok(_) => time_to_next_epoch,
-            Err(_) => time_to_next_epoch.min(self.beacon_chain.slot_clock.slot_duration()),
+            self.next_long_lived_subscription_event =
+                Box::pin(tokio::time::sleep(time_to_next_slot));
         };
 
-        self.next_long_lived_subscription_event =
-            Box::pin(tokio::time::sleep(time_to_next_subscription));
         if let Some(waker) = self.waker.as_ref() {
             waker.wake_by_ref();
         }
