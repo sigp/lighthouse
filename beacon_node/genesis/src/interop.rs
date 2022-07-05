@@ -3,14 +3,9 @@ use eth2_hashing::hash;
 use rayon::prelude::*;
 use ssz::Encode;
 use state_processing::initialize_beacon_state_from_eth1;
-use state_processing::{
-    process_activations,
-    upgrade::{upgrade_to_altair, upgrade_to_bellatrix},
-};
-use std::str::FromStr;
 use types::{
-    BeaconState, ChainSpec, DepositData, Eth1Data, EthSpec, ExecutionPayloadHeader, Hash256,
-    Keypair, PublicKey, Signature, Validator,
+    BeaconState, ChainSpec, DepositData, EthSpec, ExecutionPayloadHeader, Hash256, Keypair,
+    PublicKey, Signature,
 };
 
 pub const DEFAULT_ETH1_BLOCK_HASH: &[u8] = &[0x42; 32];
@@ -66,93 +61,6 @@ pub fn interop_genesis_state<T: EthSpec>(
     state
         .drop_all_caches()
         .map_err(|e| format!("Unable to drop caches: {:?}", e))?;
-
-    Ok(state)
-}
-
-/// Initialize a BeaconState with the given validators activated.
-/// This gives us the advantage of not requiring to perform deposits for
-/// these set of validators.
-///
-/// TODO(pawan): improve docs
-pub fn _initialize_state_with_validators<T: EthSpec>(
-    keypairs: &[Keypair],
-    genesis_time: u64,
-    eth1_block_hash: Hash256,
-    execution_payload_header: Option<ExecutionPayloadHeader<T>>,
-    spec: &ChainSpec,
-) -> Result<BeaconState<T>, String> {
-    // Empty eth1 data
-    let eth1_data = Eth1Data {
-        block_hash: eth1_block_hash,
-        deposit_count: 0,
-        deposit_root: Hash256::from_str(
-            "0xd70a234731285c6804c2a4f56711ddb8c82c99740f207854891028af34e27e5e",
-        )
-        .unwrap(), // empty deposit tree root
-    };
-    let mut state = BeaconState::new(genesis_time, eth1_data, spec);
-
-    // Seed RANDAO with Eth1 entropy
-    state.fill_randao_mixes_with(eth1_block_hash);
-
-    for keypair in keypairs.iter() {
-        let withdrawal_credentials = |pubkey: &PublicKey| {
-            let mut credentials = hash(&pubkey.as_ssz_bytes());
-            credentials[0] = spec.bls_withdrawal_prefix_byte;
-            Hash256::from_slice(&credentials)
-        };
-        let amount = spec.max_effective_balance;
-        // Create a new validator.
-        let validator = Validator {
-            pubkey: keypair.pk.clone().into(),
-            withdrawal_credentials: withdrawal_credentials(&keypair.pk),
-            activation_eligibility_epoch: spec.far_future_epoch,
-            activation_epoch: spec.far_future_epoch,
-            exit_epoch: spec.far_future_epoch,
-            withdrawable_epoch: spec.far_future_epoch,
-            effective_balance: std::cmp::min(
-                amount - amount % (spec.effective_balance_increment),
-                spec.max_effective_balance,
-            ),
-            slashed: false,
-        };
-        state.validators_mut().push(validator).unwrap();
-        state.balances_mut().push(amount).unwrap();
-    }
-
-    process_activations(&mut state, spec).unwrap();
-
-    if spec
-        .altair_fork_epoch
-        .map_or(false, |fork_epoch| fork_epoch == T::genesis_epoch())
-    {
-        upgrade_to_altair(&mut state, spec).unwrap();
-
-        state.fork_mut().previous_version = spec.altair_fork_version;
-    }
-
-    // Similarly, perform an upgrade to the merge if configured from genesis.
-    if spec
-        .bellatrix_fork_epoch
-        .map_or(false, |fork_epoch| fork_epoch == T::genesis_epoch())
-    {
-        upgrade_to_bellatrix(&mut state, spec).unwrap();
-
-        // Remove intermediate Altair fork from `state.fork`.
-        state.fork_mut().previous_version = spec.bellatrix_fork_version;
-
-        // Override latest execution payload header.
-        // See https://github.com/ethereum/consensus-specs/blob/v1.1.0/specs/merge/beacon-chain.md#testing
-        *state.latest_execution_payload_header_mut().unwrap() =
-            execution_payload_header.unwrap_or_default();
-    }
-
-    // Now that we have our validators, initialize the caches (including the committees)
-    state.build_all_caches(spec).unwrap();
-
-    // Set genesis validators root for domain separation and chain versioning
-    *state.genesis_validators_root_mut() = state.update_validators_tree_hash_cache().unwrap();
 
     Ok(state)
 }
