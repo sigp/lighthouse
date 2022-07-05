@@ -127,16 +127,15 @@ pub enum DynamicImpl {
 // Runtime latch for detecting the availability of SHA extensions on x86_64.
 //
 // Inspired by the runtime switch within the `sha2` crate itself.
-#[cfg(all(feature = "cpufeatures", target_arch = "x86_64"))]
+#[cfg(all(feature = "detect-cpufeatures", target_arch = "x86_64"))]
 cpufeatures::new!(x86_sha_extensions, "sha", "sse2", "ssse3", "sse4.1");
 
 #[inline(always)]
 pub fn have_sha_extensions() -> bool {
-    #[cfg(all(feature = "cpufeatures", target_arch = "x86_64"))]
+    #[cfg(all(feature = "detect-cpufeatures", target_arch = "x86_64"))]
     return x86_sha_extensions::get();
 
-    #[cfg(not(target_arch = "x86_64"))]
-    return false;
+    false
 }
 
 impl DynamicImpl {
