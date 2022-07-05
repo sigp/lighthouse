@@ -22,7 +22,7 @@ pub fn info<T: BeaconChainTypes>(
 
 pub fn historical_blocks<T: BeaconChainTypes>(
     chain: Arc<BeaconChain<T>>,
-    blocks: Vec<SignedBlindedBeaconBlock<T::EthSpec>>,
+    blocks: Vec<Arc<SignedBlindedBeaconBlock<T::EthSpec>>>,
 ) -> Result<AnchorInfo, warp::Rejection> {
     chain
         .import_historical_block_batch(blocks)

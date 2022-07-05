@@ -216,14 +216,7 @@ impl<T: BeaconChainTypes> SlasherService<T> {
             };
 
             // Add to local op pool.
-            if let Err(e) = beacon_chain.import_attester_slashing(verified_slashing) {
-                error!(
-                    log,
-                    "Beacon chain refused attester slashing";
-                    "error" => ?e,
-                    "slashing" => ?slashing,
-                );
-            }
+            beacon_chain.import_attester_slashing(verified_slashing);
 
             // Publish to the network if broadcast is enabled.
             if slasher.config().broadcast {

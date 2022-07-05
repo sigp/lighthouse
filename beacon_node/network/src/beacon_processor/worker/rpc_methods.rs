@@ -9,6 +9,7 @@ use lighthouse_network::rpc::*;
 use lighthouse_network::{PeerId, PeerRequestId, ReportSource, Response, SyncInfo};
 use slog::{debug, error};
 use slot_clock::SlotClock;
+use std::sync::Arc;
 use task_executor::TaskExecutor;
 use types::{Epoch, EthSpec, Hash256, Slot};
 
@@ -62,7 +63,7 @@ impl<T: BeaconChainTypes> Worker<T> {
         &self,
         remote: &StatusMessage,
     ) -> Result<Option<String>, BeaconChainError> {
-        let local = self.chain.status_message()?;
+        let local = self.chain.status_message();
         let start_slot = |epoch: Epoch| epoch.start_slot(T::EthSpec::slots_per_epoch());
 
         let irrelevant_reason = if local.fork_digest != remote.fork_digest {
@@ -143,7 +144,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                         Ok(Some(block)) => {
                             self.send_response(
                                 peer_id,
-                                Response::BlocksByRoot(Some(Box::new(block))),
+                                Response::BlocksByRoot(Some(block)),
                                 request_id,
                             );
                             send_block_count += 1;
@@ -266,7 +267,7 @@ impl<T: BeaconChainTypes> Worker<T> {
                                 blocks_sent += 1;
                                 self.send_network_message(NetworkMessage::SendResponse {
                                     peer_id,
-                                    response: Response::BlocksByRange(Some(Box::new(block))),
+                                    response: Response::BlocksByRange(Some(Arc::new(block))),
                                     id: request_id,
                                 });
                             }
