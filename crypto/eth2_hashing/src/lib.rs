@@ -135,7 +135,8 @@ pub fn have_sha_extensions() -> bool {
     #[cfg(all(feature = "detect-cpufeatures", target_arch = "x86_64"))]
     return x86_sha_extensions::get();
 
-    false
+    #[cfg(not(all(feature = "detect-cpufeatures", target_arch = "x86_64")))]
+    return false;
 }
 
 impl DynamicImpl {
