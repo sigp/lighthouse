@@ -239,11 +239,8 @@ impl<E: EthSpec> LocalNetwork<E> {
         let execution_nodes = self.execution_nodes.read();
         for execution_node in execution_nodes.iter() {
             let mut block_gen = execution_node.server.ctx.execution_block_generator.write();
-            if let Err(e) = block_gen.insert_pow_block(block_number) {
-                dbg!(e);
-            } else {
-                println!("Successfully inserted pow block {}", block_number);
-            }
+            block_gen.insert_pow_block(block_number)?;
+            println!("Mined pow block {}", block_number);
         }
         Ok(())
     }

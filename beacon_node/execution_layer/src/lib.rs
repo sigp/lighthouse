@@ -1067,7 +1067,6 @@ impl<T: EthSpec> ExecutionLayer<T> {
         self.execution_blocks().await.put(block.block_hash, block);
 
         loop {
-            dbg!(block.total_difficulty, spec.terminal_total_difficulty);
             let block_reached_ttd = block.total_difficulty >= spec.terminal_total_difficulty;
             if block_reached_ttd {
                 if block.parent_hash == ExecutionBlockHash::zero() {
