@@ -2,7 +2,7 @@
 use crate::beacon_chain::BeaconChainTypes;
 use crate::beacon_fork_choice_store::{PersistedForkChoiceStoreV1, PersistedForkChoiceStoreV7};
 use crate::persisted_fork_choice::{PersistedForkChoiceV1, PersistedForkChoiceV7};
-use crate::schema_change::types::{ProtoNodeV6, SszContainerV6, SszContainerV7};
+use crate::schema_change::types::{ProtoNodeV6, SszContainerV10, SszContainerV6, SszContainerV7};
 use crate::types::{ChainSpec, Checkpoint, Epoch, EthSpec, Hash256, Slot};
 use crate::{BeaconForkChoiceStore, BeaconSnapshot};
 use fork_choice::ForkChoice;

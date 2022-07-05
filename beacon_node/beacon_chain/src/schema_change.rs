@@ -7,7 +7,9 @@ mod migration_schema_v9;
 mod types;
 
 use crate::beacon_chain::{BeaconChainTypes, FORK_CHOICE_DB_KEY};
-use crate::persisted_fork_choice::{PersistedForkChoiceV1, PersistedForkChoiceV7};
+use crate::persisted_fork_choice::{
+    PersistedForkChoiceV1, PersistedForkChoiceV10, PersistedForkChoiceV7, PersistedForkChoiceV8,
+};
 use crate::types::ChainSpec;
 use slog::{warn, Logger};
 use std::path::Path;

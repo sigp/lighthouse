@@ -320,7 +320,7 @@ where
         // If the current slot is not provided, use the value that was last provided to the store.
         let current_slot = current_slot.unwrap_or_else(|| fc_store.get_current_slot());
 
-        let proto_array = ProtoArrayForkChoice::new(
+        let proto_array = ProtoArrayForkChoice::new::<E>(
             finalized_block_slot,
             finalized_block_state_root,
             *fc_store.justified_checkpoint(),

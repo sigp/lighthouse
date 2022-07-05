@@ -1267,7 +1267,7 @@ where
         assert_ne!(slot, 0, "can't produce a block at slot 0");
         assert!(slot >= state.slot());
 
-        let (block, state) = self.make_block_return_pre_state(state, slot).await;
+        let (block, pre_state) = self.make_block_return_pre_state(state, slot).await;
         let (mut block, _) = block.deconstruct();
 
         let mut state = pre_state.clone();
