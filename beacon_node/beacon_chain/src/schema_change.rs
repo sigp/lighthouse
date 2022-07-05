@@ -8,7 +8,7 @@ mod types;
 
 use crate::beacon_chain::{BeaconChainTypes, FORK_CHOICE_DB_KEY};
 use crate::persisted_fork_choice::{
-    PersistedForkChoiceV1, PersistedForkChoiceV7, PersistedForkChoiceV8,
+    PersistedForkChoiceV1, PersistedForkChoiceV10, PersistedForkChoiceV7, PersistedForkChoiceV8,
 };
 use crate::types::ChainSpec;
 use slog::{warn, Logger};
@@ -138,6 +138,19 @@ pub fn migrate_schema<T: BeaconChainTypes>(
             let fork_choice_opt = db.get_item::<PersistedForkChoiceV8>(&FORK_CHOICE_DB_KEY)?;
             if let Some(fork_choice) = fork_choice_opt {
                 let updated_fork_choice = migration_schema_v10::update_fork_choice(fork_choice)?;
+
+                ops.push(updated_fork_choice.as_kv_store_op(FORK_CHOICE_DB_KEY));
+            }
+
+            db.store_schema_version_atomically(to, ops)?;
+
+            Ok(())
+        }
+        (SchemaVersion(10), SchemaVersion(9)) => {
+            let mut ops = vec![];
+            let fork_choice_opt = db.get_item::<PersistedForkChoiceV10>(&FORK_CHOICE_DB_KEY)?;
+            if let Some(fork_choice) = fork_choice_opt {
+                let updated_fork_choice = migration_schema_v10::downgrade_fork_choice(fork_choice)?;
 
                 ops.push(updated_fork_choice.as_kv_store_op(FORK_CHOICE_DB_KEY));
             }

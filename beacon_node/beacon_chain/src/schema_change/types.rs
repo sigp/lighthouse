@@ -116,6 +116,26 @@ impl Into<ProtoNodeV10> for ProtoNodeV7 {
     }
 }
 
+impl Into<ProtoNodeV7> for ProtoNodeV10 {
+    fn into(self) -> ProtoNodeV7 {
+        ProtoNodeV7 {
+            slot: self.slot,
+            state_root: self.state_root,
+            target_root: self.target_root,
+            current_epoch_shuffling_id: self.current_epoch_shuffling_id,
+            next_epoch_shuffling_id: self.next_epoch_shuffling_id,
+            root: self.root,
+            parent: self.parent,
+            justified_checkpoint: self.justified_checkpoint,
+            finalized_checkpoint: self.finalized_checkpoint,
+            weight: self.weight,
+            best_child: self.best_child,
+            best_descendant: self.best_descendant,
+            execution_status: self.execution_status,
+        }
+    }
+}
+
 impl Into<ProtoNode> for ProtoNodeV10 {
     fn into(self) -> ProtoNode {
         ProtoNode {
@@ -231,6 +251,23 @@ impl Into<SszContainerV10> for SszContainerV7 {
         let nodes = self.nodes.into_iter().map(Into::into).collect();
 
         SszContainerV10 {
+            votes: self.votes,
+            balances: self.balances,
+            prune_threshold: self.prune_threshold,
+            justified_checkpoint: self.justified_checkpoint,
+            finalized_checkpoint: self.finalized_checkpoint,
+            nodes,
+            indices: self.indices,
+            previous_proposer_boost: self.previous_proposer_boost,
+        }
+    }
+}
+
+impl Into<SszContainerV7> for SszContainerV10 {
+    fn into(self) -> SszContainerV7 {
+        let nodes = self.nodes.into_iter().map(Into::into).collect();
+
+        SszContainerV7 {
             votes: self.votes,
             balances: self.balances,
             prune_threshold: self.prune_threshold,
