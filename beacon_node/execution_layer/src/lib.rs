@@ -10,7 +10,7 @@ use engine_api::Error as ApiError;
 pub use engine_api::*;
 pub use engine_api::{http, http::deposit_methods, http::HttpJsonRpc};
 pub use engines::ForkChoiceState;
-use engines::{Engine, EngineError, Engines, Logging};
+use engines::{Engine, EngineError, Logging};
 use lru::LruCache;
 use payload_status::process_payload_status;
 pub use payload_status::PayloadStatus;
@@ -64,7 +64,7 @@ const CONFIG_POLL_INTERVAL: Duration = Duration::from_secs(60);
 
 #[derive(Debug)]
 pub enum Error {
-    NoEngines,
+    NoEngine,
     NoPayloadBuilder,
     ApiError(ApiError),
     Builder(builder_client::Error),
@@ -101,7 +101,7 @@ pub struct Proposer {
 }
 
 struct Inner<E: EthSpec> {
-    engines: Engines,
+    engine: Engine,
     builder: Option<BuilderHttpClient>,
     execution_engine_forkchoice_lock: Mutex<()>,
     suggested_fee_recipient: Option<Address>,
@@ -162,7 +162,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
         if urls.len() > 1 {
             warn!(log, "Only the first execution engine url will be used");
         }
-        let execution_url = urls.into_iter().next().ok_or(Error::NoEngines)?;
+        let execution_url = urls.into_iter().next().ok_or(Error::NoEngine)?;
 
         // Use the default jwt secret path if not provided via cli.
         let secret_file = secret_files
@@ -198,12 +198,11 @@ impl<T: EthSpec> ExecutionLayer<T> {
                 .map_err(Error::InvalidJWTSecret)
         }?;
 
-        let engine: Engine<EngineApi> = {
+        let engine: Engine = {
             let auth = Auth::new(jwt_key, jwt_id, jwt_version);
             debug!(log, "Loaded execution endpoint"; "endpoint" => %execution_url, "jwt_path" => ?secret_file.as_path());
-            let api = HttpJsonRpc::<EngineApi>::new_with_auth(execution_url, auth)
-                .map_err(Error::ApiError)?;
-            Engine::<EngineApi>::new(api)
+            let api = HttpJsonRpc::new_with_auth(execution_url, auth).map_err(Error::ApiError)?;
+            Engine::new(api, &log)
         };
 
         let builder = builder_url
@@ -211,11 +210,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
             .transpose()?;
 
         let inner = Inner {
-            engines: Engines {
-                engine,
-                latest_forkchoice_state: <_>::default(),
-                log: log.clone(),
-            },
+            engine,
             builder,
             execution_engine_forkchoice_lock: <_>::default(),
             suggested_fee_recipient,
@@ -234,8 +229,8 @@ impl<T: EthSpec> ExecutionLayer<T> {
 }
 
 impl<T: EthSpec> ExecutionLayer<T> {
-    fn engines(&self) -> &Engines {
-        &self.inner.engines
+    fn engines(&self) -> &Engine {
+        &self.inner.engine
     }
 
     pub fn builder(&self) -> &Option<BuilderHttpClient> {
@@ -1004,7 +999,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
     /// https://github.com/ethereum/consensus-specs/blob/v1.1.5/specs/merge/validator.md
     async fn get_pow_block_hash_at_total_difficulty(
         &self,
-        engine: &Engine<EngineApi>,
+        engine: &Engine,
         spec: &ChainSpec,
     ) -> Result<Option<ExecutionBlockHash>, ApiError> {
         let mut block = engine
@@ -1118,7 +1113,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
     /// https://github.com/ethereum/consensus-specs/issues/2636
     async fn get_pow_block(
         &self,
-        engine: &Engine<EngineApi>,
+        engine: &Engine,
         hash: ExecutionBlockHash,
     ) -> Result<Option<ExecutionBlock>, ApiError> {
         if let Some(cached) = self.execution_blocks().await.get(&hash).copied() {
@@ -1153,7 +1148,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
 
     async fn get_payload_by_block_hash_from_engine(
         &self,
-        engine: &Engine<EngineApi>,
+        engine: &Engine,
         hash: ExecutionBlockHash,
     ) -> Result<Option<ExecutionPayload<T>>, ApiError> {
         let _timer = metrics::start_timer(&metrics::EXECUTION_LAYER_GET_PAYLOAD_BY_BLOCK_HASH);
