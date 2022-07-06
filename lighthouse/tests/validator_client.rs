@@ -249,66 +249,6 @@ fn fee_recipient_flag() {
             )
         });
 }
-#[test]
-fn fee_recipient_file_flag() {
-    let dir = TempDir::new().expect("Unable to create temporary directory");
-    let mut file =
-        File::create(dir.path().join("fee_recipient.txt")).expect("Unable to create file");
-    let new_key = Keypair::random();
-    let pubkeybytes = PublicKeyBytes::from(new_key.pk);
-    let contents = "default:0x00000000219ab540356cbb839cbe05303d7705fa";
-    file.write_all(contents.as_bytes())
-        .expect("Unable to write to file");
-    CommandLineTest::new()
-        .flag(
-            "suggested-fee-recipient-file",
-            dir.path().join("fee_recipient.txt").as_os_str().to_str(),
-        )
-        .run()
-        .with_config(|config| {
-            // Public key not present so load default.
-            assert_eq!(
-                config
-                    .fee_recipient_file
-                    .clone()
-                    .unwrap()
-                    .load_fee_recipient(&pubkeybytes)
-                    .unwrap(),
-                Some(Address::from_str("0x00000000219ab540356cbb839cbe05303d7705fa").unwrap())
-            )
-        });
-}
-#[test]
-fn fee_recipient_file_with_pk_flag() {
-    let dir = TempDir::new().expect("Unable to create temporary directory");
-    let mut file =
-        File::create(dir.path().join("fee_recipient.txt")).expect("Unable to create file");
-    let new_key = Keypair::random();
-    let pubkeybytes = PublicKeyBytes::from(new_key.pk);
-    let contents = format!(
-        "{}:0x00000000219ab540356cbb839cbe05303d7705fa",
-        pubkeybytes.to_string()
-    );
-    file.write_all(contents.as_bytes())
-        .expect("Unable to write to file");
-    CommandLineTest::new()
-        .flag(
-            "suggested-fee-recipient-file",
-            dir.path().join("fee_recipient.txt").as_os_str().to_str(),
-        )
-        .run()
-        .with_config(|config| {
-            assert_eq!(
-                config
-                    .fee_recipient_file
-                    .clone()
-                    .unwrap()
-                    .load_fee_recipient(&pubkeybytes)
-                    .unwrap(),
-                Some(Address::from_str("0x00000000219ab540356cbb839cbe05303d7705fa").unwrap())
-            )
-        });
-}
 
 // Tests for HTTP flags.
 #[test]
