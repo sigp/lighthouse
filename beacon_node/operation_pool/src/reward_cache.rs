@@ -1,7 +1,7 @@
 use crate::OpPoolError;
+use bitvec::vec::BitVec;
 use std::collections::HashMap;
 use types::{BeaconState, BeaconStateError, Epoch, EthSpec, Hash256, ParticipationFlags};
-use bitvec::vec::BitVec;
 
 #[derive(Debug, Clone)]
 struct Initialization {

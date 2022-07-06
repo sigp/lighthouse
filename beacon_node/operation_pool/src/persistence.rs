@@ -1,6 +1,6 @@
 use crate::attestation_id::AttestationId;
-use crate::sync_aggregate_id::SyncAggregateId;
 use crate::attestation_storage::AttestationMap;
+use crate::sync_aggregate_id::SyncAggregateId;
 use crate::OpPoolError;
 use crate::OperationPool;
 use derivative::Derivative;
