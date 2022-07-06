@@ -5,7 +5,6 @@ mod check_synced;
 mod cli;
 mod config;
 mod duties_service;
-mod fee_recipient_file;
 mod graffiti_file;
 mod http_metrics;
 mod key_cache;
@@ -360,6 +359,7 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
             context.eth2_config.spec.clone(),
             doppelganger_service.clone(),
             slot_clock.clone(),
+            config.fee_recipient,
             context.executor.clone(),
             log.clone(),
         ));
@@ -426,8 +426,6 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
             .validator_store(validator_store.clone())
             .beacon_nodes(beacon_nodes.clone())
             .runtime_context(context.service_context("preparation".into()))
-            .fee_recipient(config.fee_recipient)
-            .fee_recipient_file(config.fee_recipient_file.clone())
             .build()?;
 
         let sync_committee_service = SyncCommitteeService::new(

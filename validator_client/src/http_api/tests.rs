@@ -36,6 +36,7 @@ use tokio::runtime::Runtime;
 use tokio::sync::oneshot;
 
 const PASSWORD_BYTES: &[u8] = &[42, 50, 37];
+pub const TEST_DEFAULT_FEE_RECIPIENT: Address = Address::repeat_byte(42);
 
 type E = MainnetEthSpec;
 
@@ -102,6 +103,7 @@ impl ApiTester {
             spec,
             Some(Arc::new(DoppelgangerService::new(log.clone()))),
             slot_clock,
+            Some(TEST_DEFAULT_FEE_RECIPIENT),
             executor.clone(),
             log.clone(),
         ));
@@ -185,7 +187,7 @@ impl ApiTester {
         missing_token_client.send_authorization_header(false);
         match func(missing_token_client).await {
             Err(ApiError::ServerMessage(ApiErrorMessage {
-                code: 400, message, ..
+                code: 401, message, ..
             })) if message.contains("missing Authorization header") => (),
             Err(other) => panic!("expected missing header error, got {:?}", other),
             Ok(_) => panic!("expected missing header error, got Ok"),
