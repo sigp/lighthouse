@@ -1856,28 +1856,22 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     /// Accepts a `VerifiedAttestation` and attempts to apply it to `self.op_pool`.
     ///
     /// The op pool is used by local block producers to pack blocks with operations.
-    pub fn add_to_block_inclusion_pool(
+    pub fn add_to_block_inclusion_pool<A>(
         &self,
-        verified_attestation: &impl VerifiedAttestation<T>,
-    ) -> Result<(), AttestationError> {
+        verified_attestation: A,
+    ) -> Result<(), AttestationError>
+    where
+        A: VerifiedAttestation<T>,
+    {
         let _timer = metrics::start_timer(&metrics::ATTESTATION_PROCESSING_APPLY_TO_OP_POOL);
 
         // If there's no eth1 chain then it's impossible to produce blocks and therefore
         // useless to put things in the op pool.
         if self.eth1_chain.is_some() {
-            let fork = self.canonical_head.cached_head().head_fork();
-
-            // TODO: address these clones.
-            let attesting_indices = verified_attestation
-                .indexed_attestation()
-                .attesting_indices
-                .clone()
-                .into();
+            let (attestation, attesting_indices) =
+                verified_attestation.into_attestation_and_indices();
             self.op_pool
-                .insert_attestation(
-                    verified_attestation.attestation().clone(),
-                    attesting_indices,
-                )
+                .insert_attestation(attestation, attesting_indices)
                 .map_err(Error::from)?;
         }
 

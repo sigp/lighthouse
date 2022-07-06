@@ -1411,7 +1411,7 @@ where
             self.chain
                 .apply_attestation_to_fork_choice(&verified)
                 .unwrap();
-            self.chain.add_to_block_inclusion_pool(&verified).unwrap();
+            self.chain.add_to_block_inclusion_pool(verified).unwrap();
         }
     }
 

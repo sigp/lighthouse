@@ -2271,12 +2271,13 @@ pub fn serve<T: BeaconChainTypes>(
                                 );
                             failures.push(api_types::Failure::new(index, format!("Fork choice: {:?}", e)));
                         }
-                        if let Err(e) = chain.add_to_block_inclusion_pool(&verified_aggregate) {
-                            warn!(log,
-                                    "Could not add verified aggregate attestation to the inclusion pool";
-                                    "error" => format!("{:?}", e),
-                                    "request_index" => index,
-                                );
+                        if let Err(e) = chain.add_to_block_inclusion_pool(verified_aggregate) {
+                            warn!(
+                                log,
+                                "Could not add verified aggregate attestation to the inclusion pool";
+                                "error" => ?e,
+                                "request_index" => index,
+                            );
                             failures.push(api_types::Failure::new(index, format!("Op pool: {:?}", e)));
                         }
                     }
