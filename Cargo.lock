@@ -4162,6 +4162,7 @@ name = "operation_pool"
 version = "0.2.0"
 dependencies = [
  "beacon_chain",
+ "bitvec 1.0.0",
  "derivative",
  "eth2_ssz",
  "eth2_ssz_derive",

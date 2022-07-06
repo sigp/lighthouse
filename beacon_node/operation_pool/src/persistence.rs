@@ -1,5 +1,6 @@
 use crate::attestation_id::AttestationId;
 use crate::sync_aggregate_id::SyncAggregateId;
+use crate::attestation_storage::AttestationMap;
 use crate::OpPoolError;
 use crate::OperationPool;
 use derivative::Derivative;
@@ -48,12 +49,15 @@ pub struct PersistedOperationPool<T: EthSpec> {
 impl<T: EthSpec> PersistedOperationPool<T> {
     /// Convert an `OperationPool` into serializable form.
     pub fn from_operation_pool(operation_pool: &OperationPool<T>) -> Self {
+        /* FIXME(sproul): fix persistence
         let attestations = operation_pool
             .attestations
             .read()
             .iter()
             .map(|(att_id, att)| (att_id.clone(), att.clone()))
             .collect();
+        */
+        let attestations = vec![];
 
         let sync_contributions = operation_pool
             .sync_contributions
@@ -95,7 +99,9 @@ impl<T: EthSpec> PersistedOperationPool<T> {
     /// Reconstruct an `OperationPool`. Sets `sync_contributions` to its `Default` if `self` matches
     /// `PersistedOperationPool::Base`.
     pub fn into_operation_pool(self) -> Result<OperationPool<T>, OpPoolError> {
-        let attestations = RwLock::new(self.attestations().iter().cloned().collect());
+        // FIXME(sproul): fix load
+        // let attestations = RwLock::new(self.attestations().iter().cloned().collect());
+        let attestations = RwLock::new(AttestationMap::default());
         let attester_slashings = RwLock::new(self.attester_slashings().iter().cloned().collect());
         let proposer_slashings = RwLock::new(
             self.proposer_slashings()
@@ -122,6 +128,7 @@ impl<T: EthSpec> PersistedOperationPool<T> {
                     attester_slashings,
                     proposer_slashings,
                     voluntary_exits,
+                    reward_cache: Default::default(),
                     _phantom: Default::default(),
                 }
             }

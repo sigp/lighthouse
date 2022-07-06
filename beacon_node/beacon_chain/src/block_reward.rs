@@ -12,6 +12,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         state: &BeaconState<T::EthSpec>,
         include_attestations: bool,
     ) -> Result<BlockReward, BeaconChainError> {
+        // FIXME(sproul): make an AttestationRef?
+        unimplemented!()
+        /*
         if block.slot() != state.slot() {
             return Err(BeaconChainError::BlockRewardSlotError);
         }
@@ -106,5 +109,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             attestation_rewards,
             sync_committee_rewards,
         })
+        */
     }
 }

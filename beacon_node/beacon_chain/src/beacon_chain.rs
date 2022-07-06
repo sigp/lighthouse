@@ -61,7 +61,7 @@ use fork_choice::{
 use futures::channel::mpsc::Sender;
 use itertools::process_results;
 use itertools::Itertools;
-use operation_pool::{OperationPool, PersistedOperationPool};
+use operation_pool::{AttestationRef, OperationPool, PersistedOperationPool};
 use parking_lot::{Mutex, RwLock};
 use safe_arith::SafeArith;
 use slasher::Slasher;
@@ -1867,13 +1867,16 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         if self.eth1_chain.is_some() {
             let fork = self.canonical_head.cached_head().head_fork();
 
+            // TODO: address these clones.
+            let attesting_indices = verified_attestation
+                .indexed_attestation()
+                .attesting_indices
+                .clone()
+                .into();
             self.op_pool
                 .insert_attestation(
-                    // TODO: address this clone.
                     verified_attestation.attestation().clone(),
-                    &fork,
-                    self.genesis_validators_root,
-                    &self.spec,
+                    attesting_indices,
                 )
                 .map_err(Error::from)?;
         }
@@ -1907,15 +1910,15 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     pub fn filter_op_pool_attestation(
         &self,
         filter_cache: &mut HashMap<(Hash256, Epoch), bool>,
-        att: &Attestation<T::EthSpec>,
+        att: &AttestationRef<T::EthSpec>,
         state: &BeaconState<T::EthSpec>,
     ) -> bool {
         *filter_cache
-            .entry((att.data.beacon_block_root, att.data.target.epoch))
+            .entry((att.data.beacon_block_root, att.checkpoint.target_epoch))
             .or_insert_with(|| {
                 self.shuffling_is_compatible(
                     &att.data.beacon_block_root,
-                    att.data.target.epoch,
+                    att.checkpoint.target_epoch,
                     state,
                 )
             })
@@ -3279,12 +3282,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let unagg_import_timer =
             metrics::start_timer(&metrics::BLOCK_PRODUCTION_UNAGGREGATED_TIMES);
         for attestation in self.naive_aggregation_pool.read().iter() {
-            if let Err(e) = self.op_pool.insert_attestation(
-                attestation.clone(),
-                &state.fork(),
-                state.genesis_validators_root(),
-                &self.spec,
-            ) {
+            // FIXME(sproul): put correct attesting indices
+            if let Err(e) = self.op_pool.insert_attestation(attestation.clone(), vec![]) {
                 // Don't stop block production if there's an error, just create a log.
                 error!(
                     self.log,
@@ -3305,12 +3304,12 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             metrics::start_timer(&metrics::BLOCK_PRODUCTION_ATTESTATION_TIMES);
 
         let mut prev_filter_cache = HashMap::new();
-        let prev_attestation_filter = |att: &&Attestation<T::EthSpec>| {
-            self.filter_op_pool_attestation(&mut prev_filter_cache, *att, &state)
+        let prev_attestation_filter = |att: &AttestationRef<T::EthSpec>| {
+            self.filter_op_pool_attestation(&mut prev_filter_cache, att, &state)
         };
         let mut curr_filter_cache = HashMap::new();
-        let curr_attestation_filter = |att: &&Attestation<T::EthSpec>| {
-            self.filter_op_pool_attestation(&mut curr_filter_cache, *att, &state)
+        let curr_attestation_filter = |att: &AttestationRef<T::EthSpec>| {
+            self.filter_op_pool_attestation(&mut curr_filter_cache, att, &state)
         };
 
         let attestations = self
