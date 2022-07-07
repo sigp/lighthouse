@@ -1,4 +1,6 @@
 use crate::execution_engine::{ExecutionEngine, GenericExecutionEngine};
+use crate::transactions::{transactions, Transactions};
+use ethers_providers::Middleware;
 use execution_layer::{ExecutionLayer, PayloadAttributes, PayloadStatus};
 use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
@@ -125,6 +127,16 @@ impl<E: GenericExecutionEngine> TestRig<E> {
     pub async fn perform_tests(&self) {
         self.wait_until_synced().await;
 
+        let accounts = self
+            .ee_a
+            .execution_engine
+            .provider
+            .get_accounts()
+            .await
+            .unwrap();
+        let account1 = accounts[0];
+        let account2 = accounts[1];
+
         /*
          * Check the transition config endpoint.
          */
@@ -157,6 +169,17 @@ impl<E: GenericExecutionEngine> TestRig<E> {
                 .unwrap()
         );
 
+        // Submit transactions before getting payload
+        let txs = transactions(account1, account2);
+        for tx in txs.clone().into_iter() {
+            self.ee_a
+                .execution_engine
+                .provider
+                .send_transaction(tx, None)
+                .await
+                .unwrap();
+        }
+
         /*
          * Execution Engine A:
          *
@@ -183,6 +206,8 @@ impl<E: GenericExecutionEngine> TestRig<E> {
             .await
             .unwrap()
             .execution_payload;
+
+        assert_eq!(valid_payload.transactions.len(), txs.len());
 
         /*
          * Execution Engine A:

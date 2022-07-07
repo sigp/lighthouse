@@ -72,6 +72,10 @@ impl GenericExecutionEngine for NethermindEngine {
         TempDir::new().unwrap()
     }
 
+    fn write_accounts(_datadir: &TempDir) {
+        unimplemented!()
+    }
+
     fn start_client(
         datadir: &TempDir,
         _http_port: u16,

@@ -1,5 +1,8 @@
 use crate::build_utils;
-use crate::execution_engine::GenericExecutionEngine;
+use crate::execution_engine::{
+    GenericExecutionEngine, ACCOUNT1, ACCOUNT2, KEYSTORE_PASSWORD, PASSWORD_FILE, PRIVATE_KEY1,
+    PRIVATE_KEY2, PRIVATE_KEY_FILE,
+};
 use crate::genesis_json::geth_genesis_json;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Output};
@@ -77,6 +80,43 @@ impl GenericExecutionEngine for GethEngine {
         datadir
     }
 
+    fn write_accounts(datadir: &TempDir) {
+        let password_path = datadir.path().join(PASSWORD_FILE);
+        std::fs::write(&password_path, KEYSTORE_PASSWORD).unwrap();
+
+        let key1_path = datadir.path().join(format!("{}1", PRIVATE_KEY_FILE));
+        dbg!(&key1_path);
+        std::fs::write(&key1_path, PRIVATE_KEY1).unwrap();
+
+        let key2_path = datadir.path().join(format!("{}2", PRIVATE_KEY_FILE));
+        std::fs::write(&key2_path, PRIVATE_KEY2).unwrap();
+
+        let output = Command::new(Self::binary_path())
+            .arg("--datadir")
+            .arg(datadir.path().to_str().unwrap())
+            .arg("account")
+            .arg("import")
+            .arg("--password")
+            .arg(password_path.to_str().unwrap())
+            .arg(key1_path)
+            .output()
+            .expect("failed to import accounts");
+
+        build_utils::check_command_output(output, || "geth import failed".into());
+
+        let output = Command::new(Self::binary_path())
+            .arg("--datadir")
+            .arg(datadir.path().to_str().unwrap())
+            .arg("account")
+            .arg("import")
+            .arg("--password")
+            .arg(password_path.to_str().unwrap())
+            .arg(key2_path)
+            .output()
+            .expect("failed to import accounts");
+        build_utils::check_command_output(output, || "geth import failed".into());
+    }
+
     fn start_client(
         datadir: &TempDir,
         http_port: u16,
@@ -84,6 +124,7 @@ impl GenericExecutionEngine for GethEngine {
         jwt_secret_path: PathBuf,
     ) -> Child {
         let network_port = unused_tcp_port().unwrap();
+        let password_path = datadir.path().join(PASSWORD_FILE);
 
         Command::new(Self::binary_path())
             .arg("--datadir")
@@ -97,6 +138,11 @@ impl GenericExecutionEngine for GethEngine {
             .arg(http_auth_port.to_string())
             .arg("--port")
             .arg(network_port.to_string())
+            .arg("--allow-insecure-unlock")
+            .arg("--unlock")
+            .arg(format!("{},{}", ACCOUNT1, ACCOUNT2))
+            .arg("--password")
+            .arg(password_path.to_str().unwrap())
             .arg("--authrpc.jwtsecret")
             .arg(jwt_secret_path.as_path().to_str().unwrap())
             .stdout(build_utils::build_stdio())
