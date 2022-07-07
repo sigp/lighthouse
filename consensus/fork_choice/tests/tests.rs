@@ -292,6 +292,7 @@ impl ForkChoiceTest {
                 &state,
                 PayloadVerificationStatus::Verified,
                 &self.harness.chain.spec,
+                false,
             )
             .unwrap();
         self
@@ -334,6 +335,7 @@ impl ForkChoiceTest {
                 &state,
                 PayloadVerificationStatus::Verified,
                 &self.harness.chain.spec,
+                false,
             )
             .err()
             .expect("on_block did not return an error");

@@ -2661,6 +2661,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                     &state,
                     payload_verification_status,
                     &self.spec,
+                    self.config.count_unrealized,
                 )
                 .map_err(|e| BlockError::BeaconChainError(e.into()))?;
         }

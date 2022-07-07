@@ -630,6 +630,9 @@ pub fn get_config<E: EthSpec>(
         client_config.chain.fork_choice_before_proposal_timeout_ms = timeout;
     }
 
+    client_config.chain.count_unrealized =
+        clap_utils::parse_required(cli_args, "count-unrealized")?;
+
     Ok(client_config)
 }
 

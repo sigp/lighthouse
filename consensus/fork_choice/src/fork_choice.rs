@@ -587,6 +587,7 @@ where
         state: &BeaconState<E>,
         payload_verification_status: PayloadVerificationStatus,
         spec: &ChainSpec,
+        count_unrealized: bool,
     ) -> Result<(), Error<T::Error>> {
         let current_slot = self.update_time(current_slot, spec)?;
 
@@ -654,7 +655,8 @@ where
         )?;
 
         // Update unrealized justified/finalized checkpoints.
-        let (unrealized_justified_checkpoint, unrealized_finalized_checkpoint) = {
+        let (unrealized_justified_checkpoint, unrealized_finalized_checkpoint) = if count_unrealized
+        {
             let justification_and_finalization_state = match block {
                 BeaconBlockRef::Merge(_) | BeaconBlockRef::Altair(_) => {
                     let participation_cache =
@@ -714,6 +716,8 @@ where
                 Some(unrealized_justified_checkpoint),
                 Some(unrealized_finalized_checkpoint),
             )
+        } else {
+            (None, None)
         };
 
         let target_slot = block

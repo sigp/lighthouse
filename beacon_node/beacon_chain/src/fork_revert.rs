@@ -99,6 +99,7 @@ pub fn reset_fork_choice_to_finalization<E: EthSpec, Hot: ItemStore<E>, Cold: It
     store: Arc<HotColdDB<E, Hot, Cold>>,
     current_slot: Option<Slot>,
     spec: &ChainSpec,
+    count_unrealized: bool,
 ) -> Result<ForkChoice<BeaconForkChoiceStore<E, Hot, Cold>, E>, String> {
     // Fetch finalized block.
     let finalized_checkpoint = head_state.finalized_checkpoint();
@@ -193,6 +194,7 @@ pub fn reset_fork_choice_to_finalization<E: EthSpec, Hot: ItemStore<E>, Cold: It
                 &state,
                 payload_verification_status,
                 spec,
+                count_unrealized,
             )
             .map_err(|e| format!("Error applying replayed block to fork choice: {:?}", e))?;
     }

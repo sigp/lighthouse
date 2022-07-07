@@ -16,8 +16,8 @@ use std::future::Future;
 use std::sync::Arc;
 use std::time::Duration;
 use types::{
-    Attestation, BeaconBlock, BeaconState, Checkpoint, EthSpec, ExecutionBlockHash, ForkName,
-    Hash256, IndexedAttestation, SignedBeaconBlock, Slot, Uint256,
+    Attestation, AttesterSlashing, BeaconBlock, BeaconState, Checkpoint, EthSpec,
+    ExecutionBlockHash, ForkName, Hash256, IndexedAttestation, SignedBeaconBlock, Slot, Uint256,
 };
 
 #[derive(Default, Debug, PartialEq, Clone, Deserialize, Decode)]
@@ -341,7 +341,7 @@ impl<E: EthSpec> Tester<E> {
             .chain
             .canonical_head
             .fork_choice_write_lock()
-            .update_time(slot)
+            .update_time(slot, &self.spec)
             .unwrap();
     }
 
@@ -406,6 +406,7 @@ impl<E: EthSpec> Tester<E> {
                         &state,
                         PayloadVerificationStatus::Irrelevant,
                         &self.harness.chain.spec,
+                        self.harness.chain.config.count_unrealized,
                     );
 
                 if result.is_ok() {
