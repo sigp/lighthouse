@@ -45,8 +45,8 @@ pub enum BeaconChainError {
     UnableToReadSlot,
     UnableToComputeTimeAtSlot,
     RevertedFinalizedEpoch {
-        previous_epoch: Epoch,
-        new_epoch: Epoch,
+        old: Checkpoint,
+        new: Checkpoint,
     },
     SlotClockDidNotStart,
     NoStateForSlot(Slot),
@@ -161,6 +161,7 @@ pub enum BeaconChainError {
     BlockRewardSyncError,
     HeadMissingFromForkChoice(Hash256),
     FinalizedBlockMissingFromForkChoice(Hash256),
+    HeadBlockMissingFromForkChoice(Hash256),
     InvalidFinalizedPayload {
         finalized_root: Hash256,
         execution_block_hash: ExecutionBlockHash,
@@ -184,11 +185,19 @@ pub enum BeaconChainError {
         beacon_block_root: Hash256,
     },
     RuntimeShutdown,
+    TokioJoin(tokio::task::JoinError),
     ProcessInvalidExecutionPayload(JoinError),
     ForkChoiceSignalOutOfOrder {
         current: Slot,
         latest: Slot,
     },
+    ForkchoiceUpdateParamsMissing,
+    HeadHasInvalidPayload {
+        block_root: Hash256,
+        execution_status: ExecutionStatus,
+    },
+    AttestationHeadNotInForkChoice(Hash256),
+    MissingPersistedForkChoice,
 }
 
 easy_from_to!(SlotProcessingError, BeaconChainError);
@@ -214,7 +223,6 @@ easy_from_to!(BlockReplayError, BeaconChainError);
 
 #[derive(Debug)]
 pub enum BlockProductionError {
-    UnableToGetHeadInfo(BeaconChainError),
     UnableToGetBlockRootFromState,
     UnableToReadSlot,
     UnableToProduceAtSlot(Slot),
@@ -239,6 +247,11 @@ pub enum BlockProductionError {
     MissingFinalizedBlock(Hash256),
     BlockTooLarge(usize),
     ForkChoiceError(BeaconChainError),
+    ShuttingDown,
+    MissingSyncAggregate,
+    MissingExecutionPayload,
+    TokioJoin(tokio::task::JoinError),
+    BeaconChain(BeaconChainError),
 }
 
 easy_from_to!(BlockProcessingError, BlockProductionError);

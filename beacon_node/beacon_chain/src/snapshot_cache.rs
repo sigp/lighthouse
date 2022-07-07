@@ -1,6 +1,7 @@
 use crate::BeaconSnapshot;
 use itertools::process_results;
 use std::cmp;
+use std::sync::Arc;
 use std::time::Duration;
 use types::{
     beacon_state::CloneConfig, BeaconState, BlindedPayload, ChainSpec, Epoch, EthSpec, Hash256,
@@ -33,7 +34,7 @@ impl<T: EthSpec> From<BeaconSnapshot<T>> for PreProcessingSnapshot<T> {
         Self {
             pre_state: snapshot.beacon_state,
             beacon_state_root,
-            beacon_block: snapshot.beacon_block.into(),
+            beacon_block: snapshot.beacon_block.clone_as_blinded(),
             beacon_block_root: snapshot.beacon_block_root,
         }
     }
@@ -63,7 +64,7 @@ impl<T: EthSpec> CacheItem<T> {
             Some(self.beacon_block.state_root()).filter(|_| self.pre_state.is_none());
 
         PreProcessingSnapshot {
-            beacon_block: self.beacon_block.into(),
+            beacon_block: self.beacon_block.clone_as_blinded(),
             beacon_block_root: self.beacon_block_root,
             pre_state: self.pre_state.unwrap_or(self.beacon_state),
             beacon_state_root,
@@ -76,7 +77,7 @@ impl<T: EthSpec> CacheItem<T> {
             Some(self.beacon_block.state_root()).filter(|_| self.pre_state.is_none());
 
         PreProcessingSnapshot {
-            beacon_block: self.beacon_block.clone().into(),
+            beacon_block: self.beacon_block.clone_as_blinded(),
             beacon_block_root: self.beacon_block_root,
             pre_state: self
                 .pre_state
@@ -116,7 +117,7 @@ pub enum StateAdvance<T: EthSpec> {
 
 /// The item stored in the `SnapshotCache`.
 pub struct CacheItem<T: EthSpec> {
-    beacon_block: SignedBeaconBlock<T>,
+    beacon_block: Arc<SignedBeaconBlock<T>>,
     beacon_block_root: Hash256,
     /// This state is equivalent to `self.beacon_block.state_root()`.
     beacon_state: BeaconState<T>,
@@ -185,7 +186,7 @@ impl<T: EthSpec> SnapshotCache<T> {
     ) {
         let parent_root = snapshot.beacon_block.message().parent_root();
         let item = CacheItem {
-            beacon_block: snapshot.beacon_block,
+            beacon_block: snapshot.beacon_block.clone(),
             beacon_block_root: snapshot.beacon_block_root,
             beacon_state: snapshot.beacon_state,
             pre_state,
@@ -384,7 +385,7 @@ mod test {
     fn get_snapshot(i: u64) -> BeaconSnapshot<MainnetEthSpec> {
         let spec = MainnetEthSpec::default_spec();
 
-        let beacon_state = get_harness().chain.head_beacon_state().unwrap();
+        let beacon_state = get_harness().chain.head_beacon_state_cloned();
 
         let signed_beacon_block = SignedBeaconBlock::from_block(
             BeaconBlock::empty(&spec),
@@ -395,7 +396,7 @@ mod test {
 
         BeaconSnapshot {
             beacon_state,
-            beacon_block: signed_beacon_block,
+            beacon_block: Arc::new(signed_beacon_block),
             beacon_block_root: Hash256::from_low_u64_be(i),
         }
     }

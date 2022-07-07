@@ -18,27 +18,23 @@ impl StateId {
         chain: &BeaconChain<T>,
     ) -> Result<Hash256, warp::Rejection> {
         let slot = match &self.0 {
-            CoreStateId::Head => {
-                return chain
-                    .head_info()
-                    .map(|head| head.state_root)
-                    .map_err(warp_utils::reject::beacon_chain_error)
-            }
+            CoreStateId::Head => return Ok(chain.canonical_head.cached_head().head_state_root()),
             CoreStateId::Genesis => return Ok(chain.genesis_state_root),
-            CoreStateId::Finalized => chain.head_info().map(|head| {
-                head.finalized_checkpoint
-                    .epoch
-                    .start_slot(T::EthSpec::slots_per_epoch())
-            }),
-            CoreStateId::Justified => chain.head_info().map(|head| {
-                head.current_justified_checkpoint
-                    .epoch
-                    .start_slot(T::EthSpec::slots_per_epoch())
-            }),
-            CoreStateId::Slot(slot) => Ok(*slot),
+            CoreStateId::Finalized => chain
+                .canonical_head
+                .cached_head()
+                .finalized_checkpoint()
+                .epoch
+                .start_slot(T::EthSpec::slots_per_epoch()),
+            CoreStateId::Justified => chain
+                .canonical_head
+                .cached_head()
+                .justified_checkpoint()
+                .epoch
+                .start_slot(T::EthSpec::slots_per_epoch()),
+            CoreStateId::Slot(slot) => *slot,
             CoreStateId::Root(root) => return Ok(*root),
-        }
-        .map_err(warp_utils::reject::beacon_chain_error)?;
+        };
 
         chain
             .state_root_at_slot(slot)
@@ -62,11 +58,7 @@ impl StateId {
         chain: &BeaconChain<T>,
     ) -> Result<BeaconState<T::EthSpec>, warp::Rejection> {
         let (state_root, slot_opt) = match &self.0 {
-            CoreStateId::Head => {
-                return chain
-                    .head_beacon_state()
-                    .map_err(warp_utils::reject::beacon_chain_error)
-            }
+            CoreStateId::Head => return Ok(chain.head_beacon_state_cloned()),
             CoreStateId::Slot(slot) => (self.root(chain)?, Some(*slot)),
             _ => (self.root(chain)?, None),
         };

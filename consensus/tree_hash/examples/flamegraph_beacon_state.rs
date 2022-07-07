@@ -17,7 +17,7 @@ fn get_harness<T: EthSpec>() -> BeaconChainHarness<EphemeralHarnessType<T>> {
 }
 
 fn build_state<T: EthSpec>() -> BeaconState<T> {
-    let state = get_harness::<T>().chain.head_beacon_state().unwrap();
+    let state = get_harness::<T>().chain.head_beacon_state_cloned();
 
     assert_eq!(state.as_base().unwrap().validators.len(), VALIDATOR_COUNT);
     assert_eq!(state.as_base().unwrap().balances.len(), VALIDATOR_COUNT);

@@ -779,14 +779,14 @@ impl<T: EthSpec> BeaconState<T> {
         &mut self,
         sync_committee: &SyncCommittee<T>,
     ) -> Result<Vec<usize>, Error> {
-        sync_committee
-            .pubkeys
-            .iter()
-            .map(|pubkey| {
+        let mut indices = Vec::with_capacity(sync_committee.pubkeys.len());
+        for pubkey in sync_committee.pubkeys.iter() {
+            indices.push(
                 self.get_validator_index(pubkey)?
-                    .ok_or(Error::PubkeyCacheInconsistent)
-            })
-            .collect()
+                    .ok_or(Error::PubkeyCacheInconsistent)?,
+            )
+        }
+        Ok(indices)
     }
 
     /// Compute the sync committee indices for the next sync committee.
@@ -961,6 +961,13 @@ impl<T: EthSpec> BeaconState<T> {
         } else {
             Err(Error::EpochOutOfBounds)
         }
+    }
+
+    /// Return the minimum epoch for which `get_randao_mix` will return a non-error value.
+    pub fn min_randao_epoch(&self) -> Epoch {
+        self.current_epoch()
+            .saturating_add(1u64)
+            .saturating_sub(T::EpochsPerHistoricalVector::to_u64())
     }
 
     /// XOR-assigns the existing `epoch` randao mix with the hash of the `signature`.

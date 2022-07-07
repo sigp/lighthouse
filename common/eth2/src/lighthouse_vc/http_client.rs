@@ -303,11 +303,11 @@ impl ValidatorClientHttpClient {
     }
 
     /// Perform a HTTP DELETE request.
-    async fn delete_with_unsigned_response<T: Serialize, U: IntoUrl, V: DeserializeOwned>(
+    async fn delete_with_raw_response<T: Serialize, U: IntoUrl>(
         &self,
         url: U,
         body: &T,
-    ) -> Result<V, Error> {
+    ) -> Result<Response, Error> {
         let response = self
             .client
             .delete(url)
@@ -316,7 +316,16 @@ impl ValidatorClientHttpClient {
             .send()
             .await
             .map_err(Error::Reqwest)?;
-        let response = ok_or_error(response).await?;
+        ok_or_error(response).await
+    }
+
+    /// Perform a HTTP DELETE request.
+    async fn delete_with_unsigned_response<T: Serialize, U: IntoUrl, V: DeserializeOwned>(
+        &self,
+        url: U,
+        body: &T,
+    ) -> Result<V, Error> {
+        let response = self.delete_with_raw_response(url, body).await?;
         Ok(response.json().await?)
     }
 
@@ -486,6 +495,18 @@ impl ValidatorClientHttpClient {
         Ok(url)
     }
 
+    fn make_fee_recipient_url(&self, pubkey: &PublicKeyBytes) -> Result<Url, Error> {
+        let mut url = self.server.full.clone();
+        url.path_segments_mut()
+            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
+            .push("eth")
+            .push("v1")
+            .push("validator")
+            .push(&pubkey.to_string())
+            .push("feerecipient");
+        Ok(url)
+    }
+
     /// `GET lighthouse/auth`
     pub async fn get_auth(&self) -> Result<AuthResponse, Error> {
         let mut url = self.server.full.clone();
@@ -543,14 +564,44 @@ impl ValidatorClientHttpClient {
         let url = self.make_remotekeys_url()?;
         self.delete_with_unsigned_response(url, req).await
     }
+
+    /// `GET /eth/v1/validator/{pubkey}/feerecipient`
+    pub async fn get_fee_recipient(
+        &self,
+        pubkey: &PublicKeyBytes,
+    ) -> Result<GetFeeRecipientResponse, Error> {
+        let url = self.make_fee_recipient_url(pubkey)?;
+        self.get(url)
+            .await
+            .map(|generic: GenericResponse<GetFeeRecipientResponse>| generic.data)
+    }
+
+    /// `POST /eth/v1/validator/{pubkey}/feerecipient`
+    pub async fn post_fee_recipient(
+        &self,
+        pubkey: &PublicKeyBytes,
+        req: &UpdateFeeRecipientRequest,
+    ) -> Result<Response, Error> {
+        let url = self.make_fee_recipient_url(pubkey)?;
+        self.post_with_raw_response(url, req).await
+    }
+
+    /// `POST /eth/v1/validator/{pubkey}/feerecipient`
+    pub async fn delete_fee_recipient(&self, pubkey: &PublicKeyBytes) -> Result<Response, Error> {
+        let url = self.make_fee_recipient_url(pubkey)?;
+        self.delete_with_raw_response(url, &()).await
+    }
 }
 
-/// Returns `Ok(response)` if the response is a `200 OK` response. Otherwise, creates an
-/// appropriate error message.
+/// Returns `Ok(response)` if the response is a `200 OK` response or a
+/// `202 Accepted` response. Otherwise, creates an appropriate error message.
 async fn ok_or_error(response: Response) -> Result<Response, Error> {
     let status = response.status();
 
-    if status == StatusCode::OK {
+    if status == StatusCode::OK
+        || status == StatusCode::ACCEPTED
+        || status == StatusCode::NO_CONTENT
+    {
         Ok(response)
     } else if let Ok(message) = response.json().await {
         Err(Error::ServerMessage(message))

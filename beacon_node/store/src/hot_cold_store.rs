@@ -669,7 +669,11 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         for op in batch {
             match op {
                 StoreOp::PutBlock(block_root, block) => {
-                    self.block_as_kv_store_ops(&block_root, *block, &mut key_value_batch)?;
+                    self.block_as_kv_store_ops(
+                        &block_root,
+                        block.as_ref().clone(),
+                        &mut key_value_batch,
+                    )?;
                 }
 
                 StoreOp::PutState(state_root, state) => {

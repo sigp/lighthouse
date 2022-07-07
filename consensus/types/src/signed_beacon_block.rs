@@ -346,6 +346,14 @@ impl<E: EthSpec> From<SignedBeaconBlock<E>> for SignedBlindedBeaconBlock<E> {
     }
 }
 
+// We can blind borrowed blocks with payloads by converting the payload into a header (without
+// cloning the payload contents).
+impl<E: EthSpec> SignedBeaconBlock<E> {
+    pub fn clone_as_blinded(&self) -> SignedBlindedBeaconBlock<E> {
+        SignedBeaconBlock::from_block(self.message().into(), self.signature().clone())
+    }
+}
+
 #[cfg(test)]
 mod test {
     use super::*;

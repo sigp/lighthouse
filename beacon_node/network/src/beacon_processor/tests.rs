@@ -10,7 +10,6 @@ use beacon_chain::test_utils::{
     AttestationStrategy, BeaconChainHarness, BlockStrategy, EphemeralHarnessType,
 };
 use beacon_chain::{BeaconChain, MAXIMUM_GOSSIP_CLOCK_DISPARITY};
-use environment::{null_logger, Environment, EnvironmentBuilder};
 use lighthouse_network::{
     discv5::enr::{CombinedKey, EnrBuilder},
     rpc::methods::{MetaData, MetaDataV2},
@@ -22,7 +21,6 @@ use std::cmp;
 use std::iter::Iterator;
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::runtime::Handle;
 use tokio::sync::mpsc;
 use types::{
     Attestation, AttesterSlashing, EthSpec, MainnetEthSpec, ProposerSlashing, SignedBeaconBlock,
@@ -47,7 +45,7 @@ const STANDARD_TIMEOUT: Duration = Duration::from_secs(10);
 /// Provides utilities for testing the `BeaconProcessor`.
 struct TestRig {
     chain: Arc<BeaconChain<T>>,
-    next_block: SignedBeaconBlock<E>,
+    next_block: Arc<SignedBeaconBlock<E>>,
     attestations: Vec<(Attestation<E>, SubnetId)>,
     next_block_attestations: Vec<(Attestation<E>, SubnetId)>,
     next_block_aggregate_attestations: Vec<SignedAggregateAndProof<E>>,
@@ -59,7 +57,7 @@ struct TestRig {
     _network_rx: mpsc::UnboundedReceiver<NetworkMessage<E>>,
     _sync_rx: mpsc::UnboundedReceiver<SyncMessage<E>>,
     duplicate_cache: DuplicateCache,
-    environment: Option<Environment<E>>,
+    _harness: BeaconChainHarness<T>,
 }
 
 /// This custom drop implementation ensures that we shut down the tokio runtime gracefully. Without
@@ -68,12 +66,11 @@ impl Drop for TestRig {
     fn drop(&mut self) {
         // Causes the beacon processor to shutdown.
         self.beacon_processor_tx = mpsc::channel(MAX_WORK_EVENT_QUEUE_LEN).0;
-        self.environment.take().unwrap().shutdown_on_idle();
     }
 }
 
 impl TestRig {
-    pub fn new(chain_length: u64) -> Self {
+    pub async fn new(chain_length: u64) -> Self {
         // This allows for testing voluntary exits without building out a massive chain.
         let mut spec = E::default_spec();
         spec.shard_committee_period = 2;
@@ -87,16 +84,18 @@ impl TestRig {
         harness.advance_slot();
 
         for _ in 0..chain_length {
-            harness.extend_chain(
-                1,
-                BlockStrategy::OnCanonicalHead,
-                AttestationStrategy::AllValidators,
-            );
+            harness
+                .extend_chain(
+                    1,
+                    BlockStrategy::OnCanonicalHead,
+                    AttestationStrategy::AllValidators,
+                )
+                .await;
 
             harness.advance_slot();
         }
 
-        let head = harness.chain.head().unwrap();
+        let head = harness.chain.head_snapshot();
 
         assert_eq!(
             harness.chain.slot().unwrap(),
@@ -104,8 +103,9 @@ impl TestRig {
             "precondition: current slot is one after head"
         );
 
-        let (next_block, next_state) =
-            harness.make_block(head.beacon_state.clone(), harness.chain.slot().unwrap());
+        let (next_block, next_state) = harness
+            .make_block(head.beacon_state.clone(), harness.chain.slot().unwrap())
+            .await;
 
         let head_state_root = head.beacon_state_root();
         let attestations = harness
@@ -158,11 +158,11 @@ impl TestRig {
         let proposer_slashing = harness.make_proposer_slashing(2);
         let voluntary_exit = harness.make_voluntary_exit(3, harness.chain.epoch().unwrap());
 
-        let chain = harness.chain;
+        let chain = harness.chain.clone();
 
         let (network_tx, _network_rx) = mpsc::unbounded_channel();
 
-        let log = null_logger().unwrap();
+        let log = harness.logger().clone();
 
         let (beacon_processor_tx, beacon_processor_rx) = mpsc::channel(MAX_WORK_EVENT_QUEUE_LEN);
         let (sync_tx, _sync_rx) = mpsc::unbounded_channel();
@@ -184,15 +184,7 @@ impl TestRig {
             &log,
         ));
 
-        let mut environment = EnvironmentBuilder::mainnet()
-            .null_logger()
-            .unwrap()
-            .multi_threaded_tokio_runtime()
-            .unwrap()
-            .build()
-            .unwrap();
-
-        let executor = environment.core_context().executor;
+        let executor = harness.runtime.task_executor.clone();
 
         let (work_journal_tx, work_journal_rx) = mpsc::channel(16_364);
 
@@ -212,7 +204,7 @@ impl TestRig {
 
         Self {
             chain,
-            next_block,
+            next_block: Arc::new(next_block),
             attestations,
             next_block_attestations,
             next_block_aggregate_attestations,
@@ -224,12 +216,16 @@ impl TestRig {
             _network_rx,
             _sync_rx,
             duplicate_cache,
-            environment: Some(environment),
+            _harness: harness,
         }
     }
 
+    pub async fn recompute_head(&self) {
+        self.chain.recompute_head_at_current_slot().await.unwrap()
+    }
+
     pub fn head_root(&self) -> Hash256 {
-        self.chain.head().unwrap().beacon_block_root
+        self.chain.head_snapshot().beacon_block_root
     }
 
     pub fn enqueue_gossip_block(&self) {
@@ -238,7 +234,7 @@ impl TestRig {
                 junk_message_id(),
                 junk_peer_id(),
                 Client::default(),
-                Box::new(self.next_block.clone()),
+                self.next_block.clone(),
                 Duration::from_secs(0),
             ))
             .unwrap();
@@ -246,7 +242,7 @@ impl TestRig {
 
     pub fn enqueue_rpc_block(&self) {
         let event = WorkEvent::rpc_beacon_block(
-            Box::new(self.next_block.clone()),
+            self.next_block.clone(),
             std::time::Duration::default(),
             BlockProcessType::ParentLookup {
                 chain_hash: Hash256::random(),
@@ -338,28 +334,16 @@ impl TestRig {
             .unwrap();
     }
 
-    fn handle(&mut self) -> Handle {
-        self.environment
-            .as_mut()
-            .unwrap()
-            .core_context()
-            .executor
-            .handle()
-            .unwrap()
-    }
-
     /// Assert that the `BeaconProcessor` doesn't produce any events in the given `duration`.
-    pub fn assert_no_events_for(&mut self, duration: Duration) {
-        self.handle().block_on(async {
-            tokio::select! {
-                _ = tokio::time::sleep(duration) => (),
-                event = self.work_journal_rx.recv() => panic!(
-                    "received {:?} within {:?} when expecting no events",
-                    event,
-                    duration
-                ),
-            }
-        })
+    pub async fn assert_no_events_for(&mut self, duration: Duration) {
+        tokio::select! {
+            _ = tokio::time::sleep(duration) => (),
+            event = self.work_journal_rx.recv() => panic!(
+                "received {:?} within {:?} when expecting no events",
+                event,
+                duration
+            ),
+        }
     }
 
     /// Checks that the `BeaconProcessor` event journal contains the `expected` events in the given
@@ -368,57 +352,54 @@ impl TestRig {
     ///
     /// Given the described logic, `expected` must not contain `WORKER_FREED` or `NOTHING_TO_DO`
     /// events.
-    pub fn assert_event_journal_contains_ordered(&mut self, expected: &[&str]) {
+    pub async fn assert_event_journal_contains_ordered(&mut self, expected: &[&str]) {
         assert!(expected
             .iter()
             .all(|ev| ev != &WORKER_FREED && ev != &NOTHING_TO_DO));
 
-        let (events, worker_freed_remaining) = self.handle().block_on(async {
-            let mut events = Vec::with_capacity(expected.len());
-            let mut worker_freed_remaining = expected.len();
+        let mut events = Vec::with_capacity(expected.len());
+        let mut worker_freed_remaining = expected.len();
 
-            let drain_future = async {
-                loop {
-                    match self.work_journal_rx.recv().await {
-                        Some(event) if event == WORKER_FREED => {
-                            worker_freed_remaining -= 1;
-                            if worker_freed_remaining == 0 {
-                                // Break when all expected events are finished.
-                                break;
-                            }
+        let drain_future = async {
+            loop {
+                match self.work_journal_rx.recv().await {
+                    Some(event) if event == WORKER_FREED => {
+                        worker_freed_remaining -= 1;
+                        if worker_freed_remaining == 0 {
+                            // Break when all expected events are finished.
+                            break;
                         }
-                        Some(event) if event == NOTHING_TO_DO => {
-                            // Ignore these.
-                        }
-                        Some(event) => {
-                            events.push(event);
-                        }
-                        None => break,
                     }
+                    Some(event) if event == NOTHING_TO_DO => {
+                        // Ignore these.
+                    }
+                    Some(event) => {
+                        events.push(event);
+                    }
+                    None => break,
                 }
-            };
-
-            // Drain the expected number of events from the channel, or time out and give up.
-            tokio::select! {
-                _ = tokio::time::sleep(STANDARD_TIMEOUT) => panic!(
-                    "Timeout ({:?}) expired waiting for events. Expected {:?} but got {:?} waiting for {} `WORKER_FREED` events.",
-                    STANDARD_TIMEOUT,
-                    expected,
-                    events,
-                    worker_freed_remaining,
-                ),
-                _ = drain_future => {},
             }
+        };
 
-            (events, worker_freed_remaining)
-        });
+        // Drain the expected number of events from the channel, or time out and give up.
+        tokio::select! {
+            _ = tokio::time::sleep(STANDARD_TIMEOUT) => panic!(
+                "Timeout ({:?}) expired waiting for events. Expected {:?} but got {:?} waiting for {} `WORKER_FREED` events.",
+                STANDARD_TIMEOUT,
+                expected,
+                events,
+                worker_freed_remaining,
+            ),
+            _ = drain_future => {},
+        }
 
         assert_eq!(events, expected);
         assert_eq!(worker_freed_remaining, 0);
     }
 
-    pub fn assert_event_journal(&mut self, expected: &[&str]) {
-        self.assert_event_journal_with_timeout(expected, STANDARD_TIMEOUT);
+    pub async fn assert_event_journal(&mut self, expected: &[&str]) {
+        self.assert_event_journal_with_timeout(expected, STANDARD_TIMEOUT)
+            .await
     }
 
     /// Assert that the `BeaconProcessor` event journal is as `expected`.
@@ -427,34 +408,34 @@ impl TestRig {
     ///
     /// We won't attempt to listen for any more than `expected.len()` events. As such, it makes sense
     /// to use the `NOTHING_TO_DO` event to ensure that execution has completed.
-    pub fn assert_event_journal_with_timeout(&mut self, expected: &[&str], timeout: Duration) {
-        let events = self.handle().block_on(async {
-            let mut events = Vec::with_capacity(expected.len());
+    pub async fn assert_event_journal_with_timeout(
+        &mut self,
+        expected: &[&str],
+        timeout: Duration,
+    ) {
+        let mut events = Vec::with_capacity(expected.len());
 
-            let drain_future = async {
-                while let Some(event) = self.work_journal_rx.recv().await {
-                    events.push(event);
+        let drain_future = async {
+            while let Some(event) = self.work_journal_rx.recv().await {
+                events.push(event);
 
-                    // Break as soon as we collect the desired number of events.
-                    if events.len() >= expected.len() {
-                        break;
-                    }
+                // Break as soon as we collect the desired number of events.
+                if events.len() >= expected.len() {
+                    break;
                 }
-            };
-
-            // Drain the expected number of events from the channel, or time out and give up.
-            tokio::select! {
-                _ = tokio::time::sleep(timeout) => panic!(
-                    "Timeout ({:?}) expired waiting for events. Expected {:?} but got {:?}",
-                    timeout,
-                    expected,
-                    events
-                ),
-                _ = drain_future => {},
             }
+        };
 
-            events
-        });
+        // Drain the expected number of events from the channel, or time out and give up.
+        tokio::select! {
+            _ = tokio::time::sleep(timeout) => panic!(
+                "Timeout ({:?}) expired waiting for events. Expected {:?} but got {:?}",
+                timeout,
+                expected,
+                events
+            ),
+            _ = drain_future => {},
+        }
 
         assert_eq!(events, expected);
     }
@@ -469,9 +450,9 @@ fn junk_message_id() -> MessageId {
 }
 
 /// Blocks that arrive early should be queued for later processing.
-#[test]
-fn import_gossip_block_acceptably_early() {
-    let mut rig = TestRig::new(SMALL_CHAIN);
+#[tokio::test]
+async fn import_gossip_block_acceptably_early() {
+    let mut rig = TestRig::new(SMALL_CHAIN).await;
 
     let slot_start = rig
         .chain
@@ -491,7 +472,8 @@ fn import_gossip_block_acceptably_early() {
 
     rig.enqueue_gossip_block();
 
-    rig.assert_event_journal(&[GOSSIP_BLOCK, WORKER_FREED, NOTHING_TO_DO]);
+    rig.assert_event_journal(&[GOSSIP_BLOCK, WORKER_FREED, NOTHING_TO_DO])
+        .await;
 
     // Note: this section of the code is a bit race-y. We're assuming that we can set the slot clock
     // and check the head in the time between the block arrived early and when its due for
@@ -506,7 +488,8 @@ fn import_gossip_block_acceptably_early() {
         "block not yet imported"
     );
 
-    rig.assert_event_journal(&[DELAYED_IMPORT_BLOCK, WORKER_FREED, NOTHING_TO_DO]);
+    rig.assert_event_journal(&[DELAYED_IMPORT_BLOCK, WORKER_FREED, NOTHING_TO_DO])
+        .await;
 
     assert_eq!(
         rig.head_root(),
@@ -516,9 +499,9 @@ fn import_gossip_block_acceptably_early() {
 }
 
 /// Blocks that are *too* early shouldn't get into the delay queue.
-#[test]
-fn import_gossip_block_unacceptably_early() {
-    let mut rig = TestRig::new(SMALL_CHAIN);
+#[tokio::test]
+async fn import_gossip_block_unacceptably_early() {
+    let mut rig = TestRig::new(SMALL_CHAIN).await;
 
     let slot_start = rig
         .chain
@@ -538,11 +521,12 @@ fn import_gossip_block_unacceptably_early() {
 
     rig.enqueue_gossip_block();
 
-    rig.assert_event_journal(&[GOSSIP_BLOCK, WORKER_FREED, NOTHING_TO_DO]);
+    rig.assert_event_journal(&[GOSSIP_BLOCK, WORKER_FREED, NOTHING_TO_DO])
+        .await;
 
     // Waiting for 5 seconds is a bit arbitrary, however it *should* be long enough to ensure the
     // block isn't imported.
-    rig.assert_no_events_for(Duration::from_secs(5));
+    rig.assert_no_events_for(Duration::from_secs(5)).await;
 
     assert!(
         rig.head_root() != rig.next_block.canonical_root(),
@@ -551,9 +535,9 @@ fn import_gossip_block_unacceptably_early() {
 }
 
 /// Blocks that arrive on-time should be processed normally.
-#[test]
-fn import_gossip_block_at_current_slot() {
-    let mut rig = TestRig::new(SMALL_CHAIN);
+#[tokio::test]
+async fn import_gossip_block_at_current_slot() {
+    let mut rig = TestRig::new(SMALL_CHAIN).await;
 
     assert_eq!(
         rig.chain.slot().unwrap(),
@@ -563,7 +547,8 @@ fn import_gossip_block_at_current_slot() {
 
     rig.enqueue_gossip_block();
 
-    rig.assert_event_journal(&[GOSSIP_BLOCK, WORKER_FREED, NOTHING_TO_DO]);
+    rig.assert_event_journal(&[GOSSIP_BLOCK, WORKER_FREED, NOTHING_TO_DO])
+        .await;
 
     assert_eq!(
         rig.head_root(),
@@ -573,15 +558,16 @@ fn import_gossip_block_at_current_slot() {
 }
 
 /// Ensure a valid attestation can be imported.
-#[test]
-fn import_gossip_attestation() {
-    let mut rig = TestRig::new(SMALL_CHAIN);
+#[tokio::test]
+async fn import_gossip_attestation() {
+    let mut rig = TestRig::new(SMALL_CHAIN).await;
 
     let initial_attns = rig.chain.naive_aggregation_pool.read().num_items();
 
     rig.enqueue_unaggregated_attestation();
 
-    rig.assert_event_journal(&[GOSSIP_ATTESTATION, WORKER_FREED, NOTHING_TO_DO]);
+    rig.assert_event_journal(&[GOSSIP_ATTESTATION, WORKER_FREED, NOTHING_TO_DO])
+        .await;
 
     assert_eq!(
         rig.chain.naive_aggregation_pool.read().num_items(),
@@ -597,8 +583,8 @@ enum BlockImportMethod {
 
 /// Ensure that attestations that reference an unknown block get properly re-queued and
 /// re-processed upon importing the block.
-fn attestation_to_unknown_block_processed(import_method: BlockImportMethod) {
-    let mut rig = TestRig::new(SMALL_CHAIN);
+async fn attestation_to_unknown_block_processed(import_method: BlockImportMethod) {
+    let mut rig = TestRig::new(SMALL_CHAIN).await;
 
     // Send the attestation but not the block, and check that it was not imported.
 
@@ -606,7 +592,8 @@ fn attestation_to_unknown_block_processed(import_method: BlockImportMethod) {
 
     rig.enqueue_next_block_unaggregated_attestation();
 
-    rig.assert_event_journal(&[GOSSIP_ATTESTATION, WORKER_FREED, NOTHING_TO_DO]);
+    rig.assert_event_journal(&[GOSSIP_ATTESTATION, WORKER_FREED, NOTHING_TO_DO])
+        .await;
 
     assert_eq!(
         rig.chain.naive_aggregation_pool.read().num_items(),
@@ -627,11 +614,12 @@ fn attestation_to_unknown_block_processed(import_method: BlockImportMethod) {
         }
     };
 
-    rig.assert_event_journal_contains_ordered(&[block_event, UNKNOWN_BLOCK_ATTESTATION]);
+    rig.assert_event_journal_contains_ordered(&[block_event, UNKNOWN_BLOCK_ATTESTATION])
+        .await;
 
     // Run fork choice, since it isn't run when processing an RPC block. At runtime it is the
     // responsibility of the sync manager to do this.
-    rig.chain.fork_choice().unwrap();
+    rig.recompute_head().await;
 
     assert_eq!(
         rig.head_root(),
@@ -646,20 +634,20 @@ fn attestation_to_unknown_block_processed(import_method: BlockImportMethod) {
     );
 }
 
-#[test]
-fn attestation_to_unknown_block_processed_after_gossip_block() {
-    attestation_to_unknown_block_processed(BlockImportMethod::Gossip)
+#[tokio::test]
+async fn attestation_to_unknown_block_processed_after_gossip_block() {
+    attestation_to_unknown_block_processed(BlockImportMethod::Gossip).await
 }
 
-#[test]
-fn attestation_to_unknown_block_processed_after_rpc_block() {
-    attestation_to_unknown_block_processed(BlockImportMethod::Rpc)
+#[tokio::test]
+async fn attestation_to_unknown_block_processed_after_rpc_block() {
+    attestation_to_unknown_block_processed(BlockImportMethod::Rpc).await
 }
 
 /// Ensure that attestations that reference an unknown block get properly re-queued and
 /// re-processed upon importing the block.
-fn aggregate_attestation_to_unknown_block(import_method: BlockImportMethod) {
-    let mut rig = TestRig::new(SMALL_CHAIN);
+async fn aggregate_attestation_to_unknown_block(import_method: BlockImportMethod) {
+    let mut rig = TestRig::new(SMALL_CHAIN).await;
 
     // Empty the op pool.
     rig.chain
@@ -673,7 +661,8 @@ fn aggregate_attestation_to_unknown_block(import_method: BlockImportMethod) {
 
     rig.enqueue_next_block_aggregated_attestation();
 
-    rig.assert_event_journal(&[GOSSIP_AGGREGATE, WORKER_FREED, NOTHING_TO_DO]);
+    rig.assert_event_journal(&[GOSSIP_AGGREGATE, WORKER_FREED, NOTHING_TO_DO])
+        .await;
 
     assert_eq!(
         rig.chain.op_pool.num_attestations(),
@@ -694,11 +683,12 @@ fn aggregate_attestation_to_unknown_block(import_method: BlockImportMethod) {
         }
     };
 
-    rig.assert_event_journal_contains_ordered(&[block_event, UNKNOWN_BLOCK_AGGREGATE]);
+    rig.assert_event_journal_contains_ordered(&[block_event, UNKNOWN_BLOCK_AGGREGATE])
+        .await;
 
     // Run fork choice, since it isn't run when processing an RPC block. At runtime it is the
     // responsibility of the sync manager to do this.
-    rig.chain.fork_choice().unwrap();
+    rig.recompute_head().await;
 
     assert_eq!(
         rig.head_root(),
@@ -713,21 +703,21 @@ fn aggregate_attestation_to_unknown_block(import_method: BlockImportMethod) {
     );
 }
 
-#[test]
-fn aggregate_attestation_to_unknown_block_processed_after_gossip_block() {
-    aggregate_attestation_to_unknown_block(BlockImportMethod::Gossip)
+#[tokio::test]
+async fn aggregate_attestation_to_unknown_block_processed_after_gossip_block() {
+    aggregate_attestation_to_unknown_block(BlockImportMethod::Gossip).await
 }
 
-#[test]
-fn aggregate_attestation_to_unknown_block_processed_after_rpc_block() {
-    aggregate_attestation_to_unknown_block(BlockImportMethod::Rpc)
+#[tokio::test]
+async fn aggregate_attestation_to_unknown_block_processed_after_rpc_block() {
+    aggregate_attestation_to_unknown_block(BlockImportMethod::Rpc).await
 }
 
 /// Ensure that attestations that reference an unknown block get properly re-queued and re-processed
 /// when the block is not seen.
-#[test]
-fn requeue_unknown_block_gossip_attestation_without_import() {
-    let mut rig = TestRig::new(SMALL_CHAIN);
+#[tokio::test]
+async fn requeue_unknown_block_gossip_attestation_without_import() {
+    let mut rig = TestRig::new(SMALL_CHAIN).await;
 
     // Send the attestation but not the block, and check that it was not imported.
 
@@ -735,7 +725,8 @@ fn requeue_unknown_block_gossip_attestation_without_import() {
 
     rig.enqueue_next_block_unaggregated_attestation();
 
-    rig.assert_event_journal(&[GOSSIP_ATTESTATION, WORKER_FREED, NOTHING_TO_DO]);
+    rig.assert_event_journal(&[GOSSIP_ATTESTATION, WORKER_FREED, NOTHING_TO_DO])
+        .await;
 
     assert_eq!(
         rig.chain.naive_aggregation_pool.read().num_items(),
@@ -748,7 +739,8 @@ fn requeue_unknown_block_gossip_attestation_without_import() {
     rig.assert_event_journal_with_timeout(
         &[UNKNOWN_BLOCK_ATTESTATION, WORKER_FREED, NOTHING_TO_DO],
         Duration::from_secs(1) + QUEUED_ATTESTATION_DELAY,
-    );
+    )
+    .await;
 
     assert_eq!(
         rig.chain.naive_aggregation_pool.read().num_items(),
@@ -759,9 +751,9 @@ fn requeue_unknown_block_gossip_attestation_without_import() {
 
 /// Ensure that aggregate that reference an unknown block get properly re-queued and re-processed
 /// when the block is not seen.
-#[test]
-fn requeue_unknown_block_gossip_aggregated_attestation_without_import() {
-    let mut rig = TestRig::new(SMALL_CHAIN);
+#[tokio::test]
+async fn requeue_unknown_block_gossip_aggregated_attestation_without_import() {
+    let mut rig = TestRig::new(SMALL_CHAIN).await;
 
     // Send the attestation but not the block, and check that it was not imported.
 
@@ -769,7 +761,8 @@ fn requeue_unknown_block_gossip_aggregated_attestation_without_import() {
 
     rig.enqueue_next_block_aggregated_attestation();
 
-    rig.assert_event_journal(&[GOSSIP_AGGREGATE, WORKER_FREED, NOTHING_TO_DO]);
+    rig.assert_event_journal(&[GOSSIP_AGGREGATE, WORKER_FREED, NOTHING_TO_DO])
+        .await;
 
     assert_eq!(
         rig.chain.naive_aggregation_pool.read().num_items(),
@@ -782,7 +775,8 @@ fn requeue_unknown_block_gossip_aggregated_attestation_without_import() {
     rig.assert_event_journal_with_timeout(
         &[UNKNOWN_BLOCK_AGGREGATE, WORKER_FREED, NOTHING_TO_DO],
         Duration::from_secs(1) + QUEUED_ATTESTATION_DELAY,
-    );
+    )
+    .await;
 
     assert_eq!(
         rig.chain.op_pool.num_attestations(),
@@ -792,10 +786,10 @@ fn requeue_unknown_block_gossip_aggregated_attestation_without_import() {
 }
 
 /// Ensure a bunch of valid operations can be imported.
-#[test]
-fn import_misc_gossip_ops() {
+#[tokio::test]
+async fn import_misc_gossip_ops() {
     // Exits need the long chain so validators aren't too young to exit.
-    let mut rig = TestRig::new(LONG_CHAIN);
+    let mut rig = TestRig::new(LONG_CHAIN).await;
 
     /*
      * Attester slashing
@@ -805,7 +799,8 @@ fn import_misc_gossip_ops() {
 
     rig.enqueue_gossip_attester_slashing();
 
-    rig.assert_event_journal(&[GOSSIP_ATTESTER_SLASHING, WORKER_FREED, NOTHING_TO_DO]);
+    rig.assert_event_journal(&[GOSSIP_ATTESTER_SLASHING, WORKER_FREED, NOTHING_TO_DO])
+        .await;
 
     assert_eq!(
         rig.chain.op_pool.num_attester_slashings(),
@@ -821,7 +816,8 @@ fn import_misc_gossip_ops() {
 
     rig.enqueue_gossip_proposer_slashing();
 
-    rig.assert_event_journal(&[GOSSIP_PROPOSER_SLASHING, WORKER_FREED, NOTHING_TO_DO]);
+    rig.assert_event_journal(&[GOSSIP_PROPOSER_SLASHING, WORKER_FREED, NOTHING_TO_DO])
+        .await;
 
     assert_eq!(
         rig.chain.op_pool.num_proposer_slashings(),
@@ -837,7 +833,8 @@ fn import_misc_gossip_ops() {
 
     rig.enqueue_gossip_voluntary_exit();
 
-    rig.assert_event_journal(&[GOSSIP_VOLUNTARY_EXIT, WORKER_FREED, NOTHING_TO_DO]);
+    rig.assert_event_journal(&[GOSSIP_VOLUNTARY_EXIT, WORKER_FREED, NOTHING_TO_DO])
+        .await;
 
     assert_eq!(
         rig.chain.op_pool.num_voluntary_exits(),

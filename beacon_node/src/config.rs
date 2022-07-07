@@ -288,10 +288,10 @@ pub fn get_config<E: EthSpec>(
             parse_only_one_value(&secret_files, PathBuf::from_str, "--execution-jwt", log)?;
 
         // Parse and set the payload builder, if any.
-        if let Some(endpoints) = cli_args.value_of("payload-builder") {
+        if let Some(endpoint) = cli_args.value_of("builder") {
             let payload_builder =
-                parse_only_one_value(endpoints, SensitiveUrl::parse, "--payload-builder", log)?;
-            el_config.builder_endpoints = vec![payload_builder];
+                parse_only_one_value(endpoint, SensitiveUrl::parse, "--builder", log)?;
+            el_config.builder_url = Some(payload_builder);
         }
 
         // Set config values from parse values.
