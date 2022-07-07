@@ -6,7 +6,7 @@ use types::*;
 pub fn get_attesting_indices<T: EthSpec>(
     committee: &[usize],
     bitlist: &BitList<T::MaxValidatorsPerCommittee>,
-) -> Result<Vec<usize>, BeaconStateError> {
+) -> Result<Vec<u64>, BeaconStateError> {
     if bitlist.len() != committee.len() {
         return Err(BeaconStateError::InvalidBitfield);
     }
@@ -15,7 +15,7 @@ pub fn get_attesting_indices<T: EthSpec>(
 
     for (i, validator_index) in committee.iter().enumerate() {
         if let Ok(true) = bitlist.get(i) {
-            indices.push(*validator_index)
+            indices.push(*validator_index as u64)
         }
     }
 

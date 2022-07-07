@@ -1,3 +1,4 @@
+use itertools::Itertools;
 use std::collections::HashMap;
 use types::{
     AggregateSignature, Attestation, AttestationData, BeaconState, BitList, Checkpoint, Epoch,
@@ -18,7 +19,7 @@ pub struct CompactAttestationData {
     pub target_root: Hash256,
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub struct CompactIndexedAttestation<T: EthSpec> {
     pub attesting_indices: Vec<u64>,
     pub aggregation_bits: BitList<T::MaxValidatorsPerCommittee>,
@@ -107,6 +108,24 @@ impl CheckpointKey {
     }
 }
 
+impl<T: EthSpec> CompactIndexedAttestation<T> {
+    pub fn signers_disjoint_from(&self, other: &Self) -> bool {
+        self.aggregation_bits
+            .intersection(&other.aggregation_bits)
+            .is_zero()
+    }
+
+    pub fn aggregate(&mut self, other: &Self) {
+        self.attesting_indices = self
+            .attesting_indices
+            .drain(..)
+            .merge(other.attesting_indices.iter().copied())
+            .collect();
+        self.aggregation_bits = self.aggregation_bits.union(&other.aggregation_bits);
+        self.signature.add_assign_aggregate(&other.signature);
+    }
+}
+
 impl<T: EthSpec> AttestationMap<T> {
     pub fn insert(&mut self, attestation: Attestation<T>, attesting_indices: Vec<u64>) {
         let (checkpoint_key, attestation_data, indexed_attestation) =
@@ -121,31 +140,22 @@ impl<T: EthSpec> AttestationMap<T> {
             .entry(attestation_data)
             .or_insert_with(Vec::new);
 
-        // FIXME(sproul): do greedy aggregation here
-        /*
-        let existing_attestations = match attestations.entry(id) {
-            Entry::Vacant(entry) => {
-                entry.insert(vec![attestation]);
-                return Ok(());
-            }
-            Entry::Occupied(entry) => entry.into_mut(),
-        };
-
+        // Greedily aggregate the attestation with all existing attestations.
+        // NOTE: this is sub-optimal and in future we will remove this in favour of max-clique
+        // aggregation.
         let mut aggregated = false;
-        for existing_attestation in existing_attestations.iter_mut() {
-            if existing_attestation.signers_disjoint_from(&attestation) {
-                existing_attestation.aggregate(&attestation);
+        for existing_attestation in attestations.iter_mut() {
+            if existing_attestation.signers_disjoint_from(&indexed_attestation) {
+                existing_attestation.aggregate(&indexed_attestation);
                 aggregated = true;
-            } else if *existing_attestation == attestation {
+            } else if *existing_attestation == indexed_attestation {
                 aggregated = true;
             }
         }
 
         if !aggregated {
-            existing_attestations.push(attestation);
+            attestations.push(indexed_attestation);
         }
-        */
-        attestations.push(indexed_attestation);
     }
 
     pub fn get_attestations<'a>(
@@ -154,7 +164,7 @@ impl<T: EthSpec> AttestationMap<T> {
     ) -> impl Iterator<Item = AttestationRef<'a, T>> + 'a {
         // It's a monad :O
         self.checkpoint_map
-            .get(&checkpoint_key)
+            .get(checkpoint_key)
             .into_iter()
             .flat_map(|attestation_map| {
                 attestation_map

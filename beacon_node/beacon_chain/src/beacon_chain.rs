@@ -69,9 +69,12 @@ use slog::{crit, debug, error, info, trace, warn, Logger};
 use slot_clock::SlotClock;
 use ssz::Encode;
 use state_processing::{
-    common::get_indexed_attestation,
+    common::{get_attesting_indices, get_indexed_attestation},
     per_block_processing,
-    per_block_processing::errors::AttestationValidationError,
+    per_block_processing::{
+        errors::AttestationValidationError, verify_attestation_for_block_inclusion,
+        VerifySignatures,
+    },
     per_slot_processing,
     state_advance::{complete_state_advance, partial_state_advance},
     BlockSignatureStrategy, SigVerifiedOp, VerifyBlockRoot,
@@ -3276,8 +3279,17 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         let unagg_import_timer =
             metrics::start_timer(&metrics::BLOCK_PRODUCTION_UNAGGREGATED_TIMES);
         for attestation in self.naive_aggregation_pool.read().iter() {
-            // FIXME(sproul): put correct attesting indices
-            if let Err(e) = self.op_pool.insert_attestation(attestation.clone(), vec![]) {
+            let import = |attestation: &Attestation<T::EthSpec>| {
+                let committee =
+                    state.get_beacon_committee(attestation.data.slot, attestation.data.index)?;
+                let attesting_indices = get_attesting_indices::<T::EthSpec>(
+                    committee.committee,
+                    &attestation.aggregation_bits,
+                )?;
+                self.op_pool
+                    .insert_attestation(attestation.clone(), attesting_indices)
+            };
+            if let Err(e) = import(attestation) {
                 // Don't stop block production if there's an error, just create a log.
                 error!(
                     self.log,
@@ -3306,7 +3318,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             self.filter_op_pool_attestation(&mut curr_filter_cache, att, &state)
         };
 
-        let attestations = self
+        let mut attestations = self
             .op_pool
             .get_attestations(
                 &state,
@@ -3315,6 +3327,33 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 &self.spec,
             )
             .map_err(BlockProductionError::OpPoolError)?;
+
+        let paranoid = false;
+        let ultra_paranoid = true;
+
+        if paranoid {
+            let verify_sigs = if ultra_paranoid {
+                VerifySignatures::True
+            } else {
+                VerifySignatures::False
+            };
+            attestations.retain(|att| {
+                let res =
+                    verify_attestation_for_block_inclusion(&state, att, verify_sigs, &self.spec);
+                if let Err(e) = res {
+                    error!(
+                        self.log,
+                        "Attempted to include an invalid attestation";
+                        "err" => ?e,
+                        "block_slot" => state.slot(),
+                    );
+                    assert!(false);
+                    false
+                } else {
+                    true
+                }
+            });
+        }
         drop(attestation_packing_timer);
 
         let slot = state.slot();

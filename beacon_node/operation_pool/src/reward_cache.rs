@@ -1,6 +1,5 @@
 use crate::OpPoolError;
 use bitvec::vec::BitVec;
-use std::collections::HashMap;
 use types::{BeaconState, BeaconStateError, Epoch, EthSpec, Hash256, ParticipationFlags};
 
 #[derive(Debug, Clone)]

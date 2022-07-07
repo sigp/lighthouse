@@ -16,7 +16,6 @@ pub use reward_cache::RewardCache;
 
 use crate::attestation_storage::{AttestationMap, CheckpointKey};
 use crate::sync_aggregate_id::SyncAggregateId;
-use attestation_id::AttestationId;
 use attester_slashing::AttesterSlashingMaxCover;
 use max_cover::maximum_cover;
 use parking_lot::{RwLock, RwLockWriteGuard};
@@ -234,9 +233,12 @@ impl<T: EthSpec> OperationPool<T> {
         validity_filter: impl FnMut(&AttestationRef<'a, T>) -> bool + Send,
         spec: &'a ChainSpec,
     ) -> impl Iterator<Item = AttMaxCover<'a, T>> + Send {
-        // FIXME(sproul): check inclusion slot somewhere
         all_attestations
             .get_attestations(checkpoint_key)
+            .filter(|att| {
+                att.data.slot + spec.min_attestation_inclusion_delay <= state.slot()
+                    && state.slot() <= att.data.slot + T::slots_per_epoch()
+            })
             .filter(validity_filter)
             .filter_map(move |att| {
                 AttMaxCover::new(att, state, reward_cache, total_active_balance, spec)
