@@ -253,7 +253,7 @@ impl TestRig {
 
     pub fn enqueue_single_lookup_rpc_block(&self) {
         let event = WorkEvent::rpc_beacon_block(
-            Box::new(self.next_block.clone()),
+            self.next_block.clone(),
             std::time::Duration::default(),
             BlockProcessType::SingleBlock { id: 1 },
         );
@@ -845,15 +845,15 @@ async fn import_misc_gossip_ops() {
 
 /// Ensure that rpc block going to the reprocessing queue flow
 /// works when the duplicate cache handle is held by another task.
-#[test]
-fn test_rpc_block_reprocessing() {
-    let mut rig = TestRig::new(SMALL_CHAIN);
+#[tokio::test]
+async fn test_rpc_block_reprocessing() {
+    let mut rig = TestRig::new(SMALL_CHAIN).await;
     let next_block_root = rig.next_block.canonical_root();
     // Insert the next block into the duplicate cache manually
     let handle = rig.duplicate_cache.check_and_insert(next_block_root);
     rig.enqueue_single_lookup_rpc_block();
 
-    rig.assert_event_journal(&[RPC_BLOCK, WORKER_FREED, NOTHING_TO_DO]);
+    rig.assert_event_journal(&[RPC_BLOCK, WORKER_FREED, NOTHING_TO_DO]).await;
     // next_block shouldn't be processed since it couldn't get the
     // duplicate cache handle
     assert_ne!(next_block_root, rig.head_root());
@@ -862,15 +862,11 @@ fn test_rpc_block_reprocessing() {
 
     // The block should arrive at the beacon processor again after
     // the specified delay.
-    rig.handle().block_on(async {
-        tokio::time::sleep(QUEUED_RPC_BLOCK_DELAY).await;
-    });
+    tokio::time::sleep(QUEUED_RPC_BLOCK_DELAY).await;
 
-    rig.assert_event_journal(&[RPC_BLOCK]);
+    rig.assert_event_journal(&[RPC_BLOCK]).await;
     // Add an extra delay for block processing
-    rig.handle().block_on(async {
-        tokio::time::sleep(Duration::from_millis(10)).await;
-    });
+    tokio::time::sleep(Duration::from_millis(10)).await;
     // head should update to next block now since the duplicate
     // cache handle was dropped.
     assert_eq!(next_block_root, rig.head_root());
