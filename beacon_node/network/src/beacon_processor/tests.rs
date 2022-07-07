@@ -853,7 +853,8 @@ async fn test_rpc_block_reprocessing() {
     let handle = rig.duplicate_cache.check_and_insert(next_block_root);
     rig.enqueue_single_lookup_rpc_block();
 
-    rig.assert_event_journal(&[RPC_BLOCK, WORKER_FREED, NOTHING_TO_DO]).await;
+    rig.assert_event_journal(&[RPC_BLOCK, WORKER_FREED, NOTHING_TO_DO])
+        .await;
     // next_block shouldn't be processed since it couldn't get the
     // duplicate cache handle
     assert_ne!(next_block_root, rig.head_root());
