@@ -9,7 +9,7 @@ mod reward_cache;
 mod sync_aggregate_id;
 
 pub use attestation::AttMaxCover;
-pub use attestation_storage::AttestationRef;
+pub use attestation_storage::{AttestationRef, SplitAttestation};
 pub use max_cover::MaxCover;
 pub use persistence::{PersistedOperationPool, PersistedOperationPoolAltair};
 pub use reward_cache::RewardCache;
@@ -21,8 +21,7 @@ use max_cover::maximum_cover;
 use parking_lot::{RwLock, RwLockWriteGuard};
 use state_processing::per_block_processing::errors::AttestationValidationError;
 use state_processing::per_block_processing::{
-    get_slashable_indices_modular, verify_attestation_for_block_inclusion, verify_exit,
-    VerifySignatures,
+    get_slashable_indices_modular, verify_exit, VerifySignatures,
 };
 use state_processing::SigVerifiedOp;
 use std::collections::{hash_map::Entry, HashMap, HashSet};
@@ -633,7 +632,7 @@ mod release_tests {
         test_spec, BeaconChainHarness, EphemeralHarnessType, RelativeSyncCommittee,
     };
     use lazy_static::lazy_static;
-    use state_processing::VerifyOperation;
+    use state_processing::{common::get_attesting_indices_from_state, VerifyOperation};
     use std::collections::BTreeSet;
     use types::consts::altair::SYNC_COMMITTEE_SUBNET_COUNT;
     use types::*;
@@ -664,7 +663,10 @@ mod release_tests {
     fn attestation_test_state<E: EthSpec>(
         num_committees: usize,
     ) -> (BeaconChainHarness<EphemeralHarnessType<E>>, ChainSpec) {
-        let spec = test_spec::<E>();
+        let mut spec = test_spec::<E>();
+
+        // FIXME(sproul): make this modular?
+        spec.altair_fork_epoch = Some(Epoch::new(0));
 
         let num_validators =
             num_committees * E::slots_per_epoch() as usize * spec.target_committee_size;
@@ -804,14 +806,12 @@ mod release_tests {
         );
 
         for (atts, _) in attestations {
-            for att in atts.into_iter() {
-                op_pool
-                    .insert_attestation(att.0, &state.fork(), state.genesis_validators_root(), spec)
-                    .unwrap();
+            for (att, _) in atts {
+                let attesting_indices = get_attesting_indices_from_state(&state, &att).unwrap();
+                op_pool.insert_attestation(att, attesting_indices).unwrap();
             }
         }
 
-        assert_eq!(op_pool.attestations.read().len(), committees.len());
         assert_eq!(op_pool.num_attestations(), committees.len());
 
         // Before the min attestation inclusion delay, get_attestations shouldn't return anything.
@@ -877,17 +877,11 @@ mod release_tests {
 
         for (_, aggregate) in attestations {
             let att = aggregate.unwrap().message.aggregate;
+            let attesting_indices = get_attesting_indices_from_state(&state, &att).unwrap();
             op_pool
-                .insert_attestation(
-                    att.clone(),
-                    &state.fork(),
-                    state.genesis_validators_root(),
-                    spec,
-                )
+                .insert_attestation(att.clone(), attesting_indices.clone())
                 .unwrap();
-            op_pool
-                .insert_attestation(att, &state.fork(), state.genesis_validators_root(), spec)
-                .unwrap();
+            op_pool.insert_attestation(att, attesting_indices).unwrap();
         }
 
         assert_eq!(op_pool.num_attestations(), committees.len());
@@ -971,16 +965,17 @@ mod release_tests {
                 .collect::<Vec<_>>();
 
             for att in aggs1.into_iter().chain(aggs2.into_iter()) {
-                op_pool
-                    .insert_attestation(att, &state.fork(), state.genesis_validators_root(), spec)
-                    .unwrap();
+                let attesting_indices = get_attesting_indices_from_state(&state, &att).unwrap();
+                op_pool.insert_attestation(att, attesting_indices).unwrap();
             }
         }
 
         // The attestations should get aggregated into two attestations that comprise all
         // validators.
-        assert_eq!(op_pool.attestations.read().len(), committees.len());
-        assert_eq!(op_pool.num_attestations(), 2 * committees.len());
+        let stats = op_pool.attestation_stats();
+        assert_eq!(stats.num_attestation_data, committees.len());
+        assert_eq!(stats.num_attestations, 2 * committees.len());
+        assert_eq!(stats.max_aggregates_per_data, 2);
     }
 
     /// Create a bunch of attestations signed by a small number of validators, and another
@@ -1042,9 +1037,8 @@ mod release_tests {
                 .collect::<Vec<_>>();
 
             for att in aggs {
-                op_pool
-                    .insert_attestation(att, &state.fork(), state.genesis_validators_root(), spec)
-                    .unwrap();
+                let attesting_indices = get_attesting_indices_from_state(&state, &att).unwrap();
+                op_pool.insert_attestation(att, attesting_indices).unwrap();
             }
         };
 
@@ -1059,12 +1053,13 @@ mod release_tests {
         let num_small = target_committee_size / small_step_size;
         let num_big = target_committee_size / big_step_size;
 
-        assert_eq!(op_pool.attestations.read().len(), committees.len());
+        let stats = op_pool.attestation_stats();
+        assert_eq!(stats.num_attestation_data, committees.len());
         assert_eq!(
-            op_pool.num_attestations(),
+            stats.num_attestations,
             (num_small + num_big) * committees.len()
         );
-        assert!(op_pool.num_attestations() > max_attestations);
+        assert!(stats.num_attestations > max_attestations);
 
         *state.slot_mut() += spec.min_attestation_inclusion_delay;
         let best_attestations = op_pool
@@ -1137,9 +1132,8 @@ mod release_tests {
                 .collect::<Vec<_>>();
 
             for att in aggs {
-                op_pool
-                    .insert_attestation(att, &state.fork(), state.genesis_validators_root(), spec)
-                    .unwrap();
+                let attesting_indices = get_attesting_indices_from_state(&state, &att).unwrap();
+                op_pool.insert_attestation(att, attesting_indices).unwrap();
             }
         };
 
@@ -1154,7 +1148,10 @@ mod release_tests {
         let num_small = target_committee_size / small_step_size;
         let num_big = target_committee_size / big_step_size;
 
-        assert_eq!(op_pool.attestations.read().len(), committees.len());
+        assert_eq!(
+            op_pool.attestation_stats().num_attestation_data,
+            committees.len()
+        );
         assert_eq!(
             op_pool.num_attestations(),
             (num_small + num_big) * committees.len()
@@ -1174,11 +1171,21 @@ mod release_tests {
         // Used for asserting that rewards are in decreasing order.
         let mut prev_reward = u64::max_value();
 
-        for att in &best_attestations {
-            let mut fresh_validators_rewards =
-                AttMaxCover::new(att, &state, total_active_balance, spec)
-                    .unwrap()
-                    .fresh_validators_rewards;
+        let mut reward_cache = RewardCache::default();
+        reward_cache.update(&state).unwrap();
+
+        for att in best_attestations {
+            let attesting_indices = get_attesting_indices_from_state(&state, &att).unwrap();
+            let split_attestation = SplitAttestation::new(att, attesting_indices);
+            let mut fresh_validators_rewards = AttMaxCover::new(
+                split_attestation.as_ref(),
+                &state,
+                &reward_cache,
+                total_active_balance,
+                spec,
+            )
+            .unwrap()
+            .fresh_validators_rewards;
 
             // Remove validators covered by previous attestations.
             fresh_validators_rewards

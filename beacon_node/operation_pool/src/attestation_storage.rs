@@ -27,6 +27,13 @@ pub struct CompactIndexedAttestation<T: EthSpec> {
     pub signature: AggregateSignature,
 }
 
+#[derive(Debug)]
+pub struct SplitAttestation<T: EthSpec> {
+    pub checkpoint: CheckpointKey,
+    pub data: CompactAttestationData,
+    pub indexed: CompactIndexedAttestation<T>,
+}
+
 #[derive(Debug, Clone)]
 pub struct AttestationRef<'a, T: EthSpec> {
     pub checkpoint: &'a CheckpointKey,
@@ -44,30 +51,37 @@ pub struct AttestationDataMap<T: EthSpec> {
     attestations: HashMap<CompactAttestationData, Vec<CompactIndexedAttestation<T>>>,
 }
 
-fn split<T: EthSpec>(
-    attestation: Attestation<T>,
-    attesting_indices: Vec<u64>,
-) -> (
-    CheckpointKey,
-    CompactAttestationData,
-    CompactIndexedAttestation<T>,
-) {
-    let checkpoint_key = CheckpointKey {
-        source: attestation.data.source,
-        target_epoch: attestation.data.target.epoch,
-    };
-    let attestation_data = CompactAttestationData {
-        slot: attestation.data.slot,
-        index: attestation.data.index,
-        beacon_block_root: attestation.data.beacon_block_root,
-        target_root: attestation.data.target.root,
-    };
-    let indexed_attestation = CompactIndexedAttestation {
-        attesting_indices,
-        aggregation_bits: attestation.aggregation_bits,
-        signature: attestation.signature,
-    };
-    (checkpoint_key, attestation_data, indexed_attestation)
+impl<T: EthSpec> SplitAttestation<T> {
+    pub fn new(attestation: Attestation<T>, attesting_indices: Vec<u64>) -> Self {
+        let checkpoint = CheckpointKey {
+            source: attestation.data.source,
+            target_epoch: attestation.data.target.epoch,
+        };
+        let data = CompactAttestationData {
+            slot: attestation.data.slot,
+            index: attestation.data.index,
+            beacon_block_root: attestation.data.beacon_block_root,
+            target_root: attestation.data.target.root,
+        };
+        let indexed = CompactIndexedAttestation {
+            attesting_indices,
+            aggregation_bits: attestation.aggregation_bits,
+            signature: attestation.signature,
+        };
+        Self {
+            checkpoint,
+            data,
+            indexed,
+        }
+    }
+
+    pub fn as_ref(&self) -> AttestationRef<T> {
+        AttestationRef {
+            checkpoint: &self.checkpoint,
+            data: &self.data,
+            indexed: &self.indexed,
+        }
+    }
 }
 
 impl<'a, T: EthSpec> AttestationRef<'a, T> {
@@ -129,16 +143,19 @@ impl<T: EthSpec> CompactIndexedAttestation<T> {
 
 impl<T: EthSpec> AttestationMap<T> {
     pub fn insert(&mut self, attestation: Attestation<T>, attesting_indices: Vec<u64>) {
-        let (checkpoint_key, attestation_data, indexed_attestation) =
-            split(attestation, attesting_indices);
+        let SplitAttestation {
+            checkpoint,
+            data,
+            indexed,
+        } = SplitAttestation::new(attestation, attesting_indices);
 
         let attestation_map = self
             .checkpoint_map
-            .entry(checkpoint_key)
+            .entry(checkpoint)
             .or_insert_with(AttestationDataMap::default);
         let attestations = attestation_map
             .attestations
-            .entry(attestation_data)
+            .entry(data)
             .or_insert_with(Vec::new);
 
         // Greedily aggregate the attestation with all existing attestations.
@@ -146,16 +163,16 @@ impl<T: EthSpec> AttestationMap<T> {
         // aggregation.
         let mut aggregated = false;
         for existing_attestation in attestations.iter_mut() {
-            if existing_attestation.signers_disjoint_from(&indexed_attestation) {
-                existing_attestation.aggregate(&indexed_attestation);
+            if existing_attestation.signers_disjoint_from(&indexed) {
+                existing_attestation.aggregate(&indexed);
                 aggregated = true;
-            } else if *existing_attestation == indexed_attestation {
+            } else if *existing_attestation == indexed {
                 aggregated = true;
             }
         }
 
         if !aggregated {
-            attestations.push(indexed_attestation);
+            attestations.push(indexed);
         }
     }
 

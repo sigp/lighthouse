@@ -1,8 +1,6 @@
 use types::*;
 
 /// Returns validator indices which participated in the attestation, sorted by increasing index.
-///
-/// Spec v0.12.1
 pub fn get_attesting_indices<T: EthSpec>(
     committee: &[usize],
     bitlist: &BitList<T::MaxValidatorsPerCommittee>,
@@ -22,4 +20,13 @@ pub fn get_attesting_indices<T: EthSpec>(
     indices.sort_unstable();
 
     Ok(indices)
+}
+
+/// Shortcut for getting the attesting indices while fetching the committee from the state's cache.
+pub fn get_attesting_indices_from_state<T: EthSpec>(
+    state: &BeaconState<T>,
+    att: &Attestation<T>,
+) -> Result<Vec<u64>, BeaconStateError> {
+    let committee = state.get_beacon_committee(att.data.slot, att.data.index)?;
+    get_attesting_indices::<T>(&committee.committee, &att.aggregation_bits)
 }

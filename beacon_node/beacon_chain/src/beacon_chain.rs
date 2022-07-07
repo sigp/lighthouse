@@ -69,7 +69,7 @@ use slog::{crit, debug, error, info, trace, warn, Logger};
 use slot_clock::SlotClock;
 use ssz::Encode;
 use state_processing::{
-    common::{get_attesting_indices, get_indexed_attestation},
+    common::{get_attesting_indices_from_state, get_indexed_attestation},
     per_block_processing,
     per_block_processing::{
         errors::AttestationValidationError, verify_attestation_for_block_inclusion,
@@ -3280,12 +3280,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             metrics::start_timer(&metrics::BLOCK_PRODUCTION_UNAGGREGATED_TIMES);
         for attestation in self.naive_aggregation_pool.read().iter() {
             let import = |attestation: &Attestation<T::EthSpec>| {
-                let committee =
-                    state.get_beacon_committee(attestation.data.slot, attestation.data.index)?;
-                let attesting_indices = get_attesting_indices::<T::EthSpec>(
-                    committee.committee,
-                    &attestation.aggregation_bits,
-                )?;
+                let attesting_indices = get_attesting_indices_from_state(&state, &attestation)?;
                 self.op_pool
                     .insert_attestation(attestation.clone(), attesting_indices)
             };

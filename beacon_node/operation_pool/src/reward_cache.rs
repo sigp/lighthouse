@@ -1,6 +1,6 @@
 use crate::OpPoolError;
 use bitvec::vec::BitVec;
-use types::{BeaconState, BeaconStateError, Epoch, EthSpec, Hash256, ParticipationFlags};
+use types::{BeaconState, BeaconStateError, Epoch, EthSpec, Hash256, ParticipationFlags, Slot};
 
 #[derive(Debug, Clone)]
 struct Initialization {
@@ -49,15 +49,35 @@ impl RewardCache {
         }
     }
 
+    // Determine the "marker" block root to store in `self.init` for a given `slot`.
+    //
+    // For simplicity at genesis we return the zero hash, which will cause one unnecessary
+    // re-calculation.
+    fn marker_block_root<E: EthSpec>(
+        state: &BeaconState<E>,
+        slot: Slot,
+    ) -> Result<Hash256, OpPoolError> {
+        if slot == 0 {
+            Ok(Hash256::zero())
+        } else {
+            Ok(*state
+                .get_block_root(slot)
+                .map_err(OpPoolError::RewardCacheGetBlockRoot)?)
+        }
+    }
+
     /// Update the cache.
     pub fn update<E: EthSpec>(&mut self, state: &BeaconState<E>) -> Result<(), OpPoolError> {
+        if state.previous_epoch_participation().is_err() {
+            return Ok(());
+        }
+
         let current_epoch = state.current_epoch();
-        let prev_epoch_last_block_root = *state
-            .get_block_root(state.previous_epoch().start_slot(E::slots_per_epoch()))
-            .map_err(OpPoolError::RewardCacheGetBlockRoot)?;
-        let latest_block_root = *state
-            .get_block_root(state.slot() - 1)
-            .map_err(OpPoolError::RewardCacheGetBlockRoot)?;
+        let prev_epoch_last_block_root = Self::marker_block_root(
+            state,
+            state.previous_epoch().start_slot(E::slots_per_epoch()),
+        )?;
+        let latest_block_root = Self::marker_block_root(state, state.slot() - 1)?;
 
         // If the `state` is from a new epoch or a different fork with a different last epoch block,
         // then update the effective balance cache (the effective balances are liable to have
