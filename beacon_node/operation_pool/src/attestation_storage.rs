@@ -1,3 +1,4 @@
+use crate::AttestationStats;
 use itertools::Itertools;
 use std::collections::HashMap;
 use types::{
@@ -33,12 +34,12 @@ pub struct AttestationRef<'a, T: EthSpec> {
     pub indexed: &'a CompactIndexedAttestation<T>,
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, PartialEq)]
 pub struct AttestationMap<T: EthSpec> {
     checkpoint_map: HashMap<CheckpointKey, AttestationDataMap<T>>,
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, PartialEq)]
 pub struct AttestationDataMap<T: EthSpec> {
     attestations: HashMap<CompactAttestationData, Vec<CompactIndexedAttestation<T>>>,
 }
@@ -158,25 +159,68 @@ impl<T: EthSpec> AttestationMap<T> {
         }
     }
 
+    /// Iterate all attestations matching the given `checkpoint_key`.
     pub fn get_attestations<'a>(
         &'a self,
         checkpoint_key: &'a CheckpointKey,
     ) -> impl Iterator<Item = AttestationRef<'a, T>> + 'a {
-        // It's a monad :O
         self.checkpoint_map
             .get(checkpoint_key)
             .into_iter()
-            .flat_map(|attestation_map| {
-                attestation_map
-                    .attestations
-                    .iter()
-                    .flat_map(|(data, vec_indexed)| {
-                        vec_indexed.iter().map(|indexed| AttestationRef {
-                            checkpoint: checkpoint_key,
-                            data,
-                            indexed,
-                        })
-                    })
+            .flat_map(|attestation_map| attestation_map.iter(checkpoint_key))
+    }
+
+    /// Iterate all attestations in the map.
+    pub fn iter<'a>(&'a self) -> impl Iterator<Item = AttestationRef<'a, T>> + 'a {
+        self.checkpoint_map
+            .iter()
+            .flat_map(|(checkpoint_key, attestation_map)| attestation_map.iter(checkpoint_key))
+    }
+
+    /// Prune attestation that are from before the previous epoch.
+    pub fn prune(&mut self, current_epoch: Epoch) {
+        self.checkpoint_map
+            .retain(|checkpoint_key, _| current_epoch <= checkpoint_key.target_epoch + 1);
+    }
+
+    /// Statistics about all attestations stored in the map.
+    pub fn stats(&self) -> AttestationStats {
+        self.checkpoint_map
+            .values()
+            .map(AttestationDataMap::stats)
+            .fold(AttestationStats::default(), |mut acc, new| {
+                acc.num_attestations += new.num_attestations;
+                acc.num_attestation_data += new.num_attestation_data;
+                acc.max_aggregates_per_data =
+                    std::cmp::max(acc.max_aggregates_per_data, new.max_aggregates_per_data);
+                acc
             })
+    }
+}
+
+impl<T: EthSpec> AttestationDataMap<T> {
+    pub fn iter<'a>(
+        &'a self,
+        checkpoint_key: &'a CheckpointKey,
+    ) -> impl Iterator<Item = AttestationRef<'a, T>> + 'a {
+        self.attestations.iter().flat_map(|(data, vec_indexed)| {
+            vec_indexed.iter().map(|indexed| AttestationRef {
+                checkpoint: checkpoint_key,
+                data,
+                indexed,
+            })
+        })
+    }
+
+    pub fn stats(&self) -> AttestationStats {
+        let mut stats = AttestationStats::default();
+
+        for aggregates in self.attestations.values() {
+            stats.num_attestations += aggregates.len();
+            stats.num_attestation_data += 1;
+            stats.max_aggregates_per_data =
+                std::cmp::max(stats.max_aggregates_per_data, aggregates.len());
+        }
+        stats
     }
 }

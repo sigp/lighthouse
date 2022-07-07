@@ -45,10 +45,10 @@ use std::sync::Arc;
 use tokio::sync::mpsc::UnboundedSender;
 use tokio_stream::{wrappers::BroadcastStream, StreamExt};
 use types::{
-    Attestation, AttesterSlashing, BeaconBlockBodyMerge, BeaconBlockMerge, BeaconStateError,
-    BlindedPayload, CommitteeCache, ConfigAndPreset, Epoch, EthSpec, ForkName, FullPayload,
-    ProposerPreparationData, ProposerSlashing, RelativeEpoch, Signature, SignedAggregateAndProof,
-    SignedBeaconBlock, SignedBeaconBlockMerge, SignedBlindedBeaconBlock,
+    Attestation, AttestationData, AttesterSlashing, BeaconBlockBodyMerge, BeaconBlockMerge,
+    BeaconStateError, BlindedPayload, CommitteeCache, ConfigAndPreset, Epoch, EthSpec, ForkName,
+    FullPayload, ProposerPreparationData, ProposerSlashing, RelativeEpoch, Signature,
+    SignedAggregateAndProof, SignedBeaconBlock, SignedBeaconBlockMerge, SignedBlindedBeaconBlock,
     SignedContributionAndProof, SignedValidatorRegistrationData, SignedVoluntaryExit, Slot,
     SyncCommitteeMessage, SyncContributionData,
 };
@@ -1307,13 +1307,11 @@ pub fn serve<T: BeaconChainTypes>(
         .and_then(
             |chain: Arc<BeaconChain<T>>, query: api_types::AttestationPoolQuery| {
                 blocking_json_task(move || {
-                    let query_filter = |attestation: &Attestation<T::EthSpec>| {
-                        query
-                            .slot
-                            .map_or(true, |slot| slot == attestation.data.slot)
+                    let query_filter = |data: &AttestationData| {
+                        query.slot.map_or(true, |slot| slot == data.slot)
                             && query
                                 .committee_index
-                                .map_or(true, |index| index == attestation.data.index)
+                                .map_or(true, |index| index == data.index)
                     };
 
                     let mut attestations = chain.op_pool.get_filtered_attestations(query_filter);
@@ -1323,7 +1321,7 @@ pub fn serve<T: BeaconChainTypes>(
                             .read()
                             .iter()
                             .cloned()
-                            .filter(query_filter),
+                            .filter(|att| query_filter(&att.data)),
                     );
                     Ok(api_types::GenericResponse::from(attestations))
                 })

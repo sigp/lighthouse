@@ -96,7 +96,7 @@ impl<'a, T: EthSpec> AttMaxCover<'a, T> {
             .filter_map(|&index| {
                 if reward_cache
                     .has_attested_in_epoch(index, att_data.target.epoch)
-                    .expect("FIXME(sproul): remove this in prod")
+                    .ok()?
                 {
                     return None;
                 }

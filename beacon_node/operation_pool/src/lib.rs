@@ -29,9 +29,9 @@ use std::collections::{hash_map::Entry, HashMap, HashSet};
 use std::marker::PhantomData;
 use std::ptr;
 use types::{
-    sync_aggregate::Error as SyncAggregateError, typenum::Unsigned, Attestation, AttesterSlashing,
-    BeaconState, BeaconStateError, ChainSpec, Epoch, EthSpec, Fork, ForkVersion, Hash256,
-    ProposerSlashing, SignedVoluntaryExit, Slot, SyncAggregate, SyncCommitteeContribution,
+    sync_aggregate::Error as SyncAggregateError, typenum::Unsigned, Attestation, AttestationData,
+    AttesterSlashing, BeaconState, BeaconStateError, ChainSpec, Epoch, EthSpec, Fork, ForkVersion,
+    Hash256, ProposerSlashing, SignedVoluntaryExit, Slot, SyncAggregate, SyncCommitteeContribution,
     Validator,
 };
 
@@ -68,6 +68,7 @@ pub enum OpPoolError {
     IncorrectOpPoolVariant,
 }
 
+#[derive(Default)]
 pub struct AttestationStats {
     /// Total number of attestations for all committeees/indices/votes.
     pub num_attestations: usize,
@@ -198,28 +199,11 @@ impl<T: EthSpec> OperationPool<T> {
 
     /// Total number of attestations in the pool, including attestations for the same data.
     pub fn num_attestations(&self) -> usize {
-        // FIXME(sproul): implement
-        // self.attestations.read().values().map(Vec::len).sum()
-        0
+        self.attestation_stats().num_attestations
     }
 
     pub fn attestation_stats(&self) -> AttestationStats {
-        let mut num_attestations = 0;
-        let mut num_attestation_data = 0;
-        let mut max_aggregates_per_data = 0;
-
-        /* FIXME(sproul): implement
-        for aggregates in self.attestations.read().values() {
-            num_attestations += aggregates.len();
-            num_attestation_data += 1;
-            max_aggregates_per_data = std::cmp::max(max_aggregates_per_data, aggregates.len());
-        }
-        */
-        AttestationStats {
-            num_attestations,
-            num_attestation_data,
-            max_aggregates_per_data,
-        }
+        self.attestations.read().stats()
     }
 
     /// Return all valid attestations for the given epoch, for use in max cover.
@@ -343,17 +327,7 @@ impl<T: EthSpec> OperationPool<T> {
 
     /// Remove attestations which are too old to be included in a block.
     pub fn prune_attestations(&self, current_epoch: Epoch) {
-        // FIXME(sproul): implement pruning
-        /*
-        // Prune attestations that are from before the previous epoch.
-        self.attestations.write().retain(|_, attestations| {
-            // All the attestations in this bucket have the same data, so we only need to
-            // check the first one.
-            attestations
-                .first()
-                .map_or(false, |att| current_epoch <= att.data.target.epoch + 1)
-        });
-        */
+        self.attestations.write().prune(current_epoch);
     }
 
     /// Insert a proposer slashing into the pool.
@@ -546,15 +520,11 @@ impl<T: EthSpec> OperationPool<T> {
     ///
     /// This method may return objects that are invalid for block inclusion.
     pub fn get_all_attestations(&self) -> Vec<Attestation<T>> {
-        // FIXME(sproul): fix this
-        vec![]
-        /*
         self.attestations
             .read()
-            .values()
-            .flat_map(|attns| attns.iter().cloned())
+            .iter()
+            .map(|att| att.clone_as_attestation())
             .collect()
-        */
     }
 
     /// Returns all known `Attestation` objects that pass the provided filter.
@@ -562,18 +532,14 @@ impl<T: EthSpec> OperationPool<T> {
     /// This method may return objects that are invalid for block inclusion.
     pub fn get_filtered_attestations<F>(&self, filter: F) -> Vec<Attestation<T>>
     where
-        F: Fn(&Attestation<T>) -> bool,
+        F: Fn(&AttestationData) -> bool,
     {
-        /* FIXME(sproul): fix
         self.attestations
             .read()
-            .values()
-            .flat_map(|attns| attns.iter())
-            .filter(|attn| filter(*attn))
-            .cloned()
+            .iter()
+            .filter(|att| filter(&att.attestation_data()))
+            .map(|att| att.clone_as_attestation())
             .collect()
-        */
-        vec![]
     }
 
     /// Returns all known `AttesterSlashing` objects.
@@ -651,9 +617,9 @@ impl<T: EthSpec + Default> PartialEq for OperationPool<T> {
         if ptr::eq(self, other) {
             return true;
         }
-        // FIXME(sproul): uhhh
-        // *self.attestations.read() == *other.attestations.read()
-        true && *self.attester_slashings.read() == *other.attester_slashings.read()
+        *self.attestations.read() == *other.attestations.read()
+            && *self.sync_contributions.read() == *other.sync_contributions.read()
+            && *self.attester_slashings.read() == *other.attester_slashings.read()
             && *self.proposer_slashings.read() == *other.proposer_slashings.read()
             && *self.voluntary_exits.read() == *other.voluntary_exits.read()
     }
