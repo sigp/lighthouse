@@ -1,5 +1,4 @@
-use ethers_core::types::transaction::eip2718::TypedTransaction;
-use ethers_providers::{Http, Middleware, PendingTransaction, Provider};
+use ethers_providers::{Http, Provider};
 use execution_layer::DEFAULT_JWT_FILE;
 use sensitive_url::SensitiveUrl;
 use std::path::PathBuf;
@@ -7,13 +6,13 @@ use std::process::Child;
 use tempfile::TempDir;
 use unused_port::unused_tcp_port;
 
-pub const PASSWORD_FILE: &str = "password.txt";
 pub const KEYSTORE_PASSWORD: &str = "testpwd";
-pub const PRIVATE_KEY_FILE: &str = "privkey";
 pub const ACCOUNT1: &str = "7b8C3a386C0eea54693fFB0DA17373ffC9228139";
 pub const ACCOUNT2: &str = "dA2DD7560DB7e212B945fC72cEB54B7D8C886D77";
-pub const PRIVATE_KEY1: &str = "115fe42a60e5ef45f5490e599add1f03c73aeaca129c2c41451eca6cf8ff9e04";
-pub const PRIVATE_KEY2: &str = "6a692e710077d9000be1326acbe32f777b403902ac8779b19eb1398b849c99c3";
+pub const PRIVATE_KEYS: [&str; 2] = [
+    "115fe42a60e5ef45f5490e599add1f03c73aeaca129c2c41451eca6cf8ff9e04",
+    "6a692e710077d9000be1326acbe32f777b403902ac8779b19eb1398b849c99c3",
+];
 
 /// Defined for each EE type (e.g., Geth, Nethermind, etc).
 pub trait GenericExecutionEngine: Clone {
@@ -24,8 +23,6 @@ pub trait GenericExecutionEngine: Clone {
         http_auth_port: u16,
         jwt_secret_path: PathBuf,
     ) -> Child;
-
-    fn write_accounts(datadir: &TempDir);
 }
 
 /// Holds handle to a running EE process, plus some other metadata.
@@ -34,6 +31,7 @@ pub struct ExecutionEngine<E> {
     engine: E,
     #[allow(dead_code)]
     datadir: TempDir,
+    http_port: u16,
     http_auth_port: u16,
     child: Child,
     pub provider: Provider<Http>,
@@ -51,7 +49,7 @@ impl<E> Drop for ExecutionEngine<E> {
 impl<E: GenericExecutionEngine> ExecutionEngine<E> {
     pub fn new(engine: E) -> Self {
         let datadir = E::init_datadir();
-        E::write_accounts(&datadir);
+        // E::write_accounts(&datadir);
         let jwt_secret_path = datadir.path().join(DEFAULT_JWT_FILE);
         let http_port = unused_tcp_port().unwrap();
         let http_auth_port = unused_tcp_port().unwrap();
@@ -61,6 +59,7 @@ impl<E: GenericExecutionEngine> ExecutionEngine<E> {
         Self {
             engine,
             datadir,
+            http_port,
             http_auth_port,
             child,
             provider,
@@ -71,20 +70,11 @@ impl<E: GenericExecutionEngine> ExecutionEngine<E> {
         SensitiveUrl::parse(&format!("http://127.0.0.1:{}", self.http_auth_port)).unwrap()
     }
 
-    pub fn datadir(&self) -> PathBuf {
-        self.datadir.path().to_path_buf()
+    pub fn http_url(&self) -> SensitiveUrl {
+        SensitiveUrl::parse(&format!("http://127.0.0.1:{}", self.http_port)).unwrap()
     }
 
-    pub async fn send_transaction(
-        &self,
-        tx: TypedTransaction,
-    ) -> Result<PendingTransaction<Http>, String> {
-        let result = self
-            .provider
-            .send_transaction(tx, None)
-            .await
-            .map_err(|e| format!("Failed to send transaction: {}", e))?;
-
-        Ok(result)
+    pub fn datadir(&self) -> PathBuf {
+        self.datadir.path().to_path_buf()
     }
 }

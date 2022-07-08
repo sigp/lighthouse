@@ -1,4 +1,4 @@
-#![recursion_limit = "256"]
+#![recursion_limit = "1024"]
 /// This binary runs integration tests between Lighthouse and execution engines.
 ///
 /// It will first attempt to build any supported integration clients, then it will run tests.
@@ -25,7 +25,7 @@ fn main() {
     }
 
     test_geth();
-    // test_nethermind();
+    test_nethermind();
 }
 
 fn test_geth() {

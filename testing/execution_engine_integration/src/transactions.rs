@@ -8,7 +8,7 @@ use ethers_core::types::{
 pub enum Transactions {
     Transfer(Address, Address),
     TransferLegacy(Address, Address),
-    DepositContractDeposit(Address),
+    _DepositContractDeposit(Address),
 }
 
 /// Get a list of transactions to publish to the execution layer.
@@ -32,7 +32,7 @@ impl Transactions {
                 .to(*to)
                 .value(1)
                 .into(),
-            Self::DepositContractDeposit(_address) => unimplemented!(),
+            Self::_DepositContractDeposit(_address) => unimplemented!(),
         }
     }
 }

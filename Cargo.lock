@@ -1932,6 +1932,8 @@ dependencies = [
  "execution_layer",
  "exit-future",
  "futures",
+ "hex",
+ "reqwest",
  "sensitive_url",
  "serde_json",
  "task_executor",
