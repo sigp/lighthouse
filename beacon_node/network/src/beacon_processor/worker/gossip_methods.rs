@@ -6,8 +6,8 @@ use beacon_chain::{
     observed_operations::ObservationOutcome,
     sync_committee_verification::{self, Error as SyncCommitteeError},
     validator_monitor::get_block_delay_ms,
-    BeaconChainError, BeaconChainTypes, BlockError, ExecutionPayloadError, ForkChoiceError,
-    GossipVerifiedBlock,
+    BeaconChainError, BeaconChainTypes, BlockError, CountUnrealized, ExecutionPayloadError,
+    ForkChoiceError, GossipVerifiedBlock,
 };
 use lighthouse_network::{Client, MessageAcceptance, MessageId, PeerAction, PeerId, ReportSource};
 use slog::{crit, debug, error, info, trace, warn};
@@ -902,7 +902,11 @@ impl<T: BeaconChainTypes> Worker<T> {
     ) {
         let block: Arc<_> = verified_block.block.clone();
 
-        match self.chain.process_block(verified_block).await {
+        match self
+            .chain
+            .process_block(verified_block, CountUnrealized::True)
+            .await
+        {
             Ok(block_root) => {
                 metrics::inc_counter(&metrics::BEACON_PROCESSOR_GOSSIP_BLOCK_IMPORTED_TOTAL);
 

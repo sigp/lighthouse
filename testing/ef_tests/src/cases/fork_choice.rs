@@ -7,7 +7,7 @@ use beacon_chain::{
         obtain_indexed_attestation_and_committees_per_slot, VerifiedAttestation,
     },
     test_utils::{BeaconChainHarness, EphemeralHarnessType},
-    BeaconChainTypes, CachedHead,
+    BeaconChainTypes, CachedHead, CountUnrealized,
 };
 use serde_derive::Deserialize;
 use ssz_derive::Decode;
@@ -348,7 +348,11 @@ impl<E: EthSpec> Tester<E> {
     pub fn process_block(&self, block: SignedBeaconBlock<E>, valid: bool) -> Result<(), Error> {
         let block_root = block.canonical_root();
         let block = Arc::new(block);
-        let result = self.block_on_dangerous(self.harness.chain.process_block(block.clone()))?;
+        let result = self.block_on_dangerous(
+            self.harness
+                .chain
+                .process_block(block.clone(), CountUnrealized::True),
+        )?;
         if result.is_ok() != valid {
             return Err(Error::DidntFail(format!(
                 "block with root {} was valid={} whilst test expects valid={}. result: {:?}",
@@ -406,7 +410,7 @@ impl<E: EthSpec> Tester<E> {
                         &state,
                         PayloadVerificationStatus::Irrelevant,
                         &self.harness.chain.spec,
-                        self.harness.chain.config.count_unrealized,
+                        self.harness.chain.config.count_unrealized.into(),
                     );
 
                 if result.is_ok() {

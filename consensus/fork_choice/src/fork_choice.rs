@@ -124,6 +124,38 @@ impl<T> From<String> for Error<T> {
     }
 }
 
+/// Indicates whether the unrealized justification of a block should be calculated and tracked.
+/// If a block has been finalized, this can be set to false. This is useful when syncing finalized
+/// portions of the chain. Otherwise this should always be set to true.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum CountUnrealized {
+    True,
+    False,
+}
+
+impl CountUnrealized {
+    pub fn is_true(&self) -> bool {
+        matches!(self, CountUnrealized::True)
+    }
+    pub fn and(&self, other: CountUnrealized) -> CountUnrealized {
+        if self.is_true() && other.is_true() {
+            CountUnrealized::True
+        } else {
+            CountUnrealized::False
+        }
+    }
+}
+
+impl From<bool> for CountUnrealized {
+    fn from(count_unrealized: bool) -> Self {
+        if count_unrealized {
+            CountUnrealized::True
+        } else {
+            CountUnrealized::False
+        }
+    }
+}
+
 /// Indicates if a block has been verified by an execution payload.
 ///
 /// There is no variant for "invalid", since such a block should never be added to fork choice.
@@ -587,7 +619,7 @@ where
         state: &BeaconState<E>,
         payload_verification_status: PayloadVerificationStatus,
         spec: &ChainSpec,
-        count_unrealized: bool,
+        count_unrealized: CountUnrealized,
     ) -> Result<(), Error<T::Error>> {
         let current_slot = self.update_time(current_slot, spec)?;
 
@@ -656,6 +688,7 @@ where
 
         // Update unrealized justified/finalized checkpoints.
         let (unrealized_justified_checkpoint, unrealized_finalized_checkpoint) = if count_unrealized
+            .is_true()
         {
             let justification_and_finalization_state = match block {
                 BeaconBlockRef::Merge(_) | BeaconBlockRef::Altair(_) => {

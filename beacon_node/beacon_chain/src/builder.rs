@@ -647,7 +647,7 @@ where
                 store.clone(),
                 Some(current_slot),
                 &self.spec,
-                self.chain_config.count_unrealized,
+                self.chain_config.count_unrealized.into(),
             )?;
         }
 

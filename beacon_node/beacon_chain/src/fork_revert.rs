@@ -1,5 +1,5 @@
 use crate::{BeaconForkChoiceStore, BeaconSnapshot};
-use fork_choice::{ForkChoice, PayloadVerificationStatus};
+use fork_choice::{CountUnrealized, ForkChoice, PayloadVerificationStatus};
 use itertools::process_results;
 use slog::{info, warn, Logger};
 use state_processing::state_advance::complete_state_advance;
@@ -99,7 +99,7 @@ pub fn reset_fork_choice_to_finalization<E: EthSpec, Hot: ItemStore<E>, Cold: It
     store: Arc<HotColdDB<E, Hot, Cold>>,
     current_slot: Option<Slot>,
     spec: &ChainSpec,
-    count_unrealized: bool,
+    count_unrealized: CountUnrealized,
 ) -> Result<ForkChoice<BeaconForkChoiceStore<E, Hot, Cold>, E>, String> {
     // Fetch finalized block.
     let finalized_checkpoint = head_state.finalized_checkpoint();
