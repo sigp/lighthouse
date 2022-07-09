@@ -8,6 +8,7 @@ pub mod list_of_bytes_lists;
 pub mod quoted_u64_vec;
 pub mod u32_hex;
 pub mod u64_hex_be;
+pub mod u256_hex_be;
 pub mod u8_hex;
 
 pub use fixed_bytes_hex::{bytes_4_hex, bytes_8_hex};
