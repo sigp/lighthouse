@@ -8,6 +8,7 @@ use beacon_chain::{
     },
     BeaconChain, StateSkipConfig, WhenSlotSkipped,
 };
+use fork_choice::CountUnrealized;
 use lazy_static::lazy_static;
 use operation_pool::PersistedOperationPool;
 use state_processing::{
@@ -683,7 +684,10 @@ async fn run_skip_slot_test(skip_slots: u64) {
     assert_eq!(
         harness_b
             .chain
-            .process_block(harness_a.chain.head_snapshot().beacon_block.clone())
+            .process_block(
+                harness_a.chain.head_snapshot().beacon_block.clone(),
+                CountUnrealized::True
+            )
             .await
             .unwrap(),
         harness_a.chain.head_snapshot().beacon_block_root
