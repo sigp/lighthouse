@@ -435,12 +435,6 @@ fn fork_choice_ex_ante() {
     ForkChoiceHandler::<MainnetEthSpec>::new("ex_ante").run();
 }
 
-// #[test]
-// fn fork_choice_reorg() {
-//     ForkChoiceHandler::<MinimalEthSpec>::new("reorg").run();
-//     ForkChoiceHandler::<MainnetEthSpec>::new("reorg").run();
-// }
-
 #[test]
 fn genesis_initialization() {
     GenesisInitializationHandler::<MinimalEthSpec>::default().run();
