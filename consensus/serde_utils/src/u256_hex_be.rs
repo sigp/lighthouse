@@ -90,6 +90,13 @@ mod test {
         );
         assert_eq!(
             &serde_json::to_string(&Wrapper {
+                val: U256::max_value() - 1
+            })
+            .unwrap(),
+            "\"0xfffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffe\""
+        );
+        assert_eq!(
+            &serde_json::to_string(&Wrapper {
                 val: U256::max_value()
             })
             .unwrap(),
@@ -110,6 +117,15 @@ mod test {
         assert_eq!(
             serde_json::from_str::<Wrapper>("\"0x400\"").unwrap(),
             Wrapper { val: 1024.into() },
+        );
+        assert_eq!(
+            serde_json::from_str::<Wrapper>(
+                "\"0xfffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffe\""
+            )
+            .unwrap(),
+            Wrapper {
+                val: U256::max_value() - 1
+            },
         );
         assert_eq!(
             serde_json::from_str::<Wrapper>(
