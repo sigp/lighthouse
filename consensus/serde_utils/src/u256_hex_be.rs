@@ -28,18 +28,18 @@ impl<'de> Visitor<'de> for U256Visitor {
         if !value.starts_with("0x") {
             return Err(de::Error::custom("must start with 0x"));
         }
-        let stripped = value.trim_start_matches("0x");
+        let stripped = &value[2..];
         if stripped.is_empty() {
             Err(de::Error::custom(format!(
                 "quantity cannot be {}",
                 stripped
             )))
         } else if stripped == "0" {
-            Ok(stripped.to_string())
+            Ok(value.to_string())
         } else if stripped.starts_with('0') {
             Err(de::Error::custom("cannot have leading zero"))
         } else {
-            Ok(format!("0x{}", stripped))
+            Ok(value.to_string())
         }
     }
 }
