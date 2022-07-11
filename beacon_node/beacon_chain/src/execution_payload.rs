@@ -456,6 +456,7 @@ where
             proposer_index,
             pubkey,
             chain.slot().map_err(BlockProductionError::BeaconChain)?,
+            &chain.spec,
         )
         .await
         .map_err(BlockProductionError::GetPayloadFailed)?;
