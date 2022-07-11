@@ -49,24 +49,26 @@ impl BlockId {
                     })
                 }),
             CoreBlockId::Root(root) => {
+                // This matches the behaviour of other consensus clients (e.g. Teku).
                 if root == &Hash256::zero() {
                     return Err(warp_utils::reject::custom_not_found(format!(
                         "beacon block with root {}",
                         root
                     )));
                 };
-                chain
+                if chain
                     .store
-                    .get_blinded_block(root)
+                    .block_exists(root)
                     .map_err(BeaconChainError::DBError)
                     .map_err(warp_utils::reject::beacon_chain_error)?
-                    .map(|block| block.canonical_root())
-                    .ok_or_else(|| {
-                        warp_utils::reject::custom_not_found(format!(
-                            "beacon block with root {}",
-                            root
-                        ))
-                    })
+                {
+                    Ok(*root)
+                } else {
+                    return Err(warp_utils::reject::custom_not_found(format!(
+                        "beacon block with root {}",
+                        root
+                    )));
+                }
             }
         }
     }

@@ -76,6 +76,19 @@ impl ApiTester {
         Self::new_from_spec(spec).await
     }
 
+    pub async fn new_with_hard_forks(altair: bool, bellatrix: bool) -> Self {
+        let mut spec = E::default_spec();
+        spec.shard_committee_period = 2;
+        // Set whether the chain has undergone each hard fork.
+        if altair {
+            spec.altair_fork_epoch = Some(Epoch::new(0));
+        }
+        if bellatrix {
+            spec.bellatrix_fork_epoch = Some(Epoch::new(0));
+        }
+        Self::new_from_spec(spec).await
+    }
+
     pub async fn new_from_spec(spec: ChainSpec) -> Self {
         let harness = Arc::new(
             BeaconChainHarness::builder(MainnetEthSpec)
@@ -212,7 +225,7 @@ impl ApiTester {
         );
 
         Self {
-            harness: Arc::new(harness),
+            harness,
             chain,
             client,
             next_block,
@@ -301,150 +314,6 @@ impl ApiTester {
             reorg_block,
             attestations,
             contribution_and_proofs: vec![],
-            attester_slashing,
-            proposer_slashing,
-            voluntary_exit,
-            _server_shutdown: shutdown_tx,
-            network_rx,
-            local_enr,
-            external_peer_id,
-        }
-    }
-
-    pub async fn new_post_bellatrix() -> Self {
-        let mut spec = E::default_spec();
-        spec.altair_fork_epoch = Some(Epoch::new(0));
-        spec.bellatrix_fork_epoch = Some(Epoch::new(0));
-
-        let harness = BeaconChainHarness::builder(MainnetEthSpec)
-            .spec(spec.clone())
-            .deterministic_keypairs(VALIDATOR_COUNT)
-            .fresh_ephemeral_store()
-            .mock_execution_layer()
-            .build();
-
-        harness.advance_slot();
-
-        for _ in 0..CHAIN_LENGTH {
-            let slot = harness.chain.slot().unwrap().as_u64();
-
-            if !SKIPPED_SLOTS.contains(&slot) {
-                harness
-                    .extend_chain(
-                        1,
-                        BlockStrategy::OnCanonicalHead,
-                        AttestationStrategy::AllValidators,
-                    )
-                    .await;
-            }
-
-            harness.advance_slot();
-        }
-
-        let head = harness.chain.head_snapshot();
-
-        assert_eq!(
-            harness.chain.slot().unwrap(),
-            head.beacon_block.slot() + 1,
-            "precondition: current slot is one after head"
-        );
-
-        let (next_block, _next_state) = harness
-            .make_block(head.beacon_state.clone(), harness.chain.slot().unwrap())
-            .await;
-
-        // `make_block` adds random graffiti, so this will produce an alternate block
-        let (reorg_block, _reorg_state) = harness
-            .make_block(head.beacon_state.clone(), harness.chain.slot().unwrap())
-            .await;
-
-        let head = harness.chain.head_snapshot();
-
-        let head_state_root = head.beacon_state_root();
-        let attestations = harness
-            .get_unaggregated_attestations(
-                &AttestationStrategy::AllValidators,
-                &head.beacon_state,
-                head_state_root,
-                head.beacon_block_root,
-                harness.chain.slot().unwrap(),
-            )
-            .into_iter()
-            .flat_map(|vec| vec.into_iter().map(|(attestation, _subnet_id)| attestation))
-            .collect::<Vec<_>>();
-
-        assert!(
-            !attestations.is_empty(),
-            "precondition: attestations for testing"
-        );
-
-        let contribution_and_proofs = harness
-            .make_sync_contributions(
-                &head.beacon_state,
-                head_state_root,
-                harness.chain.slot().unwrap(),
-                RelativeSyncCommittee::Current,
-            )
-            .into_iter()
-            .filter_map(|(_, contribution)| contribution)
-            .collect::<Vec<_>>();
-
-        let attester_slashing = harness.make_attester_slashing(vec![0, 1]);
-        let proposer_slashing = harness.make_proposer_slashing(2);
-        let voluntary_exit = harness.make_voluntary_exit(3, harness.chain.epoch().unwrap());
-
-        let chain = harness.chain.clone();
-
-        assert_eq!(
-            chain
-                .canonical_head
-                .cached_head()
-                .finalized_checkpoint()
-                .epoch,
-            2,
-            "precondition: finality"
-        );
-        assert_eq!(
-            chain
-                .canonical_head
-                .cached_head()
-                .justified_checkpoint()
-                .epoch,
-            3,
-            "precondition: justification"
-        );
-
-        let log = null_logger().unwrap();
-
-        let ApiServer {
-            server,
-            listening_socket,
-            shutdown_tx,
-            network_rx,
-            local_enr,
-            external_peer_id,
-        } = create_api_server(chain.clone(), log).await;
-
-        harness.runtime.task_executor.spawn(server, "api_server");
-
-        let client = BeaconNodeHttpClient::new(
-            SensitiveUrl::parse(&format!(
-                "http://{}:{}",
-                listening_socket.ip(),
-                listening_socket.port()
-            ))
-            .unwrap(),
-            Timeouts::set_all(Duration::from_secs(SECONDS_PER_SLOT)),
-        );
-
-        Self {
-            harness: Arc::new(harness),
-            chain,
-            client,
-            next_block,
-            reorg_block,
-            attestations,
-            contribution_and_proofs,
             attester_slashing,
             proposer_slashing,
             voluntary_exit,
@@ -3191,7 +3060,7 @@ async fn lighthouse_endpoints() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn optimistic_responses() {
-    ApiTester::new_post_bellatrix()
+    ApiTester::new_with_hard_forks(true, true)
         .await
         .test_check_optimistic_responses()
         .await;
