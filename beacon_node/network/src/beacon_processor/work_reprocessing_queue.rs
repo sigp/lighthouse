@@ -150,7 +150,6 @@ struct ReprocessQueue<T: BeaconChainTypes> {
     /* Queued items */
     /// Queued blocks.
     queued_gossip_block_roots: HashSet<Hash256>,
-    queued_rpc_block_roots: HashSet<Hash256>,
     /// Queued aggregated attestations.
     queued_aggregates: FnvHashMap<usize, (QueuedAggregate<T::EthSpec>, DelayKey)>,
     /// Queued attestations.
@@ -265,7 +264,6 @@ pub fn spawn_reprocess_scheduler<T: BeaconChainTypes>(
         rpc_block_delay_queue: DelayQueue::new(),
         attestations_delay_queue: DelayQueue::new(),
         queued_gossip_block_roots: HashSet::new(),
-        queued_rpc_block_roots: HashSet::new(),
         queued_aggregates: FnvHashMap::default(),
         queued_unaggregates: FnvHashMap::default(),
         awaiting_attestations_per_root: HashMap::new(),
@@ -361,15 +359,8 @@ impl<T: BeaconChainTypes> ReprocessQueue<T> {
             // and then send the rpc block back for processing assuming the gossip import
             // has completed by then.
             InboundEvent::Msg(RpcBlock(mut rpc_block)) => {
-                let block_root = rpc_block.block.canonical_root();
-
-                // Don't add the same block to the queue twice. This prevents DoS attacks.
-                if self.queued_rpc_block_roots.contains(&block_root) {
-                    return;
-                }
-
                 // Check to ensure this won't over-fill the queue.
-                if self.queued_rpc_block_roots.len() >= MAXIMUM_QUEUED_BLOCKS {
+                if self.rpc_block_delay_queue.len() >= MAXIMUM_QUEUED_BLOCKS {
                     if self.rpc_block_debounce.elapsed() {
                         warn!(
                             log,
@@ -394,24 +385,11 @@ impl<T: BeaconChainTypes> ReprocessQueue<T> {
                     return;
                 }
 
-                self.queued_rpc_block_roots.insert(block_root);
-                // Queue the block for an entire slot.
+                // Queue the block for 1/4th of a slot
                 self.rpc_block_delay_queue
                     .insert(rpc_block, QUEUED_RPC_BLOCK_DELAY);
             }
             InboundEvent::ReadyRpcBlock(queued_rpc_block) => {
-                let block_root = queued_rpc_block.block.canonical_root();
-
-                if !self.queued_rpc_block_roots.remove(&block_root) {
-                    // Log an error to alert that we've made a bad assumption about how this
-                    // program works, but still process the block anyway.
-                    error!(
-                        log,
-                        "Unknown block in rpc delay queue";
-                        "block_root" => ?block_root
-                    );
-                }
-
                 debug!(
                     log,
                     "Sending rpc block for reprocessing";
