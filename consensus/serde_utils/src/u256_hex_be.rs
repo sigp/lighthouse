@@ -1,43 +1,56 @@
 use ethereum_types::U256;
 
-use crate::u64_hex_be::QuantityVisitor;
-use serde::de::Error;
-use serde::{Deserializer, Serializer};
-
-const BYTES_LEN: usize = 32;
+use serde::de::Visitor;
+use serde::{de, Deserializer, Serialize, Serializer};
+use std::fmt;
+use std::str::FromStr;
 
 pub fn serialize<S>(num: &U256, serializer: S) -> Result<S::Ok, S::Error>
 where
     S: Serializer,
 {
-    let mut bytes = [0; BYTES_LEN];
-    num.to_big_endian(&mut bytes);
-    let raw = hex::encode(bytes);
-    let trimmed = raw.trim_start_matches('0');
+    num.serialize(serializer)
+}
 
-    let hex = if trimmed.is_empty() { "0" } else { trimmed };
+pub struct U256Visitor;
 
-    serializer.serialize_str(&format!("0x{}", &hex))
+impl<'de> Visitor<'de> for U256Visitor {
+    type Value = String;
+
+    fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+        formatter.write_str("a well formatted hex string")
+    }
+
+    fn visit_str<E>(self, value: &str) -> Result<Self::Value, E>
+    where
+        E: de::Error,
+    {
+        if !value.starts_with("0x") {
+            return Err(de::Error::custom("must start with 0x"));
+        }
+        let stripped = value.trim_start_matches("0x");
+        if stripped.is_empty() {
+            Err(de::Error::custom(format!(
+                "quantity cannot be {}",
+                stripped
+            )))
+        } else if stripped == "0" {
+            Ok(stripped.to_string())
+        } else if stripped.starts_with('0') {
+            Err(de::Error::custom("cannot have leading zero"))
+        } else {
+            Ok(format!("0x{}", stripped))
+        }
+    }
 }
 
 pub fn deserialize<'de, D>(deserializer: D) -> Result<U256, D::Error>
 where
     D: Deserializer<'de>,
 {
-    let decoded = deserializer.deserialize_str(QuantityVisitor)?;
+    let decoded = deserializer.deserialize_string(U256Visitor)?;
 
-    // TODO: this is not strict about byte length like other methods.
-    if decoded.len() > BYTES_LEN {
-        return Err(D::Error::custom(format!(
-            "expected max {} bytes for array, got {}",
-            BYTES_LEN,
-            decoded.len()
-        )));
-    }
-
-    let mut array = [0; BYTES_LEN];
-    array[BYTES_LEN - decoded.len()..].copy_from_slice(&decoded);
-    Ok(U256::from_big_endian(&array))
+    U256::from_str(&decoded).map_err(|e| de::Error::custom(format!("Invalid U256 string: {}", e)))
 }
 
 #[cfg(test)]
