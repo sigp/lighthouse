@@ -12,17 +12,26 @@ use serde::de::DeserializeOwned;
 use serde::Serialize;
 use std::time::Duration;
 
-pub const DEFAULT_GET_HEADER_TIMEOUT_MILLIS: u64 = 500;
+pub const DEFAULT_TIMEOUT_MILLIS: u64 = 15000;
+
+/// This timeout is in accordance with v0.2.0 of the [builder specs](https://github.com/flashbots/mev-boost/pull/20).
+pub const DEFAULT_GET_HEADER_TIMEOUT_MILLIS: u64 = 1000;
 
 #[derive(Clone)]
 pub struct Timeouts {
     get_header: Duration,
+    post_validators: Duration,
+    post_blinded_blocks: Duration,
+    get_builder_status: Duration,
 }
 
 impl Default for Timeouts {
     fn default() -> Self {
         Self {
             get_header: Duration::from_millis(DEFAULT_GET_HEADER_TIMEOUT_MILLIS),
+            post_validators: Duration::from_millis(DEFAULT_TIMEOUT_MILLIS),
+            post_blinded_blocks: Duration::from_millis(DEFAULT_TIMEOUT_MILLIS),
+            get_builder_status: Duration::from_millis(DEFAULT_TIMEOUT_MILLIS),
         }
     }
 }
