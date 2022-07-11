@@ -617,9 +617,6 @@ impl<T: EthSpec> ExecutionLayer<T> {
                         Ok(local)
                     }
                     (Ok(Some(relay)), Ok(local)) => {
-                        //TODO(sean) check fork?
-                        //TODO(sean) verify value vs local payload?
-                        //TODO(sean) verify bid signature?
                         //TODO(sean) only use the blinded block flow if we have recent chain health
                         let header = relay.data.message.header;
                         if header.fee_recipient() != suggested_fee_recipient {
@@ -637,6 +634,15 @@ impl<T: EthSpec> ExecutionLayer<T> {
                         } else if header.block_number() != local.block_number() {
                             warn!(self.log(), "Invalid block number from connected builder, falling back to local execution engine.");
                             Ok(local)
+                        } else if let Some(version) = relay.version {
+                            // Once fork information is added to the payload, we will need to check that the local and relay payloads
+                            // match. At this point, if we are requesting a payload at all, we have to assume this is the Bellatrix fork.
+                            if !matches!(version, ForkName::Bellatrix) {
+                                warn!(self.log(), "Invalid fork from connected builder, falling back to local execution engine.");
+                                Ok(local)
+                            } else {
+                                Ok(header)
+                            }
                         } else {
                             Ok(header)
                         }
