@@ -304,13 +304,13 @@ impl<T: EthSpec> ExecutionLayer<T> {
                     let third_execution = second_execution + interval;
 
                     sleep_until(now + first_execution).await;
-                    el.engines().upcheck_not_synced(Logging::Disabled).await;
+                    el.engines().upcheck(Logging::Disabled).await;
 
                     sleep_until(now + second_execution).await;
-                    el.engines().upcheck_not_synced(Logging::Disabled).await;
+                    el.engines().upcheck(Logging::Disabled).await;
 
                     sleep_until(now + third_execution).await;
-                    el.engines().upcheck_not_synced(Logging::Disabled).await;
+                    el.engines().upcheck(Logging::Disabled).await;
                 };
 
             // Start the loop to periodically update.
@@ -334,7 +334,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
     /// Performs a single execution of the watchdog routine.
     pub async fn watchdog_task(&self) {
         // Disable logging since this runs frequently and may get annoying.
-        self.engines().upcheck_not_synced(Logging::Disabled).await;
+        self.engines().upcheck(Logging::Disabled).await;
     }
 
     /// Spawns a routine which cleans the cached proposer data periodically.
@@ -633,7 +633,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
             "parent_hash" => ?parent_hash,
         );
         self.engines()
-            .first_success(|engine| async move {
+            .request(|engine| async move {
                 let payload_id = if let Some(id) = engine
                     .get_payload_id(parent_hash, timestamp, prev_randao, suggested_fee_recipient)
                     .await
@@ -736,12 +736,12 @@ impl<T: EthSpec> ExecutionLayer<T> {
             "block_number" => execution_payload.block_number,
         );
 
-        let broadcast_result = self
+        let result = self
             .engines()
-            .broadcast(|engine| engine.api.new_payload_v1(execution_payload.clone()))
+            .request(|engine| engine.api.new_payload_v1(execution_payload.clone()))
             .await;
 
-        process_payload_status(execution_payload.block_hash, broadcast_result, self.log())
+        process_payload_status(execution_payload.block_hash, result, self.log())
             .map_err(Box::new)
             .map_err(Error::EngineError)
     }
@@ -871,9 +871,9 @@ impl<T: EthSpec> ExecutionLayer<T> {
             .set_latest_forkchoice_state(forkchoice_state)
             .await;
 
-        let broadcast_result = self
+        let result = self
             .engines()
-            .broadcast(|engine| async move {
+            .request(|engine| async move {
                 engine
                     .notify_forkchoice_updated(forkchoice_state, payload_attributes, self.log())
                     .await
@@ -882,7 +882,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
 
         process_payload_status(
             head_block_hash,
-            broadcast_result.map(|response| response.payload_status),
+            result.map(|response| response.payload_status),
             self.log(),
         )
         .map_err(Box::new)
@@ -896,12 +896,12 @@ impl<T: EthSpec> ExecutionLayer<T> {
             terminal_block_number: 0,
         };
 
-        let broadcast_result = self
+        let result = self
             .engines()
-            .broadcast(|engine| engine.api.exchange_transition_configuration_v1(local))
+            .request(|engine| engine.api.exchange_transition_configuration_v1(local))
             .await;
 
-        match broadcast_result {
+        match result {
             Ok(remote) => {
                 if local.terminal_total_difficulty != remote.terminal_total_difficulty
                     || local.terminal_block_hash != remote.terminal_block_hash
@@ -954,7 +954,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
 
         let hash_opt = self
             .engines()
-            .first_success(|engine| async move {
+            .request(|engine| async move {
                 let terminal_block_hash = spec.terminal_block_hash;
                 if terminal_block_hash != ExecutionBlockHash::zero() {
                     if self
@@ -1070,7 +1070,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
         );
 
         self.engines()
-            .broadcast(|engine| async move {
+            .request(|engine| async move {
                 if let Some(pow_block) = self.get_pow_block(engine, block_hash).await? {
                     if let Some(pow_parent) =
                         self.get_pow_block(engine, pow_block.parent_hash).await?
@@ -1137,7 +1137,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
         hash: ExecutionBlockHash,
     ) -> Result<Option<ExecutionPayload<T>>, Error> {
         self.engines()
-            .first_success(|engine| async move {
+            .request(|engine| async move {
                 self.get_payload_by_block_hash_from_engine(engine, hash)
                     .await
             })
@@ -1240,7 +1240,7 @@ mod test {
         MockExecutionLayer::default_params(runtime.task_executor.clone())
             .move_to_block_prior_to_terminal_block()
             .with_terminal_block(|spec, el, _| async move {
-                el.engines().upcheck_not_synced(Logging::Disabled).await;
+                el.engines().upcheck(Logging::Disabled).await;
                 assert_eq!(el.get_terminal_pow_block_hash(&spec).await.unwrap(), None)
             })
             .await
@@ -1260,7 +1260,7 @@ mod test {
         MockExecutionLayer::default_params(runtime.task_executor.clone())
             .move_to_terminal_block()
             .with_terminal_block(|spec, el, terminal_block| async move {
-                el.engines().upcheck_not_synced(Logging::Disabled).await;
+                el.engines().upcheck(Logging::Disabled).await;
                 assert_eq!(
                     el.is_valid_terminal_pow_block_hash(terminal_block.unwrap().block_hash, &spec)
                         .await
@@ -1277,7 +1277,7 @@ mod test {
         MockExecutionLayer::default_params(runtime.task_executor.clone())
             .move_to_terminal_block()
             .with_terminal_block(|spec, el, terminal_block| async move {
-                el.engines().upcheck_not_synced(Logging::Disabled).await;
+                el.engines().upcheck(Logging::Disabled).await;
                 let invalid_terminal_block = terminal_block.unwrap().parent_hash;
 
                 assert_eq!(
@@ -1296,7 +1296,7 @@ mod test {
         MockExecutionLayer::default_params(runtime.task_executor.clone())
             .move_to_terminal_block()
             .with_terminal_block(|spec, el, _| async move {
-                el.engines().upcheck_not_synced(Logging::Disabled).await;
+                el.engines().upcheck(Logging::Disabled).await;
                 let missing_terminal_block = ExecutionBlockHash::repeat_byte(42);
 
                 assert_eq!(

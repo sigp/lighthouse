@@ -5,7 +5,7 @@ use crate::engine_api::{
 };
 use crate::HttpJsonRpc;
 use lru::LruCache;
-use slog::{crit, debug, info, warn, Logger};
+use slog::{debug, error, info, Logger};
 use std::future::Future;
 use tokio::sync::{Mutex, RwLock};
 use types::{Address, ExecutionBlockHash, Hash256};
@@ -16,7 +16,7 @@ use types::{Address, ExecutionBlockHash, Hash256};
 const PAYLOAD_ID_LRU_CACHE_SIZE: usize = 512;
 
 /// Stores the remembered state of a engine.
-#[derive(Copy, Clone, PartialEq)]
+#[derive(Copy, Clone, PartialEq, Debug)]
 enum EngineState {
     Synced,
     Offline,
@@ -179,164 +179,102 @@ impl Engine {
     pub async fn is_synced(&self) -> bool {
         *self.state.read().await == EngineState::Synced
     }
+
     /// Run the `EngineApi::upcheck` function if the node's last known state is not synced. This
     /// might be used to recover the node if offline.
-    pub async fn upcheck_not_synced(&self, logging: Logging) {
-        let mut state_lock = self.state.write().await;
-        if *state_lock != EngineState::Synced {
-            match self.api.upcheck().await {
-                Ok(()) => {
-                    if logging.is_enabled() {
+    pub async fn upcheck(&self, logging: Logging) {
+        let state = match self.api.upcheck().await {
+            Ok(()) => {
+                let mut state = self.state.write().await;
+
+                if logging.is_enabled() {
+                    if *state != EngineState::Synced {
                         info!(
                             self.log,
                             "Execution engine online";
                         );
-                    }
-                    // Send the node our latest forkchoice_state.
-                    self.send_latest_forkchoice_state().await;
 
-                    *state_lock = EngineState::Synced
-                }
-                Err(EngineApiError::IsSyncing) => {
-                    if logging.is_enabled() {
-                        warn!(
+                        // Send the node our latest forkchoice_state.
+                        self.send_latest_forkchoice_state().await;
+                    } else {
+                        debug!(
                             self.log,
-                            "Execution engine syncing";
-                        )
-                    }
-
-                    // Send the node our latest forkchoice_state, it may assist with syncing.
-                    self.send_latest_forkchoice_state().await;
-
-                    *state_lock = EngineState::Syncing
-                }
-                Err(EngineApiError::Auth(err)) => {
-                    if logging.is_enabled() {
-                        warn!(
-                            self.log,
-                            "Failed jwt authorization";
-                            "error" => ?err,
+                            "Execution engine online";
                         );
                     }
-
-                    *state_lock = EngineState::AuthFailed
                 }
-                Err(e) => {
-                    if logging.is_enabled() {
-                        warn!(
-                            self.log,
-                            "Execution engine offline";
-                            "error" => ?e,
-                        )
-                    }
-                }
+                *state = EngineState::Synced;
+                *state
             }
-        }
+            Err(EngineApiError::IsSyncing) => {
+                let mut state = self.state.write().await;
+                *state = EngineState::Syncing;
+                *state
+            }
+            Err(EngineApiError::Auth(err)) => {
+                if logging.is_enabled() {
+                    error!(
+                        self.log,
+                        "Failed jwt authorization";
+                        "error" => ?err,
+                    );
+                }
 
-        if *state_lock != EngineState::Synced && logging.is_enabled() {
-            crit!(
-                self.log,
-                "No synced execution engines";
-            )
-        }
-    }
-
-    /// Run `func` on the node.
-    ///
-    /// This function might try to run `func` twice. If the node returns an error it will try to
-    /// upcheck it and then run the function again.
-    pub async fn first_success<'a, F, G, H>(&'a self, func: F) -> Result<H, EngineError>
-    where
-        F: Fn(&'a Engine) -> G + Copy,
-        G: Future<Output = Result<H, EngineApiError>>,
-    {
-        match self.first_success_without_retry(func).await {
-            Ok(result) => Ok(result),
+                let mut state = self.state.write().await;
+                *state = EngineState::AuthFailed;
+                *state
+            }
             Err(e) => {
-                debug!(self.log, "First engine call failed. Retrying"; "err" => ?e);
-                // Try to recover the node.
-                self.upcheck_not_synced(Logging::Enabled).await;
-                // Try again.
-                self.first_success_without_retry(func).await
-            }
-        }
-    }
+                error!(
+                    self.log,
+                    "Error during execution engine upcheck";
+                    "error" => ?e,
+                );
 
-    /// Run `func` on the node.
-    pub async fn first_success_without_retry<'a, F, G, H>(
-        &'a self,
-        func: F,
-    ) -> Result<H, EngineError>
-    where
-        F: Fn(&'a Engine) -> G,
-        G: Future<Output = Result<H, EngineApiError>>,
-    {
-        let (engine_synced, engine_auth_failed) = {
-            let state = self.state.read().await;
-            (
-                *state == EngineState::Synced,
-                *state == EngineState::AuthFailed,
-            )
+                let mut state = self.state.write().await;
+                *state = EngineState::Offline;
+                *state
+            }
         };
-        if engine_synced {
-            match func(self).await {
-                Ok(result) => Ok(result),
-                Err(error) => {
-                    debug!(
-                        self.log,
-                        "Execution engine call failed";
-                        "error" => ?error,
-                    );
-                    *self.state.write().await = EngineState::Offline;
-                    Err(EngineError::Api { error })
-                }
-            }
-        } else if engine_auth_failed {
-            Err(EngineError::Auth)
-        } else {
-            Err(EngineError::Offline)
+
+        if logging.is_enabled() {
+            debug!(
+                self.log,
+                "Execution engine upcheck complete";
+                "state" => ?state,
+            );
         }
     }
 
-    /// Runs `func` on the node.
-    ///
-    /// This function might try to run `func` twice. If all nodes return an error on the first time
-    /// it runs, it will try to upcheck all offline nodes and then run the function again.
-    pub async fn broadcast<'a, F, G, H>(&'a self, func: F) -> Result<H, EngineError>
-    where
-        F: Fn(&'a Engine) -> G + Copy,
-        G: Future<Output = Result<H, EngineApiError>>,
-    {
-        match self.broadcast_without_retry(func).await {
-            Err(EngineError::Offline { .. }) => {
-                self.upcheck_not_synced(Logging::Enabled).await;
-                self.broadcast_without_retry(func).await
-            }
-            other => other,
-        }
-    }
-
-    /// Runs `func` on the node if it's last state is not offline.
-    pub async fn broadcast_without_retry<'a, F, G, H>(&'a self, func: F) -> Result<H, EngineError>
+    /// Run `func` on the node regardless of the node's current state.
+    pub async fn request<'a, F, G, H>(&'a self, func: F) -> Result<H, EngineError>
     where
         F: Fn(&'a Engine) -> G,
         G: Future<Output = Result<H, EngineApiError>>,
     {
-        let func = &func;
-        if *self.state.read().await == EngineState::Offline {
-            Err(EngineError::Offline)
-        } else {
-            match func(self).await {
-                Ok(res) => Ok(res),
-                Err(error) => {
-                    debug!(
-                        self.log,
-                        "Execution engine call failed";
-                        "error" => ?error,
-                    );
-                    *self.state.write().await = EngineState::Offline;
-                    Err(EngineError::Api { error })
+        match func(self).await {
+            Ok(result) => {
+                let state: EngineState = *self.state.read().await;
+
+                // If this request just returned successfully but we don't think this node is
+                // synced, check to see if it just became synced. This helps to ensure that the
+                // networking stack can get fast feedback about a synced engine.
+                if state != EngineState::Synced {
+                    self.upcheck(Logging::Enabled).await;
                 }
+
+                Ok(result)
+            }
+            Err(error) => {
+                error!(
+                    self.log,
+                    "Execution engine call failed";
+                    "error" => ?error,
+                );
+
+                self.upcheck(Logging::Enabled).await;
+
+                Err(EngineError::Api { error })
             }
         }
     }
