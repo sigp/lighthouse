@@ -42,7 +42,7 @@ use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::path::PathBuf;
 use std::pin::Pin;
 use std::sync::Arc;
-use tokio::{runtime::Handle, sync::mpsc::UnboundedSender};
+use tokio::sync::mpsc::UnboundedSender;
 use tokio_stream::{wrappers::BroadcastStream, StreamExt};
 use types::{
     Attestation, AttesterSlashing, BeaconBlockBodyMerge, BeaconBlockMerge, BeaconStateError,
@@ -711,7 +711,8 @@ pub fn serve<T: BeaconChainTypes>(
         .and(warp::path::end())
         .and_then(
             |state_id: StateId, chain: Arc<BeaconChain<T>>, query: api_types::CommitteesQuery| {
-                // the api spec says if the epoch is not present then the epoch of the state should be used
+                // The api spec says if the epoch is not present in the request then the epoch
+                // of the state should be used.
                 let query_state_id = query.epoch.map_or(state_id, |epoch| {
                     StateId::from_slot(epoch.start_slot(T::EthSpec::slots_per_epoch()))
                 });
@@ -987,33 +988,31 @@ pub fn serve<T: BeaconChainTypes>(
         }))
         .and(warp::path::end())
         .and(chain_filter.clone())
-        .and_then(|block_id: BlockId, chain: Arc<BeaconChain<T>>| async move {
-            let root = block_id.root(&chain)?;
-            let (block, execution_optimistic) = BlockId::from_root(root)
-                .full_block_and_execution_optimistic(&chain)
-                .await?;
+        .and_then(|block_id: BlockId, chain: Arc<BeaconChain<T>>| {
+            blocking_json_task(move || {
+                let root = block_id.root(&chain)?;
+                let (block, execution_optimistic) =
+                    BlockId::from_root(root).blinded_block_and_execution_optimistic(&chain)?;
 
-            let canonical = chain
-                .block_root_at_slot(block.slot(), WhenSlotSkipped::None)
-                .map_err(warp_utils::reject::beacon_chain_error)?
-                .map_or(false, |canonical| root == canonical);
+                let canonical = chain
+                    .block_root_at_slot(block.slot(), WhenSlotSkipped::None)
+                    .map_err(warp_utils::reject::beacon_chain_error)?
+                    .map_or(false, |canonical| root == canonical);
 
-            let data = api_types::BlockHeaderData {
-                root,
-                canonical,
-                header: api_types::BlockHeaderAndSignature {
-                    message: block.message().block_header(),
-                    signature: block.signature().clone().into(),
-                },
-            };
+                let data = api_types::BlockHeaderData {
+                    root,
+                    canonical,
+                    header: api_types::BlockHeaderAndSignature {
+                        message: block.message().block_header(),
+                        signature: block.signature().clone().into(),
+                    },
+                };
 
-            let result: Result<_, warp::Rejection> = Ok(api_types::ExecutionOptimisticResponse {
-                execution_optimistic,
-                data,
+                Ok(api_types::ExecutionOptimisticResponse {
+                    execution_optimistic,
+                    data,
+                })
             })
-            .map(|res| warp::reply::json(&res).into_response());
-
-            result
         });
 
     /*
@@ -1277,17 +1276,16 @@ pub fn serve<T: BeaconChainTypes>(
         .clone()
         .and(warp::path("root"))
         .and(warp::path::end())
-        .and_then(|block_id: BlockId, chain: Arc<BeaconChain<T>>| async move {
-            let (block, execution_optimistic) =
-                block_id.full_block_and_execution_optimistic(&chain).await?;
+        .and_then(|block_id: BlockId, chain: Arc<BeaconChain<T>>| {
+            blocking_json_task(move || {
+                let (block, execution_optimistic) =
+                    block_id.blinded_block_and_execution_optimistic(&chain)?;
 
-            let result: Result<_, warp::Rejection> = Ok(api_types::GenericResponse::from(
-                api_types::RootData::from(block.canonical_root()),
-            )
-            .add_execution_optimistic(execution_optimistic))
-            .map(|res| warp::reply::json(&res).into_response());
-
-            result
+                Ok(api_types::GenericResponse::from(api_types::RootData::from(
+                    block.canonical_root(),
+                ))
+                .add_execution_optimistic(execution_optimistic))
+            })
         });
 
     // GET beacon/blocks/{block_id}/attestations
@@ -1295,17 +1293,16 @@ pub fn serve<T: BeaconChainTypes>(
         .clone()
         .and(warp::path("attestations"))
         .and(warp::path::end())
-        .and_then(|block_id: BlockId, chain: Arc<BeaconChain<T>>| async move {
-            let (block, execution_optimistic) =
-                block_id.full_block_and_execution_optimistic(&chain).await?;
+        .and_then(|block_id: BlockId, chain: Arc<BeaconChain<T>>| {
+            blocking_json_task(move || {
+                let (block, execution_optimistic) =
+                    block_id.blinded_block_and_execution_optimistic(&chain)?;
 
-            let result: Result<_, warp::Rejection> = Ok(api_types::GenericResponse::from(
-                block.message().body().attestations().clone(),
-            )
-            .add_execution_optimistic(execution_optimistic))
-            .map(|res| warp::reply::json(&res).into_response());
-
-            result
+                Ok(
+                    api_types::GenericResponse::from(block.message().body().attestations().clone())
+                        .add_execution_optimistic(execution_optimistic),
+                )
+            })
         });
 
     /*
@@ -1759,7 +1756,7 @@ pub fn serve<T: BeaconChainTypes>(
         .and(chain_filter.clone())
         .and_then(
             |endpoint_version: EndpointVersion, chain: Arc<BeaconChain<T>>| {
-                blocking_task(move || {
+                blocking_json_task(move || {
                     let heads = chain
                         .heads()
                         .into_iter()
@@ -1767,12 +1764,9 @@ pub fn serve<T: BeaconChainTypes>(
                             let execution_optimistic = if endpoint_version == V1 {
                                 None
                             } else if endpoint_version == V2 {
-                                Handle::current().block_on(async {
-                                    BlockId::from_root(root)
-                                        .is_execution_optimistic(&chain)
-                                        .await
-                                        .ok()
-                                })
+                                BlockId::from_root(root)
+                                    .is_execution_optimistic(&chain)
+                                    .ok()
                             } else {
                                 return Err(unsupported_version_rejection(endpoint_version));
                             };
@@ -1784,7 +1778,6 @@ pub fn serve<T: BeaconChainTypes>(
                         })
                         .collect::<Result<Vec<_>, warp::Rejection>>();
                     Ok(api_types::GenericResponse::from(heads?))
-                        .map(|res| warp::reply::json(&res).into_response())
                 })
             },
         );
