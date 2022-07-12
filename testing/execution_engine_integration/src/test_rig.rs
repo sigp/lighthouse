@@ -236,7 +236,7 @@ impl<E: GenericExecutionEngine> TestRig<E> {
         );
 
         // Submit transactions before getting payload
-        let txs = transactions(account1, account2);
+        let txs = transactions::<MainnetEthSpec>(account1, account2);
         for tx in txs.clone().into_iter() {
             self.ee_a
                 .execution_engine
@@ -266,7 +266,7 @@ impl<E: GenericExecutionEngine> TestRig<E> {
                 Hash256::zero(),
                 proposer_index,
                 PayloadAttributes {
-                    timestamp: timestamp,
+                    timestamp,
                     prev_randao,
                     suggested_fee_recipient: Address::zero(),
                 },

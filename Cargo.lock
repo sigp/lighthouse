@@ -1926,6 +1926,7 @@ dependencies = [
 name = "execution_engine_integration"
 version = "0.1.0"
 dependencies = [
+ "deposit_contract",
  "environment",
  "ethers-core",
  "ethers-providers",
