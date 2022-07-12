@@ -892,88 +892,88 @@ pub fn serve<T: BeaconChainTypes>(
         .and(warp::path::end())
         .and(chain_filter.clone())
         .and_then(
-            |query: api_types::HeadersQuery, chain: Arc<BeaconChain<T>>| async move {
-                let (root, block, uses_head) = match (query.slot, query.parent_root) {
-                    // No query parameters, return the canonical head block.
-                    (None, None) => {
-                        let block = chain.head_beacon_block();
-                        (
-                            block.canonical_root(),
-                            block,
-                            HeaderComputationType::UsesHeadWithBlock,
-                        )
-                    }
-                    // Only the parent root parameter, do a forwards-iterator lookup.
-                    (None, Some(parent_root)) => {
-                        let parent = BlockId::from_root(parent_root).blinded_block(&chain)?;
-                        let (root, _slot) = chain
-                            .forwards_iter_block_roots(parent.slot())
-                            .map_err(warp_utils::reject::beacon_chain_error)?
-                            // Ignore any skip-slots immediately following the parent.
-                            .find(|res| {
-                                res.as_ref().map_or(false, |(root, _)| *root != parent_root)
-                            })
-                            .transpose()
-                            .map_err(warp_utils::reject::beacon_chain_error)?
-                            .ok_or_else(|| {
-                                warp_utils::reject::custom_not_found(format!(
-                                    "child of block with root {}",
-                                    parent_root
-                                ))
-                            })?;
-
-                        BlockId::from_root(root)
-                            .full_block(&chain)
-                            .await
-                            .map(|block| (root, block, HeaderComputationType::NoHead))?
-                    }
-                    // Slot is supplied, search by slot and optionally filter by
-                    // parent root.
-                    (Some(slot), parent_root_opt) => {
-                        let root = BlockId::from_slot(slot).root(&chain)?;
-                        let block = BlockId::from_root(root).full_block(&chain).await?;
-                        let mut uses_head = HeaderComputationType::UsesHeadNoBlock;
-
-                        // If the parent root was supplied, check that it matches the block
-                        // obtained via a slot lookup.
-                        if let Some(parent_root) = parent_root_opt {
-                            if block.parent_root() != parent_root {
-                                return Err(warp_utils::reject::custom_not_found(format!(
-                                    "no canonical block at slot {} with parent root {}",
-                                    slot, parent_root
-                                )));
-                            } else {
-                                uses_head = HeaderComputationType::NoHead;
-                            }
+            |query: api_types::HeadersQuery, chain: Arc<BeaconChain<T>>| {
+                blocking_json_task(move || {
+                    let (root, block, uses_head) = match (query.slot, query.parent_root) {
+                        // No query parameters, return the canonical head block.
+                        (None, None) => {
+                            let block = chain.head_beacon_block();
+                            (
+                                block.canonical_root(),
+                                block.clone_as_blinded(),
+                                HeaderComputationType::UsesHeadWithBlock,
+                            )
                         }
+                        // Only the parent root parameter, do a forwards-iterator lookup.
+                        (None, Some(parent_root)) => {
+                            let parent = BlockId::from_root(parent_root).blinded_block(&chain)?;
+                            let (root, _slot) = chain
+                                .forwards_iter_block_roots(parent.slot())
+                                .map_err(warp_utils::reject::beacon_chain_error)?
+                                // Ignore any skip-slots immediately following the parent.
+                                .find(|res| {
+                                    res.as_ref().map_or(false, |(root, _)| *root != parent_root)
+                                })
+                                .transpose()
+                                .map_err(warp_utils::reject::beacon_chain_error)?
+                                .ok_or_else(|| {
+                                    warp_utils::reject::custom_not_found(format!(
+                                        "child of block with root {}",
+                                        parent_root
+                                    ))
+                                })?;
 
-                        (root, block, uses_head)
+                            BlockId::from_root(root)
+                                .blinded_block(&chain)
+                                .map(|block| (root, block, HeaderComputationType::NoHead))?
+                        }
+                        // Slot is supplied, search by slot and optionally filter by
+                        // parent root.
+                        (Some(slot), parent_root_opt) => {
+                            let root = BlockId::from_slot(slot).root(&chain)?;
+                            let block = BlockId::from_root(root).blinded_block(&chain)?;
+                            let mut uses_head = HeaderComputationType::UsesHeadNoBlock;
+
+                            // If the parent root was supplied, check that it matches the block
+                            // obtained via a slot lookup.
+                            if let Some(parent_root) = parent_root_opt {
+                                if block.parent_root() != parent_root {
+                                    return Err(warp_utils::reject::custom_not_found(format!(
+                                        "no canonical block at slot {} with parent root {}",
+                                        slot, parent_root
+                                    )));
+                                } else {
+                                    uses_head = HeaderComputationType::NoHead;
+                                }
+                            }
+
+                            (root, block, uses_head)
+                        }
+                    };
+
+                    // The value of `execution_optimistic` depends on whether the method used to
+                    // compute the response is dependent on the head block.
+                    let execution_optimistic = match uses_head {
+                        HeaderComputationType::NoHead => chain.is_optimistic_block(&block),
+                        HeaderComputationType::UsesHeadWithBlock => {
+                            chain.is_optimistic_head_block(&block)
+                        }
+                        HeaderComputationType::UsesHeadNoBlock => chain.is_optimistic_head(),
                     }
-                };
+                    .map_err(warp_utils::reject::beacon_chain_error)?;
 
-                // The value of `execution_optimistic` depends on whether the method used to
-                // compute the response is dependent on the head block.
-                let execution_optimistic = match uses_head {
-                    HeaderComputationType::NoHead => chain.is_optimistic_block(&block),
-                    HeaderComputationType::UsesHeadWithBlock => {
-                        chain.is_optimistic_head_block(&block)
-                    }
-                    HeaderComputationType::UsesHeadNoBlock => chain.is_optimistic_head(),
-                }
-                .map_err(warp_utils::reject::beacon_chain_error)?;
+                    let data = api_types::BlockHeaderData {
+                        root,
+                        canonical: true,
+                        header: api_types::BlockHeaderAndSignature {
+                            message: block.message().block_header(),
+                            signature: block.signature().clone().into(),
+                        },
+                    };
 
-                let data = api_types::BlockHeaderData {
-                    root,
-                    canonical: true,
-                    header: api_types::BlockHeaderAndSignature {
-                        message: block.message().block_header(),
-                        signature: block.signature().clone().into(),
-                    },
-                };
-
-                Ok(api_types::GenericResponse::from(vec![data])
-                    .add_execution_optimistic(execution_optimistic))
-                .map(|res| warp::reply::json(&res).into_response())
+                    Ok(api_types::GenericResponse::from(vec![data])
+                        .add_execution_optimistic(execution_optimistic))
+                })
             },
         );
 
