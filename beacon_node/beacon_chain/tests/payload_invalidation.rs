@@ -1003,6 +1003,11 @@ async fn payload_preparation_before_transition_block() {
     let rig = InvalidPayloadRig::new();
     let el = rig.execution_layer();
 
+    // Run the watchdog routine so that the status of the execution engine is set. This ensures
+    // that we don't end up with `eth_syncing` requests later in this function that will impede
+    // testing.
+    el.watchdog_task().await;
+
     let head = rig.harness.chain.head_snapshot();
     assert_eq!(
         head.beacon_block
