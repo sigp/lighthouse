@@ -7,6 +7,8 @@ use crate::HttpJsonRpc;
 use lru::LruCache;
 use slog::{debug, error, info, Logger};
 use std::future::Future;
+use std::sync::Arc;
+use task_executor::TaskExecutor;
 use tokio::sync::{Mutex, RwLock};
 use types::{Address, ExecutionBlockHash, Hash256};
 
@@ -69,17 +71,19 @@ pub struct Engine {
     payload_id_cache: Mutex<LruCache<PayloadIdCacheKey, PayloadId>>,
     state: RwLock<EngineState>,
     pub latest_forkchoice_state: RwLock<Option<ForkChoiceState>>,
+    pub executor: TaskExecutor,
     pub log: Logger,
 }
 
 impl Engine {
     /// Creates a new, offline engine.
-    pub fn new(api: HttpJsonRpc, log: &Logger) -> Self {
+    pub fn new(api: HttpJsonRpc, executor: TaskExecutor, log: &Logger) -> Self {
         Self {
             api,
             payload_id_cache: Mutex::new(LruCache::new(PAYLOAD_ID_LRU_CACHE_SIZE)),
             state: RwLock::new(EngineState::Offline),
             latest_forkchoice_state: Default::default(),
+            executor,
             log: log.clone(),
         }
     }
@@ -247,20 +251,27 @@ impl Engine {
     }
 
     /// Run `func` on the node regardless of the node's current state.
-    pub async fn request<'a, F, G, H>(&'a self, func: F) -> Result<H, EngineError>
+    pub async fn request<'a, F, G, H>(self: &'a Arc<Self>, func: F) -> Result<H, EngineError>
     where
         F: Fn(&'a Engine) -> G,
         G: Future<Output = Result<H, EngineApiError>>,
     {
         match func(self).await {
             Ok(result) => {
+                // Take a clone *without* holding the read-lock since the `upcheck` function will
+                // take a write-lock.
                 let state: EngineState = *self.state.read().await;
 
                 // If this request just returned successfully but we don't think this node is
                 // synced, check to see if it just became synced. This helps to ensure that the
                 // networking stack can get fast feedback about a synced engine.
                 if state != EngineState::Synced {
-                    self.upcheck(Logging::Enabled).await;
+                    // Spawn the upcheck in another task to avoid slowing down this request.
+                    let inner_self = self.clone();
+                    self.executor.spawn(
+                        async move { inner_self.upcheck(Logging::Enabled).await },
+                        "upcheck_after_success",
+                    );
                 }
 
                 Ok(result)
@@ -272,7 +283,15 @@ impl Engine {
                     "error" => ?error,
                 );
 
-                self.upcheck(Logging::Enabled).await;
+                // The node just returned an error, run an upcheck so we can update the endpoint
+                // state.
+                //
+                // Spawn the upcheck in another task to avoid slowing down this request.
+                let inner_self = self.clone();
+                self.executor.spawn(
+                    async move { inner_self.upcheck(Logging::Enabled).await },
+                    "upcheck_after_error",
+                );
 
                 Err(EngineError::Api { error })
             }
