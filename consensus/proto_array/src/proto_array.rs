@@ -491,9 +491,6 @@ impl ProtoArray {
                             node.best_descendant = None
                         }
 
-                        // It might be new knowledge that this block is valid, ensure that it and all
-                        // ancestors are marked as valid.
-                        self.propagate_execution_payload_validation_by_index(index)?;
                         break;
                     }
                 }
