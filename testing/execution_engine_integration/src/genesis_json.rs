@@ -115,7 +115,7 @@ pub fn nethermind_genesis_json() -> Value {
               "timestamp": "0x0",
               "parentHash": "0x0000000000000000000000000000000000000000000000000000000000000000",
               "extraData": "",
-              "gasLimit": "0x400000"
+              "gasLimit": "0x1C9C380"
             },
             "accounts": {
               "0x7b8C3a386C0eea54693fFB0DA17373ffC9228139": {
