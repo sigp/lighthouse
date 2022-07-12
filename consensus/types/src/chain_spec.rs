@@ -1,3 +1,4 @@
+use crate::application_domain::{ApplicationDomain, APPLICATION_DOMAIN_BUILDER};
 use crate::*;
 use eth2_serde_utils::quoted_u64::MaybeQuoted;
 use int_to_bytes::int_to_bytes4;
@@ -20,6 +21,7 @@ pub enum Domain {
     SyncCommittee,
     ContributionAndProof,
     SyncCommitteeSelectionProof,
+    ApplicationMask(ApplicationDomain),
 }
 
 /// Lighthouse's internal configuration struct.
@@ -159,6 +161,11 @@ pub struct ChainSpec {
     pub attestation_subnet_count: u64,
     pub random_subnets_per_validator: u64,
     pub epochs_per_random_subnet_subscription: u64,
+
+    /*
+     * Application params
+     */
+    pub(crate) domain_application_mask: u32,
 }
 
 impl ChainSpec {
@@ -326,6 +333,7 @@ impl ChainSpec {
             Domain::SyncCommittee => self.domain_sync_committee,
             Domain::ContributionAndProof => self.domain_contribution_and_proof,
             Domain::SyncCommitteeSelectionProof => self.domain_sync_committee_selection_proof,
+            Domain::ApplicationMask(application_domain) => application_domain.get_domain_constant(),
         }
     }
 
@@ -351,6 +359,17 @@ impl ChainSpec {
     /// Spec v0.12.1
     pub fn get_deposit_domain(&self) -> Hash256 {
         self.compute_domain(Domain::Deposit, self.genesis_fork_version, Hash256::zero())
+    }
+
+    // This should be updated to include the current fork and the genesis validators root, but discussion is ongoing:
+    //
+    // https://github.com/ethereum/builder-specs/issues/14
+    pub fn get_builder_domain(&self) -> Hash256 {
+        self.compute_domain(
+            Domain::ApplicationMask(ApplicationDomain::Builder),
+            self.genesis_fork_version,
+            Hash256::zero(),
+        )
     }
 
     /// Return the 32-byte fork data root for the `current_version` and `genesis_validators_root`.
@@ -565,6 +584,11 @@ impl ChainSpec {
             maximum_gossip_clock_disparity_millis: 500,
             target_aggregators_per_committee: 16,
             epochs_per_random_subnet_subscription: 256,
+
+            /*
+             * Application specific
+             */
+            domain_application_mask: APPLICATION_DOMAIN_BUILDER,
         }
     }
 
@@ -763,6 +787,11 @@ impl ChainSpec {
             maximum_gossip_clock_disparity_millis: 500,
             target_aggregators_per_committee: 16,
             epochs_per_random_subnet_subscription: 256,
+
+            /*
+             * Application specific
+             */
+            domain_application_mask: APPLICATION_DOMAIN_BUILDER,
         }
     }
 }
@@ -1119,6 +1148,27 @@ mod tests {
             &spec,
         );
         test_domain(Domain::SyncCommittee, spec.domain_sync_committee, &spec);
+
+        // The builder domain index is zero
+        let builder_domain_pre_mask = [0; 4];
+        test_domain(
+            Domain::ApplicationMask(ApplicationDomain::Builder),
+            apply_bit_mask(builder_domain_pre_mask, &spec),
+            &spec,
+        );
+    }
+
+    fn apply_bit_mask(domain_bytes: [u8; 4], spec: &ChainSpec) -> u32 {
+        let mut domain = [0; 4];
+        let mask_bytes = int_to_bytes4(spec.domain_application_mask);
+
+        // Apply application bit mask
+        for (i, (domain_byte, mask_byte)) in domain_bytes.iter().zip(mask_bytes.iter()).enumerate()
+        {
+            domain[i] = domain_byte | mask_byte;
+        }
+
+        u32::from_le_bytes(domain)
     }
 
     // Test that `fork_name_at_epoch` and `fork_epoch` are consistent.

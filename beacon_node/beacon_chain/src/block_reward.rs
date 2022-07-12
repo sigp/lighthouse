@@ -2,7 +2,7 @@ use crate::{BeaconChain, BeaconChainError, BeaconChainTypes};
 use eth2::lighthouse::{AttestationRewards, BlockReward, BlockRewardMeta};
 use operation_pool::{AttMaxCover, MaxCover};
 use state_processing::per_block_processing::altair::sync_committee::compute_sync_aggregate_rewards;
-use types::{BeaconBlockRef, BeaconState, EthSpec, ExecPayload, Hash256, RelativeEpoch};
+use types::{BeaconBlockRef, BeaconState, EthSpec, ExecPayload, Hash256};
 
 impl<T: BeaconChainTypes> BeaconChain<T> {
     pub fn compute_block_reward<Payload: ExecPayload<T::EthSpec>>(
@@ -10,13 +10,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         block: BeaconBlockRef<'_, T::EthSpec, Payload>,
         block_root: Hash256,
         state: &BeaconState<T::EthSpec>,
+        include_attestations: bool,
     ) -> Result<BlockReward, BeaconChainError> {
         if block.slot() != state.slot() {
             return Err(BeaconChainError::BlockRewardSlotError);
         }
 
-        let active_indices = state.get_cached_active_validator_indices(RelativeEpoch::Current)?;
-        let total_active_balance = state.get_total_balance(active_indices, &self.spec)?;
+        let total_active_balance = state.get_total_active_balance()?;
         let mut per_attestation_rewards = block
             .body()
             .attestations()
@@ -60,11 +60,24 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             .map(|cover| cover.fresh_validators_rewards)
             .collect();
 
+        // Add the attestation data if desired.
+        let attestations = if include_attestations {
+            block
+                .body()
+                .attestations()
+                .iter()
+                .map(|a| a.data.clone())
+                .collect()
+        } else {
+            vec![]
+        };
+
         let attestation_rewards = AttestationRewards {
             total: attestation_total,
             prev_epoch_total,
             curr_epoch_total,
             per_attestation_rewards,
+            attestations,
         };
 
         // Sync committee rewards.

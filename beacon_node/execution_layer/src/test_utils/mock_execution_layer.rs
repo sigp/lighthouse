@@ -9,7 +9,7 @@ use types::{Address, ChainSpec, Epoch, EthSpec, FullPayload, Hash256, Uint256};
 
 pub struct MockExecutionLayer<T: EthSpec> {
     pub server: MockServer<T>,
-    pub el: ExecutionLayer,
+    pub el: ExecutionLayer<T>,
     pub executor: TaskExecutor,
     pub spec: ChainSpec,
 }
@@ -22,6 +22,7 @@ impl<T: EthSpec> MockExecutionLayer<T> {
             DEFAULT_TERMINAL_BLOCK,
             ExecutionBlockHash::zero(),
             Epoch::new(0),
+            None,
         )
     }
 
@@ -31,6 +32,7 @@ impl<T: EthSpec> MockExecutionLayer<T> {
         terminal_block: u64,
         terminal_block_hash: ExecutionBlockHash,
         terminal_block_hash_activation_epoch: Epoch,
+        builder_url: Option<SensitiveUrl>,
     ) -> Self {
         let handle = executor.handle().unwrap();
 
@@ -54,6 +56,7 @@ impl<T: EthSpec> MockExecutionLayer<T> {
 
         let config = Config {
             execution_endpoints: vec![url],
+            builder_url,
             secret_files: vec![path],
             suggested_fee_recipient: Some(Address::repeat_byte(42)),
             ..Default::default()
@@ -111,12 +114,14 @@ impl<T: EthSpec> MockExecutionLayer<T> {
         let validator_index = 0;
         let payload = self
             .el
-            .get_payload::<T, FullPayload<T>>(
+            .get_payload::<FullPayload<T>>(
                 parent_hash,
                 timestamp,
                 prev_randao,
                 finalized_block_hash,
                 validator_index,
+                None,
+                slot,
             )
             .await
             .unwrap()
@@ -173,7 +178,7 @@ impl<T: EthSpec> MockExecutionLayer<T> {
 
     pub async fn with_terminal_block<'a, U, V>(self, func: U) -> Self
     where
-        U: Fn(ChainSpec, ExecutionLayer, Option<ExecutionBlock>) -> V,
+        U: Fn(ChainSpec, ExecutionLayer<T>, Option<ExecutionBlock>) -> V,
         V: Future<Output = ()>,
     {
         let terminal_block_number = self

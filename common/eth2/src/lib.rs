@@ -110,6 +110,7 @@ pub struct Timeouts {
     pub liveness: Duration,
     pub proposal: Duration,
     pub proposer_duties: Duration,
+    pub sync_committee_contribution: Duration,
     pub sync_duties: Duration,
 }
 
@@ -121,6 +122,7 @@ impl Timeouts {
             liveness: timeout,
             proposal: timeout,
             proposer_duties: timeout,
+            sync_committee_contribution: timeout,
             sync_duties: timeout,
         }
     }
@@ -907,7 +909,12 @@ impl BeaconNodeHttpClient {
             .push("validator")
             .push("contribution_and_proofs");
 
-        self.post(path, &signed_contributions).await?;
+        self.post_with_timeout(
+            path,
+            &signed_contributions,
+            self.timeouts.sync_committee_contribution,
+        )
+        .await?;
 
         Ok(())
     }
@@ -925,6 +932,23 @@ impl BeaconNodeHttpClient {
             .push("prepare_beacon_proposer");
 
         self.post(path, &preparation_data).await?;
+
+        Ok(())
+    }
+
+    /// `POST validator/register_validator`
+    pub async fn post_validator_register_validator(
+        &self,
+        registration_data: &[SignedValidatorRegistrationData],
+    ) -> Result<(), Error> {
+        let mut path = self.eth_path(V1)?;
+
+        path.path_segments_mut()
+            .map_err(|()| Error::InvalidUrl(self.server.clone()))?
+            .push("validator")
+            .push("register_validator");
+
+        self.post(path, &registration_data).await?;
 
         Ok(())
     }
@@ -1491,7 +1515,7 @@ impl BeaconNodeHttpClient {
 
 /// Returns `Ok(response)` if the response is a `200 OK` response. Otherwise, creates an
 /// appropriate error message.
-async fn ok_or_error(response: Response) -> Result<Response, Error> {
+pub async fn ok_or_error(response: Response) -> Result<Response, Error> {
     let status = response.status();
 
     if status == StatusCode::OK {

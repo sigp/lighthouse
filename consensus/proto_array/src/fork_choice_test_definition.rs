@@ -105,7 +105,6 @@ impl ForkChoiceTestDefinition {
                             Hash256::zero(),
                             &spec,
                         )
-                        .map_err(|e| e)
                         .unwrap_or_else(|e| {
                             panic!("find_head op at index {} returned error {}", op_index, e)
                         });
@@ -132,7 +131,6 @@ impl ForkChoiceTestDefinition {
                             proposer_boost_root,
                             &spec,
                         )
-                        .map_err(|e| e)
                         .unwrap_or_else(|e| {
                             panic!("find_head op at index {} returned error {}", op_index, e)
                         });

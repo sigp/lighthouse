@@ -81,11 +81,23 @@ pub struct Cases<T> {
 }
 
 impl<T: Case> Cases<T> {
-    pub fn test_results(&self, fork_name: ForkName) -> Vec<CaseResult> {
-        self.test_cases
-            .into_par_iter()
-            .enumerate()
-            .map(|(i, (ref path, ref tc))| CaseResult::new(i, path, tc, tc.result(i, fork_name)))
-            .collect()
+    pub fn test_results(&self, fork_name: ForkName, use_rayon: bool) -> Vec<CaseResult> {
+        if use_rayon {
+            self.test_cases
+                .into_par_iter()
+                .enumerate()
+                .map(|(i, (ref path, ref tc))| {
+                    CaseResult::new(i, path, tc, tc.result(i, fork_name))
+                })
+                .collect()
+        } else {
+            self.test_cases
+                .iter()
+                .enumerate()
+                .map(|(i, (ref path, ref tc))| {
+                    CaseResult::new(i, path, tc, tc.result(i, fork_name))
+                })
+                .collect()
+        }
     }
 }

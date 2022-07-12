@@ -1,9 +1,10 @@
 use crate::local_network::INVALID_ADDRESS;
 use crate::{checks, LocalNetwork, E};
 use clap::ArgMatches;
-use eth1::http::Eth1Id;
-use eth1::{DEFAULT_CHAIN_ID, DEFAULT_NETWORK_ID};
+use eth1::{Eth1Endpoint, DEFAULT_CHAIN_ID};
 use eth1_test_rig::GanacheEth1Instance;
+
+use execution_layer::http::deposit_methods::Eth1Id;
 use futures::prelude::*;
 use node_test_rig::{
     environment::{EnvironmentBuilder, LoggerConfig},
@@ -92,10 +93,8 @@ pub fn run_eth1_sim(matches: &ArgMatches) -> Result<(), String> {
          * Deploy the deposit contract, spawn tasks to keep creating new blocks and deposit
          * validators.
          */
-        let ganache_eth1_instance =
-            GanacheEth1Instance::new(DEFAULT_NETWORK_ID.into(), DEFAULT_CHAIN_ID.into()).await?;
+        let ganache_eth1_instance = GanacheEth1Instance::new(DEFAULT_CHAIN_ID.into()).await?;
         let deposit_contract = ganache_eth1_instance.deposit_contract;
-        let network_id = ganache_eth1_instance.ganache.network_id();
         let chain_id = ganache_eth1_instance.ganache.chain_id();
         let ganache = ganache_eth1_instance.ganache;
         let eth1_endpoint = SensitiveUrl::parse(ganache.endpoint().as_str())
@@ -124,7 +123,7 @@ pub fn run_eth1_sim(matches: &ArgMatches) -> Result<(), String> {
         let mut beacon_config = testing_client_config();
 
         beacon_config.genesis = ClientGenesis::DepositContract;
-        beacon_config.eth1.endpoints = vec![eth1_endpoint];
+        beacon_config.eth1.endpoints = Eth1Endpoint::NoAuth(vec![eth1_endpoint]);
         beacon_config.eth1.deposit_contract_address = deposit_contract_address;
         beacon_config.eth1.deposit_contract_deploy_block = 0;
         beacon_config.eth1.lowest_cached_block_number = 0;
@@ -133,7 +132,6 @@ pub fn run_eth1_sim(matches: &ArgMatches) -> Result<(), String> {
         beacon_config.dummy_eth1_backend = false;
         beacon_config.sync_eth1_chain = true;
         beacon_config.eth1.auto_update_interval_millis = eth1_block_time.as_millis() as u64;
-        beacon_config.eth1.network_id = Eth1Id::from(network_id);
         beacon_config.eth1.chain_id = Eth1Id::from(chain_id);
         beacon_config.network.target_peers = node_count - 1;
 
@@ -150,10 +148,13 @@ pub fn run_eth1_sim(matches: &ArgMatches) -> Result<(), String> {
         for i in 0..node_count - 1 {
             let mut config = beacon_config.clone();
             if i % 2 == 0 {
-                config.eth1.endpoints.insert(
-                    0,
-                    SensitiveUrl::parse(INVALID_ADDRESS).expect("Unable to parse invalid address"),
-                );
+                if let Eth1Endpoint::NoAuth(endpoints) = &mut config.eth1.endpoints {
+                    endpoints.insert(
+                        0,
+                        SensitiveUrl::parse(INVALID_ADDRESS)
+                            .expect("Unable to parse invalid address"),
+                    )
+                }
             }
             network.add_beacon_node(config).await?;
         }

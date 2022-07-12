@@ -46,15 +46,8 @@ fn get_valid_sync_committee_message(
     slot: Slot,
     relative_sync_committee: RelativeSyncCommittee,
 ) -> (SyncCommitteeMessage, usize, SecretKey, SyncSubnetId) {
-    let head_state = harness
-        .chain
-        .head_beacon_state()
-        .expect("should get head state");
-    let head_block_root = harness
-        .chain
-        .head()
-        .expect("should get head state")
-        .beacon_block_root;
+    let head_state = harness.chain.head_beacon_state_cloned();
+    let head_block_root = harness.chain.head_snapshot().beacon_block_root;
     let (signature, _) = harness
         .make_sync_committee_messages(&head_state, head_block_root, slot, relative_sync_committee)
         .get(0)
@@ -77,16 +70,9 @@ fn get_valid_sync_contribution(
     harness: &BeaconChainHarness<EphemeralHarnessType<E>>,
     relative_sync_committee: RelativeSyncCommittee,
 ) -> (SignedContributionAndProof<E>, usize, SecretKey) {
-    let head_state = harness
-        .chain
-        .head_beacon_state()
-        .expect("should get head state");
+    let head_state = harness.chain.head_beacon_state_cloned();
 
-    let head_block_root = harness
-        .chain
-        .head()
-        .expect("should get head state")
-        .beacon_block_root;
+    let head_block_root = harness.chain.head_snapshot().beacon_block_root;
     let sync_contributions = harness.make_sync_contributions(
         &head_state,
         head_block_root,
@@ -116,7 +102,7 @@ fn get_non_aggregator(
     harness: &BeaconChainHarness<EphemeralHarnessType<E>>,
     slot: Slot,
 ) -> (usize, SecretKey) {
-    let state = &harness.chain.head().expect("should get head").beacon_state;
+    let state = &harness.chain.head_snapshot().beacon_state;
     let sync_subcommittee_size = E::sync_committee_size()
         .safe_div(SYNC_COMMITTEE_SUBNET_COUNT as usize)
         .expect("should determine sync subcommittee size");
@@ -162,17 +148,19 @@ fn get_non_aggregator(
 }
 
 /// Tests verification of `SignedContributionAndProof` from the gossip network.
-#[test]
-fn aggregated_gossip_verification() {
+#[tokio::test]
+async fn aggregated_gossip_verification() {
     let harness = get_harness(VALIDATOR_COUNT);
     let state = harness.get_current_state();
 
-    harness.add_attested_blocks_at_slots(
-        state,
-        Hash256::zero(),
-        &[Slot::new(1), Slot::new(2)],
-        (0..VALIDATOR_COUNT).collect::<Vec<_>>().as_slice(),
-    );
+    harness
+        .add_attested_blocks_at_slots(
+            state,
+            Hash256::zero(),
+            &[Slot::new(1), Slot::new(2)],
+            (0..VALIDATOR_COUNT).collect::<Vec<_>>().as_slice(),
+        )
+        .await;
 
     let current_slot = harness.chain.slot().expect("should get slot");
 
@@ -406,7 +394,7 @@ fn aggregated_gossip_verification() {
                 valid_aggregate.message.contribution.clone(),
                 None,
                 &non_aggregator_sk,
-                &harness.chain.head_info().expect("should get head info").fork,
+                &harness.chain.canonical_head.cached_head().head_fork(),
                 harness.chain.genesis_validators_root,
                 &harness.chain.spec,
             )
@@ -474,6 +462,7 @@ fn aggregated_gossip_verification() {
 
     harness
         .add_attested_block_at_slot(target_slot, state, Hash256::zero(), &[])
+        .await
         .expect("should add block");
 
     // **Incorrectly** create a sync contribution using the current sync committee
@@ -488,17 +477,19 @@ fn aggregated_gossip_verification() {
 }
 
 /// Tests the verification conditions for sync committee messages on the gossip network.
-#[test]
-fn unaggregated_gossip_verification() {
+#[tokio::test]
+async fn unaggregated_gossip_verification() {
     let harness = get_harness(VALIDATOR_COUNT);
     let state = harness.get_current_state();
 
-    harness.add_attested_blocks_at_slots(
-        state,
-        Hash256::zero(),
-        &[Slot::new(1), Slot::new(2)],
-        (0..VALIDATOR_COUNT).collect::<Vec<_>>().as_slice(),
-    );
+    harness
+        .add_attested_blocks_at_slots(
+            state,
+            Hash256::zero(),
+            &[Slot::new(1), Slot::new(2)],
+            (0..VALIDATOR_COUNT).collect::<Vec<_>>().as_slice(),
+        )
+        .await;
 
     let current_slot = harness.chain.slot().expect("should get slot");
 
@@ -648,6 +639,7 @@ fn unaggregated_gossip_verification() {
 
     harness
         .add_attested_block_at_slot(target_slot, state, Hash256::zero(), &[])
+        .await
         .expect("should add block");
 
     // **Incorrectly** create a sync message using the current sync committee

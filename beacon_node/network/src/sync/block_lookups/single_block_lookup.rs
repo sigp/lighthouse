@@ -1,4 +1,5 @@
 use std::collections::HashSet;
+use std::sync::Arc;
 
 use lighthouse_network::{rpc::BlocksByRootRequest, PeerId};
 use rand::seq::IteratorRandom;
@@ -101,8 +102,8 @@ impl<const MAX_ATTEMPTS: u8> SingleBlockRequest<MAX_ATTEMPTS> {
     /// Returns the block for processing if the response is what we expected.
     pub fn verify_block<T: EthSpec>(
         &mut self,
-        block: Option<Box<SignedBeaconBlock<T>>>,
-    ) -> Result<Option<Box<SignedBeaconBlock<T>>>, VerifyError> {
+        block: Option<Arc<SignedBeaconBlock<T>>>,
+    ) -> Result<Option<Arc<SignedBeaconBlock<T>>>, VerifyError> {
         match self.state {
             State::AwaitingDownload => {
                 self.register_failure_downloading();
@@ -216,6 +217,6 @@ mod tests {
 
         let mut sl = SingleBlockRequest::<4>::new(block.canonical_root(), peer_id);
         sl.request_block().unwrap();
-        sl.verify_block(Some(Box::new(block))).unwrap().unwrap();
+        sl.verify_block(Some(Arc::new(block))).unwrap().unwrap();
     }
 }
