@@ -19,8 +19,8 @@ use tokio::time::sleep;
 use types::{Epoch, EthSpec, MinimalEthSpec};
 
 const END_EPOCH: u64 = 16;
-const ALTAIR_FORK_EPOCH: u64 = 0;
-const BELLATRIX_FORK_EPOCH: u64 = 1;
+const ALTAIR_FORK_EPOCH: u64 = 1;
+const BELLATRIX_FORK_EPOCH: u64 = 2;
 
 const SUGGESTED_FEE_RECIPIENT: [u8; 20] =
     [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1];
@@ -77,6 +77,7 @@ pub fn run_eth1_sim(matches: &ArgMatches) -> Result<(), String> {
     let spec = &mut env.eth2_config.spec;
 
     let total_validator_count = validators_per_node * node_count;
+    let altair_fork_version = spec.altair_fork_version;
     let bellatrix_fork_version = spec.bellatrix_fork_version;
 
     spec.seconds_per_slot /= speed_up_factor;
@@ -265,12 +266,20 @@ pub fn run_eth1_sim(matches: &ArgMatches) -> Result<(), String> {
                 slot_duration,
                 total_validator_count,
             ),
-            // Check that all nodes have transitioned to the BELLATRIX fork.
+            // Check that all nodes have transitioned to the required fork.
             checks::verify_fork_version(
                 network.clone(),
-                Epoch::new(BELLATRIX_FORK_EPOCH),
+                if post_merge_sim {
+                    Epoch::new(BELLATRIX_FORK_EPOCH)
+                } else {
+                    Epoch::new(ALTAIR_FORK_EPOCH)
+                },
                 slot_duration,
-                bellatrix_fork_version
+                if post_merge_sim {
+                    bellatrix_fork_version
+                } else {
+                    altair_fork_version
+                }
             ),
             // Check that all sync aggregates are full.
             checks::verify_full_sync_aggregates_up_to(
@@ -284,7 +293,7 @@ pub fn run_eth1_sim(matches: &ArgMatches) -> Result<(), String> {
             // Check that the transition block is finalized.
             checks::verify_transition_block_finalized(
                 network.clone(),
-                Epoch::new(8),
+                Epoch::new(TERMINAL_BLOCK / MinimalEthSpec::slots_per_epoch()),
                 slot_duration,
                 post_merge_sim
             )
