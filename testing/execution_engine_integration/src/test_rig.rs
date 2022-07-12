@@ -198,8 +198,7 @@ impl<E: GenericExecutionEngine> TestRig<E> {
         }))
         .await;
 
-        // We hardcode the accounts here since some EEs start with a default account
-        // TODO(pawan): figure out nethermind flag to remove the default account
+        // We hardcode the accounts here since some EEs start with a default unlocked account
         let account1 = ethers_core::types::Address::from_slice(&hex::decode(&ACCOUNT1).unwrap());
         let account2 = ethers_core::types::Address::from_slice(&hex::decode(&ACCOUNT2).unwrap());
 
