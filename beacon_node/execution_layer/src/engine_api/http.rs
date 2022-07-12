@@ -7,7 +7,6 @@ use reqwest::header::CONTENT_TYPE;
 use sensitive_url::SensitiveUrl;
 use serde::de::DeserializeOwned;
 use serde_json::json;
-use std::marker::PhantomData;
 
 use std::time::Duration;
 use types::EthSpec;
@@ -169,7 +168,7 @@ pub mod deposit_log {
 /// state of the deposit contract.
 pub mod deposit_methods {
     use super::Log;
-    use crate::{EngineApi, HttpJsonRpc};
+    use crate::HttpJsonRpc;
     use serde::{Deserialize, Serialize};
     use serde_json::{json, Value};
     use std::fmt;
@@ -298,7 +297,7 @@ pub mod deposit_methods {
         }
     }
 
-    impl HttpJsonRpc<EngineApi> {
+    impl HttpJsonRpc {
         /// Get the eth1 chain id of the given endpoint.
         pub async fn get_chain_id(&self, timeout: Duration) -> Result<Eth1Id, String> {
             let chain_id: String = self
@@ -517,20 +516,18 @@ pub mod deposit_methods {
     }
 }
 
-pub struct HttpJsonRpc<T = EngineApi> {
+pub struct HttpJsonRpc {
     pub client: Client,
     pub url: SensitiveUrl,
     auth: Option<Auth>,
-    _phantom: PhantomData<T>,
 }
 
-impl<T> HttpJsonRpc<T> {
+impl HttpJsonRpc {
     pub fn new(url: SensitiveUrl) -> Result<Self, Error> {
         Ok(Self {
             client: Client::builder().build()?,
             url,
             auth: None,
-            _phantom: PhantomData,
         })
     }
 
@@ -539,7 +536,6 @@ impl<T> HttpJsonRpc<T> {
             client: Client::builder().build()?,
             url,
             auth: Some(auth),
-            _phantom: PhantomData,
         })
     }
 
@@ -592,7 +588,7 @@ impl std::fmt::Display for HttpJsonRpc {
     }
 }
 
-impl HttpJsonRpc<EngineApi> {
+impl HttpJsonRpc {
     pub async fn upcheck(&self) -> Result<(), Error> {
         let result: serde_json::Value = self
             .rpc_request(ETH_SYNCING, json!([]), ETH_SYNCING_TIMEOUT)
