@@ -10,7 +10,7 @@ use engine_api::Error as ApiError;
 pub use engine_api::*;
 pub use engine_api::{http, http::deposit_methods, http::HttpJsonRpc};
 pub use engines::ForkChoiceState;
-use engines::{Engine, EngineError, Logging};
+use engines::{Engine, EngineError};
 use lru::LruCache;
 use payload_status::process_payload_status;
 pub use payload_status::PayloadStatus;
@@ -27,7 +27,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use task_executor::TaskExecutor;
 use tokio::{
     sync::{Mutex, MutexGuard, RwLock},
-    time::{sleep, sleep_until, Instant},
+    time::sleep,
 };
 use types::{
     BlindedPayload, BlockType, ChainSpec, Epoch, ExecPayload, ExecutionBlockHash,
@@ -282,48 +282,12 @@ impl<T: EthSpec> ExecutionLayer<T> {
             // Run one task immediately.
             el.watchdog_task().await;
 
-            let recurring_task =
-                |el: ExecutionLayer<T>, now: Instant, duration_to_next_slot: Duration| async move {
-                    // We run the task three times per slot.
-                    //
-                    // The interval between each task is 1/3rd of the slot duration. This matches nicely
-                    // with the attestation production times (unagg. at 1/3rd, agg at 2/3rd).
-                    //
-                    // Each task is offset by 3/4ths of the interval.
-                    //
-                    // On mainnet, this means we will run tasks at:
-                    //
-                    // - 3s after slot start: 1s before publishing unaggregated attestations.
-                    // - 7s after slot start: 1s before publishing aggregated attestations.
-                    // - 11s after slot start: 1s before the next slot starts.
-                    let interval = duration_to_next_slot / 3;
-                    let offset = (interval / 4) * 3;
-
-                    let first_execution = duration_to_next_slot + offset;
-                    let second_execution = first_execution + interval;
-                    let third_execution = second_execution + interval;
-
-                    sleep_until(now + first_execution).await;
-                    el.engine().upcheck(Logging::Disabled).await;
-
-                    sleep_until(now + second_execution).await;
-                    el.engine().upcheck(Logging::Disabled).await;
-
-                    sleep_until(now + third_execution).await;
-                    el.engine().upcheck(Logging::Disabled).await;
-                };
-
             // Start the loop to periodically update.
             loop {
-                if let Some(duration) = slot_clock.duration_to_next_slot() {
-                    let now = Instant::now();
-
-                    // Spawn a new task rather than waiting for this to finish. This ensure that a
-                    // slow run doesn't prevent the next run from starting.
-                    el.spawn(|el| recurring_task(el, now, duration), "exec_watchdog_task");
-                } else {
-                    error!(el.log(), "Failed to spawn watchdog task");
-                }
+                el.spawn(
+                    |el| async move { el.watchdog_task().await },
+                    "exec_watchdog_task",
+                );
                 sleep(slot_clock.slot_duration()).await;
             }
         };
@@ -333,8 +297,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
 
     /// Performs a single execution of the watchdog routine.
     pub async fn watchdog_task(&self) {
-        // Disable logging since this runs frequently and may get annoying.
-        self.engine().upcheck(Logging::Disabled).await;
+        self.engine().upcheck().await;
     }
 
     /// Spawns a routine which cleans the cached proposer data periodically.
@@ -1240,7 +1203,7 @@ mod test {
         MockExecutionLayer::default_params(runtime.task_executor.clone())
             .move_to_block_prior_to_terminal_block()
             .with_terminal_block(|spec, el, _| async move {
-                el.engine().upcheck(Logging::Disabled).await;
+                el.engine().upcheck().await;
                 assert_eq!(el.get_terminal_pow_block_hash(&spec).await.unwrap(), None)
             })
             .await
@@ -1260,7 +1223,7 @@ mod test {
         MockExecutionLayer::default_params(runtime.task_executor.clone())
             .move_to_terminal_block()
             .with_terminal_block(|spec, el, terminal_block| async move {
-                el.engine().upcheck(Logging::Disabled).await;
+                el.engine().upcheck().await;
                 assert_eq!(
                     el.is_valid_terminal_pow_block_hash(terminal_block.unwrap().block_hash, &spec)
                         .await
@@ -1277,7 +1240,7 @@ mod test {
         MockExecutionLayer::default_params(runtime.task_executor.clone())
             .move_to_terminal_block()
             .with_terminal_block(|spec, el, terminal_block| async move {
-                el.engine().upcheck(Logging::Disabled).await;
+                el.engine().upcheck().await;
                 let invalid_terminal_block = terminal_block.unwrap().parent_hash;
 
                 assert_eq!(
@@ -1296,7 +1259,7 @@ mod test {
         MockExecutionLayer::default_params(runtime.task_executor.clone())
             .move_to_terminal_block()
             .with_terminal_block(|spec, el, _| async move {
-                el.engine().upcheck(Logging::Disabled).await;
+                el.engine().upcheck().await;
                 let missing_terminal_block = ExecutionBlockHash::repeat_byte(42);
 
                 assert_eq!(

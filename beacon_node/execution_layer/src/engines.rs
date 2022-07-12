@@ -33,22 +33,6 @@ pub struct ForkChoiceState {
     pub finalized_block_hash: ExecutionBlockHash,
 }
 
-/// Used to enable/disable logging on some tasks.
-#[derive(Copy, Clone, PartialEq)]
-pub enum Logging {
-    Enabled,
-    Disabled,
-}
-
-impl Logging {
-    pub fn is_enabled(&self) -> bool {
-        match self {
-            Logging::Enabled => true,
-            Logging::Disabled => false,
-        }
-    }
-}
-
 #[derive(Hash, PartialEq, std::cmp::Eq)]
 struct PayloadIdCacheKey {
     pub head_block_hash: ExecutionBlockHash,
@@ -186,27 +170,26 @@ impl Engine {
 
     /// Run the `EngineApi::upcheck` function if the node's last known state is not synced. This
     /// might be used to recover the node if offline.
-    pub async fn upcheck(&self, logging: Logging) {
+    pub async fn upcheck(&self) {
         let state = match self.api.upcheck().await {
             Ok(()) => {
                 let mut state = self.state.write().await;
 
-                if logging.is_enabled() {
-                    if *state != EngineState::Synced {
-                        info!(
-                            self.log,
-                            "Execution engine online";
-                        );
+                if *state != EngineState::Synced {
+                    info!(
+                        self.log,
+                        "Execution engine online";
+                    );
 
-                        // Send the node our latest forkchoice_state.
-                        self.send_latest_forkchoice_state().await;
-                    } else {
-                        debug!(
-                            self.log,
-                            "Execution engine online";
-                        );
-                    }
+                    // Send the node our latest forkchoice_state.
+                    self.send_latest_forkchoice_state().await;
+                } else {
+                    debug!(
+                        self.log,
+                        "Execution engine online";
+                    );
                 }
+
                 *state = EngineState::Synced;
                 *state
             }
@@ -216,13 +199,11 @@ impl Engine {
                 *state
             }
             Err(EngineApiError::Auth(err)) => {
-                if logging.is_enabled() {
-                    error!(
-                        self.log,
-                        "Failed jwt authorization";
-                        "error" => ?err,
-                    );
-                }
+                error!(
+                    self.log,
+                    "Failed jwt authorization";
+                    "error" => ?err,
+                );
 
                 let mut state = self.state.write().await;
                 *state = EngineState::AuthFailed;
@@ -241,13 +222,11 @@ impl Engine {
             }
         };
 
-        if logging.is_enabled() {
-            debug!(
-                self.log,
-                "Execution engine upcheck complete";
-                "state" => ?state,
-            );
-        }
+        debug!(
+            self.log,
+            "Execution engine upcheck complete";
+            "state" => ?state,
+        );
     }
 
     /// Run `func` on the node regardless of the node's current state.
@@ -269,7 +248,7 @@ impl Engine {
                     // Spawn the upcheck in another task to avoid slowing down this request.
                     let inner_self = self.clone();
                     self.executor.spawn(
-                        async move { inner_self.upcheck(Logging::Enabled).await },
+                        async move { inner_self.upcheck().await },
                         "upcheck_after_success",
                     );
                 }
@@ -289,7 +268,7 @@ impl Engine {
                 // Spawn the upcheck in another task to avoid slowing down this request.
                 let inner_self = self.clone();
                 self.executor.spawn(
-                    async move { inner_self.upcheck(Logging::Enabled).await },
+                    async move { inner_self.upcheck().await },
                     "upcheck_after_error",
                 );
 
