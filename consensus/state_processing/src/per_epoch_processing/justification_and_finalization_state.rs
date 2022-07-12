@@ -24,9 +24,13 @@ impl<T: EthSpec> JustificationAndFinalizationState<T> {
         let current_epoch = state.current_epoch();
         Self {
             previous_epoch,
-            previous_epoch_target_root: state.get_block_root_at_epoch(previous_epoch).copied(),
+            previous_epoch_target_root: state
+                .get_block_root_at_epoch(previous_epoch)
+                .map(|root| *root),
             current_epoch,
-            current_epoch_target_root: state.get_block_root_at_epoch(current_epoch).copied(),
+            current_epoch_target_root: state
+                .get_block_root_at_epoch(current_epoch)
+                .map(|root| *root),
             previous_justified_checkpoint: state.previous_justified_checkpoint(),
             current_justified_checkpoint: state.current_justified_checkpoint(),
             finalized_checkpoint: state.finalized_checkpoint(),
