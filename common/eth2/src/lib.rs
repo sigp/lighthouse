@@ -110,6 +110,7 @@ pub struct Timeouts {
     pub liveness: Duration,
     pub proposal: Duration,
     pub proposer_duties: Duration,
+    pub sync_committee_contribution: Duration,
     pub sync_duties: Duration,
 }
 
@@ -121,6 +122,7 @@ impl Timeouts {
             liveness: timeout,
             proposal: timeout,
             proposer_duties: timeout,
+            sync_committee_contribution: timeout,
             sync_duties: timeout,
         }
     }
@@ -907,7 +909,12 @@ impl BeaconNodeHttpClient {
             .push("validator")
             .push("contribution_and_proofs");
 
-        self.post(path, &signed_contributions).await?;
+        self.post_with_timeout(
+            path,
+            &signed_contributions,
+            self.timeouts.sync_committee_contribution,
+        )
+        .await?;
 
         Ok(())
     }
