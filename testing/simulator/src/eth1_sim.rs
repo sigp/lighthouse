@@ -150,9 +150,15 @@ pub fn run_eth1_sim(matches: &ArgMatches) -> Result<(), String> {
         beacon_config.network.enr_address = Some(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)));
 
         if post_merge_sim {
-            let mut el_config = execution_layer::Config::default();
-            el_config.execution_endpoints =
-                vec![SensitiveUrl::parse(&format!("http://localhost:{}", EXECUTION_PORT)).unwrap()];
+            let el_config = execution_layer::Config {
+                execution_endpoints: vec![SensitiveUrl::parse(&format!(
+                    "http://localhost:{}",
+                    EXECUTION_PORT
+                ))
+                .unwrap()],
+                ..Default::default()
+            };
+
             beacon_config.execution_layer = Some(el_config);
         }
 

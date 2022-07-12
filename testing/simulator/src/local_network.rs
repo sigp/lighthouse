@@ -78,7 +78,7 @@ impl<E: EthSpec> LocalNetwork<E> {
                 context.service_context("boot_node_el".into()),
                 mock_execution_config,
             );
-            el_config.default_datadir = execution_node.datadir.path().clone().into();
+            el_config.default_datadir = execution_node.datadir.path().to_path_buf();
             el_config.secret_files = vec![execution_node.datadir.path().join("jwt.hex")];
             el_config.execution_endpoints =
                 vec![SensitiveUrl::parse(&execution_node.server.url()).unwrap()];
@@ -152,7 +152,7 @@ impl<E: EthSpec> LocalNetwork<E> {
                 self.context.service_context(format!("node_{}_el", count)),
                 config,
             );
-            el_config.default_datadir = execution_node.datadir.path().clone().into();
+            el_config.default_datadir = execution_node.datadir.path().to_path_buf();
             el_config.secret_files = vec![execution_node.datadir.path().join("jwt.hex")];
             el_config.execution_endpoints =
                 vec![SensitiveUrl::parse(&execution_node.server.url()).unwrap()];

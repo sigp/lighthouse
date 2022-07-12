@@ -235,11 +235,11 @@ pub async fn verify_transition_block_finalized<E: EthSpec>(
 
     let first = block_hashes[0];
     if first.into_root() != Hash256::zero() && block_hashes.iter().all(|&item| item == first) {
-        return Ok(());
+        Ok(())
     } else {
-        return Err(format!(
+        Err(format!(
             "Terminal block not finalized on all nodes Finalized block hashes:{:?}",
             block_hashes
-        ));
+        ))
     }
 }
