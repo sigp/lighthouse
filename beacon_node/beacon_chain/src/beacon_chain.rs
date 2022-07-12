@@ -4055,9 +4055,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     ///
     /// Returns `Ok(false)` if the block is pre-Bellatrix, or has `ExecutionStatus::Valid`.
     /// Returns `Ok(true)` if the block has `ExecutionStatus::Optimistic`.
-    pub fn is_optimistic_block(
+    pub fn is_optimistic_block<Payload: ExecPayload<T::EthSpec>>(
         &self,
-        block: &SignedBeaconBlock<T::EthSpec>,
+        block: &SignedBeaconBlock<T::EthSpec, Payload>,
     ) -> Result<bool, BeaconChainError> {
         // Check if the block is pre-Bellatrix.
         if self.slot_is_prior_to_bellatrix(block.slot()) {
@@ -4081,9 +4081,9 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
     ///
     /// There is a potential race condition when syncing where the block_root of `head_block` could
     /// be pruned from the fork choice store before being read.
-    pub fn is_optimistic_head_block(
+    pub fn is_optimistic_head_block<Payload: ExecPayload<T::EthSpec>>(
         &self,
-        head_block: &SignedBeaconBlock<T::EthSpec>,
+        head_block: &SignedBeaconBlock<T::EthSpec, Payload>,
     ) -> Result<bool, BeaconChainError> {
         // Check if the block is pre-Bellatrix.
         if self.slot_is_prior_to_bellatrix(head_block.slot()) {
