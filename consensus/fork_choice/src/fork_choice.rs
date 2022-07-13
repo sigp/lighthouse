@@ -137,6 +137,7 @@ impl CountUnrealized {
     pub fn is_true(&self) -> bool {
         matches!(self, CountUnrealized::True)
     }
+
     pub fn and(&self, other: CountUnrealized) -> CountUnrealized {
         if self.is_true() && other.is_true() {
             CountUnrealized::True
