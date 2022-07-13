@@ -99,7 +99,7 @@ pub fn reset_fork_choice_to_finalization<E: EthSpec, Hot: ItemStore<E>, Cold: It
     store: Arc<HotColdDB<E, Hot, Cold>>,
     current_slot: Option<Slot>,
     spec: &ChainSpec,
-    count_unrealized: CountUnrealized,
+    count_unrealized_config: CountUnrealized,
 ) -> Result<ForkChoice<BeaconForkChoiceStore<E, Hot, Cold>, E>, String> {
     // Fetch finalized block.
     let finalized_checkpoint = head_state.finalized_checkpoint();
@@ -164,7 +164,7 @@ pub fn reset_fork_choice_to_finalization<E: EthSpec, Hot: ItemStore<E>, Cold: It
         .map_err(|e| format!("Error loading blocks to replay for fork choice: {:?}", e))?;
 
     let mut state = finalized_snapshot.beacon_state;
-    for block in blocks {
+    for (i, block) in blocks.enumerate() {
         complete_state_advance(&mut state, None, block.slot(), spec)
             .map_err(|e| format!("State advance failed: {:?}", e))?;
 
@@ -183,6 +183,15 @@ pub fn reset_fork_choice_to_finalization<E: EthSpec, Hot: ItemStore<E>, Cold: It
         //
         // This scenario is so rare that it seems OK to double-verify some blocks.
         let payload_verification_status = PayloadVerificationStatus::Optimistic;
+
+        // Because we are replaying a single chain of blocks, we only need to calculate unrealized
+        // justification for the last block in the chain.
+        let is_last_block = i + 1 == blocks.len();
+        let count_unrealized = if is_last_block {
+            count_unrealized_config
+        } else {
+            CountUnrealized::False
+        };
 
         fork_choice
             .on_block(
