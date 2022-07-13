@@ -147,7 +147,7 @@ pub struct ExecutionLayer<T: EthSpec> {
 }
 
 impl<T: EthSpec> ExecutionLayer<T> {
-    /// Instantiate `Self` with a Execution engine specified using `Config`, all using the JSON-RPC via HTTP.
+    /// Instantiate `Self` with an Execution engine specified in `Config`, using JSON-RPC via HTTP.
     pub fn from_config(config: Config, executor: TaskExecutor, log: Logger) -> Result<Self, Error> {
         let Config {
             execution_endpoints: urls,
@@ -357,7 +357,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
         self.spawn(routine, "exec_config_poll");
     }
 
-    /// Returns `true` if there is at least one synced and reachable engine.
+    /// Returns `true` if the execution engine is synced and reachable.
     pub async fn is_synced(&self) -> bool {
         self.engine().is_synced().await
     }
