@@ -86,6 +86,7 @@ pub struct ValidatorStore<T, E: EthSpec> {
     log: Logger,
     doppelganger_service: Option<Arc<DoppelgangerService>>,
     slot_clock: T,
+    fee_recipient_process: Option<Address>,
     task_executor: TaskExecutor,
     _phantom: PhantomData<E>,
 }
@@ -101,6 +102,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
         spec: ChainSpec,
         doppelganger_service: Option<Arc<DoppelgangerService>>,
         slot_clock: T,
+        fee_recipient_process: Option<Address>,
         task_executor: TaskExecutor,
         log: Logger,
     ) -> Self {
@@ -113,6 +115,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
             log,
             doppelganger_service,
             slot_clock,
+            fee_recipient_process,
             task_executor,
             _phantom: PhantomData,
         }
@@ -356,7 +359,21 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
         self.validators.read().graffiti(validator_pubkey)
     }
 
-    pub fn suggested_fee_recipient(&self, validator_pubkey: &PublicKeyBytes) -> Option<Address> {
+    /// Returns the fee recipient for the given public key. The priority order for fetching
+    /// the fee recipient is:
+    /// 1. validator_definitions.yml
+    /// 2. process level fee recipient
+    pub fn get_fee_recipient(&self, validator_pubkey: &PublicKeyBytes) -> Option<Address> {
+        // If there is a `suggested_fee_recipient` in the validator definitions yaml
+        // file, use that value.
+        self.suggested_fee_recipient(validator_pubkey)
+            // If there's nothing in the file, try the process-level default value.
+            .or(self.fee_recipient_process)
+    }
+
+    /// Returns the suggested_fee_recipient from `validator_definitions.yml` if any.
+    /// This has been pulled into a private function so the read lock is dropped easily
+    fn suggested_fee_recipient(&self, validator_pubkey: &PublicKeyBytes) -> Option<Address> {
         self.validators
             .read()
             .suggested_fee_recipient(validator_pubkey)

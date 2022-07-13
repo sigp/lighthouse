@@ -56,6 +56,8 @@ pub fn get_block_rewards<T: BeaconChainTypes>(
 
     let block_replayer = BlockReplayer::new(state, &chain.spec)
         .pre_block_hook(Box::new(|state, block| {
+            state.build_all_committee_caches(&chain.spec)?;
+
             // Compute block reward.
             let block_reward = chain.compute_block_reward(
                 block.message(),
@@ -154,8 +156,13 @@ pub fn compute_block_rewards<T: BeaconChainTypes>(
                 );
             }
 
+            let mut state = block_replayer.into_state();
+            state
+                .build_all_committee_caches(&chain.spec)
+                .map_err(beacon_state_error)?;
+
             state_cache
-                .get_or_insert((parent_root, block.slot()), || block_replayer.into_state())
+                .get_or_insert((parent_root, block.slot()), || state)
                 .ok_or_else(|| {
                     custom_server_error("LRU cache insert should always succeed".into())
                 })?

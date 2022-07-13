@@ -331,8 +331,7 @@ impl TaskExecutor {
         &self,
         future: F,
         name: &'static str,
-    ) -> Option<F::Output>
-where {
+    ) -> Option<F::Output> {
         let timer = metrics::start_timer_vec(&metrics::BLOCK_ON_TASKS_HISTOGRAM, &[name]);
         metrics::inc_gauge_vec(&metrics::BLOCK_ON_TASKS_COUNT, &[name]);
         let log = self.log.clone();

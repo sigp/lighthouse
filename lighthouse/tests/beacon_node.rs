@@ -417,6 +417,7 @@ fn run_payload_builder_flag_test(flag: &str, builders: &str) {
 
 #[test]
 fn payload_builder_flags() {
+    run_payload_builder_flag_test("builder", "http://meow.cats");
     run_payload_builder_flag_test("payload-builder", "http://meow.cats");
     run_payload_builder_flag_test("payload-builders", "http://meow.cats,http://woof.dogs");
     run_payload_builder_flag_test("payload-builders", "http://meow.cats,http://woof.dogs");

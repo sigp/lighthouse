@@ -468,8 +468,8 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
         .arg(
             Arg::with_name("builder")
                 .long("builder")
-                .alias("payload-builders")
                 .alias("payload-builder")
+                .alias("payload-builders")
                 .help("The URL of a service compatible with the MEV-boost API.")
                 .requires("execution-endpoint")
                 .takes_value(true)

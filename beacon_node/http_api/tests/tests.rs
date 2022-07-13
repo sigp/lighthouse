@@ -24,7 +24,6 @@ use slot_clock::SlotClock;
 use state_processing::per_slot_processing;
 use std::convert::TryInto;
 use std::sync::Arc;
-use std::sync::RwLock;
 use tokio::sync::{mpsc, oneshot};
 use tokio::time::Duration;
 use tree_hash::TreeHash;
@@ -80,12 +79,26 @@ impl ApiTester {
         Self::new_from_spec(spec).await
     }
 
+    pub async fn new_with_hard_forks(altair: bool, bellatrix: bool) -> Self {
+        let mut spec = E::default_spec();
+        spec.shard_committee_period = 2;
+        // Set whether the chain has undergone each hard fork.
+        if altair {
+            spec.altair_fork_epoch = Some(Epoch::new(0));
+        }
+        if bellatrix {
+            spec.bellatrix_fork_epoch = Some(Epoch::new(0));
+        }
+        Self::new_from_spec(spec).await
+    }
+
     pub async fn new_from_spec(spec: ChainSpec) -> Self {
         let harness = Arc::new(
             BeaconChainHarness::builder(MainnetEthSpec)
                 .spec(spec.clone())
                 .deterministic_keypairs(VALIDATOR_COUNT)
                 .fresh_ephemeral_store()
+                .mock_execution_layer()
                 .build(),
         );
 
@@ -320,125 +333,10 @@ impl ApiTester {
         &self.harness.validator_keypairs
     }
 
-    pub async fn new_post_bellatrix() -> Self {
-        let mut spec = E::default_spec();
-        spec.altair_fork_epoch = Some(Epoch::new(0));
-        spec.bellatrix_fork_epoch = Some(Epoch::new(0));
-
+    pub async fn new_mev_tester() -> Self {
         // Get a random unused port
         let port = unused_port::unused_tcp_port().unwrap();
         let beacon_url = SensitiveUrl::parse(format!("http://127.0.0.1:{port}").as_str()).unwrap();
-
-        let harness = BeaconChainHarness::builder(MainnetEthSpec)
-            .spec(spec.clone())
-            .deterministic_keypairs(VALIDATOR_COUNT)
-            .fresh_ephemeral_store()
-            .mock_execution_layer_with_builder(beacon_url)
-            .build();
-
-        harness.advance_slot();
-
-        let next_block = Arc::new(RwLock::new(None));
-        let reorg_block = Arc::new(RwLock::new(None));
-
-        let next_block_inner = next_block.clone();
-        let reorg_block_inner = reorg_block.clone();
-
-        for _ in 0..CHAIN_LENGTH {
-            let slot = harness.chain.slot().unwrap().as_u64();
-
-            if !SKIPPED_SLOTS.contains(&slot) {
-                harness
-                    .extend_chain(
-                        1,
-                        BlockStrategy::OnCanonicalHead,
-                        AttestationStrategy::AllValidators,
-                    )
-                    .await;
-            }
-
-            harness.advance_slot();
-        }
-
-        let head = harness.chain.head();
-
-        assert_eq!(
-            harness.chain.slot().unwrap(),
-            head.head_slot() + 1,
-            "precondition: current slot is one after head"
-        );
-
-        let head_state = harness.chain.head_beacon_state_cloned();
-
-        let (next_block, _next_state) = harness
-            .make_block(head_state.clone(), harness.chain.slot().unwrap())
-            .await;
-        let mut next_block_mut = next_block_inner.write().unwrap();
-        *next_block_mut = Some(next_block.clone());
-
-        // `make_block` adds random graffiti, so this will produce an alternate block
-        let (reorg_block, _reorg_state) = harness
-            .make_block(head_state.clone(), harness.chain.slot().unwrap())
-            .await;
-        let mut reorg_block_mut = reorg_block_inner.write().unwrap();
-        *reorg_block_mut = Some(reorg_block.clone());
-
-        let head = harness.chain.head();
-
-        let head_state_root = head.head_state_root();
-        let attestations = harness
-            .get_unaggregated_attestations(
-                &AttestationStrategy::AllValidators,
-                &head_state,
-                head_state_root,
-                head.head_block_root(),
-                harness.chain.slot().unwrap(),
-            )
-            .into_iter()
-            .flat_map(|vec| vec.into_iter().map(|(attestation, _subnet_id)| attestation))
-            .collect::<Vec<_>>();
-
-        assert!(
-            !attestations.is_empty(),
-            "precondition: attestations for testing"
-        );
-
-        let contribution_and_proofs = harness
-            .make_sync_contributions(
-                &head_state,
-                head_state_root,
-                harness.chain.slot().unwrap(),
-                RelativeSyncCommittee::Current,
-            )
-            .into_iter()
-            .filter_map(|(_, contribution)| contribution)
-            .collect::<Vec<_>>();
-
-        let attester_slashing = harness.make_attester_slashing(vec![0, 1]);
-        let proposer_slashing = harness.make_proposer_slashing(2);
-        let voluntary_exit = harness.make_voluntary_exit(3, harness.chain.epoch().unwrap());
-
-        let chain = harness.chain.clone();
-
-        assert_eq!(
-            chain
-                .canonical_head
-                .cached_head()
-                .finalized_checkpoint()
-                .epoch,
-            2,
-            "precondition: finality"
-        );
-        assert_eq!(
-            chain
-                .canonical_head
-                .cached_head()
-                .justified_checkpoint()
-                .epoch,
-            3,
-            "precondition: justification"
-        );
-
         let log = null_logger().unwrap();
 
         let ApiServer {
@@ -456,7 +354,7 @@ impl ApiTester {
             listening_socket.ip(),
             listening_socket.port()
         ))
-        .unwrap();
+            .unwrap();
         let client = BeaconNodeHttpClient::new(
             real_beacon_url,
             Timeouts::set_all(Duration::from_secs(SECONDS_PER_SLOT)),
@@ -470,27 +368,8 @@ impl ApiTester {
 
         let mock_builder = harness.mock_builder.clone();
 
-        Self {
-            harness: Arc::new(harness),
-            chain,
-            client,
-            next_block,
-            reorg_block,
-            attestations,
-            contribution_and_proofs,
-            attester_slashing,
-            proposer_slashing,
-            voluntary_exit,
-            _server_shutdown: shutdown_tx,
-            network_rx,
-            local_enr,
-            external_peer_id,
-            mock_builder,
-        }
-    }
-
-    pub async fn new_mev_tester() -> Self {
-        Self::new_post_bellatrix()
+        //            .mock_execution_layer_with_builder(beacon_url)
+        Self::new_with_hard_forks(true, true)
             .await
             .test_post_validator_register_validator()
             .await
@@ -545,7 +424,6 @@ impl ApiTester {
         )));
         ids
     }
-
     pub async fn test_beacon_genesis(self) -> Self {
         let result = self.client.get_beacon_genesis().await.unwrap().data;
 
@@ -1049,13 +927,7 @@ impl ApiTester {
 
     pub async fn test_beacon_blocks(self) -> Self {
         for block_id in self.interesting_block_ids() {
-            let expected = block_id
-                .full_block(&self.chain)
-                .await
-                .ok()
-                .map(Arc::try_unwrap)
-                .transpose()
-                .unwrap();
+            let expected = block_id.full_block(&self.chain).await.ok();
 
             if let CoreBlockId::Slot(slot) = block_id.0 {
                 if expected.is_none() {
@@ -1069,7 +941,7 @@ impl ApiTester {
             let json_result = self.client.get_beacon_blocks(block_id.0).await.unwrap();
 
             if let (Some(json), Some(expected)) = (&json_result, &expected) {
-                assert_eq!(json.data, *expected, "{:?}", block_id);
+                assert_eq!(&json.data, expected.as_ref(), "{:?}", block_id);
                 assert_eq!(
                     json.version,
                     Some(expected.fork_name(&self.chain.spec).unwrap())
@@ -1085,13 +957,18 @@ impl ApiTester {
                 .get_beacon_blocks_ssz(block_id.0, &self.chain.spec)
                 .await
                 .unwrap();
-            assert_eq!(ssz_result, expected, "{:?}", block_id);
+            assert_eq!(
+                ssz_result.as_ref(),
+                expected.as_ref().map(|b| b.as_ref()),
+                "{:?}",
+                block_id
+            );
 
             // Check that the legacy v1 API still works but doesn't return a version field.
             let v1_result = self.client.get_beacon_blocks_v1(block_id.0).await.unwrap();
             if let (Some(v1_result), Some(expected)) = (&v1_result, &expected) {
                 assert_eq!(v1_result.version, None);
-                assert_eq!(v1_result.data, *expected);
+                assert_eq!(&v1_result.data, expected.as_ref());
             } else {
                 assert_eq!(v1_result, None);
                 assert_eq!(expected, None);
@@ -2511,15 +2388,7 @@ impl ApiTester {
         let mut registrations = vec![];
         let mut fee_recipients = vec![];
 
-        let genesis_epoch = self.chain.spec.genesis_slot.epoch(E::slots_per_epoch());
-
-        let fork = Fork {
-            current_version: self.chain.spec.genesis_fork_version,
-            previous_version: self.chain.spec.genesis_fork_version,
-            epoch: genesis_epoch,
-        };
-
-        let expected_gas_limit = 11_111_111;
+        let fork = self.chain.head_snapshot().beacon_state.fork();
 
         for (val_index, keypair) in self.validator_keypairs().iter().enumerate() {
             let pubkey = keypair.pk.compress();
@@ -2527,12 +2396,12 @@ impl ApiTester {
 
             let data = ValidatorRegistrationData {
                 fee_recipient,
-                gas_limit: expected_gas_limit,
+                gas_limit: 0,
                 timestamp: 0,
                 pubkey,
             };
             let domain = self.chain.spec.get_domain(
-                genesis_epoch,
+                Epoch::new(0),
                 Domain::ApplicationMask(ApplicationDomain::Builder),
                 &fork,
                 Hash256::zero(),
@@ -2540,12 +2409,11 @@ impl ApiTester {
             let message = data.signing_root(domain);
             let signature = keypair.sk.sign(message);
 
-            let signed = SignedValidatorRegistrationData {
+            fee_recipients.push(fee_recipient);
+            registrations.push(SignedValidatorRegistrationData {
                 message: data,
                 signature,
-            };
-            fee_recipients.push(fee_recipient);
-            registrations.push(signed);
+            });
         }
 
         self.client
@@ -2553,9 +2421,10 @@ impl ApiTester {
             .await
             .unwrap();
 
-        let head_state = self.chain.head_beacon_state_cloned();
-
-        for (val_index, (_, fee_recipient)) in head_state
+        for (val_index, (_, fee_recipient)) in self
+            .chain
+            .head_snapshot()
+            .beacon_state
             .validators()
             .into_iter()
             .zip(fee_recipients.into_iter())
@@ -2570,6 +2439,7 @@ impl ApiTester {
                 .await;
             assert_eq!(actual, fee_recipient);
         }
+
         self
     }
 
@@ -3640,6 +3510,14 @@ async fn get_validator_beacon_committee_subscriptions() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn post_validator_register_validator() {
+    ApiTester::new()
+        .await
+        .test_post_validator_register_validator()
+        .await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn post_validator_register_valid() {
     ApiTester::new_mev_tester()
         .await
@@ -3697,7 +3575,7 @@ async fn lighthouse_endpoints() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn optimistic_responses() {
-    ApiTester::new_post_bellatrix()
+    ApiTester::new_with_hard_forks(true, true)
         .await
         .test_check_optimistic_responses()
         .await;

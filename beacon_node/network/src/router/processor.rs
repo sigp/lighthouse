@@ -409,22 +409,6 @@ impl<T: EthSpec> HandlerNetworkContext<T> {
             response,
         })
     }
-
-    /// Sends an error response to the network task.
-    pub fn _send_error_response(
-        &mut self,
-        peer_id: PeerId,
-        id: PeerRequestId,
-        error: RPCResponseErrorCode,
-        reason: String,
-    ) {
-        self.inform_network(NetworkMessage::SendErrorResponse {
-            peer_id,
-            error,
-            id,
-            reason,
-        })
-    }
 }
 
 fn timestamp_now() -> Duration {
