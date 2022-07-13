@@ -180,7 +180,7 @@ impl<E: EthSpec> Case for ForkChoiceTest<E> {
                 }
                 Step::Attestation { attestation } => tester.process_attestation(attestation)?,
                 Step::PowBlock { pow_block } => tester.process_pow_block(pow_block),
-                //TODO(sean): enable once we implement equivocation logic (https://github.com/ethereum/consensus-specs/pull/2845)
+                //TODO(sean): enable once we implement equivocation logic (https://github.com/sigp/lighthouse/issues/3241)
                 Step::AttesterSlashing {
                     attester_slashing: _,
                 } => (),
