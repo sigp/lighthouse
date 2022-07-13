@@ -132,15 +132,8 @@ pub struct Config {
     pub default_datadir: PathBuf,
 }
 
-/// Provides access to one execution engine and provides a neat interface for consumption
-/// by the `BeaconChain`.
-///
-/// When there is more than one execution node specified, the others will be used in a "fallback"
-/// fashion. Some requests may be broadcast to all nodes and others might only be sent to the first
-/// node that returns a valid response. Ultimately, the purpose of fallback nodes is to provide
-/// redundancy in the case where one node is offline.
-///
-/// The fallback nodes have an ordering. The first supplied will be the first contacted, and so on.
+/// Provides access to one execution engine and provides a neat interface for consumption by the
+/// `BeaconChain`.
 #[derive(Clone)]
 pub struct ExecutionLayer<T: EthSpec> {
     inner: Arc<Inner<T>>,

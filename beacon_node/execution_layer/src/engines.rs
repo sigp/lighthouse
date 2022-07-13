@@ -230,6 +230,11 @@ impl Engine {
     }
 
     /// Run `func` on the node regardless of the node's current state.
+    ///
+    /// ## Note
+    ///
+    /// This function takes locks on `self.state`, holding a conflicting lock might cause a
+    /// deadlock.
     pub async fn request<'a, F, G, H>(self: &'a Arc<Self>, func: F) -> Result<H, EngineError>
     where
         F: Fn(&'a Engine) -> G,
