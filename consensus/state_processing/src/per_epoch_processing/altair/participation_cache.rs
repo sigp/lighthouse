@@ -182,7 +182,7 @@ pub struct ParticipationCache {
     /// Caches information about active validators pertaining to `self.previous_epoch`.
     previous_epoch_participation: SingleEpochParticipationCache,
     /// Caches the result of the `get_eligible_validator_indices` function.
-    pub eligible_indices: Vec<usize>,
+    eligible_indices: Vec<usize>,
 }
 
 impl ParticipationCache {
