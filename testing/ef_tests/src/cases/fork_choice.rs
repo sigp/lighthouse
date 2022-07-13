@@ -165,7 +165,7 @@ impl<E: EthSpec> Case for ForkChoiceTest<E> {
         // This test is skipped until we can do retrospective confirmations of the terminal
         // block after an optimistic sync.
         if self.description == "block_lookup_failed"
-            //TODO(sean): enable once we implement equivocation logic (https://github.com/ethereum/consensus-specs/pull/2845)
+            //TODO(sean): enable once we implement equivocation logic (https://github.com/sigp/lighthouse/issues/3241)
             || self.description == "discard_equivocations"
         {
             return Err(Error::SkippedKnownFailure);
