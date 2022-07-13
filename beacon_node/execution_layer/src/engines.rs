@@ -171,7 +171,7 @@ impl Engine {
     /// Run the `EngineApi::upcheck` function if the node's last known state is not synced. This
     /// might be used to recover the node if offline.
     pub async fn upcheck(&self) {
-        let state = match self.api.upcheck().await {
+        let state: EngineState = match self.api.upcheck().await {
             Ok(()) => {
                 let mut state = self.state.write().await;
 
