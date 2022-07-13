@@ -164,7 +164,7 @@ pub fn reset_fork_choice_to_finalization<E: EthSpec, Hot: ItemStore<E>, Cold: It
         .map_err(|e| format!("Error loading blocks to replay for fork choice: {:?}", e))?;
 
     let mut state = finalized_snapshot.beacon_state;
-    for (i, block) in blocks.enumerate() {
+    for (i, block) in blocks.into_iter().enumerate() {
         complete_state_advance(&mut state, None, block.slot(), spec)
             .map_err(|e| format!("State advance failed: {:?}", e))?;
 
