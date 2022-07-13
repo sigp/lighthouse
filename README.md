@@ -11,6 +11,7 @@ An open-source Ethereum consensus client, written in Rust and maintained by Sigm
 [stable]: https://github.com/sigp/lighthouse/tree/stable
 [unstable]: https://github.com/sigp/lighthouse/tree/unstable
 [blog]: https://lighthouse.sigmaprime.io
+[![gitpoap badge](https://public-api.gitpoap.io/v1/repo/sigp/lighthouse/badge)](https://www.gitpoap.io/gh/sigp/lighthouse)
 
 [Documentation](https://lighthouse-book.sigmaprime.io)
 
