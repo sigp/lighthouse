@@ -390,7 +390,7 @@ async fn invalid_payload_invalidates_parent() {
     })
     .await;
 
-    assert!(rig.execution_status(roots[0]).is_valid_and_post_bellatrix());
+    assert!(rig.execution_status(roots[0]).is_optimistic());
     assert!(rig.execution_status(roots[1]).is_invalid());
     assert!(rig.execution_status(roots[2]).is_invalid());
 
@@ -532,9 +532,9 @@ async fn pre_finalized_latest_valid_hash() {
 /// Ensure that a `latest_valid_hash` will:
 ///
 /// - Invalidate descendants of `latest_valid_root`.
-/// - Validate `latest_valid_root` and its ancestors.
+/// - Will not validate `latest_valid_root` and its ancestors.
 #[tokio::test]
-async fn latest_valid_hash_will_validate() {
+async fn latest_valid_hash_will_not_validate() {
     const LATEST_VALID_SLOT: u64 = 3;
 
     let mut rig = InvalidPayloadRig::new().enable_attestations();
@@ -571,8 +571,10 @@ async fn latest_valid_hash_will_validate() {
             assert!(execution_status.is_invalid())
         } else if slot == 0 {
             assert!(execution_status.is_irrelevant())
-        } else {
+        } else if slot == 1 {
             assert!(execution_status.is_valid_and_post_bellatrix())
+        } else {
+            assert!(execution_status.is_optimistic())
         }
     }
 }
@@ -693,9 +695,15 @@ async fn invalidates_all_descendants() {
         }
 
         let execution_status = rig.execution_status(root);
-        if slot <= latest_valid_slot {
-            // Blocks prior to the latest valid hash are valid.
+        if slot == 0 {
+            // Genesis block is pre-bellatrix.
+            assert!(execution_status.is_irrelevant());
+        } else if slot == 1 {
+            // First slot was imported as valid.
             assert!(execution_status.is_valid_and_post_bellatrix());
+        } else if slot <= latest_valid_slot {
+            // Blocks prior to and included the latest valid hash are not marked as valid.
+            assert!(execution_status.is_optimistic());
         } else {
             // Blocks after the latest valid hash are invalid.
             assert!(execution_status.is_invalid());
@@ -769,9 +777,15 @@ async fn switches_heads() {
         }
 
         let execution_status = rig.execution_status(root);
-        if slot <= latest_valid_slot {
-            // Blocks prior to the latest valid hash are valid.
+        if slot == 0 {
+            // Genesis block is pre-bellatrix.
+            assert!(execution_status.is_irrelevant());
+        } else if slot == 1 {
+            // First slot was imported as valid.
             assert!(execution_status.is_valid_and_post_bellatrix());
+        } else if slot <= latest_valid_slot {
+            // Blocks prior to and included the latest valid hash are not marked as valid.
+            assert!(execution_status.is_optimistic());
         } else {
             // Blocks after the latest valid hash are invalid.
             assert!(execution_status.is_invalid());
