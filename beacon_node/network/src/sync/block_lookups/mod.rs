@@ -423,9 +423,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                 }
 
                 e @ BlockError::ExecutionPayloadError(ExecutionPayloadError::RequestFailed(_))
-                | e
-                @
-                BlockError::ExecutionPayloadError(
+                | e @ BlockError::ExecutionPayloadError(
                     ExecutionPayloadError::NoExecutionConnection,
                 ) => {
                     // These errors indicate that the execution layer is offline
