@@ -653,11 +653,10 @@ where
         let current_slot = self.update_time(current_slot, spec)?;
 
         // Parent block must be known.
-        if !self.proto_array.contains_block(&block.parent_root()) {
-            return Err(Error::InvalidBlock(InvalidBlock::UnknownParent(
-                block.parent_root(),
-            )));
-        }
+        let parent_block = self
+            .proto_array
+            .get_block(&block.parent_root())
+            .ok_or_else(|| Error::InvalidBlock(InvalidBlock::UnknownParent(block.parent_root())))?;
 
         // Blocks cannot be in the future. If they are, their consideration must be delayed until
         // the are in the past.
@@ -723,35 +722,61 @@ where
         let (unrealized_justified_checkpoint, unrealized_finalized_checkpoint) = if count_unrealized
             .is_true()
         {
-            let justification_and_finalization_state = match block {
-                BeaconBlockRef::Merge(_) | BeaconBlockRef::Altair(_) => {
-                    let participation_cache =
-                        per_epoch_processing::altair::ParticipationCache::new(state, spec)
-                            .map_err(Error::ParticipationCacheBuild)?;
-                    per_epoch_processing::altair::process_justification_and_finalization(
-                        state,
-                        &participation_cache,
-                    )?
-                }
-                BeaconBlockRef::Base(_) => {
-                    let mut validator_statuses =
-                        per_epoch_processing::base::ValidatorStatuses::new(state, spec)
-                            .map_err(Error::ValidatorStatuses)?;
-                    validator_statuses
-                        .process_attestations(state)
-                        .map_err(Error::ValidatorStatuses)?;
-                    per_epoch_processing::base::process_justification_and_finalization(
-                        state,
-                        &validator_statuses.total_balances,
-                        spec,
-                    )?
-                }
-            };
+            let block_epoch = block.slot().epoch(E::slots_per_epoch());
 
-            let unrealized_justified_checkpoint =
-                justification_and_finalization_state.current_justified_checkpoint();
-            let unrealized_finalized_checkpoint =
-                justification_and_finalization_state.finalized_checkpoint();
+            // If the parent checkpoints are already at the same epoch as the block being imported,
+            // it's impossible for the unrealized checkpoints to differ from the parent's. This
+            // holds true because:
+            //
+            // 1. A child block cannot have lower FFG checkpoints than its parent.
+            // 2. A block in epoch `N` cannot contain attestations which would justify an epoch higher than `N`.
+            // 3. A block in epoch `N` cannot contain attestations which would finalize an epoch higher than `N - 1`.
+            //
+            // This is an optimization. It should reduce the amount of times we run
+            // `process_justification_and_finalization` by approximately 1/3rd when the chain is
+            // performing optimally.
+            let parent_checkpoints = parent_block
+                .unrealized_justified_checkpoint
+                .zip(parent_block.unrealized_finalized_checkpoint)
+                .filter(|(parent_justified, parent_finalized)| {
+                    parent_justified.epoch == block_epoch
+                        && parent_finalized.epoch + 1 >= block_epoch
+                });
+
+            let (unrealized_justified_checkpoint, unrealized_finalized_checkpoint) =
+                if let Some((parent_justified, parent_finalized)) = parent_checkpoints {
+                    (parent_justified, parent_finalized)
+                } else {
+                    let justification_and_finalization_state = match block {
+                        BeaconBlockRef::Merge(_) | BeaconBlockRef::Altair(_) => {
+                            let participation_cache =
+                                per_epoch_processing::altair::ParticipationCache::new(state, spec)
+                                    .map_err(Error::ParticipationCacheBuild)?;
+                            per_epoch_processing::altair::process_justification_and_finalization(
+                                state,
+                                &participation_cache,
+                            )?
+                        }
+                        BeaconBlockRef::Base(_) => {
+                            let mut validator_statuses =
+                                per_epoch_processing::base::ValidatorStatuses::new(state, spec)
+                                    .map_err(Error::ValidatorStatuses)?;
+                            validator_statuses
+                                .process_attestations(state)
+                                .map_err(Error::ValidatorStatuses)?;
+                            per_epoch_processing::base::process_justification_and_finalization(
+                                state,
+                                &validator_statuses.total_balances,
+                                spec,
+                            )?
+                        }
+                    };
+
+                    (
+                        justification_and_finalization_state.current_justified_checkpoint(),
+                        justification_and_finalization_state.finalized_checkpoint(),
+                    )
+                };
 
             // Update best known unrealized justified & finalized checkpoints
             if unrealized_justified_checkpoint.epoch
