@@ -1,5 +1,10 @@
 use types::{BeaconState, BeaconStateError, BitVector, Checkpoint, Epoch, EthSpec, Hash256};
 
+/// This is a subset of the `BeaconState` which is used to compute justification and finality
+/// without modifying the `BeaconState`.
+///
+/// A `JustificationAndFinalizationState` can be created from a `BeaconState` to compute
+/// justification/finality changes and then applied to a `BeaconState` to enshrine those changes.
 #[must_use = "this value must be applied to a state or explicitly dropped"]
 pub struct JustificationAndFinalizationState<T: EthSpec> {
     /*
