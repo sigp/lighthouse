@@ -62,13 +62,13 @@ impl<const MAX_ATTEMPTS: u8> SingleBlockRequest<MAX_ATTEMPTS> {
 
     /// Registers a failure in processing a block.
     pub fn register_failure_processing(&mut self) {
-        self.failed_processing += 1;
+        self.failed_processing = self.failed_processing.saturating_add(1);
         self.state = State::AwaitingDownload;
     }
 
     /// Registers a failure in downloading a block.
     pub fn register_failure_downloading(&mut self) {
-        self.failed_downloading += 1;
+        self.failed_downloading = self.failed_downloading.saturating_add(1);
         self.state = State::AwaitingDownload;
     }
 
@@ -113,7 +113,7 @@ impl<const MAX_ATTEMPTS: u8> SingleBlockRequest<MAX_ATTEMPTS> {
                 Some(block) => {
                     if block.canonical_root() != self.hash {
                         // return an error and drop the block
-                        self.register_failure_downloading();
+                        self.register_failure_processing();
                         Err(VerifyError::RootMismatch)
                     } else {
                         // Return the block for processing.
@@ -143,21 +143,19 @@ impl<const MAX_ATTEMPTS: u8> SingleBlockRequest<MAX_ATTEMPTS> {
 
     pub fn request_block(&mut self) -> Result<(PeerId, BlocksByRootRequest), LookupRequestError> {
         debug_assert!(matches!(self.state, State::AwaitingDownload));
-        if self.failed_attempts() <= MAX_ATTEMPTS {
-            if let Some(&peer_id) = self.available_peers.iter().choose(&mut rand::thread_rng()) {
-                let request = BlocksByRootRequest {
-                    block_roots: VariableList::from(vec![self.hash]),
-                };
-                self.state = State::Downloading { peer_id };
-                self.used_peers.insert(peer_id);
-                Ok((peer_id, request))
-            } else {
-                Err(LookupRequestError::NoPeers)
-            }
-        } else {
+        if self.failed_attempts() >= MAX_ATTEMPTS {
             Err(LookupRequestError::TooManyAttempts {
-                cannot_process: self.failed_processing > self.failed_downloading,
+                cannot_process: self.failed_processing >= self.failed_downloading,
             })
+        } else if let Some(&peer_id) = self.available_peers.iter().choose(&mut rand::thread_rng()) {
+            let request = BlocksByRootRequest {
+                block_roots: VariableList::from(vec![self.hash]),
+            };
+            self.state = State::Downloading { peer_id };
+            self.used_peers.insert(peer_id);
+            Ok((peer_id, request))
+        } else {
+            Err(LookupRequestError::NoPeers)
         }
     }
 
@@ -190,6 +188,8 @@ impl<const MAX_ATTEMPTS: u8> slog::Value for SingleBlockRequest<MAX_ATTEMPTS> {
                 serializer.emit_arguments("processing_peer", &format_args!("{}", peer_id))?
             }
         }
+        serializer.emit_u8("failed_downloads", self.failed_downloading)?;
+        serializer.emit_u8("failed_processing", self.failed_processing)?;
         slog::Result::Ok(())
     }
 }
@@ -218,5 +218,31 @@ mod tests {
         let mut sl = SingleBlockRequest::<4>::new(block.canonical_root(), peer_id);
         sl.request_block().unwrap();
         sl.verify_block(Some(Arc::new(block))).unwrap().unwrap();
+    }
+
+    #[test]
+    fn test_block_lookup_failures() {
+        const FAILURES: u8 = 3;
+        let peer_id = PeerId::random();
+        let block = rand_block();
+
+        let mut sl = SingleBlockRequest::<FAILURES>::new(block.canonical_root(), peer_id);
+        for _ in 1..FAILURES {
+            sl.request_block().unwrap();
+            sl.register_failure_downloading();
+        }
+
+        // Now we receive the block and send it for processing
+        sl.request_block().unwrap();
+        sl.verify_block(Some(Arc::new(block))).unwrap().unwrap();
+
+        // One processing failure maxes the avilable attempts
+        sl.register_failure_processing();
+        assert_eq!(
+            sl.request_block(),
+            Err(LookupRequestError::TooManyAttempts {
+                cannot_process: false
+            })
+        )
     }
 }

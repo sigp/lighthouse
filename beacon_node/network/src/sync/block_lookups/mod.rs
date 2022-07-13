@@ -549,12 +549,13 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                     "last_peer" => %peer_id,
                 );
 
-                // Add this chain to cache of failed chains
-                self.failed_chains.insert(chain_hash);
-
                 // This currently can be a host of errors. We permit this due to the partial
                 // ambiguity.
                 cx.report_peer(peer_id, PeerAction::MidToleranceError, "parent_request_err");
+
+                // Try again if possible
+                parent_lookup.processing_failed();
+                self.request_parent(parent_lookup, cx);
             }
         }
 

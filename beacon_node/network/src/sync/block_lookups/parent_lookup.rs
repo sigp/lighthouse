@@ -114,6 +114,11 @@ impl<T: EthSpec> ParentLookup<T> {
         self.current_parent_request_id = None;
     }
 
+    pub fn processing_failed(&mut self) {
+        self.current_parent_request.register_failure_processing();
+        self.current_parent_request_id = None;
+    }
+
     pub fn chain_blocks(&mut self) -> Vec<Arc<SignedBeaconBlock<T>>> {
         std::mem::take(&mut self.downloaded_blocks)
     }
