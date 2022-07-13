@@ -128,6 +128,9 @@ pub struct Config {
     /// List of extra topics to initially subscribe to as strings.
     pub topics: Vec<GossipKind>,
 
+    /// Whether we are running a block proposer only node.
+    pub proposer_only: bool,
+
     /// Whether metrics are enabled.
     pub metrics_enabled: bool,
 }
@@ -206,6 +209,7 @@ impl Default for Config {
             import_all_attestations: false,
             shutdown_after_sync: false,
             topics: Vec::new(),
+            proposer_only: false,
             metrics_enabled: false,
         }
     }

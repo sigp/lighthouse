@@ -649,6 +649,7 @@ pub fn set_network_config(
     };
 
     if cli_args.is_present("subscribe-all-subnets") {
+        if cli_args.is_present(
         config.subscribe_all_subnets = true;
     }
 
@@ -839,6 +840,18 @@ pub fn set_network_config(
 
     if cli_args.is_present("enable-private-discovery") {
         config.discv5_config.table_filter = |_| true;
+    }
+
+    // Proposer-only mode overrides a number of previous configuration parameters.
+    // Specifically, we avoid subscribing to long-lived subnets and wish to maintain a minimal set
+    // of peers.
+    if cli_args.is_present("proposer-only") {
+        config.subscribe_all_subnets = false;
+        if cli_args.value_of("target-peers").is_none() {
+            // If --target-peers is not set, use a custom default
+            config.target_peers = 15;
+        }
+        config.proposer_only = true;
     }
 
     Ok(())

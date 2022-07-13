@@ -116,6 +116,8 @@ pub struct DutiesService<T, E: EthSpec> {
     pub slot_clock: T,
     /// Provides HTTP access to remote beacon nodes.
     pub beacon_nodes: Arc<BeaconNodeFallback<T, E>>,
+    /// Nodes to try for block proposals.
+    pub proposer_nodes: Arc<BeaconNodeFallback<T,E>>,
     /// Controls whether or not this function will refuse to interact with non-synced beacon nodes.
     ///
     /// This functionality is a little redundant since most BNs will likely reject duties when they

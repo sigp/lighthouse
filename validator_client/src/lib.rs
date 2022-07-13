@@ -20,6 +20,7 @@ pub mod validator_store;
 
 pub use cli::cli_app;
 pub use config::Config;
+use sensitive_url::SensitiveUrl;
 use initialized_validators::InitializedValidators;
 use lighthouse_metrics::set_gauge;
 use monitoring_api::{MonitoringHttpClient, ProcessType};
@@ -246,11 +247,10 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
             .checked_sub(1)
             .ok_or_else(|| "No beacon nodes defined.".to_string())?;
 
-        let beacon_nodes: Vec<BeaconNodeHttpClient> = config
-            .beacon_nodes
-            .iter()
-            .enumerate()
-            .map(|(i, url)| {
+
+        let beacon_node_setup = |x: (usize, &SensitiveUrl)| {
+                let i = x.0;
+                let url = x.1;
                 let slot_duration = Duration::from_secs(context.eth2_config.spec.seconds_per_slot);
 
                 let mut beacon_node_http_client_builder = ClientBuilder::new();
@@ -294,11 +294,29 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
                     beacon_node_http_client,
                     timeouts,
                 ))
-            })
+            };
+
+        let beacon_nodes: Vec<BeaconNodeHttpClient> = config
+            .beacon_nodes
+            .iter()
+            .enumerate()
+            .map(beacon_node_setup)
+            .collect::<Result<Vec<BeaconNodeHttpClient>, String>>()?;
+
+        let proposer_nodes: Vec<BeaconNodeHttpClient> = config
+            .proposer_nodes
+            .iter()
+            .enumerate()
+            .map(beacon_node_setup)
             .collect::<Result<Vec<BeaconNodeHttpClient>, String>>()?;
 
         let num_nodes = beacon_nodes.len();
         let candidates = beacon_nodes
+            .into_iter()
+            .map(CandidateBeaconNode::new)
+            .collect();
+
+        let proposer_candidates = proposer_nodes
             .into_iter()
             .map(CandidateBeaconNode::new)
             .collect();
@@ -323,9 +341,12 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
         let mut beacon_nodes: BeaconNodeFallback<_, T> =
             BeaconNodeFallback::new(candidates, context.eth2_config.spec.clone(), log.clone());
 
+        let mut proposer_nodes: BeaconNodeFallback<_, T> =
+            BeaconNodeFallback::new(proposer_candidates, context.eth2_config.spec.clone(), log.clone());
+
         // Perform some potentially long-running initialization tasks.
         let (genesis_time, genesis_validators_root) = tokio::select! {
-            tuple = init_from_beacon_node(&beacon_nodes, &context) => tuple?,
+            tuple = init_from_beacon_node(&beacon_nodes, &proposer_nodes, &context) => tuple?,
             () = context.executor.exit() => return Err("Shutting down".to_string())
         };
 
@@ -341,8 +362,13 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
         );
 
         beacon_nodes.set_slot_clock(slot_clock.clone());
+        proposer_nodes.set_slot_clock(slot_clock.clone());
+
         let beacon_nodes = Arc::new(beacon_nodes);
         start_fallback_updater_service(context.clone(), beacon_nodes.clone())?;
+
+        let proposer_nodes = Arc::new(proposer_nodes);
+        start_fallback_updater_service(context.clone(), proposer_nodes.clone())?;
 
         let doppelganger_service = if config.enable_doppelganger_protection {
             Some(Arc::new(DoppelgangerService::new(
@@ -390,6 +416,7 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
             sync_duties: <_>::default(),
             slot_clock: slot_clock.clone(),
             beacon_nodes: beacon_nodes.clone(),
+            proposer_nodes: proposer_nodes.clone(),
             validator_store: validator_store.clone(),
             require_synced: if config.allow_unsynced_beacon_node {
                 RequireSynced::Yes
@@ -410,6 +437,7 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
             .slot_clock(slot_clock.clone())
             .validator_store(validator_store.clone())
             .beacon_nodes(beacon_nodes.clone())
+            .proposer_nodes(proposer_nodes.clone())
             .runtime_context(context.service_context("block".into()))
             .graffiti(config.graffiti)
             .graffiti_file(config.graffiti_file.clone())
@@ -439,7 +467,7 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
             context.service_context("sync_committee".into()),
         );
 
-        // Wait until genesis has occured.
+        // Wait until genesis has occurred.
         //
         // It seems most sensible to move this into the `start_service` function, but I'm caution
         // of making too many changes this close to genesis (<1 week).
@@ -544,18 +572,48 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
 
 async fn init_from_beacon_node<E: EthSpec>(
     beacon_nodes: &BeaconNodeFallback<SystemTimeSlotClock, E>,
+    proposer_nodes: &BeaconNodeFallback<SystemTimeSlotClock, E>,
     context: &RuntimeContext<E>,
 ) -> Result<(u64, Hash256), String> {
     loop {
         beacon_nodes.update_unready_candidates().await;
+        proposer_nodes.update_unready_candidates().await;
+
         let num_available = beacon_nodes.num_available().await;
         let num_total = beacon_nodes.num_total();
-        if num_available > 0 {
+
+        let proposer_available = beacon_nodes.num_available().await;
+        let proposer_total = beacon_nodes.num_total();
+
+        if proposer_total > 0 && proposer_available == 0 {
+            warn!(
+                context.log(),
+                "Unable to connect to a proposer node";
+                "retry in" => format!("{} seconds", RETRY_DELAY.as_secs()),
+                "total_proposers" => proposer_total,
+                "available_proposers" => proposer_available,
+                "total_beacon_nodes" => num_total,
+                "available_beacon_nodes" => num_available,
+            );
+            sleep(RETRY_DELAY).await;
+        }
+
+        if num_available > 0 && proposer_available == 0 {
             info!(
                 context.log(),
                 "Initialized beacon node connections";
                 "total" => num_total,
                 "available" => num_available,
+            );
+            break;
+        } else if num_available > 0  {
+            info!(
+                context.log(),
+                "Initialized beacon node connections";
+                "total" => num_total,
+                "available" => num_available,
+                "proposers_available" => proposer_available,
+                "proposers_total" => proposer_total,
             );
             break;
         } else {

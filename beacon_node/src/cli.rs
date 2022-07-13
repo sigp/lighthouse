@@ -193,6 +193,14 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                 .help("Lighthouse by default does not discover private IP addresses. Set this flag to enable connection attempts to local addresses.")
                 .takes_value(false),
         )
+        .arg(
+            Arg::with_name("proposer-only")
+                .long("proposer-only")
+                .help("Sets this beacon node at be a block proposer only node. \
+                       This will run the beacon node in a minimal configuration that is sufficient for block production only. This flag should be used \
+                       for a beacon node being referenced by validator client using the --proposer-node flag. This configuration is for enabling more secure setups.")
+                .takes_value(false),
+        )
         /* REST API related arguments */
         .arg(
             Arg::with_name("http")
