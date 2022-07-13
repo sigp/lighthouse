@@ -157,6 +157,33 @@ impl From<bool> for CountUnrealized {
     }
 }
 
+#[derive(Copy, Clone)]
+enum UpdateJustifiedCheckpointSlots {
+    OnTick {
+        current_slot: Slot,
+    },
+    OnBlock {
+        state_slot: Slot,
+        current_slot: Slot,
+    },
+}
+
+impl UpdateJustifiedCheckpointSlots {
+    fn current_slot(&self) -> Slot {
+        match self {
+            UpdateJustifiedCheckpointSlots::OnTick { current_slot } => *current_slot,
+            UpdateJustifiedCheckpointSlots::OnBlock { current_slot, .. } => *current_slot,
+        }
+    }
+
+    fn state_slot(&self) -> Option<Slot> {
+        match self {
+            UpdateJustifiedCheckpointSlots::OnTick { .. } => None,
+            UpdateJustifiedCheckpointSlots::OnBlock { state_slot, .. } => Some(*state_slot),
+        }
+    }
+}
+
 /// Indicates if a block has been verified by an execution payload.
 ///
 /// There is no variant for "invalid", since such a block should never be added to fork choice.
@@ -532,11 +559,10 @@ where
     fn should_update_justified_checkpoint(
         &mut self,
         new_justified_checkpoint: Checkpoint,
-        state_slot: Slot,
-        current_slot: Slot,
+        slots: UpdateJustifiedCheckpointSlots,
         spec: &ChainSpec,
     ) -> Result<bool, Error<T::Error>> {
-        self.update_time(current_slot, spec)?;
+        self.update_time(slots.current_slot(), spec)?;
 
         if compute_slots_since_epoch_start::<E>(self.fc_store.get_current_slot())
             < spec.safe_slots_to_update_justified
@@ -548,11 +574,13 @@ where
             compute_start_slot_at_epoch::<E>(self.fc_store.justified_checkpoint().epoch);
 
         // This sanity check is not in the spec, but the invariant is implied.
-        if justified_slot >= state_slot {
-            return Err(Error::AttemptToRevertJustification {
-                store: justified_slot,
-                state: state_slot,
-            });
+        if let Some(state_slot) = slots.state_slot() {
+            if justified_slot >= state_slot {
+                return Err(Error::AttemptToRevertJustification {
+                    store: justified_slot,
+                    state: state_slot,
+                });
+            }
         }
 
         // We know that the slot for `new_justified_checkpoint.root` is not greater than
@@ -678,12 +706,16 @@ where
             self.fc_store.set_proposer_boost_root(block_root);
         }
 
+        let update_justified_checkpoint_slots = UpdateJustifiedCheckpointSlots::OnBlock {
+            state_slot: state.slot(),
+            current_slot,
+        };
+
         // Update store with checkpoints if necessary
         self.update_checkpoints(
             state.current_justified_checkpoint(),
             state.finalized_checkpoint(),
-            state.slot(),
-            current_slot,
+            update_justified_checkpoint_slots,
             spec,
         )?;
 
@@ -740,8 +772,7 @@ where
                 self.update_checkpoints(
                     unrealized_justified_checkpoint,
                     unrealized_finalized_checkpoint,
-                    state.slot(),
-                    current_slot,
+                    update_justified_checkpoint_slots,
                     spec,
                 )?;
             }
@@ -837,8 +868,7 @@ where
         &mut self,
         justified_checkpoint: Checkpoint,
         finalized_checkpoint: Checkpoint,
-        state_slot: Slot,
-        current_slot: Slot,
+        slots: UpdateJustifiedCheckpointSlots,
         spec: &ChainSpec,
     ) -> Result<(), Error<T::Error>> {
         // Update justified checkpoint.
@@ -847,12 +877,7 @@ where
                 self.fc_store
                     .set_best_justified_checkpoint(justified_checkpoint);
             }
-            if self.should_update_justified_checkpoint(
-                justified_checkpoint,
-                state_slot,
-                current_slot,
-                spec,
-            )? {
+            if self.should_update_justified_checkpoint(justified_checkpoint, slots, spec)? {
                 self.fc_store
                     .set_justified_checkpoint(justified_checkpoint)
                     .map_err(Error::UnableToSetJustifiedCheckpoint)?;
@@ -1123,8 +1148,7 @@ where
         self.update_checkpoints(
             unrealized_justified_checkpoint,
             unrealized_finalized_checkpoint,
-            current_slot,
-            current_slot,
+            UpdateJustifiedCheckpointSlots::OnTick { current_slot },
             spec,
         )?;
         Ok(())
