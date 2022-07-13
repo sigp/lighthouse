@@ -164,6 +164,7 @@ pub fn reset_fork_choice_to_finalization<E: EthSpec, Hot: ItemStore<E>, Cold: It
         .map_err(|e| format!("Error loading blocks to replay for fork choice: {:?}", e))?;
 
     let mut state = finalized_snapshot.beacon_state;
+    let blocks_len = blocks.len();
     for (i, block) in blocks.into_iter().enumerate() {
         complete_state_advance(&mut state, None, block.slot(), spec)
             .map_err(|e| format!("State advance failed: {:?}", e))?;
@@ -186,7 +187,7 @@ pub fn reset_fork_choice_to_finalization<E: EthSpec, Hot: ItemStore<E>, Cold: It
 
         // Because we are replaying a single chain of blocks, we only need to calculate unrealized
         // justification for the last block in the chain.
-        let is_last_block = i + 1 == blocks.len();
+        let is_last_block = i + 1 == blocks_len;
         let count_unrealized = if is_last_block {
             count_unrealized_config
         } else {
