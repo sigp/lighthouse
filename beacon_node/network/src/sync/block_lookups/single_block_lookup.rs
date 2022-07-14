@@ -236,7 +236,7 @@ mod tests {
         sl.request_block().unwrap();
         sl.verify_block(Some(Arc::new(block))).unwrap().unwrap();
 
-        // One processing failure maxes the avilable attempts
+        // One processing failure maxes the available attempts
         sl.register_failure_processing();
         assert_eq!(
             sl.request_block(),
