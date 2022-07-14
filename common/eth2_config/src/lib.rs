@@ -60,6 +60,12 @@ impl Eth2Config {
             spec: ChainSpec::gnosis(),
         }
     }
+    pub fn lukso() -> Self {
+        Self {
+            eth_spec_id: EthSpecId::Lukso,
+            spec: ChainSpec::lukso(),
+        }
+    }
 }
 
 /// A directory that can be built by downloading files via HTTP.

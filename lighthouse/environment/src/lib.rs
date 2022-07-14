@@ -19,7 +19,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use task_executor::{ShutdownReason, TaskExecutor};
 use tokio::runtime::{Builder as RuntimeBuilder, Runtime};
-use types::{EthSpec, GnosisEthSpec, MainnetEthSpec, MinimalEthSpec};
+use types::{EthSpec, GnosisEthSpec, MainnetEthSpec, MinimalEthSpec, LuksoEthSpec};
 
 #[cfg(target_family = "unix")]
 use {
@@ -95,6 +95,19 @@ impl EnvironmentBuilder<GnosisEthSpec> {
             log: None,
             eth_spec_instance: GnosisEthSpec,
             eth2_config: Eth2Config::gnosis(),
+            eth2_network_config: None,
+        }
+    }
+}
+
+impl EnvironmentBuilder<LuksoEthSpec> {
+    /// Creates a new builder using the `lukso` eth2 specification.
+    pub fn lukso() -> Self {
+        Self {
+            runtime: None,
+            log: None,
+            eth_spec_instance: LuksoEthSpec,
+            eth2_config: Eth2Config::lukso(),
             eth2_network_config: None,
         }
     }

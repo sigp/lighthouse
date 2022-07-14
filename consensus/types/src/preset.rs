@@ -187,7 +187,7 @@ impl BellatrixPreset {
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::{GnosisEthSpec, MainnetEthSpec, MinimalEthSpec};
+    use crate::{GnosisEthSpec, MainnetEthSpec, MinimalEthSpec, LuksoEthSpec};
     use serde::de::DeserializeOwned;
     use std::env;
     use std::fs::File;
@@ -229,6 +229,11 @@ mod test {
     #[test]
     fn gnosis_presets_consistent() {
         preset_test::<GnosisEthSpec>();
+    }
+
+    #[test]
+    fn lukso_presets_consistent() {
+        preset_test::<LuksoEthSpec>();
     }
 
     #[test]

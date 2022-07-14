@@ -633,6 +633,15 @@ impl ChainSpec {
         }
     }
 
+    /// Returns a `ChainSpec` compatible with the Lukso Beacon Chain specification.
+    pub fn lukso() -> Self {
+        Self {
+            config_name: Some("lukso".to_string()),
+            max_effective_balance: 220_000_000_000u64,
+            ..ChainSpec::mainnet()
+        }
+    }
+
     /// Returns a `ChainSpec` compatible with the Gnosis Beacon Chain specification.
     pub fn gnosis() -> Self {
         Self {
@@ -963,6 +972,7 @@ impl Config {
             "minimal" => Some(EthSpecId::Minimal),
             "mainnet" => Some(EthSpecId::Mainnet),
             "gnosis" => Some(EthSpecId::Gnosis),
+            "lukso" => Some(EthSpecId::Lukso),
             _ => None,
         }
     }

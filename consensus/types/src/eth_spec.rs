@@ -14,6 +14,7 @@ pub type U5000 = UInt<UInt<UInt<U625, B0>, B0>, B0>; // 625 * 8 = 5000
 const MAINNET: &str = "mainnet";
 const MINIMAL: &str = "minimal";
 pub const GNOSIS: &str = "gnosis";
+pub const LUKSO: &str = "lukso";
 
 /// Used to identify one of the `EthSpec` instances defined here.
 #[derive(Copy, Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -22,6 +23,7 @@ pub enum EthSpecId {
     Mainnet,
     Minimal,
     Gnosis,
+    Lukso,
 }
 
 impl FromStr for EthSpecId {
@@ -32,6 +34,7 @@ impl FromStr for EthSpecId {
             MAINNET => Ok(EthSpecId::Mainnet),
             MINIMAL => Ok(EthSpecId::Minimal),
             GNOSIS => Ok(EthSpecId::Gnosis),
+            LUKSO => Ok(EthSpecId::Lukso),
             _ => Err(format!("Unknown eth spec: {}", s)),
         }
     }
@@ -43,6 +46,7 @@ impl fmt::Display for EthSpecId {
             EthSpecId::Mainnet => MAINNET,
             EthSpecId::Minimal => MINIMAL,
             EthSpecId::Gnosis => GNOSIS,
+            EthSpecId::Lukso => LUKSO,
         };
         write!(f, "{}", s)
     }
@@ -361,5 +365,50 @@ impl EthSpec for GnosisEthSpec {
 
     fn spec_name() -> EthSpecId {
         EthSpecId::Gnosis
+    }
+}
+
+/// Lukso Beacon Chain specifications.
+#[cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary))]
+#[derive(Clone, PartialEq, Eq, Debug, Default, Serialize, Deserialize)]
+pub struct LuksoEthSpec;
+
+impl EthSpec for LuksoEthSpec {
+    params_from_eth_spec!(MainnetEthSpec {
+        JustificationBitsLength,
+        SubnetBitfieldLength,
+        MaxValidatorsPerCommittee,
+        GenesisEpoch,
+        SlotsPerEpoch,
+        EpochsPerEth1VotingPeriod,
+        SlotsPerHistoricalRoot,
+        EpochsPerHistoricalVector,
+        EpochsPerSlashingsVector,
+        HistoricalRootsLimit,
+        ValidatorRegistryLimit,
+        MaxProposerSlashings,
+        MaxAttesterSlashings,
+        MaxAttestations,
+        MaxDeposits,
+        MaxVoluntaryExits,
+        SyncCommitteeSize,
+        SyncCommitteeSubnetCount,
+        MaxBytesPerTransaction,
+        MaxTransactionsPerPayload,
+        BytesPerLogsBloom,
+        GasLimitDenominator,
+        MinGasLimit,
+        MaxExtraDataBytes,
+        SyncSubcommitteeSize,
+        MaxPendingAttestations,
+        SlotsPerEth1VotingPeriod
+    });
+
+    fn default_spec() -> ChainSpec {
+        ChainSpec::lukso()
+    }
+
+    fn spec_name() -> EthSpecId {
+        EthSpecId::Lukso
     }
 }

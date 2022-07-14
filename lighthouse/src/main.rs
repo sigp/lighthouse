@@ -51,12 +51,13 @@ fn main() {
                 "{}\n\
                  BLS library: {}\n\
                  SHA256 hardware acceleration: {}\n\
-                 Specs: mainnet (true), minimal ({}), gnosis ({})",
+                 Specs: mainnet (true), minimal ({}), gnosis ({}), lukso ({})",
                  VERSION.replace("Lighthouse/", ""),
                  bls_library_name(),
                  have_sha_extensions(),
                  cfg!(feature = "spec-minimal"),
                  cfg!(feature = "gnosis"),
+                 cfg!(feature = "lukso"),
             ).as_str()
         )
         .arg(
@@ -326,6 +327,8 @@ fn main() {
             EthSpecId::Mainnet => run(EnvironmentBuilder::mainnet(), &matches, eth2_network_config),
             #[cfg(feature = "gnosis")]
             EthSpecId::Gnosis => run(EnvironmentBuilder::gnosis(), &matches, eth2_network_config),
+            #[cfg(feature = "lukso")]
+            EthSpecId::Lukso => run(EnvironmentBuilder::lukso(), &matches, eth2_network_config),
             #[cfg(feature = "spec-minimal")]
             EthSpecId::Minimal => run(EnvironmentBuilder::minimal(), &matches, eth2_network_config),
             #[cfg(not(all(feature = "spec-minimal", feature = "gnosis")))]

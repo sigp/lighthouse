@@ -19,6 +19,8 @@ milagro = ["bls/milagro"]
 spec-minimal = []
 # Support Gnosis spec and Gnosis Beacon Chain.
 gnosis = []
+# Support Lukso spec and Lukso Beacon Chain.
+lukso = []
 
 [dependencies]
 beacon_node = { "path" = "../beacon_node" }
