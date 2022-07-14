@@ -20,11 +20,9 @@ mod validator_inclusion;
 mod version;
 
 use beacon_chain::{
-    attestation_verification::VerifiedAttestation,
-    observed_operations::ObservationOutcome,
-    validator_monitor::{get_block_delay_ms, timestamp_now},
-    AttestationError as AttnError, BeaconChain, BeaconChainError, BeaconChainTypes,
-    ProduceBlockVerification, WhenSlotSkipped,
+    attestation_verification::VerifiedAttestation, observed_operations::ObservationOutcome,
+    validator_monitor::timestamp_now, AttestationError as AttnError, BeaconChain, BeaconChainError,
+    BeaconChainTypes, ProduceBlockVerification, WhenSlotSkipped,
 };
 pub use block_id::BlockId;
 use eth2::types::{self as api_types, EndpointVersion, ValidatorId};
@@ -43,15 +41,14 @@ use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::path::PathBuf;
 use std::pin::Pin;
 use std::sync::Arc;
-use tokio::{runtime::Handle, sync::mpsc::UnboundedSender};
+use tokio::sync::mpsc::UnboundedSender;
 use tokio_stream::{wrappers::BroadcastStream, StreamExt};
 use types::{
-    Attestation, AttesterSlashing, BeaconBlockBodyMerge, BeaconBlockMerge, BeaconStateError,
-    BlindedPayload, CommitteeCache, ConfigAndPreset, Epoch, EthSpec, ForkName, FullPayload,
-    ProposerPreparationData, ProposerSlashing, RelativeEpoch, Signature, SignedAggregateAndProof,
-    SignedBeaconBlock, SignedBeaconBlockMerge, SignedBlindedBeaconBlock,
-    SignedContributionAndProof, SignedValidatorRegistrationData, SignedVoluntaryExit, Slot,
-    SyncCommitteeMessage, SyncContributionData,
+    Attestation, AttesterSlashing, BeaconStateError, BlindedPayload, CommitteeCache,
+    ConfigAndPreset, Epoch, EthSpec, ForkName, FullPayload, ProposerPreparationData,
+    ProposerSlashing, RelativeEpoch, Signature, SignedAggregateAndProof, SignedBeaconBlock,
+    SignedBlindedBeaconBlock, SignedContributionAndProof, SignedValidatorRegistrationData,
+    SignedVoluntaryExit, Slot, SyncCommitteeMessage, SyncContributionData,
 };
 use version::{
     add_consensus_version_header, execution_optimistic_fork_versioned_response,

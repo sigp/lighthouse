@@ -3,7 +3,6 @@ use crate::{Config, ExecutionLayer, PayloadAttributes};
 use async_trait::async_trait;
 use eth2::types::{BlockId, StateId, ValidatorId};
 use eth2::{BeaconNodeHttpClient, Timeouts};
-use ethereum_consensus::builder::compute_builder_domain;
 use ethereum_consensus::crypto::SecretKey;
 use ethereum_consensus::primitives::BlsPublicKey;
 pub use ethereum_consensus::state_transition::Context;

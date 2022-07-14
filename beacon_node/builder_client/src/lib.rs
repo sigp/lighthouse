@@ -176,7 +176,7 @@ impl BuilderHttpClient {
         let resp = self.get_with_timeout(path, self.timeouts.get_header).await;
 
         if matches!(resp, Err(Error::StatusCode(StatusCode::NO_CONTENT))) {
-            return Ok(None);
+            Ok(None)
         } else {
             resp.map(Some)
         }
