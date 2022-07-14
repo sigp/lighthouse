@@ -929,6 +929,12 @@ impl<T: EthSpec> ExecutionLayer<T> {
                     .get_pow_block_hash_at_total_difficulty(engine, spec)
                     .await?;
                 if let Some(pow_block) = block {
+                    // If `terminal_block.timestamp == transition_block.timestamp`,
+                    // we violate the invariant that a block's timestamp must be
+                    // strictly greater than its parent's timestamp.
+                    // The execution layer will reject a fcu call with such payload
+                    // attributes leading to a missed block.
+                    // Hence, we return `None` in such a case.
                     if pow_block.timestamp >= timestamp {
                         return Ok(None);
                     }
