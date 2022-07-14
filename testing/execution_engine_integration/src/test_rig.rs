@@ -289,6 +289,12 @@ impl<E: GenericExecutionEngine> TestRig<E> {
 
         assert_eq!(prepare, PayloadStatus::Valid);
 
+        // Add a delay to give the EE sufficient time to pack the
+        // submitted transactions into a payload.
+        // This is required when running on under resourced nodes and
+        // in CI.
+        sleep(Duration::from_secs(3)).await;
+
         let valid_payload = self
             .ee_a
             .execution_layer
