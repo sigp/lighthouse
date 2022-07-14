@@ -20,7 +20,7 @@ use lockfile::{Lockfile, LockfileError};
 use parking_lot::{MappedMutexGuard, Mutex, MutexGuard};
 use reqwest::{Certificate, Client, Error as ReqwestError, Identity};
 use slog::{debug, error, info, warn, Logger};
-use std::collections::{HashMap, HashSet};
+use std::collections::{hash_map::Entry, HashMap, HashSet};
 use std::fs::{self, File};
 use std::io::{self, Read};
 use std::path::{Path, PathBuf};
@@ -155,6 +155,7 @@ impl InitializedValidator {
         def: ValidatorDefinition,
         key_cache: &mut KeyCache,
         key_stores: &mut HashMap<PathBuf, Keystore>,
+        web3_signer_client_map: &mut Option<HashMap<String, Client>>,
     ) -> Result<Self, Error> {
         if !def.enabled {
             return Err(Error::UnableToInitializeDisabledValidator);
@@ -248,40 +249,36 @@ impl InitializedValidator {
             } => {
                 let signing_url = build_web3_signer_url(&url, &def.voting_public_key)
                     .map_err(|e| Error::InvalidWeb3SignerUrl(e.to_string()))?;
+
                 let request_timeout = request_timeout_ms
                     .map(Duration::from_millis)
                     .unwrap_or(DEFAULT_REMOTE_SIGNER_REQUEST_TIMEOUT);
 
-                let builder = Client::builder().timeout(request_timeout);
-
-                let builder = if let Some(path) = root_certificate_path {
-                    let certificate = load_pem_certificate(path)?;
-                    builder.add_root_certificate(certificate)
-                } else {
-                    builder
-                };
-
-                let builder = if let Some(path) = client_identity_path {
-                    let identity = load_pkcs12_identity(
-                        path,
-                        &client_identity_password
-                            .ok_or(Error::MissingWeb3SignerClientIdentityPassword)?,
-                    )?;
-                    builder.identity(identity)
-                } else {
-                    if client_identity_password.is_some() {
-                        return Err(Error::MissingWeb3SignerClientIdentityCertificateFile);
+                // Check if a client has already been initialized for this remote signer url.
+                if let Some(client_map) = web3_signer_client_map {
+                    if let Entry::Vacant(entry) = client_map.entry(url) {
+                        entry.insert(build_web3_signer_client(
+                            root_certificate_path,
+                            client_identity_path,
+                            client_identity_password,
+                            request_timeout,
+                        )?);
                     }
-                    builder
-                };
-
-                let http_client = builder
-                    .build()
-                    .map_err(Error::UnableToBuildWeb3SignerClient)?;
+                } else {
+                    // There are no clients in the map.
+                    let mut new_web3_signer_client_map: HashMap<String, Client> = HashMap::new();
+                    let client = build_web3_signer_client(
+                        root_certificate_path,
+                        client_identity_path,
+                        client_identity_password,
+                        request_timeout,
+                    )?;
+                    new_web3_signer_client_map.insert(url, client);
+                    *web3_signer_client_map = Some(new_web3_signer_client_map)
+                }
 
                 SigningMethod::Web3Signer {
                     signing_url,
-                    http_client,
                     voting_public_key: def.voting_public_key,
                 }
             }
@@ -330,6 +327,39 @@ pub fn load_pkcs12_identity<P: AsRef<Path>>(
 
 fn build_web3_signer_url(base_url: &str, voting_public_key: &PublicKey) -> Result<Url, ParseError> {
     Url::parse(base_url)?.join(&format!("api/v1/eth2/sign/{}", voting_public_key))
+}
+
+fn build_web3_signer_client(
+    root_certificate_path: Option<PathBuf>,
+    client_identity_path: Option<PathBuf>,
+    client_identity_password: Option<String>,
+    request_timeout: Duration,
+) -> Result<Client, Error> {
+    let builder = Client::builder().timeout(request_timeout);
+
+    let builder = if let Some(path) = root_certificate_path {
+        let certificate = load_pem_certificate(path)?;
+        builder.add_root_certificate(certificate)
+    } else {
+        builder
+    };
+
+    let builder = if let Some(path) = client_identity_path {
+        let identity = load_pkcs12_identity(
+            path,
+            &client_identity_password.ok_or(Error::MissingWeb3SignerClientIdentityPassword)?,
+        )?;
+        builder.identity(identity)
+    } else {
+        if client_identity_password.is_some() {
+            return Err(Error::MissingWeb3SignerClientIdentityCertificateFile);
+        }
+        builder
+    };
+
+    builder
+        .build()
+        .map_err(Error::UnableToBuildWeb3SignerClient)
 }
 
 /// Try to unlock `keystore` at `keystore_path` by prompting the user via `stdin`.
@@ -382,6 +412,8 @@ pub struct InitializedValidators {
     validators_dir: PathBuf,
     /// The canonical set of validators.
     validators: HashMap<PublicKeyBytes, InitializedValidator>,
+    /// The clients used for communications with a remote signer.
+    web3_signer_client_map: Option<HashMap<String, Client>>,
     /// For logging via `slog`.
     log: Logger,
 }
@@ -397,6 +429,7 @@ impl InitializedValidators {
             validators_dir,
             definitions,
             validators: HashMap::default(),
+            web3_signer_client_map: None,
             log,
         };
         this.update_validators().await?;
@@ -422,10 +455,29 @@ impl InitializedValidators {
     ///
     ///  - The validator is known to `self`.
     ///  - The validator is enabled.
-    pub fn signing_method(&self, voting_public_key: &PublicKeyBytes) -> Option<Arc<SigningMethod>> {
-        self.validators
-            .get(voting_public_key)
-            .map(|v| v.signing_method.clone())
+    pub fn signing_method(
+        &self,
+        voting_public_key: &PublicKeyBytes,
+    ) -> Option<(Arc<SigningMethod>, Option<Client>)> {
+        self.validators.get(voting_public_key).map(|v| {
+            let http_client =
+                if let SigningMethod::Web3Signer { signing_url, .. } = &*v.signing_method {
+                    if let Some(client_map) = &self.web3_signer_client_map {
+                        // Remove the validator specific portion of the signing_url when
+                        // pulling the client from the map.
+                        client_map
+                            .get(&signing_url.origin().ascii_serialization())
+                            .cloned()
+                    } else {
+                        // There is no Web3Signer client available for this validator key.
+                        // An error will be raised later.
+                        None
+                    }
+                } else {
+                    None
+                };
+            (v.signing_method.clone(), http_client)
+        })
     }
 
     /// Add a validator definition to `self`, replacing any disabled definition with the same
@@ -826,6 +878,7 @@ impl InitializedValidators {
                             def.clone(),
                             &mut key_cache,
                             &mut key_stores,
+                            &mut None,
                         )
                         .await
                         {
@@ -875,6 +928,7 @@ impl InitializedValidators {
                             def.clone(),
                             &mut key_cache,
                             &mut key_stores,
+                            &mut self.web3_signer_client_map,
                         )
                         .await
                         {

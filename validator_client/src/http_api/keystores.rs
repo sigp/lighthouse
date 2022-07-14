@@ -36,7 +36,7 @@ pub fn list<T: SlotClock + 'static, E: EthSpec>(
 
             let (derivation_path, readonly) = initialized_validators
                 .signing_method(&validating_pubkey)
-                .map_or((None, None), |signing_method| match *signing_method {
+                .map_or((None, None), |(signing_method, _)| match *signing_method {
                     SigningMethod::LocalKeystore {
                         ref voting_keystore,
                         ..
