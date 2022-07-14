@@ -1,7 +1,7 @@
 #![cfg(not(debug_assertions))] // Tests run too slow in debug.
 
 use beacon_chain::test_utils::BeaconChainHarness;
-use execution_layer::test_utils::{generate_pow_block, DEFAULT_TERMINAL_BLOCK};
+use execution_layer::test_utils::{generate_pow_block, Block, DEFAULT_TERMINAL_BLOCK};
 use types::*;
 
 const VALIDATOR_COUNT: usize = 32;
@@ -22,6 +22,7 @@ fn verify_execution_payload_chain<T: EthSpec>(chain: &[FullPayload<T>]) {
                 prev_ep.execution_payload.block_number + 1,
                 ep.execution_payload.block_number
             );
+            assert!(ep.execution_payload.timestamp > prev_ep.execution_payload.timestamp);
         }
         prev_ep = Some(ep.clone());
     }
@@ -168,6 +169,30 @@ async fn base_altair_merge_with_terminal_block_after_fork() {
         .execution_block_generator()
         .move_to_terminal_block()
         .unwrap();
+
+    // Add a slot duration to get to the next slot
+    let timestamp = harness.get_timestamp_at_slot() + harness.spec.seconds_per_slot;
+
+    harness
+        .execution_block_generator()
+        .modify_last_block(|block| {
+            if let Block::PoW(terminal_block) = block {
+                terminal_block.timestamp = timestamp;
+            }
+        });
+
+    harness.extend_slots(1).await;
+
+    let one_after_merge_head = &harness.chain.head_snapshot().beacon_block;
+    assert_eq!(
+        *one_after_merge_head
+            .message()
+            .body()
+            .execution_payload()
+            .unwrap(),
+        FullPayload::default()
+    );
+    assert_eq!(one_after_merge_head.slot(), merge_fork_slot + 2);
 
     /*
      * Next merge block should include an exec payload.
