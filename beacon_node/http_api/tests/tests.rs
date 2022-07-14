@@ -93,12 +93,16 @@ impl ApiTester {
     }
 
     pub async fn new_from_spec(spec: ChainSpec) -> Self {
+        // Get a random unused port
+        let port = unused_port::unused_tcp_port().unwrap();
+        let beacon_url = SensitiveUrl::parse(format!("http://127.0.0.1:{port}").as_str()).unwrap();
+
         let harness = Arc::new(
             BeaconChainHarness::builder(MainnetEthSpec)
                 .spec(spec.clone())
                 .deterministic_keypairs(VALIDATOR_COUNT)
                 .fresh_ephemeral_store()
-                .mock_execution_layer()
+                .mock_execution_layer_with_builder(beacon_url.clone())
                 .build(),
         );
 
@@ -208,24 +212,27 @@ impl ApiTester {
 
         let ApiServer {
             server,
-            listening_socket,
+            listening_socket: _,
             shutdown_tx,
             network_rx,
             local_enr,
             external_peer_id,
-        } = create_api_server(chain.clone(), log).await;
+        } = create_api_server_on_port(chain.clone(), log, port).await;
 
         harness.runtime.task_executor.spawn(server, "api_server");
 
         let client = BeaconNodeHttpClient::new(
-            SensitiveUrl::parse(&format!(
-                "http://{}:{}",
-                listening_socket.ip(),
-                listening_socket.port()
-            ))
-            .unwrap(),
+            beacon_url,
             Timeouts::set_all(Duration::from_secs(SECONDS_PER_SLOT)),
         );
+
+        let builder_ref = harness.mock_builder.as_ref().unwrap().clone();
+        harness.runtime.task_executor.spawn(
+            async move { builder_ref.run().await },
+            "mock_builder_server",
+        );
+
+        let mock_builder = harness.mock_builder.clone();
 
         Self {
             harness,
@@ -242,7 +249,7 @@ impl ApiTester {
             network_rx,
             local_enr,
             external_peer_id,
-            mock_builder: None,
+            mock_builder,
         }
     }
 
@@ -334,41 +341,6 @@ impl ApiTester {
     }
 
     pub async fn new_mev_tester() -> Self {
-        // Get a random unused port
-        let port = unused_port::unused_tcp_port().unwrap();
-        let beacon_url = SensitiveUrl::parse(format!("http://127.0.0.1:{port}").as_str()).unwrap();
-        let log = null_logger().unwrap();
-
-        let ApiServer {
-            server,
-            listening_socket,
-            shutdown_tx,
-            network_rx,
-            local_enr,
-            external_peer_id,
-        } = create_api_server_on_port(chain.clone(), log, port).await;
-
-        harness.runtime.task_executor.spawn(server, "api_server");
-        let real_beacon_url = SensitiveUrl::parse(&format!(
-            "http://{}:{}",
-            listening_socket.ip(),
-            listening_socket.port()
-        ))
-            .unwrap();
-        let client = BeaconNodeHttpClient::new(
-            real_beacon_url,
-            Timeouts::set_all(Duration::from_secs(SECONDS_PER_SLOT)),
-        );
-
-        let builder_ref = harness.mock_builder.as_ref().unwrap().clone();
-        harness.runtime.task_executor.spawn(
-            async move { builder_ref.run().await },
-            "mock_builder_server",
-        );
-
-        let mock_builder = harness.mock_builder.clone();
-
-        //            .mock_execution_layer_with_builder(beacon_url)
         Self::new_with_hard_forks(true, true)
             .await
             .test_post_validator_register_validator()
@@ -2388,7 +2360,14 @@ impl ApiTester {
         let mut registrations = vec![];
         let mut fee_recipients = vec![];
 
-        let fork = self.chain.head_snapshot().beacon_state.fork();
+        let genesis_epoch = self.chain.spec.genesis_slot.epoch(E::slots_per_epoch());
+        let fork = Fork {
+            current_version: self.chain.spec.genesis_fork_version,
+            previous_version: self.chain.spec.genesis_fork_version,
+            epoch: genesis_epoch,
+        };
+
+        let expected_gas_limit = 11_111_111;
 
         for (val_index, keypair) in self.validator_keypairs().iter().enumerate() {
             let pubkey = keypair.pk.compress();
@@ -2396,12 +2375,13 @@ impl ApiTester {
 
             let data = ValidatorRegistrationData {
                 fee_recipient,
-                gas_limit: 0,
+                gas_limit: expected_gas_limit,
                 timestamp: 0,
                 pubkey,
             };
+
             let domain = self.chain.spec.get_domain(
-                Epoch::new(0),
+                genesis_epoch,
                 Domain::ApplicationMask(ApplicationDomain::Builder),
                 &fork,
                 Hash256::zero(),
@@ -2409,11 +2389,13 @@ impl ApiTester {
             let message = data.signing_root(domain);
             let signature = keypair.sk.sign(message);
 
-            fee_recipients.push(fee_recipient);
-            registrations.push(SignedValidatorRegistrationData {
+            let signed = SignedValidatorRegistrationData {
                 message: data,
                 signature,
-            });
+            };
+
+            fee_recipients.push(fee_recipient);
+            registrations.push(signed);
         }
 
         self.client

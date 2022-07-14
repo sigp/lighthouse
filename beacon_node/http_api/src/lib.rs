@@ -963,14 +963,14 @@ pub fn serve<T: BeaconChainTypes>(
                     }
                     .map_err(warp_utils::reject::beacon_chain_error)?;
 
-                let data = api_types::BlockHeaderData {
-                    root,
-                    canonical: true,
-                    header: api_types::BlockHeaderAndSignature {
-                        message: block.message().block_header(),
-                        signature: block.signature().clone().into(),
-                    },
-                };
+                    let data = api_types::BlockHeaderData {
+                        root,
+                        canonical: true,
+                        header: api_types::BlockHeaderAndSignature {
+                            message: block.message().block_header(),
+                            signature: block.signature().clone().into(),
+                        },
+                    };
 
                     Ok(api_types::GenericResponse::from(vec![data])
                         .add_execution_optimistic(execution_optimistic))
@@ -995,28 +995,25 @@ pub fn serve<T: BeaconChainTypes>(
                 let (block, execution_optimistic) =
                     BlockId::from_root(root).blinded_block_and_execution_optimistic(&chain)?;
 
-            let canonical = chain
-                .block_root_at_slot(block.slot(), WhenSlotSkipped::None)
-                .map_err(warp_utils::reject::beacon_chain_error)?
-                .map_or(false, |canonical| root == canonical);
+                let canonical = chain
+                    .block_root_at_slot(block.slot(), WhenSlotSkipped::None)
+                    .map_err(warp_utils::reject::beacon_chain_error)?
+                    .map_or(false, |canonical| root == canonical);
 
-            let data = api_types::BlockHeaderData {
-                root,
-                canonical,
-                header: api_types::BlockHeaderAndSignature {
-                    message: block.message().block_header(),
-                    signature: block.signature().clone().into(),
-                },
-            };
+                let data = api_types::BlockHeaderData {
+                    root,
+                    canonical,
+                    header: api_types::BlockHeaderAndSignature {
+                        message: block.message().block_header(),
+                        signature: block.signature().clone().into(),
+                    },
+                };
 
                 Ok(api_types::ExecutionOptimisticResponse {
                     execution_optimistic,
                     data,
                 })
             })
-            .map(|res| warp::reply::json(&res).into_response());
-
-            result
         });
 
     /*
@@ -1057,7 +1054,7 @@ pub fn serve<T: BeaconChainTypes>(
         .and(network_tx_filter.clone())
         .and(log_filter.clone())
         .and_then(
-            |block: Arc<SignedBeaconBlock<T::EthSpec, BlindedPayload<_>>>,
+            |block: SignedBeaconBlock<T::EthSpec, BlindedPayload<_>>,
              chain: Arc<BeaconChain<T>>,
              network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>,
              log: Logger| async move {
@@ -2489,9 +2486,7 @@ pub fn serve<T: BeaconChainTypes>(
                             } else {
                                 // According to the spec this response should only be a 400 or 500,
                                 // so we fall back to a 500 here.
-                                return warp_utils::reject::custom_server_error(
-                                    message.message,
-                                );
+                                return warp_utils::reject::custom_server_error(message.message);
                             }
                         }
                         warp_utils::reject::custom_server_error(format!("{e:?}"))

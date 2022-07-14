@@ -2598,9 +2598,6 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         // Alias for readability.
         let block = signed_block.message();
 
-        // Alias for readability.
-        let block = signed_block.message();
-
         // Only perform the weak subjectivity check if it was configured.
         if let Some(wss_checkpoint) = self.config.weak_subjectivity_checkpoint {
             // Note: we're using the finalized checkpoint from the head state, rather than fork

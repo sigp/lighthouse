@@ -3,13 +3,15 @@ use crate::{Config, ExecutionLayer, PayloadAttributes};
 use async_trait::async_trait;
 use eth2::types::{BlockId, StateId, ValidatorId};
 use eth2::{BeaconNodeHttpClient, Timeouts};
+use ethereum_consensus::builder::compute_builder_domain;
 use ethereum_consensus::crypto::SecretKey;
 use ethereum_consensus::primitives::BlsPublicKey;
 pub use ethereum_consensus::state_transition::Context;
 use mev_build_rs::{
-    sign_builder_message, verify_signed_builder_message, ApiServer, BidRequest, BuilderBid, Error,
-    ExecutionPayload as ServerPayload, ExecutionPayloadHeader as ServerPayloadHeader,
-    SignedBlindedBeaconBlock, SignedBuilderBid, SignedValidatorRegistration,
+    sign_builder_message, verify_signed_builder_message, BidRequest, BlindedBlockProviderError,
+    BlindedBlockProviderServer, BuilderBid, ExecutionPayload as ServerPayload,
+    ExecutionPayloadHeader as ServerPayloadHeader, SignedBlindedBeaconBlock, SignedBuilderBid,
+    SignedValidatorRegistration,
 };
 use parking_lot::RwLock;
 use sensitive_url::SensitiveUrl;
@@ -33,7 +35,7 @@ pub enum Operation {
 }
 
 impl Operation {
-    fn apply(self, bid: &mut BuilderBid) -> Result<(), Error> {
+    fn apply(self, bid: &mut BuilderBid) -> Result<(), BlindedBlockProviderError> {
         match self {
             Operation::FeeRecipient(fee_recipient) => {
                 bid.header.fee_recipient = to_ssz_rs(&fee_recipient)?
@@ -46,7 +48,7 @@ impl Operation {
 }
 
 pub struct TestingBuilder<E: EthSpec> {
-    server: ApiServer<MockBuilder<E>>,
+    server: BlindedBlockProviderServer<MockBuilder<E>>,
     pub builder: MockBuilder<E>,
 }
 
@@ -74,15 +76,11 @@ impl<E: EthSpec> TestingBuilder<E> {
             ExecutionLayer::from_config(config, executor.clone(), executor.log().clone()).unwrap();
 
         // This should probably be done for all fields, we only update ones we are testing with so far.
-        let context = Context {
-            terminal_total_difficulty: to_ssz_rs(&spec.terminal_total_difficulty).unwrap(),
-            terminal_block_hash: to_ssz_rs(&spec.terminal_block_hash).unwrap(),
-            terminal_block_hash_activation_epoch: to_ssz_rs(
-                &spec.terminal_block_hash_activation_epoch,
-            )
-            .unwrap(),
-            ..Default::default()
-        };
+        let mut context = Context::for_mainnet();
+        context.terminal_total_difficulty = to_ssz_rs(&spec.terminal_total_difficulty).unwrap();
+        context.terminal_block_hash = to_ssz_rs(&spec.terminal_block_hash).unwrap();
+        context.terminal_block_hash_activation_epoch =
+            to_ssz_rs(&spec.terminal_block_hash_activation_epoch).unwrap();
 
         let builder = MockBuilder::new(
             el,
@@ -98,7 +96,7 @@ impl<E: EthSpec> TestingBuilder<E> {
             .to_string()
             .parse()
             .unwrap();
-        let server = ApiServer::new(host, port, builder.clone());
+        let server = BlindedBlockProviderServer::new(host, port, builder.clone());
         Self { server, builder }
     }
 
@@ -142,7 +140,7 @@ impl<E: EthSpec> MockBuilder<E> {
         self.operations.write().push(op);
     }
 
-    fn apply_operations(&self, bid: &mut BuilderBid) -> Result<(), Error> {
+    fn apply_operations(&self, bid: &mut BuilderBid) -> Result<(), BlindedBlockProviderError> {
         let mut guard = self.operations.write();
         while let Some(op) = guard.pop() {
             op.apply(bid)?;
@@ -152,11 +150,11 @@ impl<E: EthSpec> MockBuilder<E> {
 }
 
 #[async_trait]
-impl<E: EthSpec> mev_build_rs::Builder for MockBuilder<E> {
-    async fn register_validator(
+impl<E: EthSpec> mev_build_rs::BlindedBlockProvider for MockBuilder<E> {
+    async fn register_validators(
         &self,
         registrations: &mut [SignedValidatorRegistration],
-    ) -> Result<(), Error> {
+    ) -> Result<(), BlindedBlockProviderError> {
         for registration in registrations {
             let pubkey = registration.message.public_key.clone();
             let message = &mut registration.message;
@@ -177,8 +175,8 @@ impl<E: EthSpec> mev_build_rs::Builder for MockBuilder<E> {
 
     async fn fetch_best_bid(
         &self,
-        bid_request: &mut BidRequest,
-    ) -> Result<SignedBuilderBid, Error> {
+        bid_request: &BidRequest,
+    ) -> Result<SignedBuilderBid, BlindedBlockProviderError> {
         let slot = Slot::new(bid_request.slot);
         let signed_cached_data = self
             .val_registration_cache
@@ -199,7 +197,7 @@ impl<E: EthSpec> mev_build_rs::Builder for MockBuilder<E> {
         let head_block_root = block.tree_hash_root();
         let head_execution_hash = block.body.execution_payload.execution_payload.block_hash;
         if head_execution_hash != from_ssz_rs(&bid_request.parent_hash)? {
-            return Err(Error::Custom(format!(
+            return Err(BlindedBlockProviderError::Custom(format!(
                 "head mismatch: {} {}",
                 head_execution_hash, bid_request.parent_hash
             )));
@@ -247,7 +245,7 @@ impl<E: EthSpec> mev_build_rs::Builder for MockBuilder<E> {
             .get_debug_beacon_states(StateId::Head)
             .await
             .map_err(convert_err)?
-            .ok_or_else(|| Error::Custom("missing head state".to_string()))?
+            .ok_or_else(|| BlindedBlockProviderError::Custom("missing head state".to_string()))?
             .data;
         let prev_randao = head_state
             .get_randao_mix(head_state.current_epoch())
@@ -300,7 +298,7 @@ impl<E: EthSpec> mev_build_rs::Builder for MockBuilder<E> {
     async fn open_bid(
         &self,
         signed_block: &mut SignedBlindedBeaconBlock,
-    ) -> Result<ServerPayload, Error> {
+    ) -> Result<ServerPayload, BlindedBlockProviderError> {
         let payload = self
             .el
             .get_payload_by_root(&from_ssz_rs(
@@ -318,7 +316,9 @@ impl<E: EthSpec> mev_build_rs::Builder for MockBuilder<E> {
     }
 }
 
-pub fn from_ssz_rs<T: SimpleSerialize, U: Decode>(ssz_rs_data: &T) -> Result<U, Error> {
+pub fn from_ssz_rs<T: SimpleSerialize, U: Decode>(
+    ssz_rs_data: &T,
+) -> Result<U, BlindedBlockProviderError> {
     U::from_ssz_bytes(
         ssz_rs::serialize(ssz_rs_data)
             .map_err(convert_err)?
@@ -327,10 +327,12 @@ pub fn from_ssz_rs<T: SimpleSerialize, U: Decode>(ssz_rs_data: &T) -> Result<U, 
     .map_err(convert_err)
 }
 
-pub fn to_ssz_rs<T: Encode, U: SimpleSerialize>(ssz_data: &T) -> Result<U, Error> {
+pub fn to_ssz_rs<T: Encode, U: SimpleSerialize>(
+    ssz_data: &T,
+) -> Result<U, BlindedBlockProviderError> {
     ssz_rs::deserialize::<U>(&ssz_data.as_ssz_bytes()).map_err(convert_err)
 }
 
-fn convert_err<E: Debug>(e: E) -> Error {
-    Error::Custom(format!("{e:?}"))
+fn convert_err<E: Debug>(e: E) -> BlindedBlockProviderError {
+    BlindedBlockProviderError::Custom(format!("{e:?}"))
 }

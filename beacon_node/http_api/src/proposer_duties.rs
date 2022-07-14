@@ -121,10 +121,6 @@ fn try_proposer_duties_from_cache<T: BeaconChainTypes>(
         }
     };
 
-    let execution_optimistic = chain
-        .is_optimistic_head()
-        .map_err(warp_utils::reject::beacon_chain_error)?;
-
     chain
         .beacon_proposer_cache
         .lock()

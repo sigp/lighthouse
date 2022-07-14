@@ -1,4 +1,3 @@
-use eth2::ok_or_error;
 use eth2::types::builder_bid::SignedBuilderBid;
 use eth2::types::{
     BlindedPayload, EthSpec, ExecPayload, ExecutionBlockHash, ExecutionPayload,
@@ -6,6 +5,7 @@ use eth2::types::{
     Slot,
 };
 pub use eth2::Error;
+use eth2::{ok_or_error, StatusCode};
 use reqwest::{IntoUrl, Response};
 use sensitive_url::SensitiveUrl;
 use serde::de::DeserializeOwned;
@@ -160,7 +160,7 @@ impl BuilderHttpClient {
         slot: Slot,
         parent_hash: ExecutionBlockHash,
         pubkey: &PublicKeyBytes,
-    ) -> Result<ForkVersionedResponse<SignedBuilderBid<E, Payload>>, Error> {
+    ) -> Result<Option<ForkVersionedResponse<SignedBuilderBid<E, Payload>>>, Error> {
         let mut path = self.server.full.clone();
 
         path.path_segments_mut()
@@ -173,7 +173,13 @@ impl BuilderHttpClient {
             .push(format!("{parent_hash:?}").as_str())
             .push(pubkey.as_hex_string().as_str());
 
-        self.get_with_timeout(path, self.timeouts.get_header).await
+        let resp = self.get_with_timeout(path, self.timeouts.get_header).await;
+
+        if matches!(resp, Err(Error::StatusCode(StatusCode::NO_CONTENT))) {
+            return Ok(None);
+        } else {
+            resp.map(Some)
+        }
     }
 
     /// `GET /eth/v1/builder/status`
