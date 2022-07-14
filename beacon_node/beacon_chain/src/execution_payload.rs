@@ -393,7 +393,7 @@ where
         }
 
         let terminal_pow_block_hash = execution_layer
-            .get_terminal_pow_block_hash(spec)
+            .get_terminal_pow_block_hash(spec, timestamp)
             .await
             .map_err(BlockProductionError::TerminalPoWBlockLookupFailed)?;
 
