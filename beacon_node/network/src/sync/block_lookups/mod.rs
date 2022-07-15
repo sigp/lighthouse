@@ -19,6 +19,7 @@ use self::{
     single_block_lookup::SingleBlockRequest,
 };
 
+use super::manager::BlockProcessResult;
 use super::BatchProcessResult;
 use super::{
     manager::{BlockProcessType, Id},
@@ -252,7 +253,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                 | VerifyError::ExtraBlocksReturned => {
                     let e = e.into();
                     warn!(self.log, "Peer sent invalid response to parent request.";
-                        "peer_id" => %peer_id, "reason" => e);
+                        "peer_id" => %peer_id, "reason" => %e);
 
                     // We do not tolerate these kinds of errors. We will accept a few but these are signs
                     // of a faulty peer.
@@ -386,7 +387,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
     pub fn single_block_processed(
         &mut self,
         id: Id,
-        result: Result<(), BlockError<T::EthSpec>>,
+        result: BlockProcessResult<T::EthSpec>,
         cx: &mut SyncNetworkContext<T::EthSpec>,
     ) {
         let mut req = match self.single_block_lookups.remove(&id) {
@@ -408,52 +409,62 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
             Err(_) => return,
         };
 
-        if let Err(e) = &result {
-            trace!(self.log, "Single block processing failed"; "block" => %root, "error" => %e);
-        } else {
-            trace!(self.log, "Single block processing succeeded"; "block" => %root);
-        }
-
-        if let Err(e) = result {
-            match e {
-                BlockError::BlockIsAlreadyKnown => {
-                    // No error here
-                }
-                BlockError::BeaconChainError(e) => {
-                    // Internal error
-                    error!(self.log, "Beacon chain error processing single block"; "block_root" => %root, "error" => ?e);
-                }
-                BlockError::ParentUnknown(block) => {
-                    self.search_parent(block, peer_id, cx);
-                }
-
-                e @ BlockError::ExecutionPayloadError(ExecutionPayloadError::RequestFailed(_))
-                | e @ BlockError::ExecutionPayloadError(
-                    ExecutionPayloadError::NoExecutionConnection,
-                ) => {
-                    // These errors indicate that the execution layer is offline
-                    // and failed to validate the execution payload. Do not downscore peer.
-                    debug!(
-                        self.log,
-                        "Single block lookup failed. Execution layer is offline";
-                        "root" => %root,
-                        "error" => ?e
-                    );
-                }
-                other => {
-                    warn!(self.log, "Peer sent invalid block in single block lookup"; "root" => %root, "error" => ?other, "peer_id" => %peer_id);
-                    cx.report_peer(
-                        peer_id,
-                        PeerAction::MidToleranceError,
-                        "single_block_failure",
-                    );
-
-                    // Try it again if possible.
-                    req.register_failure_processing();
-                    if let Ok((peer_id, request)) = req.request_block() {
-                        if let Ok(request_id) = cx.single_block_lookup_request(peer_id, request) {
-                            // insert with the new id
-                            self.single_block_lookups.insert(request_id, req);
+        match result {
+            BlockProcessResult::Ok => {
+                trace!(self.log, "Single block processing succeeded"; "block" => %root);
+            }
+            BlockProcessResult::Ignored => {
+                // Beacon processor signalled to ignore the block processing result.
+                // This implies that the cpu is overloaded. Drop the request.
+                warn!(
+                    self.log,
+                    "Single block processing was ignored, cpu might be overloaded";
+                    "action" => "dropping single block request"
+                );
+            }
+            BlockProcessResult::Err(e) => {
+                trace!(self.log, "Single block processing failed"; "block" => %root, "error" => %e);
+                match e {
+                    BlockError::BlockIsAlreadyKnown => {
+                        // No error here
+                    }
+                    BlockError::BeaconChainError(e) => {
+                        // Internal error
+                        error!(self.log, "Beacon chain error processing single block"; "block_root" => %root, "error" => ?e);
+                    }
+                    BlockError::ParentUnknown(block) => {
+                        self.search_parent(block, peer_id, cx);
+                    }
+                    e @ BlockError::ExecutionPayloadError(ExecutionPayloadError::RequestFailed(
+                        _,
+                    ))
+                    | e @ BlockError::ExecutionPayloadError(
+                        ExecutionPayloadError::NoExecutionConnection,
+                    ) => {
+                        // These errors indicate that the execution layer is offline
+                        // and failed to validate the execution payload. Do not downscore peer.
+                        debug!(
+                            self.log,
+                            "Single block lookup failed. Execution layer is offline";
+                            "root" => %root,
+                            "error" => ?e
+                        );
+                    }
+                    other => {
+                        warn!(self.log, "Peer sent invalid block in single block lookup"; "root" => %root, "error" => ?other, "peer_id" => %peer_id);
+                        cx.report_peer(
+                            peer_id,
+                            PeerAction::MidToleranceError,
+                            "single_block_failure",
+                        );
+                        // Try it again if possible.
+                        req.register_failure_processing();
+                        if let Ok((peer_id, request)) = req.request_block() {
+                            if let Ok(request_id) = cx.single_block_lookup_request(peer_id, request)
+                            {
+                                // insert with the new id
+                                self.single_block_lookups.insert(request_id, req);
+                            }
                         }
                     }
                 }
@@ -469,7 +480,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
     pub fn parent_block_processed(
         &mut self,
         chain_hash: Hash256,
-        result: Result<(), BlockError<T::EthSpec>>,
+        result: BlockProcessResult<T::EthSpec>,
         cx: &mut SyncNetworkContext<T::EthSpec>,
     ) {
         let (mut parent_lookup, peer_id) = if let Some((pos, peer)) = self
@@ -492,20 +503,32 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
             return crit!(self.log, "Process response for a parent lookup request that was not found"; "chain_hash" => %chain_hash);
         };
 
-        if let Err(e) = &result {
-            trace!(self.log, "Parent block processing failed"; &parent_lookup, "error" => %e);
-        } else {
-            trace!(self.log, "Parent block processing succeeded"; &parent_lookup);
+        match &result {
+            BlockProcessResult::Ok => {
+                trace!(self.log, "Parent block processing succeeded"; &parent_lookup)
+            }
+            BlockProcessResult::Err(e) => {
+                trace!(self.log, "Parent block processing failed"; &parent_lookup, "error" => %e)
+            }
+            BlockProcessResult::Ignored => {
+                trace!(
+                    self.log,
+                    "Parent block processing job was ignored";
+                    "action" => "re-requesting block",
+                    &parent_lookup
+                );
+            }
         }
 
         match result {
-            Err(BlockError::ParentUnknown(block)) => {
+            BlockProcessResult::Err(BlockError::ParentUnknown(block)) => {
                 // need to keep looking for parents
                 // add the block back to the queue and continue the search
                 parent_lookup.add_block(block);
                 self.request_parent(parent_lookup, cx);
             }
-            Ok(_) | Err(BlockError::BlockIsAlreadyKnown { .. }) => {
+            BlockProcessResult::Ok
+            | BlockProcessResult::Err(BlockError::BlockIsAlreadyKnown { .. }) => {
                 let chain_hash = parent_lookup.chain_hash();
                 let blocks = parent_lookup.chain_blocks();
                 let process_id = ChainSegmentProcessId::ParentLookup(chain_hash);
@@ -526,8 +549,10 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                     }
                 }
             }
-            Err(e @ BlockError::ExecutionPayloadError(ExecutionPayloadError::RequestFailed(_)))
-            | Err(
+            BlockProcessResult::Err(
+                e @ BlockError::ExecutionPayloadError(ExecutionPayloadError::RequestFailed(_)),
+            )
+            | BlockProcessResult::Err(
                 e @ BlockError::ExecutionPayloadError(ExecutionPayloadError::NoExecutionConnection),
             ) => {
                 // These errors indicate that the execution layer is offline
@@ -539,7 +564,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                     "error" => ?e
                 );
             }
-            Err(outcome) => {
+            BlockProcessResult::Err(outcome) => {
                 // all else we consider the chain a failure and downvote the peer that sent
                 // us the last block
                 warn!(
@@ -556,6 +581,15 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                 // Try again if possible
                 parent_lookup.processing_failed();
                 self.request_parent(parent_lookup, cx);
+            }
+            BlockProcessResult::Ignored => {
+                // Beacon processor signalled to ignore the block processing result.
+                // This implies that the cpu is overloaded. Drop the request.
+                warn!(
+                    self.log,
+                    "Parent block processing was ignored, cpu might be overloaded";
+                    "action" => "dropping parent request"
+                );
             }
         }
 
