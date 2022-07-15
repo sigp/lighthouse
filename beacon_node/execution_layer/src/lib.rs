@@ -234,6 +234,16 @@ impl<T: EthSpec> ExecutionLayer<T> {
         &self.inner.executor
     }
 
+    /// Get the current difficulty of the PoW chain.
+    pub async fn get_current_difficulty(&self) -> Result<Uint256, ApiError> {
+        let block = self
+            .engine()
+            .api
+            .get_block_by_number(BlockByNumberQuery::Tag(LATEST_TAG))
+            .await?
+            .ok_or(ApiError::ExecutionHeadBlockNotFound)?;
+        Ok(block.total_difficulty)
+    }
     /// Note: this function returns a mutex guard, be careful to avoid deadlocks.
     async fn execution_blocks(
         &self,
