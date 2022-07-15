@@ -18,6 +18,9 @@ jobs:
     steps:
       - uses: actions/checkout@v1
 
+      - name: Get latest version of stable Rust
+        run: rustup update stable
+
       - name: Install ganache
         run: npm install ganache@latest --global
 
