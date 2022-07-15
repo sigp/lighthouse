@@ -66,7 +66,8 @@ impl<const MAX_ATTEMPTS: u8> SingleBlockRequest<MAX_ATTEMPTS> {
         self.state = State::AwaitingDownload;
     }
 
-    /// Registers a failure in downloading a block.
+    /// Registers a failure in downloading a block. This might be a peer disconnection or a wrong
+    /// block.
     pub fn register_failure_downloading(&mut self) {
         self.failed_downloading = self.failed_downloading.saturating_add(1);
         self.state = State::AwaitingDownload;
@@ -113,7 +114,9 @@ impl<const MAX_ATTEMPTS: u8> SingleBlockRequest<MAX_ATTEMPTS> {
                 Some(block) => {
                     if block.canonical_root() != self.hash {
                         // return an error and drop the block
-                        self.register_failure_processing();
+                        // NOTE: we take this is as a download failure to prevent counting the
+                        // attempt as a chain failure, but simply a peer failure.
+                        self.register_failure_downloading();
                         Err(VerifyError::RootMismatch)
                     } else {
                         // Return the block for processing.
