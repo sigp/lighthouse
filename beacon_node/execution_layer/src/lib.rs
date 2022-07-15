@@ -925,9 +925,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
                     }
                 }
 
-                let block = self
-                    .get_pow_block_hash_at_total_difficulty(engine, spec)
-                    .await?;
+                let block = self.get_pow_block_at_total_difficulty(engine, spec).await?;
                 if let Some(pow_block) = block {
                     // If `terminal_block.timestamp == transition_block.timestamp`,
                     // we violate the invariant that a block's timestamp must be
@@ -967,7 +965,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
     /// `get_pow_block_at_terminal_total_difficulty`
     ///
     /// https://github.com/ethereum/consensus-specs/blob/v1.1.5/specs/merge/validator.md
-    async fn get_pow_block_hash_at_total_difficulty(
+    async fn get_pow_block_at_total_difficulty(
         &self,
         engine: &Engine,
         spec: &ChainSpec,
@@ -1319,8 +1317,9 @@ fn noop<T: EthSpec>(_: &ExecutionLayer<T>, _: &ExecutionPayload<T>) -> Option<Ex
     None
 }
 
+#[cfg(test)]
 /// Returns the duration since the unix epoch.
-pub fn timestamp_now() -> u64 {
+fn timestamp_now() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap_or_else(|_| Duration::from_secs(0))
