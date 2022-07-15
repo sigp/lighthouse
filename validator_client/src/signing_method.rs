@@ -88,6 +88,7 @@ pub enum SigningMethod {
     /// See: https://docs.web3signer.consensys.net/en/latest/
     Web3Signer {
         signing_url: Url,
+        http_client: Client,
         voting_public_key: PublicKey,
     },
 }
@@ -119,7 +120,6 @@ impl SigningMethod {
         &self,
         signable_message: SignableMessage<'_, T, Payload>,
         signing_context: SigningContext,
-        web3_signer_client: Option<Client>,
         spec: &ChainSpec,
         executor: &TaskExecutor,
     ) -> Result<Signature, Error> {
@@ -137,21 +137,14 @@ impl SigningMethod {
             genesis_validators_root,
         });
 
-        self.get_signature_from_root(
-            signable_message,
-            signing_root,
-            web3_signer_client,
-            executor,
-            fork_info,
-        )
-        .await
+        self.get_signature_from_root(signable_message, signing_root, executor, fork_info)
+            .await
     }
 
     pub async fn get_signature_from_root<T: EthSpec, Payload: ExecPayload<T>>(
         &self,
         signable_message: SignableMessage<'_, T, Payload>,
         signing_root: Hash256,
-        web3_signer_client: Option<Client>,
         executor: &TaskExecutor,
         fork_info: Option<ForkInfo>,
     ) -> Result<Signature, Error> {
@@ -173,7 +166,11 @@ impl SigningMethod {
                     .map_err(|e| Error::TokioJoin(e.to_string()))?;
                 Ok(signature)
             }
-            SigningMethod::Web3Signer { signing_url, .. } => {
+            SigningMethod::Web3Signer {
+                signing_url,
+                http_client,
+                ..
+            } => {
                 let _timer =
                     metrics::start_timer_vec(&metrics::SIGNING_TIMES, &[metrics::WEB3SIGNER]);
 
@@ -225,13 +222,6 @@ impl SigningMethod {
                     signing_root,
                     object,
                 };
-
-                // Get the client used for communcation with the Web3Signer for this validator key.
-                let http_client = web3_signer_client.ok_or_else(|| {
-                    Error::Web3SignerRequestFailed(
-                        "No Web3Signer client was found for this key".to_string(),
-                    )
-                })?;
 
                 // Request a signature from the Web3Signer instance via HTTP(S).
                 let response: SigningResponse = http_client

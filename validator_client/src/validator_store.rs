@@ -6,7 +6,6 @@ use crate::{
 };
 use account_utils::{validator_definitions::ValidatorDefinition, ZeroizeString};
 use parking_lot::{Mutex, RwLock};
-use reqwest::Client;
 use slashing_protection::{
     interchange::Interchange, InterchangeError, NotSafe, Safe, SlashingDatabase,
 };
@@ -300,7 +299,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
     fn doppelganger_checked_signing_method(
         &self,
         validator_pubkey: PublicKeyBytes,
-    ) -> Result<(Arc<SigningMethod>, Option<Client>), Error> {
+    ) -> Result<Arc<SigningMethod>, Error> {
         if self.doppelganger_protection_allows_signing(validator_pubkey) {
             self.validators
                 .read()
@@ -320,7 +319,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
     fn doppelganger_bypassed_signing_method(
         &self,
         validator_pubkey: PublicKeyBytes,
-    ) -> Result<(Arc<SigningMethod>, Option<Client>), Error> {
+    ) -> Result<Arc<SigningMethod>, Error> {
         self.validators
             .read()
             .signing_method(&validator_pubkey)
@@ -341,15 +340,13 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
         validator_pubkey: PublicKeyBytes,
         signing_epoch: Epoch,
     ) -> Result<Signature, Error> {
-        let (signing_method, client) =
-            self.doppelganger_checked_signing_method(validator_pubkey)?;
+        let signing_method = self.doppelganger_checked_signing_method(validator_pubkey)?;
         let signing_context = self.signing_context(Domain::Randao, signing_epoch);
 
         let signature = signing_method
             .get_signature::<E, BlindedPayload<E>>(
                 SignableMessage::RandaoReveal(signing_epoch),
                 signing_context,
-                client,
                 &self.spec,
                 &self.task_executor,
             )
@@ -418,13 +415,11 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
             Ok(Safe::Valid) => {
                 metrics::inc_counter_vec(&metrics::SIGNED_BLOCKS_TOTAL, &[metrics::SUCCESS]);
 
-                let (signing_method, client) =
-                    self.doppelganger_checked_signing_method(validator_pubkey)?;
+                let signing_method = self.doppelganger_checked_signing_method(validator_pubkey)?;
                 let signature = signing_method
                     .get_signature::<E, Payload>(
                         SignableMessage::BeaconBlock(&block),
                         signing_context,
-                        client,
                         &self.spec,
                         &self.task_executor,
                     )
@@ -489,13 +484,11 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
         match slashing_status {
             // We can safely sign this attestation.
             Ok(Safe::Valid) => {
-                let (signing_method, client) =
-                    self.doppelganger_checked_signing_method(validator_pubkey)?;
+                let signing_method = self.doppelganger_checked_signing_method(validator_pubkey)?;
                 let signature = signing_method
                     .get_signature::<E, BlindedPayload<E>>(
                         SignableMessage::AttestationData(&attestation.data),
                         signing_context,
-                        client,
                         &self.spec,
                         &self.task_executor,
                     )
@@ -555,13 +548,12 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
         let domain_hash = self.spec.get_builder_domain();
         let signing_root = validator_registration_data.signing_root(domain_hash);
 
-        let (signing_method, client) =
+        let signing_method =
             self.doppelganger_bypassed_signing_method(validator_registration_data.pubkey)?;
         let signature = signing_method
             .get_signature_from_root::<E, BlindedPayload<E>>(
                 SignableMessage::ValidatorRegistration(&validator_registration_data),
                 signing_root,
-                client,
                 &self.task_executor,
                 None,
             )
@@ -598,13 +590,11 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
             selection_proof: selection_proof.into(),
         };
 
-        let (signing_method, client) =
-            self.doppelganger_checked_signing_method(validator_pubkey)?;
+        let signing_method = self.doppelganger_checked_signing_method(validator_pubkey)?;
         let signature = signing_method
             .get_signature::<E, BlindedPayload<E>>(
                 SignableMessage::SignedAggregateAndProof(&message),
                 signing_context,
-                client,
                 &self.spec,
                 &self.task_executor,
             )
@@ -632,14 +622,12 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
         //
         // As long as we disallow `SignedAggregateAndProof` then these selection proofs will never
         // be published on the network.
-        let (signing_method, client) =
-            self.doppelganger_bypassed_signing_method(validator_pubkey)?;
+        let signing_method = self.doppelganger_bypassed_signing_method(validator_pubkey)?;
 
         let signature = signing_method
             .get_signature::<E, BlindedPayload<E>>(
                 SignableMessage::SelectionProof(slot),
                 signing_context,
-                client,
                 &self.spec,
                 &self.task_executor,
             )
@@ -663,8 +651,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
             self.signing_context(Domain::SyncCommitteeSelectionProof, signing_epoch);
 
         // Bypass `with_validator_signing_method`: sync committee messages are not slashable.
-        let (signing_method, client) =
-            self.doppelganger_bypassed_signing_method(*validator_pubkey)?;
+        let signing_method = self.doppelganger_bypassed_signing_method(*validator_pubkey)?;
 
         metrics::inc_counter_vec(
             &metrics::SIGNED_SYNC_SELECTION_PROOFS_TOTAL,
@@ -680,7 +667,6 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
             .get_signature::<E, BlindedPayload<E>>(
                 SignableMessage::SyncSelectionProof(&message),
                 signing_context,
-                client,
                 &self.spec,
                 &self.task_executor,
             )
@@ -701,8 +687,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
         let signing_context = self.signing_context(Domain::SyncCommittee, signing_epoch);
 
         // Bypass `with_validator_signing_method`: sync committee messages are not slashable.
-        let (signing_method, client) =
-            self.doppelganger_bypassed_signing_method(*validator_pubkey)?;
+        let signing_method = self.doppelganger_bypassed_signing_method(*validator_pubkey)?;
 
         let signature = signing_method
             .get_signature::<E, BlindedPayload<E>>(
@@ -711,7 +696,6 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
                     slot,
                 },
                 signing_context,
-                client,
                 &self.spec,
                 &self.task_executor,
             )
@@ -742,8 +726,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
         let signing_context = self.signing_context(Domain::ContributionAndProof, signing_epoch);
 
         // Bypass `with_validator_signing_method`: sync committee messages are not slashable.
-        let (signing_method, client) =
-            self.doppelganger_bypassed_signing_method(aggregator_pubkey)?;
+        let signing_method = self.doppelganger_bypassed_signing_method(aggregator_pubkey)?;
 
         let message = ContributionAndProof {
             aggregator_index,
@@ -755,7 +738,6 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
             .get_signature::<E, BlindedPayload<E>>(
                 SignableMessage::SignedContributionAndProof(&message),
                 signing_context,
-                client,
                 &self.spec,
                 &self.task_executor,
             )

@@ -20,7 +20,7 @@ use lockfile::{Lockfile, LockfileError};
 use parking_lot::{MappedMutexGuard, Mutex, MutexGuard};
 use reqwest::{Certificate, Client, Error as ReqwestError, Identity};
 use slog::{debug, error, info, warn, Logger};
-use std::collections::{hash_map::Entry, HashMap, HashSet};
+use std::collections::{HashMap, HashSet};
 use std::fs::{self, File};
 use std::io::{self, Read};
 use std::path::{Path, PathBuf};
@@ -255,14 +255,19 @@ impl InitializedValidator {
                     .unwrap_or(DEFAULT_REMOTE_SIGNER_REQUEST_TIMEOUT);
 
                 // Check if a client has already been initialized for this remote signer url.
-                if let Some(client_map) = web3_signer_client_map {
-                    if let Entry::Vacant(entry) = client_map.entry(url) {
-                        entry.insert(build_web3_signer_client(
-                            root_certificate_path,
-                            client_identity_path,
-                            client_identity_password,
-                            request_timeout,
-                        )?);
+                let http_client = if let Some(client_map) = web3_signer_client_map {
+                    match client_map.get(&url) {
+                        Some(client) => client.clone(),
+                        None => {
+                            let client = build_web3_signer_client(
+                                root_certificate_path,
+                                client_identity_path,
+                                client_identity_password,
+                                request_timeout,
+                            )?;
+                            client_map.insert(url, client.clone());
+                            client
+                        }
                     }
                 } else {
                     // There are no clients in the map.
@@ -273,12 +278,14 @@ impl InitializedValidator {
                         client_identity_password,
                         request_timeout,
                     )?;
-                    new_web3_signer_client_map.insert(url, client);
-                    *web3_signer_client_map = Some(new_web3_signer_client_map)
-                }
+                    new_web3_signer_client_map.insert(url, client.clone());
+                    *web3_signer_client_map = Some(new_web3_signer_client_map);
+                    client
+                };
 
                 SigningMethod::Web3Signer {
                     signing_url,
+                    http_client,
                     voting_public_key: def.voting_public_key,
                 }
             }
@@ -455,29 +462,10 @@ impl InitializedValidators {
     ///
     ///  - The validator is known to `self`.
     ///  - The validator is enabled.
-    pub fn signing_method(
-        &self,
-        voting_public_key: &PublicKeyBytes,
-    ) -> Option<(Arc<SigningMethod>, Option<Client>)> {
-        self.validators.get(voting_public_key).map(|v| {
-            let http_client =
-                if let SigningMethod::Web3Signer { signing_url, .. } = &*v.signing_method {
-                    if let Some(client_map) = &self.web3_signer_client_map {
-                        // Remove the validator specific portion of the signing_url when
-                        // pulling the client from the map.
-                        client_map
-                            .get(&signing_url.origin().ascii_serialization())
-                            .cloned()
-                    } else {
-                        // There is no Web3Signer client available for this validator key.
-                        // An error will be raised later.
-                        None
-                    }
-                } else {
-                    None
-                };
-            (v.signing_method.clone(), http_client)
-        })
+    pub fn signing_method(&self, voting_public_key: &PublicKeyBytes) -> Option<Arc<SigningMethod>> {
+        self.validators
+            .get(voting_public_key)
+            .map(|v| v.signing_method.clone())
     }
 
     /// Add a validator definition to `self`, replacing any disabled definition with the same
