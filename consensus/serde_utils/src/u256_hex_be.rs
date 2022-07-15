@@ -31,7 +31,7 @@ impl<'de> Visitor<'de> for U256Visitor {
         let stripped = &value[2..];
         if stripped.is_empty() {
             Err(de::Error::custom(format!(
-                "quantity cannot be {}",
+                "quantity cannot be {:?}",
                 stripped
             )))
         } else if stripped == "0" {
