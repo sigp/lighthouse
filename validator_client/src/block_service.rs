@@ -3,6 +3,7 @@ use crate::{
     beacon_node_fallback::{BeaconNodeFallback, RequireSynced},
     graffiti_file::GraffitiFile,
 };
+use eth2::BeaconNodeHttpClient;
 use crate::{http_metrics::metrics, validator_store::ValidatorStore};
 use environment::RuntimeContext;
 use eth2::types::Graffiti;
@@ -41,6 +42,7 @@ pub struct BlockServiceBuilder<T, E: EthSpec> {
     validator_store: Option<Arc<ValidatorStore<T, E>>>,
     slot_clock: Option<Arc<T>>,
     beacon_nodes: Option<Arc<BeaconNodeFallback<T, E>>>,
+    proposer_nodes: Option<Arc<BeaconNodeFallback<T, E>>>,
     context: Option<RuntimeContext<E>>,
     graffiti: Option<Graffiti>,
     graffiti_file: Option<GraffitiFile>,
@@ -53,6 +55,7 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockServiceBuilder<T, E> {
             validator_store: None,
             slot_clock: None,
             beacon_nodes: None,
+            proposer_nodes: None,
             context: None,
             graffiti: None,
             graffiti_file: None,
@@ -72,6 +75,11 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockServiceBuilder<T, E> {
 
     pub fn beacon_nodes(mut self, beacon_nodes: Arc<BeaconNodeFallback<T, E>>) -> Self {
         self.beacon_nodes = Some(beacon_nodes);
+        self
+    }
+
+    pub fn proposer_nodes(mut self, proposer_nodes: Arc<BeaconNodeFallback<T, E>>) -> Self {
+        self.proposer_nodes = Some(proposer_nodes);
         self
     }
 
@@ -110,6 +118,7 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockServiceBuilder<T, E> {
                 context: self
                     .context
                     .ok_or("Cannot build BlockService without runtime_context")?,
+                proposer_nodes: self.proposer_nodes,
                 graffiti: self.graffiti,
                 graffiti_file: self.graffiti_file,
                 private_tx_proposals: self.private_tx_proposals,
@@ -123,6 +132,7 @@ pub struct Inner<T, E: EthSpec> {
     validator_store: Arc<ValidatorStore<T, E>>,
     slot_clock: Arc<T>,
     beacon_nodes: Arc<BeaconNodeFallback<T, E>>,
+    proposer_nodes: Option<Arc<BeaconNodeFallback<T, E>>>,
     context: RuntimeContext<E>,
     graffiti: Option<Graffiti>,
     graffiti_file: Option<GraffitiFile>,
@@ -328,10 +338,9 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
         let self_ref = &self;
         let proposer_index = self.validator_store.validator_index(&validator_pubkey);
         let validator_pubkey_ref = &validator_pubkey;
-        // Request block from first responsive beacon node.
-        let block = self
-            .beacon_nodes
-            .first_success(RequireSynced::No, |beacon_node| async move {
+
+        // A closure to handle beacon block lookups.
+        let get_block_closure = |beacon_node: &BeaconNodeHttpClient| async move {
                 let get_timer = metrics::start_timer_vec(
                     &metrics::BLOCK_SERVICE_TIMES,
                     &[metrics::BEACON_BLOCK_HTTP_GET],
@@ -380,8 +389,26 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
                 }
 
                 Ok::<_, BlockError>(block)
-            })
-            .await?;
+            };
+
+        // Request block from first responsive proposer node if specified, if not specified attempt
+        // from the set of beacon nodes. 
+        let block = {
+            // Attempt any proposer nodes
+            if let Some(proposer_nodes) = &self.proposer_nodes {
+                match proposer_nodes.first_success(RequireSynced::No, get_block_closure).await {
+                    Ok(block) => block,
+                    Err(_) => {
+                        // Fallback to beacon nodes
+                        self.beacon_nodes.first_success(RequireSynced::No, get_block_closure).await? 
+                    }
+                }
+            } else {
+                // Fallback to beacon nodes
+                self.beacon_nodes.first_success(RequireSynced::No, get_block_closure).await? 
+            }
+        };
+
 
         let signed_block = self_ref
             .validator_store
@@ -389,9 +416,10 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
             .await
             .map_err(|e| BlockError::Recoverable(format!("Unable to sign block: {:?}", e)))?;
 
-        // Publish block with first available beacon node.
-        self.beacon_nodes
-            .first_success(RequireSynced::No, |beacon_node| async {
+
+
+        // Closure for handling block publication
+        let publish_block_closure = |beacon_node: &BeaconNodeHttpClient| async {
                 let _post_timer = metrics::start_timer_vec(
                     &metrics::BLOCK_SERVICE_TIMES,
                     &[metrics::BEACON_BLOCK_HTTP_POST],
@@ -427,8 +455,25 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
                     "slot" => signed_block.slot().as_u64(),
                 );
                 Ok::<_, BlockError>(())
-            })
-            .await?;
+        };
+
+        // Publish block with first available publishing node, or fallback to a beacon node. 
+        if let Some(proposer_nodes) = &self.proposer_nodes {
+            match proposer_nodes.first_success(RequireSynced::No, publish_block_closure).await {
+                Ok(_) => (),
+                Err(_) => {
+                    // Fallback to beacon nodes
+                    self.beacon_nodes
+                        .first_success(RequireSynced::No, publish_block_closure)
+                        .await?;
+                }
+            }
+        } else {
+            // Use attached beacon nodes
+            self.beacon_nodes
+                .first_success(RequireSynced::No, publish_block_closure)
+                .await?;
+        }
         Ok(())
     }
 }

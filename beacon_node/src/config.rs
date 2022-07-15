@@ -649,7 +649,6 @@ pub fn set_network_config(
     };
 
     if cli_args.is_present("subscribe-all-subnets") {
-        if cli_args.is_present(
         config.subscribe_all_subnets = true;
     }
 

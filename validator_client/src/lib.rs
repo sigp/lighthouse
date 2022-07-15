@@ -316,6 +316,7 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
             .map(CandidateBeaconNode::new)
             .collect();
 
+        let proposer_nodes_num = proposer_nodes.len();
         let proposer_candidates = proposer_nodes
             .into_iter()
             .map(CandidateBeaconNode::new)
@@ -416,7 +417,6 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
             sync_duties: <_>::default(),
             slot_clock: slot_clock.clone(),
             beacon_nodes: beacon_nodes.clone(),
-            proposer_nodes: proposer_nodes.clone(),
             validator_store: validator_store.clone(),
             require_synced: if config.allow_unsynced_beacon_node {
                 RequireSynced::Yes
@@ -433,16 +433,21 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
             ctx.shared.write().duties_service = Some(duties_service.clone());
         }
 
-        let block_service = BlockServiceBuilder::new()
+        let mut block_service_builder = BlockServiceBuilder::new()
             .slot_clock(slot_clock.clone())
             .validator_store(validator_store.clone())
             .beacon_nodes(beacon_nodes.clone())
-            .proposer_nodes(proposer_nodes.clone())
             .runtime_context(context.service_context("block".into()))
             .graffiti(config.graffiti)
             .graffiti_file(config.graffiti_file.clone())
-            .private_tx_proposals(config.private_tx_proposals)
-            .build()?;
+            .private_tx_proposals(config.private_tx_proposals);
+
+        // If we have proposer nodes, add them to the block service builder.
+        if proposer_nodes_num > 0 {
+            block_service_builder = block_service_builder.proposer_nodes(proposer_nodes.clone());
+        }
+
+        let block_service = block_service_builder.build()?;
 
         let attestation_service = AttestationServiceBuilder::new()
             .duties_service(duties_service.clone())
