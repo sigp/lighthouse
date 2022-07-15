@@ -49,7 +49,6 @@ impl<E> Drop for ExecutionEngine<E> {
 impl<E: GenericExecutionEngine> ExecutionEngine<E> {
     pub fn new(engine: E) -> Self {
         let datadir = E::init_datadir();
-        // E::write_accounts(&datadir);
         let jwt_secret_path = datadir.path().join(DEFAULT_JWT_FILE);
         let http_port = unused_tcp_port().unwrap();
         let http_auth_port = unused_tcp_port().unwrap();

@@ -125,9 +125,7 @@ pub fn nethermind_genesis_json() -> Value {
                 "balance": "10000000000000000000000000"
               },
             },
-            "nodes": [
-              "enode://c354db99124f0faf677ff0e75c3cbbd568b2febc186af664e0c51ac435609badedc67a18a63adb64dacc1780a28dcefebfc29b83fd1a3f4aa3c0eb161364cf94@164.92.130.5:30303"
-            ]
+            "nodes": []
           }
     )
 }

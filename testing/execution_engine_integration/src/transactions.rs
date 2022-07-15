@@ -9,7 +9,7 @@ use types::{DepositData, EthSpec, Hash256, Keypair, Signature};
 pub const DEPOSIT_CONTRACT_ADDRESS: &str = "64f43BEc7F86526686C931d65362bB8698872F90";
 
 #[derive(Debug)]
-pub enum Transactions {
+pub enum Transaction {
     Transfer(Address, Address),
     TransferLegacy(Address, Address),
     TransferAccessList(Address, Address),
@@ -23,11 +23,11 @@ pub enum Transactions {
 /// Get a list of transactions to publish to the execution layer.
 pub fn transactions<E: EthSpec>(account1: Address, account2: Address) -> Vec<TypedTransaction> {
     vec![
-        Transactions::Transfer(account1, account2).transaction::<E>(),
-        Transactions::TransferLegacy(account1, account2).transaction::<E>(),
-        Transactions::TransferAccessList(account1, account2).transaction::<E>(),
-        Transactions::DeployDepositContract(account1).transaction::<E>(),
-        Transactions::DepositDepositContract {
+        Transaction::Transfer(account1, account2).transaction::<E>(),
+        Transaction::TransferLegacy(account1, account2).transaction::<E>(),
+        Transaction::TransferAccessList(account1, account2).transaction::<E>(),
+        Transaction::DeployDepositContract(account1).transaction::<E>(),
+        Transaction::DepositDepositContract {
             sender: account1,
             deposit_contract_address: ethers_core::types::Address::from_slice(
                 &hex::decode(&DEPOSIT_CONTRACT_ADDRESS).unwrap(),
@@ -37,7 +37,7 @@ pub fn transactions<E: EthSpec>(account1: Address, account2: Address) -> Vec<Typ
     ]
 }
 
-impl Transactions {
+impl Transaction {
     pub fn transaction<E: EthSpec>(&self) -> TypedTransaction {
         match &self {
             Self::TransferLegacy(from, to) => TransactionRequest::new()
