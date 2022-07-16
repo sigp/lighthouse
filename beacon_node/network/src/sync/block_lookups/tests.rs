@@ -428,7 +428,7 @@ fn test_parent_lookup_too_many_download_attempts_no_blacklist() {
     for i in 1..=parent_lookup::PARENT_FAIL_TOLERANCE {
         assert!(!bl.failed_chains.contains(&block_hash));
         let id = rig.expect_parent_request();
-        if 1 % 2 != 0 {
+        if i % 2 != 0 {
             // The request fails. It should be tried again.
             bl.parent_lookup_failed(id, peer_id, &mut cx);
         } else {
