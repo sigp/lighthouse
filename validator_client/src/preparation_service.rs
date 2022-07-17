@@ -62,7 +62,7 @@ impl<T: SlotClock + 'static, E: EthSpec> PreparationServiceBuilder<T, E> {
         self
     }
 
-    pub fn builder_registration_timestamp_override(mut self, builder_registration_timestamp_override: u64) -> Self {
+    pub fn builder_registration_timestamp_override(mut self, builder_registration_timestamp_override: Option<u64>) -> Self {
         self.builder_registration_timestamp_override = Some(builder_registration_timestamp_override);
         self
     }
@@ -83,8 +83,7 @@ impl<T: SlotClock + 'static, E: EthSpec> PreparationServiceBuilder<T, E> {
                     .context
                     .ok_or("Cannot build PreparationService without runtime_context")?,
                 builder_registration_timestamp_override: self
-                    .builder_registration_timestamp_override
-                    .ok_or("Cannot build PreparatoinService without builder_registration_timestamp_override")?,
+                    .builder_registration_timestamp_override,
                 validator_registration_cache: RwLock::new(HashMap::new()),
             }),
         })
@@ -97,7 +96,7 @@ pub struct Inner<T, E: EthSpec> {
     slot_clock: T,
     beacon_nodes: Arc<BeaconNodeFallback<T, E>>,
     context: RuntimeContext<E>,
-    builder_registration_timestamp_override: u64,
+    builder_registration_timestamp_override: Option<u64>,
     // Used to track unpublished validator registration changes.
     validator_registration_cache:
         RwLock<HashMap<ValidatorRegistrationKey, SignedValidatorRegistrationData>>,
@@ -401,7 +400,7 @@ impl<T: SlotClock + 'static, E: EthSpec> PreparationService<T, E> {
             } else {
 
                 let  timestamp = if self.builder_registration_timestamp_override.is_some() {
-                    self.builder_registration_timestamp_override;
+                    self.builder_registration_timestamp_override
                 } else {
                     SystemTime::now()
                         .duration_since(UNIX_EPOCH)
