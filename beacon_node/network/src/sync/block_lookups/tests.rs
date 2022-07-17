@@ -385,12 +385,11 @@ fn test_parent_lookup_too_many_attempts() {
 
     let parent = rig.rand_block();
     let block = rig.block_with_parent(parent.canonical_root());
-    let chain_hash = block.canonical_root();
     let peer_id = PeerId::random();
 
     // Trigger the request
     bl.search_parent(Arc::new(block), peer_id, &mut cx);
-    for i in 1..=parent_lookup::PARENT_FAIL_TOLERANCE + 1 {
+    for i in 1..=parent_lookup::PARENT_FAIL_TOLERANCE {
         let id = rig.expect_parent_request();
         match i % 2 {
             // make sure every error is accounted for
@@ -402,6 +401,8 @@ fn test_parent_lookup_too_many_attempts() {
                 // Send a bad block this time. It should be tried again.
                 let bad_block = rig.rand_block();
                 bl.parent_lookup_response(id, peer_id, Some(Arc::new(bad_block)), D, &mut cx);
+                // Send the stream termination
+                bl.parent_lookup_response(id, peer_id, None, D, &mut cx);
                 rig.expect_penalty();
             }
         }
@@ -411,7 +412,74 @@ fn test_parent_lookup_too_many_attempts() {
     }
 
     assert_eq!(bl.parent_queue.len(), 0);
-    assert!(bl.failed_chains.contains(&chain_hash));
+}
+
+#[test]
+fn test_parent_lookup_too_many_download_attempts_no_blacklist() {
+    let (mut bl, mut cx, mut rig) = TestRig::test_setup(None);
+
+    let parent = rig.rand_block();
+    let block = rig.block_with_parent(parent.canonical_root());
+    let block_hash = block.canonical_root();
+    let peer_id = PeerId::random();
+
+    // Trigger the request
+    bl.search_parent(Arc::new(block), peer_id, &mut cx);
+    for i in 1..=parent_lookup::PARENT_FAIL_TOLERANCE {
+        assert!(!bl.failed_chains.contains(&block_hash));
+        let id = rig.expect_parent_request();
+        if i % 2 != 0 {
+            // The request fails. It should be tried again.
+            bl.parent_lookup_failed(id, peer_id, &mut cx);
+        } else {
+            // Send a bad block this time. It should be tried again.
+            let bad_block = rig.rand_block();
+            bl.parent_lookup_response(id, peer_id, Some(Arc::new(bad_block)), D, &mut cx);
+            rig.expect_penalty();
+        }
+        if i < parent_lookup::PARENT_FAIL_TOLERANCE {
+            assert_eq!(bl.parent_queue[0].failed_attempts(), dbg!(i));
+        }
+    }
+
+    assert_eq!(bl.parent_queue.len(), 0);
+    assert!(!bl.failed_chains.contains(&block_hash));
+    assert!(!bl.failed_chains.contains(&parent.canonical_root()));
+}
+
+#[test]
+fn test_parent_lookup_too_many_processing_attempts_must_blacklist() {
+    const PROCESSING_FAILURES: u8 = parent_lookup::PARENT_FAIL_TOLERANCE / 2 + 1;
+    let (mut bl, mut cx, mut rig) = TestRig::test_setup(None);
+
+    let parent = Arc::new(rig.rand_block());
+    let block = rig.block_with_parent(parent.canonical_root());
+    let block_hash = block.canonical_root();
+    let peer_id = PeerId::random();
+
+    // Trigger the request
+    bl.search_parent(Arc::new(block), peer_id, &mut cx);
+
+    // Fail downloading the block
+    for _ in 0..(parent_lookup::PARENT_FAIL_TOLERANCE - PROCESSING_FAILURES) {
+        let id = rig.expect_parent_request();
+        // The request fails. It should be tried again.
+        bl.parent_lookup_failed(id, peer_id, &mut cx);
+    }
+
+    // Now fail processing a block in the parent request
+    for _ in 0..PROCESSING_FAILURES {
+        let id = dbg!(rig.expect_parent_request());
+        assert!(!bl.failed_chains.contains(&block_hash));
+        // send the right parent but fail processing
+        bl.parent_lookup_response(id, peer_id, Some(parent.clone()), D, &mut cx);
+        bl.parent_block_processed(block_hash, BlockError::InvalidSignature.into(), &mut cx);
+        bl.parent_lookup_response(id, peer_id, None, D, &mut cx);
+        rig.expect_penalty();
+    }
+
+    assert!(bl.failed_chains.contains(&block_hash));
+    assert_eq!(bl.parent_queue.len(), 0);
 }
 
 #[test]

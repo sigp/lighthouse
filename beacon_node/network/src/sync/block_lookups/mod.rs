@@ -69,6 +69,8 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
 
     /* Lookup requests */
 
+    /// Searches for a single block hash. If the blocks parent is unknown, a chain of blocks is
+    /// constructed.
     pub fn search_block(
         &mut self,
         hash: Hash256,
@@ -105,6 +107,8 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         }
     }
 
+    /// If a block is attempted to be processed but we do not know its parent, this function is
+    /// called in order to find the block's parent.
     pub fn search_parent(
         &mut self,
         block: Arc<SignedBeaconBlock<T::EthSpec>>,
@@ -201,6 +205,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         );
     }
 
+    /// Process a response received from a parent lookup request.
     pub fn parent_lookup_response(
         &mut self,
         id: Id,
@@ -258,7 +263,6 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                     self.request_parent(parent_lookup, cx);
                 }
                 VerifyError::PreviousFailure { parent_root } => {
-                    self.failed_chains.insert(parent_lookup.chain_hash());
                     debug!(
                         self.log,
                         "Parent chain ignored due to past failure";
@@ -336,6 +340,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
         }
     }
 
+    /// An RPC error has occurred during a parent lookup. This function handles this case.
     pub fn parent_lookup_failed(
         &mut self,
         id: Id,
@@ -362,7 +367,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
 
     pub fn single_block_lookup_failed(&mut self, id: Id, cx: &mut SyncNetworkContext<T::EthSpec>) {
         if let Some(mut request) = self.single_block_lookups.remove(&id) {
-            request.register_failure();
+            request.register_failure_downloading();
             trace!(self.log, "Single block lookup failed"; "block" => %request.hash);
             if let Ok((peer_id, block_request)) = request.request_block() {
                 if let Ok(request_id) = cx.single_block_lookup_request(peer_id, block_request) {
@@ -453,7 +458,7 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                             "single_block_failure",
                         );
                         // Try it again if possible.
-                        req.register_failure();
+                        req.register_failure_processing();
                         if let Ok((peer_id, request)) = req.request_block() {
                             if let Ok(request_id) = cx.single_block_lookup_request(peer_id, request)
                             {
@@ -569,12 +574,13 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                     "last_peer" => %peer_id,
                 );
 
-                // Add this chain to cache of failed chains
-                self.failed_chains.insert(chain_hash);
-
                 // This currently can be a host of errors. We permit this due to the partial
                 // ambiguity.
                 cx.report_peer(peer_id, PeerAction::MidToleranceError, "parent_request_err");
+
+                // Try again if possible
+                parent_lookup.processing_failed();
+                self.request_parent(parent_lookup, cx);
             }
             BlockProcessResult::Ignored => {
                 // Beacon processor signalled to ignore the block processing result.
@@ -683,9 +689,21 @@ impl<T: BeaconChainTypes> BlockLookups<T> {
                     parent_lookup::RequestError::SendFailed(_) => {
                         // Probably shutting down, nothing to do here. Drop the request
                     }
-                    parent_lookup::RequestError::ChainTooLong
-                    | parent_lookup::RequestError::TooManyAttempts => {
+                    parent_lookup::RequestError::ChainTooLong => {
                         self.failed_chains.insert(parent_lookup.chain_hash());
+                        // This indicates faulty peers.
+                        for &peer_id in parent_lookup.used_peers() {
+                            cx.report_peer(peer_id, PeerAction::LowToleranceError, e.as_static())
+                        }
+                    }
+                    parent_lookup::RequestError::TooManyAttempts { cannot_process } => {
+                        // We only consider the chain failed if we were unable to process it.
+                        // We could have failed because one peer continually failed to send us
+                        // bad blocks. We still allow other peers to send us this chain. Note
+                        // that peers that do this, still get penalised.
+                        if cannot_process {
+                            self.failed_chains.insert(parent_lookup.chain_hash());
+                        }
                         // This indicates faulty peers.
                         for &peer_id in parent_lookup.used_peers() {
                             cx.report_peer(peer_id, PeerAction::LowToleranceError, e.as_static())
