@@ -258,5 +258,13 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                     headers during proposals and will sign over headers. Useful for outsourcing \
                     execution payload construction during proposals.")
                 .takes_value(false),
+        ) 
+        .arg(
+            Arg::with_name("builder-registration-timestamp-override")
+                .long("builder-registration-timestamp-override")
+                .alias("builder-registration-timestamp-override")
+                .help("This flag takes a unix timestamp value that will be used to override the \
+                    timestamp used in the builder api registration")
+                .takes_value(true),
         )
 }
