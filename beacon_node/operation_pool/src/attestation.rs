@@ -42,10 +42,7 @@ impl<'a, T: EthSpec> AttMaxCover<'a, T> {
         total_active_balance: u64,
         spec: &ChainSpec,
     ) -> Option<Self> {
-        // FIXME(sproul): re-enable
-        None
-        /*
-        let fresh_validators = earliest_attestation_validators(att, state, base_state);
+        let fresh_validators = earliest_attestation_validators(&att, state, base_state);
         let committee = state
             .get_beacon_committee(att.data.slot, att.data.index)
             .ok()?;
@@ -69,7 +66,6 @@ impl<'a, T: EthSpec> AttMaxCover<'a, T> {
             att,
             fresh_validators_rewards,
         })
-        */
     }
 
     /// Initialise an attestation cover object for Altair or later.
@@ -180,16 +176,16 @@ impl<'a, T: EthSpec> MaxCover for AttMaxCover<'a, T> {
 ///
 /// This isn't optimal, but with the Altair fork this code is obsolete and not worth upgrading.
 pub fn earliest_attestation_validators<T: EthSpec>(
-    attestation: &Attestation<T>,
+    attestation: &AttestationRef<T>,
     state: &BeaconState<T>,
     base_state: &BeaconStateBase<T>,
 ) -> BitList<T::MaxValidatorsPerCommittee> {
     // Bitfield of validators whose attestations are new/fresh.
-    let mut new_validators = attestation.aggregation_bits.clone();
+    let mut new_validators = attestation.indexed.aggregation_bits.clone();
 
-    let state_attestations = if attestation.data.target.epoch == state.current_epoch() {
+    let state_attestations = if attestation.checkpoint.target_epoch == state.current_epoch() {
         &base_state.current_epoch_attestations
-    } else if attestation.data.target.epoch == state.previous_epoch() {
+    } else if attestation.checkpoint.target_epoch == state.previous_epoch() {
         &base_state.previous_epoch_attestations
     } else {
         return BitList::with_capacity(0).unwrap();
