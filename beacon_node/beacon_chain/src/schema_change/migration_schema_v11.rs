@@ -1,6 +1,6 @@
 use crate::beacon_chain::{BeaconChainTypes, OP_POOL_DB_KEY};
 use operation_pool::{PersistedOperationPool, PersistedOperationPoolV11, PersistedOperationPoolV5};
-use slog::{debug, Logger};
+use slog::{debug, info, Logger};
 use std::sync::Arc;
 use store::{Error, HotColdDB, KeyValueStoreOp, StoreItem};
 
@@ -47,7 +47,7 @@ pub fn downgrade_from_v11<T: BeaconChainTypes>(
         return Ok(vec![]);
     };
 
-    debug!(
+    info!(
         log,
         "Dropping attestations from pool";
         "count" => v11.attestations.len(),

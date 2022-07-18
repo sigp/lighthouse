@@ -131,8 +131,10 @@ pub fn migrate_schema<T: BeaconChainTypes>(
             migration_schema_v9::downgrade_from_v9::<T>(db.clone(), log)?;
             db.store_schema_version(to)
         }
-        // Upgrade from v9 to v11 to store richer metadata in the attestation op pool.
-        (SchemaVersion(9), SchemaVersion(11)) => {
+        // FIXME(sproul): stub for Sean's v10 migration
+        (SchemaVersion(9), SchemaVersion(10)) => db.store_schema_version(to),
+        // Upgrade from v10 to v11 to store richer metadata in the attestation op pool.
+        (SchemaVersion(10), SchemaVersion(11)) => {
             let ops = migration_schema_v11::upgrade_to_v11::<T>(db.clone(), log)?;
             db.store_schema_version_atomically(to, ops)
         }
