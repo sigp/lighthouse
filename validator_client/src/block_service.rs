@@ -432,28 +432,13 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
 
         let proposer_index = self.validator_store.validator_index(&validator_pubkey);
 
-        // Request block from first responsive proposer node if specified, if not specified attempt
-        // from the set of beacon nodes.
+        // Request block from first responsive default node, if this fails attempt to retrieve a
+        // block from a proposer node.
         let block = async {
-            // Attempt any proposer nodes
-            if let Some(proposer_nodes) = &self.proposer_nodes {
-                if let Ok(block) = proposer_nodes
-                    .first_success(RequireSynced::No, |client| {
-                        Self::get_block_from_node(
-                            client,
-                            slot,
-                            &randao_reveal,
-                            &graffiti,
-                            proposer_index,
-                        )
-                    })
-                    .await
-                {
-                    return Ok(block);
-                }
-            }
-            // Fallback to beacon nodes
-            self.beacon_nodes
+            // Attempt default nodes first, as these will be subscribed to attestation
+            // subnets and are more likely to produce profitable blocks.
+            match self
+                .beacon_nodes
                 .first_success(RequireSynced::No, |client| {
                     Self::get_block_from_node(
                         client,
@@ -464,6 +449,26 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
                     )
                 })
                 .await
+            {
+                Ok(v) => Ok(v),
+                Err(e) => {
+                    if let Some(proposer_nodes) = &self.proposer_nodes {
+                        proposer_nodes
+                            .first_success(RequireSynced::No, |client| {
+                                Self::get_block_from_node(
+                                    client,
+                                    slot,
+                                    &randao_reveal,
+                                    &graffiti,
+                                    proposer_index,
+                                )
+                            })
+                            .await
+                    } else {
+                        Err(e)
+                    }
+                }
+            }
         }
         .await?;
 

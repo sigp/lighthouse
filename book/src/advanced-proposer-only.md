@@ -47,6 +47,12 @@ these nodes for added security).
 > Note: The validator client still requires at least one other beacon node to
 > perform its duties and must be specified in the usual `--beacon-nodes` flag.
 
+> Note: The validator client will attempt to get a block to propose from the
+> beacon nodes specified in `--beacon-nodes` before trying `--proposer-nodes`.
+> This is because the nodes subscribed to subnets have a higher chance of
+> producing a more profitable block. Any block builders should therefore be
+> attached to the `--beacon-nodes` and not necessarily the `--proposer-nodes`.
+
 
 ## Setup Overview
 
