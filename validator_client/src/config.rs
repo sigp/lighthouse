@@ -308,6 +308,7 @@ impl Config {
                 registration_timestamp_override
                     .parse::<u64>()
                     .map_err(|_| "builder-registration-timestamp-override is not a valid u64.")?,
+            );
         }
 
         Ok(config)
