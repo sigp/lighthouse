@@ -63,7 +63,7 @@ impl<T: SlotClock + 'static, E: EthSpec> PreparationServiceBuilder<T, E> {
     }
 
     pub fn builder_registration_timestamp_override(mut self, builder_registration_timestamp_override: Option<u64>) -> Self {
-        self.builder_registration_timestamp_override = Some(builder_registration_timestamp_override);
+        self.builder_registration_timestamp_override = builder_registration_timestamp_override;
         self
     }
 
@@ -399,8 +399,8 @@ impl<T: SlotClock + 'static, E: EthSpec> PreparationService<T, E> {
                 signed_data
             } else {
 
-                let  timestamp = if self.builder_registration_timestamp_override.is_some() {
-                    self.builder_registration_timestamp_override
+                let  timestamp = if let Some(timestamp) = self.builder_registration_timestamp_override {
+                    timestamp
                 } else {
                     SystemTime::now()
                         .duration_since(UNIX_EPOCH)

@@ -53,7 +53,7 @@ pub struct Config {
     /// any of the validators managed by this client before starting up.
     pub enable_doppelganger_protection: bool,
     pub private_tx_proposals: bool,
-    // Overrides the timestamp field in builder api ValidatorRegistrationV1
+    /// Overrides the timestamp field in builder api ValidatorRegistrationV1
     pub builder_registration_timestamp_override: Option<u64>,
     /// A list of custom certificates that the validator client will additionally use when
     /// connecting to a beacon node over SSL/TLS.
@@ -304,9 +304,10 @@ impl Config {
         }
 
         if let Some(registration_timestamp_override) = cli_args.value_of("builder-registration-timestamp-override") {
-            config.builder_registration_timestamp_override = registration_timestamp_override
-                .parse::Option<u64>()
-                .map_err(|_| "builder-registration-timestamp-override is not a valid u64.")?;
+            config.builder_registration_timestamp_override = Some(
+                registration_timestamp_override
+                    .parse::<u64>()
+                    .map_err(|_| "builder-registration-timestamp-override is not a valid u64.")?,
         }
 
         Ok(config)
