@@ -1,6 +1,8 @@
 use crate::build_utils;
 use crate::execution_engine::GenericExecutionEngine;
+use crate::genesis_json::nethermind_genesis_json;
 use std::env;
+use std::fs::File;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Output};
 use tempfile::TempDir;
@@ -69,33 +71,43 @@ impl NethermindEngine {
 
 impl GenericExecutionEngine for NethermindEngine {
     fn init_datadir() -> TempDir {
-        TempDir::new().unwrap()
+        let datadir = TempDir::new().unwrap();
+        let genesis_json_path = datadir.path().join("genesis.json");
+        let mut file = File::create(&genesis_json_path).unwrap();
+        let json = nethermind_genesis_json();
+        serde_json::to_writer(&mut file, &json).unwrap();
+        datadir
     }
 
     fn start_client(
         datadir: &TempDir,
-        _http_port: u16,
+        http_port: u16,
         http_auth_port: u16,
         jwt_secret_path: PathBuf,
     ) -> Child {
         let network_port = unused_tcp_port().unwrap();
+        let genesis_json_path = datadir.path().join("genesis.json");
 
         Command::new(Self::binary_path())
             .arg("--datadir")
             .arg(datadir.path().to_str().unwrap())
             .arg("--config")
             .arg("kiln")
+            .arg("--Init.ChainSpecPath")
+            .arg(genesis_json_path.to_str().unwrap())
             .arg("--Merge.TerminalTotalDifficulty")
             .arg("0")
+            .arg("--JsonRpc.Enabled")
+            .arg("true")
+            .arg("--JsonRpc.EnabledModules")
+            .arg("net,eth,subscribe,web3,admin,personal")
+            .arg("--JsonRpc.Port")
+            .arg(http_port.to_string())
             .arg("--JsonRpc.AdditionalRpcUrls")
             .arg(format!(
                 "http://localhost:{}|http;ws|net;eth;subscribe;engine;web3;client",
                 http_auth_port
             ))
-            .arg("--JsonRpc.EnabledModules")
-            .arg("net,eth,subscribe,web3,admin,engine")
-            .arg("--JsonRpc.Port")
-            .arg(http_auth_port.to_string())
             .arg("--Network.DiscoveryPort")
             .arg(network_port.to_string())
             .arg("--Network.P2PPort")

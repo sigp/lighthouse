@@ -612,6 +612,28 @@ mod tests {
             .await;
     }
 
+    /// Test all the Merge types.
+    async fn test_merge_types(network: &str, listen_port: u16) {
+        let network_config = Eth2NetworkConfig::constant(network).unwrap().unwrap();
+        let spec = &network_config.chain_spec::<E>().unwrap();
+        let merge_fork_slot = spec
+            .bellatrix_fork_epoch
+            .unwrap()
+            .start_slot(E::slots_per_epoch());
+
+        TestingRig::new(network, spec.clone(), listen_port)
+            .await
+            .assert_signatures_match("beacon_block_merge", |pubkey, validator_store| async move {
+                let mut merge_block = BeaconBlockMerge::empty(spec);
+                merge_block.slot = merge_fork_slot;
+                validator_store
+                    .sign_block(pubkey, BeaconBlock::Merge(merge_block), merge_fork_slot)
+                    .await
+                    .unwrap()
+            })
+            .await;
+    }
+
     #[tokio::test]
     async fn mainnet_base_types() {
         test_base_types("mainnet", 4242).await
@@ -630,5 +652,20 @@ mod tests {
     #[tokio::test]
     async fn prater_altair_types() {
         test_altair_types("prater", 4247).await
+    }
+
+    #[tokio::test]
+    async fn ropsten_base_types() {
+        test_base_types("ropsten", 4250).await
+    }
+
+    #[tokio::test]
+    async fn ropsten_altair_types() {
+        test_altair_types("ropsten", 4251).await
+    }
+
+    #[tokio::test]
+    async fn ropsten_merge_types() {
+        test_merge_types("ropsten", 4252).await
     }
 }

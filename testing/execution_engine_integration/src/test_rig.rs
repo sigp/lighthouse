@@ -1,5 +1,12 @@
-use crate::execution_engine::{ExecutionEngine, GenericExecutionEngine};
+use crate::execution_engine::{
+    ExecutionEngine, GenericExecutionEngine, ACCOUNT1, ACCOUNT2, KEYSTORE_PASSWORD, PRIVATE_KEYS,
+};
+use crate::transactions::transactions;
+use ethers_providers::Middleware;
 use execution_layer::{ExecutionLayer, PayloadAttributes, PayloadStatus};
+use reqwest::{header::CONTENT_TYPE, Client};
+use sensitive_url::SensitiveUrl;
+use serde_json::{json, Value};
 use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use task_executor::TaskExecutor;
@@ -8,7 +15,6 @@ use types::{
     Address, ChainSpec, EthSpec, ExecutionBlockHash, ExecutionPayload, FullPayload, Hash256,
     MainnetEthSpec, Slot, Uint256,
 };
-
 const EXECUTION_ENGINE_START_TIMEOUT: Duration = Duration::from_secs(20);
 
 struct ExecutionPair<E, T: EthSpec> {
@@ -30,6 +36,63 @@ pub struct TestRig<E, T: EthSpec = MainnetEthSpec> {
     ee_b: ExecutionPair<E, T>,
     spec: ChainSpec,
     _runtime_shutdown: exit_future::Signal,
+}
+
+/// Import a private key into the execution engine and unlock it so that we can
+/// make transactions with the corresponding account.
+async fn import_and_unlock(http_url: SensitiveUrl, priv_keys: &[&str], password: &str) {
+    for priv_key in priv_keys {
+        let body = json!(
+            {
+                "jsonrpc":"2.0",
+                "method":"personal_importRawKey",
+                "params":[priv_key, password],
+                "id":1
+            }
+        );
+
+        let client = Client::builder().build().unwrap();
+        let request = client
+            .post(http_url.full.clone())
+            .header(CONTENT_TYPE, "application/json")
+            .json(&body);
+
+        let response: Value = request
+            .send()
+            .await
+            .unwrap()
+            .error_for_status()
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
+
+        let account = response.get("result").unwrap().as_str().unwrap();
+
+        let body = json!(
+            {
+                "jsonrpc":"2.0",
+                "method":"personal_unlockAccount",
+                "params":[account, password],
+                "id":1
+            }
+        );
+
+        let request = client
+            .post(http_url.full.clone())
+            .header(CONTENT_TYPE, "application/json")
+            .json(&body);
+
+        let _response: Value = request
+            .send()
+            .await
+            .unwrap()
+            .error_for_status()
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
+    }
 }
 
 impl<E: GenericExecutionEngine> TestRig<E> {
@@ -125,6 +188,20 @@ impl<E: GenericExecutionEngine> TestRig<E> {
     pub async fn perform_tests(&self) {
         self.wait_until_synced().await;
 
+        // Import and unlock all private keys to sign transactions
+        let _ = futures::future::join_all([&self.ee_a, &self.ee_b].iter().map(|ee| {
+            import_and_unlock(
+                ee.execution_engine.http_url(),
+                &PRIVATE_KEYS,
+                KEYSTORE_PASSWORD,
+            )
+        }))
+        .await;
+
+        // We hardcode the accounts here since some EEs start with a default unlocked account
+        let account1 = ethers_core::types::Address::from_slice(&hex::decode(&ACCOUNT1).unwrap());
+        let account2 = ethers_core::types::Address::from_slice(&hex::decode(&ACCOUNT2).unwrap());
+
         /*
          * Check the transition config endpoint.
          */
@@ -157,6 +234,17 @@ impl<E: GenericExecutionEngine> TestRig<E> {
                 .unwrap()
         );
 
+        // Submit transactions before getting payload
+        let txs = transactions::<MainnetEthSpec>(account1, account2);
+        for tx in txs.clone().into_iter() {
+            self.ee_a
+                .execution_engine
+                .provider
+                .send_transaction(tx, None)
+                .await
+                .unwrap();
+        }
+
         /*
          * Execution Engine A:
          *
@@ -168,6 +256,45 @@ impl<E: GenericExecutionEngine> TestRig<E> {
         let prev_randao = Hash256::zero();
         let finalized_block_hash = ExecutionBlockHash::zero();
         let proposer_index = 0;
+
+        let prepared = self
+            .ee_a
+            .execution_layer
+            .insert_proposer(
+                Slot::new(1), // Insert proposer for the next slot
+                Hash256::zero(),
+                proposer_index,
+                PayloadAttributes {
+                    timestamp,
+                    prev_randao,
+                    suggested_fee_recipient: Address::zero(),
+                },
+            )
+            .await;
+
+        assert!(!prepared, "Inserting proposer for the first time");
+
+        // Make a fcu call with the PayloadAttributes that we inserted previously
+        let prepare = self
+            .ee_a
+            .execution_layer
+            .notify_forkchoice_updated(
+                parent_hash,
+                finalized_block_hash,
+                Slot::new(0),
+                Hash256::zero(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(prepare, PayloadStatus::Valid);
+
+        // Add a delay to give the EE sufficient time to pack the
+        // submitted transactions into a payload.
+        // This is required when running on under resourced nodes and
+        // in CI.
+        sleep(Duration::from_secs(3)).await;
+
         let valid_payload = self
             .ee_a
             .execution_layer
@@ -183,6 +310,8 @@ impl<E: GenericExecutionEngine> TestRig<E> {
             .await
             .unwrap()
             .execution_payload;
+
+        assert_eq!(valid_payload.transactions.len(), txs.len());
 
         /*
          * Execution Engine A:

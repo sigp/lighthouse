@@ -5,6 +5,9 @@ set -Eeuo pipefail
 
 source ./vars.env
 
+# Set a higher ulimit in case we want to import 1000s of validators.
+ulimit -n 65536
+
 # VC_COUNT is defaulted in vars.env
 DEBUG_LEVEL=${DEBUG_LEVEL:-info}
 

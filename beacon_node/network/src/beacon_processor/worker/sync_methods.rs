@@ -1,6 +1,7 @@
 use std::time::Duration;
 
 use super::{super::work_reprocessing_queue::ReprocessQueueMessage, Worker};
+use crate::beacon_processor::work_reprocessing_queue::QueuedRpcBlock;
 use crate::beacon_processor::worker::FUTURE_SLOT_TOLERANCE;
 use crate::beacon_processor::DuplicateCache;
 use crate::metrics;
@@ -53,16 +54,37 @@ impl<T: BeaconChainTypes> Worker<T> {
         process_type: BlockProcessType,
         reprocess_tx: mpsc::Sender<ReprocessQueueMessage<T>>,
         duplicate_cache: DuplicateCache,
+        should_process: bool,
     ) {
+        if !should_process {
+            // Sync handles these results
+            self.send_sync_message(SyncMessage::BlockProcessed {
+                process_type,
+                result: crate::sync::manager::BlockProcessResult::Ignored,
+            });
+            return;
+        }
         // Check if the block is already being imported through another source
         let handle = match duplicate_cache.check_and_insert(block.canonical_root()) {
             Some(handle) => handle,
             None => {
-                // Sync handles these results
-                self.send_sync_message(SyncMessage::BlockProcessed {
+                debug!(
+                    self.log,
+                    "Gossip block is being processed";
+                    "action" => "sending rpc block to reprocessing queue",
+                    "block_root" => %block.canonical_root(),
+                );
+                // Send message to work reprocess queue to retry the block
+                let reprocess_msg = ReprocessQueueMessage::RpcBlock(QueuedRpcBlock {
+                    block: block.clone(),
                     process_type,
-                    result: Err(BlockError::BlockIsAlreadyKnown),
+                    seen_timestamp,
+                    should_process: true,
                 });
+
+                if reprocess_tx.try_send(reprocess_msg).is_err() {
+                    error!(self.log, "Failed to inform block import"; "source" => "rpc", "block_root" => %block.canonical_root())
+                };
                 return;
             }
         };
@@ -95,7 +117,7 @@ impl<T: BeaconChainTypes> Worker<T> {
         // Sync handles these results
         self.send_sync_message(SyncMessage::BlockProcessed {
             process_type,
-            result: result.map(|_| ()),
+            result: result.into(),
         });
 
         // Drop the handle to remove the entry from the cache
