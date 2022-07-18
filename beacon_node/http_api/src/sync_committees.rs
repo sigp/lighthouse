@@ -11,7 +11,7 @@ use beacon_chain::{
 use eth2::types::{self as api_types};
 use lighthouse_network::PubsubMessage;
 use network::NetworkMessage;
-use slog::{error, warn, Logger};
+use slog::{debug, error, warn, Logger};
 use slot_clock::SlotClock;
 use std::cmp::max;
 use std::collections::HashMap;
@@ -189,7 +189,17 @@ pub fn process_sync_committee_signatures<T: BeaconChainTypes>(
                 // the message and then fails to respond in a timely fashion then the VC will move
                 // to the second BN. The BN will then report that this message has already been
                 // seen, which is not actually an error as far as the network or user are concerned.
-                Err(SyncVerificationError::PriorSyncCommitteeMessageKnown { .. }) => (),
+                Err(SyncVerificationError::PriorSyncCommitteeMessageKnown {
+                    validator_index,
+                    slot,
+                }) => {
+                    debug!(
+                        log,
+                        "Ignoring already-known symc message";
+                        "slot" => slot,
+                        "validator_index" => validator_index,
+                    );
+                }
                 Err(e) => {
                     error!(
                         log,
