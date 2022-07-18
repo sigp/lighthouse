@@ -635,15 +635,23 @@ impl<T: BeaconChainTypes> AttestationService<T> {
         }
     }
 
-    /// A queued unsubscription is ready.
+    /// A scheduled unsubscription is ready.
     ///
-    /// Unsubscription events are added, even if we are subscribed to long-lived random subnets. If
-    /// a random subnet is present, we do not unsubscribe from it.
+    /// Unsubscriptions are scheduled even if we are subscribed to long-lived subnets. When it's
+    /// time to unsubscribe from a subnet, if it exists as a long-lived subnet, we do not
+    /// unsubscribe from it.
     fn handle_unsubscriptions(&mut self, exact_subnet: ExactSubnet) {
-        // Check if the subnet currently exists as a long-lasting random subnet
-        #[cfg(not(feature = "deterministic_long_lived_attnets"))]
-        if self.random_subnets.contains(&exact_subnet.subnet_id) {
-            return;
+        // Check if the subnet currently exists as a long-lived subnet
+        {
+            #[cfg(not(feature = "deterministic_long_lived_attnets"))]
+            if self.random_subnets.contains(&exact_subnet.subnet_id) {
+                return;
+            }
+
+            #[cfg(feature = "deterministic_long_lived_attnets")]
+            if self.long_lived_subnets.contains(&exact_subnet.subnet_id) {
+                return;
+            }
         }
 
         debug!(self.log, "Unsubscribing from subnet"; "subnet" => *exact_subnet.subnet_id, "processed_slot" => exact_subnet.slot.as_u64());
@@ -653,6 +661,7 @@ impl<T: BeaconChainTypes> AttestationService<T> {
             .push_back(SubnetServiceMessage::Unsubscribe(Subnet::Attestation(
                 exact_subnet.subnet_id,
             )));
+        // TODO: where do we ensure the ENR is updated?
     }
 
     /// A random subnet has expired.
