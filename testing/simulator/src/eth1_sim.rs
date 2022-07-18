@@ -32,7 +32,7 @@ pub fn run_eth1_sim(matches: &ArgMatches) -> Result<(), String> {
     let speed_up_factor =
         value_t!(matches, "speed_up_factor", u64).expect("missing speed_up_factor default");
     let continue_after_checks = matches.is_present("continue_after_checks");
-    let post_merge_sim = matches.is_present("post_merge");
+    let post_merge_sim = matches.is_present("post-merge");
 
     println!("Beacon Chain Simulator:");
     println!(" nodes:{}", node_count);
