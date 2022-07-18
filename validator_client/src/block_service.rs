@@ -319,6 +319,7 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
         let self_ref = &self;
         let proposer_index = self.validator_store.validator_index(&validator_pubkey);
         let validator_pubkey_ref = &validator_pubkey;
+        let fee_recipient = self.validator_store.get_fee_recipient(&validator_pubkey);
         // Request block from first responsive beacon node.
         let block = self
             .beacon_nodes
@@ -363,7 +364,14 @@ impl<T: SlotClock + 'static, E: EthSpec> BlockService<T, E> {
                 };
                 drop(get_timer);
 
-                //TODO(sean) check against local val registration. This means we have to move the val registration cache to validator store
+                // Ensure the correctness of the execution payload's fee recipient.
+                if let Ok(execution_payload) = block.body().execution_payload() {
+                    if Some(execution_payload.fee_recipient()) != fee_recipient {
+                        return Err(BlockError::Recoverable(
+                            "Incorrect fee recipient used by builder".to_string(),
+                        ));
+                    }
+                }
 
                 if proposer_index != Some(block.proposer_index()) {
                     return Err(BlockError::Recoverable(

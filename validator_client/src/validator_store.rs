@@ -52,6 +52,11 @@ impl From<SigningError> for Error {
 /// This acts as a maximum safe-guard against clock drift.
 const SLASHING_PROTECTION_HISTORY_EPOCHS: u64 = 512;
 
+/// Currently used as the default gas limit in execution clients.
+///
+/// https://github.com/ethereum/builder-specs/issues/17
+const DEFAULT_GAS_LIMIT: u64 = 30_000_000;
+
 struct LocalValidator {
     validator_dir: ValidatorDir,
     voting_keypair: Keypair,
@@ -87,6 +92,7 @@ pub struct ValidatorStore<T, E: EthSpec> {
     doppelganger_service: Option<Arc<DoppelgangerService>>,
     slot_clock: T,
     fee_recipient_process: Option<Address>,
+    gas_limit: Option<u64>,
     task_executor: TaskExecutor,
     _phantom: PhantomData<E>,
 }
@@ -103,6 +109,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
         doppelganger_service: Option<Arc<DoppelgangerService>>,
         slot_clock: T,
         fee_recipient_process: Option<Address>,
+        gas_limit: Option<u64>,
         task_executor: TaskExecutor,
         log: Logger,
     ) -> Self {
@@ -116,6 +123,7 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
             doppelganger_service,
             slot_clock,
             fee_recipient_process,
+            gas_limit,
             task_executor,
             _phantom: PhantomData,
         }
@@ -153,12 +161,14 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
         enable: bool,
         graffiti: Option<GraffitiString>,
         suggested_fee_recipient: Option<Address>,
+        gas_limit: Option<u64>,
     ) -> Result<ValidatorDefinition, String> {
         let mut validator_def = ValidatorDefinition::new_keystore_with_password(
             voting_keystore_path,
             Some(password),
             graffiti.map(Into::into),
             suggested_fee_recipient,
+            gas_limit,
         )
         .map_err(|e| format!("failed to create validator definitions: {:?}", e))?;
 
@@ -377,6 +387,23 @@ impl<T: SlotClock + 'static, E: EthSpec> ValidatorStore<T, E> {
         self.validators
             .read()
             .suggested_fee_recipient(validator_pubkey)
+    }
+
+    /// Returns the gas limit for the given public key. The priority order for fetching
+    /// the gas limit is:
+    /// 1. validator_definitions.yml
+    /// 2. process level fee recipient
+    /// 3. `DEFAULT_GAS_LIMIT`
+    pub fn get_gas_limit(&self, validator_pubkey: &PublicKeyBytes) -> u64 {
+        // If there is a `suggested_fee_recipient` in the validator definitions yaml
+        // file, use that value.
+        self.validators
+            .read()
+            .gas_limit(validator_pubkey)
+            // If there's nothing in the file, try the process-level default value.
+            .or(self.gas_limit)
+            // If there's no process-level default, use the `DEFAULT_GAS_LIMIT`.
+            .unwrap_or(DEFAULT_GAS_LIMIT)
     }
 
     pub async fn sign_block<Payload: ExecPayload<E>>(

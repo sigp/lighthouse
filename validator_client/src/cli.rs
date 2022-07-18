@@ -259,4 +259,14 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
                     execution payload construction during proposals.")
                 .takes_value(false),
         )
+        .arg(
+            Arg::with_name("gas-limit")
+                .long("gas-limit")
+                .value_name("INTEGER")
+                .takes_value(true)
+                .help("The gas limit to be used in all builder proposals for all validators managed \
+                    by this validator client. Note this will not necessarily be used if the gas limit \
+                    set here moves too far from the previous block's gas limit. [default: 30,000,000]")
+                .requires("builder-proposals"),
+    )
 }

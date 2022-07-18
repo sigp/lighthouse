@@ -363,6 +363,7 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
             doppelganger_service.clone(),
             slot_clock.clone(),
             config.fee_recipient,
+            config.gas_limit,
             context.executor.clone(),
             log.clone(),
         ));
@@ -413,7 +414,7 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
             .runtime_context(context.service_context("block".into()))
             .graffiti(config.graffiti)
             .graffiti_file(config.graffiti_file.clone())
-            .private_tx_proposals(config.private_tx_proposals)
+            .private_tx_proposals(config.builder_proposals)
             .build()?;
 
         let attestation_service = AttestationServiceBuilder::new()
@@ -487,7 +488,7 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
         self.preparation_service
             .clone()
             .start_update_service(
-                self.config.private_tx_proposals,
+                self.config.builder_proposals,
                 &self.context.eth2_config.spec,
             )
             .map_err(|e| format!("Unable to start preparation service: {}", e))?;

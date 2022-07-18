@@ -251,7 +251,7 @@ impl<T: SlotClock + 'static, E: EthSpec> PreparationService<T, E> {
     }
 
     fn collect_preparation_data(&self, spec: &ChainSpec) -> Vec<ProposerPreparationData> {
-        self.collect_data(spec, |_, validator_index, fee_recipient| {
+        self.collect_data(spec, |_, validator_index, fee_recipient, _| {
             ProposerPreparationData {
                 validator_index,
                 fee_recipient,
@@ -263,12 +263,10 @@ impl<T: SlotClock + 'static, E: EthSpec> PreparationService<T, E> {
         &self,
         spec: &ChainSpec,
     ) -> Vec<ValidatorRegistrationKey> {
-        self.collect_data(spec, |pubkey, _, fee_recipient| {
+        self.collect_data(spec, |pubkey, _, fee_recipient, gas_limit| {
             ValidatorRegistrationKey {
                 fee_recipient,
-                //TODO(sean) this is geth's default, we should make this configurable and maybe have the default be dynamic.
-                // Discussion here: https://github.com/ethereum/builder-specs/issues/17
-                gas_limit: 30_000_000,
+                gas_limit,
                 pubkey,
             }
         })
@@ -276,7 +274,7 @@ impl<T: SlotClock + 'static, E: EthSpec> PreparationService<T, E> {
 
     fn collect_data<G, U>(&self, spec: &ChainSpec, map_fn: G) -> Vec<U>
     where
-        G: Fn(PublicKeyBytes, u64, Address) -> U,
+        G: Fn(PublicKeyBytes, u64, Address, u64) -> U,
     {
         let log = self.context.log();
 
@@ -290,9 +288,10 @@ impl<T: SlotClock + 'static, E: EthSpec> PreparationService<T, E> {
                 // Ignore fee recipients for keys without indices, they are inactive.
                 let validator_index = self.validator_store.validator_index(&pubkey)?;
                 let fee_recipient = self.validator_store.get_fee_recipient(&pubkey);
+                let gas_limit = self.validator_store.get_gas_limit(&pubkey);
 
                 if let Some(fee_recipient) = fee_recipient {
-                    Some(map_fn(pubkey, validator_index, fee_recipient))
+                    Some(map_fn(pubkey, validator_index, fee_recipient, gas_limit))
                 } else {
                     if spec.bellatrix_fork_epoch.is_some() {
                         error!(

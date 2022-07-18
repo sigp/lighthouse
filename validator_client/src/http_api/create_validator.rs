@@ -140,6 +140,7 @@ pub async fn create_validators_mnemonic<P: AsRef<Path>, T: 'static + SlotClock, 
                 request.enable,
                 request.graffiti.clone(),
                 request.suggested_fee_recipient,
+                request.gas_limit,
             )
             .await
             .map_err(|e| {

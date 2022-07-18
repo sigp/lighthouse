@@ -109,6 +109,7 @@ pub struct InitializedValidator {
     signing_method: Arc<SigningMethod>,
     graffiti: Option<Graffiti>,
     suggested_fee_recipient: Option<Address>,
+    gas_limit: Option<u64>,
     /// The validators index in `state.validators`, to be updated by an external service.
     index: Option<u64>,
 }
@@ -291,6 +292,7 @@ impl InitializedValidator {
             signing_method: Arc::new(signing_method),
             graffiti: def.graffiti.map(Into::into),
             suggested_fee_recipient: def.suggested_fee_recipient,
+            gas_limit: def.gas_limit,
             index: None,
         })
     }
@@ -585,7 +587,13 @@ impl InitializedValidators {
             .and_then(|v| v.suggested_fee_recipient)
     }
 
-    /// Sets the `InitializedValidator` and `ValidatorDefinition` `enabled` values.
+    /// Returns the `gas_limit` for a given public key specified in the
+    /// `ValidatorDefinitions`.
+    pub fn gas_limit(&self, public_key: &PublicKeyBytes) -> Option<u64> {
+        self.validators.get(public_key).and_then(|v| v.gas_limit)
+    }
+
+    /// Sets the `InitializedValidator` and `ValidatorDefinition` `enabled` and `gas_limit` values.
     ///
     /// ## Notes
     ///
@@ -593,11 +601,16 @@ impl InitializedValidators {
     /// disk. A newly enabled validator will be added to `self.validators`, whilst a newly disabled
     /// validator will be removed from `self.validators`.
     ///
+    /// If a `gas_limit` is included in the call to this function, it will also be updated and saved
+    /// to disk. If `gas_limit` is `None` the `gas_limit` *will not* be unset in `ValidatorDefinition`
+    /// or `InitializedValidator`.
+    ///
     /// Saves the `ValidatorDefinitions` to file, even if no definitions were changed.
-    pub async fn set_validator_status(
+    pub async fn set_validator_definition_fields(
         &mut self,
         voting_public_key: &PublicKey,
-        enabled: bool,
+        enabled: Option<bool>,
+        gas_limit: Option<u64>,
     ) -> Result<(), Error> {
         if let Some(def) = self
             .definitions
@@ -605,7 +618,13 @@ impl InitializedValidators {
             .iter_mut()
             .find(|def| def.voting_public_key == *voting_public_key)
         {
-            def.enabled = enabled;
+            // Don't overwrite fields if they are not set in this request.
+            if let Some(enabled) = enabled {
+                def.enabled = enabled;
+            }
+            if let Some(gas_limit) = gas_limit {
+                def.gas_limit = Some(gas_limit);
+            }
         }
 
         self.update_validators().await?;

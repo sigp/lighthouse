@@ -52,7 +52,10 @@ pub struct Config {
     /// If true, enable functionality that monitors the network for attestations or proposals from
     /// any of the validators managed by this client before starting up.
     pub enable_doppelganger_protection: bool,
-    pub private_tx_proposals: bool,
+    /// Enable use of the blinded block endpoints during proposals.
+    pub builder_proposals: bool,
+    /// Fallback gas limit.
+    pub gas_limit: Option<u64>,
     /// A list of custom certificates that the validator client will additionally use when
     /// connecting to a beacon node over SSL/TLS.
     pub beacon_nodes_tls_certs: Option<Vec<PathBuf>>,
@@ -88,7 +91,8 @@ impl Default for Config {
             monitoring_api: None,
             enable_doppelganger_protection: false,
             beacon_nodes_tls_certs: None,
-            private_tx_proposals: false,
+            builder_proposals: false,
+            gas_limit: None,
         }
     }
 }
@@ -297,8 +301,17 @@ impl Config {
         }
 
         if cli_args.is_present("builder-proposals") {
-            config.private_tx_proposals = true;
+            config.builder_proposals = true;
         }
+
+        config.gas_limit = cli_args
+            .value_of("gas-limit")
+            .map(|gas_limit| {
+                gas_limit
+                    .parse::<u64>()
+                    .map_err(|_| "gas-limit is not a valid u64.")
+            })
+            .transpose()?;
 
         Ok(config)
     }

@@ -311,6 +311,7 @@ mod tests {
                 None,
                 slot_clock,
                 None,
+                None,
                 executor,
                 log.clone(),
             );
@@ -359,6 +360,7 @@ mod tests {
                     voting_public_key: validator_pubkey.clone(),
                     graffiti: None,
                     suggested_fee_recipient: None,
+                    gas_limit: None,
                     description: String::default(),
                     signing_definition: SigningDefinition::LocalKeystore {
                         voting_keystore_path: signer_rig.keystore_path.clone(),
@@ -375,6 +377,7 @@ mod tests {
                     voting_public_key: validator_pubkey.clone(),
                     graffiti: None,
                     suggested_fee_recipient: None,
+                    gas_limit: None,
                     description: String::default(),
                     signing_definition: SigningDefinition::Web3Signer {
                         url: signer_rig.url.to_string(),

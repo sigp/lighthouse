@@ -26,6 +26,9 @@ pub struct ValidatorRequest {
     #[serde(default)]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub suggested_fee_recipient: Option<Address>,
+    #[serde(default)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub gas_limit: Option<u64>,
     #[serde(with = "eth2_serde_utils::quoted_u64")]
     pub deposit_gwei: u64,
 }
@@ -62,7 +65,12 @@ pub struct PostValidatorsResponseData {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ValidatorPatchRequest {
-    pub enabled: bool,
+    #[serde(default)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub enabled: Option<bool>,
+    #[serde(default)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub gas_limit: Option<u64>,
 }
 
 #[derive(Clone, PartialEq, Serialize, Deserialize)]
@@ -72,6 +80,7 @@ pub struct KeystoreValidatorsPostRequest {
     pub keystore: Keystore,
     pub graffiti: Option<GraffitiString>,
     pub suggested_fee_recipient: Option<Address>,
+    pub gas_limit: Option<u64>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -84,6 +93,9 @@ pub struct Web3SignerValidatorRequest {
     #[serde(default)]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub suggested_fee_recipient: Option<Address>,
+    #[serde(default)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub gas_limit: Option<u64>,
     pub voting_public_key: PublicKey,
     pub url: String,
     #[serde(default)]

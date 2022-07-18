@@ -104,6 +104,7 @@ impl ApiTester {
             Some(Arc::new(DoppelgangerService::new(log.clone()))),
             slot_clock,
             Some(TEST_DEFAULT_FEE_RECIPIENT),
+            None,
             executor.clone(),
             log.clone(),
         ));
@@ -270,6 +271,7 @@ impl ApiTester {
                 description: format!("boi #{}", i),
                 graffiti: None,
                 suggested_fee_recipient: None,
+                gas_limit: None,
                 deposit_gwei: E::default_spec().max_effective_balance,
             })
             .collect::<Vec<_>>();
@@ -401,6 +403,7 @@ impl ApiTester {
                 keystore,
                 graffiti: None,
                 suggested_fee_recipient: None,
+                gas_limit: None,
             };
 
             self.client
@@ -419,6 +422,7 @@ impl ApiTester {
             keystore,
             graffiti: None,
             suggested_fee_recipient: None,
+            gas_limit: None,
         };
 
         let response = self
@@ -455,6 +459,7 @@ impl ApiTester {
                     description: format!("{}", i),
                     graffiti: None,
                     suggested_fee_recipient: None,
+                    gas_limit: None,
                     voting_public_key: kp.pk,
                     url: format!("http://signer_{}.com/", i),
                     root_certificate_path: None,
@@ -484,7 +489,7 @@ impl ApiTester {
         let validator = &self.client.get_lighthouse_validators().await.unwrap().data[index];
 
         self.client
-            .patch_lighthouse_validators(&validator.voting_pubkey, enabled)
+            .patch_lighthouse_validators(&validator.voting_pubkey, Some(enabled), None)
             .await
             .unwrap();
 
@@ -517,6 +522,25 @@ impl ApiTester {
                 .data
                 .enabled,
             enabled
+        );
+
+        self
+    }
+
+    pub async fn set_gas_limit(self, index: usize, gas_limit: u64) -> Self {
+        let validator = &self.client.get_lighthouse_validators().await.unwrap().data[index];
+
+        self.client
+            .patch_lighthouse_validators(&validator.voting_pubkey, None, Some(gas_limit))
+            .await
+            .unwrap();
+
+        assert_eq!(
+            self.initialized_validators
+                .read()
+                .gas_limit(&validator.voting_pubkey)
+                .unwrap(),
+            gas_limit
         );
 
         self
@@ -583,6 +607,7 @@ fn routes_with_invalid_auth() {
                         description: <_>::default(),
                         graffiti: <_>::default(),
                         suggested_fee_recipient: <_>::default(),
+                        gas_limit: <_>::default(),
                         deposit_gwei: <_>::default(),
                     }])
                     .await
@@ -612,13 +637,14 @@ fn routes_with_invalid_auth() {
                         keystore,
                         graffiti: <_>::default(),
                         suggested_fee_recipient: <_>::default(),
+                        gas_limit: <_>::default(),
                     })
                     .await
             })
             .await
             .test_with_invalid_auth(|client| async move {
                 client
-                    .patch_lighthouse_validators(&PublicKeyBytes::empty(), false)
+                    .patch_lighthouse_validators(&PublicKeyBytes::empty(), Some(false), None)
                     .await
             })
             .await
@@ -732,6 +758,33 @@ fn validator_enabling() {
             .await
             .assert_enabled_validators_count(2)
             .assert_validators_count(2);
+    });
+}
+
+#[test]
+fn validator_gas_limit() {
+    let runtime = build_runtime();
+    let weak_runtime = Arc::downgrade(&runtime);
+    runtime.block_on(async {
+        ApiTester::new(weak_runtime)
+            .await
+            .create_hd_validators(HdValidatorScenario {
+                count: 2,
+                specify_mnemonic: false,
+                key_derivation_path_offset: 0,
+                disabled: vec![],
+            })
+            .await
+            .assert_enabled_validators_count(2)
+            .assert_validators_count(2)
+            .set_gas_limit(0, 500)
+            .await
+            .set_validator_enabled(0, false)
+            .await
+            .assert_enabled_validators_count(1)
+            .assert_validators_count(2)
+            .set_gas_limit(0, 1000)
+            .await
     });
 }
 
