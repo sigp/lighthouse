@@ -169,7 +169,7 @@ jobs:
     - name: Install ganache
       run: sudo npm install -g ganache
     - name: Run the beacon chain sim and go through the merge transition
-      run: cargo run --release --bin simulator eth1-sim --post_merge
+      run: cargo run --release --bin simulator eth1-sim --post-merge
   no-eth1-simulator-ubuntu:
     name: no-eth1-simulator-ubuntu
     runs-on: ubuntu-latest
