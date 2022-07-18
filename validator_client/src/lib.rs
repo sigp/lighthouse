@@ -20,10 +20,10 @@ pub mod validator_store;
 
 pub use cli::cli_app;
 pub use config::Config;
-use sensitive_url::SensitiveUrl;
 use initialized_validators::InitializedValidators;
 use lighthouse_metrics::set_gauge;
 use monitoring_api::{MonitoringHttpClient, ProcessType};
+use sensitive_url::SensitiveUrl;
 pub use slashing_protection::{SlashingDatabase, SLASHING_PROTECTION_FILENAME};
 
 use crate::beacon_node_fallback::{
@@ -247,54 +247,53 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
             .checked_sub(1)
             .ok_or_else(|| "No beacon nodes defined.".to_string())?;
 
-
         let beacon_node_setup = |x: (usize, &SensitiveUrl)| {
-                let i = x.0;
-                let url = x.1;
-                let slot_duration = Duration::from_secs(context.eth2_config.spec.seconds_per_slot);
+            let i = x.0;
+            let url = x.1;
+            let slot_duration = Duration::from_secs(context.eth2_config.spec.seconds_per_slot);
 
-                let mut beacon_node_http_client_builder = ClientBuilder::new();
+            let mut beacon_node_http_client_builder = ClientBuilder::new();
 
-                // Add new custom root certificates if specified.
-                if let Some(certificates) = &config.beacon_nodes_tls_certs {
-                    for cert in certificates {
-                        beacon_node_http_client_builder = beacon_node_http_client_builder
-                            .add_root_certificate(load_pem_certificate(cert)?);
-                    }
+            // Add new custom root certificates if specified.
+            if let Some(certificates) = &config.beacon_nodes_tls_certs {
+                for cert in certificates {
+                    beacon_node_http_client_builder = beacon_node_http_client_builder
+                        .add_root_certificate(load_pem_certificate(cert)?);
                 }
+            }
 
-                let beacon_node_http_client = beacon_node_http_client_builder
-                    // Set default timeout to be the full slot duration.
-                    .timeout(slot_duration)
-                    .build()
-                    .map_err(|e| format!("Unable to build HTTP client: {:?}", e))?;
+            let beacon_node_http_client = beacon_node_http_client_builder
+                // Set default timeout to be the full slot duration.
+                .timeout(slot_duration)
+                .build()
+                .map_err(|e| format!("Unable to build HTTP client: {:?}", e))?;
 
-                // Use quicker timeouts if a fallback beacon node exists.
-                let timeouts = if i < last_beacon_node_index && !config.use_long_timeouts {
-                    info!(
-                        log,
-                        "Fallback endpoints are available, using optimized timeouts.";
-                    );
-                    Timeouts {
-                        attestation: slot_duration / HTTP_ATTESTATION_TIMEOUT_QUOTIENT,
-                        attester_duties: slot_duration / HTTP_ATTESTER_DUTIES_TIMEOUT_QUOTIENT,
-                        liveness: slot_duration / HTTP_LIVENESS_TIMEOUT_QUOTIENT,
-                        proposal: slot_duration / HTTP_PROPOSAL_TIMEOUT_QUOTIENT,
-                        proposer_duties: slot_duration / HTTP_PROPOSER_DUTIES_TIMEOUT_QUOTIENT,
-                        sync_committee_contribution: slot_duration
-                            / HTTP_SYNC_COMMITTEE_CONTRIBUTION_TIMEOUT_QUOTIENT,
-                        sync_duties: slot_duration / HTTP_SYNC_DUTIES_TIMEOUT_QUOTIENT,
-                    }
-                } else {
-                    Timeouts::set_all(slot_duration)
-                };
-
-                Ok(BeaconNodeHttpClient::from_components(
-                    url.clone(),
-                    beacon_node_http_client,
-                    timeouts,
-                ))
+            // Use quicker timeouts if a fallback beacon node exists.
+            let timeouts = if i < last_beacon_node_index && !config.use_long_timeouts {
+                info!(
+                    log,
+                    "Fallback endpoints are available, using optimized timeouts.";
+                );
+                Timeouts {
+                    attestation: slot_duration / HTTP_ATTESTATION_TIMEOUT_QUOTIENT,
+                    attester_duties: slot_duration / HTTP_ATTESTER_DUTIES_TIMEOUT_QUOTIENT,
+                    liveness: slot_duration / HTTP_LIVENESS_TIMEOUT_QUOTIENT,
+                    proposal: slot_duration / HTTP_PROPOSAL_TIMEOUT_QUOTIENT,
+                    proposer_duties: slot_duration / HTTP_PROPOSER_DUTIES_TIMEOUT_QUOTIENT,
+                    sync_committee_contribution: slot_duration
+                        / HTTP_SYNC_COMMITTEE_CONTRIBUTION_TIMEOUT_QUOTIENT,
+                    sync_duties: slot_duration / HTTP_SYNC_DUTIES_TIMEOUT_QUOTIENT,
+                }
+            } else {
+                Timeouts::set_all(slot_duration)
             };
+
+            Ok(BeaconNodeHttpClient::from_components(
+                url.clone(),
+                beacon_node_http_client,
+                timeouts,
+            ))
+        };
 
         let beacon_nodes: Vec<BeaconNodeHttpClient> = config
             .beacon_nodes
@@ -342,8 +341,11 @@ impl<T: EthSpec> ProductionValidatorClient<T> {
         let mut beacon_nodes: BeaconNodeFallback<_, T> =
             BeaconNodeFallback::new(candidates, context.eth2_config.spec.clone(), log.clone());
 
-        let mut proposer_nodes: BeaconNodeFallback<_, T> =
-            BeaconNodeFallback::new(proposer_candidates, context.eth2_config.spec.clone(), log.clone());
+        let mut proposer_nodes: BeaconNodeFallback<_, T> = BeaconNodeFallback::new(
+            proposer_candidates,
+            context.eth2_config.spec.clone(),
+            log.clone(),
+        );
 
         // Perform some potentially long-running initialization tasks.
         let (genesis_time, genesis_validators_root) = tokio::select! {
@@ -611,7 +613,7 @@ async fn init_from_beacon_node<E: EthSpec>(
                 "available" => num_available,
             );
             break;
-        } else if num_available > 0  {
+        } else if num_available > 0 {
             info!(
                 context.log(),
                 "Initialized beacon node connections";
