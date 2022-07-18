@@ -842,6 +842,7 @@ pub fn set_network_config(
         config.subscribe_all_subnets = false;
         config.target_peers = 15;
         config.proposer_only = true;
+        warn!(log, "Proposer-only mode enabled"; "info"=> "Do not connect a validator client to this node unless via the --proposer-nodes flag");
     }
 
     // A custom target-peers command will overwrite the --proposer-only default.
