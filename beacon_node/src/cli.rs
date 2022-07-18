@@ -93,7 +93,6 @@ pub fn cli_app<'a, 'b>() -> App<'a, 'b> {
             Arg::with_name("target-peers")
                 .long("target-peers")
                 .help("The target number of peers.")
-                .default_value("80")
                 .takes_value(true),
         )
         .arg(

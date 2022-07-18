@@ -667,6 +667,15 @@ pub fn set_network_config(
         config.listen_address = listen_address;
     }
 
+    // A custom target-peers command will overwrite the --proposer-only default.
+    if let Some(target_peers_str) = cli_args.value_of("target-peers") {
+        config.target_peers = target_peers_str
+            .parse::<usize>()
+            .map_err(|_| format!("Invalid number of target peers: {}", target_peers_str))?;
+    } else {
+        config.target_peers = 80; // default value
+    }
+
     if let Some(port_str) = cli_args.value_of("port") {
         let port = port_str
             .parse::<u16>()
@@ -840,16 +849,13 @@ pub fn set_network_config(
     // of peers.
     if cli_args.is_present("proposer-only") {
         config.subscribe_all_subnets = false;
-        config.target_peers = 15;
+
+        if cli_args.value_of("target-peers").is_none() {
+            // If a custom value is not set, change the default to 15
+            config.target_peers = 15;
+        }
         config.proposer_only = true;
         warn!(log, "Proposer-only mode enabled"; "info"=> "Do not connect a validator client to this node unless via the --proposer-nodes flag");
-    }
-
-    // A custom target-peers command will overwrite the --proposer-only default.
-    if let Some(target_peers_str) = cli_args.value_of("target-peers") {
-        config.target_peers = target_peers_str
-            .parse::<usize>()
-            .map_err(|_| format!("Invalid number of target peers: {}", target_peers_str))?;
     }
 
     Ok(())
