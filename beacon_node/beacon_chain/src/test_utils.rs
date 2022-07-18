@@ -30,6 +30,7 @@ use rayon::prelude::*;
 use sensitive_url::SensitiveUrl;
 use slog::Logger;
 use slot_clock::TestingSlotClock;
+use state_processing::per_block_processing::compute_timestamp_at_slot;
 use state_processing::{
     state_advance::{complete_state_advance, partial_state_advance},
     StateRootStrategy,
@@ -519,6 +520,11 @@ where
 
     pub fn get_current_state(&self) -> BeaconState<E> {
         self.chain.head_beacon_state_cloned()
+    }
+
+    pub fn get_timestamp_at_slot(&self) -> u64 {
+        let state = self.get_current_state();
+        compute_timestamp_at_slot(&state, &self.spec).unwrap()
     }
 
     pub fn get_current_state_and_root(&self) -> (BeaconState<E>, Hash256) {

@@ -219,7 +219,7 @@ impl<E: GenericExecutionEngine> TestRig<E> {
         let terminal_pow_block_hash = self
             .ee_a
             .execution_layer
-            .get_terminal_pow_block_hash(&self.spec)
+            .get_terminal_pow_block_hash(&self.spec, timestamp_now())
             .await
             .unwrap()
             .unwrap();
@@ -228,7 +228,7 @@ impl<E: GenericExecutionEngine> TestRig<E> {
             terminal_pow_block_hash,
             self.ee_b
                 .execution_layer
-                .get_terminal_pow_block_hash(&self.spec)
+                .get_terminal_pow_block_hash(&self.spec, timestamp_now())
                 .await
                 .unwrap()
                 .unwrap()

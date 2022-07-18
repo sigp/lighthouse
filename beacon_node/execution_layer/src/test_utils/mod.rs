@@ -6,7 +6,7 @@ use crate::engine_api::{
 };
 use bytes::Bytes;
 use environment::null_logger;
-use execution_block_generator::{Block, PoWBlock};
+use execution_block_generator::PoWBlock;
 use handle_rpc::handle_rpc;
 use parking_lot::{Mutex, RwLock, RwLockWriteGuard};
 use serde::{Deserialize, Serialize};
@@ -21,7 +21,7 @@ use tokio::{runtime, sync::oneshot};
 use types::{EthSpec, ExecutionBlockHash, Uint256};
 use warp::{http::StatusCode, Filter, Rejection};
 
-pub use execution_block_generator::{generate_pow_block, ExecutionBlockGenerator};
+pub use execution_block_generator::{generate_pow_block, Block, ExecutionBlockGenerator};
 pub use mock_execution_layer::MockExecutionLayer;
 
 pub const DEFAULT_TERMINAL_DIFFICULTY: u64 = 6400;
@@ -334,6 +334,7 @@ impl<T: EthSpec> MockServer<T> {
             block_hash,
             parent_hash,
             total_difficulty,
+            timestamp: block_number,
         });
 
         self.ctx

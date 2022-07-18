@@ -902,6 +902,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
     pub async fn get_terminal_pow_block_hash(
         &self,
         spec: &ChainSpec,
+        timestamp: u64,
     ) -> Result<Option<ExecutionBlockHash>, Error> {
         let _timer = metrics::start_timer_vec(
             &metrics::EXECUTION_LAYER_REQUEST_TIMES,
@@ -924,8 +925,19 @@ impl<T: EthSpec> ExecutionLayer<T> {
                     }
                 }
 
-                self.get_pow_block_hash_at_total_difficulty(engine, spec)
-                    .await
+                let block = self.get_pow_block_at_total_difficulty(engine, spec).await?;
+                if let Some(pow_block) = block {
+                    // If `terminal_block.timestamp == transition_block.timestamp`,
+                    // we violate the invariant that a block's timestamp must be
+                    // strictly greater than its parent's timestamp.
+                    // The execution layer will reject a fcu call with such payload
+                    // attributes leading to a missed block.
+                    // Hence, we return `None` in such a case.
+                    if pow_block.timestamp >= timestamp {
+                        return Ok(None);
+                    }
+                }
+                Ok(block.map(|b| b.block_hash))
             })
             .await
             .map_err(Box::new)
@@ -953,11 +965,11 @@ impl<T: EthSpec> ExecutionLayer<T> {
     /// `get_pow_block_at_terminal_total_difficulty`
     ///
     /// https://github.com/ethereum/consensus-specs/blob/v1.1.5/specs/merge/validator.md
-    async fn get_pow_block_hash_at_total_difficulty(
+    async fn get_pow_block_at_total_difficulty(
         &self,
         engine: &Engine,
         spec: &ChainSpec,
-    ) -> Result<Option<ExecutionBlockHash>, ApiError> {
+    ) -> Result<Option<ExecutionBlock>, ApiError> {
         let mut block = engine
             .api
             .get_block_by_number(BlockByNumberQuery::Tag(LATEST_TAG))
@@ -970,7 +982,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
             let block_reached_ttd = block.total_difficulty >= spec.terminal_total_difficulty;
             if block_reached_ttd {
                 if block.parent_hash == ExecutionBlockHash::zero() {
-                    return Ok(Some(block.block_hash));
+                    return Ok(Some(block));
                 }
                 let parent = self
                     .get_pow_block(engine, block.parent_hash)
@@ -979,7 +991,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
                 let parent_reached_ttd = parent.total_difficulty >= spec.terminal_total_difficulty;
 
                 if block_reached_ttd && !parent_reached_ttd {
-                    return Ok(Some(block.block_hash));
+                    return Ok(Some(block));
                 } else {
                     block = parent;
                 }
@@ -1197,14 +1209,49 @@ mod test {
             .move_to_block_prior_to_terminal_block()
             .with_terminal_block(|spec, el, _| async move {
                 el.engine().upcheck().await;
-                assert_eq!(el.get_terminal_pow_block_hash(&spec).await.unwrap(), None)
+                assert_eq!(
+                    el.get_terminal_pow_block_hash(&spec, timestamp_now())
+                        .await
+                        .unwrap(),
+                    None
+                )
             })
             .await
             .move_to_terminal_block()
             .with_terminal_block(|spec, el, terminal_block| async move {
                 assert_eq!(
-                    el.get_terminal_pow_block_hash(&spec).await.unwrap(),
+                    el.get_terminal_pow_block_hash(&spec, timestamp_now())
+                        .await
+                        .unwrap(),
                     Some(terminal_block.unwrap().block_hash)
+                )
+            })
+            .await;
+    }
+
+    #[tokio::test]
+    async fn rejects_terminal_block_with_equal_timestamp() {
+        let runtime = TestRuntime::default();
+        MockExecutionLayer::default_params(runtime.task_executor.clone())
+            .move_to_block_prior_to_terminal_block()
+            .with_terminal_block(|spec, el, _| async move {
+                el.engine().upcheck().await;
+                assert_eq!(
+                    el.get_terminal_pow_block_hash(&spec, timestamp_now())
+                        .await
+                        .unwrap(),
+                    None
+                )
+            })
+            .await
+            .move_to_terminal_block()
+            .with_terminal_block(|spec, el, terminal_block| async move {
+                let timestamp = terminal_block.as_ref().map(|b| b.timestamp).unwrap();
+                assert_eq!(
+                    el.get_terminal_pow_block_hash(&spec, timestamp)
+                        .await
+                        .unwrap(),
+                    None
                 )
             })
             .await;
@@ -1268,4 +1315,13 @@ mod test {
 
 fn noop<T: EthSpec>(_: &ExecutionLayer<T>, _: &ExecutionPayload<T>) -> Option<ExecutionPayload<T>> {
     None
+}
+
+#[cfg(test)]
+/// Returns the duration since the unix epoch.
+fn timestamp_now() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_else(|_| Duration::from_secs(0))
+        .as_secs()
 }

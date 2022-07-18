@@ -3908,14 +3908,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 ForkName::Base | ForkName::Altair => return Ok(()),
                 _ => {
                     // We are post-bellatrix
-                    if execution_layer
+                    if let Some(payload_attributes) = execution_layer
                         .payload_attributes(next_slot, params.head_root)
                         .await
-                        .is_some()
                     {
                         // We are a proposer, check for terminal_pow_block_hash
                         if let Some(terminal_pow_block_hash) = execution_layer
-                            .get_terminal_pow_block_hash(&self.spec)
+                            .get_terminal_pow_block_hash(&self.spec, payload_attributes.timestamp)
                             .await
                             .map_err(Error::ForkchoiceUpdate)?
                         {

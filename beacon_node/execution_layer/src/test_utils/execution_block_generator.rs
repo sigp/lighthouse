@@ -60,12 +60,14 @@ impl<T: EthSpec> Block<T> {
                 block_number: block.block_number,
                 parent_hash: block.parent_hash,
                 total_difficulty: block.total_difficulty,
+                timestamp: block.timestamp,
             },
             Block::PoS(payload) => ExecutionBlock {
                 block_hash: payload.block_hash,
                 block_number: payload.block_number,
                 parent_hash: payload.parent_hash,
                 total_difficulty,
+                timestamp: payload.timestamp,
             },
         }
     }
@@ -100,6 +102,7 @@ pub struct PoWBlock {
     pub block_hash: ExecutionBlockHash,
     pub parent_hash: ExecutionBlockHash,
     pub total_difficulty: Uint256,
+    pub timestamp: u64,
 }
 
 pub struct ExecutionBlockGenerator<T: EthSpec> {
@@ -266,6 +269,26 @@ impl<T: EthSpec> ExecutionBlockGenerator<T> {
         Ok(())
     }
 
+    pub fn modify_last_block(&mut self, block_modifier: impl FnOnce(&mut Block<T>)) {
+        if let Some((last_block_hash, block_number)) =
+            self.block_hashes.keys().max().and_then(|block_number| {
+                self.block_hashes
+                    .get(block_number)
+                    .map(|block| (block, *block_number))
+            })
+        {
+            let mut block = self.blocks.remove(last_block_hash).unwrap();
+            block_modifier(&mut block);
+            // Update the block hash after modifying the block
+            match &mut block {
+                Block::PoW(b) => b.block_hash = ExecutionBlockHash::from_root(b.tree_hash_root()),
+                Block::PoS(b) => b.block_hash = ExecutionBlockHash::from_root(b.tree_hash_root()),
+            }
+            self.block_hashes.insert(block_number, block.block_hash());
+            self.blocks.insert(block.block_hash(), block);
+        }
+    }
+
     pub fn get_payload(&mut self, id: &PayloadId) -> Option<ExecutionPayload<T>> {
         self.payload_ids.get(id).cloned()
     }
@@ -423,6 +446,7 @@ pub fn generate_pow_block(
         block_hash: ExecutionBlockHash::zero(),
         parent_hash,
         total_difficulty,
+        timestamp: block_number,
     };
 
     block.block_hash = ExecutionBlockHash::from_root(block.tree_hash_root());
