@@ -22,7 +22,7 @@ use beacon_chain::{
     attestation_verification::VerifiedAttestation,
     observed_operations::ObservationOutcome,
     validator_monitor::{get_block_delay_ms, timestamp_now},
-    AttestationError as AttnError, BeaconChain, BeaconChainError, BeaconChainTypes,
+    AttestationError as AttnError, BeaconChain, BeaconChainError, BeaconChainTypes, BlockError,
     ProduceBlockVerification, WhenSlotSkipped,
 };
 use block_id::BlockId;
@@ -76,6 +76,11 @@ const SYNC_TOLERANCE_EPOCHS: u64 = 8;
 
 /// A custom type which allows for both unsecured and TLS-enabled HTTP servers.
 type HttpServer = (SocketAddr, Pin<Box<dyn Future<Output = ()> + Send>>);
+
+/// Logged to the user when a duplicate block is provided.
+const REPEAT_PROPOSAL_INFO: &str = "this can happen a VC uses fallback BNs. \
+    whilst this is not necessarily an error, it can indicate issues with a BN or between \
+    the VC and BN.";
 
 /// Configuration used when serving the HTTP server over TLS.
 #[derive(PartialEq, Debug, Clone, Serialize, Deserialize)]
@@ -995,6 +1000,25 @@ pub fn serve<T: BeaconChainTypes>(
 
                         Ok(warp::reply::json(&()))
                     }
+                    Err(BlockError::BlockIsAlreadyKnown) => {
+                        info!(
+                            log,
+                            "Block from HTTP API already known";
+                            "block" => ?block.canonical_root(),
+                            "slot" => block.slot(),
+                        );
+                        Ok(warp::reply::json(&()))
+                    }
+                    Err(BlockError::RepeatProposal { proposer, slot }) => {
+                        warn!(
+                            log,
+                            "Block ignored due to repeat proposal";
+                            "msg" => REPEAT_PROPOSAL_INFO,
+                            "slot" => slot,
+                            "proposer" => proposer,
+                        );
+                        Ok(warp::reply::json(&()))
+                    }
                     Err(e) => {
                         let msg = format!("{:?}", e);
                         error!(
@@ -1025,7 +1049,7 @@ pub fn serve<T: BeaconChainTypes>(
             |block: Arc<SignedBeaconBlock<T::EthSpec, BlindedPayload<_>>>,
              chain: Arc<BeaconChain<T>>,
              network_tx: UnboundedSender<NetworkMessage<T::EthSpec>>,
-             _log: Logger| async move {
+             log: Logger| async move {
                 if let Some(el) = chain.execution_layer.as_ref() {
                     //FIXME(sean): we may not always receive the payload in this response because it
                     // should be the relay's job to propogate the block. However, since this block is
@@ -1093,6 +1117,25 @@ pub fn serve<T: BeaconChainTypes>(
                                 .await
                                 .map_err(warp_utils::reject::beacon_chain_error)?;
 
+                            Ok(warp::reply::json(&()))
+                        }
+                        Err(BlockError::BlockIsAlreadyKnown) => {
+                            info!(
+                                log,
+                                "Blinded block from HTTP API already known";
+                                "block" => ?block.canonical_root(),
+                                "slot" => block.slot(),
+                            );
+                            Ok(warp::reply::json(&()))
+                        }
+                        Err(BlockError::RepeatProposal { proposer, slot }) => {
+                            warn!(
+                                log,
+                                "Blinded block ignored due to repeat proposal";
+                                "msg" => REPEAT_PROPOSAL_INFO,
+                                "slot" => slot,
+                                "proposer" => proposer,
+                            );
                             Ok(warp::reply::json(&()))
                         }
                         Err(e) => {
@@ -2289,8 +2332,8 @@ pub fn serve<T: BeaconChainTypes>(
                             // BN might time-out *after* publishing the aggregate and then the
                             // second BN will indicate it's already seen the aggregate.
                             //
-                            // There's no actual error for the user or the network, the aggregate
-                            // has been published and all is well.
+                            // There's no actual error for the user or the network since the
+                            // aggregate has been successfully published by some other node.
                             Err(AttnError::AggregatorAlreadyKnown(_)) => continue,
                             Err(e) => {
                                 error!(log,
