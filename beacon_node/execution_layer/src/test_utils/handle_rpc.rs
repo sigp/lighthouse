@@ -48,13 +48,25 @@ pub async fn handle_rpc<T: EthSpec>(
                     s.parse()
                         .map_err(|e| format!("unable to parse hash: {:?}", e))
                 })?;
-
-            Ok(serde_json::to_value(
-                ctx.execution_block_generator
-                    .read()
-                    .execution_block_by_hash(hash),
-            )
-            .unwrap())
+            let full_tx = params
+                .get(1)
+                .and_then(JsonValue::as_bool)
+                .ok_or_else(|| "missing/invalid params[1] value".to_string())?;
+            if full_tx {
+                Ok(serde_json::to_value(
+                    ctx.execution_block_generator
+                        .read()
+                        .execution_block_with_txs_by_hash(hash),
+                )
+                .unwrap())
+            } else {
+                Ok(serde_json::to_value(
+                    ctx.execution_block_generator
+                        .read()
+                        .execution_block_by_hash(hash),
+                )
+                .unwrap())
+            }
         }
         ENGINE_NEW_PAYLOAD_V1 => {
             let request: JsonExecutionPayloadV1<T> = get_param(params, 0)?;

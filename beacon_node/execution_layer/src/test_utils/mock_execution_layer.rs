@@ -1,5 +1,7 @@
 use crate::{
-    test_utils::{MockServer, DEFAULT_TERMINAL_BLOCK, DEFAULT_TERMINAL_DIFFICULTY, JWT_SECRET},
+    test_utils::{
+        MockServer, DEFAULT_JWT_SECRET, DEFAULT_TERMINAL_BLOCK, DEFAULT_TERMINAL_DIFFICULTY,
+    },
     Config, *,
 };
 use sensitive_url::SensitiveUrl;
@@ -22,6 +24,7 @@ impl<T: EthSpec> MockExecutionLayer<T> {
             DEFAULT_TERMINAL_BLOCK,
             ExecutionBlockHash::zero(),
             Epoch::new(0),
+            Some(JwtKey::from_slice(&DEFAULT_JWT_SECRET).unwrap()),
             None,
         )
     }
@@ -32,6 +35,7 @@ impl<T: EthSpec> MockExecutionLayer<T> {
         terminal_block: u64,
         terminal_block_hash: ExecutionBlockHash,
         terminal_block_hash_activation_epoch: Epoch,
+        jwt_key: Option<JwtKey>,
         builder_url: Option<SensitiveUrl>,
     ) -> Self {
         let handle = executor.handle().unwrap();
@@ -41,8 +45,10 @@ impl<T: EthSpec> MockExecutionLayer<T> {
         spec.terminal_block_hash = terminal_block_hash;
         spec.terminal_block_hash_activation_epoch = terminal_block_hash_activation_epoch;
 
+        let jwt_key = jwt_key.unwrap_or_else(JwtKey::random);
         let server = MockServer::new(
             &handle,
+            jwt_key,
             terminal_total_difficulty,
             terminal_block,
             terminal_block_hash,
@@ -52,7 +58,7 @@ impl<T: EthSpec> MockExecutionLayer<T> {
         let file = NamedTempFile::new().unwrap();
 
         let path = file.path().into();
-        std::fs::write(&path, hex::encode(JWT_SECRET)).unwrap();
+        std::fs::write(&path, hex::encode(DEFAULT_JWT_SECRET)).unwrap();
 
         let config = Config {
             execution_endpoints: vec![url],

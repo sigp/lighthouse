@@ -158,6 +158,18 @@ jobs:
       run: sudo npm install -g ganache
     - name: Run the beacon chain sim that starts from an eth1 contract
       run: cargo run --release --bin simulator eth1-sim
+  merge-transition-ubuntu:
+    name: merge-transition-ubuntu
+    runs-on: ubuntu-latest
+    needs: cargo-fmt
+    steps:
+    - uses: actions/checkout@v1
+    - name: Get latest version of stable Rust
+      run: rustup update stable
+    - name: Install ganache
+      run: sudo npm install -g ganache
+    - name: Run the beacon chain sim and go through the merge transition
+      run: cargo run --release --bin simulator eth1-sim --post-merge
   no-eth1-simulator-ubuntu:
     name: no-eth1-simulator-ubuntu
     runs-on: ubuntu-latest

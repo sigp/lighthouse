@@ -26,11 +26,32 @@ pub use mock_execution_layer::MockExecutionLayer;
 
 pub const DEFAULT_TERMINAL_DIFFICULTY: u64 = 6400;
 pub const DEFAULT_TERMINAL_BLOCK: u64 = 64;
-pub const JWT_SECRET: [u8; 32] = [42; 32];
+pub const DEFAULT_JWT_SECRET: [u8; 32] = [42; 32];
 
 mod execution_block_generator;
 mod handle_rpc;
 mod mock_execution_layer;
+
+/// Configuration for the MockExecutionLayer.
+pub struct MockExecutionConfig {
+    pub server_config: Config,
+    pub jwt_key: JwtKey,
+    pub terminal_difficulty: Uint256,
+    pub terminal_block: u64,
+    pub terminal_block_hash: ExecutionBlockHash,
+}
+
+impl Default for MockExecutionConfig {
+    fn default() -> Self {
+        Self {
+            jwt_key: JwtKey::random(),
+            terminal_difficulty: DEFAULT_TERMINAL_DIFFICULTY.into(),
+            terminal_block: DEFAULT_TERMINAL_BLOCK,
+            terminal_block_hash: ExecutionBlockHash::zero(),
+            server_config: Config::default(),
+        }
+    }
+}
 
 pub struct MockServer<T: EthSpec> {
     _shutdown_tx: oneshot::Sender<()>,
@@ -43,25 +64,29 @@ impl<T: EthSpec> MockServer<T> {
     pub fn unit_testing() -> Self {
         Self::new(
             &runtime::Handle::current(),
+            JwtKey::from_slice(&DEFAULT_JWT_SECRET).unwrap(),
             DEFAULT_TERMINAL_DIFFICULTY.into(),
             DEFAULT_TERMINAL_BLOCK,
             ExecutionBlockHash::zero(),
         )
     }
 
-    pub fn new(
-        handle: &runtime::Handle,
-        terminal_difficulty: Uint256,
-        terminal_block: u64,
-        terminal_block_hash: ExecutionBlockHash,
-    ) -> Self {
+    pub fn new_with_config(handle: &runtime::Handle, config: MockExecutionConfig) -> Self {
+        let MockExecutionConfig {
+            jwt_key,
+            terminal_difficulty,
+            terminal_block,
+            terminal_block_hash,
+            server_config,
+        } = config;
         let last_echo_request = Arc::new(RwLock::new(None));
         let preloaded_responses = Arc::new(Mutex::new(vec![]));
         let execution_block_generator =
             ExecutionBlockGenerator::new(terminal_difficulty, terminal_block, terminal_block_hash);
 
         let ctx: Arc<Context<T>> = Arc::new(Context {
-            config: <_>::default(),
+            config: server_config,
+            jwt_key,
             log: null_logger().unwrap(),
             last_echo_request: last_echo_request.clone(),
             execution_block_generator: RwLock::new(execution_block_generator),
@@ -97,6 +122,25 @@ impl<T: EthSpec> MockServer<T> {
             last_echo_request,
             ctx,
         }
+    }
+
+    pub fn new(
+        handle: &runtime::Handle,
+        jwt_key: JwtKey,
+        terminal_difficulty: Uint256,
+        terminal_block: u64,
+        terminal_block_hash: ExecutionBlockHash,
+    ) -> Self {
+        Self::new_with_config(
+            handle,
+            MockExecutionConfig {
+                server_config: Config::default(),
+                jwt_key,
+                terminal_difficulty,
+                terminal_block,
+                terminal_block_hash,
+            },
+        )
     }
 
     pub fn execution_block_generator(&self) -> RwLockWriteGuard<'_, ExecutionBlockGenerator<T>> {
@@ -351,6 +395,7 @@ impl warp::reject::Reject for AuthError {}
 /// The server will gracefully handle the case where any fields are `None`.
 pub struct Context<T: EthSpec> {
     pub config: Config,
+    pub jwt_key: JwtKey,
     pub log: Logger,
     pub last_echo_request: Arc<RwLock<Option<Bytes>>>,
     pub execution_block_generator: RwLock<ExecutionBlockGenerator<T>>,
@@ -386,28 +431,30 @@ struct ErrorMessage {
 
 /// Returns a `warp` header which filters out request that has a missing or incorrectly
 /// signed JWT token.
-fn auth_header_filter() -> warp::filters::BoxedFilter<()> {
+fn auth_header_filter(jwt_key: JwtKey) -> warp::filters::BoxedFilter<()> {
     warp::any()
         .and(warp::filters::header::optional("Authorization"))
-        .and_then(move |authorization: Option<String>| async move {
-            match authorization {
-                None => Err(warp::reject::custom(AuthError(
-                    "auth absent from request".to_string(),
-                ))),
-                Some(auth) => {
-                    if let Some(token) = auth.strip_prefix("Bearer ") {
-                        let secret = JwtKey::from_slice(&JWT_SECRET).unwrap();
-                        match Auth::validate_token(token, &secret) {
-                            Ok(_) => Ok(()),
-                            Err(e) => Err(warp::reject::custom(AuthError(format!(
-                                "Auth failure: {:?}",
-                                e
-                            )))),
+        .and_then(move |authorization: Option<String>| {
+            let secret = jwt_key.clone();
+            async move {
+                match authorization {
+                    None => Err(warp::reject::custom(AuthError(
+                        "auth absent from request".to_string(),
+                    ))),
+                    Some(auth) => {
+                        if let Some(token) = auth.strip_prefix("Bearer ") {
+                            match Auth::validate_token(token, &secret) {
+                                Ok(_) => Ok(()),
+                                Err(e) => Err(warp::reject::custom(AuthError(format!(
+                                    "Auth failure: {:?}",
+                                    e
+                                )))),
+                            }
+                        } else {
+                            Err(warp::reject::custom(AuthError(
+                                "Bearer token not present in auth header".to_string(),
+                            )))
                         }
-                    } else {
-                        Err(warp::reject::custom(AuthError(
-                            "Bearer token not present in auth header".to_string(),
-                        )))
                     }
                 }
             }
@@ -523,7 +570,7 @@ pub fn serve<T: EthSpec>(
         });
 
     let routes = warp::post()
-        .and(auth_header_filter())
+        .and(auth_header_filter(ctx.jwt_key.clone()))
         .and(root.or(echo))
         .recover(handle_rejection)
         // Add a `Server` header.

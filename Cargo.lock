@@ -4045,6 +4045,7 @@ dependencies = [
  "beacon_node",
  "environment",
  "eth2",
+ "execution_layer",
  "sensitive_url",
  "tempfile",
  "types",

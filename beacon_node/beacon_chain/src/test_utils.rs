@@ -11,7 +11,9 @@ use crate::{
     StateSkipConfig,
 };
 use bls::get_withdrawal_credentials;
+use execution_layer::test_utils::DEFAULT_JWT_SECRET;
 use execution_layer::{
+    auth::JwtKey,
     test_utils::{ExecutionBlockGenerator, MockExecutionLayer, DEFAULT_TERMINAL_BLOCK},
     ExecutionLayer,
 };
@@ -361,6 +363,7 @@ where
             DEFAULT_TERMINAL_BLOCK,
             spec.terminal_block_hash,
             spec.terminal_block_hash_activation_epoch,
+            Some(JwtKey::from_slice(&DEFAULT_JWT_SECRET).unwrap()),
             None,
         );
         self.execution_layer = Some(mock.el.clone());
