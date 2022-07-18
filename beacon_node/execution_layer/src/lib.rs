@@ -235,7 +235,7 @@ impl<T: EthSpec> ExecutionLayer<T> {
     }
 
     /// Note: this function returns a mutex guard, be careful to avoid deadlocks.
-    pub async fn execution_blocks(
+    async fn execution_blocks(
         &self,
     ) -> MutexGuard<'_, LruCache<ExecutionBlockHash, ExecutionBlock>> {
         self.inner.execution_blocks.lock().await
