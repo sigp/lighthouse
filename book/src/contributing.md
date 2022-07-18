@@ -1,6 +1,7 @@
 # Contributing to Lighthouse
 
 [![Chat Badge]][Chat Link]
+[![GitPOAP Badge](https://public-api.gitpoap.io/v1/repo/sigp/lighthouse/badge)](https://www.gitpoap.io/gh/sigp/lighthouse)
 
 [Chat Badge]: https://img.shields.io/badge/chat-discord-%237289da
 [Chat Link]: https://discord.gg/cyAszAh
