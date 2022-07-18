@@ -15,7 +15,7 @@
 #[cfg(all(test, unix, not(debug_assertions)))]
 mod tests {
     use account_utils::validator_definitions::{
-        SigningDefinition, ValidatorDefinition, ValidatorDefinitions,
+        SigningDefinition, ValidatorDefinition, ValidatorDefinitions, Web3SignerDefinition,
     };
     use eth2_keystore::KeystoreBuilder;
     use eth2_network_config::Eth2NetworkConfig;
@@ -376,13 +376,13 @@ mod tests {
                     graffiti: None,
                     suggested_fee_recipient: None,
                     description: String::default(),
-                    signing_definition: SigningDefinition::Web3Signer {
+                    signing_definition: SigningDefinition::Web3Signer(Web3SignerDefinition {
                         url: signer_rig.url.to_string(),
                         root_certificate_path: Some(root_certificate_path()),
                         request_timeout_ms: None,
                         client_identity_path: Some(client_identity_path()),
                         client_identity_password: Some(client_identity_password()),
-                    },
+                    }),
                 };
                 ValidatorStoreRig::new(vec![validator_definition], spec).await
             };
