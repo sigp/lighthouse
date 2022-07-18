@@ -13,14 +13,13 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         block: BeaconBlockRef<'_, T::EthSpec, Payload>,
         block_root: Hash256,
         state: &BeaconState<T::EthSpec>,
+        reward_cache: &mut RewardCache,
         include_attestations: bool,
     ) -> Result<BlockReward, BeaconChainError> {
         if block.slot() != state.slot() {
             return Err(BeaconChainError::BlockRewardSlotError);
         }
 
-        // FIXME(sproul): pass this in
-        let mut reward_cache = RewardCache::default();
         reward_cache.update(state)?;
 
         let total_active_balance = state.get_total_active_balance()?;
@@ -41,7 +40,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                 AttMaxCover::new(
                     att.as_ref(),
                     state,
-                    &reward_cache,
+                    reward_cache,
                     total_active_balance,
                     &self.spec,
                 )

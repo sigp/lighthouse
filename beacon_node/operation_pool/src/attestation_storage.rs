@@ -3,7 +3,7 @@ use itertools::Itertools;
 use std::collections::HashMap;
 use types::{
     AggregateSignature, Attestation, AttestationData, BeaconState, BitList, Checkpoint, Epoch,
-    EthSpec, Hash256, IndexedAttestation, Slot,
+    EthSpec, Hash256, Slot,
 };
 
 #[derive(Debug, PartialEq, Eq, Hash, Clone, Copy)]
@@ -188,7 +188,7 @@ impl<T: EthSpec> AttestationMap<T> {
     }
 
     /// Iterate all attestations in the map.
-    pub fn iter<'a>(&'a self) -> impl Iterator<Item = AttestationRef<'a, T>> + 'a {
+    pub fn iter(&self) -> impl Iterator<Item = AttestationRef<T>> {
         self.checkpoint_map
             .iter()
             .flat_map(|(checkpoint_key, attestation_map)| attestation_map.iter(checkpoint_key))

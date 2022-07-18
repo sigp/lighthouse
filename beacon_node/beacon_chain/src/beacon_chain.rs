@@ -3280,7 +3280,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
             metrics::start_timer(&metrics::BLOCK_PRODUCTION_UNAGGREGATED_TIMES);
         for attestation in self.naive_aggregation_pool.read().iter() {
             let import = |attestation: &Attestation<T::EthSpec>| {
-                let attesting_indices = get_attesting_indices_from_state(&state, &attestation)?;
+                let attesting_indices = get_attesting_indices_from_state(&state, attestation)?;
                 self.op_pool
                     .insert_attestation(attestation.clone(), attesting_indices)
             };
@@ -3342,8 +3342,8 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
                         "err" => ?e,
                         "block_slot" => state.slot(),
                     );
-                    assert!(false);
-                    false
+                    panic!("Attempted to include an invalid attestation");
+                    // false
                 } else {
                     true
                 }

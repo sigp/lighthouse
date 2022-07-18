@@ -30,7 +30,7 @@ use std::ptr;
 use types::{
     sync_aggregate::Error as SyncAggregateError, typenum::Unsigned, Attestation, AttestationData,
     AttesterSlashing, BeaconState, BeaconStateError, ChainSpec, Epoch, EthSpec, Fork, ForkVersion,
-    Hash256, ProposerSlashing, SignedVoluntaryExit, Slot, SyncAggregate, SyncCommitteeContribution,
+    ProposerSlashing, SignedVoluntaryExit, Slot, SyncAggregate, SyncCommitteeContribution,
     Validator,
 };
 
@@ -206,6 +206,7 @@ impl<T: EthSpec> OperationPool<T> {
     }
 
     /// Return all valid attestations for the given epoch, for use in max cover.
+    #[allow(clippy::too_many_arguments)]
     fn get_valid_attestations_for_epoch<'a>(
         &'a self,
         checkpoint_key: &'a CheckpointKey,

@@ -28,5 +28,5 @@ pub fn get_attesting_indices_from_state<T: EthSpec>(
     att: &Attestation<T>,
 ) -> Result<Vec<u64>, BeaconStateError> {
     let committee = state.get_beacon_committee(att.data.slot, att.data.index)?;
-    get_attesting_indices::<T>(&committee.committee, &att.aggregation_bits)
+    get_attesting_indices::<T>(committee.committee, &att.aggregation_bits)
 }
